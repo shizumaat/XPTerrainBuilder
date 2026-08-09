@@ -131,8 +131,22 @@ E2. The experiment tile build is the owner's viewing artifact: cut
 E3. §2.2 below is implemented ONLY if the owner, after looking,
     rejects the draped result. Its text stays frozen design.
 
-### 2.2 Post-mesh basin seat law — DEFERRED (owner in-sim verdict pending)
+### 2.2 Post-mesh basin seat law — ACTIVATED (owner in-sim verdict 2026-08-09)
 (object_anchor / post_mesh / object_rebake)
+
+> **VERDICT ON RECORD (owner, 2026-08-09, build 1.0.226 in-sim):** the
+> anchor-outside facilities (Drainage_06, Dewatering_02) "look just
+> right"; the anchor-inside facilities (Drainage_04, _05, _01, _02,
+> Dewatering_01 named; Drainage_03 same class) are "sunk below the
+> bottom of their trench" — the predicted drape-on-floor outcome, and
+> the §2.1e E3 condition for implementing this section. Scope is
+> unchanged: item 6 already limits the bake to anchor-inside
+> facilities; the anchor-outside class stays untouched (measured
+> correct in-sim). Prerequisite fix folded in: the sidecar's
+> `solid_minimum_y_m` for Drainage_06 still carries the interface
+> floor key (−3.859) not the true deepest solid (−4.201) — the
+> true-min plumbing must be verified per-facility BEFORE the bake
+> targets are computed (it feeds the §2.2 item 7 clearance check).
 
 5. Basin facility member resources (the `TunnelStructure
    .object_resources` — pool siblings whose anchors lie outside the

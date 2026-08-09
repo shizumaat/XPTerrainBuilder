@@ -75,6 +75,31 @@ classifier emits the exclusion list; `post_mesh.rebake_dsf_objects` consumes it.
 > the owner's in-sim verdict and is not recorded as law until it
 > lands.
 
+> **R4 AMENDMENT — the basin class, one jointly defined correction
+> (2026-08-09; spec `docs/specs/basin-rim-flush-seating-spec.md` §2.2,
+> ACTIVATED by the owner's in-sim verdict on build 1.0.226 and recorded
+> in `docs/RULINGS.md` 2026-08-09 consequence 5).** The experiment above
+> was adjudicated: anchor-OUTSIDE basin facilities (Drainage_06,
+> Dewatering_02) "look just right"; anchor-INSIDE facilities are "sunk
+> below the bottom of their trench" — a draped object seats on the
+> terrain at its anchor, and with the anchor pillar gone that terrain is
+> the trench floor.
+>
+> For BASIN facilities whose anchor lies inside their own body, and for
+> them only, R4's "never stack" is amended to **one correction defined
+> jointly**: the terrain cuts the full interior (§2.1) and the object is
+> seated so its authored `y = 0` rim plane lands on the built mesh just
+> outside our own plates (`decision kind basin_rim_flush`,
+> `R_mesh − mesh_at_anchor`, whole-facility rigid). Neither side
+> double-counts, because the bake target is defined relative to the
+> POST-CUT built mesh — it is measured after the terrain correction, not
+> beside it. Nothing else changes: every other consumed structure, and
+> every anchor-OUTSIDE basin facility, stays excluded from the Phase 2
+> y-bake exactly as R4 says. Basin members remain on the exclusion list
+> the GENERIC y-bake reads — the generic median/A3/threshold arithmetic
+> must not run for this class — and are routed to the dedicated law by
+> `post_mesh._bake_basin_rim_flush_facilities` instead.
+
 **R5 — Contract before shape (designer, this spec).** No bridge terrain is emitted until the
 structure's contract is classified (deck-carried versus terrain-carried, §3.2). Ambiguous
 classifications (pavement coverage between the thresholds, or no `ATTR_hard_deck` found) are

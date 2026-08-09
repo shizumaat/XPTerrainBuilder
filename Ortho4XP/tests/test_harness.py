@@ -47,6 +47,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 import types
 import sys
@@ -4581,6 +4582,103 @@ def test_the_write_audit_rows_are_one_row_per_observed_write():
         "tests/test_x.py::test_y",
         types.SimpleNamespace(blocked=[], lock_churn=[],
                               library_index_churn=[])) == []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE X-PLANE INSTALL GUARD (tests/conftest.py, 2026-08-09)
+# ══════════════════════════════════════════════════════════════════════
+# The suite-corpus-clean lane closed the SHARED REPO; the install at
+# ``conftest.xplane_root()`` had no guard at all, and a test that dropped
+# its own redirects (``monkeypatch.undo()`` mid-test) restored 49 real
+# KCLT pack .obj files from their .anchor_bak backups — mtime-preserved,
+# so nothing on disk said so.  The twins below are the known answers for
+# the guard that closes it.
+
+
+def test_the_xplane_install_guard_BLOCKS_the_incidents_own_call(tmp_path):
+    """``shutil.copy2`` onto a pack ``.obj`` — the reversion pass's own
+    call — must refuse at the call site and leave the target untouched,
+    while the ``.anchor_bak`` READ feeding it stays lawful."""
+    conftest = _conftest()
+    install = tmp_path / "X-Plane 12"
+    pack = install / "Custom Scenery" / "pack"
+    pack.mkdir(parents=True)
+    live = pack / "thing.obj"
+    live.write_text("re-anchored")
+    backup = pack / "thing.obj.anchor_bak"
+    backup.write_text("original")
+
+    guard_cls = conftest._xplane_guard_class()
+    with pytest.raises(conftest.XPlaneInstallWriteBlocked) as exc:
+        with guard_cls(str(install)):
+            shutil.copy2(str(backup), str(live))
+    assert "thing.obj" in str(exc.value)
+    assert "tmp_path" in str(exc.value), "the refusal must name the fix"
+    assert live.read_text() == "re-anchored", (
+        "the guard must prevent, not just report")
+
+
+def test_the_xplane_install_guard_leaves_reads_and_outside_writes_free(
+        tmp_path):
+    conftest = _conftest()
+    install = tmp_path / "X-Plane 12"
+    (install / "Custom Data").mkdir(parents=True)
+    inside = install / "Custom Data" / "cycle_info.txt"
+    inside.write_text("readable")
+    guard_cls = conftest._xplane_guard_class()
+    with guard_cls(str(install)):
+        assert inside.read_text() == "readable"       # reads untouched
+        os.makedirs(str(install / "Custom Data"),
+                    exist_ok=True)                    # ensure-dir no-op
+        outside = tmp_path / "products"
+        os.makedirs(str(outside))                     # real write, outside
+        (outside / "patch.osm").write_text("lane product")
+    assert (outside / "patch.osm").read_text() == "lane product"
+
+
+def test_the_xplane_install_guard_covers_the_rename_family(tmp_path):
+    """The provenance rewrite went through ``os.replace``-shaped calls,
+    not only ``open`` — the whole inherited mutating family must refuse,
+    and creating a directory that does NOT exist is a real mutation."""
+    conftest = _conftest()
+    install = tmp_path / "X-Plane 12"
+    install.mkdir()
+    target = install / ".o4_reanchor_provenance.json"
+    target.write_text("{}")
+    staged = tmp_path / "staged.json"
+    staged.write_text('{"rewritten": true}')
+    guard_cls = conftest._xplane_guard_class()
+    with guard_cls(str(install)):
+        with pytest.raises(conftest.XPlaneInstallWriteBlocked):
+            os.replace(str(staged), str(target))
+        with pytest.raises(conftest.XPlaneInstallWriteBlocked):
+            os.remove(str(target))
+        with pytest.raises(conftest.XPlaneInstallWriteBlocked):
+            os.mkdir(str(install / "new_dir"))
+    assert target.read_text() == "{}"
+    assert staged.exists()
+    assert not (install / "new_dir").exists()
+
+
+def test_the_xplane_install_guard_is_LIVE(_no_test_writes_the_xplane_install):
+    """THE ENFORCEMENT, asserted live inside a running test — same style
+    as the shared-repo live assert above.  The probe entry is OURS, so it
+    is cleared afterwards: the fixture's own teardown otherwise reads it
+    as a swallowed refusal and fails this test for proving the guard
+    works."""
+    conftest = _conftest()
+    guard = _no_test_writes_the_xplane_install
+    assert guard is not None, "the install guard did not arm"
+    probe = os.path.join(conftest.xplane_root(), ".o4_install_guard_probe")
+    try:
+        with pytest.raises(conftest.XPlaneInstallWriteBlocked):
+            open(probe, "a")
+    finally:
+        if os.path.exists(probe):             # only if the guard is DOWN
+            os.remove(probe)
+    assert guard.blocked
+    assert guard.blocked[-1]["path"] == ".o4_install_guard_probe"
+    guard.blocked.clear()
 
 
 class TestEmittedOnDem:

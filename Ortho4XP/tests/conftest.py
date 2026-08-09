@@ -810,6 +810,166 @@ def _shared_repo_write_audit(request):
             handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE X-PLANE INSTALL IS NOT A TEST SCRATCH DIR EITHER (2026-08-09)
+# ══════════════════════════════════════════════════════════════════════
+# Everything above protects the SHARED DATA REPO; nothing protected the
+# real X-Plane install at ``xplane_root()`` — which tests legitimately
+# READ (CIFP, apt.dat, Custom Scenery pack originals) and must never
+# WRITE: it is production state, owned by X-Plane and the owner's app,
+# and the suite has no lawful write into it at all.
+#
+# THE MEASURED INCIDENT (2026-08-09).  A test in
+# ``tests/test_post_mesh.py`` called ``monkeypatch.undo()`` MID-TEST,
+# which tore down its own ``phase_two_harness`` fixture's patches — the
+# ``FNAMES.patch_dir`` redirect into ``tmp_path`` AND the DSFTool stub.
+# ``post_mesh.rebake_dsf_objects`` then read the REAL ``+35-081``
+# worklist from the production Patches directory, ran the real KCLT pack
+# against a 2-triangle synthetic mesh, found every anchor outside it,
+# and its reversion pass restored 49 pack ``.obj`` files from their
+# ``.anchor_bak`` backups and rewrote the pack's
+# ``.o4_reanchor_provenance.json`` — with ``shutil.copy2`` preserving
+# mtimes, so the damage left no recent-mtime trace.
+#
+# The guard below is the shared-repo per-test guard's shape on the
+# install: reads untouched, any write under the install refuses at the
+# call site with a traceback naming the writer.  There is deliberately
+# no audit arm, no allowance register and no env override — unlike the
+# shared repo there is no ``--refresh-data`` analogue here, because no
+# test write into the install is ever lawful.
+
+class XPlaneInstallWriteBlocked(RuntimeError):
+    """A test tried to write inside the X-Plane install, and the guard
+    stopped it."""
+
+
+#: The install guard CLASS, built AT MOST ONCE per worker — lazily,
+#: because subclassing needs :func:`_harness_build_module` and conftest
+#: must still import on a tree where the harness is broken.
+_XPLANE_GUARD_CLS = None
+
+
+def _xplane_guard_class():
+    """The install write guard, INHERITING the harness's interceptor.
+
+    ``SharedRepoWriteGuard.__enter__`` owns the patching machinery —
+    ``builtins.open`` / ``os.open`` in writing modes, the rename /
+    replace / remove / unlink / rmdir / mkdir / makedirs / truncate
+    family, the mkdir-on-an-existing-dir no-op allowance, the two-path
+    checks.  A second copy of that machinery is the census-wrapper
+    defect, so this class overrides ONLY the predicate (any path under
+    the install root) and the refusal (its own exception, naming the
+    install), and inherits the rest.
+    """
+    global _XPLANE_GUARD_CLS
+    if _XPLANE_GUARD_CLS is not None:
+        return _XPLANE_GUARD_CLS
+    harness = _harness_build_module()
+
+    class _XPlaneInstallWriteGuard(harness.SharedRepoWriteGuard):
+        def __init__(self, install_root: str):
+            # Deliberately NOT calling super().__init__: the parent wires
+            # refresh scopes, repo prefixes and churn registers that have
+            # no install analogue.  The inherited __enter__/__exit__ read
+            # exactly these attributes.
+            self.install_root = install_root
+            self._roots = tuple(sorted({os.path.abspath(install_root),
+                                        os.path.realpath(install_root)}))
+            self.enabled = True
+            self.blocked: list = []
+            self._saved: dict = {}
+
+        def _violation(self, path, op=None):
+            try:
+                s = os.fspath(path)
+            except TypeError:
+                return None                    # an fd, not a path
+            if not isinstance(s, (str, bytes)):
+                return None
+            if isinstance(s, bytes):
+                s = s.decode("utf-8", "replace")
+            ap = s if os.path.isabs(s) else os.path.abspath(s)
+            for root in self._roots:
+                if ap == root or ap.startswith(root + os.sep):
+                    return os.path.relpath(ap, root), None
+            return None
+
+        def _refuse(self, rel, scope, how):
+            self.blocked.append({"path": rel, "via": how})
+            raise XPlaneInstallWriteBlocked(
+                f"BLOCKED: this test tried to {how} '{rel}' inside the "
+                f"X-PLANE INSTALL ({self.install_root}).  The install is "
+                f"production state: tests READ it (CIFP, apt.dat, pack "
+                f"originals) and never write it.  The measured incident "
+                f"(2026-08-09): a monkeypatch.undo() mid-test dropped the "
+                f"phase-two harness's own redirects and the reversion "
+                f"pass restored 49 real KCLT pack .obj files from their "
+                f".anchor_bak backups, mtime-preserved, traceless.\n"
+                f"FIX: point the writer at tmp_path — redirect patch_dir "
+                f"/ the pack root the way phase_two_harness does, or "
+                f"build a synthetic install under tmp_path and point "
+                f"XPLANE_ROOT at it.")
+
+    _XPLANE_GUARD_CLS = _XPlaneInstallWriteGuard
+    return _XPLANE_GUARD_CLS
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Stash each phase's report on the item, so the install guard's
+    teardown can tell "the refusal already failed the test" from "the
+    refusal was swallowed" — only the latter needs its own failure."""
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, "_o4_report_" + report.when, report)
+
+
+@pytest.fixture(autouse=True)
+def _no_test_writes_the_xplane_install(request):
+    """THE INSTALL GUARD: a write into the X-Plane install fails ITS OWN
+    test, with a traceback naming the writer.
+
+    Pinned to ``xplane_root()`` AT SETUP — before any test-local
+    monkeypatching — so a test that builds a synthetic install under
+    ``tmp_path`` and points ``XPLANE_ROOT`` at it stays free to write
+    there while the REAL install stays guarded.  Armed even when the
+    install is absent: a write would otherwise CREATE the default path.
+    Reads stay allowed — e.g. ``tests/test_object_anchor.py::
+    test_kclt_eight_bake_pool_end_to_end`` reads the KCLT pack's
+    ``.anchor_bak`` originals.
+
+    After the test, a refusal the test SWALLOWED (the engine's broad
+    ``except Exception`` shape — the same hole
+    ``require_no_swallowed_write_block`` closes for harness builds)
+    fails the test too: the write was still prevented, but a green test
+    that tried is the incident with better luck.
+    """
+    try:
+        guard_cls = _xplane_guard_class()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] X-Plane install guard unavailable: {exc!r}")
+        yield None
+        return
+    guard = guard_cls(xplane_root())
+    with guard:
+        yield guard
+    if not guard.blocked:
+        return
+    for phase in ("setup", "call"):
+        report = getattr(request.node, "_o4_report_" + phase, None)
+        if report is not None and report.failed:
+            return      # the refusal already failed the test at its call
+    lines = "\n".join(f"  - BLOCKED {b['via']} '{b['path']}'"
+                      for b in guard.blocked)
+    pytest.fail(
+        f"the X-Plane install write guard blocked {len(guard.blocked)} "
+        f"write(s) during this test and the test did not fail — "
+        f"something caught the refusal and carried on (the engine's "
+        f"broad ``except Exception`` shape):\n{lines}\n"
+        f"The install is intact; the test is not.  Point the writer at "
+        f"tmp_path.", pytrace=False)
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """Per-airport xdist grouping + optional ship-mode skip.

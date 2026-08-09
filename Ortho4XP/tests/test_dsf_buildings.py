@@ -10,6 +10,10 @@ Covers:
 * ``_cluster_dsf_building_facades`` connectors: a term_bridge joining two
   building footprints unions them into ONE pad; a bridge linking nothing
   is dropped; the no-connector path is unchanged.
+* ``_combine_building_sources`` — OSM TERMINAL-WAY AUTHORITY (owner
+  2026-08-09, docs/specs/osm-terminal-way-authority-spec.md): the OSM way
+  is the building's identity and the DSF clusters majority-inside it are
+  absorbed; the retired rule dropped the way instead.
 """
 import os
 
@@ -17,7 +21,14 @@ from shapely.geometry import Polygon
 
 import auto_patch.dsf_reader as D
 from auto_patch.dsf_reader import _building_role_for_def
-from auto_patch.terminals import _cluster_dsf_building_facades
+from auto_patch.terminals import (
+    _cluster_dsf_building_facades,
+    _combine_building_sources,
+)
+from auto_patch.config import (
+    DSF_CLUSTER_OSM_ABSORB_FRAC,
+    DSF_MIN_BUILDING_AREA_M2,
+)
 
 
 def test_building_role_for_def():
@@ -167,6 +178,145 @@ def test_cluster_separate_buildings_unchanged():
     a = _sq(0, 0, 20, 20)
     b = _sq(100, 0, 20, 20)
     assert len(_cluster_dsf_building_facades([a, b])) == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# OSM terminal-way authority over DSF cluster swarms (owner 2026-08-09,
+# docs/specs/osm-terminal-way-authority-spec.md).  An OSM terminal way IS
+# the identity of its building: the way is kept whole and the DSF clusters
+# majority-inside it are ABSORBED.  The retired rule
+# (DSF_BUILDING_OSM_OVERLAP_FRAC 0.2) did the reverse — it deleted the way.
+# v2 (2026-08-09, spec §2.3b): a SURVIVING cluster that still overlaps a
+# kept way is CLIPPED by it — no emitted pad overlaps a kept way.
+# ──────────────────────────────────────────────────────────────────
+
+
+def _assert_no_pad_overlaps_way(out, ways):
+    """Spec §2.3b's invariant: pairwise pad ∩ way is empty (area 0) for
+    every emitted polygon that is not itself one of the kept ways."""
+    for poly in out:
+        if any(poly.equals(w) for w in ways):
+            continue
+        for w in ways:
+            assert poly.intersection(w).area == 0.0
+
+
+def test_combine_absorbs_interior_cluster_swarm():
+    # One OSM way + a swarm of clusters entirely inside it → exactly one
+    # combined polygon, the WAY.  (OTHH Concourse C: 153 structure hulls
+    # inside a 162-node way that used to be deleted for them.)
+    way = _sq(0, 0, 300, 100)
+    swarm = [_sq(10 + 20 * k, 20, 15, 60) for k in range(10)]
+    out = _combine_building_sources(
+        swarm, [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 1
+    assert out[0].equals(way)
+
+
+def test_combine_keeps_cluster_mostly_outside_clipped():
+    # A jet bridge / canopy hanging off the facade: 40 % inside the way,
+    # 60 % outside → NOT absorbed, it survives as its own pad — CLIPPED
+    # by the way (spec §2.3b, v2): the way owns its footprint, so the
+    # pad keeps exactly the 60 % that lies outside.
+    way = _sq(0, 0, 200, 100)
+    hanging = _sq(180, 30, 50, 40)      # 20 m of 50 m inside → 0.4
+    out = _combine_building_sources(
+        [hanging], [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 2                       # survivors + osm
+    assert abs(out[0].area - 0.6 * hanging.area) < 1e-6
+    assert out[0].equals(hanging.difference(way))
+    assert out[1].equals(way)
+    _assert_no_pad_overlaps_way(out, [way])
+
+
+def test_combine_absorbs_at_exact_boundary_fraction():
+    # Exactly at the absorb fraction → ABSORBED (the test is >=, not >).
+    way = _sq(0, 0, 200, 100)
+    half_in = _sq(180, 30, 40, 40)     # 20 m of 40 m inside → exactly 0.5
+    assert DSF_CLUSTER_OSM_ABSORB_FRAC == 0.5   # shipped default pin
+    out = _combine_building_sources([half_in], [way], 0.5)
+    assert len(out) == 1 and out[0].equals(way)
+    # A hair above the achieved fraction and the cluster stands — proving
+    # the boundary case above is decided by ">=", not by rounding.
+    assert len(_combine_building_sources(
+        [half_in], [way], 0.5 + 1e-9)) == 2
+
+
+def test_combine_zero_osm_ways_is_identity():
+    # Degeneracy gate: an airport with no OSM terminal ways gets the
+    # cluster list back UNCHANGED — same objects, same order (§2.3, the
+    # bit-for-bit guarantee).
+    clusters = [_sq(0, 0, 20, 20), _sq(100, 0, 30, 30)]
+    out = _combine_building_sources(
+        clusters, [], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert [id(g) for g in out] == [id(g) for g in clusters]
+
+
+def test_combine_keeps_way_covered_by_swarm_old_rule_pin():
+    # REGRESSION PIN against reintroducing the retired drop rule: a way
+    # 51 % covered by a swarm of tiny hulls (the OTHH Concourse C ratio)
+    # used to be DELETED (coverage >= 0.2 of the WAY's area).  Under the
+    # new law the way is kept and every hull inside it is absorbed.
+    way = _sq(0, 0, 100, 100)                     # 10,000 m²
+    swarm = [_sq(10 * (k % 10), 10 * (k // 10), 10, 10)
+             for k in range(51)]                  # 51 % of the way's area
+    covered = _uunion(swarm).intersection(way).area / way.area
+    assert abs(covered - 0.51) < 1e-9             # the old rule's trigger
+    out = _combine_building_sources(
+        swarm, [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 1 and out[0].equals(way)
+
+
+def test_combine_clips_cluster_that_contains_the_way():
+    # THE CONTAINMENT CASE (v2, spec §2.3b) — measured as the dominant
+    # battery pattern: a DSF cluster several times LARGER than the way,
+    # containing it whole.  cluster ∩ way / cluster.area = 1/9 < 0.5, so
+    # the cluster is NOT absorbed; under v1 it survived whole and made
+    # two overlapping pads at two altitudes.  Now it is clipped: the way
+    # is kept, its footprint is cut out of the cluster, and the genuine
+    # outside extent survives.
+    way = _sq(100, 100, 100, 100)          # 10,000 m²
+    cluster = _sq(0, 0, 300, 300)          # 90,000 m², contains the way
+    out = _combine_building_sources(
+        [cluster], [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 2
+    remainder, kept = out
+    assert kept.equals(way)                              # way kept whole
+    assert abs(remainder.area - (cluster.area - way.area)) < 1e-6
+    assert len(remainder.interiors) == 1                 # the way's hole
+    _assert_no_pad_overlaps_way(out, [way])
+
+
+def test_combine_drops_sub_min_area_clip_remainder():
+    # A clip remainder under DSF_MIN_BUILDING_AREA_M2 (20 m²) is DROPPED
+    # — a sliver of facade sticking out past the way is not a building.
+    # 6x5 = 30 m² cluster with 2.4 m of its width inside: 12 m² inside
+    # (frac 0.4 < 0.5, so it survives the absorb test) and an 18 m²
+    # remainder, under the floor.
+    way = _sq(0, 0, 100, 100)
+    sliver = _sq(97.6, 40, 6, 5)
+    assert abs(sliver.intersection(way).area / sliver.area - 0.4) < 1e-9
+    assert sliver.difference(way).area < DSF_MIN_BUILDING_AREA_M2
+    out = _combine_building_sources(
+        [sliver], [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 1 and out[0].equals(way)
+
+
+def test_combine_clip_emits_multipolygon_parts_separately():
+    # A cluster the way cuts IN TWO emits each surviving part as its own
+    # pad (MultiPolygon remainder → parts), and no part overlaps the way.
+    way = _sq(100, 0, 40, 200)                  # a vertical band
+    straddler = _sq(0, 60, 300, 50)             # crossed by the band
+    frac = straddler.intersection(way).area / straddler.area
+    assert frac < DSF_CLUSTER_OSM_ABSORB_FRAC   # survives the absorb test
+    out = _combine_building_sources(
+        [straddler], [way], DSF_CLUSTER_OSM_ABSORB_FRAC)
+    assert len(out) == 3                        # 2 parts + the way
+    assert out[-1].equals(way)
+    assert all(p.geom_type == "Polygon" for p in out)
+    assert abs(sum(p.area for p in out[:2])
+               - straddler.difference(way).area) < 1e-6
+    _assert_no_pad_overlaps_way(out, [way])
 
 
 from shapely.ops import unary_union as _uunion

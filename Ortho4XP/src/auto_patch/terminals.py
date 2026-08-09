@@ -927,42 +927,97 @@ def _cluster_dsf_building_facades(
 def _combine_building_sources(
     dsf_buildings: List[Polygon],
     osm_buildings: List[Polygon],
-    overlap_frac: float,
+    absorb_frac: float,
 ) -> List[Polygon]:
-    """Union DSF and OSM building outlines, PREFERRING the DSF.
+    """Union DSF and OSM building outlines, PREFERRING the OSM way.
 
-    The DSF footprints are kept verbatim (the sim renders the building
-    there, so the grade should match it).  An OSM building is added
-    only when it is NOT already represented in the DSF — i.e. less than
-    ``overlap_frac`` of its area overlaps the union of DSF footprints.
-    OSM buildings clearing that bar are distinct structures the DSF
-    didn't place (OSM fills the gap) and are kept as-is.
+    OSM TERMINAL-WAY AUTHORITY (owner 2026-08-09, OTHH bug report;
+    docs/specs/osm-terminal-way-authority-spec.md).  **An OSM terminal
+    way is the identity of its building.**  Where OSM and the DSF
+    describe the same building the OSM way wins the FOOTPRINT and the
+    DSF clusters under it are ABSORBED (not emitted as their own pads):
 
-    Returns the combined seed list (DSF first, then surviving OSM),
-    ready to flow through the existing terminal-pad pipeline.
+    1. every OSM terminal way handed in (already through
+       ``_extract_osm_terminals``'s ≥ 100 m² filter) is KEPT, whole;
+    2. a DSF cluster is ABSORBED when
+       ``cluster ∩ way / cluster.area >= absorb_frac``
+       (``DSF_CLUSTER_OSM_ABSORB_FRAC``, default 0.5) for ANY kept OSM
+       way — majority-inside means the way already represents it;
+    3. clusters overlapping no kept OSM way behave exactly as before.
+       With ZERO OSM ways the output is the cluster list unchanged
+       (the degeneracy gate: such an airport is bit-for-bit identical);
+    3b. a SURVIVING cluster that still overlaps a kept way is CLIPPED by
+       that way (spec §2.3b, v2 amendment): the way OWNS its footprint,
+       so no emitted pad overlaps a kept way.  Remainders under
+       ``DSF_MIN_BUILDING_AREA_M2`` drop; a MultiPolygon remainder emits
+       its parts separately.  Measured motivation: the dominant battery
+       pattern is a cluster several times LARGER than and CONTAINING the
+       way (HECA −239 cluster/way 8.2, KCLT −1292 12.5) — un-clipped
+       that is two overlapping pads at two altitudes.  The cluster's
+       genuine outside extent (parking structure, canopy) is real and
+       stays.
+
+    This is the exact REVERSAL of the retired rule
+    (``DSF_BUILDING_OSM_OVERLAP_FRAC`` = 0.2), which dropped an OSM way
+    covered ≥ 20 % by the cluster union and let the swarm represent the
+    building — OTHH's 151,543 m² Concourse C came out as 32 flat pads.
+
+    Returns the combined seed list (surviving DSF clusters first, then
+    the kept OSM ways), ready to flow through the existing terminal-pad
+    pipeline.  A geometry error while testing or clipping a pair is read
+    as "cannot prove absorption / cannot clip" and leaves the cluster
+    standing unchanged — a fallback that never deletes a building.
     """
     dsf = [b for b in dsf_buildings if b is not None and not b.is_empty]
     osm = [b for b in osm_buildings if b is not None and not b.is_empty]
+    if not osm:
+        return dsf  # degeneracy: no OSM authority → clusters unchanged
     if not dsf:
         return osm
-    try:
-        dsf_union = unary_union(dsf)
-    except _GEOM_EXC:
-        dsf_union = None
-    combined: List[Polygon] = list(dsf)
-    for ob in osm:
-        if dsf_union is None or ob.area <= 0:
-            combined.append(ob)
+    survivors: List[Polygon] = []
+    for cb in dsf:
+        try:
+            c_area = cb.area
+        except _GEOM_EXC:
+            c_area = 0.0
+        if c_area <= 0:
+            survivors.append(cb)
+            continue
+        absorbed = False
+        overlapped: List[Polygon] = []
+        for ob in osm:
+            try:
+                if not cb.intersects(ob):
+                    continue
+                inter = cb.intersection(ob).area
+            except _GEOM_EXC:
+                continue  # cannot prove absorption → cluster stands
+            if inter / c_area >= absorb_frac:
+                absorbed = True
+                break
+            if inter > 0.0:
+                # A cluster merely TOUCHING a way (shared edge) has an
+                # intersection of zero area and is left untouched — the
+                # clip would only churn its ring.
+                overlapped.append(ob)
+        if absorbed:
+            continue
+        if not overlapped:
+            survivors.append(cb)
             continue
         try:
-            inter = ob.intersection(dsf_union).area
+            remainder = cb.difference(unary_union(overlapped))
         except _GEOM_EXC:
-            combined.append(ob)
+            survivors.append(cb)  # cannot clip → cluster stands whole
             continue
-        if inter / ob.area < overlap_frac:
-            combined.append(ob)  # distinct from any DSF building
-        # else: DSF already covers this building → DSF wins, drop OSM.
-    return combined
+        pieces = (remainder.geoms if hasattr(remainder, "geoms")
+                  else [remainder])
+        for piece in pieces:
+            if (piece.geom_type != "Polygon" or piece.is_empty
+                    or piece.area < DSF_MIN_BUILDING_AREA_M2):
+                continue
+            survivors.append(piece)
+    return survivors + osm
 
 
 

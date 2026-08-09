@@ -14,8 +14,12 @@ at KCLT).  Rulings in force:
 * R4 — footprints are ADDITIVE: they enter the existing DSF building
   pool (role ``"object"``), where ``_cluster_dsf_building_facades``
   unions any overlap with ``.fac`` facades and
-  ``_combine_building_sources`` drops OSM duplicates.  No new overlap
-  predicate (spec section 2.3).
+  ``_combine_building_sources`` resolves the OSM overlap.  No new
+  overlap predicate (spec section 2.3).  (2026-08-09: that resolution
+  REVERSED — an OSM terminal way is now the identity of its building
+  and a cluster majority-inside one is ABSORBED, where the old rule
+  dropped the OSM way; see
+  docs/specs/osm-terminal-way-authority-spec.md.)
 * R5 — buildings are FLAT; footprints obey it.
 
 Phase 1 never touches the mesh, and — amendment A1 — it MUST use the same

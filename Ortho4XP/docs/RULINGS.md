@@ -1308,3 +1308,44 @@ RULED (landed lane/demfix 225fad3, instrument-side only):
 Twins: tests/test_harness.py section 6b (12 new; suite 117).
 Provisional until the owner merges lane/demfix (READY-TO-MERGE in
 the HANDOVER queue).
+
+## 2026-08-09 — Reseat threshold; terrain-first at flat airports; the basin experiment (owner)
+
+Owner, verbatim (three statements, one session):
+
+1. "When it's less than a meter deviation, adapt the terrain to the
+   custom objects, rather than reseating the objects. We prefer not to
+   modify an airport if we don't have to. If it has objects that
+   deviate more than a meter, then we will need to reseat them."
+2. "For the record, KBNA and KCLT are in hilly terrain, not flat,
+   while OTHH is very flat. Ideally OTHH would be able to be fully
+   terrain adapted with no object reseating, we should be able to
+   simply cut out the drainage areas and set the ground level terrain
+   at the right elevation so no reseating is required."
+3. (on the six drainage facilities whose placement anchor sits inside
+   their own open pit, after the lead surfaced that a draped object's
+   seat IS the terrain at its anchor) "If the object placement is in
+   the middle, maybe it's tied to the bottom of the object, so placing
+   it at the bottom of the trench will already seat the top at the
+   ground level? Let's try cutting the trench, but don't modify the
+   objects so I can see how it looks."
+
+Binding consequences:
+1. THE 1 m LAW: a seating unit bakes only at max |delta| ≥
+   `DSF_OBJECT_BAKE_MIN_DELTA_M` (1.0); below it the pack is never
+   modified and terrain adapts (pad requests → the §5 pad consumer).
+   Spec: docs/specs/object-reseat-threshold-spec.md.
+2. TERRAIN-CLASS FACTS (correct the flat-KCLT misreading of the
+   seating spec's ground-contact numbers): KBNA/KCLT hilly — their
+   ≥ 1 m units keep reseating; OTHH very flat — expected to approach
+   ZERO pack modification.
+3. THE BASIN EXPERIMENT runs before any basin reseating: trench cut
+   fully open (no anchor seat), objects untouched, owner views
+   in-sim. The measured prediction (placement origin is the RIM;
+   draped rims sink ~4.3/13.5 m) is on record; the sim adjudicates.
+   Spec: docs/specs/basin-rim-flush-seating-spec.md (v2, §2.2
+   deferred).
+4. OSM terminal ways are the identity of their buildings (the
+   2026-08-09 bug report's third item): docs/specs/
+   osm-terminal-way-authority-spec.md (v2: kept ways clip surviving
+   clusters).

@@ -47,8 +47,10 @@ semantics replaced):
    constant, `config.py`, default **0.5**, env
    `O4_DSF_CLUSTER_OSM_ABSORB_FRAC`. Majority-inside means the OSM way
    already represents it; a cluster mostly outside (jet bridge, fixed
-   link, canopy hanging off the facade) stays a separate pad, whole —
-   never clipped.
+   link, canopy hanging off the facade) survives as its own pad —
+   clipped per §2.3b where it overlaps the kept way (v2 correction of
+   v1's "never clipped": pads never overlap a kept way; a
+   zero-area/edge-only touch is left untouched).
 3. DSF clusters overlapping no kept OSM way behave exactly as today.
    An airport with zero OSM terminal ways is bit-for-bit unchanged —
    this is the degeneracy gate (§5.2).

@@ -408,10 +408,18 @@ class SharedRepoWriteGuard:
     _WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT
                     | os.O_TRUNC)
 
-    def __init__(self, requested, root, repo=None, enabled: bool = True):
+    def __init__(self, requested, root, repo=None, enabled: bool = True,
+                 record_only: bool = False,
+                 allow_library_index: bool = True):
         self.requested = set(requested or ())
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
+        #: Observe instead of prevent (suite-corpus-clean spec).
+        self.record_only = bool(record_only)
+        #: Whether the library-index allowance applies — harness builds
+        #: keep it; the suite's per-test guard turns it off
+        #: (suite-corpus-clean spec §8.2 R-e).
+        self.allow_library_index = bool(allow_library_index)
         self.blocked: list = []
         #: Every lock-file operation the allowance let through, recorded so
         #: "the repo was untouched apart from the ruled lock churn" is a
@@ -470,7 +478,8 @@ class SharedRepoWriteGuard:
             # LOCK_ARTIFACT_SUFFIX.  Recorded, never silent.
             self.lock_churn.append({"path": rel, "op": op})
             return None
-        if op in LIB_INDEX_FILE_OPS and is_library_index_artifact(rel):
+        if (self.allow_library_index and op in LIB_INDEX_FILE_OPS
+                and is_library_index_artifact(rel)):
             # DERIVED INSTALL-INDEX CACHE, not corpus data — see
             # LIB_INDEX_ARTIFACT_RE.  Recorded, never silent.
             self.library_index_churn.append({"path": rel, "op": op})
@@ -482,6 +491,8 @@ class SharedRepoWriteGuard:
 
     def _refuse(self, rel, scope, how):
         self.blocked.append({"path": rel, "scope": scope, "via": how})
+        if self.record_only:
+            return                             # observe, let the call run
         raise SharedRepoWriteBlocked(
             f"BLOCKED: this build tried to {how} '{rel}' in the SHARED data "
             f"repo ({self.repo}), which no --refresh-data scope authorises.\n"

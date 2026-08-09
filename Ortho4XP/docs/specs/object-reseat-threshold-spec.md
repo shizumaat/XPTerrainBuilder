@@ -142,6 +142,59 @@ basin spec, any remaining OTHH bake is a measured ≥ 1 m unit and must
 be reported per family — the owner's stated ideal is that the
 population trends to zero as the terrain side takes the work.
 
+### 2.5 (v2 amendment, 2026-08-09 — footprint-hugging pad rings)
+
+Owner in-sim report (build 1.0.226, OTHH): object pads emitted as
+"large rectangles ... spanning water and parking lots, causing
+incorrect elevations" — measured: shapeID 1878 = 162,219 m² / 249
+nodes; 1768/1762/1864 = 8-11-node hulls of 17k-30k m², 1762 flat at
+−1.21 m across water. THE MECHANISM: the request ring is the CONVEX
+HULL of the residual group's contact points (+2 m margin) —
+`object_footprints.foot_pad_ring` fed a whole group — so any group
+whose parts spread across a complex bridges the non-object ground
+between them, and the pad law faithfully flattens it.
+
+THE LAW: a pad ring HUGS the objects it serves. The request ring
+becomes the UNION of per-contact-part hulls, each dilated by
+`DSF_OBJECT_FOOT_PAD_MARGIN_M` (2 m), with each connected component
+of that union raised as its OWN request ring (MultiPolygon components
+never re-hulled together). Structural consequence, asserted in tests:
+a pad can never span a gap wider than 2× the margin, and every pad
+polygon is covered by (its parts' contact-hull union ⊕ margin) — no
+vertex of a pad lies further than the margin from a real contact
+hull. Grouping for RESIDUAL ACCOUNTING (which parts share one
+request record) is unchanged; only the geometry stops being one hull.
+Sidecar version bumps (3 → 4) so hull-ring request corpora are
+discarded, `emitted` records with stale-version fingerprints drop,
+and the convergence loop re-derives. The consumer (`object_pads`)
+needs no geometry change — it consumes rings verbatim; verify its
+per-request blend-width logic tolerates the smaller rings and that
+the refusal accounting still partitions.
+
+**(v2b, 2026-08-09 — the plan-box falsification, measured by the
+padrings lane's offline replay.)** Per-part hulls of the recorded
+contact geometry do NOT fix OTHH: the request producer records each
+part's contact as its AXIS-ALIGNED PLAN BOX, and the offending pads
+come from mega-parts whose boxes are the defect (shapeID 1878's
+source part is one 560.7 × 534.1 m box; the Bridge_06 water-spanner
+is four deck boxes; union-of-dilated-boxes ≈ the group hull; corpus
+area moved only −1.1 %). AMENDED LAW: the producer records each
+part's GROUND-CONTACT GEOMETRY — the 2D projection of the part's
+contact-band triangles (the triangles whose vertices sit in the
+part's ground-contact band, the same band the foot machinery uses) —
+and the ring law of this section runs on the union of per-TRIANGLE
+hulls dilated by the margin, components as their own rings. A part's
+ring then follows its real footprint (a road network yields thin
+bands, a bridge yields its touchdown patches), and covering water or
+lots BETWEEN geometry is structurally impossible. Schema unchanged
+(`contact_parts_lonlat` already carries point groups — one group per
+triangle is lawful); consumer unchanged. Observability, not law: any
+single ring component over 10,000 m² logs at verbosity 1 with its
+resource. Structural tests re-run against triangle inputs; add one
+mega-part fixture (a large L-shaped contact band) asserting the ring
+covers the band and NOT the L's notch, and that a plan-box input
+could not have passed.
+
 ## 3. Constraints (standing; violations are STOP-and-report)
 
 1. R4 interlock holds: terrain-to-object and object-to-terrain

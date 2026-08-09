@@ -22,6 +22,20 @@ and orthophoto textures per 1°×1° tile.
 
 ## Working style — agent delegation model (token policy)
 
+**PRE-SHIP MODE IS IN FORCE (owner 2026-08-09; canonical text in
+`docs/RULINGS.md` "PRE-SHIP DEVELOPMENT MODE" — read it before
+writing any implementation brief).** Until the first official
+release, most verification weight below is SUSPENDED: no per-edit
+blast-radius or full-suite runs (only the test files directly
+covering the change, once), no per-lane acceptance builds/censuses/
+battery proofs, short reports, ONE implementer per coupled
+change-set. KEPT: root cause first, Fable specs, the shared-repo
+guard + harness entries, never writing the real X-Plane install,
+per-change unit tests run once, convergence guards. The owner's
+in-sim pass is acceptance; each skipped verification gets a line in
+`docs/DEFERRED_VERIFICATION.md`, all paid in one hardening round at
+the ship gate.
+
 This repo is worked with a lead-session + subagent model to spend
 top-tier-model tokens only where judgment is required:
 

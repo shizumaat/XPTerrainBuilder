@@ -1349,3 +1349,67 @@ Binding consequences:
    2026-08-09 bug report's third item): docs/specs/
    osm-terminal-way-authority-spec.md (v2: kept ways clip surviving
    clusters).
+5. IN-SIM VERDICT (owner, 2026-08-09, build 1.0.226): anchor-outside
+   basin facilities seat "just right"; anchor-inside facilities sink
+   to their trench floor — the basin experiment's predicted split.
+   Consequences: basin spec §2.2 rim-flush reseat ACTIVATED for the
+   anchor-inside class only; and object pads must HUG footprints —
+   the convex-hull request ring is retired
+   (object-reseat-threshold-spec §2.5): a pad spanning water or
+   parking lots between objects is a defect, not a request.
+
+## 2026-08-09 — PRE-SHIP DEVELOPMENT MODE (owner)
+
+Owner, verbatim: "we have not released this app yet, it's still in
+the initial implementation phase, so I want to streamline the
+standard development cycle until we officially ship our first
+version. The priority is definitely identifying root cause, good
+design and spec, but then implement and build so I can verify in-sim
+rather than exhaustive, time consuming and expensive token
+consumption on something we're not even sure will deliver the
+results we want."
+
+KEPT — non-negotiable even in this mode (each is structural or
+near-free, and each earned its keep on 2026-08-09 alone):
+1. Root cause before fix; Fable-authored specs; this RULINGS canon.
+2. The shared-repo write guard, the harness build entries, and the
+   lane ritual — corpus protection is structural, not verification.
+3. No test or agent ever writes the real X-Plane install (the
+   2026-08-09 sandbox-escape incident class).
+4. Unit tests FOR THE CHANGED BEHAVIOR, written with the change and
+   run ONCE at land time.
+5. Convergence guards (attempt cap 2, materiality floor) — they cap
+   spend, they do not add it.
+
+SUSPENDED until the first official release:
+1. Per-edit blast-radius suite runs, full-suite passes, and
+   matched-control worktree arms. Instead: run only the test files
+   directly covering the change, once; consult the recorded
+   known-pre-existing-failures list (12 campaign failures as of
+   2026-08-09) instead of building control arms.
+2. Per-lane acceptance builds, censuses, battery-inertness proofs,
+   and lead-side re-verification layers (IoU/row-diff sweeps).
+   THE OWNER'S IN-SIM PASS IS ACCEPTANCE. At most ONE patch-level
+   build per integration round, only when the lead judges the change
+   could reach the sim visibly broken.
+3. Long agent final reports — cap: what changed, tests run,
+   deviations.
+4. Multi-lane parallel decomposition of one coupled change-set —
+   default ONE implementer per change-set; parallel lanes only for
+   genuinely disjoint files under time pressure.
+5. Per-change build-time statements (already suspended for the
+   campaign) stay suspended.
+
+THE LEDGER AND THE SHIP GATE: every streamlined land appends one
+line to `docs/DEFERRED_VERIFICATION.md` (change, what was skipped).
+Before the first official release, ONE hardening round pays the
+whole ledger — full suite green, battery A/B + censuses, timing
+profile, the absolute-zero acceptance gate. Nothing on the ledger is
+ever silently dropped; a direction the sim kills takes its ledger
+lines with it, unpaid.
+
+THE STANDARD CYCLE in this mode: owner report → root cause (recon
+only as needed) → spec (Fable) → ONE Opus implementer (tight brief:
+files, law, its own tests, run-once) → lead merges, freezes engine,
+packages app → owner verifies in-sim. Target: a small fix reaches a
+testable app well inside an hour.

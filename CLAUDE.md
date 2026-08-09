@@ -119,16 +119,27 @@ is what that costs.
   covers this class too and still authorises NO write.
 - A census that omits a law family, a sidecar key, or the ruleset:
   structurally impossible — the twins fail.
+- A pytest suite writing the shared data repo (the class that refused a
+  concurrent guarded HECA build for 646 s on 2026-08-08): every test now
+  runs inside a refuse-mode `SharedRepoWriteGuard` (conftest autouse,
+  library-index allowance withdrawn) — a shared-repo write fails ITS OWN
+  test with a traceback naming the writer; the DSFTool dump cache and the
+  whole `Airport_mod_cache` root resolve through env-overridden lane-local
+  roots (`O4_DSF_CACHE_DIR`, `O4_AIRPORT_MOD_CACHE_DIR` — read inside
+  `_apply_data_root`/at call time, so module reloads and `set_data_root`
+  cannot un-redirect them; the mod cache is a symlink-seeded overlay, so
+  warm reads stay warm and rewrites land lane-local); the suite's write-
+  allowance register (`_SUITE_MAY_WARM`) is EMPTY; and the session
+  detector backstops what no Python-level guard can see (subprocess /
+  C-extension writes). Suites are CORPUS-CLEAN (verified 2026-08-08: two
+  full-suite arms, before/after snapshots over 2,914 corpus files, zero
+  deltas) — running a suite in parallel with guarded builds is lawful.
+  Transient `.lock` coordination churn remains allowed and recorded; an
+  inset the suite would have to CUT refuses loudly (a privately cut inset
+  is a private measurement frame — warm it explicitly via
+  `--refresh-data dem`). Timing runs stay exclusive per the standing law.
 
 ### Traps still on you
-
-- Guarded harness builds and UNGUARDED pytest suites cannot share the
-  corpus concurrently: a suite rewriting Airport_mod_cache flags (or
-  refuses) every concurrent guarded build with cross-attributed
-  writes (measured 2026-08-08: an SPJC cache path refused a HECA
-  build, 646 s wasted). Run full suites through the ledger AND never
-  alongside guarded builds; a refused build with foreign-airport
-  paths in the blocked list is this, not contamination.
 
 - Single-run wall times swing ±25%: never A/B one run per side (use the
   build-time checker's `--runs N`), and never let a timing run through the

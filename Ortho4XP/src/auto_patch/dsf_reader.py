@@ -1159,17 +1159,19 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 
     The directory is NOT created here — writers ``os.makedirs(...,
     exist_ok=True)`` right before writing, readers just probe with
-    ``isfile``.  In a source checkout ``O4_File_Names.data_path`` follows
-    the current working directory at call time (load-bearing legacy
-    behavior elsewhere — never cache this result at import time); in the
-    packaged app it is the user-chosen data root.
+    ``isfile``.  The root comes from
+    ``O4_File_Names.airport_mod_cache_root()``: with no override, in a
+    source checkout that follows the current working directory at call
+    time (load-bearing legacy behavior elsewhere — never cache this
+    result at import time); in the packaged app it is the user-chosen
+    data root; under ``O4_AIRPORT_MOD_CACHE_DIR`` it is that directory.
 
     Returns ``None`` when ``pack_root`` is falsy or not a directory."""
     if not pack_root or not os.path.isdir(pack_root):
         return None
     import O4_File_Names as _FNAMES
     pack_name = os.path.basename(os.path.abspath(pack_root))
-    return _FNAMES.data_path(os.path.join("Airport_mod_cache", pack_name))
+    return os.path.join(_FNAMES.airport_mod_cache_root(), pack_name)
 
 
 # ── Pack-sidecar footprint cache (mirrors the object-terrain

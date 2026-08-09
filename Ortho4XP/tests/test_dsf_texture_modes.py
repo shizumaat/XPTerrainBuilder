@@ -13,17 +13,21 @@ The emitted DSF is decoded with ``tools/decode_dsf_terrain_table.py`` (which
 shells out to the bundled DSFTool); those assertions ``skipif`` when the
 DSFTool binary is absent.
 
-SHARED-REPO NOTE (2026-08-06).  ``decode_dsf`` caches DSFTool's text dump
-under ``FNAMES.Default_dsf_cache_dir`` in a directory keyed by the sha1 of
-the DSF's ABSOLUTE path.  These tests emit into ``tmp_path``, so that key
-was new every run and each run minted a cache directory in the SHARED data
-repo that nothing would ever read: 529 of the 530 directories there were
-this leak (all of tile ``+50+010``, this module's synthetic fixture).  The
-dump cache is now redirected session-wide to the worker's own tmp dir by
-``tests/conftest.py`` (``_dsf_dump_cache_is_lane_local``), and a session
-detector fails any test that writes into the shared repo — so this module
-needs no local monkeypatch, and neither does the next one to call
-``decode_dsf``.
+SHARED-REPO NOTE (2026-08-06, closed 2026-08-08).  ``decode_dsf`` caches
+DSFTool's text dump under ``FNAMES.Default_dsf_cache_dir`` in a directory
+keyed by the sha1 of the DSF's ABSOLUTE path.  These tests emit into
+``tmp_path``, so that key was new every run and each run minted a cache
+directory in the SHARED data repo that nothing would ever read: 529 of the
+530 directories there were this leak (all of tile ``+50+010``, this module's
+synthetic fixture).  The redirect that closed it is now an ENV VARIABLE
+(``O4_DSF_CACHE_DIR``, set session-wide by
+``tests/conftest.py::_dsf_dump_cache_is_lane_local``) read inside
+``O4_File_Names._apply_data_root`` — so it survives a module reload, and it
+covers the dump the DSFTool SUBPROCESS writes, which is the one leak the
+audit arm still measured and the one no Python-level guard can intercept.
+Every test also runs inside a per-test shared-repo write guard now, and the
+suite carries no standing write allowance at all — so this module needs no
+local monkeypatch, and neither does the next one to call ``decode_dsf``.
 """
 import os
 import queue

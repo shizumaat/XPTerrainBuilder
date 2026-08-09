@@ -866,16 +866,40 @@ class SharedRepoWriteGuard:
     coordination state, and the library-index sidecar
     (:data:`LIB_INDEX_ARTIFACT_RE`), which is derived cache determined by
     the X-Plane install.  Neither is corpus data.  Reads are never touched.
+
+    RECORD-ONLY (``record_only=True``): the predicate, the allowances and
+    the recording are unchanged, but a refusal RETURNS instead of raising,
+    so the intercepted call proceeds.  It exists for the suite write AUDIT
+    (``tests/conftest.py::_shared_repo_write_audit``), which has to observe
+    the suite's TRUE behaviour — a blocking guard would change test
+    outcomes and enumerate the offenders of a different suite.
+
+    ``allow_library_index=False`` withdraws the library-index allowance
+    (the lock one is untouched).  It exists for the suite's permanent
+    per-test guard (``tests/conftest.py::_no_test_writes_the_shared_repo``,
+    suite-corpus-clean spec §8.2 R-e): a HARNESS build has an X-Plane
+    install changing under it and must tolerate the sidecar refresh, while
+    the suite points the whole cache root at a lane-local overlay
+    (``O4_AIRPORT_MOD_CACHE_DIR``) and so should reach the sidecar's real
+    path never — the parameter turns any bypass into a loud refusal
+    instead of a silent shared write.
     """
 
     #: ``os.open`` flags that mean "this call can modify the file".
     _WRITE_FLAGS = (os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT
                     | os.O_TRUNC)
 
-    def __init__(self, requested, root, repo=None, enabled: bool = True):
+    def __init__(self, requested, root, repo=None, enabled: bool = True,
+                 record_only: bool = False,
+                 allow_library_index: bool = True):
         self.requested = set(requested or ())
         self.repo = Path(repo or DATA_REPO)
         self.enabled = bool(enabled)
+        #: Observe instead of prevent — see the class docstring.
+        self.record_only = bool(record_only)
+        #: Whether the library-index allowance applies — see the class
+        #: docstring.  Harness builds keep it; the suite guard turns it off.
+        self.allow_library_index = bool(allow_library_index)
         self.blocked: list = []
         #: Every lock-file operation the allowance let through, recorded so
         #: "the repo was untouched apart from the ruled lock churn" is a
@@ -934,7 +958,8 @@ class SharedRepoWriteGuard:
             # LOCK_ARTIFACT_SUFFIX.  Recorded, never silent.
             self.lock_churn.append({"path": rel, "op": op})
             return None
-        if op in LIB_INDEX_FILE_OPS and is_library_index_artifact(rel):
+        if (self.allow_library_index and op in LIB_INDEX_FILE_OPS
+                and is_library_index_artifact(rel)):
             # DERIVED INSTALL-INDEX CACHE, not corpus data — see
             # LIB_INDEX_ARTIFACT_RE.  Recorded, never silent.
             self.library_index_churn.append({"path": rel, "op": op})
@@ -946,6 +971,8 @@ class SharedRepoWriteGuard:
 
     def _refuse(self, rel, scope, how):
         self.blocked.append({"path": rel, "scope": scope, "via": how})
+        if self.record_only:
+            return                             # observe, let the call run
         raise SharedRepoWriteBlocked(
             f"BLOCKED: this build tried to {how} '{rel}' in the SHARED data "
             f"repo ({self.repo}), which no --refresh-data scope authorises.\n"

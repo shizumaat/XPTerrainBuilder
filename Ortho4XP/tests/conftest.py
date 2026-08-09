@@ -25,6 +25,7 @@ collect zero items.  This is intentional: the project should not
 ship a hidden hard-coded list of canonical airports — every run
 must be explicit about what it tests against.
 """
+import json
 import os
 import sys
 from typing import List, Optional
@@ -281,15 +282,37 @@ def _discover_airports_in_tile(lat: int, lon: int) -> List[str]:
 # 529 of the 530 directories in the shared ``Default_DSF_cache`` were this
 # leak, one tile (``+50+010``, the synthetic fixture) over three weeks.
 #
-# Two fixes, because they close different holes:
+# Four fixes, because they close different holes:
 #   1. THE REDIRECT (below) — the dump cache points at the worker's own
 #      tmp dir for the whole session, so no test can author that cache at
-#      all, whether or not it remembers to monkeypatch.
-#   2. THE DETECTOR (below) — a session-scoped before/after snapshot of the
+#      all, whether or not it remembers to monkeypatch.  It rides an ENV
+#      VARIABLE (``O4_DSF_CACHE_DIR``), read inside
+#      ``O4_File_Names._apply_data_root``, so a module RELOAD recomputes
+#      the redirect instead of undoing it.
+#   2. THE OVERLAY (below) — ``Airport_mod_cache`` is fingerprint-keyed
+#      DERIVED cache: a tree whose keys drift from what the shared corpus
+#      is warm for REWRITES its sidecars.  The suite points the whole root
+#      (``O4_AIRPORT_MOD_CACHE_DIR``) at a per-worker tmp overlay that
+#      SYMLINKS every shared file, so reads stay warm and writes land
+#      lane-local.
+#   3. THE PER-TEST GUARD (below) — the harness's own
+#      ``SharedRepoWriteGuard`` around EVERY test, in refuse mode: a
+#      shared-repo write fails the test that made it, with a traceback
+#      naming the writer.  Enforced per test, not asserted per session.
+#   4. THE DETECTOR (below) — a session-scoped before/after snapshot of the
 #      shared repo, so the NEXT unknown leak class is loud instead of
-#      silent.  It reuses ``tools/harness/build_airport.py``'s own snapshot
-#      and scope register (one implementation — the harness already answers
-#      "which artifact class is this path" for builds).
+#      silent, including the ones no Python-level guard can see (a
+#      subprocess's own writes).  It reuses
+#      ``tools/harness/build_airport.py``'s own snapshot and scope register
+#      (one implementation — the harness already answers "which artifact
+#      class is this path" for builds).
+
+#: The harness module, loaded AT MOST ONCE per worker process.  The audit
+#: fixture below is per-TEST, and re-``exec_module``-ing a 1,800-line module
+#: five thousand times would make the instrument the dominant cost of the
+#: run it is supposed to observe.
+_HARNESS_BUILD_MOD = None
+
 
 def _harness_build_module():
     """``tools/harness/build_airport.py``, loaded by path.
@@ -297,6 +320,9 @@ def _harness_build_module():
     The harness owns the shared-repo snapshot, the scope register and the
     scope→description text.  A second copy here is the census-wrapper
     defect in a different costume."""
+    global _HARNESS_BUILD_MOD
+    if _HARNESS_BUILD_MOD is not None:
+        return _HARNESS_BUILD_MOD
     import importlib.util
     path = os.path.normpath(os.path.join(
         _HERE, "..", "tools", "harness", "build_airport.py"))
@@ -304,23 +330,27 @@ def _harness_build_module():
         "conftest_harness_build_airport", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    _HARNESS_BUILD_MOD = mod
     return mod
 
 
-#: Refresh scopes the SUITE legitimately warms today, with the reason.
-#: Everything else is a defect the detector fails on.  This register is
-#: deliberately short and explicit: "the suite writes there sometimes" is
-#: only an excuse when it is written down.
-_SUITE_MAY_WARM = {
-    "airport_mod_cache":
-        "real airport builds in the suite index third-party apt.dat packs "
-        "(o4_object_*/o4_dsf_road_network sidecars) — pre-existing, "
-        "accepted, and read-only-derived from the packs themselves",
-    "dem":
-        "airport elevation INSETS are cut and cached by the same builds; "
-        "warm-vs-cold inset state is a measurement frame question "
-        "(memory dem-inset-cache-shifts-measurements), not a corpus edit",
-}
+#: Refresh scopes the SUITE may warm.  EMPTY, and that is the point: the
+#: suite writes NOTHING into the shared corpus, so every touched path is a
+#: defect the detector fails on.
+#:
+#: WHY IT EMPTIED (suite-corpus-clean lane, 2026-08-08).  It used to carry
+#: ``airport_mod_cache`` and ``dem`` as standing allowances.  What that
+#: bought, measured: a guarded HECA harness build was REFUSED after suite
+#: tests rewrote ``Airport_mod_cache`` paths — an SPJC cache path in the
+#: blocked list of a HECA build, 646 s wasted — because "the suite may
+#: warm it" and "no other lane may be measuring right now" are different
+#: claims and only the first was written down.  The two scopes are now
+#: structurally unreachable instead of authorised: the mod cache is a
+#: lane-local symlink overlay (fixture below), and an inset the suite
+#: would have to CUT is refused loudly rather than warmed — a privately
+#: cut inset is a private measurement frame (warm-vs-cold has moved
+#: terrain 12 m), which is the two-corpora defect itself.
+_SUITE_MAY_WARM: dict = {}
 
 
 def unauthorised_shared_writes(changes: dict, scope_of) -> list:
@@ -373,7 +403,18 @@ def reapply_dsf_dump_cache_redirect():
 
 @pytest.fixture(scope="session", autouse=True)
 def _dsf_dump_cache_is_lane_local(tmp_path_factory):
-    """THE REDIRECT: no test may author the shared DSFTool dump cache."""
+    """THE REDIRECT: no test may author the shared DSFTool dump cache.
+
+    THE ENV VARIABLE IS THE REDIRECT; the direct assignment and
+    :func:`reapply_dsf_dump_cache_redirect` are the belt.
+    ``O4_DSF_CACHE_DIR`` is read inside ``O4_File_Names._apply_data_root``,
+    which EVERY recompute path runs (a module reload, ``set_data_root``) —
+    so the redirect survives them by construction rather than by whoever
+    reloaded remembering to put it back.  The measured hole it closes: the
+    dump written by the DSFTool SUBPROCESS, which no Python-level guard
+    can intercept (``Default_DSF_cache/2e32f218/+50+010.dsf.tmp.text``,
+    audit arm 2026-08-08).
+    """
     global _LANE_DSF_CACHE_DIR
     try:
         import O4_File_Names as FNAMES
@@ -381,13 +422,101 @@ def _dsf_dump_cache_is_lane_local(tmp_path_factory):
         yield
         return
     previous = FNAMES.Default_dsf_cache_dir
+    previous_env = os.environ.get("O4_DSF_CACHE_DIR")
     _LANE_DSF_CACHE_DIR = str(tmp_path_factory.mktemp("default_dsf_cache"))
+    os.environ["O4_DSF_CACHE_DIR"] = _LANE_DSF_CACHE_DIR
     FNAMES.Default_dsf_cache_dir = _LANE_DSF_CACHE_DIR
     try:
         yield
     finally:
         _LANE_DSF_CACHE_DIR = None
+        if previous_env is None:
+            os.environ.pop("O4_DSF_CACHE_DIR", None)
+        else:
+            os.environ["O4_DSF_CACHE_DIR"] = previous_env
         FNAMES.Default_dsf_cache_dir = previous
+
+
+#: Where the session mirrored the shared ``Airport_mod_cache`` to.  Module
+#: level for the same reason as the dump cache above: the twins read it.
+_LANE_AIRPORT_MOD_CACHE_DIR = None
+
+
+def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
+    """Mirror ``source_root``'s DIRECTORIES into ``overlay_root`` and
+    SYMLINK every regular file into it.  Returns ``{"dirs", "files"}``.
+
+    THE READ-THROUGH OVERLAY.  Redirecting a warm derived cache to an
+    empty directory would make every shared sidecar invisible and rebuild
+    it per session — a different measurement, not a cleaner one.  Real
+    directories + file symlinks give reads the warm corpus and send writes
+    lane-local: the sidecar writers create a temp file in the DIRECTORY
+    (a real one, lane-local) and ``os.replace`` it onto the name, which
+    REPLACES the symlink rather than following it.
+
+    Pure and total (no environment, no fixture state) so it has a
+    known-answer twin — an instrument without one is not an instrument
+    (RULINGS 2026-08-06).  A ``source_root`` that does not exist yields an
+    empty overlay rather than an error: a corpus with no cache yet is a
+    lawful state, not a failure.
+    """
+    made = {"dirs": 0, "files": 0}
+    os.makedirs(overlay_root, exist_ok=True)
+    if not os.path.isdir(source_root):
+        return made
+    for dirpath, _dirnames, filenames in os.walk(source_root):
+        relative = os.path.relpath(dirpath, source_root)
+        target_dir = (overlay_root if relative == os.curdir
+                      else os.path.join(overlay_root, relative))
+        if relative != os.curdir and not os.path.isdir(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            made["dirs"] += 1
+        for name in filenames:
+            source = os.path.join(dirpath, name)
+            link = os.path.join(target_dir, name)
+            if not os.path.isfile(source) or os.path.lexists(link):
+                continue
+            os.symlink(source, link)
+            made["files"] += 1
+    return made
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _airport_mod_cache_is_a_lane_local_overlay(tmp_path_factory):
+    """THE OVERLAY: no test may author the shared per-pack sidecar cache.
+
+    ``Airport_mod_cache`` holds fingerprint- and version-keyed DERIVED
+    caches (``o4_object_*``, ``o4_dsf_*``, the library index).  A tree
+    whose cache keys drift from what the shared corpus is warm for
+    REWRITES them — which is not hypothetical: an SPJC cache path rewritten
+    by the suite refused a concurrent guarded HECA build on 2026-08-08
+    (646 s).  The zero an audit measures from a key-matching tree is state,
+    not structure, so the redirect is unconditional.
+
+    Per WORKER (``tmp_path_factory`` is worker-private under xdist), and
+    instant in practice: ~991 files, symlinks only.
+    """
+    global _LANE_AIRPORT_MOD_CACHE_DIR
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] mod-cache overlay unavailable: {exc!r}")
+        yield
+        return
+    shared = os.path.join(harness.DATA_REPO, "Airport_mod_cache")
+    overlay = str(tmp_path_factory.mktemp("airport_mod_cache"))
+    mirror_tree_as_symlinks(shared, overlay)
+    previous_env = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+    os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = overlay
+    _LANE_AIRPORT_MOD_CACHE_DIR = overlay
+    try:
+        yield
+    finally:
+        _LANE_AIRPORT_MOD_CACHE_DIR = None
+        if previous_env is None:
+            os.environ.pop("O4_AIRPORT_MOD_CACHE_DIR", None)
+        else:
+            os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = previous_env
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -435,8 +564,15 @@ def _the_shared_data_repo_survives_the_suite():
             if len(unlawful) > 20:
                 lines.append(f"  … and {len(unlawful) - 20} more")
             lines += [
+                "THE SUITE HAS NO STANDING WRITE ALLOWANCE: every scope is "
+                "unauthorised, so this is a leak, never a registered one.",
                 "FIX: point the writer at tmp_path (the DSFTool dump cache "
-                "is already redirected session-wide above).",
+                "and the per-pack Airport_mod_cache root are already "
+                "redirected session-wide above).",
+                "WHAT GOT PAST WHAT: the per-test guard refuses every "
+                "PYTHON-level shared-repo write at its call site, so a path "
+                "reaching here was written by a SUBPROCESS or a C "
+                "extension, or outside a test (a session fixture window).",
                 "ATTRIBUTION: this snapshot is per-SESSION, and under "
                 "-n auto every worker sees every worker's writes — re-run "
                 "the suspect module with -n0 to attribute it.",
@@ -450,6 +586,164 @@ def _the_shared_data_repo_survives_the_suite():
                 print("\n[conftest] " + message)
             else:
                 pytest.fail(message, pytrace=False)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE PER-TEST GUARD, AND THE PER-TEST WRITE AUDIT
+# ══════════════════════════════════════════════════════════════════════
+# The detector above is per-SESSION: it says the suite wrote, never WHICH
+# test wrote.  Under ``-n auto`` every worker sees every worker's writes,
+# so attribution costs a ``-n0`` re-run of a suspect module.  Both fixtures
+# below wrap each test in the harness's own :class:`SharedRepoWriteGuard`,
+# which attributes the write to the test that made it — they differ only in
+# what happens next, so EXACTLY ONE of them installs (see
+# :func:`_per_test_guard_mode`; two stacked guards would double-record and
+# make the inner one's restore order matter):
+#
+#   * REFUSE (the default, permanent): the write raises at its call site,
+#     failing that test with a traceback naming the writer.
+#   * AUDIT (``O4_SUITE_WRITE_AUDIT=1``): RECORD-ONLY — it observes and
+#     lets the write proceed, because a blocking guard would change test
+#     outcomes and enumerate the offenders of a different suite.  Output
+#     goes to ``${O4_SUITE_WRITE_AUDIT_OUT}.${PYTEST_XDIST_WORKER-master}``
+#     — one file per worker, so concurrent appends never interleave a line.
+
+def shared_repo_write_audit_rows(nodeid: str, guard) -> list:
+    """The pure half of the audit: one row per write ``guard`` observed.
+
+    Split out from the fixture for the same reason
+    :func:`unauthorised_shared_writes` was — an instrument without a
+    known-answer twin is not an instrument (RULINGS 2026-08-06); the twin
+    is ``tests/test_harness.py`` §8.  ``kind`` separates a real
+    unauthorised-class write from the two ruled churn classes the guard
+    lets through (``.lock`` coordination state, the derived library-index
+    sidecar), which are not corpus mutations and must not be counted as
+    offenders.
+    """
+    rows = []
+    for kind, entries in (("blocked", getattr(guard, "blocked", ())),
+                          ("lock_churn", getattr(guard, "lock_churn", ())),
+                          ("lib_index_churn",
+                           getattr(guard, "library_index_churn", ()))):
+        for entry in entries or ():
+            row = {"nodeid": nodeid, "kind": kind,
+                   "path": entry.get("path"), "scope": entry.get("scope")}
+            if "via" in entry:
+                row["via"] = entry["via"]
+            if "op" in entry:
+                row["op"] = entry["op"]
+            rows.append(row)
+    return rows
+
+
+def _suite_write_audit_out() -> str:
+    """This worker's audit file.  ``master`` when xdist is not in play."""
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    return f"{os.environ['O4_SUITE_WRITE_AUDIT_OUT']}.{worker}"
+
+
+def pytest_configure(config):
+    """Refuse the audit arm at SESSION START if it has nowhere to write.
+
+    Discovering the missing path at the first offending test would throw
+    away everything measured before it — and under xdist, on a worker
+    whose error is easy to miss."""
+    if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
+        return
+    out = os.environ.get("O4_SUITE_WRITE_AUDIT_OUT", "").strip()
+    if not out or not os.path.isabs(out):
+        raise pytest.UsageError(
+            "O4_SUITE_WRITE_AUDIT=1 needs O4_SUITE_WRITE_AUDIT_OUT set to "
+            f"an ABSOLUTE path for the per-test JSONL rows (got {out!r}); "
+            "each worker appends to <path>.<worker>.")
+
+
+def _per_test_guard_mode():
+    """Which per-test guard installs around every test: ONE decision.
+
+    ``"audit"`` (record-only), ``"refuse"`` (the permanent guard), or
+    ``None`` (neither).  The audit arm WINS over
+    ``O4_ALLOW_SHARED_REPO_WRITES``: it is the instrument that measures
+    what the suite writes, and it prevents nothing anyway.
+    """
+    if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") == "1":
+        return "audit"
+    if os.environ.get("O4_ALLOW_SHARED_REPO_WRITES", "0") == "1":
+        return None
+    return "refuse"
+
+
+@pytest.fixture(autouse=True)
+def _no_test_writes_the_shared_repo():
+    """THE PER-TEST GUARD: a shared-repo write fails ITS OWN test.
+
+    The property is ENFORCED per test rather than asserted per session
+    (owner ruling e9daef5).  What that changes, concretely: the session
+    detector reports a path and hands you a ``-n0`` re-run to find the
+    author, while this raises ``SharedRepoWriteBlocked`` inside the
+    writing call, so the traceback IS the attribution — and the corpus
+    still has what it had before the test ran.
+
+    ``allow_library_index=False`` (spec §8.2 R-e): with the mod-cache
+    overlay in place nothing should reach the sidecar's real path, so the
+    harness build's allowance for it would only ever hide a bypass here.
+    The ``.lock`` allowance stands — cross-process coordination state is
+    not corpus data, and refusing it makes concurrent-safe cache READS
+    impossible.
+    """
+    if _per_test_guard_mode() != "refuse":
+        yield
+        return
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] shared-repo guard unavailable: {exc!r}")
+        yield
+        return
+    repo = harness.DATA_REPO
+    if not os.path.isdir(repo):
+        yield
+        return
+    # ``root`` is the ENGINE dir: its mounted data-dir symlinks are half
+    # the guard's prefix set (a lane writes ``OSM_data/...`` relative,
+    # through a symlink, never mentioning the repo path at all).
+    with harness.SharedRepoWriteGuard(
+            set(), root=os.path.dirname(_HERE), repo=repo,
+            allow_library_index=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _shared_repo_write_audit(request):
+    """Record every shared-repo write THIS test makes (audit arm only)."""
+    if _per_test_guard_mode() != "audit":
+        yield
+        return
+    try:
+        harness = _harness_build_module()
+    except Exception as exc:                            # pragma: no cover
+        print(f"[conftest] write audit unavailable: {exc!r}")
+        yield
+        return
+    repo = harness.DATA_REPO
+    if not os.path.isdir(repo):
+        yield
+        return
+    # ``root`` is the ENGINE dir: its mounted data-dir symlinks are half
+    # the guard's prefix set (a lane writes ``OSM_data/...`` relative,
+    # through a symlink, never mentioning the repo path at all).
+    guard = harness.SharedRepoWriteGuard(
+        set(), root=os.path.dirname(_HERE), repo=repo, record_only=True)
+    with guard:
+        yield
+    rows = shared_repo_write_audit_rows(request.node.nodeid, guard)
+    if not rows:
+        return
+    out = _suite_write_audit_out()
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
 @pytest.hookimpl(tryfirst=True)

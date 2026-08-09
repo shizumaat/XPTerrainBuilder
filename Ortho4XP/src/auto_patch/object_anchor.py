@@ -316,6 +316,16 @@ class RebakeDecision:
         dataclass_field(default_factory=list))
     cluster_counts: dict[str, int] = (
         dataclass_field(default_factory=dict))
+    # WHICH LAW seated each resource, for the provenance sidecar
+    # (docs/specs/basin-rim-flush-seating-spec.md section 2.2 item 5:
+    # "decision kind recorded in provenance").  Absent for the generic
+    # seating law — a resource with no entry was seated by the
+    # median/A3/threshold arithmetic in :func:`structure_deltas`, which
+    # is what every entry-less provenance record already means.  The one
+    # value in use today is
+    # ``object_terrain_assembly.BASIN_RIM_FLUSH_DECISION_KIND``.
+    decision_kind_by_resource: dict[str, str] = (
+        dataclass_field(default_factory=dict))
 
 
 @dataclass(frozen=True)

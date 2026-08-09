@@ -122,6 +122,13 @@ _COUNT_KEYS = (
     # Airports whose recorded run fingerprint still matched every input,
     # so nothing was re-derived (O4_REANCHOR_SHORT_CIRCUIT).
     "airports_up_to_date",
+    # Basin facilities seated by the dedicated rim-flush law, and the
+    # per-facility clearance FINDINGS it raised
+    # (docs/specs/basin-rim-flush-seating-spec.md section 2.2 items 5
+    # and 7).  A finding means the section-2.1 seat margin is too small
+    # for that airport — an owner decision, never a silent re-derive.
+    "basin_rim_flush_seated",
+    "basin_clearance_findings",
 )
 
 
@@ -372,6 +379,606 @@ def _merge_cluster_counts(decisions: list) -> dict:
     return merged
 
 
+def _resolve_pack_geometry(
+    placements,
+    placement_count_by_resource: dict[str, int],
+    pack_root: str,
+    xplane_root: str | None,
+    skipped: list,
+    *,
+    apply_reach_floor: bool = True,
+) -> tuple[dict[str, str], dict, dict[str, str]]:
+    """Resolve every placement's ``.obj``, load its AUTHORED geometry and
+    apply the discovery-level admission rules.  Returns
+    ``(resolved_paths, geometry_by_resource, geometry_source_by_resource)``
+    and appends skip-and-report entries to ``skipped``.
+
+    ONE implementation for both Phase 2 paths — the generic y-bake and
+    the section-2.2 basin rim-flush pass — so the safety guards
+    (amendment A15's outside-the-pack refusal, ruling R1's read from
+    ``.anchor_bak``, invariant I-4's multi-placement refusal) can never
+    hold in one and not the other.
+
+    ``apply_reach_floor`` is the ONE difference between the two callers,
+    and it is a law difference, not a tuning knob.  The reach floor asks
+    "is this object big enough that a wrong anchor would show?" — the
+    generic law's own admission test.  A basin facility is admitted by
+    the CLASSIFIER instead (its terrain was cut for it), and its anchor
+    sits INSIDE its own body, so its reach is barely half the pit's
+    width: the OTHH Drainage bowls measure well under the 25 m floor and
+    would be silently dropped by a test that has nothing to say about
+    them.
+    """
+    from .config import (
+        DSF_OBJECT_ELEVATED_BASE_M,
+        DSF_OBJECT_FOOT_ANCHOR,
+        DSF_OBJECT_FOOT_MIN_REACH_M,
+        DSF_OBJECT_MIN_REACH_M,
+    )
+
+    resolved_paths: dict[str, str] = {}
+    geometry_by_resource: dict = {}
+    geometry_source_by_resource: dict[str, str] = {}
+    for resource_path in sorted(
+        {placement.resource_path for placement in placements}
+    ):
+        physical_path = obj8_reader.resolve_object_resource(
+            resource_path, pack_root, xplane_root
+        )
+        if physical_path is None:
+            continue
+        # Amendment A15, guard 2: a library-resolved resource lives in
+        # ANOTHER pack; baking it would push one airport's offsets into
+        # an object shared by many.  Skip-and-report.
+        if not _resolved_path_is_inside_pack(physical_path, pack_root):
+            skipped.append(
+                (
+                    resource_path,
+                    "resolved through library.txt outside the pack — "
+                    "shared library objects are never rebaked "
+                    "(amendment A15)",
+                )
+            )
+            continue
+        # Ruling R1: geometry is ALWAYS read from the backup when one
+        # exists — on a re-run the live file already carries baked
+        # offsets, and parsing it would misclassify every corrected
+        # structure as elevated (its base y is no longer 0).  The
+        # rebake writer makes the same choice (``object_rebake.apply``
+        # reads ``<name>.anchor_bak``); vertex ordering is identical in
+        # both files, so the per-vertex deltas line up.
+        backup_path = physical_path + object_rebake.BACKUP_SUFFIX
+        geometry_source_path = (
+            backup_path if os.path.isfile(backup_path) else physical_path
+        )
+        geometry = dsf_reader._load_object_geometry(geometry_source_path)
+        if geometry is None or not geometry.has_solid_geometry:
+            continue
+        # The reach floor keeps compact, correctly anchored objects out
+        # of Phase 2 — but an author-BAKED vertical offset breaks the
+        # metric's premise: X-Plane mis-places such an object no matter
+        # how compact it is (the KBNA stairs reach 24.3 m and 20.6 m,
+        # under the floor).  Baked-offset geometry — lowest solid vertex
+        # above the elevated threshold — is admitted at the reduced
+        # foot-re-anchor floor instead (config rationale at
+        # DSF_OBJECT_FOOT_MIN_REACH_M).
+        if apply_reach_floor:
+            minimum_solid_y = min(
+                geometry.vertices[vertex_index][1]
+                for triangle in geometry.solid_triangles
+                for vertex_index in triangle
+            )
+            reach_floor_metres = (
+                DSF_OBJECT_FOOT_MIN_REACH_M
+                if DSF_OBJECT_FOOT_ANCHOR
+                and minimum_solid_y > DSF_OBJECT_ELEVATED_BASE_M
+                else DSF_OBJECT_MIN_REACH_M
+            )
+            if geometry.solid_reach_metres() < reach_floor_metres:
+                continue
+        # Invariant I-4, enforced at Phase 2 discovery (amendment A13):
+        # a resource with several terrain-draped placements would need a
+        # different correction per placement, which one shared file
+        # cannot carry.  Phase 1 accepts the same resource (N placements
+        # = N buildings, invariant I-5); Phase 2 must not.
+        placement_count = placement_count_by_resource[resource_path]
+        if placement_count > 1:
+            skipped.append(
+                (
+                    resource_path,
+                    f"{placement_count} terrain-draped OBJECT placements "
+                    "— a shared file cannot carry per-placement offsets "
+                    "(invariant I-4)",
+                )
+            )
+            continue
+        resolved_paths[resource_path] = physical_path
+        geometry_by_resource[resource_path] = geometry
+        geometry_source_by_resource[resource_path] = geometry_source_path
+    return resolved_paths, geometry_by_resource, geometry_source_by_resource
+
+
+def _basin_facility_rim_sample_ring(
+    body_rings_longitude_latitude,
+    origin_latitude: float,
+    origin_longitude: float,
+) -> tuple[list, list]:
+    """``R_mesh``'s SAMPLE RING for one basin facility (spec section 2.2
+    item 5): the facility body outline offset OUTWARD by
+    ``_TUNNEL_RIM_BAND_WIDTH_M + 1.0`` m — the first terrain outside our
+    own plates — sampled every ``<= 10`` m.
+
+    Returns ``(sample_points_latitude_longitude, body_frame_parts)``; the
+    parts are returned for the caller's diagnostics.  Pure geometry: no
+    mesh is touched here, so the caller can size its sampler from the
+    ring before building one.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    # The band width and the sample step are the EMITTER's constants —
+    # imported, never re-spelled: R_mesh has to land on the ground just
+    # outside the very band the emitter laid, and a private copy of
+    # either number is a second band.
+    from .object_terrain_assembly import (
+        _BASIN_RIM_SAMPLE_STEP_M,
+        _TUNNEL_RIM_BAND_WIDTH_M,
+    )
+
+    body_parts: list = []
+    for ring in body_rings_longitude_latitude:
+        points = [
+            obj8_reader.lonlat_to_local_offset(
+                origin_latitude, origin_longitude, 0.0, latitude, longitude
+            )
+            for longitude, latitude in ring
+        ]
+        if len(points) < 3:
+            continue
+        try:
+            polygon = Polygon(points)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+        except Exception:
+            continue
+        for part in getattr(polygon, "geoms", [polygon]):
+            if part.geom_type == "Polygon" and not part.is_empty:
+                body_parts.append(part)
+    if not body_parts:
+        return [], []
+    try:
+        body = unary_union(body_parts)
+        band = body.buffer(
+            _TUNNEL_RIM_BAND_WIDTH_M + 1.0, join_style=2, mitre_limit=2.0
+        )
+    except Exception:
+        return [], body_parts
+
+    sample_points: list = []
+    for part in getattr(band, "geoms", [band]):
+        exterior = getattr(part, "exterior", None)
+        if exterior is None:
+            continue
+        length = float(exterior.length)
+        if not (length > 0.0):
+            continue
+        step_count = max(
+            4, int(math.ceil(length / _BASIN_RIM_SAMPLE_STEP_M))
+        )
+        for index in range(step_count):
+            point = exterior.interpolate(length * index / step_count)
+            sample_points.append(
+                obj8_reader.local_offset_to_lonlat(
+                    origin_latitude, origin_longitude, 0.0,
+                    point.x, point.y,
+                )
+            )
+    return sample_points, body_parts
+
+
+def _bake_basin_rim_flush_facilities(
+    facilities,
+    all_placements,
+    pack_root: str,
+    xplane_root: str | None,
+    mesh_path: str,
+    *,
+    epsilon_metres: float,
+    write_changes: bool,
+    measure_only: bool,
+    result: dict,
+) -> None:
+    """THE BASIN RIM-FLUSH SEAT (docs/specs/basin-rim-flush-seating-spec.md
+    section 2.2, ACTIVATED by the owner's 2026-08-09 in-sim verdict).
+
+    The section-2.1e experiment cut the trenches and left the objects
+    draped, and the sim answered: the anchor-INSIDE facilities "are sunk
+    below the bottom of their trench" — a draped object seats on the
+    terrain at its anchor, and with the anchor pillar gone that terrain
+    IS the trench floor.  The anchor-OUTSIDE facilities "look just
+    right" and are out of scope (item 6): they drape on neighbour
+    terrain, measured within 0.4 m, and a regression there is a defect.
+
+    Per anchor-inside facility, one dedicated law::
+
+        R_mesh = median BUILT-MESH elevation on the body outline offset
+                 outward by (_TUNNEL_RIM_BAND_WIDTH_M + 1.0) m, every
+                 <= 10 m
+        delta  = R_mesh - mesh_at_anchor
+
+    applied WHOLE-FACILITY-RIGIDLY: one seat target for every member
+    shell, each member's own delta measured from its OWN anchor's ground
+    (invariant I-3), so every member's ``y = 0`` plane — the authored rim
+    plane, recon section 1 — lands on ``R_mesh``.  The generic
+    median/A3/threshold arithmetic never runs here: these resources were
+    filtered out of the generic discovery, and the delta is metres by
+    construction (the trench is metres deep), which is what the reseat
+    threshold's "units >= 1 m reseat" already says about them.
+
+    ``measure_only`` (the tile's ``modify_custom_airports`` switch off)
+    is honoured exactly as the generic law honours it: the decision is
+    computed and RECORDED, no delta is produced, nothing is written to
+    the pack, and ``object_rebake.apply`` still runs so a previously
+    baked pack converges back to its authored bytes.
+    """
+    if not facilities:
+        return
+
+    from dataclasses import replace
+    from statistics import median
+
+    from .config import (
+        TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M,
+        TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
+    )
+    from .object_terrain_assembly import BASIN_RIM_FLUSH_DECISION_KIND
+
+    placement_count_by_resource: dict[str, int] = {}
+    for placement in all_placements:
+        placement_count_by_resource[placement.resource_path] = (
+            placement_count_by_resource.get(placement.resource_path, 0) + 1
+        )
+
+    for facility in facilities:
+        member_resources = set(facility.object_resources)
+        record = {
+            "resources": sorted(member_resources),
+            "anchor_longitude_latitude": list(
+                facility.anchor_longitude_latitude),
+            "anchor_inside_body": bool(facility.anchor_inside_body),
+            "solid_minimum_y_m": float(facility.solid_minimum_y_m),
+            "measure_only": bool(measure_only),
+            "baked": False,
+            "decision_kind": BASIN_RIM_FLUSH_DECISION_KIND,
+        }
+        result["basin_rim_flush"].append(record)
+
+        if not facility.anchor_inside_body:
+            # Item 6: measured correct in-sim; left draped, untouched.
+            record["decision"] = (
+                "not baked — the facility anchor lies OUTSIDE its body, "
+                "so the object drapes on neighbour terrain (spec section "
+                "2.2 item 6)"
+            )
+            continue
+
+        member_placements = [
+            placement
+            for placement in all_placements
+            if placement.resource_path in member_resources
+        ]
+        if not member_placements:
+            record["decision"] = (
+                "not baked — no member placement in this DSF")
+            continue
+
+        skipped: list = []
+        (
+            resolved_paths,
+            geometry_by_resource,
+            geometry_source_by_resource,
+        ) = _resolve_pack_geometry(
+            member_placements,
+            placement_count_by_resource,
+            pack_root,
+            xplane_root,
+            skipped,
+            # The classifier admitted this facility; the generic law's
+            # size test has nothing to say about it (see the helper).
+            apply_reach_floor=False,
+        )
+        result["skipped"].extend(skipped)
+        if not resolved_paths:
+            record["decision"] = (
+                "not baked — no usable member geometry resolved inside "
+                "the pack")
+            continue
+
+        origin_longitude, origin_latitude = (
+            facility.anchor_longitude_latitude)
+        sample_points, _body_parts = _basin_facility_rim_sample_ring(
+            facility.body_rings_longitude_latitude,
+            origin_latitude,
+            origin_longitude,
+        )
+        if not sample_points:
+            record["decision"] = (
+                "not baked — the facility body outline is degenerate, so "
+                "no rim band could be built")
+            continue
+
+        latitudes = [latitude for latitude, _longitude in sample_points]
+        longitudes = [longitude for _latitude, longitude in sample_points]
+        for placement in member_placements:
+            latitudes.append(placement.latitude)
+            longitudes.append(placement.longitude)
+        bounds = (
+            min(longitudes), min(latitudes),
+            max(longitudes), max(latitudes),
+        )
+        try:
+            sampler = MeshElevationSampler(mesh_path, bounds)
+        except (ValueError, OSError) as error:
+            # Invariant I-13: no mesh here means no answer, never a
+            # plausible one.
+            record["decision"] = (
+                f"not baked — no mesh under the facility ({error})")
+            for placement in member_placements:
+                result["skipped"].append(
+                    (
+                        placement.resource_path,
+                        f"basin rim-flush: no mesh triangles under the "
+                        f"facility ({error})",
+                    )
+                )
+            continue
+
+        rim_samples = []
+        for latitude, longitude in sample_points:
+            elevation = sampler.elevation_at_or_none(latitude, longitude)
+            if elevation is not None and elevation == elevation:
+                rim_samples.append(float(elevation))
+        if not rim_samples:
+            record["decision"] = (
+                "not baked — the built mesh answered nowhere on the rim "
+                "band, so R_mesh is unmeasured (never guessed)")
+            for placement in member_placements:
+                result["skipped"].append(
+                    (
+                        placement.resource_path,
+                        "basin rim-flush: no built-mesh sample on the rim "
+                        "band — R_mesh unmeasured, facility left unbaked",
+                    )
+                )
+            continue
+        rim_mesh_elevation = float(median(rim_samples))
+        record["r_mesh_m"] = rim_mesh_elevation
+        record["rim_sample_count"] = len(rim_samples)
+
+        anchor_ground_by_resource: dict[str, float] = {}
+        anchor_by_resource: dict[str, tuple[float, float, float]] = {}
+        unmeasured_anchor = None
+        for placement in member_placements:
+            if placement.resource_path not in resolved_paths:
+                continue
+            anchor_ground = sampler.elevation_at_or_none(
+                placement.latitude, placement.longitude
+            )
+            if anchor_ground is None:
+                unmeasured_anchor = placement.resource_path
+                break
+            # Amendment A18: an OBJECT_AGL placement puts y = 0 at
+            # terrain(anchor) + elevation.
+            anchor_ground_by_resource[placement.resource_path] = (
+                anchor_ground + placement.above_ground_level_metres
+            )
+            anchor_by_resource[placement.resource_path] = (
+                placement.latitude,
+                placement.longitude,
+                placement.heading_degrees,
+            )
+        if unmeasured_anchor is not None or not anchor_ground_by_resource:
+            record["decision"] = (
+                "not baked — a member anchor lies outside the built mesh "
+                f"({unmeasured_anchor}); never nearest-vertex sampled "
+                "(invariant I-13)")
+            for placement in member_placements:
+                result["skipped"].append(
+                    (
+                        placement.resource_path,
+                        "basin rim-flush: a member anchor lies outside "
+                        "the built mesh — facility left unbaked "
+                        "(invariant I-13)",
+                    )
+                )
+            continue
+
+        # The trench FLOOR as built: the terrain a draped member seats
+        # on is the floor pan, so the measured anchor ground IS the
+        # floor (that is the whole content of the owner's verdict).
+        floor_elevation = min(anchor_ground_by_resource.values())
+        record["mesh_at_anchor_m"] = floor_elevation
+        record["delta_m"] = rim_mesh_elevation - floor_elevation
+
+        # ── ITEM 7 — CLEARANCE VERIFICATION, NOT HOPE ──
+        # Assert ``R_mesh + y_true_min >= floor + TUNNEL_FLOOR_BELOW_
+        # OBJECT_DECK_M - 0.01``: the seated object's deepest solid must
+        # still clear the cut floor by the promised margin.  ``R_est``
+        # is recovered from the section-2.1 floor law it was the input
+        # to (``floor = R_est + y_true_min - DECK - MARGIN``), so the
+        # finding can name the measured ``R_mesh - R_est`` the spec asks
+        # for without re-deriving a DEM estimate post-mesh.
+        true_minimum_y = float(facility.solid_minimum_y_m)
+        deck_clearance_m = float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+        seat_margin_m = float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        clearance_metres = (
+            rim_mesh_elevation + true_minimum_y
+            - (floor_elevation + deck_clearance_m)
+        )
+        rim_estimate = (
+            floor_elevation
+            + deck_clearance_m
+            + seat_margin_m
+            - true_minimum_y
+        )
+        record["clearance_m"] = clearance_metres
+        record["rim_estimate_m"] = rim_estimate
+        record["r_mesh_minus_r_est_m"] = rim_mesh_elevation - rim_estimate
+        record["clearance_finding"] = clearance_metres < -0.01
+        if record["clearance_finding"]:
+            # Loud, per facility, never silent and never self-corrected:
+            # a violation means the margin constant is too small for
+            # THIS airport, which is an owner decision.
+            UI.vprint(
+                0,
+                "  [object-anchor] BASIN CLEARANCE FINDING "
+                f"{sorted(member_resources)}: seating at R_mesh "
+                f"{rim_mesh_elevation:.2f} m leaves the deepest solid "
+                f"({true_minimum_y:.2f} m) only "
+                f"{clearance_metres + float(deck_clearance_m):.2f} m above "
+                f"the built floor {floor_elevation:.2f} m — "
+                f"{-clearance_metres:.2f} m short of the promised "
+                f"{deck_clearance_m:.2f} m.  "
+                "Measured R_mesh - R_est = "
+                f"{record['r_mesh_minus_r_est_m']:.2f} m against a "
+                f"{seat_margin_m:.2f} m "
+                "O4_TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M — the margin is too "
+                "small for this airport (reported, never re-derived).",
+            )
+
+        pools = object_anchor.discover_object_pools(
+            [
+                placement
+                for placement in member_placements
+                if placement.resource_path in resolved_paths
+            ],
+            resolved_paths,
+            geometry_by_resource,
+            epsilon_metres=epsilon_metres,
+        )
+        baked_resources: list[str] = []
+        for pool in pools:
+            pool_geometry_by_resource = {
+                resource_path: geometry_by_resource[resource_path]
+                for resource_path in pool.resolved_paths
+            }
+            structures = _cached_partition_structures(
+                pool,
+                pool_geometry_by_resource,
+                geometry_source_by_resource,
+                pack_root,
+                epsilon_metres,
+            )
+            delta_by_resource_and_vertex: dict[str, dict[int, float]] = {}
+            decision_structures = []
+            for structure in structures:
+                if measure_only:
+                    decision_structures.append(
+                        replace(
+                            structure,
+                            skip_reason=(
+                                "modify_custom_airports is off — "
+                                "measure-only run: the basin_rim_flush "
+                                "seat was computed and recorded, the "
+                                "pack is not modified"
+                            ),
+                        )
+                    )
+                    continue
+                decision_structures.append(structure)
+                for resource_path, triangles in (
+                    structure.triangles_by_resource.items()
+                ):
+                    if resource_path not in anchor_ground_by_resource:
+                        continue
+                    # WHOLE-FACILITY RIGID: one seat target, each
+                    # member's delta from its own anchor ground.
+                    delta = (
+                        rim_mesh_elevation
+                        - anchor_ground_by_resource[resource_path]
+                    )
+                    resource_deltas = (
+                        delta_by_resource_and_vertex.setdefault(
+                            resource_path, {})
+                    )
+                    for triangle in triangles:
+                        for vertex_index in triangle:
+                            resource_deltas[vertex_index] = delta
+            pool_resources = set(pool.resolved_paths)
+            decision = object_anchor.RebakeDecision(
+                structures=decision_structures,
+                delta_by_resource_and_vertex=delta_by_resource_and_vertex,
+                # Scoped to THIS pool: ``object_rebake.apply``'s
+                # reversion pass un-bakes every resource a decision
+                # "knows" but did not write, and a facility's second
+                # pool is not this decision's business.
+                anchor_ground_by_resource={
+                    resource_path: ground
+                    for resource_path, ground
+                    in anchor_ground_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                skipped=[],
+                anchor_by_resource={
+                    resource_path: anchor
+                    for resource_path, anchor
+                    in anchor_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                decision_kind_by_resource={
+                    resource_path: BASIN_RIM_FLUSH_DECISION_KIND
+                    for resource_path in delta_by_resource_and_vertex
+                },
+            )
+            result["decisions"].append((pool, decision))
+            if write_changes:
+                report = object_rebake.apply(decision, pack_root, mesh_path)
+                result["objects_written"].extend(report.objects_written)
+                result["vertices_offset"] += report.vertices_offset_total
+                result["structures_baked"] += report.structures_baked
+                result["structures_needing_pad"] += (
+                    report.structures_needing_pad
+                )
+                result["skipped"].extend(report.skipped)
+                result["objects_reverted"].extend(report.objects_reverted)
+                result["reversions_missing_backup"].extend(
+                    report.reversions_missing_backup
+                )
+                result["partially_baked"].extend(report.partially_baked)
+                baked_resources.extend(report.objects_written)
+            else:
+                result["structures_baked"] += sum(
+                    1
+                    for structure in decision_structures
+                    if structure.skip_reason is None
+                )
+                baked_resources.extend(
+                    sorted(delta_by_resource_and_vertex))
+        # "baked" means the pack was WRITTEN.  A dry run computes the
+        # same seat and writes nothing, and saying otherwise would put a
+        # bake in a report that never touched a file.
+        record["baked"] = bool(baked_resources) and write_changes
+        record["dry_run"] = not write_changes
+        record["objects_written"] = sorted(set(baked_resources))
+        if measure_only:
+            record["decision"] = (
+                "measure-only (modify_custom_airports off): "
+                f"basin_rim_flush seat at R_mesh {rim_mesh_elevation:.2f} "
+                f"m recorded, delta {record['delta_m']:.2f} m NOT written")
+        else:
+            record["decision"] = (
+                ("basin_rim_flush (dry run, nothing written): would seat "
+                 if not write_changes else "basin_rim_flush: seated ")
+                + f"at R_mesh {rim_mesh_elevation:.2f} m, delta "
+                f"{record['delta_m']:.2f} m over "
+                f"{len(record['objects_written'])} object file(s)")
+        UI.vprint(
+            1,
+            f"  [object-anchor] basin_rim_flush {sorted(member_resources)}: "
+            + record["decision"],
+        )
+
+
 def discover_and_rebake_airport(
     dsf_path: str,
     mesh_path: str,
@@ -382,6 +989,7 @@ def discover_and_rebake_airport(
     write_changes: bool = True,
     excluded_resources: set[tuple[str, str]] | None = None,
     measure_only: bool = False,
+    basin_rim_flush_facilities: list | None = None,
 ) -> dict:
     """Run the full Phase 2 discovery pipeline for one airport's DSF.
 
@@ -419,6 +1027,15 @@ def discover_and_rebake_airport(
     (the pre-change behaviour, and the only behaviour while the
     ``O4_OBJECT_BRIDGE_TERRAIN`` / tunnel gates are off).
 
+    ``basin_rim_flush_facilities``
+    (``object_terrain_assembly.BasinRimFlushFacility`` records,
+    docs/specs/basin-rim-flush-seating-spec.md section 2.2): the
+    dedicated seating class.  Its members stay OUT of the generic
+    discovery above — section 2.2 item 5 says the generic
+    median/A3/threshold arithmetic does not run for them, and the way to
+    guarantee that is for them never to enter it — and are seated
+    afterwards by :func:`_bake_basin_rim_flush_facilities` instead.
+
     Returns a dict with ``objects_written`` (resource paths),
     ``vertices_offset``, ``structures_baked``, ``structures_needing_pad``,
     ``skipped`` (``(resource_path_or_dsf, reason)`` tuples, discovery and
@@ -426,13 +1043,7 @@ def discover_and_rebake_airport(
     (``(ObjectPool, RebakeDecision)`` pairs, for detailed reporting).
     Pure data out — printing is the caller's business.
     """
-    from .config import (
-        DSF_OBJECT_CONTACT_EPSILON_M,
-        DSF_OBJECT_ELEVATED_BASE_M,
-        DSF_OBJECT_FOOT_ANCHOR,
-        DSF_OBJECT_FOOT_MIN_REACH_M,
-        DSF_OBJECT_MIN_REACH_M,
-    )
+    from .config import DSF_OBJECT_CONTACT_EPSILON_M
 
     if epsilon_metres is None:
         epsilon_metres = DSF_OBJECT_CONTACT_EPSILON_M
@@ -461,6 +1072,11 @@ def discover_and_rebake_airport(
         # recorded run fingerprint still matches every input.
         "short_circuited": False,
         "structures_up_to_date": 0,
+        # One dict per basin facility the section-2.2 law considered —
+        # baked, out of scope (anchor outside the body) or refused — for
+        # the caller's report.  Never empty-because-silent: a facility
+        # that could not be measured is in here with its reason.
+        "basin_rim_flush": [],
     }
 
     # Short-circuit (O4_REANCHOR_SHORT_CIRCUIT, default on).  The pack's
@@ -549,216 +1165,200 @@ def discover_and_rebake_airport(
         )
         return result
 
-    # Ruling R4: objects whose terrain was adapted TO them (feature A/B)
-    # are excluded from the Phase 2 y-bake — the two corrections must
-    # never stack.  Filter before discovery, skip-and-report each drop.
-    if excluded_resources:
-        dropped = sorted({
-            placement.resource_path
-            for placement in placements
-            if (pack_root or "", placement.resource_path)
-            in excluded_resources
-        })
-        if dropped:
-            placements = [
-                placement
+    # The DSF's placements as read, before the ruling-R4 filter below:
+    # the section-2.2 basin pass seats members the generic pass drops.
+    all_placements = list(placements)
+    basin_member_resources = {
+        resource
+        for facility in (basin_rim_flush_facilities or [])
+        if facility.anchor_inside_body
+        for resource in facility.object_resources
+    }
+
+    def _generic_pass() -> None:
+        """The generic Phase 2 y-bake, unchanged.  A nested function only
+        so its early exits leave the section-2.2 basin pass below still
+        to run — an airport whose every generic placement is excluded
+        still has basin facilities to seat."""
+        nonlocal placements
+
+        # Ruling R4: objects whose terrain was adapted TO them (feature
+        # A/B) are excluded from the Phase 2 y-bake — the two
+        # corrections must never stack.  Filter before discovery,
+        # skip-and-report each drop.
+        if excluded_resources:
+            dropped = sorted({
+                placement.resource_path
                 for placement in placements
                 if (pack_root or "", placement.resource_path)
-                not in excluded_resources
-            ]
-            for resource_path in dropped:
-                result["skipped"].append(
-                    (
-                        resource_path,
-                        "terrain adapted to this object (object terrain "
-                        "feature A/B) — excluded from the Phase 2 y-bake "
-                        "(ruling R4)",
-                    )
-                )
-            if not placements:
-                return result
-
-    placement_count_by_resource: dict[str, int] = {}
-    for placement in placements:
-        placement_count_by_resource[placement.resource_path] = (
-            placement_count_by_resource.get(placement.resource_path, 0) + 1
-        )
-
-    resolved_paths: dict[str, str] = {}
-    geometry_by_resource: dict = {}
-    geometry_source_by_resource: dict[str, str] = {}
-    for resource_path in sorted(
-        {placement.resource_path for placement in placements}
-    ):
-        physical_path = obj8_reader.resolve_object_resource(
-            resource_path, pack_root, xplane_root
-        )
-        if physical_path is None:
-            continue
-        # Amendment A15, guard 2: a library-resolved resource lives in
-        # ANOTHER pack; baking it would push one airport's offsets into
-        # an object shared by many.  Skip-and-report.
-        if not _resolved_path_is_inside_pack(physical_path, pack_root):
-            result["skipped"].append(
-                (
-                    resource_path,
-                    "resolved through library.txt outside the pack — "
-                    "shared library objects are never rebaked "
-                    "(amendment A15)",
-                )
-            )
-            continue
-        # Ruling R1: geometry is ALWAYS read from the backup when one
-        # exists — on a re-run the live file already carries baked
-        # offsets, and parsing it would misclassify every corrected
-        # structure as elevated (its base y is no longer 0).  The
-        # rebake writer makes the same choice (``object_rebake.apply``
-        # reads ``<name>.anchor_bak``); vertex ordering is identical in
-        # both files, so the per-vertex deltas line up.
-        backup_path = physical_path + object_rebake.BACKUP_SUFFIX
-        geometry_source_path = (
-            backup_path if os.path.isfile(backup_path) else physical_path
-        )
-        geometry = dsf_reader._load_object_geometry(geometry_source_path)
-        if geometry is None or not geometry.has_solid_geometry:
-            continue
-        # The reach floor keeps compact, correctly anchored objects out
-        # of Phase 2 — but an author-BAKED vertical offset breaks the
-        # metric's premise: X-Plane mis-places such an object no matter
-        # how compact it is (the KBNA stairs reach 24.3 m and 20.6 m,
-        # under the floor).  Baked-offset geometry — lowest solid vertex
-        # above the elevated threshold — is admitted at the reduced
-        # foot-re-anchor floor instead (config rationale at
-        # DSF_OBJECT_FOOT_MIN_REACH_M).
-        minimum_solid_y = min(
-            geometry.vertices[vertex_index][1]
-            for triangle in geometry.solid_triangles
-            for vertex_index in triangle
-        )
-        reach_floor_metres = (
-            DSF_OBJECT_FOOT_MIN_REACH_M
-            if DSF_OBJECT_FOOT_ANCHOR
-            and minimum_solid_y > DSF_OBJECT_ELEVATED_BASE_M
-            else DSF_OBJECT_MIN_REACH_M
-        )
-        if geometry.solid_reach_metres() < reach_floor_metres:
-            continue
-        # Invariant I-4, enforced at Phase 2 discovery (amendment A13):
-        # a resource with several terrain-draped placements would need a
-        # different correction per placement, which one shared file
-        # cannot carry.  Phase 1 accepts the same resource (N placements
-        # = N buildings, invariant I-5); Phase 2 must not.
-        placement_count = placement_count_by_resource[resource_path]
-        if placement_count > 1:
-            result["skipped"].append(
-                (
-                    resource_path,
-                    f"{placement_count} terrain-draped OBJECT placements "
-                    "— a shared file cannot carry per-placement offsets "
-                    "(invariant I-4)",
-                )
-            )
-            continue
-        resolved_paths[resource_path] = physical_path
-        geometry_by_resource[resource_path] = geometry
-        geometry_source_by_resource[resource_path] = geometry_source_path
-    if not resolved_paths:
-        return result
-
-    candidate_placements = [
-        placement
-        for placement in placements
-        if placement.resource_path in resolved_paths
-    ]
-    pools = object_anchor.discover_object_pools(
-        candidate_placements,
-        resolved_paths,
-        geometry_by_resource,
-        epsilon_metres=epsilon_metres,
-    )
-
-    for pool in pools:
-        pool_geometry_by_resource = {
-            resource_path: geometry_by_resource[resource_path]
-            for resource_path in pool.resolved_paths
-        }
-        bounds = _pool_world_bounds(pool, pool_geometry_by_resource)
-        try:
-            sampler = MeshElevationSampler(mesh_path, bounds)
-        except ValueError as error:
-            # No mesh triangles under this pool — a pool that walked off
-            # the tile.  Skip-and-report, never guess (invariant I-13).
-            for placement in pool.placements:
-                result["skipped"].append(
-                    (
-                        placement.resource_path,
-                        f"no mesh triangles under the pool ({error})",
-                    )
-                )
-            continue
-        structures = _cached_partition_structures(
-            pool,
-            pool_geometry_by_resource,
-            geometry_source_by_resource,
-            pack_root,
-            epsilon_metres,
-        )
-        decision = object_anchor.structure_deltas(
-            pool,
-            pool_geometry_by_resource,
-            structures,
-            sampler,
-            measure_only=measure_only,
-        )
-        result["decisions"].append((pool, decision))
-        result["foot_pad_requests"].extend(decision.foot_pad_requests)
-        result["cluster_pad_requests"].extend(decision.cluster_pad_requests)
-        result["cluster_seams"].extend(decision.cluster_seams)
-        if write_changes:
-            report = object_rebake.apply(decision, pack_root, mesh_path)
-            result["objects_written"].extend(report.objects_written)
-            result["vertices_offset"] += report.vertices_offset_total
-            result["structures_baked"] += report.structures_baked
-            result["structures_needing_pad"] += (
-                report.structures_needing_pad
-            )
-            result["skipped"].extend(report.skipped)
-            result["objects_reverted"].extend(report.objects_reverted)
-            result["reversions_missing_backup"].extend(
-                report.reversions_missing_backup
-            )
-            result["partially_baked"].extend(report.partially_baked)
-        else:
-            result["structures_baked"] += sum(
-                1
-                for structure in decision.structures
-                if structure.skip_reason is None
-            )
-            result["structures_needing_pad"] += sum(
-                1 for structure in decision.structures if structure.needs_pad
-            )
-            result["skipped"].extend(decision.skipped)
-            # Amendment A21 parity with the write path: resources that
-            # WOULD bake only their passing structures.
-            for resource_path in sorted(
-                decision.delta_by_resource_and_vertex
-            ):
-                resource_skipped = [
-                    structure
-                    for structure in decision.structures
-                    if structure.skip_reason
-                    and resource_path in structure.triangles_by_resource
+                in excluded_resources
+            })
+            if dropped:
+                placements = [
+                    placement
+                    for placement in placements
+                    if (pack_root or "", placement.resource_path)
+                    not in excluded_resources
                 ]
-                if resource_skipped:
-                    result["partially_baked"].append(
+                for resource_path in dropped:
+                    result["skipped"].append(
                         (
                             resource_path,
-                            f"{len(resource_skipped)} structure(s) would "
-                            "stay at their authored y (skipped), passing "
-                            "structures bake; first reason: "
-                            + resource_skipped[0].skip_reason,
+                            # A basin member is not merely withheld: it
+                            # is seated by the dedicated law below, and
+                            # a skip line claiming otherwise would send
+                            # the next reader hunting the wrong law.
+                            "basin facility member — seated by the "
+                            "basin_rim_flush law, not the generic "
+                            "y-bake (spec section 2.2 item 5)"
+                            if resource_path in basin_member_resources
+                            else
+                            "terrain adapted to this object (object "
+                            "terrain feature A/B) — excluded from the "
+                            "Phase 2 y-bake (ruling R4)",
                         )
                     )
+                if not placements:
+                    return
+
+        _generic_pass_discovery()
+
+    def _generic_pass_discovery() -> None:
+        placement_count_by_resource: dict[str, int] = {}
+        for placement in placements:
+            placement_count_by_resource[placement.resource_path] = (
+                placement_count_by_resource.get(placement.resource_path, 0) + 1
+            )
+
+        (
+            resolved_paths,
+            geometry_by_resource,
+            geometry_source_by_resource,
+        ) = _resolve_pack_geometry(
+            placements,
+            placement_count_by_resource,
+            pack_root,
+            xplane_root,
+            result["skipped"],
+        )
+        if not resolved_paths:
+            return
+
+        candidate_placements = [
+            placement
+            for placement in placements
+            if placement.resource_path in resolved_paths
+        ]
+        pools = object_anchor.discover_object_pools(
+            candidate_placements,
+            resolved_paths,
+            geometry_by_resource,
+            epsilon_metres=epsilon_metres,
+        )
+
+        for pool in pools:
+            pool_geometry_by_resource = {
+                resource_path: geometry_by_resource[resource_path]
+                for resource_path in pool.resolved_paths
+            }
+            bounds = _pool_world_bounds(pool, pool_geometry_by_resource)
+            try:
+                sampler = MeshElevationSampler(mesh_path, bounds)
+            except ValueError as error:
+                # No mesh triangles under this pool — a pool that walked off
+                # the tile.  Skip-and-report, never guess (invariant I-13).
+                for placement in pool.placements:
+                    result["skipped"].append(
+                        (
+                            placement.resource_path,
+                            f"no mesh triangles under the pool ({error})",
+                        )
+                    )
+                continue
+            structures = _cached_partition_structures(
+                pool,
+                pool_geometry_by_resource,
+                geometry_source_by_resource,
+                pack_root,
+                epsilon_metres,
+            )
+            decision = object_anchor.structure_deltas(
+                pool,
+                pool_geometry_by_resource,
+                structures,
+                sampler,
+                measure_only=measure_only,
+            )
+            result["decisions"].append((pool, decision))
+            result["foot_pad_requests"].extend(decision.foot_pad_requests)
+            result["cluster_pad_requests"].extend(
+                decision.cluster_pad_requests)
+            result["cluster_seams"].extend(decision.cluster_seams)
+            if write_changes:
+                report = object_rebake.apply(decision, pack_root, mesh_path)
+                result["objects_written"].extend(report.objects_written)
+                result["vertices_offset"] += report.vertices_offset_total
+                result["structures_baked"] += report.structures_baked
+                result["structures_needing_pad"] += (
+                    report.structures_needing_pad
+                )
+                result["skipped"].extend(report.skipped)
+                result["objects_reverted"].extend(report.objects_reverted)
+                result["reversions_missing_backup"].extend(
+                    report.reversions_missing_backup
+                )
+                result["partially_baked"].extend(report.partially_baked)
+            else:
+                result["structures_baked"] += sum(
+                    1
+                    for structure in decision.structures
+                    if structure.skip_reason is None
+                )
+                result["structures_needing_pad"] += sum(
+                    1 for structure in decision.structures
+                    if structure.needs_pad
+                )
+                result["skipped"].extend(decision.skipped)
+                # Amendment A21 parity with the write path: resources that
+                # WOULD bake only their passing structures.
+                for resource_path in sorted(
+                    decision.delta_by_resource_and_vertex
+                ):
+                    resource_skipped = [
+                        structure
+                        for structure in decision.structures
+                        if structure.skip_reason
+                        and resource_path in structure.triangles_by_resource
+                    ]
+                    if resource_skipped:
+                        result["partially_baked"].append(
+                            (
+                                resource_path,
+                                f"{len(resource_skipped)} structure(s) would "
+                                "stay at their authored y (skipped), passing "
+                                "structures bake; first reason: "
+                                + resource_skipped[0].skip_reason,
+                            )
+                        )
+
+    _generic_pass()
+
+    # THE DEDICATED BASIN CLASS (spec section 2.2, owner's in-sim verdict
+    # 2026-08-09).  It runs AFTER the generic pass and over disjoint
+    # resources — its members were filtered out above — so no object can
+    # be reached by both laws, which is what "generic median/A3/threshold
+    # arithmetic does not run for this class" has to mean in code.
+    _bake_basin_rim_flush_facilities(
+        basin_rim_flush_facilities,
+        all_placements,
+        pack_root,
+        xplane_root,
+        mesh_path,
+        epsilon_metres=epsilon_metres,
+        write_changes=write_changes,
+        measure_only=measure_only,
+        result=result,
+    )
 
     # Fingerprint this full run so the NEXT mesh build can skip it.
     # Written last, after ``object_rebake.apply`` has rewritten the pack
@@ -904,14 +1504,19 @@ def rebake_dsf_objects(tile) -> dict:
                         "the current DSF",
                     )
                 # Ruling R4: feature-A/B-consumed objects (terrain
-                # adapted TO them) never receive the Phase 2 y-bake.
-                # Empty set — read nothing — while the object-terrain
-                # gates are off.
-                from .object_terrain_assembly import exclusion_set_for_dsf
+                # adapted TO them) never receive the Phase 2 y-bake —
+                # and, from ONE classification, the section-2.2 basin
+                # facilities that take the dedicated rim-flush law
+                # instead.  Empty — read nothing — while the
+                # object-terrain gates are off.
+                from .object_terrain_assembly import (
+                    post_mesh_object_terrain_records,
+                )
 
-                excluded_resources = exclusion_set_for_dsf(
+                terrain_records = post_mesh_object_terrain_records(
                     dsf_path, xplane_root, pack_root=pack_root
                 )
+                excluded_resources = terrain_records.exclusions
                 airport_result = discover_and_rebake_airport(
                     dsf_path,
                     mesh_path,
@@ -919,6 +1524,9 @@ def rebake_dsf_objects(tile) -> dict:
                     xplane_root,
                     excluded_resources=excluded_resources,
                     measure_only=measure_only,
+                    basin_rim_flush_facilities=(
+                        terrain_records.basin_rim_flush_facilities
+                    ),
                 )
             except Exception as exception:
                 # Per-airport containment: one broken airport never
@@ -974,6 +1582,32 @@ def rebake_dsf_objects(tile) -> dict:
                     "excluded and still carries a stale bake but its "
                     ".anchor_bak is missing — left untouched, NOT reverted",
                 )
+            # The section-2.2 basin class, per facility, in the tile log
+            # the integration report reads: what was seated, where, and
+            # every clearance finding (item 7 is a FINDING, so it must
+            # be visible without a debug flag).
+            basin_records = airport_result.get("basin_rim_flush", ())
+            if basin_records:
+                baked_count = sum(
+                    1 for record in basin_records if record.get("baked"))
+                finding_count = sum(
+                    1 for record in basin_records
+                    if record.get("clearance_finding"))
+                counts["basin_rim_flush_seated"] += baked_count
+                counts["basin_clearance_findings"] += finding_count
+                UI.vprint(
+                    1,
+                    f"  [object-anchor] {icao}: {baked_count} of "
+                    f"{len(basin_records)} basin facility(ies) seated by "
+                    f"the basin_rim_flush law, {finding_count} clearance "
+                    "finding(s)",
+                )
+                for record in basin_records:
+                    UI.vprint(
+                        2,
+                        f"  [object-anchor] {icao}: basin "
+                        f"{record['resources']}: {record['decision']}",
+                    )
             counts["foot_pad_requests"] += len(
                 airport_result["foot_pad_requests"]
             )

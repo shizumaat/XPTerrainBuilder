@@ -136,7 +136,14 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # now decides whether a unit bakes AT ALL, and a record written under
 # the old always-bake law describes a pack state the new law disagrees
 # with (its bakes are exactly what the reversion pass must undo).
-RUN_RECORD_VERSION = 5
+# 5 -> 6 (2026-08-09) for the BASIN RIM-FLUSH law
+# (docs/specs/basin-rim-flush-seating-spec.md section 2.2, owner's in-sim
+# verdict): anchor-inside basin facility members were withheld from the
+# bake entirely under the section-2.1e experiment and are now seated by
+# a dedicated law.  A version-5 record describes exactly that unbaked
+# pack, and a short-circuit on it would leave every drainage object
+# sunk at its trench floor — the defect the section exists to fix.
+RUN_RECORD_VERSION = 6
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.
@@ -191,6 +198,15 @@ _GATE_NAMES = (
     "DSF_OBJECT_FOOT_CONTACT_TOLERANCE_M",
     "DSF_OBJECT_FOOT_PAD_RESIDUAL_M",
     "DSF_OBJECT_FOOT_PAD_MARGIN_M",
+    # THE BASIN RIM-FLUSH LAW's own constants (basin-rim-flush spec
+    # section 2.2 item 8).  The floor clearance and the seat-estimate
+    # margin define the section-2.1 floor the seated object must clear,
+    # so they decide whether item 7's clearance FINDING fires — and the
+    # margin is exactly the knob the finding tells the owner to change.
+    # Neither touches an input file, so a recorded run under one value
+    # must never short-circuit a run under another.
+    "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
+    "TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M",
 )
 
 # Environment gates read directly (no config constant) by the rebake
@@ -1219,6 +1235,15 @@ def apply(
             "backup_sha256": _sha256_of_file(backup_path),
             "written_sha256": _sha256_of_file(live_path),
         }
+        # WHICH LAW seated this object (basin-rim-flush spec section 2.2
+        # item 5).  Recorded only when a dedicated law owned the
+        # decision; a record without the key was seated by the generic
+        # arithmetic, which is what every pre-2.2 record means.
+        decision_kind = getattr(
+            decision, "decision_kind_by_resource", {}
+        ).get(resource_path)
+        if decision_kind:
+            provenance_entry["decision_kind"] = decision_kind
         skipped_structures = skipped_structures_by_resource.get(
             resource_path
         )

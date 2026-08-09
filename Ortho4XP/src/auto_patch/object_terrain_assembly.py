@@ -46,6 +46,7 @@ import json
 import math
 import os
 import pickle
+from dataclasses import dataclass
 from statistics import median
 
 import O4_UI_Utils as UI
@@ -426,7 +427,21 @@ def _discover_sibling_road_networks(
 # ABOVE_GRADE_DECK_AREA_M2) — the low-bridge case the +2.0 m height cap
 # cannot see.  A v12 result still cuts a trench under OTHH Bridge_04
 # (crest +1.91, 1,650.6 m² of deck above grade).
-_CLASSIFICATION_CACHE_VERSION = 13
+# 14: ``StructureGroundInterface`` grew ``solid_minimum_y_m`` (the TRUE
+# deepest solid of the structure's frame, spec basin-rim-flush-seating
+# section 2.1 item 3).  THE VERSION IS THE FIX for a measured defect: the
+# section-2.1 landing (3402698) added the field but left this number at
+# 13, so a fingerprint-matching v13 pickle written before it kept being
+# accepted — and an OLD pickle restores a frozen dataclass from its
+# recorded ``__dict__``, which has no such key, so every interface read
+# back with the CLASS DEFAULT ``None``.  ``basin_trench_structures`` then
+# took its documented fallback (the clustered interface LEVEL) and OTHH
+# Drainage_06 carried −3.859 m into the floor law and the E2 sidecar
+# where its deepest solid is −4.201 m (in the ``_001`` sibling shell) —
+# 0.342 m of the promised 0.5 m clearance spent before the cut.  Adding
+# a field to a PICKLED record is a cache-version event; nothing else in
+# the fingerprint can see it.
+_CLASSIFICATION_CACHE_VERSION = 14
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -800,20 +815,27 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # entry was computed with that gate effectively OFF while the flag rode
 # the digest as ON, so a v2 entry is a WRONG answer for an unchanged pack
 # — the version, not the digest, is what retires them.
-_EXCLUSION_CACHE_VERSION = 3
+# v4 (2026-08-09, section 2.2): the payload carries the BASIN RIM-FLUSH
+# FACILITY records beside the exclusion pairs — one classify feeds both
+# post-mesh consumers.  A v3 entry has no facilities key at all, and
+# reading it as "no basin facility" would silently leave every
+# anchor-inside basin unbaked on a warm cache.
+_EXCLUSION_CACHE_VERSION = 4
 
 
-def _cached_exclusion_pairs(
+def _cached_post_mesh_records(
     pack_root: str,
     terrain_placements,
     mean_sea_level_placements,
     geometry_by_resource,
     compute,
-) -> set[tuple[str, str]]:
-    """Content-hash sidecar cache for the ruling-R4 exclusion set.
+) -> tuple[set[tuple[str, str]], list]:
+    """Content-hash sidecar cache for the post-mesh classifier reads: the
+    ruling-R4 exclusion set AND the section-2.2 basin rim-flush facility
+    records (``compute`` returns both, from ONE classification).
 
-    The set is a pure function of the DSF placements, the loaded OBJ8
-    geometry and the classifier version — never the mesh — yet it was
+    They are a pure function of the DSF placements, the loaded OBJ8
+    geometry and the classifier version — never the mesh — yet were
     recomputed on every mesh build (profiled 2026-07-15: 46 s of the
     KBNA rebake, the classifier being the bulk).  Keyed by CONTENT
     (placements + a digest of each loaded geometry), not file mtimes:
@@ -867,13 +889,17 @@ def _cached_exclusion_pairs(
             with open(cache_path) as handle:
                 payload = json.load(handle)
             if payload.get("version") == _EXCLUSION_CACHE_VERSION:
-                return {
-                    (pair[0], pair[1]) for pair in payload["exclusions"]
-                }
+                return (
+                    {(pair[0], pair[1]) for pair in payload["exclusions"]},
+                    [
+                        BasinRimFlushFacility.from_json(entry)
+                        for entry in payload["basin_facilities"]
+                    ],
+                )
         except Exception:
             pass  # corrupt/unreadable — recompute below
 
-    exclusions = compute()
+    exclusions, basin_facilities = compute()
     try:
         os.makedirs(cache_directory, exist_ok=True)
         temporary_path = cache_path + ".tmp"
@@ -882,26 +908,50 @@ def _cached_exclusion_pairs(
                 {
                     "version": _EXCLUSION_CACHE_VERSION,
                     "exclusions": sorted(exclusions),
+                    "basin_facilities": [
+                        facility.to_json() for facility in basin_facilities
+                    ],
                 },
                 handle,
             )
         os.replace(temporary_path, cache_path)
     except OSError:
-        pass  # best effort — the set is already computed
-    return exclusions
+        pass  # best effort — the records are already computed
+    return exclusions, basin_facilities
 
 
-def exclusion_set_for_dsf(
+@dataclass(frozen=True)
+class PostMeshObjectTerrainRecords:
+    """Everything the Phase 2 post-mesh pass needs from the object-terrain
+    classifier, from ONE classification of one overlay DSF.
+
+    ``exclusions`` is the ruling-R4 set the GENERIC y-bake must not
+    touch; ``basin_rim_flush_facilities`` is the section-2.2 dedicated
+    class.  Basin members stay on BOTH lists deliberately: they are
+    withheld from the generic median/A3/threshold arithmetic (which
+    section 2.2 item 5 says does not run for this class) and seated by
+    the dedicated law instead."""
+
+    exclusions: set[tuple[str, str]]
+    basin_rim_flush_facilities: list
+
+
+def post_mesh_object_terrain_records(
     dsf_path: str,
     xplane_root: str | None,
     pack_root: str | None = None,
-) -> set[tuple[str, str]]:
-    """The ruling-R4 exclusion set for one overlay DSF: every
+) -> PostMeshObjectTerrainRecords:
+    """The ruling-R4 exclusion set for one overlay DSF — every
     ``(pack_root, resource_path)`` pair whose terrain is carved or seated
     to match the object (a structure consumed by terrain feature A or B),
     for :func:`post_mesh.discover_and_rebake_airport` to drop from the
-    Phase 2 y-bake — terrain-to-object and object-to-terrain corrections
-    must never stack.
+    Phase 2 y-bake, terrain-to-object and object-to-terrain corrections
+    never stacking — AND the section-2.2 basin rim-flush facilities, from
+    the same single classification.
+
+    ONE classify, both consumers: a second call for the facilities would
+    re-run the classifier (the bulk of a 46 s KBNA rebake, profiled
+    2026-07-15) over identical inputs.
 
     Gate-checked: with ``O4_OBJECT_BRIDGE_TERRAIN``,
     ``O4_OBJECT_TUNNEL_TERRAIN`` and ``O4_OBJECT_BASIN_TRENCH`` ALL off
@@ -933,14 +983,16 @@ def exclusion_set_for_dsf(
     # basin's object was then y-baked onto the terrain we just cut it.
     # A gate that decides whether the exclusion is computed must name
     # every feature that does the carving.
+    empty = PostMeshObjectTerrainRecords(exclusions=set(),
+                                         basin_rim_flush_facilities=[])
     if not (config.OBJECT_BRIDGE_TERRAIN or config.OBJECT_TUNNEL_TERRAIN
             or config.OBJECT_BASIN_TRENCH):
-        return set()
+        return empty
     if not dsf_path or not os.path.isfile(dsf_path):
-        return set()
+        return empty
     lines = dsf_reader._load_dsf_text(dsf_path)
     if not lines:
-        return set()
+        return empty
     all_placements = obj8_reader.read_dsf_object_placements(
         lines,
         accept_resource=lambda resource: resource.lower().endswith(".obj"),
@@ -957,16 +1009,16 @@ def exclusion_set_for_dsf(
         if placement.placement_kind != "OBJECT_MSL"
     ]
     if not terrain_placements:
-        return set()
+        return empty
     if pack_root is None:
         pack_root = dsf_reader._pack_root_for_dsf(dsf_path)
     geometry_by_resource = _load_object_geometry_by_resource(
         terrain_placements, pack_root, xplane_root
     )
     if not geometry_by_resource:
-        return set()
+        return empty
 
-    def compute() -> set[tuple[str, str]]:
+    def compute() -> tuple[set[tuple[str, str]], list]:
         result = object_terrain_features.classify_object_terrain_features(
             terrain_placements,
             geometry_by_resource,
@@ -992,15 +1044,32 @@ def exclusion_set_for_dsf(
         _expand_exclusions_to_anchor_families(
             result, terrain_placements, pack_root or ""
         )
-        return set(result.exclusions)
+        return set(result.exclusions), basin_rim_flush_facilities(result)
 
-    return _cached_exclusion_pairs(
+    exclusions, facilities = _cached_post_mesh_records(
         pack_root or "",
         terrain_placements,
         mean_sea_level_placements,
         geometry_by_resource,
         compute,
     )
+    return PostMeshObjectTerrainRecords(
+        exclusions=exclusions,
+        basin_rim_flush_facilities=facilities,
+    )
+
+
+def exclusion_set_for_dsf(
+    dsf_path: str,
+    xplane_root: str | None,
+    pack_root: str | None = None,
+) -> set[tuple[str, str]]:
+    """The ruling-R4 exclusion set alone —
+    :func:`post_mesh_object_terrain_records`'s ``exclusions``.  Kept as
+    the name every existing caller and pin uses."""
+    return post_mesh_object_terrain_records(
+        dsf_path, xplane_root, pack_root
+    ).exclusions
 
 
 def _log_classification_summary(icao, result, road_networks) -> None:
@@ -1038,15 +1107,19 @@ def _log_classification_summary(icao, result, road_networks) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tunnel_footprint_meters_parts(tunnel, to_meters) -> list:
-    """Project a tunnel's WHOLE-BODY OUTER footprint (amendment A1: the
-    author cuts the entire body, not the mouths alone; user 2026-07-18:
-    the cut must be flush with the OUTSIDE of the objects, so the roof
-    slab — which spans the shell's outer walls — joins the drivable deck
-    in the union, else ground pokes through the side walls) to
-    layout-meter shapely ``Polygon`` parts.  Empty list on
-    absent/degenerate geometry."""
-    from shapely.geometry import Polygon
+def _tunnel_footprint_longitude_latitude_parts(tunnel) -> list:
+    """A tunnel's WHOLE-BODY OUTER footprint (amendment A1: the author
+    cuts the entire body, not the mouths alone; user 2026-07-18: the cut
+    must be flush with the OUTSIDE of the objects, so the roof slab —
+    which spans the shell's outer walls — joins the drivable deck in the
+    union, else ground pokes through the side walls) as shapely
+    ``Polygon`` parts in LONGITUDE/LATITUDE.  Empty list on
+    absent/degenerate geometry.
+
+    THE one body-outline reader: the layout emitter takes these parts
+    into layout metres (:func:`_tunnel_footprint_meters_parts`) and the
+    post-mesh basin pass takes the same parts into its own metre frame.
+    A second projection of "the body" is a second body."""
     from shapely.ops import unary_union
     from .object_terrain_features import frame_polygon_to_longitude_latitude
 
@@ -1067,11 +1140,19 @@ def _tunnel_footprint_meters_parts(tunnel, to_meters) -> list:
     footprint_longitude_latitude = frame_polygon_to_longitude_latitude(
         outer_footprint, tunnel.frame_origin_longitude_latitude
     )
-    parts = (
+    return (
         list(footprint_longitude_latitude.geoms)
         if footprint_longitude_latitude.geom_type == "MultiPolygon"
         else [footprint_longitude_latitude]
     )
+
+
+def _tunnel_footprint_meters_parts(tunnel, to_meters) -> list:
+    """:func:`_tunnel_footprint_longitude_latitude_parts` projected into
+    the layout metre frame, as shapely ``Polygon`` parts."""
+    from shapely.geometry import Polygon
+
+    parts = _tunnel_footprint_longitude_latitude_parts(tunnel)
     meter_polygons: list = []
     for part in parts:
         ring = [to_meters(lon, lat) for lon, lat in part.exterior.coords]
@@ -1404,6 +1485,170 @@ def basin_trench_structures(classification) -> list:
             )
         )
     return structures
+
+
+#: Decision kind recorded in the rebake provenance for a basin facility
+#: seated by the section-2.2 rim-flush law.  ONE spelling, read by the
+#: post-mesh pass, the provenance writer and the tests.
+BASIN_RIM_FLUSH_DECISION_KIND = "basin_rim_flush"
+
+
+@dataclass(frozen=True)
+class BasinRimFlushFacility:
+    """One basin FACILITY as the post-mesh bake needs to see it (spec
+    basin-rim-flush-seating section 2.2 items 5-7).
+
+    Built from the SAME classifier records section 2.1 emits terrain
+    from (:func:`basin_trench_structures`, grouped by the emitter's own
+    anchor key) — never a re-derivation, so the terrain that was cut and
+    the object that is seated into it can never disagree about which
+    facility they belong to, where its body is, or how deep its solids
+    reach.
+
+    * ``object_resources`` — every member shell (the ``TunnelStructure
+      .object_resources`` of the facility's members, pooled).
+    * ``anchor_longitude_latitude`` — the facility anchor, i.e. the point
+      a DRAPED member seats on.
+    * ``body_rings_longitude_latitude`` — exterior rings of the body
+      outline parts, the ring the R_mesh band is offset outward from.
+    * ``solid_minimum_y_m`` — ``y_true_min``: the deepest SOLID the
+      facility's members model (the emitter's own ``deck_reference_y``,
+      = min(−body_depth, the true deepest solid)).  Item 7's clearance
+      check keys on this, which is why the section-2.1 true-min plumbing
+      had to be correct FIRST (see _CLASSIFICATION_CACHE_VERSION 14).
+    * ``anchor_inside_body`` — item 6's scope test: only an
+      anchor-INSIDE facility bakes.  An anchor-outside facility drapes
+      on neighbour terrain and was measured correct in-sim
+      (docs/RULINGS.md 2026-08-09 consequence 5).
+    """
+
+    object_resources: tuple[str, ...]
+    anchor_longitude_latitude: tuple[float, float]
+    body_rings_longitude_latitude: tuple[tuple[tuple[float, float], ...], ...]
+    solid_minimum_y_m: float
+    anchor_inside_body: bool
+
+    def to_json(self) -> dict:
+        """Plain-JSON form for the post-mesh records cache."""
+        return {
+            "object_resources": list(self.object_resources),
+            "anchor_longitude_latitude": list(
+                self.anchor_longitude_latitude),
+            "body_rings_longitude_latitude": [
+                [list(point) for point in ring]
+                for ring in self.body_rings_longitude_latitude
+            ],
+            "solid_minimum_y_m": float(self.solid_minimum_y_m),
+            "anchor_inside_body": bool(self.anchor_inside_body),
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict) -> "BasinRimFlushFacility":
+        return cls(
+            object_resources=tuple(payload["object_resources"]),
+            anchor_longitude_latitude=(
+                float(payload["anchor_longitude_latitude"][0]),
+                float(payload["anchor_longitude_latitude"][1]),
+            ),
+            body_rings_longitude_latitude=tuple(
+                tuple((float(point[0]), float(point[1])) for point in ring)
+                for ring in payload["body_rings_longitude_latitude"]
+            ),
+            solid_minimum_y_m=float(payload["solid_minimum_y_m"]),
+            anchor_inside_body=bool(payload["anchor_inside_body"]),
+        )
+
+
+def basin_rim_flush_facilities(classification) -> list:
+    """The section-2.2 facility records for one classification.
+
+    Grouping is the EMITTER's grouping, character for character: the
+    same ``basin_trench_structures`` records, the same
+    ``(terrain_feature, anchor×1e5, anchor×1e5)`` key
+    :func:`build_tunnel_layout_shapes` groups facilities by, and the
+    same members dropped (no below-grade body depth, no footprint to
+    cut).  A facility the emitter cut one trench for is one facility
+    here; anything else would seat an object into a hole nobody dug.
+
+    Returns ``[]`` with the basin gate off — with no trench cut there is
+    nothing for the rim-flush law to seat into.
+    """
+    if not config.OBJECT_BASIN_TRENCH:
+        return []
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+
+    facilities: dict = {}
+    for record in basin_trench_structures(classification):
+        anchor_longitude, anchor_latitude = record.anchor_longitude_latitude
+        key = (
+            getattr(record, "terrain_feature", "tunnel"),
+            round(anchor_longitude * 100000.0),
+            round(anchor_latitude * 100000.0),
+        )
+        facilities.setdefault(key, []).append(record)
+
+    out: list = []
+    for members in facilities.values():
+        resources: set[str] = set()
+        body_parts: list = []
+        deck_reference_values: list[float] = []
+        anchor_longitude_latitude = None
+        for record in members:
+            # The emitter's own member admission (a member with no
+            # below-grade depth or no footprint cuts nothing, so it
+            # seats nothing).
+            if record.body_depth_m is None or record.body_depth_m <= 0.0:
+                continue
+            parts = _tunnel_footprint_longitude_latitude_parts(record)
+            if not parts:
+                continue
+            resources.update(record.object_resources)
+            body_parts.extend(parts)
+            # ``deck_reference_y`` — the emitter's floor key, i.e. the
+            # deeper of the modelled body depth and the structure's TRUE
+            # deepest solid.
+            deck_reference_y = -float(record.body_depth_m)
+            solid_minimum_y = getattr(record, "solid_minimum_y_m", None)
+            if solid_minimum_y is not None:
+                deck_reference_y = min(
+                    deck_reference_y, float(solid_minimum_y))
+            deck_reference_values.append(deck_reference_y)
+            if anchor_longitude_latitude is None:
+                anchor_longitude_latitude = (
+                    float(record.anchor_longitude_latitude[0]),
+                    float(record.anchor_longitude_latitude[1]),
+                )
+        if not resources or not body_parts:
+            continue
+        try:
+            body = unary_union(body_parts)
+        except Exception:
+            body = None
+        if body is None or body.is_empty:
+            continue
+        parts = list(getattr(body, "geoms", [body]))
+        rings = tuple(
+            tuple(
+                (float(longitude), float(latitude))
+                for longitude, latitude in part.exterior.coords
+            )
+            for part in parts
+            if part.geom_type == "Polygon" and not part.is_empty
+        )
+        if not rings:
+            continue
+        anchor_point = Point(*anchor_longitude_latitude)
+        out.append(
+            BasinRimFlushFacility(
+                object_resources=tuple(sorted(resources)),
+                anchor_longitude_latitude=anchor_longitude_latitude,
+                body_rings_longitude_latitude=rings,
+                solid_minimum_y_m=min(deck_reference_values),
+                anchor_inside_body=bool(body.covers(anchor_point)),
+            )
+        )
+    return out
 
 
 def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):

@@ -368,6 +368,12 @@ def test_rebake_decision_fields():
         "cluster_pad_requests",
         "cluster_seams",
         "cluster_counts",
+        # Basin rim-flush seating
+        # (docs/specs/basin-rim-flush-seating-spec.md section 2.2 item
+        # 5): WHICH LAW seated each resource, recorded in the provenance
+        # sidecar.  Empty for the generic seating law — which is what a
+        # provenance entry without the key has always meant.
+        "decision_kind_by_resource",
     )
 
 

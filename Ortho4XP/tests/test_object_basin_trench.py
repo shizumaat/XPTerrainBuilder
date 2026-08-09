@@ -1358,8 +1358,14 @@ class TestBasinExclusionCoverage:
     ):
         """THE E1 ACCEPTANCE PROPERTY: run the Phase 2 rebake with the
         computed exclusion set and every member's LIVE ``.obj`` must still
-        equal its ``.anchor_bak`` byte for byte — the owner looks at the
-        pack as the artist authored it."""
+        equal its ``.anchor_bak`` byte for byte — the GENERIC y-bake never
+        touches a basin member.
+
+        Still the law after section 2.2's activation, and still what this
+        arm measures: no ``basin_rim_flush_facilities`` are handed in, so
+        the dedicated seat does not run.  With them (see
+        ``TestBasinRimFlushSeat``) an anchor-INSIDE facility is seated by
+        that law instead — never by the arithmetic this test pins."""
         from auto_patch import post_mesh
 
         dsf_path, pack_root, resources = self._pack(
@@ -1403,3 +1409,562 @@ class TestBasinExclusionCoverage:
         assert digest_on != digest_off
         assert ("O4_OBJECT_BASIN_TRENCH"
                 in object_rebake._GATE_ENVIRONMENT_NAMES)
+
+
+# ---------------------------------------------------------------------------
+# 2.2 — the post-mesh basin_rim_flush seat (ACTIVATED by the owner's
+# 2026-08-09 in-sim verdict: anchor-inside facilities are "sunk below the
+# bottom of their trench", anchor-outside ones "look just right")
+# ---------------------------------------------------------------------------
+
+# The synthetic built mesh: a flat rim plain with a square trench floor
+# cut into it, centred on the anchor.  The floor zone is deliberately
+# SMALLER than the body outline's R_mesh band (body half-span 30 m, band
+# +1.6 m => samples at 31.6 m) so the band lands on rim terrain while the
+# facility anchor lands on the floor — the exact geometry the verdict
+# describes.
+MESH_FLOOR_HALF_SPAN_M = 20.0
+MESH_EXTENT_M = 100.0
+MESH_STEP_M = 5.0
+
+
+def _write_trench_mesh(
+    mesh_path, *, floor_elevation_m: float, rim_elevation_m: float
+) -> None:
+    from auto_patch import obj8_reader as _obj8
+
+    steps = int(2 * MESH_EXTENT_M / MESH_STEP_M) + 1
+    coordinates = [
+        -MESH_EXTENT_M + index * MESH_STEP_M for index in range(steps)
+    ]
+    vertices: list[tuple[float, float, float]] = []
+    for east in coordinates:
+        for south in coordinates:
+            latitude, longitude = _obj8.local_offset_to_lonlat(
+                ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, east, south)
+            inside = (abs(east) <= MESH_FLOOR_HALF_SPAN_M
+                      and abs(south) <= MESH_FLOOR_HALF_SPAN_M)
+            vertices.append((
+                longitude,
+                latitude,
+                floor_elevation_m if inside else rim_elevation_m,
+            ))
+    triangles: list[tuple[int, int, int]] = []
+    for i in range(steps - 1):
+        for j in range(steps - 1):
+            a = i * steps + j
+            b = (i + 1) * steps + j
+            c = (i + 1) * steps + j + 1
+            d = i * steps + j + 1
+            triangles.append((a + 1, b + 1, c + 1))
+            triangles.append((a + 1, c + 1, d + 1))
+    lines = ["MeshVersionFormatted 2", "Dimension 3", "", "Vertices",
+             str(len(vertices))]
+    for longitude, latitude, elevation in vertices:
+        lines.append(
+            f"{longitude:.15f} {latitude:.15f} {elevation / 100000.0:.15f} 0")
+    lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
+    for first, second, third in triangles:
+        lines.append(f"{first} {second} {third} 0")
+    mesh_path.write_text("\n".join(lines) + "\n")
+
+
+def _obj8_text(geometry) -> str:
+    """``ObjectGeometry`` back to OBJ8 source — the tests need REAL pack
+    files because the post-mesh pass reads and rewrites them."""
+    lines = ["A", "800", "OBJ", ""]
+    index_count = 3 * len(geometry.solid_triangles)
+    lines.append(f"POINT_COUNTS {len(geometry.vertices)} 0 0 {index_count}")
+    for x, y, z in geometry.vertices:
+        lines.append(f"VT {x:.6f} {y:.6f} {z:.6f} 0.0 1.0 0.0 0.0 0.0")
+    flat = [index for triangle in geometry.solid_triangles
+            for index in triangle]
+    for start in range(0, len(flat), 10):
+        lines.append(
+            "IDX10 " + " ".join(str(index) for index in flat[start:start + 10])
+        )
+    lines.append(f"TRIS 0 {index_count}")
+    return "\n".join(lines) + "\n"
+
+
+def _vertex_y_values(path) -> list[float]:
+    return [
+        float(line.split()[2])
+        for line in path.read_text().splitlines()
+        if line.split() and line.split()[0] == "VT"
+    ]
+
+
+class TestBasinRimFlushSeat:
+    """Spec section 2.2 items 5-8.  A draped object seats on the terrain
+    at its anchor; with the section-2.1 anchor pillar gone, that terrain
+    is the trench floor, so the six anchor-inside OTHH facilities sank by
+    the cut depth.  The dedicated law seats each facility's ``y = 0``
+    plane — the authored rim plane — on the first terrain outside our own
+    plates instead."""
+
+    FLOOR_ELEVATION_M = 10.0
+    RIM_ELEVATION_M = 15.0
+
+    @pytest.fixture(autouse=True)
+    def _sandbox(self, tmp_path, monkeypatch):
+        # Every sidecar cache under the test's own root, and off: each
+        # arm must compute, never inherit another arm's answer.
+        monkeypatch.setenv("ORTHO4XP_DATA_ROOT", str(tmp_path / "o4root"))
+        monkeypatch.setenv("O4_OBJECT_EXCLUSION_CACHE", "0")
+        monkeypatch.setenv("O4_OBJECT_PARTITION_CACHE", "0")
+        monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
+
+    # -- fixtures ---------------------------------------------------------
+
+    def _pack(self, tmp_path, monkeypatch, *, extra_objects=None):
+        """A synthetic pack on disk: the two co-anchored pit shells, plus
+        any extra objects the arm needs.  Real OBJ8 files (the pass reads
+        and rewrites them) and a monkeypatched DSF text."""
+        from auto_patch import dsf_reader
+
+        pack_root = tmp_path / "OTHH-TEST Aeroscape"
+        geometry = dict(_open_pit_pair())
+        geometry.update(extra_objects or {})
+        placements = {
+            resource: (ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+            for resource in geometry
+        }
+        for resource, override in (extra_objects or {}).items():
+            del override
+        definition_lines = []
+        placement_lines = []
+        for index, resource in enumerate(sorted(geometry)):
+            path = pack_root / resource
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(_obj8_text(geometry[resource]))
+            longitude, latitude = placements[resource]
+            definition_lines.append(f"OBJECT_DEF {resource}")
+            placement_lines.append(
+                f"OBJECT {index} {longitude} {latitude} 0.0")
+        dsf_path = pack_root / "overlay.dsf"
+        dsf_path.write_bytes(b"")
+        monkeypatch.setattr(
+            dsf_reader, "_load_dsf_text",
+            lambda _path: definition_lines + placement_lines)
+        return dsf_path, pack_root, sorted(geometry)
+
+    def _mesh(self, tmp_path, *, rim_elevation_m=None):
+        mesh_path = tmp_path / "Data+25+051.mesh"
+        _write_trench_mesh(
+            mesh_path,
+            floor_elevation_m=self.FLOOR_ELEVATION_M,
+            rim_elevation_m=(
+                self.RIM_ELEVATION_M if rim_elevation_m is None
+                else rim_elevation_m),
+        )
+        return mesh_path
+
+    def _facility(self, *, anchor_inside_body=True, half_span_m=30.0,
+                  solid_minimum_y_m=-4.0, resources=None):
+        """A hand-built facility record with the ring the classifier
+        would produce for the synthetic pit pair."""
+        ring = tuple(
+            (ANCHOR_LONGITUDE + longitude_offset,
+             ANCHOR_LATITUDE + latitude_offset)
+            for longitude_offset, latitude_offset in _square_ring(half_span_m)
+        )
+        return assembly.BasinRimFlushFacility(
+            object_resources=tuple(
+                sorted(resources or _open_pit_pair())),
+            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            body_rings_longitude_latitude=(ring,),
+            solid_minimum_y_m=solid_minimum_y_m,
+            anchor_inside_body=anchor_inside_body,
+        )
+
+    def _rebake(self, dsf_path, mesh_path, pack_root, facilities, **kwargs):
+        from auto_patch import post_mesh
+
+        return post_mesh.discover_and_rebake_airport(
+            str(dsf_path),
+            str(mesh_path),
+            str(pack_root),
+            None,
+            excluded_resources={
+                (str(pack_root), resource)
+                for facility in facilities
+                for resource in facility.object_resources
+            },
+            basin_rim_flush_facilities=facilities,
+            **kwargs,
+        )
+
+    # -- item 5: the seat -------------------------------------------------
+
+    def test_the_delta_seats_y_zero_at_r_mesh(self, tmp_path, monkeypatch):
+        """THE LAW: ``delta = R_mesh - mesh_at_anchor``, so the authored
+        ``y = 0`` rim plane lands exactly on the first terrain outside
+        our plates."""
+        dsf_path, pack_root, resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+
+        record = result["basin_rim_flush"][0]
+        assert record["decision_kind"] == "basin_rim_flush"
+        assert record["r_mesh_m"] == pytest.approx(self.RIM_ELEVATION_M)
+        assert record["mesh_at_anchor_m"] == pytest.approx(
+            self.FLOOR_ELEVATION_M)
+        expected_delta = self.RIM_ELEVATION_M - self.FLOOR_ELEVATION_M
+        assert record["delta_m"] == pytest.approx(expected_delta)
+        assert record["baked"] is True
+        assert sorted(result["objects_written"]) == sorted(
+            facility.object_resources)
+
+        for resource in facility.object_resources:
+            live = pack_root / resource
+            authored = pack_root / (resource + ".anchor_bak")
+            live_y = _vertex_y_values(live)
+            authored_y = _vertex_y_values(authored)
+            assert live_y != authored_y
+            for baked, original in zip(live_y, authored_y):
+                # y = 0 renders at anchor_ground + delta = R_mesh.
+                assert baked == pytest.approx(
+                    original + expected_delta, abs=1e-4)
+
+    def test_the_whole_facility_moves_rigidly(self, tmp_path, monkeypatch):
+        """One seat target for the whole facility: every member shell's
+        rim plane lands on the SAME R_mesh, and no shell is bent."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        self._rebake(dsf_path, mesh_path, pack_root, [facility])
+
+        deltas = set()
+        for resource in facility.object_resources:
+            live_y = _vertex_y_values(pack_root / resource)
+            authored_y = _vertex_y_values(
+                pack_root / (resource + ".anchor_bak"))
+            per_vertex = {round(baked - original, 6)
+                          for baked, original in zip(live_y, authored_y)}
+            # Rigid within the shell...
+            assert len(per_vertex) == 1, resource
+            deltas |= per_vertex
+        # ...and one delta family across the facility.
+        assert len(deltas) == 1
+
+    def test_a_non_member_never_takes_the_basin_law(
+        self, tmp_path, monkeypatch
+    ):
+        """Pool siblings whose anchors lie outside the cut are NOT
+        members (spec section 2.2 item 5) — they keep the generic law,
+        which is recorded by the ABSENCE of a decision kind."""
+        import json
+
+        sibling = "Buildings/Drainage/pool_shell.obj"
+        dsf_path, pack_root, _resources = self._pack(
+            tmp_path, monkeypatch,
+            extra_objects={
+                sibling: _at_grade_building_geometry(
+                    half_span_m=40.0, height_m=12.0)},
+        )
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+
+        assert sibling not in result["basin_rim_flush"][0].get(
+            "objects_written", [])
+        provenance = json.loads(
+            (pack_root / ".o4_reanchor_provenance.json").read_text())
+        for resource in facility.object_resources:
+            assert provenance["objects"][resource]["decision_kind"] == (
+                "basin_rim_flush")
+        sibling_entry = provenance["objects"].get(sibling)
+        if sibling_entry is not None:
+            assert "decision_kind" not in sibling_entry
+
+    # -- item 6: scope ----------------------------------------------------
+
+    def test_an_anchor_outside_facility_is_not_baked(
+        self, tmp_path, monkeypatch
+    ):
+        """The class the owner measured as "just right" in-sim.  A
+        regression here is a defect, not an improvement."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility(anchor_inside_body=False)
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+
+        record = result["basin_rim_flush"][0]
+        assert record["baked"] is False
+        assert "OUTSIDE its body" in record["decision"]
+        assert "r_mesh_m" not in record
+        assert result["objects_written"] == []
+        for resource in facility.object_resources:
+            # Untouched means UNTOUCHED: not even a backup was taken.
+            assert not (pack_root / (resource + ".anchor_bak")).exists()
+
+    # -- item 7: clearance ------------------------------------------------
+
+    def test_the_clearance_finding_fires_and_names_r_mesh_minus_r_est(
+        self, tmp_path, monkeypatch
+    ):
+        """A built rim BELOW ``R_est - margin`` means the section-2.1
+        margin constant is too small for this airport: report it, never
+        silently re-derive a seat."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        # 2 m of trench where the law needs y_true_min + DECK = 4.5 m.
+        mesh_path = self._mesh(tmp_path, rim_elevation_m=12.0)
+        facility = self._facility(solid_minimum_y_m=-4.0)
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+
+        record = result["basin_rim_flush"][0]
+        assert record["clearance_finding"] is True
+        # R_est = floor + DECK + MARGIN - y_true_min = 10 + 0.5 + 1 + 4
+        assert record["rim_estimate_m"] == pytest.approx(15.5)
+        assert record["r_mesh_minus_r_est_m"] == pytest.approx(-3.5)
+
+    def test_a_clearing_seat_raises_no_finding(self, tmp_path, monkeypatch):
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility(solid_minimum_y_m=-4.0)
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        record = result["basin_rim_flush"][0]
+        assert record["clearance_finding"] is False
+        assert record["clearance_m"] == pytest.approx(0.5)
+
+    # -- the measure-only mode (reseat-threshold spec section 2.3) --------
+
+    def test_measure_only_records_the_seat_and_writes_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [facility], measure_only=True)
+
+        record = result["basin_rim_flush"][0]
+        assert record["measure_only"] is True
+        assert record["baked"] is False
+        assert record["r_mesh_m"] == pytest.approx(self.RIM_ELEVATION_M)
+        assert record["delta_m"] == pytest.approx(
+            self.RIM_ELEVATION_M - self.FLOOR_ELEVATION_M)
+        assert result["objects_written"] == []
+        for resource in facility.object_resources:
+            backup = pack_root / (resource + ".anchor_bak")
+            if backup.exists():
+                assert (pack_root / resource).read_bytes() == (
+                    backup.read_bytes())
+
+    def test_measure_only_reverts_an_earlier_basin_bake(
+        self, tmp_path, monkeypatch
+    ):
+        """Item 8: the reversion pass needs no change — a basin bake
+        reverts like any other."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        baked = {
+            resource: (pack_root / resource).read_bytes()
+            for resource in facility.object_resources
+        }
+        self._rebake(
+            dsf_path, mesh_path, pack_root, [facility], measure_only=True)
+        for resource in facility.object_resources:
+            authored = (pack_root / (resource + ".anchor_bak")).read_bytes()
+            assert (pack_root / resource).read_bytes() == authored
+            assert baked[resource] != authored
+
+    def test_a_dry_run_reports_the_seat_without_writing(
+        self, tmp_path, monkeypatch
+    ):
+        """A dry run computes the same seat and writes NOTHING — the
+        report must not claim a bake that never touched a file."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [facility], write_changes=False)
+        record = result["basin_rim_flush"][0]
+        assert record["dry_run"] is True
+        assert record["baked"] is False
+        assert record["delta_m"] == pytest.approx(
+            self.RIM_ELEVATION_M - self.FLOOR_ELEVATION_M)
+        for resource in facility.object_resources:
+            assert not (pack_root / (resource + ".anchor_bak")).exists()
+
+    # -- item 8: idempotence ---------------------------------------------
+
+    def test_the_bake_is_byte_idempotent(self, tmp_path, monkeypatch):
+        """Invariant I-15: the second run rewrites from ``.anchor_bak``,
+        so it lands on the same bytes — never twice the delta."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        first = {
+            resource: (pack_root / resource).read_bytes()
+            for resource in facility.object_resources
+        }
+        self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        for resource in facility.object_resources:
+            assert (pack_root / resource).read_bytes() == first[resource]
+
+    def test_the_basin_law_constants_salt_the_rebake_gate_digest(
+        self, monkeypatch
+    ):
+        from auto_patch import object_rebake
+
+        baseline = object_rebake._gate_digest(0.25)
+        monkeypatch.setattr(
+            config, "TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M",
+            config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M + 1.0)
+        assert object_rebake._gate_digest(0.25) != baseline
+        monkeypatch.undo()
+        monkeypatch.setattr(
+            config, "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
+            config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1.0)
+        assert object_rebake._gate_digest(0.25) != baseline
+
+    # -- the reseat threshold is a different law (regression pin) --------
+
+    def test_the_reseat_threshold_does_not_gate_the_basin_class(
+        self, tmp_path, monkeypatch
+    ):
+        """Basin units bake regardless of ``DSF_OBJECT_BAKE_MIN_DELTA_M``
+        — their deltas are metres by construction, and the generic
+        arithmetic that consults the threshold never runs for them."""
+        monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 1000.0)
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        assert result["basin_rim_flush"][0]["baked"] is True
+        assert sorted(result["objects_written"]) == sorted(
+            facility.object_resources)
+
+    def test_a_generic_unit_below_the_threshold_still_does_not_bake(
+        self, tmp_path, monkeypatch
+    ):
+        """The other half of the pin: the threshold law is untouched for
+        everything that is not a basin member."""
+        sibling = "Buildings/Drainage/pool_shell.obj"
+        dsf_path, pack_root, _resources = self._pack(
+            tmp_path, monkeypatch,
+            extra_objects={
+                sibling: _at_grade_building_geometry(
+                    half_span_m=40.0, height_m=12.0)},
+        )
+        mesh_path = self._mesh(tmp_path)
+        facility = self._facility()
+        monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 1000.0)
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        assert sibling not in result["objects_written"]
+        counts: dict = {}
+        for _pool, decision in result["decisions"]:
+            for key, value in (decision.cluster_counts or {}).items():
+                counts[key] = counts.get(key, 0) + value
+        # The generic law measured the sibling and the threshold — not
+        # the basin law — is what left it alone.
+        assert counts.get("clusters_below_threshold", 0) >= 1
+        # ...while the basin facility beside it baked regardless.
+        assert result["basin_rim_flush"][0]["baked"] is True
+
+    # -- the records come from the classifier, never a re-derivation -----
+
+    def test_the_facilities_come_from_the_classifier_records(
+        self, tmp_path, monkeypatch
+    ):
+        """Section 2.2's scope test and geometry are read off the SAME
+        ``basin_trench_structures`` records section 2.1 cut terrain
+        from."""
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        records = assembly.post_mesh_object_terrain_records(
+            str(dsf_path), None, pack_root=str(pack_root))
+        facilities = records.basin_rim_flush_facilities
+        assert len(facilities) == 1
+        facility = facilities[0]
+        assert set(facility.object_resources) == set(_open_pit_pair())
+        # Both shells are placed AT the anchor and the pit surrounds it.
+        assert facility.anchor_inside_body is True
+        assert facility.solid_minimum_y_m < 0.0
+        assert facility.body_rings_longitude_latitude
+        # And the members are still withheld from the GENERIC bake.
+        assert {resource for _root, resource in records.exclusions} >= set(
+            _open_pit_pair())
+
+    def test_the_gate_off_yields_no_facility(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(config, "OBJECT_BASIN_TRENCH", False)
+        dsf_path, pack_root, _resources = self._pack(tmp_path, monkeypatch)
+        records = assembly.post_mesh_object_terrain_records(
+            str(dsf_path), None, pack_root=str(pack_root))
+        assert records.basin_rim_flush_facilities == []
+
+
+def _square_ring(half_span_m: float):
+    """A square ring in DEGREES around the anchor, ``half_span_m`` on
+    each side — the body outline shape the synthetic pit produces."""
+    from auto_patch import obj8_reader as _obj8
+
+    corners = [
+        (-half_span_m, -half_span_m), (half_span_m, -half_span_m),
+        (half_span_m, half_span_m), (-half_span_m, half_span_m),
+        (-half_span_m, -half_span_m),
+    ]
+    out = []
+    for east, south in corners:
+        latitude, longitude = _obj8.local_offset_to_lonlat(
+            ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, east, south)
+        out.append((longitude - ANCHOR_LONGITUDE,
+                    latitude - ANCHOR_LATITUDE))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 2.2 prerequisite — the TRUE deepest solid must reach the record
+# ---------------------------------------------------------------------------
+
+class TestTrueDeepestSolidPlumbing:
+    """The Drainage_06 class.  The section-2.1 adapter takes
+    ``min(floor_y, interface.solid_minimum_y_m)``, but the OTHH sidecar
+    kept reporting the clustered interface LEVEL (−3.859 m) where the
+    deepest solid — modelled in the ``_001`` SIBLING shell — reaches
+    −4.201 m.  The cause was not the arithmetic: the classification is
+    PICKLED under ``_CLASSIFICATION_CACHE_VERSION``, the section-2.1
+    landing added the field without bumping it, and an old pickle
+    restores a frozen dataclass from a ``__dict__`` that has no such key
+    — so every interface read back with the class default ``None`` and
+    the adapter took its documented fallback."""
+
+    def test_the_classification_cache_version_retires_pre_field_pickles(
+        self,
+    ):
+        # 13 is the last version written WITHOUT
+        # StructureGroundInterface.solid_minimum_y_m.  A pickle at or
+        # below it must never be served again.
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 14
+
+    def test_a_deep_sibling_shell_sets_the_true_minimum(self):
+        """The fixture is Drainage_06's shape: the deeper solid lives in
+        the sibling resource, so a per-resource or per-level answer is
+        the shallow one and only the pooled frame minimum is right."""
+        geometry = {
+            "Buildings/Drainage/basin_000.obj": _pit_shell(
+                30.0, 6.0, -3.859, 0.0),
+            "Buildings/Drainage/basin_001.obj": _pit_shell(
+                28.5, 6.0, -4.201, 0.06),
+        }
+        classification = _classify(geometry)
+        interfaces = [
+            interface for interface in classification.ground_interfaces
+            if otf.is_carved_basin_interface(interface)
+        ]
+        assert interfaces, "fixture no longer classifies as a carved basin"
+        assert interfaces[0].solid_minimum_y_m == pytest.approx(-4.201)
+
+        records = assembly.basin_trench_structures(classification)
+        assert records
+        assert records[0].solid_minimum_y_m == pytest.approx(-4.201)
+
+        facilities = assembly.basin_rim_flush_facilities(classification)
+        assert facilities
+        # y_true_min is what item 7's clearance check consumes.
+        assert facilities[0].solid_minimum_y_m == pytest.approx(-4.201)

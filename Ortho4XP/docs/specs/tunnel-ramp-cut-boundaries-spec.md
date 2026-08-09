@@ -1,4 +1,19 @@
-# Tunnel ramp-cut boundaries — spec (2026-08-07, v2 FROZEN)
+# Tunnel ramp-cut boundaries — spec (2026-08-07, v2 FROZEN; §4 amended v3 2026-08-09)
+
+> **v3 AMENDMENT (2026-08-09, lead; diagnosed on the integrated
+> OTHH build).** §4's B-1 guard clips a ramp only `if overlap area
+> > 0.0` (`bridges.py:3183-3185`) — a ramp that exactly TOUCHES a
+> building pad ring (zero-area tangency, distance 0.000 m) escapes
+> the 0.6 m clearance clip, lands inside the ring vertex's
+> `SHARED_VERTEX_TOL_M` intern bucket, and welds its below-grade
+> profile onto the building ring (measured: node `-24372`, ramp
+> `-11489` @ −4.29 dragging `building1`; the ruling-4 era specimen
+> was the same pad at −3.74). THE FIX: B-1 triggers on intersection
+> with the pad union BUFFERED by `_TUNNEL_GRAZE_CLEARANCE_M`
+> (tangency included) — the clearance clip then applies to touching
+> ramps exactly as to overlapping ones. Acceptance: whole-patch
+> shared `building ∩ tunnel_ramp` node ids = 0; sub-grade nodes on
+> `role=building` = 0 (the §6.3 line, restored).
 
 Author: lead session (Fable). Status: **FROZEN for implementation**
 (v1's DRAFT sections resolved by the attribution trace).

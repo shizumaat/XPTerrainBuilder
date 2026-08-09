@@ -2824,12 +2824,16 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # ABSORBED, while clusters the OSM doesn't cover become pads as
     # before.  Off (DSF_BUILDINGS=0) → OSM-only, the pre-existing
     # behaviour.
+    # The kept OSM ways, by IDENTITY, out of the merge — the emission-time
+    # re-punch (spec §2.6) needs to know which seeds are ways.
+    _kept_osm_ways: List[Polygon] = list(osm_terminal_polys)
     if DSF_BUILDINGS and dsf_building_polys:
         dsf_seed_polys = _cluster_dsf_building_facades(dsf_building_polys)
         combined_n_before = len(osm_terminal_polys)
         osm_terminal_polys = _combine_building_sources(
             dsf_seed_polys, osm_terminal_polys,
-            DSF_CLUSTER_OSM_ABSORB_FRAC)
+            DSF_CLUSTER_OSM_ABSORB_FRAC,
+            kept_osm_out=_kept_osm_ways)
         _n_absorbed = (len(dsf_seed_polys) + combined_n_before
                        - len(osm_terminal_polys))
         UI.vprint(1,
@@ -2845,7 +2849,9 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # Tolerance is TERMINAL_SIMPLIFY_TOL_M (config; dialled back to
     # 0.5 m so articulated terminal pads keep their genuine corners —
     # user 2026-06-14).
-    terminal_polys: List[Polygon] = []
+    _way_seed_ids = {id(w) for w in _kept_osm_ways}
+    _cluster_pads: List[Polygon] = []
+    _way_pads: List[Polygon] = []
     for otp in osm_terminal_polys:
         # Boundary gate: OSM aeroway=terminal buildings are loaded
         # from a wide region and include neighbouring airports'
@@ -2863,6 +2869,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         pad0 = _terminal_pad_from_building(otp, apt_only_pav_polys)
         if pad0 is None:
             continue
+        _sink = _way_pads if id(otp) in _way_seed_ids else _cluster_pads
         # Absorb finger-pier gate stands into simple pad(s) (all sources);
         # a split pier comes back as one pad per piece.
         for pad in _close_building_outline(pad0):
@@ -2875,12 +2882,33 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     pad = simp
             except _GEOM_EXC:
                 pass
-            terminal_polys.append(pad)
+            _sink.append(pad)
+    # ── RE-PUNCH the kept ways out of the cluster pads (spec §2.6, v3).
+    # The merge-time clip is UNDONE by ``_close_building_outline`` above
+    # for any clip hole narrower than BUILDING_OUTLINE_FILL_GATE_M (the
+    # close's fill radius is 110 m and its reopen test returns EMPTY at
+    # 55 m), after which the way's own pad sits INSIDE the cluster pad
+    # and ``elevation._drop_overlap_against_fixed_shapes`` deletes it as
+    # an "OSM relation duplicate" — measured at OTHH: 26 constructed pads
+    # gone vs 3 in the control, the Emiri way among them.  Punching the
+    # ways out again here restores the §2.3b invariant AT EMISSION, so
+    # the duplicate test stops firing by geometry (no elevation.py change).
+    if _way_pads and _cluster_pads:
+        _n_cluster_before = len(_cluster_pads)
+        _cluster_pads = repunch_kept_ways_from_pads(_cluster_pads, _way_pads)
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: kept-way re-punch — "
+            f"{_n_cluster_before} cluster pad(s) → {len(_cluster_pads)} "
+            f"against {len(_way_pads)} OSM-way pad(s).")
+    terminal_polys: List[Polygon] = _cluster_pads + _way_pads
     if osm_terminal_polys:
         UI.vprint(1,
             f"  [pav-builder] {icao}: building pads "
             f"{len(terminal_polys)}/{len(osm_terminal_polys)} kept "
-            f"(boundary-gate/area filters).")
+            f"(boundary-gate/area filters); CONSTRUCTED "
+            f"{len(terminal_polys)} (refs building1.."
+            f"building{len(terminal_polys)}) — any ref absent from the "
+            f"emitted patch was dropped downstream.")
 
     # ── Terminal gap for depressed roads (user 2026-06-10) ───────
     # Where a depressed road (KPHX Sky Harbor Blvd class — a public
@@ -6784,6 +6812,8 @@ from .terminals import (
     _extract_osm_terminals,
     _terminal_groundside_zone,
     _terminal_pad_from_building,
+    building_pad_accounting,
+    repunch_kept_ways_from_pads,
 )
 
 

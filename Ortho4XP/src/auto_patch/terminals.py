@@ -16,6 +16,7 @@ with internal callers in ``O4_Airport_Pavement_Builder``):
 from __future__ import annotations
 
 import math
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
@@ -40,11 +41,18 @@ _MITRE_JOIN = _JOIN_STYLE.mitre
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
 
+# Building pad refs are ``building{N}`` over the CONSTRUCTED pad list
+# (pipeline.py); ``building_pad_accounting`` reads N back out.
+_BUILDING_REF_RE = re.compile(r"building(\d+)")
+
+
 __all__ = [
     "_build_osm_aeroway_footprint",
     "_extract_osm_terminals",
     "_terminal_groundside_zone",
     "_terminal_pad_from_building",
+    "building_pad_accounting",
+    "repunch_kept_ways_from_pads",
 ]
 
 
@@ -924,10 +932,109 @@ def _cluster_dsf_building_facades(
     return out
 
 
+def _clip_pad_by_ways(pad: Polygon, way_union) -> List[Polygon]:
+    """Subtract ``way_union`` from ``pad`` under the §2.3b remainder rules.
+
+    Shared by the merge-time clip and the emission-time RE-PUNCH (§2.6):
+    remainder pieces under ``DSF_MIN_BUILDING_AREA_M2`` drop, a
+    MultiPolygon remainder yields its parts separately, an EDGE-ONLY
+    touch (zero-area intersection) leaves the pad untouched, and any
+    geometry failure leaves the pad whole — the fallback never deletes
+    a building.
+    """
+    if pad is None or pad.is_empty or way_union is None:
+        return [pad] if pad is not None and not pad.is_empty else []
+    try:
+        if getattr(way_union, "is_empty", True):
+            return [pad]
+        if pad.intersection(way_union).area <= 0.0:
+            return [pad]           # no overlap, or an edge-only touch
+        remainder = pad.difference(way_union)
+    except _GEOM_EXC:
+        return [pad]
+    pieces = (remainder.geoms if hasattr(remainder, "geoms")
+              else [remainder])
+    out: List[Polygon] = []
+    for piece in pieces:
+        if (piece.geom_type != "Polygon" or piece.is_empty
+                or piece.area < DSF_MIN_BUILDING_AREA_M2):
+            continue
+        out.append(piece)
+    return out
+
+
+def repunch_kept_ways_from_pads(
+    pads: List[Polygon],
+    kept_way_pads: List[Polygon],
+) -> List[Polygon]:
+    """(spec §2.6, v3) Re-assert "pads never overlap a kept OSM way" AT
+    EMISSION, after ``_close_building_outline`` + ``simplify``.
+
+    The merge-time clip (§2.3b) is UNDONE one call later for any clip
+    hole narrower than ``BUILDING_OUTLINE_FILL_GATE_M``:
+    ``_close_building_outline``'s morphological close (fill radius 110 m)
+    swallows the hole and its reopen test (``buffer(-55).buffer(55)``)
+    returns EMPTY, so nothing is subtracted back — measured at OTHH, the
+    Emiri way's 12,141 m² hole (inradius 36 m) refilled and the way's own
+    pad, then 100 % inside the cluster pad, was dropped by
+    ``elevation._drop_overlap_against_fixed_shapes`` as an "OSM relation
+    duplicate" (26 constructed pads vanished in that arm vs 3 in the
+    control).
+
+    So the hole is punched AGAIN here, against the kept ways' OWN
+    EMITTED pads (not the raw ways): the hole then matches what actually
+    stands in it, the duplicate-drop's containment test stops firing by
+    geometry, and no change to ``elevation.py`` is needed.
+
+    ``pads`` are the non-OSM (DSF-cluster) building pads; ``kept_way_pads``
+    the pads built from kept OSM ways.  Returns the punched non-OSM pads
+    only — the caller re-appends the way pads (the ordering the refs
+    depend on is the caller's).
+    """
+    live = [p for p in kept_way_pads if p is not None and not p.is_empty]
+    if not live:
+        return [p for p in pads if p is not None and not p.is_empty]
+    try:
+        way_union = unary_union(live)
+    except _GEOM_EXC:
+        return [p for p in pads if p is not None and not p.is_empty]
+    out: List[Polygon] = []
+    for pad in pads:
+        if pad is None or pad.is_empty:
+            continue
+        out.extend(_clip_pad_by_ways(pad, way_union))
+    return out
+
+
+def building_pad_accounting(refs) -> dict:
+    """Constructed-vs-emitted pad accounting for the §2.6 acceptance.
+
+    Refs are assigned ``building{i+1}`` over the CONSTRUCTED pad list
+    (``pipeline.py``), so the highest ref in an emitted patch is the
+    constructed count and every absent number in ``1..max`` is a pad a
+    downstream stage dropped.  One implementation, so the acceptance
+    check and any report read the same numbers.
+    """
+    nums = []
+    for ref in refs or ():
+        m = _BUILDING_REF_RE.fullmatch(str(ref))
+        if m:
+            nums.append(int(m.group(1)))
+    if not nums:
+        return {"constructed": 0, "emitted": 0, "missing": [],
+                "missing_count": 0}
+    top = max(nums)
+    have = set(nums)
+    missing = [n for n in range(1, top + 1) if n not in have]
+    return {"constructed": top, "emitted": len(nums), "missing": missing,
+            "missing_count": len(missing)}
+
+
 def _combine_building_sources(
     dsf_buildings: List[Polygon],
     osm_buildings: List[Polygon],
     absorb_frac: float,
+    kept_osm_out: Optional[List[Polygon]] = None,
 ) -> List[Polygon]:
     """Union DSF and OSM building outlines, PREFERRING the OSM way.
 
@@ -970,6 +1077,12 @@ def _combine_building_sources(
     """
     dsf = [b for b in dsf_buildings if b is not None and not b.is_empty]
     osm = [b for b in osm_buildings if b is not None and not b.is_empty]
+    if kept_osm_out is not None:
+        # The caller needs the KEPT-WAY partition of the returned list to
+        # re-punch at emission (§2.6); the list it gets back is exactly
+        # the tail of the return value, by identity.
+        kept_osm_out.clear()
+        kept_osm_out.extend(osm)
     if not osm:
         return dsf  # degeneracy: no OSM authority → clusters unchanged
     if not dsf:
@@ -1006,17 +1119,11 @@ def _combine_building_sources(
             survivors.append(cb)
             continue
         try:
-            remainder = cb.difference(unary_union(overlapped))
+            way_union = unary_union(overlapped)
         except _GEOM_EXC:
             survivors.append(cb)  # cannot clip → cluster stands whole
             continue
-        pieces = (remainder.geoms if hasattr(remainder, "geoms")
-                  else [remainder])
-        for piece in pieces:
-            if (piece.geom_type != "Polygon" or piece.is_empty
-                    or piece.area < DSF_MIN_BUILDING_AREA_M2):
-                continue
-            survivors.append(piece)
+        survivors.extend(_clip_pad_by_ways(cb, way_union))
     return survivors + osm
 
 

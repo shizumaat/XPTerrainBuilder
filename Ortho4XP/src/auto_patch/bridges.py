@@ -3173,11 +3173,29 @@ def _emit_portal_cluster(
         _dropped9: set = set()
         _ez_replace: dict = {}
         _n_bclip = 0
+        # TRIGGER GEOMETRY: each pad BUFFERED by the graze clearance, so a
+        # TANGENT ramp is clipped exactly like an overlapping one (spec v3
+        # amendment, 2026-08-09).  The bare ``overlap area > 0`` test let a
+        # ramp whose corner sits EXACTLY on the pad ring (zero-area
+        # tangency) escape the 0.6 m standoff; it then landed inside that
+        # ring vertex's SHARED_VERTEX_TOL_M intern bucket and to_osm's
+        # authority precedence welded its below-grade profile onto the
+        # building — measured at OTHH: ramp -11489 dragging building1's
+        # node -24372 to −4.29 (the ruling-4 specimen was the same pad at
+        # −3.74).  Buffered ONCE per pad, not per (ramp, pad) pair.
+        _pads_trigger = []
+        for _pi, _pad in _pads:
+            try:
+                _pads_trigger.append(
+                    (_pi, _pad,
+                     _pad.polygon.buffer(_TUNNEL_GRAZE_CLEARANCE_M)))
+            except _GEOM_EXC:
+                _pads_trigger.append((_pi, _pad, _pad.polygon))
         for _i9, _s9 in (_cl_ramps if _pads else ()):
             _hit = []
-            for _pi, _pad in _pads:
+            for _pi, _pad, _pad_trig in _pads_trigger:
                 try:
-                    _ov9 = _s9.polygon.intersection(_pad.polygon).area
+                    _ov9 = _s9.polygon.intersection(_pad_trig).area
                 except _GEOM_EXC:
                     continue
                 if _ov9 > 0.0:

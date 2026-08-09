@@ -634,6 +634,47 @@ class TestRampNeverCrossesABuildingPadEdge:
         assert pad.polygon.equals(self._PAD_BOX)
         assert pad.node_altitudes == [_APT_ELEV] * 5
 
+    def test_a_ramp_merely_TOUCHING_the_pad_still_gets_the_clearance(
+            self) -> None:
+        """v3 amendment (2026-08-09): B-1 used to trigger on ``overlap
+        area > 0``, so a ramp whose corner sits EXACTLY on the pad ring
+        (zero-area tangency) escaped the 0.6 m standoff, landed inside
+        that ring vertex's ``SHARED_VERTEX_TOL_M`` intern bucket, and
+        ``to_osm``'s authority precedence welded its below-grade profile
+        onto the building (measured at OTHH: ramp -11489 dragging
+        building1's node -24372 to −4.29; the ruling-4 specimen was the
+        same pad at −3.74).  The trigger is now intersection with the
+        pad BUFFERED by the clearance, so tangency is clipped too."""
+        # Where does the UNCLIPPED ramp end?  Put the pad's edge there.
+        free = SimpleNamespace(shapes=[])
+        _emit_cluster([self._WALK], free)
+        edge = max(r.polygon.bounds[2] for r in _refs(free, "tunnel_ramp"))
+        tangent_pad = box(edge, -40.0, edge + 110.0, 40.0)
+        layout, pad, _z = self._scene(tangent_pad)
+        ramps = _refs(layout, "tunnel_ramp")
+        assert ramps, "every ramp piece was dropped"
+        for ramp in ramps:
+            assert ramp.polygon.intersection(pad.polygon).area \
+                == pytest.approx(0.0, abs=1e-6)
+            assert ramp.polygon.distance(pad.polygon) \
+                >= bridges._TUNNEL_GRAZE_CLEARANCE_M - 1e-6, (
+                    "a TANGENT ramp escaped the vertex-bucket clearance — "
+                    "its corner can be interned into the pad ring")
+        # The pad itself is still neither cut nor buried.
+        assert layout.shapes[0] is pad
+        assert pad.polygon.equals(tangent_pad)
+        assert pad.node_altitudes == [_APT_ELEV] * 5
+
+    def test_an_OVERLAPPING_ramp_keeps_the_pre_v3_behaviour(self) -> None:
+        """The trigger change must not move the overlapping case: the
+        ramp is still clipped back to the same standoff it had before."""
+        layout, pad, _z = self._scene(self._PAD_BOX)
+        ramps = _refs(layout, "tunnel_ramp")
+        assert ramps
+        assert max(r.polygon.bounds[2] for r in ramps) \
+            == pytest.approx(90.0 - bridges._TUNNEL_GRAZE_CLEARANCE_M,
+                             abs=0.05)
+
     def test_a_ramp_wholly_under_the_pad_drops_naming_way_and_pad(
             self, capsys) -> None:
         """The overlap is COVERED BORE, not emitted — and the drop is

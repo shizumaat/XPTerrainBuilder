@@ -6219,6 +6219,65 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1, f"  [pav-builder] {icao}: OLS cut emission "
                              f"FAILED: {exc!r}")
 
+        # ── TERRAIN-SIDE BUILDING PADS (gate DSF_OBJECT_OBJECT_PADS) ────
+        # docs/specs/per-cluster-object-seating-spec.md section 5.4, the
+        # consumer of the post-mesh pad REQUEST sidecar.  LAST of the
+        # terrain emitters by design and by the spec's ordering clause:
+        # "Pads emit AFTER adjacent-ground bands and OLS (they must weld
+        # to final feature values), i.e. last in the terrain block,
+        # before tile cut."  A pad is clipped by pavement and by every
+        # feature above it, so all of them must already be here.  The
+        # module is imported INSIDE the gate so it is byte-inert when off.
+        from .config import DSF_OBJECT_OBJECT_PADS as _pads_enabled
+        if _pads_enabled and _projection_dem is not None:
+            # The sidecar lives in the patch directory of the tile whose
+            # post-mesh pass wrote it.  In a tile build that is
+            # ``current_tile_*``; in the standalone patch build (no
+            # ``tile_dem``, ``current_tile_lat`` None) it is the anchor
+            # tile — which is exactly what ``_projection_tile_*`` already
+            # resolved to, by the same rule.
+            _pad_patch_dir = None
+            try:
+                import O4_File_Names as _FNAMES
+                _pad_patch_dir = _FNAMES.patch_dir(
+                    current_tile_lat if current_tile_lat is not None
+                    else _projection_tile_lat,
+                    current_tile_lon if current_tile_lon is not None
+                    else _projection_tile_lon)
+            except (ImportError, AttributeError, TypeError, ValueError):
+                _pad_patch_dir = None
+            try:
+                from .object_pads import emit_object_pads
+                # DEM tile coords (``_projection_tile_*``) and BUILD tile
+                # coords (``current_tile_*``) differ for a cross-tile
+                # airport: the sampler must be given the tile its DEM
+                # actually covers (the MMOX +17 bug), the tile cut the
+                # tile being built.
+                n_pad = 0 if _pad_patch_dir is None else emit_object_pads(
+                    layout, _projection_dem,
+                    _projection_tile_lat, _projection_tile_lon,
+                    icao=icao, patch_dir=_pad_patch_dir)
+                if n_pad:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: emitted {n_pad} "
+                        f"object-pad terrain polygon(s) for "
+                        f"{len(layout.object_pad_records)} building pad(s).")
+                    # A pad sits beside a building and can straddle an
+                    # integer tile line like any other post-solve feature.
+                    from .geom_guard import _AIRSIDE_ROLES as _pad_skip
+                    from .tile_cut import cut_layout_at_tile_boundaries \
+                        as _pad_tile_cut
+                    _pad_tile_cut(
+                        layout,
+                        current_tile_lat=current_tile_lat,
+                        current_tile_lon=current_tile_lon,
+                        dem=_projection_dem,
+                        skip_roles=_pad_skip,
+                    )
+            except _GEOM_EXC as exc:
+                UI.vprint(1, f"  [pav-builder] {icao}: object-pad "
+                             f"emission FAILED: {exc!r}")
+
         # Round 9 (user ruling): re-run the non-overlap rule AFTER the
         # adjacent-ground bands — the last feature emitters that can
         # lap onto the object-bridge plates.  Gate off ⇒ no plates ⇒

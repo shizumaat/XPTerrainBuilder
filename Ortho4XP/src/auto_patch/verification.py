@@ -66,6 +66,13 @@ _NON_SOURCE_PAVEMENT_ROLES = frozenset({
     # to be enumerated for a new role — the same sweep the
     # runway_end_resa ref needed.)
     "ols_cut",
+    # Terrain-side building pads (object_pads.py): off-pavement terrain
+    # raised or lowered to meet a seated DSF object's base.  Off-source by
+    # construction and by LAW — clause 2 of the PAD LAW differences the
+    # pad against the graded pavement union before it may be emitted, so
+    # a pad that WERE on-source would be the defect.  (Enumerated here
+    # with the role's registration, per the ols_cut lesson above.)
+    "object_pad",
 })
 
 def _ll(layout, x, y) -> str:
@@ -2994,6 +3001,212 @@ def check_ols_surfaces(layout, dem, tile_lat, tile_lon,
     return out
 
 
+def check_object_pads(layout, dem, tile_lat, tile_lon,
+                      tolerance_m: float = 0.02):
+    """Invariant (THE PAD LAW, per-cluster-object-seating-spec §5.5):
+    every emitted ``object_pad`` surface holds its law target under the
+    contact hull, carries the pavement's own value at every welded
+    vertex, blends to raw DEM on its open sides, stays inside the relief
+    cap, and deforms no pavement — and every pad the emitter REFUSED, and
+    every stored record it EXPIRED, is surfaced with its measured numbers
+    rather than lost.
+
+    Pure reporter: returns ``[(kind, key, measured, tolerance,
+    "lat,lon"), …]`` worst-first.  Kinds are the emitter's own refusal /
+    expiry kinds (``pad_over_relief_cap``, ``pad_wholly_inside_pavement``,
+    ``pad_clipped_away``, ``pad_off_dem``, ``pad_ring_degenerate``,
+    ``pad_pull_shortfall``, ``pad_record_expired``,
+    ``pad_deformed_pavement``) plus this reader's own
+    (``pad_core_off_target``, ``pad_weld_mismatch``,
+    ``pad_open_side_off_law``, ``pad_over_cap_emitted``,
+    ``pad_record_not_emitted``).
+
+    LOCKSTEP (ruling R5).  The reader does not re-derive a single law
+    value: it calls ``grade_law.object_pad_blend_elevation`` /
+    ``object_pad_admissible`` — the very functions the emitter called —
+    and resolves welded vertices through ``object_pads._WeldIndex``, the
+    emitter's own donor index.  A finding is therefore an emitted surface
+    that disagrees with the law, never the reader and the emitter
+    disagreeing about what the law is.  (``check_runway_end_skirt``, which
+    re-derived, could not see a missing RESA for nine days; that is the
+    cautionary case this pattern exists to avoid.)
+
+    The emitter records its refusals on the layout, so this reader is the
+    one place they surface.  With the gate off nothing is recorded and
+    nothing is emitted, and the reader returns ``[]`` — the verify output
+    of a gate-off build is byte-identical to a pre-feature build.
+    """
+    out: list[tuple] = []
+    for finding in getattr(layout, "object_pad_findings", None) or ():
+        try:
+            out.append(tuple(finding))
+        except TypeError:                          # pragma: no cover
+            continue
+
+    from .layout import ROLE_OBJECT_PAD
+
+    pads = [s for s in layout.shapes
+            if s.role == ROLE_OBJECT_PAD and s.polygon is not None
+            and not s.polygon.is_empty
+            and s.polygon.geom_type == "Polygon"]
+    records = list(getattr(layout, "object_pad_records", None) or ())
+    if not pads and not records:
+        return sorted(out, key=lambda r: -float(r[2] or 0.0))
+
+    from shapely.geometry import Point
+
+    from .config import (
+        DSF_OBJECT_FOOT_PAD_MARGIN_M,
+        DSF_OBJECT_PAD_MAX_RELIEF_M,
+    )
+    from .elevation import _sample_dem
+    from .grade_law import object_pad_admissible, object_pad_blend_elevation
+    from .object_pads import (
+        REF_PAD_BLEND,
+        REF_PAD_CORE,
+        _WeldIndex,
+    )
+
+    margin = float(DSF_OBJECT_FOOT_PAD_MARGIN_M)
+    welds = _WeldIndex(layout)
+
+    def _dem_at(x, y):
+        if dem is None:
+            return None
+        try:
+            lat, lon = layout.m_to_ll(x, y)
+            return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except Exception:                          # pragma: no cover
+            return None
+
+    def _index_of(shape):
+        ref = shape.ref or ""
+        if ":" not in ref:
+            return None
+        try:
+            return int(ref.rsplit(":", 1)[1])
+        except ValueError:                         # pragma: no cover
+            return None
+
+    cores: dict = {}
+    blends: dict = {}
+    for s in pads:
+        idx = _index_of(s)
+        if idx is None:
+            continue
+        if (s.ref or "").startswith(REF_PAD_CORE + ":"):
+            cores.setdefault(idx, []).append(s)
+        elif (s.ref or "").startswith(REF_PAD_BLEND + ":"):
+            blends.setdefault(idx, []).append(s)
+
+    by_index = {}
+    for record in records:
+        try:
+            by_index[int(record.get("index"))] = record
+        except (TypeError, ValueError):            # pragma: no cover
+            continue
+
+    # 1. Every stored record must correspond to emitted geometry (§5.5:
+    #    "no silent pad loss").  An expiry is lawful and already in
+    #    ``out``; a record with neither geometry nor an expiry is not.
+    for idx, record in by_index.items():
+        if idx not in cores and idx not in blends:
+            out.append(("pad_record_not_emitted",
+                        str(record.get("seat_key") or idx), 0.0, 0.0, ""))
+
+    for idx in sorted(set(cores) | set(blends)):
+        record = by_index.get(idx) or {}
+        key = str(record.get("seat_key") or idx)
+        try:
+            target = float(record.get("emitted_target_metres"))
+        except (TypeError, ValueError):
+            target = None
+        # The blend width is PER REQUEST (grade_law.object_pad_blend_width_m
+        # on the ORIGINAL ring); the emitter recorded the number it used, so
+        # the reader consumes it rather than re-deriving it from a CLIPPED
+        # piece — re-derivation there is precisely how a validator drifts.
+        try:
+            blend_width = float(record.get("blend_width_m"))
+        except (TypeError, ValueError):
+            blend_width = margin
+        core_polys = [s.polygon for s in cores.get(idx, ())]
+
+        # 2. THE CORE holds the law target (pull-toward-pavement already
+        #    folded in by the emitter and recorded).
+        if target is not None:
+            for s in cores.get(idx, ()):
+                coords = _open_coords_local(s.polygon)
+                alts = _shape_vertex_altitudes(s, len(coords))
+                if not alts:
+                    continue
+                for (x, y), value in zip(coords, alts):
+                    delta = abs(float(value) - target)
+                    if delta > tolerance_m:
+                        out.append(("pad_core_off_target", key, delta,
+                                    tolerance_m, _ll(layout, x, y)))
+                        break
+
+        # 3. THE RELIEF CAP holds on what was actually emitted.
+        if target is not None and core_polys:
+            cx, cy = core_polys[0].centroid.x, core_polys[0].centroid.y
+            ground = _dem_at(cx, cy)
+            if ground is not None and not object_pad_admissible(
+                    target, float(ground),
+                    float(DSF_OBJECT_PAD_MAX_RELIEF_M)):
+                out.append(("pad_over_cap_emitted", key,
+                            abs(target - float(ground)),
+                            float(DSF_OBJECT_PAD_MAX_RELIEF_M),
+                            _ll(layout, cx, cy)))
+
+        # 4. THE WELD (ruling R4) and 5. THE OPEN-SIDE BLEND (§5.1
+        #    clause 4), vertex by vertex over the blend ring.
+        for s in blends.get(idx, ()):
+            coords = _open_coords_local(s.polygon)
+            alts = _shape_vertex_altitudes(s, len(coords))
+            if not alts:
+                continue
+            for (x, y), value in zip(coords, alts):
+                donor = welds.value_at(x, y)
+                if donor is not None:
+                    delta = abs(float(value) - float(donor))
+                    if delta > tolerance_m:
+                        out.append(("pad_weld_mismatch", key, delta,
+                                    tolerance_m, _ll(layout, x, y)))
+                    continue
+                if target is None:
+                    continue
+                ground = _dem_at(x, y)
+                if ground is None:
+                    continue
+                if core_polys:
+                    distance = min(p.distance(Point(x, y))
+                                   for p in core_polys)
+                else:
+                    distance = blend_width
+                expected = object_pad_blend_elevation(
+                    target, float(ground), float(distance), blend_width)
+                delta = abs(float(value) - expected)
+                if delta > tolerance_m:
+                    out.append(("pad_open_side_off_law", key, delta,
+                                tolerance_m, _ll(layout, x, y)))
+
+    out.sort(key=lambda r: -float(r[2] or 0.0))
+    return out
+
+
+def _open_coords_local(poly):
+    """Exterior ring as an OPEN coord list (the ``clearance._open_coords``
+    contract, kept local so this module needs no clearance import at
+    verify time)."""
+    try:
+        coords = list(poly.exterior.coords)
+    except Exception:                              # pragma: no cover
+        return []
+    if coords and coords[0] == coords[-1]:
+        coords = coords[:-1]
+    return [(float(x), float(y)) for x, y in coords]
+
+
 def _shape_vertex_altitudes(shape, vertex_count):
     """Per-vertex solved altitudes for a shape's open ring, or ``None``
     when the shape carries no elevation representation yet.  Mirrors the
@@ -4395,6 +4608,46 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
                 f"  [verify] OLS: {len(_refused)} island(s) REFUSED as "
                 f"too deep to cut (worst {_refused[0][2]:.2f} m) — by "
                 f"design, not a violation.")
+
+    # OBJECT-PAD law reader (per-cluster seating spec §5.5) — gate-guarded
+    # exactly like the blocks above: with O4_DSF_OBJECT_OBJECT_PADS off no
+    # pad is emitted, no refusal is recorded, and the verify output is
+    # byte-identical to a pre-consumer build.  DEM-based (the open-side
+    # blend is stated against raw DEM), so it reuses the SAME resolved
+    # raster/tile pair the OLS block above established.
+    pad_findings = []
+    from .config import DSF_OBJECT_OBJECT_PADS as _pad_gate
+    if _pad_gate:
+        import math as _math
+        from .clearance import _GEOM_EXC as _shapely_domain_exceptions
+        _pdem = dem
+        _ptlat, _ptlon = tile_lat, tile_lon
+        if _ptlat is None or _ptlon is None:
+            _ptlat = int(_math.floor(layout.anchor[0]))
+            _ptlon = int(_math.floor(layout.anchor[1]))
+        try:
+            pad_findings = check_object_pads(layout, _pdem, _ptlat, _ptlon)
+        except _shapely_domain_exceptions:         # pragma: no cover
+            pad_findings = []
+    if pad_findings:
+        _refusals = [f for f in pad_findings
+                     if f[0] in ("pad_over_relief_cap",
+                                 "pad_wholly_inside_pavement",
+                                 "pad_clipped_away", "pad_off_dem",
+                                 "pad_ring_degenerate")]
+        _breaches = [f for f in pad_findings if f not in _refusals]
+        if _breaches:
+            UI.vprint(1,
+                f"  [verify] object pads: {len(_breaches)} law "
+                f"disagreement(s); worst {_breaches[0][0]} "
+                f"{_breaches[0][2]:.2f} m at {_breaches[0][4]} "
+                f"({_breaches[0][1]}).")
+        if _refusals:
+            UI.vprint(1,
+                f"  [verify] object pads: {len(_refusals)} pad request(s) "
+                f"REFUSED (worst {_refusals[0][2]:.2f} m against the "
+                f"{_refusals[0][3]:.2f} m relief cap) — the cluster keeps "
+                f"its residual, by design, not a deformed surface.")
 
     # END-AROUND TAXIWAY ceiling reader (owner ruling 2026-07-27) —
     # gate-guarded exactly like the adjacent-ground block above: with

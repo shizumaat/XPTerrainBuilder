@@ -2580,6 +2580,152 @@ def tunnel_trench_floor_elevation_m(
     )
 
 
+# ── THE PAD LAW (docs/specs/per-cluster-object-seating-spec.md §5.1) ──
+# Owner ruling R2, verbatim: "we have to be sure we don't create building
+# pads that are then giant cliffs in relation to the graded pavement.  They
+# want to generally be as close as feasible to DEM, then some adjustment to
+# terrain is acceptable, but particularly for buildings adjacent to airside
+# pavement they must not deform the graded pavement."
+#
+# ONE SOURCE, TWO READERS (R5, the one-solve doctrine): every scalar below
+# is imported by BOTH the emitter (``object_pads.emit_object_pads``) and the
+# validator (``verification.check_object_pads``).  Neither re-derives a
+# number; a lockstep failure is therefore impossible by construction, not
+# by discipline.  Pure functions — no geometry, no DEM object, no config
+# read except the two named caps passed in by the caller.
+
+def object_pad_relief_m(target_elevation_m: float,
+                        dem_elevation_m: float) -> float:
+    """The pad's SIGNED relief against raw DEM: ``target − DEM``.
+
+    Positive = the pad FILLS (terrain raised to meet a building seated
+    above the ground); negative = the pad CUTS a bench (spec §5.1 clause 1:
+    "Pads may RAISE or LOWER terrain ... direction default-symmetric")."""
+    return float(target_elevation_m) - float(dem_elevation_m)
+
+
+def object_pad_admissible(target_elevation_m: float,
+                          dem_elevation_m: float,
+                          max_relief_m: float) -> bool:
+    """Spec §5.1 clause 1: a pad is admissible only while its deviation
+    from DEM is within ``DSF_OBJECT_PAD_MAX_RELIEF_M``.
+
+    "As close as feasible to DEM, then some adjustment to terrain is
+    acceptable."  A pad needing more relief than the cap is REFUSED — the
+    requesting cluster keeps its residual and the refusal is a finding
+    (§5.5) — never emitted at a truncated height, which would promise a
+    seat the terrain does not deliver."""
+    return abs(object_pad_relief_m(target_elevation_m,
+                                   dem_elevation_m)) <= float(max_relief_m)
+
+
+def object_pad_pull_toward_pavement(target_elevation_m: float,
+                                    pavement_elevation_m: float,
+                                    run_m: float,
+                                    max_grade: float) -> float:
+    """Spec §5.1 clause 3 — PAVEMENT WINS OVER THE BUILDING BASE TOO.
+
+    Between a welded pavement edge (whose solved value the pad ADOPTS,
+    ruling R4) and the pad's interior target, the surface must transition
+    at a lawful grade over the available run.  Where the run is too short
+    for the full step, the TARGET is pulled toward the pavement value
+    rather than emitting a cliff at the apron; the shortfall re-appears as
+    a residual finding.
+
+    ``run_m`` is the planar distance from the welded pavement contact to
+    the pad's interior (target) region; ``max_grade`` is the caller's
+    groundside cap (``config.GROUNDSIDE_MAX_GRADE`` — the named constant,
+    so there is no second copy of the rate).  A non-positive run pins the
+    target to the pavement value exactly (zero available transition)."""
+    import math as _math
+
+    pavement = float(pavement_elevation_m)
+    target = float(target_elevation_m)
+    reach = max(0.0, float(run_m)) * float(max_grade)
+    delta = target - pavement
+    if abs(delta) <= reach:
+        return target
+    return pavement + _math.copysign(reach, delta)
+
+
+def object_pad_pull_shortfall_m(target_elevation_m: float,
+                                pulled_target_m: float) -> float:
+    """The residual the pull-toward-pavement left unabsorbed (spec §5.1
+    clause 3: "the shortfall re-appears as a residual finding rather than
+    a cliff at the apron").  Zero when the run was long enough."""
+    return abs(float(target_elevation_m) - float(pulled_target_m))
+
+
+def object_pad_blend_width_m(pad_area_m2: float, pad_perimeter_m: float,
+                             margin_m: float) -> float:
+    """THE PER-REQUEST BLEND WIDTH (spec §5.1 clause 4: the blend crosses
+    "a ``DSF_OBJECT_FOOT_PAD_MARGIN_M``-class margin, **per-request**").
+
+    The nominal margin is what ``object_footprints.foot_pad_ring`` dilated
+    the contact hull BY, so a pad whose hull is large keeps the full 2 m
+    ring and eroding it back recovers the hull exactly.  But a request
+    whose ground contact is a metre across is a ring that is ALL margin:
+    eroding by the full 2 m leaves no interior at all, and a pad with no
+    interior holds the building base nowhere.  (Measured on the OTHH
+    corpus: the median cluster request's ring is 18 m² — a ~1 m hull
+    dilated to a 12-gon — and full-margin erosion empties every one of
+    them.)
+
+    So the blend never claims more than HALF the pad's own inradius,
+    estimated from the shape's area and perimeter (``2A/P`` is exact for a
+    disc and close for the convex hulls this ring family produces).  A
+    generous pad is unaffected — ``min`` returns the nominal margin — and a
+    tight one keeps a real interior at the target with a real, if shorter,
+    ramp to DEM.  Nothing here enlarges a pad: the width only ever
+    SHRINKS inside the ring the request already recorded.
+
+    Returns 0.0 for a degenerate shape (the caller refuses the pad)."""
+    area = float(pad_area_m2)
+    perimeter = float(pad_perimeter_m)
+    if area <= 0.0 or perimeter <= 0.0:
+        return 0.0
+    inradius = 2.0 * area / perimeter
+    return max(0.0, min(float(margin_m), 0.5 * inradius))
+
+
+def object_pad_blend_elevation(target_elevation_m: float,
+                               dem_elevation_m: float,
+                               distance_from_core_m: float,
+                               margin_m: float) -> float:
+    """Spec §5.1 clause 4 — THE OPEN-SIDE BLEND.
+
+    On sides not touching pavement the pad blends from its interior target
+    ``b`` to raw DEM across the margin ring grown from the contact hull
+    (``DSF_OBJECT_FOOT_PAD_MARGIN_M``).  The adjacent-ground convention is
+    kept verbatim: the value is stated as a SIGNED OFFSET from the pad's
+    edge anchor (here the target under the contact hull) that decays with
+    distance out from that anchor, so at ``d = 0`` the surface holds the
+    target and at ``d ≥ margin`` it IS raw DEM — the pad meets untouched
+    ground exactly, with no standoff groove and no unbounded tail.
+
+    Deliberately NOT grade-capped, and this is the one place the pad law
+    departs from the band law's shape: with a 3 m relief cap over a 2 m
+    margin a pad's outer face is a BENCH (up to 150 %), which is what a
+    building dug into or standing proud of a slope must look like (spec
+    §8 Q3 states the trade in those terms).  Grade-capping here would
+    either strand the pad above the DEM at its own outer edge — a cliff
+    with no vertex on it, the exact defect ruling R2 forbids — or shrink
+    the pad's reach without owner authority.  The bench's height is
+    bounded by ``object_pad_admissible`` instead, which is where the owner
+    put the cap."""
+    margin = float(margin_m)
+    dem = float(dem_elevation_m)
+    target = float(target_elevation_m)
+    if margin <= 0.0:
+        return dem
+    t = float(distance_from_core_m) / margin
+    if t <= 0.0:
+        return target
+    if t >= 1.0:
+        return dem
+    return target + t * (dem - target)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE REMAINING REGULATORY FAMILIES
 # (spec docs/specs/DRAFT-reg-families-round-spec.md, rounds A and B)

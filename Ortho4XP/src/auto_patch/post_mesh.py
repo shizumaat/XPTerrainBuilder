@@ -88,7 +88,15 @@ OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
 #    "cluster_id", "part_count" and "over_relief_cap".  A version-1 file
 #    is exactly the "foot"-only subset, so readers stay
 #    version-agnostic.
-OBJECT_FOOT_PAD_SIDECAR_VERSION = 2
+# 3: the pad CONSUMER's ``emitted`` section joins the requests
+#    (per-cluster seating spec section 5.2).  It is written by
+#    ``object_pads`` in the auto-patch phase, carried across this
+#    module's refresh untouched, and records per emitted pad its ring,
+#    its target and the fingerprint of the seat that produced it — the
+#    memory that keeps a pad standing after the request that asked for
+#    it converges away.  A version-2 file is exactly the request-only
+#    subset, so readers stay version-agnostic here too.
+OBJECT_FOOT_PAD_SIDECAR_VERSION = 3
 
 # The counts returned by rebake_dsf_objects, all starting at zero.
 _COUNT_KEYS = (
@@ -1154,21 +1162,47 @@ def rebake_dsf_objects(tile) -> dict:
 
         # Refresh the foot-pad sidecar every run: write it when any
         # request was raised, remove a stale one when none remains.
+        #
+        # THE ``emitted`` SECTION IS NOT OURS (per-cluster seating spec
+        # section 5.2, version 3).  The pad CONSUMER (``object_pads``,
+        # auto-patch phase) records there which pads it built and the
+        # fingerprint of the seat that produced each.  That section is the
+        # whole point of the next-build convergence loop: once terrain
+        # meets the feet the residuals fall under
+        # DSF_OBJECT_FOOT_PAD_RESIDUAL_M and the REQUESTS vanish — which
+        # is exactly when the emitted pads must NOT.  So this refresh
+        # rewrites the requests and carries the consumer's section across
+        # untouched, and a request-empty sidecar that still holds records
+        # is WRITTEN (emptied of requests) rather than removed.  Deleting
+        # it would drop every pad on the next build, un-converge the loop,
+        # and re-raise the same requests: a permanent oscillation.
         sidecar_path = os.path.join(
             os.path.dirname(worklist_path),
             OBJECT_FOOT_PAD_SIDECAR_FILENAME,
         )
-        if foot_pad_airports:
+        emitted_section = []
+        try:
+            if os.path.isfile(sidecar_path):
+                with open(sidecar_path) as handle:
+                    previous = json.load(handle)
+                if isinstance(previous, dict):
+                    emitted_section = [
+                        record
+                        for record in (previous.get("emitted") or ())
+                        if isinstance(record, dict)
+                    ]
+        except (OSError, ValueError):
+            emitted_section = []
+        if foot_pad_airports or emitted_section:
+            payload = {
+                "version": OBJECT_FOOT_PAD_SIDECAR_VERSION,
+                "tile": worklist.get("tile"),
+                "airports": foot_pad_airports,
+            }
+            if emitted_section:
+                payload["emitted"] = emitted_section
             with open(sidecar_path, "w") as handle:
-                json.dump(
-                    {
-                        "version": OBJECT_FOOT_PAD_SIDECAR_VERSION,
-                        "tile": worklist.get("tile"),
-                        "airports": foot_pad_airports,
-                    },
-                    handle,
-                    indent=1,
-                )
+                json.dump(payload, handle, indent=1)
         elif os.path.isfile(sidecar_path):
             os.remove(sidecar_path)
     except Exception as exception:

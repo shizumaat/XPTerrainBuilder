@@ -37,6 +37,58 @@ tree's 4 unmounted data dirs now symlink the shared repo; write
 guard gained the no-op ensure-dir allowance (twin in
 test_harness.py).**
 
+## SESSION CLOSE 2026-08-08 — A FRESH SESSION BOOTS ON THIS BLOCK
+## (supersedes everything below; RULINGS.md end-to-end first; interview
+## the owner per session-startup-protocol before dispatching anything)
+
+STATE: app 1.0.225 (engine 1.50.1670) DELIVERED — the fabric model,
+merged to main (= the campaign trunk, kept in sync). Scoreboard: 248
+actionable sites battery-wide (post-floor). Chips landed: suiteclean
+(suites CORPUS-CLEAN — parallel-to-builds lawful), mesh-entry guard
+(shared_repo_guard.py = ONE write law, all entries), demfix
+follow-up; cross-chip integration 97c5915 (the two-chips-one-class
+precedent). Core twins 270 green post-merge; THE FULL SUITE HAS NOT
+RUN ON THE FINAL TIP (owner stopped it for handover — run it FIRST).
+
+ORDERED REMAINING WORK:
+1. FULL SUITE on the tip (parallel-lawful now). Expect the standing
+   12 / 0 errors. The DSF-redirect guard test's behavior here is the
+   evidence for item 2.
+2. MERGE claude/pensive-antonelli-d9526d (2aa4dd7, "redirect
+   survives every recompute; guard fails loud") — based PRE-suiteclean;
+   conftest/test_data_root/test_harness all conflict with the
+   suiteclean rewrite. PORT THE INTENT into the new machinery, never
+   force the text (precedent: the allow_library_index port, 97c5915).
+   If the rewrite already subsumes it (suite evidence), record
+   subsumed-and-close with the owner.
+3. OWNER SIM LOOK (1.0.225): SPLP strips = the ruling-1 PROVISIONAL
+   decision (measured counterfactual: flag off → 5 actionable vs
+   control 6); the wide-corridor lean spots (+123 rows, named); the
+   CYXY hillside. His report gates ruling 1 and feeds item 4.
+4. FLEX-PAIR-DEFICIT ROUND (spec ready: flex-pair-deficit-spec.md;
+   acceptance pre-built on the captured arms) + the vertex-hits
+   re-arm → closes the wide-corridor lean. Independent of item 3;
+   dispatchable immediately.
+5. CLEANUP LANE (owner-ruled): the 8 acceptance fixtures re-scope to
+   the ruled bar (zero ACTIONABLE sites, floor+guards, runways
+   exempt) + the 2 route-band twins; CYXY solver-validator lockstep
+   went green on its own — confirm and close.
+6. NAMED DEBTS: HECA within_shape +140 (bounded; attribution rides
+   the flex round's re-measure); R20 binding half (crown minimum);
+   F-8 ICAO taxiway-band blended fall (owner-adjacent); XY-density
+   question parked for the final profiling round.
+7. HOUSEKEEPING: worktree teardown sweep (lane_worktree.sh down:
+   fabricB, enclave, enclavectl, c10ctl, c10knife, decim, regenc,
+   regenc-ctl, nidfix2, nidfix2ctl, appcut; frontweld STAYS — parked
+   by ruling). Parked-branch dispositions: nidrepair superseded by
+   nidfix2; ingest/kill/law/seats = the 08-05 kill-half archive;
+   great-almeida / hopeful-liskov / sad-jones = pre-campaign, owner
+   review before deleting anything.
+8. LATER ROUNDS: final-design profiling (timing gates resume there;
+   baselines re-record owner-WITHHELD until then); the
+   drainage_minimum version-deferred family; standards BUILD items
+   R14 (RESA approach-surface check) + R15 (blast-pad inheritance).
+
 **THE FABRIC MODEL SHIPPED (08-08 evening; merge 96b1f31; app
 1.0.225 / engine 1.50.1670 delivered): battery ACTIONABLE 255→248
 (visible 242→240); KCLT adjudicated airside 495→99; mesh slivers

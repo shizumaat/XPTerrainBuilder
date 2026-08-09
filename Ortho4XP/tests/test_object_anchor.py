@@ -1417,18 +1417,36 @@ class TestFootPadRing:
 _RING_MARGIN_M = 2.0
 
 
-def _lonlat_box(east: float, north: float, half: float = 5.0):
-    """One contact part: the four corners of a ``2 × half`` metre box
-    centred ``(east, north)`` metres from the plane anchor."""
+def _to_lonlat(points):
     metres_per_degree = metres_per_degree_longitude_at(PLANE_ANCHOR_LATITUDE)
     return [
-        (
-            PLANE_ANCHOR_LONGITUDE + (east + dx) / metres_per_degree,
-            PLANE_ANCHOR_LATITUDE + (north + dz) / METRES_PER_DEGREE_LATITUDE,
-        )
-        for dx, dz in ((-half, -half), (half, -half), (half, half),
-                       (-half, half))
+        (PLANE_ANCHOR_LONGITUDE + x / metres_per_degree,
+         PLANE_ANCHOR_LATITUDE + y / METRES_PER_DEGREE_LATITUDE)
+        for x, y in points
     ]
+
+
+def _lonlat_box(east: float, north: float, half: float = 5.0):
+    """The four corners of a ``2 × half`` metre box centred ``(east,
+    north)`` metres from the plane anchor — a PLAN BOX, which is what the
+    producer recorded before §2.5 v2b and what these tests now use only
+    to prove a box input could not pass."""
+    return _to_lonlat([(east - half, north - half), (east + half,
+                                                     north - half),
+                       (east + half, north + half), (east - half,
+                                                     north + half)])
+
+
+def _lonlat_quad_triangles(east: float, north: float, half_east: float,
+                           half_north: float = None):
+    """The CONTACT-BAND GEOMETRY of a rectangular patch: its two ground
+    triangles, one group each — the shape ``object_anchor.
+    _contact_band_triangles_lonlat`` hands the ring law under §2.5 v2b."""
+    half_north = half_east if half_north is None else half_north
+    x0, x1 = east - half_east, east + half_east
+    y0, y1 = north - half_north, north + half_north
+    return [_to_lonlat([(x0, y0), (x1, y0), (x1, y1)]),
+            _to_lonlat([(x0, y0), (x1, y1), (x0, y1)])]
 
 
 def _local_polygon(ring_lonlat):
@@ -1448,13 +1466,15 @@ class TestFootprintHuggingPadRings:
     """The §2.5 structural law, asserted on the ring builder itself."""
 
     def test_a_spread_out_group_yields_several_tight_rings(self):
-        """The motivating case: three 10 m boxes strung 80 m apart.  The
-        retired law returned ONE hull ~1,900 m² covering the 60 m of
-        open ground between them; the new law returns three rings whose
-        total area is the boxes plus their margins."""
+        """The motivating case: three 10 m contact patches strung 80 m
+        apart.  The retired law returned ONE hull ~1,900 m² covering the
+        60 m of open ground between them; the new law returns three rings
+        whose total area is the patches plus their margins."""
         from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
 
-        parts = [_lonlat_box(east, 0.0) for east in (0.0, 80.0, 160.0)]
+        parts = [triangle
+                 for east in (0.0, 80.0, 160.0)
+                 for triangle in _lonlat_quad_triangles(east, 0.0, 5.0)]
         rings = foot_pad_rings(parts, _RING_MARGIN_M)
         assert len(rings) == 3, "one ring per connected component"
 
@@ -1483,13 +1503,13 @@ class TestFootprintHuggingPadRings:
         hulls, never their hull."""
         from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
 
-        far_parts = [_lonlat_box(0.0, 0.0, half=5.0),
-                     _lonlat_box(14.01, 0.0, half=5.0)]
+        far_parts = (_lonlat_quad_triangles(0.0, 0.0, 5.0)
+                     + _lonlat_quad_triangles(14.01, 0.0, 5.0))
         separated = foot_pad_rings(far_parts, _RING_MARGIN_M)
         assert len(separated) == 2
 
-        near_parts = [_lonlat_box(0.0, 0.0, half=5.0),
-                      _lonlat_box(13.99, 0.0, half=5.0)]
+        near_parts = (_lonlat_quad_triangles(0.0, 0.0, 5.0)
+                      + _lonlat_quad_triangles(13.99, 0.0, 5.0))
         touching = foot_pad_rings(near_parts, _RING_MARGIN_M)
         assert len(touching) == 1
         # A merged ring is still the UNION of the dilated hulls, never
@@ -1510,12 +1530,12 @@ class TestFootprintHuggingPadRings:
 
         from auto_patch.object_footprints import foot_pad_rings
 
-        parts = [
-            _lonlat_box(0.0, 0.0, half=6.0),
-            _lonlat_box(30.0, 12.0, half=3.0),
-            _lonlat_box(-25.0, -18.0, half=9.0),
-            _lonlat_box(3.0, 40.0, half=1.0),
-        ]
+        parts = (
+            _lonlat_quad_triangles(0.0, 0.0, 6.0)
+            + _lonlat_quad_triangles(30.0, 12.0, 3.0)
+            + _lonlat_quad_triangles(-25.0, -18.0, 9.0)
+            + _lonlat_quad_triangles(3.0, 40.0, 1.0)
+        )
         rings = foot_pad_rings(parts, _RING_MARGIN_M)
         assert len(rings) == 4
 
@@ -1557,6 +1577,54 @@ class TestFootprintHuggingPadRings:
         assert foot_pad_rings([], _RING_MARGIN_M) == []
         assert foot_pad_rings([[]], _RING_MARGIN_M) == []
         assert foot_pad_ring([], _RING_MARGIN_M) is None
+
+    def test_a_mega_part_band_hugs_the_L_and_not_its_notch(self):
+        """§2.5 v2b, THE FIXTURE the plan-box falsification demanded.
+
+        ONE part, 200 x 200 m in plan, whose ground contact is an
+        L-shaped band 20 m wide — a road network's shape.  Fed as
+        contact-band TRIANGLES the ring follows the band and the L's
+        notch (36,000 m² of open ground: water, a lot, a taxiway) stays
+        untouched.  Fed as the part's PLAN BOX — the pre-v2b recording,
+        asserted here so the regression is visible — the ring is the
+        whole 200 x 200 m square and the notch is graded with it.  At
+        OTHH that box was 560.7 x 534.1 m and made shapeID 1878."""
+        from shapely.geometry import Point
+
+        from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
+
+        # The L: a 200 x 20 m arm running east, a 200 x 20 m arm running
+        # north off its west end, in 20 m quads (the triangles a mesh
+        # would carry).
+        band = []
+        for step in range(10):
+            band += _lonlat_quad_triangles(10.0 + 20.0 * step, 10.0,
+                                           10.0, 10.0)     # east arm
+            band += _lonlat_quad_triangles(10.0, 10.0 + 20.0 * step,
+                                           10.0, 10.0)     # north arm
+        rings = foot_pad_rings(band, _RING_MARGIN_M)
+        assert len(rings) == 1, "the band is contiguous: one component"
+        hugging = _local_polygon(rings[0])
+
+        # The band is covered — sampled along both arms — and the notch
+        # (the L's inner quadrant) is not.
+        for east in (30.0, 110.0, 190.0):
+            assert hugging.contains(Point(east, 10.0))
+        for north in (30.0, 110.0, 190.0):
+            assert hugging.contains(Point(10.0, north))
+        notch = Point(110.0, 110.0)
+        assert not hugging.intersects(notch)
+        # 200 x 200 minus the L is 32,400 m² of notch; the hugging ring
+        # is the band plus its margins, an order of magnitude less.
+        assert hugging.area < 12_000.0
+
+        # THE PLAN BOX COULD NOT HAVE PASSED: the same part recorded as
+        # its axis-aligned box grades the notch and 3.5x the area.
+        box_ring = foot_pad_ring(
+            _lonlat_box(105.0, 105.0, half=105.0), _RING_MARGIN_M)
+        box = _local_polygon(box_ring)
+        assert box.contains(notch)
+        assert box.area > 3.5 * hugging.area
 
 
 # ── the reseat threshold (object-reseat-threshold spec section 2) ─────

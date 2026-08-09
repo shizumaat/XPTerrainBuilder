@@ -171,6 +171,30 @@ needs no geometry change — it consumes rings verbatim; verify its
 per-request blend-width logic tolerates the smaller rings and that
 the refusal accounting still partitions.
 
+**(v2b, 2026-08-09 — the plan-box falsification, measured by the
+padrings lane's offline replay.)** Per-part hulls of the recorded
+contact geometry do NOT fix OTHH: the request producer records each
+part's contact as its AXIS-ALIGNED PLAN BOX, and the offending pads
+come from mega-parts whose boxes are the defect (shapeID 1878's
+source part is one 560.7 × 534.1 m box; the Bridge_06 water-spanner
+is four deck boxes; union-of-dilated-boxes ≈ the group hull; corpus
+area moved only −1.1 %). AMENDED LAW: the producer records each
+part's GROUND-CONTACT GEOMETRY — the 2D projection of the part's
+contact-band triangles (the triangles whose vertices sit in the
+part's ground-contact band, the same band the foot machinery uses) —
+and the ring law of this section runs on the union of per-TRIANGLE
+hulls dilated by the margin, components as their own rings. A part's
+ring then follows its real footprint (a road network yields thin
+bands, a bridge yields its touchdown patches), and covering water or
+lots BETWEEN geometry is structurally impossible. Schema unchanged
+(`contact_parts_lonlat` already carries point groups — one group per
+triangle is lawful); consumer unchanged. Observability, not law: any
+single ring component over 10,000 m² logs at verbosity 1 with its
+resource. Structural tests re-run against triangle inputs; add one
+mega-part fixture (a large L-shaped contact band) asserting the ring
+covers the band and NOT the L's notch, and that a plan-box input
+could not have passed.
+
 ## 3. Constraints (standing; violations are STOP-and-report)
 
 1. R4 interlock holds: terrain-to-object and object-to-terrain

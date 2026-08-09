@@ -255,10 +255,12 @@ class ClusterPadRequest:
     contact_points_lonlat: tuple[tuple[float, float], ...]  # (lon, lat)
     part_count: int = 1
     over_relief_cap: bool = False
-    # The group's contact points GROUPED BY PART, one tuple of plan-box
-    # corners per part.  THE RING LAW (object-reseat-threshold-spec §2.5)
-    # reads this, never the flattened list: hulling the whole group is
-    # what bridged water and parking lots between spread-out parts.
+    # THE RING LAW's input (object-reseat-threshold-spec §2.5 v2b): the
+    # group's GROUND-CONTACT GEOMETRY, one tuple per contact-band
+    # TRIANGLE of each part.  Read instead of the flattened list, which
+    # is the plan-box audit trail: hulling the whole group bridged water
+    # and parking lots between spread-out parts (v2), and hulling each
+    # part's plan box left the mega-part rectangles untouched (v2b).
     # Empty means "not grouped" (a hand-built request); the builder then
     # treats the flat list as one part, i.e. the retired hull.
     contact_parts_lonlat: tuple[tuple[tuple[float, float], ...], ...] = ()
@@ -1935,6 +1937,75 @@ def _seat_clusters(
     )
 
 
+def _contact_band_triangles_lonlat(
+    frame: _PoolFrame,
+    measurement: _PartMeasurement,
+    band_metres: float,
+) -> list[tuple[tuple[float, float], ...]]:
+    """One part's GROUND-CONTACT GEOMETRY: the 2D projection of the
+    triangles whose vertices all sit inside the part's contact band
+    (object-reseat-threshold-spec §2.5 v2b).
+
+    The band is ``DSF_OBJECT_FOOT_BAND_M`` above the part's own base —
+    the same band the foot machinery clusters vertices in — so a wall
+    rising off the ground is excluded and what is left is the skin the
+    part actually stands on.  One group per triangle: the ring law
+    (``object_footprints.foot_pad_rings``) hulls each group and unions
+    the dilated hulls, so a road network yields thin bands along the
+    road and a bridge yields its touchdown patches, instead of the one
+    560 x 534 m plan box that mega-part reduced to before (the v2b
+    falsification: the padrings lane measured that per-part PLAN BOXES
+    moved OTHH's corpus by −1.1 % and left shapeID 1878 untouched).
+
+    Falls back to the plan box when no triangle qualifies: a request
+    must never lose its geometry, and the plan box is what it always
+    was.
+    """
+    ceiling = measurement.base_y + band_metres
+    groups: list[tuple[tuple[float, float], ...]] = []
+    for triangle in measurement.triangles:
+        vertices = [frame.shared_vertices[index] for index in triangle]
+        if any(vertex[1] > ceiling for vertex in vertices):
+            continue
+        points = []
+        for vertex in vertices:
+            latitude, longitude = _pool_frame_to_world_point(
+                frame.origin_latitude,
+                frame.origin_longitude,
+                vertex[0],
+                vertex[2],
+            )
+            points.append((longitude, latitude))
+        groups.append(tuple(points))
+    if groups:
+        return groups
+    return [tuple(_plan_box_corners_lonlat(frame, measurement))]
+
+
+def _plan_box_corners_lonlat(
+    frame: _PoolFrame,
+    measurement: _PartMeasurement,
+) -> list[tuple[float, float]]:
+    """The part's plan-box corners in ``(lon, lat)`` — the request's
+    durable audit trail (and the pre-v2b contact geometry)."""
+    box = measurement.plan_box
+    corners = []
+    for corner_x, corner_z in (
+        (box[0], box[2]),
+        (box[1], box[2]),
+        (box[1], box[3]),
+        (box[0], box[3]),
+    ):
+        latitude, longitude = _pool_frame_to_world_point(
+            frame.origin_latitude,
+            frame.origin_longitude,
+            corner_x,
+            corner_z,
+        )
+        corners.append((longitude, latitude))
+    return corners
+
+
 def _raise_cluster_pad_requests(
     *,
     cluster: _SeatCluster,
@@ -2009,30 +2080,27 @@ def _raise_cluster_pad_requests(
                 for key in group_keys
             ]
         )
-        # PER PART, never pooled: the ring law (§2.5) hulls each contact
-        # part on its own and unions the dilated hulls, so the parts must
-        # survive as parts all the way to the ring builder.  The flat
-        # list is kept beside them for the run record's audit trail.
+        # THE RING LAW'S INPUT (§2.5 v2b): each part's ground-contact
+        # TRIANGLES, one group per triangle, never the pooled points and
+        # never the plan box — per-part boxes are the mechanism the
+        # replay falsified.  ``contact_points_lonlat`` keeps carrying the
+        # plan-box corners: it is the run record's audit trail and the
+        # extent the ungrouped fallback uses, and nothing derives a ring
+        # from it any more.
+        from .config import DSF_OBJECT_FOOT_BAND_M
+
         contact_points_lonlat: list[tuple[float, float]] = []
         contact_parts_lonlat: list[tuple[tuple[float, float], ...]] = []
         for key in group_keys:
-            box = measurement_by_key[key].plan_box
-            part_points: list[tuple[float, float]] = []
-            for corner_x, corner_z in (
-                (box[0], box[2]),
-                (box[1], box[2]),
-                (box[1], box[3]),
-                (box[0], box[3]),
-            ):
-                latitude, longitude = _pool_frame_to_world_point(
-                    frame.origin_latitude,
-                    frame.origin_longitude,
-                    corner_x,
-                    corner_z,
+            measurement = measurement_by_key[key]
+            contact_points_lonlat.extend(
+                _plan_box_corners_lonlat(frame, measurement)
+            )
+            contact_parts_lonlat.extend(
+                _contact_band_triangles_lonlat(
+                    frame, measurement, DSF_OBJECT_FOOT_BAND_M
                 )
-                part_points.append((longitude, latitude))
-            contact_points_lonlat.extend(part_points)
-            contact_parts_lonlat.append(tuple(part_points))
+            )
         cluster_pad_requests.append(
             ClusterPadRequest(
                 structure_index=structure_index,

@@ -107,6 +107,37 @@ OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
 #    ``object_pads.sidecar_is_current``) and the next rebake re-derives.
 OBJECT_FOOT_PAD_SIDECAR_VERSION = 4
 
+# A single pad ring component larger than this is REPORTED at verbosity
+# 1 with the resource that asked for it (object-reseat-threshold-spec
+# section 2.5 v2b).  Observability only: nothing is refused, resized or
+# dropped on account of it — the owner's in-sim defect was a 162,219 m²
+# pad, and a build that makes one that big should say so out loud.
+OBJECT_PAD_RING_REPORT_AREA_M2 = 10_000.0
+
+
+def _ring_area_square_metres(ring_lonlat) -> float:
+    """Metric area of a small ``(lon, lat)`` ring — the local
+    equirectangular scale at the ring's own latitude, the same
+    projection ``object_footprints`` builds the ring in."""
+    if not ring_lonlat or len(ring_lonlat) < 3:
+        return 0.0
+    from shapely.geometry import Polygon
+
+    latitudes = [latitude for _longitude, latitude in ring_lonlat]
+    centroid_latitude = sum(latitudes) / len(latitudes)
+    metres_per_degree_longitude = (
+        obj8_reader.METRES_PER_DEGREE_LATITUDE
+        * math.cos(math.radians(centroid_latitude))
+    )
+    polygon = Polygon([
+        (longitude * metres_per_degree_longitude,
+         latitude * obj8_reader.METRES_PER_DEGREE_LATITUDE)
+        for longitude, latitude in ring_lonlat
+    ])
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return float(polygon.area)
+
 # The counts returned by rebake_dsf_objects, all starting at zero.
 _COUNT_KEYS = (
     "airports_processed",
@@ -999,11 +1030,12 @@ def rebake_dsf_objects(tile) -> dict:
                 def _rings(request) -> list:
                     """The request's rings under the footprint-hugging
                     law (object-reseat-threshold-spec section 2.5): its
-                    per-part contact hulls dilated by the margin and
-                    unioned, one ring per connected component.  A request
-                    with no part grouping (a hand-built one) falls back
-                    to its flat point list as a SINGLE part — the
-                    single-part case of the same law."""
+                    contact-band TRIANGLE hulls dilated by the margin and
+                    unioned, one ring per connected component (v2b — per
+                    PART hulls were plan boxes, and boxes were the
+                    defect).  A request with no grouping (a hand-built
+                    one) falls back to its flat point list as a SINGLE
+                    part — the single-part case of the same law."""
                     parts = [
                         list(part)
                         for part in (
@@ -1011,9 +1043,23 @@ def rebake_dsf_objects(tile) -> dict:
                             or (request.contact_points_lonlat,)
                         )
                     ]
-                    return object_footprints.foot_pad_rings(
+                    rings = object_footprints.foot_pad_rings(
                         parts, DSF_OBJECT_FOOT_PAD_MARGIN_M
                     )
+                    # OBSERVABILITY, never refusal (section 2.5 v2b): a
+                    # ring component this big is the shape the owner saw
+                    # in the sim, so it is named on the build that made
+                    # it rather than found later in a patch diff.
+                    for ring in rings:
+                        area = _ring_area_square_metres(ring)
+                        if area > OBJECT_PAD_RING_REPORT_AREA_M2:
+                            UI.vprint(
+                                1,
+                                f"  [object-anchor] {icao}: pad ring "
+                                f"component {area:,.0f} m² — "
+                                f"{request.resource_path}",
+                            )
+                    return rings
 
                 requests: list[dict] = [
                     {

@@ -870,21 +870,24 @@ class TestFootprintHuggingRequestRings:
             (latitude - BASE_LATITUDE) * METRES_PER_DEGREE_LATITUDE,
         )
 
-    def test_the_group_keeps_its_parts_as_parts(
+    def test_the_group_records_its_contact_band_triangles(
         self, ramp_sampler, cluster_gate_on
     ):
-        """The grouping the ring law needs: one request per residual
-        group (accounting unchanged), its contact points GROUPED BY
-        PART, and the flat list still the concatenation of them."""
+        """§2.5 v2b: one request per residual group (accounting
+        unchanged) whose ring input is the group's GROUND-CONTACT
+        GEOMETRY — one group per contact-band triangle.  The five boxes
+        contribute their bottom faces (two triangles each) and nothing
+        above the band; the flat point list still carries the plan-box
+        corners as the audit trail."""
         _structures, decision = _decide(
             *_shared_anchor_pool(_COURTYARD_CHAIN), ramp_sampler
         )
         request = self._courtyard_request(decision)
-        assert len(request.contact_parts_lonlat) == 5
-        assert all(len(part) == 4 for part in request.contact_parts_lonlat)
-        assert request.contact_points_lonlat == tuple(
-            point for part in request.contact_parts_lonlat for point in part
-        )
+        assert request.part_count == 5
+        assert all(len(part) == 3 for part in request.contact_parts_lonlat)
+        assert len(request.contact_parts_lonlat) == 10
+        # The plan-box audit trail is untouched: four corners per part.
+        assert len(request.contact_points_lonlat) == 4 * 5
 
     def test_the_ring_hugs_the_courtyard_instead_of_filling_it(
         self, ramp_sampler, cluster_gate_on

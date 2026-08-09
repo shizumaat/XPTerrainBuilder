@@ -126,6 +126,32 @@ Read all of it before any work; every banner is load-bearing.
 > (the second budget channel + whether the 49.3 m DEM-driven demand
 > at that runway pair is (a)-lawful — the canyon-verdict toolkit).**
 
+> **BATTERY VERDICT + FINAL LEAD RULINGS (2026-08-08, lane/fabricB
+> 3c73a35 — READY-TO-MERGE, MERGED).** Battery actionable sites
+> 255→248 (visible 242→240); KCLT adjudicated airside 495→**99**
+> (the FAA fixture reading its own mandate); mesh HECA bbox −9.9% /
+> slivers −42% / needles −38%, SPJC similar, no new class;
+> convergence reproduced independently (freeze −36.4%, band −49.4%,
+> zero unattributed both arms); suite = the standing 12 exactly,
+> foreground ×2, 0 errors; identity chain four trees deep and
+> flags-off ≡ enclave tip proven at TWO airports; build times
+> directionally down. Honest overruns: 13 builds vs cap 9 (four
+> controls the brief wrongly assumed existed), 3 mesh vs 2 —
+> accepted. RULING (SPLP +5 actionable, bisected 100% to the
+> PROVISIONAL ICAO strip-authority flag): MERGE ON — the ruling's
+> own text reserves the owner's sim look at a strip without its
+> band, and SPLP's strips are that look; the measured counterfactual
+> (5 actionable with the flag off, vs 6 at control) makes the revert
+> one config default if the owner's eyes say no. RULING (HECA
+> within_shape +140 rows): ACCEPTED AS BOUNDED-AND-NAMED — the
+> ruled headline metric improved (sites −13, actionable −6),
+> magnitude envelope unchanged, sparse falsified as driver; the
+> residual attribution rides the flex/vertex-hits round which
+> re-measures HECA anyway. Wide-corridor lean ships NAMED (+123
+> transverse rows battery-wide; fix specced: flex-pair-deficit +
+> vertex-hits re-arm). Hygiene chips owed: run_tile_mesh_only
+> write-guard asymmetry; the flaky DSF-redirect session fixture.**
+
 ## The convergence thesis (why #2 and #3 are one round)
 
 The late final_grade_projection feature-weld agreement gate hardens

@@ -187,6 +187,14 @@ _GATE_ENVIRONMENT_NAMES = (
     "O4_OBJECT_BRIDGE_TERRAIN",
     "O4_OBJECT_TUNNEL_TERRAIN",
     "O4_OBJECT_SPLIT_LEVEL_TERRAIN",
+    # The basin adapter joined the exclusion set's gate disjunction on
+    # 2026-08-09 (spec docs/specs/basin-rim-flush-seating-spec.md
+    # section 2.1e item E1): it now DECIDES membership — every basin
+    # facility member is withheld from the y-bake with it on, and
+    # baked with it off.  A run record cached under one value of this
+    # flag is a wrong answer under the other, so it must salt the
+    # digest exactly like the three gates beside it.
+    "O4_OBJECT_BASIN_TRENCH",
 )
 
 

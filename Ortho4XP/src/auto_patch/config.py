@@ -4246,6 +4246,27 @@ BRIDGE_RAMP_MIN_RISE_M = 0.5
 # elevation_m`` (the emitter and any future validator, in lockstep).
 TUNNEL_FLOOR_BELOW_OBJECT_DECK_M = 0.5
 
+# BASIN seat-estimate margin (m): extra depth the OPEN-PIT floor law adds
+# beneath the modelled bottom, on top of TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
+# (spec docs/specs/basin-rim-flush-seating-spec.md section 2.1 item 3).
+#
+# WHY A SECOND CONSTANT AND NOT A BIGGER FIRST ONE.  The basin floor no
+# longer keys on a point DEM sample at the placement anchor; it keys on
+# ``R_est``, the MEDIAN DEM sample around the facility's own body outline
+# (section 2.1 item 2).  ``R_est`` is an ESTIMATE of the rim the built
+# mesh will settle at, and the estimate has measured error: the surface
+# the rim must match is the SOLVED one, not the DEM, and the DEM-versus-
+# solved gaps measured at OTHH 2026-08-09 reach 0.79 m (Drainage_04: DEM
+# 3.41 against a solved apron 2.62).  1.0 m covers that band with room.
+# The extra depth sits UNDER the object's own deepest solid, invisible
+# from above — the cost of being wrong the other way is a floor cutting
+# up through the modelled bottom, which is the visible defect.
+#
+# Read ONLY by ``grade_law.basin_trench_floor_elevation_m``; the tunnel
+# floor law is untouched by it, so the EGLL tunnel class cannot move.
+TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M = float(
+    _os.environ.get("O4_TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M", "1.0"))
+
 # Vertical clearance (m) the ``grade_law.bridge_crossing_floor`` law adds
 # above a road surface for a TERRAIN/PROFILE_CARRIED span that must RISE
 # (the EDDF class, where WE choose the vertical split — spec section 3.2).

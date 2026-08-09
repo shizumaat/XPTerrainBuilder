@@ -2580,6 +2580,53 @@ def tunnel_trench_floor_elevation_m(
     )
 
 
+def basin_trench_floor_elevation_m(
+        rim_estimate_elevation_m: float,
+        solid_minimum_y_m: float) -> float:
+    """THE OPEN-PIT (basin) trench floor elevation — the basin limb of the
+    trench law (spec ``docs/specs/basin-rim-flush-seating-spec.md``
+    section 2.1 item 3; owner ruling 2026-08-09, docs/RULINGS.md "the
+    basin experiment").
+
+    THE ONE LAW, imported by the emitter
+    (``object_terrain_assembly.build_tunnel_layout_shapes``) and by any
+    validator that has to reproduce a basin floor — the same lockstep
+    ruling R1 sets for :func:`tunnel_trench_floor_elevation_m`.  A second
+    copy of this arithmetic is the census-wrapper defect in miniature.
+
+    THREE DIFFERENCES from the tunnel law above, each measured:
+
+    * ``rim_estimate_elevation_m`` (``R_est``) is the MEDIAN DEM sample
+      around the facility's own body outline, NOT the point sample at the
+      placement anchor.  The anchor is an arbitrary point inside the pit:
+      at OTHH Dewatering_01 it read 0.80 m against a rim-band DEM range
+      of 0.71-2.96 m, so the datum-keyed floor was keyed to the shallow
+      end of its own rim.
+    * ``solid_minimum_y_m`` is the structure's TRUE deepest solid
+      (``_StructureFrame.minimum_effective_height_m``), never the
+      largest-perimeter-share interface level the bowl rule reports:
+      Drainage_06's true minimum is −4.201 m against a −3.859 m floor
+      key, which left 0.158 m of the promised 0.5 m clearance.
+    * ``config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M`` covers the estimate
+      error in ``R_est`` — the built mesh settles at the SOLVED surface,
+      not the DEM (0.79 m of measured DEM-versus-solved gap at OTHH).
+
+    Both offsets are SUBTRACTED, so the floor always sits strictly below
+    the modelled bottom; the extra depth is under the object and
+    invisible from above.
+    """
+    from .config import (
+        TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M,
+        TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
+    )
+    return (
+        float(rim_estimate_elevation_m)
+        + float(solid_minimum_y_m)
+        - float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+        - float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE REMAINING REGULATORY FAMILIES
 # (spec docs/specs/DRAFT-reg-families-round-spec.md, rounds A and B)

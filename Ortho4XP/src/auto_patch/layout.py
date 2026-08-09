@@ -3163,6 +3163,19 @@ class PavementLayout:
             # the same law.  A sidecar without the key predates the
             # split and reads as the default ruleset with a warning.
             "ruleset": _grade_law_ruleset_of(self),
+            # THE BASIN FACILITY RECORDS (spec docs/specs/
+            # basin-rim-flush-seating-spec.md section 2.1e item E2; owner
+            # ruling 2026-08-09 "the basin experiment").  What the
+            # open-pit emitter actually cut, per facility: the rim
+            # estimate R_est it keyed on, the floor it born, the EMITTED
+            # rim band range (not just the law value — the two differ by
+            # construction), and the elevation a DRAPED object is
+            # predicted to seat at.  The integration report reads these;
+            # nothing in the law does.  Written unconditionally, so a
+            # reader can tell "no basins here" (``[]``) from "this patch
+            # predates the experiment" (key absent).
+            "basin_facilities": list(
+                getattr(self, "basin_facility_records", None) or []),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

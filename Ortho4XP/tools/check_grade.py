@@ -5163,6 +5163,16 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # here so "did this patch ship with vertices outside their band?" is
     # answerable from the artifacts instead of only from a pytest run.
     "band_excess",
+    # THE BASIN FACILITY RECORDS (spec docs/specs/
+    # basin-rim-flush-seating-spec.md section 2.1e item E2; owner ruling
+    # 2026-08-09 "the basin experiment").  Per open-pit facility: the rim
+    # estimate R_est the floor law keyed on, the floor and rim it born,
+    # the EMITTED rim band range (which is NOT the law value — the band
+    # samples the DEM per part) and the elevation a draped object is
+    # predicted to seat at.  EVIDENCE for the integration report; the
+    # basin cut is a plate population the grade law already judges
+    # through its emitted geometry, so nothing here is law input.
+    "basin_facilities",
 )
 
 

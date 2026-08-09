@@ -55,6 +55,26 @@ carved or seated to match it (any structure consumed by feature A or B) is **exc
 Phase 2 y-bake**. Terrain-to-object and object-to-terrain corrections must never stack. The
 classifier emits the exclusion list; `post_mesh.rebake_dsf_objects` consumes it.
 
+> **R4 note — the basin limb of the exclusion list (2026-08-09, spec
+> `docs/specs/basin-rim-flush-seating-spec.md` §2.1e E1).** R4 has TWO
+> classifier call sites and until now only one of them passed the basin
+> gate: `object_terrain_assembly.exclusion_set_for_dsf` (the post-mesh
+> limb) omitted `basin_trench_enabled`, so it defaulted to `False`,
+> stage 2b never ran and stage 3's basin limb never fired — every carved
+> basin's object was still y-baked onto the terrain the build had just
+> cut for it, which is precisely the stack R4 forbids. Both call sites
+> now pass `config.OBJECT_BASIN_TRENCH`, the gate joins the
+> read-nothing disjunction, and `_EXCLUSION_CACHE_VERSION` is bumped to
+> 3 to retire the entries computed under the wrong gate. Basin members
+> are therefore excluded BY CONSTRUCTION — Phase E's experiment is
+> "cut the trench, don't modify the objects", so the pack must come
+> through a tile pass byte-identical to its `.anchor_bak`.
+> R4's interlock itself is UNAMENDED here: Phase E corrects terrain
+> only. The basin-class amendment the seating spec describes belongs
+> with its §2.2 (post-mesh basin seat law), which is DEFERRED pending
+> the owner's in-sim verdict and is not recorded as law until it
+> lands.
+
 **R5 — Contract before shape (designer, this spec).** No bridge terrain is emitted until the
 structure's contract is classified (deck-carried versus terrain-carried, §3.2). Ambiguous
 classifications (pavement coverage between the thresholds, or no `ATTR_hard_deck` found) are

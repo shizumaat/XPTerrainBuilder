@@ -489,6 +489,36 @@ def test_legacy_caches_without_recorded_box_are_reused(
         INSETS.ACCESS_STRATEGIES.pop("box_legacy_strategy", None)
 
 
+def test_the_index_is_not_rewritten_when_its_content_is_unchanged(
+    tmp_path, monkeypatch
+):
+    """``ensure_airport_insets`` writes the index at the end of EVERY pass,
+    warm or cold.  A settled warm pass produces identical content, and
+    rewriting it is still a write into the shared data repo — which a
+    build may not make (owner ruling e9daef5: a cache regeneration is an
+    explicit, locked, hash-stamped event, never a build side effect).
+    Measured 2026-08-08: two mesh-only tile runs rewrote five of these
+    manifests with unchanged content.
+    """
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    INSETS._write_index(60, -136, {"CYXY": {"BOXLEGACY": "ok"}})
+    path = FNAMES.airport_inset_index(60, -136)
+    os.utime(path, ns=(1, 1))
+
+    # Identical content: nothing is touched, not even the mtime.
+    INSETS._write_index(60, -136, {"CYXY": {"BOXLEGACY": "ok"}})
+    assert os.stat(path).st_mtime_ns == 1
+
+    # Changed content IS a corpus change, and still lands.
+    INSETS._write_index(
+        60, -136, {"CYXY": {"BOXLEGACY": INSETS.NO_COVERAGE}}
+    )
+    assert os.stat(path).st_mtime_ns != 1
+    assert INSETS._read_index(60, -136) == {
+        "CYXY": {"BOXLEGACY": INSETS.NO_COVERAGE}
+    }
+
+
 # =====================================================================
 # Composite-source assembly determinism (step 1 == step 2)
 # =====================================================================

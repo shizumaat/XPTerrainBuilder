@@ -223,6 +223,43 @@ def test_background_prefetch_never_touches_the_progress_bar(monkeypatch):
 
 
 # =====================================================================
+# Joining an in-flight prefetch from a steps-1-2 caller
+# =====================================================================
+def test_join_prefetches_drains_every_in_flight_fetch(monkeypatch):
+    """The prefetch runs on a NON-DAEMON thread started in step 1 and is
+    normally joined by the masks step (step 3).  A caller that stops after
+    step 2 — ``tools/run_tile_mesh_only.py`` — would otherwise close its
+    shared-repo write-guard window while the fetch is still writing:
+    measured 2026-08-08, when an S13W078 band ``index.json`` landed in the
+    shared repo AFTER "mesh build complete".
+    """
+    class _Future:
+        def __init__(self, error=None):
+            self.error = error
+            self.joined = False
+
+        def result(self):
+            self.joined = True
+            if self.error is not None:
+                raise self.error
+            return "band.vrt"
+
+    clean, failing = _Future(), _Future(RuntimeError("provider down"))
+    monkeypatch.setattr(
+        BATHYBAND, "_prefetch_futures",
+        {(0, 0, True, False): clean, (1, 1, True, False): failing})
+
+    BATHYBAND.join_prefetches()          # never raises: the consumer path
+    assert clean.joined and failing.joined, (   # swallows the same way
+        "a prefetch left unjoined keeps writing after the caller's audit")
+
+
+def test_join_prefetches_is_a_no_op_without_a_prefetch(monkeypatch):
+    monkeypatch.setattr(BATHYBAND, "_prefetch_futures", {})
+    assert BATHYBAND.join_prefetches() is None
+
+
+# =====================================================================
 # Cancellation
 # =====================================================================
 def test_red_flag_between_cells_stops_the_fan_out(monkeypatch):

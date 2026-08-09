@@ -1244,3 +1244,28 @@ instrument measuring a superseded frame. Execution: the POST-BATTERY
 CLEANUP lane — the owner also folds the CYXY solver-validator
 edge-budget lockstep unification there (the "floor > ceiling by
 0.0112 m" single-mechanism red).
+
+## 2026-08-08 — Mesh-only entry arms THE shared-repo guard; inset manifests are corpus state, not churn (lead session, applying owner ruling e9daef5)
+
+Measured 2026-08-08 (lane fabricB): two `tools/run_tile_mesh_only.py`
+runs (+30+031, -13-078) silently rewrote five files in the shared data
+repo — airport-inset `index.json`/`complete.json` manifests and a
+bathymetry-band `index.json` — while all 13 guarded `build_airport.py`
+runs in the same session reported the repo UNCHANGED.  The silent
+side-effect class e9daef5 forbids (the KCLT road-feed precedent).
+
+Ruled: (1) the shared-repo write guard is factored to ONE
+implementation, `tools/harness/shared_repo_guard.py`;
+`build_airport.py` re-exports it and `run_tile_mesh_only.py` arms it
+(census-wrapper precedent: a second copy is a defect).  (2) Inset
+manifests get NO churn allowance: unlike the `.lock` and library-index
+classes they are fetch-admission state (`is_cached`) whose content
+depends on tile config, calendar date and fetch outcomes — a content
+change is a corpus mutation and rides `--refresh-data dem`.  (3) The
+root cause is fixed engine-side: `_write_index` and
+`_write_inset_completion_stamp` skip byte-identical rewrites (the
+discipline `O4_Bathymetry_Band` already had), so a warm settled pass
+writes NOTHING and needs no allowance.  (4) New
+`O4_Bathymetry_Band.join_prefetches()` keeps the band prefetch inside a
+steps-1-2 caller's guard window — the measured S13W078 band write
+landed after "mesh build complete".

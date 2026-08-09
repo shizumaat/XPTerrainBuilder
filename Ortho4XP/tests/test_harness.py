@@ -29,6 +29,10 @@ X-Plane, no network) and they run in the normal suite.
   real data write beside either still refuses; and a degradation the
   engine CAUGHT — a blocked write, or a layout with no DEM provenance —
   refuses instead of exiting 0 on a silently smaller layout.
+* §6c ONE GUARD, TWO ENTRIES — the write law has exactly ONE definition
+  (``harness/shared_repo_guard.py``); ``build_airport.py`` re-exports the
+  guard module's own objects and ``run_tile_mesh_only.py`` arms them, in
+  the order that makes the audit mean something.
 """
 from __future__ import annotations
 
@@ -72,6 +76,27 @@ def census_mod():
 @pytest.fixture(scope="module")
 def build_mod():
     return _load("harness_twin_build", HARNESS / "build_airport.py")
+
+
+@pytest.fixture(scope="module")
+def guard_mod(build_mod):
+    """THE shared-repo write law itself (§6c), the module ``build_mod``
+    re-exports.
+
+    A test that REDIRECTS the law's own globals — ``DATA_REPO``,
+    ``LOCK_DIR``, ``REFRESH_LEDGER`` — must patch them HERE, in the module
+    whose functions read them: ``build_airport`` holds re-exported
+    references, and rebinding one of those changes nothing
+    :class:`RefreshLock` or :func:`record_refresh` will look at.  Patching
+    the wrong one does not fail loudly either — it silently runs the test
+    against the REAL shared repo (both of these did, on the move: a lock
+    file and a ledger record landed in ``/Users/noah/XPTerrainBuilderData``
+    before the fixture existed).
+    """
+    import importlib
+    if str(HARNESS) not in sys.path:
+        sys.path.insert(0, str(HARNESS))
+    return importlib.import_module("shared_repo_guard")
 
 
 #: A real emitted patch that ships in the tree — enough to exercise every
@@ -810,12 +835,14 @@ def test_an_implicit_download_is_refused_and_names_its_scope(build_mod):
     assert "--refresh-data osm_layers" in str(exc2.value)
 
 
-def test_the_snapshot_sees_every_write(build_mod, tmp_path, monkeypatch):
+def test_the_snapshot_sees_every_write(build_mod, guard_mod, tmp_path,
+                                       monkeypatch):
     """The audit's guarantee is 'this build wrote NOTHING into the shared
     repo'.  A sampled snapshot cannot make that claim, so the walk is
     full — ~2.7 k files, ~10 ms."""
     repo = tmp_path / "shared"
     monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
     deep = repo / "OSM_data" / "a" / "b" / "c" / "d"
     deep.mkdir(parents=True)
     (deep / "keep.txt").write_text("x")
@@ -861,12 +888,13 @@ def test_a_clean_build_is_reported_as_leaving_the_repo_untouched(build_mod):
 
 
 def test_the_refresh_lock_refuses_and_reports_never_blocks(build_mod,
+                                                           guard_mod,
                                                            tmp_path,
                                                            monkeypatch):
     """Ruling §3: concurrent lanes never race a regeneration.  Blocking is
     not the answer either — a lane waiting on another lane's download is
     indistinguishable from a hung build."""
-    monkeypatch.setattr(build_mod, "LOCK_DIR", tmp_path / "locks")
+    monkeypatch.setattr(guard_mod, "LOCK_DIR", tmp_path / "locks")
     first = build_mod.RefreshLock("dem", lane="lane-A").acquire()
     try:
         with pytest.raises(SystemExit) as exc:
@@ -884,10 +912,10 @@ def test_the_refresh_lock_refuses_and_reports_never_blocks(build_mod,
 
 
 def test_a_stale_lock_is_reported_and_never_broken_automatically(
-        build_mod, tmp_path, monkeypatch):
+        build_mod, guard_mod, tmp_path, monkeypatch):
     """A dead pid does NOT mean the write completed — the cache may be
     half-written, which is worse than no cache."""
-    monkeypatch.setattr(build_mod, "LOCK_DIR", tmp_path / "locks")
+    monkeypatch.setattr(guard_mod, "LOCK_DIR", tmp_path / "locks")
     (tmp_path / "locks").mkdir()
     (tmp_path / "locks" / "dem.lock").write_text(json.dumps(
         {"scope": "dem", "lane": "dead-lane", "pid": 2 ** 22,
@@ -902,6 +930,7 @@ def test_a_stale_lock_is_reported_and_never_broken_automatically(
 
 
 def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
+                                                          guard_mod,
                                                           tmp_path,
                                                           monkeypatch):
     """"Exactly once, as an explicit logged event" needs a record that
@@ -911,8 +940,8 @@ def test_a_refresh_is_hash_stamped_into_the_shared_ledger(build_mod,
     (repo / "Elevation_data").mkdir(parents=True)
     (repo / "Elevation_data" / "N30E031.hgt").write_text("raster")
     ledger = repo / ".harness" / "refresh_ledger.jsonl"
-    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
-    monkeypatch.setattr(build_mod, "REFRESH_LEDGER", ledger)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(guard_mod, "REFRESH_LEDGER", ledger)
     rec = build_mod.record_refresh(
         "dem", {"added": ["Elevation_data/N30E031.hgt"], "modified": [],
                 "removed": []},
@@ -1557,9 +1586,19 @@ def test_the_detector_SURVIVES_the_preventer(build_mod):
     """Defence in depth: the guard covers the Python level, and a C
     extension's own file handling does not pass through it.  Deleting the
     after-the-fact snapshot audit because a lock exists would trade a
-    complete-but-late instrument for an early-but-partial one."""
+    complete-but-late instrument for an early-but-partial one.
+
+    The DEFINITION moved into ``shared_repo_guard.py`` on 2026-08-08 (one
+    implementation, two entries — §6c); the build entry still CALLS it and
+    still contaminates its own frame on a hit, which is the half this twin
+    has always been about."""
+    guard_src = (HARNESS / "shared_repo_guard.py").read_text()
+    assert "def report_unauthorised_writes(" in guard_src
     src = (HARNESS / "build_airport.py").read_text()
-    assert "def report_unauthorised_writes(" in src
+    assert "def report_unauthorised_writes(" not in src, (
+        "the detector must have ONE definition — see §6c")
+    assert "report_unauthorised_writes(" in src, (
+        "the build entry must still CALL the detector")
     assert "shared_repo_snapshot()" in src
     assert "frame[\"contaminated\"]" in src
 
@@ -2014,6 +2053,129 @@ def test_the_refusals_are_WIRED_IN_not_merely_defined(build_mod):
                 'frame["write_guard_library_index_churn"]',
                 'frame["allow_degraded_dem"]'):
         assert key in main_src, f"the frame artifact omits {key}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6c ONE GUARD, TWO ENTRIES
+# ══════════════════════════════════════════════════════════════════════
+# Landed 2026-08-08 against a MEASURED defect: two ``run_tile_mesh_only.py``
+# runs (tiles +30+031 and -13-078) silently rewrote five files inside the
+# shared data repo — two airport-inset ``index.json``/``complete.json``
+# pairs and a bathymetry-band ``index.json`` — while all 13 guarded
+# ``build_airport.py`` runs of the same session reported the repo
+# UNCHANGED.  The write law was armed by one entry and not the other.
+#
+# It is ONE implementation now (``harness/shared_repo_guard.py``), and
+# what these twins pin is that it STAYS one: a second copy is the
+# census-wrapper defect (root CLAUDE.md), invisible until two entries
+# disagree about what the corpus is allowed to do.
+
+GUARD = HARNESS / "shared_repo_guard.py"
+MESH_ONLY = ROOT / "tools" / "run_tile_mesh_only.py"
+
+#: The mesh-only entry's arming sequence, in the order it must appear.
+#: Order is the point: a snapshot taken after the build, a prefetch joined
+#: after the guard came down, or a detector run before the audit each
+#: reports a clean run over a corpus that changed.
+_MESH_ARMING_ORDER = (
+    'if __name__ == "__main__":',
+    "from shared_repo_guard import",
+    "shared_repo_snapshot()",
+    "SharedRepoWriteGuard(",
+    "with guard:",
+    "join_prefetches()",
+    "finally:",
+    "snapshot_diff(",
+    "report_unauthorised_writes(",
+    "require_no_swallowed_write_block(",
+)
+
+
+def test_exactly_ONE_file_under_tools_defines_the_write_guard():
+    """The whole point of the module.  Anything that re-declares the guard
+    is a second law, and two lanes then measure two corpora."""
+    definers = sorted(p for p in (ROOT / "tools").rglob("*.py")
+                      if "class SharedRepoWriteGuard" in p.read_text())
+    assert definers == [GUARD], (
+        f"the shared-repo write guard must have exactly ONE definition "
+        f"({GUARD.relative_to(ROOT)}); found "
+        f"{[str(p.relative_to(ROOT)) for p in definers]}")
+
+
+def test_the_build_entry_IMPORTS_the_guard_and_defines_none_of_it():
+    src = (HARNESS / "build_airport.py").read_text()
+    assert "from shared_repo_guard import" in src, (
+        "the build entry must import THE guard, not carry one")
+    assert "class SharedRepoWriteGuard" not in src
+
+
+def test_the_loaded_build_module_IS_the_guard_module_not_a_copy(build_mod):
+    """Identity, not merely equality of names: ``build_mod.*`` and the
+    guard module must be the SAME objects, so a change to the law reaches
+    every caller of either spelling at once."""
+    import importlib
+    if str(HARNESS) not in sys.path:
+        sys.path.insert(0, str(HARNESS))
+    guard_mod = importlib.import_module("shared_repo_guard")
+    assert Path(guard_mod.__file__).resolve() == GUARD.resolve()
+    for name in ("SharedRepoWriteGuard", "SharedRepoWriteBlocked",
+                 "shared_repo_snapshot", "snapshot_diff", "scope_of",
+                 "scope_description", "is_lock_artifact",
+                 "is_library_index_artifact", "RefreshLock",
+                 "record_refresh", "report_unauthorised_writes",
+                 "require_no_swallowed_write_block", "REFRESH_SCOPES",
+                 "SHARED_DATA_DIRS", "DATA_REPO"):
+        assert getattr(build_mod, name) is getattr(guard_mod, name), (
+            f"build_airport.{name} is not the guard module's own object — "
+            f"a re-export that copies is the census-wrapper defect")
+
+
+def test_the_mesh_only_entry_ARMS_the_guard_in_the_right_ORDER():
+    src = MESH_ONLY.read_text()
+    positions = []
+    for token in _MESH_ARMING_ORDER:
+        assert token in src, (
+            f"the mesh-only entry does not {token!r} — the 2026-08-08 "
+            f"defect is exactly an entry that skipped one of these")
+        positions.append(src.index(token))
+    assert positions == sorted(positions), (
+        f"the mesh-only arming sequence is out of order: "
+        f"{dict(zip(_MESH_ARMING_ORDER, positions))}")
+    assert "require_no_swallowed_write_block(guard.blocked)" in src, (
+        "the detector must read THIS run's guard record")
+    assert "--refresh-data" in src and "e9daef5" in src, (
+        "the refusal must name the deliberate act and cite its ruling")
+
+
+def test_the_mesh_only_entry_DEFINES_none_of_the_law():
+    src = MESH_ONLY.read_text()
+    for definition in ("class SharedRepoWriteGuard", "def shared_repo_snapshot",
+                       "def snapshot_diff", "def report_unauthorised_writes",
+                       "def require_no_swallowed_write_block",
+                       "def scope_of", "def is_lock_artifact"):
+        assert definition not in src, (
+            f"{definition} is a SECOND copy of the write law")
+
+
+def test_the_mesh_only_arming_is_inside_the_spawn_guard():
+    """macOS spawn re-imports the main module: a worker that armed the
+    guard, or audited the repo, would refuse and report on the parent's
+    behalf.  Everything new therefore sits under ``__main__``."""
+    src = MESH_ONLY.read_text()
+    main_at = src.index('if __name__ == "__main__":')
+    for token in _MESH_ARMING_ORDER[1:]:
+        assert src.index(token) > main_at, (
+            f"{token!r} runs at import time — every spawned worker would "
+            f"arm and audit")
+
+
+def test_the_mesh_only_entry_has_no_refresh_mechanism_of_its_own():
+    """Refreshes are ``build_airport.py --refresh-data``: locked,
+    hash-stamped, recorded.  A second way to authorise a shared-repo write
+    is a second law (ruling e9daef5)."""
+    src = MESH_ONLY.read_text()
+    assert "RefreshLock" not in src and "record_refresh" not in src
+    assert "add_argument" not in src, "the CLI stays two positional args"
 
 
 # ══════════════════════════════════════════════════════════════════════

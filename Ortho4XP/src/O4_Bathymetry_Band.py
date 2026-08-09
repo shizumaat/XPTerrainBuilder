@@ -775,6 +775,25 @@ def prefetch_bathymetry_band(tile) -> None:
     )
 
 
+def join_prefetches() -> None:
+    """Block until every in-flight band prefetch settles.
+
+    The consumer path joins per-tile (:func:`ensure_bathymetry_band`); a
+    caller that stops after step 2 uses this so no fetch outlives its
+    shared-repo write-guard window (a non-daemon fetch thread otherwise
+    keeps writing after the caller's audit — measured 2026-08-08,
+    S13W078).  Failures stay swallowed exactly as the consumer path
+    swallows them.
+    """
+    with _prefetch_futures_guard:
+        futures = list(_prefetch_futures.values())
+    for future in futures:
+        try:
+            future.result()
+        except Exception:
+            pass
+
+
 def ensure_bathymetry_band(
     tile, fine_nearshore_only: bool = False, intertidal_ok: bool = False
 ) -> Optional[str]:

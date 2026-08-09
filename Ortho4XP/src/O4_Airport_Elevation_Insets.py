@@ -5953,10 +5953,29 @@ def _read_index(lat, lon):
 
 
 def _write_index(lat, lon, index):
+    """Persist the tile's inset index, but ONLY when its content changed.
+
+    ``ensure_airport_insets`` calls this at the end of every pass, warm or
+    cold, and a settled warm pass produces byte-identical content: the
+    write then changes nothing but the mtime, which is still a WRITE INTO
+    THE SHARED DATA REPO.  A build is not a refresh event (owner ruling
+    e9daef5 — cache regenerations are explicit, locked, hash-stamped acts
+    through ``build_airport.py --refresh-data``), so a settled pass must
+    leave the repo untouched.  Same discipline the bathymetry band stamp
+    already had; measured 2026-08-08, when two mesh-only runs rewrote five
+    of these manifests with unchanged content.
+    """
     index_path = FNAMES.airport_inset_index(lat, lon)
+    payload = json.dumps(index, indent=2, sort_keys=True)
+    try:                       # absent, unreadable or different: write it
+        with open(index_path, "r") as handle:
+            if handle.read() == payload:
+                return
+    except Exception:
+        pass
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w") as handle:
-        json.dump(index, handle, indent=2, sort_keys=True)
+        handle.write(payload)
 
 
 # ~0.1 m at the equator: a real margin change (metres) always exceeds it,
@@ -7279,7 +7298,15 @@ def _inset_completion_key(tile):
 
 
 def _write_inset_completion_stamp(tile):
-    """Record that an inset pass left nothing to fetch.  Never raises."""
+    """Record that an inset pass left nothing to fetch.  Never raises.
+
+    Written only when the content CHANGED: every settled pass rebuilds the
+    same stamp, and rewriting it with identical bytes is still a write into
+    the shared data repo, which a build may not make (owner ruling e9daef5
+    — a cache regeneration is an explicit, locked, hash-stamped event, not
+    a build side effect).  Same discipline as :func:`_write_index` and the
+    bathymetry band stamp.
+    """
     try:
         stamp = _inset_completion_key(tile)
         if stamp["airports_layer"] is None:
@@ -7291,10 +7318,17 @@ def _write_inset_completion_stamp(tile):
             for path in list_cached_inset_dems(tile.lat, tile.lon)
         )
         path = inset_completion_stamp_path(tile.lat, tile.lon)
+        payload = json.dumps(stamp, indent=2, sort_keys=True)
+        try:                   # absent, unreadable or different: write it
+            with open(path, "r") as handle:
+                if handle.read() == payload:
+                    return
+        except Exception:
+            pass
         os.makedirs(os.path.dirname(path), exist_ok=True)
         temporary = path + ".tmp"
         with open(temporary, "w") as handle:
-            json.dump(stamp, handle, indent=2, sort_keys=True)
+            handle.write(payload)
         os.replace(temporary, path)
     except Exception as error:
         UI.vprint(2, "Could not stamp the airport-inset cache:", error)

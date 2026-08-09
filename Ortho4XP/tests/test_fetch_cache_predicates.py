@@ -288,6 +288,50 @@ def test_inset_predicate_notices_a_deleted_inset(monkeypatch, tmp_path):
     assert INSETS.is_cached(tile) is False
 
 
+def test_the_completion_stamp_is_not_rewritten_when_nothing_changed(
+    monkeypatch, tmp_path
+):
+    """A settled warm pass stamps the SAME content every time, and the
+    stamp lives in the shared data repo — so an identical rewrite is a
+    build side effect on everyone's corpus (owner ruling e9daef5), not
+    bookkeeping.  Measured 2026-08-08: two mesh-only tile runs rewrote
+    two of these (plus two inset indexes and a band index) while every
+    guarded build reported the repo unchanged.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_File_Names as FNAMES
+
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
+    monkeypatch.setattr(
+        FNAMES, "Elevation_dir", str(tmp_path / "Elevation_data"))
+    monkeypatch.setattr(INSETS, "insets_enabled_for_tile", lambda t: True)
+    tile = _inset_tile()
+    _write_osm_cache(FNAMES.osm_cached(30, 31, "airports"))
+    inset_dir = FNAMES.airport_inset_directory(30, 31)
+    os.makedirs(inset_dir, exist_ok=True)
+    inset_path = os.path.join(inset_dir, "HECA_srtm.tif")
+    with open(inset_path, "wb") as handle:
+        handle.write(b"raster")
+    monkeypatch.setattr(
+        INSETS, "list_cached_inset_dems",
+        lambda lat, lon, provider_codes=None: [inset_path])
+
+    INSETS._write_inset_completion_stamp(tile)
+    path = INSETS.inset_completion_stamp_path(30, 31)
+    os.utime(path, ns=(1, 1))
+
+    INSETS._write_inset_completion_stamp(tile)     # the settled warm pass
+    assert os.stat(path).st_mtime_ns == 1
+    assert INSETS.is_cached(tile) is True
+
+    # A configuration change IS content, and still lands.
+    INSETS._write_inset_completion_stamp(
+        _inset_tile(airport_elevation_inset_margin_m=4000.0))
+    assert os.stat(path).st_mtime_ns != 1
+    with open(path) as handle:
+        assert json.load(handle)["margin_m"] == 4000.0
+
+
 # ---------------------------------------------------------------------
 # Bathymetry band
 # ---------------------------------------------------------------------

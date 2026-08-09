@@ -117,6 +117,13 @@ is what that costs.
   an existing shared dir is likewise allowed (mutates nothing). Real
   data writes beside either still refuse. `--allow-degraded-dem`
   covers this class too and still authorises NO write.
+- A mesh-only tile run (`run_tile_mesh_only.py`) silently rewriting
+  inset/bathymetry manifests in the shared repo (measured 2026-08-08,
+  five files): it arms the same write guard as `build_airport.py` (one
+  implementation, `tools/harness/shared_repo_guard.py`), audits
+  before/after, joins the band prefetch before disarming, and fails on
+  swallowed refusals; warm-pass manifest rewrites are engine-suppressed
+  (byte-identical writes skip).
 - A census that omits a law family, a sidecar key, or the ruleset:
   structurally impossible — the twins fail.
 

@@ -35,6 +35,26 @@ from auto_patch.config import (
 from auto_patch.grade_law import adjacent_ground_envelope
 from auto_patch.layout import BuiltShape, ROLE_APRON, ROLE_RETAINING_WALL
 
+
+# ── THIS FILE IS THE PRE-W2 CORRIDOR, HELD AS THE FLAG-OFF ARM ────────
+# W2 (fabric-phase-b-spec.md) changed this law on purpose: reg-set
+# ruling 1 drops the ICAO mandatory-DOWN graded strip, F-10 gives the
+# taxiway/apron edge its own lip family, and ruling 4 retires the apron
+# surround and the service-road shadow outright.  Every assertion below
+# was written against the pre-W2 corridor and still certifies something
+# load-bearing — the byte-identity of each flag's OFF arm — so it is
+# PINNED to that world here rather than rewritten.  The successor
+# behaviour (the ON arm, which is the default build) has its own twins
+# in ``tests/test_fabric_phase_b.py``.
+@pytest.fixture(autouse=True)
+def _pre_w2_corridor(monkeypatch):
+    for env in ("O4_FABRIC_W2_ICAO_STRIP_AUTHORITY", "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY",
+                "O4_FABRIC_W2_RETIRE_APRON_SURROUND",
+                "O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS",
+                "O4_FABRIC_W2_RETIRE_SERVICE_SHADOW"):
+        monkeypatch.setenv(env, "0")
+
+
 STEP = CLEARANCE_STATION_STEP_M
 EDGE_ALT = 100.0
 

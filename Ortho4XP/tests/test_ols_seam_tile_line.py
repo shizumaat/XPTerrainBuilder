@@ -120,9 +120,21 @@ def make_layout() -> PavementLayout:
     return layout
 
 
-def _scene_with_knolls(*, on_line=True, far=True, height=10.0):
+def _scene_with_knolls(*, on_line=True, far=True, height=11.0):
     """A knoll ON the tile line and/or one well clear of it, both shallow
-    enough that the mountain guard cannot be what refuses them."""
+    enough that the mountain guard cannot be what refuses them.
+
+    HEIGHT 10.0 -> 11.0 (W2, 2026-08-08).  Reg-set ruling 1 drops the
+    ICAO graded strip's mandatory fall, so the adjacent-ground zone-3
+    ceiling the OLS transitional anchors on sits ~0.855 m HIGHER at the
+    handover — the composed ceiling cuts less, which is the point of the
+    ruling.  A 10.0 m knoll stopped penetrating it at all, and this
+    file's subject is the SEAM REFUSAL, not the penetration threshold:
+    a scene that no longer penetrates would have left the refusal law
+    untwinned in the default world rather than testing it.  11.0 m
+    penetrates on both arms (max depth 1.34 m flipped, 2.19 m not) and
+    stays far under ``OLS_MAX_CUT_DEPTH_M`` = 15 m, so the mountain
+    guard still cannot be what refuses it — which the twin asserts."""
     layout = make_layout()
     dem = WideDEM()
     if on_line:

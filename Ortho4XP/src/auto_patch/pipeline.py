@@ -4886,6 +4886,43 @@ def build_airport_pavement(icao: str, xplane_root: str,
             source_clip_partial_coverage_shapes(layout, icao=icao)
             _covp(layout, "post-source-clip")
 
+        # ── THE FABRIC MODEL: ARM SPARSE EMISSION (owner RULINGS
+        # 2026-08-08; W2 flag O4_FABRIC_W2_SPARSE_ALL default ON, Phase-A gate
+        # O4_FABRIC_SPARSE default OFF) ─────────────────────────────────
+        # Armed HERE — after the apron/junction set has settled and
+        # BEFORE the first pass the model changes (the 60 m stationing
+        # inside ``_unify_airside_geometry`` below).  W2's scope is a ROLE
+        # test over every pavement and pad, so it covers shapes born after
+        # this point for free; Phase A freezes a REGION instead, because
+        # its scope was two clusters and a shape LIST would go stale as
+        # shapes are re-cut.  ``arm`` returns 0 and leaves every predicate
+        # False when both are off, so this is byte-inert there.
+        try:
+            from . import fabric_sparse as _fabric_arm
+            from .fabric_flags import registry_report as _flag_report
+            _flag_line = _flag_report()
+            if _flag_line:
+                # A build whose numbers get quoted must be able to say
+                # which world it was; a disabled flag with no trace in
+                # the log is an arm nobody can reconstruct.
+                UI.vprint(1, _flag_line)
+            _n_cluster = _fabric_arm.arm(layout, icao)
+            if _n_cluster:
+                _fr = _fabric_arm.report()
+                # The AREA is a Phase-A number (the cluster region's).  W2
+                # has no region, so it is omitted rather than printed as
+                # a zero a reader would take for a measurement.
+                _area = _fr.get("region_area_m2")
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: FABRIC-SPARSE armed "
+                    f"({_fr.get('mode', '?')}) — "
+                    f"{_n_cluster} shape(s)"
+                    + (f", {_area:.0f} m^2" if _area else "")
+                    + f", roles {_fr.get('roles')}.")
+        except _GEOM_EXC as _fab_arm_exc:                  # pragma: no cover
+            UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse ARM "
+                         f"FAILED: {_fab_arm_exc!r} — gate inert this build.")
+
         # ── Airside node-unification (refactor Phases 6+7, PRE-solve) ──
         # Weld + full conformance + final corner snaps, run HERE so the solver
         # sees the FINAL node-set and grades every shared vertex to ONE
@@ -5338,6 +5375,105 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: "
                              f"lateral-contiguity re-bind failed "
                              f"({_lat_exc2!r}).")
+
+        # ── THE FABRIC MODEL — sparse lawful emission (owner RULINGS
+        # 2026-08-08; docs/specs/fabric-model-spec.md Phase A; gate
+        # O4_FABRIC_SPARSE, default OFF) ────────────────────────────────
+        # LAST pre-solve act, deliberately: every construction above has
+        # settled the node set (conformance welds, pad seats, mouths,
+        # spine stations, the pre-solve band/terrace constructions this
+        # gate already declined inside the cluster), so the weld set the
+        # thinning holds is COMPLETE and what it removes is exactly the
+        # population no law asked for.  Removed here — before the solve —
+        # the sparse ring IS what the solver solves, what the census
+        # measures and what the sim renders; a post-solve thin would give
+        # three different populations.  Fully inert with the gate off.
+        try:
+            from . import fabric_sparse as _fabric
+            _n_fab = _fabric.thin_rings(layout, icao)
+            if _n_fab:
+                # THE OWNER'S RIDER, RESTORED BY THE MACHINERY THAT OWNS
+                # IT: "…as long as we keep adequate nodes on spines and
+                # at curves."  The thinning above removes every vertex no
+                # law asked for, which includes the SPINE STATIONS the
+                # lateral/junction passes placed at ``config.SPINE_STEP_M``
+                # — and the cross-section (``transverse``) law is priced
+                # on PAIRS of stations facing each other across a
+                # corridor, so losing them mints violations rather than
+                # removing them (measured at CYXY, attempt 1: transverse
+                # 31 -> 262 rows, junction|junction 7 -> 171).  Re-running
+                # the two station passes restores exactly that population
+                # at exactly their own spacing — "adequate" is MEASURED
+                # from the existing machinery, never re-derived here — and
+                # they are pure subdivide-to-spacing inserts, so outside
+                # the cluster the second call finds nothing to do.
+                # SCOPE SYMMETRY IS THE LAW HERE: restore the lateral
+                # cross-section for EVERY role the thinning touched.
+                # ``fabric_sparse._THIN_ROLES`` is {apron, junction,
+                # service_junction, groundside_pavement} and the
+                # transverse law prices {apron, junction,
+                # service_junction} (check_grade ``_TRANSVERSE_ROLES``),
+                # so all three of those need their stations back — from
+                # the AIRCRAFT axes (the taxi pass) AND from the SERVICE
+                # axes (``insert_service_lateral_nodes``, which the
+                # first restoration attempt omitted).  Measured at CYXY,
+                # attempt 1: transverse 31 -> 109 rows, of which
+                # service_junction 21 -> 39 came from the missing service
+                # pass and apron 3 -> 55 from stations the taxi pass
+                # never had, because it projects a centerline's OWN
+                # vertices and CYXY's axis carries a single 470 m
+                # segment; ``station_step_m`` subdivides to the same
+                # ``SPINE_STEP_M`` the service pass has always used.
+                # Both are pure subdivide-to-spacing inserts inside the
+                # corridor the law censuses, so they add nodes only
+                # where a cross-section is priced — the owner's rider
+                # ("adequate nodes on spines and at curves"), not the
+                # generic stationing T8 retires.
+                # THE STATION-DENSIFIED HALF IS RE-ARMED — R-c (lead
+                # ruling 2026-08-08).  It was default-OFF for exactly one
+                # commit because it BROKE HECA: with it on the build
+                # refused at ``assert_no_final_band_inversion`` (1,655 of
+                # 10,220 band-covered nodes inverted, e.g. anchors 7907
+                # at 110.130 m vs 5044 at 60.730 m — a 49.400 m value
+                # spread over a 47.723 m route budget).  MECHANISM, and
+                # the reason the re-arm is safe now: a foot welded on
+                # BOTH sides of a corridor added a CROSS EDGE to the one
+                # grade graph, shortening routes and shrinking the route
+                # budget between two far-apart hard anchors.  R-a removes
+                # that channel at its source — a cross-section foot mints
+                # no route-graph edge at all
+                # (``grade_graph._build_global_spine``) — so the
+                # transverse law and the route metric no longer share one
+                # graph and the attempt cap resets with them.
+                # ``O4_FABRIC_RC_STATION_STEP=0`` parks it again.
+                from . import fabric_flags as _fabric_flags
+                from .config import SPINE_STEP_M as _RESTAT_STEP_M
+                _restat_step = (
+                    _RESTAT_STEP_M
+                    if _fabric_flags.on("O4_FABRIC_RC_STATION_STEP")
+                    else None)
+                _n_restat = 0
+                if os.environ.get("O4_LATERAL_SPINE_NODES", "1") == "1":
+                    from .lateral_spine_nodes import insert_lateral_spine_nodes
+                    _n_restat += insert_lateral_spine_nodes(
+                        layout, icao, station_step_m=_restat_step) or 0
+                if os.environ.get("O4_DENSIFY_JUNCTION_EDGES", "1") == "1":
+                    from .lateral_spine_nodes import densify_junction_edges
+                    _n_restat += densify_junction_edges(layout, icao) or 0
+                from .config import SVC_SPINE_FIRST as _RESTAT_SVC_FIRST
+                if _RESTAT_SVC_FIRST:
+                    from .lateral_spine_nodes import (
+                        insert_service_lateral_nodes)
+                    _n_restat += insert_service_lateral_nodes(
+                        layout, icao) or 0
+                _fabric.note_restation(_n_restat)
+                _line = _fabric.emit_summary(icao)
+                if _line:
+                    UI.vprint(1, _line)
+                _rod_ckpt(layout, "00a_fabric_sparse_thin")
+        except _GEOM_EXC as _fab_exc:                      # pragma: no cover
+            UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse thinning "
+                         f"FAILED: {_fab_exc!r} — dense emission this build.")
 
         if layout.anchor is not None:
             # Runway CIFP thresholds are LOCKED — the solver never moves them.

@@ -1155,11 +1155,21 @@ def densify_long_edges(layout, roles, max_edge_m: float = 60.0) -> int:
     interpolation to stay index-aligned.  Returns vertices inserted."""
     import math as _math
     from shapely.geometry import Polygon as _Polygon
+    from .fabric_sparse import stationing_declined as _stationing_declined
     inserted = 0
     for s in layout.shapes:
         if (s.role not in roles or s.polygon is None
                 or s.polygon.is_empty
                 or s.polygon.geom_type != "Polygon"):
+            continue
+        # THE FABRIC MODEL (owner RULINGS 2026-08-08): on a sparse shape
+        # there is NO generic stationing — a node exists only where the
+        # law needs a vertex, plus adequate spine/curve nodes.  This 60 m
+        # pass IS reg-set §5.1 T8 ("no standard specifies vertex
+        # density"), retired under W2's ``O4_FABRIC_W2_RETIRE_STATIONING`` and
+        # inside the cluster under the Phase-A gate.  Inert when neither
+        # is armed (``stationing_declined`` short-circuits).
+        if _stationing_declined(s):
             continue
         ring = list(s.polygon.exterior.coords)
         closed = bool(ring) and ring[0] == ring[-1]

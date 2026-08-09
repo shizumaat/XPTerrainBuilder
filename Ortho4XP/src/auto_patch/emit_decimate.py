@@ -259,15 +259,25 @@ def _span_deviation_ok(ring, alts, i, j, n, z_tol):
     return True
 
 
-def _span_ok(ring, alts, i, j, n, z_tol):
+def _span_ok(ring, alts, i, j, n, z_tol, max_chord=None):
     """True iff the span ring[i]→ring[j] may collapse to a single edge:
     within the XY/Z bands (:func:`_span_deviation_ok`) AND no longer than
-    ``MAX_CHORD_M``."""
+    ``MAX_CHORD_M``.
+
+    ``max_chord`` overrides that cap for ONE caller: the fabric model's
+    pre-solve cluster thinning (``fabric_sparse.thin_rings``) passes
+    ``inf``, because generic 60 m stationing on a straight run is exactly
+    what THE FABRIC MODEL retires inside a declared cluster (RULINGS
+    2026-08-08; spec "Retire list": "stationing density beyond the
+    adequate-spine/curve floor").  Default ``None`` = the house cap, so
+    every existing caller is byte-identical."""
     ax, ay = ring[i % n]
     bx, by = ring[j % n]
     cl = math.hypot(bx - ax, by - ay)
     if cl < 1e-9:
         return False
+    if max_chord is None:
+        max_chord = MAX_CHORD_M
     # MAX CHORD (user in-sim finding 2026-07-09): an uncapped span
     # collapse left a 1,279 m junction edge, and the mesh interpolated
     # the pavement between far-apart nodes — visible sag against the
@@ -275,7 +285,7 @@ def _span_ok(ring, alts, i, j, n, z_tol):
     # ~30 m to hold the edge at its solved grade; the recursion below
     # splits an over-long span (at its farthest vertex, or — when the
     # cap is the ONLY thing it fails — at its midpoint).
-    if cl > MAX_CHORD_M:
+    if cl > max_chord:
         return False
     return _span_deviation_ok(ring, alts, i, j, n, z_tol)
 
@@ -310,17 +320,23 @@ def _mid_index(ring, u, v, n):
     return min(tied, key=lambda k: _key(*ring[k]))
 
 
-def _ring_keep_set(ring, alts, z_tol, forced=None):
+def _ring_keep_set(ring, alts, z_tol, forced=None, max_chord=None):
     """Indices to KEEP.  Anchors = locally bent vertices (plus ``forced``);
     each anchor-to-anchor span is split recursively until every removed
     vertex fits the chord within tolerance (Douglas-Peucker with the law's
-    absolute band)."""
+    absolute band).
+
+    ``max_chord`` is passed through to :func:`_span_ok` (default = the
+    house ``MAX_CHORD_M``); see that function for the one caller that
+    lifts it."""
     n = len(ring)
     if n < 5:
         return set(range(n))
+    _cap = MAX_CHORD_M if max_chord is None else max_chord
     anchors = set(forced or ())
     for k in range(n):
-        if not _span_ok(ring, alts, (k - 1) % n, (k + 1) % n, n, z_tol):
+        if not _span_ok(ring, alts, (k - 1) % n, (k + 1) % n, n, z_tol,
+                        max_chord=_cap):
             anchors.add(k)
     if len(anchors) < 3:
         return set(range(n))
@@ -335,7 +351,7 @@ def _ring_keep_set(ring, alts, z_tol, forced=None):
             span = (v - u) % n
             if span <= 1:
                 continue
-            if _span_ok(ring, alts, u, v, n, z_tol):
+            if _span_ok(ring, alts, u, v, n, z_tol, max_chord=_cap):
                 continue        # whole span drops
             ax, ay = ring[u % n]
             bx, by = ring[v % n]
@@ -352,7 +368,7 @@ def _ring_keep_set(ring, alts, z_tol, forced=None):
             # deviation to split at, so split at the midpoint: halves
             # converge in log steps and land evenly spaced.
             best_k = None
-            if math.hypot(cx, cy) > MAX_CHORD_M and \
+            if math.hypot(cx, cy) > _cap and \
                     _span_deviation_ok(ring, alts, u, v, n, z_tol):
                 best_k = _mid_index(ring, u, v, n)
             if best_k is not None:

@@ -66,6 +66,20 @@ from auto_patch.layout import (  # noqa: E402
     ROLE_TUNNEL_RAMP,
 )
 
+# ── THE APRON-EDGE WALL FAMILY IS RETIRED (W2, 2026-08-08) ────────────
+# reg-set §5.1 T4 + RULINGS 2026-08-08 reg-set ruling 4: pure design,
+# no code mandates grading beyond an apron edge, and under the drape the
+# raw DEM meets the apron edge.  The two wall-run tests at the end of
+# this file drive ``_emit_apron_walls`` directly, so they exercise the
+# flag's OFF arm — which is the arm that still has to behave, and is
+# what they now certify.  The successor (the emitter refusing at its own
+# entry) is twinned in ``tests/test_fabric_phase_b.py``.
+@pytest.fixture(autouse=True)
+def _pre_w2_apron_edge_walls(monkeypatch):
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS", "0")
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_SURROUND", "0")
+
+
 EDGE_ALT = 100.0
 # The hole: x in [30, 130], y in [30, 90] -> 100 x 60 m = 6,000 m2.
 # Area over ``GAP_FILL_MIN_AREA_M2`` and short side under

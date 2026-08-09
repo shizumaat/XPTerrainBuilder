@@ -37,6 +37,22 @@ from auto_patch.config import (
 from auto_patch.elevation_per_surface.route_profile import apron_terrace as AT
 from auto_patch.layout import BuiltShape
 
+# ── APRON TERRACES ARE RETIRED (W2, 2026-08-08) — THIS IS THE OFF ARM ─
+# fabric-model-spec.md §3 ("explicit shaping only in the REG SET") + the
+# walls-to-carves ruling 2026-08-07: an apron terrace is a cut line plus
+# a WALL FACE on unregulated ground, and walls exist only at carve
+# structures.  On a default build no apron is a terrace candidate, which
+# is the successor behaviour (twinned in tests/test_fabric_phase_b.py).
+# This whole file is the terrace law as it was, kept because it is what
+# certifies the OFF arm of ``O4_FABRIC_W2_RETIRE_APRON_TERRACES`` — a
+# retired family whose machinery still has to behave when reverted.
+@pytest.fixture(autouse=True)
+def _pre_w2_apron_terraces(monkeypatch):
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_TERRACES", "0")
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_APRON_SURROUND", "0")
+    monkeypatch.setenv("O4_FABRIC_W2_RETIRE_FANS", "0")
+
+
 
 class _Centerline:
     def __init__(self, pts):

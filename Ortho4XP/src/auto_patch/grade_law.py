@@ -38,6 +38,7 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from . import fabric_flags
 from .config import (
     ADJACENT_GROUND_DAYLIGHT_SLOPE_LIMIT,
     ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE, ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE,
@@ -1235,6 +1236,17 @@ def _adjacent_strip_envelope(
                else float(lip_max_down))
     up = (ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE if up_slope is None
           else float(up_slope))
+    # NO MANDATORY FALL (W2, reg-set ruling 1).  An authority that
+    # mandates no downward grading across its graded strip supplies
+    # ``None`` for ``band_min_down``, and the corridor answers that by
+    # holding the CEILING flat across zone 2 instead of dropping it —
+    # flat ground inside the strip becomes lawful, which is precisely
+    # what "the ICAO ruleset DROPS the mandatory-DOWN band" means.  The
+    # MAXIMUM (``band_max_down``, the floor) is untouched: an authority
+    # dropping its minimum has not stopped capping how steep the fall
+    # may be.  ``0.0`` is the arithmetic spelling of "no mandate" here,
+    # and it keeps every bound continuous in ``d`` exactly as before.
+    band_min_down = 0.0 if band_min_down is None else float(band_min_down)
     if distance_m <= 0.0:
         return (0.0, 0.0)                       # flush at the edge
     if distance_m >= reach_m:
@@ -1385,7 +1397,7 @@ def adjacent_ground_envelope(
             raise ValueError("runway adjacent-ground envelope needs code_number")
         return _adjacent_strip_envelope(
             ruleset_strip_half_width_m(code_number, code_letter, rs),
-            rs.strip_band_min_down_slope,
+            _w2_strip_band_min_down(rs),
             ruleset_strip_band_max_down_slope(code_number, rs),
             CLEARANCE_MAX_REACH_M["runway"], d,
             lip_width_m=rs.strip_lip_width_m,
@@ -1399,24 +1411,51 @@ def adjacent_ground_envelope(
         half = (float(widths.get(str(code_letter).upper(), 12.5))
                 if widths and code_letter
                 else taxiway_strip_graded_half_width_for_letter(code_letter))
+        lip_w, lip_lo, lip_hi = _w2_paved_edge_lip(rs)
         return _adjacent_strip_envelope(
             half,
             rs.taxiway_strip_band_min_down_slope,
             rs.taxiway_strip_band_max_down_slope,
             CLEARANCE_MAX_REACH_M["taxiway"], d,
-            lip_width_m=rs.strip_lip_width_m,
-            lip_min_down=rs.strip_lip_min_down_slope,
-            lip_max_down=rs.strip_lip_max_down_slope,
+            lip_width_m=lip_w,
+            lip_min_down=lip_lo,
+            lip_max_down=lip_hi,
             up_slope=rs.ungraded_strip_max_up_slope,
             shoulder=shoulder)
     if role in _ADJACENT_APRON_ROLES:
-        # Aprons ride the maneuvering-network reach (taxiway); the only governed
-        # band is the 3 m shoulder, then zone-3 semantics immediately.
+        # Aprons ride the maneuvering-network reach (taxiway).
         reach = CLEARANCE_MAX_REACH_M["taxiway"]
         if d <= 0.0:
             return (0.0, 0.0)
         if d >= reach:
             return (None, None)
+        if fabric_flags.on("O4_FABRIC_W2_RETIRE_APRON_SURROUND"):
+            # ── THE APRON SURROUND RETIRES (W2; reg-set §5.1 T2/T3,
+            # RULINGS 2026-08-08 reg-set ruling 4) ────────────────────
+            # "Nothing mandates them; the drape takes apron surroundings
+            # on both rulesets."  AC ¶5.9.2's 3 m 1-3 % shoulder and its
+            # 3-5 % beyond-shoulder continuation sit under a *Recommended
+            # Practices* heading (read directly, PV-2026-08-08), and
+            # Annex 14 §3.13 / CS ADR-DSN Ch. E govern nothing at all
+            # beyond an apron edge.
+            #
+            # WHAT SURVIVES, and this is the verification pass's nuance
+            # (reg-set §5.1 closing paragraph — "retiring the apron
+            # SHOULDER BAND is not the same act as retiring the apron
+            # EDGE"): the FAA ¶4.14.2 item-4 lip, which is written for
+            # "an unpaved surface adjacent to a paved surface" and so
+            # reaches an apron edge like any other paved edge.  Under a
+            # ruleset that states no such lip (ICAO) the corridor is
+            # zone-3 from the edge — floor free, ceiling rising at the
+            # ungraded cap — i.e. the drape, which is the point.
+            lip_w, lip_lo, lip_hi = _w2_paved_edge_lip(rs)
+            up = rs.ungraded_strip_max_up_slope
+            if not lip_w:
+                return (None, up * d)
+            if d <= lip_w:
+                return (-lip_hi * d, -lip_lo * d)
+            return (None, -lip_lo * lip_w + up * (d - lip_w))
+        # PRE-W2: the 3 m shoulder, then zone-3 semantics immediately.
         if d <= APRON_SHOULDER_WIDTH_M:
             return (-APRON_SHOULDER_MAX_DOWN_SLOPE * d,
                     -APRON_SHOULDER_MIN_DOWN_SLOPE * d)
@@ -1424,13 +1463,72 @@ def adjacent_ground_envelope(
         up = rs.ungraded_strip_max_up_slope
         return (None, shoulder_ceiling + up * (d - APRON_SHOULDER_WIDTH_M))
     if role in _ADJACENT_SERVICE_ROLES:
-        # UNCHANGED cut-only flat shadow: cut anything above the edge within the
+        # ── THE SERVICE-ROAD SHADOW RETIRES (W2; reg-set §5.1 T5) ────
+        # ``docs/STANDARDS.md`` states it outright: the 15 m cut-only
+        # flat shadow is a "design choice, NOT an AASHTO mandate", and no
+        # aviation authority regulates service roads at all.  Under the
+        # fabric model unregulated ground is NOTHING, so the corridor is
+        # ungoverned in both directions and the drape takes it.
+        if fabric_flags.on("O4_FABRIC_W2_RETIRE_SERVICE_SHADOW"):
+            return (None, None)
+        # PRE-W2 cut-only flat shadow: cut anything above the edge within the
         # 15 m band, never fill (floor free).  CLEARANCE_LATERAL_MAX_SLOPE == 0
         # ⇒ the ceiling stays at the edge level across the whole band.
         if d >= CLEARANCE_MAX_REACH_M["service"]:
             return (None, None)
         return (None, CLEARANCE_LATERAL_MAX_SLOPE * d)
     raise ValueError(f"adjacent_ground_envelope: unmodelled role {role!r}")
+
+
+def _w2_strip_band_min_down(rs):
+    """The RUNWAY graded strip's minimum mandatory DOWN slope — each
+    authority's own mandate under W2, the pre-W2 blend with the flag off.
+
+    ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY`` (default ON) is
+    ``config.RULESET_W2_FLIPS`` entry 1: the LIVE field
+    ``strip_band_min_down_slope`` carries the 2026-07-08 blended 1.5 % on
+    BOTH rulesets; ``strip_band_min_down_slope_authority`` carries what
+    each authority actually mandates — 1.5 % for the FAA (Table 3-6 S-3,
+    unchanged, so KCLT does not move) and ``None`` for ICAO, which
+    mandates no fall across the graded strip at all.
+
+    RULINGS 2026-08-08 reg-set ruling 1, flagged PROVISIONAL and
+    explicitly gate-revertable for the owner's sim look at a strip
+    without the band.
+    """
+    if fabric_flags.on("O4_FABRIC_W2_ICAO_STRIP_AUTHORITY"):
+        return rs.strip_band_min_down_slope_authority
+    return rs.strip_band_min_down_slope
+
+
+def _w2_paved_edge_lip(rs):
+    """``(width_m, min_down, max_down)`` for a TAXIWAY / TAXILANE / APRON
+    edge — the second lip family, or ``(0.0, 0.0, 0.0)`` where the
+    authority states none.
+
+    ``O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY`` (default ON) is
+    ``config.RULESET_W2_FLIPS`` entries 2 and 3.  Reg-set finding F-10:
+    the AC states TWO distinct lips and the repo applied the RUNWAY one
+    (3 m at 3-5 %, Fig. 3-33 Detail A) to every edge.  The paved→unpaved
+    edge of a taxiway, taxilane or apron takes ¶4.14.2 *Standards* item 4
+    instead — 5 ±0.5 % over ≥3 m, i.e. 4.5-5.5 % — carved OUT of the TSA
+    band by item 5, which is why it is a near zone here and not an
+    alternative to the band.  ICAO states no taxiway lip whatever (F-3,
+    absence verified by full read of §3.11.5 / D.330(b)), so on that
+    ruleset the near zone is ZERO WIDE and zone 2 starts at the edge.
+
+    A zero width is spelled ``0.0``, never ``None``: ``None`` means "not
+    stated, use the house default" to ``_adjacent_strip_envelope``, and
+    that is the opposite of what an authority's silence means here.
+    """
+    if not fabric_flags.on("O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY"):
+        return (rs.strip_lip_width_m, rs.strip_lip_min_down_slope,
+                rs.strip_lip_max_down_slope)
+    width = rs.taxiway_lip_width_m
+    if not width:
+        return (0.0, 0.0, 0.0)
+    return (float(width), float(rs.taxiway_lip_min_down_slope),
+            float(rs.taxiway_lip_max_down_slope))
 
 
 def drainage_spine_envelope(
@@ -1869,9 +1967,22 @@ def ols_transitional_ceiling(
     # ``reach`` is passed as s + 1 so the helper never short-circuits to
     # (None, None) at its own reach cap — we want the zone-3 expression
     # evaluated at s, not the "ungoverned" answer.
+    #
+    # THE MANDATORY-FALL READ IS THE LATERAL LAW'S (W2, reg-set ruling 1).
+    # The anchor value is only continuous with zone 3 if it is computed
+    # from the SAME band the zone-3 expression accumulated from — and
+    # under ``O4_FABRIC_W2_ICAO_STRIP_AUTHORITY`` that band no longer
+    # falls on the ICAO ruleset.  Reading the module constant here left
+    # the composed ceiling stepping 0.555 m at the handover (measured:
+    # transitional -0.645 vs lateral -0.090 at code 2), which is exactly
+    # the wall-between-two-active-cut-bands class the continuity ruling
+    # above exists to prevent.  Flag OFF the accessor returns
+    # ``strip_band_min_down_slope``, which IS
+    # ``RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE`` on both rulesets (pinned by
+    # tests/test_fabric_reg_set_w1.py), so the OFF arm is unchanged.
     _floor_at_s, ceiling_at_s = _adjacent_strip_envelope(
         RUNWAY_STRIP_HALF_WIDTH_BY_CODE[code_number],
-        RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
+        _w2_strip_band_min_down(get_ruleset(None)),
         RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE[code_number],
         s + 1.0, s)
     if ceiling_at_s is None:            # s <= 0 (degenerate geometry)

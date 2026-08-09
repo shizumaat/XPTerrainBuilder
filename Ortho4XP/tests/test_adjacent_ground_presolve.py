@@ -19,6 +19,24 @@ import auto_patch.config as cfg
 from auto_patch import adjacent_ground as AG
 from auto_patch.layout import BuiltShape, ROLE_APRON, ROLE_GRADED_STRIP
 
+# ── APRON FAMILY: PINNED TO THE PRE-W2 WORLD (W2, 2026-08-08) ─────────
+# Reg-set §5.1 T2/T3/T4 + RULINGS 2026-08-08 reg-set ruling 4 retire the
+# apron shoulder band, its beyond-shoulder continuation and the
+# apron-edge retaining-wall family OUTRIGHT — so on a default build
+# these fixtures band nothing and emit no wall, which is the successor
+# behaviour, twinned in ``tests/test_fabric_phase_b.py``.  What these
+# assertions still certify is each flag's OFF arm: with the retirement
+# disabled the machinery is byte-identical to the pre-W2 tree.
+@pytest.fixture(autouse=True)
+def _pre_w2_apron_family(monkeypatch):
+    for env in ("O4_FABRIC_W2_RETIRE_APRON_SURROUND",
+                "O4_FABRIC_W2_RETIRE_APRON_EDGE_WALLS",
+                "O4_FABRIC_W2_ICAO_STRIP_AUTHORITY",
+                "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY",
+                "O4_FABRIC_W2_RETIRE_SERVICE_SHADOW"):
+        monkeypatch.setenv(env, "0")
+
+
 EDGE_ALT = 100.0
 DEM_RISE = 6.0                                # terrain 6 m above the edge
 

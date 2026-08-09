@@ -811,6 +811,14 @@ class PavementLayout:
     # elevation solve ran (the patch then reports RAW — graded on base DEM).
     dem_inset_provenance: dict | None = None
 
+    # THE FLAT-SITE EVIDENCE RECORD (docs/specs/flat-site-detector-spec.md
+    # section 2).  Four measured signals + one verdict, written by
+    # ``flat_site.detect_for_layout`` at the pipeline's DEM-in-hand point
+    # and carried into the axes sidecar as the ``site_class`` evidence
+    # key.  REPORT-ONLY: no solver, emitter or law reads it.  None when
+    # no elevation solve ran or the detector found no anchor.
+    site_class: dict | None = None
+
     # The provenance record ``to_osm`` assembled for this build, cached so the
     # driver logs its one-line summary from the same truth it stamped.  None
     # until ``to_osm`` runs with provenance enabled.
@@ -3193,6 +3201,17 @@ class PavementLayout:
             # predates the experiment" (key absent).
             "basin_facilities": list(
                 getattr(self, "basin_facility_records", None) or []),
+            # THE FLAT-SITE EVIDENCE RECORD (docs/specs/
+            # flat-site-detector-spec.md section 2).  The four signals the
+            # detector measured at this build's DEM-in-hand point and the
+            # verdict they compose, so "was this site a flat candidate,
+            # and on what numbers?" is answerable from the artifacts
+            # instead of only from a live build's log.  EVIDENCE, never
+            # law input: the census reports it and re-judges nothing.
+            # Written unconditionally so a reader can tell "the detector
+            # ran and found no anchor" (``null``) from "this patch
+            # predates the detector" (key absent).
+            "site_class": getattr(self, "site_class", None),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

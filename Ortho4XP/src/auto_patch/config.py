@@ -8277,3 +8277,102 @@ FAIRING_MAX_SWEEPS_SPINE = 400              # per-chain second-difference fairin
 FAIRING_MAX_SWEEPS_GAP_SPINE = 200          # per gap-fill chain
 FAIRING_MAX_SWEEPS_CHAIN = 200              # per generic chain
 FAIRING_MAX_SWEEPS_APRON = 5000             # apron smoother, per apron body
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FLAT-SITE DETECTOR (report-only)
+# ══════════════════════════════════════════════════════════════════════
+# docs/specs/flat-site-detector-spec.md (2026-08-09, FROZEN), phase 1 of
+# the owner's charter "we want to see if we can implement a
+# simplification for airports like OTHH that are pretty much at sea
+# level, and are genuinely flat".  The detector (auto_patch/flat_site.py)
+# MEASURES and RECORDS; no solver, emitter or law reads these values.
+#
+# THE MEASURED FOUNDATION (spec section 1, 2026-08-09 — cited, never
+# re-derived).  OTHH, the type specimen: all four CIFP thresholds 13 ft =
+# 3.96 m, spread 0; apt.dat 13 ft; the pack's 9,226 non-drainage object
+# seat requests median 4.00 m (|delta| vs CIFP 0.04 m, p95-p5 2.17 m);
+# and the raw DEM (Viewfinder 3-arcsec, 93 m posts, integer metres) over
+# the airport extent reads median 0 m — 4 m BELOW instrument truth, 69 %
+# exactly 0 (coastal/reclaimed void-fill) — with p95-p5 6.0 m, plane-fit
+# slope 0.067 % and residual std 1.82 m.  Every metre of "relief" the
+# solver chases there is DEM noise.  The negative type specimen is HECA:
+# ~85 m of REAL relief, DEM and CIFP agreeing, which must never classify
+# flat.
+
+# S1.  CIFP threshold CONSENSUS: max - min over the airport's threshold
+# elevations.  OTHH reads 0.00 m (four identical 13 ft thresholds); the
+# margin above zero absorbs the ARINC-424 one-foot quantum (0.3048 m) on
+# a site whose ends genuinely agree, and stays well under the smallest
+# real end-to-end drop a runway profile carries.
+FLAT_SITE_THRESHOLD_SPREAD_M = 0.5
+
+# S2.  The MARGIN RING around (pavement u boundary) the DEM is measured
+# over.  Load-bearing, not padding: a graded PLATEAU in hilly terrain has
+# flat pavement and hilly surroundings, and only the ring sees the
+# difference.  200 m is the scale at which the adjacent-ground zones stop
+# grading and raw DEM resumes.
+FLAT_SITE_MARGIN_M = 200.0
+
+# S2.  Plane-fit slope cap over that extent.  OTHH reads 0.067 %; the cap
+# sits at roughly twice it and an order of magnitude under the 1.5 %
+# taxiway grade cap, so a site the solver would have to WORK to flatten
+# can never read flat here.
+FLAT_SITE_MAX_SLOPE_PCT = 0.15
+
+# S2.  The p95-p5 relief a DEM SOURCE CLASS can produce out of pure
+# noise.  Relief at or under its own source's floor is not evidence of
+# terrain.  3-arcsec sources (~93 m posts, integer metres, void-filled
+# coastlines) carry metres of it — OTHH measures 6.0 m over genuinely
+# flat reclaimed land; 1-arcsec sources carry less; a sub-10 m raster
+# is close to credible and gets a floor barely above its own quantisation.
+FLAT_SITE_RELIEF_FLOOR_BY_CLASS = {
+    "ge3arcsec": 8.0,
+    "1arcsec": 5.0,
+    "sub10m": 2.0,
+}
+
+# S2.  Native-resolution boundaries mapping a DECLARED source resolution
+# to a class, ascending, first match wins; anything coarser than the last
+# bound is FLAT_SITE_COARSE_SOURCE_CLASS.  1 arc-second is ~30.9 m and
+# 3 arc-second ~92.6 m, so the 60 m split cannot confuse the two, and
+# COPERNICUSGLO30 (30 m, the provider cached for the Qatar tile) lands in
+# the 1-arcsec class.  A source at or under 2 m is METRE-CREDIBLE
+# (LIDAR-class): the detector short-circuits to ``lidar_credible`` there,
+# because that DEM is trustworthy and the normal path already handles a
+# flat site correctly under a truthful DEM.
+FLAT_SITE_SOURCE_CLASS_BOUNDS_M = (
+    (2.0, "lidar"),
+    (10.0, "sub10m"),
+    (60.0, "1arcsec"),
+)
+FLAT_SITE_COARSE_SOURCE_CLASS = "ge3arcsec"
+
+# S2.  What the BASE TIER's resolution is, per the tile's own elevation
+# level (O4_Elevation_Level.base_prefers_coarse: "auto"/"90"/coastline
+# take the 3 arc-second base class, numeric levels the 1 arc-second one).
+# These are the nominal postings of those two tiers, used only to name
+# the class — never to resample anything.  The DEM raster's own posting
+# is deliberately NOT consulted: O4_DEM_Utils UPSAMPLES a 1201x1201
+# 3-arcsec .hgt to 3601x3601 with no record of the native size, so the
+# array would report a 1-arcsec grid over 3-arcsec data and put OTHH
+# under the wrong floor.
+FLAT_SITE_BASE_COARSE_RESOLUTION_M = 92.6    # 3 arc-second
+FLAT_SITE_BASE_FINE_RESOLUTION_M = 30.9      # 1 arc-second
+
+# S4.  Pack-object consensus, CONFIRMATORY only and never a fail: the
+# median non-below-grade seat target must sit within
+# FLAT_SITE_PACK_OFFSET_MAX_M of the CIFP consensus Z0, with a p95-p5
+# spread at or under FLAT_SITE_PACK_SPREAD_MAX_M.  OTHH measures 0.04 m
+# and 2.17 m against these.
+FLAT_SITE_PACK_OFFSET_MAX_M = 1.0
+FLAT_SITE_PACK_SPREAD_MAX_M = 3.0
+
+# S4.  A pad request whose object base sits this far or more BELOW its
+# own anchor datum is a BELOW-GRADE request — an open-pit drainage basin
+# asking for a trench floor, not a ground-level seat (OTHH's Aeroscape
+# "Dewatering Drainage" pits reach ~3.8 m below grade).  The value is the
+# owner's 1 m law (DSF_OBJECT_BAKE_MIN_DELTA_M, ruling 2026-08-09): below
+# a metre the pack is not modified and terrain adapts, so a sub-metre
+# base offset is a ground-level seat by that same measure.
+FLAT_SITE_PACK_BELOW_GRADE_M = 1.0

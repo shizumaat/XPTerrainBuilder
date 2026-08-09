@@ -5173,6 +5173,16 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # basin cut is a plate population the grade law already judges
     # through its emitted geometry, so nothing here is law input.
     "basin_facilities",
+    # THE FLAT-SITE EVIDENCE RECORD (spec docs/specs/
+    # flat-site-detector-spec.md section 2).  The detector's four
+    # signals + verdict, measured at the build's DEM-in-hand point:
+    # CIFP threshold consensus, DEM relief vs its own SOURCE CLASS's
+    # noise floor over the pavement+boundary+margin extent, the
+    # DEM-vs-instrument offset, and the pack-object consensus.
+    # REPORT-ONLY — nothing in the law reads it, and the census
+    # re-judges none of it; it is here so "did this patch ship from a
+    # site whose DEM was pure noise?" is answerable from the artifact.
+    "site_class",
 )
 
 
@@ -5277,6 +5287,13 @@ def sidecar_evidence(osm_path) -> dict:
             # worst-row list is dropped; the numbers are kept.
             out[k] = (None if not isinstance(v, dict) else
                       {kk: vv for kk, vv in v.items() if kk != "worst"})
+            continue
+        if k == "site_class":
+            # ALREADY a flat record of scalars (four signals + verdict),
+            # and its whole point is to be readable from the artifact —
+            # collapsing it to "<N entries>" would hide exactly the
+            # numbers it exists to carry.  Passed through verbatim.
+            out[k] = v
             continue
         # SUMMARISE, never embed: the legacy ``axes``/``routes`` arrays are
         # megabytes of geometry, and a report that inlines them is a report

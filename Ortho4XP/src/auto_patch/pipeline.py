@@ -3655,6 +3655,30 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except AttributeError:                    # pragma: no cover
                 pass
 
+            # ── FLAT-SITE DETECTOR (report-only) ──────────────────
+            # docs/specs/flat-site-detector-spec.md section 2.  This is
+            # the pipeline's DEM-IN-HAND point: the CIFP thresholds, the
+            # apt.dat pavement/boundary extent and the DEM (with its
+            # inset provenance, captured just above) all exist here, and
+            # nothing downstream has consumed the DEM yet.  It MEASURES
+            # and RECORDS — four signals, one log line, one sidecar
+            # evidence key — and changes no build path.  Wrapped whole:
+            # a report may never take a build down.
+            try:
+                from . import flat_site as _flat_site
+
+                _site_record = _flat_site.detect_for_layout(
+                    layout, icao=icao, apt=apt, to_m=to_m, dem=dem,
+                    tile_lat=tile_lat, tile_lon=tile_lon,
+                    patch_dir=FNAMES.patch_dir(tile_lat, tile_lon),
+                    xplane_root=xplane_root)
+                if _site_record is not None:
+                    UI.vprint(0, _flat_site.format_log_line(_site_record))
+            except Exception as _site_error:          # pragma: no cover
+                UI.vprint(1,
+                          f"  [flat-site] {icao}: detector skipped "
+                          f"({type(_site_error).__name__}: {_site_error})")
+
             # ── Seam-anchor pipeline (user 2026-05-13) ────────────
             # 1) Insert ring vertices at integer lat/lon line crossings
             #    and convert sloped rects to node_altitudes.

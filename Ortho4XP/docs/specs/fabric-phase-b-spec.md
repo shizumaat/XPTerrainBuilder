@@ -98,6 +98,34 @@ Read all of it before any work; every banner is load-bearing.
 > backgrounded run are unattributed worker noise — the final suite
 > re-runs FOREGROUND uncontended before any read.**
 
+> **BINDING ROUND OUTCOME + LEAD RULINGS 3 (2026-08-08, lane/fabricB
+> 3c73a35).** The solve binding LANDED structurally right (priced ⟺
+> bound at BOTH u_edges sites incl. final_grade_projection; one cap
+> source; lockstep twins; OFF-arm byte identity) and STAYS. My
+> ruling-1 premise is FALSIFIED and owned: the prior round's offline
+> replay read a DIFFERENT ring than the build's (the two-instruments
+> trap, this time biting the lead) — the emitter never reached the
+> specimen because an INSERTION-dedup rule was deciding a SELECTION
+> question (44/45 stations hit existing vertices and were dropped).
+> Attempt 2 (vertex hits count for selection, O4_XSECTION_VERTEX_HITS)
+> CLOSES CYXY decisively (transverse 28 vs control 31, worst |de|
+> halved, sites 9 vs 10) but REFUSES HECA: with 11,742 feet a
+> route-budget contraction returns (spread 49.300 vs budget 47.559,
+> 05C/23C↔05L/23R — the SAME marginal pair as the R-a-era refusal;
+> CIFP-forced spread fits easily, so the demand is DEM-driven) —
+> R-a is intact, therefore a SECOND budget channel exists,
+> unattributed. RULINGS: (i) the binding stays ON; (ii) vertex-hits
+> stays PARKED default-OFF until the second channel is attributed —
+> a registry flag may not refuse a battery airport; (iii) THE
+> BATTERY RUNS NOW on 3c73a35 (green tree, suite = standing set,
+> foreground-clean): the wide-corridor lean is ONE named, measured
+> remaining class and the owner's testable app does not wait two
+> more iterations for it; it ships named in the app notes, the
+> vertex-hit completion re-arms after the attribution. Attribution
+> lane dispatched OFFLINE-FIRST on the round's own dump artifacts
+> (the second budget channel + whether the 49.3 m DEM-driven demand
+> at that runway pair is (a)-lawful — the canyon-verdict toolkit).**
+
 ## The convergence thesis (why #2 and #3 are one round)
 
 The late final_grade_projection feature-weld agreement gate hardens

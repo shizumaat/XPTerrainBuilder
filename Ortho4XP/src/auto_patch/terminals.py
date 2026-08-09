@@ -942,13 +942,20 @@ def _combine_building_sources(
     2. a DSF cluster is ABSORBED when
        ``cluster ∩ way / cluster.area >= absorb_frac``
        (``DSF_CLUSTER_OSM_ABSORB_FRAC``, default 0.5) for ANY kept OSM
-       way — majority-inside means the way already represents it.  A
-       cluster mostly OUTSIDE every way (jet bridge, fixed link, canopy
-       hanging off the facade) stays a separate pad, WHOLE — clusters
-       are never clipped;
+       way — majority-inside means the way already represents it;
     3. clusters overlapping no kept OSM way behave exactly as before.
        With ZERO OSM ways the output is the cluster list unchanged
-       (the degeneracy gate: such an airport is bit-for-bit identical).
+       (the degeneracy gate: such an airport is bit-for-bit identical);
+    3b. a SURVIVING cluster that still overlaps a kept way is CLIPPED by
+       that way (spec §2.3b, v2 amendment): the way OWNS its footprint,
+       so no emitted pad overlaps a kept way.  Remainders under
+       ``DSF_MIN_BUILDING_AREA_M2`` drop; a MultiPolygon remainder emits
+       its parts separately.  Measured motivation: the dominant battery
+       pattern is a cluster several times LARGER than and CONTAINING the
+       way (HECA −239 cluster/way 8.2, KCLT −1292 12.5) — un-clipped
+       that is two overlapping pads at two altitudes.  The cluster's
+       genuine outside extent (parking structure, canopy) is real and
+       stays.
 
     This is the exact REVERSAL of the retired rule
     (``DSF_BUILDING_OSM_OVERLAP_FRAC`` = 0.2), which dropped an OSM way
@@ -957,8 +964,9 @@ def _combine_building_sources(
 
     Returns the combined seed list (surviving DSF clusters first, then
     the kept OSM ways), ready to flow through the existing terminal-pad
-    pipeline.  A geometry error while testing a pair is read as "cannot
-    prove absorption" and leaves the cluster standing.
+    pipeline.  A geometry error while testing or clipping a pair is read
+    as "cannot prove absorption / cannot clip" and leaves the cluster
+    standing unchanged — a fallback that never deletes a building.
     """
     dsf = [b for b in dsf_buildings if b is not None and not b.is_empty]
     osm = [b for b in osm_buildings if b is not None and not b.is_empty]
@@ -976,17 +984,39 @@ def _combine_building_sources(
             survivors.append(cb)
             continue
         absorbed = False
+        overlapped: List[Polygon] = []
         for ob in osm:
             try:
                 if not cb.intersects(ob):
                     continue
-                if cb.intersection(ob).area / c_area >= absorb_frac:
-                    absorbed = True
-                    break
+                inter = cb.intersection(ob).area
             except _GEOM_EXC:
                 continue  # cannot prove absorption → cluster stands
-        if not absorbed:
+            if inter / c_area >= absorb_frac:
+                absorbed = True
+                break
+            if inter > 0.0:
+                # A cluster merely TOUCHING a way (shared edge) has an
+                # intersection of zero area and is left untouched — the
+                # clip would only churn its ring.
+                overlapped.append(ob)
+        if absorbed:
+            continue
+        if not overlapped:
             survivors.append(cb)
+            continue
+        try:
+            remainder = cb.difference(unary_union(overlapped))
+        except _GEOM_EXC:
+            survivors.append(cb)  # cannot clip → cluster stands whole
+            continue
+        pieces = (remainder.geoms if hasattr(remainder, "geoms")
+                  else [remainder])
+        for piece in pieces:
+            if (piece.geom_type != "Polygon" or piece.is_empty
+                    or piece.area < DSF_MIN_BUILDING_AREA_M2):
+                continue
+            survivors.append(piece)
     return survivors + osm
 
 

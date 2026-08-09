@@ -52,9 +52,23 @@ semantics replaced):
 3. DSF clusters overlapping no kept OSM way behave exactly as today.
    An airport with zero OSM terminal ways is bit-for-bit unchanged —
    this is the degeneracy gate (§5.2).
+3b. **(v2 amendment, 2026-08-09 — the containment finding.)** A
+   SURVIVING cluster that still overlaps a kept OSM way is CLIPPED by
+   that way's polygon: the way owns its footprint, pads never overlap
+   a kept way. Clip remainders under `DSF_MIN_BUILDING_AREA_M2`
+   (20 m²) drop; a MultiPolygon remainder emits its parts separately.
+   Rationale (measured, lane/termway battery sweep): the dominant
+   battery pattern is a DSF cluster several times LARGER than and
+   containing the OSM way (HECA −239 pad/way 8.2; KCLT −1292 12.5) —
+   under v1 such a cluster survived whole and produced two overlapping
+   pads at different altitudes. The cluster's genuine outside extent
+   (parking structures, canopies beyond the way) is real and stays.
 4. `DSF_BUILDING_OSM_OVERLAP_FRAC` is RETIRED with the old rule.
    Verify `config.py:569` has no other consumer before deleting; if one
    exists, STOP and report.
+5. (v2 note) The third parameter's rename `overlap_frac →
+   absorb_frac` is APPROVED (lead ruling on the lane's flag): the
+   value's polarity inverted; keeping the old name was an active trap.
 
 Ordering stays `combined = dsf_survivors + osm_kept` (deterministic;
 refs renumber — refs are per-build, not stable identifiers).
@@ -87,7 +101,11 @@ or a sibling; consult `tools/INDEX.md` before adding any new tool):
   (≥, not >);
 * zero OSM ways → output identical to input clusters (degeneracy);
 * the old-rule case (way 51 % covered) → way kept (regression pin
-  against reintroduction of the drop).
+  against reintroduction of the drop);
+* (v2) a cluster CONTAINING the way (cluster ≫ way) → way kept, the
+  cluster's inside portion clipped away, outside remainder survives;
+  a remainder under 20 m² drops; pads never overlap a kept way
+  (assert empty pairwise intersection).
 
 ## 5. Acceptance — ONE OTHH build + matched census
 

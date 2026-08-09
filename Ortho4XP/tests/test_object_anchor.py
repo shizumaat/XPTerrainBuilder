@@ -31,7 +31,7 @@ import os
 
 import pytest
 
-from auto_patch import obj8_reader
+from auto_patch import config, obj8_reader, object_anchor
 from auto_patch.mesh_sampler import MeshElevationSampler
 from auto_patch.object_anchor import (
     ObjectPool,
@@ -44,6 +44,29 @@ from auto_patch.object_anchor import (
 METRES_PER_DEGREE_LATITUDE = obj8_reader.METRES_PER_DEGREE_LATITUDE
 
 CONTACT_EPSILON_METRES = 0.25
+
+BELOW_THRESHOLD_PHRASE = object_anchor.BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE
+
+
+@pytest.fixture()
+def reseat_threshold_off(monkeypatch):
+    """Neutralise the reseat threshold for a witness about some OTHER law.
+
+    ``DSF_OBJECT_BAKE_MIN_DELTA_M``
+    (docs/specs/object-reseat-threshold-spec.md section 2.1) decides
+    whether a unit is worth reseating AT ALL, and the synthetic
+    corrections these older witnesses were built on are
+    centimetre-to-decimetre scale by design: under the shipping default
+    every one of them would be handed to the terrain side and the law the
+    test is actually about — the span limit, amendment A3, supporter
+    fate, the cluster cut — would never run.  0 is the documented
+    always-bake setting (the pre-2026-08-09 behaviour), so those
+    assertions keep meaning exactly what they meant when they were
+    written.  The threshold has its own witnesses in
+    :class:`TestReseatThreshold` and in
+    ``test_object_cluster_seating.TestReseatThreshold``.
+    """
+    monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
 
 
 # ── construction helpers ──────────────────────────────────────────────
@@ -995,7 +1018,9 @@ class TestAmendmentA3:
             "span.obj"
         )
 
-    def test_pit_centroid_no_longer_tricks_the_seating(self, pit_sampler):
+    def test_pit_centroid_no_longer_tricks_the_seating(
+        self, pit_sampler, reseat_threshold_off
+    ):
         # Before amendment A19 this was the do-not-bake case: a
         # symmetric structure whose ground parts sit at the anchor's own
         # elevation while its CENTROID hangs over the pit centre — the
@@ -1379,6 +1404,310 @@ class TestFootPadRing:
         assert not pad.contains(outside_probe)
 
 
+# ── the reseat threshold (object-reseat-threshold spec section 2) ─────
+
+
+# The plane mesh rises this many metres per metre of EAST offset, so a
+# box's local x centroid IS its correction: delta = ground(centroid) −
+# ground(anchor) with both grounds read off the same plane.
+_METRES_PER_METRE_EAST = (
+    PLANE_ELEVATION_PER_DEGREE_LONGITUDE
+    / metres_per_degree_longitude_at(PLANE_ANCHOR_LATITUDE)
+)
+
+
+def _east_offset_for_correction(correction_metres: float) -> float:
+    """Where to put a 10 m box's centroid for a known correction."""
+    return correction_metres / _METRES_PER_METRE_EAST
+
+
+def _slab_at_correction(correction_metres: float):
+    """One ground-touching 10 x 10 m slab whose rigid correction is
+    ``correction_metres`` — the whole seating unit, so ``max |delta|``
+    over its resources is that number exactly."""
+    centre_east = _east_offset_for_correction(correction_metres)
+    return compound_geometry(
+        (
+            centre_east - 5.0,
+            centre_east + 5.0,
+            0.0,
+            4.0,
+            -5.0,
+            5.0,
+        )
+    )
+
+
+def _slab_decision(correction_metres, plane_sampler, resource="slab.obj"):
+    return _single_object_decision(
+        _slab_at_correction(correction_metres),
+        plane_sampler,
+        resource=resource,
+    )
+
+
+def _only_delta(decision, resource):
+    deltas = set(decision.delta_by_resource_and_vertex[resource].values())
+    assert len(deltas) == 1, "a rigid unit carries ONE offset"
+    return next(iter(deltas))
+
+
+@pytest.fixture()
+def per_structure_seating(monkeypatch):
+    """The non-clustered path (the threshold's other decision point).
+
+    A one-part structure is a one-cluster structure, so the default
+    machinery would route these witnesses through ``_seat_clusters``;
+    the cluster path has its own suite
+    (``test_object_cluster_seating.TestReseatThreshold``).
+    """
+    monkeypatch.setattr(config, "DSF_OBJECT_CLUSTER_SEATING", False)
+
+
+class TestReseatThreshold:
+    """docs/specs/object-reseat-threshold-spec.md section 2.1, owner
+    charter 2026-08-09: "When it's less than a meter deviation, adapt the
+    terrain to the custom objects, rather than reseating the objects."
+
+    A unit bakes only when ``max |delta|`` over its resources REACHES
+    ``DSF_OBJECT_BAKE_MIN_DELTA_M``; under it the pack is left exactly as
+    its author shipped it, with the measured correction on the record.
+    """
+
+    def test_a_correction_under_the_threshold_leaves_the_pack_alone(
+        self, plane_sampler, per_structure_seating
+    ):
+        _structures, decision = _slab_decision(0.99, plane_sampler)
+        updated = decision.structures[0]
+
+        assert updated.skip_reason is not None
+        assert BELOW_THRESHOLD_PHRASE in updated.skip_reason
+        # The MEASURED correction is part of the record, not a rounded
+        # adjective — this is the number an owner argues with.
+        assert "0.990" in updated.skip_reason
+        assert "1.000" in updated.skip_reason
+        # Nothing to write: no delta anywhere, so ``object_rebake.apply``
+        # never touches the file (and reverts any earlier bake).
+        assert decision.delta_by_resource_and_vertex == {}
+
+    def test_a_metre_class_correction_still_reseats(
+        self, plane_sampler, per_structure_seating
+    ):
+        _structures, decision = _slab_decision(1.20, plane_sampler)
+        assert decision.structures[0].skip_reason is None
+        assert _only_delta(decision, "slab.obj") == pytest.approx(
+            1.20, abs=1e-3
+        )
+
+    def test_the_threshold_is_inclusive_at_the_boundary(
+        self, plane_sampler, per_structure_seating, monkeypatch
+    ):
+        """0.99 unbaked / 1.00 baked, pinned exactly rather than by a
+        fixture's fourth decimal: measure the unit's correction with the
+        threshold disabled, then set the threshold TO that correction
+        (must bake — the law is ``>=``) and one float above it (must
+        not)."""
+        monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
+        _structures, measured = _slab_decision(1.00, plane_sampler)
+        correction = abs(_only_delta(measured, "slab.obj"))
+        assert correction == pytest.approx(1.00, abs=1e-3)
+
+        monkeypatch.setattr(
+            config, "DSF_OBJECT_BAKE_MIN_DELTA_M", correction
+        )
+        _structures, at_threshold = _slab_decision(1.00, plane_sampler)
+        assert at_threshold.structures[0].skip_reason is None
+
+        monkeypatch.setattr(
+            config,
+            "DSF_OBJECT_BAKE_MIN_DELTA_M",
+            math.nextafter(correction, math.inf),
+        )
+        _structures, under_threshold = _slab_decision(1.00, plane_sampler)
+        assert BELOW_THRESHOLD_PHRASE in (
+            under_threshold.structures[0].skip_reason
+        )
+
+    def test_zero_restores_the_always_bake_law(
+        self, plane_sampler, per_structure_seating, reseat_threshold_off
+    ):
+        """The documented escape hatch: 0 bakes every non-zero delta,
+        which is the pre-2026-08-09 behaviour every older witness in this
+        file is written against."""
+        _structures, decision = _slab_decision(0.10, plane_sampler)
+        assert decision.structures[0].skip_reason is None
+        assert _only_delta(decision, "slab.obj") == pytest.approx(
+            0.10, abs=1e-3
+        )
+
+    def test_measure_only_routes_every_unit_below_the_threshold(
+        self, plane_sampler, per_structure_seating
+    ):
+        """Spec section 2.3: ``modify_custom_airports`` off runs the pass
+        and writes nothing — a metre-class correction the default law
+        would bake is routed exactly as a below-threshold one."""
+        placement = make_placement(
+            "slab.obj", PLANE_ANCHOR_LATITUDE, PLANE_ANCHOR_LONGITUDE
+        )
+        geometry_by_resource = {"slab.obj": _slab_at_correction(5.0)}
+        pool = ObjectPool(
+            placements=[placement],
+            resolved_paths={"slab.obj": "/nonexistent/slab.obj"},
+        )
+        structures = partition_structures(
+            pool, geometry_by_resource, epsilon_metres=CONTACT_EPSILON_METRES
+        )
+        decision = structure_deltas(
+            pool,
+            geometry_by_resource,
+            structures,
+            plane_sampler,
+            measure_only=True,
+        )
+        assert decision.delta_by_resource_and_vertex == {}
+        reason = decision.structures[0].skip_reason
+        assert BELOW_THRESHOLD_PHRASE in reason
+        assert "measure-only" in reason
+        # The correction it DECLINED to make is still on the record.
+        assert "5.0" in reason
+
+    def test_an_inheritor_shares_a_below_threshold_supporter_s_fate(
+        self, plane_sampler, per_structure_seating
+    ):
+        """Spec section 2.1: supporter fate is unchanged and applies —
+        the assembly stays put together and the terrain comes to it."""
+        assert config.DSF_OBJECT_SUPPORTER_FATE is True
+        centre_east = _east_offset_for_correction(0.5)
+        building = compound_geometry(
+            (centre_east - 5.0, centre_east + 5.0, 0.0, 6.0, -5.0, 5.0)
+        )
+        # Rooftop clutter, hovering clear of the roof by more than the
+        # contact epsilon so it stays its own (elevated) structure.
+        clutter = compound_geometry(
+            (centre_east - 2.0, centre_east + 2.0, 6.6, 8.0, -2.0, 2.0)
+        )
+        placements = [
+            make_placement(
+                "building.obj",
+                PLANE_ANCHOR_LATITUDE,
+                PLANE_ANCHOR_LONGITUDE,
+            ),
+            make_placement(
+                "clutter.obj",
+                PLANE_ANCHOR_LATITUDE,
+                PLANE_ANCHOR_LONGITUDE,
+                definition_index=1,
+            ),
+        ]
+        geometry_by_resource = {
+            "building.obj": building,
+            "clutter.obj": clutter,
+        }
+        pools = discover_object_pools(
+            placements,
+            {
+                "building.obj": "/nonexistent/building.obj",
+                "clutter.obj": "/nonexistent/clutter.obj",
+            },
+            geometry_by_resource,
+            epsilon_metres=CONTACT_EPSILON_METRES,
+        )
+        assert len(pools) == 1
+        structures = partition_structures(
+            pools[0],
+            geometry_by_resource,
+            epsilon_metres=CONTACT_EPSILON_METRES,
+        )
+        decision = structure_deltas(
+            pools[0], geometry_by_resource, structures, plane_sampler
+        )
+        by_resource = {
+            next(iter(structure.triangles_by_resource)): structure
+            for structure in decision.structures
+        }
+        supporter = by_resource["building.obj"]
+        inheritor = by_resource["clutter.obj"]
+        assert BELOW_THRESHOLD_PHRASE in supporter.skip_reason
+        assert inheritor.skip_reason.startswith(
+            object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
+        )
+        assert BELOW_THRESHOLD_PHRASE in inheritor.skip_reason
+        assert decision.delta_by_resource_and_vertex == {}
+
+
+class TestReseatThresholdOnFeet:
+    """Spec section 2.1's third unit: a foot-anchored structure's FITTED
+    RIGID OFFSET, and section 2.2's pad requests measured against the
+    authored (unbaked) base."""
+
+    def _gantry_at_correction(self, correction_metres):
+        """The KBNA gantry shape, translated east until the offset that
+        seats it is ``correction_metres``.
+
+        Feet along the south axis share one ground ``g``; the fit is the
+        midpoint of their seat targets, ``g − 7.1``, so the correction is
+        ``(g − anchor_ground) − 7.1``.
+        """
+        gantry = two_foot_gantry_geometry(span_axis="south")
+        # Both feet are vertical quads in the across = 0 plane, so their
+        # centroids sit at the translated origin's longitude exactly.
+        east_metres = _east_offset_for_correction(correction_metres + 7.1)
+        return make_geometry(
+            [
+                (x + east_metres, y, z)
+                for x, y, z in gantry.vertices
+            ],
+            gantry.solid_triangles,
+        )
+
+    def test_a_gantry_under_the_threshold_is_not_reseated_and_pads(
+        self, plane_sampler
+    ):
+        # Correction −0.5 m: under the threshold, so the gantry stays
+        # exactly where its author baked it.  Against the AUTHORED base
+        # the low foot is 0.1 m off (under the 0.15 m no-bake floor —
+        # sub-visible, no terrain churn) and the high foot 1.1 m off, so
+        # exactly one pad request is raised, asking for the ground that
+        # meets the authored foot.
+        structures, decision = _single_object_decision(
+            self._gantry_at_correction(-0.5), plane_sampler
+        )
+        assert not structures[0].is_ground_touching
+        updated = decision.structures[0]
+        assert BELOW_THRESHOLD_PHRASE in updated.skip_reason
+        assert "0.500" in updated.skip_reason
+        assert decision.delta_by_resource_and_vertex == {}
+
+        feet = decision.foot_clusters_by_structure_index[0]
+        assert len(feet) == 2
+        anchor_ground = decision.anchor_ground_by_resource["gantry.obj"]
+
+        assert len(decision.foot_pad_requests) == 1
+        request = decision.foot_pad_requests[0]
+        assert request.base_y == pytest.approx(7.7, abs=1e-9)
+        assert request.residual_metres == pytest.approx(1.1, abs=1e-2)
+        # The target is the ground that meets the UNBAKED, as-draped
+        # base — never the base the refused bake would have produced.
+        assert request.target_ground_metres == pytest.approx(
+            anchor_ground + 7.7, abs=1e-3
+        )
+        assert request.contact_points_lonlat
+
+    def test_a_gantry_over_the_threshold_still_reseats(
+        self, plane_sampler
+    ):
+        structures, decision = _single_object_decision(
+            self._gantry_at_correction(-2.0), plane_sampler
+        )
+        assert decision.structures[0].skip_reason is None
+        assert _only_delta(decision, "gantry.obj") == pytest.approx(
+            -2.0, abs=1e-2
+        )
+        # Baked units keep the 0.75 m residual floor: both feet sit
+        # 0.6 m off the fit, which is under it.
+        assert decision.foot_pad_requests == []
+
+
 # ── integration smoke: the real KCLT eight-bake pool ──────────────────
 
 KCLT_PACK_ROOT = (
@@ -1427,9 +1756,16 @@ def test_kclt_eight_bake_pool_end_to_end(monkeypatch):
     per-structure law: this mesh state carries two over-span
     structures, so gate-ON legitimately cuts/seats them and the
     equal-delta invariant this test asserts no longer applies (the
-    cluster law has its own suite)."""
+    cluster law has its own suite).  Pinned to the legacy always-bake
+    law too (``DSF_OBJECT_BAKE_MIN_DELTA_M`` = 0): this pool carries
+    sub-metre structures that the shipping reseat threshold correctly
+    leaves at their authored elevations, and the equal-delta invariant
+    this test exists for is only stated over structures that bake.  The
+    threshold's own population at a real airport is an integration
+    measurement, not this smoke test's business."""
     from auto_patch import config as _cfg
     monkeypatch.setattr(_cfg, "DSF_OBJECT_CLUSTER_SEATING", False)
+    monkeypatch.setattr(_cfg, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
     from auto_patch import dsf_reader
 
     dsf_text_lines = dsf_reader._load_dsf_text(KCLT_DSF_PATH)

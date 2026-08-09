@@ -27,6 +27,8 @@ __all__ = [
     "DSF_OBJECT_ELEVATED_BASE_M",
     "DSF_OBJECT_MAX_FOOTPRINT_AREA_M2",
     "DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M",
+    "DSF_OBJECT_BAKE_MIN_DELTA_M",
+    "DSF_OBJECT_NOBAKE_PAD_FLOOR_M",
     "DSF_OBJECT_CLUSTER_SEATING",
     "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M",
     "DSF_OBJECT_PAD_MAX_RELIEF_M",
@@ -3608,6 +3610,59 @@ DSF_OBJECT_PAD_FLAG_SPAN_M = float(
 # structure; past this larger limit the structure is not baked at all.
 DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M = float(
     _os.environ.get("O4_DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M", "3.0"))
+
+# ── The reseat threshold ──────────────────────────────────────────────
+# (docs/specs/object-reseat-threshold-spec.md section 2.1, owner charter
+# 2026-08-09, verbatim: "When it's less than a meter deviation, adapt the
+# terrain to the custom objects, rather than reseating the objects.  We
+# prefer not to modify an airport if we don't have to.  If it has objects
+# that deviate more than a meter, then we will need to reseat them.")
+#
+# A SEATING UNIT — a cluster on the default path, a structure on the
+# non-clustered path, a foot-anchored structure's fitted rigid offset —
+# is baked into the pack only when its required correction REACHES this
+# threshold:
+#
+#     bake(unit)  <=>  max over the unit's resources of |delta| >= this
+#
+# The MAX, not the mean: a unit is one rigid body, so baking some members
+# and not others would tear it — one member needing a metre reseats the
+# whole unit, and a unit whose every member is under a metre stays
+# entirely at its authored elevations while the terrain comes to it
+# (DSF_OBJECT_NOBAKE_PAD_FLOOR_M below).  Deviation is measured in
+# AUTHORED space (geometry always re-read from the ``.anchor_bak``
+# originals, invariant I-15), so the decision is stable across rebuilds:
+# an already-baked pack presents the same deltas next run.
+#
+# Measured at OTHH (2026-08-09 recon): 1,210 of 1,421 pack ``.obj`` files
+# carry bakes today, and the reconstructed |delta| over the 774 measurable
+# clusters runs p50 0.51 m with at least 74 % under 1 m — the population
+# this threshold hands to the terrain side instead of rewriting.  Terrain
+# classes (owner correction 2026-08-09, spec section 2.4): OTHH is VERY
+# FLAT and is the airport expected to approach zero pack modification;
+# KCLT and KBNA sit in HILLY terrain, so their sub-1 m units stop baking
+# while their >= 1 m units keep reseating — an unmodified pack is not
+# expected there.  0 disables the threshold: every non-zero delta bakes,
+# which is byte-for-byte the pre-2026-08-09 behaviour (spec section 5's
+# degeneracy gate, and what the older seating witnesses are written
+# against).
+DSF_OBJECT_BAKE_MIN_DELTA_M = float(
+    _os.environ.get("O4_DSF_OBJECT_BAKE_MIN_DELTA_M", "1.0"))
+
+# The materiality floor for the pad requests a BELOW-THRESHOLD unit
+# raises (spec section 2.2).  Such a unit is never moved, so its ground
+# contacts are routed to the pad system instead of the pack: a contact
+# group whose |residual| against the authored, as-draped base is under
+# this floor raises no request at all — sub-15 cm float or sink is below
+# the visible-seam scale and the mesh quantum, and adapting terrain to it
+# would be churn.  Distinct from DSF_OBJECT_FOOT_PAD_RESIDUAL_M (0.75 m),
+# which continues to govern the post-seat residuals of BAKED units: a
+# baked unit has already spent its rigid correction, so only a coarser
+# residue is worth terrain; an unbaked unit has spent nothing, and the
+# whole point of leaving it alone is that terrain closes the gap.
+# (Owner may tune — spec open question Q-A.)
+DSF_OBJECT_NOBAKE_PAD_FLOOR_M = float(
+    _os.environ.get("O4_DSF_OBJECT_NOBAKE_PAD_FLOOR_M", "0.15"))
 
 # ── Per-cluster object seating ────────────────────────────────────────
 # (docs/specs/per-cluster-object-seating-spec.md, owner ruling R1

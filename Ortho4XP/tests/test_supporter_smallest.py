@@ -32,13 +32,14 @@ from auto_patch.object_anchor import (
     structure_deltas,
 )
 
-from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
+from test_object_anchor import (  # noqa: F401 (fixtures used by name)
     CONTACT_EPSILON_METRES,
     PLANE_ANCHOR_LATITUDE,
     PLANE_ANCHOR_LONGITUDE,
     compound_geometry,
     make_placement,
     plane_sampler,
+    reseat_threshold_off,
 )
 
 SUPPORTER_FATE_PHRASE = object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
@@ -132,7 +133,7 @@ class TestTheSmallestContainingSupporterIsChosen:
         assert inheritor.inherited_from_structure_index == 0
 
     def test_the_two_choices_really_do_seat_the_inheritor_differently(
-        self, plane_sampler, monkeypatch
+        self, plane_sampler, monkeypatch, reseat_threshold_off
     ):
         # Guard against a vacuous test: the supporters' grounds differ,
         # so the re-homing moves the object, it does not merely relabel

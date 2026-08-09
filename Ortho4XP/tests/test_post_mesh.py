@@ -345,6 +345,194 @@ def test_end_to_end_bake_rewrites_live_file_with_backup_and_provenance(
     assert TILE_NAME in provenance["meshes"]
 
 
+# ── the reseat threshold, end to end ─────────────────────────────────
+
+# The same 10 x 10 m slab, moved SOUTH instead of east: the synthetic
+# plane's elevation depends on the longitude alone, so a slab this far
+# from its anchor still clears the 25 m reach floor while needing only a
+# sub-metre correction — the OTHH population the reseat threshold hands
+# to the terrain side (spec section 2.1, 74 % of measured clusters).
+SOUTH_SLAB_OBJECT = "\n".join([
+    "A",
+    "800",
+    "OBJ",
+    "",
+    "POINT_COUNTS 4 0 0 6",
+    "VT 0.000000 0.000000 40.000000 0.0 1.0 0.0 0.0 0.0",
+    "VT 10.000000 0.000000 40.000000 0.0 1.0 0.0 0.0 0.0",
+    "VT 10.000000 0.000000 50.000000 0.0 1.0 0.0 0.0 0.0",
+    "VT 0.000000 0.000000 50.000000 0.0 1.0 0.0 0.0 0.0",
+    "IDX10 0 1 2 0 2 3",
+    "TRIS 0 6",
+]) + "\n"
+
+SOUTH_SLAB_LOCAL_CENTROID_EAST = 5.0
+SOUTH_SLAB_LOCAL_CENTROID_SOUTH = 45.0
+
+
+def _expected_south_slab_offset() -> float:
+    _centroid_latitude, centroid_longitude = (
+        obj8_reader.local_offset_to_lonlat(
+            ANCHOR_LATITUDE,
+            ANCHOR_LONGITUDE,
+            0.0,
+            SOUTH_SLAB_LOCAL_CENTROID_EAST,
+            SOUTH_SLAB_LOCAL_CENTROID_SOUTH,
+        )
+    )
+    return (
+        centroid_longitude - ANCHOR_LONGITUDE
+    ) * ELEVATION_SLOPE_PER_DEGREE
+
+
+def _provenance_objects(pack_root: str) -> dict:
+    """The sidecar's BAKED-OBJECT entries (``{}`` when the pack was
+    never modified), independent of the run fingerprint stored beside
+    them."""
+    path = os.path.join(pack_root, ".o4_reanchor_provenance.json")
+    if not os.path.isfile(path):
+        return {}
+    with open(path) as handle:
+        return json.load(handle).get("objects", {})
+
+
+def _single_slab_worklist(harness, object_text):
+    dsf_path, pack_root = _make_pack(
+        harness.tmp_path, "Fake Pack", SINGLE_PLACEMENT_DSF_BODY,
+        {"objects/offset_bake.obj": object_text})
+    harness.write_worklist(
+        [harness.worklist_entry("KTST", dsf_path, pack_root)])
+    return pack_root, os.path.join(
+        pack_root, "objects", "offset_bake.obj")
+
+
+def test_a_below_threshold_pack_is_never_touched(phase_two_harness):
+    """Spec section 2.4, the owner's stated preference: an airport whose
+    every unit deviates under a metre ends the run with an UNTOUCHED
+    pack — no backup, no provenance, no write."""
+    harness = phase_two_harness
+    pack_root, live_path = _single_slab_worklist(harness, SOUTH_SLAB_OBJECT)
+    assert abs(_expected_south_slab_offset()) < 1.0  # the premise
+
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+
+    assert counts["airports_processed"] == 1  # the pass ran
+    assert counts["structures_baked"] == 0
+    assert counts["vertices_offset"] == 0
+    assert counts["units_below_bake_threshold"] == 1
+    assert counts["packs_corrected"] == 0
+    with open(live_path) as handle:
+        assert handle.read() == SOUTH_SLAB_OBJECT
+    assert not os.path.exists(live_path + ".anchor_bak")
+    # The pack's own content is untouched.  The sidecar may still hold
+    # this run's FINGERPRINT (the short-circuit cache every run writes,
+    # baked or not — pre-existing behaviour, and what keeps a flat
+    # airport's next build cheap), but it records no baked object.
+    assert _provenance_objects(pack_root) == {}
+
+
+def test_a_previous_bake_is_reverted_when_the_threshold_excludes_it(
+        phase_two_harness, monkeypatch):
+    """Spec section 4's reversion witness: a pack baked under the old
+    always-bake law converges back to its authored bytes on the next
+    build, because a below-threshold unit is excluded-from-bake exactly
+    like a refused one."""
+    harness = phase_two_harness
+    pack_root, live_path = _single_slab_worklist(harness, SOUTH_SLAB_OBJECT)
+    # Captured, never ``monkeypatch.undo()``: undo would also tear down
+    # this harness's sandbox (the ``FNAMES.patch_dir`` redirect and the
+    # DSFTool stub), and the pass would then read the REAL worklist for
+    # this tile and touch an installed pack.
+    shipping_threshold = config.DSF_OBJECT_BAKE_MIN_DELTA_M
+
+    # Round 1: the pre-2026-08-09 law (threshold disabled) bakes it.
+    monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
+    first = post_mesh.rebake_dsf_objects(harness.tile)
+    assert first["structures_baked"] == 1
+    with open(live_path) as handle:
+        assert handle.read() != SOUTH_SLAB_OBJECT
+    assert os.path.isfile(live_path + ".anchor_bak")
+
+    # Round 2: the threshold back at its shipping value.  The bake is
+    # undone from the backup — a stale reseat is exactly what the owner
+    # asked not to have.
+    monkeypatch.setattr(
+        config, "DSF_OBJECT_BAKE_MIN_DELTA_M", shipping_threshold)
+    second = post_mesh.rebake_dsf_objects(harness.tile)
+    assert second["objects_reverted"] == 1
+    assert second["structures_baked"] == 0
+    with open(live_path) as handle:
+        assert handle.read() == SOUTH_SLAB_OBJECT
+
+
+def test_measure_only_runs_the_pass_and_writes_nothing(phase_two_harness):
+    """Spec section 2.3: ``modify_custom_airports`` off gates PACK
+    MODIFICATION, not the pass.  A metre-class correction the default law
+    would bake is measured, routed as below-threshold, and the installed
+    package stays exactly as its author shipped it."""
+    harness = phase_two_harness
+    harness.tile.modify_custom_airports = False
+    pack_root, live_path = _single_slab_worklist(harness, OFFSET_SLAB_OBJECT)
+    assert _expected_slab_offset() > 1.0  # the default law WOULD bake it
+
+    counts = post_mesh.rebake_dsf_objects(harness.tile)
+
+    assert counts["airports_processed"] == 1
+    assert counts["structures_baked"] == 0
+    assert counts["vertices_offset"] == 0
+    assert counts["units_below_bake_threshold"] == 1
+    with open(live_path) as handle:
+        assert handle.read() == OFFSET_SLAB_OBJECT
+    assert not os.path.exists(live_path + ".anchor_bak")
+    assert _provenance_objects(pack_root) == {}
+
+
+def test_measure_only_still_reverts_an_earlier_bake(phase_two_harness):
+    """The state the switch exists to prevent: a pack baked while it was
+    ON must not stay baked once it is OFF.  The run record cannot
+    short-circuit the reversion either — ``measure_only`` is part of the
+    gate digest."""
+    harness = phase_two_harness
+    _pack_root, live_path = _single_slab_worklist(
+        harness, OFFSET_SLAB_OBJECT)
+
+    baked = post_mesh.rebake_dsf_objects(harness.tile)
+    assert baked["structures_baked"] == 1
+    with open(live_path) as handle:
+        assert handle.read() != OFFSET_SLAB_OBJECT
+
+    harness.tile.modify_custom_airports = False
+    measured = post_mesh.rebake_dsf_objects(harness.tile)
+    assert measured["airports_up_to_date"] == 0  # no stale short-circuit
+    assert measured["objects_reverted"] == 1
+    with open(live_path) as handle:
+        assert handle.read() == OFFSET_SLAB_OBJECT
+
+
+def test_measure_only_still_records_the_pad_requests(phase_two_harness):
+    """Requests are the terrain side's input, and the switch does not
+    gate terrain: the foot-pad sidecar is written exactly as it would
+    have been (spec section 2.3)."""
+    harness = phase_two_harness
+    harness.tile.modify_custom_airports = False
+    _pack_root, live_path = _single_slab_worklist(
+        harness, _two_foot_gantry_object(40.0))
+
+    post_mesh.rebake_dsf_objects(harness.tile)
+
+    sidecar_path = os.path.join(
+        str(harness.patches_directory),
+        post_mesh.OBJECT_FOOT_PAD_SIDECAR_FILENAME)
+    assert os.path.isfile(sidecar_path)
+    with open(sidecar_path) as handle:
+        sidecar = json.load(handle)
+    requests = sidecar["airports"][0]["requests"]
+    assert requests, "the terrain side still learns what the pack kept"
+    assert all(request["ring_lonlat"] for request in requests)
+    with open(live_path) as handle:
+        assert handle.read() == _two_foot_gantry_object(40.0)
+
+
 def test_idempotent_through_the_full_path(phase_two_harness):
     """Two full ``rebake_dsf_objects`` runs leave the pack byte-identical
     (delegates the guarantee to invariant I-15, proves the wiring passes

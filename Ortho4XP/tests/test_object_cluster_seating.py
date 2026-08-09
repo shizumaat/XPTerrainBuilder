@@ -56,16 +56,20 @@ from auto_patch.object_anchor import (
     structure_deltas,
 )
 
-from test_object_anchor import (
+from test_object_anchor import (  # noqa: F401 (fixtures used by name)
     CONTACT_EPSILON_METRES,
     box_vertices_and_triangles,
     make_geometry,
     make_placement,
     metres_per_degree_longitude_at,
+    reseat_threshold_off,
     write_mesh_file,
 )
 
 GROUND_SPAN_SKIP_PHRASE = object_anchor.GROUND_SPAN_SKIP_REASON_PHRASE
+BELOW_THRESHOLD_PHRASE = (
+    object_anchor.BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE
+)
 
 BASE_LATITUDE = 50.0
 BASE_LONGITUDE = 10.0
@@ -279,7 +283,7 @@ class TestSeatDisagreementCut:
         assert decision.cluster_seams == []
 
     def test_gate_on_cuts_the_step_and_seats_both_plateaus(
-        self, step_sampler, cluster_gate_on
+        self, step_sampler, cluster_gate_on, reseat_threshold_off
     ):
         _structures, decision = _decide(
             *_shared_anchor_pool(_STEPPED_CHAIN), step_sampler
@@ -367,7 +371,7 @@ class TestDegeneracyIsByteForByteLegacy:
     }
 
     def test_gate_on_and_off_agree_exactly(
-        self, gentle_sampler, monkeypatch
+        self, gentle_sampler, monkeypatch, reseat_threshold_off
     ):
         _structures, gate_off = _decide(
             *_shared_anchor_pool(self._COMPACT_CHAIN), gentle_sampler
@@ -541,7 +545,7 @@ class TestBridgeRule:
     write, and the clusters themselves never merge."""
 
     def test_the_connector_joins_one_cluster_and_the_seam_is_reported(
-        self, step_sampler, cluster_gate_on
+        self, step_sampler, cluster_gate_on, reseat_threshold_off
     ):
         _structures, decision = _decide(
             *_shared_anchor_pool(_BRIDGED_GROUPS), step_sampler
@@ -852,6 +856,321 @@ class TestClusterPadRequestProvenance:
         assert record["cluster_counts"] == {"clusters": 2}
         restored = object_rebake.run_record_cluster_pad_requests(record)
         assert restored == [request]
+
+
+# ── the reseat threshold, per CLUSTER ─────────────────────────────────
+
+
+SHELF_RAMP_GRADE = 0.1  # metres of rise per metre east, west of the shelf
+
+
+@pytest.fixture()
+def shelf_sampler(tmp_path):
+    """A flat shelf east of the origin, approached by a gentle ramp to
+    its west.
+
+    The cluster's parts stand on the shelf, so they share one ground and
+    the cut law leaves them one rigid body; an object's ANCHOR is placed
+    on the ramp, which is what sets that member's correction (invariant
+    I-3: ``delta(C, O) = cluster_ground − ground(anchor(O))``).  That is
+    the only way a cluster gets members with DIFFERENT corrections, and
+    the mixed-rigidity witness below needs exactly that.
+    """
+    return _write_profile_mesh(
+        os.path.join(tmp_path, "cluster_shelf.mesh"),
+        [-60.0, 0.0, 140.0],
+        lambda east_metres: LOW_GROUND_METRES + (
+            SHELF_RAMP_GRADE * east_metres if east_metres < 0.0 else 0.0
+        ),
+    )
+
+
+# Four boxes standing on the shelf in WORLD space, 0.1 m apart — inside
+# the contact epsilon, welded into no shared vertex, so they are four
+# parts of one structure exactly like the stepped chain above.
+_SHELF_CHAIN = {
+    f"shelf{index}.obj": (
+        index * 10.0,
+        index * 10.0 + 9.9,
+        0.0,
+        5.0,
+        0.0,
+        10.0,
+    )
+    for index in range(4)
+}
+
+
+def _anchor_east_for_correction(correction_metres: float) -> float:
+    """Where an object's anchor must stand for its member correction to
+    be ``correction_metres`` (the shelf is at ``LOW_GROUND_METRES``)."""
+    return -correction_metres / SHELF_RAMP_GRADE
+
+
+def _pool_with_own_anchors(world_boxes_by_resource, anchor_east_by_resource):
+    """One object per WORLD-space box, each carrying its own anchor.
+
+    Geometry is authored relative to its own anchor, so the local box is
+    the world box shifted back by that anchor's east offset — the two
+    descriptions place the same object.
+    """
+    geometry_by_resource = {}
+    placements = []
+    for index, (resource, box) in enumerate(world_boxes_by_resource.items()):
+        anchor_east = anchor_east_by_resource[resource]
+        minimum_x, maximum_x, minimum_y, maximum_y, minimum_z, maximum_z = (
+            box
+        )
+        geometry_by_resource[resource] = _one_box_geometry(
+            minimum_x - anchor_east,
+            maximum_x - anchor_east,
+            minimum_y,
+            maximum_y,
+            minimum_z,
+            maximum_z,
+        )
+        placements.append(
+            make_placement(
+                resource,
+                BASE_LATITUDE,
+                _longitude_of(anchor_east),
+                definition_index=index,
+            )
+        )
+    pools = discover_object_pools(
+        placements,
+        {
+            resource: f"/nonexistent/{resource}"
+            for resource in world_boxes_by_resource
+        },
+        geometry_by_resource,
+        epsilon_metres=CONTACT_EPSILON_METRES,
+    )
+    assert len(pools) == 1, "the test model must pool as one"
+    return pools[0], geometry_by_resource
+
+
+def _shelf_decision(correction_by_resource, sampler):
+    return _decide(
+        *_pool_with_own_anchors(
+            _SHELF_CHAIN,
+            {
+                resource: _anchor_east_for_correction(correction)
+                for resource, correction in correction_by_resource.items()
+            },
+        ),
+        sampler,
+    )
+
+
+class TestReseatThreshold:
+    """docs/specs/object-reseat-threshold-spec.md sections 2.1 and 2.2,
+    on the default (clustered) path.
+
+    A cluster is ONE RIGID BODY, so the MAX correction over its members
+    decides for all of them: baking some members and not others would
+    tear it.  Under the threshold the pack is untouched and the cluster's
+    ground contacts are routed to the pad system instead."""
+
+    def test_a_below_threshold_cluster_pads_instead_of_reseating(
+        self, shelf_sampler, cluster_gate_on
+    ):
+        # Every member 0.30 m out: nothing is written to the pack, and
+        # the 0.30 m the objects keep is asked of the terrain instead
+        # (0.30 > the 0.15 m no-bake floor).
+        _structures, decision = _shelf_decision(
+            {resource: 0.30 for resource in _SHELF_CHAIN}, shelf_sampler
+        )
+        assert decision.delta_by_resource_and_vertex == {}
+        assert decision.cluster_counts["clusters"] == 1
+        assert decision.cluster_counts["clusters_baked"] == 0
+        assert decision.cluster_counts["clusters_refused"] == 0
+        assert decision.cluster_counts["clusters_below_threshold"] == 1
+
+        structure = decision.structures[0]
+        assert BELOW_THRESHOLD_PHRASE in structure.skip_reason
+        assert "0.300" in structure.skip_reason
+
+        # One request for the whole connected group, never four
+        # confetti rings; the target is the ground that meets the
+        # UNBAKED, as-draped base.
+        assert len(decision.cluster_pad_requests) == 1
+        request = decision.cluster_pad_requests[0]
+        assert request.part_count == 4
+        assert request.residual_metres == pytest.approx(-0.30, abs=1e-2)
+        assert request.target_ground_metres == pytest.approx(
+            LOW_GROUND_METRES - 0.30, abs=1e-2
+        )
+        assert request.over_relief_cap is False
+        assert request.contact_points_lonlat
+
+    def test_a_sub_floor_residual_asks_terrain_for_nothing(
+        self, shelf_sampler, cluster_gate_on
+    ):
+        """Spec section 2.2's materiality floor: a 0.1 m float is under
+        the visible-seam scale and the mesh quantum, so adapting terrain
+        to it would be churn."""
+        _structures, decision = _shelf_decision(
+            {resource: 0.10 for resource in _SHELF_CHAIN}, shelf_sampler
+        )
+        assert decision.delta_by_resource_and_vertex == {}
+        assert decision.cluster_counts["clusters_below_threshold"] == 1
+        assert decision.cluster_pad_requests == []
+
+    def test_one_member_over_the_threshold_reseats_the_whole_cluster(
+        self, shelf_sampler, cluster_gate_on
+    ):
+        """Spec section 2.1, the MAX not the mean: one member needing
+        1.2 m reseats every member, including the three that only needed
+        0.1 m — a cluster is one rigid body and baking part of it would
+        tear it."""
+        corrections = {resource: 0.10 for resource in _SHELF_CHAIN}
+        corrections["shelf2.obj"] = 1.20
+        _structures, decision = _shelf_decision(corrections, shelf_sampler)
+
+        assert decision.cluster_counts["clusters_baked"] == 1
+        assert decision.cluster_counts["clusters_below_threshold"] == 0
+        assert decision.structures[0].skip_reason is None
+        assert set(decision.delta_by_resource_and_vertex) == set(_SHELF_CHAIN)
+        for resource, correction in corrections.items():
+            deltas = set(
+                decision.delta_by_resource_and_vertex[resource].values()
+            )
+            assert len(deltas) == 1, resource
+            assert next(iter(deltas)) == pytest.approx(
+                correction, abs=1e-2
+            ), resource
+        # Every part is seated exactly on the shelf: the rigid body is
+        # whole, which is what "the max decides" buys.
+        for resource in _SHELF_CHAIN:
+            anchor_ground = decision.anchor_ground_by_resource[resource]
+            delta = next(
+                iter(decision.delta_by_resource_and_vertex[resource].values())
+            )
+            assert anchor_ground + delta == pytest.approx(
+                LOW_GROUND_METRES, abs=1e-2
+            )
+        # A baked cluster keeps the 0.75 m residual floor: its parts sit
+        # exactly on the shelf, so it asks terrain for nothing.
+        assert decision.cluster_pad_requests == []
+
+    def test_measure_only_routes_every_cluster_below_the_threshold(
+        self, shelf_sampler, cluster_gate_on
+    ):
+        """Spec section 2.3: the pass runs, the pack is not modified, and
+        the requests are still raised — even for a correction the default
+        law would happily bake."""
+        pool, geometry_by_resource = _pool_with_own_anchors(
+            _SHELF_CHAIN,
+            {
+                resource: _anchor_east_for_correction(2.0)
+                for resource in _SHELF_CHAIN
+            },
+        )
+        structures = partition_structures(
+            pool, geometry_by_resource, epsilon_metres=CONTACT_EPSILON_METRES
+        )
+        decision = structure_deltas(
+            pool,
+            geometry_by_resource,
+            structures,
+            shelf_sampler,
+            measure_only=True,
+        )
+        assert decision.delta_by_resource_and_vertex == {}
+        assert decision.cluster_counts["clusters_below_threshold"] == 1
+        assert "measure-only" in decision.structures[0].skip_reason
+        assert len(decision.cluster_pad_requests) == 1
+        assert decision.cluster_pad_requests[0].target_ground_metres == (
+            pytest.approx(LOW_GROUND_METRES - 2.0, abs=1e-2)
+        )
+
+
+class TestThresholdZeroIsHead:
+    """Spec section 5 acceptance 2, the DEGENERACY GATE:
+    ``O4_DSF_OBJECT_BAKE_MIN_DELTA_M=0`` must reproduce the
+    pre-2026-08-09 behaviour exactly — every non-zero delta bakes, no
+    unit is routed to the terrain side, and nothing new appears in the
+    decision.  Any diff is a bug in the threshold, not a policy choice.
+
+    The fixture is deliberately the population the default threshold
+    CHANGES (four sub-metre members): if the disabled threshold leaked
+    anywhere, this is where it would show.
+    """
+
+    def _legacy_decision_shape(self, decision, corrections):
+        # The pre-change law, restated from first principles: each
+        # member's delta is its own anchor-to-cluster-ground offset
+        # (invariant I-3), every member bakes, and the only pad requests
+        # are the baked path's (> DSF_OBJECT_FOOT_PAD_RESIDUAL_M).
+        assert set(decision.delta_by_resource_and_vertex) == set(
+            _SHELF_CHAIN
+        )
+        for resource, correction in corrections.items():
+            deltas = set(
+                decision.delta_by_resource_and_vertex[resource].values()
+            )
+            assert len(deltas) == 1, resource
+            assert next(iter(deltas)) == pytest.approx(
+                correction, abs=1e-2
+            ), resource
+            assert set(
+                decision.delta_by_resource_and_vertex[resource]
+            ) == set(range(8)), resource
+        assert decision.structures[0].skip_reason is None
+        assert decision.skipped == []
+        assert decision.cluster_pad_requests == []
+        assert decision.foot_pad_requests == []
+
+    def test_disabled_threshold_bakes_every_sub_metre_member(
+        self, shelf_sampler, cluster_gate_on, reseat_threshold_off
+    ):
+        corrections = {
+            resource: 0.10 + 0.05 * index
+            for index, resource in enumerate(_SHELF_CHAIN)
+        }
+        _structures, decision = _shelf_decision(corrections, shelf_sampler)
+        self._legacy_decision_shape(decision, corrections)
+        # And none of the new machinery fired: no below-threshold count,
+        # no below-threshold reason anywhere in the decision.
+        assert decision.cluster_counts["clusters_below_threshold"] == 0
+        assert decision.cluster_counts["clusters_baked"] == 1
+        assert not any(
+            structure.skip_reason
+            and BELOW_THRESHOLD_PHRASE in structure.skip_reason
+            for structure in decision.structures
+        )
+
+    def test_the_disabled_threshold_changes_nothing_else(
+        self, shelf_sampler, cluster_gate_on, monkeypatch
+    ):
+        """The same pool decided twice — threshold disabled versus a
+        threshold no member can reach — differs ONLY in the threshold's
+        own outputs: same clusters, same cut edges, same seams, same
+        grounds.  (This is the in-suite form of "byte-identical to
+        HEAD": the arithmetic that produces bytes is untouched.)"""
+        corrections = {resource: 0.30 for resource in _SHELF_CHAIN}
+        monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 0.0)
+        _structures, baked = _shelf_decision(corrections, shelf_sampler)
+        monkeypatch.setattr(config, "DSF_OBJECT_BAKE_MIN_DELTA_M", 1.0)
+        _structures, held = _shelf_decision(corrections, shelf_sampler)
+
+        assert held.anchor_ground_by_resource == (
+            baked.anchor_ground_by_resource
+        )
+        assert held.cluster_seams == baked.cluster_seams
+        for name in ("clusters", "cut_edges", "structures_clustered"):
+            assert held.cluster_counts[name] == baked.cluster_counts[name]
+        assert (
+            held.structures[0].ground_span_metres
+            == baked.structures[0].ground_span_metres
+        )
+        assert held.structures[0].needs_pad == baked.structures[0].needs_pad
+        # The difference is exactly the threshold's own doing.
+        assert baked.delta_by_resource_and_vertex
+        assert held.delta_by_resource_and_vertex == {}
+        assert baked.cluster_counts["clusters_baked"] == 1
+        assert held.cluster_counts["clusters_below_threshold"] == 1
 
 
 def test_the_tolerance_guard_holds():

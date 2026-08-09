@@ -36,7 +36,7 @@ from auto_patch.object_anchor import (
     structure_deltas,
 )
 
-from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
+from test_object_anchor import (  # noqa: F401 (fixtures used by name)
     CONTACT_EPSILON_METRES,
     PLANE_ANCHOR_LATITUDE,
     PLANE_ANCHOR_LONGITUDE,
@@ -45,6 +45,7 @@ from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
     make_placement,
     metres_per_degree_longitude_at,
     plane_sampler,
+    reseat_threshold_off,
 )
 
 SUPPORTER_FATE_PHRASE = object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
@@ -308,7 +309,7 @@ class TestA3RefusedSupporterTakesItsInheritorsWithIt:
     """
 
     def test_inheritor_of_an_a3_refused_supporter_is_skipped(
-        self, plane_sampler
+        self, plane_sampler, reseat_threshold_off
     ):
         # The default-world guard, asserted first: this witness is worth
         # nothing if the seating default ever flips back, so it must
@@ -346,7 +347,7 @@ class TestA3RefusedSupporterTakesItsInheritorsWithIt:
         ]
 
     def test_the_fate_gate_off_bakes_the_inheritor(
-        self, plane_sampler, monkeypatch
+        self, plane_sampler, monkeypatch, reseat_threshold_off
     ):
         # O4_SUPPORTER_FATE=0 in the default world: the supporter is
         # still refused and still standing where the author drew it,
@@ -380,7 +381,8 @@ class TestA3RefusedSupporterTakesItsInheritorsWithIt:
 class TestBakedSupporterStillCarriesItsInheritors:
     @pytest.mark.parametrize("supporter_fate", [True, False])
     def test_inheritor_of_a_baked_supporter_bakes_unchanged(
-        self, plane_sampler, monkeypatch, supporter_fate
+        self, plane_sampler, monkeypatch, supporter_fate,
+        reseat_threshold_off
     ):
         # The only structures the fix may touch are those whose supporter
         # was skipped: with a baked supporter the decision is identical

@@ -95,6 +95,24 @@ GROUND_SPAN_SKIP_REASON_PHRASE = "exceeds the rigid-seat limit"
 # :func:`structure_deltas` must stay in lockstep.
 SUPPORTER_FATE_SKIP_REASON_PHRASE = "supporter skipped"
 
+# Stable phrase carried in the ``skip_reason`` of a seating unit left at
+# its authored elevations because its required correction never reached
+# ``DSF_OBJECT_BAKE_MIN_DELTA_M`` (docs/specs/object-reseat-threshold-
+# spec.md section 2.1).  This is NOT a refusal: the unit is fine where
+# the author put it, the pack is deliberately not modified, and the
+# terrain adapts to it instead (section 2.2's pad requests).
+# ``post_mesh`` matches on this phrase for the per-airport summary count,
+# so the phrase and the reason text built below must stay in lockstep.
+BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE = "below_bake_threshold"
+
+# The same phrase TAGGED with the unit it decided about.  A structure all
+# of whose clusters fall below the threshold echoes its first cluster's
+# reason (that is how supporter fate reaches its inheritors), so the
+# per-airport summary would count one unit twice if it matched the bare
+# phrase on both.  The plain-structure path carries this tag and the
+# cluster path does not, so the two populations add up exactly once.
+BELOW_BAKE_THRESHOLD_STRUCTURE_TAG = "below_bake_threshold[structure]"
+
 
 @dataclass(frozen=True)
 class ObjectPool:
@@ -1569,6 +1587,87 @@ def _build_structure_clusters(
     return clusters
 
 
+def _max_abs_delta_metres(
+    resource_paths,
+    seat_ground_metres: float,
+    anchor_ground_by_resource: dict[str, float],
+    threshold_metres: float,
+) -> float:
+    """``max |delta(unit, O)|`` over a seating unit's resources — the
+    reseat threshold's statistic (reseat-threshold spec section 2.1).
+
+    ``delta(unit, O) = seat_ground − anchor_ground(O)`` is exactly the
+    offset the bake would write (invariant I-3), so this measures the
+    correction in AUTHORED space and nothing is re-derived.  A resource
+    with no anchor ground never receives a delta (invariant I-13 skipped
+    it), so it cannot vote.
+
+    Short-circuits as soon as the threshold is reached: the value itself
+    is only needed when the unit stays BELOW it (the reason text quotes
+    it), and above it the only question is whether the unit bakes.
+    """
+    maximum_metres = 0.0
+    for resource_path in resource_paths:
+        anchor_ground = anchor_ground_by_resource.get(resource_path)
+        if anchor_ground is None:
+            continue
+        magnitude = abs(seat_ground_metres - anchor_ground)
+        if magnitude > maximum_metres:
+            maximum_metres = magnitude
+            if maximum_metres >= threshold_metres:
+                break
+    return maximum_metres
+
+
+def _cluster_resource_paths(cluster, measurement_by_key, frame):
+    """Every resource a cluster's parts carry geometry from, in the
+    partition's own order (the resource the delta loop resolves per
+    triangle — a welded part may span several)."""
+    for key in cluster.part_keys:
+        for triangle in measurement_by_key[key].triangles:
+            yield frame.resource_of_shared_vertex[triangle[0]]
+
+
+def _below_bake_threshold_reason(
+    maximum_delta_metres: float,
+    threshold_metres: float,
+    unit_description: str,
+    *,
+    measure_only: bool,
+) -> str:
+    """The ``skip_reason`` of a unit the reseat threshold leaves alone
+    (spec section 2.1) — the measured max |delta| is part of the record,
+    not a rounded adjective.
+
+    ``unit_description`` is ``"structure"`` on the plain path and
+    ``"cluster <id>"`` on the clustered one; it is TAGGED into the phrase
+    so the per-airport summary can add the two populations without
+    counting a clustered structure's echo twice
+    (:data:`BELOW_BAKE_THRESHOLD_STRUCTURE_TAG`).
+    """
+    tagged_phrase = (
+        f"{BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE}[{unit_description}]"
+    )
+    if measure_only:
+        return (
+            f"{tagged_phrase}: measure-only run "
+            "(modify_custom_airports is off) — every unit is routed as if "
+            "below the reseat threshold, so the installed package is not "
+            f"modified; the correction this {unit_description} would have "
+            f"baked is {maximum_delta_metres:.3f} m (max over its "
+            "resources).  Terrain adapts instead (reseat-threshold spec "
+            "section 2.3)"
+        )
+    return (
+        f"{tagged_phrase}: max resource "
+        f"|delta| {maximum_delta_metres:.3f} m is under the "
+        f"{threshold_metres:.3f} m reseat threshold "
+        f"(DSF_OBJECT_BAKE_MIN_DELTA_M) — this {unit_description} stays "
+        "at its authored elevations and the terrain adapts to it "
+        "(reseat-threshold spec section 2.1)"
+    )
+
+
 def _seat_clusters(
     *,
     structure: Structure,
@@ -1585,13 +1684,24 @@ def _seat_clusters(
     pad_flag_span_metres: float,
     pad_residual_metres: float,
     pad_maximum_relief_metres: float,
-) -> tuple[Structure, int, int]:
+    bake_minimum_delta_metres: float,
+    nobake_pad_floor_metres: float,
+    measure_only: bool = False,
+) -> tuple[Structure, int, int, int]:
     """Seat one clustered structure: per-cluster gates, deltas, pads and
     seams (per-cluster seating spec sections 4.1, 4.3, 4.5, 5.3).
 
-    Returns ``(updated structure, clusters baked, clusters refused)``.
-    Each cluster is a rigid body:
+    Returns ``(updated structure, clusters baked, clusters refused,
+    clusters below the reseat threshold)``.  Each cluster is a rigid
+    body:
 
+    * RESEAT THRESHOLD (reseat-threshold spec section 2.1) — a cluster
+      whose largest per-resource correction is under
+      ``DSF_OBJECT_BAKE_MIN_DELTA_M`` is not baked at all: the pack is
+      left exactly as its author shipped it and the cluster's ground
+      contacts are routed to the pad system (section 2.2), which is the
+      owner's stated preference.  Checked BEFORE the A3 arithmetic (it
+      is cheaper, and A3 only ever governed units that bake).
     * SPAN GATE — a cluster over ``DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M`` is
       no longer refused outright.  It is **baked and padded** (spec
       section 4.3): seated at its median, flagged ``needs_pad``, and its
@@ -1622,6 +1732,7 @@ def _seat_clusters(
 
     clusters_baked = 0
     clusters_refused = 0
+    clusters_below_threshold = 0
     for cluster in clusters:
         cluster.needs_pad = cluster.span_metres > pad_flag_span_metres
         over_span = cluster.span_metres > maximum_ground_span_metres
@@ -1629,6 +1740,43 @@ def _seat_clusters(
             # Bake-and-pad (spec section 4.3): seated at its median, the
             # residue handed to the terrain side.
             cluster.needs_pad = True
+
+        # THE RESEAT THRESHOLD (reseat-threshold spec section 2.1),
+        # before the A3 comparison.  A cluster is one rigid body, so the
+        # MAX over its resources decides for all of them: one member
+        # needing the threshold reseats the whole cluster, and a cluster
+        # whose every member is under it stays entirely at its authored
+        # elevations with the terrain coming to it instead.
+        maximum_delta_metres = _max_abs_delta_metres(
+            _cluster_resource_paths(cluster, measurement_by_key, frame),
+            cluster.ground_metres,
+            anchor_ground_by_resource,
+            bake_minimum_delta_metres,
+        )
+        if maximum_delta_metres < bake_minimum_delta_metres:
+            cluster.skip_reason = _below_bake_threshold_reason(
+                maximum_delta_metres,
+                bake_minimum_delta_metres,
+                f"cluster {cluster.cluster_id}",
+                measure_only=measure_only,
+            )
+            clusters_below_threshold += 1
+            # Terrain adapts (spec section 2.2): the same request
+            # builder, measured against the UNBAKED (authored,
+            # as-draped) base, at the no-bake materiality floor.
+            _raise_cluster_pad_requests(
+                cluster=cluster,
+                structure_index=structure_index,
+                partition=partition,
+                measurement_by_key=measurement_by_key,
+                frame=frame,
+                cluster_pad_requests=cluster_pad_requests,
+                pad_residual_metres=nobake_pad_floor_metres,
+                pad_maximum_relief_metres=pad_maximum_relief_metres,
+                anchor_ground_by_resource=anchor_ground_by_resource,
+                seated=False,
+            )
+            continue
 
         # Amendment A3, bounded by amendment A19, per cluster.
         if cluster.ground_records and (
@@ -1702,6 +1850,8 @@ def _seat_clusters(
             cluster_pad_requests=cluster_pad_requests,
             pad_residual_metres=pad_residual_metres,
             pad_maximum_relief_metres=pad_maximum_relief_metres,
+            anchor_ground_by_resource=anchor_ground_by_resource,
+            seated=True,
         )
 
     # The tear audit's reported seams (spec section 4.5).  A cut seam is
@@ -1746,16 +1896,18 @@ def _seat_clusters(
             )
         )
 
-    refused_reasons = [
+    unbaked_reasons = [
         cluster.skip_reason
         for cluster in clusters
         if cluster.skip_reason is not None
     ]
     structure_skip_reason = None
-    if refused_reasons and len(refused_reasons) == len(clusters):
-        # Every cluster refused: the structure as a whole stays at its
-        # authored elevations, and its inheritors share that fate.
-        structure_skip_reason = refused_reasons[0]
+    if unbaked_reasons and len(unbaked_reasons) == len(clusters):
+        # No cluster baked (refused, or below the reseat threshold): the
+        # structure as a whole stays at its authored elevations, and its
+        # inheritors share that fate — supporter-fate is unchanged by the
+        # threshold law (reseat-threshold spec section 2.1).
+        structure_skip_reason = unbaked_reasons[0]
     return (
         replace(
             structure,
@@ -1765,6 +1917,7 @@ def _seat_clusters(
         ),
         clusters_baked,
         clusters_refused,
+        clusters_below_threshold,
     )
 
 
@@ -1778,28 +1931,52 @@ def _raise_cluster_pad_requests(
     cluster_pad_requests: list[ClusterPadRequest],
     pad_residual_metres: float,
     pad_maximum_relief_metres: float,
+    anchor_ground_by_resource: dict[str, float],
+    seated: bool = True,
 ) -> None:
     """One ``ClusterPadRequest`` per maximal connected group of the
     cluster's still-unseated ground parts (spec section 5.3).
 
     The pad target under a group is the median of its parts' rendered
-    bases ``cluster_ground + base_y(p)`` — the same robust statistic the
-    seat uses, so the pad asks terrain for the least it can.  A group
-    whose required relief exceeds ``DSF_OBJECT_PAD_MAX_RELIEF_M`` is
-    still recorded, flagged ``over_relief_cap``: the pad law (spec
-    section 5.1 clause 1) refuses to promise that much terrain movement,
-    and an unrecorded residual is exactly the blindness this spec set
-    out to remove.
+    bases — the same robust statistic the seat uses, so the pad asks
+    terrain for the least it can.  A group whose required relief exceeds
+    ``DSF_OBJECT_PAD_MAX_RELIEF_M`` is still recorded, flagged
+    ``over_relief_cap``: the pad law (spec section 5.1 clause 1) refuses
+    to promise that much terrain movement, and an unrecorded residual is
+    exactly the blindness that spec set out to remove.
+
+    ``seated`` selects which base the terrain is asked to meet, which is
+    the whole difference between the two callers (reseat-threshold spec
+    section 2.2):
+
+    * ``True`` — the cluster BAKED, so its parts are rendered at
+      ``cluster_ground + base_y(p)`` and the pads serve the post-seat
+      residue (floor ``DSF_OBJECT_FOOT_PAD_RESIDUAL_M``).
+    * ``False`` — the cluster stays at its AUTHORED elevations (below the
+      reseat threshold, or a measure-only run), so its parts are
+      rendered at ``anchor_ground(O) + base_y(p)`` — the unbaked,
+      as-draped base — and terrain is what moves (floor
+      ``DSF_OBJECT_NOBAKE_PAD_FLOOR_M``).  A part whose resource has no
+      anchor ground is not rendered at any known elevation and raises
+      nothing (invariant I-13).
     """
     from . import object_clusters
 
+    def _rendered_ground(measurement: _PartMeasurement) -> float | None:
+        if seated:
+            return cluster.ground_metres
+        return anchor_ground_by_resource.get(measurement.base_resource)
+
     residual_by_key: dict[int, float] = {}
+    ground_by_key: dict[int, float] = {}
     for key in cluster.ground_keys:
         measurement = measurement_by_key[key]
+        rendered_ground = _rendered_ground(measurement)
+        if rendered_ground is None:
+            continue
+        ground_by_key[key] = rendered_ground
         residual = (
-            cluster.ground_metres
-            + measurement.base_y
-            - measurement.ground_metres
+            rendered_ground + measurement.base_y - measurement.ground_metres
         )
         if abs(residual) > pad_residual_metres:
             residual_by_key[key] = residual
@@ -1814,7 +1991,7 @@ def _raise_cluster_pad_requests(
         worst = measurement_by_key[worst_key]
         target_ground_metres = _median(
             [
-                cluster.ground_metres + measurement_by_key[key].base_y
+                ground_by_key[key] + measurement_by_key[key].base_y
                 for key in group_keys
             ]
         )
@@ -1854,11 +2031,71 @@ def _raise_cluster_pad_requests(
         )
 
 
+def _raise_foot_pad_requests(
+    *,
+    feet: tuple[FootCluster, ...],
+    structure_index: int,
+    frame: _PoolFrame,
+    foot_pad_requests: list[FootPadRequest],
+    seat_ground_metres: float | None,
+    anchor_ground_by_resource: dict[str, float],
+    pad_residual_metres: float,
+) -> None:
+    """One ``FootPadRequest`` per foot the structure's elevation still
+    leaves off the mesh — the ground under that foot, not the object, is
+    what has to move.
+
+    ``seat_ground_metres`` is the elevation of the object's y = 0 plane
+    once the decision is applied: the fitted rigid offset for a structure
+    that BAKES, and ``None`` for one that stays at its AUTHORED
+    elevations (below the reseat threshold, or a measure-only run —
+    reseat-threshold spec section 2.2), where each foot is rendered at
+    its own resource's anchor ground instead.  A foot whose resource has
+    no anchor ground is not rendered at any known elevation and raises
+    nothing (invariant I-13).
+    """
+    for foot in feet:
+        rendered_ground = (
+            seat_ground_metres
+            if seat_ground_metres is not None
+            else anchor_ground_by_resource.get(foot.base_resource)
+        )
+        if rendered_ground is None or foot.ground_metres is None:
+            continue
+        residual_metres = (
+            rendered_ground + foot.base_y - foot.ground_metres
+        )
+        if abs(residual_metres) <= pad_residual_metres:
+            continue
+        foot_pad_requests.append(
+            FootPadRequest(
+                structure_index=structure_index,
+                resource_path=foot.base_resource,
+                latitude=foot.latitude,
+                longitude=foot.longitude,
+                base_y=foot.base_y,
+                residual_metres=residual_metres,
+                target_ground_metres=rendered_ground + foot.base_y,
+                contact_points_lonlat=tuple(
+                    _pool_frame_to_world_point(
+                        frame.origin_latitude,
+                        frame.origin_longitude,
+                        contact_x,
+                        contact_z,
+                    )[::-1]
+                    for contact_x, contact_z in foot.contact_points
+                ),
+            )
+        )
+
+
 def structure_deltas(
     pool: ObjectPool,
     geometry_by_resource: dict[str, ObjectGeometry],
     structures: list[Structure],
     sampler: MeshElevationSampler,
+    *,
+    measure_only: bool = False,
 ) -> RebakeDecision:
     """Compute per-(structure, object) y offsets against the built mesh.
 
@@ -1921,11 +2158,37 @@ def structure_deltas(
     inheritors; with the gate off it runs in plain index order and every
     byte is as it was.
 
+    THE RESEAT THRESHOLD (``DSF_OBJECT_BAKE_MIN_DELTA_M``,
+    docs/specs/object-reseat-threshold-spec.md section 2.1, owner charter
+    2026-08-09): a seating unit — a cluster, a structure, a foot-anchored
+    structure's fitted rigid offset — bakes only when
+    ``max |delta(unit, O)|`` over its resources REACHES the threshold.
+    Under it the pack is left exactly as its author shipped it (no
+    backup, no provenance, no write) and the unit's ground contacts are
+    routed to the pad system instead, so the terrain comes to the
+    building: ``skip_reason`` opens with
+    :data:`BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE` and carries the
+    measured max |delta|.  The test runs BEFORE the A3 arithmetic (it is
+    cheaper, and A3 only ever governed units that bake) and AFTER the
+    kind-based exclusions and the rigid-seat span limit, which are
+    unchanged.  Supporter fate is unchanged and applies: the inheritors
+    of a below-threshold unit stay at authored elevations with it.
+
+    ``measure_only`` (the tile's ``modify_custom_airports`` switch turned
+    off, spec section 2.3) routes EVERY unit as if it were below the
+    threshold: the decision carries no deltas at all, so nothing is
+    written to the pack, while the pad requests are still raised and
+    ``object_rebake.apply``'s reversion pass still restores any earlier
+    bake to its authored bytes.  The flag gates pack modification, not
+    terrain.
+
     Positional commands and ``ANIM`` handling are workstream W5's
     concern, not this function's.
     """
     from .config import (
         DSF_OBJECT_BAKE_MAX_GROUND_SPAN_M,
+        DSF_OBJECT_BAKE_MIN_DELTA_M,
+        DSF_OBJECT_NOBAKE_PAD_FLOOR_M,
         DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M,
         DSF_OBJECT_CLUSTER_SEATING,
         DSF_OBJECT_ELEVATED_BASE_M,
@@ -1939,6 +2202,14 @@ def structure_deltas(
         DSF_OBJECT_FOOT_MAX_BASE_SPREAD_M,
         DSF_OBJECT_FOOT_PAD_RESIDUAL_M,
         DSF_OBJECT_PAD_FLAG_SPAN_M,
+    )
+
+    # Measure-only (spec section 2.3) is exactly "no correction is ever
+    # large enough to justify touching the pack": one threshold value
+    # expresses it, so the routing below has a single law and no second
+    # branch that could drift from it.
+    bake_minimum_delta_metres = (
+        math.inf if measure_only else DSF_OBJECT_BAKE_MIN_DELTA_M
     )
 
     frame = _build_pool_frame(pool, geometry_by_resource)
@@ -2422,6 +2693,7 @@ def structure_deltas(
     clusters_seen = 0
     clusters_baked = 0
     clusters_refused = 0
+    clusters_below_threshold = 0
     if DSF_OBJECT_SUPPORTER_FATE:
         processing_order = sorted(
             range(len(structures)),
@@ -2574,10 +2846,14 @@ def structure_deltas(
                 pad_flag_span_metres=DSF_OBJECT_PAD_FLAG_SPAN_M,
                 pad_residual_metres=DSF_OBJECT_FOOT_PAD_RESIDUAL_M,
                 pad_maximum_relief_metres=DSF_OBJECT_PAD_MAX_RELIEF_M,
+                bake_minimum_delta_metres=bake_minimum_delta_metres,
+                nobake_pad_floor_metres=DSF_OBJECT_NOBAKE_PAD_FLOOR_M,
+                measure_only=measure_only,
             )
             clusters_seen += len(clusters)
             clusters_baked += outcome[1]
             clusters_refused += outcome[2]
+            clusters_below_threshold += outcome[3]
             updated_by_index[structure_index] = outcome[0]
             continue
 
@@ -2713,6 +2989,50 @@ def structure_deltas(
             )
             continue
 
+        # THE RESEAT THRESHOLD (reseat-threshold spec section 2.1), on
+        # the same deltas the bake would write and before the A3
+        # arithmetic.  For a foot-anchored structure the unit is its
+        # FITTED RIGID OFFSET (``structure_ground`` above), which is the
+        # correction the whole gantry would move by.  Under the
+        # threshold the pack is not touched at all and the terrain
+        # adapts instead (section 2.2), which is the owner's stated
+        # preference: an airport whose every unit deviates under a metre
+        # ends the run with an untouched pack.
+        maximum_delta_metres = _max_abs_delta_metres(
+            structure.triangles_by_resource,
+            structure_ground,
+            anchor_ground_by_resource,
+            bake_minimum_delta_metres,
+        )
+        if maximum_delta_metres < bake_minimum_delta_metres:
+            if anchored_feet is not None:
+                _raise_foot_pad_requests(
+                    feet=foot_clusters_by_structure_index[structure_index],
+                    structure_index=structure_index,
+                    frame=frame,
+                    foot_pad_requests=foot_pad_requests,
+                    seat_ground_metres=None,
+                    anchor_ground_by_resource=anchor_ground_by_resource,
+                    pad_residual_metres=DSF_OBJECT_NOBAKE_PAD_FLOOR_M,
+                )
+            # Counted per airport by ``post_mesh`` off the stable phrase,
+            # the same way the span-limit and supporter-fate skips are.
+            updated_by_index[structure_index] = replace(
+                structure,
+                ground_span_metres=ground_span_metres,
+                needs_pad=needs_pad,
+                inherited_from_structure_index=inherited_from_by_index.get(
+                    structure_index
+                ),
+                skip_reason=_below_bake_threshold_reason(
+                    maximum_delta_metres,
+                    bake_minimum_delta_metres,
+                    "structure",
+                    measure_only=measure_only,
+                ),
+            )
+            continue
+
         # Amendment A3, bounded by amendment A19: always bake the best
         # single offset; do-not-bake ONLY when the arithmetic says
         # correction worsens the seating AND the structure is small
@@ -2778,37 +3098,15 @@ def structure_deltas(
         # per-foot terrain-pad REQUEST — the ground under that foot,
         # not the object, is what needs to move (target recorded).
         if anchored_feet is not None:
-            for foot in foot_clusters_by_structure_index[structure_index]:
-                if (
-                    foot.residual_metres is None
-                    or abs(foot.residual_metres)
-                    <= DSF_OBJECT_FOOT_PAD_RESIDUAL_M
-                ):
-                    continue
-                foot_pad_requests.append(
-                    FootPadRequest(
-                        structure_index=structure_index,
-                        resource_path=foot.base_resource,
-                        latitude=foot.latitude,
-                        longitude=foot.longitude,
-                        base_y=foot.base_y,
-                        residual_metres=foot.residual_metres,
-                        target_ground_metres=(
-                            structure_ground + foot.base_y
-                        ),
-                        contact_points_lonlat=tuple(
-                            _pool_frame_to_world_point(
-                                frame.origin_latitude,
-                                frame.origin_longitude,
-                                contact_x,
-                                contact_z,
-                            )[::-1]
-                            for contact_x, contact_z in (
-                                foot.contact_points
-                            )
-                        ),
-                    )
-                )
+            _raise_foot_pad_requests(
+                feet=foot_clusters_by_structure_index[structure_index],
+                structure_index=structure_index,
+                frame=frame,
+                foot_pad_requests=foot_pad_requests,
+                seat_ground_metres=structure_ground,
+                anchor_ground_by_resource=anchor_ground_by_resource,
+                pad_residual_metres=DSF_OBJECT_FOOT_PAD_RESIDUAL_M,
+            )
 
         # The deltas.  Invariant I-3: per (structure, object) — each
         # resource's offset is measured from ITS OWN anchor's ground.
@@ -2848,9 +3146,12 @@ def structure_deltas(
             1,
             f"   [object-anchor] per-cluster seating: {clusters_seen} "
             f"cluster(s) across {len(clusters_by_index)} structure(s) "
-            f"({clusters_baked} seated, {clusters_refused} refused) from "
-            f"{cut_edge_count} cut contact edge(s); {bridge_count} bridge "
-            f"seam(s) reported, {len(cluster_pad_requests)} pad request(s)",
+            f"({clusters_baked} seated, {clusters_refused} refused, "
+            f"{clusters_below_threshold} under the "
+            "DSF_OBJECT_BAKE_MIN_DELTA_M reseat threshold — terrain "
+            f"adapts to those) from {cut_edge_count} cut contact "
+            f"edge(s); {bridge_count} bridge seam(s) reported, "
+            f"{len(cluster_pad_requests)} pad request(s)",
         )
         for seam in cluster_seams:
             if seam.kind != "bridge":
@@ -2930,6 +3231,11 @@ def structure_deltas(
                 "clusters": clusters_seen,
                 "clusters_baked": clusters_baked,
                 "clusters_refused": clusters_refused,
+                # Not a refusal: the reseat threshold decided the pack
+                # should not be modified for these (reseat-threshold
+                # spec section 2.1), so they are counted apart from the
+                # gate refusals they must never be confused with.
+                "clusters_below_threshold": clusters_below_threshold,
                 "cut_edges": sum(
                     len(partition.cut_edges)
                     for partition in cluster_partition_by_index.values()

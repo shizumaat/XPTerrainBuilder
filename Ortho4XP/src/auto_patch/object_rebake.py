@@ -131,8 +131,12 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # touched.  3 -> 4 (2026-07-27) for per-cluster seating: the record
 # gained the cluster pad requests, the tear-audit seams and the cluster
 # counts, and a record written before them cannot answer for a run that
-# has them.
-RUN_RECORD_VERSION = 4
+# has them.  4 -> 5 (2026-08-09) for the reseat threshold
+# (docs/specs/object-reseat-threshold-spec.md): the seating arithmetic
+# now decides whether a unit bakes AT ALL, and a record written under
+# the old always-bake law describes a pack state the new law disagrees
+# with (its bakes are exactly what the reversion pass must undo).
+RUN_RECORD_VERSION = 5
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.
@@ -163,6 +167,15 @@ _GATE_NAMES = (
     # flagged over-cap, which is recorded in the run record too.
     "DSF_OBJECT_CLUSTER_SEATING",
     "DSF_OBJECT_CLUSTER_SEAT_TOLERANCE_M",
+    # The reseat threshold and its terrain-side materiality floor
+    # (docs/specs/object-reseat-threshold-spec.md sections 2.1, 2.2,
+    # 3.4): the threshold decides WHICH units bake at all — flipping it
+    # turns bakes into pad requests and back — and the floor decides
+    # which contact groups of an unbaked unit ask terrain to move.
+    # Neither touches an input file, so both must force a re-derive
+    # instead of a stale short-circuit.
+    "DSF_OBJECT_BAKE_MIN_DELTA_M",
+    "DSF_OBJECT_NOBAKE_PAD_FLOOR_M",
     "DSF_OBJECT_PAD_MAX_RELIEF_M",
     "DSF_OBJECT_PAD_FLAG_SPAN_M",
     "DSF_OBJECT_MAX_STRUCTURE_SPAN_M",
@@ -352,13 +365,22 @@ def _file_matches(path: str, recorded: dict) -> bool:
     return _sha256_of_file(path) == recorded.get("sha256")
 
 
-def _gate_digest(epsilon_metres: float) -> str:
-    """sha1 over every configuration input to the Phase 2 decision."""
+def _gate_digest(epsilon_metres: float, measure_only: bool = False) -> str:
+    """sha1 over every configuration input to the Phase 2 decision.
+
+    ``measure_only`` (the tile's ``modify_custom_airports`` switch turned
+    off, reseat-threshold spec section 2.3) is a decision input like any
+    gate: it routes every unit as below-threshold, so a run recorded with
+    it must never short-circuit a run without it — the reversion pass
+    that converges a previously-baked pack back to authored bytes is
+    exactly what would be skipped.
+    """
     from . import config as _config
 
     digest = hashlib.sha1()
     digest.update(f"record:{RUN_RECORD_VERSION}".encode())
     digest.update(f"|epsilon:{epsilon_metres!r}".encode())
+    digest.update(f"|measure_only:{bool(measure_only)!r}".encode())
     try:
         from . import post_mesh as _post_mesh
 
@@ -438,6 +460,7 @@ def build_run_record(
     cluster_pad_requests: list | None = None,
     cluster_seams: list | None = None,
     cluster_counts: dict | None = None,
+    measure_only: bool = False,
 ) -> dict:
     """Fingerprint everything the just-finished full run read.
 
@@ -466,7 +489,7 @@ def build_run_record(
             path=mesh_path, **(_stat_signature(mesh_path) or {})
         ),
         "dsf": dict(path=dsf_path, **(_stat_signature(dsf_path) or {})),
-        "gate_digest": _gate_digest(epsilon_metres),
+        "gate_digest": _gate_digest(epsilon_metres, measure_only),
         "excluded_digest": _excluded_digest(pack_root, excluded_resources),
         "resources": resources,
         "structures_baked": structures_baked,
@@ -564,6 +587,7 @@ def matching_run_record(
     epsilon_metres: float,
     excluded_resources: set | None,
     resolve_resource,
+    measure_only: bool = False,
 ) -> tuple[dict | None, str]:
     """``(record, reason)`` — the stored record when EVERY input still
     matches, else ``(None, why-not)``.
@@ -601,7 +625,9 @@ def matching_run_record(
             ):
                 return None, f"{label} changed since the recorded run"
 
-        if record.get("gate_digest") != _gate_digest(epsilon_metres):
+        if record.get("gate_digest") != _gate_digest(
+            epsilon_metres, measure_only
+        ):
             return None, "a configuration gate changed"
         if record.get("excluded_digest") != _excluded_digest(
             pack_root, excluded_resources
@@ -945,6 +971,16 @@ def apply(
     each skipped structure (centroid, surface area, reason).  Only a
     resource in ``decision.skipped`` — every structure skipped, or a
     resource-level refusal — is refused entirely.
+
+    A unit the RESEAT THRESHOLD left alone (``skip_reason`` opening with
+    ``object_anchor.BELOW_BAKE_THRESHOLD_SKIP_REASON_PHRASE``,
+    docs/specs/object-reseat-threshold-spec.md section 2.1) carries no
+    delta, so it travels the excluded-from-bake path here exactly like a
+    refused one: nothing is written for it, and a pack that WAS baked
+    under the old always-bake law converges back to its authored bytes
+    through the reversion pass below.  That is the point of the law — an
+    airport whose every unit deviates under the threshold ends the run
+    with an untouched pack.
 
     The live pack always reflects EXACTLY the current decision: any object
     the decision EXCLUDES (its structures skipped, so it carries no delta)

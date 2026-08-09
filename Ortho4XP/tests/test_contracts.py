@@ -380,7 +380,18 @@ OBJECT_ANCHOR_SIGNATURES = [
     ),
     (
         "structure_deltas",
-        ["pool", "geometry_by_resource", "structures", "sampler"],
+        [
+            "pool",
+            "geometry_by_resource",
+            "structures",
+            "sampler",
+            # Reseat threshold (docs/specs/object-reseat-threshold-
+            # spec.md section 2.3): keyword-only, defaults False, and
+            # carries the tile's ``modify_custom_airports`` switch —
+            # the pass runs, routes every unit as below-threshold and
+            # writes nothing to the pack.
+            "measure_only",
+        ],
     ),
 ]
 

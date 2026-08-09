@@ -33,7 +33,7 @@ from auto_patch.object_anchor import (
 # Reuse the invariant-tested construction helpers and the plane-mesh
 # fixture.  Importing ``plane_sampler`` into this module's namespace makes
 # pytest resolve it for tests here.
-from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
+from test_object_anchor import (  # noqa: F401 (fixtures used by name)
     CONTACT_EPSILON_METRES,
     PLANE_ANCHOR_LATITUDE,
     PLANE_ANCHOR_LONGITUDE,
@@ -43,6 +43,7 @@ from test_object_anchor import (  # noqa: F401 (plane_sampler is a fixture)
     metres_per_degree_longitude_at,
     plane_ground,
     plane_sampler,
+    reseat_threshold_off,
     two_foot_gantry_geometry,
 )
 
@@ -138,7 +139,7 @@ class TestGroundSpanBakeLimit:
         assert [s for s in decision.cluster_seams if s.kind == "bridge"]
 
     def test_span_at_or_under_the_limit_bakes_exactly_as_before(
-        self, plane_sampler
+        self, plane_sampler, reseat_threshold_off
     ):
         # Two ground slabs 6 m apart on the plane slope (span ~1.7 m,
         # comfortably under the 3.0 m limit) chained by an elevated beam.

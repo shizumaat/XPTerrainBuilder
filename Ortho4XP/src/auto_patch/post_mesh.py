@@ -107,6 +107,10 @@ _COUNT_KEYS = (
     # elevated components that span two clusters.
     "cluster_pad_requests",
     "cluster_bridge_seams",
+    # Seating units (structures + clusters) the reseat threshold left
+    # alone: the pack was deliberately not modified for them and the
+    # terrain adapts instead (object-reseat-threshold spec section 2.1).
+    "units_below_bake_threshold",
     # Airports whose recorded run fingerprint still matched every input,
     # so nothing was re-derived (O4_REANCHOR_SHORT_CIRCUIT).
     "airports_up_to_date",
@@ -369,6 +373,7 @@ def discover_and_rebake_airport(
     epsilon_metres: float | None = None,
     write_changes: bool = True,
     excluded_resources: set[tuple[str, str]] | None = None,
+    measure_only: bool = False,
 ) -> dict:
     """Run the full Phase 2 discovery pipeline for one airport's DSF.
 
@@ -387,6 +392,15 @@ def discover_and_rebake_airport(
     drift.  With ``write_changes=False`` nothing on disk is touched; the
     decisions are returned for reporting (the command line's
     ``--dry-run``).
+
+    ``measure_only`` (the tile's ``modify_custom_airports`` switch turned
+    off, docs/specs/object-reseat-threshold-spec.md section 2.3) is a
+    different thing from a dry run: the pass RUNS, every unit is routed
+    as if below the reseat threshold so no bake is ever written, the pad
+    requests are still raised — and ``object_rebake.apply`` still runs,
+    because its reversion pass is what converges a previously-baked pack
+    back to its authored bytes.  The switch gates modification of the
+    pack, not the terrain-side answer to it.
 
     ``excluded_resources`` (ruling R4, object terrain features spec):
     ``(pack_root, resource_path)`` pairs whose terrain was carved or
@@ -467,6 +481,7 @@ def discover_and_rebake_airport(
                     resource_path, pack_root, xplane_root
                 )
             ),
+            measure_only=measure_only,
         )
         if record is not None:
             result["short_circuited"] = True
@@ -681,7 +696,11 @@ def discover_and_rebake_airport(
             epsilon_metres,
         )
         decision = object_anchor.structure_deltas(
-            pool, pool_geometry_by_resource, structures, sampler
+            pool,
+            pool_geometry_by_resource,
+            structures,
+            sampler,
+            measure_only=measure_only,
         )
         result["decisions"].append((pool, decision))
         result["foot_pad_requests"].extend(decision.foot_pad_requests)
@@ -760,6 +779,7 @@ def discover_and_rebake_airport(
                 cluster_pad_requests=result["cluster_pad_requests"],
                 cluster_seams=result["cluster_seams"],
                 cluster_counts=_merge_cluster_counts(result["decisions"]),
+                measure_only=measure_only,
             ),
         )
     return result
@@ -787,16 +807,28 @@ def rebake_dsf_objects(tile) -> dict:
         return {}
 
     # Owner-facing switch ("Modify custom airports" in the front ends):
-    # off means installed packages stay byte-identical.  Default True
-    # (getattr: tiles built by tools predating the var keep the historic
-    # always-rebake behaviour, per ruling R2).
-    if not getattr(tile, "modify_custom_airports", True):
+    # off means installed packages stay as their author shipped them.
+    # Default True (getattr: tiles built by tools predating the var keep
+    # the historic always-rebake behaviour, per ruling R2).
+    #
+    # It gates PACK MODIFICATION, not the terrain-side answer to it
+    # (docs/specs/object-reseat-threshold-spec.md section 2.3): with it
+    # off the pass still RUNS, in measure-only mode — every unit routed
+    # as if below the reseat threshold, so no bake is ever written, the
+    # pad requests still recorded so terrain can adapt to the objects,
+    # and the reversion pass still un-bakes anything an earlier run
+    # wrote.  Short-circuiting the whole pass (the pre-2026-08-09
+    # behaviour) left a previously-baked pack baked, which is the one
+    # state this switch exists to prevent.
+    measure_only = not getattr(tile, "modify_custom_airports", True)
+    if measure_only:
         UI.vprint(
             1,
             "  [object-anchor] modify_custom_airports is off — "
-            "installed packages left untouched.",
+            "measure-only run: no object is reseated, terrain pad "
+            "requests are still recorded, and any earlier bake is "
+            "reverted to the pack's authored bytes.",
         )
-        return {}
 
     counts = {key: 0 for key in _COUNT_KEYS}
     try:
@@ -878,6 +910,7 @@ def rebake_dsf_objects(tile) -> dict:
                     pack_root,
                     xplane_root,
                     excluded_resources=excluded_resources,
+                    measure_only=measure_only,
                 )
             except Exception as exception:
                 # Per-airport containment: one broken airport never
@@ -1113,6 +1146,49 @@ def rebake_dsf_objects(tile) -> dict:
                     f"  [object-anchor] {icao}: "
                     f"{structures_left_at_authored} structure(s) left at "
                     "authored elevations (ground span > limit)",
+                )
+            # The reseat threshold's OWN population (reseat-threshold
+            # spec sections 2.1, 2.3): units the pack was deliberately
+            # not modified for.  Never folded into the "left at authored
+            # elevations" or refusal counts above — a refusal is a unit
+            # nothing could seat, this is a unit that did not need
+            # seating.  Two exclusions keep one unit from being counted
+            # twice: supporter-fate skips quote their parent's reason
+            # verbatim (counted on their own line below, exactly as the
+            # span limit's are), and a clustered structure echoes its
+            # clusters' reason (counted as CLUSTERS, so only the
+            # structure-TAGGED reason counts here).
+            structures_below_threshold = sum(
+                1
+                for _pool, decision in airport_result["decisions"]
+                for structure in decision.structures
+                if structure.skip_reason
+                and object_anchor.BELOW_BAKE_THRESHOLD_STRUCTURE_TAG
+                in structure.skip_reason
+                and not structure.skip_reason.startswith(
+                    object_anchor.SUPPORTER_FATE_SKIP_REASON_PHRASE
+                )
+            )
+            clusters_below_threshold = sum(
+                (decision.cluster_counts or {}).get(
+                    "clusters_below_threshold", 0
+                )
+                for _pool, decision in airport_result["decisions"]
+            )
+            if structures_below_threshold or clusters_below_threshold:
+                counts["units_below_bake_threshold"] += (
+                    structures_below_threshold + clusters_below_threshold
+                )
+                UI.vprint(
+                    1,
+                    f"  [object-anchor] {icao}: "
+                    f"{structures_below_threshold} structure(s) and "
+                    f"{clusters_below_threshold} cluster(s) under the "
+                    "reseat threshold — left exactly as the pack author "
+                    "shipped them; the terrain adapts to them instead "
+                    "(DSF_OBJECT_BAKE_MIN_DELTA_M; "
+                    "O4_DSF_OBJECT_BAKE_MIN_DELTA_M=0 to reseat every "
+                    "non-zero deviation)",
                 )
             # Supporter fate (DSF_OBJECT_SUPPORTER_FATE): elevated
             # structures left at their authored elevations because the

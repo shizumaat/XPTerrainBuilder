@@ -720,7 +720,7 @@ def require_no_swallowed_write_block(blocked, *, allow_degraded: bool = False,
            f"production's frame.")
     if not allow_degraded:
         if prog is not None:
-            prog.note("EXIT rc=2 REFUSED: " + msg)
+            prog.note("EXIT rc=1 REFUSED: " + msg)
         raise SystemExit("REFUSING to report this build: " + msg + "\n"
                          + _DEGRADED_OPTIONS)
     if prog is not None:

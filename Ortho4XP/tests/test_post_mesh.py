@@ -528,7 +528,7 @@ def test_measure_only_still_records_the_pad_requests(phase_two_harness):
         sidecar = json.load(handle)
     requests = sidecar["airports"][0]["requests"]
     assert requests, "the terrain side still learns what the pack kept"
-    assert all(request["ring_lonlat"] for request in requests)
+    assert all(request["rings_lonlat"] for request in requests)
     with open(live_path) as handle:
         assert handle.read() == _two_foot_gantry_object(40.0)
 
@@ -711,7 +711,11 @@ def test_foot_pad_sidecar_written_and_removed(
         expected_residual, abs=1e-2)
     assert request["target_ground_metres"] == pytest.approx(
         west_ground + expected_residual, abs=1e-2)
-    ring = request["ring_lonlat"]
+    # A FOOT IS ONE CONTACT PART, so the footprint-hugging law
+    # (object-reseat-threshold-spec §2.5) gives it exactly one ring.
+    rings = request["rings_lonlat"]
+    assert len(rings) == 1
+    ring = rings[0]
     assert ring is not None and len(ring) >= 3
     assert all(len(point) == 2 for point in ring)
 

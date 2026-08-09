@@ -142,6 +142,35 @@ basin spec, any remaining OTHH bake is a measured ≥ 1 m unit and must
 be reported per family — the owner's stated ideal is that the
 population trends to zero as the terrain side takes the work.
 
+### 2.5 (v2 amendment, 2026-08-09 — footprint-hugging pad rings)
+
+Owner in-sim report (build 1.0.226, OTHH): object pads emitted as
+"large rectangles ... spanning water and parking lots, causing
+incorrect elevations" — measured: shapeID 1878 = 162,219 m² / 249
+nodes; 1768/1762/1864 = 8-11-node hulls of 17k-30k m², 1762 flat at
+−1.21 m across water. THE MECHANISM: the request ring is the CONVEX
+HULL of the residual group's contact points (+2 m margin) —
+`object_footprints.foot_pad_ring` fed a whole group — so any group
+whose parts spread across a complex bridges the non-object ground
+between them, and the pad law faithfully flattens it.
+
+THE LAW: a pad ring HUGS the objects it serves. The request ring
+becomes the UNION of per-contact-part hulls, each dilated by
+`DSF_OBJECT_FOOT_PAD_MARGIN_M` (2 m), with each connected component
+of that union raised as its OWN request ring (MultiPolygon components
+never re-hulled together). Structural consequence, asserted in tests:
+a pad can never span a gap wider than 2× the margin, and every pad
+polygon is covered by (its parts' contact-hull union ⊕ margin) — no
+vertex of a pad lies further than the margin from a real contact
+hull. Grouping for RESIDUAL ACCOUNTING (which parts share one
+request record) is unchanged; only the geometry stops being one hull.
+Sidecar version bumps (3 → 4) so hull-ring request corpora are
+discarded, `emitted` records with stale-version fingerprints drop,
+and the convergence loop re-derives. The consumer (`object_pads`)
+needs no geometry change — it consumes rings verbatim; verify its
+per-request blend-width logic tolerates the smaller rings and that
+the refusal accounting still partitions.
+
 ## 3. Constraints (standing; violations are STOP-and-report)
 
 1. R4 interlock holds: terrain-to-object and object-to-terrain

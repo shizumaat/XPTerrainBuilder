@@ -77,8 +77,8 @@ OBJECT_ANCHOR_WORKLIST_VERSION = 2
 # (multi-ground-cluster objects whose best rigid offset still leaves a
 # foot off the mesh past ``DSF_OBJECT_FOOT_PAD_RESIDUAL_M``).  Written
 # next to the worklist after every rebake — refreshed each run, removed
-# when no request remains — carrying, per foot, the pad ring
-# (``object_footprints.foot_pad_ring``) and the target ground
+# when no request remains — carrying, per request, the pad rings
+# (``object_footprints.foot_pad_rings``) and the target ground
 # elevation.  A future terrain-shaping stream consumes it; until then
 # it is the durable audit trail for feet a rigid body cannot seat.
 OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
@@ -96,7 +96,16 @@ OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
 #    memory that keeps a pad standing after the request that asked for
 #    it converges away.  A version-2 file is exactly the request-only
 #    subset, so readers stay version-agnostic here too.
-OBJECT_FOOT_PAD_SIDECAR_VERSION = 3
+# 4: THE RING LAW CHANGED (object-reseat-threshold-spec section 2.5,
+#    2026-08-09).  A request no longer carries one "ring_lonlat" — the
+#    convex hull of its whole residual group, which bridged the water and
+#    parking lots between spread-out parts — but "rings_lonlat", the
+#    connected components of its per-part contact hulls dilated by
+#    DSF_OBJECT_FOOT_PAD_MARGIN_M.  Readers STOP being version-agnostic
+#    here: a version-3 file's rings are the retired law's geometry, so it
+#    is REFUSED wholesale on read (requests and ``emitted`` records both,
+#    ``object_pads.sidecar_is_current``) and the next rebake re-derives.
+OBJECT_FOOT_PAD_SIDECAR_VERSION = 4
 
 # The counts returned by rebake_dsf_objects, all starting at zero.
 _COUNT_KEYS = (
@@ -987,6 +996,25 @@ def rebake_dsf_objects(tile) -> dict:
                 from . import object_footprints
                 from .config import DSF_OBJECT_FOOT_PAD_MARGIN_M
 
+                def _rings(request) -> list:
+                    """The request's rings under the footprint-hugging
+                    law (object-reseat-threshold-spec section 2.5): its
+                    per-part contact hulls dilated by the margin and
+                    unioned, one ring per connected component.  A request
+                    with no part grouping (a hand-built one) falls back
+                    to its flat point list as a SINGLE part — the
+                    single-part case of the same law."""
+                    parts = [
+                        list(part)
+                        for part in (
+                            getattr(request, "contact_parts_lonlat", ())
+                            or (request.contact_points_lonlat,)
+                        )
+                    ]
+                    return object_footprints.foot_pad_rings(
+                        parts, DSF_OBJECT_FOOT_PAD_MARGIN_M
+                    )
+
                 requests: list[dict] = [
                     {
                         "kind": "foot",
@@ -998,18 +1026,19 @@ def rebake_dsf_objects(tile) -> dict:
                         "target_ground_metres": (
                             request.target_ground_metres
                         ),
-                        "ring_lonlat": (
-                            object_footprints.foot_pad_ring(
-                                list(request.contact_points_lonlat),
-                                DSF_OBJECT_FOOT_PAD_MARGIN_M,
-                            )
-                        ),
+                        "rings_lonlat": _rings(request),
                     }
                     for request in airport_result["foot_pad_requests"]
                 ]
-                # Per-CLUSTER requests (spec section 5.3).  The ring is
+                # Per-CLUSTER requests (spec section 5.3).  The rings are
                 # the same builder over the residual group's contact
-                # points; the PAD LAW's clip against graded pavement
+                # PARTS — one ring per connected component of their
+                # dilated hulls, never one hull over the group
+                # (object-reseat-threshold-spec section 2.5); residual
+                # accounting is unchanged, so one request record still
+                # answers for one residual group and simply carries
+                # several rings.  The PAD LAW's clip against graded
+                # pavement
                 # (spec section 5.1 clause 2) belongs to the pad
                 # CONSUMER, which does not exist yet — the ring recorded
                 # here is therefore unclipped and flagged as such, and
@@ -1033,12 +1062,7 @@ def rebake_dsf_objects(tile) -> dict:
                         "part_count": request.part_count,
                         "over_relief_cap": request.over_relief_cap,
                         "pavement_clipped": False,
-                        "ring_lonlat": (
-                            object_footprints.foot_pad_ring(
-                                list(request.contact_points_lonlat),
-                                DSF_OBJECT_FOOT_PAD_MARGIN_M,
-                            )
-                        ),
+                        "rings_lonlat": _rings(request),
                     }
                     for request in airport_result.get(
                         "cluster_pad_requests", ()
@@ -1262,12 +1286,32 @@ def rebake_dsf_objects(tile) -> dict:
                 with open(sidecar_path) as handle:
                     previous = json.load(handle)
                 if isinstance(previous, dict):
-                    emitted_section = [
+                    # A section written under an older SIDECAR VERSION is
+                    # the retired ring law's geometry (section 2.5): it is
+                    # dropped here rather than carried across, and the
+                    # convergence loop re-derives from the fresh requests.
+                    # The consumer refuses it on read too — this is the
+                    # producer half of the same gate.
+                    stale = (
+                        int(previous.get("version") or 0)
+                        < OBJECT_FOOT_PAD_SIDECAR_VERSION
+                    )
+                    emitted_section = [] if stale else [
                         record
                         for record in (previous.get("emitted") or ())
                         if isinstance(record, dict)
                     ]
-        except (OSError, ValueError):
+                    if stale and previous.get("emitted"):
+                        UI.vprint(
+                            1,
+                            "  [object-anchor] pad sidecar was version "
+                            f"{previous.get('version')}; its "
+                            f"{len(previous.get('emitted') or ())} emitted "
+                            "record(s) predate the footprint-hugging ring "
+                            "law and were dropped — the next build "
+                            "re-derives them",
+                        )
+        except (OSError, ValueError, TypeError):
             emitted_section = []
         if foot_pad_airports or emitted_section:
             payload = {

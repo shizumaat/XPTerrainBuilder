@@ -136,53 +136,112 @@ def _triangle_union_footprint(
     return simplified
 
 
-def foot_pad_ring(
-    contact_points_lonlat: list[tuple[float, float]],
+def foot_pad_rings(
+    contact_parts_lonlat: list[list[tuple[float, float]]],
     margin_metres: float,
-) -> list[tuple[float, float]] | None:
-    """Build a small terrain-pad ring around ONE foot cluster's contact
-    points (multi-ground-cluster re-anchor; the points come from
-    ``object_anchor.FootPadRequest.contact_points_lonlat``).
+) -> list[list[tuple[float, float]]]:
+    """THE FOOTPRINT-HUGGING PAD RING (object-reseat-threshold-spec §2.5,
+    v2 amendment 2026-08-09) — the rings of ONE pad request.
 
-    Same contract as :func:`structure_ring` — ``(longitude, latitude)``,
-    unclosed — but per FOOT, not per structure: the convex hull of the
-    contact points, dilated by ``margin_metres`` so the pad reaches past
-    the very edge of the foot.  Hull and dilation run in local metres at
-    the cluster's own latitude (the projection
+    Each element of ``contact_parts_lonlat`` is one CONTACT PART's ground
+    points (a cluster part's plan-box corners, a foot's contact
+    vertices).  Every part is hulled ON ITS OWN, dilated by
+    ``margin_metres``, and the dilated hulls are UNIONED; each connected
+    component of that union comes back as its own ring, largest first.
+    Components are never re-hulled together — that re-hull is exactly the
+    retired law, whose single group hull bridged the non-object ground
+    between spread-out parts and flattened it (OTHH in-sim, build
+    1.0.226: a 162,219 m² pad spanning water and parking lots).
+
+    Two structural consequences hold by construction, and the tests
+    assert them: no ring spans a gap wider than ``2 × margin_metres``
+    (two dilated hulls that far apart cannot meet), and every ring vertex
+    lies within ``margin_metres`` of a real contact hull.
+
+    Same coordinate contract as :func:`structure_ring` — ``(longitude,
+    latitude)``, unclosed.  Hull, dilation and union run in local metres
+    at the request's own latitude (the projection
     ``obj8_reader.local_offset_to_lonlat`` inverts), then map back.
-    Returns ``None`` when the input degenerates.
+    Returns ``[]`` when the input degenerates.
     """
-    if not contact_points_lonlat:
-        return None
+    parts = [list(part) for part in (contact_parts_lonlat or ()) if part]
+    if not parts:
+        return []
+    all_points = [point for part in parts for point in part]
     centroid_latitude = sum(
-        latitude for _longitude, latitude in contact_points_lonlat
-    ) / len(contact_points_lonlat)
+        latitude for _longitude, latitude in all_points) / len(all_points)
     metres_per_degree_longitude = (
         obj8_reader.METRES_PER_DEGREE_LATITUDE
         * math.cos(math.radians(centroid_latitude)))
     if metres_per_degree_longitude <= 0.0:
-        return None
+        return []
     centroid_longitude = sum(
-        longitude for longitude, _latitude in contact_points_lonlat
-    ) / len(contact_points_lonlat)
-    local_points = [
-        ((longitude - centroid_longitude) * metres_per_degree_longitude,
-         (latitude - centroid_latitude)
-         * obj8_reader.METRES_PER_DEGREE_LATITUDE)
-        for longitude, latitude in contact_points_lonlat]
+        longitude for longitude, _latitude in all_points) / len(all_points)
+
+    def _local(part):
+        return [
+            ((longitude - centroid_longitude) * metres_per_degree_longitude,
+             (latitude - centroid_latitude)
+             * obj8_reader.METRES_PER_DEGREE_LATITUDE)
+            for longitude, latitude in part]
+
+    dilated = []
+    for part in parts:
+        try:
+            hull = MultiPoint(_local(part)).convex_hull
+            padded = hull.buffer(margin_metres, quad_segs=2)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if padded.is_empty or padded.area <= 0.0:
+            continue
+        dilated.append(padded)
+    if not dilated:
+        return []
     try:
-        padded = MultiPoint(local_points).convex_hull.buffer(
-            margin_metres, quad_segs=2)
+        union = unary_union(dilated)
+        if not union.is_valid:
+            union = union.buffer(0)
     except (ValueError, _GEOS_EXCEPTION):
+        return []
+    if union.is_empty:
+        return []
+    components = ([union] if union.geom_type == "Polygon"
+                  else [geometry for geometry in getattr(union, "geoms", ())
+                        if geometry.geom_type == "Polygon"])
+    # Largest first, ties broken on the bounding box: the ring ORDER is
+    # part of a pad's identity downstream (``object_pads`` keys a stored
+    # record by its ring index), so it must not depend on GEOS ordering.
+    components.sort(key=lambda geometry: (-geometry.area, geometry.bounds))
+    rings: list[list[tuple[float, float]]] = []
+    for component in components:
+        ring = [
+            (float(centroid_longitude + x / metres_per_degree_longitude),
+             float(centroid_latitude
+                   + y / obj8_reader.METRES_PER_DEGREE_LATITUDE))
+            for x, y in component.exterior.coords[:-1]]
+        if len(ring) >= 3:
+            rings.append(ring)
+    return rings
+
+
+def foot_pad_ring(
+    contact_points_lonlat: list[tuple[float, float]],
+    margin_metres: float,
+) -> list[tuple[float, float]] | None:
+    """The single-contact-part case of :func:`foot_pad_rings`: the convex
+    hull of ONE part's contact points, dilated by ``margin_metres``.
+
+    One part is one hull is one component, so this is the union law with
+    nothing to union — kept as the name callers with a single contact
+    part (a foot cluster; a hand-built test request) already use.  A
+    caller holding SEVERAL parts must call :func:`foot_pad_rings`:
+    hulling them together is the retired law (§2.5).  Returns ``None``
+    when the input degenerates.
+    """
+    if not contact_points_lonlat:
         return None
-    if padded.is_empty or padded.geom_type != "Polygon":
-        return None
-    ring = [
-        (float(centroid_longitude + x / metres_per_degree_longitude),
-         float(centroid_latitude
-               + y / obj8_reader.METRES_PER_DEGREE_LATITUDE))
-        for x, y in padded.exterior.coords[:-1]]
-    return ring if len(ring) >= 3 else None
+    rings = foot_pad_rings([list(contact_points_lonlat)], margin_metres)
+    return rings[0] if rings else None
 
 
 def clip_pad_ring_against_pavement(

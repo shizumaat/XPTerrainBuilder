@@ -136,7 +136,12 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # now decides whether a unit bakes AT ALL, and a record written under
 # the old always-bake law describes a pack state the new law disagrees
 # with (its bakes are exactly what the reversion pass must undo).
-RUN_RECORD_VERSION = 5
+# 5 -> 6 (2026-08-09) for the footprint-hugging pad rings
+# (object-reseat-threshold-spec section 2.5): a pad request's geometry is
+# now the union of its PER-PART contact hulls, so a record that stored
+# only the pooled point list cannot rebuild the requests a short-circuited
+# run must write — it would resurrect the retired group hull.
+RUN_RECORD_VERSION = 6
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.
@@ -514,6 +519,12 @@ def build_run_record(
                 "contact_points_lonlat": [
                     list(point) for point in request.contact_points_lonlat
                 ],
+                # Grouped by contact PART — the ring law's real input
+                # (object-reseat-threshold-spec section 2.5).
+                "contact_parts_lonlat": [
+                    [list(point) for point in part]
+                    for part in request.contact_parts_lonlat
+                ],
             }
             for request in foot_pad_requests
         ],
@@ -536,6 +547,11 @@ def build_run_record(
                 "over_relief_cap": request.over_relief_cap,
                 "contact_points_lonlat": [
                     list(point) for point in request.contact_points_lonlat
+                ],
+                # Grouped by contact PART — see the foot list above.
+                "contact_parts_lonlat": [
+                    [list(point) for point in part]
+                    for part in request.contact_parts_lonlat
                 ],
             }
             for request in (cluster_pad_requests or ())
@@ -664,6 +680,22 @@ def matching_run_record(
         return None, f"run fingerprint unusable ({exception})"
 
 
+def _run_record_contact_parts(entry: dict) -> tuple:
+    """The per-PART contact points of one recorded pad request.
+
+    Records written before ``RUN_RECORD_VERSION`` 6 carry only the pooled
+    point list and come back UNGROUPED — such a record can no longer
+    short-circuit anything (the version is part of the gate digest), and
+    the one fallback for an ungrouped request (treat its points as a
+    single part) lives where the ring is actually built, so there is no
+    second place for it to drift."""
+    return tuple(
+        tuple(tuple(point) for point in part)
+        for part in (entry.get("contact_parts_lonlat") or ())
+        if part
+    )
+
+
 def run_record_foot_pad_requests(record: dict) -> list:
     """Rebuild the ``FootPadRequest`` list a short-circuited run would
     have produced, so the per-tile foot-pad sidecar stays correct."""
@@ -681,6 +713,7 @@ def run_record_foot_pad_requests(record: dict) -> list:
             contact_points_lonlat=tuple(
                 tuple(point) for point in entry["contact_points_lonlat"]
             ),
+            contact_parts_lonlat=_run_record_contact_parts(entry),
         )
         for entry in record.get("foot_pad_requests", ())
     ]
@@ -705,6 +738,7 @@ def run_record_cluster_pad_requests(record: dict) -> list:
             contact_points_lonlat=tuple(
                 tuple(point) for point in entry["contact_points_lonlat"]
             ),
+            contact_parts_lonlat=_run_record_contact_parts(entry),
             part_count=entry.get("part_count", 1),
             over_relief_cap=entry.get("over_relief_cap", False),
         )

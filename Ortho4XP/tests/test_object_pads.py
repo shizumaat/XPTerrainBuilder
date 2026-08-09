@@ -41,7 +41,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from auto_patch import config as apc
-from auto_patch import object_pads, verification
+from auto_patch import object_pads, post_mesh, verification
 from auto_patch.grade_law import (
     object_pad_admissible,
     object_pad_blend_elevation,
@@ -109,13 +109,23 @@ def square_ring(cx: float, cy: float, half: float):
 
 
 def request(layout, ring_m, target_m: float, *, cluster_id: int = 1,
-            base_y: float = 0.0, over_cap: bool = False) -> dict:
+            base_y: float = 0.0, over_cap: bool = False,
+            extra_rings_m=()) -> dict:
     """One ``ClusterPadRequest`` in the sidecar's own shape (post_mesh
-    writes exactly these keys; the ring is ``(lon, lat)``, unclosed)."""
-    ring_ll = []
-    for x, y in ring_m:
-        lat, lon = layout.m_to_ll(x, y)
-        ring_ll.append([lon, lat])
+    writes exactly these keys; rings are ``(lon, lat)``, unclosed).
+
+    Since the footprint-hugging law (object-reseat-threshold-spec §2.5) a
+    request carries ``rings_lonlat`` — one ring per connected component
+    of its contact parts — so ``extra_rings_m`` adds the further
+    components of a spread-out group."""
+    def _ll(ring):
+        out = []
+        for x, y in ring:
+            lat, lon = layout.m_to_ll(x, y)
+            out.append([lon, lat])
+        return out
+
+    rings_ll = [_ll(ring) for ring in (ring_m, *extra_rings_m)]
     cx = sum(p[0] for p in ring_m) / len(ring_m)
     cy = sum(p[1] for p in ring_m) / len(ring_m)
     lat, lon = layout.m_to_ll(cx, cy)
@@ -132,13 +142,15 @@ def request(layout, ring_m, target_m: float, *, cluster_id: int = 1,
         "part_count": 1,
         "over_relief_cap": over_cap,
         "pavement_clipped": False,
-        "ring_lonlat": ring_ll,
+        "rings_lonlat": rings_ll,
     }
 
 
-def sidecar(requests, emitted=None, icao: str = "TEST") -> dict:
+def sidecar(requests, emitted=None, icao: str = "TEST",
+            version: int | None = None) -> dict:
     payload = {
-        "version": 3,
+        "version": (post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION
+                    if version is None else version),
         "tile": "+25+051",
         "airports": [{"icao": icao, "pack_root": "", "requests": requests}],
     }
@@ -605,12 +617,12 @@ def test_the_pure_resolver_falls_back_to_the_recorded_icao():
     side = sidecar([live], emitted=[
         {"icao": "TEST", "seat_key": object_pads.seat_key(live),
          "law_digest": object_pads.law_digest(), "index": 0,
-         "ring_lonlat": live["ring_lonlat"]},
+         "ring_lonlat": live["rings_lonlat"][0]},
         {"icao": "TEST", "seat_key": "gone", "law_digest": "stale",
-         "index": 1, "ring_lonlat": live["ring_lonlat"]},
+         "index": 1, "ring_lonlat": live["rings_lonlat"][0]},
         {"icao": "OTHER", "seat_key": "elsewhere",
          "law_digest": object_pads.law_digest(), "index": 2,
-         "ring_lonlat": live["ring_lonlat"]},
+         "ring_lonlat": live["rings_lonlat"][0]},
     ])
     specs, expired = object_pads.pads_for_airport(side, "TEST")
     assert [s["source"] for s in specs] == ["request"], \
@@ -644,10 +656,11 @@ def test_records_merge_into_the_sidecar_per_airport(tmp_path):
 def test_the_sidecar_version_carries_the_emitted_section():
     """§5.2: the ``emitted`` section is a sidecar version bump, and
     ``post_mesh`` — which refreshes the REQUESTS every rebake — is the
-    module that must carry it across."""
+    module that must carry it across.  Version 4 is the footprint-hugging
+    ring law (object-reseat-threshold-spec §2.5)."""
     from auto_patch import post_mesh
 
-    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 3
+    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 4
 
 
 def test_the_consumer_reads_the_sidecar_from_the_patch_dir(gate_on, dem,
@@ -728,3 +741,174 @@ def test_the_validator_is_silent_without_pads(dem):
     layout = make_layout()
     assert verification.check_object_pads(
         layout, dem, TILE_LAT, TILE_LON) == []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FOOTPRINT-HUGGING RINGS (object-reseat-threshold-spec §2.5)
+#
+# The consumer's geometry is UNCHANGED by that amendment — it consumes
+# rings verbatim — so what is pinned here is that it consumes the
+# SMALLER rings correctly: one pad per ring, blend width and refusal
+# accounting per ring, and every emitted polygon inside the contact
+# hulls its request was built from.
+# ══════════════════════════════════════════════════════════════════════
+
+def contact_parts(layout, boxes_m):
+    """Hand-built contact parts in the sidecar's ``(lon, lat)``
+    convention — ``boxes_m`` are ``(cx, cy, half)`` in local metres."""
+    parts = []
+    for cx, cy, half in boxes_m:
+        part = []
+        for x, y in square_ring(cx, cy, half):
+            lat, lon = layout.m_to_ll(x, y)
+            part.append((lon, lat))
+        parts.append(part)
+    return parts
+
+
+def request_from_parts(layout, parts, target_m: float, *,
+                       cluster_id: int = 1) -> dict:
+    """The producer's own path, in miniature: parts → rings (the §2.5
+    union law) → one request record carrying them all."""
+    from auto_patch.object_footprints import foot_pad_rings
+
+    rings = foot_pad_rings([list(part) for part in parts], MARGIN_M)
+    points = [point for part in parts for point in part]
+    lat = sum(p[1] for p in points) / len(points)
+    lon = sum(p[0] for p in points) / len(points)
+    return {
+        "kind": "cluster",
+        "cluster_id": cluster_id,
+        "structure_index": 0,
+        "resource_path": "Buildings/spread.obj",
+        "latitude": lat,
+        "longitude": lon,
+        "base_y": 0.0,
+        "residual_metres": target_m - BASE_TERRAIN_M,
+        "target_ground_metres": target_m,
+        "part_count": len(parts),
+        "over_relief_cap": False,
+        "pavement_clipped": False,
+        "rings_lonlat": [[list(point) for point in ring] for ring in rings],
+    }
+
+
+def test_each_ring_of_a_request_becomes_its_own_pad(gate_on, dem):
+    """§2.5: "each connected component of that union raised as its OWN
+    request ring".  Three parts strung 40 m apart are three pads, each
+    hugging its own object — not one rectangle over the ground between
+    them."""
+    layout = make_layout()
+    parts = contact_parts(layout, [(-40.0, -40.0, 5.0), (0.0, -40.0, 5.0),
+                                   (40.0, -40.0, 5.0)])
+    spec = request_from_parts(layout, parts, 6.5)
+    assert len(spec["rings_lonlat"]) == 3
+
+    assert emit(layout, dem, sidecar([spec])) >= 6
+    assert len(cores(layout)) == 3
+    # One record per RING, each with its own seat key and ring index.
+    records = layout.object_pad_records
+    assert len(records) == 3
+    assert sorted(r["ring_index"] for r in records) == [0, 1, 2]
+    assert len({r["seat_key"] for r in records}) == 3
+    assert len({r["fingerprint"] for r in records}) == 3
+    # The retired law would have graded the 90 m strip between them.
+    assert sum(r["area_m2"] for r in records) < 1200.0
+
+
+def test_every_emitted_pad_lies_inside_its_contact_hulls(gate_on, dem):
+    """THE STRUCTURAL ASSERTION (§2.5), consumer side: every emitted pad
+    polygon is covered by (its request's contact-hull union ⊕ margin),
+    so no pad vertex is further than the margin from a real contact."""
+    from shapely.geometry import MultiPoint
+    from shapely.ops import unary_union
+
+    layout = make_layout()
+    parts = contact_parts(layout, [(-30.0, -30.0, 6.0), (0.0, -45.0, 3.0),
+                                   (25.0, -25.0, 8.0), (-5.0, -20.0, 4.0)])
+    spec = request_from_parts(layout, parts, 6.5)
+    assert emit(layout, dem, sidecar([spec])) > 0
+
+    hulls_m = unary_union([
+        MultiPoint([layout.ll_to_m(lat, lon) for lon, lat in part]).convex_hull
+        for part in parts])
+    allowed = hulls_m.buffer(MARGIN_M + 0.05)      # + the round-trip eps
+    for shape in pads(layout):
+        assert shape.polygon.within(allowed), shape.ref
+
+
+def test_a_ring_lost_to_pavement_does_not_condemn_its_siblings(gate_on, dem):
+    """The refusal accounting still PARTITIONS: one component wholly
+    inside the apron is refused with its own key while the other emits."""
+    layout = make_layout(apron_ring=[(20.0, 20.0), (100.0, 20.0),
+                                     (100.0, 100.0), (20.0, 100.0)])
+    parts = contact_parts(layout, [(-40.0, -40.0, 5.0), (60.0, 60.0, 5.0)])
+    spec = request_from_parts(layout, parts, 6.5)
+    assert len(spec["rings_lonlat"]) == 2
+
+    assert emit(layout, dem, spec_sidecar := sidecar([spec])) > 0
+    assert spec_sidecar["version"] == post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION
+    assert len(cores(layout)) == 1
+    refused = [f for f in layout.object_pad_findings
+               if f[0] == "pad_wholly_inside_pavement"]
+    assert len(refused) == 1
+    assert refused[0][1] != layout.object_pad_records[0]["seat_key"]
+
+
+# ── the version-4 gate ────────────────────────────────────────────────
+
+def test_a_version_3_sidecar_is_refused_not_consumed(gate_on, dem):
+    """§2.5: "Sidecar version bumps (3 → 4) so hull-ring request corpora
+    are discarded".  A v3 file's rings are the retired law's geometry —
+    the consumer emits NOTHING from it and says why."""
+    layout = make_layout()
+    stale = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)],
+                    version=3)
+    # The retired shape, verbatim: v3 carried one "ring_lonlat" per
+    # request.  Even carrying BOTH keys it must not be consumed.
+    stale["airports"][0]["requests"][0]["ring_lonlat"] = \
+        stale["airports"][0]["requests"][0]["rings_lonlat"][0]
+
+    assert emit(layout, dem, stale) == 0
+    assert pads(layout) == []
+    expired = [f for f in layout.object_pad_findings
+               if f[0] == "pad_record_expired"]
+    assert expired and all(f[4] == "sidecar_version_stale" for f in expired)
+
+
+def test_version_3_emitted_records_drop_rather_than_re_emit(gate_on, dem):
+    """"``emitted`` records with stale-version fingerprints drop and the
+    §5.2 convergence loop re-derives" — the record is reported expired,
+    by key, so the loss is measured."""
+    layout = make_layout()
+    live = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
+    emit(layout, dem, live)
+    records = layout.object_pad_records
+    assert records
+
+    after = make_layout()
+    stale = sidecar([], emitted=records, version=3)
+    assert emit(after, dem, stale) == 0
+    expired = dict((f[1], f[4]) for f in after.object_pad_findings
+                   if f[0] == "pad_record_expired")
+    assert expired == {r["seat_key"]: "sidecar_version_stale"
+                       for r in records}
+
+
+def test_a_stale_sidecar_is_never_relabelled_current(tmp_path):
+    """The merge must not LAUNDER a hull-law corpus by stamping the new
+    version on it: with nothing to add it leaves the file alone."""
+    path = tmp_path / "o4_object_foot_pads.json"
+    payload = sidecar([], emitted=[{"icao": "TEST", "seat_key": "old"}],
+                      version=3)
+    path.write_text(json.dumps(payload))
+    assert object_pads.merge_emitted_records(str(path), "TEST", []) is False
+    assert json.loads(path.read_text()) == payload
+
+
+def test_the_law_digest_moves_with_the_sidecar_version(monkeypatch):
+    """The version is part of the pad law's fingerprint, so a record
+    written under the hull law can never match this build's digest."""
+    before = object_pads.law_digest()
+    monkeypatch.setattr(post_mesh, "OBJECT_FOOT_PAD_SIDECAR_VERSION", 3)
+    assert object_pads.law_digest() != before

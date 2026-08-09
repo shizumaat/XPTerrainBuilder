@@ -203,7 +203,8 @@ class FootPadRequest:
     only terrain shaped to ``target_ground_metres`` under the foot can.
     Recorded on the decision and written to the post-mesh sidecar; the
     ring itself is built downstream by
-    ``object_footprints.foot_pad_ring`` from ``contact_points_lonlat``.
+    ``object_footprints.foot_pad_rings`` from
+    ``contact_parts_lonlat``.
     """
 
     structure_index: int
@@ -214,6 +215,12 @@ class FootPadRequest:
     residual_metres: float
     target_ground_metres: float
     contact_points_lonlat: tuple[tuple[float, float], ...]  # (lon, lat)
+    # The same points GROUPED BY CONTACT PART — the ring builder's real
+    # input under the footprint-hugging law (object-reseat-threshold-spec
+    # §2.5).  A foot is ONE contact part, so this is a one-element tuple
+    # and the foot ring is unchanged; empty means "not grouped" and the
+    # builder falls back to the flat point list as a single part.
+    contact_parts_lonlat: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -248,6 +255,13 @@ class ClusterPadRequest:
     contact_points_lonlat: tuple[tuple[float, float], ...]  # (lon, lat)
     part_count: int = 1
     over_relief_cap: bool = False
+    # The group's contact points GROUPED BY PART, one tuple of plan-box
+    # corners per part.  THE RING LAW (object-reseat-threshold-spec §2.5)
+    # reads this, never the flattened list: hulling the whole group is
+    # what bridged water and parking lots between spread-out parts.
+    # Empty means "not grouped" (a hand-built request); the builder then
+    # treats the flat list as one part, i.e. the retired hull.
+    contact_parts_lonlat: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1995,9 +2009,15 @@ def _raise_cluster_pad_requests(
                 for key in group_keys
             ]
         )
+        # PER PART, never pooled: the ring law (§2.5) hulls each contact
+        # part on its own and unions the dilated hulls, so the parts must
+        # survive as parts all the way to the ring builder.  The flat
+        # list is kept beside them for the run record's audit trail.
         contact_points_lonlat: list[tuple[float, float]] = []
+        contact_parts_lonlat: list[tuple[tuple[float, float], ...]] = []
         for key in group_keys:
             box = measurement_by_key[key].plan_box
+            part_points: list[tuple[float, float]] = []
             for corner_x, corner_z in (
                 (box[0], box[2]),
                 (box[1], box[2]),
@@ -2010,7 +2030,9 @@ def _raise_cluster_pad_requests(
                     corner_x,
                     corner_z,
                 )
-                contact_points_lonlat.append((longitude, latitude))
+                part_points.append((longitude, latitude))
+            contact_points_lonlat.extend(part_points)
+            contact_parts_lonlat.append(tuple(part_points))
         cluster_pad_requests.append(
             ClusterPadRequest(
                 structure_index=structure_index,
@@ -2022,6 +2044,7 @@ def _raise_cluster_pad_requests(
                 residual_metres=residual_by_key[worst_key],
                 target_ground_metres=target_ground_metres,
                 contact_points_lonlat=tuple(contact_points_lonlat),
+                contact_parts_lonlat=tuple(contact_parts_lonlat),
                 part_count=len(group_keys),
                 over_relief_cap=(
                     abs(residual_by_key[worst_key])
@@ -2067,6 +2090,20 @@ def _raise_foot_pad_requests(
         )
         if abs(residual_metres) <= pad_residual_metres:
             continue
+        # A FOOT IS ONE CONTACT PART (``detect_foot_clusters`` unions its
+        # vertices by proximity, so the cluster is compact by
+        # construction): the §2.5 union law over a single part is that
+        # part's own hull, and the foot ring is unchanged.  Grouped
+        # anyway so both paths reach the ring builder the same way.
+        contact_points_lonlat = tuple(
+            _pool_frame_to_world_point(
+                frame.origin_latitude,
+                frame.origin_longitude,
+                contact_x,
+                contact_z,
+            )[::-1]
+            for contact_x, contact_z in foot.contact_points
+        )
         foot_pad_requests.append(
             FootPadRequest(
                 structure_index=structure_index,
@@ -2076,15 +2113,8 @@ def _raise_foot_pad_requests(
                 base_y=foot.base_y,
                 residual_metres=residual_metres,
                 target_ground_metres=rendered_ground + foot.base_y,
-                contact_points_lonlat=tuple(
-                    _pool_frame_to_world_point(
-                        frame.origin_latitude,
-                        frame.origin_longitude,
-                        contact_x,
-                        contact_z,
-                    )[::-1]
-                    for contact_x, contact_z in foot.contact_points
-                ),
+                contact_points_lonlat=contact_points_lonlat,
+                contact_parts_lonlat=(contact_points_lonlat,),
             )
         )
 

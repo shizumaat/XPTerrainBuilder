@@ -1404,6 +1404,161 @@ class TestFootPadRing:
         assert not pad.contains(outside_probe)
 
 
+# ── footprint-hugging pad rings (object-reseat-threshold spec §2.5) ───
+#
+# THE DEFECT this law replaces (owner in-sim, build 1.0.226, OTHH): the
+# request ring was the convex hull of a whole residual GROUP's contact
+# points, so a group whose parts spread across a complex bridged the
+# non-object ground between them — a 162,219 m² pad spanning water and
+# parking lots — and the pad law faithfully flattened it.  The law now
+# hulls each contact PART on its own, dilates by the margin and unions;
+# each connected component is its own ring.
+
+_RING_MARGIN_M = 2.0
+
+
+def _lonlat_box(east: float, north: float, half: float = 5.0):
+    """One contact part: the four corners of a ``2 × half`` metre box
+    centred ``(east, north)`` metres from the plane anchor."""
+    metres_per_degree = metres_per_degree_longitude_at(PLANE_ANCHOR_LATITUDE)
+    return [
+        (
+            PLANE_ANCHOR_LONGITUDE + (east + dx) / metres_per_degree,
+            PLANE_ANCHOR_LATITUDE + (north + dz) / METRES_PER_DEGREE_LATITUDE,
+        )
+        for dx, dz in ((-half, -half), (half, -half), (half, half),
+                       (-half, half))
+    ]
+
+
+def _local_polygon(ring_lonlat):
+    """A ring in LOCAL METRES at the plane anchor (areas and distances in
+    lon/lat degrees are not comparable; every assertion here is metric)."""
+    from shapely.geometry import Polygon
+
+    metres_per_degree = metres_per_degree_longitude_at(PLANE_ANCHOR_LATITUDE)
+    return Polygon([
+        ((longitude - PLANE_ANCHOR_LONGITUDE) * metres_per_degree,
+         (latitude - PLANE_ANCHOR_LATITUDE) * METRES_PER_DEGREE_LATITUDE)
+        for longitude, latitude in ring_lonlat
+    ])
+
+
+class TestFootprintHuggingPadRings:
+    """The §2.5 structural law, asserted on the ring builder itself."""
+
+    def test_a_spread_out_group_yields_several_tight_rings(self):
+        """The motivating case: three 10 m boxes strung 80 m apart.  The
+        retired law returned ONE hull ~1,900 m² covering the 60 m of
+        open ground between them; the new law returns three rings whose
+        total area is the boxes plus their margins."""
+        from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
+
+        parts = [_lonlat_box(east, 0.0) for east in (0.0, 80.0, 160.0)]
+        rings = foot_pad_rings(parts, _RING_MARGIN_M)
+        assert len(rings) == 3, "one ring per connected component"
+
+        areas = sorted(_local_polygon(ring).area for ring in rings)
+        # A 10 m box dilated by 2 m: 14 x 14 minus the rounded corners.
+        assert all(180.0 < area < 200.0 for area in areas), areas
+        hull = _local_polygon(
+            foot_pad_ring([p for part in parts for p in part],
+                          _RING_MARGIN_M))
+        assert hull.area > 4.0 * sum(areas), (
+            "the retired group hull graded four times the surface the "
+            "objects actually stand on")
+        # And the difference is OPEN GROUND: a point 40 m east sits
+        # between two boxes, under the hull and under no hugging ring.
+        from shapely.geometry import Point
+
+        between = Point(40.0, 0.0)
+        assert hull.contains(between)
+        assert not any(_local_polygon(ring).intersects(between)
+                       for ring in rings)
+
+    def test_no_ring_spans_a_gap_wider_than_twice_the_margin(self):
+        """The structural consequence §2.5 names.  Two parts 4.01 m apart
+        (just over 2 x margin) stay two rings; at 3.99 m they merge into
+        one — and the merged ring is still the union of the two dilated
+        hulls, never their hull."""
+        from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
+
+        far_parts = [_lonlat_box(0.0, 0.0, half=5.0),
+                     _lonlat_box(14.01, 0.0, half=5.0)]
+        separated = foot_pad_rings(far_parts, _RING_MARGIN_M)
+        assert len(separated) == 2
+
+        near_parts = [_lonlat_box(0.0, 0.0, half=5.0),
+                      _lonlat_box(13.99, 0.0, half=5.0)]
+        touching = foot_pad_rings(near_parts, _RING_MARGIN_M)
+        assert len(touching) == 1
+        # A merged ring is still the UNION of the dilated hulls, never
+        # their hull: it can only ever be the smaller of the two, and at
+        # a gap this narrow the two coincide to within a few m².
+        merged_area = _local_polygon(touching[0]).area
+        hull_area = _local_polygon(
+            foot_pad_ring([p for part in near_parts for p in part],
+                          _RING_MARGIN_M)).area
+        assert merged_area <= hull_area + 1e-6
+
+    def test_no_ring_vertex_is_further_than_the_margin_from_a_hull(self):
+        """"every pad polygon is covered by (its parts' contact-hull union
+        ⊕ margin)" — asserted vertex by vertex, on a scattered group whose
+        parts differ in size."""
+        from shapely.geometry import MultiPoint, Point
+        from shapely.ops import unary_union
+
+        from auto_patch.object_footprints import foot_pad_rings
+
+        parts = [
+            _lonlat_box(0.0, 0.0, half=6.0),
+            _lonlat_box(30.0, 12.0, half=3.0),
+            _lonlat_box(-25.0, -18.0, half=9.0),
+            _lonlat_box(3.0, 40.0, half=1.0),
+        ]
+        rings = foot_pad_rings(parts, _RING_MARGIN_M)
+        assert len(rings) == 4
+
+        metres_per_degree = metres_per_degree_longitude_at(
+            PLANE_ANCHOR_LATITUDE)
+
+        def _local_points(part):
+            return [
+                ((longitude - PLANE_ANCHOR_LONGITUDE) * metres_per_degree,
+                 (latitude - PLANE_ANCHOR_LATITUDE)
+                 * METRES_PER_DEGREE_LATITUDE)
+                for longitude, latitude in part
+            ]
+
+        hulls = unary_union([MultiPoint(_local_points(part)).convex_hull
+                             for part in parts])
+        # The 1 cm epsilon is the lon/lat round trip: the builder scales
+        # longitude at the REQUEST's centroid latitude and this check at
+        # the anchor's, which differ by ~3 µm over 40 m.  Two orders of
+        # magnitude under the margin the assertion is about.
+        for ring in rings:
+            for x, y in _local_polygon(ring).exterior.coords:
+                assert hulls.distance(Point(x, y)) <= _RING_MARGIN_M + 0.01
+
+    def test_one_part_is_the_unchanged_single_hull(self):
+        """A foot is ONE contact part, so its ring is what it always was:
+        the hull of its points dilated by the margin.  ``foot_pad_ring``
+        is that case of the union law, not a second implementation."""
+        from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
+
+        part = _lonlat_box(0.0, 0.0)
+        rings = foot_pad_rings([part], _RING_MARGIN_M)
+        assert len(rings) == 1
+        assert rings[0] == foot_pad_ring(part, _RING_MARGIN_M)
+
+    def test_degenerate_input_returns_no_rings(self):
+        from auto_patch.object_footprints import foot_pad_ring, foot_pad_rings
+
+        assert foot_pad_rings([], _RING_MARGIN_M) == []
+        assert foot_pad_rings([[]], _RING_MARGIN_M) == []
+        assert foot_pad_ring([], _RING_MARGIN_M) is None
+
+
 # ── the reseat threshold (object-reseat-threshold spec section 2) ─────
 
 

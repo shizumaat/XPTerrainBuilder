@@ -136,6 +136,19 @@ _WELD_TOL_M = 0.02
 #: brief's materiality floor (0.01 m), used as a floor and never iterated.
 _MATERIALITY_M = 0.01
 
+#: THE EXCEPTION SET THIS MODULE GUARDS WITH.  ``clearance._GEOM_EXC``
+#: (ValueError / GEOSException / TopologicalError) is the shapely-domain
+#: set every emitter uses, but shapely also raises TypeError from the
+#: numpy-dispatch layer when a predicate hands a function a geometry type
+#: it does not accept — and that one is NOT a domain error, it is an
+#: unhandled shape of input.  It aborted an OTHH build on 2026-08-09
+#: (a clip that shared both a run and a corner with a pavement ring
+#: returned a GeometryCollection).  A pad emitter must degrade to a
+#: reported refusal, never to a dead build, so the guards here cover the
+#: whole family.
+_PAD_EXC = _GEOM_EXC + (TypeError, AttributeError, IndexError,
+                        KeyError, ZeroDivisionError)
+
 #: Finding kind emitted when a pavement shape changed across the emitter.
 PAVEMENT_DIGEST_FINDING = "pad_deformed_pavement"
 
@@ -403,7 +416,7 @@ def _footprint_claim(layout: PavementLayout):
         from shapely.geometry import MultiPoint
 
         hull = MultiPoint(corners).convex_hull.buffer(_CLAIM_MARGIN_M)
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         return lambda _lat, _lon: True
     ll_to_m = layout.ll_to_m
 
@@ -411,7 +424,7 @@ def _footprint_claim(layout: PavementLayout):
         try:
             x, y = ll_to_m(float(latitude), float(longitude))
             return bool(hull.covers(Point(x, y)))
-        except (_GEOM_EXC + (TypeError, ValueError)):
+        except _PAD_EXC:
             return False
 
     return claim
@@ -553,7 +566,7 @@ def _ring_reference(shape, cache: dict):
 
     try:
         coords = _open_coords(shape.polygon)
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         coords = []
     alts = _shape_vertex_altitudes(shape, len(coords)) if coords else None
     reference = (coords, alts) if (coords and alts) else (None, None)
@@ -606,7 +619,7 @@ class _WeldIndex:
         self._ref_cache: dict = {}
         try:
             self.tree = STRtree(self.exteriors) if self.exteriors else None
-        except _GEOM_EXC:                          # pragma: no cover
+        except _PAD_EXC:                          # pragma: no cover
             self.tree = None
 
     def value_at(self, x: float, y: float):
@@ -617,7 +630,7 @@ class _WeldIndex:
         pt = Point(x, y)
         try:
             cand = self.tree.query_nearest(pt, max_distance=_WELD_TOL_M)
-        except _GEOM_EXC:                          # pragma: no cover
+        except _PAD_EXC:                          # pragma: no cover
             return None
         cand = [int(i) for i in cand]
         if not cand:
@@ -636,7 +649,7 @@ def _clip_against(poly, blockers):
         try:
             if poly.intersects(blocker):
                 poly = poly.difference(blocker)
-        except _GEOM_EXC:
+        except _PAD_EXC:
             return []
     if poly is None or poly.is_empty:
         return []
@@ -651,7 +664,7 @@ def _nearby(tree, polys, poly):
         return []
     try:
         return [polys[int(i)] for i in tree.query(poly)]
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         return list(polys)
 
 
@@ -715,7 +728,7 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         try:
             lat, lon = m_to_ll(x, y)
             return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
-        except _GEOM_EXC:                          # pragma: no cover
+        except _PAD_EXC:                          # pragma: no cover
             return None
 
     pavement = _pavement_shapes(layout)
@@ -730,11 +743,11 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
     feature_polys = [s.polygon for s in _feature_shapes(layout)]
     try:
         pavement_tree = STRtree(pavement_polys) if pavement_polys else None
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         pavement_tree = None
     try:
         feature_tree = STRtree(feature_polys) if feature_polys else None
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         feature_tree = None
     welds = _WeldIndex(layout)
 
@@ -753,7 +766,7 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
             outer = Polygon(ring_m)
             if not outer.is_valid:
                 outer = outer.buffer(0)
-        except (_GEOM_EXC + (TypeError, IndexError)):
+        except _PAD_EXC:
             findings.append(("pad_ring_degenerate", key, 0.0, 0.0, ""))
             continue
         if outer.is_empty or outer.geom_type != "Polygon":
@@ -815,7 +828,7 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
                     core_full = eroded
                 elif eroded.geom_type == "MultiPolygon":
                     core_full = max(eroded.geoms, key=lambda g: g.area)
-            except _GEOM_EXC:                      # pragma: no cover
+            except _PAD_EXC:                      # pragma: no cover
                 core_full = None
         if core_full is None or core_full.area < _MIN_PIECE_AREA_M2:
             # No interior survives even the shortened ramp: the request's
@@ -840,13 +853,13 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
                 piece = Polygon(piece_ll)
                 if not piece.is_valid:
                     piece = piece.buffer(0)
-            except _GEOM_EXC:                      # pragma: no cover
+            except _PAD_EXC:                      # pragma: no cover
                 continue
             for part in _clip_against(piece, blockers):
                 core = None
                 try:
                     inter = part.intersection(core_full)
-                except _GEOM_EXC:                  # pragma: no cover
+                except _PAD_EXC:                  # pragma: no cover
                     inter = None
                 if inter is not None and not inter.is_empty:
                     cands = ([inter] if inter.geom_type == "Polygon"
@@ -888,7 +901,7 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
                     pad_area += core.area
                 try:
                     blend = part.difference(core)
-                except _GEOM_EXC:                  # pragma: no cover
+                except _PAD_EXC:                  # pragma: no cover
                     blend = None
             else:
                 blend = part
@@ -980,45 +993,68 @@ def _pavement_run(part, core, near_pavement, welds: "_WeldIndex"):
     """``(run_m, pavement_value)`` for §5.1 clause 3, or ``(inf, None)``
     when this pad piece touches no pavement at all.
 
-    ``run_m`` is the planar distance from the pavement contact to the
-    pad's interior target region (the core) — the "available run" the law
-    grades across.  With no core the whole piece is blend, and the run is
-    the piece's own reach away from the contact."""
+    ``run_m`` is the AVAILABLE RUN the law grades across: the planar
+    distance from the pavement the pad welds to, to the pad's interior
+    target region.  Measured core-to-pavement, so it is the SHORTEST run
+    on this piece by construction — the strictest reading, which is the
+    one that keeps the surface off the apron.  A piece whose core did not
+    survive the clip has no run at all and takes the pavement's value
+    outright.
+
+    The pavement VALUE is read at the nearest point ON the donor's ring to
+    that same core — the place the run is measured from, so the run and
+    the value describe one cross-section.  Deliberately NOT
+    ``part.intersection(contact.exterior)``: an exact clip against a
+    pavement ring routinely shares a RUN and a CORNER with it at once, so
+    that intersection comes back as a GeometryCollection of lines and
+    points, which has no ``interpolate``.  Measured at OTHH 2026-08-09,
+    where it aborted the build outright.  ``nearest_points`` is total over
+    every geometry type.
+    """
     contact = None
     best = None
+    try:
+        px0, py0, px1, py1 = part.bounds
+    except _PAD_EXC:                               # pragma: no cover
+        return float("inf"), None
     for pav in near_pavement:
+        # Bbox reject first: a weld contact is within 2 cm, so a shape
+        # whose box does not reach the piece's cannot be one, and the
+        # exact ``distance`` (the expensive call, run once per candidate
+        # per pad piece) is never made for it.
+        try:
+            bx0, by0, bx1, by1 = pav.bounds
+        except _PAD_EXC:                           # pragma: no cover
+            continue
+        if (bx0 > px1 + _WELD_TOL_M or bx1 < px0 - _WELD_TOL_M
+                or by0 > py1 + _WELD_TOL_M or by1 < py0 - _WELD_TOL_M):
+            continue
         try:
             d = part.distance(pav)
-        except _GEOM_EXC:                          # pragma: no cover
+        except _PAD_EXC:                           # pragma: no cover
             continue
         if d <= _WELD_TOL_M and (best is None or d < best):
             best = d
             contact = pav
     if contact is None:
         return float("inf"), None
+    anchor = part if (core is None or core.is_empty) else core
     try:
-        shared = part.intersection(contact.exterior)
-        pt = shared.interpolate(0.5, normalized=True) if not shared.is_empty \
-            else None
-    except _GEOM_EXC:                              # pragma: no cover
-        pt = None
-    if pt is None or pt.is_empty:
-        try:
-            pt = part.exterior.interpolate(
-                part.exterior.project(contact.centroid))
-        except _GEOM_EXC:                          # pragma: no cover
-            return float("inf"), None
-    value = welds.value_at(pt.x, pt.y)
+        from shapely.ops import nearest_points
+
+        point = nearest_points(anchor, contact.exterior)[1]
+    except _PAD_EXC:
+        return float("inf"), None
+    if point is None or point.is_empty:            # pragma: no cover
+        return float("inf"), None
+    value = welds.value_at(point.x, point.y)
     if value is None:
         return float("inf"), None
     if core is None or core.is_empty:
-        # No interior region survived the clip: the whole piece is blend,
-        # so there is no run to grade across and the pavement value wins
-        # outright (§5.1 clause 3's short-run branch at run = 0).
         return 0.0, float(value)
     try:
-        run = float(core.distance(Point(pt.x, pt.y)))
-    except _GEOM_EXC:                              # pragma: no cover
+        run = float(core.distance(contact))
+    except _PAD_EXC:                               # pragma: no cover
         run = 0.0
     return max(0.0, run), float(value)
 
@@ -1053,7 +1089,7 @@ def _blend_values(coords, core, target: float, blend_width_m: float, dem_at,
         else:
             try:
                 distance = float(core.distance(Point(x, y)))
-            except _GEOM_EXC:                      # pragma: no cover
+            except _PAD_EXC:                      # pragma: no cover
                 distance = blend_width_m
         value = object_pad_blend_elevation(target, float(ground), distance,
                                            blend_width_m)
@@ -1088,7 +1124,7 @@ def _decimate_pad_group(layout: PavementLayout, emitted_shapes: list) -> int:
                  and s.polygon.geom_type == "Polygon" and id(s) not in ids]
     try:
         tree = STRtree(exteriors) if exteriors else None
-    except _GEOM_EXC:                              # pragma: no cover
+    except _PAD_EXC:                              # pragma: no cover
         tree = None
 
     def on_foreign_boundary(x, y):
@@ -1097,13 +1133,13 @@ def _decimate_pad_group(layout: PavementLayout, emitted_shapes: list) -> int:
         p = Point(x, y)
         try:
             cand = tree.query(_box(x - 0.06, y - 0.06, x + 0.06, y + 0.06))
-        except _GEOM_EXC:                          # pragma: no cover
+        except _PAD_EXC:                          # pragma: no cover
             return False
         for gi in cand:
             try:
                 if exteriors[int(gi)].distance(p) <= 0.05:
                     return True
-            except _GEOM_EXC:                      # pragma: no cover
+            except _PAD_EXC:                      # pragma: no cover
                 continue
         return False
 

@@ -448,6 +448,41 @@ def test_a_pad_is_clipped_by_earlier_terrain_features(gate_on, dem):
             0.0, abs=1e-6)
 
 
+def test_a_pad_touching_pavement_at_points_only_does_not_abort(gate_on,
+                                                               dem):
+    """REGRESSION (OTHH, 2026-08-09): a pad piece can touch a pavement
+    ring at ISOLATED POINTS — the mouth of a notched apron is the type
+    case — and ``part.intersection(ring)`` then returns a MultiPoint,
+    which ``interpolate`` rejects with a TypeError.  That is not a
+    shapely-domain error, so it escaped the emitter's guard and took the
+    whole OTHH build down with a traceback.
+
+    Two things are pinned: the contact point is resolved by
+    ``nearest_points`` (total over every geometry type), and the run is
+    measured core-to-pavement rather than from whatever point the
+    intersection happened to yield."""
+    # The notched apron and the block filling its mouth: touching at
+    # exactly the two notch corners and nowhere else.
+    notch = [(-30.0, -30.0), (30.0, -30.0), (30.0, 10.0), (6.0, 10.0),
+             (6.0, -4.0), (-6.0, -4.0), (-6.0, 10.0), (-30.0, 10.0)]
+    layout = make_layout(apron_ring=notch)
+    apron = layout.shapes[0].polygon
+    part = Polygon([(-6.0, 10.0), (6.0, 10.0), (6.0, 24.0), (-6.0, 24.0)])
+    assert part.distance(apron) == pytest.approx(0.0)
+    assert part.intersection(apron.exterior).geom_type == "MultiPoint", \
+        "the fixture no longer reproduces the point-only contact"
+
+    run, value = object_pads._pavement_run(
+        part, part.buffer(-2.0), [apron], object_pads._WeldIndex(layout))
+    assert value == pytest.approx(APRON_ALT_M)
+    assert math.isfinite(run)
+
+    # …and the whole emitter stays total over the same geometry.
+    side = sidecar([request(layout, square_ring(0.0, 17.0, 10.0), 6.5)])
+    emit(layout, dem, side)                        # must not raise
+    assert "pad_deformed_pavement" not in kinds(layout.object_pad_findings)
+
+
 def test_two_pads_never_overlap_each_other(gate_on, dem):
     """Pad↔pad exclusivity: the second pad is clipped against the first,
     so no ground is claimed twice (the ``ols`` emitted-pieces rule)."""
@@ -558,6 +593,30 @@ def test_a_law_change_expires_the_record_with_a_reason(gate_on, dem,
     expired = [f for f in after.object_pad_findings
                if f[0] == "pad_record_expired"]
     assert len(expired) == 1 and expired[0][4] == "law_digest_changed"
+
+
+def test_the_pure_resolver_falls_back_to_the_recorded_icao():
+    """``pads_for_airport`` without a geometric claim is the PURE form:
+    it resolves by the sidecar's own ICAO blocks, so the convergence law
+    (request wins over record; a stale law digest expires a record) can be
+    read and tested without a layout in the room."""
+    layout = make_layout()
+    live = request(layout, square_ring(0.0, 0.0, 10.0), 6.5, cluster_id=1)
+    side = sidecar([live], emitted=[
+        {"icao": "TEST", "seat_key": object_pads.seat_key(live),
+         "law_digest": object_pads.law_digest(), "index": 0,
+         "ring_lonlat": live["ring_lonlat"]},
+        {"icao": "TEST", "seat_key": "gone", "law_digest": "stale",
+         "index": 1, "ring_lonlat": live["ring_lonlat"]},
+        {"icao": "OTHER", "seat_key": "elsewhere",
+         "law_digest": object_pads.law_digest(), "index": 2,
+         "ring_lonlat": live["ring_lonlat"]},
+    ])
+    specs, expired = object_pads.pads_for_airport(side, "TEST")
+    assert [s["source"] for s in specs] == ["request"], \
+        "the live request supersedes its own record; the other airport's " \
+        "record is not ours"
+    assert expired == [("gone", "law_digest_changed")]
 
 
 def test_records_merge_into_the_sidecar_per_airport(tmp_path):

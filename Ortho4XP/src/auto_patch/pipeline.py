@@ -6274,9 +6274,16 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         dem=_projection_dem,
                         skip_roles=_pad_skip,
                     )
-            except _GEOM_EXC as exc:
-                UI.vprint(1, f"  [pav-builder] {icao}: object-pad "
-                             f"emission FAILED: {exc!r}")
+            except (_GEOM_EXC + (TypeError, AttributeError, KeyError,
+                                 IndexError, OSError)) as exc:
+                # LOUD (verbosity 0): unlike a reporter, a failed pad
+                # emission CHANGES THE SURFACE — the build continues with
+                # terrain that does not meet its buildings, and that must
+                # never be a quiet line.  TypeError is in the set on
+                # purpose: shapely raises it from the dispatch layer, and
+                # it took an OTHH build down on 2026-08-09.
+                UI.lvprint(0, f"  [pav-builder] {icao}: object-pad "
+                              f"emission FAILED: {exc!r}")
 
         # Round 9 (user ruling): re-run the non-overlap rule AFTER the
         # adjacent-ground bands — the last feature emitters that can

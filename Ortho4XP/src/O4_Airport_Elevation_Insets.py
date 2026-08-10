@@ -7638,6 +7638,12 @@ def bake_airport_insets_into_alt_dem(tile):
     only feeds the query path).  Runs in step 1 immediately before
     ``write_to_file``.  A no-op -- byte-identical output -- when the feature
     is gated off, no inset covers the tile, or GDAL is missing.
+
+    FLAT-SITE mode is NOT wired here: it is a DEM-ASSEMBLY step, not a
+    bake step, and it must run on every build whether or not this
+    feature has anything to bake.  Its call site is
+    ``O4_Airport_Utils.smooth_raster_over_airports``, immediately after
+    this one and before the ``.alt`` write.
     """
     if not insets_enabled_for_tile(tile):
         return
@@ -7723,7 +7729,7 @@ def _inset_bake_provenance_entry(inset_path):
     return entry
 
 
-def _bake_one_inset(tile, inset_path, feather_m):
+def _bake_one_inset(tile, inset_path, feather_m, inset=None):
     """Blend a single inset GeoTIFF into the working grid over its footprint.
 
     The blend weight ramps linearly from 0 at the inset's data edge to 1 at
@@ -7733,21 +7739,30 @@ def _bake_one_inset(tile, inset_path, feather_m):
     Returns the median inset-vs-base offset (metres) measured over the
     feather ring, or ``None`` when nothing was measured -- the caller
     aggregates these per provider for the systematic-offset warning.
+
+    ``inset`` may be an ALREADY-LOADED inset raster, in which case
+    ``inset_path`` is only a label and no file is opened.  That is how
+    FLAT-SITE mode's synthetic constant inset (:class:`_ConstantInset`)
+    rides this exact blend: one feathering implementation in the tree,
+    the fetched-GeoTIFF path byte-identical when ``inset`` is omitted.
     """
     base_dem = tile.dem
-    # The composite load already decoded every cached inset into
-    # ``base_dem.subdems`` (same file, same ``fill_nodata=False``
-    # constructor) for the query-time composite: reuse that array instead
-    # of decoding the GeoTIFF a second time.  Fresh read only when the
-    # bake runs on a DEM without a matching subdem (tests, partial loads).
-    inset = None
-    for subdem in getattr(base_dem, "subdems", ()) or ():
-        if (
-            getattr(subdem, "source_path", None) == inset_path
-            and getattr(subdem, "alt_dem", None) is not None
-        ):
-            inset = subdem
-            break
+    label = os.path.basename(inset_path) if inset_path else (
+        getattr(inset, "label", None) or "synthetic inset")
+    if inset is None:
+        # The composite load already decoded every cached inset into
+        # ``base_dem.subdems`` (same file, same ``fill_nodata=False``
+        # constructor) for the query-time composite: reuse that array
+        # instead of decoding the GeoTIFF a second time.  Fresh read only
+        # when the bake runs on a DEM without a matching subdem (tests,
+        # partial loads).
+        for subdem in getattr(base_dem, "subdems", ()) or ():
+            if (
+                getattr(subdem, "source_path", None) == inset_path
+                and getattr(subdem, "alt_dem", None) is not None
+            ):
+                inset = subdem
+                break
     if inset is None:
         inset = DEM.DEM(
             tile.lat, tile.lon, inset_path, fill_nodata=False, info_only=False
@@ -7839,7 +7854,7 @@ def _bake_one_inset(tile, inset_path, feather_m):
             UI.vprint(
                 1,
                 "   WARNING: elevation inset",
-                os.path.basename(inset_path),
+                label,
                 "differs from the base DEM by a median",
                 round(ring_offset_m, 2),
                 "m over the feather ring (>%d m; check vertical datum)."
@@ -7861,6 +7876,185 @@ def _bake_one_inset(tile, inset_path, feather_m):
         row_min : row_max + 1, column_min : column_max + 1
     ] = blended.astype(base_dem.alt_dem.dtype)
     return ring_offset_m
+
+
+# =====================================================================
+# FLAT-SITE mode -- the synthetic constant inset
+# (docs/specs/flat-site-mode-spec.md, 2026-08-09 FROZEN)
+# =====================================================================
+# A DEM SOURCE SUBSTITUTION, not a new solve path.  For an airport the
+# detector calls ``flat_candidate``, the instrument truth for the site is
+# the CIFP threshold consensus Z0 and the DEM's metres of "relief" are
+# its own source's noise.  So DEM prep manufactures a CONSTANT raster at
+# Z0 over the detector's extent and blends it in through ``_bake_one_inset``
+# -- the same feather a Copernicus or LIDAR inset gets.  Downstream is
+# blind to it: apt_smoothing is a no-op on a constant, the runway profile
+# stays CIFP-absolute, drainage and basins cut below Z0 as always.
+#
+# THE SURFACE IS NEVER CACHED (spec section 3.3).  It is arithmetic, not
+# data: an in-memory raster for the length of one build.  A synthetic
+# GeoTIFF in ``Elevation_data`` would poison the real-DEM path and the
+# refresh ledger's meaning, so nothing here writes a file -- the value
+# reaches the mesher only through ``tile.dem.alt_dem`` and the tile's own
+# ``.alt`` build product.
+
+
+class _ConstantInset:
+    """An in-memory inset raster holding one elevation everywhere.
+
+    Carries exactly the surface ``_bake_one_inset`` reads from a fetched
+    inset -- ``alt_dem`` / ``nxdem`` / ``nydem`` / ``x0``..``y1`` /
+    ``nodata`` plus the two strict readers -- so the blend, the feather
+    ring and the datum probe all run unmodified.  The readers are
+    ``O4_DEM_Utils.DEM``'s own (bound to this object), never a second
+    implementation: extent semantics, nodata handling and the bilinear
+    weights are the raster path's, verbatim.
+
+    Two posts on each axis is all a constant needs, and it keeps the bake
+    on the vectorised bilinear branch (a 2x2 grid is coarser than any
+    working grid, so ``inset_bake_resample_mode`` never picks the
+    area-average path and never the per-node nearest one unless the
+    interpolation gate is off).
+    """
+
+    def __init__(self, x0, y0, x1, y1, elevation_m, *, label=None,
+                 nodata=-32768.0):
+        self.x0 = float(x0)
+        self.y0 = float(y0)
+        self.x1 = float(x1)
+        self.y1 = float(y1)
+        self.elevation_m = float(elevation_m)
+        self.nodata = float(nodata)
+        self.nxdem = 2
+        self.nydem = 2
+        self.alt_dem = numpy.full((2, 2), self.elevation_m,
+                                  dtype=numpy.float32)
+        self.label = label or "synthetic flat-site inset"
+        self.source_path = None
+
+    def alt_vec_strict(self, way):
+        return DEM.DEM.alt_vec_strict(self, way)
+
+    def alt_vec_bilinear_strict(self, way):
+        return DEM.DEM.alt_vec_bilinear_strict(self, way)
+
+
+def overlay_flat_site_insets(tile, dico_airports=None):
+    """Blend a constant-Z0 inset over every flat airport on the tile.
+
+    THE DEM-ASSEMBLY STEP (spec section 2.1), called by
+    ``O4_Airport_Utils.smooth_raster_over_airports`` on EVERY build --
+    warm cache or cold, insets or none, patch path or tile path -- after
+    the airport smoothing and the cached-inset bake have produced the
+    honest surface the detector must classify, and BEFORE the ``.alt``
+    write, so the raster the mesher renders and the array the solve
+    samples are the same surface.  It is deliberately NOT called from
+    ``bake_airport_insets_into_alt_dem``: that function returns early
+    whenever the inset FEATURE has nothing to do, and a substitution
+    that only happens when some other feature fires is a substitution
+    that silently does not happen.
+
+    It PERSISTS NOTHING (spec section 3.3): the constant raster lives in
+    memory for the length of one build and no file is opened here.
+
+    "Flat" is the detector's ``flat_candidate`` (measured) or
+    ``flat_declared`` (the owner's declaration) — the mode treats them
+    identically; see ``flat_site_mode.substituting_verdicts``.
+
+    Records one ``synthetic_flat_site`` provenance entry per airport on
+    the DEM object, written HERE and only here, so the stamp can never
+    claim a substitution the solve did not see (spec section 2.3).
+
+    Never takes a build down: a failure here leaves the real surface in
+    place (the pre-change behaviour) and says so at verbosity 0.
+    """
+    base_dem = getattr(tile, "dem", None)
+    if base_dem is None or getattr(base_dem, "alt_dem", None) is None:
+        return
+    try:
+        from auto_patch import flat_site_mode as FLAT_SITE_MODE
+
+        substitutions = FLAT_SITE_MODE.flat_site_substitutions(
+            tile, dico_airports=dico_airports
+        )
+    except Exception as error:
+        UI.vprint(
+            0,
+            "   ERROR: FLAT-SITE mode skipped (",
+            type(error).__name__,
+            ":",
+            str(error),
+            ") - DEM prep left on the real surface.",
+        )
+        return
+    if not substitutions:
+        return
+
+    feather_m = getattr(tile, "airport_elevation_inset_feather_m", 60.0)
+    stamped = list(getattr(base_dem, "synthetic_flat_site_provenance", None)
+                   or [])
+    for substitution in substitutions:
+        icao = substitution["icao"]
+        x0, y0, x1, y1 = substitution["extent_deg"]
+        inset = _ConstantInset(
+            x0, y0, x1, y1, substitution["z0_m"],
+            label="%s synthetic flat-site inset" % icao,
+        )
+        try:
+            _bake_one_inset(tile, None, feather_m, inset=inset)
+        except Exception as error:
+            UI.vprint(
+                0,
+                "   ERROR: FLAT-SITE mode could not bake the synthetic inset "
+                "for",
+                icao,
+                "(",
+                type(error).__name__,
+                ":",
+                str(error),
+                ") - that airport stays on the real surface.",
+            )
+            continue
+        stamped.append(
+            {
+                "icao": icao,
+                "kind": "synthetic_flat_site",
+                "verdict": substitution.get("verdict"),
+                "z0_m": substitution["z0_m"],
+                "extent_tile_degrees": [x0, y0, x1, y1],
+                "extent_wgs84": [
+                    tile.lon + x0, tile.lat + y0,
+                    tile.lon + x1, tile.lat + y1,
+                ],
+                "extent_area_km2": substitution.get("extent_area_km2"),
+                "feather_m": float(feather_m),
+                "record": substitution["record"],
+            }
+        )
+        UI.vprint(
+            0,
+            "   [flat-site] %s: SYNTHETIC CONSTANT INSET at Z0 %.2f m over "
+            "%.2f km2 (feather %g m) - DEM source substituted."
+            % (icao, substitution["z0_m"],
+               substitution.get("extent_area_km2") or 0.0, feather_m),
+        )
+    base_dem.synthetic_flat_site_provenance = stamped
+    # The substitution lives in ``alt_dem``.  Every reader of a baked DEM
+    # reads that array (``alt_baked``, ``alt_nostrict``, the ``.alt`` file
+    # the mesher renders) EXCEPT the legacy composite query, which reads
+    # the sub-DEMs directly.  If that is still the active reader, the
+    # grading law and the mesh would see two different surfaces -- say so
+    # loudly rather than measure one and render the other.
+    if stamped and getattr(base_dem, "subdems", None) and not getattr(
+        base_dem, "baked_query_active", False
+    ):
+        UI.vprint(
+            0,
+            "   WARNING: FLAT-SITE mode substituted the working raster but "
+            "the DEM QUERY path is still the composite (O4_DEM_QUERY_BAKED "
+            "off, or a sub-DEM did not bake): the mesh would render the "
+            "flat surface while the grading law reads the real one.",
+        )
 
 
 # =====================================================================

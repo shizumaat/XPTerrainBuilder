@@ -221,24 +221,37 @@ def gate_provenance(source_path: str | None = None) -> dict:
 # raw-load path), which reads as RAW.
 DEM_INSET_PROVENANCE_ATTR = "airport_inset_provenance"
 
+# Attribute name under which ``O4_Airport_Elevation_Insets._overlay_flat_site_
+# insets`` records the SYNTHETIC CONSTANT INSETS it blended in (FLAT-SITE mode,
+# docs/specs/flat-site-mode-spec.md section 2.3).  A list of per-airport dicts;
+# ABSENT when the mode never fired.  A flat-mode patch and a real-DEM patch are
+# DIFFERENT FRAMES, so this travels with the inset record and never inside it.
+DEM_SYNTHETIC_FLAT_SITE_ATTR = "synthetic_flat_site_provenance"
+
 
 def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
     """Read elevation provenance off the DEM object the solve graded against.
 
     Returns ``{"insets": [ {provider, source_ids, fetch_date, ...}, ... ],
-    "raw": bool}``.  ``raw`` is True when no inset baked into this DEM — either
-    the bake step never ran (standalone raw-load path: the attribute is absent)
-    or it ran and baked nothing (empty list).  Either way the patch was graded
-    on the base DEM, which the log/stamp must announce loudly.
+    "raw": bool, "synthetic_flat_site": entry | None}``.  ``raw`` is True when
+    no inset baked into this DEM — either the bake step never ran (standalone
+    raw-load path: the attribute is absent) or it ran and baked nothing (empty
+    list).  Either way the patch was graded on the base DEM, which the
+    log/stamp must announce loudly.
+
+    ``raw`` keeps its meaning — it is about FETCHED insets.  A synthetic
+    flat-site surface is not an inset of anything and is reported on its own
+    key: Z0, the detector's evidence record and the extent it covers.
 
     A production ``tile.dem`` is shared by every airport on the tile and carries
     all their baked insets; ``icao`` filters the record to the insets fetched
     for THIS airport (matched on the ICAO the bake parsed from the cache file
     name).  Entries with no ICAO field, or when ``icao`` is None, are kept.
     """
+    synthetic = _synthetic_flat_site_from_dem(dem_obj, icao=icao)
     insets = getattr(dem_obj, DEM_INSET_PROVENANCE_ATTR, None)
     if not insets:
-        return {"insets": [], "raw": True}
+        return {"insets": [], "raw": True, "synthetic_flat_site": synthetic}
     normalised = []
     for entry in insets:
         if not isinstance(entry, dict):
@@ -247,7 +260,28 @@ def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
             if str(entry["icao"]).upper() != str(icao).upper():
                 continue
         normalised.append(entry)
-    return {"insets": normalised, "raw": len(normalised) == 0}
+    return {"insets": normalised, "raw": len(normalised) == 0,
+            "synthetic_flat_site": synthetic}
+
+
+def _synthetic_flat_site_from_dem(dem_obj, icao: str | None = None):
+    """This airport's ``synthetic_flat_site`` entry on the DEM, or None.
+
+    A multi-airport tile can carry several; ``icao`` selects the one whose
+    surface this patch was graded on.  With no ``icao`` the FIRST entry is
+    returned, which is the whole record on a single-airport DEM.
+    """
+    entries = getattr(dem_obj, DEM_SYNTHETIC_FLAT_SITE_ATTR, None)
+    if not entries:
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if icao is not None and entry.get("icao"):
+            if str(entry["icao"]).upper() != str(icao).upper():
+                continue
+        return entry
+    return None
 
 
 def _inset_label(entry: dict) -> str:
@@ -260,11 +294,23 @@ def _inset_label(entry: dict) -> str:
 
 
 def dem_label(dem_meta: dict) -> str:
-    """Human ``dem=`` value: ``base+PROVIDER(source)`` or the loud RAW form."""
-    if not dem_meta or dem_meta.get("raw", True):
+    """Human ``dem=`` value: ``base+PROVIDER(source)`` or the loud RAW form.
+
+    A FLAT-SITE substitution is appended as its own clause: the patch was
+    not graded on the raster the inset clause names, and a reader comparing
+    two patches must see that before it compares any number.
+    """
+    if not dem_meta:
         return "base RAW (no inset baked)"
-    labels = "+".join(_inset_label(e) for e in dem_meta.get("insets", []))
-    return "base+" + labels
+    if dem_meta.get("raw", True):
+        label = "base RAW (no inset baked)"
+    else:
+        label = "base+" + "+".join(
+            _inset_label(e) for e in dem_meta.get("insets", []))
+    synthetic = dem_meta.get("synthetic_flat_site")
+    if synthetic:
+        label += " +FLAT_SITE(Z0=%s m)" % synthetic.get("z0_m")
+    return label
 
 
 # ──────────────────────────────────────────────────────────────────────────────

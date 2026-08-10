@@ -237,7 +237,8 @@ NEIGHBOUR_CLAMP_RADIUS_M = 5.0
 DEM_SUFFIX = ".hgt"
 _DEM_CACHE: dict[tuple[int, int], object] = {}
 
-def _load_airport_dem(lat0: float, lon0: float, override_dem=None):
+def _load_airport_dem(lat0: float, lon0: float, override_dem=None,
+                      xplane_root: str | None = None):
     """Return an ``O4_DEM_Utils.DEM`` covering the 1° tile that
     contains (lat0, lon0).  Auto-downloads via Ortho4XP's standard
     DEM provider chain when no local .hgt file exists.  Falls back
@@ -251,6 +252,14 @@ def _load_airport_dem(lat0: float, lon0: float, override_dem=None):
     The standalone path (``tools/build_target_osm.py`` and tests)
     passes ``override_dem=None`` and gets the legacy fresh-load
     behaviour.
+
+    ``xplane_root`` is the install THIS build was handed.  It is
+    recorded on the ``Tile`` the DEM prep runs over so FLAT-SITE mode,
+    which classifies inside that prep, reads CIFP and apt.dat from the
+    same install the caller is building against.  A dev/lane config
+    ships ``cifp_data_path`` and ``custom_scenery_dir`` EMPTY, so
+    without this the mode would silently never fire on the standalone
+    path while working in production — the worst kind of gap.
     """
     if override_dem is not None:
         return override_dem
@@ -291,6 +300,8 @@ def _load_airport_dem(lat0: float, lon0: float, override_dem=None):
         import O4_Vector_Map as _VMAP
 
         _tile = _CFG.Tile(tile_lat, tile_lon, "")
+        if xplane_root:
+            _tile.auto_patch_xplane_root = xplane_root
         try:
             # Per-tile cfg when present, else global cfg — the same
             # settings (apt_smoothing_pix, custom_dem, elevation_level,

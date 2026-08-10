@@ -56,6 +56,10 @@ __all__ = [
     "substituting_verdicts",
     "tile_icao_candidates",
     "extent_bounds_tile_degrees",
+    # R8-1 — the claimed-object-placement cluster extents.
+    "claimed_placements_by_icao",
+    "cluster_placements_m",
+    "claimed_placement_cluster_bounds",
 ]
 
 #: Local-metre projection constant — ``layout.R_EARTH``'s value, kept
@@ -251,6 +255,255 @@ def extent_bounds_tile_degrees(extent_m, anchor, tile_lat: int,
 
 
 # ──────────────────────────────────────────────────────────────────────
+# R8-1 — THE FLAT EXTENT COVERS THE AIRPORT'S CLAIMED OBJECT PLACEMENTS
+# (docs/specs/round8-vhhh-closeout-spec.md R8-1, owner in-sim VHHH)
+# ──────────────────────────────────────────────────────────────────────
+# THE DEFECT.  VHHH's HZMB reclamation carries 121+ pack object placements
+# and NO apt.dat or OSM claim of its own, so the apt.dat-derived extent
+# (:func:`flat_site.extent_from_apt`) ends 894 m short of it — leaving a
+# measured 7.32 m step at the reclamation's edge, in a scene the CIFP
+# thresholds say is flat.
+#
+# THE LAW.  The flat-site substitution ALSO covers the airport's CLAIMED
+# object placements.  The placements are CLUSTERED and each cluster gets
+# its OWN ``_ConstantInset`` (its hull ⊕ the flat margin) — never one
+# grown bbox.  That distinction is the whole point: the measured 450 m
+# open channel between the airport and the island (lon 113.945-113.948)
+# must stay SEA, and a single bbox spanning both would flatten it to Z0.
+#
+# WHOSE PLACEMENTS.  Ownership is ``post_mesh.worklist_claim_assigner``'s
+# answer, over the driver's OWN worklist entries
+# (``driver._object_anchor_worklist_entries`` + ``_airport_claim_lonlat``,
+# on the CIFP runways the driver claims with) — the same partition Phase
+# 2 re-anchors objects under.  A second ownership rule here would put DEM
+# prep and the object re-anchor on two different populations, which is
+# exactly how this repo has been burned before.  Positions come from
+# ``dsf_reader.read_dsf_object_placement_positions``, already sidecar-
+# cached per (pack, DSF) by the driver's own scan.
+
+#: Placements within this distance of each other are ONE cluster (spec
+#: R8-1: "simple distance join (placements within ~300 m merge)").
+OBJECT_CLUSTER_JOIN_M = 300.0
+
+#: Clusters smaller than this are ignored — streetlight strays, not a
+#: reclamation (spec R8-1: "clusters with < 5 placements ignored").
+OBJECT_CLUSTER_MIN_PLACEMENTS = 5
+
+
+def _cifp_runways(xplane_root: str, icao: str) -> dict:
+    """The CIFP runway records for ``icao`` — the DRIVER's own dict.
+
+    ``elevation._find_cifp_path`` → ``cifp_reader.parse_cifp_file`` is
+    the pair ``driver.run_auto_patch_generation`` builds its worklist
+    claim from, and the pair the detector already reads elevations
+    through, so the claim geometry computed here is the claim geometry
+    Phase 2 partitions with.  ``{}`` when no CIFP file exists.
+    """
+    from . import cifp_reader as _CIFP
+    from .elevation import _find_cifp_path
+
+    try:
+        path = _find_cifp_path(xplane_root, icao)
+        if not path:
+            return {}
+        return _CIFP.parse_cifp_file(path) or {}
+    except Exception:                                    # pragma: no cover
+        return {}
+
+
+def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
+                               tile_lon: int) -> dict:
+    """``{icao: [(longitude, latitude), ...]}`` — every DSF object
+    placement on this tile, partitioned by the airport that CLAIMS it.
+
+    One pass over the tile's enabled airport packs, shared by every
+    airport (the driver's ``scan_cache`` memo, for the same reason: a
+    heavy install re-enumerates thousands of Custom Scenery directories
+    otherwise).  Airports with no CIFP runways, no associated DSF and no
+    pack contribute nothing and appear with no key.
+
+    Returns ``{}`` when nothing on the tile places objects.
+    """
+    from .driver import (
+        _airport_claim_lonlat, _object_anchor_worklist_entries)
+    from .dsf_reader import read_dsf_object_placement_positions
+    from .post_mesh import worklist_claim_assigner
+
+    scan_cache: dict = {}
+    seen_dsf_paths: set = set()
+    entries: list = []
+    for icao in icaos:
+        runways = _cifp_runways(xplane_root, icao)
+        if not runways:
+            continue
+        try:
+            entries.extend(_object_anchor_worklist_entries(
+                icao, xplane_root, runways, tile_lat, tile_lon,
+                seen_dsf_paths, scan_cache,
+                claim=_airport_claim_lonlat(runways)))
+        except Exception:                                # pragma: no cover
+            continue
+    if not entries:
+        return {}
+
+    assign = worklist_claim_assigner(entries)
+    positions_by_dsf = scan_cache.setdefault("positions", {})
+    out: dict = {}
+    scanned: set = set()
+    for entry in entries:
+        dsf_path = entry.get("dsf_path")
+        if not dsf_path or dsf_path in scanned:
+            continue
+        scanned.add(dsf_path)
+        positions = positions_by_dsf.get(dsf_path)
+        if positions is None:
+            positions = read_dsf_object_placement_positions(
+                dsf_path, entry.get("pack_root"))
+            positions_by_dsf[dsf_path] = positions
+        for longitude, latitude in (positions or ()):
+            owner = assign(dsf_path, latitude, longitude)
+            if owner:
+                out.setdefault(owner, []).append((longitude, latitude))
+    return out
+
+
+def cluster_placements_m(points_m, join_m: float | None = None,
+                         min_placements: int | None = None) -> list:
+    """Single-linkage distance join over LOCAL-METRE points.
+
+    Returns a list of clusters, each a list of ``(x, y)`` points, sorted
+    largest first; clusters holding fewer than ``min_placements`` members
+    are dropped.  The join is deliberately the simplest thing the spec
+    names — two placements within ``join_m`` are the same structure —
+    and it is single-linkage, so a chain of placements along a bridge
+    deck stays ONE cluster instead of fragmenting per span.
+
+    A uniform grid of ``join_m`` cells bounds the pair tests to the 3x3
+    neighbourhood (5,708 placements fall to VHHH; the naive all-pairs
+    form is 16 M distance tests inside DEM prep).
+    """
+    import numpy
+
+    if join_m is None:
+        join_m = OBJECT_CLUSTER_JOIN_M
+    if min_placements is None:
+        min_placements = OBJECT_CLUSTER_MIN_PLACEMENTS
+    points = [(float(x), float(y)) for x, y in (points_m or ())]
+    count = len(points)
+    if count < max(1, int(min_placements)):
+        return []
+
+    parent = list(range(count))
+
+    def _find(node: int) -> int:
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    def _union(a: int, b: int) -> None:
+        root_a, root_b = _find(a), _find(b)
+        if root_a != root_b:
+            parent[root_b] = root_a
+
+    cell = float(join_m)
+    grid: dict = {}
+    for index, (x, y) in enumerate(points):
+        grid.setdefault(
+            (int(math.floor(x / cell)), int(math.floor(y / cell))),
+            []).append(index)
+
+    xs = numpy.array([p[0] for p in points], dtype=float)
+    ys = numpy.array([p[1] for p in points], dtype=float)
+    join_squared = float(join_m) * float(join_m)
+    for (cell_x, cell_y), members in grid.items():
+        neighbourhood: list = []
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                neighbourhood.extend(
+                    grid.get((cell_x + dx, cell_y + dy), ()))
+        if len(neighbourhood) < 2:
+            continue
+        candidates = numpy.array(neighbourhood, dtype=int)
+        for index in members:
+            dx_v = xs[candidates] - xs[index]
+            dy_v = ys[candidates] - ys[index]
+            near = candidates[(dx_v * dx_v + dy_v * dy_v) <= join_squared]
+            for other in near.tolist():
+                if other != index:
+                    _union(index, int(other))
+
+    grouped: dict = {}
+    for index in range(count):
+        grouped.setdefault(_find(index), []).append(points[index])
+    clusters = [members for members in grouped.values()
+                if len(members) >= int(min_placements)]
+    clusters.sort(key=len, reverse=True)
+    return clusters
+
+
+def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
+                                     tile_lon: int,
+                                     margin_m: float | None = None,
+                                     inside=None) -> list:
+    """One ``(x0, y0, x1, y1)`` tile-degree box PER CLUSTER of claimed
+    placements — the R8-1 substitution footprints.
+
+    ``placements_ll`` are ``(longitude, latitude)``; ``anchor`` is the
+    airport's ``layout._airport_anchor``.  Each cluster's box is its
+    convex hull dilated by the flat-site margin (``margin_m``, default
+    ``config.FLAT_SITE_MARGIN_M`` — the SAME margin
+    ``flat_site.extent_from_apt`` gives the airport itself), taken
+    through :func:`extent_bounds_tile_degrees` so both footprints are
+    built by ONE projection in ONE frame.
+
+    ``inside`` is the airport's own extent (local metres) when it has
+    one: a cluster whose hull already lies inside it adds nothing and is
+    dropped, so the common case (every placement on the apron) emits
+    exactly the insets it emitted before this law.
+
+    ONE BOX PER CLUSTER, never their union: the union's bbox would span
+    the open water between an airport and an offshore reclamation and
+    flatten it to Z0.
+    """
+    from shapely.geometry import MultiPoint
+
+    from .layout import _projection
+
+    if margin_m is None:
+        margin_m = _config.FLAT_SITE_MARGIN_M
+    to_metres = _projection(anchor)
+    points_m = []
+    for longitude, latitude in (placements_ll or ()):
+        try:
+            points_m.append(to_metres(float(longitude), float(latitude)))
+        except Exception:                                # pragma: no cover
+            continue
+    out: list = []
+    for cluster in cluster_placements_m(points_m):
+        try:
+            hull = MultiPoint(cluster).convex_hull.buffer(float(margin_m))
+        except Exception:                                # pragma: no cover
+            continue
+        if hull is None or hull.is_empty:
+            continue
+        if inside is not None and not inside.is_empty:
+            try:
+                if inside.covers(hull):
+                    continue
+            except Exception:                            # pragma: no cover
+                pass
+        bounds = extent_bounds_tile_degrees(hull, anchor, tile_lat, tile_lon)
+        if bounds is not None:
+            out.append({
+                "extent_deg": bounds,
+                "placements": len(cluster),
+                "extent_area_km2": round(hull.area / 1e6, 4),
+            })
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────
 # The decision
 # ──────────────────────────────────────────────────────────────────────
 def flat_site_substitutions(tile, dico_airports=None,
@@ -310,6 +563,10 @@ def flat_site_substitutions(tile, dico_airports=None,
     tile_lon = int(math.floor(tile.lon))
     accepted = substituting_verdicts()
     out = []
+    # R8-1: the anchor + apt.dat extent of every airport that SUBSTITUTES,
+    # kept for the claimed-object-placement clustering after the loop.
+    anchor_by_icao: dict = {}
+    extent_by_icao: dict = {}
     for icao in icaos:
         elevations = _flat_site.cifp_threshold_elevations(xplane_root, icao)
         if _flat_site.threshold_consensus(elevations).get("pass") is not True:
@@ -338,12 +595,73 @@ def flat_site_substitutions(tile, dico_airports=None,
         # instruments over one population.
         if bounds is None or record.get("z0_m") is None:
             continue
+        anchor_by_icao[icao] = anchor
+        extent_by_icao[icao] = extent_m
         out.append({
             "icao": icao,
             "verdict": record.get("verdict"),
             "z0_m": float(record["z0_m"]),
             "extent_deg": bounds,
             "extent_area_km2": round(extent_m.area / 1e6, 4),
+            # R8-1: filled in below — one entry per CLAIMED-PLACEMENT
+            # cluster outside the apt.dat extent.  Always present (an
+            # empty list is "measured, none"), never absent.
+            "object_clusters": [],
             "record": record,
         })
+    _attach_claimed_object_clusters(
+        out, icaos, anchor_by_icao, extent_by_icao,
+        xplane_root, tile_lat, tile_lon)
     return out
+
+
+def _attach_claimed_object_clusters(substitutions, icaos, anchor_by_icao,
+                                    extent_by_icao, xplane_root: str,
+                                    tile_lat: int, tile_lon: int) -> None:
+    """R8-1: give each substitution its claimed-placement cluster boxes.
+
+    Runs ONLY when something substitutes — the tile-wide pack scan is the
+    expensive half, and an airport nobody flattens has nothing to cover.
+    Never takes DEM prep down: on any failure the substitutions keep the
+    apt.dat extent they already carry (the pre-change behaviour) and the
+    reason is printed, because a silently-skipped extension is a 7.32 m
+    step nobody can attribute.
+    """
+    if not substitutions:
+        return
+    try:
+        placements_by_icao = claimed_placements_by_icao(
+            icaos, xplane_root, tile_lat, tile_lon)
+    except Exception as error:
+        UI.vprint(1, "   [flat-site] claimed-placement scan FAILED (%s: %s)"
+                     " — extents cover the apt.dat footprint only."
+                     % (type(error).__name__, error))
+        return
+    if not placements_by_icao:
+        return
+    for substitution in substitutions:
+        icao = substitution["icao"]
+        placements = placements_by_icao.get(icao) or []
+        if not placements:
+            continue
+        try:
+            clusters = claimed_placement_cluster_bounds(
+                placements, anchor_by_icao[icao], tile_lat, tile_lon,
+                inside=extent_by_icao.get(icao))
+        except Exception as error:                       # pragma: no cover
+            UI.vprint(1, "   [flat-site] %s: claimed-placement clustering "
+                         "FAILED (%s: %s) — apt.dat extent only."
+                      % (icao, type(error).__name__, error))
+            continue
+        substitution["object_clusters"] = clusters
+        if clusters:
+            UI.vprint(
+                1,
+                "   [flat-site] %s: %d claimed object placement(s) outside "
+                "the apt.dat extent form %d cluster(s) — one synthetic "
+                "inset each (%s), NEVER one grown bbox (the open water "
+                "between them stays sea)."
+                % (icao, len(placements), len(clusters),
+                   ", ".join("%d placements / %.2f km2"
+                             % (c["placements"], c["extent_area_km2"])
+                             for c in clusters)))

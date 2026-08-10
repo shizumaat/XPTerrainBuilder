@@ -2171,11 +2171,19 @@ def _emit_portal_cluster(
         carriageway_width_m: float, tunnel_depth_m: float,
         wall_gap_m: float, retaining_wall_width_m: float,
         half_wall_w: float, dem_at,
-        airside_gate_union=None) -> int:
+        airside_gate_union=None,
+        object_trench_union=None,
+        object_trench_yield_stats=None) -> int:
     """Emit one portal cluster's cap + arm walls + ramp chain
     (plus fork throat / perimeter wall band when gated on).
     Appends the emitted footprints to ``exclusion_zones``.
     Returns 1 when the cluster emitted, 0 when skipped.
+
+    ``object_trench_union`` is the R8-3 yield region
+    (:func:`_object_trench_body_union`): where a classified object tunnel
+    owns ground AND cut a trench there, this chain's ramp and wall pieces
+    yield to it — the object trench is the rendered truth.  ``None``
+    (OSM-only tunnels, gate off, no trench emitted) emits as today.
     """
     # All portals in cluster share approximately the same
     # location.  Use the first portal's walk as the canonical
@@ -2817,6 +2825,16 @@ def _emit_portal_cluster(
                         if (wp.geom_type == "Polygon"
                                 and not wp.is_empty
                                 and wp.area > 0.5):
+                            # R8-3: the object trench owns this ground.
+                            # A wall band is FLAT at one altitude and
+                            # shares no value with its neighbours, so it
+                            # clips rather than drops whole.
+                            wp = _yield_piece_to_object_trench(
+                                wp, object_trench_union,
+                                corner_shared=False,
+                                stats=object_trench_yield_stats)
+                            if wp is None:
+                                continue
                             layout.shapes.append(BuiltShape(
                                 polygon=wp,
                                 role=ROLE_RETAINING_WALL,
@@ -2865,6 +2883,16 @@ def _emit_portal_cluster(
                             continue
                     if covered > 0.5 * rp.area:
                         continue    # throat already paves this spot
+                    # R8-3: a classified object tunnel with a cut trench
+                    # owns this ground — the ramp chain yields.  A ramp
+                    # quad SHARES its cross-edge corners with its
+                    # neighbours (see the corner-agreement note below),
+                    # so it drops whole or survives whole; clipping it
+                    # would mint a third value on those shared nodes.
+                    if _yield_piece_to_object_trench(
+                            rp, object_trench_union, corner_shared=True,
+                            stats=object_trench_yield_stats) is None:
+                        continue
                     # RAMP-INTERNAL CORNER AGREEMENT (spec §2): the
                     # FLAT fallback averages the two edges, so each of
                     # the quad's two cross-edges is offered a value
@@ -3034,6 +3062,14 @@ def _emit_portal_cluster(
         # value up to 0.05 m from what the chain offered the same nodes
         # — a disagreement decided by ``to_osm`` shape order, not by the
         # plan.
+        #
+        # R8-3: the throat shares NL/NR with the bore and cL/cR with each
+        # arm, so it too drops whole or survives whole where a classified
+        # object tunnel owns the ground.
+        if _yield_piece_to_object_trench(
+                poly, object_trench_union, corner_shared=True,
+                stats=object_trench_yield_stats) is None:
+            return False
         _np = len(poly.exterior.coords) - 1
         na = [round(e_throat, 2)] * (_np + 1)
         layout.shapes.append(BuiltShape(
@@ -4663,6 +4699,11 @@ def _emit_tunnel_portals(
     exclusion_zones: list[Polygon] = []
     n_emitted = 0
     half_wall_w = retaining_wall_width_m / 2.0
+    # R8-3 (round-8 VHHH close-out): ONE AUTHORITY PER TUNNEL.  Built
+    # ONCE per airport — it unions every classified object-tunnel body
+    # that actually cut a trench — and handed to every cluster.
+    _object_trench_u = _object_trench_body_union(layout)
+    _object_trench_stats: dict = {}
     # id(shape) → source OSM way id of the cluster that emitted it, for
     # the ruling-4 safety-floor log line (BuiltShape carries no way id).
     _ramp_way_ids: dict[int, object] = {}
@@ -4672,7 +4713,9 @@ def _emit_tunnel_portals(
             cl, portal_data, nodes_m, layout, exclusion_zones,
             carriageway_width_m, tunnel_depth_m, wall_gap_m,
             retaining_wall_width_m, half_wall_w, _dem_at,
-            airside_gate_union=_airside_gate_u)
+            airside_gate_union=_airside_gate_u,
+            object_trench_union=_object_trench_u,
+            object_trench_yield_stats=_object_trench_stats)
         try:
             _cl_wid = portal_data[cl[0]][1]
         except (IndexError, TypeError):
@@ -4681,6 +4724,16 @@ def _emit_tunnel_portals(
             for _s9 in layout.shapes[_n_before:]:
                 if getattr(_s9, "ref", "") == "tunnel_ramp":
                     _ramp_way_ids[id(_s9)] = _cl_wid
+    if _object_trench_stats:
+        UI.vprint(
+            1,
+            f"  [tunnel] R8-3 object-trench yield: "
+            f"{_object_trench_stats.get('dropped', 0)} OSM ramp/wall "
+            f"piece(s) dropped and "
+            f"{_object_trench_stats.get('clipped', 0)} clipped inside "
+            f"classified object-tunnel bodies (+"
+            f"{_OBJECT_TRENCH_YIELD_MARGIN_M:g} m) — the object trench is "
+            f"the rendered truth there.")
     _emit_low_corridor_connectors(
         layout, _low_corridors, exclusion_zones,
         _airside_gate_u, _airport_elevation_at, _dem_at,
@@ -6087,6 +6140,157 @@ def _portal_pair_owned_polygons(pairs):
         except _GEOM_EXC:
             continue
     return polygons
+
+
+# ── R8-3: ONE AUTHORITY PER TUNNEL — OBJECTS OWN, OSM YIELDS ──────
+# (docs/specs/round8-vhhh-closeout-spec.md R8-3, owner in-sim VHHH
+# 1.0.232 screenshots.)  MEASURED: the emitted object trenches and the
+# OSM-derived ramps/walls disagree by 2-7.6 m per structure — 58 % of
+# OSM ramp area lies outside every pack body, and 61 overlapping quads
+# carry -1..+5.4 m altitude conflicts.  Those are the jagged seams in
+# the screenshots: two authorities grading one tunnel.
+#
+# THE LAW.  Where a CLASSIFIED object tunnel owns ground, the OSM tunnel
+# chain YIELDS — the object trench is the rendered truth.  The owned
+# region is the body-footprint union
+# (``object_terrain_assembly._tunnel_footprint_longitude_latitude_parts``,
+# the ONE body-outline reader) dilated by a small margin.
+#
+# ONLY WHERE A TRENCH EXISTS.  A classified body that emitted NO trench
+# floor (too thin, fully pavement-yielded, or the uncovered ``tunnel4``
+# class) owns nothing on the ground: there is no object surface there to
+# be the truth, so its OSM ramps must survive untouched.  The predicate
+# is therefore the EMITTED plate, not the classification — a body counts
+# only when a ``ROLE_TUNNEL_TRENCH`` floor pan actually intersects it.
+#
+# OSM-ONLY TUNNELS (no classified object at all) emit exactly as today.
+
+#: The margin the OSM chain yields BEYOND a classified object tunnel's
+#: body outline (spec R8-3: "those bodies ⊕ a small margin (2 m)").  It
+#: covers the trench rim band's own outward reach, so a ramp quad does
+#: not land in the wall batter.
+_OBJECT_TRENCH_YIELD_MARGIN_M = 2.0
+
+#: A piece with at least this fraction of its area inside a classified
+#: body is DROPPED rather than clipped.
+_OBJECT_TRENCH_YIELD_DROP_FRACTION = 0.5
+
+
+def _object_trench_body_union(layout, margin_m: float | None = None):
+    """Union (layout metres) of every CLASSIFIED object-tunnel body that
+    actually HAS a trench cut under it, dilated by ``margin_m``.
+
+    ``None`` when the gate is off, nothing is classified, or no classified
+    body carries an emitted floor pan — in which case the OSM tunnel chain
+    is untouched, which is exactly the ``tunnel4_done`` case (a body with
+    no trench must not lose its OSM ramps).
+    """
+    if margin_m is None:
+        margin_m = _OBJECT_TRENCH_YIELD_MARGIN_M
+    classification = _object_bridge_classification(layout)
+    if classification is None:
+        return None
+    tunnels = getattr(classification, "tunnels", None) or []
+    if not tunnels:
+        return None
+    # THE PREDICATE: an EMITTED floor pan, not a classification.  The
+    # plates are ``object_terrain_assembly.build_tunnel_layout_shapes``'s
+    # own ``f"{plate_prefix}_trench"`` refs (``object_tunnel_trench`` /
+    # ``object_basin_trench``), born pre-solve, so they are already in
+    # ``layout.shapes`` when this legacy emitter runs (finalize).
+    floors = [
+        shape.polygon for shape in layout.shapes
+        if shape.role == ROLE_TUNNEL_TRENCH
+        and str(getattr(shape, "ref", "") or "").endswith("_trench")
+        and shape.polygon is not None and not shape.polygon.is_empty
+    ]
+    if not floors:
+        return None
+    try:
+        floor_union = unary_union(floors)
+    except _GEOM_EXC:                                     # pragma: no cover
+        return None
+
+    from .object_terrain_assembly import _tunnel_footprint_meters_parts
+
+    to_meters, _meters_to_lat_lon = _local_meter_projections(layout.anchor)
+    bodies: list = []
+    for tunnel in tunnels:
+        try:
+            parts = _tunnel_footprint_meters_parts(tunnel, to_meters)
+        except Exception:                                 # pragma: no cover
+            continue
+        if not parts:
+            continue
+        try:
+            body = unary_union(parts)
+            if body.is_empty or not body.intersects(floor_union):
+                continue
+            bodies.append(body)
+        except _GEOM_EXC:                                 # pragma: no cover
+            continue
+    if not bodies:
+        return None
+    try:
+        return unary_union(bodies).buffer(float(margin_m))
+    except _GEOM_EXC:                                     # pragma: no cover
+        return None
+
+
+def _yield_piece_to_object_trench(polygon, trench_union, *,
+                                  corner_shared: bool,
+                                  min_area_m2: float = 0.5,
+                                  stats: dict | None = None):
+    """The R8-3 yield for ONE emitted OSM tunnel piece.
+
+    Returns the polygon to emit, or ``None`` to drop it.
+
+    ``corner_shared`` says whether this piece shares its corner NODES
+    with its neighbours in the chain (every ramp quad and the fork
+    throat do — see this file's "RAMP-INTERNAL CORNER AGREEMENT"
+    comments).  Such a piece is DROPPED or KEPT WHOLE, never clipped: a
+    clip mints new corners on the cut line whose altitude disagrees with
+    what the neighbour quad offers the same shared nodes, which is the
+    exact class of defect those comments were written for.  Flat,
+    independently-valued pieces (the retaining-wall bands) are CLIPPED,
+    so a wall that only grazes a body keeps the part outside it.
+    """
+    if trench_union is None or polygon is None or polygon.is_empty:
+        return polygon
+    try:
+        if not polygon.intersects(trench_union):
+            return polygon
+        inside_area = polygon.intersection(trench_union).area
+    except _GEOM_EXC:                                     # pragma: no cover
+        return polygon
+    if inside_area <= 0.0:
+        return polygon
+    area = polygon.area or 1.0
+    if inside_area >= _OBJECT_TRENCH_YIELD_DROP_FRACTION * area:
+        if stats is not None:
+            stats["dropped"] = stats.get("dropped", 0) + 1
+        return None
+    if corner_shared:
+        return polygon
+    try:
+        remainder = polygon.difference(trench_union)
+    except _GEOM_EXC:                                     # pragma: no cover
+        return polygon
+    parts = [geometry for geometry in getattr(
+        remainder, "geoms", [remainder])
+        if geometry.geom_type == "Polygon" and not geometry.is_empty]
+    if not parts:
+        if stats is not None:
+            stats["dropped"] = stats.get("dropped", 0) + 1
+        return None
+    largest = max(parts, key=lambda geometry: geometry.area)
+    if largest.area < float(min_area_m2):
+        if stats is not None:
+            stats["dropped"] = stats.get("dropped", 0) + 1
+        return None
+    if stats is not None:
+        stats["clipped"] = stats.get("clipped", 0) + 1
+    return largest
 
 
 def _classifier_owned_crossing_union(layout):

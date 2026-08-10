@@ -8031,6 +8031,61 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 "record": substitution["record"],
             }
         )
+        # R8-1 (round-8 VHHH close-out spec): ONE MORE CONSTANT INSET PER
+        # CLAIMED-PLACEMENT CLUSTER.  An airport's pack can place hundreds
+        # of objects on ground the apt.dat record never mentions (VHHH's
+        # HZMB reclamation: 121+ placements, 894 m outside the extent, a
+        # 7.32 m step at its edge).  Those clusters are the airport's
+        # claimed ground and take the same Z0 — but each gets its OWN
+        # rectangle, never a grown bbox: the measured 450 m open channel
+        # between the airport and the island must stay SEA, and one box
+        # spanning both would flatten it.
+        for cluster in (substitution.get("object_clusters") or ()):
+            cx0, cy0, cx1, cy1 = cluster["extent_deg"]
+            cluster_inset = _ConstantInset(
+                cx0, cy0, cx1, cy1, substitution["z0_m"],
+                label="%s synthetic flat-site object-cluster inset" % icao,
+            )
+            try:
+                _bake_one_inset(tile, None, feather_m, inset=cluster_inset)
+            except Exception as error:
+                UI.vprint(
+                    0,
+                    "   ERROR: FLAT-SITE mode could not bake the synthetic "
+                    "object-cluster inset for",
+                    icao,
+                    "(",
+                    type(error).__name__,
+                    ":",
+                    str(error),
+                    ") - that cluster stays on the real surface.",
+                )
+                continue
+            stamped.append(
+                {
+                    "icao": icao,
+                    "kind": "synthetic_flat_site_object_cluster",
+                    "verdict": substitution.get("verdict"),
+                    "z0_m": substitution["z0_m"],
+                    "extent_tile_degrees": [cx0, cy0, cx1, cy1],
+                    "extent_wgs84": [
+                        tile.lon + cx0, tile.lat + cy0,
+                        tile.lon + cx1, tile.lat + cy1,
+                    ],
+                    "extent_area_km2": cluster.get("extent_area_km2"),
+                    "claimed_placements": cluster.get("placements"),
+                    "feather_m": float(feather_m),
+                }
+            )
+            UI.vprint(
+                0,
+                "   [flat-site] %s: SYNTHETIC CONSTANT INSET at Z0 %.2f m "
+                "over a CLAIMED-OBJECT cluster of %d placement(s), %.2f km2 "
+                "(feather %g m)."
+                % (icao, substitution["z0_m"],
+                   cluster.get("placements") or 0,
+                   cluster.get("extent_area_km2") or 0.0, feather_m),
+            )
         UI.vprint(
             0,
             "   [flat-site] %s: SYNTHETIC CONSTANT INSET at Z0 %.2f m over "

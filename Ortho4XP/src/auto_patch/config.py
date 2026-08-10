@@ -105,6 +105,11 @@ __all__ = [
     "PAVEMENT_SCORE_SEVER_PINCH_MAX_M",
     "PAVEMENT_SCORE_SEVER_FRONTAGE_W_M",
     "PAVEMENT_SCORE_BOUNDARY_OUT_FRAC",
+    "PAVEMENT_SCORE_RUNWAY_CONTACT_TOL_M",
+    "PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_M",
+    "PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_FRAC",
+    "PAVEMENT_SCORE_APRON_MIN_HALF_WIDTH_M",
+    "PAVEMENT_SCORE_TUNNEL_VETO_FRAC",
     "PAINTED_CENTERLINE_FALLBACK",
     "ENABLE_APRON_NECK_SPLIT",
     "HOLE_ROUTER_ENABLED",
@@ -1307,6 +1312,19 @@ TUNNEL_ROOF_PLATE_MAX_LENGTH_M = 120.0
 # restores tag-only tunnel detection.
 IMPLIED_CROSSING_TUNNELS = _os_early.environ.get(
     "O4_IMPLIED_TUNNELS", "1") == "1"
+# TAG EVIDENCE FOR IMPLIED BORES (owner spec round4-othh-fixes,
+# 2026-08-10, R4).  A purely GEOMETRIC crossing is never a tunnel:
+# synthesis requires the crossing way — or a way its chain connects to
+# within ``IMPLIED_TUNNEL_TAG_EVIDENCE_M`` — to carry ``tunnel=yes``
+# (any ``TUNNEL_VALUES`` member) or ``layer`` < 0.  Measured at OTHH on
+# 1.0.229: the S1 ramps (25.2531, 51.6209) were engine-FABRICATED under
+# untagged tertiary ways with no OSM tunnel on their chain at all.  S4's
+# pair — untagged CONTINUATIONS of a mapped bore, sharing its portal
+# junction — still qualifies.  ``O4_IMPLIED_TUNNEL_TAG_EVIDENCE=0``
+# restores the pre-ruling purely-geometric synthesis.
+IMPLIED_TUNNEL_TAG_EVIDENCE = _os_early.environ.get(
+    "O4_IMPLIED_TUNNEL_TAG_EVIDENCE", "1") == "1"
+IMPLIED_TUNNEL_TAG_EVIDENCE_M = 100.0
 # Y-fork throat junction (user 2026-06-12, KPHL RWY 26 north portal:
 # road+rail share a bore then fork outside).  When True, the diverging
 # end of a Y-split tunnel is modelled like a taxiway sloping-rect +
@@ -2670,6 +2688,41 @@ PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2 = float(
 # evidence instead.
 PAVEMENT_SCORE_BOUNDARY_OUT_FRAC = float(
     _os.environ.get("O4_PAVEMENT_SCORE_BOUNDARY_OUT_FRAC", "0.95"))
+# ── R3 CLASSIFICATION HARD GATES (owner rulings 2026-08-10) ──────────
+# G-RUNWAY-CONTACT — "Pavement touching a runway cannot be apron".  The
+# legacy near-runway apron rule exists but is DEAD under scorer v2
+# (``pipeline`` gates it behind ``_scorer_owns_roles``); this gate is
+# its v2 rebirth.  Contact is measured as SHARED PERIMETER: the part of
+# the candidate's own ring lying within ``..._TOL_M`` of the runway
+# ring.  Either bar qualifies — an absolute length (the same "a mouth
+# cannot reach it" argument as ``_SERVICE_ADJ_MIN_M``) or a fraction of
+# the candidate's own perimeter.  Measured specimen (OTHH 1.0.229):
+# sid102, 376 m², 51 % of its perimeter on the runway.
+PAVEMENT_SCORE_RUNWAY_CONTACT_TOL_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_RUNWAY_CONTACT_TOL_M", "0.5"))
+PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_M", "1.0"))
+PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_FRAC", "0.10"))
+# G-APRON-WIDTH — "the entire shape narrower than a taxiway cannot be
+# apron".  A candidate that VANISHES under this erosion half-width is
+# nowhere wider than twice it, i.e. narrower than any taxiway, so no
+# aircraft can stand on it.  Measured specimens (OTHH 1.0.229): sid105
+# (4.1 m OBB width), sid104 (2.4 m).  Deliberately far below a real
+# taxiway width — the gate is a floor no apron can be under, not a
+# taxiway-width test.
+PAVEMENT_SCORE_APRON_MIN_HALF_WIDTH_M = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_APRON_MIN_HALF_WIDTH_M", "2.0"))
+# G-TUNNEL-ROAD — "tunneled roads are not surface roads".  A candidate
+# covered this much by the corridor of a BELOW-GRADE way (``tunnel``
+# tagged or ``layer`` < 0) is painted over a bore, not a free surface
+# road, so SERVICE is off the table.  Same 0.25 bar as G-VETO — one
+# quarter of a shape's area is an identity claim, not a clip.  Measured
+# specimen (OTHH 1.0.229): sid103, a 2.5 m "service road" ribbon over
+# the mapped tunnel pair -9169/-9170.
+PAVEMENT_SCORE_TUNNEL_VETO_FRAC = float(
+    _os.environ.get("O4_PAVEMENT_SCORE_TUNNEL_VETO_FRAC",
+                    str(PAVEMENT_SCORE_VETO_FRAC)))
 # Severance PINCH test (owner CYXY building4, 2026-07-28): a remainder
 # is severed only when it hangs off the reachable side through a
 # NARROW interface (a true pinch an aircraft cannot pass).  A piece

@@ -96,7 +96,7 @@ class TestCarriagewayWidthFromTags:
 # ──────────────────────────────────────────────────────────────────
 # B. Implied-bore level-crossing veto
 # ──────────────────────────────────────────────────────────────────
-def _make_crossing_scene() -> tuple:
+def _make_crossing_scene(road_tags: dict | None = None) -> tuple:
     """Build the synthetic runway-crossing scene in LOCAL METRES.
 
     Returns ``(layout, nodes_m, road_node_ids, road_way)`` where:
@@ -108,8 +108,14 @@ def _make_crossing_scene() -> tuple:
         ``y = -300`` to ``y = 300``.
 
     The crossing segment (``y ∈ [-25, 25]``) is 50 m long — comfortably
-    inside the implied-bore length window — so with no level-crossing
-    evidence exactly one synthetic bore piece is produced.
+    inside the implied-bore length window.
+
+    ``road_tags`` REPLACES the way's tags.  The default carries
+    ``layer=-1`` because since the R4 ruling (owner 2026-08-10) a
+    crossing with no tag evidence at all raises no bore — the
+    level-crossing block below is about the VETO, so its scenes state
+    the below-grade evidence explicitly and let the veto be the only
+    thing under test.  The R4 block builds its own untagged scenes.
     """
     runway = BuiltShape(polygon=box(0.0, -25.0, 1000.0, 25.0),
                         role="runway")
@@ -122,7 +128,9 @@ def _make_crossing_scene() -> tuple:
         "n5": (500.0, 300.0),
     }
     road_node_ids = ["n1", "n2", "n3", "n4", "n5"]
-    road_way = ("road1", road_node_ids, {"highway": "primary"})
+    road_way = ("road1", road_node_ids,
+                dict(road_tags) if road_tags is not None
+                else {"highway": "primary", "layer": "-1"})
     return layout, nodes_m, road_node_ids, road_way
 
 
@@ -137,7 +145,7 @@ class TestImpliedBoreLevelCrossingVeto:
     within the veto radii keeps it at grade instead."""
 
     def test_baseline_synthesizes_one_bore(self) -> None:
-        """No node tags → exactly one synthetic bore piece (sanity)."""
+        """No node tags, below-grade way → one bore piece (sanity)."""
         layout, nodes_m, _ids, road_way = _make_crossing_scene()
         ways, _gaps = bridges._synthesize_implied_crossing_bores(
             layout, dict(nodes_m), [road_way], None,
@@ -207,6 +215,122 @@ class TestImpliedBoreLevelCrossingVeto:
         assert len(bores) == 1
         # Mapped-tunnel bore pieces still assert as excavated tunnels.
         assert bores[0][2].get("tunnel") == "yes"
+
+
+# ──────────────────────────────────────────────────────────────────
+# B2. R4 — implied bores require TAG EVIDENCE (owner 2026-08-10)
+# ──────────────────────────────────────────────────────────────────
+class TestImpliedBoreRequiresTagEvidence:
+    """Owner ruling (spec ``round4-othh-fixes``, R4): "synthesis
+    requires TAG EVIDENCE — the crossing way, or a way its chain
+    connects to within 100 m, carries ``tunnel=yes`` or ``layer`` < 0.
+    A purely geometric crossing is never a tunnel."
+
+    The scenes reuse ``_make_crossing_scene``'s runway strip and the
+    perpendicular road at ``x = 500``; the crossing part spans
+    ``y ∈ [-25, 25]``, so ``n2`` at ``(500, -100)`` is 75 m from it
+    (inside the 100 m chain radius) and ``n1`` at ``(500, -300)`` is
+    275 m from it (outside).
+    """
+
+    _UNTAGGED = {"highway": "primary"}
+
+    def _bores(self, ways, nodes_m, layout):
+        out, _gaps = bridges._synthesize_implied_crossing_bores(
+            layout, dict(nodes_m), ways, None,
+            low_connector_max_gap_m=0.0, node_tags=None)
+        return _bore_pieces(out)
+
+    def test_untagged_geometric_crossing_raises_no_bore(self) -> None:
+        """The S1 class: an untagged public road crossing our pavement
+        is NOT a tunnel — no bore, way preserved intact."""
+        layout, nodes_m, ids, road = _make_crossing_scene(self._UNTAGGED)
+        out, _gaps = bridges._synthesize_implied_crossing_bores(
+            layout, dict(nodes_m), [road], None,
+            low_connector_max_gap_m=0.0, node_tags=None)
+        assert _bore_pieces(out) == []
+        assert any(w[0] == "road1" and w[1] == ids for w in out)
+
+    def test_layer_below_zero_on_the_way_is_evidence(self) -> None:
+        """``layer=-1`` on the crossing way itself qualifies it."""
+        layout, nodes_m, _ids, road = _make_crossing_scene(
+            {"highway": "primary", "layer": "-1"})
+        assert len(self._bores([road], nodes_m, layout)) == 1
+
+    def test_layer_at_or_above_zero_is_not_evidence(self) -> None:
+        """``layer=0`` / ``layer=1`` are surface (or overhead) — the
+        crossing stays a purely geometric one."""
+        for value in ("0", "1"):
+            layout, nodes_m, _ids, road = _make_crossing_scene(
+                {"highway": "primary", "layer": value})
+            assert self._bores([road], nodes_m, layout) == [], value
+
+    def test_chain_connected_mapped_tunnel_within_100m_qualifies(
+            self) -> None:
+        """The S4 class: an UNTAGGED continuation whose chain reaches a
+        mapped ``tunnel=yes`` way inside the radius keeps its bore.
+
+        The neighbour shares ``n2`` (75 m from the crossing) and runs
+        AWAY from the pavement, so it raises no bore of its own.
+        """
+        layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
+        nodes_m = dict(nodes_m)
+        nodes_m["t1"] = (700.0, -100.0)
+        neighbour = ("tun1", ["n2", "t1"],
+                     {"highway": "primary", "tunnel": "yes"})
+        bores = self._bores([road, neighbour], nodes_m, layout)
+        assert len(bores) == 1
+        assert bores[0][0].startswith("road1")
+
+    def test_chain_connection_beyond_the_radius_does_not_qualify(
+            self) -> None:
+        """The same neighbour hung off ``n1`` — 275 m from the crossing,
+        outside the 100 m radius — is not evidence."""
+        layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
+        nodes_m = dict(nodes_m)
+        nodes_m["t1"] = (700.0, -300.0)
+        neighbour = ("tun1", ["n1", "t1"],
+                     {"highway": "primary", "tunnel": "yes"})
+        assert self._bores([road, neighbour], nodes_m, layout) == []
+
+    def test_unconnected_tunnel_73m_away_is_not_evidence(self) -> None:
+        """The measured S1 counter-specimen: a mapped bore 73 m away on
+        a DIFFERENT chain is inside the radius but shares no junction,
+        so it authorises nothing (a proximity join would have passed
+        it)."""
+        layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
+        nodes_m = dict(nodes_m)
+        nodes_m["t1"] = (573.0, -300.0)
+        nodes_m["t2"] = (573.0, -40.0)
+        decoy = ("tun1", ["t1", "t2"],
+                 {"highway": "primary", "tunnel": "yes"})
+        assert self._bores([road, decoy], nodes_m, layout) == []
+
+    def test_gate_off_restores_the_geometric_synthesis(
+            self, monkeypatch) -> None:
+        """``O4_IMPLIED_TUNNEL_TAG_EVIDENCE=0`` reverts to the
+        pre-ruling behaviour (the owner's in-sim A/B lever)."""
+        monkeypatch.setattr(bridges, "IMPLIED_TUNNEL_TAG_EVIDENCE", False)
+        layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
+        assert len(self._bores([road], nodes_m, layout)) == 1
+
+
+class TestTunnelTagEvidencePredicate:
+    """``_has_tunnel_tag_evidence`` — the R4 tag test itself."""
+
+    @pytest.mark.parametrize("tags, expected", [
+        ({"tunnel": "yes"}, True),
+        ({"tunnel": "building_passage"}, True),
+        ({"tunnel": "no"}, False),
+        ({"layer": "-1"}, True),
+        ({"layer": "-2"}, True),
+        ({"layer": "0"}, False),
+        ({"layer": "2"}, False),
+        ({"layer": "garbage"}, False),
+        ({}, False),
+    ])
+    def test_predicate(self, tags: dict, expected: bool) -> None:
+        assert bridges._has_tunnel_tag_evidence(tags) is expected
 
 
 # ──────────────────────────────────────────────────────────────────

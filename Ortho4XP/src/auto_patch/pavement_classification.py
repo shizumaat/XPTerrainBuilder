@@ -267,6 +267,11 @@ class EvidenceSources:
     road_corridors: CoverIndex = field(
         default_factory=lambda: CoverIndex([]))
     road_lines: object | None = None          # feed centerlines (union)
+    # BELOW-GRADE road corridors (``tunnel`` tagged / ``layer`` < 0) —
+    # G-TUNNEL-ROAD evidence only (owner 2026-08-10), never surface-road
+    # coverage.  Empty when the feed maps no bore.
+    tunnel_corridors: CoverIndex = field(
+        default_factory=lambda: CoverIndex([]))
     parking_corridors: CoverIndex = field(
         default_factory=lambda: CoverIndex([]))
     osm_apron: CoverIndex = field(default_factory=lambda: CoverIndex([]))
@@ -364,8 +369,30 @@ def _osm_airside_unions(layout):
             _cover_index(taxi_geoms), _cover_index(airside_geoms), n_ways)
 
 
-def _road_corridor_index(layout) -> CoverIndex:
-    """Road-corridor coverage layer for the airport-region ROAD FEED.
+def _is_below_grade(tags) -> bool:
+    """True when ``tags`` place the way BELOW grade — ``tunnel`` tagged
+    (anything but the explicit no), or ``layer`` < 0.
+
+    The R3.3 owner ruling's evidence test (2026-08-10, "tunneled roads
+    are not surface roads"): the ``tunnel`` half is the standing corridor
+    law's own test (``clearance.road_corridors_from_ways``); ``layer``
+    < 0 joins it, because a way sunk under our pavement is no more a
+    surface road for carrying no tunnel tag.
+    """
+    if tags.get("tunnel", "no") not in ("", "no"):
+        return True
+    layer = tags.get("layer")
+    if layer is None:
+        return False
+    try:
+        return float(str(layer).split(";")[0]) < 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _road_corridor_index(layout):
+    """``(surface road corridors, BELOW-GRADE road corridors)`` for the
+    airport-region ROAD FEED, both as :class:`CoverIndex` layers.
 
     THE LAW IS THE SHARED ONE.  Every corridor comes from
     ``clearance.road_corridors_from_ways`` — the same function
@@ -375,6 +402,13 @@ def _road_corridor_index(layout) -> CoverIndex:
     the buffer the clearance consumer would see.  Tunnels are dropped
     and railways get the rail corridor by that shared law, not by a
     second copy of it here.
+
+    The BELOW-GRADE layer is the same law applied to the ways that law
+    drops (``_is_below_grade``): the tags are stripped before the call
+    so the shared buffer rule — not a second copy of it — produces the
+    corridor.  It is evidence for ONE thing: G-TUNNEL-ROAD (owner
+    2026-08-10), which takes SERVICE off the table for pavement painted
+    over a bore.  It is never surface-road coverage.
 
     WHAT DIFFERS from ``airport_road_feed_corridors`` is ONLY the
     batching — it is called per way instead of once for all of them, so
@@ -387,13 +421,19 @@ def _road_corridor_index(layout) -> CoverIndex:
     """
     network = getattr(layout, "airport_road_network", None)
     if network is None or not getattr(network, "ways", None):
-        return CoverIndex([])
+        return CoverIndex([]), CoverIndex([])
     from .clearance import road_corridors_from_ways
     ll_to_m = layout.ll_to_m
     widths = getattr(network, "widths", None)
     nodes = network.nodes
-    parts = []
+    parts, below = [], []
     for way in network.ways:
+        sink = parts
+        if _is_below_grade(way[2]):
+            sink = below
+            _surface_tags = {k: v for k, v in way[2].items()
+                             if k not in ("tunnel", "layer")}
+            way = (way[0], way[1], _surface_tags)
         try:
             corridor = road_corridors_from_ways(nodes, [way], ll_to_m,
                                                 widths=widths)
@@ -401,8 +441,8 @@ def _road_corridor_index(layout) -> CoverIndex:
             continue
         if corridor is None or corridor.is_empty:
             continue
-        parts.extend(getattr(corridor, "geoms", [corridor]))
-    return CoverIndex(parts)
+        sink.extend(getattr(corridor, "geoms", [corridor]))
+    return CoverIndex(parts), CoverIndex(below)
 
 
 def _road_feed_lines(layout):
@@ -427,7 +467,7 @@ def _road_feed_lines(layout):
     for way_id, node_refs, tags in network.ways:
         if tags.get("highway") is None:
             continue                       # railways are not centerlines
-        if tags.get("tunnel", "no") not in ("", "no"):
+        if _is_below_grade(tags):
             continue                       # matches the corridor law
         points = []
         for node_ref in node_refs:
@@ -466,7 +506,7 @@ def evidence_sources(layout) -> EvidenceSources:
     if cached is not None:
         return cached
     from .junction_repair import _aeroway_centerlines_union
-    corridors = _road_corridor_index(layout)
+    corridors, tunnel_corridors = _road_corridor_index(layout)
     road_lines, parking, n_road_ways = _road_feed_lines(layout)
     apron_u, stand_u, taxi_u, airside_u, n_osm = _osm_airside_unions(layout)
     try:
@@ -476,6 +516,7 @@ def evidence_sources(layout) -> EvidenceSources:
     sources = EvidenceSources(
         road_corridors=corridors,
         road_lines=road_lines,
+        tunnel_corridors=tunnel_corridors,
         parking_corridors=parking,
         osm_apron=apron_u,
         osm_stand=stand_u,

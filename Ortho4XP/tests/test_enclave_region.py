@@ -373,6 +373,57 @@ def test_surround_material_and_the_runway_end_regime_are_never_exempt():
         _rect(70.0, 50.0, 72.0, 52.0, ROLE_GRADED_STRIP)) is True
 
 
+def test_tunnel_shapes_are_never_exempt():
+    """R6 (owner spec ``round4-othh-fixes``, 2026-08-10): a tunnel ramp
+    / trench / portal wall is BELOW grade with its own portal profile —
+    the enclave law re-verdicts surface pavement, not a law-cut hole.
+
+    ``tunnel_ramp`` / ``tunnel_trench`` are roles; the portal walls
+    carry ``role=retaining_wall`` with ``ref="tunnel_wall"``, and only
+    THAT ref is pulled out — a plain retaining wall stays exempt (the
+    2026-08-07 HECA specimen the exemption was minted for)."""
+    from auto_patch.layout import ROLE_RETAINING_WALL, ROLE_TUNNEL_TRENCH
+
+    assert GF._enclave_exempt(
+        _rect(70.0, 50.0, 90.0, 70.0, ROLE_TUNNEL_RAMP)) is False
+    assert GF._enclave_exempt(
+        _rect(70.0, 50.0, 90.0, 70.0, ROLE_TUNNEL_TRENCH)) is False
+    wall = _rect(70.0, 50.0, 72.0, 70.0, ROLE_RETAINING_WALL)
+    wall.ref = "tunnel_wall"
+    assert GF._enclave_exempt(wall) is False
+    plain = _rect(70.0, 50.0, 72.0, 70.0, ROLE_RETAINING_WALL)
+    assert GF._enclave_exempt(plain) is True
+
+
+def test_a_tunnel_ramp_inside_a_published_enclave_blocks_the_gap():
+    """R6, the S6 mechanism in a fixture (OTHH, measured on 1.0.229).
+
+    The ordering is production's: the enclave regions are published at
+    CLASSIFICATION time, when no tunnel geometry exists yet, so the
+    escape clause sees nothing and the region IS an enclave.  ``bridges``
+    then emits the ramp INSIDE it, and the gap emitter — which runs
+    later still — used to exempt it and lay the drainage spine straight
+    through the ramp.  A tunnel shape now blocks on both blocker sets.
+    """
+    layout = _frame()
+    EN.publish_airside_enclaves(layout)
+    assert EN.airside_enclaves(layout)          # the region IS published
+    layout.shapes.append(
+        _rect(70.0, 50.0, 90.0, 70.0, ROLE_TUNNEL_RAMP))
+    assert GF.emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _gap_faces(layout) == []
+
+
+def test_the_gap_still_emits_without_the_ramp():
+    """The A/B control for the test above: identical frame, identical
+    publication, no tunnel shape — the ruled treatment is emitted, so
+    the blocker above is the ramp and not the fixture."""
+    layout = _frame()
+    EN.publish_airside_enclaves(layout)
+    assert GF.emit_gap_fill_spines(layout, None, 0, 0) >= 1
+    assert _gap_faces(layout)
+
+
 def test_a_wide_enclave_region_is_not_exempt_and_still_vetoes():
     """WIDTH-SCOPED EXEMPTION (2026-08-08).  A region the gap law will
     decline on WIDTH gains nothing from the exemption — the ruled ring +

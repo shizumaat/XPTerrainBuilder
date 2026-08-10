@@ -102,6 +102,8 @@ from .layout import (
     ROLE_RUNWAY_CROSSING,
     ROLE_SECONDARY_PARALLEL,
     ROLE_STUB,
+    ROLE_TUNNEL_RAMP,
+    ROLE_TUNNEL_TRENCH,
     RUNWAY_END_REGIME_REFS,
     taxi_shape_code_letter,
 )
@@ -138,6 +140,19 @@ _OPEN_FRONTAGE_REF = "open_frontage_spine"
 # corridor slab therefore never welds onto a foreign shape; the corridor
 # band / daylight law owns the 1 m collar.
 _OPEN_FRONTAGE_FOREIGN_STANDOFF_M = 1.0
+# TUNNEL BLOCKERS (R6, owner spec round4-othh-fixes 2026-08-10).  A
+# below-grade tunnel ramp / trench / portal wall is NOT enclave-interior
+# content the enclave law re-verdicts: it is a law-cut hole in the
+# ground with its own profile, and a drainage spine laid across it runs
+# THROUGH the ramp (OTHH S6, measured on 1.0.229).  ``_enclave_exempt``
+# therefore keeps them as blockers on both blocker sets, so the gap face
+# is never graded over them and no spine enters their footprint.
+# ``tunnel_ramp`` / ``tunnel_trench`` are ROLES; the portal walls carry
+# ``role=retaining_wall`` with ``ref="tunnel_wall"`` (bridges.py), and
+# only THAT ref is pulled out — a plain retaining wall stays exempt (the
+# 2026-08-07 HECA specimen this exemption was minted for).
+_TUNNEL_BLOCKER_ROLES = frozenset((ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH))
+_TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall",))
 # A cross-section thinner than this is not a gradeable half-gap — the
 # station is a pinch of the ring, not the drainage body.
 _MIN_CROSS_WIDTH_M = 2.0
@@ -2253,8 +2268,8 @@ def _enclave_exempt(shape) -> bool:
 
     The exemption covers the shapes an enclave interior CONTAINS and the
     enclave law re-verdicts — groundside pavement, service pieces,
-    terraces, bands and their walls.  Two classes are never exempt, and
-    neither is an exception to the law so much as a shape the law does
+    terraces, bands and their walls.  Three classes are never exempt, and
+    none is an exception to the law so much as a shape the law does
     not reach:
 
       * a SURROUND-role shape (``ENCLAVE_SURROUND_ROLES``) is part of the
@@ -2266,11 +2281,20 @@ def _enclave_exempt(shape) -> bool:
         the governed runway-end profile.  Whether it BOUNDS a gap or
         BLOCKS it is decided by its own sub-gate
         (``O4_GAP_FILL_SKIRT_PARENTS``); the enclave law does not
-        adjudicate that gate from underneath it.
+        adjudicate that gate from underneath it;
+      * a TUNNEL shape (``_TUNNEL_BLOCKER_ROLES`` /
+        ``_TUNNEL_BLOCKER_REFS``, R6 owner spec 2026-08-10) is BELOW
+        grade with its own portal profile — the enclave law re-verdicts
+        surface pavement, not a law-cut hole, and a gap face graded over
+        one puts the drainage spine THROUGH the ramp (OTHH S6).
     """
     if getattr(shape, "role", None) in ENCLAVE_SURROUND_ROLES:
         return False
     if getattr(shape, "ref", None) in RUNWAY_END_REGIME_REFS:
+        return False
+    if getattr(shape, "role", None) in _TUNNEL_BLOCKER_ROLES:
+        return False
+    if getattr(shape, "ref", None) in _TUNNEL_BLOCKER_REFS:
         return False
     return True
 

@@ -63,6 +63,7 @@ __all__ = [
     "apply_seed_pins",
     "skip_shape_ids",
     "band_skip_idx",
+    "certificate_exempt_idx",
     "format_log_line",
     "FastPathPlan",
     "PLAN_ATTRIBUTE",
@@ -420,6 +421,7 @@ class FastPathPlan:
     candidates: dict = field(default_factory=dict)
     eligible: set = field(default_factory=set)
     node_idx: set = field(default_factory=set)
+    pinned_idx: set = field(default_factory=set)
     exclusive_node_idx: set = field(default_factory=set)
     counts: dict = field(default_factory=dict)
     applied: bool = False
@@ -440,7 +442,7 @@ class FastPathPlan:
             z0_m=self.z0_m, verdict=self.verdict, feather_m=self.feather_m,
             candidates=dict(self.candidates),
             eligible=set(self.candidates),
-            node_idx=set(), exclusive_node_idx=set(),
+            node_idx=set(), pinned_idx=set(), exclusive_node_idx=set(),
             counts=dict(self.counts), applied=False)
 
 
@@ -555,6 +557,34 @@ def skip_shape_ids(layout) -> frozenset:
     return frozenset(plan.eligible) if plan is not None else frozenset()
 
 
+def certificate_exempt_idx(layout) -> frozenset:
+    """Node indices the FLATNESS CERTIFICATE must NOT treat as hard
+    (lead ruling 2026-08-10, approving this lane's open question).
+
+    ``_build_shape_constraints`` refuses the certificate to any shape
+    touching a ``hard_nodes`` member, and it states its own reason:
+    those nodes "sit at profile values, NOT the DEM seed", so a shape
+    touching one starts already off the seed the certificate is taken
+    at.  A BORN-AT-Z0 pin is the exact opposite case — the substituted
+    raster IS Z0, so the pin sits precisely AT its own DEM sample, and
+    that identity is what the equivalence twin proves.  Leaving it in the
+    hard set therefore refuses the certificate for a reason that is false
+    of it, and the cost lands on the shape's INELIGIBLE neighbours: every
+    junction or apron sharing one vertex with a born-at-Z0 shape falls
+    back to eager O(n²) pair generation (OTHH, measured: 118 of the 160
+    surviving junction candidates refused).
+
+    SCOPED TO THIS FAMILY'S OWN PINS, never to a hard node generally: a
+    vertex of an eligible shape that a SENIOR family (runway, tile seam,
+    bridge deck, runway-end skirt, EAT) had already hardened is NOT in
+    ``pinned_idx`` — that family owns the value, may hold it at a profile
+    value, and keeps its certificate-refusing power untouched.
+    """
+    plan = published_plan(layout)
+    return (frozenset(plan.pinned_idx) if plan is not None
+            else frozenset())
+
+
 def band_skip_idx(layout) -> frozenset:
     """Node indices the reach band may skip (spec §3).
 
@@ -606,6 +636,7 @@ def apply_seed_pins(layout, plan, nodes, bucket_to_idx, elev, is_hard,
     # the eligibility is re-derived from the geometric candidates each
     # time, rather than accumulated across two spaces.
     plan.node_idx = set()
+    plan.pinned_idx = set()
     plan.exclusive_node_idx = set()
     plan.eligible = set(plan.candidates)
 
@@ -672,6 +703,7 @@ def apply_seed_pins(layout, plan, nodes, bucket_to_idx, elev, is_hard,
             is_hard[i] = True
             have_initial[i] = True
             pinned.add(i)
+    plan.pinned_idx = set(pinned)
     plan.counts["pinned_nodes"] = len(pinned)
     plan.counts["eligible_shapes"] = len(plan.eligible)
 

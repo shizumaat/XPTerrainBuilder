@@ -1904,6 +1904,7 @@ def solve_route_profile(layout, icao: str,
         return
     _fp_skip = _fast_path.skip_shape_ids(layout)
     _fp_band_skip = _fast_path.band_skip_idx(layout)
+    _fp_cert_exempt = _fast_path.certificate_exempt_idx(layout)
     if _fp_skip:
         import O4_UI_Utils as _UI_fp
         _UI_fp.vprint(0, _fast_path.format_log_line(
@@ -1955,8 +1956,18 @@ def solve_route_profile(layout, icao: str,
     # certificate source) and the currently-hard nodes (runway/seam seeds +
     # runway nodes — a shape touching one sits at profile values, never the
     # DEM seed, so it is never certified).
-    _hard_for_certificate = ({i for i in range(len(elev)) if base_hard[i]}
-                             | {i for i in runway_nodes if i < len(elev)})
+    # FLAT-SITE FAST PATH exemption (lead ruling 2026-08-10): the born-at-Z0
+    # pins are the ONE hard family the sentence above is FALSE of — the
+    # substituted raster IS Z0, so such a pin sits exactly AT its own DEM
+    # sample.  Leaving them in refused the certificate for a reason that does
+    # not hold, and the cost fell on their INELIGIBLE neighbours: any junction
+    # or apron sharing a single vertex with a born-at-Z0 shape dropped to eager
+    # O(n²) pair generation.  Scoped to THIS family's own pins — a vertex a
+    # senior family had already hardened keeps its refusing power (see
+    # ``flat_fast_path.certificate_exempt_idx``).
+    _hard_for_certificate = (({i for i in range(len(elev)) if base_hard[i]}
+                              | {i for i in runway_nodes if i < len(elev)})
+                             - _fp_cert_exempt)
     shape_constraints = _build_shape_constraints(
         layout, bucket_to_idx, ctx=_gg_ctx, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon,

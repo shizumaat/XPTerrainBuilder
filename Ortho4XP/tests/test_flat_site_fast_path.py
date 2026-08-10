@@ -432,6 +432,113 @@ def test_born_flat_shapes_get_no_constraint_entry():
     assert len(with_skip) == len(without) - len(skip)
 
 
+# ── THE FLATNESS-CERTIFICATE EXEMPTION (lead ruling 2026-08-10) ─────
+#
+# ``_build_shape_constraints`` refuses the flatness certificate to any
+# shape touching a hard node, because such a node "sits at profile
+# values, not the DEM seed".  A born-at-Z0 pin is the one hard family
+# that is FALSE of — it sits exactly AT its DEM sample — so it is
+# exempted, and the exemption is scoped to THIS family's own pins.  Both
+# directions are pinned below.
+
+def _certificate_setup(*, senior_pin_value=None):
+    """Solve-entry state: node list, seeded elevations, and the two hard
+    sets the certificate tier is handed.
+
+    Adds J2 — a junction that SHARES the corner (400, 400) with the
+    born-at-Z0 apron A1 and runs down into the runway strip, so it is
+    itself INELIGIBLE.  That is the exact adjacency the ruling names."""
+    layout = _fixture()
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon([(400.0, 400.0), (450.0, 400.0), (450.0, 60.0),
+                         (400.0, 60.0), (400.0, 400.0)]),
+        role="junction", ref="J2"))
+    if senior_pin_value is not None:
+        from auto_patch.layout import vertex_bucket
+        # A PROFILE-valued senior pin on J2's own far corners (never on
+        # the shared vertex, so it cannot demote the apron).
+        layout._object_bridge_pin_values = {
+            vertex_bucket(450.0, 60.0): senior_pin_value,
+            vertex_bucket(400.0, 60.0): senior_pin_value,
+        }
+    plan = FP.build_plan(layout)
+    layout._flat_fast_path = plan
+    nodes, b2i = SP._build_node_list(layout)
+    elev, hard, _have = SP._seed_elevations(
+        layout, nodes, b2i, dem=_ConstDEM(), tile_lat=TILE_LAT,
+        tile_lon=TILE_LON)
+    runway_nodes = SP._runway_node_set(layout, b2i)
+    exempt = FP.certificate_exempt_idx(layout)
+    full = ({i for i in range(len(elev)) if hard[i]}
+            | {i for i in runway_nodes if i < len(elev)})
+    return layout, plan, b2i, full, exempt
+
+
+def _nodes_of(layout, b2i, ref):
+    shape = [s for s in layout.shapes if s.ref == ref][0]
+    coords = SP._open_ring(list(shape.polygon.exterior.coords))
+    out = set()
+    for x, y in coords:
+        i = b2i.get(layout.canonical_points.get_or_add(float(x), float(y)))
+        if i is not None:
+            out.add(i)
+    return out
+
+
+def test_a_shape_sharing_a_vertex_with_a_born_flat_shape_keeps_its_certificate():
+    """DIRECTION 1 — the exemption's whole purpose.
+
+    J2 is INELIGIBLE (it reaches into the runway strip) and shares the
+    corner (400, 400) with the born-at-Z0 apron A1.  Before the ruling
+    that one shared pin put J2 in the certificate's hard set and cost it
+    the lazy tier; now the pin is exempt and J2's node set is clean."""
+    layout, plan, b2i, full, exempt = _certificate_setup()
+    apron_nodes = _nodes_of(layout, b2i, "A1")
+    junction_nodes = _nodes_of(layout, b2i, "J2")
+    shared = apron_nodes & junction_nodes
+    assert shared, "the fixture lost its shared vertex"
+    assert shared <= plan.pinned_idx, "the shared vertex is not a born-at-Z0 pin"
+    # Without the exemption J2 would be hard-touching (the pre-ruling state)...
+    assert shared <= full
+    # ...and with it, J2 touches no member of the certificate's hard set.
+    assert plan.pinned_idx <= exempt
+    assert not (junction_nodes & (full - exempt)), (
+        "a born-at-Z0 vertex still refuses J2's certificate")
+
+
+def test_a_shape_touching_a_profile_valued_hard_node_still_loses_it():
+    """DIRECTION 2 — the exemption is scoped, not a blanket.
+
+    The SAME junction J2, now carrying a PROFILE-valued object-bridge
+    deck pin on its far corners.  That pin belongs to a senior family and
+    sits off Z0, so it must keep its certificate-refusing power."""
+    layout, plan, b2i, full, exempt = _certificate_setup(
+        senior_pin_value=Z0 + 3.0)
+    junction_nodes = _nodes_of(layout, b2i, "J2")
+    still_hard = junction_nodes & (full - exempt)
+    assert still_hard, (
+        "the profile-valued senior pin lost its certificate-refusing power")
+    assert not (still_hard & plan.pinned_idx)
+
+
+def test_a_senior_pin_at_z0_is_not_exempted_by_this_family():
+    """A vertex a SENIOR family already hardened is never in ``pinned_idx``
+    even when its value equals Z0 — that family owns it."""
+    from auto_patch.layout import vertex_bucket
+    layout = _fixture()
+    layout._object_bridge_pin_values = {vertex_bucket(400.0, 400.0): Z0}
+    plan = FP.build_plan(layout)
+    layout._flat_fast_path = plan
+    nodes, b2i = SP._build_node_list(layout)
+    SP._seed_elevations(layout, nodes, b2i, dem=_ConstDEM(),
+                        tile_lat=TILE_LAT, tile_lon=TILE_LON)
+    senior = b2i.get(layout.canonical_points.get_or_add(400.0, 400.0))
+    assert senior is not None
+    assert senior in plan.node_idx        # it IS a born-flat shape's vertex
+    assert senior not in plan.pinned_idx  # but this family did not write it
+    assert senior not in FP.certificate_exempt_idx(layout)
+
+
 def test_config_gate_reads_the_env_default():
     """Default ON; ``O4_FLAT_SITE_FAST_PATH=0`` is the kill switch."""
     module = importlib.reload(CFG)

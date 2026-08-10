@@ -52,6 +52,7 @@ __all__ = [
     "_terminal_groundside_zone",
     "_terminal_pad_from_building",
     "building_pad_accounting",
+    "clip_pads_by_water",
     "repunch_kept_ways_from_pads",
 ]
 
@@ -932,24 +933,25 @@ def _cluster_dsf_building_facades(
     return out
 
 
-def _clip_pad_by_ways(pad: Polygon, way_union) -> List[Polygon]:
-    """Subtract ``way_union`` from ``pad`` under the §2.3b remainder rules.
+def _clip_pad_by_union(pad: Polygon, clip_union) -> List[Polygon]:
+    """Subtract ``clip_union`` from ``pad`` under the §2.3b remainder rules.
 
-    Shared by the merge-time clip and the emission-time RE-PUNCH (§2.6):
-    remainder pieces under ``DSF_MIN_BUILDING_AREA_M2`` drop, a
+    THE ONE remainder law, three consumers: the merge-time kept-way clip,
+    the emission-time RE-PUNCH (§2.6) and the round-6 R6-1 WATER clip.
+    Remainder pieces under ``DSF_MIN_BUILDING_AREA_M2`` drop, a
     MultiPolygon remainder yields its parts separately, an EDGE-ONLY
     touch (zero-area intersection) leaves the pad untouched, and any
     geometry failure leaves the pad whole — the fallback never deletes
     a building.
     """
-    if pad is None or pad.is_empty or way_union is None:
+    if pad is None or pad.is_empty or clip_union is None:
         return [pad] if pad is not None and not pad.is_empty else []
     try:
-        if getattr(way_union, "is_empty", True):
+        if getattr(clip_union, "is_empty", True):
             return [pad]
-        if pad.intersection(way_union).area <= 0.0:
+        if pad.intersection(clip_union).area <= 0.0:
             return [pad]           # no overlap, or an edge-only touch
-        remainder = pad.difference(way_union)
+        remainder = pad.difference(clip_union)
     except _GEOM_EXC:
         return [pad]
     pieces = (remainder.geoms if hasattr(remainder, "geoms")
@@ -960,6 +962,38 @@ def _clip_pad_by_ways(pad: Polygon, way_union) -> List[Polygon]:
                 or piece.area < DSF_MIN_BUILDING_AREA_M2):
             continue
         out.append(piece)
+    return out
+
+
+def clip_pads_by_water(pads: List[Polygon], water_union) -> List[Polygon]:
+    """(R6-1, round-6 OTHH residuals spec) A DSF-CLUSTER BUILDING PAD
+    NEVER SPANS WATER: subtract the OSM water ∪ sea union from every pad.
+
+    Measured at OTHH on the 2026-08-10 rebuild: ``building1`` (way
+    -10001, 19,466 m²) carried 2,055 m² — 10.6 % — of open water, because
+    the DSF cluster's footprint ring is a CONVEX HULL
+    (``object_footprints.structure_ring``, ``DSF_OBJECT_FOOTPRINT_UNION``
+    off) and the hull bridged a lagoon and its shore.  Closing and
+    simplifying the ring added nothing: the hull is doing exactly what a
+    hull does, and the fix is a clip against the water, not a different
+    ring.
+
+    ``pads`` are the DSF-CLUSTER pads ONLY.  **OSM-WAY pads are never
+    clipped** — a mapper who drew a terminal way owns its footprint (the
+    OSM-authoritative merge, terminal-way spec §2), and at OTHH the Emiri
+    way -77 sits 27 m inland and clean.
+
+    Remainder rules are §2.3b's, via :func:`_clip_pad_by_union`: sub-20 m²
+    pieces drop, MultiPolygon parts emit separately, an edge-only touch
+    (a pad ending exactly at the shore) leaves the pad untouched, and any
+    geometry failure leaves the pad whole.
+    """
+    live = [p for p in pads if p is not None and not p.is_empty]
+    if water_union is None or getattr(water_union, "is_empty", True):
+        return live
+    out: List[Polygon] = []
+    for pad in live:
+        out.extend(_clip_pad_by_union(pad, water_union))
     return out
 
 
@@ -1002,7 +1036,7 @@ def repunch_kept_ways_from_pads(
     for pad in pads:
         if pad is None or pad.is_empty:
             continue
-        out.extend(_clip_pad_by_ways(pad, way_union))
+        out.extend(_clip_pad_by_union(pad, way_union))
     return out
 
 
@@ -1123,7 +1157,7 @@ def _combine_building_sources(
         except _GEOM_EXC:
             survivors.append(cb)  # cannot clip → cluster stands whole
             continue
-        survivors.extend(_clip_pad_by_ways(cb, way_union))
+        survivors.extend(_clip_pad_by_union(cb, way_union))
     return survivors + osm
 
 

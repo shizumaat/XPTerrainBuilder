@@ -1122,6 +1122,405 @@ def _bake_basin_rim_flush_facilities(
         )
 
 
+def _abutment_grade_sample_points(candidate) -> list:
+    """``(latitude, longitude)`` samples along BOTH certified abutment
+    lines of an R6-3 candidate, every
+    ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer.
+
+    Interpolation runs in the candidate anchor's local metre frame — the
+    same two ``obj8_reader`` projections every other object-terrain
+    consumer uses — so the sample density is metres, not degrees, and
+    nothing re-derives a frame.
+    """
+    from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
+
+    origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
+    out: list = []
+    for line in candidate.abutment_points_longitude_latitude:
+        if len(line) < 2:
+            continue
+        (start_x, start_z), (end_x, end_z) = [
+            obj8_reader.lonlat_to_local_offset(
+                origin_latitude, origin_longitude, 0.0, latitude, longitude
+            )
+            for longitude, latitude in line[:2]
+        ]
+        length = math.hypot(end_x - start_x, end_z - start_z)
+        step_count = max(
+            2, int(math.ceil(length / _ABUTMENT_GRADE_SAMPLE_STEP_M))
+        )
+        for index in range(step_count + 1):
+            fraction = index / step_count
+            out.append(
+                obj8_reader.local_offset_to_lonlat(
+                    origin_latitude,
+                    origin_longitude,
+                    0.0,
+                    start_x + (end_x - start_x) * fraction,
+                    start_z + (end_z - start_z) * fraction,
+                )
+            )
+    return out
+
+
+def _bake_bridge_abutment_seats(
+    candidates,
+    all_placements,
+    pack_root: str,
+    xplane_root: str | None,
+    mesh_path: str,
+    *,
+    epsilon_metres: float,
+    write_changes: bool,
+    measure_only: bool,
+    result: dict,
+) -> None:
+    """THE FLUSH-DECK ABUTMENT SEAT (docs/specs/round6-othh-residuals-
+    spec.md R6-3, owner in-sim residual 2026-08-10).
+
+    OTHH ``Bridge_01`` is a cosmetic flush deck classified
+    TERRAIN_CARRIED, so its resources are R4-EXCLUDED from the Phase 2
+    y-bake and it simply drapes.  Its anchor, though, sits OVER WATER —
+    the built mesh answers 0.00 m there and at every deck station — while
+    its own abutments stand on land ~3.96 m higher.  Draping on water is
+    not a seat; it is the absence of one.
+
+    Per candidate, one dedicated law::
+
+        G_abut = median BUILT-MESH elevation sampled along both certified
+                 abutment lines, every <= 5 m
+        drop   = G_abut - mesh_at_anchor
+        seat  <=>  drop > DSF_OBJECT_BAKE_MIN_DELTA_M   (the reseat
+                   threshold, 1.0 m — strictly more than, per the spec)
+
+    applied WHOLE-STRUCTURE-RIGIDLY: one seat target for every member,
+    each member's own delta measured from its OWN anchor's ground
+    (invariant I-3).  A candidate whose anchor samples land WITHIN the
+    threshold is left exactly as today — excluded and draped — and says
+    so in its record; that is the regression pin for OTHH Bridge_02 / 03
+    / 06.
+
+    ``measure_only`` (the tile's ``modify_custom_airports`` switch off)
+    is honoured exactly as the generic and basin laws honour it: the
+    decision is computed and RECORDED, no delta is produced, nothing is
+    written to the pack, and ``object_rebake.apply`` still runs so a
+    previously baked pack converges back to its authored bytes.
+    """
+    if not candidates:
+        return
+
+    from dataclasses import replace
+    from statistics import median
+
+    from .config import DSF_OBJECT_BAKE_MIN_DELTA_M
+    from .object_terrain_assembly import BRIDGE_ABUTMENT_SEAT_DECISION_KIND
+
+    threshold_metres = float(DSF_OBJECT_BAKE_MIN_DELTA_M)
+
+    placement_count_by_resource: dict[str, int] = {}
+    for placement in all_placements:
+        placement_count_by_resource[placement.resource_path] = (
+            placement_count_by_resource.get(placement.resource_path, 0) + 1
+        )
+
+    for candidate in candidates:
+        member_resources = set(candidate.object_resources)
+        record = {
+            "resources": sorted(member_resources),
+            "anchor_longitude_latitude": list(
+                candidate.anchor_longitude_latitude),
+            "deck_top_y_m": float(candidate.deck_top_y_m),
+            "reseat_threshold_m": threshold_metres,
+            "measure_only": bool(measure_only),
+            "baked": False,
+            "decision_kind": BRIDGE_ABUTMENT_SEAT_DECISION_KIND,
+        }
+        result["bridge_abutment_seat"].append(record)
+
+        member_placements = [
+            placement
+            for placement in all_placements
+            if placement.resource_path in member_resources
+        ]
+        if not member_placements:
+            record["decision"] = (
+                "not seated — no member placement in this DSF")
+            continue
+
+        sample_points = _abutment_grade_sample_points(candidate)
+        if not sample_points:
+            record["decision"] = (
+                "not seated — the abutment lines are degenerate, so no "
+                "land witness could be sampled")
+            continue
+
+        skipped: list = []
+        (
+            resolved_paths,
+            geometry_by_resource,
+            geometry_source_by_resource,
+        ) = _resolve_pack_geometry(
+            member_placements,
+            placement_count_by_resource,
+            pack_root,
+            xplane_root,
+            skipped,
+            # The classifier admitted this bridge; the generic law's size
+            # test has nothing to say about it (see the helper).
+            apply_reach_floor=False,
+        )
+        result["skipped"].extend(skipped)
+        if not resolved_paths:
+            record["decision"] = (
+                "not seated — no usable member geometry resolved inside "
+                "the pack")
+            continue
+
+        anchor_longitude, anchor_latitude = (
+            candidate.anchor_longitude_latitude)
+        latitudes = [latitude for latitude, _longitude in sample_points]
+        longitudes = [longitude for _latitude, longitude in sample_points]
+        latitudes.append(anchor_latitude)
+        longitudes.append(anchor_longitude)
+        for placement in member_placements:
+            latitudes.append(placement.latitude)
+            longitudes.append(placement.longitude)
+        bounds = (
+            min(longitudes), min(latitudes),
+            max(longitudes), max(latitudes),
+        )
+        try:
+            sampler = MeshElevationSampler(mesh_path, bounds)
+        except (ValueError, OSError) as error:
+            # Invariant I-13: no mesh here means no answer, never a
+            # plausible one.
+            record["decision"] = (
+                f"not seated — no mesh under the bridge ({error})")
+            continue
+
+        abutment_samples = []
+        for latitude, longitude in sample_points:
+            elevation = sampler.elevation_at_or_none(latitude, longitude)
+            if elevation is not None and elevation == elevation:
+                abutment_samples.append(float(elevation))
+        if not abutment_samples:
+            record["decision"] = (
+                "not seated — the built mesh answered nowhere along the "
+                "abutment lines, so the abutment grade is unmeasured "
+                "(never guessed)")
+            continue
+        abutment_grade = float(median(abutment_samples))
+        record["abutment_grade_m"] = abutment_grade
+        record["abutment_sample_count"] = len(abutment_samples)
+
+        anchor_elevation = sampler.elevation_at_or_none(
+            anchor_latitude, anchor_longitude)
+        if anchor_elevation is None or anchor_elevation != anchor_elevation:
+            record["decision"] = (
+                "not seated — the structure anchor lies outside the built "
+                "mesh; never nearest-vertex sampled (invariant I-13)")
+            continue
+        anchor_ground = float(anchor_elevation)
+        record["mesh_at_anchor_m"] = anchor_ground
+        drop_metres = abutment_grade - anchor_ground
+        record["drop_m"] = drop_metres
+
+        # THE THRESHOLD (spec R6-3): strictly MORE than the reseat
+        # threshold below the certified abutment grade.  Anything else —
+        # including an anchor ABOVE the abutments — stays excluded and
+        # draped, which is the whole of today's behaviour for this class.
+        if not drop_metres > threshold_metres:
+            record["decision"] = (
+                f"not seated — the anchor ground {anchor_ground:.2f} m is "
+                f"{drop_metres:.2f} m below the certified abutment grade "
+                f"{abutment_grade:.2f} m, within the "
+                f"{threshold_metres:.2f} m reseat threshold "
+                "(DSF_OBJECT_BAKE_MIN_DELTA_M); the bridge stays "
+                "R4-excluded and drapes as authored")
+            UI.vprint(
+                2,
+                "  [object-anchor] bridge_abutment_seat "
+                f"{sorted(member_resources)}: " + record["decision"],
+            )
+            continue
+
+        anchor_ground_by_resource: dict[str, float] = {}
+        anchor_by_resource: dict[str, tuple[float, float, float]] = {}
+        unmeasured_anchor = None
+        for placement in member_placements:
+            if placement.resource_path not in resolved_paths:
+                continue
+            member_ground = sampler.elevation_at_or_none(
+                placement.latitude, placement.longitude
+            )
+            if member_ground is None:
+                unmeasured_anchor = placement.resource_path
+                break
+            # Amendment A18: an OBJECT_AGL placement puts y = 0 at
+            # terrain(anchor) + elevation.
+            anchor_ground_by_resource[placement.resource_path] = (
+                member_ground + placement.above_ground_level_metres
+            )
+            anchor_by_resource[placement.resource_path] = (
+                placement.latitude,
+                placement.longitude,
+                placement.heading_degrees,
+            )
+        if unmeasured_anchor is not None or not anchor_ground_by_resource:
+            record["decision"] = (
+                "not seated — a member anchor lies outside the built mesh "
+                f"({unmeasured_anchor}); never nearest-vertex sampled "
+                "(invariant I-13)")
+            for placement in member_placements:
+                result["skipped"].append(
+                    (
+                        placement.resource_path,
+                        "bridge abutment seat: a member anchor lies "
+                        "outside the built mesh — bridge left unseated "
+                        "(invariant I-13)",
+                    )
+                )
+            continue
+
+        record["expected_deck_top_m"] = (
+            abutment_grade + float(candidate.deck_top_y_m))
+
+        pools = object_anchor.discover_object_pools(
+            [
+                placement
+                for placement in member_placements
+                if placement.resource_path in resolved_paths
+            ],
+            resolved_paths,
+            geometry_by_resource,
+            epsilon_metres=epsilon_metres,
+        )
+        baked_resources: list[str] = []
+        for pool in pools:
+            pool_geometry_by_resource = {
+                resource_path: geometry_by_resource[resource_path]
+                for resource_path in pool.resolved_paths
+            }
+            structures = _cached_partition_structures(
+                pool,
+                pool_geometry_by_resource,
+                geometry_source_by_resource,
+                pack_root,
+                epsilon_metres,
+            )
+            delta_by_resource_and_vertex: dict[str, dict[int, float]] = {}
+            decision_structures = []
+            for structure in structures:
+                if measure_only:
+                    decision_structures.append(
+                        replace(
+                            structure,
+                            skip_reason=(
+                                "modify_custom_airports is off — "
+                                "measure-only run: the "
+                                "bridge_abutment_seat was computed and "
+                                "recorded, the pack is not modified"
+                            ),
+                        )
+                    )
+                    continue
+                decision_structures.append(structure)
+                for resource_path, triangles in (
+                    structure.triangles_by_resource.items()
+                ):
+                    if resource_path not in anchor_ground_by_resource:
+                        continue
+                    # WHOLE-STRUCTURE RIGID: one seat target, each
+                    # member's delta from its own anchor ground.
+                    delta = (
+                        abutment_grade
+                        - anchor_ground_by_resource[resource_path]
+                    )
+                    resource_deltas = (
+                        delta_by_resource_and_vertex.setdefault(
+                            resource_path, {})
+                    )
+                    for triangle in triangles:
+                        for vertex_index in triangle:
+                            resource_deltas[vertex_index] = delta
+            pool_resources = set(pool.resolved_paths)
+            decision = object_anchor.RebakeDecision(
+                structures=decision_structures,
+                delta_by_resource_and_vertex=delta_by_resource_and_vertex,
+                # Scoped to THIS pool: ``object_rebake.apply``'s
+                # reversion pass un-bakes every resource a decision
+                # "knows" but did not write.
+                anchor_ground_by_resource={
+                    resource_path: ground
+                    for resource_path, ground
+                    in anchor_ground_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                skipped=[],
+                anchor_by_resource={
+                    resource_path: anchor
+                    for resource_path, anchor
+                    in anchor_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                decision_kind_by_resource={
+                    resource_path: BRIDGE_ABUTMENT_SEAT_DECISION_KIND
+                    for resource_path in delta_by_resource_and_vertex
+                },
+            )
+            result["decisions"].append((pool, decision))
+            if write_changes:
+                report = object_rebake.apply(decision, pack_root, mesh_path)
+                result["objects_written"].extend(report.objects_written)
+                result["vertices_offset"] += report.vertices_offset_total
+                result["structures_baked"] += report.structures_baked
+                result["structures_needing_pad"] += (
+                    report.structures_needing_pad
+                )
+                result["skipped"].extend(report.skipped)
+                result["objects_reverted"].extend(report.objects_reverted)
+                result["reversions_missing_backup"].extend(
+                    report.reversions_missing_backup
+                )
+                result["partially_baked"].extend(report.partially_baked)
+                baked_resources.extend(report.objects_written)
+            else:
+                result["structures_baked"] += sum(
+                    1
+                    for structure in decision_structures
+                    if structure.skip_reason is None
+                )
+                baked_resources.extend(
+                    sorted(delta_by_resource_and_vertex))
+        # "baked" means the pack was WRITTEN.  A dry run computes the
+        # same seat and writes nothing.
+        record["baked"] = bool(baked_resources) and write_changes
+        record["dry_run"] = not write_changes
+        record["objects_written"] = sorted(set(baked_resources))
+        if measure_only:
+            record["decision"] = (
+                "measure-only (modify_custom_airports off): "
+                "bridge_abutment_seat at abutment grade "
+                f"{abutment_grade:.2f} m recorded, drop "
+                f"{drop_metres:.2f} m NOT written")
+        else:
+            record["decision"] = (
+                ("bridge_abutment_seat (dry run, nothing written): would "
+                 "seat " if not write_changes
+                 else "bridge_abutment_seat: seated ")
+                + f"at abutment grade {abutment_grade:.2f} m "
+                f"({len(abutment_samples)} sample(s)), lifting the deck "
+                f"{drop_metres:.2f} m off the anchor ground "
+                f"{anchor_ground:.2f} m — expected deck top "
+                f"{record['expected_deck_top_m']:.2f} m over "
+                f"{len(record['objects_written'])} object file(s)")
+        UI.vprint(
+            1,
+            "  [object-anchor] bridge_abutment_seat "
+            f"{sorted(member_resources)}: " + record["decision"],
+        )
+
+
 def discover_and_rebake_airport(
     dsf_path: str,
     mesh_path: str,
@@ -1133,6 +1532,7 @@ def discover_and_rebake_airport(
     excluded_resources: set[tuple[str, str]] | None = None,
     measure_only: bool = False,
     basin_rim_flush_facilities: list | None = None,
+    bridge_abutment_seat_candidates: list | None = None,
     airport: str | None = None,
     claims_placement=None,
 ) -> dict:
@@ -1197,6 +1597,16 @@ def discover_and_rebake_airport(
     guarantee that is for them never to enter it — and are seated
     afterwards by :func:`_bake_basin_rim_flush_facilities` instead.
 
+    ``bridge_abutment_seat_candidates``
+    (``object_terrain_assembly.BridgeAbutmentSeatCandidate`` records,
+    docs/specs/round6-othh-residuals-spec.md R6-3): TERRAIN_CARRIED
+    bridges with certified abutments.  They are already in
+    ``excluded_resources`` (ruling R4 consumed them), so the generic pass
+    never saw them; here they are ROUTED to
+    :func:`_bake_bridge_abutment_seats`, which seats the ones whose
+    anchor ground sits more than the reseat threshold below their
+    abutment grade and leaves the rest draped exactly as before.
+
     Returns a dict with ``objects_written`` (resource paths),
     ``vertices_offset``, ``structures_baked``, ``structures_needing_pad``,
     ``skipped`` (``(resource_path_or_dsf, reason)`` tuples, discovery and
@@ -1238,6 +1648,11 @@ def discover_and_rebake_airport(
         # the caller's report.  Never empty-because-silent: a facility
         # that could not be measured is in here with its reason.
         "basin_rim_flush": [],
+        # One dict per R6-3 bridge abutment-seat CANDIDATE the law
+        # considered — seated, within-threshold (left draped) or refused.
+        # Same posture as the basin list: a candidate that could not be
+        # measured is in here with its reason, never silently absent.
+        "bridge_abutment_seat": [],
     }
 
     # Short-circuit (O4_REANCHOR_SHORT_CIRCUIT, default on).  The pack's
@@ -1363,6 +1778,15 @@ def discover_and_rebake_airport(
         if facility.anchor_inside_body
         for resource in facility.object_resources
     }
+    # R6-3: the candidates are already R4-excluded, so this set only
+    # RE-LABELS their skip lines — "routed to the abutment-seat law",
+    # never "terrain adapted to this object, nothing more happens".
+    # Routed is true whatever the post-mesh threshold test then decides.
+    abutment_candidate_resources = {
+        resource
+        for candidate in (bridge_abutment_seat_candidates or [])
+        for resource in candidate.object_resources
+    }
 
     def _generic_pass() -> None:
         """The generic Phase 2 y-bake, unchanged.  A nested function only
@@ -1401,6 +1825,16 @@ def discover_and_rebake_airport(
                             "basin_rim_flush law, not the generic "
                             "y-bake (spec section 2.2 item 5)"
                             if resource_path in basin_member_resources
+                            else
+                            # Likewise: routed to the R6-3 law, which
+                            # either seats it at its abutment grade or
+                            # leaves it draped — a skip line saying only
+                            # "excluded" would send the next reader
+                            # hunting the wrong law.
+                            "TERRAIN_CARRIED bridge member — routed to "
+                            "the bridge_abutment_seat law, not the "
+                            "generic y-bake (round-6 spec R6-3)"
+                            if resource_path in abutment_candidate_resources
                             else
                             "terrain adapted to this object (object "
                             "terrain feature A/B) — excluded from the "
@@ -1538,6 +1972,22 @@ def discover_and_rebake_airport(
     # arithmetic does not run for this class" has to mean in code.
     _bake_basin_rim_flush_facilities(
         basin_rim_flush_facilities,
+        all_placements,
+        pack_root,
+        xplane_root,
+        mesh_path,
+        epsilon_metres=epsilon_metres,
+        write_changes=write_changes,
+        measure_only=measure_only,
+        result=result,
+    )
+
+    # THE R6-3 FLUSH-DECK ABUTMENT SEAT (round-6 spec, owner in-sim
+    # residual).  Same posture as the basin class: after the generic
+    # pass, over resources the generic pass never touched (they are
+    # R4-excluded), so no object is reached by two laws.
+    _bake_bridge_abutment_seats(
+        bridge_abutment_seat_candidates,
         all_placements,
         pack_root,
         xplane_root,
@@ -1703,8 +2153,9 @@ def rebake_dsf_objects(tile) -> dict:
                 # adapted TO them) never receive the Phase 2 y-bake —
                 # and, from ONE classification, the section-2.2 basin
                 # facilities that take the dedicated rim-flush law
-                # instead.  Empty — read nothing — while the
-                # object-terrain gates are off.
+                # instead, plus the R6-3 TERRAIN_CARRIED bridges routed
+                # to the abutment-grade seat.  Empty — read nothing —
+                # while the object-terrain gates are off.
                 from .object_terrain_assembly import (
                     post_mesh_object_terrain_records,
                 )
@@ -1722,6 +2173,9 @@ def rebake_dsf_objects(tile) -> dict:
                     measure_only=measure_only,
                     basin_rim_flush_facilities=(
                         terrain_records.basin_rim_flush_facilities
+                    ),
+                    bridge_abutment_seat_candidates=(
+                        terrain_records.bridge_abutment_seat_candidates
                     ),
                     airport=icao,
                     claims_placement=(

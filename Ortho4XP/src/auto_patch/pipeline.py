@@ -2898,6 +2898,43 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except _GEOM_EXC:
                 pass
             _sink.append(pad)
+    # ── R6-1: A DSF BUILDING PAD NEVER SPANS WATER (round-6 OTHH
+    # residuals spec).  The DSF cluster's footprint ring is a CONVEX HULL
+    # (``object_footprints.structure_ring``), and at OTHH that hull
+    # bridged a lagoon and its shore: building1 (way -10001, 19,466 m²)
+    # carried 2,055 m² — 10.6 % — of open water on the 2026-08-10
+    # rebuild, and close/simplify added nothing.  So the CLUSTER pads are
+    # clipped by the OSM water ∪ sea union here, after the close/simplify
+    # loop and before the kept-way re-punch.  OSM-WAY pads are NOT
+    # clipped: the mapper owns the footprint they drew (Emiri -77 is 27 m
+    # inland and clean).  The union is read from the tile's own
+    # ``water`` / ``coastline`` caches — no download, and a failure to
+    # prove water means no clip (the clip DELETES pad area).
+    from .config import (
+        DSF_PAD_WATER_CLIP as _PAD_WATER_CLIP,
+        DSF_PAD_WATER_CLIP_SEA_BAND_M as _PAD_WATER_BAND_M,
+    )
+    if _PAD_WATER_CLIP and _cluster_pads:
+        try:
+            from .osm_load import _load_osm_water_sea_union
+            _pads_u = unary_union(_cluster_pads)
+            _water_u = _load_osm_water_sea_union(
+                layout.anchor[0], layout.anchor[1], to_m,
+                _pads_u.bounds, sea_band_m=_PAD_WATER_BAND_M)
+        except _GEOM_EXC:
+            _water_u = None
+        if _water_u is not None and not _water_u.is_empty:
+            _n_pads_before = len(_cluster_pads)
+            _area_before = sum(p.area for p in _cluster_pads)
+            _cluster_pads = clip_pads_by_water(_cluster_pads, _water_u)
+            _area_after = sum(p.area for p in _cluster_pads)
+            if abs(_area_after - _area_before) > 1.0:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: R6-1 water clip — "
+                    f"{_n_pads_before} cluster pad(s) → "
+                    f"{len(_cluster_pads)}, "
+                    f"{_area_before - _area_after:.0f} m² of pad over "
+                    "OSM water ∪ sea removed (OSM-way pads untouched).")
     # ── RE-PUNCH the kept ways out of the cluster pads (spec §2.6, v3).
     # The merge-time clip is UNDONE by ``_close_building_outline`` above
     # for any clip hole narrower than BUILDING_OUTLINE_FILL_GATE_M (the
@@ -6919,6 +6956,7 @@ from .terminals import (
     _terminal_groundside_zone,
     _terminal_pad_from_building,
     building_pad_accounting,
+    clip_pads_by_water,
     repunch_kept_ways_from_pads,
 )
 

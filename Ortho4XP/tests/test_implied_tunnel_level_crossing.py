@@ -267,15 +267,19 @@ class TestImpliedBoreRequiresTagEvidence:
 
     def test_chain_connected_mapped_tunnel_within_100m_qualifies(
             self) -> None:
-        """The S4 class: an UNTAGGED continuation whose chain reaches a
-        mapped ``tunnel=yes`` way inside the radius keeps its bore.
+        """An UNTAGGED crossing piece whose SAME-ROAD continuation
+        reaches a mapped ``tunnel=yes`` way inside the radius keeps its
+        bore.
 
-        The neighbour shares ``n2`` (75 m from the crossing) and runs
-        AWAY from the pavement, so it raises no bore of its own.
+        R6-2 (round-6 spec) narrowed "connected" to a DEGREE-2 ENDPOINT
+        join of identical signature, so the scene joins the neighbour at
+        the crossing piece's own END (``n2``, 75 m from the crossing) and
+        runs AWAY from the pavement, raising no bore of its own.
         """
-        layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
+        layout, nodes_m, _ids, _road = _make_crossing_scene(self._UNTAGGED)
         nodes_m = dict(nodes_m)
         nodes_m["t1"] = (700.0, -100.0)
+        road = ("road1", ["n2", "n3", "n4"], dict(self._UNTAGGED))
         neighbour = ("tun1", ["n2", "t1"],
                      {"highway": "primary", "tunnel": "yes"})
         bores = self._bores([road, neighbour], nodes_m, layout)
@@ -313,6 +317,121 @@ class TestImpliedBoreRequiresTagEvidence:
         monkeypatch.setattr(bridges, "IMPLIED_TUNNEL_TAG_EVIDENCE", False)
         layout, nodes_m, _ids, road = _make_crossing_scene(self._UNTAGGED)
         assert len(self._bores([road], nodes_m, layout)) == 1
+
+
+class TestEvidenceMustRideTheSameRoad:
+    """R6-2 (docs/specs/round6-othh-residuals-spec.md, owner in-sim
+    residual 2026-08-10): "the evidence chain walk advances only through
+    DEGREE-2 endpoint joins of IDENTICAL signature; a junction node or
+    class change ends the walk."
+
+    THE DEFECT.  R4's walk hopped through ANY shared node to ANY way, so
+    at OTHH the two S1 bores were admitted by ``S|-8342`` (tunnel=yes,
+    ``highway=service``) 78.8 m from the crossing part but FOUR network
+    hops away, through a class change and a real junction —
+    "network-connected within 100 m" admitted exactly the bore R4 meant
+    to refuse.
+
+    Every scene below joins at ``n2`` (500, −100), 75 m from the crossing
+    part and comfortably inside ``IMPLIED_TUNNEL_TAG_EVIDENCE_M``, so the
+    RADIUS is never what decides — the same-road law is.
+    """
+
+    _UNTAGGED = {"highway": "primary"}
+
+    def _scene(self, extra_ways, road_tags=None, road_node_ids=None):
+        layout, nodes_m, _ids, _road = _make_crossing_scene(self._UNTAGGED)
+        nodes_m = dict(nodes_m)
+        nodes_m["t1"] = (700.0, -100.0)
+        nodes_m["s1"] = (300.0, -100.0)
+        nodes_m["t2"] = (700.0, 100.0)
+        nodes_m["n6"] = (500.0, 200.0)
+        road = ("road1", road_node_ids or ["n2", "n3", "n4"],
+                dict(road_tags if road_tags is not None else self._UNTAGGED))
+        ways, _gaps = bridges._synthesize_implied_crossing_bores(
+            layout, nodes_m, [road] + list(extra_ways), None,
+            low_connector_max_gap_m=0.0, node_tags=None)
+        return _bore_pieces(ways)
+
+    def test_self_evidenced_bore_survives(self) -> None:
+        """OTHH's 8 self-evidenced bores (-917 / -918, secondary
+        ``tunnel=yes``) never walk at all — ``flags[start]`` answers — so
+        the stricter walk cannot cost them anything."""
+        bores = self._scene(
+            [], road_tags={"highway": "secondary", "tunnel": "yes"})
+        assert len(bores) == 1
+
+    def test_same_signature_endpoint_continuation_admitted(self) -> None:
+        """The lawful hop: one endpoint, degree 2, identical
+        ``(highway, railway, name)``."""
+        neighbour = ("tun1", ["n2", "t1"],
+                     {"highway": "primary", "tunnel": "yes"})
+        assert len(self._scene([neighbour])) == 1
+
+    def test_class_change_ends_the_walk(self) -> None:
+        """Same endpoint, degree 2 — but a DIFFERENT class.  A secondary
+        bore is not evidence about a primary road (the OTHH S1 shape,
+        whose evidence sat on a ``service`` way)."""
+        neighbour = ("tun1", ["n2", "t1"],
+                     {"highway": "secondary", "tunnel": "yes"})
+        assert self._scene([neighbour]) == []
+
+    def test_name_change_ends_the_walk(self) -> None:
+        """Same class, different ``name`` — still a different road."""
+        road_named = {"highway": "primary", "name": "Airport Road"}
+        neighbour = ("tun1", ["n2", "t1"],
+                     {"highway": "primary", "name": "Other Road",
+                      "tunnel": "yes"})
+        assert self._scene([neighbour], road_tags=road_named) == []
+
+    def test_junction_node_ends_the_walk(self) -> None:
+        """A THIRD way ending at ``n2`` makes it a junction (degree 3),
+        and a road does not continue through a junction — even with the
+        tunnel neighbour's signature matching exactly.
+
+        The third way is ``highway=service``: outside
+        ``_IMPLIED_HW_TYPES``, so it cannot merge into a chain and its
+        only role here is to raise the join's degree, exactly as the real
+        junction on the OTHH S1 chain did.
+        """
+        neighbour = ("tun1", ["n2", "t1"],
+                     {"highway": "primary", "tunnel": "yes"})
+        junction_arm = ("svc1", ["n2", "s1"], {"highway": "service"})
+        assert self._scene([neighbour, junction_arm]) == []
+
+    def test_mid_way_join_is_not_a_continuation(self) -> None:
+        """The neighbour hung off an INTERIOR node of the crossing way is
+        a T, not a continuation: the road runs THROUGH ``n4``, it does
+        not end there.
+
+        The crossing way is extended to ``n6`` so ``n4`` (500, 100) — 75 m
+        from the crossing part and clear of the pavement — is genuinely
+        interior; the tunnel arm runs east at ``y = 100`` and so crosses
+        nothing itself.
+        """
+        neighbour = ("tun1", ["n4", "t2"],
+                     {"highway": "primary", "tunnel": "yes"})
+        assert self._scene(
+            [neighbour], road_node_ids=["n2", "n3", "n4", "n6"]) == []
+
+    def test_signature_predicate_is_shared_with_the_chain_merge(
+            self) -> None:
+        """ONE spelling of "same road" — the merge and the walk read the
+        same module-level predicate, so they can never drift."""
+        assert bridges._way_signature(
+            {"highway": "primary", "name": "A"}) == ("primary", None, "A")
+        assert (bridges._way_signature({"highway": "primary"})
+                != bridges._way_signature({"highway": "secondary"}))
+
+    def test_endpoint_index_holds_endpoints_only(self) -> None:
+        """The index the walk reads is ENDPOINT-keyed — its per-position
+        list length IS the join degree, which is what makes the
+        junction test above possible."""
+        nodes_m = {"a": (0.0, 0.0), "b": (10.0, 0.0), "c": (20.0, 0.0)}
+        ways = [("w1", ["a", "b", "c"], {"highway": "primary"})]
+        index, flags = bridges._tunnel_evidence_chain_index(ways, nodes_m)
+        assert flags == [False]
+        assert set(index) == {(0.0, 0.0), (20.0, 0.0)}   # "b" absent
 
 
 class TestTunnelTagEvidencePredicate:

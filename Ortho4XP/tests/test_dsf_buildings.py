@@ -25,6 +25,7 @@ from auto_patch.terminals import (
     _cluster_dsf_building_facades,
     _combine_building_sources,
     building_pad_accounting,
+    clip_pads_by_water,
     repunch_kept_ways_from_pads,
 )
 from auto_patch.config import (
@@ -487,3 +488,148 @@ def test_close_fills_teeth_but_not_wide_centre():
     merged = _uunion(out)
     assert merged.area > comb.area                  # teeth absorbed
     assert merged.area < 0.85 * comb.convex_hull.area   # centre NOT filled
+
+
+# ──────────────────────────────────────────────────────────────────
+# R6-1 — a DSF building pad never spans water
+# (docs/specs/round6-othh-residuals-spec.md, owner in-sim residual)
+# ──────────────────────────────────────────────────────────────────
+def test_water_clip_removes_the_over_water_lobe():
+    # THE OTHH SHAPE: the DSF cluster's footprint ring is a CONVEX HULL,
+    # so building1 (19,466 m²) bridged a lagoon and its shore and carried
+    # 2,055 m² — 10.6 % — of open water.  The clip takes the water back.
+    pad = _sq(0, 0, 200, 100)                    # 20,000 m² hull
+    lagoon = _sq(150, 0, 60, 40)                 # 2,000 m² inside the pad
+    out = clip_pads_by_water([pad], lagoon)
+    assert len(out) == 1
+    assert abs(out[0].area - (pad.area - 2000.0)) < 1e-6
+    # Nothing of the pad is left standing over water.
+    assert out[0].intersection(lagoon).area < 1e-9
+
+
+def test_water_clip_remainder_rules_match_2_3b():
+    # ONE remainder law for the kept-way punch and the water clip:
+    # sub-DSF_MIN_BUILDING_AREA_M2 drops, MultiPolygon parts emit
+    # separately, an EDGE-ONLY touch leaves the pad untouched, and a
+    # missing/empty union never deletes a building.
+    water = _sq(0, 0, 100, 100)
+    sliver = _sq(97.6, 40, 6, 5)                 # 18 m² outside → drops
+    assert sliver.difference(water).area < DSF_MIN_BUILDING_AREA_M2
+    assert clip_pads_by_water([sliver], water) == []
+    straddler = _sq(-50, 40, 200, 20)            # cut in two by the water
+    parts = clip_pads_by_water([straddler], water)
+    assert len(parts) == 2
+    assert all(p.geom_type == "Polygon" for p in parts)
+    assert abs(sum(p.area for p in parts)
+               - straddler.difference(water).area) < 1e-6
+    toucher = _sq(100, 0, 40, 40)                # shares an edge only
+    out = clip_pads_by_water([toucher], water)
+    assert len(out) == 1 and out[0].equals(toucher)
+    for empty_union in (None, Polygon()):
+        assert clip_pads_by_water([toucher], empty_union) == [toucher]
+
+
+def test_water_clip_is_cluster_pads_only_ways_untouched():
+    # THE MAPPER OWNS THE FOOTPRINT THEY DREW.  The pipeline hands only
+    # the DSF-CLUSTER pads to the clip; the kept OSM-way pads go straight
+    # to the emitted list (OTHH's Emiri way -77 is 27 m inland and clean).
+    # Pinned at the seam the clip sits on: cluster in, way out.
+    import inspect
+
+    import auto_patch.pipeline as P
+
+    source = inspect.getsource(P.build_airport_pavement)
+    assert "clip_pads_by_water(_cluster_pads, _water_u)" in source
+    assert "clip_pads_by_water(_way_pads" not in source
+    # ...and the helper does not care which is which — it clips whatever
+    # it is given, so the CALLER is the whole of the way exemption.
+    way_pad = _sq(0, 0, 50, 50)
+    assert clip_pads_by_water([way_pad], _sq(0, 0, 25, 50))[0].area == 1250.0
+
+
+def test_water_sea_union_reads_water_and_coastline_layers(monkeypatch):
+    # The union's two limbs, over a synthetic tile cache: closed
+    # ``natural=water`` ways, and the SEA derived from ``natural=coastline``
+    # under the OSM orientation convention (LAND ON THE LEFT).
+    from shapely.geometry import Point
+
+    import auto_patch.osm_load as OL
+
+    # A metre-frame projection anchored at the equator/prime meridian
+    # keeps the arithmetic readable; to_m takes (lon, lat).
+    from auto_patch.layout import _projection
+    to_m = _projection((0.0, 0.0))
+
+    def _ll(x_m, y_m):
+        """(lat, lon) of a local metre offset — the loader's node shape."""
+        import math
+        from auto_patch.layout import R_EARTH
+        return (math.degrees(y_m / R_EARTH), math.degrees(x_m / R_EARTH))
+
+    # A 200 m lagoon east of the origin, and a coastline running NORTH
+    # at x = 500: land on the left is WEST, so the sea is EAST.
+    layers = {
+        "water": (
+            {"w1": _ll(1000, 0), "w2": _ll(1200, 0),
+             "w3": _ll(1200, 200), "w4": _ll(1000, 200)},
+            [("lagoon", ["w1", "w2", "w3", "w4", "w1"],
+              {"natural": "water"})],
+            {},
+        ),
+        "coastline": (
+            {"c1": _ll(500, -3000), "c2": _ll(500, 3000)},
+            [("shore", ["c1", "c2"], {"natural": "coastline"})],
+            {},
+        ),
+    }
+    monkeypatch.setattr(
+        OL, "_load_osm_road_layer",
+        lambda layer, lat, lon, radius=0.05: layers.get(layer, ({}, [], {})))
+
+    union = OL._load_osm_water_sea_union(
+        0.0, 0.0, to_m, (-400.0, -400.0, 1400.0, 400.0), sea_band_m=2000.0)
+    assert union is not None and not union.is_empty
+    # WEST of the shore is land; EAST of it is sea.
+    assert not union.contains(Point(to_m(*reversed(_ll(400, 0)))))
+    assert union.contains(Point(to_m(*reversed(_ll(600, 0)))))
+    # The lagoon limb stands on its own (it is east of the shore too, so
+    # assert it explicitly through a run with no coastline at all).
+    layers.pop("coastline")
+    water_only = OL._load_osm_water_sea_union(
+        0.0, 0.0, to_m, (-400.0, -400.0, 1400.0, 400.0))
+    assert water_only.contains(Point(to_m(*reversed(_ll(1100, 100)))))
+    assert not water_only.contains(Point(to_m(*reversed(_ll(600, 0)))))
+
+
+def test_water_sea_union_reads_coastline_ring_orientation(monkeypatch):
+    # A CLOSED coastline ring: counter-clockwise encloses LAND (an
+    # island), clockwise encloses WATER (an interior sea).  The reading
+    # is O4_Vector_Utils.coastline_to_MultiPolygon's, not a new one.
+    import math
+
+    from shapely.geometry import Point
+
+    import auto_patch.osm_load as OL
+    from auto_patch.layout import R_EARTH, _projection
+
+    to_m = _projection((0.0, 0.0))
+
+    def _ll(x_m, y_m):
+        return (math.degrees(y_m / R_EARTH), math.degrees(x_m / R_EARTH))
+
+    corners = {"r1": _ll(-100, -100), "r2": _ll(100, -100),
+               "r3": _ll(100, 100), "r4": _ll(-100, 100)}
+    ccw = ["r1", "r2", "r3", "r4", "r1"]          # island (land inside)
+    cw = list(reversed(ccw))                      # interior sea
+
+    def _run(order):
+        monkeypatch.setattr(
+            OL, "_load_osm_road_layer",
+            lambda layer, lat, lon, radius=0.05: (
+                (corners, [("ring", order, {"natural": "coastline"})], {})
+                if layer == "coastline" else ({}, [], {})))
+        return OL._load_osm_water_sea_union(0.0, 0.0, to_m, None)
+
+    centre = Point(to_m(0.0, 0.0))
+    assert _run(cw).contains(centre)              # clockwise → water
+    assert _run(ccw) is None                      # counter-clockwise → land

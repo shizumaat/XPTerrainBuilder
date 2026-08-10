@@ -438,9 +438,21 @@ def _has_tunnel_tag_evidence(tags9: dict) -> bool:
         return False
 
 
+def _way_signature(tags: dict):
+    """The ROAD IDENTITY signature ``(highway, railway, name)``.
+
+    ONE predicate, two consumers: the implied-crossing chain merge
+    (:func:`_merge_eligible_chains`) and the R6-2 evidence walk
+    (:func:`_chain_tunnel_evidence`).  Two pieces share a signature when
+    they are the same road — a class change or a name change makes them
+    different roads, whatever the junction geometry says.
+    """
+    return (tags.get("highway"), tags.get("railway"), tags.get("name"))
+
+
 def _tunnel_evidence_chain_index(ways, nodes_m):
-    """``(junction key → way indices, per-way tag-evidence flags)`` for
-    the R4 chain walk.
+    """``(endpoint key → way indices, per-way tag-evidence flags)`` for
+    the R4 chain walk, under the R6-2 same-road law.
 
     Keyed on node POSITION (centimetre-rounded), not node id: the merged
     tunnel road network carries three namespaced id spaces (``big_roads``
@@ -448,12 +460,27 @@ def _tunnel_evidence_chain_index(ways, nodes_m):
     ``_load_tunnel_road_network``), so the SAME real junction holds three
     different ids.  Coincident positions are the same OSM node's lat/lon
     projected once, i.e. an identity join, never a proximity join.
+
+    **ENDPOINTS ONLY (R6-2, round-6 spec).**  The index used to hold
+    every node of every way, which made "connected" mean "shares any
+    vertex with anything" — at OTHH the two S1 bores were admitted by
+    ``S|-8342`` (tunnel=yes, service) FOUR network hops away through a
+    class change and a real junction, exactly the bore R4 meant to
+    refuse.  A road CONTINUES at an endpoint join and only there, so the
+    index carries a way's first and last node and nothing else; the
+    per-position list length is then the join's DEGREE, which the walk
+    uses to refuse junctions.  A closed way contributes its shared
+    endpoint twice on purpose — the walk's ``wids[0] == wids[1]`` test
+    reads that as "no continuation", the same posture
+    :func:`_merge_eligible_chains` takes.
     """
     index: dict = {}
     flags: list[bool] = []
     for _i, (_wid, _nrefs, _tags) in enumerate(ways):
         flags.append(_has_tunnel_tag_evidence(_tags))
-        for _n in _nrefs:
+        if not _nrefs:
+            continue
+        for _n in (_nrefs[0], _nrefs[-1]):
             _p = nodes_m.get(_n)
             if _p is None:
                 continue
@@ -464,13 +491,22 @@ def _tunnel_evidence_chain_index(ways, nodes_m):
 
 def _chain_tunnel_evidence(start, index, flags, ways, nodes_m,
                            near, radius_m) -> bool:
-    """True when way ``start`` — or a way its chain connects to within
-    ``radius_m`` of ``near`` — carries below-grade tag evidence.
+    """True when way ``start`` — or a way its SAME-ROAD chain continues
+    into within ``radius_m`` of ``near`` — carries below-grade tag
+    evidence.
 
-    Breadth-first over the junction index, hopping ONLY through nodes
+    Breadth-first over the endpoint index, hopping ONLY through nodes
     within ``radius_m`` of the crossing geometry ``near``, so the walk
     stays local (the build-budget argument) and "connects to within
     100 m" is measured from the crossing itself.
+
+    **THE R6-2 LAW (round-6 spec, OTHH S1).**  A hop is admitted only at
+    a DEGREE-2 ENDPOINT JOIN of IDENTICAL :func:`_way_signature` — the
+    same predicate the chain merge uses.  A junction node (three or more
+    way ends), a mid-way T (the other way's endpoint is not ours), a
+    class change or a name change ENDS the walk.  "Network-connected
+    within 100 m" admitted a bore four hops away through a class change
+    and a real junction; evidence must ride the SAME ROAD.
     """
     if flags[start]:
         return True
@@ -479,7 +515,11 @@ def _chain_tunnel_evidence(start, index, flags, ways, nodes_m,
     while frontier:
         nxt: list[int] = []
         for _i in frontier:
-            for _n in ways[_i][1]:
+            _nrefs = ways[_i][1]
+            if not _nrefs:
+                continue
+            _signature = _way_signature(ways[_i][2])
+            for _n in (_nrefs[0], _nrefs[-1]):
                 _p = nodes_m.get(_n)
                 if _p is None:
                     continue
@@ -488,10 +528,18 @@ def _chain_tunnel_evidence(start, index, flags, ways, nodes_m,
                         continue
                 except _GEOM_EXC:
                     continue
-                for _j in index.get((round(_p[0], 2), round(_p[1], 2)),
-                                    ()):
-                    if _j in seen:
+                _at_node = index.get((round(_p[0], 2), round(_p[1], 2)),
+                                     ())
+                # DEGREE-2 ONLY: exactly two DISTINCT way ends meet here.
+                # Anything else is a junction (or a closed way's own
+                # seam) and the road does not continue through it.
+                if len(_at_node) != 2 or _at_node[0] == _at_node[1]:
+                    continue
+                for _j in _at_node:
+                    if _j == _i or _j in seen:
                         continue
+                    if _way_signature(ways[_j][2]) != _signature:
+                        continue        # class / name change — not us
                     if flags[_j]:
                         return True
                     seen.add(_j)
@@ -600,10 +648,12 @@ def _merge_eligible_chains(ways_r, hw_types, excluded_ids):
     class changes and name changes all break the chain, so unrelated
     roads never merge.  Chain ways take the id ``C|<first member id>``
     and the tags of their longest member; member pieces are REPLACED by
-    the chain (their geometry lives on inside it)."""
-    def _sig(tags):
-        return (tags.get("highway"), tags.get("railway"),
-                tags.get("name"))
+    the chain (their geometry lives on inside it).
+
+    The signature predicate is module-level :func:`_way_signature`: the
+    R6-2 evidence walk applies the SAME same-road test, and a second
+    copy would be a silent drift hazard."""
+    _sig = _way_signature
 
     idx_of: dict = {}
     for i, (wid, nrefs, tags) in enumerate(ways_r):

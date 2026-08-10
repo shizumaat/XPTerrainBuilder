@@ -3387,6 +3387,30 @@ DSF_OBJECT_BUILDINGS = _os.environ.get("O4_DSF_OBJECT_BUILDINGS", "1") == "1"
 DSF_OBJECT_FOOTPRINT_UNION = (
     _os.environ.get("O4_DSF_OBJECT_FOOTPRINT_UNION", "0") == "1")
 
+# ── R6-1: A DSF BUILDING PAD NEVER SPANS WATER ────────────────────────
+# (docs/specs/round6-othh-residuals-spec.md R6-1, owner in-sim residual.)
+# The hull ring above is exactly why: measured at OTHH on the 2026-08-10
+# rebuild, ``building1`` (way -10001, 19,466 m²) carried 2,055 m²
+# (10.6 %) of open water because its CONVEX HULL bridged a lagoon and its
+# shore.  Closing and simplifying the ring added nothing — a hull is
+# doing what a hull does — so the DSF-cluster pads are CLIPPED by the OSM
+# water ∪ sea union after the close/simplify loop.  OSM-WAY pads are
+# NEVER clipped (the mapper owns the footprint they drew).
+# OFF is byte-identical to the pre-round-6 build.
+DSF_PAD_WATER_CLIP = _os.environ.get("O4_DSF_PAD_WATER_CLIP", "1") == "1"
+
+# How far the SEA reaches inland-of-nothing for the clip above.  Open
+# ``natural=coastline`` ways are lines, not polygons: OSM orients them
+# with LAND ON THE LEFT, so the sea is the RIGHT-hand single-sided buffer
+# of the local coastline.  This is the buffer's half-width AND (halved)
+# the margin the coastline is clipped to around the pads, so the band is
+# built local and cheap — a whole-tile sea polygon is the vector step's
+# job, not a building pad's.  A pad more than this far out to sea from
+# any mapped coastline is not clipped by the coastline limb (the water
+# layer still applies).
+DSF_PAD_WATER_CLIP_SEA_BAND_M = float(
+    _os.environ.get("O4_DSF_PAD_WATER_CLIP_SEA_BAND_M", "2000"))
+
 # HULL-FILL FLOOR on the hull-path footprint (owner defect 2026-07-27,
 # HECA building188): a convex hull over a handful of SPARSE bases — an
 # apron floodlight mast (2.6 × 2.6 m), a few jersey barriers and one

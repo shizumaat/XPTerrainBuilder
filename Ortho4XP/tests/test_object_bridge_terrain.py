@@ -3391,3 +3391,358 @@ class TestBridgeRampFillLaw:
         assert config.BRIDGE_RAMP_MAX_LENGTH_M > config.BRIDGE_RAMP_STEP_M
         # One navigable-ramp number shared with the tunnel ramp.
         assert config.TUNNEL_RAMP_MAX_GRADE > 0.0
+
+
+# ---------------------------------------------------------------------------
+# R6-3 — flush-deck bridges over water seat at abutment grade
+# (docs/specs/round6-othh-residuals-spec.md, owner in-sim residual)
+# ---------------------------------------------------------------------------
+
+# The mesh under the synthetic bridge: a square of WATER around the
+# anchor (OTHH Bridge_01 samples 0.00 m at its anchor and at every deck
+# station) with LAND everywhere outside it — the ground the certified
+# abutments actually stand on.
+_SEAT_MESH_EXTENT_M = 200.0
+_SEAT_MESH_STEP_M = 10.0
+_SEAT_WATER_HALF_SPAN_M = 50.0
+_SEAT_WATER_ELEVATION_M = 0.0
+_SEAT_LAND_ELEVATION_M = 3.96
+# Bridge_01's authored deck top, in its own frame: a COSMETIC flush deck
+# sits just under grade, which is why draping it on water is invisible
+# rather than obviously wrong.
+_SEAT_DECK_TOP_Y_M = -0.31
+# The abutments stand clear of the water square, at +/- 80 m along the
+# deck axis, each 55 m wide.
+_SEAT_ABUTMENT_X_M = 80.0
+_SEAT_ABUTMENT_HALF_WIDTH_M = 27.5
+
+_SEAT_RESOURCE = "Objects/Bridges/bridge_01.obj"
+
+# The seat tests read the BAKED y values back, and the rewriter preserves
+# each token's authored decimal precision verbatim (invariant I-16), so a
+# ``0.0`` source would quantize a 3.96 m seat to 4.0.  Six decimals here:
+# the arithmetic under test must be visible, not rounded away.
+_SEAT_BOX_OBJ_TEXT = "\n".join([
+    "A",
+    "800",
+    "OBJ",
+    "",
+    "POINT_COUNTS 8 0 0 12",
+    "VT -20.000000 0.000000 -20.000000 0 1 0 0 0",
+    "VT 20.000000 0.000000 -20.000000 0 1 0 0 0",
+    "VT 20.000000 0.000000 20.000000 0 1 0 0 0",
+    "VT -20.000000 0.000000 20.000000 0 1 0 0 0",
+    "VT -20.000000 3.000000 -20.000000 0 1 0 0 0",
+    "VT 20.000000 3.000000 -20.000000 0 1 0 0 0",
+    "VT 20.000000 3.000000 20.000000 0 1 0 0 0",
+    "VT -20.000000 3.000000 20.000000 0 1 0 0 0",
+    "IDX10 0 1 2 0 2 3 4 5 6 4",
+    "IDX 6",
+    "IDX 7",
+    "TRIS 0 12",
+]) + "\n"
+
+
+def _write_two_level_mesh(mesh_path, *, water_half_span_m,
+                          water_elevation_m, land_elevation_m) -> None:
+    """A built-mesh dump: ``water_elevation_m`` inside a square of
+    ``water_half_span_m`` about the anchor, ``land_elevation_m`` outside.
+
+    Same writer shape as the basin suite's trench mesh — the sampler
+    reads a MeshVersionFormatted dump whose z is in 100 km units.
+    """
+    steps = int(2 * _SEAT_MESH_EXTENT_M / _SEAT_MESH_STEP_M) + 1
+    coordinates = [
+        -_SEAT_MESH_EXTENT_M + index * _SEAT_MESH_STEP_M
+        for index in range(steps)
+    ]
+    vertices = []
+    for east in coordinates:
+        for south in coordinates:
+            latitude, longitude = local_offset_to_lonlat(
+                ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, east, south)
+            inside = (abs(east) <= water_half_span_m
+                      and abs(south) <= water_half_span_m)
+            vertices.append((
+                longitude, latitude,
+                water_elevation_m if inside else land_elevation_m,
+            ))
+    triangles = []
+    for i in range(steps - 1):
+        for j in range(steps - 1):
+            a = i * steps + j
+            b = (i + 1) * steps + j
+            c = (i + 1) * steps + j + 1
+            d = i * steps + j + 1
+            triangles.append((a + 1, b + 1, c + 1))
+            triangles.append((a + 1, c + 1, d + 1))
+    lines = ["MeshVersionFormatted 2", "Dimension 3", "", "Vertices",
+             str(len(vertices))]
+    for longitude, latitude, elevation in vertices:
+        lines.append(
+            f"{longitude:.15f} {latitude:.15f} {elevation / 100000.0:.15f} 0")
+    lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
+    for first, second, third in triangles:
+        lines.append(f"{first} {second} {third} 0")
+    mesh_path.write_text("\n".join(lines) + "\n")
+
+
+def _seat_vertex_y_values(path) -> list:
+    out = []
+    for line in path.read_text().splitlines():
+        if line.startswith("VT "):
+            out.append(float(line.split()[2]))
+    return out
+
+
+class TestBridgeAbutmentSeatCandidacy:
+    """R6-3, classify side: WHICH bridges are routed to the abutment
+    seat.  Candidacy is a pure function of the classifier's records, so
+    it caches with them; the threshold test needs the built mesh and
+    lives in the post-mesh pass."""
+
+    def test_terrain_carried_with_certified_abutments_is_a_candidate(self):
+        bridge = _bridge(contract=TERRAIN_CARRIED,
+                         deck_hardness=DECK_HARDNESS_COSMETIC,
+                         hard_deck=False, deck_top_y_m=_SEAT_DECK_TOP_Y_M)
+        candidates = assembly.bridge_abutment_seat_candidates(
+            _Classification([bridge]))
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.object_resources == tuple(bridge.object_resources)
+        assert candidate.deck_top_y_m == pytest.approx(_SEAT_DECK_TOP_Y_M)
+        # Two lines, two points each, carried as (longitude, latitude) —
+        # the frame maths happens ONCE, here, because the pipeline-time
+        # layout is gone by post-mesh time.
+        assert len(candidate.abutment_points_longitude_latitude) == 2
+        for line in candidate.abutment_points_longitude_latitude:
+            assert len(line) == 2
+            for longitude, latitude in line:
+                assert abs(longitude - ANCHOR_LONGITUDE) < 0.01
+                assert abs(latitude - ANCHOR_LATITUDE) < 0.01
+
+    @pytest.mark.parametrize(
+        "contract", [DECK_CARRIED, PROFILE_CARRIED, AMBIGUOUS])
+    def test_other_contracts_are_not_candidates(self, contract):
+        assert assembly.bridge_abutment_seat_candidates(
+            _Classification([_bridge(contract=contract)])) == []
+
+    def test_uncertified_abutment_is_not_a_candidate(self):
+        """No land witness ⇒ no seat target.  (An emitted record always
+        certifies both ends; this is the belt-and-braces pin.)"""
+        from dataclasses import replace
+
+        bridge = replace(_bridge(contract=TERRAIN_CARRIED),
+                         abutment_reaches_grade=(True, False))
+        assert assembly.bridge_abutment_seat_candidates(
+            _Classification([bridge])) == []
+
+    def test_gate_off_yields_no_candidates(self, monkeypatch):
+        monkeypatch.setattr(config, "OBJECT_BRIDGE_TERRAIN", False)
+        assert assembly.bridge_abutment_seat_candidates(
+            _Classification([_bridge(contract=TERRAIN_CARRIED)])) == []
+
+    def test_record_json_round_trip(self):
+        """The record rides the post-mesh cache, whose version bumped to
+        5 for exactly this key."""
+        candidate = assembly.bridge_abutment_seat_candidates(
+            _Classification([_bridge(contract=TERRAIN_CARRIED)]))[0]
+        assert assembly.BridgeAbutmentSeatCandidate.from_json(
+            candidate.to_json()) == candidate
+        assert assembly._EXCLUSION_CACHE_VERSION >= 5
+
+
+class TestBridgeAbutmentSeat:
+    """R6-3, post-mesh side.  OTHH ``Bridge_01`` is a cosmetic flush deck
+    classified TERRAIN_CARRIED: its resources are R4-EXCLUDED from the
+    y-bake and it simply drapes — and its anchor sits over WATER, so it
+    draped ~3.96 m below the ground its own abutments stand on.  The law
+    lifts it to the abutment-grade median; a bridge whose anchor samples
+    land within the reseat threshold is left exactly as before."""
+
+    @pytest.fixture(autouse=True)
+    def _sandbox(self, tmp_path, monkeypatch):
+        # Every sidecar cache under the test's own root, and off: the arm
+        # must compute, never inherit another arm's answer.
+        monkeypatch.setenv("ORTHO4XP_DATA_ROOT", str(tmp_path / "o4root"))
+        monkeypatch.setenv("O4_OBJECT_EXCLUSION_CACHE", "0")
+        monkeypatch.setenv("O4_OBJECT_PARTITION_CACHE", "0")
+        monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
+
+    def _pack(self, tmp_path, monkeypatch):
+        from auto_patch import dsf_reader
+
+        pack_root = tmp_path / "OTHH-TEST Pack"
+        (pack_root / _SEAT_RESOURCE).parent.mkdir(parents=True,
+                                                  exist_ok=True)
+        (pack_root / _SEAT_RESOURCE).write_text(_SEAT_BOX_OBJ_TEXT)
+        dsf_path = pack_root / "overlay.dsf"
+        dsf_path.write_bytes(b"")
+        monkeypatch.setattr(
+            dsf_reader, "_load_dsf_text",
+            lambda _path: [
+                f"OBJECT_DEF {_SEAT_RESOURCE}",
+                f"OBJECT 0 {ANCHOR_LONGITUDE} {ANCHOR_LATITUDE} 0.0",
+            ])
+        return dsf_path, pack_root
+
+    def _candidate(self):
+        lines = []
+        for sign in (-1.0, 1.0):
+            points = []
+            for half in (-_SEAT_ABUTMENT_HALF_WIDTH_M,
+                         _SEAT_ABUTMENT_HALF_WIDTH_M):
+                latitude, longitude = local_offset_to_lonlat(
+                    ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0,
+                    sign * _SEAT_ABUTMENT_X_M, half)
+                points.append((longitude, latitude))
+            lines.append(tuple(points))
+        return assembly.BridgeAbutmentSeatCandidate(
+            object_resources=(_SEAT_RESOURCE,),
+            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            abutment_points_longitude_latitude=tuple(lines),
+            deck_top_y_m=_SEAT_DECK_TOP_Y_M,
+        )
+
+    def _mesh(self, tmp_path, *, water=True):
+        mesh_path = tmp_path / "Data+36-087.mesh"
+        _write_two_level_mesh(
+            mesh_path,
+            # -1 m: NO vertex is inside, so the whole mesh is land.
+            # (0.0 would still put the anchor vertex itself in the water.)
+            water_half_span_m=(_SEAT_WATER_HALF_SPAN_M if water else -1.0),
+            water_elevation_m=_SEAT_WATER_ELEVATION_M,
+            land_elevation_m=_SEAT_LAND_ELEVATION_M,
+        )
+        return mesh_path
+
+    def _rebake(self, dsf_path, mesh_path, pack_root, candidates, **kwargs):
+        from auto_patch import post_mesh
+
+        return post_mesh.discover_and_rebake_airport(
+            str(dsf_path), str(mesh_path), str(pack_root), None,
+            excluded_resources={
+                (str(pack_root), resource)
+                for candidate in candidates
+                for resource in candidate.object_resources
+            },
+            bridge_abutment_seat_candidates=candidates,
+            **kwargs,
+        )
+
+    def test_over_water_anchor_seats_at_the_abutment_median(
+        self, tmp_path, monkeypatch
+    ):
+        """THE LAW: anchor ground more than the reseat threshold below
+        the certified abutment grade ⇒ a seat AT that grade."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._candidate()])
+
+        assert len(result["bridge_abutment_seat"]) == 1
+        record = result["bridge_abutment_seat"][0]
+        assert record["decision_kind"] == "bridge_abutment_seat"
+        assert record["abutment_grade_m"] == pytest.approx(
+            _SEAT_LAND_ELEVATION_M, abs=1e-4)
+        assert record["mesh_at_anchor_m"] == pytest.approx(
+            _SEAT_WATER_ELEVATION_M, abs=1e-4)
+        assert record["drop_m"] == pytest.approx(
+            _SEAT_LAND_ELEVATION_M - _SEAT_WATER_ELEVATION_M, abs=1e-4)
+        assert record["drop_m"] > record["reseat_threshold_m"]
+        # The spec's expected outcome: deck top = abutment grade + the
+        # authored -0.31 m, i.e. ~3.65 m.
+        assert record["expected_deck_top_m"] == pytest.approx(3.65, abs=1e-2)
+        assert record["baked"] is True
+        assert result["objects_written"] == [_SEAT_RESOURCE]
+
+        # ...and the pack really moved, rigidly, by the drop.
+        live_y = _seat_vertex_y_values(pack_root / _SEAT_RESOURCE)
+        authored_y = _seat_vertex_y_values(
+            pack_root / (_SEAT_RESOURCE + ".anchor_bak"))
+        assert live_y != authored_y
+        offsets = {round(baked - original, 4)
+                   for baked, original in zip(live_y, authored_y)}
+        assert offsets == {round(record["drop_m"], 4)}
+
+    def test_land_anchor_within_threshold_stays_draped(
+        self, tmp_path, monkeypatch
+    ):
+        """The regression pin for OTHH Bridge_02 / 03 / 06: an anchor on
+        land is within the threshold, so the bridge stays R4-excluded and
+        drapes exactly as today — nothing is written."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path, water=False)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._candidate()])
+
+        record = result["bridge_abutment_seat"][0]
+        assert record["drop_m"] == pytest.approx(0.0, abs=1e-4)
+        assert record["baked"] is False
+        assert "reseat threshold" in record["decision"]
+        assert "drapes as authored" in record["decision"]
+        assert result["objects_written"] == []
+        assert not (pack_root / (_SEAT_RESOURCE + ".anchor_bak")).exists()
+
+    def test_measure_only_records_the_seat_and_writes_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        """``modify_custom_airports`` off: the decision is computed and
+        RECORDED, no delta is produced, the pack is untouched."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        authored = (pack_root / _SEAT_RESOURCE).read_text()
+        mesh_path = self._mesh(tmp_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._candidate()],
+            measure_only=True)
+
+        record = result["bridge_abutment_seat"][0]
+        assert record["measure_only"] is True
+        assert record["abutment_grade_m"] == pytest.approx(
+            _SEAT_LAND_ELEVATION_M, abs=1e-4)
+        assert record["baked"] is False
+        assert "measure-only" in record["decision"]
+        assert result["objects_written"] == []
+        assert (pack_root / _SEAT_RESOURCE).read_text() == authored
+
+    def test_the_decision_kind_reaches_the_rebake_decision(
+        self, tmp_path, monkeypatch
+    ):
+        """Provenance: the seat is recorded under its OWN kind, so a
+        reader can tell it from a generic y-bake or a basin seat."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._candidate()])
+        kinds = {
+            kind
+            for _pool, decision in result["decisions"]
+            for kind in (decision.decision_kind_by_resource or {}).values()
+        }
+        assert kinds == {"bridge_abutment_seat"}
+
+    def test_candidate_members_are_routed_not_merely_excluded(
+        self, tmp_path, monkeypatch
+    ):
+        """The generic pass still drops them (they are R4-excluded), but
+        the skip line names the law that DOES own them — a line saying
+        only "excluded" would send the next reader hunting."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._candidate()])
+        reasons = [reason for resource, reason in result["skipped"]
+                   if resource == _SEAT_RESOURCE]
+        assert any("bridge_abutment_seat law" in reason
+                   for reason in reasons), reasons
+        assert all(_R4_REASON_FRAGMENT not in reason for reason in reasons)
+
+    def test_no_candidates_leaves_the_pass_unchanged(
+        self, tmp_path, monkeypatch
+    ):
+        """The degeneracy gate: with no candidate the result carries an
+        empty record list and nothing else differs."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = self._mesh(tmp_path)
+        result = self._rebake(dsf_path, mesh_path, pack_root, [])
+        assert result["bridge_abutment_seat"] == []

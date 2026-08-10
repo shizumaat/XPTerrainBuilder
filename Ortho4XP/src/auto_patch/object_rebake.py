@@ -150,7 +150,14 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # so a record that stored only the pooled point list cannot rebuild the
 # requests a short-circuited run must write — it would resurrect the
 # retired group hull.
-RUN_RECORD_VERSION = 7
+# 7 -> 8 (2026-08-10, round-6 spec R6-3, the FLUSH-DECK ABUTMENT SEAT):
+# a TERRAIN_CARRIED bridge whose anchor sits more than the reseat
+# threshold below its certified abutment grade is no longer merely
+# R4-excluded — it takes a dedicated ``bridge_abutment_seat``.  A
+# version-7 record describes the pack in which OTHH Bridge_01 drapes
+# 3.96 m low over water, and short-circuiting on it would leave it there:
+# exactly the residual R6-3 exists to close.
+RUN_RECORD_VERSION = 8
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.

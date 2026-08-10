@@ -65,6 +65,7 @@ __all__ = [
     "_load_osm_big_roads",
     "_load_osm_small_roads",
     "_load_osm_tile",
+    "_load_osm_water_sea_union",
     "_pick_best_apt_dat_against_osm",
     "_score_apt_dat_against_osm",
 ]
@@ -776,6 +777,150 @@ def _load_osm_road_layer(layer: str, apt_lat: float, apt_lon: float,
                 kept.append((wid, nds, tags))
                 break
     return nodes, kept, node_tags
+
+
+def _osm_closed_way_polygons(nodes, ways, to_m):
+    """Closed OSM ways as metre-frame polygons, ``buffer(0)``-repaired.
+
+    ``to_m`` is the pipeline's projection and takes ``(lon, lat)``.  A
+    ring of fewer than three distinct vertices, or one shapely cannot
+    repair, is skipped — this is evidence gathering, never a hard input.
+    """
+    out = []
+    for _wid, node_refs, _tags in ways:
+        if len(node_refs) < 4 or node_refs[0] != node_refs[-1]:
+            continue
+        points = []
+        for node_ref in node_refs[:-1]:
+            ll = nodes.get(node_ref)
+            if ll is not None:
+                points.append(to_m(ll[1], ll[0]))
+        if len(points) < 3:
+            continue
+        try:
+            polygon = Polygon(points)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+            if not polygon.is_empty:
+                out.append(polygon)
+        except _GEOM_EXC:
+            continue
+    return out
+
+
+def _load_osm_water_sea_union(apt_lat: float, apt_lon: float, to_m,
+                              bounds_m=None,
+                              *, radius_deg: float = 0.05,
+                              sea_band_m: float = 2000.0):
+    """The OSM **water ∪ sea** union around an airport, in metre frame —
+    the clip body of R6-1 (round-6 OTHH residuals spec).
+
+    Two limbs, both read from the tile caches that already sit beside the
+    ``airports`` extract (``<tile>_water.osm.bz2`` and
+    ``<tile>_coastline.osm.bz2`` — nothing is downloaded here):
+
+    * **WATER** — closed ways of the ``water`` layer
+      (``natural=water``, ``waterway=riverbank`` / ``dock``; OTHH's
+      lagoon and its six ``water=basin`` siblings are in here).
+    * **SEA, coastline-derived** — ``natural=coastline`` is a LINE layer
+      with the OSM orientation convention LAND ON THE LEFT, so:
+      a CLOSED ring that is clockwise encloses water (an interior sea /
+      lagoon) and a counter-clockwise ring is an ISLAND (land, and
+      subtracted back out — the same reading
+      ``O4_Vector_Utils.coastline_to_MultiPolygon`` takes); an OPEN line
+      contributes its RIGHT-hand ``single_sided`` buffer of
+      ``sea_band_m``.
+
+    ``bounds_m`` — ``(minx, miny, maxx, maxy)`` of the geometry about to
+    be clipped — keeps the sea limb LOCAL: coastline lines are cut to
+    that box grown by ``sea_band_m / 2`` before buffering, so a 10,000-
+    vertex coastline never gets buffered whole.  ``None`` builds the band
+    from the whole in-radius coastline (tests; small inputs).
+
+    Returns a shapely geometry, or ``None`` when nothing water-like is in
+    range.  Every geometry failure degrades to "no water here": this
+    union DELETES pad area, so an unprovable claim must never be made.
+    """
+    from shapely.geometry import LinearRing, box as _box
+
+    parts = []
+    islands = []
+
+    try:
+        nodes_w, ways_w, _tags_w = _load_osm_road_layer(
+            "water", apt_lat, apt_lon, radius_deg)
+    except _GEOM_EXC:
+        nodes_w, ways_w = {}, []
+    parts.extend(_osm_closed_way_polygons(nodes_w, ways_w, to_m))
+
+    try:
+        nodes_c, ways_c, _tags_c = _load_osm_road_layer(
+            "coastline", apt_lat, apt_lon, radius_deg)
+    except _GEOM_EXC:
+        nodes_c, ways_c = {}, []
+
+    clip_box = None
+    if bounds_m is not None:
+        try:
+            margin = 0.5 * float(sea_band_m)
+            clip_box = _box(bounds_m[0] - margin, bounds_m[1] - margin,
+                            bounds_m[2] + margin, bounds_m[3] + margin)
+        except (TypeError, ValueError, IndexError):
+            clip_box = None
+
+    for _wid, node_refs, _tags in ways_c:
+        points = []
+        for node_ref in node_refs:
+            ll = nodes_c.get(node_ref)
+            if ll is not None:
+                points.append(to_m(ll[1], ll[0]))
+        # A LINE needs two points; a RING needs four (three distinct plus
+        # the repeat).  The two limbs have different floors, and using
+        # the ring's floor for both silently dropped every two-node
+        # coastline segment.
+        if len(points) < 2:
+            continue
+        closed = (len(points) >= 4
+                  and node_refs[0] == node_refs[-1])
+        try:
+            if closed:
+                ring = LinearRing(points)
+                polygon = Polygon(points[:-1])
+                if not polygon.is_valid:
+                    polygon = polygon.buffer(0)
+                if polygon.is_empty:
+                    continue
+                # Land on the left ⇒ a CCW ring holds land (an island);
+                # a CW ring holds water (an interior sea / lagoon).
+                (islands if ring.is_ccw else parts).append(polygon)
+                continue
+            line = LineString(points)
+            if clip_box is not None:
+                line = line.intersection(clip_box)
+                if line.is_empty:
+                    continue
+            for piece in getattr(line, "geoms", [line]):
+                if piece.geom_type != "LineString" or piece.length <= 0.0:
+                    continue
+                # Negative distance = the RIGHT-hand side = the sea.
+                band = piece.buffer(-float(sea_band_m),
+                                    single_sided=True)
+                if not band.is_valid:
+                    band = band.buffer(0)
+                if not band.is_empty:
+                    parts.append(band)
+        except _GEOM_EXC:
+            continue
+
+    if not parts:
+        return None
+    try:
+        union = unary_union(parts)
+        if islands:
+            union = union.difference(unary_union(islands))
+    except _GEOM_EXC:
+        return None
+    return None if union.is_empty else union
 
 
 # ═════════════════════════════════════════════════════════════════════

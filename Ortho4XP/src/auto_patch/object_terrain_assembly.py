@@ -46,7 +46,7 @@ import json
 import math
 import os
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import median
 
 import O4_UI_Utils as UI
@@ -829,7 +829,12 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # post-mesh consumers.  A v3 entry has no facilities key at all, and
 # reading it as "no basin facility" would silently leave every
 # anchor-inside basin unbaked on a warm cache.
-_EXCLUSION_CACHE_VERSION = 4
+# v5 (2026-08-10, round-6 R6-3): the payload gains the BRIDGE ABUTMENT
+# SEAT candidate records — same reasoning, one classify, three consumers.
+# A v4 entry has no candidates key, and reading it as "no candidate"
+# would leave every flush-deck bridge over water draped on a warm cache,
+# which is exactly the residual R6-3 exists to close.
+_EXCLUSION_CACHE_VERSION = 5
 
 
 def _cached_post_mesh_records(
@@ -838,10 +843,11 @@ def _cached_post_mesh_records(
     mean_sea_level_placements,
     geometry_by_resource,
     compute,
-) -> tuple[set[tuple[str, str]], list]:
+) -> tuple[set[tuple[str, str]], list, list]:
     """Content-hash sidecar cache for the post-mesh classifier reads: the
-    ruling-R4 exclusion set AND the section-2.2 basin rim-flush facility
-    records (``compute`` returns both, from ONE classification).
+    ruling-R4 exclusion set, the section-2.2 basin rim-flush facility
+    records AND the R6-3 bridge abutment-seat candidates (``compute``
+    returns all three, from ONE classification).
 
     They are a pure function of the DSF placements, the loaded OBJ8
     geometry and the classifier version — never the mesh — yet were
@@ -873,6 +879,9 @@ def _cached_post_mesh_records(
                 # Basin-trench gate: decides whether carved open pits
                 # join it — same reason.
                 config.OBJECT_BASIN_TRENCH,
+                # Bridge-terrain gate (R6-3): decides whether the
+                # abutment-seat candidate list is populated at all.
+                config.OBJECT_BRIDGE_TERRAIN,
             )
         ).encode()
     )
@@ -904,11 +913,15 @@ def _cached_post_mesh_records(
                         BasinRimFlushFacility.from_json(entry)
                         for entry in payload["basin_facilities"]
                     ],
+                    [
+                        BridgeAbutmentSeatCandidate.from_json(entry)
+                        for entry in payload["bridge_abutment_seats"]
+                    ],
                 )
         except Exception:
             pass  # corrupt/unreadable — recompute below
 
-    exclusions, basin_facilities = compute()
+    exclusions, basin_facilities, abutment_candidates = compute()
     try:
         os.makedirs(cache_directory, exist_ok=True)
         temporary_path = cache_path + ".tmp"
@@ -920,13 +933,17 @@ def _cached_post_mesh_records(
                     "basin_facilities": [
                         facility.to_json() for facility in basin_facilities
                     ],
+                    "bridge_abutment_seats": [
+                        candidate.to_json()
+                        for candidate in abutment_candidates
+                    ],
                 },
                 handle,
             )
         os.replace(temporary_path, cache_path)
     except OSError:
         pass  # best effort — the records are already computed
-    return exclusions, basin_facilities
+    return exclusions, basin_facilities, abutment_candidates
 
 
 @dataclass(frozen=True)
@@ -939,10 +956,20 @@ class PostMeshObjectTerrainRecords:
     class.  Basin members stay on BOTH lists deliberately: they are
     withheld from the generic median/A3/threshold arithmetic (which
     section 2.2 item 5 says does not run for this class) and seated by
-    the dedicated law instead."""
+    the dedicated law instead.
+
+    ``bridge_abutment_seat_candidates`` (R6-3, round-6 OTHH residuals
+    spec) is the same pattern for TERRAIN_CARRIED bridges with certified
+    abutments: still excluded from the generic y-bake, ROUTED to the
+    dedicated abutment-grade seat, which then either seats them or leaves
+    them draped exactly as today.  Candidacy is decided here — from
+    geometry the classifier already has — and QUALIFICATION post-mesh,
+    where the built mesh can answer how far below the abutments the
+    anchor actually sits."""
 
     exclusions: set[tuple[str, str]]
     basin_rim_flush_facilities: list
+    bridge_abutment_seat_candidates: list = field(default_factory=list)
 
 
 def post_mesh_object_terrain_records(
@@ -955,12 +982,13 @@ def post_mesh_object_terrain_records(
     to match the object (a structure consumed by terrain feature A or B),
     for :func:`post_mesh.discover_and_rebake_airport` to drop from the
     Phase 2 y-bake, terrain-to-object and object-to-terrain corrections
-    never stacking — AND the section-2.2 basin rim-flush facilities, from
-    the same single classification.
+    never stacking — AND the section-2.2 basin rim-flush facilities, AND
+    the R6-3 bridge abutment-seat candidates, from the same single
+    classification.
 
-    ONE classify, both consumers: a second call for the facilities would
-    re-run the classifier (the bulk of a 46 s KBNA rebake, profiled
-    2026-07-15) over identical inputs.
+    ONE classify, every consumer: a second call for the facilities or the
+    candidates would re-run the classifier (the bulk of a 46 s KBNA
+    rebake, profiled 2026-07-15) over identical inputs.
 
     Gate-checked: with ``O4_OBJECT_BRIDGE_TERRAIN``,
     ``O4_OBJECT_TUNNEL_TERRAIN`` and ``O4_OBJECT_BASIN_TRENCH`` ALL off
@@ -1027,7 +1055,7 @@ def post_mesh_object_terrain_records(
     if not geometry_by_resource:
         return empty
 
-    def compute() -> tuple[set[tuple[str, str]], list]:
+    def compute() -> tuple[set[tuple[str, str]], list, list]:
         result = object_terrain_features.classify_object_terrain_features(
             terrain_placements,
             geometry_by_resource,
@@ -1053,9 +1081,11 @@ def post_mesh_object_terrain_records(
         _expand_exclusions_to_anchor_families(
             result, terrain_placements, pack_root or ""
         )
-        return set(result.exclusions), basin_rim_flush_facilities(result)
+        return (set(result.exclusions),
+                basin_rim_flush_facilities(result),
+                bridge_abutment_seat_candidates(result))
 
-    exclusions, facilities = _cached_post_mesh_records(
+    exclusions, facilities, abutment_candidates = _cached_post_mesh_records(
         pack_root or "",
         terrain_placements,
         mean_sea_level_placements,
@@ -1065,6 +1095,7 @@ def post_mesh_object_terrain_records(
     return PostMeshObjectTerrainRecords(
         exclusions=exclusions,
         basin_rim_flush_facilities=facilities,
+        bridge_abutment_seat_candidates=abutment_candidates,
     )
 
 
@@ -1263,6 +1294,15 @@ _TUNNEL_MAX_AIRSIDE_DISTANCE_M = 500.0
 # this pass (the build-time tripwire is stated in the spec section 3
 # item 4).
 _BASIN_RIM_SAMPLE_STEP_M = 10.0
+
+# R6-3 abutment-grade sampling density.  The abutment LINE is the land
+# witness the classifier certified (``abutment_reaches_grade``), and its
+# median built-mesh elevation is the seat target, so the samples must
+# resolve the ground the abutment actually stands on — an abutment is
+# tens of metres long, not hundreds.  Half the basin rim step: the rim
+# band is a long closed outline where 10 m is plenty; two short lines
+# want a denser median.
+_ABUTMENT_GRADE_SAMPLE_STEP_M = 5.0
 
 
 def _basin_rim_estimate_elevation_m(
@@ -1655,6 +1695,144 @@ def basin_rim_flush_facilities(classification) -> list:
                 body_rings_longitude_latitude=rings,
                 solid_minimum_y_m=min(deck_reference_values),
                 anchor_inside_body=bool(body.covers(anchor_point)),
+            )
+        )
+    return out
+
+
+#: Decision kind recorded in the rebake provenance for a TERRAIN_CARRIED
+#: bridge seated by the R6-3 abutment-grade law.  ONE spelling, read by
+#: the post-mesh pass, the provenance writer and the tests.
+BRIDGE_ABUTMENT_SEAT_DECISION_KIND = "bridge_abutment_seat"
+
+
+@dataclass(frozen=True)
+class BridgeAbutmentSeatCandidate:
+    """One TERRAIN_CARRIED bridge as the R6-3 post-mesh seat needs to see
+    it (round-6 OTHH residuals spec).
+
+    THE DEFECT.  OTHH ``Bridge_01`` is a cosmetic flush deck
+    (TERRAIN_CARRIED, deck top −0.31 m in its own frame).  Its resources
+    are R4-EXCLUDED from the Phase 2 y-bake, and its anchor sits OVER
+    WATER — the built mesh answers 0.00 m at the anchor and at every deck
+    station — so the object draped ~3.96 m below the ground its own
+    abutments stand on.
+
+    THE LAW.  A TERRAIN_CARRIED bridge whose anchor ground sample sits
+    more than the reseat threshold (``DSF_OBJECT_BAKE_MIN_DELTA_M``,
+    1.0 m) BELOW its CERTIFIED abutment grade leaves the
+    excluded-and-draped treatment and takes a Phase-2 seat at the
+    abutment-grade consensus.  "Certified" is the classifier's own
+    ``abutment_reaches_grade`` — solid geometry of any hardness reaching
+    effective grade at BOTH ends (a piered viaduct never becomes a
+    ``BridgeStructure`` at all).  Bridges whose anchors sample land
+    within the threshold stay excluded and draped exactly as today.
+
+    Only the CANDIDACY is decided at classify time — it is a pure
+    function of the classifier's records, so it caches with them.  The
+    qualification (how far below the abutments the anchor really sits) is
+    a question only the BUILT MESH can answer, and post_mesh asks it.
+
+    * ``object_resources`` — the bridge's member resources.
+    * ``anchor_longitude_latitude`` — ``(longitude, latitude)`` of the
+      structure anchor, i.e. the point a DRAPED member seats on.
+    * ``abutment_points_longitude_latitude`` — the two abutment lines'
+      endpoints, already projected out of the structure metre frame, in
+      ``[start end, far end]`` order.  Projected HERE so the post-mesh
+      pass never re-derives a frame (``_abutment_lines_layout_meters``
+      needs a layout, and the pipeline-time layout is gone by then).
+    * ``deck_top_y_m`` — the authored deck crest in the structure frame;
+      the record's expected seated deck top is ``abutment grade +
+      deck_top_y_m`` (OTHH Bridge_01: 3.96 + (−0.31) ≈ 3.65 m).
+    """
+
+    object_resources: tuple[str, ...]
+    anchor_longitude_latitude: tuple[float, float]
+    abutment_points_longitude_latitude: tuple[
+        tuple[tuple[float, float], tuple[float, float]], ...]
+    deck_top_y_m: float
+
+    def to_json(self) -> dict:
+        """Plain-JSON form for the post-mesh records cache."""
+        return {
+            "object_resources": list(self.object_resources),
+            "anchor_longitude_latitude": list(
+                self.anchor_longitude_latitude),
+            "abutment_points_longitude_latitude": [
+                [list(point) for point in line]
+                for line in self.abutment_points_longitude_latitude
+            ],
+            "deck_top_y_m": float(self.deck_top_y_m),
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict) -> "BridgeAbutmentSeatCandidate":
+        return cls(
+            object_resources=tuple(payload["object_resources"]),
+            anchor_longitude_latitude=(
+                float(payload["anchor_longitude_latitude"][0]),
+                float(payload["anchor_longitude_latitude"][1]),
+            ),
+            abutment_points_longitude_latitude=tuple(
+                tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in line
+                )
+                for line in payload["abutment_points_longitude_latitude"]
+            ),
+            deck_top_y_m=float(payload["deck_top_y_m"]),
+        )
+
+
+def bridge_abutment_seat_candidates(classification) -> list:
+    """The R6-3 candidate records for one classification.
+
+    A candidate is a :data:`object_terrain_features.TERRAIN_CARRIED`
+    bridge with TWO abutment lines, both certified by the classifier's
+    ``abutment_reaches_grade``.  Nothing here consults the mesh: the
+    threshold test lives post-mesh, where the ground is measurable.
+
+    Returns ``[]`` with ``O4_OBJECT_BRIDGE_TERRAIN`` off — with no bridge
+    terrain adapted, the bridge is not R4-excluded and the generic y-bake
+    already owns it.
+    """
+    if not config.OBJECT_BRIDGE_TERRAIN:
+        return []
+
+    out: list = []
+    for bridge in getattr(classification, "bridges", None) or []:
+        if bridge.contract != object_terrain_features.TERRAIN_CARRIED:
+            continue
+        if len(bridge.abutment_lines) < 2:
+            continue
+        if not all(bridge.abutment_reaches_grade):
+            # Belt and braces: an emitted record always certifies both
+            # ends (a failing end is refused upstream).  If that ever
+            # changes, an UNCERTIFIED abutment must not become a seat
+            # target — there is no land witness behind it.
+            continue
+        origin_longitude, origin_latitude = (
+            bridge.frame_origin_longitude_latitude)
+        lines: list = []
+        for (start_point, end_point) in bridge.abutment_lines[:2]:
+            projected = []
+            for frame_x, frame_z in (start_point, end_point):
+                # NOTE the helper returns (latitude, longitude); the
+                # record — like every other post-mesh record — carries
+                # (longitude, latitude), so the flip happens ONCE, here.
+                latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                    origin_latitude, origin_longitude, 0.0,
+                    frame_x, frame_z,
+                )
+                projected.append((longitude, latitude))
+            lines.append(tuple(projected))
+        out.append(
+            BridgeAbutmentSeatCandidate(
+                object_resources=tuple(sorted(bridge.object_resources)),
+                anchor_longitude_latitude=tuple(
+                    bridge.anchor_longitude_latitude),
+                abutment_points_longitude_latitude=tuple(lines),
+                deck_top_y_m=float(bridge.deck_top_y_m),
             )
         )
     return out

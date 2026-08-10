@@ -27,6 +27,13 @@ THE FOUR SIGNALS (spec section 2)
   ring even when its pavement is flat.  A metre-credible (LIDAR-class)
   source SHORT-CIRCUITS to ``lidar_credible`` — that DEM is trustworthy
   and the normal path already handles a flat site correctly under it.
+* **S2a — the SEA-BAND EXCLUSION** (v2 amendment).  At a site whose Z0
+  sits at or above ``FLAT_SITE_SEA_BAND_MIN_Z0_M``, DEM samples at or
+  below the sea surface are excluded from BOTH the percentiles and the
+  plane fit: they are sea or void fill, not terrain testimony, and a
+  plane regressed through land and bay zeros together measures the
+  shoreline rather than the airfield.  A below-sea site keeps every
+  sample.  The excluded share rides in ``s2_sea_excluded_frac``.
 * **S3 — DEM-vs-instrument offset**, reported and never gated.  A large
   offset at a flat-candidate site is EVIDENCE FOR the DEM being
   unreliable (OTHH: 3.96 m), not against candidacy.
@@ -326,17 +333,45 @@ def extent_from_apt(apt, to_m, margin_m: float | None = None):
     return None if buffered.is_empty else buffered
 
 
-def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m) -> dict:
+def sea_band_applies(z0_m) -> bool:
+    """Whether S2a's sea-band exclusion runs at a site with this ``Z0``.
+
+    False with no instrument truth (nothing to judge the zeros against)
+    and false below ``FLAT_SITE_SEA_BAND_MIN_Z0_M`` — a below-sea or
+    at-sea airport's zeros are plausible TERRAIN, and discarding them
+    would delete the very ground it is built on.
+    """
+    if z0_m is None:
+        return False
+    try:
+        return float(z0_m) >= _config.FLAT_SITE_SEA_BAND_MIN_Z0_M
+    except (TypeError, ValueError):                  # pragma: no cover
+        return False
+
+
+def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
+               z0_m=None) -> dict:
     """S2's measurement over ``extent_m`` (local metres about ``anchor``).
 
     Reads the DEM's OWN cells inside the extent — nothing is invented
     between samples — and returns ``{n, median_m, p5_m, p95_m, relief_m,
-    slope_pct, residual_std_m}``, or a record with ``n = 0`` when the DEM
-    exposes no usable raster over the extent.  ``nodata`` cells are
-    dropped, never zero-filled.
+    slope_pct, residual_std_m, sea_excluded_frac}``, or a record with
+    ``n = 0`` when the DEM exposes no usable raster over the extent.
+    ``nodata`` cells are dropped, never zero-filled.
+
+    S2a — THE SEA-BAND EXCLUSION.  When ``z0_m`` says the site sits
+    meaningfully above sea level (:func:`sea_band_applies`), samples at
+    or below ``FLAT_SITE_SEA_BAND_MAX_M`` are SEA SURFACE or VOID FILL
+    and take no part in the percentiles OR the plane fit — the fit
+    especially, because a plane regressed through land AND bay zeros
+    measures the shoreline, not the airfield.  ``sea_excluded_frac`` is
+    the share of otherwise-valid in-extent samples that fell in the
+    band, and is reported whatever the outcome: at a site the exclusion
+    empties, the fraction is the finding.
     """
     empty = {"n": 0, "median_m": None, "p5_m": None, "p95_m": None,
-             "relief_m": None, "slope_pct": None, "residual_std_m": None}
+             "relief_m": None, "slope_pct": None, "residual_std_m": None,
+             "sea_excluded_frac": None}
     if dem is None or extent_m is None or extent_m.is_empty:
         return empty
     try:
@@ -391,8 +426,19 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m) -> dict:
     if nodata is not None:
         keep &= window != float(nodata)
     keep &= np.isfinite(window)
+
+    # S2a — the sea band.  Measured over the VALID in-extent samples, so
+    # the fraction answers "how much of this airport's DEM testimony was
+    # sea surface?" and not "how much of the bounding box was".
+    valid_n = int(keep.sum())
+    sea_excluded_frac = None
+    if sea_band_applies(z0_m) and valid_n:
+        sea = keep & (window <= float(_config.FLAT_SITE_SEA_BAND_MAX_M))
+        sea_excluded_frac = round(float(int(sea.sum())) / valid_n, 4)
+        keep &= ~sea
+
     if int(keep.sum()) < _MIN_DEM_SAMPLES:
-        return empty
+        return dict(empty, sea_excluded_frac=sea_excluded_frac)
 
     z = window[keep]
     px = grid_x[keep]
@@ -416,6 +462,7 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m) -> dict:
         "slope_pct": (None if slope_pct is None else round(slope_pct, 4)),
         "residual_std_m": (None if residual_std is None
                            else round(residual_std, 3)),
+        "sea_excluded_frac": sea_excluded_frac,
     }
 
 
@@ -522,11 +569,13 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
     the instruments needed are absent, ``not_flat`` otherwise.
     """
     s1 = threshold_consensus(cifp_elevations_m)
+    z0 = s1.get("z0_m")
     klass = source_class_for_dem(dem, icao=icao, dem_meta=dem_meta)
-    relief = dem_relief(dem, tile_lat, tile_lon, anchor, extent_m)
+    # S2a: the sea-band exclusion needs S1's consensus elevation, so the
+    # thresholds are read FIRST and Z0 is handed to the measurement.
+    relief = dem_relief(dem, tile_lat, tile_lon, anchor, extent_m, z0_m=z0)
     floor_m = relief_floor_for_class(klass.get("class"))
 
-    z0 = s1.get("z0_m")
     offset_m = None
     if z0 is not None and relief.get("median_m") is not None:
         offset_m = round(abs(float(relief["median_m"]) - float(z0)), 3)
@@ -571,6 +620,11 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
         "s2_residual_std_m": relief.get("residual_std_m"),
         "s2_dem_median_m": relief.get("median_m"),
         "s2_dem_samples": relief.get("n", 0),
+        # S2a: the share of valid in-extent DEM samples that were SEA
+        # SURFACE / VOID FILL and took no part in the statistics above.
+        # None means the exclusion did not run (no Z0, or a site at or
+        # below sea level whose zeros are plausible terrain).
+        "s2_sea_excluded_frac": relief.get("sea_excluded_frac"),
         "s2_pass": s2_pass,
         "s3_offset_m": offset_m,
         "s4": s4,
@@ -617,6 +671,9 @@ def format_log_line(record: dict | None) -> str:
     def _num(value, digits=2, unit=""):
         return "?" if value is None else f"{float(value):.{digits}f}{unit}"
 
+    sea = record.get("s2_sea_excluded_frac")
+    sea_text = ("" if sea is None
+                else f", sea-excluded {100.0 * float(sea):.0f} %")
     s4 = record.get("s4") or {}
     if s4.get("pass") is None:
         pack = "no_data"
@@ -633,5 +690,5 @@ def format_log_line(record: dict | None) -> str:
         f"[{record.get('s2_source_whence') or '?'}] relief "
         f"{_num(record.get('s2_relief_m'))} m vs floor "
         f"{_num(record.get('s2_relief_floor_m'), 1)} m, slope "
-        f"{_num(record.get('s2_slope_pct'), 3)} % | "
+        f"{_num(record.get('s2_slope_pct'), 3)} %{sea_text} | "
         f"DEM−Z0 {_num(record.get('s3_offset_m'))} m | pack {pack}")

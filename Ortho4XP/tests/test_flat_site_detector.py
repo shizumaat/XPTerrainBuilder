@@ -83,9 +83,12 @@ def _classify(dem, thresholds=FLAT_THRESHOLDS, *, dem_meta=None,
 # Fixture 1 — a flat site is a candidate
 # ──────────────────────────────────────────────────────────────────────
 def test_flat_dem_and_identical_thresholds_is_a_candidate():
-    # 3-arcsec noise WELL inside its own 8 m floor, no trend.
+    # 3-arcsec noise WELL inside its own 8 m floor, no trend.  The land
+    # sits at 1.5 m while instrument truth says 4.0 — the OTHH signature
+    # (a DEM reading BELOW truth) expressed in LAND, which is what S2a
+    # leaves behind once sea and void fill are gone.
     rng = np.random.default_rng(20260809)
-    dem = SyntheticDEM(lambda x, y: rng.normal(0.0, 0.5, x.shape))
+    dem = SyntheticDEM(lambda x, y: 1.5 + rng.normal(0.0, 0.2, x.shape))
     record = _classify(dem)
 
     assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
@@ -98,19 +101,24 @@ def test_flat_dem_and_identical_thresholds_is_a_candidate():
     assert record["s2_relief_floor_m"] == 8.0
     assert record["s2_relief_m"] <= 8.0
     assert record["s2_slope_pct"] <= config.FLAT_SITE_MAX_SLOPE_PCT
-    # S3 is REPORTED, never gated: a 4 m DEM-vs-instrument offset at a
+    # S3 is REPORTED, never gated: a DEM-vs-instrument offset at a
     # flat-candidate site is evidence FOR DEM unreliability (OTHH: 3.96 m).
-    assert record["s3_offset_m"] == pytest.approx(4.0, abs=0.3)
+    assert record["s3_offset_m"] == pytest.approx(2.5, abs=0.3)
+    # Land, not sea: S2a ran (Z0 is above the guard) and found nothing
+    # to exclude, which is a different statement from "did not run".
+    assert record["s2_sea_excluded_frac"] == pytest.approx(0.0, abs=0.01)
 
 
 # ──────────────────────────────────────────────────────────────────────
 # Fixture 2 — the PLATEAU: flat pavement, hilly surroundings
 # ──────────────────────────────────────────────────────────────────────
 def _plateau(x, y):
-    """0 m on the pavement, rising 10 % outward through the margin ring."""
+    """Flat LAND on the pavement, rising 10 % outward through the margin
+    ring.  The plateau sits at 5 m, not at 0: a graded plateau is dry
+    land, and a fixture at sea level would be testing S2a instead."""
     dx = np.maximum(np.abs(x) - 1000.0, 0.0)
     dy = np.maximum(np.abs(y) - 250.0, 0.0)
-    return 0.10 * np.hypot(dx, dy)
+    return 5.0 + 0.10 * np.hypot(dx, dy)
 
 
 def test_plateau_is_caught_by_the_margin_ring_not_by_slope():
@@ -177,6 +185,99 @@ def test_lidar_class_source_short_circuits():
 
 
 # ──────────────────────────────────────────────────────────────────────
+# S2a — THE SEA-BAND EXCLUSION (spec v2 amendment, 2026-08-09)
+# ──────────────────────────────────────────────────────────────────────
+def _coastal(x, y):
+    """A reclaimed airport: flat land at 5 m over the western half, sea
+    surface (0 m, with void-fill dips) over the eastern half.
+
+    The VHHH/YSSY/KSFO shape.  Judged whole, this reads ~7 m of relief
+    and a land-to-sea gradient across the extent; judged on its LAND it
+    is dead flat, which is what the airport actually is.
+    """
+    land = np.full(x.shape, 5.0)
+    sea = np.where(((x * 7.0).astype(int) % 3) == 0, -2.0, 0.0)
+    return np.where(x < 0.0, land, sea)
+
+
+def test_coastal_site_is_classified_on_its_land_not_its_sea():
+    dem = SyntheticDEM(_coastal)
+
+    # WITHOUT the exclusion (a below-sea site keeps every sample) the
+    # same raster reads as relief AND as a gradient.
+    contaminated = _classify(dem, thresholds=[0.5, 0.5])
+    assert contaminated["s2_sea_excluded_frac"] is None
+    assert contaminated["s2_relief_m"] >= 7.0
+    assert contaminated["verdict"] == flat_site.VERDICT_NOT_FLAT
+
+    # WITH it — same raster, same extent, Z0 above the guard — the
+    # statistics describe the land the airport is built on.
+    record = _classify(dem, thresholds=[5.0, 5.0])
+    assert record["s2_sea_excluded_frac"] == pytest.approx(0.5, abs=0.05)
+    assert record["s2_relief_m"] == pytest.approx(0.0, abs=1e-6)
+    assert record["s2_slope_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert record["s2_dem_median_m"] == pytest.approx(5.0)
+    assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+    # The sea samples are gone from the FIT as well as the percentiles —
+    # a plane regressed through land and sea together measures the
+    # shoreline, and that is the half that refused KSFO.
+    assert contaminated["s2_slope_pct"] > record["s2_slope_pct"]
+
+
+def test_a_below_sea_site_keeps_every_sample():
+    """Schiphol's zeros ARE terrain.  Under the Z0 guard the exclusion
+    must not run at all — deleting them would delete the airport."""
+    assert config.FLAT_SITE_SEA_BAND_MIN_Z0_M == 1.0
+    assert flat_site.sea_band_applies(None) is False
+    assert flat_site.sea_band_applies(-3.0) is False
+    assert flat_site.sea_band_applies(0.999) is False
+    assert flat_site.sea_band_applies(1.0) is True
+
+    rng = np.random.default_rng(20260809)
+    dem = SyntheticDEM(lambda x, y: rng.uniform(-4.0, 0.0, x.shape))
+    record = _classify(dem, thresholds=[-3.0, -3.0])
+    assert record["s2_sea_excluded_frac"] is None
+    assert record["s2_dem_samples"] > 0
+    assert record["s2_dem_median_m"] < 0.0
+    assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+
+
+def test_the_excluded_fraction_is_recorded_even_when_it_empties_the_extent():
+    """A site whose every sample is sea reports the FRACTION, not a
+    crash and not a silent not_flat: 100 % excluded IS the finding."""
+    dem = SyntheticDEM(lambda x, y: np.zeros_like(x))
+    record = _classify(dem, thresholds=[4.0, 4.0])
+    assert record["s2_sea_excluded_frac"] == 1.0
+    assert record["s2_dem_samples"] == 0
+    assert record["verdict"] == flat_site.VERDICT_NO_DATA
+
+
+def test_the_exclusion_does_not_rescue_a_site_with_real_land_relief():
+    """S2a removes SEA, never terrain: land that genuinely slopes is
+    still refused once its sea is gone."""
+    def _sloped_coast(x, y):
+        return np.where(x < 0.0, 0.02 * x + 40.0, 0.0)
+
+    record = _classify(SyntheticDEM(_sloped_coast), thresholds=[20.0, 20.0])
+    assert record["s2_sea_excluded_frac"] == pytest.approx(0.5, abs=0.05)
+    assert record["s2_slope_pct"] > config.FLAT_SITE_MAX_SLOPE_PCT
+    assert record["verdict"] == flat_site.VERDICT_NOT_FLAT
+
+
+def test_the_sea_surface_is_a_datum_not_a_knob():
+    """The band's upper edge is the DEM's own sea surface.  A sample at
+    exactly 0.0 m is excluded; the first millimetre of land is kept."""
+    assert config.FLAT_SITE_SEA_BAND_MAX_M == 0.0
+
+    def _one_mm_of_land(x, y):
+        return np.where(x < 0.0, 0.001, 0.0)
+
+    record = _classify(SyntheticDEM(_one_mm_of_land), thresholds=[4.0, 4.0])
+    assert record["s2_sea_excluded_frac"] == pytest.approx(0.5, abs=0.05)
+    assert record["s2_dem_median_m"] == pytest.approx(0.001, abs=1e-6)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # S1 — the owner's 5 m spread boundary (ruling 2026-08-09)
 # ──────────────────────────────────────────────────────────────────────
 def test_s1_spread_boundary_is_the_owners_five_metres_strictly():
@@ -199,7 +300,7 @@ def test_s1_spread_boundary_is_the_owners_five_metres_strictly():
     # is about (a sea-level airport whose ends differ by a metre or two
     # of survey), and Z0 is still the MEAN of the thresholds.
     rng = np.random.default_rng(20260809)
-    dem = SyntheticDEM(lambda x, y: rng.normal(0.0, 0.5, x.shape))
+    dem = SyntheticDEM(lambda x, y: 4.0 + rng.normal(0.0, 0.5, x.shape))
     record = _classify(dem, thresholds=[3.0, 5.0, 4.0, 4.0])
     assert record["s1_spread_m"] == 2.0
     assert record["z0_m"] == pytest.approx(4.0)
@@ -236,7 +337,7 @@ def test_othh_class_site_is_a_candidate_on_both_dem_surfaces():
 
     # Arm A — the 3-arcsec base tile: OTHH's measured 6 m of void-fill
     # noise, no trend.
-    base = SyntheticDEM(lambda x, y: rng.uniform(-3.33, 3.33, x.shape))
+    base = SyntheticDEM(lambda x, y: 6.0 + rng.uniform(-3.33, 3.33, x.shape))
     arm_a = _classify(base)
     assert arm_a["s2_source_class"] == "ge3arcsec"
     assert 5.0 < arm_a["s2_relief_m"] <= arm_a["s2_relief_floor_m"]
@@ -245,7 +346,7 @@ def test_othh_class_site_is_a_candidate_on_both_dem_surfaces():
     # Arm B — the 1-arcsec-class GLO-30 inset: ~5 m of surface-model
     # noise on the same flat ground, at the measured 0.056 % slope.
     inset = SyntheticDEM(
-        lambda x, y: 0.00056 * x + rng.uniform(-2.95, 2.95, x.shape))
+        lambda x, y: 6.0 + 0.00056 * x + rng.uniform(-2.95, 2.95, x.shape))
     arm_b = _classify(inset, dem_meta=GLO30_META)
     assert arm_b["s2_source_class"] == "1arcsec"
     assert arm_b["s2_source_whence"] == "inset"
@@ -342,13 +443,16 @@ def test_missing_extent_and_empty_raster_report_no_data():
 
 def test_nodata_cells_are_dropped_not_measured():
     def _half_void(x, y):
-        z = np.zeros_like(x)
+        z = np.full(x.shape, 3.0)
         z[x > 0.0] = -32768.0
         return z
 
     dem = SyntheticDEM(_half_void)
     record = _classify(dem)
-    assert record["s2_dem_median_m"] == 0.0
+    # nodata is dropped BEFORE the sea band is measured, so the void half
+    # never counts as excluded sea.
+    assert record["s2_sea_excluded_frac"] == 0.0
+    assert record["s2_dem_median_m"] == 3.0
     assert record["s2_relief_m"] == 0.0
     assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
 
@@ -364,7 +468,7 @@ def test_format_log_line_survives_every_verdict():
 # S4 — the pack-object consensus is confirmatory and never a fail
 # ──────────────────────────────────────────────────────────────────────
 def test_pack_consensus_is_confirmatory_and_absent_data_is_no_data():
-    dem = SyntheticDEM(lambda x, y: np.zeros_like(x))
+    dem = SyntheticDEM(lambda x, y: np.full(x.shape, 4.0))
     assert _classify(dem)["s4"]["pass"] is None
     assert _classify(dem, pack_targets=[])["s4"]["pass"] is None
 

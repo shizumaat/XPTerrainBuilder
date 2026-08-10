@@ -8315,6 +8315,38 @@ FAIRING_MAX_SWEEPS_APRON = 5000             # apron smoother, per apron body
 # elevation applies off-runway, and the phase-2 spec owns that seam.
 FLAT_SITE_THRESHOLD_SPREAD_M = 5.0
 
+# S2a.  THE SEA-BAND EXCLUSION (spec section 2 S2a, v2 amendment
+# 2026-08-09, from the six-airport sweep).  At a site whose instrument
+# truth sits meaningfully above sea level, a DEM sample at or below 0 m
+# is SEA SURFACE or VOID FILL, not terrain testimony: it is excluded
+# from S2's relief percentiles AND from the plane fit, and the excluded
+# fraction rides in the record as ``s2_sea_excluded_frac``.
+#
+# ONE CONTAMINANT CLASS EXPLAINS EVERY REFUSAL the owner's six-airport
+# sweep produced (measured 2026-08-09, base rasters): VHHH judged at DEM
+# median 0.33 m against instrument truth 7.32; YSSY carrying p5 -2.67 m
+# INSIDE the reclaimed airport; KSFO's "slope" being the land-to-bay-zero
+# gradient rather than any tilt of the airfield; and OTHH itself passing
+# only by DILUTION — 69 % of its samples are literal zeros.  Excluding
+# the band measures the LAND the airport is built on.
+#
+# THE Z0 GUARD IS THE WHOLE SAFETY OF IT.  Below this consensus
+# elevation the site's zeros ARE plausible terrain — Schiphol sits at
+# -3 m and every one of its samples is real ground — so a below-sea or
+# at-sea site keeps EVERY sample and this exclusion never runs.  1.0 m
+# is the owner's own 1 m law scale (DSF_OBJECT_BAKE_MIN_DELTA_M): below
+# a metre of separation from the sea surface, "is this water or ground?"
+# is not answerable from elevation alone and the detector does not guess.
+FLAT_SITE_SEA_BAND_MIN_Z0_M = 1.0
+
+# The sea surface itself, in the DEM's own vertical datum.  This is a
+# DATUM, not a tuning knob: raising it would start discarding real
+# low-lying land, and the whole justification for the exclusion is that
+# a sample at or under the sea surface carries no terrain information.
+# Named here so there is one home for it and so any future change is a
+# visible edit to a rule value rather than a literal at a call site.
+FLAT_SITE_SEA_BAND_MAX_M = 0.0
+
 # S2.  The MARGIN RING around (pavement u boundary) the DEM is measured
 # over.  Load-bearing, not padding: a graded PLATEAU in hilly terrain has
 # flat pavement and hilly surroundings, and only the ring sees the

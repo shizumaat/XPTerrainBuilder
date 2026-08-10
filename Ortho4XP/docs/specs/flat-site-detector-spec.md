@@ -49,6 +49,22 @@ extent and DEM are in hand), pure measurement:
   Source class comes from the EXISTING DEM/inset provenance surface —
   if no clean provenance is reachable at pipeline entry, STOP and
   report; never invent a second provenance.
+* **S2a — THE SEA-BAND EXCLUSION (v2 amendment, 2026-08-09; from
+  the six-airport sweep).** At sites whose Z0 sits meaningfully above
+  sea level (Z0 ≥ `FLAT_SITE_SEA_BAND_MIN_Z0_M`, 1.0 — a below-sea
+  site like Schiphol keeps every sample: its zeros ARE plausible
+  terrain), DEM samples at ≤ 0.0 m are SEA SURFACE or VOID FILL, not
+  terrain testimony: they are EXCLUDED from S2's relief percentiles
+  and plane fit, and the excluded fraction is reported in the record
+  (`s2_sea_excluded_frac`). Measured basis: every refusal in the
+  owner's six-airport sweep is this contaminant — VHHH judged at DEM
+  median 0.33 m vs instrument 7.32; YSSY carrying p5 −2.67 m INSIDE
+  the reclaimed airport; KSFO's "slope" being the land-to-bay-zero
+  gradient; and OTHH itself passing only by dilution (69 % literal
+  zeros). Sea-excluded statistics measure the LAND the airport is
+  built on. Consequence to record, not hide: coastal near-misses
+  (OTBD, OTBH) may lawfully flip to flat_candidate under clean land
+  statistics — every flip vs the v1 sweep is reported.
 * **S3 — DEM-vs-instrument offset** (reported, never gated):
   |DEM median − Z0|. Large offset at a flat-candidate site is
   EVIDENCE FOR DEM unreliability (OTHH: 3.96 m), not against

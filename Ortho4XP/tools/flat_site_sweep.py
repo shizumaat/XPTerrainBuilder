@@ -226,10 +226,17 @@ def _cell(value, digits=2):
     return "—" if value is None else f"{float(value):.{digits}f}"
 
 
+def _pct(fraction):
+    """S2a's excluded share as a percentage.  "—" means the sea-band
+    exclusion did NOT run (no Z0, or a site at or below sea level whose
+    zeros are plausible terrain) — a different statement from "0 %"."""
+    return "—" if fraction is None else f"{100.0 * float(fraction):.0f}%"
+
+
 def print_table(rows) -> None:
     header = (f"{'ICAO':<6}{'verdict':<16}{'Z0 m':>8}{'S1 spr':>8}"
               f"{'S2 slope%':>10}{'S2 relief':>10}{'floor':>7}"
-              f"{'class':>11}{'whence':>10}{'S3 off':>8}{'S4':>22}"
+              f"{'class':>11}{'sea%':>7}{'S3 off':>8}{'S4':>22}"
               f"{'expect':>14}")
     print(header)
     print("-" * len(header))
@@ -256,7 +263,7 @@ def print_table(rows) -> None:
               f"{_cell(record.get('s2_relief_m')):>10}"
               f"{_cell(record.get('s2_relief_floor_m'), 1):>7}"
               f"{str(record.get('s2_source_class') or '—'):>11}"
-              f"{str(record.get('s2_source_whence') or '—'):>10}"
+              f"{_pct(record.get('s2_sea_excluded_frac')):>7}"
               f"{_cell(record.get('s3_offset_m')):>8}"
               f"{s4_text:>22}{flag:>14}")
         if row.get("note"):

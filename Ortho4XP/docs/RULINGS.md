@@ -1413,3 +1413,26 @@ only as needed) → spec (Fable) → ONE Opus implementer (tight brief:
 files, law, its own tests, run-once) → lead merges, freezes engine,
 packages app → owner verifies in-sim. Target: a small fix reaches a
 testable app well inside an hour.
+
+## 2026-08-09 — Flat-site detector v3 (owner approved the lead's recommendation)
+
+Three parts, all in force (spec v3, flat-site-detector-spec.md):
+(a) gate statistics on the PAVEMENT ∪ BOUNDARY extent only — the
+margin ring is report-only (surrounding hills have no standing to
+veto a flat strip; VMMC is the type case); (b) tail-robust S2 —
+DSM building roofs must not testify (defined trim above
+median + floor/2, recorded fraction; acceptance = the owner's six
+all flat, every S1-failing negative still refused, miss ⇒ STOP with
+distributions); (c) per-airport OWNER DECLARATION tile-cfg keys
+(`flat_site_declared`, `flat_site_declared_elevation_m`) with
+verdict `flat_declared`, the automatic verdict recorded beside it.
+
+## 2026-08-09 — Flat-site S1 spread and the flat test set (owner)
+
+Owner: "CIFP threshold spread < 5m should be a flat candidate" —
+`FLAT_SITE_THRESHOLD_SPREAD_M` = 5.0 (the 0.5 was the lead's
+provisional value). And the flat-airport test set gains VHHH, VMMC,
+YSSY, KSFO, KOAK, KBOS (owner-named; expected flat candidates —
+refusals are findings, never silent). Phase-2 corollary: with
+nonzero spread the runways keep their CIFP-absolute profiles; the
+flat elevation applies off-runway.

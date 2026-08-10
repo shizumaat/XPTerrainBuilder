@@ -87,8 +87,11 @@ class _FakeDem:
 
 
 def test_dem_provenance_absent_attribute_is_raw():
+    # ``synthetic_flat_site`` is None on every DEM FLAT-SITE mode did not
+    # substitute (docs/specs/flat-site-mode-spec.md §2.3) — the real-DEM
+    # frame is the absence of that entry, never a missing key.
     prov = P.dem_provenance_from_dem(_FakeDem())
-    assert prov == {"insets": [], "raw": True}
+    assert prov == {"insets": [], "raw": True, "synthetic_flat_site": None}
 
 
 def test_dem_provenance_empty_list_is_raw():

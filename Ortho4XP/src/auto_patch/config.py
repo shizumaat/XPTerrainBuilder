@@ -8398,3 +8398,22 @@ FLAT_SITE_PACK_SPREAD_MAX_M = 3.0
 # a metre the pack is not modified and terrain adapts, so a sub-metre
 # base offset is a ground-level seat by that same measure.
 FLAT_SITE_PACK_BELOW_GRADE_M = 1.0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FLAT-SITE MODE (phase 2) — the DEM SOURCE SUBSTITUTION
+# ══════════════════════════════════════════════════════════════════════
+# docs/specs/flat-site-mode-spec.md (2026-08-09, FROZEN).  When the
+# detector above returns ``flat_candidate`` for an airport, DEM prep
+# manufactures a SYNTHETIC CONSTANT INSET at the threshold-consensus Z0
+# over the detector's own extent and feeds it through the EXISTING
+# airport-inset feathering machinery — the same path a Copernicus/LIDAR
+# inset takes today.  It is a DEM SOURCE SUBSTITUTION, not a new solve
+# path: everything downstream is unchanged and runs against a truthful
+# flat input.  ``not_flat`` / ``lidar_credible`` / ``no_data`` airports
+# take the normal path byte-identically (spec §3.1).
+#
+# DEFAULT ON (spec §2.2).  ``O4_FLAT_SITE_MODE=0`` restores pre-change
+# behaviour everywhere — the whole-feature kill switch, and the arm the
+# degeneracy twins measure byte-identity against.
+FLAT_SITE_MODE = _os.environ.get("O4_FLAT_SITE_MODE", "1") == "1"

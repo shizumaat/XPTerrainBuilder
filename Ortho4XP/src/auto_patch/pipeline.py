@@ -851,6 +851,21 @@ def build_airport_pavement(icao: str, xplane_root: str,
     """
     from .progress import for_build as _progress_for_build
     _progress = _progress_for_build(icao, compute_elevations=compute_elevations)
+
+    # FLAT-SITE mode classifies inside DEM PREP, which several passes can
+    # enter first (``elevation._compute_elevations`` reaches
+    # ``_load_airport_dem`` before the per-surface solver does) and whose
+    # result ``elevation._DEM_CACHE`` memoises for the whole process.  So
+    # the install it reads CIFP and apt.dat under is recorded HERE, before
+    # anything can compose a DEM — threading it through one call site only
+    # let the FIRST caller compose an unsubstituted surface that every
+    # later caller then got back from the cache (measured 2026-08-09).
+    try:
+        from . import flat_site_mode as _flat_site_mode
+        _flat_site_mode.set_build_xplane_root(xplane_root)
+    except Exception:                                # pragma: no cover
+        pass
+
     _progress.step()  # [1] Loading apt.dat & runway geometry
 
     # O4_FORCE_APT_DAT overrides source selection (e.g. compare Global Airports
@@ -3623,7 +3638,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
             # (e.g. SPLP anchor in -13/-78 while Ortho4XP is building
             # -13/-77), causing _sample_dem to read the wrong row.
             dem = tile_dem if tile_dem is not None else _load_airport_dem(
-                layout.anchor[0], layout.anchor[1])
+                layout.anchor[0], layout.anchor[1],
+                xplane_root=xplane_root)
             if tile_dem is not None and current_tile_lat is not None:
                 tile_lat = current_tile_lat
                 tile_lon = current_tile_lon

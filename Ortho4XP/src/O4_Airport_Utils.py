@@ -969,6 +969,7 @@ def smooth_raster_over_airports(
         # Bake airport elevation insets into the raster the mesher reads
         # (see O4_Airport_Elevation_Insets G2 note); no-op when disabled.
         INSETS.bake_airport_insets_into_alt_dem(tile)
+        INSETS.overlay_flat_site_insets(tile, dico_airports)
         if write_alt_file:
             tile.dem.write_to_file(FNAMES.alt_file(tile))
         return
@@ -1097,6 +1098,13 @@ def smooth_raster_over_airports(
     # Bake airport elevation insets into the raster the mesher reads (see
     # O4_Airport_Elevation_Insets G2 note); no-op when the feature is off.
     INSETS.bake_airport_insets_into_alt_dem(tile)
+    # THE DEM-ASSEMBLY SUBSTITUTION (docs/specs/flat-site-mode-spec.md
+    # section 2.1).  Here, not inside the bake: the bake returns early
+    # whenever the inset feature has nothing to do, and this must run on
+    # every build.  After the smoothing (a 23-pixel blur would smear the
+    # Z0 plateau's edges) and BEFORE the ``.alt`` write, so the raster the
+    # mesher renders IS the array the solve samples.
+    INSETS.overlay_flat_site_insets(tile, dico_airports)
     if write_alt_file:
         tile.dem.write_to_file(FNAMES.alt_file(tile))
     return

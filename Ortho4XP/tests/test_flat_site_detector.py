@@ -176,6 +176,66 @@ def test_lidar_class_source_short_circuits():
             == flat_site.VERDICT_LIDAR_CREDIBLE)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# The PRODUCTION SURFACE case (lead ruling 2026-08-09)
+# ──────────────────────────────────────────────────────────────────────
+#: What production actually bakes at OTHH: the cached Copernicus GLO-30
+#: airport-elevation inset, a 1-arcsec-class SURFACE model.
+GLO30_META = {"raw": False,
+              "insets": [{"icao": "OTHH", "provider": "COPERNICUSGLO30",
+                          "native_resolution_m": 30.0}]}
+
+
+def test_othh_class_site_is_a_candidate_on_both_dem_surfaces():
+    """The type specimen must not change verdict between the base tile it
+    is SWEPT on and the airport inset production GRADES on.
+
+    Measured 2026-08-09 at OTHH: base ``.hgt`` relief 6.00 m against the
+    3-arcsec floor; the Copernicus GLO-30 inset relief 5.01 m, slope
+    0.056 %.  At the pre-ruling 1-arcsec floor of 5.0 m the second
+    surface missed by 14 mm and the same airport read ``flat_candidate``
+    swept and ``not_flat`` built.  Both arms are candidates now.
+    """
+    rng = np.random.default_rng(20260809)
+
+    # Arm A — the 3-arcsec base tile: OTHH's measured 6 m of void-fill
+    # noise, no trend.
+    base = SyntheticDEM(lambda x, y: rng.uniform(-3.33, 3.33, x.shape))
+    arm_a = _classify(base)
+    assert arm_a["s2_source_class"] == "ge3arcsec"
+    assert 5.0 < arm_a["s2_relief_m"] <= arm_a["s2_relief_floor_m"]
+    assert arm_a["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+
+    # Arm B — the 1-arcsec-class GLO-30 inset: ~5 m of surface-model
+    # noise on the same flat ground, at the measured 0.056 % slope.
+    inset = SyntheticDEM(
+        lambda x, y: 0.00056 * x + rng.uniform(-2.95, 2.95, x.shape))
+    arm_b = _classify(inset, dem_meta=GLO30_META)
+    assert arm_b["s2_source_class"] == "1arcsec"
+    assert arm_b["s2_source_whence"] == "inset"
+    assert arm_b["s2_relief_floor_m"] == 8.0, (
+        "lead ruling 2026-08-09: a GLO-30 class surface model's own noise "
+        "envelope is the 8 m floor, not 5 m")
+    assert 5.0 < arm_b["s2_relief_m"] <= 8.0
+    assert arm_b["s2_slope_pct"] <= config.FLAT_SITE_MAX_SLOPE_PCT
+    assert arm_b["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+
+
+def test_the_raised_floor_still_refuses_a_1arcsec_site_with_real_relief():
+    """Raising the 1-arcsec floor relaxes NOISE, not terrain: a genuinely
+    sloped site on the same source class is still refused, by the slope
+    gate and by relief past the raised floor alike."""
+    dem = SyntheticDEM(lambda x, y: 0.02 * x)
+    record = _classify(dem, dem_meta=GLO30_META)
+    assert record["s2_source_class"] == "1arcsec"
+    assert record["verdict"] == flat_site.VERDICT_NOT_FLAT
+    assert record["s2_slope_pct"] > config.FLAT_SITE_MAX_SLOPE_PCT
+    assert record["s2_relief_m"] > 8.0
+    # And the PLATEAU is caught on this class too — the ring, not the floor.
+    plateau = _classify(SyntheticDEM(_plateau), dem_meta=GLO30_META)
+    assert plateau["verdict"] == flat_site.VERDICT_NOT_FLAT
+
+
 def test_source_class_reads_provenance_in_the_documented_order():
     dem = SyntheticDEM(lambda x, y: np.zeros_like(x))
     # 1 — insets win, and the FINEST inset is the class.

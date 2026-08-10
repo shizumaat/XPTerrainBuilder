@@ -8324,11 +8324,25 @@ FLAT_SITE_MAX_SLOPE_PCT = 0.15
 # noise.  Relief at or under its own source's floor is not evidence of
 # terrain.  3-arcsec sources (~93 m posts, integer metres, void-filled
 # coastlines) carry metres of it — OTHH measures 6.0 m over genuinely
-# flat reclaimed land; 1-arcsec sources carry less; a sub-10 m raster
-# is close to credible and gets a floor barely above its own quantisation.
+# flat reclaimed land; a sub-10 m raster is close to credible and gets a
+# floor barely above its own quantisation.
+#
+# THE 1-ARCSEC FLOOR IS 8.0 m, NOT 5.0 (LEAD RULING 2026-08-09, closing a
+# spec gap the detector's own sweep surfaced).  Copernicus GLO-30 class
+# products carry ~4 m 90 % linear vertical error and are SURFACE models
+# that bake built structures into coastal/urban ground, so a p95-p5 of
+# 5-8 m over a 21 km² extent is inside the source's own noise envelope,
+# not evidence of terrain.  The discriminative burden for every negative
+# case is carried elsewhere and measurably so: at the 5.0 m floor OTHH
+# read 5.014 m on the Copernicus inset production actually bakes — a
+# 14 mm miss that flipped the type specimen between its base-tile and
+# its production surface.  Measured 2026-08-09: raising this floor flips
+# NO row of the section-3 sweep (all nine not_flat rows fail S1 threshold
+# spread outright, most also the slope gate), and the PLATEAU case is
+# caught by the margin ring's relief regardless of the floor's value.
 FLAT_SITE_RELIEF_FLOOR_BY_CLASS = {
     "ge3arcsec": 8.0,
-    "1arcsec": 5.0,
+    "1arcsec": 8.0,
     "sub10m": 2.0,
 }
 

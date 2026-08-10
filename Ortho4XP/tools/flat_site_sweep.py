@@ -77,7 +77,37 @@ def _load_base_dem(tile_lat: int, tile_lon: int, elevation_level: str):
     return dem, path
 
 
+def _load_airport_inset_dem(tile_lat: int, tile_lon: int, icao: str,
+                            elevation_level: str):
+    """THE SURFACE PRODUCTION GRADES ON, when an inset is cached for this
+    airport: the fetched airport-elevation inset GeoTIFF, plus the
+    provenance record the bake would stamp on the DEM.
+
+    Read-only and never composed — production BLENDS this into the base
+    with a feather, so a row measured here is the inset's own surface
+    over the part of the extent it covers, which is the airport itself.
+    The provenance comes from ``O4_Airport_Elevation_Insets``' OWN reader
+    (``_inset_bake_provenance_entry``), the same one the bake uses, so
+    the source class is the fetch sidecar's declared
+    ``native_resolution_m`` and never a value this tool invented.
+    """
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_DEM_Utils as DEM
+
+    candidates = [p for p in INSETS.list_cached_inset_dems(tile_lat, tile_lon)
+                  if os.path.basename(p).upper().startswith(
+                      str(icao).upper() + "_")]
+    if not candidates:
+        return None, None, None
+    path = candidates[0]
+    entry = INSETS._inset_bake_provenance_entry(path)
+    dem = DEM.DEM(tile_lat, tile_lon, path, fill_nodata=False,
+                  info_only=False, elevation_level=elevation_level)
+    return dem, path, {"insets": [entry], "raw": False}
+
+
 def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
+              dem_source: str = "base",
               patch_dir: str | None = None) -> dict:
     """One airport's detector record plus the inputs it was measured on."""
     import O4_File_Names as FNAMES
@@ -105,10 +135,18 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     tile_lon = int(math.floor(anchor[1]))
     row["tile"] = f"{tile_lat:+03d}{tile_lon:+04d}"
 
-    dem, dem_path = _load_base_dem(tile_lat, tile_lon, elevation_level)
+    dem_meta = None
+    if dem_source == "airport-inset":
+        dem, dem_path, dem_meta = _load_airport_inset_dem(
+            tile_lat, tile_lon, icao, elevation_level)
+        if dem is None:
+            row["note"] = f"no cached airport inset for {icao}"
+    else:
+        dem, dem_path = _load_base_dem(tile_lat, tile_lon, elevation_level)
+        if dem is None:
+            row["note"] = f"no base DEM on disk for {row['tile']}"
+    row["dem_source"] = dem_source
     row["dem_path"] = dem_path
-    if dem is None:
-        row["note"] = f"no base DEM on disk for {row['tile']}"
 
     extent_m = flat_site.extent_from_apt(apt, to_m)
     elevations = flat_site.cifp_threshold_elevations(xplane_root, icao)
@@ -122,7 +160,8 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     row["record"] = flat_site.classify_site(
         icao=icao, cifp_elevations_m=elevations, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon, anchor=anchor,
-        extent_m=extent_m, pack_targets=pack["targets"], pack_meta=pack)
+        extent_m=extent_m, dem_meta=dem_meta,
+        pack_targets=pack["targets"], pack_meta=pack)
     row["extent_km2"] = (None if extent_m is None
                          else round(extent_m.area / 1e6, 3))
     return row
@@ -176,6 +215,12 @@ def main(argv=None) -> int:
     parser.add_argument("--xplane-root", default=None,
                         help="X-Plane install root (default: the test "
                              "fixture's resolution)")
+    parser.add_argument("--dem-source", default="base",
+                        choices=("base", "airport-inset"),
+                        help="'base' (default) reads the tile's base .hgt; "
+                             "'airport-inset' reads the cached airport "
+                             "elevation inset — THE SURFACE PRODUCTION "
+                             "GRADES ON where one exists")
     parser.add_argument("--elevation-level", default="auto",
                         help="tile elevation level the base DEM is read "
                              "under; drives the base-tier source class")
@@ -200,6 +245,7 @@ def main(argv=None) -> int:
         try:
             rows.append(sweep_one(icao, xplane_root,
                                   elevation_level=args.elevation_level,
+                                  dem_source=args.dem_source,
                                   patch_dir=args.patch_dir))
         except Exception as error:
             rows.append({"icao": icao, "record": None,

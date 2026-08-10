@@ -3,7 +3,7 @@ import time
 import threading
 from math import pi, sin, cos, sqrt, atan, exp
 import numpy
-from shapely import geometry, ops
+from shapely import affinity, geometry, ops
 from shapely.prepared import prep
 
 # from PIL import Image, ImageDraw, ImageFilter
@@ -94,6 +94,176 @@ PATCH_RING_MARKER = (
     | VECT.Vector_Map.dico_attributes["SEA"]
     | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
 )
+
+# SEAWALL AT THE PAVEMENT/WATER EDGE (owner 2026-08-10, VMMC; Round 7,
+# docs/specs/round7-seawall-spec.md).  The ring above stops the flood, so
+# the pavement comes out land — but the mesh OUTSIDE the ring still had to
+# get from deck elevation down to the water over whatever horizontal run
+# the triangulation happened to give it, which is a ramp where reality has
+# a wall ("the water itself is sloping up to the taxiway").  Where a patch
+# pavement ring borders water we therefore emit a companion breakline
+# offset OUTWARD by SEAWALL_OFFSET_M at the WATER's own level: the drop
+# then happens over 0.5 m and reads vertical.
+#
+# The wall carries INTERP_ALT and NOTHING ELSE.  It is an elevation
+# constraint, never a region boundary: bit 8 shares no bit with WATER (1),
+# SEA (2) or SEA_EQUIV (4), so every water flood crosses it freely and the
+# 0.5 m band between ring and wall stays owned by the sea (wet texture,
+# mask, sea levelling) exactly as it was.  Giving the wall any water bit
+# would fence the sea OUT of its own foreshore.
+#
+# Land-bordering ring segments emit nothing: the offset curve is
+# intersected with the water geometry, so a fully inland patch is
+# untouched and the normal blends are unchanged.
+SEAWALL_OFFSET_M = 0.5
+SEAWALL_OFFSET_ENV = "O4_SEAWALL_OFFSET_M"
+# Sea level.  The coastline limb of the wall sits at zero because that is
+# where O4_Mesh_Utils levels SEA triangles; the inland-water limb is given
+# the same altitude source the water rings themselves are draped on
+# (``tile.dem.alt_vec``), which is the only water level the vector map
+# knows for a lake or a river.
+SEAWALL_SEA_LEVEL_M = 0.0
+SEAWALL_MARKER = VECT.Vector_Map.dico_attributes["INTERP_ALT"]
+
+
+def seawall_offset_m():
+    """The outward seawall offset in metres.
+
+    ``SEAWALL_OFFSET_M`` (0.5 m) unless ``O4_SEAWALL_OFFSET_M`` overrides
+    it.  An unparseable or non-positive override falls back to the
+    constant rather than silently disabling the wall.
+    """
+    raw = os.environ.get(SEAWALL_OFFSET_ENV)
+    if raw is None:
+        return SEAWALL_OFFSET_M
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return SEAWALL_OFFSET_M
+    return value if value > 0 else SEAWALL_OFFSET_M
+
+
+def _flatten_linestrings(geom):
+    """Every LineString inside ``geom``, at any nesting depth."""
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "LineString":
+        return [geom]
+    if hasattr(geom, "geoms"):
+        out = []
+        for sub in geom.geoms:
+            out.extend(_flatten_linestrings(sub))
+        return out
+    return []
+
+
+def seawall_breaklines(patches_area, water_area, lat, offset_m=None):
+    """Outward-offset breaklines along the patch ring where it meets water.
+
+    ``patches_area`` is the patch pavement union from ``include_patches``
+    and ``water_area`` the water the vector map itself knows — the sea
+    seed area in ``include_sea``, the OSM water / sea-equivalent
+    multipolygons in ``include_water``.  Both are tile-relative
+    (``lon - tile.lon``, ``lat - tile.lat``); ``lat`` is the tile's base
+    latitude.
+
+    The offset is taken by BUFFERING the pavement union outward in a
+    locally isotropic frame (longitudes scaled by cos(latitude), so one
+    unit is one degree of latitude in both axes) and reading the buffer's
+    boundary.  Buffering — rather than offsetting each segment by its own
+    normal — is what makes "outward" unambiguous for holes as well as
+    exteriors, keeps the curve continuous around corners, and can never
+    self-intersect at a concave one.  The result is then intersected with
+    the water: ring segments that border land contribute nothing.
+
+    Returns a list of ``(N, 2)`` float arrays.  Any geometry failure
+    returns an empty list — a seawall is a refinement, and must never
+    cost the coastline or the water encoding.
+    """
+    if patches_area is None or water_area is None:
+        return []
+    try:
+        if patches_area.is_empty or water_area.is_empty:
+            return []
+        (pminx, pminy, pmaxx, pmaxy) = patches_area.bounds
+        (wminx, wminy, wmaxx, wmaxy) = water_area.bounds
+    except (AttributeError, ValueError):
+        return []
+    # Cheap reject: pavement and water nowhere near each other.  Most
+    # tiles pay only this.
+    if pminx > wmaxx or pmaxx < wminx or pminy > wmaxy or pmaxy < wminy:
+        return []
+    offset = seawall_offset_m() if offset_m is None else float(offset_m)
+    if not offset > 0:
+        return []
+    cos_lat = cos((lat + (pminy + pmaxy) / 2) * pi / 180)
+    if not cos_lat > 1e-6:
+        return []
+    try:
+        scaled = affinity.scale(
+            patches_area, xfact=cos_lat, yfact=1.0, origin=(0, 0)
+        )
+        grown = scaled.buffer(
+            offset * GEO.m_to_lat, join_style=2, mitre_limit=2.0
+        )
+        if grown.is_empty:
+            return []
+        curve = affinity.scale(
+            grown.boundary, xfact=1 / cos_lat, yfact=1.0, origin=(0, 0)
+        )
+        wall = VECT.cut_to_tile(curve.intersection(water_area))
+    except Exception:
+        return []
+    lines = []
+    for piece in _flatten_linestrings(wall):
+        coords = numpy.array(piece.coords, dtype=float)
+        if len(coords) >= 2:
+            lines.append(coords)
+    return lines
+
+
+def insert_seawalls(
+    vector_map, tile, patches_area, water_area, alt_vec=None, offset_m=None
+):
+    """Insert the seawall breaklines for one water limb.  Returns the count.
+
+    ``alt_vec`` is the altitude source for the wall's nodes: ``None``
+    means the constant sea level (the coastline limb), otherwise a
+    ``tile.dem.alt_vec``-shaped callable (the inland-water limb, whose
+    level is whatever the water rings themselves are draped on).
+
+    Node identity is by coordinate (``Vector_Map.insert_node``), so a
+    stretch of wall shared between the two limbs keeps the altitude of
+    whichever ran first — and the coastline limb runs first, so the sea
+    wins where sea and mapped water overlap.
+    """
+    lines = seawall_breaklines(
+        patches_area, water_area, tile.lat, offset_m=offset_m
+    )
+    inserted = 0
+    for coords in lines:
+        try:
+            if alt_vec is None:
+                alti = numpy.full(
+                    (len(coords), 1), float(SEAWALL_SEA_LEVEL_M)
+                )
+            else:
+                alti = numpy.asarray(
+                    alt_vec(coords), dtype=float
+                ).reshape((len(coords), 1))
+            vector_map.insert_way(
+                numpy.hstack([coords, alti]), SEAWALL_MARKER, check=True
+            )
+            inserted += 1
+        except Exception:
+            UI.vprint(2, "     Skipping an unusable seawall breakline.")
+    if inserted:
+        UI.vprint(
+            1,
+            "      Seawall: {} breakline(s) at the patch pavement/water"
+            " edge.".format(inserted),
+        )
+    return inserted
 
 
 def water_polygon_is_tidal(osmid, dicosmtags):
@@ -528,7 +698,7 @@ def build_poly_file(tile):
         return 0
 
     # Water
-    include_water(vector_map, tile)
+    include_water(vector_map, tile, patches_area=patches_area)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -1192,10 +1362,28 @@ def include_sea(vector_map, tile, patches_area=None):
                 vector_map.seeds["SEA"].append(seed)
             else:
                 vector_map.seeds["SEA"] = [seed]
+        # Seawall along the pavement/sea edge (see SEAWALL_MARKER).  The
+        # cutter is ``seed_area``, not the raw ``sea_area``: it is exactly
+        # where the SEA attribute will live, so it is exactly where the
+        # mesh will be levelled to zero — a tidal lagoon, whose seeds are
+        # deliberately withheld, keeps its inland treatment and gets its
+        # wall from the inland limb in ``include_water`` instead.  The
+        # pavement subtraction inside ``seed_area`` costs nothing here:
+        # the wall lies 0.5 m OUTSIDE the pavement.
+        insert_seawalls(vector_map, tile, patches_area, seed_area)
 
 
 ################################################################################
-def include_water(vector_map, tile):
+def include_water(vector_map, tile, patches_area=None):
+    """Encode the tile's inland water.
+
+    ``patches_area`` is the patch pavement union from
+    ``include_patches`` (via ``include_airports``), threaded here for the
+    inland limb of the seawall (see ``SEAWALL_MARKER``): a patch ring
+    that borders a lake, a river or a dock gets the same outward
+    breakline the coastline limb gets in ``include_sea``, at the level
+    the water rings themselves are draped on.
+    """
     large_lake_threshold = (
         tile.max_area * 1e6 / (GEO.lat_to_m * GEO.lon_to_m(tile.lat + 0.5))
     )
@@ -1330,6 +1518,18 @@ def include_water(vector_map, tile):
             area_limit=tile.min_area / 10000,
             simplify=tile.water_simplification * GEO.m_to_lat,
             check=True,
+        )
+    # Inland limb of the seawall, run AFTER the water rings are encoded so
+    # the wall's edges split against them.  Both mapped-water families
+    # qualify; where a stretch was already walled by the coastline limb
+    # the node coordinates coincide and the sea's zero altitude stands.
+    for inland_area in (water_area, sea_equiv_area):
+        insert_seawalls(
+            vector_map,
+            tile,
+            patches_area,
+            inland_area,
+            alt_vec=tile.dem.alt_vec,
         )
     return 1
 

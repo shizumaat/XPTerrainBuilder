@@ -2223,10 +2223,16 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
     SCOPED FINAL PROJECTION (user 2026-07-05, ``O4_SCOPED_FINAL_PROJECTION``):
     ``skip_edge_shape_ids`` — apron/junction shapes (by ``id(s)``) whose
     within-shape ``G.edges`` contribution is SKIPPED (their positions are
-    still registered).  Only ``final_grade_projection`` passes this, for
-    shapes it proved unchanged since the solve — their identical pair set is
-    carried by that caller's lazy entries instead, so law coverage is
-    unchanged.  ``include_spine=False`` additionally skips the global spine /
+    still registered).  TWO callers pass it, both with a PROOF that the
+    skipped pairs are already satisfied — never as an optimisation on faith:
+    ``final_grade_projection`` for shapes it proved unchanged since the solve
+    (their identical pair set is carried by that caller's lazy entries), and
+    the FLAT-SITE FAST PATH (docs/specs/flat-site-fast-path-spec.md §1) for
+    shapes born at a single constant Z0, where every within-shape pair reads
+    grade 0 and no cap can be exceeded.  Because positions stay registered,
+    the global spine still strings across a skipped shape and the reach band
+    keeps its connectivity in both cases.
+    ``include_spine=False`` additionally skips the global spine /
     runway-anchor stages (``spine_adj`` and
     ``runway_anchor`` consumers), which that caller never reads — it uses
     ``G.edges`` only.  Defaults reproduce the full graph exactly.

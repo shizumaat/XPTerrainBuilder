@@ -122,6 +122,8 @@ __all__ = [
     "NECK_ABSORB_FRAC",
     "NECK_RELATIVE",
     "ROLE_GRADE_LIMITS",
+    "FLAT_SITE_FAST_PATH",
+    "FLAT_SITE_FAST_PATH_QUANTUM_M",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -8573,3 +8575,34 @@ FLAT_SITE_PACK_BELOW_GRADE_M = 1.0
 # behaviour everywhere — the whole-feature kill switch, and the arm the
 # degeneracy twins measure byte-identity against.
 FLAT_SITE_MODE = _os.environ.get("O4_FLAT_SITE_MODE", "1") == "1"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FLAT-SITE FAST PATH (phase 3) — the SOLVE PARTITION
+# ══════════════════════════════════════════════════════════════════════
+# docs/specs/flat-site-fast-path-spec.md (2026-08-10, FROZEN).  On a
+# ``flat_candidate`` / ``flat_declared`` site the answer is known before
+# the solve starts: 71 % of OTHH's emitted nodes already sit within
+# 0.05 m of Z0, and the solver spends ~4.5 min of grade-graph / reach-
+# band machinery re-deriving a constant field.  The fast path PARTITIONS
+# the solve: shapes the predicate can PROVE are governed by nothing but
+# the constant field are BORN at Z0 as fixed-value members (the
+# ``bridges.born_flat_solver_plate`` idiom — hard pins, boundary values,
+# no free variables), and everything else solves fully against them.
+#
+# CONSERVATIVE BY LAW (spec §1): any shape the predicate cannot prove
+# eligible solves fully.  Partition, never approximate.
+#
+# DEFAULT ON.  ``O4_FLAT_SITE_FAST_PATH=0`` restores pre-change
+# behaviour everywhere; a non-flat site is byte-identical either way
+# (the predicate needs a substituting flat verdict to admit anything).
+FLAT_SITE_FAST_PATH = (
+    _os.environ.get("O4_FLAT_SITE_FAST_PATH", "1") == "1")
+
+# The solver quantum the fast path proves equivalence to (spec §"Tests":
+# "every shared node within 0.01 m (solver quantum)").  It is also the
+# demotion threshold: a candidate shape carrying a SENIOR hard pin
+# (runway / tile seam / bridge deck / skirt / EAT) whose value differs
+# from Z0 by more than this is not provably constant, so the whole shape
+# falls back to the full solve.
+FLAT_SITE_FAST_PATH_QUANTUM_M = 0.01

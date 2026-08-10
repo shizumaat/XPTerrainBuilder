@@ -1882,11 +1882,33 @@ def solve_route_profile(layout, icao: str,
     if not nodes:
         return
 
+    # ── FLAT-SITE FAST PATH (docs/specs/flat-site-fast-path-spec.md) ──
+    # The PARTITION is decided here, before a single elevation is seeded:
+    # on a site whose DEM this build actually SUBSTITUTED with a constant
+    # Z0 raster (the phase-2 provenance stamp, not merely a flat
+    # verdict), every shape the predicate can PROVE is governed by
+    # nothing but that constant is BORN at Z0 as a fixed-value member and
+    # contributes no free variable.  ``_seed_elevations`` below applies
+    # the pins (last of the pin families, demoting any candidate a senior
+    # pin disagrees with); the grade-graph builders and the reach band
+    # then skip exactly what the partition proved constant.  Gate off, or
+    # no substitution ⇒ ``plan_for`` publishes None and every consumer
+    # below reads the empty set — byte-identical to before.
+    from auto_patch import flat_fast_path as _fast_path
+    _fast_path.plan_for(layout)
+
     elev, base_hard, _have_initial = _seed_elevations(
         layout, nodes, bucket_to_idx, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon)
     if not any(base_hard):
         return
+    _fp_skip = _fast_path.skip_shape_ids(layout)
+    _fp_band_skip = _fast_path.band_skip_idx(layout)
+    _fp_cert_exempt = _fast_path.certificate_exempt_idx(layout)
+    if _fp_skip:
+        import O4_UI_Utils as _UI_fp
+        _UI_fp.vprint(0, _fast_path.format_log_line(
+            getattr(layout, _fast_path.PLAN_ATTRIBUTE, None), icao))
 
     # ── ADJACENT-GROUND INGESTION, the SEED ─────────────────────────
     # The published table carries each band node's own DEM sample as
@@ -1934,12 +1956,23 @@ def solve_route_profile(layout, icao: str,
     # certificate source) and the currently-hard nodes (runway/seam seeds +
     # runway nodes — a shape touching one sits at profile values, never the
     # DEM seed, so it is never certified).
-    _hard_for_certificate = ({i for i in range(len(elev)) if base_hard[i]}
-                             | {i for i in runway_nodes if i < len(elev)})
+    # FLAT-SITE FAST PATH exemption (lead ruling 2026-08-10): the born-at-Z0
+    # pins are the ONE hard family the sentence above is FALSE of — the
+    # substituted raster IS Z0, so such a pin sits exactly AT its own DEM
+    # sample.  Leaving them in refused the certificate for a reason that does
+    # not hold, and the cost fell on their INELIGIBLE neighbours: any junction
+    # or apron sharing a single vertex with a born-at-Z0 shape dropped to eager
+    # O(n²) pair generation.  Scoped to THIS family's own pins — a vertex a
+    # senior family had already hardened keeps its refusing power (see
+    # ``flat_fast_path.certificate_exempt_idx``).
+    _hard_for_certificate = (({i for i in range(len(elev)) if base_hard[i]}
+                              | {i for i in runway_nodes if i < len(elev)})
+                             - _fp_cert_exempt)
     shape_constraints = _build_shape_constraints(
         layout, bucket_to_idx, ctx=_gg_ctx, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon,
-        hard_nodes=_hard_for_certificate)
+        hard_nodes=_hard_for_certificate,
+        born_flat_shape_ids=_fp_skip or None)
     # ── GAP-FILL SPINE constraints (Slice B stage B2, gated) ─────────
     # docs/slice_b_solver_absorption_design.md §B2.  The pre-solve store
     # ``layout.gap_fill_presolve`` exists ONLY under the B2 gate (the
@@ -2065,7 +2098,14 @@ def solve_route_profile(layout, icao: str,
     # route graph, no ``spine_adjacency`` re-derivation, no ceiling-consistency
     # bridge.  ``G.spine_adj`` already covers every spine node + edge the old
     # ``spine_adjacency`` produced (verified redundant), so the merge is gone.
-    G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=_gg_ctx)
+    # FLAT-SITE FAST PATH: the born-at-Z0 shapes contribute no within-shape
+    # pair to THIS graph either (spec §1: "no grade-graph rows, no reach
+    # bands").  ``skip_edge_shape_ids`` is the existing lever for exactly
+    # that shape of claim — it still registers every node's POSITION, so the
+    # global spine still strings across them and the reach band keeps its
+    # connectivity; only their (satisfied-by-construction) pairs are absent.
+    G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=_gg_ctx,
+                                skip_edge_shape_ids=_fp_skip or None)
     u_spine_adj = G.spine_adj
     # ── THE AIRSIDE VIEW OF THE ONE GRAPH (cycle 9) ─────────────────────
     # ONE graph, but airside authorities may not RIDE service edges: that
@@ -2221,7 +2261,8 @@ def solve_route_profile(layout, icao: str,
     # bucket, reused by every member the representative's line provably also
     # serves (an EXACT, bit-identical band, no per-member scan).  Gate OFF or a
     # band without ``.batch`` → the exact per-node scan, byte-identical.
-    node_band = node_bands(nodes, band, skip_from=_zone_skip)
+    node_band = node_bands(nodes, band, skip_from=_zone_skip,
+                           skip_idx=_fp_band_skip or None)
     # ── THE FEASIBILITY ENVELOPE READS THIS BAND (owner ruling 2026-07-30,
     # spec ``envelope-uses-the-centerline-graph``; gate
     # ``O4_ENVELOPE_FROM_BAND``, default OFF pending the reference field;
@@ -5147,6 +5188,18 @@ def solve_route_profile(layout, icao: str,
             print(f"  [flat-lazy] {icao}: {_lazy_certified} certified, "
                   f"{_lazy_certified - _still_lazy} expanded during the "
                   f"solve, {_still_lazy} never expanded")
+    # FLAT-SITE FAST PATH exit evidence (spec, Tests §3b): every born-at-Z0
+    # node is a protected hard pin, so its solved value must still BE Z0.
+    # Reported, never asserted — a non-zero residual names the pass that
+    # moved a protected node rather than hiding inside the surface.
+    if _fp_skip:
+        _fp_resid = _fast_path.z0_residual_report(
+            getattr(layout, _fast_path.PLAN_ATTRIBUTE, None), elev)
+        import O4_UI_Utils as _UI_fp2
+        _UI_fp2.vprint(0,
+            f"  [flat-fast-path] {icao}: {_fp_resid['n']} born-at-Z0 "
+            f"node(s), worst |z − Z0| after the solve "
+            f"{_fp_resid['worst_m']} m.")
     _report(icao, n_free, n_free, _time.time() - t0,
             n_terms, n_rects, n_juncs)
     return

@@ -1951,7 +1951,7 @@ def _contact_band_triangles_lonlat(
     frame: _PoolFrame,
     measurement: _PartMeasurement,
     band_metres: float,
-) -> list[tuple[tuple[float, float], ...]]:
+) -> list[tuple[tuple[float, float], ...]] | None:
     """One part's GROUND-CONTACT GEOMETRY: the 2D projection of the
     triangles whose vertices all sit inside the part's contact band
     (object-reseat-threshold-spec §2.5 v2b).
@@ -1967,9 +1967,23 @@ def _contact_band_triangles_lonlat(
     falsification: the padrings lane measured that per-part PLAN BOXES
     moved OTHH's corpus by −1.1 % and left shapeID 1878 untouched).
 
-    Falls back to the plan box when no triangle qualifies: a request
-    must never lose its geometry, and the plan box is what it always
-    was.
+    THE PLAN-BOX FALLBACK IS RETIRED (round-4 spec R1, 2026-08-10).
+    ``None`` — meaning THIS PART RAISES NO PAD REQUEST — is the answer
+    when no triangle qualifies: an elevated deck does not want terrain
+    raised to it, and the piers holding it up belong to the parts that
+    do touch ground.  Measured on the owner's OTHH build: 61 such
+    fallback rings were 83 % of all pad area, the worst of them a
+    564.8 x 534.3 m plan box (224,146 m2) around a pier-supported
+    viaduct welded into one mega-part.
+
+    The fallback survives ONLY for the degenerate mesh case — a part
+    whose own BASE sits inside the contact band (so it really does
+    stand on the ground; only its triangulation hides the skin) AND
+    whose plan box is no larger than
+    ``DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2``.  Anything bigger is
+    dropped with a verbosity-1 line naming the resource, because a
+    request that cannot say WHERE it touches cannot be trusted with
+    thirty hectares of terrain.
     """
     ceiling = measurement.base_y + band_metres
     groups: list[tuple[tuple[float, float], ...]] = []
@@ -1989,7 +2003,28 @@ def _contact_band_triangles_lonlat(
         groups.append(tuple(points))
     if groups:
         return groups
-    return [tuple(_plan_box_corners_lonlat(frame, measurement))]
+
+    from .config import DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2
+
+    plan_box_area = _plan_box_area_square_metres(measurement.plan_box)
+    if (
+        measurement.base_y <= band_metres
+        and plan_box_area <= DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2
+    ):
+        return [tuple(_plan_box_corners_lonlat(frame, measurement))]
+    try:
+        import O4_UI_Utils as UI
+
+        UI.vprint(
+            1,
+            "   [object-anchor] no contact-band geometry: dropped the "
+            f"pad request for {measurement.base_resource} (plan box "
+            f"{plan_box_area:,.0f} m2, base y {measurement.base_y:.2f} m "
+            "— an elevated deck raises no pad; spec R1)",
+        )
+    except Exception:                             # pragma: no cover
+        pass
+    return None
 
 
 def _plan_box_corners_lonlat(
@@ -2077,6 +2112,28 @@ def _raise_cluster_pad_requests(
             residual_by_key[key] = residual
     if not residual_by_key:
         return
+
+    # THE CONTACT GATE (round-4 spec R1).  A part with no contact-band
+    # geometry — and no lawful degenerate fallback — raises NO pad
+    # request, so it is removed here, BEFORE grouping: leaving it in
+    # would let it seed a residual group, drive the worst-key identity
+    # and pull the target median, all on geometry the law says does not
+    # touch the ground.
+    from .config import DSF_OBJECT_FOOT_BAND_M
+
+    contact_parts_by_key: dict[
+        int, list[tuple[tuple[float, float], ...]]
+    ] = {}
+    for key in sorted(residual_by_key):
+        parts = _contact_band_triangles_lonlat(
+            frame, measurement_by_key[key], DSF_OBJECT_FOOT_BAND_M
+        )
+        if parts is None:
+            del residual_by_key[key]
+            continue
+        contact_parts_by_key[key] = parts
+    if not residual_by_key:
+        return
     for group_keys in object_clusters.residual_part_groups(
         cluster.ground_keys, partition.kept_edges, set(residual_by_key)
     ):
@@ -2097,8 +2154,6 @@ def _raise_cluster_pad_requests(
         # plan-box corners: it is the run record's audit trail and the
         # extent the ungrouped fallback uses, and nothing derives a ring
         # from it any more.
-        from .config import DSF_OBJECT_FOOT_BAND_M
-
         contact_points_lonlat: list[tuple[float, float]] = []
         contact_parts_lonlat: list[tuple[tuple[float, float], ...]] = []
         for key in group_keys:
@@ -2106,11 +2161,7 @@ def _raise_cluster_pad_requests(
             contact_points_lonlat.extend(
                 _plan_box_corners_lonlat(frame, measurement)
             )
-            contact_parts_lonlat.extend(
-                _contact_band_triangles_lonlat(
-                    frame, measurement, DSF_OBJECT_FOOT_BAND_M
-                )
-            )
+            contact_parts_lonlat.extend(contact_parts_by_key[key])
         cluster_pad_requests.append(
             ClusterPadRequest(
                 structure_index=structure_index,

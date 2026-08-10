@@ -442,11 +442,24 @@ def _excluded_digest(
     return digest.hexdigest()
 
 
-def _run_key(mesh_path: str, dsf_path: str) -> str:
-    return "%s|%s" % (
+def _run_key(mesh_path: str, dsf_path: str,
+             airport: str | None = None) -> str:
+    """The provenance key one run is recorded under.
+
+    THE CLAIMING AIRPORT IS PART OF IT (round-4 spec R2).  A DSF cell
+    carrying two airports' objects is now processed once per airport
+    over disjoint placement subsets; a key of (tile, DSF) alone would
+    let the second airport's run match the FIRST airport's fingerprint,
+    short-circuit, and inherit its structures and pad requests wholesale.
+    ``None`` keeps the historic two-part key (the command line, the unit
+    tests), and a record stored under it simply never matches a
+    per-airport run — which costs one full re-derive, never a wrong one.
+    """
+    key = "%s|%s" % (
         _tile_name_from_mesh_path(mesh_path),
         os.path.abspath(dsf_path),
     )
+    return key if airport is None else "%s|%s" % (key, airport)
 
 
 def _resource_files(pack_root: str, physical_path: str | None) -> list[str]:
@@ -595,6 +608,7 @@ def store_run_record(
     dsf_path: str,
     mesh_path: str,
     record: dict,
+    airport: str | None = None,
 ) -> str | None:
     """Merge ``record`` into the pack's provenance sidecar.
 
@@ -604,7 +618,7 @@ def store_run_record(
     try:
         provenance = _load_provenance(pack_root)
         provenance.setdefault(RUN_RECORDS_KEY, {})[
-            _run_key(mesh_path, dsf_path)
+            _run_key(mesh_path, dsf_path, airport)
         ] = record
         sidecar_path = _provenance_path(pack_root)
         with open(sidecar_path, "w") as handle:
@@ -630,6 +644,7 @@ def matching_run_record(
     excluded_resources: set | None,
     resolve_resource,
     measure_only: bool = False,
+    airport: str | None = None,
 ) -> tuple[dict | None, str]:
     """``(record, reason)`` — the stored record when EVERY input still
     matches, else ``(None, why-not)``.
@@ -644,10 +659,10 @@ def matching_run_record(
             return None, "no provenance sidecar"
         provenance = _load_provenance(pack_root)
         record = provenance.get(RUN_RECORDS_KEY, {}).get(
-            _run_key(mesh_path, dsf_path)
+            _run_key(mesh_path, dsf_path, airport)
         )
         if not record:
-            return None, "no run fingerprint for this (tile, DSF)"
+            return None, "no run fingerprint for this (tile, DSF, airport)"
         if record.get("record_version") != RUN_RECORD_VERSION:
             return None, "run fingerprint written by older code"
 

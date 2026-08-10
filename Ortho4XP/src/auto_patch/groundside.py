@@ -259,6 +259,335 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None, pinned=None):
     return alts
 
 
+# ──────────────────────────────────────────────────────────────────────
+# THE TRANSITION LAW beside BELOW-GRADE geometry (round-4 spec R5)
+# ──────────────────────────────────────────────────────────────────────
+
+#: Shape ``ref``s whose emitted surface is CUT BELOW the surrounding
+#: ground — the transition law's sources.  A ramp dives by law; whatever
+#: stands beside it may not answer with a raw DEM sample.
+BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench")
+
+#: Roles whose plates take the transition law where they fall inside a
+#: below-grade surface's reach.  Retaining-wall crest bands are in here
+#: because the band IS the first ring of the transition, not a cliff top.
+TRANSITION_ROLES = (
+    ROLE_GROUNDSIDE_PAVEMENT,
+    ROLE_SERVICE_ROAD,
+    ROLE_SERVICE_JUNCTION,
+    ROLE_RETAINING_WALL,
+)
+
+
+def _ring_and_altitudes(shape):
+    """``(ring, alts)`` for a shape carrying per-vertex or flat values —
+    ``(None, None)`` for one that carries neither (an end-pair rect: the
+    transition law never invents a per-vertex profile from a pair)."""
+    polygon = getattr(shape, "polygon", None)
+    if polygon is None or polygon.is_empty or polygon.geom_type != "Polygon":
+        return None, None
+    try:
+        ring = list(polygon.exterior.coords)
+    except _GEOM_EXC:                                  # pragma: no cover
+        return None, None
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    if len(ring) < 3:
+        return None, None
+    alts = getattr(shape, "node_altitudes", None)
+    if alts:
+        values = [a for a in alts[:len(ring)] if a is not None]
+        if not values:
+            return None, None
+        fill = sum(values) / len(values)
+        return ring, [
+            float(a) if a is not None else fill
+            for a in list(alts[:len(ring)])
+            + [None] * max(0, len(ring) - len(alts))
+        ]
+    flat = getattr(shape, "altitude", None)
+    if flat is None:
+        return None, None
+    return ring, [float(flat)] * len(ring)
+
+
+def below_grade_sources(layout, refs=BELOW_GRADE_REFS) -> list:
+    """``[(polygon, ring, alts)]`` for every BELOW-GRADE surface in the
+    layout — the profiles the transition law grades away from."""
+    sources = []
+    for shape in getattr(layout, "shapes", ()) or ():
+        if getattr(shape, "ref", "") not in refs:
+            continue
+        ring, alts = _ring_and_altitudes(shape)
+        if ring is None:
+            continue
+        sources.append((shape.polygon, ring, alts))
+    return sources
+
+
+class _BelowGradeIndex:
+    """The below-grade surfaces plus an R-tree over them.
+
+    Built ONCE per layout: the law asks "what is under my feet and how
+    far away" for every vertex of every candidate plate, and at OTHH
+    that is O(10^5) vertices against O(10^2) ramps — a linear scan is
+    the whole build-time cost of this law, and the index removes it.
+    """
+
+    __slots__ = ("sources", "tree", "bounds", "component_of")
+
+    def __init__(self, sources):
+        self.sources = list(sources)
+        self.bounds = None
+        self.tree = None
+        # ONE PORTAL PER BELOW-GRADE BODY.  A tunnel cluster is emitted
+        # as a chain of ramp quads and a Y-fork as two arms of one union:
+        # anchoring per QUAD would pin the transition surface to the
+        # ramp along its whole length (the collapse in mirror form), so
+        # the sources are grouped into connected bodies and each body
+        # contributes exactly one anchor — its deepest station, which is
+        # where it meets grade under the pavement: the portal.
+        self.component_of = [0] * len(self.sources)
+        if not self.sources:
+            return
+        polygons = [polygon for polygon, _ring, _alts in self.sources]
+        try:
+            from shapely.strtree import STRtree
+
+            self.tree = STRtree(polygons)
+        except Exception:                              # pragma: no cover
+            self.tree = None
+        try:
+            merged = unary_union(polygons)
+            bodies = [
+                geometry for geometry in getattr(merged, "geoms", [merged])
+                if geometry is not None and not geometry.is_empty
+            ]
+            if len(bodies) > 1:
+                body_tree = STRtree(bodies)
+                for index, polygon in enumerate(polygons):
+                    hit = body_tree.query(polygon.representative_point())
+                    self.component_of[index] = (
+                        int(hit[0]) if len(hit) else index)
+        except Exception:                              # pragma: no cover
+            self.component_of = list(range(len(self.sources)))
+        xs0, ys0, xs1, ys1 = zip(*(p.bounds for p in polygons))
+        self.bounds = (min(xs0), min(ys0), max(xs1), max(ys1))
+
+    def __bool__(self) -> bool:
+        return bool(self.sources)
+
+    def candidates(self, point, reach_m: float):
+        if self.tree is None:
+            return range(len(self.sources))
+        px, py = point
+        try:
+            return self.tree.query(
+                box(px - reach_m, py - reach_m, px + reach_m, py + reach_m))
+        except Exception:                              # pragma: no cover
+            return range(len(self.sources))
+
+    def in_reach_of(self, polygon, reach_m: float) -> bool:
+        """Cheap bbox test: can this shape possibly be governed at all?"""
+        if self.bounds is None or polygon is None:
+            return False
+        try:
+            x0, y0, x1, y1 = polygon.bounds
+        except (AttributeError, ValueError):           # pragma: no cover
+            return False
+        bx0, by0, bx1, by1 = self.bounds
+        return not (x1 + reach_m < bx0 or x0 - reach_m > bx1
+                    or y1 + reach_m < by0 or y0 - reach_m > by1)
+
+
+def _nearest_source_profile(point, index, reach_m: float):
+    """``(altitude, distance, source_index)`` of the nearest below-grade
+    profile within ``reach_m`` of ``point`` — ``(None, None, None)`` when
+    nothing is in reach.
+
+    The altitude is interpolated along the source ring's nearest EDGE, so
+    a ramp quad answers with its own dive at that station rather than
+    with a corner value.
+    """
+    best = None
+    px, py = point
+    for source_index in index.candidates(point, reach_m):
+        polygon, ring, alts = index.sources[int(source_index)]
+        try:
+            distance = polygon.distance(Point(px, py))
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        if distance > reach_m or (best is not None and distance >= best[1]):
+            continue
+        n = len(ring)
+        best_edge = None
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            dx, dy = bx - ax, by - ay
+            length_squared = dx * dx + dy * dy
+            if length_squared < 1e-12:
+                t = 0.0
+            else:
+                t = ((px - ax) * dx + (py - ay) * dy) / length_squared
+                t = max(0.0, min(1.0, t))
+            qx, qy = ax + dx * t, ay + dy * t
+            edge_distance = math.hypot(px - qx, py - qy)
+            if best_edge is None or edge_distance < best_edge[0]:
+                best_edge = (
+                    edge_distance,
+                    alts[i] + (alts[(i + 1) % n] - alts[i]) * t,
+                )
+        if best_edge is None:                          # pragma: no cover
+            continue
+        best = (best_edge[1], distance, int(source_index))
+    return best if best is not None else (None, None, None)
+
+
+def transition_law_altitudes(ring, surface_alts, sources,
+                             max_grade: float = GROUNDSIDE_MAX_GRADE,
+                             reach_m: float | None = None):
+    """THE TRANSITION LAW (round-4 spec R5, lead ruling 2026-08-10).
+
+    A surface adjoining below-grade geometry does not get to answer with
+    a raw DEM sample.  But the run it grades over is measured ALONG ITS
+    OWN EXTENT — the band's ring, the plate's span — anchored where the
+    below-grade surface meets grade under the pavement (the PORTAL, its
+    deepest station), never across the horizontal gap to the ramp.
+
+      * the surrounding surface is the AUTHORITY along the ramp's whole
+        length: a retaining wall's crest stands at grade and the wall
+        FACE spans the drop;
+      * the crest descends only within the cap-limited run of the
+        portal, converging on the ramp there.
+
+    Measuring the run across the horizontal gap instead recreates the
+    very collapse this law exists to remove, in mirror form — terrain
+    hugging the ramp rather than standing beside it.  The witness is the
+    pre-regression Aug-8 state: a crest graded 2.90–5.00 m at
+    surrounding grade against a ramp already diving beneath it.
+
+    Mechanism: one ANCHOR per below-grade body (``index.component_of``),
+    placed at the ring vertex whose lawful floor ``ramp + cap * gap`` is
+    lowest — the vertex closest to that body's deepest station — pinned
+    at that floor; then the ring is relaxed to the cap around the pinned
+    anchors, which IS the along-the-ring run.  Vertices further along the
+    ring than ``|dz| / cap`` keep the surrounding surface exactly.
+
+    Under FLAT-SITE mode the DEM sample is a constant, which is how the
+    defect surfaced (a flat 4.00 crest against a −4.02 ramp; a
+    groundside plate meeting its ramp with a 5.62 m step at 2.6 m
+    spacing — the invalid-triangle source).  But the DEM sample was
+    always the wrong witness beside a law-cut ramp; flat mode only
+    removed the terrain variation that hid it.
+
+    Returns ``(alts, touched)`` — the new per-vertex values and how many
+    vertices the law moved.  ``sources`` empty ⇒ the input, untouched.
+    """
+    index = (sources if isinstance(sources, _BelowGradeIndex)
+             else _BelowGradeIndex(sources))
+    if not index or not ring:
+        return list(surface_alts), 0
+    if reach_m is None:
+        reach_m = transition_reach_m(surface_alts, index, max_grade)
+    alts = [float(a) for a in surface_alts]
+
+    # THE PORTAL ANCHORS.  Per below-grade body, the ring vertex whose
+    # lawful floor is lowest: the closest approach to that body's
+    # deepest station.  ``cap * gap`` is the only role the horizontal
+    # gap keeps — it is what the anchor may stand above the ramp, not a
+    # run any other vertex grades over.
+    floor_by_component: dict[int, tuple[float, int]] = {}
+    for position, vertex in enumerate(ring):
+        source_alt, distance, source_index = _nearest_source_profile(
+            vertex, index, reach_m)
+        if source_alt is None:
+            continue
+        floor = float(source_alt) + max_grade * float(distance)
+        if floor >= alts[position] - 1e-3:
+            continue                   # nothing below grade to grade to
+        component = index.component_of[source_index]
+        current = floor_by_component.get(component)
+        if current is None or floor < current[0]:
+            floor_by_component[component] = (floor, position)
+    if not floor_by_component:
+        return alts, 0
+
+    pinned = set()
+    for floor, position in floor_by_component.values():
+        alts[position] = floor
+        pinned.add(position)
+    # The relaxation IS the along-the-ring run, so it must actually
+    # converge: the primitive's default budget (max(300, 4n)) is sized
+    # for a nudge, and a pinned portal 8 m below a 60-vertex ring needs
+    # an order of magnitude more passes to spread at the cap (measured:
+    # 300 passes leave 0.011 m of excess, convergence to the primitive's
+    # own 5e-4 floor costs 5-21 ms on 62-302 vertex rings).  It still
+    # breaks early the moment it converges.
+    alts = _grade_limit_ring(
+        list(ring), alts, max_grade,
+        iters=max(4000, 64 * len(ring)), pinned=pinned)
+    touched = sum(
+        1 for position, value in enumerate(alts)
+        if abs(value - float(surface_alts[position])) > 1e-9
+    )
+    return alts, touched
+
+
+def transition_reach_m(surface_alts, index,
+                       max_grade: float = GROUNDSIDE_MAX_GRADE) -> float:
+    """How far the law can reach: the largest rise the cap has to climb,
+    divided by the cap.  Beyond it the surrounding surface stands."""
+    if not index or not surface_alts:
+        return 0.0
+    source_low = min(min(alts) for _p, _r, alts in index.sources)
+    source_high = max(max(alts) for _p, _r, alts in index.sources)
+    span = max(
+        abs(float(max(surface_alts)) - source_low),
+        abs(float(min(surface_alts)) - source_high),
+    )
+    return span / max(max_grade, 1e-6)
+
+
+def apply_below_grade_transition(layout,
+                                 roles=TRANSITION_ROLES,
+                                 max_grade: float = GROUNDSIDE_MAX_GRADE
+                                 ) -> int:
+    """Re-profile every transition surface standing in a below-grade
+    surface's reach (round-4 spec R5).  Returns the number of shapes the
+    law moved.
+
+    Runs AFTER the tunnel emitters, because the ramps it grades away
+    from are what those emitters create.  A shape carrying neither
+    per-vertex nor flat altitudes is left alone: inventing a profile out
+    of an end pair would be minting, not grading.
+    """
+    index = _BelowGradeIndex(below_grade_sources(layout))
+    if not index:
+        return 0
+    source_ids = {id(polygon) for polygon, _ring, _alts in index.sources}
+    changed = 0
+    for shape in list(getattr(layout, "shapes", ()) or ()):
+        if getattr(shape, "role", "") not in roles:
+            continue
+        if id(getattr(shape, "polygon", None)) in source_ids:
+            continue
+        ring, alts = _ring_and_altitudes(shape)
+        if ring is None:
+            continue
+        reach_m = transition_reach_m(alts, index, max_grade)
+        if not index.in_reach_of(shape.polygon, reach_m):
+            continue
+        new_alts, touched = transition_law_altitudes(
+            ring, alts, index, max_grade, reach_m=reach_m)
+        if not touched:
+            continue
+        shape.node_altitudes = list(new_alts) + [new_alts[0]]
+        shape.altitude = None
+        changed += 1
+    return changed
+
+
 def law_anchor_values(layout, for_role=None) -> dict:
     """``{(x, y) rounded to mm: elevation}`` — the LAW values this role's
     surfaces must grade to, taken from every shape that OUTRANKS it.

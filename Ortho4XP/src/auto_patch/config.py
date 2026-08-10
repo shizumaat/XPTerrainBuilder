@@ -52,6 +52,7 @@ __all__ = [
     "DSF_OBJECT_FOOT_CONTACT_TOLERANCE_M",
     "DSF_OBJECT_FOOT_PAD_RESIDUAL_M",
     "DSF_OBJECT_FOOT_PAD_MARGIN_M",
+    "DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2",
     "DSF_CLUSTER_OSM_ABSORB_FRAC",
     "DSF_CLUSTER_SIMPLIFY_TOL_M",
     "BUILDING_OUTLINE_FILL_R",
@@ -3944,6 +3945,18 @@ DSF_OBJECT_FOOT_PAD_RESIDUAL_M = float(
 # foot (``object_footprints.foot_pad_ring``).
 DSF_OBJECT_FOOT_PAD_MARGIN_M = float(
     _os.environ.get("O4_DSF_OBJECT_FOOT_PAD_MARGIN_M", "2"))
+
+# THE PLAN-BOX FALLBACK CAP (round-4 spec R1, 2026-08-10).  A part with
+# NO triangle inside its contact band raises NO pad request: an elevated
+# deck does not want terrain raised to it, and its piers belong to the
+# parts that do touch ground.  The plan-box fallback survives only for
+# the DEGENERATE mesh case — a part whose own base sits inside the
+# contact band, whose plan box is no larger than this.  Measured on the
+# owner's OTHH build: 61 fallback rings were 83 % of all pad area and
+# the worst (a welded TerminalRoads mega-part, 564.8 x 534.3 m) asked
+# for a 224,146 m2 pad around a pier-supported viaduct.
+DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2 = float(
+    _os.environ.get("O4_DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2", "2000"))
 
 # (s80) Extent-based runway shoulder widening — tuning constants and
 # rationale with the other RUNWAY_SHOULDER_EXTENT_* values near the

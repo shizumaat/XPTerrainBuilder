@@ -369,6 +369,145 @@ class TestTunnelRecognition:
 
 
 # ---------------------------------------------------------------------------
+# Part 1b — round-5 feature-A admission guards
+# (docs/specs/round5-vhhh-tunnel-admission-spec.md)
+# ---------------------------------------------------------------------------
+
+def _submerged_shell_geometry() -> ObjectGeometry:
+    """The VHHH ``tunnel/sea_X.obj`` class: a drivable-looking shell that
+    lives entirely under water — deck at −20, highest solid corner at
+    −3.129, nothing within half a metre of grade."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(
+        -50, 50, -50, 50, -20.0, hardness="hard_deck", segments=4
+    )
+    builder.add_horizontal_rectangle(
+        -50, 50, -50, 50, -3.129, hardness="hard_deck", segments=4
+    )
+    builder.add_vertical_wall(-50.0, -50.0, 50.0, -28.2, -3.129)
+    return builder.build()
+
+
+def _island_scale_shell_geometry() -> ObjectGeometry:
+    """The VHHH ``tunnel/sea.obj`` class: a real roof at grade and a real
+    below-grade hard deck — but 240,000 m² of it, far past any
+    cut-and-cover complex."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(
+        -300, 300, -200, 200, -5.0, hardness="hard_deck", segments=6
+    )
+    builder.add_horizontal_rectangle(
+        -300, -200, -200, 200, 0.0, hardness="hard_deck", segments=2
+    )
+    return builder.build()
+
+
+class TestRound5TunnelAdmission:
+    """Two admission guards keep submerged scenery and island-scale
+    shells out of the feature-A trench law (VHHH 1.0.230, owner in-sim:
+    an island-wide trench in the water and −21.38 m canyons through the
+    taxiways)."""
+
+    @staticmethod
+    def _record_log(monkeypatch) -> list[tuple[int, str]]:
+        lines: list[tuple[int, str]] = []
+        monkeypatch.setattr(
+            otf, "_vprint", lambda level, message: lines.append(
+                (level, message)
+            )
+        )
+        return lines
+
+    def test_island_scale_deck_footprint_refused(self, monkeypatch):
+        """Guard 2: a tunnel is not an island.  The structure has a real
+        roof at grade and a real below-grade drivable deck — it clears
+        guard 1 and the tunnel signature — and is refused on size
+        alone."""
+        lines = self._record_log(monkeypatch)
+        result = otf.classify_object_terrain_features(
+            [_placement("tunnel/sea.obj")],
+            {"tunnel/sea.obj": _island_scale_shell_geometry()},
+            pack_root="PACK",
+        )
+        assert result.tunnels == []
+        # No terrain was adapted to it, so it takes NO R4 exclusion and
+        # the Phase 2 y-bake owns it as ordinary scenery again.
+        assert result.exclusions == []
+        assert [refusal.reason for refusal in result.refusals] == [
+            otf.TUNNEL_REFUSAL_ISLAND_DECK
+        ]
+        assert result.refusals[0].object_resources == ["tunnel/sea.obj"]
+        refusal_lines = [
+            message for level, message in lines
+            if level == 1 and "tunnel/sea.obj" in message
+        ]
+        assert refusal_lines, lines
+        assert "240,000" in refusal_lines[0]
+
+    def test_real_cut_and_cover_shell_admitted_unchanged(self):
+        """The control: roof at grade, deck 5 m down, 3,000 m² — well
+        inside both guards, classified exactly as before them."""
+        builder = _GeometryBuilder()
+        builder.add_horizontal_rectangle(
+            -75, 75, -10, 10, -5.0, hardness="hard_deck", segments=6
+        )
+        builder.add_horizontal_rectangle(
+            -25, 25, -10, 10, 0.0, hardness="hard_deck", segments=2
+        )
+        result = otf.classify_object_terrain_features(
+            [_placement("tunnel/real.obj")],
+            {"tunnel/real.obj": builder.build()},
+            pack_root="PACK",
+        )
+        assert len(result.tunnels) == 1
+        tunnel = result.tunnels[0]
+        assert tunnel.deck_footprint.area == pytest.approx(3000.0, rel=0.01)
+        assert tunnel.body_depth_m == pytest.approx(5.0, abs=0.2)
+        assert len(tunnel.mouth_polygons) == 2
+        assert result.exclusions == [("PACK", "tunnel/real.obj")]
+        assert result.refusals == []
+
+    def test_vhhh_sea_bed_floor_arithmetic_never_emits(self, monkeypatch):
+        """The regression pin for the defect itself.
+
+        The measured VHHH record (``tunnel/sea.obj`` + ``sea_X.obj``,
+        21,495,901 m² of deck) carried ``body_depth_m`` 4.133 and
+        ``solid_minimum_y_m`` −28.200; the ``min()`` in
+        ``object_terrain_assembly`` takes the deeper of the two, so on
+        VHHH's 7.32 m datum the trench floor came out at −21.38 m — a
+        28.7 m canyon through the taxiways.  The arithmetic is CORRECT
+        and stays; the guards mean no such record is ever built, so that
+        floor is never computed.
+        """
+        from auto_patch import grade_law
+
+        body_depth_m = 4.132678974666667
+        solid_minimum_y_m = -28.199621
+        deck_reference_y = min(-body_depth_m, solid_minimum_y_m)
+        assert deck_reference_y == pytest.approx(solid_minimum_y_m)
+        floor_m = grade_law.tunnel_trench_floor_elevation_m(
+            7.32, deck_reference_y
+        )
+        assert floor_m == pytest.approx(-21.38, abs=0.01)
+
+        self._record_log(monkeypatch)
+        result = otf.classify_object_terrain_features(
+            [
+                _placement("tunnel/sea.obj"),
+                _placement("tunnel/sea_X.obj"),
+            ],
+            {
+                "tunnel/sea.obj": _island_scale_shell_geometry(),
+                "tunnel/sea_X.obj": _submerged_shell_geometry(),
+            },
+            pack_root="PACK",
+        )
+        assert result.tunnels == []
+        assert result.bridges == []
+        assert result.exclusions == []
+
+
+# ---------------------------------------------------------------------------
 # Part 2 — bridges
 # ---------------------------------------------------------------------------
 

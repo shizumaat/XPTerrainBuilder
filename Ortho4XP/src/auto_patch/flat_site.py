@@ -146,6 +146,13 @@ def threshold_consensus(elevations_m: Sequence) -> dict:
     ``z0_m`` is the MEAN of the thresholds (the spec's consensus Z0) and
     is ``None`` when there are none.  ``pass`` is ``None`` (not False)
     with no data: absent instrument truth is not a failed consensus.
+
+    The comparison is STRICTLY less-than, which is how the owner's
+    2026-08-09 ruling is worded ("CIFP threshold spread < 5m should be a
+    flat candidate") and how spec section 2 spells S1.  The boundary is
+    reachable in practice — CIFP elevations are whole feet, and 16 ft is
+    4.877 m — so ``<`` versus ``<=`` is a real distinction, not a
+    formality.
     """
     values = [float(v) for v in (elevations_m or ())
               if v is not None and float(v) == float(v)]
@@ -156,7 +163,7 @@ def threshold_consensus(elevations_m: Sequence) -> dict:
         "n": len(values),
         "spread_m": round(spread, 3),
         "z0_m": round(sum(values) / len(values), 3),
-        "pass": bool(spread <= _config.FLAT_SITE_THRESHOLD_SPREAD_M),
+        "pass": bool(spread < _config.FLAT_SITE_THRESHOLD_SPREAD_M),
     }
 
 

@@ -8301,11 +8301,19 @@ FAIRING_MAX_SWEEPS_APRON = 5000             # apron smoother, per apron body
 # flat.
 
 # S1.  CIFP threshold CONSENSUS: max - min over the airport's threshold
-# elevations.  OTHH reads 0.00 m (four identical 13 ft thresholds); the
-# margin above zero absorbs the ARINC-424 one-foot quantum (0.3048 m) on
-# a site whose ends genuinely agree, and stays well under the smallest
-# real end-to-end drop a runway profile carries.
-FLAT_SITE_THRESHOLD_SPREAD_M = 0.5
+# elevations, compared STRICTLY (spread < this).  OTHH reads 0.00 m
+# (four identical 13 ft thresholds).
+#
+# 5.0 m IS AN OWNER RULING (2026-08-09, docs/RULINGS.md "Flat-site S1
+# spread and the flat test set"), verbatim: "CIFP threshold spread < 5m
+# should be a flat candidate".  The 0.5 m this replaces was the lead's
+# PROVISIONAL value, chosen to absorb only the ARINC-424 one-foot
+# quantum; it excluded real sea-level airports whose ends differ by a
+# metre or two of survey, which is the population the owner is after.
+# Phase-2 note (spec section 2): at nonzero spread the RUNWAYS keep
+# their CIFP-absolute profiles under the standing ruling — the flat
+# elevation applies off-runway, and the phase-2 spec owns that seam.
+FLAT_SITE_THRESHOLD_SPREAD_M = 5.0
 
 # S2.  The MARGIN RING around (pavement u boundary) the DEM is measured
 # over.  Load-bearing, not padding: a graded PLATEAU in hilly terrain has

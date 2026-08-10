@@ -29,8 +29,13 @@ Runs at pipeline entry (phase 1, once the CIFP thresholds, pavement
 extent and DEM are in hand), pure measurement:
 
 * **S1 — threshold consensus:** spread = max − min CIFP runway
-  threshold elevation ≤ `FLAT_SITE_THRESHOLD_SPREAD_M` (0.5).
-  Consensus Z0 = their mean.
+  threshold elevation < `FLAT_SITE_THRESHOLD_SPREAD_M` (**5.0 —
+  owner ruling 2026-08-09**: "CIFP threshold spread < 5m should be a
+  flat candidate"; the original 0.5 was the lead's provisional
+  value). Consensus Z0 = their mean. Phase-2 note: at nonzero spread
+  the RUNWAYS keep their CIFP-absolute profiles (standing ruling);
+  the flat elevation applies off-runway — the phase-2 spec owns that
+  seam.
 * **S2 — no credible DEM relief:** over (pavement ∪ boundary) ⊕
   `FLAT_SITE_MARGIN_M` (200 m — the margin ring is load-bearing: a
   graded PLATEAU in hilly terrain shows its relief in the ring even
@@ -73,6 +78,16 @@ tile data is present). Report one table: per airport, all four
 signals + verdict. Recorded expectations: OTHH → flat_candidate;
 HECA, KCLT, CYXY → not. Any surprise is a FINDING to report with its
 numbers, never silently accepted or "fixed" by tuning a constant.
+
+**Owner-named flat test airports (2026-08-09): VHHH, VMMC, YSSY,
+KSFO, KOAK, KBOS** — expected flat candidates; any that refuses is a
+FINDING reported with its numbers. Their base rasters (N22E113,
+S34E151, N37W123, N42W072) are not in the shared corpus: fetch them
+LANE-LOCAL for the sweep (the sweep tool takes a DEM path — no
+shared-repo write, no corpus ceremony); if these airports later
+become fixtures their tiles join the corpus through the recorded
+refresh path, not as a sweep side effect. Document the download
+source per tile in the sweep output.
 
 ## 4. Tests (pre-ship mode: these files only, run once)
 

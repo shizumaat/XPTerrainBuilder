@@ -177,6 +177,42 @@ def test_lidar_class_source_short_circuits():
 
 
 # ──────────────────────────────────────────────────────────────────────
+# S1 — the owner's 5 m spread boundary (ruling 2026-08-09)
+# ──────────────────────────────────────────────────────────────────────
+def test_s1_spread_boundary_is_the_owners_five_metres_strictly():
+    """Owner 2026-08-09: "CIFP threshold spread < 5m should be a flat
+    candidate".  STRICT, and the boundary is reachable — CIFP elevations
+    are whole feet and 16 ft is 4.877 m."""
+    assert config.FLAT_SITE_THRESHOLD_SPREAD_M == 5.0
+
+    # Just inside: 16 ft of spread, the widest whole-foot gap under 5 m.
+    inside = flat_site.threshold_consensus([3.962, 3.962 + 16 * 0.3048])
+    assert inside["spread_m"] == pytest.approx(4.877, abs=0.001)
+    assert inside["pass"] is True
+    # Exactly on it, and just outside.
+    assert flat_site.threshold_consensus([0.0, 5.0])["pass"] is False
+    assert flat_site.threshold_consensus([0.0, 5.001])["pass"] is False
+    assert flat_site.threshold_consensus([0.0, 4.999])["pass"] is True
+
+    # A spread the RETIRED 0.5 m provisional value refused is now a
+    # candidate when the DEM agrees — this is the population the ruling
+    # is about (a sea-level airport whose ends differ by a metre or two
+    # of survey), and Z0 is still the MEAN of the thresholds.
+    rng = np.random.default_rng(20260809)
+    dem = SyntheticDEM(lambda x, y: rng.normal(0.0, 0.5, x.shape))
+    record = _classify(dem, thresholds=[3.0, 5.0, 4.0, 4.0])
+    assert record["s1_spread_m"] == 2.0
+    assert record["z0_m"] == pytest.approx(4.0)
+    assert record["s1_pass"] is True
+    assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+
+    # The negative type specimen is nowhere near it: HECA's measured
+    # 84.43 m of threshold spread still fails S1 outright.
+    assert flat_site.threshold_consensus(
+        [104.7 - 42.2, 104.7 + 42.23])["pass"] is False
+
+
+# ──────────────────────────────────────────────────────────────────────
 # The PRODUCTION SURFACE case (lead ruling 2026-08-09)
 # ──────────────────────────────────────────────────────────────────────
 #: What production actually bakes at OTHH: the cached Copernicus GLO-30

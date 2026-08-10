@@ -42,39 +42,84 @@ for _path in (os.path.join(_ROOT, "src"), _ROOT, os.path.join(_ROOT, "tests")):
         sys.path.insert(0, _path)
 
 
-#: The spec section 3 set, in the spec's order.  KBNA is included and
-#: reports ``no_data`` unless its tile data is present in the corpus.
+#: The spec section 3 set, in the spec's order, followed by the OWNER-NAMED
+#: FLAT TEST AIRPORTS (spec section 3 amendment, owner 2026-08-09).  An
+#: airport whose tile raster is absent reports ``no_data`` — never skipped.
 DEFAULT_AIRPORTS = ("OTHH", "OTBD", "OTBH", "HEAZ", "HECA",
-                    "SPJC", "SPLP", "CYXY", "KCLT", "KBNA")
+                    "SPJC", "SPLP", "CYXY", "KCLT", "KBNA",
+                    "VHHH", "VMMC", "YSSY", "KSFO", "KOAK", "KBOS")
 
-#: The spec's RECORDED EXPECTATIONS.  A row that disagrees is a FINDING
-#: to report with its numbers, never a constant to tune.
+#: RECORDED EXPECTATIONS.  A row that disagrees is a FINDING to report
+#: with its numbers, never a constant to tune.  The first four are the
+#: spec's original set; the six below are the owner's named flat test
+#: airports (2026-08-09), all expected flat candidates.
 EXPECTED = {
     "OTHH": "flat_candidate",
     "HECA": "not_flat",
     "KCLT": "not_flat",
     "CYXY": "not_flat",
+    "VHHH": "flat_candidate",
+    "VMMC": "flat_candidate",
+    "YSSY": "flat_candidate",
+    "KSFO": "flat_candidate",
+    "KOAK": "flat_candidate",
+    "KBOS": "flat_candidate",
 }
 
 
-def _base_dem_path(tile_lat: int, tile_lon: int) -> str | None:
-    """The on-disk base ``.hgt`` for a tile, or None when absent."""
+def _tile_name(tile_lat: int, tile_lon: int) -> str:
+    """``N25E051`` — the standard whole-tile raster stem."""
+    return (f"{'S' if tile_lat < 0 else 'N'}{abs(tile_lat):02d}"
+            f"{'W' if tile_lon < 0 else 'E'}{abs(tile_lon):03d}")
+
+
+def _base_dem_path(tile_lat: int, tile_lon: int, *,
+                   elevation_dir: str | None = None,
+                   dem_paths: dict | None = None):
+    """``(path, origin)`` for a tile's base raster, or ``(None, None)``.
+
+    Search order, most explicit first:
+
+    1. ``--dem-path TILE=PATH`` — an operator-named raster;
+    2. ``--elevation-dir DIR`` — a LANE-LOCAL directory holding
+       ``<TILE>.hgt``.  This is how an airport whose tile is not in the
+       shared corpus is swept without touching the corpus: spec §3's
+       amendment ("the sweep tool takes a DEM path — no shared-repo
+       write, no corpus ceremony");
+    3. the shared corpus, via the engine's own ``FNAMES`` layout.
+    """
     import O4_File_Names as FNAMES
 
+    tile = _tile_name(tile_lat, tile_lon)
+    explicit = (dem_paths or {}).get(tile)
+    if explicit:
+        if not os.path.isfile(explicit):
+            return None, None
+        return explicit, "explicit (--dem-path)"
+    if elevation_dir:
+        candidate = os.path.join(elevation_dir, tile + ".hgt")
+        if os.path.isfile(candidate):
+            return candidate, "lane-local (--elevation-dir)"
     path = FNAMES.base_file_name(tile_lat, tile_lon) + ".hgt"
-    return path if os.path.isfile(path) else None
+    if os.path.isfile(path):
+        return path, "shared corpus"
+    return None, None
 
 
-def _load_base_dem(tile_lat: int, tile_lon: int, elevation_level: str):
+def _load_base_dem(tile_lat: int, tile_lon: int, elevation_level: str, *,
+                   elevation_dir: str | None = None,
+                   dem_paths: dict | None = None):
     """The tile's base DEM, read straight off disk.  None when absent."""
     import O4_DEM_Utils as DEM
 
-    path = _base_dem_path(tile_lat, tile_lon)
+    path, origin = _base_dem_path(tile_lat, tile_lon,
+                                  elevation_dir=elevation_dir,
+                                  dem_paths=dem_paths)
     if path is None:
-        return None, None
+        return None, None, None
     dem = DEM.DEM(tile_lat, tile_lon, path, fill_nodata=True,
                   info_only=False, elevation_level=elevation_level)
-    return dem, path
+    return dem, path, origin
 
 
 def _load_airport_inset_dem(tile_lat: int, tile_lon: int, icao: str,
@@ -108,6 +153,8 @@ def _load_airport_inset_dem(tile_lat: int, tile_lon: int, icao: str,
 
 def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
               dem_source: str = "base",
+              elevation_dir: str | None = None,
+              dem_paths: dict | None = None,
               patch_dir: str | None = None) -> dict:
     """One airport's detector record plus the inputs it was measured on."""
     import O4_File_Names as FNAMES
@@ -136,17 +183,25 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     row["tile"] = f"{tile_lat:+03d}{tile_lon:+04d}"
 
     dem_meta = None
+    dem_origin = None
     if dem_source == "airport-inset":
         dem, dem_path, dem_meta = _load_airport_inset_dem(
             tile_lat, tile_lon, icao, elevation_level)
+        dem_origin = None if dem is None else "shared corpus (inset cache)"
         if dem is None:
             row["note"] = f"no cached airport inset for {icao}"
     else:
-        dem, dem_path = _load_base_dem(tile_lat, tile_lon, elevation_level)
+        dem, dem_path, dem_origin = _load_base_dem(
+            tile_lat, tile_lon, elevation_level,
+            elevation_dir=elevation_dir, dem_paths=dem_paths)
         if dem is None:
-            row["note"] = f"no base DEM on disk for {row['tile']}"
+            row["note"] = (
+                f"no base raster for tile {_tile_name(tile_lat, tile_lon)} "
+                f"— supply one with --elevation-dir/--dem-path")
     row["dem_source"] = dem_source
     row["dem_path"] = dem_path
+    row["dem_origin"] = dem_origin
+    row["dem_tile"] = _tile_name(tile_lat, tile_lon)
 
     extent_m = flat_site.extent_from_apt(apt, to_m)
     elevations = flat_site.cifp_threshold_elevations(xplane_root, icao)
@@ -208,6 +263,30 @@ def print_table(rows) -> None:
             print(f"       note: {row['note']}")
 
 
+def print_dem_provenance(rows) -> None:
+    """WHICH raster every row was measured on, and where it came from.
+
+    Spec §3 amendment: the download source per tile is part of the
+    deliverable — a row measured on a lane-local raster and a row
+    measured on the shared corpus are not the same kind of evidence.
+    """
+    seen = {}
+    for row in rows:
+        tile = row.get("dem_tile")
+        if not tile:
+            continue
+        seen.setdefault(tile, (row.get("dem_origin"), row.get("dem_path")))
+    if not seen:
+        return
+    print("DEM PROVENANCE (per tile)")
+    for tile in sorted(seen):
+        origin, path = seen[tile]
+        if origin is None:
+            print(f"  {tile}: ABSENT — no raster supplied")
+        else:
+            print(f"  {tile}: {origin}\n           {path}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("icaos", nargs="*", default=None,
@@ -221,6 +300,15 @@ def main(argv=None) -> int:
                              "'airport-inset' reads the cached airport "
                              "elevation inset — THE SURFACE PRODUCTION "
                              "GRADES ON where one exists")
+    parser.add_argument("--elevation-dir", default=None,
+                        help="a LANE-LOCAL directory holding <TILE>.hgt "
+                             "rasters, searched before the shared corpus — "
+                             "how an airport whose tile is not in the corpus "
+                             "is swept without writing it")
+    parser.add_argument("--dem-path", action="append", default=[],
+                        metavar="TILE=PATH",
+                        help="explicit raster for one tile, e.g. "
+                             "N22E113=/path/to/N22E113.hgt (repeatable)")
     parser.add_argument("--elevation-level", default="auto",
                         help="tile elevation level the base DEM is read "
                              "under; drives the base-tier source class")
@@ -239,6 +327,13 @@ def main(argv=None) -> int:
 
         xplane_root = _fixture_root()
 
+    dem_paths = {}
+    for item in args.dem_path:
+        if "=" not in item:
+            parser.error(f"--dem-path wants TILE=PATH, got {item!r}")
+        tile, path = item.split("=", 1)
+        dem_paths[tile.strip().upper()] = os.path.expanduser(path.strip())
+
     icaos = [i.upper() for i in (args.icaos or DEFAULT_AIRPORTS)]
     rows = []
     for icao in icaos:
@@ -246,6 +341,8 @@ def main(argv=None) -> int:
             rows.append(sweep_one(icao, xplane_root,
                                   elevation_level=args.elevation_level,
                                   dem_source=args.dem_source,
+                                  elevation_dir=args.elevation_dir,
+                                  dem_paths=dem_paths,
                                   patch_dir=args.patch_dir))
         except Exception as error:
             rows.append({"icao": icao, "record": None,
@@ -253,6 +350,8 @@ def main(argv=None) -> int:
 
     print()
     print_table(rows)
+    print()
+    print_dem_provenance(rows)
     print()
     surprises = [r["icao"] for r in rows
                  if r["icao"] in EXPECTED

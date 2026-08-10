@@ -72,6 +72,7 @@ not sensitive.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from statistics import median
 from typing import Iterable, NamedTuple, Sequence
@@ -118,6 +119,30 @@ TUNNEL_MIN_BODY_DEPTH_M = 2.0
 # run only −4…−5 m.  The at-grade hard-deck road object (T2_3/ROADT23) is
 # excluded by the below-grade requirement, not by hardness.
 TUNNEL_MIN_BELOW_GRADE_DECK_AREA_M2 = 200.0
+
+# ── Round-5 feature-A ADMISSION guard 2 (VHHH, owner in-sim on 1.0.230:
+# an island-wide trench in the water and −21.38 m canyons through the
+# taxiways) ──────────────────────────────────────────────────────────
+#
+# A TUNNEL IS NOT AN ISLAND.  ``TUNNEL_MIN_BELOW_GRADE_DECK_AREA_M2``
+# above is the minimum; this is the maximum that was missing.  A record
+# whose deck footprint exceeds this is refused — generous for any real
+# cut-and-cover complex, and three orders of magnitude under the thing
+# it exists to stop.  Measured on the VHHH pack (2026-08-10, from the
+# pack classification sidecar): the five REAL road tunnels carry deck
+# footprints of 3,845 / 6,991 / 8,893 / 9,102 / 27,807 m², while the
+# ``tunnel/sea.obj`` + ``sea_X.obj`` sea-bed record carries 21,495,901 m²
+# — 770x the largest real record — and its trench claimed all unowned
+# ground on the island.
+TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2 = float(
+    os.environ.get("O4_TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2", "150000.0")
+)
+
+# The reason guard 2 records on the :class:`RefusedStructure` audit
+# trail.  Guard 1 leaves no record: it refuses a RESOURCE before any
+# candidate structure exists to attach a reason to, and announces itself
+# at verbosity 1 instead.
+TUNNEL_REFUSAL_ISLAND_DECK = "tunnel_deck_footprint_island_scale"
 
 # A negative OBJECT_AGL placement offset of at least this magnitude flags a
 # below-grade structure on its own — the three EGLL AGL tunnel shells
@@ -283,6 +308,20 @@ def is_stock_library_resource(resource_path: str) -> bool:
     while normalized.startswith("./"):
         normalized = normalized[2:]
     return normalized.startswith(STOCK_LIBRARY_RESOURCE_PREFIX)
+
+
+def _vprint(level: int, message: str) -> None:
+    """Verbosity-gated log line.
+
+    This module is otherwise pure and is imported by tools and tests that
+    have no UI module on the path, so the import is local and a missing
+    ``O4_UI_Utils`` is silence, never an error."""
+    try:
+        import O4_UI_Utils
+    except ImportError:
+        return
+    O4_UI_Utils.vprint(level, message)
+
 
 # ---------------------------------------------------------------------------
 # Pool evidence pre-screen (performance round, 2026-07-10).  A pool is
@@ -743,11 +782,13 @@ class BridgeStructure:
 
 @dataclass(frozen=True)
 class RefusedStructure:
-    """A structure recognized as bridge-like but refused a terrain feature,
-    with the reason (amendment A4: the KMCO via_tren piered viaduct must be
-    refused — a deck-end pin there would build a false causeway).  Refused
-    structures are NOT in the R4 exclusion list: no terrain was adapted to
-    them, so the Phase 2 y-bake still applies."""
+    """A structure recognized as bridge-like OR tunnel-like but refused a
+    terrain feature, with the reason (amendment A4: the KMCO via_tren
+    piered viaduct must be refused — a deck-end pin there would build a
+    false causeway; round-5 guard 2: an island-scale tunnel deck, VHHH's
+    21.5 km² sea-bed shell).  Refused structures are NOT in the R4
+    exclusion list: no terrain was adapted to them, so the Phase 2 y-bake
+    still applies."""
 
     object_resources: list[str]
     reason: str
@@ -4147,6 +4188,39 @@ def classify_object_terrain_features(
                     component_frame.origin_longitude,
                     component_frame.triangles,
                 )
+                # Round-5 admission guard 2: a tunnel is not an island.
+                deck_footprint_area_m2 = (
+                    tunnel.deck_footprint.area
+                    if tunnel.deck_footprint is not None
+                    else 0.0
+                )
+                if (
+                    deck_footprint_area_m2
+                    > TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2
+                ):
+                    _vprint(
+                        1,
+                        "   [object-terrain] tunnel admission: refused "
+                        f"{', '.join(tunnel.object_resources)} — deck "
+                        f"footprint {deck_footprint_area_m2:,.0f} m² over "
+                        "the "
+                        f"{TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2:,.0f} m² "
+                        "maximum; a tunnel is not an island",
+                    )
+                    refusals.append(
+                        RefusedStructure(
+                            object_resources=sorted(component),
+                            reason=TUNNEL_REFUSAL_ISLAND_DECK,
+                        )
+                    )
+                    # Consumed, like the refused-bridge path above it: the
+                    # component was recognized and judged, so it must not
+                    # be re-offered to the bridge/interface stages.  It
+                    # takes NO exclusion — ruling R4 excludes structures
+                    # whose terrain was adapted to them, and none was, so
+                    # the Phase 2 y-bake owns it as ordinary scenery.
+                    consumed_resources |= component
+                    continue
                 tunnels.append(tunnel)
                 consumed_resources |= component
                 for resource in tunnel.object_resources:
@@ -4436,17 +4510,12 @@ def classify_object_terrain_features(
                     exclusions.append((pack_root, resource))
 
     if skipped_pool_count:
-        try:
-            import O4_UI_Utils
-        except ImportError:
-            pass
-        else:
-            O4_UI_Utils.vprint(
-                2,
-                "   [object-terrain] evidence pre-screen skipped "
-                f"{skipped_pool_count} of {len(pools)} pool(s) with no "
-                "classifiable geometry",
-            )
+        _vprint(
+            2,
+            "   [object-terrain] evidence pre-screen skipped "
+            f"{skipped_pool_count} of {len(pools)} pool(s) with no "
+            "classifiable geometry",
+        )
 
     # Portal faces (EGGW class) — resource-level, pool-independent.
     # A recognized face joins the R4 exclusion feed unconditionally:

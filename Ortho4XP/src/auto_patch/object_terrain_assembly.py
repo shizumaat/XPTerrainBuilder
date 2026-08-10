@@ -441,7 +441,16 @@ def _discover_sibling_road_networks(
 # 0.342 m of the promised 0.5 m clearance spent before the cut.  Adding
 # a field to a PICKLED record is a cache-version event; nothing else in
 # the fingerprint can see it.
-_CLASSIFICATION_CACHE_VERSION = 14
+# 15: the round-5 feature-A ADMISSION guards (spec
+# docs/specs/round5-vhhh-tunnel-admission-spec.md) — a candidate with no
+# solid geometry within TUNNEL_MIN_ABOVE_GRADE_TOP_M of grade is
+# submerged scenery, and a record whose deck footprint exceeds
+# TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2 is not a tunnel.  A v14 result for an
+# unedited pack still carries VHHH's 21,495,901 m² ``tunnel/sea.obj`` +
+# ``sea_X.obj`` record, whose −21.38 m trench claimed all unowned ground
+# on the island; the fingerprint cannot see a classifier rule change, so
+# the version is what retires it.
+_CLASSIFICATION_CACHE_VERSION = 15
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under

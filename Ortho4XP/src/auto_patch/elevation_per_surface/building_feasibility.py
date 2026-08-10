@@ -1659,12 +1659,17 @@ def reach_band_unified(layout, G):
             pass
         return lambda x, y: None
 
-    def _batch(nodes, limit):
-        """The per-point scan as a list — bit-identical by construction."""
+    def _batch(nodes, limit, skip_idx=None):
+        """The per-point scan as a list — bit-identical by construction.
+
+        ``skip_idx`` (flat-site fast path): node indices handed ``None``
+        rather than scanned — see ``anchors.node_bands``."""
         n = len(nodes)
         lim = n if limit is None else min(limit, n)
         out = [None] * n
         for i in range(max(0, lim)):
+            if skip_idx and i in skip_idx:
+                continue
             out[i] = band(nodes[i][0], nodes[i][1])
         return out
 

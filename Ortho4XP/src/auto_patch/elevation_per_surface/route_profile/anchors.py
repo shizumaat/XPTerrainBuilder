@@ -2214,8 +2214,17 @@ def build_apron_contact_floors(layout, bucket_to_idx, band, dem_fn, building_sea
     return floors
 
 
-def node_bands(nodes, band, skip_from=None):
+def node_bands(nodes, band, skip_from=None, skip_idx=None):
     """Per-node ``(floor, ceiling)`` from the one reach band (``None`` off-net).
+
+    ``skip_idx`` (flat-site fast path, docs/specs/flat-site-fast-path-spec.md
+    §3): an explicit SET of node indices handed ``None`` instead of a scan —
+    the born-at-Z0 nodes used by no shape outside the partition.  Same
+    argument as ``skip_from`` below, on a set rather than a threshold: such a
+    node is a HARD PIN no pass may move, so nothing ever consumes its band,
+    and scanning it is the cost the partition exists to remove.  A node
+    SHARED with an ineligible shape is deliberately NOT in the set — that
+    shape's own law reads it.  ``None`` ⇒ byte-identical to before.
 
     ``skip_from`` (Slice B stage B3 performance lever, gated at the call
     site): indices ``>= skip_from`` are the adjacent-ground ZONE nodes —
@@ -2245,11 +2254,14 @@ def node_bands(nodes, band, skip_from=None):
     from auto_patch.config import REACH_BAND_CLUSTERS
     batch = getattr(band, "batch", None)
     if batch is not None and REACH_BAND_CLUSTERS:
-        return batch(nodes, skip_from)
-    if skip_from is None:
+        return batch(nodes, skip_from, skip_idx)
+    if skip_from is None and not skip_idx:
         return [band(x, y) for (x, y) in nodes]
+    limit = len(nodes) if skip_from is None else min(skip_from, len(nodes))
     out = [None] * len(nodes)
-    for i in range(min(skip_from, len(nodes))):
+    for i in range(limit):
+        if skip_idx and i in skip_idx:
+            continue
         out[i] = band(nodes[i][0], nodes[i][1])
     return out
 

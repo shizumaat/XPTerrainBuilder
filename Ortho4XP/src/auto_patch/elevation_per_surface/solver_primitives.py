@@ -68,6 +68,13 @@ ADJACENT_CAP_ROLES = (
     ROLE_SERVICE_ROAD,
 )
 
+# Where the flat-site fast path publishes its partition on the layout.
+# Spelled here as a literal (not imported) so this module stays free of a
+# module-level ``flat_fast_path`` import; ``flat_fast_path.PLAN_ATTRIBUTE``
+# is the source of truth and ``tests/test_flat_site_fast_path.py`` twins
+# the two spellings.
+_FAST_PATH_ATTRIBUTE = "_flat_fast_path"
+
 PAVEMENT_ROLES = {
     ROLE_RUNWAY,
     # The retired rect-era taxi roles stay listed so any legacy shape data
@@ -1073,7 +1080,7 @@ SHAPE_CONSTRAINT_BUILDS = 0
 
 def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                              tile_lat=0, tile_lon=0, hard_nodes=None,
-                             defer_shape_ids=None):
+                             defer_shape_ids=None, born_flat_shape_ids=None):
     """Per-shape grade constraints for the directional relief: one entry per
     soft pavement shape with ``{nodes, edges, flat}`` — its node indices, its
     OWN internal grade edges ``(i, j, cap_m)``, and whether it must stay flat
@@ -1118,7 +1125,17 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
     NOTE: ``one_solve._build_adjacency`` consequently sees only the ring edges
     of a certified shape for its neighbour-cap slabs — acceptable: that is a
     heuristic bound and every node is re-projected against the full law
-    afterwards (the projection expands on first movement)."""
+    afterwards (the projection expands on first movement).
+
+    FLAT-SITE FAST PATH (docs/specs/flat-site-fast-path-spec.md §1):
+    ``born_flat_shape_ids`` — shapes (by ``id(s)``) every one of whose ring
+    vertices is a HARD PIN at exactly Z0.  They get NO entry at all: no eager
+    edges, no lazy stub, no nodes.  This is not a deferral like the two tiers
+    above — a shape whose every variable is fixed at ONE value has no within-
+    shape law left to enforce (grade 0 satisfies every cap), and its nodes
+    remain first-class BOUNDARY VALUES for the neighbours that share them,
+    which read them through their own entries.  ``None`` (the default, and
+    every call with the gate off) is byte-identical to before."""
     out = []
     # Airside-pavement union, prepared, for JUNCTION chord-visibility (see
     # ``_visible_grade_edges``): junction chords may cross neighbouring
@@ -1202,6 +1219,8 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
     for s in layout.shapes:
         if s.role not in PAVEMENT_ROLES or s.role == ROLE_RUNWAY:
             continue
+        if born_flat_shape_ids is not None and id(s) in born_flat_shape_ids:
+            continue          # flat-site fast path: constant, no free variable
         if s.polygon is None or s.polygon.is_empty:
             continue
         coords = _open_ring(list(s.polygon.exterior.coords))
@@ -3159,6 +3178,26 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     f"departure-surface regulation value.")
             except Exception:                          # pragma: no cover
                 pass
+
+    # ── FLAT-SITE FAST PATH: the BORN-AT-Z0 plate (spec §1, gated) ───
+    # docs/specs/flat-site-fast-path-spec.md.  The LAST pin family, by
+    # design: every senior pin above (runway CIFP profile, tile seam,
+    # object-bridge deck, runway-end skirt, EAT anchor rect) already owns
+    # its value, and a candidate shape holding one that disagrees with Z0
+    # is DEMOTED to the full solve rather than overwritten — that
+    # demotion is the whole of the module's conservatism at this seam.
+    # The pin APPLICATION is the deck-pin / skirt-pin pattern once more:
+    # elev + is_hard + have_initial + the seam-pin protection set.  Gate
+    # off, or no synthetic flat-site substitution stamped on this build's
+    # DEM ⇒ no plan is published and this block is a no-op — byte-inert.
+    _fast_plan = getattr(layout, _FAST_PATH_ATTRIBUTE, None)
+    if _fast_plan is not None:
+        from auto_patch import flat_fast_path as _fast_path
+        if readonly:
+            _fast_plan = _fast_plan.clone()
+        _fast_path.apply_seed_pins(
+            layout, _fast_plan, nodes, bucket_to_idx, elev, is_hard,
+            have_initial, _intern, readonly=readonly)
 
     # Warm-start soft nodes.
     for s in layout.shapes:

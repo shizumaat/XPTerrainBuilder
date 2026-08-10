@@ -235,39 +235,115 @@ class _Layout:
         self.shapes = list(shapes)
 
 
+def _diving_ramp_chain(length_m=600.0, top=4.0, portal=-4.02, pieces=30):
+    """A tunnel ramp emitted the way bridges.py emits one: a CHAIN of
+    quads descending from grade to the portal.  The portal (deepest
+    station, where the below-grade surface meets grade under the
+    pavement) is at ``x = length_m``."""
+    ramps = []
+    for i in range(pieces):
+        x0, x1 = length_m * i / pieces, length_m * (i + 1) / pieces
+        z0 = top + (portal - top) * (i / pieces)
+        z1 = top + (portal - top) * ((i + 1) / pieces)
+        ramps.append(_Shape(
+            Polygon([(x0, 0), (x1, 0), (x1, 10), (x0, 10)]),
+            "tunnel_ramp", "tunnel_ramp",
+            node_altitudes=[z0, z1, z1, z0, z0],
+        ))
+    return ramps
+
+
+def _densified_band(y_inner=10.6, y_outer=11.6, length_m=600.0, step=10.0):
+    """The perimeter wall band's ring, densified the way a shapely buffer
+    densifies it — the along-the-ring run is only meaningful on a ring
+    that has vertices."""
+    xs = [i * step for i in range(int(length_m / step) + 1)]
+    return Polygon([(x, y_outer) for x in xs]
+                   + [(x, y_inner) for x in reversed(xs)])
+
+
+def _inner_crest(shape, x_target, y_inner=10.6):
+    ring = list(shape.polygon.exterior.coords)[:-1]
+    alts = shape.node_altitudes[:len(ring)]
+    for (x, y), altitude in zip(ring, alts):
+        if abs(x - x_target) < 0.01 and abs(y - y_inner) < 0.01:
+            return altitude
+    raise AssertionError(f"no inner-band vertex at x={x_target}")
+
+
+def test_the_wall_crest_stands_at_grade_and_converges_at_the_portal():
+    """THE R5 LAW as ruled (lead 2026-08-10).  The crest is the
+    SURROUNDING SURFACE AUTHORITY along the ramp's whole length — the
+    wall FACE, not the crest, spans the drop — and it descends only
+    within the cap-limited run of the portal, converging on the ramp
+    there.  The witness is the pre-regression Aug-8 state: a crest at
+    surrounding grade (2.90–5.00 m) against a ramp already diving."""
+    ramps = _diving_ramp_chain()
+    band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
+                  altitude=4.0)
+    layout = _Layout(ramps + [band])
+    assert groundside.apply_below_grade_transition(layout) == 1
+
+    # Mid-ramp the ramp is already at grade-8.02/2; the crest is NOT.
+    assert _inner_crest(band, 300.0) == pytest.approx(4.0, abs=1e-6)
+    assert _inner_crest(band, 100.0) == pytest.approx(4.0, abs=1e-6)
+    # At the portal the crest converges on the ramp.
+    assert _inner_crest(band, 600.0) == pytest.approx(-4.02, abs=0.1)
+    # And the descent is confined to the CAP-LIMITED RUN of the portal:
+    # 8.02 m of rise at GROUNDSIDE_MAX_GRADE, so every vertex further
+    # back along the ring than that still stands at surrounding grade.
+    cap_run = 8.02 / groundside.GROUNDSIDE_MAX_GRADE
+    outside = 600.0 - 10.0 * math.ceil((cap_run + 10.0) / 10.0)
+    assert outside > 0.0
+    assert _inner_crest(band, outside) == pytest.approx(4.0, abs=1e-6)
+    # ... while a vertex INSIDE the run has left it.
+    assert _inner_crest(band, 600.0 - 10.0) < 4.0 - 0.1
+
+
+def test_the_crest_does_not_hug_the_ramp():
+    """The mirror-image collapse this law forbids: measuring the run
+    across the horizontal GAP would put the crest ~0.05 m above the ramp
+    the whole way down (a 0.6-1.6 m gap at the 4 % cap), which is terrain
+    hugging the ramp instead of standing beside it."""
+    ramps = _diving_ramp_chain()
+    band = _Shape(_densified_band(), "retaining_wall", "tunnel_wall",
+                  altitude=4.0)
+    groundside.apply_below_grade_transition(_Layout(ramps + [band]))
+    ramp_at_mid = 4.0 - 8.02 / 2.0
+    assert _inner_crest(band, 300.0) - ramp_at_mid > 3.0
+
+
 def _flat_site_layout():
     """THE FLAT CASE IS THE FIXTURE (spec R5's own test note): a ramp
-    diving 0 -> -4 m and a groundside plate beside it whose DEM sample is
-    the constant Z0 = 4.00 m flat mode produces."""
-    ramp = _Shape(
-        Polygon([(0, 0), (100, 0), (100, 10), (0, 10)]),
-        "tunnel_ramp", "tunnel_ramp",
-        node_altitudes=[0.0, -4.0, -4.0, 0.0, 0.0],
-    )
+    chain diving to a portal, and a groundside plate beside it whose DEM
+    sample is the constant Z0 = 4.00 m flat mode produces."""
+    ramps = _diving_ramp_chain(length_m=300.0, top=4.0, portal=-4.0,
+                               pieces=15)
+    xs = [i * 10.0 for i in range(31)]
     plate = _Shape(
-        Polygon([(0, 12), (100, 12), (100, 120), (0, 120)]),
+        Polygon([(x, 12.0) for x in xs] + [(x, 220.0) for x in reversed(xs)]),
         "groundside_pavement", "groundside", altitude=4.0,
     )
-    return _Layout([ramp, plate]), ramp, plate
+    return _Layout(ramps + [plate]), ramps, plate
 
 
-def test_a_flat_plate_beside_a_ramp_takes_the_ramp_profile():
+def test_a_flat_plate_beside_a_ramp_takes_the_transition_law():
     """S7's defect: the plate lost its per-node profile, went flat at
     3.96 and met the ramp with a 5.62 m step at 2.6 m spacing."""
-    layout, _ramp, plate = _flat_site_layout()
+    layout, _ramps, plate = _flat_site_layout()
     assert groundside.apply_below_grade_transition(layout) == 1
     alts = plate.node_altitudes
     assert alts is not None and len(set(round(a, 2) for a in alts)) > 1
-    # The corner 2 m from the ramp's deep end cannot stand at Z0.
+    # It converges on the ramp at the portal ...
     assert min(alts) < 0.0
-    # Far from the ramp the surrounding surface still stands.
+    # ... and the surrounding surface still stands where it should.
     assert max(alts) == pytest.approx(4.0, abs=1e-6)
 
 
 def test_the_transition_never_exceeds_the_lawful_cap():
     """No edge of the re-profiled ring may break GROUNDSIDE_MAX_GRADE —
     the 5.62 m over 2.6 m step is exactly what this forbids."""
-    layout, _ramp, plate = _flat_site_layout()
+    layout, _ramps, plate = _flat_site_layout()
     groundside.apply_below_grade_transition(layout)
     ring = list(plate.polygon.exterior.coords)
     if ring[0] == ring[-1]:
@@ -276,17 +352,24 @@ def test_the_transition_never_exceeds_the_lawful_cap():
     for i in range(len(ring)):
         j = (i + 1) % len(ring)
         run = math.hypot(ring[j][0] - ring[i][0], ring[j][1] - ring[i][1])
+        # 5e-3 is the relaxation's own convergence floor: the shared
+        # ``_grade_limit_ring`` primitive stops at a 1e-3 worst-excess
+        # pass, so a converged ring keeps a few mm of slack per edge.
         assert abs(alts[j] - alts[i]) <= (
-            groundside.GROUNDSIDE_MAX_GRADE * run + 1e-3)
+            groundside.GROUNDSIDE_MAX_GRADE * run + 5e-3)
 
 
 def test_the_law_holds_on_a_real_dem_site_too():
     """The DEM sample was ALWAYS the wrong witness beside a law-cut ramp;
     flat mode only exposed it.  A varying (real-DEM) surface beside the
     same ramp is governed identically."""
-    layout, _ramp, plate = _flat_site_layout()
+    layout, _ramps, plate = _flat_site_layout()
+    ring_length = len(list(plate.polygon.exterior.coords)) - 1
     plate.altitude = None
-    plate.node_altitudes = [4.6, 3.2, 5.0, 4.1, 4.6]
+    plate.node_altitudes = [
+        4.0 + 0.4 * math.sin(i) for i in range(ring_length)
+    ]
+    plate.node_altitudes.append(plate.node_altitudes[0])
     assert groundside.apply_below_grade_transition(layout) == 1
     assert min(plate.node_altitudes) < 0.0
 
@@ -318,19 +401,18 @@ def test_a_layout_with_no_below_grade_geometry_is_a_no_op():
     assert plate.altitude == 4.0
 
 
-def test_the_wall_crest_band_is_a_transition_surface():
-    """S5: the retaining wall's crest band is the FIRST ring of the
-    transition, so it grades off the ramp instead of standing flat at
-    4.00 against a ramp at -4.02."""
-    ramp = _Shape(
-        Polygon([(0, 0), (100, 0), (100, 10), (0, 10)]),
-        "tunnel_ramp", "tunnel_ramp",
-        node_altitudes=[0.0, -4.02, -4.02, 0.0, 0.0],
-    )
-    band = _Shape(
-        Polygon([(0, 10.6), (100, 10.6), (100, 11.6), (0, 11.6)]),
-        "retaining_wall", "tunnel_wall", altitude=4.0,
-    )
-    layout = _Layout([ramp, band])
-    assert groundside.apply_below_grade_transition(layout) == 1
-    assert min(band.node_altitudes) < 0.0
+def test_one_anchor_per_below_grade_body():
+    """A ramp is emitted as a CHAIN of quads: anchoring per quad would
+    pin the transition surface to the ramp along its whole length.  Two
+    SEPARATE tunnels beside one plate must still get one portal each."""
+    from auto_patch.groundside import _BelowGradeIndex, below_grade_sources
+
+    left = _diving_ramp_chain(length_m=200.0, pieces=10)
+    right = []
+    for shape in _diving_ramp_chain(length_m=200.0, pieces=10):
+        ring = [(x + 1000.0, y) for x, y in shape.polygon.exterior.coords]
+        right.append(_Shape(Polygon(ring), "tunnel_ramp", "tunnel_ramp",
+                            node_altitudes=list(shape.node_altitudes)))
+    index = _BelowGradeIndex(
+        below_grade_sources(_Layout(left + right)))
+    assert len(set(index.component_of)) == 2

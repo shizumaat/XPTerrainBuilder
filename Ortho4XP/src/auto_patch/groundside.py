@@ -334,12 +334,20 @@ class _BelowGradeIndex:
     the whole build-time cost of this law, and the index removes it.
     """
 
-    __slots__ = ("sources", "tree", "bounds")
+    __slots__ = ("sources", "tree", "bounds", "component_of")
 
     def __init__(self, sources):
         self.sources = list(sources)
         self.bounds = None
         self.tree = None
+        # ONE PORTAL PER BELOW-GRADE BODY.  A tunnel cluster is emitted
+        # as a chain of ramp quads and a Y-fork as two arms of one union:
+        # anchoring per QUAD would pin the transition surface to the
+        # ramp along its whole length (the collapse in mirror form), so
+        # the sources are grouped into connected bodies and each body
+        # contributes exactly one anchor — its deepest station, which is
+        # where it meets grade under the pavement: the portal.
+        self.component_of = [0] * len(self.sources)
         if not self.sources:
             return
         polygons = [polygon for polygon, _ring, _alts in self.sources]
@@ -349,6 +357,20 @@ class _BelowGradeIndex:
             self.tree = STRtree(polygons)
         except Exception:                              # pragma: no cover
             self.tree = None
+        try:
+            merged = unary_union(polygons)
+            bodies = [
+                geometry for geometry in getattr(merged, "geoms", [merged])
+                if geometry is not None and not geometry.is_empty
+            ]
+            if len(bodies) > 1:
+                body_tree = STRtree(bodies)
+                for index, polygon in enumerate(polygons):
+                    hit = body_tree.query(polygon.representative_point())
+                    self.component_of[index] = (
+                        int(hit[0]) if len(hit) else index)
+        except Exception:                              # pragma: no cover
+            self.component_of = list(range(len(self.sources)))
         xs0, ys0, xs1, ys1 = zip(*(p.bounds for p in polygons))
         self.bounds = (min(xs0), min(ys0), max(xs1), max(ys1))
 
@@ -379,8 +401,9 @@ class _BelowGradeIndex:
 
 
 def _nearest_source_profile(point, index, reach_m: float):
-    """``(altitude, distance)`` of the nearest below-grade profile within
-    ``reach_m`` of ``point`` — ``(None, None)`` when nothing is in reach.
+    """``(altitude, distance, source_index)`` of the nearest below-grade
+    profile within ``reach_m`` of ``point`` — ``(None, None, None)`` when
+    nothing is in reach.
 
     The altitude is interpolated along the source ring's nearest EDGE, so
     a ramp quad answers with its own dive at that station rather than
@@ -417,30 +440,43 @@ def _nearest_source_profile(point, index, reach_m: float):
                 )
         if best_edge is None:                          # pragma: no cover
             continue
-        best = (best_edge[1], distance)
-    return best if best is not None else (None, None)
+        best = (best_edge[1], distance, int(source_index))
+    return best if best is not None else (None, None, None)
 
 
 def transition_law_altitudes(ring, surface_alts, sources,
                              max_grade: float = GROUNDSIDE_MAX_GRADE,
                              reach_m: float | None = None):
-    """THE TRANSITION LAW (round-4 spec R5), per vertex.
+    """THE TRANSITION LAW (round-4 spec R5, lead ruling 2026-08-10).
 
     A surface adjoining below-grade geometry does not get to answer with
-    a raw DEM sample.  It grades FROM the ramp/portal profile UP TO the
-    surrounding surface at the lawful groundside cap over the run that is
-    actually available:
+    a raw DEM sample.  But the run it grades over is measured ALONG ITS
+    OWN EXTENT — the band's ring, the plate's span — anchored where the
+    below-grade surface meets grade under the pavement (the PORTAL, its
+    deepest station), never across the horizontal gap to the ramp.
 
-        z(v) = clamp(surface(v)) toward ramp(v) by max_grade * d(v)
+      * the surrounding surface is the AUTHORITY along the ramp's whole
+        length: a retaining wall's crest stands at grade and the wall
+        FACE spans the drop;
+      * the crest descends only within the cap-limited run of the
+        portal, converging on the ramp there.
 
-    where ``d(v)`` is the horizontal run from ``v`` to the below-grade
-    surface.  Beyond the reach — where the cap can climb the whole
-    difference — the surrounding surface stands unchanged, so the law
-    needs no separate reach constant: it defines its own.
+    Measuring the run across the horizontal gap instead recreates the
+    very collapse this law exists to remove, in mirror form — terrain
+    hugging the ramp rather than standing beside it.  The witness is the
+    pre-regression Aug-8 state: a crest graded 2.90–5.00 m at
+    surrounding grade against a ramp already diving beneath it.
 
-    Under FLAT-SITE mode the DEM sample is a constant, which is exactly
-    how this defect surfaced (a flat 4.00 wall crest against a −4.02
-    ramp; a groundside plate meeting its ramp with a 5.62 m step at 2.6 m
+    Mechanism: one ANCHOR per below-grade body (``index.component_of``),
+    placed at the ring vertex whose lawful floor ``ramp + cap * gap`` is
+    lowest — the vertex closest to that body's deepest station — pinned
+    at that floor; then the ring is relaxed to the cap around the pinned
+    anchors, which IS the along-the-ring run.  Vertices further along the
+    ring than ``|dz| / cap`` keep the surrounding surface exactly.
+
+    Under FLAT-SITE mode the DEM sample is a constant, which is how the
+    defect surfaced (a flat 4.00 crest against a −4.02 ramp; a
+    groundside plate meeting its ramp with a 5.62 m step at 2.6 m
     spacing — the invalid-triangle source).  But the DEM sample was
     always the wrong witness beside a law-cut ramp; flat mode only
     removed the terrain variation that hid it.
@@ -455,23 +491,46 @@ def transition_law_altitudes(ring, surface_alts, sources,
     if reach_m is None:
         reach_m = transition_reach_m(surface_alts, index, max_grade)
     alts = [float(a) for a in surface_alts]
-    touched = 0
+
+    # THE PORTAL ANCHORS.  Per below-grade body, the ring vertex whose
+    # lawful floor is lowest: the closest approach to that body's
+    # deepest station.  ``cap * gap`` is the only role the horizontal
+    # gap keeps — it is what the anchor may stand above the ramp, not a
+    # run any other vertex grades over.
+    floor_by_component: dict[int, tuple[float, int]] = {}
     for position, vertex in enumerate(ring):
-        source_alt, distance = _nearest_source_profile(
+        source_alt, distance, source_index = _nearest_source_profile(
             vertex, index, reach_m)
         if source_alt is None:
             continue
-        allowed = max_grade * float(distance)
-        surface = alts[position]
-        if source_alt <= surface:
-            limited = min(surface, source_alt + allowed)
-        else:
-            limited = max(surface, source_alt - allowed)
-        if abs(limited - surface) > 1e-9:
-            alts[position] = limited
-            touched += 1
-    if touched:
-        alts = _grade_limit_ring(list(ring), alts, max_grade)
+        floor = float(source_alt) + max_grade * float(distance)
+        if floor >= alts[position] - 1e-3:
+            continue                   # nothing below grade to grade to
+        component = index.component_of[source_index]
+        current = floor_by_component.get(component)
+        if current is None or floor < current[0]:
+            floor_by_component[component] = (floor, position)
+    if not floor_by_component:
+        return alts, 0
+
+    pinned = set()
+    for floor, position in floor_by_component.values():
+        alts[position] = floor
+        pinned.add(position)
+    # The relaxation IS the along-the-ring run, so it must actually
+    # converge: the primitive's default budget (max(300, 4n)) is sized
+    # for a nudge, and a pinned portal 8 m below a 60-vertex ring needs
+    # an order of magnitude more passes to spread at the cap (measured:
+    # 300 passes leave 0.011 m of excess, convergence to the primitive's
+    # own 5e-4 floor costs 5-21 ms on 62-302 vertex rings).  It still
+    # breaks early the moment it converges.
+    alts = _grade_limit_ring(
+        list(ring), alts, max_grade,
+        iters=max(4000, 64 * len(ring)), pinned=pinned)
+    touched = sum(
+        1 for position, value in enumerate(alts)
+        if abs(value - float(surface_alts[position])) > 1e-9
+    )
     return alts, touched
 
 

@@ -628,14 +628,15 @@ def emit_terrain_transition_features(layout: PavementLayout, icao: str, xplane_r
             except _GEOM_EXC:
                 pass
             # THE TRANSITION LAW beside BELOW-GRADE geometry (round-4
-            # spec R5).  Runs HERE because it grades away from the ramps
-            # and trenches the emitters above create: every
-            # groundside / service plate and retaining-wall crest band
-            # standing in a below-grade surface's reach takes its
-            # profile from that surface's own dive, capped at
-            # GROUNDSIDE_MAX_GRADE over the run available, instead of
-            # answering with a raw DEM sample.  Nothing outside the
-            # reach moves, so an airport with no tunnels is untouched.
+            # spec R5, lead ruling 2026-08-10).  Runs HERE because it
+            # grades away from the ramps and trenches the emitters above
+            # create: every groundside / service plate and
+            # retaining-wall crest band keeps the surrounding surface as
+            # its authority, and descends to meet a below-grade body
+            # only within the GROUNDSIDE_MAX_GRADE-limited run of that
+            # body's PORTAL, measured along the surface's own ring.
+            # Nothing outside that run moves, so an airport with no
+            # tunnels is untouched.
             try:
                 from .groundside import apply_below_grade_transition
                 n_trans = apply_below_grade_transition(layout)

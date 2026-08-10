@@ -3398,15 +3398,16 @@ def _emit_portal_cluster(
                     if len(_ring) < 4:
                         continue
                     # THE CREST BAND TAKES THE TRANSITION LAW (round-4
-                    # spec R5), not a DEM sample.  The band is the first
-                    # ring of the transition away from a ramp the law
-                    # CUT below grade, so its profile grades from the
-                    # ramp/portal profile up to the surrounding surface
-                    # at the groundside cap over the run available —
-                    # the DEM value is only the surrounding surface it
-                    # grades TO.  Sampling it alone gave a flat 4.00 m
-                    # crest against a −4.02 m ramp under flat mode, and
-                    # a cliff against the real DEM before that.
+                    # spec R5, lead ruling 2026-08-10), not a DEM
+                    # sample.  The crest stays the SURROUNDING SURFACE
+                    # authority along the ramp's whole length — the wall
+                    # FACE spans the drop — and descends only within the
+                    # cap-limited run of the PORTAL, measured along this
+                    # ring, converging on the ramp there.  The DEM value
+                    # is the surrounding surface it grades TO, never the
+                    # profile itself: sampling it alone gave a flat
+                    # 4.00 m crest against a −4.02 m ramp under flat
+                    # mode, and it was the wrong witness on real DEM too.
                     _surface = []
                     for _vx, _vy in _ring:
                         _d = dem_at(_vx, _vy)

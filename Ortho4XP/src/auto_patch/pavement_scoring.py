@@ -41,6 +41,11 @@ from .config import (
     PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2,
     PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC,
     PAVEMENT_SCORE_AIRCRAFT_PATH_WIDTH_M,
+    PAVEMENT_SCORE_APRON_MIN_HALF_WIDTH_M,
+    PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_FRAC,
+    PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_M,
+    PAVEMENT_SCORE_RUNWAY_CONTACT_TOL_M,
+    PAVEMENT_SCORE_TUNNEL_VETO_FRAC,
     PAVEMENT_CLASS_TAIL_AXIS_ROAD_FRAC,
     PAVEMENT_CLASS_TAIL_MAX_WIDTH_M,
     PAVEMENT_CLASS_TAIL_MIN_LENGTH_M,
@@ -234,6 +239,13 @@ class ScoreSources:
     # prepared geometry for the cheap fully-inside fast path.
     aerodrome: object | None = None
     aerodrome_prep: object | None = None
+    # G-RUNWAY-CONTACT (owner ruling 2026-08-10: "pavement touching a
+    # runway cannot be apron").  The RUNWAY RING dilated by the contact
+    # tolerance — intersecting a candidate's own ring with it measures
+    # SHARED PERIMETER directly.  Built once from
+    # ``evidence_sources(layout).runway_union``; ``None`` when the
+    # airport has no runway union, which leaves the gate inert.
+    runway_edge_halo: object | None = None
 
 
 def score_sources(layout) -> ScoreSources:
@@ -428,6 +440,14 @@ def score_sources(layout) -> ScoreSources:
         print(f"    [pav-scoring] boundary: "
               f"{'none' if ss.aerodrome is None else _bnd_src} "
               f"(osm ways={_bnd_n_ways} relation rings={_bnd_n_rels})")
+    # G-RUNWAY-CONTACT halo (owner 2026-08-10) — the runway ring, once.
+    _rwy_u = getattr(ev, "runway_union", None)
+    if _rwy_u is not None and not _rwy_u.is_empty:
+        try:
+            ss.runway_edge_halo = _rwy_u.boundary.buffer(
+                PAVEMENT_SCORE_RUNWAY_CONTACT_TOL_M)
+        except _GEOM_EXC:
+            ss.runway_edge_halo = None
     layout._pavement_score_sources = ss
     return ss
 
@@ -1497,6 +1517,7 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
     x["spine_cover"] = _cov("spine_cover", ss.spine_buffers)
     x["truck_cover"] = _cov("truck_cover", ss.truck_corridors)
     x["road_cover"] = _cov("road_cover", ev.road_corridors)
+    x["tunnel_cover"] = _cov("tunnel_cover", ev.tunnel_corridors)
     x["parking_cover"] = _cov("parking_cover", ev.parking_corridors)
     x["alt_name_apron"] = _cov("alt_name_apron", ss.alt_name_apron)
     x["alt_name_taxi"] = _cov("alt_name_taxi", ss.alt_name_taxi)
@@ -1524,6 +1545,14 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
                      _is_tail(polygon,
                               0.5 * PAVEMENT_CLASS_TAIL_MAX_WIDTH_M))
     x["road_corridor"] = 1.0 if road_corridor else 0.0   # no weight; gate
+    # G-APRON-WIDTH (owner ruling 2026-08-10): "the entire shape narrower
+    # than a taxiway cannot be apron".  Same cascade: a shape that
+    # survived the ROAD erosion (or is wide) trivially survives this far
+    # smaller one, so only a road-width corridor pays for the buffer.
+    sub_taxi_width = (
+        road_corridor
+        and _is_tail(polygon, PAVEMENT_SCORE_APRON_MIN_HALF_WIDTH_M))
+    x["sub_taxi_width"] = 1.0 if sub_taxi_width else 0.0  # no weight; gate
     if wide:
         x["narrow_only"] = 0.0
     else:
@@ -1760,6 +1789,28 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
     except _GEOM_EXC:
         pass
 
+    # RUNWAY CONTACT (owner ruling 2026-08-10: "pavement touching a
+    # runway cannot be apron").  Measured as SHARED PERIMETER against
+    # the runway ring — the same "either bar qualifies" shape as
+    # ``service_adj``: an absolute length, or a fraction of the
+    # candidate's OWN perimeter.  0.0 when the airport publishes no
+    # runway union (absence of the source is never evidence), which
+    # leaves G-RUNWAY-CONTACT inert.
+    x["runway_contact"] = 0.0                       # no weight; gate
+    halo = ss.runway_edge_halo
+    if halo is not None:
+        try:
+            boundary = polygon.exterior
+            if boundary.intersects(halo):
+                shared_m = boundary.intersection(halo).length
+                per = max(boundary.length, 1e-9)
+                if (shared_m >= PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_M
+                        or shared_m / per
+                        >= PAVEMENT_SCORE_RUNWAY_CONTACT_MIN_FRAC):
+                    x["runway_contact"] = 1.0
+        except _GEOM_EXC:
+            pass
+
     # Fraction of the shape OUTSIDE the OSM aerodrome boundary (owner
     # ruling 2026-07-28, G-BOUNDARY: airside never exists outside it).
     # 0.0 whenever no aerodrome polygon is mapped — absence of the
@@ -1827,6 +1878,16 @@ def score_shape(polygon, layout, *, adjacency=None, owner=None,
         # may grade as service roads.
         candidates.discard(CLASS_SERVICE)
         gates.append("G-FREE-ROAD")
+    elif x.get("tunnel_cover", 0.0) >= PAVEMENT_SCORE_TUNNEL_VETO_FRAC:
+        # G-TUNNEL-ROAD (owner 2026-08-10): "tunneled roads are not
+        # surface roads".  A corridor painted over a BORE is not a free
+        # surface road — the road it traces runs below our pavement, so
+        # SERVICE is off the table (OTHH sid103, a 2.5 m ribbon over the
+        # mapped tunnel pair -9169/-9170).  The below-grade ways are
+        # already out of the SURFACE feed, so the shape carries no
+        # road_cover of its own to argue with.
+        candidates.discard(CLASS_SERVICE)
+        gates.append("G-TUNNEL-ROAD")
     elif x.get("apron_edge_bound", 0.0) >= PAVEMENT_SCORE_APRON_EDGE_FRAC:
         # Standing free-road law (owner, canonical text in
         # groundside.free_road_subsegments; restated 2026-07-28): "any
@@ -1873,6 +1934,28 @@ def score_shape(polygon, layout, *, adjacency=None, owner=None,
     if apron_evidence >= PAVEMENT_SCORE_VETO_FRAC:
         candidates.discard(CLASS_GROUNDSIDE)
         gates.append("G-VETO")
+    runway_contact = x.get("runway_contact", 0.0) >= 1.0
+    if runway_contact:
+        # G-RUNWAY-CONTACT (owner ruling 2026-08-10, verbatim):
+        # "Pavement touching a runway cannot be apron".  A runway is
+        # never bounded by aircraft PARKING — what abuts it is the
+        # maneuvering surface that feeds it, so the shape falls to
+        # junction/taxiway under the existing enactment.  The legacy
+        # near-runway apron rule said the same thing and is dead under
+        # v2 (``pipeline`` gates it behind ``_scorer_owns_roles``);
+        # this is its v2 rebirth.  Specimen: OTHH sid102, 376 m², 51 %
+        # of its perimeter on the runway.
+        candidates.discard(CLASS_APRON)
+        gates.append("G-RUNWAY-CONTACT")
+    sub_taxi_width = x.get("sub_taxi_width", 0.0) >= 1.0
+    if sub_taxi_width:
+        # G-APRON-WIDTH (owner ruling 2026-08-10, verbatim): "the
+        # entire shape narrower than a taxiway cannot be apron".  No
+        # aircraft can stand on a ribbon that vanishes under a 2 m
+        # erosion.  Specimens: OTHH sid105 (4.1 m OBB width), sid104
+        # (2.4 m).
+        candidates.discard(CLASS_APRON)
+        gates.append("G-APRON-WIDTH")
     if connected is False:
         # G-CHAIN: no aircraft touch-chain to a runway (terminal guard
         # already applied — ``connected`` is None when the guard bites).
@@ -1908,12 +1991,18 @@ def score_shape(polygon, layout, *, adjacency=None, owner=None,
         # cannot be groundside, an airside building face still cannot
         # be a road or a lot, and taxi-only-access pavement stays
         # airside (all topological rules are absolute — they resolve
-        # against G-CHAIN, not the other way).
+        # against G-CHAIN, not the other way).  The two 2026-08-10
+        # apron gates are absolute in the same sense: they are
+        # statements about what the shape IS (it touches the runway; no
+        # aircraft fits on it), not about which evidence outweighs
+        # which.  {TAXI} always survives, so the reset never re-empties.
         candidates = set(CLASSES)
         if enclosed:
             candidates.discard(CLASS_GROUNDSIDE)
         if abut_fired or taxi_only_fired:
             candidates -= {CLASS_SERVICE, CLASS_GROUNDSIDE}
+        if runway_contact or sub_taxi_width:
+            candidates.discard(CLASS_APRON)
         gates.append("G-CONFLICT")
     if x.get("outside_boundary", 0.0) >= PAVEMENT_SCORE_BOUNDARY_OUT_FRAC:
         # G-BOUNDARY (owner 2026-07-28, refined same day): a shape
@@ -1990,6 +2079,7 @@ def _precompute_feature_rows(layout, candidates, adjacency) -> dict:
         ("spine_cover", ss.spine_buffers),
         ("truck_cover", ss.truck_corridors),
         ("road_cover", ev.road_corridors),
+        ("tunnel_cover", ev.tunnel_corridors),
         ("parking_cover", ev.parking_corridors),
         ("alt_name_apron", ss.alt_name_apron),
         ("alt_name_taxi", ss.alt_name_taxi),

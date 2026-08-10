@@ -78,6 +78,8 @@ from . import config as _CFG
 from . import dsf_road_network
 from .config import (
     IMPLIED_CROSSING_TUNNELS,
+    IMPLIED_TUNNEL_TAG_EVIDENCE,
+    IMPLIED_TUNNEL_TAG_EVIDENCE_M,
     SKIP_TUNNEL_RAMPS_NEAR_ROADS,
     TUNNEL_ADJACENT_ROAD_DIST_M,
     TUNNEL_DEM_CUT_MIN_DROP_M,
@@ -412,6 +414,90 @@ def _tunnelable(tags9: dict) -> bool:
     return (tags9.get("highway") in HW_TUNNEL_TYPES
             or tags9.get("railway") in RAIL_TUNNEL_TYPES)
 TUNNEL_VALUES = {"yes", "building_passage"}
+
+
+def _has_tunnel_tag_evidence(tags9: dict) -> bool:
+    """True when ``tags9`` is OSM evidence of a BELOW-GRADE way.
+
+    The R4 evidence test (owner spec round4-othh-fixes, 2026-08-10):
+    ``tunnel`` in :data:`TUNNEL_VALUES`, or ``layer`` < 0.  ``layer`` is
+    carried by the airport ROAD FEED's tag whitelist
+    (``osm_load._ROAD_FEED_WAY_TAGS``); the tile road caches
+    (``O4_Vector_Map.ROADS_TAGS_OF_INTEREST``) do not retain it, so on a
+    tile-cache way the ``tunnel`` half is the whole test — absence of the
+    key is never read as evidence either way.
+    """
+    if tags9.get("tunnel") in TUNNEL_VALUES:
+        return True
+    layer = tags9.get("layer")
+    if layer is None:
+        return False
+    try:
+        return float(str(layer).split(";")[0]) < 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _tunnel_evidence_chain_index(ways, nodes_m):
+    """``(junction key → way indices, per-way tag-evidence flags)`` for
+    the R4 chain walk.
+
+    Keyed on node POSITION (centimetre-rounded), not node id: the merged
+    tunnel road network carries three namespaced id spaces (``big_roads``
+    plain ids, ``S|`` small_roads, ``F|`` the airport road feed — see
+    ``_load_tunnel_road_network``), so the SAME real junction holds three
+    different ids.  Coincident positions are the same OSM node's lat/lon
+    projected once, i.e. an identity join, never a proximity join.
+    """
+    index: dict = {}
+    flags: list[bool] = []
+    for _i, (_wid, _nrefs, _tags) in enumerate(ways):
+        flags.append(_has_tunnel_tag_evidence(_tags))
+        for _n in _nrefs:
+            _p = nodes_m.get(_n)
+            if _p is None:
+                continue
+            index.setdefault((round(_p[0], 2), round(_p[1], 2)),
+                             []).append(_i)
+    return index, flags
+
+
+def _chain_tunnel_evidence(start, index, flags, ways, nodes_m,
+                           near, radius_m) -> bool:
+    """True when way ``start`` — or a way its chain connects to within
+    ``radius_m`` of ``near`` — carries below-grade tag evidence.
+
+    Breadth-first over the junction index, hopping ONLY through nodes
+    within ``radius_m`` of the crossing geometry ``near``, so the walk
+    stays local (the build-budget argument) and "connects to within
+    100 m" is measured from the crossing itself.
+    """
+    if flags[start]:
+        return True
+    seen = {start}
+    frontier = [start]
+    while frontier:
+        nxt: list[int] = []
+        for _i in frontier:
+            for _n in ways[_i][1]:
+                _p = nodes_m.get(_n)
+                if _p is None:
+                    continue
+                try:
+                    if near.distance(Point(_p)) > radius_m:
+                        continue
+                except _GEOM_EXC:
+                    continue
+                for _j in index.get((round(_p[0], 2), round(_p[1], 2)),
+                                    ()):
+                    if _j in seen:
+                        continue
+                    if flags[_j]:
+                        return True
+                    seen.add(_j)
+                    nxt.append(_j)
+        frontier = nxt
+    return False
 # Portal EMISSION qualifies only real excavated tunnels (user
 # 2026-06-12): ``building_passage`` is a BUILDING built over an
 # at-grade road — no trench, no ramps, nothing for the patch to
@@ -748,9 +834,37 @@ def _synthesize_implied_crossing_bores(
                 ways_r, _IMPLIED_HW_TYPES, _excluded_early)
         _n_implied = 0
         _n_level_crossings = 0
+        _n_no_tag_evidence = 0
+        # ── R4 TAG EVIDENCE (owner spec round4-othh-fixes 2026-08-10) ──
+        # "Synthesis requires TAG EVIDENCE — the crossing way, or a way
+        # its chain connects to within 100 m, carries ``tunnel=yes`` or
+        # ``layer`` < 0.  A purely geometric crossing is never a
+        # tunnel."  Measured at OTHH on 1.0.229: the S1 ramps
+        # (25.2531, 51.6209) are engine-FABRICATED — untagged tertiary
+        # ways crossing our pavement, with no OSM tunnel on their chain
+        # (the nearest mapped bore is 73 m away and unconnected).  S4's
+        # pair — untagged CONTINUATIONS of a mapped bore that share its
+        # portal junction — still qualifies through the chain walk.
+        # The index is built ONCE per airport, after the chain merge so
+        # it indexes the ways the split loop actually walks.
+        # Built LAZILY: an airport whose ways raise no candidate bore
+        # never pays for the index at all.
+        _ev_ways = ways_r
+        _ev_state: list = []
+
+        def _tag_evidence_ok(_wi9, _part9) -> bool:
+            if not IMPLIED_TUNNEL_TAG_EVIDENCE:
+                return True
+            if not _ev_state:
+                _ev_state.extend(
+                    _tunnel_evidence_chain_index(_ev_ways, nodes_m))
+            return _chain_tunnel_evidence(
+                _wi9, _ev_state[0], _ev_state[1], _ev_ways, nodes_m,
+                _part9, IMPLIED_TUNNEL_TAG_EVIDENCE_M)
+
         if _cross_pav_u is not None:
             _split_ways: list = []
-            for _wid, _nrefs, _tags in ways_r:
+            for _wi, (_wid, _nrefs, _tags) in enumerate(ways_r):
                 _had_tunnel = _resplittable(_tags)
                 _eligible = (
                     (_tags.get("tunnel") not in TUNNEL_VALUES
@@ -847,6 +961,13 @@ def _synthesize_implied_crossing_bores(
                     if not _had_tunnel and any(
                             _part.distance(_tl) < _IMPLIED_MAPPED_NEAR_M
                             for _tl in _mapped_tunnel_lines):
+                        continue
+                    # R4 (owner 2026-08-10): a purely GEOMETRIC crossing
+                    # is never a tunnel — the way, or a way its chain
+                    # connects to within 100 m, must carry the tag.
+                    if not _had_tunnel and not _tag_evidence_ok(
+                            _wi, _part):
+                        _n_no_tag_evidence += 1
                         continue
                     _intervals.append((_s1, _s2))
                 if not _intervals:
@@ -1011,6 +1132,15 @@ def _synthesize_implied_crossing_bores(
                     f"  [pav-builder] implied {_n_implied} tunnel bore(s) "
                     f"under taxi/runway pavement (unmarked road/rail "
                     f"crossings).")
+            except _GEOM_EXC:
+                pass
+        if _n_no_tag_evidence:
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] declined {_n_no_tag_evidence} "
+                    f"implied bore(s) — no tunnel/layer tag evidence on "
+                    f"the crossing way or its chain within "
+                    f"{IMPLIED_TUNNEL_TAG_EVIDENCE_M:.0f} m (R4).")
             except _GEOM_EXC:
                 pass
         if _n_level_crossings:

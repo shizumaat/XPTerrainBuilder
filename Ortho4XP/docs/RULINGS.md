@@ -1436,3 +1436,23 @@ YSSY, KSFO, KOAK, KBOS (owner-named; expected flat candidates —
 refusals are findings, never silent). Phase-2 corollary: with
 nonzero spread the runways keep their CIFP-absolute profiles; the
 flat elevation applies off-runway.
+
+## 2026-08-10 — Apron hard gates (owner)
+
+Two classification rulings, owner verbatim, on the OTHH in-sim round
+(spec `docs/specs/round4-othh-fixes-spec.md`, R3):
+
+* "Pavement touching a runway cannot be apron"
+* "the entire shape narrower than a taxiway cannot be apron"
+
+Both are HARD GATES in scorer v2 (`pavement_scoring.score_shape`):
+`G-RUNWAY-CONTACT` removes APRON from a candidate whose own ring
+shares ≥ 1 m — or ≥ 10 % of its own perimeter — with the runway ring
+within 0.5 m; `G-APRON-WIDTH` removes APRON from a candidate that
+vanishes under a 2.0 m erosion. Gates remove candidates, so a gated
+shape falls to junction/taxiway under the existing enactment. The
+legacy near-runway apron rule said the first of these and is dead
+under v2 (`pipeline` gates it behind `_scorer_owns_roles`) — the gate
+is its v2 rebirth. Measured specimens, owner build 1.0.229 (OTHH):
+sid102 (376 m², 51 % of its perimeter on the runway) for the first;
+sid105 (4.1 m OBB width) and sid104 (2.4 m) for the second.

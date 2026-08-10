@@ -1024,6 +1024,180 @@ def test_boundary_is_inert_without_an_aerodrome_way():
 
 
 # ═════════════════════════════════════════════════════════════════════
+# R3 — the three 2026-08-10 classification hard gates
+# (owner rulings, spec docs/specs/round4-othh-fixes-spec.md)
+#
+# Every specimen below is a SYNTHETIC TWIN of a shape measured on the
+# owner's OTHH build 1.0.229: sid102 (376 m², 51 % of its perimeter on
+# the runway), sid105 (4.1 m OBB width), sid104 (2.4 m), sid103 (a
+# 2.5 m "service road" ribbon painted over the mapped tunnel pair
+# -9169/-9170).
+# ═════════════════════════════════════════════════════════════════════
+
+# The runway strip every G-RUNWAY-CONTACT scene is measured against.
+_RUNWAY = _rect(0.0, 0.0, 1000.0, 45.0)
+
+
+def test_gate_runway_contact_denies_apron_to_touching_pavement():
+    """Owner, verbatim: "Pavement touching a runway cannot be apron".
+
+    The sid102 twin: a pad seated on the runway's north flank, sharing
+    200 m of its own 440 m perimeter (45 %) with the runway ring.
+    """
+    pad = _rect(100.0, 45.0, 300.0, 65.0)
+    layout = _layout([BuiltShape(polygon=pad, role=ROLE_APRON)],
+                     runway_union=_RUNWAY)
+    record = PS.score_shape(pad, layout)
+    assert record["features"]["runway_contact"] == 1.0
+    assert "G-RUNWAY-CONTACT" in record["gates"]
+    assert PS.CLASS_APRON not in record["candidates"]
+
+
+def test_gate_runway_contact_spares_pavement_clear_of_the_runway():
+    """The control: the identical pad, held 0.6 m off the runway edge —
+    beyond the 0.5 m contact tolerance — keeps APRON."""
+    pad = _rect(100.0, 45.6, 300.0, 65.6)
+    layout = _layout([BuiltShape(polygon=pad, role=ROLE_APRON)],
+                     runway_union=_RUNWAY)
+    record = PS.score_shape(pad, layout)
+    assert record["features"]["runway_contact"] == 0.0
+    assert "G-RUNWAY-CONTACT" not in record["gates"]
+    assert PS.CLASS_APRON in record["candidates"]
+
+
+def test_gate_runway_contact_fires_on_the_absolute_bar_alone():
+    """Either bar qualifies.  A 500 × 500 m apron (2,000 m perimeter)
+    touching a runway stub over ~3 m is far under the 10 % fraction and
+    still gated — a runway edge is a runway edge."""
+    pad = _rect(0.0, 45.0, 500.0, 545.0)
+    layout = _layout([BuiltShape(polygon=pad, role=ROLE_APRON)],
+                     runway_union=_rect(-100.0, 0.0, 3.0, 45.0))
+    record = PS.score_shape(pad, layout)
+    assert record["features"]["runway_contact"] == 1.0
+    assert "G-RUNWAY-CONTACT" in record["gates"]
+    assert PS.CLASS_APRON not in record["candidates"]
+
+
+def test_gate_runway_contact_is_inert_without_a_runway_union():
+    """Absence of the source is never evidence: an airport publishing
+    no runway union fires no gate."""
+    pad = _rect(100.0, 45.0, 300.0, 65.0)
+    record = PS.score_shape(pad, _layout())
+    assert record["features"]["runway_contact"] == 0.0
+    assert "G-RUNWAY-CONTACT" not in record["gates"]
+    assert PS.CLASS_APRON in record["candidates"]
+
+
+def _ragged_ribbon():
+    """The sid105 twin: a 200 m ribbon whose OBB width is 4.1 m but
+    which nowhere SUSTAINS 4.0 m.
+
+    The top edge runs straight at y = +2.05; the bottom edge sits at
+    y = -0.95 except for isolated 1 m-wide spikes down to y = -2.05.
+    So the min-rotated-rect short side is 4.1 m — wider than the 4.0 m
+    the erosion asks for — while no inscribed disk of radius 2 m fits
+    anywhere.  The gate is the EROSION, never the bounding box.
+    """
+    top = [(float(x), 2.05) for x in range(0, 202, 10)]
+    bottom = []
+    for k in range(20, -1, -1):
+        x = 10.0 * k
+        bottom += [(x + 1.0, -0.95), (x + 0.5, -2.05), (x, -0.95)]
+    return Polygon(top + bottom)
+
+
+def test_gate_apron_width_denies_apron_to_sub_taxiway_ribbons():
+    """Owner, verbatim: "the entire shape narrower than a taxiway
+    cannot be apron".  Both OTHH twins: sid104 (a 2.4 m ribbon) and
+    sid105 (4.1 m OBB, nowhere 4.0 m sustained)."""
+    for name, ribbon in (("sid104", _rect(0.0, 0.0, 200.0, 2.4)),
+                         ("sid105", _ragged_ribbon())):
+        record = PS.score_shape(ribbon, _layout())
+        assert record["features"]["sub_taxi_width"] == 1.0, name
+        assert "G-APRON-WIDTH" in record["gates"], name
+        assert PS.CLASS_APRON not in record["candidates"], name
+
+
+def test_gate_apron_width_spares_real_pavement():
+    """A road-width corridor and a full apron both survive the erosion,
+    so neither is gated — the floor is a floor, not a taxiway-width
+    test."""
+    for shape in (_corridor(), _rect(0.0, 0.0, 300.0, 300.0)):
+        record = PS.score_shape(shape, _layout())
+        assert record["features"]["sub_taxi_width"] == 0.0
+        assert "G-APRON-WIDTH" not in record["gates"]
+        assert PS.CLASS_APRON in record["candidates"]
+
+
+def _tunnel_ribbon():
+    """The sid103 twin: a 2.5 m × 100 m ribbon on the y = 0 axis."""
+    return _rect(0.0, -1.25, 100.0, 1.25)
+
+
+def test_gate_tunnel_road_denies_service_over_a_bore():
+    """Owner: "tunneled roads are not surface roads".  A ribbon painted
+    over a mapped tunnel traces a road that runs BELOW our pavement, so
+    SERVICE is off the table — and the bore contributes no surface road
+    coverage to argue back with."""
+    ribbon = _tunnel_ribbon()
+    layout = _layout()
+    _road_feed(layout, [[(-50.0, 0.0), (150.0, 0.0)]],
+               tags={0: {"tunnel": "yes"}})
+    record = PS.score_shape(ribbon, layout)
+    assert record["features"]["tunnel_cover"] == pytest.approx(1.0)
+    assert record["features"]["road_cover"] == 0.0
+    assert "G-TUNNEL-ROAD" in record["gates"]
+    assert PS.CLASS_SERVICE not in record["candidates"]
+
+
+def test_gate_tunnel_road_reads_layer_below_zero_too():
+    """``layer=-1`` without a tunnel tag is the same evidence — a way
+    sunk under our pavement is no more a surface road for carrying no
+    tunnel tag."""
+    ribbon = _tunnel_ribbon()
+    layout = _layout()
+    _road_feed(layout, [[(-50.0, 0.0), (150.0, 0.0)]],
+               tags={0: {"layer": "-1"}})
+    record = PS.score_shape(ribbon, layout)
+    assert record["features"]["tunnel_cover"] == pytest.approx(1.0)
+    assert record["features"]["road_cover"] == 0.0
+    assert "G-TUNNEL-ROAD" in record["gates"]
+    assert PS.CLASS_SERVICE not in record["candidates"]
+
+
+def test_gate_tunnel_road_spares_a_real_surface_road():
+    """The A/B control: the identical ribbon over the identical
+    centerline with no below-grade tag is a free surface road — it
+    keeps SERVICE and carries road coverage, not tunnel coverage."""
+    ribbon = _tunnel_ribbon()
+    layout = _layout()
+    _road_feed(layout, [[(-50.0, 0.0), (150.0, 0.0)]])
+    record = PS.score_shape(ribbon, layout)
+    assert record["features"]["tunnel_cover"] == 0.0
+    assert record["features"]["road_cover"] == pytest.approx(1.0)
+    assert "G-TUNNEL-ROAD" not in record["gates"]
+    assert PS.CLASS_SERVICE in record["candidates"]
+
+
+def test_below_grade_ways_leave_the_surface_centerline_feed():
+    """The other half of the ruling: a below-grade way is EXCLUDED from
+    the surface road feed itself, so nothing downstream of it (road
+    threading, the corridor layer) can read it as a surface road."""
+    layout = _layout()
+    _road_feed(layout, [[(-50.0, 0.0), (150.0, 0.0)]],
+               tags={0: {"tunnel": "yes"}})
+    lines, _parking, n_road_ways = PC._road_feed_lines(layout)
+    assert lines is None
+    assert n_road_ways == 0
+    layout = _layout()
+    _road_feed(layout, [[(-50.0, 0.0), (150.0, 0.0)]],
+               tags={0: {"layer": "-2"}})
+    lines, _parking, n_road_ways = PC._road_feed_lines(layout)
+    assert lines is None
+    assert n_road_ways == 0
+
+
+# ═════════════════════════════════════════════════════════════════════
 # G-ENCLAVE — groundside can never be surrounded by airside
 # (owner ruling 2026-07-28)
 # ═════════════════════════════════════════════════════════════════════

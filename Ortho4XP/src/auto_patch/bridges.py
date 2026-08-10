@@ -3397,11 +3397,58 @@ def _emit_portal_cluster(
                         _ring = _ring[:-1]
                     if len(_ring) < 4:
                         continue
-                    _na = []
+                    # THE CREST BAND TAKES THE TRANSITION LAW (round-4
+                    # spec R5), not a DEM sample.  The band is the first
+                    # ring of the transition away from a ramp the law
+                    # CUT below grade, so its profile grades from the
+                    # ramp/portal profile up to the surrounding surface
+                    # at the groundside cap over the run available —
+                    # the DEM value is only the surrounding surface it
+                    # grades TO.  Sampling it alone gave a flat 4.00 m
+                    # crest against a −4.02 m ramp under flat mode, and
+                    # a cliff against the real DEM before that.
+                    _surface = []
                     for _vx, _vy in _ring:
                         _d = dem_at(_vx, _vy)
-                        _na.append(round(_d if _d is not None
-                                         else apt_elev, 1))
+                        _surface.append(
+                            float(_d if _d is not None else apt_elev))
+                    try:
+                        from .groundside import (
+                            GROUNDSIDE_MAX_GRADE as _GS_CAP,
+                            _BelowGradeIndex,
+                            transition_law_altitudes,
+                        )
+                        _sources = []
+                        for _sr in layout.shapes[_cl_start_idx:]:
+                            if (getattr(_sr, 'ref', '') != 'tunnel_ramp'
+                                    or _sr.polygon is None
+                                    or _sr.polygon.is_empty
+                                    or _sr.polygon.geom_type != 'Polygon'):
+                                continue
+                            _rr = list(_sr.polygon.exterior.coords)
+                            if len(_rr) > 1 and _rr[0] == _rr[-1]:
+                                _rr = _rr[:-1]
+                            _ra = getattr(_sr, 'node_altitudes', None)
+                            if _ra and len(_ra) >= len(_rr):
+                                _rv = [a for a in _ra[:len(_rr)]
+                                       if a is not None]
+                                if not _rv:
+                                    continue
+                                _fill = sum(_rv) / len(_rv)
+                                _sources.append((
+                                    _sr.polygon, _rr,
+                                    [float(a) if a is not None else _fill
+                                     for a in _ra[:len(_rr)]]))
+                            elif getattr(_sr, 'altitude', None) is not None:
+                                _sources.append((
+                                    _sr.polygon, _rr,
+                                    [float(_sr.altitude)] * len(_rr)))
+                        _vals, _n_moved = transition_law_altitudes(
+                            _ring, _surface,
+                            _BelowGradeIndex(_sources), _GS_CAP)
+                    except _GEOM_EXC:
+                        _vals = _surface
+                    _na = [round(_v, 1) for _v in _vals]
                     _na.append(_na[0])
                     try:
                         _wp = Polygon(_ring)

@@ -627,6 +627,25 @@ def emit_terrain_transition_features(layout: PavementLayout, icao: str, xplane_r
                 raise_portal_terrain_to_airside(layout)
             except _GEOM_EXC:
                 pass
+            # THE TRANSITION LAW beside BELOW-GRADE geometry (round-4
+            # spec R5).  Runs HERE because it grades away from the ramps
+            # and trenches the emitters above create: every
+            # groundside / service plate and retaining-wall crest band
+            # standing in a below-grade surface's reach takes its
+            # profile from that surface's own dive, capped at
+            # GROUNDSIDE_MAX_GRADE over the run available, instead of
+            # answering with a raw DEM sample.  Nothing outside the
+            # reach moves, so an airport with no tunnels is untouched.
+            try:
+                from .groundside import apply_below_grade_transition
+                n_trans = apply_below_grade_transition(layout)
+                if n_trans:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: transition law "
+                        f"re-profiled {n_trans} surface(s) beside "
+                        f"below-grade geometry.")
+            except _GEOM_EXC:
+                pass
             # Round 9 (user ruling): the written patch must hold
             # strictly NON-OVERLAPPING rings over the object-bridge
             # plates — cut every road-feature remnant against them

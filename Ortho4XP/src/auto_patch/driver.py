@@ -392,11 +392,86 @@ def _enabled_airport_pack_tile_dsfs(
     return results
 
 
+def _airport_claim_lonlat(runways: dict, boundary=None,
+                          margin_metres: float | None = None) -> dict | None:
+    """THIS airport's claim geometry for the Phase 2 worklist (round-4
+    spec R2): the convex hull of its runway thresholds (plus its apt.dat
+    boundary when there is one), dilated by ``margin_metres``, as a
+    ``(longitude, latitude)`` ring plus the hull's centre.
+
+    Same geometry ``object_pads._footprint_claim`` already claims PADS
+    with (that dilation constant is the one imported here), computed at
+    identification time where no ``PavementLayout`` exists yet — the
+    thresholds and the boundary are what the driver has in hand, and
+    they are the airport's ground.
+
+    ``None`` when the airport has no usable coordinates: a claim nothing
+    can be tested against must not silently claim everything.
+    """
+    from .object_pads import _CLAIM_MARGIN_M
+
+    if margin_metres is None:
+        margin_metres = _CLAIM_MARGIN_M
+    points: list[tuple[float, float]] = [
+        (float(data["lon"]), float(data["lat"]))
+        for data in (runways or {}).values()
+        if data.get("lat") is not None and data.get("lon") is not None
+    ]
+    for point in (boundary or ()):
+        try:
+            longitude, latitude = float(point[1]), float(point[0])
+        except (TypeError, ValueError, IndexError):
+            continue
+        points.append((longitude, latitude))
+    if not points:
+        return None
+    centre_longitude = sum(p[0] for p in points) / len(points)
+    centre_latitude = sum(p[1] for p in points) / len(points)
+    if len(points) < 3:
+        # A single-threshold airport still claims a disc of its own.
+        return {
+            "hull_lonlat": [],
+            "centre_lonlat": [centre_longitude, centre_latitude],
+            "radius_m": float(margin_metres),
+        }
+    import math
+
+    metres_per_degree_latitude = 111320.0
+    metres_per_degree_longitude = metres_per_degree_latitude * max(
+        0.1, math.cos(math.radians(centre_latitude))
+    )
+    try:
+        from shapely.geometry import MultiPoint
+
+        hull = MultiPoint([
+            ((longitude - centre_longitude) * metres_per_degree_longitude,
+             (latitude - centre_latitude) * metres_per_degree_latitude)
+            for longitude, latitude in points
+        ]).convex_hull.buffer(float(margin_metres))
+        ring = [
+            (centre_longitude + x / metres_per_degree_longitude,
+             centre_latitude + y / metres_per_degree_latitude)
+            for x, y in hull.exterior.coords
+        ]
+    except Exception:
+        return {
+            "hull_lonlat": [],
+            "centre_lonlat": [centre_longitude, centre_latitude],
+            "radius_m": float(margin_metres),
+        }
+    return {
+        "hull_lonlat": [[longitude, latitude] for longitude, latitude in ring],
+        "centre_lonlat": [centre_longitude, centre_latitude],
+        "radius_m": float(margin_metres),
+    }
+
+
 def _object_anchor_worklist_entries(icao: str, xp_root: str,
                                     runways: dict,
                                     tile_lat: int, tile_lon: int,
                                     seen_dsf_paths: set[str],
                                     scan_cache: dict | None = None,
+                                    claim: dict | None = None,
                                     ) -> list[dict]:
     """Phase 2 identification for one airport: one worklist entry per
     (airport, pack).
@@ -414,6 +489,17 @@ def _object_anchor_worklist_entries(icao: str, xp_root: str,
     2. every enabled Custom Scenery airport pack whose tile DSF places
        ``.obj`` objects within the airport's threshold bbox expanded by
        ``DSF_OBJECT_WORKLIST_BBOX_MARGIN_M`` (``"source": "pack_scan"``).
+
+    ENTRIES ARE PER (AIRPORT, PACK), NOT PER PACK (round-4 spec R2).
+    ``seen_dsf_paths`` deduplicates on ``(icao, realpath)``: a DSF cell
+    carrying TWO airports' objects appears once for each of them, each
+    entry carrying that airport's own ``claim`` geometry, and Phase 2
+    partitions the cell's placements between them by containment.  The
+    tile-wide dedup this replaces gave the whole cell to whichever
+    airport sorted first — measured on +25+051 (2026-08-09): OTBD owned
+    the entire OTHH Aeroscape pack, 6,740 of its 8,913 objects outside
+    even OTBD's 3 km margin, and every pad request was filed under
+    ``icao: OTBD``.
 
     Airports with no associated DSF or pack simply contribute nothing.
 
@@ -445,18 +531,21 @@ def _object_anchor_worklist_entries(icao: str, xp_root: str,
     entries: list[dict] = []
 
     def _append(dsf_path: str, pack_root: str, source: str) -> None:
-        key = os.path.realpath(dsf_path)
+        key = (icao, os.path.realpath(dsf_path))
         if key in seen_dsf_paths:
             return
         seen_dsf_paths.add(key)
-        entries.append({
+        entry = {
             "icao": icao,
             "dsf_path": dsf_path,
             "dsf_mtime": os.path.getmtime(dsf_path),
             "pack_root": pack_root,
             "xplane_root": xp_root,
             "source": source,
-        })
+        }
+        if claim:
+            entry["claim"] = claim
+        entries.append(entry)
 
     # 1. The selected apt.dat's own DSF (geometry authority, unchanged).
     apt_dat_path = _pick_best_apt_dat_against_osm(xp_root, icao)
@@ -487,8 +576,8 @@ def _object_anchor_worklist_entries(icao: str, xp_root: str,
             xp_root, tile_lat, tile_lon)
     positions_by_dsf = scan_cache.setdefault("positions", {})
     for dsf_path, pack_root in scan_cache["packs"]:
-        if os.path.realpath(dsf_path) in seen_dsf_paths:
-            continue  # already queued — skip before the positions read
+        if (icao, os.path.realpath(dsf_path)) in seen_dsf_paths:
+            continue  # already queued FOR THIS AIRPORT — skip the read
         if dsf_path not in positions_by_dsf:
             positions_by_dsf[dsf_path] = (
                 read_dsf_object_placement_positions(dsf_path, pack_root))
@@ -970,7 +1059,7 @@ def generate_auto_patches(tile, cifp_path: str,
     object_anchor_worklist_xplane_root: str | None = None
     # Tile-wide DSF dedupe (realpaths): Phase 2 processes a DSF
     # pack-wide, so a DSF queued by any airport is never queued twice.
-    object_anchor_worklist_seen_dsfs: set[str] = set()
+    object_anchor_worklist_seen_dsfs: set[tuple[str, str]] = set()
     # Tile-wide memo for the pack scan's airport-invariant work (pack
     # enumeration, per-DSF placement positions).
     object_anchor_worklist_scan_cache: dict = {}
@@ -1052,7 +1141,8 @@ def generate_auto_patches(tile, cifp_path: str,
             worklist_entries = _object_anchor_worklist_entries(
                 icao, xp_root, runways, tile_lat, tile_lon,
                 object_anchor_worklist_seen_dsfs,
-                object_anchor_worklist_scan_cache)
+                object_anchor_worklist_scan_cache,
+                claim=_airport_claim_lonlat(runways))
             if worklist_entries:
                 object_anchor_worklist_entries.extend(worklist_entries)
                 object_anchor_worklist_xplane_root = xp_root

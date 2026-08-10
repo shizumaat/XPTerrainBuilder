@@ -1138,9 +1138,12 @@ def test_worklist_scan_skips_disabled_far_and_global_airports(
 
 def test_worklist_entries_dedupe_winner_pack_and_repeat_airports(
         scan_xplane_root, monkeypatch):
-    """The apt.dat winner's DSF is never queued twice by the scan, and
-    the tile-wide seen-set keeps a second airport from re-queueing the
-    same pack (Phase 2 processes a DSF pack-wide)."""
+    """The apt.dat winner's DSF is never queued twice by the scan, and a
+    second AIRPORT now queues it once for itself (round-4 spec R2: the
+    entry key is (airport, DSF), and Phase 2 partitions the cell's
+    placements between the two by containment).  The tile-wide dedup
+    this replaced gave a shared cell whole to whichever airport sorted
+    first — measured on +25+051, OTBD owned all of OTHH's pack."""
     from auto_patch import osm_load
 
     xp_root, custom_scenery = scan_xplane_root
@@ -1158,7 +1161,11 @@ def test_worklist_entries_dedupe_winner_pack_and_repeat_airports(
     assert [e["source"] for e in first] == ["apt_dat"]
 
     second = _worklist_entries("LSTT", xp_root, seen)
-    assert second == []
+    assert [e["icao"] for e in second] == ["LSTT"]
+    assert [e["source"] for e in second] == ["apt_dat"]
+    assert first[0]["dsf_path"] == second[0]["dsf_path"]
+    # Still deduped WITHIN an airport: asking twice adds nothing.
+    assert _worklist_entries("LSTT", xp_root, seen) == []
 
 
 def test_worklist_scan_enumerates_packs_once_per_tile(
@@ -1189,7 +1196,10 @@ def test_worklist_scan_enumerates_packs_once_per_tile(
     second = _worklist_entries("LSTT", xp_root, seen, scan_cache)
 
     assert [entry["source"] for entry in first] == ["pack_scan"]
-    assert second == []
+    # Round-4 spec R2: the second airport gets its OWN entry for the
+    # same pack; what stays once per tile is the ENUMERATION.
+    assert [entry["source"] for entry in second] == ["pack_scan"]
+    assert [entry["icao"] for entry in second] == ["LSTT"]
     assert len(enumerations) == 1
 
 

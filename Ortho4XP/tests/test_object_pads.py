@@ -656,11 +656,13 @@ def test_records_merge_into_the_sidecar_per_airport(tmp_path):
 def test_the_sidecar_version_carries_the_emitted_section():
     """§5.2: the ``emitted`` section is a sidecar version bump, and
     ``post_mesh`` — which refreshes the REQUESTS every rebake — is the
-    module that must carry it across.  Version 4 is the footprint-hugging
-    ring law (object-reseat-threshold-spec §2.5)."""
+    module that must carry it across.  Version 4 was the
+    footprint-hugging ring law (object-reseat-threshold-spec §2.5);
+    version 5 retires the plan-box fallback (round-4 spec R1), which is
+    a GEOMETRY change and therefore a bump."""
     from auto_patch import post_mesh
 
-    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 4
+    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 5
 
 
 def test_the_consumer_reads_the_sidecar_from_the_patch_dir(gate_on, dem,

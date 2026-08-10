@@ -64,7 +64,7 @@ that now meets the feet — the residuals fall under
 ``DSF_OBJECT_FOOT_PAD_RESIDUAL_M`` and the requests VANISH.  To keep the
 pads that caused the convergence from vanishing with their requests, this
 module persists what it emitted into the sidecar's ``emitted`` section
-(version 4), each record carrying its ring, its target and the FINGERPRINT
+(version 5), each record carrying its ring, its target and the FINGERPRINT
 of the seat that produced it.  A record is re-emitted until it goes stale
 (§5.2), and staleness has exactly four causes, all measured, none
 guessed:
@@ -201,7 +201,9 @@ def sidecar_is_current(payload) -> bool:
 
     Version 3 and below carry one convex-hull ring per residual group —
     the retired law, whose pads spanned the water and parking lots
-    between spread-out parts.  Such a corpus is REFUSED wholesale rather
+    between spread-out parts; version 4 additionally carries the
+    plan-box fallback rings the round-4 R1 law retired (up to 224,146 m2
+    apiece).  Such a corpus is REFUSED wholesale rather
     than consumed: its requests are discarded, its ``emitted`` records
     expire, and the next rebake re-derives the requests under the current
     law (§5.2's convergence loop is exactly the mechanism that repairs
@@ -233,6 +235,11 @@ def law_digest() -> str:
         f"margin={float(_config.DSF_OBJECT_FOOT_PAD_MARGIN_M):.6f}",
         f"residual={float(_config.DSF_OBJECT_FOOT_PAD_RESIDUAL_M):.6f}",
         f"groundside={float(_config.GROUNDSIDE_MAX_GRADE):.6f}",
+        # The retired plan-box fallback's surviving degenerate window
+        # (round-4 spec R1): moving it changes which parts may raise a
+        # request at all, which is admissibility.
+        "planbox="
+        f"{float(_config.DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2):.6f}",
     )
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
 

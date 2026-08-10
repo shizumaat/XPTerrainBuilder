@@ -71,7 +71,16 @@ OBJECT_ANCHOR_WORKLIST_FILENAME = "o4_object_anchor_worklist.json"
 #    the apt.dat geometry contest (amendment A22, field case LSGL
 #    2026-07-23); entries carry a "source" tag.  Readers are
 #    version-agnostic (a v1 file is the apt.dat-only subset).
-OBJECT_ANCHOR_WORKLIST_VERSION = 2
+# 3: entries are per (airport, pack) BY CONTAINMENT (round-4 spec R2).
+#    A DSF cell carrying two airports' objects now appears once per
+#    airport, each entry carrying that airport's "claim" geometry
+#    (thresholds hull dilated by object_pads._CLAIM_MARGIN_M) so Phase 2
+#    can partition the cell's placements between them.  Under version 2
+#    the cell went whole to whichever airport sorted first: on +25+051
+#    OTBD owned the entire OTHH Aeroscape pack.  Readers stay
+#    version-agnostic — an entry with no "claim" simply claims every
+#    placement of its DSF, which IS the version-2 behaviour.
+OBJECT_ANCHOR_WORKLIST_VERSION = 3
 
 # Per-tile record of the foot-pad REQUESTS the foot re-anchor raised
 # (multi-ground-cluster objects whose best rigid offset still leaves a
@@ -105,7 +114,16 @@ OBJECT_FOOT_PAD_SIDECAR_FILENAME = "o4_object_foot_pads.json"
 #    here: a version-3 file's rings are the retired law's geometry, so it
 #    is REFUSED wholesale on read (requests and ``emitted`` records both,
 #    ``object_pads.sidecar_is_current``) and the next rebake re-derives.
-OBJECT_FOOT_PAD_SIDECAR_VERSION = 4
+# 5: THE PLAN-BOX FALLBACK IS RETIRED (round-4 spec R1, 2026-08-10).  A
+#    part with no contact-band triangle used to fall back to its welded
+#    mega-part's PLAN BOX; on the owner's OTHH build that was 61 rings,
+#    83 % of all pad area, worst 224,146 m2 around a pier-supported
+#    viaduct.  Such a part now raises no request at all, and the box
+#    survives only for a degenerate part standing IN the contact band
+#    with a plan box under DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2.  The
+#    version bump is what discards the thirty-hectare requests already
+#    on disk — same refusal machinery as version 4.
+OBJECT_FOOT_PAD_SIDECAR_VERSION = 5
 
 # A single pad ring component larger than this is REPORTED at verbosity
 # 1 with the resource that asked for it (object-reseat-threshold-spec
@@ -183,6 +201,91 @@ def object_anchor_worklist_path(tile) -> str:
         ),
         OBJECT_ANCHOR_WORKLIST_FILENAME,
     )
+
+
+def worklist_claim_assigner(entries):
+    """``assign(dsf_path, latitude, longitude) -> icao | None`` — WHICH
+    AIRPORT OWNS A POINT (round-4 spec R2).
+
+    An object belongs to the airport whose claim geometry — the
+    thresholds hull dilated by ``object_pads._CLAIM_MARGIN_M``, recorded
+    per worklist entry by the driver — CONTAINS it.  An object no
+    airport claims goes to the nearest airport's entry, so nothing is
+    ever dropped for want of an owner.
+
+    The candidate set is scoped PER DSF: only airports that actually
+    hold an entry for that DSF can win it, which is what guarantees
+    every placement lands in some entry that will be processed.  A DSF
+    with a single entry answers that entry for every point (the
+    version-2 behaviour, kept exactly), and so does an entry whose
+    claim geometry is missing or unusable — a claim nobody can test is
+    never a reason to lose objects.
+    """
+    import math as _math
+
+    by_dsf: dict[str, list[tuple]] = {}
+    for entry in entries or ():
+        dsf_path = entry.get("dsf_path")
+        if not dsf_path:
+            continue
+        claim = entry.get("claim") or {}
+        centre = claim.get("centre_lonlat")
+        hull = claim.get("hull_lonlat") or ()
+        polygon = None
+        if len(hull) >= 4:
+            try:
+                from shapely.geometry import Polygon as _Polygon
+
+                candidate = _Polygon([(float(x), float(y)) for x, y in hull])
+                polygon = candidate if candidate.is_valid else None
+            except Exception:
+                polygon = None
+        by_dsf.setdefault(os.path.realpath(dsf_path), []).append(
+            (entry.get("icao"), polygon, centre, claim.get("radius_m"))
+        )
+
+    def assign(dsf_path: str, latitude: float, longitude: float):
+        candidates = by_dsf.get(os.path.realpath(dsf_path or "")) or ()
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0][0]
+        containing = []
+        for icao, polygon, centre, radius in candidates:
+            if polygon is None:
+                if centre and radius:
+                    scale = max(0.1, _math.cos(_math.radians(latitude)))
+                    if _math.hypot(
+                        (longitude - centre[0]) * 111320.0 * scale,
+                        (latitude - centre[1]) * 111320.0,
+                    ) <= float(radius):
+                        containing.append((0.0, icao))
+                continue
+            try:
+                from shapely.geometry import Point as _Point
+
+                if polygon.covers(_Point(longitude, latitude)):
+                    containing.append((polygon.area, icao))
+            except Exception:
+                continue
+        if containing:
+            # Smallest claiming hull wins a genuine overlap: the tighter
+            # claim is the more specific one.
+            return min(containing)[1]
+        nearest = None
+        for icao, _polygon, centre, _radius in candidates:
+            if not centre:
+                continue
+            scale = max(0.1, _math.cos(_math.radians(latitude)))
+            distance = _math.hypot(
+                (longitude - centre[0]) * 111320.0 * scale,
+                (latitude - centre[1]) * 111320.0,
+            )
+            if nearest is None or (distance, icao) < nearest:
+                nearest = (distance, icao)
+        return nearest[1] if nearest else candidates[0][0]
+
+    return assign
 
 
 def _mesh_is_newer_than_alt(tile, mesh_path: str) -> bool:
@@ -1030,6 +1133,8 @@ def discover_and_rebake_airport(
     excluded_resources: set[tuple[str, str]] | None = None,
     measure_only: bool = False,
     basin_rim_flush_facilities: list | None = None,
+    airport: str | None = None,
+    claims_placement=None,
 ) -> dict:
     """Run the full Phase 2 discovery pipeline for one airport's DSF.
 
@@ -1066,6 +1171,22 @@ def discover_and_rebake_airport(
     with a skip-and-report entry.  ``None`` / empty means no exclusions
     (the pre-change behaviour, and the only behaviour while the
     ``O4_OBJECT_BRIDGE_TERRAIN`` / tunnel gates are off).
+
+    ``airport`` / ``claims_placement`` (round-4 spec R2): the airport
+    this run is FOR, and ``claims(latitude, longitude) -> bool`` naming
+    the placements of this DSF that belong to it.  A DSF cell carrying
+    two airports' objects is processed once per airport over disjoint
+    subsets, so a decision, a bake and a run fingerprint all belong to
+    the airport whose ground the object stands on.  ``None`` (the
+    command line, the unit tests) keeps the whole-cell behaviour.  The
+    run fingerprint is keyed by ``airport`` too — without that the
+    second airport's run would short-circuit on the FIRST airport's
+    record and inherit its pad requests wholesale.
+
+    The invariant-I-4 multi-placement exclusion is counted over the
+    WHOLE DSF, never the subset: a resource placed at both airports must
+    stay excluded for both, and counting only the subset would let each
+    run bake it to a different offset.
 
     ``basin_rim_flush_facilities``
     (``object_terrain_assembly.BasinRimFlushFacility`` records,
@@ -1146,6 +1267,7 @@ def discover_and_rebake_airport(
                 )
             ),
             measure_only=measure_only,
+            airport=airport,
         )
         if record is not None:
             result["short_circuited"] = True
@@ -1208,6 +1330,33 @@ def discover_and_rebake_airport(
     # The DSF's placements as read, before the ruling-R4 filter below:
     # the section-2.2 basin pass seats members the generic pass drops.
     all_placements = list(placements)
+
+    # THE AIRPORT'S OWN SUBSET (round-4 spec R2).  Containment decides
+    # which of a shared cell's placements this run may touch; the
+    # invariant-I-4 placement census below still counts over the WHOLE
+    # cell, so a resource placed at both airports stays excluded at both.
+    placement_count_over_whole_dsf: dict[str, int] = {}
+    for placement in all_placements:
+        placement_count_over_whole_dsf[placement.resource_path] = (
+            placement_count_over_whole_dsf.get(placement.resource_path, 0) + 1
+        )
+    if claims_placement is not None:
+        claimed = [
+            placement
+            for placement in placements
+            if claims_placement(placement.latitude, placement.longitude)
+        ]
+        if len(claimed) != len(placements):
+            UI.vprint(
+                2,
+                f"  [object-anchor] {airport or '?'}: "
+                f"{len(claimed)} of {len(placements)} placement(s) in "
+                f"{os.path.basename(dsf_path)} are on this airport's "
+                "ground (round-4 spec R2 containment)",
+            )
+        placements = claimed
+        if not placements:
+            return result
     basin_member_resources = {
         resource
         for facility in (basin_rim_flush_facilities or [])
@@ -1264,11 +1413,10 @@ def discover_and_rebake_airport(
         _generic_pass_discovery()
 
     def _generic_pass_discovery() -> None:
-        placement_count_by_resource: dict[str, int] = {}
-        for placement in placements:
-            placement_count_by_resource[placement.resource_path] = (
-                placement_count_by_resource.get(placement.resource_path, 0) + 1
-            )
+        # Counted over the WHOLE cell, not this airport's subset
+        # (round-4 spec R2): invariant I-4's multi-placement exclusion
+        # must reach a resource placed once at each of two airports.
+        placement_count_by_resource = dict(placement_count_over_whole_dsf)
 
         (
             resolved_paths,
@@ -1410,6 +1558,7 @@ def discover_and_rebake_airport(
             dsf_path,
             mesh_path,
             object_rebake.build_run_record(
+                # (airport-keyed: see the docstring's R2 note)
                 pack_root,
                 dsf_path,
                 mesh_path,
@@ -1429,6 +1578,7 @@ def discover_and_rebake_airport(
                 cluster_counts=_merge_cluster_counts(result["decisions"]),
                 measure_only=measure_only,
             ),
+            airport=airport,
         )
     return result
 
@@ -1518,6 +1668,12 @@ def rebake_dsf_objects(tile) -> dict:
 
         corrected_pack_roots: set[str] = set()
         foot_pad_airports: list[dict] = []
+        # Round-4 spec R2: worklist entries are per (airport, pack), and
+        # WHO OWNS A PLACEMENT is a question about its coordinates, never
+        # about which loop iteration is running.  One assigner answers it
+        # for the object subsets AND for each raised request's ``icao``.
+        claim_assigner = worklist_claim_assigner(worklist.get("airports", []))
+        requests_by_icao: dict[tuple[str, str], list[dict]] = {}
         for airport in worklist.get("airports", []):
             icao = airport.get("icao", "?")
             try:
@@ -1566,6 +1722,13 @@ def rebake_dsf_objects(tile) -> dict:
                     measure_only=measure_only,
                     basin_rim_flush_facilities=(
                         terrain_records.basin_rim_flush_facilities
+                    ),
+                    airport=icao,
+                    claims_placement=(
+                        lambda latitude, longitude, _dsf=dsf_path,
+                        _icao=icao: (
+                            claim_assigner(_dsf, latitude, longitude) == _icao
+                        )
                     ),
                 )
             except Exception as exception:
@@ -1748,13 +1911,24 @@ def rebake_dsf_objects(tile) -> dict:
                         "cluster_pad_requests", ()
                     )
                 )
-                foot_pad_airports.append(
-                    {
-                        "icao": icao,
-                        "pack_root": pack_root,
-                        "requests": requests,
-                    }
-                )
+                # THE REQUEST'S ICAO IS ITS OWN COORDINATES' ANSWER
+                # (round-4 spec R2), never the loop label: a request
+                # standing on OTHH's ground is filed under OTHH even
+                # when the pack it came from was queued for another
+                # airport.  Same assigner as the object subsets, so the
+                # two can never disagree.
+                for request_record in requests:
+                    claimed = (
+                        claim_assigner(
+                            dsf_path,
+                            request_record.get("latitude"),
+                            request_record.get("longitude"),
+                        )
+                        or icao
+                    )
+                    requests_by_icao.setdefault(
+                        (claimed, pack_root), []
+                    ).append(request_record)
                 if airport_result["foot_pad_requests"]:
                     UI.vprint(
                         1,
@@ -1956,6 +2130,19 @@ def rebake_dsf_objects(tile) -> dict:
         # is WRITTEN (emptied of requests) rather than removed.  Deleting
         # it would drop every pad on the next build, un-converge the loop,
         # and re-raise the same requests: a permanent oscillation.
+        # One block per CLAIMING airport (round-4 spec R2), in a stable
+        # order so a converged build stays byte-stable.
+        foot_pad_airports = [
+            {
+                "icao": claimed_icao,
+                "pack_root": claimed_pack_root,
+                "requests": claimed_requests,
+            }
+            for (claimed_icao, claimed_pack_root), claimed_requests in sorted(
+                requests_by_icao.items(),
+                key=lambda item: (str(item[0][0]), str(item[0][1])),
+            )
+        ]
         sidecar_path = os.path.join(
             os.path.dirname(worklist_path),
             OBJECT_FOOT_PAD_SIDECAR_FILENAME,

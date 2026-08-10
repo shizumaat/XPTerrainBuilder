@@ -67,6 +67,34 @@ WATER_QUERIES = [
 WATER_TAGS_OF_INTEREST = ["name", "tidal", "water"]
 WATER_CACHE_TAG_SCHEMA = "2026-07-17"
 
+# PAVEMENT THAT IS IN OUR PATCH IS LAND (owner 2026-08-10, VMMC).
+# Closed patch pavement rings are inserted carrying the WATER, SEA and
+# SEA_EQUIV bits ALONGSIDE INTERP_ALT.  Triangle4XP's regionplague
+# (Triangle4XP.c:13545) crosses any segment whose mark does not share a
+# bit with the flood's own attribute, so an INTERP_ALT-only (8) ring
+# does NOT stop a SEA flood: VMMC's taxiways C1/G/H are OSM
+# ``bridge=yes`` viaducts over open water, and 263 mesh triangles /
+# 114,406 m2 of patch pavement came out SEA|INTERP_ALT (attr 10) —
+# wet texture and transparent mask over pavement we levelled.  With
+# all four bits on the ring every water flood stops AT the pavement
+# boundary; the interior keeps the INTERP_ALT seed's bit 8 alone
+# (segment marks never become triangle attributes — see
+# setelemattribute, Triangle4XP.c:1225), which reads as land in
+# O4_DSF_Utils.remap_water_tri_type (8 & 7 == 0) and in
+# O4_Mask_Utils.water_type_is_inland, and stays exempt from sea
+# levelling in O4_Mesh_Utils (attr >= INTERP_ALT).  A patch ring that
+# genuinely encloses water no longer floods it — intended.
+# SCOPE: closed patch pavement rings ONLY.  Road ribbons
+# (include_roads, INTERP_ALT at :966) and OBJ8 patch objects keep the
+# bare INTERP_ALT marker, so genuine road bridges over water keep
+# their WATER|INTERP_ALT (attr 9) triangles.
+PATCH_RING_MARKER = (
+    VECT.Vector_Map.dico_attributes["INTERP_ALT"]
+    | VECT.Vector_Map.dico_attributes["WATER"]
+    | VECT.Vector_Map.dico_attributes["SEA"]
+    | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
+)
+
 
 def water_polygon_is_tidal(osmid, dicosmtags):
     """Whether an OpenStreetMap water polygon belongs to the tidal regime.
@@ -88,8 +116,9 @@ def water_polygon_is_tidal(osmid, dicosmtags):
     return tags.get("tidal") == "yes" or tags.get("water") == "lagoon"
 
 
-def sea_seed_areas(sea_area, tidal_water_area):
-    """Where the SEA attribute may be seeded: the sea minus tidal water.
+def sea_seed_areas(sea_area, tidal_water_area, patch_pavement_area=None):
+    """Where the SEA attribute may be seeded: the sea minus tidal water
+    and minus patch pavement.
 
     The coastline's contiguous sea polygon often reaches through inlets
     INTO a mapped lagoon, and its representative point (the flood seed)
@@ -98,21 +127,34 @@ def sea_seed_areas(sea_area, tidal_water_area):
     withholding seeds from their interiors is sufficient: the flood
     stops at their rings and the lagoon's own WATER seeds win.  Slivers
     between the coastline and a lagoon ring keep their own seeds (they
-    are genuinely sea).  Any geometry failure falls back to the
-    undiminished sea area — a mis-seeded lagoon must never cost the
-    whole coastline.
+    are genuinely sea).
+
+    ``patch_pavement_area`` is the patch pavement union
+    (``include_patches``' ``patches_area``) and applies the same
+    treatment as belt and braces to the ring marker (see
+    PATCH_RING_MARKER): pavement in our patch is LAND, so no SEA seed
+    is planted inside it even where the coastline claims it — VMMC's
+    seaward taxiway viaducts.  THE CUTTER IS THE PAVEMENT UNION, never
+    the flat-site extent or the aerodrome boundary: VMMC's boundary
+    spans the genuine channel, and drying that would be wrong.
+
+    Any geometry failure falls back to the sea area as accumulated so
+    far — a mis-seeded lagoon (or a bad patch union) must never cost
+    the whole coastline.
     """
-    if tidal_water_area is None or tidal_water_area.is_empty:
-        return sea_area
-    try:
-        remainder = VECT.ensure_MultiPolygon(
-            sea_area.difference(tidal_water_area)
-        )
+    remainder = sea_area
+    for subtractor in (tidal_water_area, patch_pavement_area):
+        if subtractor is None or subtractor.is_empty:
+            continue
+        try:
+            remainder = VECT.ensure_MultiPolygon(
+                remainder.difference(subtractor)
+            )
+        except Exception:
+            continue
         if remainder.is_empty:
             return remainder
-        return remainder
-    except Exception:
-        return sea_area
+    return remainder
 
 
 def small_roads_queries(road_level):
@@ -455,7 +497,7 @@ def build_poly_file(tile):
         return 0
 
     # Airports
-    (apt_array, apt_area) = include_airports(vector_map, tile)
+    (apt_array, apt_area, patches_area) = include_airports(vector_map, tile)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -476,7 +518,7 @@ def build_poly_file(tile):
         return 0
 
     # Sea
-    include_sea(vector_map, tile)
+    include_sea(vector_map, tile, patches_area=patches_area)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -816,10 +858,18 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
 
 ################################################################################
 def include_airports(vector_map, tile):
+    """``(apt_array, treated_area, patches_area)`` for the tile.
+
+    ``patches_area`` — the patch pavement union alone, WITHOUT the
+    apt.dat runway/taxiway/apron area that ``treated_area`` adds — is
+    surfaced because it is the LAND authority of the water law
+    (``sea_seed_areas``, PATCH_RING_MARKER): pavement that is in our
+    patch never takes a sea seed.
+    """
     UI.vprint(0, "-> Dealing with airports")
     (airport_layer, dico_airports) = load_airports_and_prepare_dem(tile)
     if airport_layer is None:
-        return (0, 0)
+        return (0, 0, geometry.Polygon())
     run_auto_patch_generation(tile, airport_layer, dico_airports)
     (patches_area, patches_list) = include_patches(vector_map, tile)
     runway_taxiway_apron_area = APT.encode_runways_taxiways_and_aprons(
@@ -832,7 +882,7 @@ def include_airports(vector_map, tile):
     APT.flatten_helipads(airport_layer, vector_map, tile, treated_area)
     # APT.encode_aprons(tile,dico_airports,vector_map)
     apt_array = APT.build_airport_array(tile, dico_airports)
-    return (apt_array, treated_area)
+    return (apt_array, treated_area, patches_area)
 
 
 ################################################################################
@@ -1032,7 +1082,14 @@ def _tidal_water_area(tile):
         return geometry.MultiPolygon()
 
 
-def include_sea(vector_map, tile):
+def include_sea(vector_map, tile, patches_area=None):
+    """Encode the coastline and seed the SEA attribute.
+
+    ``patches_area`` is the patch pavement union from
+    ``include_patches`` (via ``include_airports``); it joins the tidal
+    water polygons as a seed subtractor, so no SEA seed is ever planted
+    inside pavement we levelled (see ``sea_seed_areas``).
+    """
     UI.vprint(0, "-> Dealing with coastline")
     wait_for_background_osm_prefetch()
     sea_layer = OSM.OSM_layer()
@@ -1120,7 +1177,15 @@ def include_sea(vector_map, tile):
                 "      Tidal / lagoon water polygons override the"
                 " coastline: keeping their interiors inland.",
             )
-        seed_area = sea_seed_areas(sea_area, tidal_water)
+        if patches_area is not None and not patches_area.is_empty:
+            UI.vprint(
+                1,
+                "      Patch pavement is land: withholding sea seeds"
+                " inside it.",
+            )
+        seed_area = sea_seed_areas(
+            sea_area, tidal_water, patch_pavement_area=patches_area
+        )
         for polygon in seed_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
             if "SEA" in vector_map.seeds:
@@ -1644,9 +1709,12 @@ def include_patches(vector_map, tile):
                     pol = geometry.Polygon(way)
                     if pol.is_valid and pol.area:
                         patches_area_polys.append(pol)
+                        # Pavement in our patch is LAND: the ring blocks
+                        # the WATER / SEA / SEA_EQUIV floods as well as
+                        # the INTERP_ALT one (see PATCH_RING_MARKER).
                         vector_map.insert_way(
                             numpy.hstack([way, alti_way]),
-                            "INTERP_ALT",
+                            PATCH_RING_MARKER,
                             check=True,
                         )
                         interp_alt_patch_polygons.append(pol)

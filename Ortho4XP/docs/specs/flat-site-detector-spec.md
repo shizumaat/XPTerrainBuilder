@@ -74,6 +74,39 @@ extent and DEM are in hand), pure measurement:
   non-below-grade seat target − Z0| ≤ 1.0 and p95−p5 ≤ 3.0. Absent
   data → `no_data`, never a fail.
 
+**(v3 amendment, 2026-08-09 — owner approved the lead's three-part
+recommendation.)**
+
+* **(a) The gate extent is PAVEMENT ∪ BOUNDARY only.** The margin
+  ring is DEMOTED to report-only context (`s2_ring_*` fields):
+  the mode flattens the airport and feathers outward, so surrounding
+  terrain has no standing to veto (VMMC: a flat 1.7 km² strip was
+  being refused by the Taipa hills at 2:1 area). The case the ring
+  guarded — an airport whose own surfaces hide relief — is carried
+  by the pavement statistics, S1 and S4.
+* **(b) Tail-robust statistics — buildings must not testify.** The
+  3-arcsec sources are SURFACE models; a 93 m cell over a terminal
+  reports the roof (measured: VHHH/YSSY/KSFO upward skew 1.7-2.25 vs
+  passing OTHH's 1.2, medians ON instrument truth). Defined
+  candidate: after the sea-band exclusion, samples above
+  `median + relief_floor/2` (class-relative: +4 m for 3-arcsec) are
+  DSM-structure suspects, EXCLUDED from the relief percentiles and
+  the plane fit; the trimmed fraction is recorded
+  (`s2_dsm_trimmed_frac`). ACCEPTANCE for the amendment: all six
+  owner-named airports classify flat AND every S1-failing negative
+  stays refused; if the defined candidate misses one of the six,
+  STOP and report the actual distributions — no further trimming
+  without a new ruling.
+* **(c) OWNER DECLARATION.** Tile-cfg keys `flat_site_declared`
+  (comma-separated ICAOs) and `flat_site_declared_elevation_m`
+  (`ICAO:METRES` pairs, optional — default Z0 stays the CIFP
+  consensus): a declared airport takes verdict `flat_declared`
+  (distinct string, full provenance), the detector still runs and
+  RECORDS its would-be automatic verdict beside it (declaration vs
+  detection stays auditable forever). The mode treats
+  `flat_declared` exactly as `flat_candidate`. Intent never waits on
+  statistics.
+
 VERDICT `flat_candidate` ⇔ S1 ∧ S2 (and not lidar_credible). Output:
 one log line at verbosity 0 and a sidecar evidence key
 `site_class` = {verdict, z0_m, s1_spread_m, s2_slope_pct,

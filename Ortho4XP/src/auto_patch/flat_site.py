@@ -18,15 +18,17 @@ THE FOUR SIGNALS (spec section 2)
   runway threshold elevations must be ≤
   :data:`~auto_patch.config.FLAT_SITE_THRESHOLD_SPREAD_M`.  Their mean is
   the consensus elevation ``Z0`` — instrument truth for the site.
-* **S2 — no credible DEM relief.**  Over ``(pavement ∪ boundary) ⊕
-  FLAT_SITE_MARGIN_M``, the plane-fit slope must be ≤
+* **S2 — no credible DEM relief.**  Over ``pavement ∪ boundary`` — the
+  GATE extent, v3 amendment (a) — the plane-fit slope must be ≤
   ``FLAT_SITE_MAX_SLOPE_PCT`` AND the ``p95 − p5`` relief must be at or
   under the NOISE FLOOR OF THE DEM'S OWN SOURCE CLASS
-  (``FLAT_SITE_RELIEF_FLOOR_BY_CLASS``).  The margin ring is
-  load-bearing: a graded PLATEAU in hilly terrain shows its relief in the
-  ring even when its pavement is flat.  A metre-credible (LIDAR-class)
-  source SHORT-CIRCUITS to ``lidar_credible`` — that DEM is trustworthy
-  and the normal path already handles a flat site correctly under it.
+  (``FLAT_SITE_RELIEF_FLOOR_BY_CLASS``).  The ``FLAT_SITE_MARGIN_M``
+  ring is measured the same way and kept as ``s2_ring_*`` context with
+  NO GATE POWER: the mode flattens the airport and feathers outward, so
+  surrounding terrain has no standing to veto it.  A metre-credible
+  (LIDAR-class) source SHORT-CIRCUITS to ``lidar_credible`` — that DEM
+  is trustworthy and the normal path already handles a flat site
+  correctly under it.
 * **S2a — the SEA-BAND EXCLUSION** (v2 amendment).  At a site whose Z0
   sits at or above ``FLAT_SITE_SEA_BAND_MIN_Z0_M``, DEM samples at or
   below the sea surface are excluded from BOTH the percentiles and the
@@ -76,6 +78,10 @@ __all__ = [
     "VERDICT_NOT_FLAT",
     "VERDICT_LIDAR_CREDIBLE",
     "VERDICT_NO_DATA",
+    "VERDICT_FLAT_DECLARED",
+    "declared_flat_airports",
+    "declared_flat_elevations",
+    "extents_from_apt",
     "SOURCE_CLASS_LIDAR",
     "cifp_threshold_elevations",
     "threshold_consensus",
@@ -96,6 +102,11 @@ VERDICT_FLAT_CANDIDATE = "flat_candidate"
 VERDICT_NOT_FLAT = "not_flat"
 VERDICT_LIDAR_CREDIBLE = "lidar_credible"
 VERDICT_NO_DATA = "no_data"
+
+#: (c) The OWNER DECLARATION verdict.  A DISTINCT string with full
+#: provenance beside it — the flat-site MODE treats it exactly as
+#: ``flat_candidate``, and a reader can always tell the two apart.
+VERDICT_FLAT_DECLARED = "flat_declared"
 
 #: The metre-credible class.  Its presence short-circuits S2.
 SOURCE_CLASS_LIDAR = "lidar"
@@ -349,8 +360,80 @@ def sea_band_applies(z0_m) -> bool:
         return False
 
 
+def extents_from_apt(apt, to_m, margin_m: float | None = None):
+    """``(gate_extent, ring)`` in local metres.
+
+    v3 amendment (a): the GATE statistics are taken over ``pavement ∪
+    boundary`` alone; the margin ring — the same 200 m band, now a
+    difference rather than a dilation — is REPORT-ONLY context.  Both
+    come from the one builder, so the two zones can never describe
+    different airports.
+    """
+    core = extent_from_apt(apt, to_m, margin_m=0.0)
+    if core is None:
+        return None, None
+    full = extent_from_apt(apt, to_m, margin_m=margin_m)
+    ring = None
+    if full is not None:
+        try:
+            ring = full.difference(core)
+            if ring.is_empty:
+                ring = None
+        except Exception:                            # pragma: no cover
+            ring = None
+    return core, ring
+
+
+# ──────────────────────────────────────────────────────────────────────
+# (c) THE OWNER DECLARATION — intent never waits on statistics
+# ──────────────────────────────────────────────────────────────────────
+def _cfg_value(name: str, override=None) -> str:
+    """A tile-cfg string, from an explicit override or the live config.
+
+    Read through ``O4_Config_Utils``' module attribute — the surface the
+    global and per-tile cfg loaders both write — with a getattr default,
+    so a frozen engine, a bare test process or a tree predating the key
+    all read "" rather than raising.
+    """
+    if override is not None:
+        return str(override)
+    try:
+        import O4_Config_Utils as _CFG
+
+        return str(getattr(_CFG, name, "") or "")
+    except Exception:                                # pragma: no cover
+        return ""
+
+
+def declared_flat_airports(value=None) -> set:
+    """The ICAOs the owner has DECLARED flat (``flat_site_declared``)."""
+    raw = _cfg_value("flat_site_declared", value)
+    return {token.strip().upper() for token in raw.split(",") if token.strip()}
+
+
+def declared_flat_elevations(value=None) -> dict:
+    """``{ICAO: metres}`` from ``flat_site_declared_elevation_m``.
+
+    Malformed pairs are SKIPPED, never raised on and never guessed at: a
+    typo in a cfg string must not take a build down, and the airport
+    simply falls back to its CIFP consensus Z0.
+    """
+    raw = _cfg_value("flat_site_declared_elevation_m", value)
+    out = {}
+    for token in raw.split(","):
+        token = token.strip()
+        if not token or ":" not in token:
+            continue
+        icao, _, metres = token.partition(":")
+        try:
+            out[icao.strip().upper()] = float(metres)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
-               z0_m=None) -> dict:
+               z0_m=None, relief_floor_m=None) -> dict:
     """S2's measurement over ``extent_m`` (local metres about ``anchor``).
 
     Reads the DEM's OWN cells inside the extent — nothing is invented
@@ -368,10 +451,20 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
     the share of otherwise-valid in-extent samples that fell in the
     band, and is reported whatever the outcome: at a site the exclusion
     empties, the fraction is the finding.
+
+    S2b — THE DSM-STRUCTURE TRIM.  With ``relief_floor_m`` given, samples
+    above ``median + FLAT_SITE_DSM_TRIM_FRACTION_OF_FLOOR * floor`` are
+    dropped from the percentiles and the fit as well: the 3-arcsec
+    sources are SURFACE models and a 93 m cell over a terminal reports
+    the roof, which is not the ground the airport is graded to.  The
+    cutoff is taken from the POST-SEA median — the central tendency
+    these sites already get right — and the trimmed share is reported as
+    ``dsm_trimmed_frac``.
     """
     empty = {"n": 0, "median_m": None, "p5_m": None, "p95_m": None,
              "relief_m": None, "slope_pct": None, "residual_std_m": None,
-             "sea_excluded_frac": None}
+             "sea_excluded_frac": None, "dsm_trimmed_frac": None,
+             "dsm_cutoff_m": None}
     if dem is None or extent_m is None or extent_m.is_empty:
         return empty
     try:
@@ -440,6 +533,23 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
     if int(keep.sum()) < _MIN_DEM_SAMPLES:
         return dict(empty, sea_excluded_frac=sea_excluded_frac)
 
+    # S2b — the DSM-structure trim, on what the sea band left behind.
+    dsm_trimmed_frac = None
+    dsm_cutoff = None
+    if relief_floor_m is not None:
+        land_n = int(keep.sum())
+        dsm_cutoff = float(np.median(window[keep])) + (
+            _config.FLAT_SITE_DSM_TRIM_FRACTION_OF_FLOOR
+            * float(relief_floor_m))
+        tall = keep & (window > dsm_cutoff)
+        dsm_trimmed_frac = round(float(int(tall.sum())) / land_n, 4)
+        dsm_cutoff = round(dsm_cutoff, 3)
+        keep &= ~tall
+        if int(keep.sum()) < _MIN_DEM_SAMPLES:
+            return dict(empty, sea_excluded_frac=sea_excluded_frac,
+                        dsm_trimmed_frac=dsm_trimmed_frac,
+                        dsm_cutoff_m=dsm_cutoff)
+
     z = window[keep]
     px = grid_x[keep]
     py = grid_y[keep]
@@ -463,6 +573,8 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
         "residual_std_m": (None if residual_std is None
                            else round(residual_std, 3)),
         "sea_excluded_frac": sea_excluded_frac,
+        "dsm_trimmed_frac": dsm_trimmed_frac,
+        "dsm_cutoff_m": dsm_cutoff,
     }
 
 
@@ -558,9 +670,11 @@ def pack_consensus(targets: Sequence, z0_m) -> dict:
 # ──────────────────────────────────────────────────────────────────────
 def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
                   tile_lat: int, tile_lon: int, anchor, extent_m,
+                  ring_m=None,
                   dem_meta: dict | None = None,
                   pack_targets: Sequence | None = None,
-                  pack_meta: dict | None = None) -> dict:
+                  pack_meta: dict | None = None,
+                  declared=None, declared_elevations=None) -> dict:
     """The ``site_class`` evidence record (spec section 2).  Report-only.
 
     Every field is evidence; ``verdict`` is the one summary:
@@ -571,10 +685,17 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
     s1 = threshold_consensus(cifp_elevations_m)
     z0 = s1.get("z0_m")
     klass = source_class_for_dem(dem, icao=icao, dem_meta=dem_meta)
-    # S2a: the sea-band exclusion needs S1's consensus elevation, so the
-    # thresholds are read FIRST and Z0 is handed to the measurement.
-    relief = dem_relief(dem, tile_lat, tile_lon, anchor, extent_m, z0_m=z0)
     floor_m = relief_floor_for_class(klass.get("class"))
+    # S2a needs S1's consensus elevation and S2b needs the class's floor,
+    # so the thresholds and the source class are both resolved BEFORE the
+    # measurement and handed into it.  ``extent_m`` is the GATE extent
+    # (pavement ∪ boundary); the ring is measured the same way and kept
+    # as context with no gate power (v3 amendment (a)).
+    relief = dem_relief(dem, tile_lat, tile_lon, anchor, extent_m,
+                        z0_m=z0, relief_floor_m=floor_m)
+    ring = (dem_relief(dem, tile_lat, tile_lon, anchor, ring_m,
+                       z0_m=z0, relief_floor_m=floor_m)
+            if ring_m is not None else {})
 
     offset_m = None
     if z0 is not None and relief.get("median_m") is not None:
@@ -594,19 +715,39 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
                else bool(slope_ok and relief_ok))
 
     if s1["pass"] is None or relief.get("n", 0) == 0:
-        verdict = VERDICT_NO_DATA
+        auto_verdict = VERDICT_NO_DATA
     elif klass.get("class") == SOURCE_CLASS_LIDAR:
-        verdict = VERDICT_LIDAR_CREDIBLE
+        auto_verdict = VERDICT_LIDAR_CREDIBLE
     elif s2_pass is None:
-        verdict = VERDICT_NO_DATA
+        auto_verdict = VERDICT_NO_DATA
     elif s1["pass"] and s2_pass:
-        verdict = VERDICT_FLAT_CANDIDATE
+        auto_verdict = VERDICT_FLAT_CANDIDATE
     else:
-        verdict = VERDICT_NOT_FLAT
+        auto_verdict = VERDICT_NOT_FLAT
+
+    # (c) THE OWNER DECLARATION.  It overrides the VERDICT and nothing
+    # else: every measurement above was taken in the detector's own
+    # frame on the CIFP consensus, and ``auto_verdict`` keeps what the
+    # detector would have said, so declaration and detection stay
+    # auditable against each other forever.  The declared elevation is
+    # carried for the MODE to grade to; absent one, Z0 stands.
+    key = str(icao or "").upper()
+    is_declared = key in (declared_flat_airports()
+                          if declared is None
+                          else {str(i).upper() for i in declared})
+    declared_elevation = (declared_flat_elevations()
+                          if declared_elevations is None
+                          else dict(declared_elevations)).get(key)
+    verdict = VERDICT_FLAT_DECLARED if is_declared else auto_verdict
 
     return {
-        "icao": str(icao or "").upper(),
+        "icao": key,
         "verdict": verdict,
+        "declared": is_declared,
+        "auto_verdict": auto_verdict,
+        "declared_elevation_m": (
+            None if not is_declared else
+            (z0 if declared_elevation is None else declared_elevation)),
         "z0_m": z0,
         "s1_spread_m": s1["spread_m"],
         "s1_threshold_count": s1["n"],
@@ -625,6 +766,20 @@ def classify_site(*, icao: str, cifp_elevations_m: Sequence, dem,
         # None means the exclusion did not run (no Z0, or a site at or
         # below sea level whose zeros are plausible terrain).
         "s2_sea_excluded_frac": relief.get("sea_excluded_frac"),
+        # S2b: the share of LAND samples cut as DSM structure, and the
+        # elevation above which a sample was treated as a roof.
+        "s2_dsm_trimmed_frac": relief.get("dsm_trimmed_frac"),
+        "s2_dsm_cutoff_m": relief.get("dsm_cutoff_m"),
+        # (a) THE MARGIN RING — audit context, NO GATE POWER.  Kept so
+        # "what is the mode's feather going to have to cross?" stays
+        # answerable, and so a future ruling that re-arms the ring has
+        # the numbers it would need.
+        "s2_ring_samples": ring.get("n", 0),
+        "s2_ring_median_m": ring.get("median_m"),
+        "s2_ring_relief_m": ring.get("relief_m"),
+        "s2_ring_slope_pct": ring.get("slope_pct"),
+        "s2_ring_sea_excluded_frac": ring.get("sea_excluded_frac"),
+        "s2_ring_dsm_trimmed_frac": ring.get("dsm_trimmed_frac"),
         "s2_pass": s2_pass,
         "s3_offset_m": offset_m,
         "s4": s4,
@@ -642,7 +797,7 @@ def detect_for_layout(layout, *, icao: str, apt, to_m, dem,
     """
     if layout is None or getattr(layout, "anchor", None) is None:
         return None
-    extent_m = extent_from_apt(apt, to_m)
+    extent_m, ring_m = extents_from_apt(apt, to_m)
     elevations = (cifp_threshold_elevations(xplane_root, icao)
                   if xplane_root else [])
     pack = ({"targets": [], "n_total": 0, "n_below_grade": 0,
@@ -651,7 +806,7 @@ def detect_for_layout(layout, *, icao: str, apt, to_m, dem,
     record = classify_site(
         icao=icao, cifp_elevations_m=elevations, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon, anchor=layout.anchor,
-        extent_m=extent_m,
+        extent_m=extent_m, ring_m=ring_m,
         dem_meta=getattr(layout, "dem_inset_provenance", None),
         pack_targets=pack["targets"], pack_meta=pack)
     try:
@@ -674,6 +829,12 @@ def format_log_line(record: dict | None) -> str:
     sea = record.get("s2_sea_excluded_frac")
     sea_text = ("" if sea is None
                 else f", sea-excluded {100.0 * float(sea):.0f} %")
+    trim = record.get("s2_dsm_trimmed_frac")
+    if trim is not None:
+        sea_text += f", dsm-trimmed {100.0 * float(trim):.0f} %"
+    declared_text = ("" if not record.get("declared") else
+                     f" [DECLARED by owner; detector said "
+                     f"{record.get('auto_verdict')}]")
     s4 = record.get("s4") or {}
     if s4.get("pass") is None:
         pack = "no_data"
@@ -691,4 +852,5 @@ def format_log_line(record: dict | None) -> str:
         f"{_num(record.get('s2_relief_m'))} m vs floor "
         f"{_num(record.get('s2_relief_floor_m'), 1)} m, slope "
         f"{_num(record.get('s2_slope_pct'), 3)} %{sea_text} | "
-        f"DEM−Z0 {_num(record.get('s3_offset_m'))} m | pack {pack}")
+        f"DEM−Z0 {_num(record.get('s3_offset_m'))} m | pack {pack}"
+        + declared_text)

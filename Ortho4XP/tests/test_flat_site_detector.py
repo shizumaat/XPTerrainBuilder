@@ -9,7 +9,8 @@ to the detector (``alt_dem`` + ``nxdem``/``nydem``/``x0``/``x1``/``y0``/
 The five fixtures the spec names, plus the sidecar-key registration twin:
 
 * flat DEM + identical thresholds        -> ``flat_candidate``
-* PLATEAU (flat pavement, sloped ring)   -> NOT (only the ring sees it)
+* PLATEAU (flat pavement, sloped ring)   -> FLAT (v3 (a): the ring has
+  no gate power; its numbers are recorded as context)
 * identical thresholds + real relief     -> NOT
 * LIDAR-class source                     -> ``lidar_credible`` short-circuit
 * missing CIFP / missing DEM             -> ``no_data``, never a crash
@@ -64,19 +65,25 @@ class SyntheticDEM:
 
 
 #: The synthetic airport: a 2 km x 500 m pavement about the anchor.
+#: v3 amendment (a): the GATE extent is the pavement itself; the margin
+#: ring is report-only context.
 PAVEMENT_M = box(-1000.0, -250.0, 1000.0, 250.0)
-EXTENT_M = PAVEMENT_M.buffer(config.FLAT_SITE_MARGIN_M)
+EXTENT_M = PAVEMENT_M
+RING_M = PAVEMENT_M.buffer(config.FLAT_SITE_MARGIN_M).difference(PAVEMENT_M)
 
 #: Four identical thresholds — the OTHH consensus shape (spread 0).
 FLAT_THRESHOLDS = [4.0, 4.0, 4.0, 4.0]
 
 
 def _classify(dem, thresholds=FLAT_THRESHOLDS, *, dem_meta=None,
-              extent_m=EXTENT_M, pack_targets=None):
+              extent_m=EXTENT_M, ring_m=None, pack_targets=None,
+              declared=(), declared_elevations=None, icao="TEST"):
     return flat_site.classify_site(
-        icao="TEST", cifp_elevations_m=thresholds, dem=dem,
+        icao=icao, cifp_elevations_m=thresholds, dem=dem,
         tile_lat=TILE_LAT, tile_lon=TILE_LON, anchor=ANCHOR,
-        extent_m=extent_m, dem_meta=dem_meta, pack_targets=pack_targets)
+        extent_m=extent_m, ring_m=ring_m, dem_meta=dem_meta,
+        pack_targets=pack_targets, declared=declared,
+        declared_elevations=declared_elevations or {})
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -121,24 +128,38 @@ def _plateau(x, y):
     return 5.0 + 0.10 * np.hypot(dx, dy)
 
 
-def test_plateau_is_caught_by_the_margin_ring_not_by_slope():
+def test_the_margin_ring_has_no_gate_power():
+    """v3 amendment (a), the VMMC case: a flat airport beside steep
+    ground is a FLAT AIRPORT.  The mode flattens the airfield and
+    feathers outward, so the surroundings have no standing to veto —
+    but their numbers are still recorded for audit."""
     dem = SyntheticDEM(_plateau)
+    record = _classify(dem, ring_m=RING_M)
 
-    # The pavement ALONE reads perfectly flat — this is the reading the
-    # margin ring exists to correct.
-    pavement_only = _classify(dem, extent_m=PAVEMENT_M)
-    assert pavement_only["s2_relief_m"] == pytest.approx(0.0, abs=1e-6)
-    assert pavement_only["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+    # The gate sees the pavement, which is dead flat.
+    assert record["s2_relief_m"] == pytest.approx(0.0, abs=1e-6)
+    assert record["s2_pass"] is True
+    assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
 
-    record = _classify(dem)
-    assert record["verdict"] == flat_site.VERDICT_NOT_FLAT
-    assert record["s1_pass"] is True          # the thresholds still agree
-    assert record["s2_pass"] is False
-    # And it is the RELIEF that catches it: the ring rises on every side,
-    # so the plane fit is nearly level.  A slope-only test would pass this
-    # site, which is exactly why the floor is a second, independent gate.
-    assert record["s2_relief_m"] > record["s2_relief_floor_m"]
-    assert record["s2_slope_pct"] <= config.FLAT_SITE_MAX_SLOPE_PCT
+    # The ring is measured, reported, and powerless.  Under v2 these very
+    # numbers refused the site.
+    assert record["s2_ring_samples"] > 0
+    assert record["s2_ring_relief_m"] > record["s2_relief_floor_m"]
+    assert record["s2_ring_slope_pct"] is not None
+    # A ring that would have failed does not appear anywhere in the gate.
+    assert record["s2_relief_m"] < record["s2_ring_relief_m"]
+
+
+def test_the_ring_is_optional_context_not_a_required_input():
+    """No ring supplied is not a missing measurement — the gate never
+    consulted it.  The verdict must be identical either way."""
+    dem = SyntheticDEM(_plateau)
+    with_ring = _classify(dem, ring_m=RING_M)
+    without = _classify(dem)
+    assert without["verdict"] == with_ring["verdict"]
+    assert without["s2_relief_m"] == with_ring["s2_relief_m"]
+    assert without["s2_ring_samples"] == 0
+    assert without["s2_ring_relief_m"] is None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -203,12 +224,15 @@ def _coastal(x, y):
 def test_coastal_site_is_classified_on_its_land_not_its_sea():
     dem = SyntheticDEM(_coastal)
 
-    # WITHOUT the exclusion (a below-sea site keeps every sample) the
-    # same raster reads as relief AND as a gradient.
-    contaminated = _classify(dem, thresholds=[0.5, 0.5])
-    assert contaminated["s2_sea_excluded_frac"] is None
-    assert contaminated["s2_relief_m"] >= 7.0
-    assert contaminated["verdict"] == flat_site.VERDICT_NOT_FLAT
+    # WITHOUT the exclusion the same raster reads as relief AND as a
+    # gradient.  Measured on ``dem_relief`` directly, with no floor, so
+    # this isolates S2a — routing it through a fake sub-guard Z0 would
+    # also disable S2b and confound the two amendments.
+    contaminated = flat_site.dem_relief(
+        dem, TILE_LAT, TILE_LON, ANCHOR, EXTENT_M, z0_m=None)
+    assert contaminated["sea_excluded_frac"] is None
+    assert contaminated["relief_m"] >= 7.0
+    assert contaminated["slope_pct"] > config.FLAT_SITE_MAX_SLOPE_PCT
 
     # WITH it — same raster, same extent, Z0 above the guard — the
     # statistics describe the land the airport is built on.
@@ -221,7 +245,7 @@ def test_coastal_site_is_classified_on_its_land_not_its_sea():
     # The sea samples are gone from the FIT as well as the percentiles —
     # a plane regressed through land and sea together measures the
     # shoreline, and that is the half that refused KSFO.
-    assert contaminated["s2_slope_pct"] > record["s2_slope_pct"]
+    assert contaminated["slope_pct"] > record["s2_slope_pct"]
 
 
 def test_a_below_sea_site_keeps_every_sample():
@@ -275,6 +299,132 @@ def test_the_sea_surface_is_a_datum_not_a_knob():
     record = _classify(SyntheticDEM(_one_mm_of_land), thresholds=[4.0, 4.0])
     assert record["s2_sea_excluded_frac"] == pytest.approx(0.5, abs=0.05)
     assert record["s2_dem_median_m"] == pytest.approx(0.001, abs=1e-6)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# S2b — THE DSM-STRUCTURE TRIM (v3 amendment (b))
+# ──────────────────────────────────────────────────────────────────────
+def _coastal_with_roofs(x, y):
+    """A reclaimed coastal airport with TERMINAL ROOFS: flat land at 5 m,
+    sea at 0 m over the eastern third, and a block of 20 m roof.
+
+    The VHHH/YSSY/KSFO shape as measured: median ON instrument truth, an
+    upward tail of built structure, and sea beyond the shoreline.
+    """
+    z = np.full(x.shape, 5.0)
+    z[x > 600.0] = 0.0                                  # the bay
+    z[(x > -900.0) & (x < -600.0)] = 20.0               # the terminal
+    return z
+
+
+def test_dsm_structure_is_trimmed_and_the_fraction_recorded():
+    dem = SyntheticDEM(_coastal_with_roofs)
+    record = _classify(dem)
+
+    # Sea first, then roofs: both fractions are reported, and each is a
+    # share of the population the previous step left.
+    assert record["s2_sea_excluded_frac"] > 0.0
+    assert record["s2_dsm_trimmed_frac"] > 0.0
+    # +4 m over the median on a 3-arcsec source (floor 8 m).
+    assert record["s2_dsm_cutoff_m"] == pytest.approx(9.0, abs=0.01)
+    # What survives is the LAND the airport is graded to.
+    assert record["s2_dem_median_m"] == pytest.approx(5.0)
+    assert record["s2_relief_m"] == pytest.approx(0.0, abs=1e-6)
+    assert record["s2_slope_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert record["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+
+    # Without the trim the same raster is refused — the roofs testify.
+    untrimmed = flat_site.dem_relief(
+        dem, TILE_LAT, TILE_LON, ANCHOR, EXTENT_M, z0_m=5.0)
+    assert untrimmed["dsm_trimmed_frac"] is None
+    assert untrimmed["relief_m"] > record["s2_relief_floor_m"]
+
+
+def test_the_trim_is_class_relative_not_a_metre_value():
+    """A source trusted to a metre gets a trim measured in metres: the
+    cutoff is median + floor/2, and the floor is the class's."""
+    dem = SyntheticDEM(_coastal_with_roofs)
+    coarse = _classify(dem)                       # 3-arcsec, floor 8 m
+    fine = _classify(dem, dem_meta={"raw": False, "insets": [
+        {"native_resolution_m": 5.0}]})           # sub-10 m, floor 2 m
+    assert coarse["s2_relief_floor_m"] == 8.0
+    assert fine["s2_relief_floor_m"] == 2.0
+    assert coarse["s2_dsm_cutoff_m"] == pytest.approx(9.0, abs=0.01)
+    assert fine["s2_dsm_cutoff_m"] == pytest.approx(6.0, abs=0.01)
+
+
+def test_the_trim_does_not_rescue_genuinely_sloped_land():
+    """It cuts an upward TAIL, never a trend: land that really slopes
+    keeps its slope after the tallest samples are gone."""
+    dem = SyntheticDEM(lambda x, y: 40.0 + 0.02 * x)
+    record = _classify(dem, thresholds=[40.0, 40.0])
+    assert record["s2_dsm_trimmed_frac"] is not None
+    assert record["s2_slope_pct"] > config.FLAT_SITE_MAX_SLOPE_PCT
+    assert record["verdict"] == flat_site.VERDICT_NOT_FLAT
+
+
+# ──────────────────────────────────────────────────────────────────────
+# (c) THE OWNER DECLARATION
+# ──────────────────────────────────────────────────────────────────────
+def test_a_declared_airport_takes_flat_declared_and_records_the_auto_verdict():
+    """Intent never waits on statistics — but the statistics are kept."""
+    dem = SyntheticDEM(lambda x, y: 40.0 + 0.02 * x)      # plainly not flat
+    undeclared = _classify(dem, thresholds=[40.0, 40.0])
+    assert undeclared["verdict"] == flat_site.VERDICT_NOT_FLAT
+    assert undeclared["declared"] is False
+    assert undeclared["declared_elevation_m"] is None
+
+    record = _classify(dem, thresholds=[40.0, 40.0], declared=("TEST",))
+    assert record["verdict"] == flat_site.VERDICT_FLAT_DECLARED
+    assert record["declared"] is True
+    # The detector still ran, and what it WOULD have said is on record —
+    # declaration and detection stay auditable against each other.
+    assert record["auto_verdict"] == flat_site.VERDICT_NOT_FLAT
+    assert record["s2_relief_m"] == undeclared["s2_relief_m"]
+    assert record["s2_slope_pct"] == undeclared["s2_slope_pct"]
+    # No declared elevation given: Z0 stands.
+    assert record["declared_elevation_m"] == pytest.approx(40.0)
+
+    # An explicit declared elevation is carried for the MODE and does not
+    # re-frame any measurement.
+    pinned = _classify(dem, thresholds=[40.0, 40.0], declared=("TEST",),
+                       declared_elevations={"TEST": 12.5})
+    assert pinned["declared_elevation_m"] == 12.5
+    assert pinned["z0_m"] == pytest.approx(40.0)
+    assert pinned["s2_relief_m"] == undeclared["s2_relief_m"]
+
+    # Declaration is per airport.
+    other = _classify(dem, thresholds=[40.0, 40.0], declared=("VHHH",))
+    assert other["verdict"] == flat_site.VERDICT_NOT_FLAT
+
+
+def test_the_declaration_cfg_strings_parse_the_way_the_cfg_writes_them():
+    assert flat_site.declared_flat_airports("OTHH, vhhh ,,YSSY") == {
+        "OTHH", "VHHH", "YSSY"}
+    assert flat_site.declared_flat_airports("") == set()
+    assert flat_site.declared_flat_elevations("OTHH:3.96, VHHH:7.32") == {
+        "OTHH": 3.96, "VHHH": 7.32}
+    # A typo must never take a build down — the pair is skipped and the
+    # airport falls back to its CIFP consensus.
+    assert flat_site.declared_flat_elevations("OTHH:abc,VHHH:7.32,junk") == {
+        "VHHH": 7.32}
+
+
+def test_the_declaration_keys_are_registered_tile_cfg_vars():
+    """The app has to be able to expose them, so they go through the
+    normal settings registry, not a private read."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "src"))
+    import O4_Cfg_Vars as cfg
+
+    for key in ("flat_site_declared", "flat_site_declared_elevation_m"):
+        assert key in cfg.cfg_tile_vars, f"{key} is not a tile cfg var"
+        assert key in cfg.list_tile_vars, f"{key} is not in list_tile_vars"
+        assert cfg.cfg_tile_vars[key]["type"] is str
+        assert cfg.cfg_tile_vars[key]["default"] == ""
+        assert cfg.cfg_tile_vars[key]["hint"]
+        # Reachable through the global-prefixed mirror the cfg loader uses.
+        assert f"{cfg.global_prefix}{key}" in cfg.cfg_global_tile_vars
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -368,9 +518,10 @@ def test_the_raised_floor_still_refuses_a_1arcsec_site_with_real_relief():
     assert record["verdict"] == flat_site.VERDICT_NOT_FLAT
     assert record["s2_slope_pct"] > config.FLAT_SITE_MAX_SLOPE_PCT
     assert record["s2_relief_m"] > 8.0
-    # And the PLATEAU is caught on this class too — the ring, not the floor.
-    plateau = _classify(SyntheticDEM(_plateau), dem_meta=GLO30_META)
-    assert plateau["verdict"] == flat_site.VERDICT_NOT_FLAT
+    # NOTE: the PLATEAU is no longer refused on any class — v3 amendment
+    # (a) stripped the margin ring of gate power, which is the whole
+    # point of the VMMC ruling.  Its twin is
+    # ``test_the_margin_ring_has_no_gate_power``.
 
 
 def test_source_class_reads_provenance_in_the_documented_order():

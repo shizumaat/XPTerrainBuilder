@@ -203,7 +203,7 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     row["dem_origin"] = dem_origin
     row["dem_tile"] = _tile_name(tile_lat, tile_lon)
 
-    extent_m = flat_site.extent_from_apt(apt, to_m)
+    extent_m, ring_m = flat_site.extents_from_apt(apt, to_m)
     elevations = flat_site.cifp_threshold_elevations(xplane_root, icao)
     if not elevations:
         row["note"] = ((row["note"] + "; " if row["note"] else "")
@@ -215,10 +215,12 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
     row["record"] = flat_site.classify_site(
         icao=icao, cifp_elevations_m=elevations, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon, anchor=anchor,
-        extent_m=extent_m, dem_meta=dem_meta,
+        extent_m=extent_m, ring_m=ring_m, dem_meta=dem_meta,
         pack_targets=pack["targets"], pack_meta=pack)
     row["extent_km2"] = (None if extent_m is None
                          else round(extent_m.area / 1e6, 3))
+    row["ring_km2"] = (None if ring_m is None
+                       else round(ring_m.area / 1e6, 3))
     return row
 
 
@@ -236,7 +238,7 @@ def _pct(fraction):
 def print_table(rows) -> None:
     header = (f"{'ICAO':<6}{'verdict':<16}{'Z0 m':>8}{'S1 spr':>8}"
               f"{'S2 slope%':>10}{'S2 relief':>10}{'floor':>7}"
-              f"{'class':>11}{'sea%':>7}{'S3 off':>8}{'S4':>22}"
+              f"{'class':>11}{'sea%':>6}{'trim%':>6}{'S3 off':>8}{'S4':>22}"
               f"{'expect':>14}")
     print(header)
     print("-" * len(header))
@@ -263,7 +265,8 @@ def print_table(rows) -> None:
               f"{_cell(record.get('s2_relief_m')):>10}"
               f"{_cell(record.get('s2_relief_floor_m'), 1):>7}"
               f"{str(record.get('s2_source_class') or '—'):>11}"
-              f"{_pct(record.get('s2_sea_excluded_frac')):>7}"
+              f"{_pct(record.get('s2_sea_excluded_frac')):>6}"
+              f"{_pct(record.get('s2_dsm_trimmed_frac')):>6}"
               f"{_cell(record.get('s3_offset_m')):>8}"
               f"{s4_text:>22}{flag:>14}")
         if row.get("note"):

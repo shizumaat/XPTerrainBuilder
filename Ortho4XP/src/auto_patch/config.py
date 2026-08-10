@@ -8347,11 +8347,45 @@ FLAT_SITE_SEA_BAND_MIN_Z0_M = 1.0
 # visible edit to a rule value rather than a literal at a call site.
 FLAT_SITE_SEA_BAND_MAX_M = 0.0
 
-# S2.  The MARGIN RING around (pavement u boundary) the DEM is measured
-# over.  Load-bearing, not padding: a graded PLATEAU in hilly terrain has
-# flat pavement and hilly surroundings, and only the ring sees the
-# difference.  200 m is the scale at which the adjacent-ground zones stop
-# grading and raw DEM resumes.
+# S2b.  THE DSM-STRUCTURE TRIM (spec section 2 (b), v3 amendment, owner
+# 2026-08-09).  The 3-arcsec sources are SURFACE models: a 93 m cell over
+# a terminal reports the ROOF, and a roof is not the ground the airport
+# is graded to.  After the sea band is gone, samples above
+#
+#     median + FLAT_SITE_DSM_TRIM_FRACTION_OF_FLOOR * relief_floor
+#
+# are DSM-structure suspects and take no part in the relief percentiles
+# OR the plane fit; the trimmed share rides in ``s2_dsm_trimmed_frac``.
+#
+# CLASS-RELATIVE BY CONSTRUCTION, which is why it is a fraction of the
+# floor and not a metre value: the cut is +4 m on a 3-arcsec source
+# (floor 8 m), +1 m on a sub-10 m raster (floor 2 m).  A source trusted
+# to a metre gets a trim measured in metres.
+#
+# THE MEASURED BASIS (2026-08-09, base rasters, sea band already
+# removed): VHHH, YSSY and KSFO carry medians ON instrument truth
+# (S3 0.65 / 0.04 / 0.05 m) with p95 reaching 17.0 / 10.3 / 8.0 m
+# against truth of 7.3 / 4.4 / 3.0 — an UPWARD skew, (p95-median) /
+# (median-p5), of 1.96 / 1.69 / 2.25 where passing OTHH reads 1.2.  The
+# central tendency is right and the tail is buildings; a symmetric
+# statistic cannot tell those apart, so the tail is cut and counted.
+FLAT_SITE_DSM_TRIM_FRACTION_OF_FLOOR = 0.5
+
+# S2.  The MARGIN RING around (pavement u boundary).  REPORT-ONLY since
+# the v3 amendment (spec section 2 (a), owner 2026-08-09): the gate
+# statistics are taken over PAVEMENT u BOUNDARY alone, and the ring is
+# kept as audit context in the record's ``s2_ring_*`` fields.
+#
+# WHY IT LOST ITS VETO.  The flat-site mode flattens the AIRPORT and
+# feathers outward, so surrounding terrain has no standing to refuse it:
+# VMMC's flat 1.73 km2 strip was being refused by Taipa's hills sitting
+# in a 3.03 km2 ring — measured 2026-08-09 at ring relief 38.11 m and
+# slope 0.70 % against pavement figures of 7.31 m and 0.165 % that would
+# have passed.  The case the ring guarded — an airport whose own
+# surfaces hide relief — is carried by the pavement statistics, S1 and
+# S4.  200 m remains the scale at which the adjacent-ground zones stop
+# grading and raw DEM resumes, so the reported ring is still the band
+# the mode's feather has to cross.
 FLAT_SITE_MARGIN_M = 200.0
 
 # S2.  Plane-fit slope cap over that extent.  OTHH reads 0.067 %; the cap

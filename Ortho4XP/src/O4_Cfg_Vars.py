@@ -192,6 +192,25 @@ cfg_tile_vars = {
         },
         "hint": 'Controls Ortho4XP auto-generation of runway slope patches from CIFP/AIRAC data. Auto-patches provide accurate threshold-anchored elevation profiles and are overridden by any manual patches. "ICAO" (default) only patches airports with a 4-letter ICAO code, "All" patches every airport found in CIFP, "None" disables auto-patching entirely.',
     },
+    # ── FLAT-SITE declaration (docs/specs/flat-site-detector-spec.md
+    # section 2 (c), owner ruling 2026-08-09) ──────────────────────────
+    # INTENT NEVER WAITS ON STATISTICS.  The detector measures four
+    # signals and can be wrong about a site the owner knows is flat; a
+    # declared airport takes the verdict ``flat_declared`` and the
+    # detector still runs and records what it WOULD have said, so
+    # declaration and detection stay auditable against each other
+    # forever.  The flat-site mode treats ``flat_declared`` exactly as
+    # ``flat_candidate``.
+    "flat_site_declared": {
+        "type": str,
+        "default": "",
+        "hint": "Comma-separated ICAO codes to treat as FLAT SITES regardless of what the flat-site detector measures (e.g. \"OTHH,VHHH\"). A declared airport is graded to one flat elevation; the detector still runs and records the verdict it would have reached on its own.",
+    },
+    "flat_site_declared_elevation_m": {
+        "type": str,
+        "default": "",
+        "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
+    },
     "modify_custom_airports": {
         "type": bool,
         "default": True,
@@ -685,6 +704,8 @@ gui_app_vars_long = list_app_vars[-4:]
 
 list_vector_vars = [
     "auto_patch",
+    "flat_site_declared",
+    "flat_site_declared_elevation_m",
     "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",

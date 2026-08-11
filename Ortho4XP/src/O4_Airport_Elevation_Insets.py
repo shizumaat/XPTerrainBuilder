@@ -872,6 +872,107 @@ def warp_vsicurl_sources_to_geotiff(
     return True
 
 
+# ---------------------------------------------------------------------
+# Border-aware assembly (round 13, docs/specs/round13-border-aware-inset-
+# fetch-spec.md) -- the pieces a multi-project mosaic needs
+# ---------------------------------------------------------------------
+#: A source's contribution is judged on a decimated grid over the box
+#: (~65 k samples): the question is only "did this project hold ANY data
+#: HERE", and a Cloud-Optimized GeoTIFF answers it from an overview
+#: instead of a second full-window read.
+_SOURCE_CONTRIBUTION_PROBE_SAMPLES = 256
+
+
+def _refuse_mixed_vertical_datums(definition, sources):
+    """Raise unless every discovered source shares one vertical datum.
+
+    R13-2 mosaics ACROSS projects, and heights may only be mixed inside a
+    single datum.  3DEP is NAVD88 throughout today, so this never fires --
+    which is exactly why it is asserted rather than assumed: a provider
+    that one day discovers sources in two datums must stop loudly, not
+    average an ellipsoidal tile into an orthometric one.  A source carries
+    its own ``vertical_datum`` only where a strategy records one;
+    everything else inherits the provider definition's.
+    """
+    declared = definition.get("vertical_datum")
+    datums = sorted(
+        {str(source.get("vertical_datum") or declared) for source in sources}
+    )
+    if len(datums) > 1:
+        raise ValueError(
+            "elevation provider %s discovered sources in %d vertical datums "
+            "(%s) for one inset - REFUSING to mix heights in a mosaic"
+            % (definition.get("code"), len(datums), ", ".join(datums))
+        )
+
+
+def _source_holds_data_over_bbox(
+    warp_input, bounding_box_wgs84, source_nodata=None
+):
+    """True when one source holds ANY valid pixel over the bounding box.
+
+    The honest instrument behind the record's ``sources_used`` /
+    ``sources_empty_over_bbox`` split (R13-3): a source's EXTENT covers
+    KMCI from both states, its DATA does not, and extents are the metric
+    that produced a 100 % nodata inset in the first place.  Undecidable
+    answers (no GDAL, a read that raises) read as ``True`` -- a probe may
+    never INVENT an empty source and write a contributor out of the
+    record.
+    """
+    if not has_gdal:
+        return True
+    (west, south, east, north) = bounding_box_wgs84
+    try:
+        probe = gdal.Warp(
+            "",
+            [warp_input],
+            options=gdal.WarpOptions(
+                format="MEM",
+                outputType=gdal.GDT_Float32,
+                dstSRS="EPSG:4326",
+                options=["-novshift"],
+                srcNodata=source_nodata,
+                outputBounds=(west, south, east, north),
+                width=_SOURCE_CONTRIBUTION_PROBE_SAMPLES,
+                height=_SOURCE_CONTRIBUTION_PROBE_SAMPLES,
+                resampleAlg="near",
+                dstNodata=-32768.0,
+            ),
+        )
+        if probe is None:
+            return True
+        values = probe.GetRasterBand(1).ReadAsArray()
+        probe = None
+    except Exception as error:
+        UI.vprint(2, "   inset source probe skipped:", str(error))
+        return True
+    if values is None:
+        return True
+    return bool(numpy.any((values != -32768.0) & numpy.isfinite(values)))
+
+
+def _source_contribution_entry(source):
+    """One source's line in the record (R13-3): who it was, when it was
+    published, and the id that finds it again at the provider."""
+    return {
+        "title": source.get("title"),
+        "publication_date": source.get("publication_date"),
+        "source_id": source.get("source_id"),
+    }
+
+
+def _tnm_project_of(title):
+    """The 3DEP project name inside a TNM product title.
+
+    Titles read ``USGS 1 Meter 15 x34y435 KS_Statewide_2018_A18`` -- the
+    project is the last token, and the project is what a reader needs
+    when a border airport mosaics two states.  ``"?"`` for a title-less
+    item.
+    """
+    tokens = str(title or "").split()
+    return tokens[-1] if tokens else "?"
+
+
 # =====================================================================
 # Strategy 1: tnm_cog (TNM Access API -> /vsicurl COG window -> warp)
 # =====================================================================
@@ -946,6 +1047,10 @@ class TnmCloudOptimizedGeoTiffStrategy:
         )
         return sources
 
+    def _warp_input_for(self, source):
+        """The GDAL path a discovered source is read through."""
+        return "/vsicurl/" + source["download_url"]
+
     def fetch(
         self,
         definition,
@@ -959,20 +1064,29 @@ class TnmCloudOptimizedGeoTiffStrategy:
         if not sources:
             return None
 
-        # Mosaic the newest-project sources; gdal.Warp accepts several inputs
-        # and honours their order (later inputs win on overlap).
-        newest_date = sources[0]["publication_date"]
-        chosen = [
-            source
-            for source in sources
-            if source["publication_date"] == newest_date
-        ] or sources
-        vsicurl_inputs = [
-            "/vsicurl/" + source["download_url"] for source in chosen
+        # R13-2 -- EVERY PIXEL TAKES THE NEWEST SOURCE WITH VALID DATA
+        # THERE.  Keeping only the newest publication date is what lost
+        # KMCI: a Missouri airport whose box straddles the state line took
+        # the Kansas 2018 tiles WHOLESALE because they published latest,
+        # and the assembled inset was 7993 x 10518 pixels of 100.00 %
+        # nodata that every extent-based coverage answer called full.
+        # Every discovered source now enters one mosaic, OLDEST FIRST:
+        # gdal.Warp masks a source's own nodata out of the warp, so a
+        # later -- newer -- input wins wherever it HAS data and leaves
+        # what it does not have to the older source underneath (measured
+        # 2026-08-11: two synthetic sources, newer nodata over the east
+        # half, assembled 0.0 % nodata with each half from the right
+        # source).  A project that is empty over the box therefore
+        # contributes nothing instead of erasing everything.  The source
+        # count stays whatever discovery returned: no new network reach.
+        _refuse_mixed_vertical_datums(definition, sources)
+        oldest_first = list(reversed(sources))   # discover sorts newest first
+        warp_inputs = [
+            self._warp_input_for(source) for source in oldest_first
         ]
 
         if not warp_vsicurl_sources_to_geotiff(
-            vsicurl_inputs,
+            warp_inputs,
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
@@ -980,13 +1094,51 @@ class TnmCloudOptimizedGeoTiffStrategy:
         ):
             return None
 
+        # R13-3 -- THE RECORD NAMES ITS SOURCES, PER CONTRIBUTION.  Which
+        # project answered here, and which one was merely overhead, is the
+        # question nobody could ask of the old record: KMCI's named three
+        # Kansas tiles and looked like a successful fetch.
+        used = []
+        empty = []
+        for source in sources:                  # newest first, as recorded
+            if _source_holds_data_over_bbox(
+                self._warp_input_for(source), bounding_box_wgs84
+            ):
+                used.append(source)
+            else:
+                empty.append(source)
+        # The flat ``source_*`` keys every older reader knows (the R11
+        # empty-inset line reads ``project_titles``) name what
+        # CONTRIBUTED; with nothing valid anywhere they name what was
+        # tried, so an empty record still says which project produced it.
+        recorded = used or sources
+        valid_fraction = inset_valid_fraction(destination_path)
+        projects = sorted(
+            {_tnm_project_of(source["title"]) for source in used}
+        )
+        if len(projects) > 1:
+            UI.vprint(
+                0,
+                "   [inset] %s: border-aware mosaic - %d source(s) across "
+                "%d project(s), valid %.1f %%"
+                % (os.path.basename(destination_path), len(used),
+                   len(projects), 100.0 * valid_fraction),
+            )
+
         return {
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
-            "source_urls": [source["download_url"] for source in chosen],
-            "source_ids": [source["source_id"] for source in chosen],
-            "project_titles": [source["title"] for source in chosen],
-            "publication_date": newest_date,
+            "source_urls": [source["download_url"] for source in recorded],
+            "source_ids": [source["source_id"] for source in recorded],
+            "project_titles": [source["title"] for source in recorded],
+            "publication_date": recorded[0]["publication_date"],
+            "sources_used": [
+                _source_contribution_entry(source) for source in used
+            ],
+            "sources_empty_over_bbox": [
+                _source_contribution_entry(source) for source in empty
+            ],
+            "valid_fraction": round(valid_fraction, 6),
             "license": definition.get("license"),
             "attribution": definition.get("attribution"),
             "vertical_datum": definition.get("vertical_datum"),
@@ -6123,6 +6275,60 @@ def _clear_poisoned_insets(lat, lon, index):
                 record.pop(key, None)
 
 
+def _void_inset_record_reason(inset_path):
+    """Why a cached fetch record describes NO usable inset, or ``None``.
+
+    R13-1 -- A FETCH RECORD WITHOUT A VALID RASTER IS NO RECORD.  Two
+    shapes, and both used to survive every rebuild: a sidecar whose
+    ``.tif`` is gone (the cache check reads the raster, so the orphan
+    record simply lingered), and a sidecar beside a raster that holds
+    less than ``INSET_MIN_VALID_FRAC`` valid pixels (the KMCI class --
+    structurally perfect, cut from the wrong state's project, and
+    indistinguishable from a good cache until somebody deleted the json
+    by hand).  ``None`` when there is no record at all: an absent sidecar
+    is the ordinary uncached case the fetch path already handles.
+    """
+    sidecar = os.path.splitext(inset_path)[0] + ".json"
+    if not os.path.isfile(sidecar):
+        return None
+    if not os.path.isfile(inset_path):
+        return "the raster it recorded is gone"
+    (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
+    if is_empty:
+        return (
+            "its raster holds %.2f %% valid pixels (< %.2f %%)"
+            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC)
+        )
+    return None
+
+
+def _archive_void_inset_record(inset_path, icao, code, reason):
+    """Rename a void fetch record aside -- evidence, not deletion (R13-1).
+
+    ``<name>.json.invalid-<date>``: the next pass sees no record and
+    fetches, while what the failed fetch believed it had stays readable.
+    """
+    sidecar = os.path.splitext(inset_path)[0] + ".json"
+    archived = sidecar + ".invalid-" + datetime.date.today().isoformat()
+    try:
+        os.replace(sidecar, archived)
+    except OSError as error:                             # pragma: no cover
+        UI.vprint(
+            1,
+            "   WARNING: could not archive the void elevation-inset record",
+            os.path.basename(sidecar),
+            ":",
+            str(error),
+        )
+        return
+    UI.vprint(
+        0,
+        "   [inset] %s from %s: %s - that is NO record; it is kept as %s "
+        "and the fetch runs again."
+        % (icao, code, reason, os.path.basename(archived)),
+    )
+
+
 def ensure_airport_insets(
     lat,
     lon,
@@ -6206,8 +6412,19 @@ def ensure_airport_insets(
         for definition in provider_definitions:
             code = definition["code"]
             destination = FNAMES.airport_inset_dem(lat, lon, icao, code)
+            # R13-1, BEFORE the cache is consulted: a record whose raster
+            # is gone or holds no data is treated as UNFETCHED.  Without
+            # this the empty-cut inset is a permanent cache -- the reuse
+            # branch below breaks on it every run -- and the only cure
+            # was deleting the sidecar by hand.
+            void_reason = _void_inset_record_reason(destination)
+            if void_reason is not None:
+                _archive_void_inset_record(destination, icao, code,
+                                           void_reason)
             cached_inset_is_stale = False
-            if os.path.isfile(destination) and not refresh:
+            if os.path.isfile(destination) and not refresh and (
+                void_reason is None
+            ):
                 fetched_box = _fetched_bounding_box(lat, lon, icao, code)
                 cached_inset_is_stale = (
                     fetched_box is not None

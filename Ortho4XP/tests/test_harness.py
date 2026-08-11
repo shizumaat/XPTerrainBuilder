@@ -577,6 +577,76 @@ def test_the_build_entry_sets_the_sidecar_verbosity(build_mod):
     assert "O4_LOG_VERBOSITY" in src
 
 
+def test_warming_an_inset_without_the_dem_scope_refuses(build_mod):
+    """``--warm-insets`` FETCHES into the shared data repo, so it is the
+    act ``--refresh-data`` exists to authorise (ruling e9daef5).  The
+    refusal fires before the cwd check and before the ledger re-exec, so
+    nothing is built and nothing is locked."""
+    with pytest.raises(SystemExit) as exc:
+        build_mod.main(["KMCI", "--warm-insets", "KMCI"])
+    assert "--refresh-data dem --warm-insets KMCI" in str(exc.value)
+
+
+def test_the_warm_touches_exactly_the_airports_named(build_mod, monkeypatch,
+                                                     tmp_path):
+    """The one-airport scope, mechanically.  A whole-tile build would
+    refresh every void inset on the tile against a one-airport
+    authorisation; this pass hands ``ensure_airport_insets`` the named
+    airport's bounding box and NOTHING else."""
+    import O4_Airport_Elevation_Insets as INSETS
+    import O4_File_Names as FNAMES
+    import O4_OSM_Utils as OSM
+    import O4_Vector_Map as VMAP
+
+    airports_cache = tmp_path / "N39W095_airports.osm.bz2"
+    airports_cache.write_bytes(b"")
+    monkeypatch.setattr(FNAMES, "osm_cached",
+                        lambda lat, lon, suffix: str(airports_cache))
+    monkeypatch.setattr(OSM, "OSM_layer", lambda *a, **kw: object())
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer",
+                        lambda *a, **kw: None)
+    monkeypatch.setattr(VMAP, "build_airports_dico", lambda *a, **kw: {})
+    monkeypatch.setattr(
+        INSETS, "_airport_bounding_boxes",
+        lambda tile, dico: {"KMCI": (-94.75, 39.25, -94.66, 39.34),
+                            "KFLV": (-94.94, 39.33, -94.88, 39.39)})
+    monkeypatch.setattr(INSETS, "select_provider_definitions",
+                        lambda *a, **kw: [{"code": "USGS3DEP"}])
+    monkeypatch.setattr(INSETS, "parse_airport_elevation_level",
+                        lambda level: None)
+    called = {}
+
+    def _ensure(lat, lon, boxes, definitions, resolution_m,
+                refresh=False, fetch_counter=None, **kw):
+        called["boxes"] = dict(boxes)
+        called["tile"] = (lat, lon)
+        called["refresh"] = refresh
+        if fetch_counter is not None:
+            fetch_counter[0] += 1
+
+    monkeypatch.setattr(INSETS, "ensure_airport_insets", _ensure)
+
+    summary = build_mod.warm_airport_insets(
+        ["KMCI"], ROOT, 39, -95, build_mod.Progress(tmp_path / "p.progress"))
+
+    assert list(called["boxes"]) == ["KMCI"]      # never the neighbour's
+    assert called["tile"] == (39, -95)
+    # A named airport is an explicit decision, so the pass re-queries
+    # instead of consulting the cache — a DURABLE no-coverage negative
+    # cached from a transient discovery outage (TNM 504, measured
+    # 2026-08-11) would otherwise be unrecoverable.
+    assert called["refresh"] is True
+    assert summary["airports"] == ["KMCI"] and summary["fetch_attempts"] == 1
+
+    # An airport of ANOTHER tile refuses: this run's lock and snapshot
+    # cover the tile it resolved, and nothing else.
+    with pytest.raises(SystemExit) as exc:
+        build_mod.warm_airport_insets(
+            ["HECA"], ROOT, 39, -95,
+            build_mod.Progress(tmp_path / "p2.progress"))
+    assert "not an airport of tile" in str(exc.value)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # §4 THE LANE RITUAL
 # ══════════════════════════════════════════════════════════════════════

@@ -131,3 +131,32 @@ Lead writes the DEFERRED_VERIFICATION line at merge (no tile build, no
 in-sim arm, replay-only acceptance; the bridges.py:10080 crossing-floor
 decline remains untouched and ledgered from R6-3). Version stamps are
 the lead's at app build.
+
+## AMENDMENT 2026-08-11 (lead ruling on the implementer's STOP:
+## WATER NEVER AUTHORS A BRIDGE DATUM)
+
+The class-B viaduct declines the R6-3 seat because its deck-end sample
+lines lie over the canal (54/74 samples 0.00 m, median 0.00, drop 0.00
+< the 1.00 reseat threshold). The datum law gains one clause: an
+abutment stands on LAND —
+
+* abutment samples falling inside the mapped water union (the SAME
+  OSM water ∪ sea reader R6-1's pad clip uses — one authority, do not
+  re-derive) are DISCARDED and never author the grade;
+* when a deck end's line loses its samples to water, the line WALKS
+  LANDWARD along the deck axis (away from the span) in the existing
+  sample-step increments, up to 60 m, until ≥ 4 non-water samples
+  exist; the abutment grade is their median;
+* a family with no such samples within the cap at EITHER end keeps
+  the y-bake + `bridge_seat_fallback` finding (the landed limb) —
+  that limb's behaviour is unchanged.
+
+For OTHH class B this walks off the canal onto the 3.96 m land: one
+rigid family delta seating the deck top at the land grade — the
+owner's stated intent verbatim ("deck (top) at our 4 m ground, the
+lower parts go down to the water"). Twins: a canal-end family seats
+deck-top at land grade with supports descending below the water line;
+an all-water-within-cap family keeps the fallback + finding. Replay:
+quote class B's one shared delta, the seated deck-top (expect ≈3.96),
+and the per-member world y ranges showing supports below 0.5 m. This
+is a NEW ruled target — the attempt cap resets.

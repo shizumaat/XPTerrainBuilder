@@ -1130,45 +1130,303 @@ def _bake_basin_rim_flush_facilities(
         )
 
 
-def _abutment_grade_sample_points(candidate) -> list:
-    """``(latitude, longitude)`` samples along BOTH certified abutment
-    lines of an R6-3 candidate, every
-    ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer.
+def _abutment_line_frame_points(candidate) -> list:
+    """Each abutment line's two endpoints in the candidate anchor's local
+    METRE frame, as ``[((start_x, start_z), (end_x, end_z)), ...]``.
 
-    Interpolation runs in the candidate anchor's local metre frame — the
-    same two ``obj8_reader`` projections every other object-terrain
-    consumer uses — so the sample density is metres, not degrees, and
-    nothing re-derives a frame.
-    """
-    from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
-
+    The frame is the candidate anchor's — the same two ``obj8_reader``
+    projections every other object-terrain consumer uses, so nothing
+    re-derives a frame and the sample density below is metres, not
+    degrees."""
     origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
     out: list = []
     for line in candidate.abutment_points_longitude_latitude:
         if len(line) < 2:
             continue
-        (start_x, start_z), (end_x, end_z) = [
+        (start, end) = [
             obj8_reader.lonlat_to_local_offset(
                 origin_latitude, origin_longitude, 0.0, latitude, longitude
             )
             for longitude, latitude in line[:2]
         ]
-        length = math.hypot(end_x - start_x, end_z - start_z)
-        step_count = max(
-            2, int(math.ceil(length / _ABUTMENT_GRADE_SAMPLE_STEP_M))
-        )
-        for index in range(step_count + 1):
-            fraction = index / step_count
+        out.append((start, end))
+    return out
+
+
+def _abutment_line_frame_samples(start, end, offset=(0.0, 0.0)) -> list:
+    """One abutment line's sample points in the metre frame, every
+    ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer, shifted by ``offset``."""
+    from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
+
+    (start_x, start_z), (end_x, end_z) = start, end
+    length = math.hypot(end_x - start_x, end_z - start_z)
+    step_count = max(
+        2, int(math.ceil(length / _ABUTMENT_GRADE_SAMPLE_STEP_M))
+    )
+    offset_x, offset_z = offset
+    out = []
+    for index in range(step_count + 1):
+        fraction = index / step_count
+        out.append((
+            start_x + (end_x - start_x) * fraction + offset_x,
+            start_z + (end_z - start_z) * fraction + offset_z,
+        ))
+    return out
+
+
+def _abutment_grade_sample_points(candidate) -> list:
+    """``(latitude, longitude)`` samples along BOTH abutment lines of a
+    seat candidate, every ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer —
+    the lines exactly as the classifier drew them, with no landward walk.
+
+    THE point set the seat samples when no water is proven, and the
+    starting point of the R12-A walk when water is."""
+    origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
+    out: list = []
+    for start, end in _abutment_line_frame_points(candidate):
+        for frame_x, frame_z in _abutment_line_frame_samples(start, end):
             out.append(
                 obj8_reader.local_offset_to_lonlat(
-                    origin_latitude,
-                    origin_longitude,
-                    0.0,
-                    start_x + (end_x - start_x) * fraction,
-                    start_z + (end_z - start_z) * fraction,
+                    origin_latitude, origin_longitude, 0.0,
+                    frame_x, frame_z,
                 )
             )
     return out
+
+
+#: WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment 2026-08-11).
+#: When a deck-end line loses its samples to the mapped water union, it
+#: WALKS LANDWARD along the deck axis — away from the span — in
+#: ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` increments up to this cap, until at
+#: least ``_ABUTMENT_LAND_MIN_SAMPLES`` non-water samples exist.  60 m is
+#: the ruled cap: far enough to clear OTHH's canal bank, short enough
+#: that the grade is still the bridge's own shore.
+_ABUTMENT_LAND_WALK_MAX_M = 60.0
+_ABUTMENT_LAND_MIN_SAMPLES = 4
+
+
+def _local_east_north(origin_latitude: float, origin_longitude: float):
+    """``to_metres(longitude, latitude) -> (east, north)`` about an
+    origin — the local equirectangular frame the OSM readers are written
+    for.
+
+    NOT the obj8 frame.  ``obj8_reader``'s local offset is
+    ``(east, SOUTH)`` (verified: 100 m north projects to z = −100), and
+    handing that to a reader that decides sea from coastline HANDEDNESS
+    — land on the left — mirrors the answer: measured at OTHH, the 2 km
+    sea band landed on the airport and every abutment sample read as
+    water.  The water test therefore lives in east/north, the same frame
+    ``object_terrain_assembly.anchor_family_resources`` measures in."""
+    cosine = math.cos(math.radians(origin_latitude))
+
+    def to_metres(longitude, latitude):
+        return (
+            (longitude - origin_longitude) * 111320.0 * cosine,
+            (latitude - origin_latitude) * 111320.0,
+        )
+
+    return to_metres
+
+
+def _abutment_water_test(candidate):
+    """``is_water(latitude, longitude) -> bool`` for a seat candidate, or
+    ``None`` when no water is provable.
+
+    ONE authority: :func:`osm_load._load_osm_water_sea_union`, the same
+    reader R6-1's building-pad clip uses, read from the tile's own
+    ``water`` / ``coastline`` caches (nothing is downloaded).  The sea
+    band is R6-1's constant too; there is no second water test and no new
+    knob.  The callable owns the projection, so no caller can put a
+    point into the union in the wrong frame.
+
+    ``None`` on any failure — an unreadable cache, a geometry error, a
+    tile with no water in range.  That degrades to TODAY's behaviour
+    (every sample counts), which is the right posture: this union
+    DISCARDS the samples that author a datum, so an unprovable claim of
+    water must never be made.
+
+    THE SEA BAND IS THE REACH OF THE QUESTION.  ``natural=coastline`` is
+    a LINE, so the reader turns it into water by buffering it on the
+    water side; how far it buffers decides how far from a mapped shore an
+    answer may reach.  R6-1's constant is 2 km, sized for a building pad
+    that may sit far out to sea.  An abutment sample never lies further
+    from its own deck-end line than the walk cap, so a 2 km band answers
+    a question this law never asks — and it answers it WRONG: measured at
+    OTHH, the Gulf's coastline band reached inland over Bridge_04's far
+    abutment and called 3.96 m of dry land water, moving that bridge's
+    grade 4.051 → 4.955.  The band here is therefore the span the samples
+    themselves can cover: the abutment line plus a walk cap at each end.
+    Nothing is tuned to a target — a wider band adds only answers about
+    water no sample of ours can reach."""
+    origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
+    to_metres = _local_east_north(origin_latitude, origin_longitude)
+
+    east_north = [
+        to_metres(longitude, latitude)
+        for line in candidate.abutment_points_longitude_latitude
+        for longitude, latitude in line[:2]
+    ]
+    if not east_north:
+        return None
+    margin = 2.0 * _ABUTMENT_LAND_WALK_MAX_M
+    bounds_metres = (
+        min(x for x, _y in east_north) - margin,
+        min(y for _x, y in east_north) - margin,
+        max(x for x, _y in east_north) + margin,
+        max(y for _x, y in east_north) + margin,
+    )
+    longest_line = max(
+        (
+            math.hypot(end[0] - start[0], end[1] - start[1])
+            for start, end in _abutment_line_frame_points(candidate)
+        ),
+        default=0.0,
+    )
+    sea_band_metres = longest_line + margin
+    try:
+        from shapely.geometry import Point
+        from shapely.prepared import prep
+
+        from .osm_load import _load_osm_water_sea_union
+
+        union = _load_osm_water_sea_union(
+            origin_latitude, origin_longitude, to_metres, bounds_metres,
+            sea_band_m=sea_band_metres,
+        )
+        if union is None or getattr(union, "is_empty", True):
+            return None
+        prepared = prep(union)
+    except Exception:
+        return None
+
+    def is_water(latitude: float, longitude: float) -> bool:
+        try:
+            return bool(prepared.contains(Point(to_metres(longitude,
+                                                          latitude))))
+        except Exception:
+            return False
+
+    return is_water
+
+
+def _abutment_grade_samples_on_land(candidate, sampler, is_water) -> tuple:
+    """The abutment-grade samples that stand on LAND, per deck end, with
+    the landward walk the round-12 amendment rules.
+
+    Returns ``(samples, end_records)``: the pooled elevations that may
+    author the grade, and one dict per deck end saying how far it walked,
+    how many samples it kept and how many it lost to water.
+
+    Per end: sample the line, DISCARD every sample inside the water
+    union, and — if fewer than :data:`_ABUTMENT_LAND_MIN_SAMPLES` remain
+    — shift the whole line LANDWARD along the deck axis (directly away
+    from the other end, which is the span) by one sample step and try
+    again, up to :data:`_ABUTMENT_LAND_WALK_MAX_M`.  An end that never
+    finds its land contributes nothing; a family where NEITHER end does
+    has no measurable grade and the caller says so.
+
+    ``is_water`` is :func:`_abutment_water_test`'s callable — it owns
+    its own projection, so nothing here can put a point into the union in
+    the wrong frame.  With ``is_water`` ``None`` nothing is discarded and
+    no end walks — byte-for-byte today's sampling."""
+    from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
+
+    origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
+    lines = _abutment_line_frame_points(candidate)
+    midpoints = [
+        ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+        for start, end in lines
+    ]
+
+    def _sample(frame_x, frame_z):
+        latitude, longitude = obj8_reader.local_offset_to_lonlat(
+            origin_latitude, origin_longitude, 0.0, frame_x, frame_z)
+        elevation = sampler.elevation_at_or_none(latitude, longitude)
+        if elevation is None or elevation != elevation:
+            return None
+        if is_water is not None and is_water(latitude, longitude):
+            return "water"
+        return float(elevation)
+
+    samples: list = []
+    end_records: list = []
+    for index, (start, end) in enumerate(lines):
+        # LANDWARD is away from the span: the direction from the other
+        # end's midpoint towards this one.  With one line only (a
+        # degenerate record) there is no span to walk away from.
+        landward = None
+        if len(midpoints) >= 2:
+            other = midpoints[1 - index] if len(midpoints) == 2 else (
+                midpoints[(index + 1) % len(midpoints)])
+            delta_x = midpoints[index][0] - other[0]
+            delta_z = midpoints[index][1] - other[1]
+            norm = math.hypot(delta_x, delta_z)
+            if norm > 1e-6:
+                landward = (delta_x / norm, delta_z / norm)
+
+        walk_metres = 0.0
+        kept: list = []
+        lost_to_water = 0
+        while True:
+            offset = (
+                (landward[0] * walk_metres, landward[1] * walk_metres)
+                if landward is not None else (0.0, 0.0)
+            )
+            kept = []
+            lost_to_water = 0
+            for frame_x, frame_z in _abutment_line_frame_samples(
+                start, end, offset
+            ):
+                value = _sample(frame_x, frame_z)
+                if value == "water":
+                    lost_to_water += 1
+                elif value is not None:
+                    kept.append(value)
+            if len(kept) >= _ABUTMENT_LAND_MIN_SAMPLES:
+                break
+            if landward is None or (
+                walk_metres + _ABUTMENT_GRADE_SAMPLE_STEP_M
+                > _ABUTMENT_LAND_WALK_MAX_M
+            ):
+                break
+            walk_metres += _ABUTMENT_GRADE_SAMPLE_STEP_M
+
+        found = len(kept) >= _ABUTMENT_LAND_MIN_SAMPLES
+        end_records.append({
+            "end": "start" if index == 0 else "far",
+            "walked_m": float(walk_metres),
+            "land_samples": len(kept),
+            "samples_over_water": lost_to_water,
+            "found_land": bool(found),
+        })
+        if found:
+            samples.extend(kept)
+    return samples, end_records
+
+
+def _mint_seat_fallback(record, result, member_resources, seat_source) -> None:
+    """Mint the counted ``bridge_seat_fallback`` finding for a REFUSED
+    family whose rigid deck-top seat could not be computed.
+
+    Only the refused-viaduct limb falls back: it is the limb that has a
+    generic y-bake to fall back TO (a classified candidate is R4-excluded
+    before the mesh is read, so its decline means "stays draped", which
+    is R6-3's own answer and not a finding).  The family is left OFF the
+    seat's claim set, so the generic pass owns it exactly as it does
+    today."""
+    from .object_terrain_assembly import (
+        BRIDGE_SEAT_FALLBACK_FINDING,
+        SEAT_SOURCE_CLASSIFIED,
+    )
+
+    if seat_source == SEAT_SOURCE_CLASSIFIED:
+        return
+    result.setdefault("bridge_findings", []).append({
+        "finding": BRIDGE_SEAT_FALLBACK_FINDING,
+        "resources": sorted(member_resources),
+        "reason": record.get("decision", ""),
+    })
+    record["seat_fallback"] = True
 
 
 #: Elevation materiality floor for the bridge seat's self-checks
@@ -1299,6 +1557,9 @@ def _bake_bridge_abutment_seats(
         if not member_placements:
             record["decision"] = (
                 "not seated — no member placement in this DSF")
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
 
         sample_points = _abutment_grade_sample_points(candidate)
@@ -1306,6 +1567,9 @@ def _bake_bridge_abutment_seats(
             record["decision"] = (
                 "not seated — the abutment lines are degenerate, so no "
                 "land witness could be sampled")
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
 
         skipped: list = []
@@ -1328,6 +1592,9 @@ def _bake_bridge_abutment_seats(
             record["decision"] = (
                 "not seated — no usable member geometry resolved inside "
                 "the pack")
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
 
         anchor_longitude, anchor_latitude = (
@@ -1339,9 +1606,17 @@ def _bake_bridge_abutment_seats(
         for placement in member_placements:
             latitudes.append(placement.latitude)
             longitudes.append(placement.longitude)
+        # The sampler must reach as far as the R12-A landward walk can
+        # take a deck-end line, or the walk would run off its own mesh
+        # window and read "no answer" for land it can see.
+        latitude_margin = _ABUTMENT_LAND_WALK_MAX_M / 111320.0
+        longitude_margin = latitude_margin / max(
+            0.01, math.cos(math.radians(anchor_latitude)))
         bounds = (
-            min(longitudes), min(latitudes),
-            max(longitudes), max(latitudes),
+            min(longitudes) - longitude_margin,
+            min(latitudes) - latitude_margin,
+            max(longitudes) + longitude_margin,
+            max(latitudes) + latitude_margin,
         )
         try:
             sampler = MeshElevationSampler(mesh_path, bounds)
@@ -1350,18 +1625,34 @@ def _bake_bridge_abutment_seats(
             # plausible one.
             record["decision"] = (
                 f"not seated — no mesh under the bridge ({error})")
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
 
-        abutment_samples = []
-        for latitude, longitude in sample_points:
-            elevation = sampler.elevation_at_or_none(latitude, longitude)
-            if elevation is not None and elevation == elevation:
-                abutment_samples.append(float(elevation))
+        # WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment).  An
+        # abutment stands on LAND: samples inside the mapped water union
+        # are discarded, and a deck end that loses its line to water
+        # walks landward until it finds its shore.  Without a provable
+        # union nothing is discarded and no end walks — today's sampling.
+        is_water = _abutment_water_test(candidate)
+        record["water_union_available"] = is_water is not None
+        abutment_samples, abutment_end_records = (
+            _abutment_grade_samples_on_land(candidate, sampler, is_water)
+        )
+        record["abutment_ends"] = abutment_end_records
+        record["abutment_walked_m"] = max(
+            [end["walked_m"] for end in abutment_end_records] or [0.0])
         if not abutment_samples:
             record["decision"] = (
-                "not seated — the built mesh answered nowhere along the "
-                "abutment lines, so the abutment grade is unmeasured "
-                "(never guessed)")
+                "not seated — no abutment sample stands on land within "
+                f"{_ABUTMENT_LAND_WALK_MAX_M:.0f} m of either deck end "
+                f"({sum(end['samples_over_water'] for end in abutment_end_records)}"
+                " sample(s) lost to the mapped water union), so the "
+                "abutment grade is unmeasured — water never authors a "
+                "bridge datum (never guessed)")
+            _mint_seat_fallback(
+                record, result, member_resources, candidate_seat_source)
             continue
         abutment_grade = float(median(abutment_samples))
         record["abutment_grade_m"] = abutment_grade
@@ -1373,6 +1664,9 @@ def _bake_bridge_abutment_seats(
             record["decision"] = (
                 "not seated — the structure anchor lies outside the built "
                 "mesh; never nearest-vertex sampled (invariant I-13)")
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
         anchor_ground = float(anchor_elevation)
         record["mesh_at_anchor_m"] = anchor_ground
@@ -1415,6 +1709,9 @@ def _bake_bridge_abutment_seats(
                         "(invariant I-13)",
                     )
                 )
+            _mint_seat_fallback(
+                record, result, member_resources,
+                candidate_seat_source)
             continue
 
         # THE DATUM IS THE DECK TOP (round-12 R12-1).  The seat lands the
@@ -1435,59 +1732,18 @@ def _bake_bridge_abutment_seats(
         # assumption survived unread.
         record["expected_deck_top_m"] = abutment_grade
 
-        # THE REFUSED-VIADUCT LIMB IS MEASURED, NOT WRITTEN (round-12
-        # STOP; the ruling is the lead's).  R12-2 asked for the refused
-        # piered-viaduct family to take this same rigid seat instead of
-        # the per-structure y-bake that tears it.  Measured at OTHH, the
-        # merged 255° family's own deck-end lines lie over the canal —
-        # 54 of 74 abutment samples answer 0.00 m, median 0.00 m — so the
-        # law has NO land witness and declines, and a family routed away
-        # from the y-bake on the strength of a seat that then declines
-        # would simply DRAPE: worse than the tear.  Until the datum for
-        # a viaduct whose deck ends stand over water is ruled, this limb
-        # records what it would do, mints ``bridge_seat_fallback``, and
-        # leaves the family on the generic y-bake it has today.  Nothing
-        # is written and ``object_rebake.apply`` is not called for it —
-        # its reversion pass would un-bake the generic seat this family
-        # still relies on.
-        if candidate_seat_source != SEAT_SOURCE_CLASSIFIED:
-            would_be = {
-                resource_path: seat_plane_metres - ground
-                for resource_path, ground
-                in sorted(anchor_ground_by_resource.items())
-            }
-            record["would_be_seat_delta_by_resource_m"] = would_be
-            record["would_be_seat_delta_spread_m"] = float(
-                max(would_be.values()) - min(would_be.values())
-            ) if would_be else 0.0
-            record["baked"] = False
-            record["dry_run"] = True
-            record["objects_written"] = []
-            record["decision"] = (
-                f"MEASURED ONLY ({candidate_seat_source}): the rigid "
-                f"deck-top seat would land the y=0 plane at "
-                f"{seat_plane_metres:.2f} m (abutment grade "
-                f"{abutment_grade:.2f} m over {len(abutment_samples)} "
-                f"sample(s), authored crest {deck_top_y_metres:+.2f} m), "
-                f"one shared delta over {len(would_be)} member(s), "
-                f"spread {record['would_be_seat_delta_spread_m']:.3f} m; "
-                f"drop {drop_metres:.2f} m "
-                + ("clears" if drop_metres > threshold_metres else "misses")
-                + f" the {threshold_metres:.2f} m reseat threshold "
-                "— NOT written: this family keeps the generic y-bake "
-                "pending the R12-2 datum ruling for a viaduct whose deck "
-                "ends stand over water")
-            result.setdefault("bridge_findings", []).append({
-                "finding": BRIDGE_SEAT_FALLBACK_FINDING,
-                "resources": sorted(member_resources),
-                "reason": record["decision"],
-            })
-            UI.vprint(
-                1,
-                "  [object-anchor] bridge_abutment_seat "
-                f"{sorted(member_resources)}: " + record["decision"],
-            )
-            continue
+        # THE REFUSED VIADUCT TAKES THIS SAME SEAT (round-12 R12-2, as
+        # amended).  Refusing a piered viaduct a terrain FEATURE was
+        # right; handing its family to the generic per-structure y-bake
+        # was not — that baked OTHH Bridge_02/03/06, one bridge, to three
+        # grounds (0.00 / 1.63 / 3.96 m).  With the amendment's water
+        # clause its deck ends now find their shore, so it seats rigidly
+        # like any other family.  The one difference is the FALLBACK: a
+        # refused family whose seat cannot be computed keeps the generic
+        # y-bake it has today (it is never R4-excluded pre-mesh, so the
+        # bake is still there to fall back to) and says so as a counted
+        # finding.  A CLASSIFIED family's decline means "stays draped",
+        # which is R6-3's own answer and not a finding.
 
         # THE THRESHOLD (spec R6-3): strictly MORE than the reseat
         # threshold below the certified abutment grade.  Anything else —
@@ -1501,6 +1757,8 @@ def _bake_bridge_abutment_seats(
                 f"{threshold_metres:.2f} m reseat threshold "
                 "(DSF_OBJECT_BAKE_MIN_DELTA_M); the bridge stays "
                 "R4-excluded and drapes as authored")
+            _mint_seat_fallback(
+                record, result, member_resources, candidate_seat_source)
             UI.vprint(
                 2,
                 "  [object-anchor] bridge_abutment_seat "
@@ -1628,6 +1886,15 @@ def _bake_bridge_abutment_seats(
         record["baked"] = bool(baked_resources) and write_changes
         record["dry_run"] = not write_changes
         record["objects_written"] = sorted(set(baked_resources))
+        # THE CLAIM (round-12 R12-2, as amended).  This family took the
+        # seat, so the generic y-bake must not also touch it — the
+        # stacked correction ruling R4 forbids.  A CLASSIFIED family is
+        # already R4-excluded before the mesh is read and this is a
+        # no-op for it; a REFUSED viaduct is not, and this is the only
+        # thing that routes it.  The claim is made from what the seat
+        # ACTUALLY produced, so a family that fell back is never routed.
+        result.setdefault("bridge_seat_claimed_resources", set()).update(
+            member_resources)
 
         # THE ACHIEVED DECK TOP, measured from the deltas actually
         # produced (R12-1: assert the record's promise, materiality
@@ -2155,15 +2422,19 @@ def discover_and_rebake_airport(
                             )
                         )
 
-    _generic_pass()
-
-    # THE DEDICATED BASIN CLASS (spec section 2.2, owner's in-sim verdict
-    # 2026-08-09).  It runs AFTER the generic pass and over disjoint
-    # resources — its members were filtered out above — so no object can
-    # be reached by both laws, which is what "generic median/A3/threshold
-    # arithmetic does not run for this class" has to mean in code.
-    _bake_basin_rim_flush_facilities(
-        basin_rim_flush_facilities,
+    # THE BRIDGE ABUTMENT SEAT RUNS FIRST (round-6 R6-3, round-12 R12-2
+    # as amended).  It used to run last, beside the basin class, because
+    # every family it seats was already R4-excluded before the mesh was
+    # read.  A REFUSED piered viaduct is not: whether it seats depends on
+    # whether its deck ends find land, which only the built mesh can
+    # answer.  So the seat runs first and REPORTS what it claimed, and
+    # the generic pass excludes exactly that — a family that fell back
+    # keeps the generic y-bake, a family that seated never enters it, and
+    # no object is ever reached by two laws.  The pass is independent of
+    # the generic one (its own geometry, sampler and pools, over
+    # ``all_placements``), so the move changes no classified outcome.
+    _bake_bridge_abutment_seats(
+        bridge_abutment_seat_candidates,
         all_placements,
         pack_root,
         xplane_root,
@@ -2173,13 +2444,21 @@ def discover_and_rebake_airport(
         measure_only=measure_only,
         result=result,
     )
+    seat_claimed = result.get("bridge_seat_claimed_resources") or set()
+    if seat_claimed:
+        excluded_resources = set(excluded_resources or ()) | {
+            (pack_root or "", resource) for resource in seat_claimed
+        }
 
-    # THE R6-3 FLUSH-DECK ABUTMENT SEAT (round-6 spec, owner in-sim
-    # residual).  Same posture as the basin class: after the generic
-    # pass, over resources the generic pass never touched (they are
-    # R4-excluded), so no object is reached by two laws.
-    _bake_bridge_abutment_seats(
-        bridge_abutment_seat_candidates,
+    _generic_pass()
+
+    # THE DEDICATED BASIN CLASS (spec section 2.2, owner's in-sim verdict
+    # 2026-08-09).  It runs AFTER the generic pass and over disjoint
+    # resources — its members were filtered out above — so no object can
+    # be reached by both laws, which is what "generic median/A3/threshold
+    # arithmetic does not run for this class" has to mean in code.
+    _bake_basin_rim_flush_facilities(
+        basin_rim_flush_facilities,
         all_placements,
         pack_root,
         xplane_root,

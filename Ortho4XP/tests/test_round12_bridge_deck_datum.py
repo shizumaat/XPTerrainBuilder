@@ -68,6 +68,27 @@ _BOX_OBJ_TEXT = "\n".join([
 ]) + "\n"
 
 
+_PIER_OBJ_TEXT = "\n".join([
+    "I", "800", "OBJ", "",
+    "POINT_COUNTS 8 0 0 12", "",
+    "VT -12.0 -2.0000 -12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT 12.0 -2.0000 -12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT 12.0 -2.0000 12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT -12.0 -2.0000 12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT -12.0 3.0000 -12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT 12.0 3.0000 -12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT 12.0 3.0000 12.0 0.0 1.0 0.0 0.0 0.0",
+    "VT -12.0 3.0000 12.0 0.0 1.0 0.0 0.0 0.0",
+    "IDX 0", "IDX 1", "IDX 2", "IDX 0", "IDX 2", "IDX 3",
+    "IDX 4", "IDX 5", "IDX 6", "IDX 4", "IDX 6", "IDX 7",
+    "TRIS 0 12",
+]) + "\n"
+
+# The pier box's authored crest: its deck top in the structure frame.
+PIER_DECK_TOP_Y_M = 3.0
+PIER_FOOT_Y_M = -2.0
+
+
 def _write_two_level_mesh(mesh_path, *, water_half_span_m) -> None:
     """A built-mesh dump: water inside a square about the anchor, land
     outside.  The sampler reads z in 100 km units."""
@@ -186,14 +207,15 @@ def _bridge(**overrides):
 class _Harness:
     """One airport rebake against a written mesh and a written pack."""
 
-    def pack(self, tmp_path, monkeypatch, resources, *, agl_by_resource=None):
+    def pack(self, tmp_path, monkeypatch, resources, *, agl_by_resource=None,
+             obj_text=_BOX_OBJ_TEXT):
         from auto_patch import dsf_reader
 
         pack_root = tmp_path / "R12 Test Pack"
         for resource in resources:
             path = pack_root / resource
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_BOX_OBJ_TEXT)
+            path.write_text(obj_text)
         dsf_path = pack_root / "overlay.dsf"
         dsf_path.write_bytes(b"")
         agl_by_resource = agl_by_resource or {}
@@ -214,12 +236,33 @@ class _Harness:
             dsf_reader, "_load_dsf_text", lambda _path: lines)
         return dsf_path, pack_root
 
-    def mesh(self, tmp_path, *, water=True):
+    def mesh(self, tmp_path, *, water=True, water_half_span_m=None):
         mesh_path = tmp_path / "Data+36-087.mesh"
+        if water_half_span_m is None:
+            water_half_span_m = WATER_HALF_SPAN_M if water else -1.0
         _write_two_level_mesh(
-            mesh_path,
-            water_half_span_m=WATER_HALF_SPAN_M if water else -1.0)
+            mesh_path, water_half_span_m=water_half_span_m)
         return mesh_path
+
+    def water_union(self, monkeypatch, half_span_m):
+        """Pin the R6-1 water reader to a square canal of ``half_span_m``
+        about the anchor, in the candidate's own metre frame — ``None``
+        for "no water provable here"."""
+        from shapely.geometry import box
+
+        from auto_patch import osm_load
+
+        def _fake(_lat, _lon, _to_m, _bounds=None, **_kwargs):
+            if half_span_m is None:
+                return None
+            # In the reader's own EAST/NORTH frame — the canal is a
+            # square about the anchor, which is where the mesh writer
+            # puts its water too.
+            return box(-half_span_m, -half_span_m,
+                       half_span_m, half_span_m)
+
+        monkeypatch.setattr(
+            osm_load, "_load_osm_water_sea_union", _fake)
 
     def rebake(self, dsf_path, mesh_path, pack_root, candidates, **kwargs):
         from auto_patch import post_mesh
@@ -452,88 +495,204 @@ class TestOneBridgeIsOneRigidBody:
 # ── 3. the refused-viaduct limb (R12-2, STOP) ────────────────────────
 
 
-class TestRefusedViaductIsMeasuredNotWritten:
-    """R12-2 asked the refused piered-viaduct family to take the same
-    rigid deck-top seat.  MEASURED at OTHH (replay, 2026-08-11), the
-    merged 255° family's own deck-end lines lie over the canal: 54 of 74
-    abutment samples answer 0.00 m, median 0.00 m, so the law has NO land
-    witness and declines — and a family routed away from the y-bake on
-    the strength of a seat that then declines would DRAPE, which is worse
-    than the tear.  Pending the owner ruling on that datum, this limb
-    RECORDS what it would do and the family keeps its generic y-bake.
+class TestWaterNeverAuthorsABridgeDatum:
+    """Round-12 AMENDMENT (lead ruling 2026-08-11).  An abutment stands
+    on LAND.  Samples inside the mapped water union are DISCARDED, and a
+    deck end that loses its line to water WALKS LANDWARD along the deck
+    axis — away from the span — in sample-step increments up to 60 m
+    until at least four non-water samples exist.  A family that finds no
+    land at either end within the cap keeps its y-bake and says so."""
 
-    These twins pin the safe state, not a final law."""
-
-    def test_a_refused_family_with_a_deck_becomes_a_measured_candidate(self):
-        refusal = features.RefusedStructure(
-            object_resources=[DECK_RESOURCE, PIER_RESOURCE],
-            reason="piered viaduct: ...",
-            deck_object_resources=[DECK_RESOURCE],
-            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
-            frame_origin_longitude_latitude=(
-                ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
-            abutment_lines=_bridge().abutment_lines,
-            deck_top_y_m=RAISED_DECK_TOP_Y_M,
-        )
-        candidates, findings = assembly.bridge_abutment_seat_candidates(
-            _Classification(bridges=[], refusals=[refusal]))
-        assert findings == []
-        assert len(candidates) == 1
-        assert candidates[0].seat_source == (
-            assembly.SEAT_SOURCE_REFUSED_VIADUCT)
-        assert candidates[0].deck_top_y_m == pytest.approx(
-            RAISED_DECK_TOP_Y_M)
-
-    def test_a_refused_family_with_no_deck_mints_the_fallback_finding(self):
-        refusal = features.RefusedStructure(
-            object_resources=[DECK_RESOURCE], reason="island deck")
-        candidates, findings = assembly.bridge_abutment_seat_candidates(
-            _Classification(bridges=[], refusals=[refusal]))
-        assert candidates == []
-        assert len(findings) == 1
-        assert findings[0]["finding"] == (
-            assembly.BRIDGE_SEAT_FALLBACK_FINDING)
-        assert "island deck" in findings[0]["reason"]
-
-    def test_a_refused_candidate_is_recorded_and_never_written(
+    def test_a_canal_end_walks_ashore_and_seats_at_the_land_grade(
         self, tmp_path, monkeypatch, harness
     ):
+        """OTHH class B in miniature: both deck ends stand over the
+        canal, so both walk landward onto the 3.96 m shore — one rigid
+        family delta, the deck top at the LAND grade, and the piers
+        descending below the water line."""
         members = [DECK_RESOURCE, PIER_RESOURCE]
-        dsf_path, pack_root = harness.pack(tmp_path, monkeypatch, members)
-        authored = (pack_root / DECK_RESOURCE).read_text()
+        # A canal wide enough to swallow both abutment lines (x = +-80).
+        # The mapped union (102 m) reaches slightly further than the
+        # water in the MESH (90 m), as a real shoreline does — so the
+        # first samples outside the union stand on unambiguous land.
+        harness.water_union(monkeypatch, 102.0)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
         result = harness.rebake(
-            dsf_path, harness.mesh(tmp_path), pack_root,
-            [_candidate(members, RAISED_DECK_TOP_Y_M,
-                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)])
+            dsf_path,
+            harness.mesh(tmp_path, water_half_span_m=90.0),
+            pack_root,
+            [_candidate(members, PIER_DECK_TOP_Y_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)],
+        )
 
         record = result["bridge_abutment_seat"][0]
-        assert record["seat_source"] == (
-            assembly.SEAT_SOURCE_REFUSED_VIADUCT)
+        assert record["water_union_available"] is True
+        # Both ends had to walk, and both found their land.
+        assert [end["found_land"] for end in record["abutment_ends"]] == [
+            True, True]
+        assert all(end["walked_m"] > 0.0 for end in record["abutment_ends"])
+        assert record["abutment_walked_m"] <= 60.0
+        # The grade is the LAND grade, not the canal's 0.00 m.
+        assert record["abutment_grade_m"] == pytest.approx(
+            LAND_ELEVATION_M, abs=1e-4)
+        assert record["achieved_deck_top_m"] == pytest.approx(
+            LAND_ELEVATION_M, abs=0.01)
+        # ONE rigid family delta.
+        deltas = record["seat_delta_by_resource_m"]
+        assert sorted(deltas) == sorted(members)
+        assert len(set(round(value, 6) for value in deltas.values())) == 1
+        assert record["intra_family_tear_m"] == pytest.approx(0.0, abs=1e-9)
+        assert record["baked"] is True
+
+        # THE OWNER'S PICTURE: deck top at the land grade, supports going
+        # DOWN to the water — the pier foot ends BELOW the 0.00 m line.
+        for resource in members:
+            live = _vertex_y_values(pack_root / resource)
+            assert max(live) == pytest.approx(LAND_ELEVATION_M, abs=1e-3)
+            assert min(live) == pytest.approx(
+                LAND_ELEVATION_M - (PIER_DECK_TOP_Y_M - PIER_FOOT_Y_M),
+                abs=1e-3)
+            assert min(live) < WATER_ELEVATION_M
+
+    def test_an_all_water_family_keeps_its_y_bake_and_mints_the_finding(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """No land within the cap at either end ⇒ no seat.  The refused
+        family keeps the generic y-bake it has today, the pack is not
+        touched, and a counted ``bridge_seat_fallback`` says why."""
+        members = [DECK_RESOURCE, PIER_RESOURCE]
+        # Water everywhere the 60 m walk can reach (lines at +-80, so the
+        # walk tops out at +-140).
+        harness.water_union(monkeypatch, 200.0)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
+        authored = (pack_root / DECK_RESOURCE).read_text()
+        result = harness.rebake(
+            dsf_path,
+            harness.mesh(tmp_path, water_half_span_m=200.0),
+            pack_root,
+            [_candidate(members, PIER_DECK_TOP_Y_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)],
+        )
+
+        record = result["bridge_abutment_seat"][0]
+        assert [end["found_land"] for end in record["abutment_ends"]] == [
+            False, False]
+        assert record["abutment_walked_m"] == pytest.approx(60.0, abs=5.0)
+        assert "abutment_grade_m" not in record
+        assert "water never authors a bridge datum" in record["decision"]
+        assert record["seat_fallback"] is True
         assert record["baked"] is False
-        assert record["objects_written"] == []
-        assert "MEASURED ONLY" in record["decision"]
-        # The would-be seat IS recorded, and it is rigid.
-        assert record["would_be_seat_delta_spread_m"] == pytest.approx(
-            0.0, abs=1e-9)
-        assert sorted(record["would_be_seat_delta_by_resource_m"]) == sorted(
-            members)
-        # ...and the pack was not touched, not even a backup.
+        # Not routed: nothing claimed, so the generic y-bake still owns it.
+        assert not (result.get("bridge_seat_claimed_resources") or set())
         assert (pack_root / DECK_RESOURCE).read_text() == authored
-        assert not (pack_root / (DECK_RESOURCE + ".anchor_bak")).exists()
         # ...and the finding is raised for the counter.
         assert [f["finding"] for f in result["bridge_findings"]] == [
             assembly.BRIDGE_SEAT_FALLBACK_FINDING]
 
-    def test_refused_families_are_not_routed_off_the_generic_bake(self):
-        """The routing half of R12-2 is NOT landed: only a CLASSIFIED
-        family joins the exclusion set, so a refused viaduct keeps the
-        generic y-bake it has today (no regression to a drape)."""
-        import inspect
+    def test_no_provable_water_leaves_the_sampling_exactly_as_before(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """The union DISCARDS the samples that author a datum, so an
+        unprovable claim of water must never be made: with no union
+        nothing is dropped and no end walks."""
+        harness.water_union(monkeypatch, None)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, [DECK_RESOURCE])
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)])
 
-        source = inspect.getsource(
-            assembly.post_mesh_object_terrain_records)
-        assert "SEAT_SOURCE_CLASSIFIED" in source
-        assert "REFUSED VIADUCTS ARE NOT ROUTED" in source
+        record = result["bridge_abutment_seat"][0]
+        assert record["water_union_available"] is False
+        assert all(end["walked_m"] == 0.0
+                   for end in record["abutment_ends"])
+        assert all(end["samples_over_water"] == 0
+                   for end in record["abutment_ends"])
+        assert record["abutment_grade_m"] == pytest.approx(
+            LAND_ELEVATION_M, abs=1e-4)
+
+    def test_a_classified_family_declining_is_not_a_fallback(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Only the REFUSED limb falls back: it has a generic y-bake to
+        fall back TO.  A classified family is R4-excluded before the mesh
+        is read, so its decline means "stays draped" — R6-3's own answer,
+        not a finding."""
+        harness.water_union(monkeypatch, None)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, [DECK_RESOURCE])
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path, water=False), pack_root,
+            [_candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)])
+
+        record = result["bridge_abutment_seat"][0]
+        assert record["baked"] is False
+        assert "drapes as authored" in record["decision"]
+        assert "seat_fallback" not in record
+        assert result["bridge_findings"] == []
+
+    def test_a_seated_refused_family_is_routed_off_the_generic_bake(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """The routing is made from what the seat ACTUALLY produced, so a
+        family that seats is claimed (and the generic pass skips it) while
+        one that falls back is not."""
+        members = [DECK_RESOURCE, PIER_RESOURCE]
+        harness.water_union(monkeypatch, 102.0)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
+        result = harness.rebake(
+            dsf_path,
+            harness.mesh(tmp_path, water_half_span_m=90.0),
+            pack_root,
+            [_candidate(members, PIER_DECK_TOP_Y_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)],
+        )
+        assert result["bridge_seat_claimed_resources"] == set(members)
+        reasons = [reason for resource, reason in result["skipped"]
+                   if resource in members]
+        assert any("bridge_abutment_seat law" in reason
+                   for reason in reasons), reasons
+
+    def test_the_walk_leaves_the_span_never_crosses_it(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """LANDWARD is away from the span.  A walk towards the other deck
+        end would sample the bridge's own opposite shore — or its own
+        deck — and author the datum from the wrong ground."""
+        from auto_patch import post_mesh
+
+        candidate = _candidate([DECK_RESOURCE], PIER_DECK_TOP_Y_M)
+        lines = post_mesh._abutment_line_frame_points(candidate)
+        assert len(lines) == 2
+        midpoints = [((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0)
+                     for s, e in lines]
+        # The two ends sit either side of the anchor on the deck axis...
+        assert midpoints[0][0] < 0.0 < midpoints[1][0]
+
+        class _AllWater:
+            def elevation_at_or_none(self, _latitude, _longitude):
+                return LAND_ELEVATION_M
+
+        from shapely.geometry import Point, box
+
+        canal = box(-100.0, -100.0, 100.0, 100.0)
+        to_metres = post_mesh._local_east_north(
+            ANCHOR_LATITUDE, ANCHOR_LONGITUDE)
+
+        def _is_water(latitude, longitude):
+            return canal.contains(Point(to_metres(longitude, latitude)))
+
+        # A canal covering both ends: each must walk OUTWARD.
+        samples, ends = post_mesh._abutment_grade_samples_on_land(
+            candidate, _AllWater(), _is_water)
+        assert [end["found_land"] for end in ends] == [True, True]
+        for end in ends:
+            assert end["walked_m"] >= 20.0
+        assert samples and all(
+            value == pytest.approx(LAND_ELEVATION_M) for value in samples)
 
 
 # ── 4. the frame-split finding (R12-3) ───────────────────────────────

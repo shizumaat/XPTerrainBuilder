@@ -1221,14 +1221,15 @@ def post_mesh_object_terrain_records(
         # ruling R4 forbids.  The seat's own member set is the authority
         # on who is routed, so the two can never drift.
         #
-        # REFUSED VIADUCTS ARE NOT ROUTED (round-12 STOP, see
-        # docs/specs/round12-bridge-deck-datum-spec.md R12-2 and the
-        # measurement in the seat pass): their family keeps today's
-        # generic y-bake.  Routing them away from it without a seat that
-        # can fire would leave them DRAPED, which is worse than the tear
-        # R12-2 set out to close.  The candidate is still produced and
-        # still MEASURED post-mesh — recorded, never written — so the
-        # ruling is made on numbers.
+        # REFUSED VIADUCTS ARE ROUTED POST-MESH, NOT HERE (round-12
+        # R12-2 as amended).  Whether a refused family seats depends on
+        # whether its deck ends find LAND within the walk cap — a
+        # question only the built mesh answers — so the seat pass makes
+        # the claim and ``discover_and_rebake_airport`` widens the
+        # exclusion set with it.  Routing them here, before the mesh,
+        # would strand a family whose seat then declines: excluded from
+        # the y-bake AND unseated, i.e. draped, which is worse than the
+        # tear R12-2 closes.
         for candidate in candidates:
             if candidate.seat_source != SEAT_SOURCE_CLASSIFIED:
                 continue

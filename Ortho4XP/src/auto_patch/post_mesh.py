@@ -187,6 +187,14 @@ _COUNT_KEYS = (
     # for that airport — an owner decision, never a silent re-derive.
     "basin_rim_flush_seated",
     "basin_clearance_findings",
+    # Round-12 bridge FINDINGS (docs/specs/round12-bridge-deck-datum-
+    # spec.md).  ``bridge_seat_fallback`` (R12-2): a refused family with
+    # no measurable deck, kept on the generic y-bake.
+    # ``bridge_verdict_frame_split`` (R12-3): a resource the post-mesh
+    # classification judges differently from the pipeline-time cache.
+    # Both are recorded and counted; neither changes a seat or a verdict.
+    "bridge_seat_fallbacks",
+    "bridge_verdict_frame_splits",
 )
 
 
@@ -1163,6 +1171,13 @@ def _abutment_grade_sample_points(candidate) -> list:
     return out
 
 
+#: Elevation materiality floor for the bridge seat's self-checks
+#: (convergence guard, owner 2026-08-02): a deck-top residual or an
+#: intra-family spread under this is REPORTED and accepted, never
+#: iterated on.
+_BRIDGE_SEAT_MATERIALITY_M = 0.01
+
+
 def _bake_bridge_abutment_seats(
     candidates,
     all_placements,
@@ -1175,8 +1190,9 @@ def _bake_bridge_abutment_seats(
     measure_only: bool,
     result: dict,
 ) -> None:
-    """THE FLUSH-DECK ABUTMENT SEAT (docs/specs/round6-othh-residuals-
-    spec.md R6-3, owner in-sim residual 2026-08-10).
+    """THE DECK-TOP ABUTMENT SEAT (docs/specs/round6-othh-residuals-
+    spec.md R6-3, re-datumed by docs/specs/round12-bridge-deck-datum-
+    spec.md R12-1/R12-2; owner in-sim residuals 2026-08-10/11).
 
     OTHH ``Bridge_01`` is a cosmetic flush deck classified
     TERRAIN_CARRIED, so its resources are R4-EXCLUDED from the Phase 2
@@ -1192,13 +1208,39 @@ def _bake_bridge_abutment_seats(
         drop   = G_abut - mesh_at_anchor
         seat  <=>  drop > DSF_OBJECT_BAKE_MIN_DELTA_M   (the reseat
                    threshold, 1.0 m — strictly more than, per the spec)
+        y0    = G_abut - deck_top_y_m        (R12-1: THE DATUM)
 
-    applied WHOLE-STRUCTURE-RIGIDLY: one seat target for every member,
-    each member's own delta measured from its OWN anchor's ground
-    (invariant I-3).  A candidate whose anchor samples land WITHIN the
-    threshold is left exactly as today — excluded and draped — and says
-    so in its record; that is the regression pin for OTHH Bridge_02 / 03
-    / 06.
+    applied WHOLE-FAMILY-RIGIDLY: one seat plane for every member, each
+    member's own delta measured from its OWN anchor's ground (invariant
+    I-3).  A candidate whose anchor samples land WITHIN the threshold is
+    left exactly as today — excluded and draped — and says so in its
+    record.
+
+    **R12-1, THE DATUM IS THE DECK TOP.**  The owner's reading of these
+    bridges is that the DECK is what stands at ground level and the
+    lower parts are supports descending to the water.  R6-3 landed the
+    authored ``y = 0`` plane at the abutment grade, which is the same
+    thing ONLY for a flush deck (OTHH Bridge_01, crest −0.31).  A raised
+    deck (Bridge_04 / 05, crests +1.067 / +1.187) came out proud, its
+    supports hanging 2.28 / 3.27 m above the canal.  The seat now lands
+    the DECK TOP at the abutment grade; ``expected_deck_top_m`` is that
+    grade, ``achieved_deck_top_m`` is what the produced deltas deliver,
+    and the two are asserted equal within
+    :data:`_BRIDGE_SEAT_MATERIALITY_M`.  Bridge_01 moves +0.31 m under
+    this law and that is correct — its deck sat at 3.544 m, below its
+    own 3.851 m abutment grade.
+
+    **R12-2, ONE BRIDGE IS ONE BODY.**  The member set is the whole
+    ANCHOR FAMILY (``object_terrain_assembly.anchor_family_resources``),
+    not the subset whose geometry the classifier measured the deck on —
+    ``OTHH_Bridge_04_LOD0_004`` was R4-excluded from the generic y-bake
+    and absent from the seat, and so sat 7.85 m under its own bridge.
+    REFUSED piered viaducts join too (``seat_source`` says which limb
+    offered the family): refusing them a terrain FEATURE was right,
+    handing them to the per-structure y-bake was not — it baked OTHH
+    Bridge_02/03/06, one bridge, to three grounds (0.00 / 1.63 /
+    3.96 m).  A refused family with no measurable deck keeps the y-bake
+    and mints a ``bridge_seat_fallback`` finding instead.
 
     ``measure_only`` (the tile's ``modify_custom_airports`` switch off)
     is honoured exactly as the generic and basin laws honour it: the
@@ -1213,7 +1255,11 @@ def _bake_bridge_abutment_seats(
     from statistics import median
 
     from .config import DSF_OBJECT_BAKE_MIN_DELTA_M
-    from .object_terrain_assembly import BRIDGE_ABUTMENT_SEAT_DECISION_KIND
+    from .object_terrain_assembly import (
+        BRIDGE_ABUTMENT_SEAT_DECISION_KIND,
+        BRIDGE_SEAT_FALLBACK_FINDING,
+        SEAT_SOURCE_CLASSIFIED,
+    )
 
     threshold_metres = float(DSF_OBJECT_BAKE_MIN_DELTA_M)
 
@@ -1225,6 +1271,8 @@ def _bake_bridge_abutment_seats(
 
     for candidate in candidates:
         member_resources = set(candidate.object_resources)
+        candidate_seat_source = getattr(
+            candidate, "seat_source", SEAT_SOURCE_CLASSIFIED)
         record = {
             "resources": sorted(member_resources),
             "anchor_longitude_latitude": list(
@@ -1234,6 +1282,12 @@ def _bake_bridge_abutment_seats(
             "measure_only": bool(measure_only),
             "baked": False,
             "decision_kind": BRIDGE_ABUTMENT_SEAT_DECISION_KIND,
+            # R12-2 provenance: which limb offered this family, and the
+            # subset of members the deck was actually measured on.  The
+            # member set itself is the whole anchor family.
+            "seat_source": candidate_seat_source,
+            "deck_object_resources": sorted(
+                getattr(candidate, "deck_object_resources", ()) or ()),
         }
         result["bridge_abutment_seat"].append(record)
 
@@ -1325,25 +1379,6 @@ def _bake_bridge_abutment_seats(
         drop_metres = abutment_grade - anchor_ground
         record["drop_m"] = drop_metres
 
-        # THE THRESHOLD (spec R6-3): strictly MORE than the reseat
-        # threshold below the certified abutment grade.  Anything else —
-        # including an anchor ABOVE the abutments — stays excluded and
-        # draped, which is the whole of today's behaviour for this class.
-        if not drop_metres > threshold_metres:
-            record["decision"] = (
-                f"not seated — the anchor ground {anchor_ground:.2f} m is "
-                f"{drop_metres:.2f} m below the certified abutment grade "
-                f"{abutment_grade:.2f} m, within the "
-                f"{threshold_metres:.2f} m reseat threshold "
-                "(DSF_OBJECT_BAKE_MIN_DELTA_M); the bridge stays "
-                "R4-excluded and drapes as authored")
-            UI.vprint(
-                2,
-                "  [object-anchor] bridge_abutment_seat "
-                f"{sorted(member_resources)}: " + record["decision"],
-            )
-            continue
-
         anchor_ground_by_resource: dict[str, float] = {}
         anchor_by_resource: dict[str, tuple[float, float, float]] = {}
         unmeasured_anchor = None
@@ -1382,8 +1417,96 @@ def _bake_bridge_abutment_seats(
                 )
             continue
 
-        record["expected_deck_top_m"] = (
-            abutment_grade + float(candidate.deck_top_y_m))
+        # THE DATUM IS THE DECK TOP (round-12 R12-1).  The seat lands the
+        # authored DECK-TOP plane at the abutment grade, so the authored
+        # y = 0 plane goes to ``abutment_grade - deck_top_y_m``.  Only a
+        # FLUSH deck has its deck top at y = 0; landing y = 0 at the
+        # abutment grade — the R6-3 delta — therefore left a raised deck
+        # PROUD of the ground its own abutments stand on and lifted the
+        # supports clear of the water they descend to (OTHH Bridge_04 /
+        # 05: deck tops +1.067 / +1.187, supports left 2.28 / 3.27 m up).
+        deck_top_y_metres = float(candidate.deck_top_y_m)
+        seat_plane_metres = abutment_grade - deck_top_y_metres
+        record["seat_plane_y0_m"] = seat_plane_metres
+        # The seated deck top the law PROMISES: the abutment grade, by
+        # construction.  ``achieved_deck_top_m`` is what the deltas
+        # actually produce, asserted equal below — a record that promises
+        # one number and bakes another is how R6-3's flush-deck
+        # assumption survived unread.
+        record["expected_deck_top_m"] = abutment_grade
+
+        # THE REFUSED-VIADUCT LIMB IS MEASURED, NOT WRITTEN (round-12
+        # STOP; the ruling is the lead's).  R12-2 asked for the refused
+        # piered-viaduct family to take this same rigid seat instead of
+        # the per-structure y-bake that tears it.  Measured at OTHH, the
+        # merged 255° family's own deck-end lines lie over the canal —
+        # 54 of 74 abutment samples answer 0.00 m, median 0.00 m — so the
+        # law has NO land witness and declines, and a family routed away
+        # from the y-bake on the strength of a seat that then declines
+        # would simply DRAPE: worse than the tear.  Until the datum for
+        # a viaduct whose deck ends stand over water is ruled, this limb
+        # records what it would do, mints ``bridge_seat_fallback``, and
+        # leaves the family on the generic y-bake it has today.  Nothing
+        # is written and ``object_rebake.apply`` is not called for it —
+        # its reversion pass would un-bake the generic seat this family
+        # still relies on.
+        if candidate_seat_source != SEAT_SOURCE_CLASSIFIED:
+            would_be = {
+                resource_path: seat_plane_metres - ground
+                for resource_path, ground
+                in sorted(anchor_ground_by_resource.items())
+            }
+            record["would_be_seat_delta_by_resource_m"] = would_be
+            record["would_be_seat_delta_spread_m"] = float(
+                max(would_be.values()) - min(would_be.values())
+            ) if would_be else 0.0
+            record["baked"] = False
+            record["dry_run"] = True
+            record["objects_written"] = []
+            record["decision"] = (
+                f"MEASURED ONLY ({candidate_seat_source}): the rigid "
+                f"deck-top seat would land the y=0 plane at "
+                f"{seat_plane_metres:.2f} m (abutment grade "
+                f"{abutment_grade:.2f} m over {len(abutment_samples)} "
+                f"sample(s), authored crest {deck_top_y_metres:+.2f} m), "
+                f"one shared delta over {len(would_be)} member(s), "
+                f"spread {record['would_be_seat_delta_spread_m']:.3f} m; "
+                f"drop {drop_metres:.2f} m "
+                + ("clears" if drop_metres > threshold_metres else "misses")
+                + f" the {threshold_metres:.2f} m reseat threshold "
+                "— NOT written: this family keeps the generic y-bake "
+                "pending the R12-2 datum ruling for a viaduct whose deck "
+                "ends stand over water")
+            result.setdefault("bridge_findings", []).append({
+                "finding": BRIDGE_SEAT_FALLBACK_FINDING,
+                "resources": sorted(member_resources),
+                "reason": record["decision"],
+            })
+            UI.vprint(
+                1,
+                "  [object-anchor] bridge_abutment_seat "
+                f"{sorted(member_resources)}: " + record["decision"],
+            )
+            continue
+
+        # THE THRESHOLD (spec R6-3): strictly MORE than the reseat
+        # threshold below the certified abutment grade.  Anything else —
+        # including an anchor ABOVE the abutments — stays excluded and
+        # draped, which is the whole of today's behaviour for this class.
+        if not drop_metres > threshold_metres:
+            record["decision"] = (
+                f"not seated — the anchor ground {anchor_ground:.2f} m is "
+                f"{drop_metres:.2f} m below the certified abutment grade "
+                f"{abutment_grade:.2f} m, within the "
+                f"{threshold_metres:.2f} m reseat threshold "
+                "(DSF_OBJECT_BAKE_MIN_DELTA_M); the bridge stays "
+                "R4-excluded and drapes as authored")
+            UI.vprint(
+                2,
+                "  [object-anchor] bridge_abutment_seat "
+                f"{sorted(member_resources)}: " + record["decision"],
+            )
+            continue
 
         pools = object_anchor.discover_object_pools(
             [
@@ -1396,6 +1519,7 @@ def _bake_bridge_abutment_seats(
             epsilon_metres=epsilon_metres,
         )
         baked_resources: list[str] = []
+        seat_delta_by_resource: dict[str, float] = {}
         for pool in pools:
             pool_geometry_by_resource = {
                 resource_path: geometry_by_resource[resource_path]
@@ -1430,12 +1554,19 @@ def _bake_bridge_abutment_seats(
                 ):
                     if resource_path not in anchor_ground_by_resource:
                         continue
-                    # WHOLE-STRUCTURE RIGID: one seat target, each
-                    # member's delta from its own anchor ground.
+                    # ONE BRIDGE, ONE RIGID SEAT (R12-2): one seat plane
+                    # for the WHOLE family — never a per-structure or
+                    # per-member target — and each member's delta from
+                    # its own anchor ground (invariant I-3).  A family
+                    # sharing one placement anchor therefore takes ONE
+                    # delta; the per-structure grounds this loop walks
+                    # never enter the arithmetic, which is precisely why
+                    # the family cannot tear across them.
                     delta = (
-                        abutment_grade
+                        seat_plane_metres
                         - anchor_ground_by_resource[resource_path]
                     )
+                    seat_delta_by_resource[resource_path] = delta
                     resource_deltas = (
                         delta_by_resource_and_vertex.setdefault(
                             resource_path, {})
@@ -1497,6 +1628,55 @@ def _bake_bridge_abutment_seats(
         record["baked"] = bool(baked_resources) and write_changes
         record["dry_run"] = not write_changes
         record["objects_written"] = sorted(set(baked_resources))
+
+        # THE ACHIEVED DECK TOP, measured from the deltas actually
+        # produced (R12-1: assert the record's promise, materiality
+        # 0.01 m; a residual under the floor is reported, never iterated
+        # on).  Per member: its own anchor ground + its own delta + the
+        # authored crest.  Rigid means these AGREE — the spread across
+        # the family is the tear, and it must be zero.
+        if seat_delta_by_resource:
+            achieved_by_resource = {
+                resource_path: (
+                    anchor_ground_by_resource[resource_path]
+                    + delta
+                    + deck_top_y_metres
+                )
+                for resource_path, delta in seat_delta_by_resource.items()
+            }
+            achieved_values = sorted(achieved_by_resource.values())
+            record["seat_delta_by_resource_m"] = {
+                resource_path: float(delta)
+                for resource_path, delta
+                in sorted(seat_delta_by_resource.items())
+            }
+            record["achieved_deck_top_m"] = float(achieved_values[0])
+            record["intra_family_tear_m"] = float(
+                achieved_values[-1] - achieved_values[0])
+            residual = abs(
+                record["achieved_deck_top_m"]
+                - record["expected_deck_top_m"]
+            )
+            record["deck_top_residual_m"] = float(residual)
+            if (
+                residual > _BRIDGE_SEAT_MATERIALITY_M
+                or record["intra_family_tear_m"]
+                > _BRIDGE_SEAT_MATERIALITY_M
+            ):
+                record["datum_finding"] = (
+                    "the seated deck top "
+                    f"{record['achieved_deck_top_m']:.3f} m misses the "
+                    f"abutment grade {record['expected_deck_top_m']:.3f} m "
+                    f"by {residual:.3f} m, and the family spans "
+                    f"{record['intra_family_tear_m']:.3f} m — over the "
+                    f"{_BRIDGE_SEAT_MATERIALITY_M:.2f} m materiality "
+                    "floor (R12-1/R12-2)")
+                UI.vprint(
+                    0,
+                    "  [object-anchor] bridge_abutment_seat "
+                    f"{sorted(member_resources)}: "
+                    + record["datum_finding"],
+                )
         if measure_only:
             record["decision"] = (
                 "measure-only (modify_custom_airports off): "
@@ -1508,12 +1688,14 @@ def _bake_bridge_abutment_seats(
                 ("bridge_abutment_seat (dry run, nothing written): would "
                  "seat " if not write_changes
                  else "bridge_abutment_seat: seated ")
-                + f"at abutment grade {abutment_grade:.2f} m "
-                f"({len(abutment_samples)} sample(s)), lifting the deck "
+                + f"the DECK TOP at abutment grade {abutment_grade:.2f} m "
+                f"({len(abutment_samples)} sample(s)) — authored crest "
+                f"{deck_top_y_metres:+.2f} m, so the y=0 plane lands at "
+                f"{seat_plane_metres:.2f} m, lifting the deck "
                 f"{drop_metres:.2f} m off the anchor ground "
-                f"{anchor_ground:.2f} m — expected deck top "
-                f"{record['expected_deck_top_m']:.2f} m over "
-                f"{len(record['objects_written'])} object file(s)")
+                f"{anchor_ground:.2f} m over "
+                f"{len(record['objects_written'])} object file(s) "
+                f"[{candidate_seat_source}]")
         UI.vprint(
             1,
             "  [object-anchor] bridge_abutment_seat "
@@ -1653,6 +1835,10 @@ def discover_and_rebake_airport(
         # Same posture as the basin list: a candidate that could not be
         # measured is in here with its reason, never silently absent.
         "bridge_abutment_seat": [],
+        # Round-12 counted FINDINGS raised by the seat pass itself
+        # (``bridge_seat_fallback``).  The candidacy-time findings travel
+        # on the terrain records instead; both are counted the same way.
+        "bridge_findings": [],
     }
 
     # Short-circuit (O4_REANCHOR_SHORT_CIRCUIT, default on).  The pack's
@@ -1782,11 +1968,15 @@ def discover_and_rebake_airport(
     # RE-LABELS their skip lines — "routed to the abutment-seat law",
     # never "terrain adapted to this object, nothing more happens".
     # Routed is true whatever the post-mesh threshold test then decides.
-    abutment_candidate_resources = {
-        resource
-        for candidate in (bridge_abutment_seat_candidates or [])
-        for resource in candidate.object_resources
-    }
+    # R12-2 widened WHO is routed (the whole anchor family, and refused
+    # piered viaducts beside the classified bridges), so the label says
+    # which limb sent each member here.
+    abutment_candidate_source = {}
+    for candidate in (bridge_abutment_seat_candidates or []):
+        source = getattr(candidate, "seat_source", "classified")
+        for resource in candidate.object_resources:
+            abutment_candidate_source[resource] = source
+    abutment_candidate_resources = set(abutment_candidate_source)
 
     def _generic_pass() -> None:
         """The generic Phase 2 y-bake, unchanged.  A nested function only
@@ -1831,9 +2021,11 @@ def discover_and_rebake_airport(
                             # leaves it draped — a skip line saying only
                             # "excluded" would send the next reader
                             # hunting the wrong law.
-                            "TERRAIN_CARRIED bridge member — routed to "
-                            "the bridge_abutment_seat law, not the "
-                            "generic y-bake (round-6 spec R6-3)"
+                            f"bridge family member "
+                            f"({abutment_candidate_source[resource_path]})"
+                            " — routed to the bridge_abutment_seat law, "
+                            "not the generic y-bake (round-6 spec R6-3, "
+                            "round-12 spec R12-2)"
                             if resource_path in abutment_candidate_resources
                             else
                             "terrain adapted to this object (object "
@@ -2033,6 +2225,44 @@ def discover_and_rebake_airport(
     return result
 
 
+def _report_bridge_findings(icao: str, findings, counts: dict) -> None:
+    """Count and log the round-12 bridge findings for one airport.
+
+    A finding is a RECORD, never a decision: nothing here changes a
+    verdict, a member set or a seat.  It is logged at verbosity 1 —
+    the frame split and the fallback are both owner-facing questions
+    (which frame should source the verdict; why this family has no deck)
+    and neither must need a debug flag to be seen."""
+    from .object_terrain_assembly import (
+        BRIDGE_SEAT_FALLBACK_FINDING,
+        BRIDGE_VERDICT_FRAME_SPLIT_FINDING,
+    )
+
+    for finding in findings or ():
+        kind = finding.get("finding")
+        if kind == BRIDGE_SEAT_FALLBACK_FINDING:
+            counts["bridge_seat_fallbacks"] += 1
+            UI.vprint(
+                1,
+                f"  [object-anchor] {icao}: {BRIDGE_SEAT_FALLBACK_FINDING} "
+                f"{[r.split('/')[-1] for r in finding.get('resources', ())]}"
+                f" — {finding.get('reason', '')}",
+            )
+        elif kind == BRIDGE_VERDICT_FRAME_SPLIT_FINDING:
+            counts["bridge_verdict_frame_splits"] += 1
+            UI.vprint(
+                1,
+                f"  [object-anchor] {icao}: "
+                f"{BRIDGE_VERDICT_FRAME_SPLIT_FINDING} "
+                f"{finding.get('resource', '?').split('/')[-1]}: post-mesh "
+                f"{finding.get('post_mesh_contract')} (coverage "
+                f"{finding.get('post_mesh_coverage_fraction')}) vs "
+                f"pipeline {finding.get('pipeline_contract')} (coverage "
+                f"{finding.get('pipeline_coverage_fraction')}) — recorded, "
+                "the post-mesh verdict still stands (R12-3)",
+            )
+
+
 def rebake_dsf_objects(tile) -> dict:
     """Run Phase 2 for every airport in ``tile``'s worklist.
 
@@ -2164,6 +2394,10 @@ def rebake_dsf_objects(tile) -> dict:
                     dsf_path, xplane_root, pack_root=pack_root
                 )
                 excluded_resources = terrain_records.exclusions
+                _report_bridge_findings(
+                    icao, getattr(terrain_records, "bridge_findings", ()),
+                    counts,
+                )
                 airport_result = discover_and_rebake_airport(
                     dsf_path,
                     mesh_path,
@@ -2197,6 +2431,9 @@ def rebake_dsf_objects(tile) -> dict:
                 )
                 continue
 
+            _report_bridge_findings(
+                icao, airport_result.get("bridge_findings", ()), counts
+            )
             counts["airports_processed"] += 1
             if airport_result.get("short_circuited"):
                 counts["airports_up_to_date"] += 1

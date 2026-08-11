@@ -3505,8 +3505,9 @@ class TestBridgeAbutmentSeatCandidacy:
         bridge = _bridge(contract=TERRAIN_CARRIED,
                          deck_hardness=DECK_HARDNESS_COSMETIC,
                          hard_deck=False, deck_top_y_m=_SEAT_DECK_TOP_Y_M)
-        candidates = assembly.bridge_abutment_seat_candidates(
+        candidates, findings = assembly.bridge_abutment_seat_candidates(
             _Classification([bridge]))
+        assert findings == []
         assert len(candidates) == 1
         candidate = candidates[0]
         assert candidate.object_resources == tuple(bridge.object_resources)
@@ -3525,7 +3526,7 @@ class TestBridgeAbutmentSeatCandidacy:
         "contract", [DECK_CARRIED, PROFILE_CARRIED, AMBIGUOUS])
     def test_other_contracts_are_not_candidates(self, contract):
         assert assembly.bridge_abutment_seat_candidates(
-            _Classification([_bridge(contract=contract)])) == []
+            _Classification([_bridge(contract=contract)])) == ([], [])
 
     def test_uncertified_abutment_is_not_a_candidate(self):
         """No land witness ⇒ no seat target.  (An emitted record always
@@ -3535,21 +3536,21 @@ class TestBridgeAbutmentSeatCandidacy:
         bridge = replace(_bridge(contract=TERRAIN_CARRIED),
                          abutment_reaches_grade=(True, False))
         assert assembly.bridge_abutment_seat_candidates(
-            _Classification([bridge])) == []
+            _Classification([bridge])) == ([], [])
 
     def test_gate_off_yields_no_candidates(self, monkeypatch):
         monkeypatch.setattr(config, "OBJECT_BRIDGE_TERRAIN", False)
         assert assembly.bridge_abutment_seat_candidates(
-            _Classification([_bridge(contract=TERRAIN_CARRIED)])) == []
+            _Classification([_bridge(contract=TERRAIN_CARRIED)])) == ([], [])
 
     def test_record_json_round_trip(self):
         """The record rides the post-mesh cache, whose version bumped to
-        5 for exactly this key."""
+        5 for exactly this key — and to 6 for the round-12 shape."""
         candidate = assembly.bridge_abutment_seat_candidates(
-            _Classification([_bridge(contract=TERRAIN_CARRIED)]))[0]
+            _Classification([_bridge(contract=TERRAIN_CARRIED)]))[0][0]
         assert assembly.BridgeAbutmentSeatCandidate.from_json(
             candidate.to_json()) == candidate
-        assert assembly._EXCLUSION_CACHE_VERSION >= 5
+        assert assembly._EXCLUSION_CACHE_VERSION >= 6
 
 
 class TestBridgeAbutmentSeat:
@@ -3650,20 +3651,28 @@ class TestBridgeAbutmentSeat:
         assert record["drop_m"] == pytest.approx(
             _SEAT_LAND_ELEVATION_M - _SEAT_WATER_ELEVATION_M, abs=1e-4)
         assert record["drop_m"] > record["reseat_threshold_m"]
-        # The spec's expected outcome: deck top = abutment grade + the
-        # authored -0.31 m, i.e. ~3.65 m.
-        assert record["expected_deck_top_m"] == pytest.approx(3.65, abs=1e-2)
+        # R12-1 ADAPTATION (was: deck top = abutment grade + the
+        # authored -0.31 m, i.e. ~3.65 m).  The datum is now the DECK
+        # TOP, so the seated deck top IS the abutment grade and the
+        # authored crest moves into the seat plane instead.
+        assert record["expected_deck_top_m"] == pytest.approx(
+            _SEAT_LAND_ELEVATION_M, abs=1e-4)
+        assert record["achieved_deck_top_m"] == pytest.approx(
+            record["expected_deck_top_m"], abs=0.01)
+        assert record["seat_plane_y0_m"] == pytest.approx(
+            _SEAT_LAND_ELEVATION_M - _SEAT_DECK_TOP_Y_M, abs=1e-4)
         assert record["baked"] is True
         assert result["objects_written"] == [_SEAT_RESOURCE]
 
-        # ...and the pack really moved, rigidly, by the drop.
+        # ...and the pack really moved, rigidly, by drop - crest.
         live_y = _seat_vertex_y_values(pack_root / _SEAT_RESOURCE)
         authored_y = _seat_vertex_y_values(
             pack_root / (_SEAT_RESOURCE + ".anchor_bak"))
         assert live_y != authored_y
         offsets = {round(baked - original, 4)
                    for baked, original in zip(live_y, authored_y)}
-        assert offsets == {round(record["drop_m"], 4)}
+        assert offsets == {
+            round(record["drop_m"] - _SEAT_DECK_TOP_Y_M, 4)}
 
     def test_land_anchor_within_threshold_stays_draped(
         self, tmp_path, monkeypatch

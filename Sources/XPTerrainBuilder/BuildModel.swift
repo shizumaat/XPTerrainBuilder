@@ -172,9 +172,14 @@ final class BuildModel: ObservableObject {
 
     // MARK: Selection (Qt semantics: a set + one active tile)
 
-    @Published var selected: Set<TileCoord> = []
+    @Published var selected: Set<TileCoord> = [] {
+        didSet { persistSelection() }
+    }
     @Published var activeTile: TileCoord? {
-        didSet { adoptActiveTileConfig() }
+        didSet {
+            adoptActiveTileConfig()
+            persistSelection()
+        }
     }
 
     /// Selecting a built tile adopts its recorded imagery source and zoom
@@ -185,6 +190,33 @@ final class BuildModel: ObservableObject {
         guard let coord = activeTile, let info = built[coord] else { return }
         if !info.provider.isEmpty { buildProvider = info.provider }
         if let zl = info.zl { buildZL = zl }
+    }
+
+    /// Both selection keys, rewritten whole on every change. A selection is
+    /// hand-sized (the user clicks tiles), so there is nothing to debounce.
+    private func persistSelection() {
+        let defaults = UserDefaults.standard
+        defaults.set(selected.sorted().map(\.key), forKey: PrefKeys.selectedTiles)
+        defaults.set(activeTile?.key ?? "", forKey: PrefKeys.activeTile)
+    }
+
+    /// The selection outlives the app: last session's selected set and
+    /// active tile come back on launch, the same doctrine as the
+    /// built/installed squares. Runs AFTER loadCachedTileStates so the
+    /// active tile's config adoption sees `built` exactly as it does on a
+    /// user click. Keys that no longer parse are dropped silently, and an
+    /// active tile outside the restored set falls back to the set's first
+    /// tile — the deselect path's rule.
+    private func restoreSelection() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.stringArray(forKey: PrefKeys.selectedTiles) ?? []
+        selected = Set(stored.compactMap(TileMath.parse)
+            .map { TileCoord(lat: $0.lat, lon: $0.lon) })
+        let active = defaults.string(forKey: PrefKeys.activeTile)
+            .flatMap(TileMath.parse)
+            .map { TileCoord(lat: $0.lat, lon: $0.lon) }
+        activeTile = active.flatMap { selected.contains($0) ? $0 : nil }
+            ?? selected.sorted().first
     }
 
     // MARK: Run state
@@ -214,6 +246,7 @@ final class BuildModel: ObservableObject {
         OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
         reloadEngine()
         loadCachedTileStates()
+        restoreSelection()
     }
 
     /// Optimistic launch for the build map: last session's built/installed

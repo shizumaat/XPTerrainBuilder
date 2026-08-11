@@ -10,4 +10,10 @@ enum PrefKeys {
     /// Where downloads, caches and built tiles live (ORTHO4XP_DATA_ROOT).
     /// Empty until the first-run prompt has been answered.
     static let dataRoot = "DataRootPath"
+    /// The build map's selected set, as canonical tile keys
+    /// (`TileMath.key`, e.g. "+35-081"), sorted by (lat, lon).
+    static let selectedTiles = "SelectedTiles"
+    /// The build map's active tile, one canonical tile key.
+    /// Absent or empty = no active tile.
+    static let activeTile = "ActiveTileKey"
 }

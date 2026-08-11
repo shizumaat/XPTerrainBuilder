@@ -107,8 +107,13 @@ import Foundation
         #expect(TileMath.parse("+41-073")! == (41, -73))
         #expect(TileMath.parse("-09+008")! == (-9, 8))
         #expect(TileMath.parse("garbage") == nil)
+        // Malformed keys the persisted selection can hand back: empty,
+        // a foreign spelling, an out-of-range latitude.
+        #expect(TileMath.parse("") == nil)
+        #expect(TileMath.parse("35,-81") == nil)
+        #expect(TileMath.parse("+91-000") == nil)
         // Round trip every plausible tile format.
-        for (lat, lon) in [(0, 0), (89, 179), (-90, -180), (-1, -1)] {
+        for (lat, lon) in [(0, 0), (89, 179), (89, -180), (-90, -180), (-1, -1)] {
             let key = TileMath.key(lat: lat, lon: lon)
             let parsed = TileMath.parse(key)
             #expect(parsed?.lat == lat && parsed?.lon == lon, "\(key)")

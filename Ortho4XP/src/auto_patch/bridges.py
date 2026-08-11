@@ -66,6 +66,8 @@ from .layout import (
     ROLE_RETAINING_WALL,
     ROLE_RUNWAY_CLEARANCE,
     ROLE_RUNWAY_CROSSING,
+    ROLE_SERVICE_JUNCTION,
+    ROLE_SERVICE_ROAD,
     ROLE_TUNNEL_RAMP,
     ROLE_TUNNEL_TRENCH,
     SHARED_VERTEX_TOL_M,
@@ -574,6 +576,63 @@ PORTAL_TUNNEL_VALUES = {"yes"}
 # no env knob, because a gate here decides whether a tunnel exists.
 TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC = 0.5
 TUNNEL_BORE_PAVEMENT_COVER_FRAC = 0.10
+
+# R14-3 — THE RAMP RUN IS DEPTH OVER GRADE.  A mouth's open cut climbs
+# to ambient in ``bore_depth / TUNNEL_APPROACH_GRADE`` and stops there;
+# it is NOT the mapped way's remaining extent.
+#
+# OWNER RULING 2026-08-11, verbatim: "Ramps should be at up to 5% grade."
+# This is a CAP, and the distinction is load-bearing: ``bore_depth /
+# TUNNEL_APPROACH_GRADE`` is therefore the MINIMUM lawful run.  A LONGER
+# run at a shallower grade is lawful where the geometry demands it; a
+# STEEPER one never is, which is what the ``max_drop`` cap below the
+# walk enforces on the emitted top edge.  It reads back exactly to the
+# owner's own worked example — climb to ambient "in ~100 m" from the
+# 5.1 m clearance depth a service-road bore takes, 5.1 / 100 = 0.051.
+# The 3.5 % it replaces is a HIGHWAY planning grade, and spending it on
+# a service road bought 43 % more roadway for the same climb.
+TUNNEL_APPROACH_GRADE = 0.05
+
+# R14-1/A-1 — the ref a CLAIMED road surface takes.  A claimed shape
+# keeps its role (and therefore its authority rank); the ref is what
+# registers it in ``groundside.BELOW_GRADE_REFS`` so the unchanged R5
+# transition law grades the surrounding surface toward it, and what puts
+# it in this module's tunnel-pavement union so no wall may cover it.
+TUNNEL_ROAD_REF = "tunnel_road"
+
+# R14-2/A-3 — AIRCRAFT-TRANSIT PAVEMENT A CUT NEVER INTERRUPTS.  The
+# runway family was already never cut; A-3 adds the taxiway family.
+# Owner: "nothing may cut a taxiway" — an aircraft cannot detour round a
+# trench.  ``apron`` / ``service_road`` / ``service_junction`` /
+# ``groundside_pavement`` stay cuttable: owner ruling 4's beheading
+# precedent lives exactly there (OTHH's mapped portals open within apron
+# and service pavement), so this supersedes ruling 4 for the taxiway
+# family ONLY.
+_TUNNEL_PROTECTED_TRANSIT_ROLES = frozenset({
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_RUNWAY_CLEARANCE,
+    ROLE_JUNCTION, ROLE_CROSS_CONNECTOR, ROLE_PRIMARY_PARALLEL,
+    ROLE_SECONDARY_PARALLEL, ROLE_STUB,
+})
+
+
+def _bore_floor_elevation(apt_elev, deck_reference, mouth_min,
+                          cut_measured, tunnel_depth_m):
+    """A-2: the elevation a bore's floor sits at.
+
+    ``deck_reference − BRIDGE_ROAD_CLEARANCE_M`` — what the crossing
+    structurally requires and no more.  A bore whose DEM cut was
+    MEASURED keeps R10-3's deeper-of-the-two, so a real trench is never
+    filled back in.  The 8 m ``tunnel_depth_m`` is the last resort for a
+    portal with no deck reference at all (``layer < 0``, no usable DEM,
+    no crossing): there, nothing has been measured to reason from.
+    """
+    if deck_reference is None:
+        return float(apt_elev) - float(tunnel_depth_m)
+    _clearance_floor = (float(deck_reference)
+                        - float(_CFG.BRIDGE_ROAD_CLEARANCE_M))
+    if cut_measured and mouth_min is not None:
+        return min(float(mouth_min), _clearance_floor)
+    return _clearance_floor
 
 
 def _load_tunnel_road_network(layout: "PavementLayout"):
@@ -1913,60 +1972,6 @@ def _gather_portal_walks(
                           f"({portal_xy[0]:.0f},{portal_xy[1]:.0f}): "
                           f"no airport elevation")
                 continue
-            elev_low = apt_elev - tunnel_depth_m
-            # Find the truncation point that keeps grade ≤
-            # max_ramp_grade.  Walk along the polyline summing
-            # cumulative distance; sample DEM at each vertex; the
-            # required-length-so-far is (DEM - elev_low) /
-            # max_ramp_grade.  Stop walking once the actual walk
-            # length matches or exceeds that requirement (i.e. the
-            # grade from portal to here is ≤ max_ramp_grade).
-            cum = 0.0
-            kept_pts: list[tuple[float, float]] = [walk[0]]
-            grade_ok_at: float = 0.0  # cum dist where grade is OK
-            for i in range(1, len(walk)):
-                seg_len = math.hypot(
-                    walk[i][0] - walk[i - 1][0],
-                    walk[i][1] - walk[i - 1][1])
-                cum += seg_len
-                kept_pts.append(walk[i])
-                try:
-                    plat, plon = meters_to_lat_lon(*walk[i])
-                    dem_h = _sample_dem(
-                        dem, tile_lat, tile_lon, plat, plon)
-                except _GEOM_EXC:
-                    dem_h = None
-                if dem_h is None:
-                    continue
-                drop = float(dem_h) - elev_low
-                req = (drop / plan_grade if drop > 0 else 0.0)
-                if cum >= req and cum >= ramp_min_length_m:
-                    grade_ok_at = cum
-                    break
-                grade_ok_at = cum
-            # Truncate walk to the OK length (or to last vertex
-            # reached if we never satisfied the grade — best
-            # effort, the resulting ramp will be the gentlest
-            # achievable on the available roadway).
-            walk = kept_pts
-            far_xy = walk[-1]
-            try:
-                far_lat, far_lon = meters_to_lat_lon(*far_xy)
-                far_dem = _sample_dem(
-                    dem, tile_lat, tile_lon, far_lat, far_lon)
-            except _GEOM_EXC:
-                far_dem = None
-            if far_dem is None:
-                far_dem = apt_elev
-            # If the resulting ramp would still violate grade
-            # (DEM very high, road too short), cap far_dem at
-            # elev_low + grade*length so we still emit something
-            # sensible.  The visible top edge then sits LOWER
-            # than DEM (subtle terrain dip) — preferable to a
-            # spike or a mid-tunnel cap.
-            max_drop = plan_grade * grade_ok_at
-            if (far_dem - elev_low) > max_drop:
-                far_dem = elev_low + max_drop
             # ── DEM-CUT DETECTION (user 2026-07-17, EGGW) ─────────
             # With a lidar elevation inset the bare-earth DEM already
             # carries the descending approach cut; when it does, the
@@ -2162,6 +2167,72 @@ def _gather_portal_walks(
                       f"({walk[0][0]:.0f},{walk[0][1]:.0f}): no DEM cut, "
                       f"admitted on cover (building={_f_building}, "
                       f"pavement={_f_pavement}) — the pavement is the deck")
+            # ── A-2 / R14-3: THE BORE FLOOR, THEN THE RUN ────────
+            # The floor is the road CLEARANCE below the MEASURED deck,
+            # not a fixed 8 m.  A service road passing under a crossing
+            # needs road clearance and no more; the 8 m synthetic sank
+            # KCLT's SE bore 11.46 m, and a climb out of that hole then
+            # demanded 361 m of roadway.  A cut bore keeps R10-3's
+            # deeper-of-the-two.  ``tunnel_depth_m`` survives only where
+            # there is no deck reference at all.
+            elev_low = _bore_floor_elevation(
+                apt_elev, _deck_reference, _mouth_min, _cut_measured,
+                tunnel_depth_m)
+            # THE RUN IS DEPTH OVER GRADE, never the way's extent.
+            # Three mechanisms used to outlive grade-reach here, and all
+            # three are gone: the 8 m synthetic floor (above), the 3.5 %
+            # planning grade, and ``ramp_min_length_m``'s 200 m MINIMUM,
+            # which kept walking after the grade requirement was already
+            # met.  A minimum that outlives grade-reach is not a floor,
+            # it is a canyon: it carried KCLT's SE chain 173 m into a
+            # taxiway junction.  ``ramp_min_length_m`` is retired from
+            # this walk (the parameter stays for the callers).
+            _ambient = (float(_deck_reference) if _deck_reference is not None
+                        else float(apt_elev))
+            # The MINIMUM lawful run at the owner's 5 % cap.  Walking
+            # further would be lawful (shallower); walking less would
+            # not (steeper), and the ``max_drop`` cap below holds the
+            # emitted top edge to the cap either way.
+            _bore_depth = max(0.0, _ambient - elev_low)
+            _run_limit = max(_bore_depth / TUNNEL_APPROACH_GRADE, 1.0)
+            cum = 0.0
+            kept_pts: list[tuple[float, float]] = [walk[0]]
+            for i in range(1, len(walk)):
+                seg_len = math.hypot(
+                    walk[i][0] - walk[i - 1][0],
+                    walk[i][1] - walk[i - 1][1])
+                if cum + seg_len >= _run_limit:
+                    _t = ((_run_limit - cum) / seg_len
+                          if seg_len > 1e-9 else 1.0)
+                    _t = min(1.0, max(0.0, _t))
+                    _cx = walk[i - 1][0] + _t * (walk[i][0] - walk[i - 1][0])
+                    _cy = walk[i - 1][1] + _t * (walk[i][1] - walk[i - 1][1])
+                    if math.hypot(_cx - kept_pts[-1][0],
+                                  _cy - kept_pts[-1][1]) > 0.5:
+                        kept_pts.append((_cx, _cy))
+                    cum = _run_limit
+                    break
+                cum += seg_len
+                kept_pts.append(walk[i])
+            if len(kept_pts) < 2:
+                kept_pts = list(walk[:2])
+                cum = math.hypot(walk[1][0] - walk[0][0],
+                                 walk[1][1] - walk[0][1])
+            grade_ok_at = cum
+            walk = kept_pts
+            far_xy = walk[-1]
+            try:
+                far_lat, far_lon = meters_to_lat_lon(*far_xy)
+                far_dem = _sample_dem(
+                    dem, tile_lat, tile_lon, far_lat, far_lon)
+            except _GEOM_EXC:
+                far_dem = None
+            if far_dem is None:
+                far_dem = _ambient
+            # The visible top edge never outruns the approach grade.
+            max_drop = TUNNEL_APPROACH_GRADE * grade_ok_at
+            if (far_dem - elev_low) > max_drop:
+                far_dem = elev_low + max_drop
             mouth_grade = (_mouth_min if _mouth_min is not None
                            else apt_elev - tunnel_depth_m)
             # Bore polyline INWARD from this portal (for the roof
@@ -2595,7 +2666,8 @@ def _cluster_portals(portal_data: list, nodes_m: dict,
 # ROLE_TUNNEL_RAMP and is road surface exactly like ``tunnel_ramp`` —
 # leaving it out of the cutting union is what let a cap cover the mouth
 # it was supposed to face.
-_TUNNEL_PAVEMENT_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor")
+_TUNNEL_PAVEMENT_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor",
+                         TUNNEL_ROAD_REF)
 _TUNNEL_COVER_REFS = ("tunnel_wall", "tunnel_roof", "tunnel_cap")
 _TUNNEL_COVER_MIN_PIECE_M2 = 0.5
 # Ruling 4's "the tunnel road wins over the pavement it surfaces
@@ -4549,11 +4621,17 @@ _RAMP_RUNWAY_DROP_FRACTION = 0.5
 
 
 def _tunnel_ramp_cut_roles() -> frozenset:
-    """The pavement roles a tunnel ramp CUTS (ruling 4): ruling R13's
-    groundside-inclusive set minus the runway family the safety floor
-    protects."""
+    """The pavement roles a tunnel ramp CUTS: ruling R13's
+    groundside-inclusive set, minus the runway family the safety floor
+    protects, minus R14-2/A-3's aircraft-transit family.
+
+    Ruling 4 ("the tunnel ramp wins over pavement") still governs apron
+    and the service/groundside roads where its beheading precedent was
+    measured; it does NOT reach the taxiway family, which R14-2 protects
+    outright."""
     return frozenset(
-        pavement_cut_roles(include_groundside=True) - _RAMP_NEVER_CUT_ROLES)
+        pavement_cut_roles(include_groundside=True)
+        - _RAMP_NEVER_CUT_ROLES - _TUNNEL_PROTECTED_TRANSIT_ROLES)
 
 
 def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
@@ -4725,12 +4803,71 @@ def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
     return alts
 
 
+def _clip_piece_off_protected(shape, protected_union):
+    """``shape`` clipped clear of AIRCRAFT-TRANSIT pavement, or ``None``.
+
+    R14-2: a cut never interrupts a runway or taxiway — an aircraft
+    cannot detour round a trench, and the only lawful way under one is a
+    classified hard-deck object bridge.  A piece MOSTLY over protected
+    pavement is covered bore and drops whole (the existing drop law
+    already hides that stretch); a graze is clipped back to the pavement
+    edge with the usual vertex-bucket clearance.  Altitudes carry by the
+    same conversions every other tunnel clip uses; a piece whose profile
+    cannot be answered drops rather than shipping a wrong one.
+    """
+    _poly = getattr(shape, "polygon", None)
+    if _poly is None or _poly.is_empty or protected_union is None:
+        return shape
+    try:
+        _ov = _poly.intersection(protected_union).area
+    except _GEOM_EXC:
+        return shape
+    if _ov <= 0.25:
+        return shape
+    if _ov >= 0.5 * _poly.area:
+        return None
+    try:
+        _cut = _poly.difference(
+            protected_union.buffer(_TUNNEL_GRAZE_CLEARANCE_M))
+    except _GEOM_EXC:
+        return None
+    if _cut.geom_type == "MultiPolygon":
+        _cut = max(_cut.geoms, key=lambda g: g.area)
+    if (_cut.geom_type != "Polygon" or _cut.is_empty or _cut.area < 1.0):
+        return None
+    if shape.node_altitudes:
+        try:
+            _ring = list(_poly.exterior.coords)
+        except _GEOM_EXC:
+            return None
+        if _ring and _ring[0] == _ring[-1]:
+            _ring = _ring[:-1]
+        _res = _resample_node_altitudes_nn(
+            _cut, _ring, list(shape.node_altitudes),
+            interior_edge_project=True)
+        if _res is None:
+            return None
+        shape.node_altitudes = _res
+    elif (shape.altitude_high is not None
+            and shape.altitude_low is not None):
+        _res = _sloped_rect_clipped_altitudes(
+            _poly, shape.altitude_high, shape.altitude_low, _cut)
+        if _res is None:
+            return None
+        shape.altitude_high = None
+        shape.altitude_low = None
+        shape.node_altitudes = _res
+    shape.polygon = _cut
+    return shape
+
+
 def _finalize_tunnel_emission(
         layout: "PavementLayout", exclusion_zones: list,
         boundary_clearance_m: float, airside_gate_union,
         pre_emit_shape_ids: set, n_emitted: int,
         ramp_way_ids: dict | None = None,
-        ramp_cut_clearance_m: float = 0.0) -> int:
+        ramp_cut_clearance_m: float = 0.0,
+        protected_union=None) -> int:
     """Post-emission coordination: boundary-ribbon subtraction, the
     ruling-4 ramp pavement cut, the under-pavement piece drop, and the
     wall-vs-ramp clip.  Returns the emitted-portal count.
@@ -4873,7 +5010,19 @@ def _finalize_tunnel_emission(
                 _kept9.append(s9)
                 continue
             if _ref9 in _TUNNEL_PAVEMENT_REFS:
-                _kept9.append(s9)       # ruling 4 — emitted whole
+                # Ruling 4 — emitted whole over the pavement it may cut.
+                # R14-2/A-3 carves out the AIRCRAFT-TRANSIT family: a
+                # ramp neither cuts a taxiway nor sits on one.  Owner:
+                # "nothing may cut a taxiway."  Over protected pavement
+                # the stretch is COVERED BORE, so the mostly-covered
+                # piece drops and a graze is clipped back to the edge —
+                # the same two-way discriminator the cap/wall use.
+                if protected_union is not None:
+                    s9 = _clip_piece_off_protected(s9, protected_union)
+                    if s9 is None:
+                        _n_clip += 1
+                        continue
+                _kept9.append(s9)
                 continue
             _gate9 = (_post_gate_u if _ref9 in ("tunnel_wall",
                                                 "tunnel_roof")
@@ -5096,6 +5245,353 @@ def _record_tunnel_mouth_walling(layout: "PavementLayout",
             f"perimeter answered by neither wall, cap nor pavement).")
     except _GEOM_EXC:
         pass
+
+
+#: R14-1/A-1 — the road-family roles a tunnel system may CLAIM.  Exactly
+#: the R5 ``TRANSITION_ROLES`` road members: these are the surfaces the
+#: transition law already re-profiles post-solve, so claiming them is that
+#: same precedent carried one step further (a LEVEL plate rather than a
+#: graded one), not a new authority.  Airside is absent on purpose.
+_TUNNEL_CLAIMABLE_ROAD_ROLES = frozenset({
+    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION, ROLE_GROUNDSIDE_PAVEMENT,
+})
+#: A claimed shape must actually COVER the alignment, not graze it.
+_TUNNEL_CLAIM_MIN_OVERLAP_M2 = 2.0
+#: A shape covering at least this FRACTION of its own area with the
+#: between-portals seed is part of the LEVEL surface, not an approach.
+_TUNNEL_CLAIM_LEVEL_AREA_FRAC = 0.25
+
+
+def _tunnel_open_cut_regions(portal_data: list, facing_pairs: list,
+                             wall_gap_m: float) -> list:
+    """``[(level_zone, approach_zone, floor_elev)]`` — a tunnel system's
+    OPEN-CUT EXTENT, one record per portal and per facing pair.
+
+    ``level_zone`` is the ground the bore holds at ONE level: the mouth
+    plate at each portal, and the whole roadway between two facing
+    portals (the owner's "the whole triangular intersection and both
+    portal areas are ONE level surface at bore depth").  ``approach_zone``
+    is the R14-3 run outward from the mouth, where the surface climbs
+    back to ambient.  Both are plan-space only — the elevations live in
+    ``floor_elev`` and the R14-3 grade.
+    """
+    _regions: list = []
+
+    def _quad(p_a, p_b, half_w):
+        _dx, _dy = p_b[0] - p_a[0], p_b[1] - p_a[1]
+        _len = math.hypot(_dx, _dy)
+        if _len < 1e-6 or half_w <= 0.0:
+            return None
+        _px, _py = -_dy / _len, _dx / _len
+        try:
+            _q = Polygon([
+                (p_a[0] + _px * half_w, p_a[1] + _py * half_w),
+                (p_b[0] + _px * half_w, p_b[1] + _py * half_w),
+                (p_b[0] - _px * half_w, p_b[1] - _py * half_w),
+                (p_a[0] - _px * half_w, p_a[1] - _py * half_w),
+            ])
+            if not _q.is_valid:
+                _q = _q.buffer(0)
+            return _q if _q.geom_type == "Polygon" and not _q.is_empty else None
+        except _GEOM_EXC:
+            return None
+
+    _paired: set = set()
+    for (i, j) in facing_pairs:
+        _paired.add(i)
+        _paired.add(j)
+        _a, _b = portal_data[i], portal_data[j]
+        _half = 0.5 * max(float(_a[7]), float(_b[7])) + wall_gap_m
+        _level = _quad(_a[2][0], _b[2][0], _half)
+        if _level is None:
+            continue
+        _ga = _mouth_grade_with_clearance(_a[9], _a[11] if len(_a) > 11 else None)
+        _gb = _mouth_grade_with_clearance(_b[9], _b[11] if len(_b) > 11 else None)
+        if _ga is None or _gb is None:
+            continue
+        _floor = min(float(_ga), float(_gb))
+        for _pd in (_a, _b):
+            _app = _approach_zone(_pd, wall_gap_m)
+            _regions.append((_level, _app, _floor))
+    for k, _pd in enumerate(portal_data):
+        if k in _paired:
+            continue
+        _grade = _mouth_grade_with_clearance(
+            _pd[9], _pd[11] if len(_pd) > 11 else None)
+        if _grade is None or len(_pd[2]) < 2:
+            continue
+        _walk = _pd[2]
+        _dx, _dy = _walk[1][0] - _walk[0][0], _walk[1][1] - _walk[0][1]
+        _dl = math.hypot(_dx, _dy) or 1.0
+        _out = (_dx / _dl, _dy / _dl)
+        _mouth_end = (_walk[0][0] + _out[0] * TUNNEL_MOUTH_PLATE_LENGTH_M,
+                      _walk[0][1] + _out[1] * TUNNEL_MOUTH_PLATE_LENGTH_M)
+        _level = _quad(_walk[0], _mouth_end,
+                       0.5 * float(_pd[7]) + wall_gap_m)
+        if _level is None:
+            continue
+        _regions.append((_level, _approach_zone(_pd, wall_gap_m),
+                         float(_grade)))
+    return _regions
+
+
+def _approach_zone(portal_row, wall_gap_m: float):
+    """The R14-3 run's plan footprint: the (already run-limited) walk
+    widened to the carriageway.  ``None`` when the walk cannot buffer."""
+    _walk = portal_row[2]
+    if len(_walk) < 2:
+        return None
+    try:
+        return LineString(_walk).buffer(
+            0.5 * float(portal_row[7]) + wall_gap_m, cap_style=2)
+    except _GEOM_EXC:
+        return None
+
+
+def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
+                         facing_pairs: list, wall_gap_m: float) -> tuple:
+    """R14-1/A-1: THE PAVED AREA IS THE CORRIDOR.
+
+    Where mapped road pavement covers a tunnel system's open-cut extent,
+    that pavement IS the tunnel surface: it is re-profiled in place —
+    bore-depth LEVEL across the mouths and the roadway between two facing
+    portals, then climbing at ``TUNNEL_APPROACH_GRADE`` back to whatever
+    the solver gave it — instead of a synthetic rectangle being emitted
+    beside it.  A synthetic corridor next to at-grade road pavement is a
+    CLIFF (measured KCLT: an 8.31 m step across the 0.6 m graze
+    standoff), and that cliff is the defect class this law removes.
+
+    The claim never RAISES a vertex: each one takes the lower of its
+    solved value and the tunnel profile, so the claim can only dig, and
+    it dies out on its own where the profile climbs back through the
+    surrounding surface.
+
+    AIRSIDE IS KING: an apron or any aircraft-transit shape inside the
+    extent is never claimed and never sunk.  It mints a counted
+    ``tunnel_airside_conflict`` finding instead — at KCLT that is almost
+    certainly road pavement the scorer mis-roled, and that verdict
+    belongs to the classify instrument, not to this emitter.
+
+    Returns ``(n_claimed, claimed_polygons)``.
+    """
+    from .groundside import _ring_and_altitudes
+    _regions = _tunnel_open_cut_regions(
+        portal_data, facing_pairs, wall_gap_m)
+    if not _regions:
+        return 0, []
+
+    def _claimable(shape):
+        _poly = getattr(shape, "polygon", None)
+        if _poly is None or _poly.is_empty or _poly.geom_type != "Polygon":
+            return None
+        return _poly
+
+    _airside: list = []
+    _shapes = [s for s in (getattr(layout, "shapes", ()) or ())]
+    # ── PASS 1: THE LEVEL SURFACE ────────────────────────────────────
+    # The carriageway quad between two facing portals is only a SEED.
+    # The owner's law is about the whole INTERSECTION — "the whole
+    # triangular intersection and both portal areas are ONE level
+    # surface at bore depth" — so a road shape that substantially
+    # covers the seed is levelled WHOLE, and the intersection comes out
+    # one surface however its junction plates happen to be cut.  A shape
+    # that merely clips the seed is left to pass 2, where it grades:
+    # levelling it whole would sink pavement the bore never runs under.
+    _level_members: list = []          # (shape, ring, alts, floor)
+    _claimed_ids: set = set()
+    for _shape in _shapes:
+        _poly = _claimable(_shape)
+        if _poly is None:
+            continue
+        _role = getattr(_shape, "role", "")
+        _best = None
+        for _level, _app, _floor in _regions:
+            if _level is None:
+                continue
+            try:
+                _ov = _poly.intersection(_level).area
+            except _GEOM_EXC:
+                continue
+            if _ov < _TUNNEL_CLAIM_MIN_OVERLAP_M2:
+                continue
+            if _ov < _TUNNEL_CLAIM_LEVEL_AREA_FRAC * _poly.area:
+                continue
+            if _best is None or _floor < _best:
+                _best = float(_floor)
+        if _best is None:
+            continue
+        if _role not in _TUNNEL_CLAIMABLE_ROAD_ROLES:
+            if _role in _TUNNEL_PROTECTED_TRANSIT_ROLES or _role == ROLE_APRON:
+                _airside.append({
+                    "role": _role, "ref": getattr(_shape, "ref", ""),
+                    "area_m2": round(_poly.area, 1),
+                    "level_it_would_need_m": round(_best, 2),
+                })
+            continue
+        _ring, _alts = _ring_and_altitudes(_shape)
+        if _ring is None or not _alts:
+            continue
+        _level_members.append((_shape, _ring, _alts, _best))
+        _claimed_ids.add(id(_shape))
+    # The LEVEL SURFACE those members now form: pass 2 grades away from
+    # this, not from the seed, so an approach starts climbing at the real
+    # edge of the level pavement.
+    _level_parts = [_l for _l, _a, _f in _regions if _l is not None]
+    _level_parts.extend(_s.polygon for _s, _r, _a, _f in _level_members)
+    try:
+        _level_surface = unary_union(_level_parts) if _level_parts else None
+    except _GEOM_EXC:
+        _level_surface = None
+    _claimed_polys: list = []
+    _n = 0
+    for _shape, _ring, _alts, _floor in _level_members:
+        _new = [round(min(float(_alts[_v]), _floor), 2)
+                for _v in range(len(_ring))]
+        if max(abs(_new[_v] - float(_alts[_v]))
+               for _v in range(len(_ring))) < 0.01:
+            continue
+        _shape.node_altitudes = list(_new) + [_new[0]]
+        _shape.altitude = None
+        _shape.altitude_high = None
+        _shape.altitude_low = None
+        _shape.ref = TUNNEL_ROAD_REF
+        _claimed_polys.append(_shape.polygon)
+        _n += 1
+    # ── PASS 2: THE GRADED APPROACHES ────────────────────────────────
+    for _shape in _shapes:
+        if id(_shape) in _claimed_ids:
+            continue
+        _poly = _claimable(_shape)
+        if _poly is None:
+            continue
+        _role = getattr(_shape, "role", "")
+        _hits = []
+        for _level, _app, _floor in _regions:
+            _zone = [_z for _z in (_level, _app) if _z is not None]
+            if not _zone:
+                continue
+            try:
+                _ov = max(_poly.intersection(_z).area for _z in _zone)
+            except _GEOM_EXC:
+                continue
+            if _ov >= _TUNNEL_CLAIM_MIN_OVERLAP_M2:
+                _hits.append((_level, float(_floor)))
+        if not _hits:
+            continue
+        if _role not in _TUNNEL_CLAIMABLE_ROAD_ROLES:
+            if _role in _TUNNEL_PROTECTED_TRANSIT_ROLES or _role == ROLE_APRON:
+                _airside.append({
+                    "role": _role, "ref": getattr(_shape, "ref", ""),
+                    "area_m2": round(_poly.area, 1),
+                    "level_it_would_need_m": round(
+                        min(_f for _l, _f in _hits), 2),
+                })
+            continue
+        _ring, _alts = _ring_and_altitudes(_shape)
+        if _ring is None or not _alts:
+            continue
+        _new = list(_alts)
+        _moved = 0.0
+        for _v in range(len(_ring)):
+            _pt = Point(_ring[_v])
+            _best = None
+            for _level, _floor in _hits:
+                _from = (_level_surface if _level_surface is not None
+                         else _level)
+                if _from is None:
+                    continue
+                try:
+                    _d = _from.distance(_pt)
+                except _GEOM_EXC:
+                    continue
+                _profile = _floor + TUNNEL_APPROACH_GRADE * _d
+                if _best is None or _profile < _best:
+                    _best = _profile
+            if _best is None:
+                continue
+            _value = min(float(_alts[_v]), _best)
+            _moved = max(_moved, abs(_value - float(_alts[_v])))
+            _new[_v] = round(_value, 2)
+        if _moved < 0.01:
+            continue
+        _shape.node_altitudes = list(_new) + [_new[0]]
+        _shape.altitude = None
+        _shape.altitude_high = None
+        _shape.altitude_low = None
+        _shape.ref = TUNNEL_ROAD_REF
+        _claimed_polys.append(_shape.polygon)
+        _n += 1
+    if _airside:
+        try:
+            _existing = list(
+                getattr(layout, "tunnel_airside_conflict", None) or [])
+            _existing.extend(_airside)
+            layout.tunnel_airside_conflict = _existing
+        except (AttributeError, TypeError):
+            pass
+        try:
+            UI.vprint(1,
+                f"  [pav-builder] R14-1: {len(_airside)} AIRSIDE shape(s) "
+                f"lie inside a tunnel open cut and were NOT claimed "
+                f"(airside is king) — likely road pavement the scorer "
+                f"mis-roled; adjudicate with the classify instrument.")
+        except _GEOM_EXC:
+            pass
+    if _n:
+        try:
+            UI.vprint(1,
+                f"  [pav-builder] R14-1: claimed {_n} road surface(s) as "
+                f"the tunnel corridor ({len(_level_members)} levelled at "
+                f"bore depth, the rest graded out at the "
+                f"{TUNNEL_APPROACH_GRADE:.0%} cap) — the paved area IS "
+                f"the corridor, so no synthetic rectangle stands beside "
+                f"it.")
+        except _GEOM_EXC:
+            pass
+    return _n, _claimed_polys
+
+
+def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
+                                       claimed_polys: list,
+                                       pre_emit_shape_ids: set) -> int:
+    """R14-1 second bullet: a synthetic ramp/corridor rectangle emits ONLY
+    where NO mapped road pavement covers the alignment.
+
+    Where a claimed road now carries the tunnel surface, the rectangle
+    beside it is the cliff's other half — it goes.  Judged by AREA
+    COVERED (>= half), so a piece merely clipping a claimed edge stays
+    and is welded by the ordinary cuts.
+    """
+    if not claimed_polys:
+        return 0
+    try:
+        _claimed = unary_union(claimed_polys)
+    except _GEOM_EXC:
+        return 0
+    _kept, _n = [], 0
+    for _s in layout.shapes:
+        if (id(_s) not in pre_emit_shape_ids
+                and getattr(_s, "ref", "") in ("tunnel_ramp",
+                                               "tunnel_corridor")
+                and _s.polygon is not None and not _s.polygon.is_empty):
+            try:
+                if (_s.polygon.intersection(_claimed).area
+                        >= 0.5 * _s.polygon.area):
+                    _n += 1
+                    continue
+            except _GEOM_EXC:
+                pass
+        _kept.append(_s)
+    if _n:
+        layout.shapes = _kept
+        try:
+            UI.vprint(1,
+                f"  [pav-builder] R14-1: stood down {_n} synthetic tunnel "
+                f"rectangle(s) — claimed road pavement carries the "
+                f"corridor there.")
+        except _GEOM_EXC:
+            pass
+    return _n
 
 
 def _emit_tunnel_portals(
@@ -5524,10 +6020,30 @@ def _emit_tunnel_portals(
         layout, _low_corridors, exclusion_zones,
         _airside_gate_u, _airport_elevation_at, _dem_at,
         tunnel_depth_m, wall_gap_m, retaining_wall_width_m)
+    # R14-1/A-1: THE PAVED AREA IS THE CORRIDOR.  Claim the road
+    # pavement covering this system's open cut and re-profile it, then
+    # stand down the synthetic rectangles it replaces.  Runs after the
+    # cluster/corridor emit (the regions are known) and before finalize
+    # (so the R10-2 cuts and the pavement clip see the claim).
+    _n_claim, _claimed = _claim_road_pavement(
+        layout, portal_data, _facing_pairs, wall_gap_m)
+    if _claimed:
+        _stand_down_synthetic_over_claimed(
+            layout, _claimed, _pre_emit_ids)
+    try:
+        _protected_u = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.role in _TUNNEL_PROTECTED_TRANSIT_ROLES
+             and s.polygon is not None and not s.polygon.is_empty])
+        if _protected_u.is_empty:
+            _protected_u = None
+    except _GEOM_EXC:
+        _protected_u = None
     return _finalize_tunnel_emission(
         layout, exclusion_zones, boundary_clearance_m,
         _airside_gate_u, _pre_emit_ids, n_emitted,
         ramp_way_ids=_ramp_way_ids,
+        protected_union=_protected_u,
         # Spec §2 W/G-1: the cut is the wall band's own annulus.
         ramp_cut_clearance_m=wall_gap_m + retaining_wall_width_m)
 

@@ -117,12 +117,16 @@ def _facing_network() -> tuple[dict, list, set, dict]:
     across the gap is ONE surface way, so each bore's outward approach
     walks it: the pre-A3 overlap dedup deleted one entrance entirely."""
     _to_m, m_to_ll = bridges._local_meter_projections(ANCHOR)
+    # Offset to y = 300 so the pair sits CLEAR of the taxiway strip:
+    # under R14-2 a mouth standing on aircraft-transit pavement is
+    # covered bore and is hidden, which would test that law instead of
+    # this one.
     nodes_m = {
         # west bore: -160 .. -60 ; gap: -60 .. -4 ; east bore: -4 .. 96
-        "WA": (-160.0, 0.0), "WM": (-110.0, 0.0), "WB": (-60.0, 0.0),
-        "EA": (-4.0, 0.0), "EM": (46.0, 0.0), "EB": (96.0, 0.0),
-        "W1": (-260.0, 0.0), "W2": (-460.0, 0.0),
-        "E1": (196.0, 0.0), "E2": (396.0, 0.0),
+        "WA": (-160.0, 300.0), "WM": (-110.0, 300.0), "WB": (-60.0, 300.0),
+        "EA": (-4.0, 300.0), "EM": (46.0, 300.0), "EB": (96.0, 300.0),
+        "W1": (-260.0, 300.0), "W2": (-460.0, 300.0),
+        "E1": (196.0, 300.0), "E2": (396.0, 300.0),
     }
     nodes_r = {nid: m_to_ll(x, y) for nid, (x, y) in nodes_m.items()}
     bore = {"highway": "unclassified", "tunnel": "yes", "layer": "-1"}
@@ -211,9 +215,12 @@ def _no_dem(_x, _y):
     return None
 
 
-def _trench(floor_m: float, half_width_m: float = 6.0):
+def _trench(floor_m: float, half_width_m: float = 6.0,
+            centre_y: float = 0.0):
+    """A lidar-style trench along the road line at ``centre_y``."""
     def _dem(_x, y_m):
-        return floor_m if abs(y_m) <= half_width_m else AIRPORT_SURFACE_M
+        return (floor_m if abs(y_m - centre_y) <= half_width_m
+                else AIRPORT_SURFACE_M)
     return _dem
 
 
@@ -537,7 +544,7 @@ class TestFacingBoresBothEmit:
 
     def _emit(self, monkeypatch):
         _install(monkeypatch, network=_facing_network(),
-                 dem=_trench(DEEP_TRENCH_FLOOR_M))
+                 dem=_trench(DEEP_TRENCH_FLOOR_M, centre_y=300.0))
         layout = _layout()
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)

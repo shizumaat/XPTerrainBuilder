@@ -266,7 +266,13 @@ def _grade_limit_ring(coords, alts, max_grade, iters=None, pinned=None):
 #: Shape ``ref``s whose emitted surface is CUT BELOW the surrounding
 #: ground — the transition law's sources.  A ramp dives by law; whatever
 #: stands beside it may not answer with a raw DEM sample.
-BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench")
+# ``tunnel_road`` (R14-1/A-1) is mapped road pavement the tunnel
+# system CLAIMED and re-profiled to the bore profile: it is below
+# grade and it is what the surrounding surface must grade toward, so
+# it belongs in this set exactly like an emitted ramp.  The claimed
+# shape keeps its own ROLE — and therefore its authority rank — so
+# nothing here is a new authority class.
+BELOW_GRADE_REFS = ("tunnel_ramp", "tunnel_trench", "tunnel_road")
 
 #: Roles whose plates take the transition law where they fall inside a
 #: below-grade surface's reach.  Retaining-wall crest bands are in here

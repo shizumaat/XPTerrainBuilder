@@ -8216,6 +8216,7 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                     substitution,
                     FLAT_SITE_MODE.CLUSTER_FINDING_DATUM,
                     placements=cluster.get("placements"),
+                    fallback_placements=cluster.get("fallback_placements"),
                     ring_offset_m=round(float(ring_offset_m), 2),
                     threshold_m=float(INSET_DATUM_WARNING_THRESHOLD_M),
                     extent_area_km2=cluster.get("extent_area_km2"),
@@ -8223,12 +8224,14 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 UI.vprint(
                     0,
                     "   [flat-site] %s: REFUSED a CLAIMED-OBJECT cluster "
-                    "inset at Z0 %.2f m (%d placement(s), %.2f km2) - it "
-                    "differs from the base DEM by a median %.2f m over the "
-                    "feather ring (>%d m; check vertical datum). The cluster "
-                    "stays on the real surface."
+                    "inset at Z0 %.2f m (%d placement(s), %d "
+                    "fallback-claimed, %.2f km2) - it differs from the base "
+                    "DEM by a median %.2f m over the feather ring (>%d m; "
+                    "check vertical datum). The cluster stays on the real "
+                    "surface."
                     % (icao, substitution["z0_m"],
                        cluster.get("placements") or 0,
+                       cluster.get("fallback_placements") or 0,
                        cluster.get("extent_area_km2") or 0.0,
                        float(ring_offset_m),
                        int(INSET_DATUM_WARNING_THRESHOLD_M)),

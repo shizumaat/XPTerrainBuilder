@@ -39,13 +39,24 @@ classification defect:
 ## The laws
 
 ### R11-1 A CLUSTER INSET REQUIRES A CONTAINMENT CLAIM
+### (AMENDED 2026-08-11, lead ruling on the implementer's STOP-3: the
+### HZMB fallback case)
 
-* A claimed-placement CLUSTER may extend an airport's flat substitution
-  ONLY when its placements were claimed by CONTAINMENT in that
-  airport's claim geometry. Placements that reached the airport through
-  the nearest-airport fallback are recorded (count, per-DSF) and
-  EXCLUDED from clustering — the fallback keeps its object-anchoring
-  role untouched.
+* A claimed-placement CLUSTER extends an airport's flat substitution
+  when its placements were claimed by CONTAINMENT in that airport's
+  claim geometry.
+* Placements that reached the airport through the nearest-airport
+  FALLBACK are recorded (count, per-DSF) and are NOT excluded outright:
+  they join clustering IFF their cluster passes BOTH guards — the
+  R11-1 distance bound (centroid within `FLAT_SITE_CLUSTER_MAX_KM` of
+  the claiming airport's apt.dat extent) AND the R11-2 feather-datum
+  check. This is what keeps R8-1's motivating case alive: VHHH's HZMB
+  island (fallback-claimed, ~1 km, datum-consistent at Z0) clusters;
+  KFLV→KMCI (fallback, ~19 km, −64.5 m) dies on both guards. The
+  fallback's object-ANCHORING role stays untouched either way.
+* Twin (added to the test items): a fallback-claimed cluster at 1 km
+  with a clean datum SURVIVES; the same cluster at 6 km, or at 1 km
+  with a 60 m datum error, refuses with the finding.
 * The per-airport entry loop in `claimed_placements_by_icao`
   (flat_site_mode.py ~335-345) names every airport it drops and why
   (one vprint per dropped icao: `[flat-site] claim-entry for XXXX

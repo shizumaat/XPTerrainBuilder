@@ -4,12 +4,14 @@ is no inset (docs/specs/round11-kmci-flat-claim-spec.md).
 Synthetic fixtures only: no X-Plane install, no CIFP, no network, no
 build, no write outside ``tmp_path``.
 
-* **R11-1** a claimed-placement CLUSTER may extend a flat substitution
-  only where the placements were claimed BY CONTAINMENT.  A dropped
-  claim entry is NAMED, the never-drop fallbacks are counted and
-  excluded, and a cluster standing further than
-  ``config.FLAT_SITE_CLUSTER_MAX_KM`` from the claiming airport's own
-  extent is refused with a counted finding.
+* **R11-1** (AMENDED 2026-08-11) a containment claim extends a flat
+  substitution outright; a FALLBACK claim is recorded and extends it
+  only where the cluster clears BOTH guards — the
+  ``config.FLAT_SITE_CLUSTER_MAX_KM`` distance bound and R11-2's
+  feather-datum check.  HZMB (fallback, ~1 km, datum-clean) survives;
+  KFLV→KMCI (fallback, ~19 km, −64.5 m) dies on either.  A dropped
+  claim entry is NAMED, because that is what left KFLV alone on KMCI's
+  DSF.
 * **R11-2** the feather-ring datum check REFUSES for cluster insets:
   the cluster is dropped and counted, and the airport's own apt.dat
   substitution is untouched either way.
@@ -125,21 +127,98 @@ def test_containment_claims_the_placements_when_both_entries_survive(
 def test_a_dropped_claim_entry_is_named_and_its_ground_is_not_awarded(
         monkeypatch, capsys):
     """R11-1, the KMCI mechanism: AAAA's entry raises, the DSF is left
-    with BBBB's entry alone, and BBBB — 19 km away — must NOT inherit
-    AAAA's placements for clustering.  Both the drop and the fallback
-    are said out loud."""
+    with BBBB's entry alone, and its placements reach BBBB — 19 km away
+    — by the sole-entry FALLBACK.  Both the drop and the fallback are
+    said out loud, the fallback set is handed back, and the cluster that
+    would flatten AAAA's ground dies on BBBB's distance bound (the
+    amended R11-1: recorded, then guarded, never silently inherited)."""
     _install_two_airport_pack(monkeypatch, raise_for="AAAA")
 
+    fallback: dict = {}
     out = flat_site_mode.claimed_placements_by_icao(
-        ["AAAA", "BBBB"], "/xplane", TILE_LAT, TILE_LON)
+        ["AAAA", "BBBB"], "/xplane", TILE_LAT, TILE_LON,
+        fallback_out=fallback)
 
-    assert out == {}
+    assert sorted(out) == ["BBBB"] and len(out["BBBB"]) == 12
+    assert len(fallback["BBBB"]) == 12
     printed = capsys.readouterr().out
     assert "claim-entry for AAAA dropped (RuntimeError: apt.dat unreadable)" \
         in printed
     assert "can only fall to OTHER airports" in printed
     assert "BBBB: 12 placement(s)" in printed
     assert "FALLBACK, not by containment" in printed
+    assert "clears BOTH guards" in printed
+
+    # BBBB's own extent is 19 km away: the guard, not the claim mode, is
+    # what stops the inheritance.
+    findings: list = []
+    boxes = flat_site_mode.claimed_placement_cluster_bounds(
+        out["BBBB"], ANCHOR, TILE_LAT, TILE_LON,
+        inside=Point(19000.0, 0.0).buffer(1000.0), findings=findings,
+        fallback_ll=fallback["BBBB"])
+    assert boxes == []
+    assert findings[0]["kind"] == flat_site_mode.CLUSTER_FINDING_TOO_FAR
+    assert findings[0]["fallback_placements"] == 12
+    assert findings[0]["distance_km"] == pytest.approx(18.0, abs=0.2)
+
+
+def test_a_fallback_claimed_cluster_survives_both_guards_at_one_km():
+    """R11-1 as AMENDED (the HZMB pin): a fallback-claimed cluster ~1 km
+    outside the extent is KEPT — the fallback is recorded, not a veto —
+    and it carries the count of the claims it rests on."""
+    extent = Point(0.0, 0.0).buffer(1000.0)
+    placements = _placement_block(2000.0, 0.0, 20)
+
+    findings: list = []
+    boxes = flat_site_mode.claimed_placement_cluster_bounds(
+        placements, ANCHOR, TILE_LAT, TILE_LON, inside=extent,
+        findings=findings, fallback_ll=placements)
+
+    assert len(boxes) == 1
+    assert boxes[0]["placements"] == 20
+    assert boxes[0]["fallback_placements"] == 20
+    assert findings == []
+
+
+def test_a_fallback_claimed_cluster_is_refused_at_six_km():
+    """...and the same cluster beyond the bound refuses, with the
+    fallback count in the finding."""
+    extent = Point(0.0, 0.0).buffer(1000.0)
+    placements = _placement_block(8000.0, 0.0, 20)
+
+    findings: list = []
+    boxes = flat_site_mode.claimed_placement_cluster_bounds(
+        placements, ANCHOR, TILE_LAT, TILE_LON, inside=extent,
+        findings=findings, fallback_ll=placements)
+
+    assert boxes == []
+    assert findings[0]["kind"] == flat_site_mode.CLUSTER_FINDING_TOO_FAR
+    assert findings[0]["fallback_placements"] == 20
+    assert 6.9 < findings[0]["distance_km"] < 7.1
+
+
+def test_a_fallback_claimed_cluster_at_one_km_still_faces_the_datum_check(
+        monkeypatch, capsys):
+    """The SECOND guard on the same cluster: 1 km out and datum-clean it
+    bakes; 1 km out with a 60 m ring offset it is refused and counted.
+    Both guards, or the fallback does not move ground."""
+    dem, substitution = _overlay_one_cluster(monkeypatch, 2.0,
+                                             fallback_placements=20)
+    kinds = [entry["kind"] for entry in dem.synthetic_flat_site_provenance]
+    assert kinds == ["synthetic_flat_site",
+                     "synthetic_flat_site_object_cluster"]
+    assert substitution["cluster_findings"] == []
+    capsys.readouterr()
+
+    dem, substitution = _overlay_one_cluster(monkeypatch, 60.0,
+                                             fallback_placements=20)
+    printed = capsys.readouterr().out
+    kinds = [entry["kind"] for entry in dem.synthetic_flat_site_provenance]
+    assert kinds == ["synthetic_flat_site"]
+    finding = substitution["cluster_findings"][0]
+    assert finding["kind"] == flat_site_mode.CLUSTER_FINDING_DATUM
+    assert finding["fallback_placements"] == 20
+    assert "20 fallback-claimed" in printed
 
 
 def test_the_assigner_reports_how_a_point_reached_its_owner():
@@ -219,9 +298,13 @@ class _FakeDEM:
                                dtype=np.float32)
 
 
-def _overlay_one_cluster(monkeypatch, z0_m):
-    """Bake one airport + one 2 km-distant claimed-object cluster at
-    ``z0_m`` over a base DEM at 0 m, and hand back what was stamped."""
+def _overlay_one_cluster(monkeypatch, z0_m, fallback_placements=0):
+    """Bake one airport + one 3 km-distant claimed-object cluster at
+    ``z0_m`` over a base DEM at 0 m, and hand back what was stamped.
+
+    ``fallback_placements`` marks the cluster as resting on that many
+    FALLBACK claims, which changes no gate — both guards apply to every
+    cluster — but must reach the finding and the log line."""
     dem = _FakeDEM(constant=0.0)
     tile = types.SimpleNamespace(
         lat=TILE_LAT, lon=TILE_LON, dem=dem,
@@ -234,6 +317,8 @@ def _overlay_one_cluster(monkeypatch, z0_m):
         _placement_block(3000.0, 0.0, 20, spread_m=600.0),
         ANCHOR, TILE_LAT, TILE_LON)[0]
 
+    island_box = dict(island_box)
+    island_box["fallback_placements"] = int(fallback_placements)
     substitution = {
         "icao": "TEST",
         "verdict": "flat_candidate",

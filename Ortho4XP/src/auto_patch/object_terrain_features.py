@@ -788,10 +788,51 @@ class RefusedStructure:
     false causeway; round-5 guard 2: an island-scale tunnel deck, VHHH's
     21.5 km² sea-bed shell).  Refused structures are NOT in the R4
     exclusion list: no terrain was adapted to them, so the Phase 2 y-bake
-    still applies."""
+    still applies.
+
+    THE DECK IS STILL MEASURED (round-12 R12-2).  A piered viaduct is
+    refused a terrain FEATURE — no deck-end pin, no carved ground — but
+    it is still one rigid body, and the classifier has already measured
+    its deck axis, its abutment lines and its crest by the time the
+    viaduct guard fires.  Those measurements ride along here so the
+    post-mesh seat can take the SAME rigid deck-top seat as a classified
+    bridge instead of handing the family to the per-structure y-bake,
+    which tears one bridge across three grounds (OTHH Bridge_02/03/06:
+    0.00 / 1.63 / 3.96 m).  A refusal from any OTHER limb (the tunnel
+    island-deck guard, a structure refused before its axis existed)
+    leaves them ``None`` — that family genuinely has no measurable deck
+    and keeps today's y-bake.
+
+    * ``deck_object_resources`` — the resources carrying the deck faces
+      the axis was measured on (a subset of ``object_resources``, which
+      is the whole refused component: the family that seats together).
+    * ``abutment_lines`` / ``frame_origin_longitude_latitude`` — the two
+      deck-end lines in the structure metre frame and the frame origin
+      they are measured from, exactly as :class:`BridgeStructure` carries
+      them.
+    * ``anchor_longitude_latitude`` — the point a DRAPED member seats on.
+    * ``deck_top_y_m`` — the authored deck crest in the structure frame.
+    """
 
     object_resources: list[str]
     reason: str
+    deck_object_resources: list[str] | None = None
+    anchor_longitude_latitude: tuple[float, float] | None = None
+    frame_origin_longitude_latitude: tuple[float, float] | None = None
+    abutment_lines: list | None = None
+    deck_top_y_m: float | None = None
+
+    @property
+    def has_measurable_deck(self) -> bool:
+        """True when this refusal carries a deck the R12-2 rigid seat can
+        stand on: both abutment lines and a crest."""
+        return (
+            self.abutment_lines is not None
+            and len(self.abutment_lines) >= 2
+            and self.anchor_longitude_latitude is not None
+            and self.frame_origin_longitude_latitude is not None
+            and self.deck_top_y_m is not None
+        )
 
 
 @dataclass(frozen=True)
@@ -2599,18 +2640,46 @@ def _classify_contract(
     return AMBIGUOUS
 
 
+def _widen_refusal_to_component(
+    refusal: "RefusedStructure", component
+) -> "RefusedStructure":
+    """The refusal record as the result carries it: the reason and the
+    deck measurements from :func:`_classify_bridge`, over the WHOLE
+    refused component.
+
+    The component is the family (R12-2): every resource the pool pass
+    judged together, deck parts and piers and railings alike.  A seat
+    that took only the deck parts would leave the piers behind at a
+    different altitude — the very tear this record exists to prevent."""
+    return RefusedStructure(
+        object_resources=sorted(component),
+        reason=refusal.reason,
+        deck_object_resources=refusal.deck_object_resources,
+        anchor_longitude_latitude=refusal.anchor_longitude_latitude,
+        frame_origin_longitude_latitude=(
+            refusal.frame_origin_longitude_latitude),
+        abutment_lines=refusal.abutment_lines,
+        deck_top_y_m=refusal.deck_top_y_m,
+    )
+
+
 def _classify_bridge(
     placements: Sequence[ObjectPlacement],
     frame: _StructureFrame,
     pavement_frame_union: Polygon | None,
     mean_sea_level_placements: Sequence[ObjectPlacement],
-) -> tuple[BridgeStructure | None, str | None]:
+) -> tuple[BridgeStructure | None, "RefusedStructure | None"]:
     """Classify one pool as a bridge.
 
     Returns ``(bridge, None)`` on success, ``(None, None)`` when the pool
-    is simply not bridge-like, and ``(None, reason)`` when the pool IS
+    is simply not bridge-like, and ``(None, refusal)`` when the pool IS
     bridge-like but must be REFUSED a terrain feature (amendment A4's
-    piered-viaduct guard)."""
+    piered-viaduct guard).
+
+    The refusal record carries the deck measurements taken before the
+    guard fired (R12-2) and a PROVISIONAL ``object_resources`` — the deck
+    faces.  The caller widens it to the whole refused component, which is
+    the family that seats together."""
     near_horizontal = [
         triangle
         for triangle in frame.triangles
@@ -2754,7 +2823,36 @@ def _classify_bridge(
             f"{' and '.join(failing_ends)} deck end(s) — refused, no "
             "terrain feature (amendment A4)"
         )
-        return None, reason
+        # R12-2: the deck WAS measured before the guard fired — axis,
+        # abutment lines, crest — so the refusal carries them and the
+        # post-mesh law can seat this family as one rigid body instead
+        # of leaving it to the per-structure y-bake.  Refusing a terrain
+        # FEATURE and refusing to know where the deck is are two
+        # different acts; only the first one is amendment A4's.
+        deck_resources = sorted({face.resource_path for face in deck_faces})
+        reference_placement = next(
+            (
+                placement
+                for placement in placements
+                if placement.resource_path in set(deck_resources)
+            ),
+            placements[0],
+        )
+        return None, RefusedStructure(
+            object_resources=deck_resources,
+            reason=reason,
+            deck_object_resources=deck_resources,
+            anchor_longitude_latitude=(
+                reference_placement.longitude,
+                reference_placement.latitude,
+            ),
+            frame_origin_longitude_latitude=(
+                frame.origin_longitude,
+                frame.origin_latitude,
+            ),
+            abutment_lines=list(axis.abutment_lines),
+            deck_top_y_m=crest_y_m,
+        )
 
     # Underside planes: candidates are near-horizontal faces under the deck
     # footprint that sit a clear gap below the LOCAL deck top (the profile
@@ -4281,7 +4379,7 @@ def classify_object_terrain_features(
                 # Building-carried drivable surface: feature C's domain
                 # (the pool remainder below emits the interface record).
                 continue
-            bridge, refusal_reason = _classify_bridge(
+            bridge, refusal = _classify_bridge(
                 evidence_placements,
                 evidence_frame,
                 pavement_frame_union,
@@ -4292,12 +4390,9 @@ def classify_object_terrain_features(
                 consumed_resources |= set(bridge.object_resources)
                 for resource in bridge.object_resources:
                     exclusions.append((pack_root, resource))
-            elif refusal_reason is not None:
+            elif refusal is not None:
                 refusals.append(
-                    RefusedStructure(
-                        object_resources=sorted(component),
-                        reason=refusal_reason,
-                    )
+                    _widen_refusal_to_component(refusal, component)
                 )
                 consumed_resources |= component
 
@@ -4366,7 +4461,7 @@ def classify_object_terrain_features(
                 >= BUILDING_MIN_WALL_COLUMN_COUNT
             ):
                 continue
-            bridge, refusal_reason = _classify_bridge(
+            bridge, refusal = _classify_bridge(
                 component_placements,
                 component_frame,
                 pavement_frame_union,
@@ -4377,12 +4472,9 @@ def classify_object_terrain_features(
                 consumed_resources |= set(bridge.object_resources)
                 for resource in bridge.object_resources:
                     exclusions.append((pack_root, resource))
-            elif refusal_reason is not None:
+            elif refusal is not None:
                 refusals.append(
-                    RefusedStructure(
-                        object_resources=sorted(component),
-                        reason=refusal_reason,
-                    )
+                    _widen_refusal_to_component(refusal, component)
                 )
                 consumed_resources |= component
 
@@ -4392,7 +4484,7 @@ def classify_object_terrain_features(
             _wall_column_count(remaining_frame)
             < BUILDING_MIN_WALL_COLUMN_COUNT
         ):
-            bridge, refusal_reason = _classify_bridge(
+            bridge, refusal = _classify_bridge(
                 remaining_placements,
                 remaining_frame,
                 pavement_frame_union,
@@ -4403,22 +4495,15 @@ def classify_object_terrain_features(
                 consumed_resources |= set(bridge.object_resources)
                 for resource in bridge.object_resources:
                     exclusions.append((pack_root, resource))
-            elif refusal_reason is not None:
-                refusals.append(
-                    RefusedStructure(
-                        object_resources=sorted(
-                            {
-                                placement.resource_path
-                                for placement in remaining_placements
-                            }
-                        ),
-                        reason=refusal_reason,
-                    )
-                )
-                consumed_resources |= {
+            elif refusal is not None:
+                whole_pool = {
                     placement.resource_path
                     for placement in remaining_placements
                 }
+                refusals.append(
+                    _widen_refusal_to_component(refusal, whole_pool)
+                )
+                consumed_resources |= whole_pool
 
         # --- stage 2b: open-pit components (round-5 refinement, feature C)
         # A basin pooled with a terminal complex has its pit metrics

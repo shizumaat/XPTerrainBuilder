@@ -101,21 +101,29 @@ ANCHOR_FAMILY_RADIUS_M = 0.5
 ANCHOR_FAMILY_MAX_RESOURCES = 12
 
 
-def _expand_exclusions_to_anchor_families(result, placements, pack_root):
-    """Append to ``result.exclusions`` every resource with a placement
-    anchored within :data:`ANCHOR_FAMILY_RADIUS_M` of a consumed
-    structure's placements (the whole part family: p1..p6, shell+deck
-    pairs).  Anchors shared by more than
-    :data:`ANCHOR_FAMILY_MAX_RESOURCES` distinct resources are pack
-    datums, not families, and are skipped.  Returns the sorted list of
-    newly excluded resource paths."""
-    consumed = {resource for _root, resource in result.exclusions}
-    if not consumed:
-        return []
+def anchor_family_resources(placements, seed_resources, *, label="R4"):
+    """Every resource with a placement anchored within
+    :data:`ANCHOR_FAMILY_RADIUS_M` of a placement of ``seed_resources``
+    — the whole part family (p1..p6, shell+deck pairs, deck+railings).
+    The seeds themselves are included.
+
+    Anchors shared by more than :data:`ANCHOR_FAMILY_MAX_RESOURCES`
+    distinct resources are pack datums, not families, and contribute
+    nothing (``label`` names the caller in the log line).
+
+    ONE family predicate, two readers: the ruling-R4 exclusion breadth
+    below and the R12-2 seat member set.  A seat whose family is
+    narrower than the exclusion's leaves a sibling excluded from the
+    y-bake AND unseated — which is exactly how
+    ``OTHH_Bridge_04_LOD0_004`` came to sit 7.85 m under its own bridge.
+    """
+    seeds = set(seed_resources)
+    if not seeds:
+        return set()
     candidate_anchors = sorted({
         (placement.longitude, placement.latitude)
         for placement in placements
-        if placement.resource_path in consumed
+        if placement.resource_path in seeds
     })
     family_anchors = []
     for anchor_longitude, anchor_latitude in candidate_anchors:
@@ -132,7 +140,7 @@ def _expand_exclusions_to_anchor_families(result, placements, pack_root):
         if len(resources_at_anchor) > ANCHOR_FAMILY_MAX_RESOURCES:
             UI.vprint(
                 2,
-                "   [object-bridge] R4 family expansion: anchor "
+                f"   [object-bridge] {label} family expansion: anchor "
                 f"({anchor_latitude:.6f}, {anchor_longitude:.6f}) is "
                 f"shared by {len(resources_at_anchor)} distinct "
                 "resources — a pack datum, not a part family; sibling "
@@ -141,10 +149,10 @@ def _expand_exclusions_to_anchor_families(result, placements, pack_root):
             continue
         family_anchors.append((anchor_longitude, anchor_latitude))
     if not family_anchors:
-        return []
-    added = set()
+        return set(seeds)
+    family = set(seeds)
     for placement in placements:
-        if placement.resource_path in consumed:
+        if placement.resource_path in family:
             continue
         cosine = math.cos(math.radians(placement.latitude))
         for anchor_longitude, anchor_latitude in family_anchors:
@@ -154,11 +162,24 @@ def _expand_exclusions_to_anchor_families(result, placements, pack_root):
                 * 111320.0 * cosine,
             )
             if distance <= ANCHOR_FAMILY_RADIUS_M:
-                added.add(placement.resource_path)
+                family.add(placement.resource_path)
                 break
-    for resource_path in sorted(added):
+    return family
+
+
+def _expand_exclusions_to_anchor_families(result, placements, pack_root):
+    """Append to ``result.exclusions`` every resource in the anchor
+    family (:func:`anchor_family_resources`) of a consumed structure.
+    Returns the sorted list of newly excluded resource paths."""
+    consumed = {resource for _root, resource in result.exclusions}
+    if not consumed:
+        return []
+    added = sorted(
+        anchor_family_resources(placements, consumed) - consumed
+    )
+    for resource_path in added:
         result.exclusions.append((pack_root, resource_path))
-    return sorted(added)
+    return added
 
 
 def _tile_dsf_path(earth_nav_data_dir: str, tile_lat: int, tile_lon: int) -> str:
@@ -450,7 +471,14 @@ def _discover_sibling_road_networks(
 # ``sea_X.obj`` record, whose −21.38 m trench claimed all unowned ground
 # on the island; the fingerprint cannot see a classifier rule change, so
 # the version is what retires it.
-_CLASSIFICATION_CACHE_VERSION = 15
+# 16: round-12 R12-2 — ``RefusedStructure`` grew the deck measurements a
+# refused piered viaduct is seated from (``abutment_lines``,
+# ``deck_top_y_m``, the frame origin, the deck resources).  Adding a
+# field to a PICKLED record is a cache-version event; a v15 pickle
+# restores those fields as the class default ``None``, and the R12-2
+# seat would then read every refused viaduct as "no measurable deck"
+# and hand it back to the per-structure y-bake it exists to replace.
+_CLASSIFICATION_CACHE_VERSION = 16
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -834,7 +862,16 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # A v4 entry has no candidates key, and reading it as "no candidate"
 # would leave every flush-deck bridge over water draped on a warm cache,
 # which is exactly the residual R6-3 exists to close.
-_EXCLUSION_CACHE_VERSION = 5
+# v6 (2026-08-11, round 12): the candidate records changed SHAPE and
+# MEANING — ``object_resources`` is now the whole anchor family (R12-2
+# member completeness), the payload gains ``seat_source`` /
+# ``deck_object_resources`` and the refused-viaduct candidates, the
+# exclusion set now routes those families away from the generic y-bake,
+# and the payload carries the round-12 bridge FINDINGS.  A v5 entry
+# carries the narrow member set and no refused family: read on a warm
+# cache it would leave OTHH_Bridge_04_LOD0_004 unseated and Bridge_02/
+# 03/06 torn — the two defects round 12 closes.
+_EXCLUSION_CACHE_VERSION = 6
 
 
 def _cached_post_mesh_records(
@@ -843,11 +880,11 @@ def _cached_post_mesh_records(
     mean_sea_level_placements,
     geometry_by_resource,
     compute,
-) -> tuple[set[tuple[str, str]], list, list]:
+) -> tuple[set[tuple[str, str]], list, list, list]:
     """Content-hash sidecar cache for the post-mesh classifier reads: the
     ruling-R4 exclusion set, the section-2.2 basin rim-flush facility
-    records AND the R6-3 bridge abutment-seat candidates (``compute``
-    returns all three, from ONE classification).
+    records, the bridge abutment-seat candidates AND the round-12 bridge
+    findings (``compute`` returns all four, from ONE classification).
 
     They are a pure function of the DSF placements, the loaded OBJ8
     geometry and the classifier version — never the mesh — yet were
@@ -917,11 +954,17 @@ def _cached_post_mesh_records(
                         BridgeAbutmentSeatCandidate.from_json(entry)
                         for entry in payload["bridge_abutment_seats"]
                     ],
+                    list(payload.get("bridge_findings", ())),
                 )
         except Exception:
             pass  # corrupt/unreadable — recompute below
 
-    exclusions, basin_facilities, abutment_candidates = compute()
+    (
+        exclusions,
+        basin_facilities,
+        abutment_candidates,
+        bridge_findings,
+    ) = compute()
     try:
         os.makedirs(cache_directory, exist_ok=True)
         temporary_path = cache_path + ".tmp"
@@ -937,13 +980,90 @@ def _cached_post_mesh_records(
                         candidate.to_json()
                         for candidate in abutment_candidates
                     ],
+                    "bridge_findings": bridge_findings,
                 },
                 handle,
             )
         os.replace(temporary_path, cache_path)
     except OSError:
         pass  # best effort — the records are already computed
-    return exclusions, basin_facilities, abutment_candidates
+    return (
+        exclusions, basin_facilities, abutment_candidates, bridge_findings
+    )
+
+
+def _pipeline_verdicts_by_resource(dsf_path: str, pack_root: str) -> dict:
+    """``{resource_path: (contract, pavement_coverage_fraction)}`` from
+    the PIPELINE-time classification sidecar for this DSF, or ``{}``.
+
+    Best effort by design: the sidecar is fingerprinted against the
+    pavement evidence, which post-mesh does not have, so its fingerprint
+    is neither checked nor checkable here.  Nothing is decided from what
+    it says — R12-3 only RECORDS the disagreement."""
+    cache_directory = dsf_reader.airport_mod_cache_dir(pack_root)
+    if not cache_directory or not dsf_path:
+        return {}
+    dsf_stem = os.path.splitext(os.path.basename(dsf_path))[0]
+    sidecar_path = os.path.join(
+        cache_directory,
+        f"{_CLASSIFICATION_SIDECAR_PREFIX}_{dsf_stem}.cache",
+    )
+    if not os.path.isfile(sidecar_path):
+        return {}
+    try:
+        with open(sidecar_path, "rb") as sidecar_file:
+            payload = pickle.load(sidecar_file)
+        result = payload["result"]
+    except Exception:
+        return {}  # unreadable / older shape — no finding, never a guess
+    verdicts: dict = {}
+    for bridge in getattr(result, "bridges", None) or []:
+        for resource in bridge.object_resources:
+            verdicts[resource] = (
+                bridge.contract,
+                bridge.pavement_coverage_fraction,
+            )
+    return verdicts
+
+
+def bridge_verdict_frame_split_findings(
+    result, dsf_path: str, pack_root: str
+) -> list:
+    """THE FRAME SPLIT, RECORDED (round-12 R12-3).
+
+    Post-mesh classification runs with
+    ``pavement_polygons_longitude_latitude=None`` — the pipeline-time
+    layout is long gone — so the contract falls back to the deck-crest
+    height rule.  Pipeline-time classification runs WITH the draped
+    pavement.  Two frames, two verdicts, one pack: at OTHH the height
+    fallback says TERRAIN_CARRIED where a pipeline-time coverage of 0.0
+    says AMBIGUOUS.
+
+    One counted finding per resource that disagrees, carrying BOTH
+    verdicts and BOTH coverage inputs.  Which verdict is USED does not
+    change here — with R12-1 the TERRAIN_CARRIED seat is right for this
+    class, and re-sourcing verdicts is a separate design decision."""
+    pipeline = _pipeline_verdicts_by_resource(dsf_path, pack_root)
+    if not pipeline:
+        return []
+    findings: list = []
+    for bridge in getattr(result, "bridges", None) or []:
+        for resource in sorted(bridge.object_resources):
+            if resource not in pipeline:
+                continue
+            pipeline_contract, pipeline_coverage = pipeline[resource]
+            if pipeline_contract == bridge.contract:
+                continue
+            findings.append({
+                "finding": BRIDGE_VERDICT_FRAME_SPLIT_FINDING,
+                "resource": resource,
+                "post_mesh_contract": bridge.contract,
+                "pipeline_contract": pipeline_contract,
+                "post_mesh_coverage_fraction": (
+                    bridge.pavement_coverage_fraction),
+                "pipeline_coverage_fraction": pipeline_coverage,
+            })
+    return findings
 
 
 @dataclass(frozen=True)
@@ -965,11 +1085,17 @@ class PostMeshObjectTerrainRecords:
     them draped exactly as today.  Candidacy is decided here — from
     geometry the classifier already has — and QUALIFICATION post-mesh,
     where the built mesh can answer how far below the abutments the
-    anchor actually sits."""
+    anchor actually sits.
+
+    ``bridge_findings`` (round 12) are the counted findings the candidacy
+    pass minted — ``bridge_seat_fallback`` (R12-2) and
+    ``bridge_verdict_frame_split`` (R12-3).  Findings only: nothing on
+    this list changes a verdict or a seat."""
 
     exclusions: set[tuple[str, str]]
     basin_rim_flush_facilities: list
     bridge_abutment_seat_candidates: list = field(default_factory=list)
+    bridge_findings: list = field(default_factory=list)
 
 
 def post_mesh_object_terrain_records(
@@ -1055,7 +1181,7 @@ def post_mesh_object_terrain_records(
     if not geometry_by_resource:
         return empty
 
-    def compute() -> tuple[set[tuple[str, str]], list, list]:
+    def compute() -> tuple[set[tuple[str, str]], list, list, list]:
         result = object_terrain_features.classify_object_terrain_features(
             terrain_placements,
             geometry_by_resource,
@@ -1081,11 +1207,45 @@ def post_mesh_object_terrain_records(
         _expand_exclusions_to_anchor_families(
             result, terrain_placements, pack_root or ""
         )
-        return (set(result.exclusions),
+        candidates, findings = bridge_abutment_seat_candidates(
+            result, terrain_placements
+        )
+        findings.extend(
+            bridge_verdict_frame_split_findings(
+                result, dsf_path, pack_root or ""
+            )
+        )
+        exclusions = set(result.exclusions)
+        # A family taking the rigid deck-top seat must not ALSO take the
+        # generic per-structure bake — that is the stacked correction
+        # ruling R4 forbids.  The seat's own member set is the authority
+        # on who is routed, so the two can never drift.
+        #
+        # REFUSED VIADUCTS ARE ROUTED POST-MESH, NOT HERE (round-12
+        # R12-2 as amended).  Whether a refused family seats depends on
+        # whether its deck ends find LAND within the walk cap — a
+        # question only the built mesh answers — so the seat pass makes
+        # the claim and ``discover_and_rebake_airport`` widens the
+        # exclusion set with it.  Routing them here, before the mesh,
+        # would strand a family whose seat then declines: excluded from
+        # the y-bake AND unseated, i.e. draped, which is worse than the
+        # tear R12-2 closes.
+        for candidate in candidates:
+            if candidate.seat_source != SEAT_SOURCE_CLASSIFIED:
+                continue
+            for resource in candidate.object_resources:
+                exclusions.add((pack_root or "", resource))
+        return (exclusions,
                 basin_rim_flush_facilities(result),
-                bridge_abutment_seat_candidates(result))
+                candidates,
+                findings)
 
-    exclusions, facilities, abutment_candidates = _cached_post_mesh_records(
+    (
+        exclusions,
+        facilities,
+        abutment_candidates,
+        bridge_findings,
+    ) = _cached_post_mesh_records(
         pack_root or "",
         terrain_placements,
         mean_sea_level_placements,
@@ -1096,6 +1256,7 @@ def post_mesh_object_terrain_records(
         exclusions=exclusions,
         basin_rim_flush_facilities=facilities,
         bridge_abutment_seat_candidates=abutment_candidates,
+        bridge_findings=bridge_findings,
     )
 
 
@@ -1705,6 +1866,22 @@ def basin_rim_flush_facilities(classification) -> list:
 #: the post-mesh pass, the provenance writer and the tests.
 BRIDGE_ABUTMENT_SEAT_DECISION_KIND = "bridge_abutment_seat"
 
+#: Which limb produced a seat candidate (round-12 R12-2).  ONE spelling
+#: each, read by the post-mesh records, the findings and the tests.
+SEAT_SOURCE_CLASSIFIED = "classified"
+SEAT_SOURCE_REFUSED_VIADUCT = "refused_viaduct"
+
+#: Counted findings this module mints for the post-mesh pass to report.
+#: ``bridge_seat_fallback`` (R12-2): a REFUSED family that has no
+#: measurable deck, so it keeps today's generic y-bake instead of the
+#: rigid deck-top seat.  ``bridge_verdict_frame_split`` (R12-3): the
+#: post-mesh classification derived a different contract for a resource
+#: than the pipeline-time classification cached for the same pack — two
+#: frames, two verdicts, one pack.  Both are RECORDED; neither changes
+#: which verdict is used.
+BRIDGE_SEAT_FALLBACK_FINDING = "bridge_seat_fallback"
+BRIDGE_VERDICT_FRAME_SPLIT_FINDING = "bridge_verdict_frame_split"
+
 
 @dataclass(frozen=True)
 class BridgeAbutmentSeatCandidate:
@@ -1741,9 +1918,24 @@ class BridgeAbutmentSeatCandidate:
       ``[start end, far end]`` order.  Projected HERE so the post-mesh
       pass never re-derives a frame (``_abutment_lines_layout_meters``
       needs a layout, and the pipeline-time layout is gone by then).
-    * ``deck_top_y_m`` — the authored deck crest in the structure frame;
-      the record's expected seated deck top is ``abutment grade +
-      deck_top_y_m`` (OTHH Bridge_01: 3.96 + (−0.31) ≈ 3.65 m).
+    * ``deck_top_y_m`` — the authored deck crest in the structure frame.
+      Under R12-1 this is the DATUM the seat works from: the deck top is
+      landed AT the abutment grade, so the seat plane (the authored
+      ``y = 0`` plane) goes to ``abutment grade − deck_top_y_m``.
+
+    ROUND 12.  Two things widened:
+
+    * ``object_resources`` is now the whole ANCHOR FAMILY
+      (:func:`anchor_family_resources`), not just the resources whose
+      geometry the classifier measured the deck on — a family member
+      that carries no deck face (a railing: ``OTHH_Bridge_04_LOD0_004``)
+      is still part of the bridge and must move with it.
+      ``deck_object_resources`` keeps the measured subset, as provenance.
+    * ``seat_source`` says which limb produced the record:
+      ``classified`` (a TERRAIN_CARRIED bridge with certified abutments,
+      R6-3) or ``refused_viaduct`` (a piered viaduct refused a terrain
+      feature, which R12-2 gives the same rigid seat rather than the
+      per-structure y-bake that tears it).
     """
 
     object_resources: tuple[str, ...]
@@ -1751,6 +1943,8 @@ class BridgeAbutmentSeatCandidate:
     abutment_points_longitude_latitude: tuple[
         tuple[tuple[float, float], tuple[float, float]], ...]
     deck_top_y_m: float
+    deck_object_resources: tuple[str, ...] = ()
+    seat_source: str = SEAT_SOURCE_CLASSIFIED
 
     def to_json(self) -> dict:
         """Plain-JSON form for the post-mesh records cache."""
@@ -1763,6 +1957,8 @@ class BridgeAbutmentSeatCandidate:
                 for line in self.abutment_points_longitude_latitude
             ],
             "deck_top_y_m": float(self.deck_top_y_m),
+            "deck_object_resources": list(self.deck_object_resources),
+            "seat_source": str(self.seat_source),
         }
 
     @classmethod
@@ -1781,25 +1977,88 @@ class BridgeAbutmentSeatCandidate:
                 for line in payload["abutment_points_longitude_latitude"]
             ),
             deck_top_y_m=float(payload["deck_top_y_m"]),
+            deck_object_resources=tuple(
+                payload.get("deck_object_resources", ())),
+            seat_source=str(
+                payload.get("seat_source", SEAT_SOURCE_CLASSIFIED)),
         )
 
 
-def bridge_abutment_seat_candidates(classification) -> list:
-    """The R6-3 candidate records for one classification.
+def _abutment_lines_longitude_latitude(
+    abutment_lines, frame_origin_longitude_latitude
+) -> list:
+    """The first two abutment lines projected out of the structure metre
+    frame into ``(longitude, latitude)`` pairs.
 
-    A candidate is a :data:`object_terrain_features.TERRAIN_CARRIED`
-    bridge with TWO abutment lines, both certified by the classifier's
-    ``abutment_reaches_grade``.  Nothing here consults the mesh: the
-    threshold test lives post-mesh, where the ground is measurable.
+    Projected HERE, once, so the post-mesh pass never re-derives a frame
+    (the pipeline-time layout is gone by then).  NOTE the obj8 helper
+    returns ``(latitude, longitude)``; every post-mesh record carries
+    ``(longitude, latitude)``, so the flip happens ONCE, here."""
+    origin_longitude, origin_latitude = frame_origin_longitude_latitude
+    lines: list = []
+    for (start_point, end_point) in list(abutment_lines)[:2]:
+        projected = []
+        for frame_x, frame_z in (start_point, end_point):
+            latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                origin_latitude, origin_longitude, 0.0, frame_x, frame_z,
+            )
+            projected.append((longitude, latitude))
+        lines.append(tuple(projected))
+    return lines
 
-    Returns ``[]`` with ``O4_OBJECT_BRIDGE_TERRAIN`` off — with no bridge
-    terrain adapted, the bridge is not R4-excluded and the generic y-bake
-    already owns it.
+
+def bridge_abutment_seat_candidates(
+    classification, placements=None
+) -> tuple[list, list]:
+    """The seat candidate records for one classification, and the
+    findings the candidacy pass minted.
+
+    Returns ``(candidates, findings)``.
+
+    A candidate comes from one of two limbs:
+
+    * **R6-3, ``classified``** — a
+      :data:`object_terrain_features.TERRAIN_CARRIED` bridge with TWO
+      abutment lines, both certified by ``abutment_reaches_grade``.
+    * **R12-2, ``refused_viaduct``** — a piered viaduct REFUSED a terrain
+      feature.  Refusing the feature was right (a deck-end pin there
+      builds a false causeway); handing the family to the generic
+      per-structure y-bake was not, because that bakes one bridge to
+      three different grounds (OTHH Bridge_02/03/06: 0.00 / 1.63 /
+      3.96 m).  It takes the SAME rigid deck-top seat, off the deck
+      measurements the classifier already took before the guard fired.
+      A refused family with NO measurable deck keeps today's y-bake and
+      mints a counted ``bridge_seat_fallback`` finding saying why.
+
+    ``placements`` (the DSF's terrain placements) widens each candidate's
+    member set to its whole ANCHOR FAMILY — the same predicate ruling R4
+    uses to decide what the generic y-bake may not touch, so a family
+    member can never be both withheld from the y-bake and left out of
+    the seat.  Omitted, the member set is the classifier's own (the
+    pre-round-12 behaviour, kept for callers with no placement list).
+
+    Nothing here consults the mesh: the threshold test lives post-mesh,
+    where the ground is measurable.
+
+    Returns ``([], [])`` with ``O4_OBJECT_BRIDGE_TERRAIN`` off — with no
+    bridge terrain adapted, the bridge is not R4-excluded and the generic
+    y-bake already owns it.
     """
     if not config.OBJECT_BRIDGE_TERRAIN:
-        return []
+        return [], []
+
+    placements = list(placements or [])
+
+    def _family(seed_resources) -> tuple[str, ...]:
+        seeds = set(seed_resources)
+        if not placements:
+            return tuple(sorted(seeds))
+        return tuple(sorted(
+            anchor_family_resources(placements, seeds, label="R12-2")
+        ))
 
     out: list = []
+    findings: list = []
     for bridge in getattr(classification, "bridges", None) or []:
         if bridge.contract != object_terrain_features.TERRAIN_CARRIED:
             continue
@@ -1811,31 +2070,55 @@ def bridge_abutment_seat_candidates(classification) -> list:
             # changes, an UNCERTIFIED abutment must not become a seat
             # target — there is no land witness behind it.
             continue
-        origin_longitude, origin_latitude = (
-            bridge.frame_origin_longitude_latitude)
-        lines: list = []
-        for (start_point, end_point) in bridge.abutment_lines[:2]:
-            projected = []
-            for frame_x, frame_z in (start_point, end_point):
-                # NOTE the helper returns (latitude, longitude); the
-                # record — like every other post-mesh record — carries
-                # (longitude, latitude), so the flip happens ONCE, here.
-                latitude, longitude = obj8_reader.local_offset_to_lonlat(
-                    origin_latitude, origin_longitude, 0.0,
-                    frame_x, frame_z,
-                )
-                projected.append((longitude, latitude))
-            lines.append(tuple(projected))
         out.append(
             BridgeAbutmentSeatCandidate(
-                object_resources=tuple(sorted(bridge.object_resources)),
+                object_resources=_family(bridge.object_resources),
                 anchor_longitude_latitude=tuple(
                     bridge.anchor_longitude_latitude),
-                abutment_points_longitude_latitude=tuple(lines),
+                abutment_points_longitude_latitude=tuple(
+                    _abutment_lines_longitude_latitude(
+                        bridge.abutment_lines,
+                        bridge.frame_origin_longitude_latitude,
+                    )
+                ),
                 deck_top_y_m=float(bridge.deck_top_y_m),
+                deck_object_resources=tuple(
+                    sorted(bridge.object_resources)),
+                seat_source=SEAT_SOURCE_CLASSIFIED,
             )
         )
-    return out
+
+    for refusal in getattr(classification, "refusals", None) or []:
+        if not getattr(refusal, "has_measurable_deck", False):
+            findings.append({
+                "finding": BRIDGE_SEAT_FALLBACK_FINDING,
+                "resources": sorted(refusal.object_resources),
+                "reason": (
+                    "refused structure with no measurable deck "
+                    f"({refusal.reason}) — kept on the generic y-bake, "
+                    "no rigid deck-top seat is possible without a deck "
+                    "axis (R12-2)"
+                ),
+            })
+            continue
+        out.append(
+            BridgeAbutmentSeatCandidate(
+                object_resources=_family(refusal.object_resources),
+                anchor_longitude_latitude=tuple(
+                    refusal.anchor_longitude_latitude),
+                abutment_points_longitude_latitude=tuple(
+                    _abutment_lines_longitude_latitude(
+                        refusal.abutment_lines,
+                        refusal.frame_origin_longitude_latitude,
+                    )
+                ),
+                deck_top_y_m=float(refusal.deck_top_y_m),
+                deck_object_resources=tuple(
+                    sorted(refusal.deck_object_resources or ())),
+                seat_source=SEAT_SOURCE_REFUSED_VIADUCT,
+            )
+        )
+    return out, findings
 
 
 def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):

@@ -1,7 +1,7 @@
 """Round 10 — tunnel emission: evidence before depth, walls never cover ramps.
 
 Spec: ``docs/specs/round10-tunnel-emission-spec.md`` including its
-2026-08-11 AMENDMENTS (A1-A7), which supersede several lines of the
+2026-08-11 AMENDMENTS (A1-A8), which supersede several lines of the
 frozen text after the implementer measured them against the code:
 
 R10-1/A1/A6  NO PHYSICAL EVIDENCE, NO DEPTH — and THE COVER IS THE DECK.
@@ -24,8 +24,13 @@ R10-2/A4/A7(c)  A wall/roof/cap NEVER covers tunnel pavement, and ALL
           ``tunnel_unwalled_mouth`` is the reported backstop, EXEMPTING
           light-touch clusters (cap + roof, no side walls, by owner
           ruling 2026-07-17).
-R10-3/A3/A5/A7(b)  Facing portals across an open gap are DISTINCT
-          entrances: dedup keys on PORTAL IDENTITY, never walk overlap.
+R10-3/A3/A5/A7(b)/A8  Facing portals across an open gap are DISTINCT
+          entrances.  Dedup separates the three populations that share
+          "two coincident walks" by station distance and outward walk
+          direction: combined-entrance SIBLINGS (within
+          portal_cluster_dist_m) and FACING pairs (opposing directions)
+          are never dropped; only the LMML MERGE class (aligned, far
+          apart, overlapping) is.
           A same-road facing pair is ONE lowered stretch — the gap emits
           a single roofless walled corridor at the pair's JOINT depth,
           and neither portal ramps to grade inside it.  Mouth depth is
@@ -470,28 +475,58 @@ class TestCoverNeverCoversTunnelPavement:
 # ══════════════════════════════════════════════════════════════════
 # 3. R10-2 / A3 — dedup keys on portal identity; unwalled backstop
 # ══════════════════════════════════════════════════════════════════
-class TestDedupKeysOnPortalIdentity:
+class TestDedupSeparatesTheThreeOverlapPopulations:
+    """A8: three populations share "two portals whose walks coincide",
+    and only ONE is duplicate.  Station distance and outward walk
+    direction separate them."""
 
-    def test_a_restated_station_is_dropped(self):
-        nodes_m = {"a": (0.0, 0.0), "b": (5.0, 0.0)}
-        rows = [("a", "W1", [(0.0, 0.0), (100.0, 0.0)]),
-                ("b", "W2", [(5.0, 0.0), (105.0, 0.0)])]
+    def test_combined_entrance_siblings_are_kept_and_clustered(self):
+        # OTHH's twin carriageways: stations 7.3-17.8 m apart, walking
+        # the same way, walks overlapping.  Dropping one left the bore
+        # spanning a single carriageway; _cluster_portals is what merges
+        # them into one combined-WIDTH entrance.
+        nodes_m = {"a": (0.0, 0.0), "b": (10.0, 0.0)}
+        rows = [("a", "W1", [(0.0, 0.0), (200.0, 0.0)]),
+                ("b", "W2", [(10.0, 0.0), (210.0, 0.0)])]
+        kept = bridges._dedup_portal_walks(rows, nodes_m, 35.0)
+        assert [r[1] for r in kept] == ["W1", "W2"]
+        clusters = bridges._cluster_portals(kept, nodes_m, 35.0)
+        assert clusters == [[0, 1]], (
+            "siblings must reach the clusterer as ONE entrance")
+
+    def test_facing_entrances_are_kept_despite_full_overlap(self):
+        # KCLT F|-255 / F|-251, 55.5 m apart, each walking INTO the gap
+        # over the same roadway — maximum overlap, and precisely the
+        # pair that must both survive.
+        nodes_m = {"a": (0.0, 0.0), "b": (55.5, 0.0)}
+        rows = [("a", "W1", [(0.0, 0.0), (200.0, 0.0)]),
+                ("b", "W2", [(55.5, 0.0), (-144.5, 0.0)])]
+        kept = bridges._dedup_portal_walks(rows, nodes_m, 35.0)
+        assert [r[1] for r in kept] == ["W1", "W2"]
+
+    def test_the_LMML_merge_class_is_dropped(self):
+        # The ONLY lawful drop: aligned, beyond the cluster distance,
+        # walks overlapping — two carriageways merging into one roadway,
+        # which emitted two ramps on it at two profiles.
+        nodes_m = {"a": (0.0, 0.0), "b": (60.0, 0.0)}
+        rows = [("a", "W1", [(0.0, 0.0), (200.0, 0.0)]),
+                ("b", "W2", [(60.0, 0.0), (260.0, 0.0)])]
         kept = bridges._dedup_portal_walks(rows, nodes_m, 35.0)
         assert [r[1] for r in kept] == ["W1"]
 
-    def test_facing_stations_beyond_the_cluster_distance_both_survive(self):
-        # KCLT's 55.5 m gap: two DISTINCT entrances, both keep their
-        # mouth.  The pre-A3 overlap test deleted one of them.
-        nodes_m = {"a": (0.0, 0.0), "b": (55.5, 0.0)}
-        rows = [("a", "W1", [(0.0, 0.0), (-100.0, 0.0)]),
-                ("b", "W2", [(55.5, 0.0), (155.5, 0.0)])]
+    def test_aligned_and_far_but_NOT_overlapping_is_kept(self):
+        # Alignment and distance alone are not duplication — the two
+        # walks have to be the same stretch of road.
+        nodes_m = {"a": (0.0, 0.0), "b": (0.0, 500.0)}
+        rows = [("a", "W1", [(0.0, 0.0), (200.0, 0.0)]),
+                ("b", "W2", [(0.0, 500.0), (200.0, 500.0)])]
         kept = bridges._dedup_portal_walks(rows, nodes_m, 35.0)
         assert [r[1] for r in kept] == ["W1", "W2"]
 
     def test_a_ways_own_two_portals_never_dedup(self):
-        nodes_m = {"a": (0.0, 0.0), "b": (5.0, 0.0)}
-        rows = [("a", "W1", [(0.0, 0.0), (-100.0, 0.0)]),
-                ("b", "W1", [(5.0, 0.0), (105.0, 0.0)])]
+        nodes_m = {"a": (0.0, 0.0), "b": (60.0, 0.0)}
+        rows = [("a", "W1", [(0.0, 0.0), (200.0, 0.0)]),
+                ("b", "W1", [(60.0, 0.0), (260.0, 0.0)])]
         kept = bridges._dedup_portal_walks(rows, nodes_m, 35.0)
         assert len(kept) == 2
 
@@ -600,6 +635,17 @@ class TestFacingSameRoadDetection:
                 _facing_row("W2", (55.5, 0.0), (155.5, 0.0), 95.0)]
         _idx, pairs = bridges._facing_same_road_portals(
             rows, self._WAYS, _CFG.TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M)
+        assert pairs == []
+
+    def test_sibling_distance_portals_never_pair(self):
+        # A8 case 1 read here: portals within portal_cluster_dist_m are
+        # ONE entrance the clusterer merges, not a gap to lower.  Pairing
+        # them minted a degenerate corridor sliver (KCLT, 3.6 m2).
+        rows = [_facing_row("W1", (0.0, 0.0), (2.0, 0.0), 95.0),
+                _facing_row("W2", (2.0, 0.0), (0.0, 0.0), 95.0)]
+        _idx, pairs = bridges._facing_same_road_portals(
+            rows, self._WAYS, _CFG.TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M,
+            min_gap_m=35.0)
         assert pairs == []
 
     def test_beyond_the_open_cut_limit_never_pairs(self):

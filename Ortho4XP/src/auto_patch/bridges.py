@@ -2259,15 +2259,23 @@ def _gather_portal_walks(
 
 
 def _facing_same_road_portals(portal_data: list, way_by_id: dict,
-                              max_gap_m: float) -> tuple[set, list]:
+                              max_gap_m: float,
+                              min_gap_m: float = 0.0) -> tuple[set, list]:
     """FACING same-road portal pairs — ``(facing indices, pairs)``.
 
     Two portals FACE each other when they belong to different ways of
     the SAME ROAD (``_way_signature``, the R6-2 same-road law), their
-    stations lie within ``max_gap_m``, and each one's outward approach
-    heads at the other.  The mutual test is what keeps a merely NEARBY
-    bore — a parallel service road, the far end of the same system —
-    out of the set.
+    stations lie between ``min_gap_m`` and ``max_gap_m``, and each one's
+    outward approach heads at the other.  The mutual test is what keeps
+    a merely NEARBY bore — a parallel service road, the far end of the
+    same system — out of the set.
+
+    ``min_gap_m`` is A8's first case read here: portals within
+    ``portal_cluster_dist_m`` are COMBINED-ENTRANCE SIBLINGS, one
+    entrance that ``_cluster_portals`` merges — there is no gap between
+    them to lower, and treating them as facing minted a degenerate
+    corridor sliver (measured KCLT: 3.6 m² between two stations ~2 m
+    apart).  A gap has to be a gap.
 
     A3 (owner ruling 2026-08-11): such a pair is not two tunnels with an
     approach between them, it is ONE lowered stretch of road — "the two
@@ -2311,7 +2319,7 @@ def _facing_same_road_portals(portal_data: list, way_by_id: dict,
             _pj, _dj = _stations[j]
             _vx, _vy = _pj[0] - _pi[0], _pj[1] - _pi[1]
             _vl = math.hypot(_vx, _vy)
-            if _vl < 1e-6 or _vl > max_gap_m:
+            if _vl < 1e-6 or _vl > max_gap_m or _vl <= min_gap_m:
                 continue
             _ux, _uy = _vx / _vl, _vy / _vl
             if (_di[0] * _ux + _di[1] * _uy) < 0.5:
@@ -2465,50 +2473,77 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
 
 def _dedup_portal_walks(portal_data: list, nodes_m: dict,
                         portal_cluster_dist_m: float) -> list:
-    """Drop portals that restate an already-kept PORTAL STATION
-    (see WALK DEDUP comment below).
+    """Drop portals of the LMML MERGE CLASS only (see WALK DEDUP below).
     """
     # WALK DEDUP (user 2026-07-04): twin carriageways that MERGE beyond
     # their portals give two portals the SAME surface walk — two ramps
     # emitted on one stretch of road, one per bore profile (LMML:
     # coincident tunnel_ramp pieces 4.3 m apart in z).
     #
-    # A3 (lead ruling 2026-08-11): the key is PORTAL IDENTITY, never
-    # walk overlap.  A walk is duplicate only when its portal station
-    # restates an already-kept station — the same physical entrance
-    # within ``portal_cluster_dist_m``, which is exactly the distance
-    # ``_cluster_portals`` calls one combined entrance.  Overlap was the
-    # wrong key: two bores FACING each other across an open gap share
-    # the roadway between them, so the overlap test deleted a whole
-    # mapped entrance — mouth AND walls — while the neighbour's mouth
-    # survived unwalled (KCLT: way F|-255's end 1 dropped against
-    # F|-251 55.5 m away, leaving no mouth within 48 m of the owner's
-    # mapped portal).  Distinct entrances BOTH emit; the shared ramp
-    # geometry is halved at the facing midpoint instead
-    # (:func:`_truncate_facing_walks`).  A way's own two portals never
-    # dedup (opposite tunnel mouths, user 2026-05-03).
+    # A8 (lead ruling 2026-08-11, final form).  Overlap ALONE was the
+    # wrong key and station distance alone was too: three populations
+    # share "two portals whose walks coincide", and only ONE is
+    # duplicate.  They separate by station distance and OUTWARD WALK
+    # DIRECTION:
+    #
+    #   COMBINED-ENTRANCE SIBLINGS — divided carriageways of one
+    #     crossing, stations within ``portal_cluster_dist_m`` (OTHH's
+    #     twin bores measure 7.3-17.8 m apart).  NEVER dropped:
+    #     ``_cluster_portals`` merges them into the one combined-WIDTH
+    #     entrance it exists to build, and dropping one instead left
+    #     each bore spanning a single carriageway.
+    #   FACING ENTRANCES — opposite ends across an open gap, outward
+    #     directions OPPOSING.  NEVER dropped: they are two distinct
+    #     mouths and the A3 open-cut corridor owns the road between
+    #     them (KCLT F|-255 / F|-251, 55.5 m apart).  Their walks DO
+    #     coincide, which is exactly why overlap alone deleted one.
+    #   THE LMML MERGE CLASS — carriageways merging into one roadway
+    #     beyond portals that are far apart, so two ramps land on one
+    #     stretch of road at two profiles (coincident pieces 4.3 m
+    #     apart in z, user 2026-07-04).  Aligned, far apart, and
+    #     overlapping: this, and only this, is dropped.
+    #
+    # A way's own two portals never dedup (opposite tunnel mouths, user
+    # 2026-05-03).  The 4 m buffer is the original overlap geometry.
     _kept_portals: list = []
-    _kept_stations: list = []         # (point, tw_id)
+    _kept_meta: list = []      # (walk line, tw_id, station, outward dir)
     for _pd in portal_data:
+        _walk_pts = _pd[2]
+        _wline = (LineString(_walk_pts) if len(_walk_pts) >= 2 else None)
         _station = nodes_m.get(_pd[0])
+        _dir = None
+        if len(_walk_pts) >= 2:
+            _dx = _walk_pts[1][0] - _walk_pts[0][0]
+            _dy = _walk_pts[1][1] - _walk_pts[0][1]
+            _dl = math.hypot(_dx, _dy)
+            if _dl > 1e-6:
+                _dir = (_dx / _dl, _dy / _dl)
         _dup = False
-        if _station is not None:
-            for (_kp, _kw) in _kept_stations:
-                if _kw == _pd[1]:
+        if _wline is not None and _station is not None and _dir is not None:
+            for (_kl, _kw, _kstation, _kdir) in _kept_meta:
+                if _kw == _pd[1] or _kstation is None or _kdir is None:
                     continue
-                if (math.hypot(_station[0] - _kp[0],
-                               _station[1] - _kp[1])
+                if (math.hypot(_station[0] - _kstation[0],
+                               _station[1] - _kstation[1])
                         < portal_cluster_dist_m):
+                    continue                  # sibling — clustering owns it
+                if (_dir[0] * _kdir[0] + _dir[1] * _kdir[1]) <= 0.0:
+                    continue                  # facing — the corridor owns it
+                try:
+                    _ov = _wline.buffer(4.0).intersection(_kl).length
+                except _GEOM_EXC:
+                    continue
+                if _ov > 0.5 * min(_wline.length, _kl.length):
                     _dup = True
                     break
         if _dup:
             if os.environ.get("O4_TUNNEL_DEBUG") == "1":
                 print(f"    [tunnel-walk-dedup] dropped portal of way "
-                      f"{_pd[1]} (station restates a kept portal)")
+                      f"{_pd[1]} (merges into a kept ramp's roadway)")
             continue
         _kept_portals.append(_pd)
-        if _station is not None:
-            _kept_stations.append((_station, _pd[1]))
+        if _wline is not None:
+            _kept_meta.append((_wline, _pd[1], _station, _dir))
     return _kept_portals
 
 
@@ -5410,7 +5445,8 @@ def _emit_tunnel_portals(
     # portal (index 13) so the cluster emit withholds ramp-to-grade
     # there, and laid as an open corridor after the clusters.
     _facing_idx, _facing_pairs = _facing_same_road_portals(
-        portal_data, way_by_id, TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M)
+        portal_data, way_by_id, TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M,
+        min_gap_m=portal_cluster_dist_m)
     if _facing_idx:
         portal_data = [
             (tuple(_pd) + (None,) * max(0, 13 - len(_pd))

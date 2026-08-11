@@ -243,6 +243,29 @@ everything (a passthrough with a real cut is a cut). The
 disjunct admitted or refused. This is a NEW ruled target — the
 implementer's attempt cap resets for it.
 
+**A8 (lead ruling on the implementer's STOP-5: the dedup predicate,
+final form — supersedes A3's station rule).** Three cases, separated
+by station distance and OUTWARD WALK DIRECTION:
+
+* COMBINED-ENTRANCE SIBLINGS (divided carriageways of one crossing):
+  portal stations within `portal_cluster_dist_m` — NEVER dropped;
+  `_cluster_portals` merges them into the one combined-width entrance
+  it exists to build (the OTHH pairs, stations 7.3–17.8 m).
+* FACING ENTRANCES (opposite ends across a gap): outward directions
+  OPPOSING (dot < 0) — NEVER dropped; the A3 open-cut corridor law
+  owns them (`F|-255`/`F|-251`).
+* THE LMML MERGE CLASS (carriageways merging into one roadway beyond
+  portals that are far apart): walk overlap ≥ the existing 50 %
+  threshold AND outward directions ALIGNED (dot > 0) AND stations
+  beyond `portal_cluster_dist_m` — this, and only this, is dropped.
+
+Acceptance addition: each OTHH twin-pair bore spans BOTH carriageways
+(the ~5,573 m² width returns; total shape count need not reach the
+base 93 — the remainder is A6's correctly-refused synthetic
+approaches, including the two 5.6 km metro lines at ≤ 0.01 pavement
+cover); clusters stay 8; the KCLT table holds unchanged. NEW ruled
+target; the attempt cap resets.
+
 **A7 (ratifications).** (a) The `_cut_measured` / `cut_detected`
 evidence-vs-mode split is APPROVED — an env flag must never silently
 delete every tunnel. (b) The facing-pair JOINT DEPTH (both mouths and

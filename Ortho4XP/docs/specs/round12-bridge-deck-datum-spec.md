@@ -160,3 +160,40 @@ an all-water-within-cap family keeps the fallback + finding. Replay:
 quote class B's one shared delta, the seated deck-top (expect ≈3.96),
 and the per-member world y ranges showing supports below 0.5 m. This
 is a NEW ruled target — the attempt cap resets.
+
+## AMENDMENT 2 — 2026-08-11 (lead rulings on the implementer's two
+## frame STOPs; supersedes the conflicting figures above)
+
+**B1 (STOP-2 — THE CORRECTED DELTA IS ADOPTED).** `deck_top_y_m` is an
+EFFECTIVE height (AGL + authored y, metres above the anchor terrain)
+while `anchor_ground_by_resource` is world-frame (mesh(anchor) + AGL):
+the frozen formula double-counted AGL and left the deck top where the
+old law left the y=0 plane. The law's delta is
+`grade − crest_effective − mesh_at_anchor`, one delta per family. The
+spec's pinned figures 7.402/6.784/7.662 are SUPERSEDED by the
+pack-byte-verified pins: Bridge_01 **4.1589**, Bridge_05 **3.9013**,
+Bridge_04 **2.9831**; seated deck tops at their grades
+(3.8515 / 5.0885 / 4.0506); Bridge_04 supports at **−2.59 m**, below
+the 0.00 m water line. "Class A must not move" applied to the water
+clause, not to this frame correction.
+
+**B2 (STOP-1 — THE MESH'S OWN WATER BITS ARE THE AUTHORITY).** OTHH's
+canal is mapped as coastline, not `natural=water`, so the OSM union
+Amendment 1 prescribed cannot see it (the implementer's band sweep:
+every reach ≤ 200 m reproduces class A, every reach ≥ 300 m breaks
+Bridge_04 — the single-sided buffer under- or over-covers, never
+fits). At POST-MESH time the frame-correct water authority is the
+MESH the seat samples: a sample landing on a triangle carrying the
+mesh's sea/water attribute bits is a WATER sample and is discarded
+(this replaces the OSM-union test for the seat; Amendment 1's walk,
+cap, ≥4-sample floor and fallback limb are unchanged). If the mesh
+reader genuinely cannot expose per-triangle attributes at the sample
+point, STOP and report — do not approximate water by elevation.
+Expected class-B outcome: the 21 canal-floor samples discard, the
+landward walk fires, grade ≈ 3.96 land, one rigid delta, supports
+below the water line.
+
+**B3 (ratified).** The obj8 (east, SOUTH) handedness fix and the
+"band is the reach of the question" fix (longest abutment line + walk
+cap, in place of R6-1's 2 km pad constant) are both APPROVED as
+landed.

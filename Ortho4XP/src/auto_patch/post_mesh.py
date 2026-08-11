@@ -1205,111 +1205,7 @@ _ABUTMENT_LAND_WALK_MAX_M = 60.0
 _ABUTMENT_LAND_MIN_SAMPLES = 4
 
 
-def _local_east_north(origin_latitude: float, origin_longitude: float):
-    """``to_metres(longitude, latitude) -> (east, north)`` about an
-    origin — the local equirectangular frame the OSM readers are written
-    for.
-
-    NOT the obj8 frame.  ``obj8_reader``'s local offset is
-    ``(east, SOUTH)`` (verified: 100 m north projects to z = −100), and
-    handing that to a reader that decides sea from coastline HANDEDNESS
-    — land on the left — mirrors the answer: measured at OTHH, the 2 km
-    sea band landed on the airport and every abutment sample read as
-    water.  The water test therefore lives in east/north, the same frame
-    ``object_terrain_assembly.anchor_family_resources`` measures in."""
-    cosine = math.cos(math.radians(origin_latitude))
-
-    def to_metres(longitude, latitude):
-        return (
-            (longitude - origin_longitude) * 111320.0 * cosine,
-            (latitude - origin_latitude) * 111320.0,
-        )
-
-    return to_metres
-
-
-def _abutment_water_test(candidate):
-    """``is_water(latitude, longitude) -> bool`` for a seat candidate, or
-    ``None`` when no water is provable.
-
-    ONE authority: :func:`osm_load._load_osm_water_sea_union`, the same
-    reader R6-1's building-pad clip uses, read from the tile's own
-    ``water`` / ``coastline`` caches (nothing is downloaded).  The sea
-    band is R6-1's constant too; there is no second water test and no new
-    knob.  The callable owns the projection, so no caller can put a
-    point into the union in the wrong frame.
-
-    ``None`` on any failure — an unreadable cache, a geometry error, a
-    tile with no water in range.  That degrades to TODAY's behaviour
-    (every sample counts), which is the right posture: this union
-    DISCARDS the samples that author a datum, so an unprovable claim of
-    water must never be made.
-
-    THE SEA BAND IS THE REACH OF THE QUESTION.  ``natural=coastline`` is
-    a LINE, so the reader turns it into water by buffering it on the
-    water side; how far it buffers decides how far from a mapped shore an
-    answer may reach.  R6-1's constant is 2 km, sized for a building pad
-    that may sit far out to sea.  An abutment sample never lies further
-    from its own deck-end line than the walk cap, so a 2 km band answers
-    a question this law never asks — and it answers it WRONG: measured at
-    OTHH, the Gulf's coastline band reached inland over Bridge_04's far
-    abutment and called 3.96 m of dry land water, moving that bridge's
-    grade 4.051 → 4.955.  The band here is therefore the span the samples
-    themselves can cover: the abutment line plus a walk cap at each end.
-    Nothing is tuned to a target — a wider band adds only answers about
-    water no sample of ours can reach."""
-    origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
-    to_metres = _local_east_north(origin_latitude, origin_longitude)
-
-    east_north = [
-        to_metres(longitude, latitude)
-        for line in candidate.abutment_points_longitude_latitude
-        for longitude, latitude in line[:2]
-    ]
-    if not east_north:
-        return None
-    margin = 2.0 * _ABUTMENT_LAND_WALK_MAX_M
-    bounds_metres = (
-        min(x for x, _y in east_north) - margin,
-        min(y for _x, y in east_north) - margin,
-        max(x for x, _y in east_north) + margin,
-        max(y for _x, y in east_north) + margin,
-    )
-    longest_line = max(
-        (
-            math.hypot(end[0] - start[0], end[1] - start[1])
-            for start, end in _abutment_line_frame_points(candidate)
-        ),
-        default=0.0,
-    )
-    sea_band_metres = longest_line + margin
-    try:
-        from shapely.geometry import Point
-        from shapely.prepared import prep
-
-        from .osm_load import _load_osm_water_sea_union
-
-        union = _load_osm_water_sea_union(
-            origin_latitude, origin_longitude, to_metres, bounds_metres,
-            sea_band_m=sea_band_metres,
-        )
-        if union is None or getattr(union, "is_empty", True):
-            return None
-        prepared = prep(union)
-    except Exception:
-        return None
-
-    def is_water(latitude: float, longitude: float) -> bool:
-        try:
-            return bool(prepared.contains(Point(to_metres(longitude,
-                                                          latitude))))
-        except Exception:
-            return False
-
-    return is_water
-
-
-def _abutment_grade_samples_on_land(candidate, sampler, is_water) -> tuple:
+def _abutment_grade_samples_on_land(candidate, sampler) -> tuple:
     """The abutment-grade samples that stand on LAND, per deck end, with
     the landward walk the round-12 amendment rules.
 
@@ -1317,18 +1213,24 @@ def _abutment_grade_samples_on_land(candidate, sampler, is_water) -> tuple:
     author the grade, and one dict per deck end saying how far it walked,
     how many samples it kept and how many it lost to water.
 
-    Per end: sample the line, DISCARD every sample inside the water
-    union, and — if fewer than :data:`_ABUTMENT_LAND_MIN_SAMPLES` remain
-    — shift the whole line LANDWARD along the deck axis (directly away
-    from the other end, which is the span) by one sample step and try
-    again, up to :data:`_ABUTMENT_LAND_WALK_MAX_M`.  An end that never
-    finds its land contributes nothing; a family where NEITHER end does
-    has no measurable grade and the caller says so.
+    Per end: sample the line, DISCARD every sample whose MESH TRIANGLE
+    carries the water bits, and — if fewer than
+    :data:`_ABUTMENT_LAND_MIN_SAMPLES` remain — shift the whole line
+    LANDWARD along the deck axis (directly away from the other end,
+    which is the span) by one sample step and try again, up to
+    :data:`_ABUTMENT_LAND_WALK_MAX_M`.  An end that never finds its land
+    contributes nothing; a family where NEITHER end does has no
+    measurable grade and the caller says so.
 
-    ``is_water`` is :func:`_abutment_water_test`'s callable — it owns
-    its own projection, so nothing here can put a point into the union in
-    the wrong frame.  With ``is_water`` ``None`` nothing is discarded and
-    no end walks — byte-for-byte today's sampling."""
+    THE MESH IS THE WATER AUTHORITY (round-12 amendment 2, B2).  The
+    seat samples the built mesh, and that same mesh triangle carries the
+    water bits ``O4_DSF_Utils.remap_water_tri_type`` reads — so the
+    elevation and "is this water?" come from ONE point-in-triangle scan,
+    in one frame, with no projection to get wrong.  The OSM water ∪ sea
+    union amendment 1 prescribed could not see OTHH's canal at all (it
+    is mapped as coastline, and a single-sided buffer either under-covers
+    the canal or over-covers the airport — measured band sweep
+    100…2000 m), and elevation is NEVER used as a water proxy."""
     from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
 
     origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
@@ -1341,12 +1243,14 @@ def _abutment_grade_samples_on_land(candidate, sampler, is_water) -> tuple:
     def _sample(frame_x, frame_z):
         latitude, longitude = obj8_reader.local_offset_to_lonlat(
             origin_latitude, origin_longitude, 0.0, frame_x, frame_z)
-        elevation = sampler.elevation_at_or_none(latitude, longitude)
-        if elevation is None or elevation != elevation:
+        sample = sampler.sample_at_or_none(latitude, longitude)
+        if sample is None or sample.elevation_metres != (
+            sample.elevation_metres
+        ):
             return None
-        if is_water is not None and is_water(latitude, longitude):
+        if sample.is_water:
             return "water"
-        return float(elevation)
+        return float(sample.elevation_metres)
 
     samples: list = []
     end_records: list = []
@@ -1630,15 +1534,13 @@ def _bake_bridge_abutment_seats(
                 candidate_seat_source)
             continue
 
-        # WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment).  An
-        # abutment stands on LAND: samples inside the mapped water union
-        # are discarded, and a deck end that loses its line to water
-        # walks landward until it finds its shore.  Without a provable
-        # union nothing is discarded and no end walks — today's sampling.
-        is_water = _abutment_water_test(candidate)
-        record["water_union_available"] = is_water is not None
+        # WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment 1, with
+        # amendment 2's B2 authority).  An abutment stands on LAND:
+        # samples whose MESH TRIANGLE carries the water bits are
+        # discarded, and a deck end that loses its line to water walks
+        # landward until it finds its shore.
         abutment_samples, abutment_end_records = (
-            _abutment_grade_samples_on_land(candidate, sampler, is_water)
+            _abutment_grade_samples_on_land(candidate, sampler)
         )
         record["abutment_ends"] = abutment_end_records
         record["abutment_walked_m"] = max(
@@ -1648,7 +1550,7 @@ def _bake_bridge_abutment_seats(
                 "not seated — no abutment sample stands on land within "
                 f"{_ABUTMENT_LAND_WALK_MAX_M:.0f} m of either deck end "
                 f"({sum(end['samples_over_water'] for end in abutment_end_records)}"
-                " sample(s) lost to the mapped water union), so the "
+                " sample(s) on water-attributed mesh triangles), so the "
                 "abutment grade is unmeasured — water never authors a "
                 "bridge datum (never guessed)")
             _mint_seat_fallback(
@@ -1714,17 +1616,36 @@ def _bake_bridge_abutment_seats(
                 candidate_seat_source)
             continue
 
-        # THE DATUM IS THE DECK TOP (round-12 R12-1).  The seat lands the
-        # authored DECK-TOP plane at the abutment grade, so the authored
-        # y = 0 plane goes to ``abutment_grade - deck_top_y_m``.  Only a
-        # FLUSH deck has its deck top at y = 0; landing y = 0 at the
-        # abutment grade — the R6-3 delta — therefore left a raised deck
-        # PROUD of the ground its own abutments stand on and lifted the
-        # supports clear of the water they descend to (OTHH Bridge_04 /
-        # 05: deck tops +1.067 / +1.187, supports left 2.28 / 3.27 m up).
+        # THE DATUM IS THE DECK TOP (round-12 R12-1, in the frame
+        # amendment 2's B1 corrects it to).  The seat lands the authored
+        # DECK TOP at the abutment grade.  Landing the y = 0 plane there
+        # — the R6-3 delta — is the same thing ONLY for a flush deck, so
+        # a raised deck came out proud with its supports clear of the
+        # water they descend to (OTHH Bridge_04 / 05: crests +1.067 /
+        # +1.187, supports left 2.28 / 3.27 m up).
+        #
+        # MIND THE TWO FRAMES.  ``deck_top_y_m`` is an EFFECTIVE height
+        # (object_terrain_features._build_structure_frame:
+        # ``effective_y = above_ground_level_metres + authored_y``) —
+        # metres above the ANCHOR'S TERRAIN.  ``anchor_ground_by_resource``
+        # is world-frame: ``mesh(anchor) + AGL``, the elevation of the
+        # object's authored y = 0 plane.  Subtracting the first from the
+        # second double-counts the AGL, and the deck top then lands
+        # exactly where the OLD law left the y = 0 plane (verified from
+        # pack bytes: Bridge_04_LOD0_001 authored y 4.8255..4.8683 with
+        # AGL −3.8009 ⇒ effective 1.0247..1.0675 against a recorded crest
+        # of 1.0675).  So the delta is measured in the EFFECTIVE frame:
+        #
+        #     delta = abutment_grade − deck_top_y_m − mesh_at_anchor
+        #
+        # and it is ONE number for the whole family (R12-2's "one delta
+        # for every member", verbatim): a rigid body has one offset, and
+        # the per-member anchor grounds — which is what tore families
+        # apart — never enter the arithmetic.
         deck_top_y_metres = float(candidate.deck_top_y_m)
-        seat_plane_metres = abutment_grade - deck_top_y_metres
-        record["seat_plane_y0_m"] = seat_plane_metres
+        seat_delta_metres = (
+            abutment_grade - deck_top_y_metres - anchor_ground)
+        record["seat_delta_m"] = seat_delta_metres
         # The seated deck top the law PROMISES: the abutment grade, by
         # construction.  ``achieved_deck_top_m`` is what the deltas
         # actually produce, asserted equal below — a record that promises
@@ -1812,18 +1733,13 @@ def _bake_bridge_abutment_seats(
                 ):
                     if resource_path not in anchor_ground_by_resource:
                         continue
-                    # ONE BRIDGE, ONE RIGID SEAT (R12-2): one seat plane
-                    # for the WHOLE family — never a per-structure or
-                    # per-member target — and each member's delta from
-                    # its own anchor ground (invariant I-3).  A family
-                    # sharing one placement anchor therefore takes ONE
-                    # delta; the per-structure grounds this loop walks
-                    # never enter the arithmetic, which is precisely why
-                    # the family cannot tear across them.
-                    delta = (
-                        seat_plane_metres
-                        - anchor_ground_by_resource[resource_path]
-                    )
+                    # ONE BRIDGE, ONE RIGID SEAT (R12-2): the family's
+                    # single delta, for every member of every structure.
+                    # Neither the per-structure grounds this loop walks
+                    # nor the per-member anchor grounds enter the
+                    # arithmetic — which is precisely why the family
+                    # cannot tear across either of them.
+                    delta = seat_delta_metres
                     seat_delta_by_resource[resource_path] = delta
                     resource_deltas = (
                         delta_by_resource_and_vertex.setdefault(
@@ -1903,17 +1819,32 @@ def _bake_bridge_abutment_seats(
         # authored crest.  Rigid means these AGREE — the spread across
         # the family is the tear, and it must be zero.
         if seat_delta_by_resource:
+            # In the EFFECTIVE frame the crest is measured in (B1): a
+            # member's deck top ends up at
+            # ``mesh(anchor) + crest + delta``.  Measured from the deltas
+            # ACTUALLY produced, so the record's promise is checked
+            # against the bake rather than restated.
             achieved_by_resource = {
                 resource_path: (
-                    anchor_ground_by_resource[resource_path]
-                    + delta
-                    + deck_top_y_metres
+                    anchor_ground + delta + deck_top_y_metres
                 )
                 for resource_path, delta in seat_delta_by_resource.items()
             }
             achieved_values = sorted(achieved_by_resource.values())
             record["seat_delta_by_resource_m"] = {
                 resource_path: float(delta)
+                for resource_path, delta
+                in sorted(seat_delta_by_resource.items())
+            }
+            # WHERE EACH MEMBER'S AUTHORED y = 0 PLANE LANDS, per
+            # member, because that is the only unambiguous statement:
+            # it is ``mesh(anchor_r) + AGL_r + delta`` and the AGL is a
+            # PLACEMENT property, so a single scalar for the family
+            # would be the same frame mix B1 corrected.  A reader
+            # reconstructing world y does ``y0 + authored_y``.
+            record["member_world_y0_m"] = {
+                resource_path: float(
+                    anchor_ground_by_resource[resource_path] + delta)
                 for resource_path, delta
                 in sorted(seat_delta_by_resource.items())
             }
@@ -1956,11 +1887,11 @@ def _bake_bridge_abutment_seats(
                  "seat " if not write_changes
                  else "bridge_abutment_seat: seated ")
                 + f"the DECK TOP at abutment grade {abutment_grade:.2f} m "
-                f"({len(abutment_samples)} sample(s)) — authored crest "
-                f"{deck_top_y_metres:+.2f} m, so the y=0 plane lands at "
-                f"{seat_plane_metres:.2f} m, lifting the deck "
-                f"{drop_metres:.2f} m off the anchor ground "
-                f"{anchor_ground:.2f} m over "
+                f"({len(abutment_samples)} land sample(s), walked "
+                f"{record['abutment_walked_m']:.0f} m) — effective crest "
+                f"{deck_top_y_metres:+.2f} m over the anchor ground "
+                f"{anchor_ground:.2f} m, so ONE family delta of "
+                f"{seat_delta_metres:+.3f} m over "
                 f"{len(record['objects_written'])} object file(s) "
                 f"[{candidate_seat_source}]")
         UI.vprint(

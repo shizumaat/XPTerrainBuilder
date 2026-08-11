@@ -89,9 +89,20 @@ PIER_DECK_TOP_Y_M = 3.0
 PIER_FOOT_Y_M = -2.0
 
 
-def _write_two_level_mesh(mesh_path, *, water_half_span_m) -> None:
+def _write_two_level_mesh(mesh_path, *, water_half_span_m,
+                          water_bits_half_span_m=None) -> None:
     """A built-mesh dump: water inside a square about the anchor, land
-    outside.  The sampler reads z in 100 km units."""
+    outside.  The sampler reads z in 100 km units.
+
+    ``water_bits_half_span_m`` is the square whose triangles carry the
+    mesh's WATER ATTRIBUTE (terrain type 2, the sea class — any bit of
+    ``mesh_sampler.WATER_BIT_MASK``); it defaults to the elevation
+    square.  Keeping the two separable is the point: the seat must read
+    the ATTRIBUTE, never the elevation, so a fixture can hold water at
+    3.96 m or dry land at 0.00 m and the twins still pin the right
+    behaviour."""
+    if water_bits_half_span_m is None:
+        water_bits_half_span_m = water_half_span_m
     steps = int(2 * MESH_EXTENT_M / MESH_STEP_M) + 1
     coordinates = [
         -MESH_EXTENT_M + index * MESH_STEP_M for index in range(steps)
@@ -107,21 +118,35 @@ def _write_two_level_mesh(mesh_path, *, water_half_span_m) -> None:
                 longitude, latitude,
                 WATER_ELEVATION_M if inside else LAND_ELEVATION_M,
             ))
+    def _water_bit(*vertex_indices):
+        # Attribute 2 = the sea class; a triangle is water only when
+        # EVERY corner is inside the attributed square, so the shoreline
+        # triangle reads as land exactly as a real mesh's does.
+        for index in vertex_indices:
+            east, south = coordinate_pairs[index]
+            if not (abs(east) <= water_bits_half_span_m
+                    and abs(south) <= water_bits_half_span_m):
+                return 0
+        return 2
+
+    coordinate_pairs = [
+        (east, south) for east in coordinates for south in coordinates
+    ]
     triangles = []
     for i in range(steps - 1):
         for j in range(steps - 1):
             a, b = i * steps + j, (i + 1) * steps + j
             c, d = (i + 1) * steps + j + 1, i * steps + j + 1
-            triangles.append((a + 1, b + 1, c + 1))
-            triangles.append((a + 1, c + 1, d + 1))
+            triangles.append((a + 1, b + 1, c + 1, _water_bit(a, b, c)))
+            triangles.append((a + 1, c + 1, d + 1, _water_bit(a, c, d)))
     lines = ["MeshVersionFormatted 2", "Dimension 3", "", "Vertices",
              str(len(vertices))]
     for longitude, latitude, elevation in vertices:
         lines.append(
             f"{longitude:.15f} {latitude:.15f} {elevation / 100000.0:.15f} 0")
     lines += ["", "Normals", "0", "", "Triangles", str(len(triangles))]
-    for first, second, third in triangles:
-        lines.append(f"{first} {second} {third} 0")
+    for first, second, third, attribute in triangles:
+        lines.append(f"{first} {second} {third} {attribute}")
     mesh_path.write_text("\n".join(lines) + "\n")
 
 
@@ -207,6 +232,8 @@ def _bridge(**overrides):
 class _Harness:
     """One airport rebake against a written mesh and a written pack."""
 
+    _mesh_serial = 0
+
     def pack(self, tmp_path, monkeypatch, resources, *, agl_by_resource=None,
              obj_text=_BOX_OBJ_TEXT):
         from auto_patch import dsf_reader
@@ -229,40 +256,26 @@ class _Harness:
                     f"OBJECT {index} {ANCHOR_LONGITUDE} "
                     f"{ANCHOR_LATITUDE} 0.0")
             else:
+                # OBJECT_AGL <def> <lon> <lat> <agl> <heading>
                 lines.append(
                     f"OBJECT_AGL {index} {ANCHOR_LONGITUDE} "
-                    f"{ANCHOR_LATITUDE} 0.0 {agl}")
+                    f"{ANCHOR_LATITUDE} {agl} 0.0")
         monkeypatch.setattr(
             dsf_reader, "_load_dsf_text", lambda _path: lines)
         return dsf_path, pack_root
 
-    def mesh(self, tmp_path, *, water=True, water_half_span_m=None):
-        mesh_path = tmp_path / "Data+36-087.mesh"
+    def mesh(self, tmp_path, *, water=True, water_half_span_m=None,
+             water_bits_half_span_m=None):
+        # A fresh name per fixture: mesh_sampler memoizes its parse by
+        # (path, mtime, size), and two fixtures can collide on all three.
+        mesh_path = tmp_path / f"Data+36-087_{self._mesh_serial}.mesh"
+        self._mesh_serial += 1
         if water_half_span_m is None:
             water_half_span_m = WATER_HALF_SPAN_M if water else -1.0
         _write_two_level_mesh(
-            mesh_path, water_half_span_m=water_half_span_m)
+            mesh_path, water_half_span_m=water_half_span_m,
+            water_bits_half_span_m=water_bits_half_span_m)
         return mesh_path
-
-    def water_union(self, monkeypatch, half_span_m):
-        """Pin the R6-1 water reader to a square canal of ``half_span_m``
-        about the anchor, in the candidate's own metre frame — ``None``
-        for "no water provable here"."""
-        from shapely.geometry import box
-
-        from auto_patch import osm_load
-
-        def _fake(_lat, _lon, _to_m, _bounds=None, **_kwargs):
-            if half_span_m is None:
-                return None
-            # In the reader's own EAST/NORTH frame — the canal is a
-            # square about the anchor, which is where the mesh writer
-            # puts its water too.
-            return box(-half_span_m, -half_span_m,
-                       half_span_m, half_span_m)
-
-        monkeypatch.setattr(
-            osm_load, "_load_osm_water_sea_union", _fake)
 
     def rebake(self, dsf_path, mesh_path, pack_root, candidates, **kwargs):
         from auto_patch import post_mesh
@@ -290,6 +303,20 @@ def _sandbox(tmp_path, monkeypatch):
 @pytest.fixture
 def harness():
     return _Harness()
+
+
+def _local_east_north(origin_latitude, origin_longitude):
+    """``to_metres(longitude, latitude) -> (east, north)`` for the twins'
+    own fixture geometry."""
+    import math
+
+    cosine = math.cos(math.radians(origin_latitude))
+
+    def to_metres(longitude, latitude):
+        return ((longitude - origin_longitude) * 111320.0 * cosine,
+                (latitude - origin_latitude) * 111320.0)
+
+    return to_metres
 
 
 def _vertex_y_values(path) -> list:
@@ -324,8 +351,13 @@ class TestTheDatumIsTheDeckTop:
         # THE LAW: the deck top IS the abutment grade...
         assert record["expected_deck_top_m"] == pytest.approx(
             LAND_ELEVATION_M, abs=1e-4)
-        # ...and the y = 0 plane goes BELOW it by the authored crest.
-        assert record["seat_plane_y0_m"] == pytest.approx(
+        # ...reached by ONE family delta of grade - crest - mesh(anchor)
+        # (this fixture places at AGL 0, so the member's y = 0 plane
+        # lands on the same number).
+        assert record["seat_delta_m"] == pytest.approx(
+            LAND_ELEVATION_M - RAISED_DECK_TOP_Y_M - WATER_ELEVATION_M,
+            abs=1e-4)
+        assert record["member_world_y0_m"][DECK_RESOURCE] == pytest.approx(
             LAND_ELEVATION_M - RAISED_DECK_TOP_Y_M, abs=1e-4)
         # ...and what the deltas achieve agrees, within materiality.
         assert record["achieved_deck_top_m"] == pytest.approx(
@@ -496,12 +528,20 @@ class TestOneBridgeIsOneRigidBody:
 
 
 class TestWaterNeverAuthorsABridgeDatum:
-    """Round-12 AMENDMENT (lead ruling 2026-08-11).  An abutment stands
-    on LAND.  Samples inside the mapped water union are DISCARDED, and a
-    deck end that loses its line to water WALKS LANDWARD along the deck
-    axis — away from the span — in sample-step increments up to 60 m
-    until at least four non-water samples exist.  A family that finds no
-    land at either end within the cap keeps its y-bake and says so."""
+    """Round-12 AMENDMENT 1 (the law) with AMENDMENT 2's B2 authority
+    (the instrument).  An abutment stands on LAND.  A sample whose MESH
+    TRIANGLE carries the water bits is DISCARDED, and a deck end that
+    loses its line to water WALKS LANDWARD along the deck axis — away
+    from the span — in sample-step increments up to 60 m until at least
+    four non-water samples exist.  A family that finds no land at either
+    end within the cap keeps its y-bake and says so.
+
+    The instrument is the MESH, not the OSM union: the seat already
+    samples that mesh, the same triangle carries the water bits
+    ``O4_DSF_Utils.remap_water_tri_type`` reads, and it knows a canal
+    OSM maps only as a coastline.  Elevation is NEVER a water proxy —
+    ``test_water_is_read_from_the_attribute_not_the_elevation`` is the
+    pin."""
 
     def test_a_canal_end_walks_ashore_and_seats_at_the_land_grade(
         self, tmp_path, monkeypatch, harness
@@ -511,27 +551,27 @@ class TestWaterNeverAuthorsABridgeDatum:
         family delta, the deck top at the LAND grade, and the piers
         descending below the water line."""
         members = [DECK_RESOURCE, PIER_RESOURCE]
-        # A canal wide enough to swallow both abutment lines (x = +-80).
-        # The mapped union (102 m) reaches slightly further than the
-        # water in the MESH (90 m), as a real shoreline does — so the
-        # first samples outside the union stand on unambiguous land.
-        harness.water_union(monkeypatch, 102.0)
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
         result = harness.rebake(
             dsf_path,
-            harness.mesh(tmp_path, water_half_span_m=90.0),
+            # A canal wide enough to swallow both abutment lines
+            # (x = +-80), attributed one cell WIDER than it is deep so
+            # the shoreline triangle is land, as a real mesh's is.
+            harness.mesh(tmp_path, water_half_span_m=90.0,
+                         water_bits_half_span_m=100.0),
             pack_root,
             [_candidate(members, PIER_DECK_TOP_Y_M,
                         seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)],
         )
 
         record = result["bridge_abutment_seat"][0]
-        assert record["water_union_available"] is True
         # Both ends had to walk, and both found their land.
         assert [end["found_land"] for end in record["abutment_ends"]] == [
             True, True]
         assert all(end["walked_m"] > 0.0 for end in record["abutment_ends"])
+        assert all(end["samples_over_water"] == 0
+                   for end in record["abutment_ends"])
         assert record["abutment_walked_m"] <= 60.0
         # The grade is the LAND grade, not the canal's 0.00 m.
         assert record["abutment_grade_m"] == pytest.approx(
@@ -541,7 +581,7 @@ class TestWaterNeverAuthorsABridgeDatum:
         # ONE rigid family delta.
         deltas = record["seat_delta_by_resource_m"]
         assert sorted(deltas) == sorted(members)
-        assert len(set(round(value, 6) for value in deltas.values())) == 1
+        assert len(set(round(value, 9) for value in deltas.values())) == 1
         assert record["intra_family_tear_m"] == pytest.approx(0.0, abs=1e-9)
         assert record["baked"] is True
 
@@ -562,14 +602,13 @@ class TestWaterNeverAuthorsABridgeDatum:
         family keeps the generic y-bake it has today, the pack is not
         touched, and a counted ``bridge_seat_fallback`` says why."""
         members = [DECK_RESOURCE, PIER_RESOURCE]
-        # Water everywhere the 60 m walk can reach (lines at +-80, so the
-        # walk tops out at +-140).
-        harness.water_union(monkeypatch, 200.0)
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
         authored = (pack_root / DECK_RESOURCE).read_text()
         result = harness.rebake(
             dsf_path,
+            # Water everywhere the 60 m walk can reach (lines at +-80, so
+            # the walk tops out at +-140).
             harness.mesh(tmp_path, water_half_span_m=200.0),
             pack_root,
             [_candidate(members, PIER_DECK_TOP_Y_M,
@@ -587,25 +626,50 @@ class TestWaterNeverAuthorsABridgeDatum:
         # Not routed: nothing claimed, so the generic y-bake still owns it.
         assert not (result.get("bridge_seat_claimed_resources") or set())
         assert (pack_root / DECK_RESOURCE).read_text() == authored
-        # ...and the finding is raised for the counter.
         assert [f["finding"] for f in result["bridge_findings"]] == [
             assembly.BRIDGE_SEAT_FALLBACK_FINDING]
 
-    def test_no_provable_water_leaves_the_sampling_exactly_as_before(
+    def test_water_is_read_from_the_attribute_not_the_elevation(
         self, tmp_path, monkeypatch, harness
     ):
-        """The union DISCARDS the samples that author a datum, so an
-        unprovable claim of water must never be made: with no union
-        nothing is dropped and no end walks."""
-        harness.water_union(monkeypatch, None)
+        """B2 forbids approximating water by elevation, and this is the
+        pin: a mesh whose canal is at 0.00 m but carries NO water bits
+        is LAND.  The seat reads the attribute and takes the 0.00 m
+        grade — wrong-looking, and exactly what an honest instrument
+        says when the mesh does not claim water."""
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, [DECK_RESOURCE])
         result = harness.rebake(
-            dsf_path, harness.mesh(tmp_path), pack_root,
+            dsf_path,
+            # Elevation water out past both abutment lines; NO water
+            # bits anywhere.
+            harness.mesh(tmp_path, water_half_span_m=200.0,
+                         water_bits_half_span_m=-1.0),
+            pack_root,
             [_candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)])
 
         record = result["bridge_abutment_seat"][0]
-        assert record["water_union_available"] is False
+        assert all(end["samples_over_water"] == 0
+                   for end in record["abutment_ends"])
+        assert all(end["walked_m"] == 0.0
+                   for end in record["abutment_ends"])
+        assert record["abutment_grade_m"] == pytest.approx(
+            WATER_ELEVATION_M, abs=1e-4)
+
+    def test_a_mesh_with_no_water_bits_samples_exactly_as_before(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """The clause is an EXTRA discriminator: where the mesh claims no
+        water, nothing is discarded and no end walks."""
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, [DECK_RESOURCE])
+        result = harness.rebake(
+            dsf_path,
+            harness.mesh(tmp_path, water_bits_half_span_m=-1.0),
+            pack_root,
+            [_candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)])
+
+        record = result["bridge_abutment_seat"][0]
         assert all(end["walked_m"] == 0.0
                    for end in record["abutment_ends"])
         assert all(end["samples_over_water"] == 0
@@ -620,7 +684,6 @@ class TestWaterNeverAuthorsABridgeDatum:
         fall back TO.  A classified family is R4-excluded before the mesh
         is read, so its decline means "stays draped" — R6-3's own answer,
         not a finding."""
-        harness.water_union(monkeypatch, None)
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, [DECK_RESOURCE])
         result = harness.rebake(
@@ -640,12 +703,12 @@ class TestWaterNeverAuthorsABridgeDatum:
         family that seats is claimed (and the generic pass skips it) while
         one that falls back is not."""
         members = [DECK_RESOURCE, PIER_RESOURCE]
-        harness.water_union(monkeypatch, 102.0)
         dsf_path, pack_root = harness.pack(
             tmp_path, monkeypatch, members, obj_text=_PIER_OBJ_TEXT)
         result = harness.rebake(
             dsf_path,
-            harness.mesh(tmp_path, water_half_span_m=90.0),
+            harness.mesh(tmp_path, water_half_span_m=90.0,
+                         water_bits_half_span_m=100.0),
             pack_root,
             [_candidate(members, PIER_DECK_TOP_Y_M,
                         seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT)],
@@ -656,13 +719,12 @@ class TestWaterNeverAuthorsABridgeDatum:
         assert any("bridge_abutment_seat law" in reason
                    for reason in reasons), reasons
 
-    def test_the_walk_leaves_the_span_never_crosses_it(
-        self, tmp_path, monkeypatch, harness
-    ):
+    def test_the_walk_leaves_the_span_never_crosses_it(self):
         """LANDWARD is away from the span.  A walk towards the other deck
         end would sample the bridge's own opposite shore — or its own
         deck — and author the datum from the wrong ground."""
         from auto_patch import post_mesh
+        from auto_patch.mesh_sampler import MeshSample
 
         candidate = _candidate([DECK_RESOURCE], PIER_DECK_TOP_Y_M)
         lines = post_mesh._abutment_line_frame_points(candidate)
@@ -672,22 +734,23 @@ class TestWaterNeverAuthorsABridgeDatum:
         # The two ends sit either side of the anchor on the deck axis...
         assert midpoints[0][0] < 0.0 < midpoints[1][0]
 
-        class _AllWater:
-            def elevation_at_or_none(self, _latitude, _longitude):
-                return LAND_ELEVATION_M
+        to_metres = _local_east_north(ANCHOR_LATITUDE, ANCHOR_LONGITUDE)
 
-        from shapely.geometry import Point, box
+        class _CanalSampler:
+            """Water inside |east| <= 100 m, land at 3.96 outside."""
 
-        canal = box(-100.0, -100.0, 100.0, 100.0)
-        to_metres = post_mesh._local_east_north(
-            ANCHOR_LATITUDE, ANCHOR_LONGITUDE)
+            def sample_at_or_none(self, latitude, longitude):
+                east, _north = to_metres(longitude, latitude)
+                water = abs(east) <= 100.0
+                return MeshSample(
+                    elevation_metres=(
+                        WATER_ELEVATION_M if water else LAND_ELEVATION_M),
+                    terrain_type=2 if water else 0,
+                    is_water=water,
+                )
 
-        def _is_water(latitude, longitude):
-            return canal.contains(Point(to_metres(longitude, latitude)))
-
-        # A canal covering both ends: each must walk OUTWARD.
         samples, ends = post_mesh._abutment_grade_samples_on_land(
-            candidate, _AllWater(), _is_water)
+            candidate, _CanalSampler())
         assert [end["found_land"] for end in ends] == [True, True]
         for end in ends:
             assert end["walked_m"] >= 20.0
@@ -850,45 +913,153 @@ class TestRefusalRecordsCarryTheDeck:
 # ── 6. the offline-replay arithmetic pins (spec section 6) ───────────
 
 
+class TestTheDeltaIsMeasuredInTheEffectiveFrame:
+    """AMENDMENT 2 B1.  ``deck_top_y_m`` is an EFFECTIVE height —
+    ``object_terrain_features._build_structure_frame`` computes
+    ``effective_y = above_ground_level_metres + authored_y``, metres
+    above the ANCHOR'S TERRAIN — while ``anchor_ground_by_resource`` is
+    world-frame (``mesh(anchor) + AGL``, the elevation of the authored
+    y = 0 plane).  Subtracting one from the other double-counts the AGL
+    and leaves the deck top exactly where the OLD law left the y = 0
+    plane.  The law is ``grade − crest_effective − mesh_at_anchor``, ONE
+    delta for the family.
+
+    A placement with AGL = 0 cannot tell the two apart, which is why
+    every twin here carries a real AGL."""
+
+    AGL_M = -3.8009          # OTHH Bridge_04's own placement offset
+    # The fixture boxes' authored deck top is +3.0.  The classifier would
+    # record its EFFECTIVE height, so the candidate's crest must be
+    # ``authored + AGL`` — a fixture that passed the authored value would
+    # be internally inconsistent and could not tell the frames apart.
+    CREST_EFFECTIVE = 3.0 + AGL_M
+
+    def _seat(self, tmp_path, monkeypatch, harness, crest, *, members=None,
+              obj_text=None):
+        members = members or [DECK_RESOURCE]
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, members,
+            agl_by_resource={resource: self.AGL_M for resource in members},
+            obj_text=obj_text or _BOX_OBJ_TEXT)
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate(members, crest)])
+        return result, pack_root
+
+    def test_the_delta_is_grade_minus_crest_minus_mesh_at_anchor(
+        self, tmp_path, monkeypatch, harness
+    ):
+        result, _pack_root = self._seat(
+            tmp_path, monkeypatch, harness, self.CREST_EFFECTIVE)
+        record = result["bridge_abutment_seat"][0]
+
+        assert record["mesh_at_anchor_m"] == pytest.approx(
+            WATER_ELEVATION_M, abs=1e-4)
+        expected = (
+            LAND_ELEVATION_M - self.CREST_EFFECTIVE - WATER_ELEVATION_M)
+        assert record["seat_delta_m"] == pytest.approx(expected, abs=1e-6)
+        # The superseded formula would have added |AGL| on top.
+        superseded = expected - self.AGL_M
+        assert record["seat_delta_m"] != pytest.approx(superseded, abs=0.1)
+        assert record["achieved_deck_top_m"] == pytest.approx(
+            LAND_ELEVATION_M, abs=0.01)
+
+    def test_one_delta_for_every_member_whatever_their_anchor_grounds(
+        self, tmp_path, monkeypatch, harness
+    ):
+        members = [DECK_RESOURCE, PIER_RESOURCE, RAIL_RESOURCE]
+        result, _pack_root = self._seat(
+            tmp_path, monkeypatch, harness, self.CREST_EFFECTIVE,
+            members=members)
+        deltas = result["bridge_abutment_seat"][0][
+            "seat_delta_by_resource_m"]
+        assert sorted(deltas) == sorted(members)
+        assert len(set(round(value, 9) for value in deltas.values())) == 1
+
+    def test_the_deck_top_really_lands_at_the_grade_in_world_y(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """The bake, read back off the pack and put through X-Plane's own
+        placement arithmetic: world y = mesh(anchor) + AGL + baked y."""
+        result, pack_root = self._seat(
+            tmp_path, monkeypatch, harness, self.CREST_EFFECTIVE,
+            obj_text=_PIER_OBJ_TEXT)
+        assert result["bridge_abutment_seat"][0]["baked"] is True
+
+        baked = _vertex_y_values(pack_root / DECK_RESOURCE)
+        world = [WATER_ELEVATION_M + self.AGL_M + y for y in baked]
+        # The authored crest IS the deck top of this box, so the top of
+        # the baked geometry lands on the abutment grade...
+        assert max(world) == pytest.approx(LAND_ELEVATION_M, abs=1e-3)
+        # ...and the piers descend below the water line, which is the
+        # whole of the owner's picture.
+        assert min(world) == pytest.approx(
+            LAND_ELEVATION_M - (PIER_DECK_TOP_Y_M - PIER_FOOT_Y_M),
+            abs=1e-3)
+        assert min(world) < WATER_ELEVATION_M
+
+
 class TestOTHHReplayArithmetic:
     """The class-A numbers from the offline replay against the current
     +25+051 mesh (2026-08-11), as pure arithmetic pins.  The replay
     itself needs the shared corpus; these pin what it proved."""
 
     @pytest.mark.parametrize(
-        "name, abutment_grade, deck_top_y, old_delta, new_delta",
+        "name, abutment_grade, deck_top_y, agl, old_delta, new_delta",
         [
-            ("Bridge_05", 5.088544, 1.187266, 8.5887, 7.4014),
-            ("Bridge_04", 4.050594, 1.067460, 7.8515, 6.7840),
-            ("Bridge_01", 3.851457, -0.307454, 7.3516, 7.6591),
+            # AMENDMENT 2 B1's pins, from the offline replay against the
+            # current +25+051 mesh (2026-08-11).  ``old_delta`` is R6-3's,
+            # which landed the authored y = 0 plane at the grade.
+            ("Bridge_05", 5.088544, 1.187266, -3.500114, 8.5887, 3.9013),
+            ("Bridge_04", 4.050594, 1.067460, -3.800870, 7.8515, 2.9831),
+            ("Bridge_01", 3.851457, -0.307454, -3.500114, 7.3516, 4.1589),
         ],
     )
-    def test_the_seat_plane_and_delta_arithmetic(
-        self, name, abutment_grade, deck_top_y, old_delta, new_delta
+    def test_the_seat_delta_arithmetic(
+        self, name, abutment_grade, deck_top_y, agl, old_delta, new_delta
     ):
-        # The old law landed y = 0 at the abutment grade; the new one
-        # lands the DECK TOP there.  The whole change is one term.
-        assert new_delta == pytest.approx(old_delta - deck_top_y, abs=0.001)
-        anchor_ground = abutment_grade - old_delta
-        seat_plane = abutment_grade - deck_top_y
-        assert seat_plane - anchor_ground == pytest.approx(
-            new_delta, abs=0.001)
-        # ...and the seated deck top is the abutment grade itself.
-        assert seat_plane + deck_top_y == pytest.approx(
-            abutment_grade, abs=1e-9)
+        # Every OTHH anchor sits over the canal, which the built mesh
+        # answers at 0.00 m.
+        mesh_at_anchor = 0.0
+        # R6-3's delta put the authored y = 0 plane at the grade...
+        anchor_ground = mesh_at_anchor + agl
+        assert abutment_grade - anchor_ground == pytest.approx(
+            old_delta, abs=0.001)
+        # ...the corrected law puts the DECK TOP there, in the effective
+        # frame the crest is measured in.
+        assert new_delta == pytest.approx(
+            abutment_grade - deck_top_y - mesh_at_anchor, abs=0.001)
+        # The seated deck top IS the abutment grade.
+        assert mesh_at_anchor + deck_top_y + new_delta == pytest.approx(
+            abutment_grade, abs=0.001)
+        # ...and the superseded formula was exactly |AGL| too large.
+        superseded = (abutment_grade - deck_top_y) - anchor_ground
+        assert superseded - new_delta == pytest.approx(-agl, abs=0.001)
 
-    def test_the_supports_descend_below_the_deck_by_their_authored_extent(
-        self, tmp_path, monkeypatch, harness
+    @pytest.mark.parametrize(
+        "name, abutment_grade, deck_top_y, agl, authored_min, authored_max",
+        [
+            # OTHH Bridge_04's real members, from the pack's authored
+            # bytes: the big LOD0_003 carries deck AND supports.
+            ("Bridge_04_LOD0_003", 4.050594, 1.067460, -3.800870,
+             -1.774, 5.712),
+            ("Bridge_05_LOD0_003", 5.088544, 1.187266, -3.500114,
+             -1.820, 5.659),
+        ],
+    )
+    def test_the_supports_descend_below_the_water_line(
+        self, name, abutment_grade, deck_top_y, agl,
+        authored_min, authored_max
     ):
-        """Spec section 6: the supports go DOWN from the deck by the
-        authored extent (the test box spans 3.0 m of y), instead of
-        being lifted clear of the water."""
-        dsf_path, pack_root = harness.pack(
-            tmp_path, monkeypatch, [DECK_RESOURCE])
-        harness.rebake(
-            dsf_path, harness.mesh(tmp_path), pack_root,
-            [_candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)])
-        live = _vertex_y_values(pack_root / DECK_RESOURCE)
-        seat_plane = LAND_ELEVATION_M - RAISED_DECK_TOP_Y_M
-        assert min(live) == pytest.approx(seat_plane, abs=1e-4)
-        assert max(live) == pytest.approx(seat_plane + 3.0, abs=1e-4)
+        """Spec section 6 as amendment 2 pins it: deck top at the grade,
+        supports going DOWN past the 0.00 m canal surface — instead of
+        being lifted clear of the water they descend to."""
+        mesh_at_anchor = 0.0
+        delta = abutment_grade - deck_top_y - mesh_at_anchor
+        # world y = mesh(anchor) + AGL + (authored y + delta)
+        base = mesh_at_anchor + agl + delta
+        assert base + authored_min < 0.0, "the supports must reach water"
+        assert base + authored_max > abutment_grade
+        if name.startswith("Bridge_04"):
+            # The lead's pinned figure.
+            assert base + authored_min == pytest.approx(-2.59, abs=0.01)

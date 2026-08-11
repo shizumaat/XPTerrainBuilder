@@ -554,6 +554,27 @@ def _chain_tunnel_evidence(start, index, flags, ways, nodes_m,
 # ramp should not continue INTO a passage either way.
 PORTAL_TUNNEL_VALUES = {"yes"}
 
+# R10-1/A6 — THE COVER IS THE DECK (lead ruling 2026-08-11).  A bare-earth
+# DEM cannot see a man-made bore under pavement, so "no cut" alone cannot
+# tell a real tunnel from flat ground: it refused KCLT's four
+# building-passthroughs (right) and all 8 of OTHH's mapped bores (wrong).
+# What separates them is WHAT COVERS THE BORE.  Measured over both
+# airports, the two populations do not overlap and are not close:
+#
+#   KCLT passthroughs (F|-600/-601/-873/-1119)
+#       building cover 0.98-1.00   airside-pavement cover 0.00-0.02
+#   real bores (KCLT F|-255/F|-251, OTHH -68/-69/-96/-97/-114/-115/
+#       -613/-614)
+#       building cover 0.00        airside-pavement cover 0.18-0.90
+#
+# The thresholds sit in those gaps with room either side: 0.5 is half a
+# way-length under a building (the passthroughs measure ~1.0, every bore
+# 0.00), and 0.10 is well under the thinnest real bore's 0.18 while well
+# over the fattest passthrough's 0.02.  Deterministic from the layout —
+# no env knob, because a gate here decides whether a tunnel exists.
+TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC = 0.5
+TUNNEL_BORE_PAVEMENT_COVER_FRAC = 0.10
+
 
 def _load_tunnel_road_network(layout: "PavementLayout"):
     """Load the big-roads + small-roads OSM caches for the tile
@@ -1645,10 +1666,19 @@ def _gather_portal_walks(
         carriageway_width_m: float, airport_elevation_at,
         meters_to_lat_lon, dem, tile_lat: int, tile_lon: int,
         tunnel_depth_m: float, plan_grade: float,
-        ramp_min_length_m: float) -> list:
+        ramp_min_length_m: float,
+        building_union=None, pavement_union=None,
+        passthrough_findings: list | None = None) -> list:
     """Walk every qualifying tunnel portal's surface approach
     and collect the per-portal ramp data (twin-rail merge, the
     per-portal gates, walk merge / densify / grade truncation).
+
+    ``building_union`` / ``pavement_union`` are the ``ROLE_BUILDING``
+    footprint union and the airside-pavement union; under R10-1/A6 they
+    are the COVER EVIDENCE the admission predicate reads (A1 recorded
+    them but forbade reading them, which cost OTHH all 8 of its bores).
+    ``passthrough_findings`` collects the refusal records the caller
+    publishes on the layout.
     """
     # Collect portal data: (portal_node_id, tunnel_wid, walk_pts,
     # hw_type, apt_elev_at_portal, dem_at_far_end, is_new_candidate,
@@ -1673,6 +1703,43 @@ def _gather_portal_walks(
                     continue
 
     _n_adj_skip = 0
+    _cover_fraction: dict = {}
+
+    def _cover_fractions(way_id, way_refs) -> tuple:
+        """``(f_building, f_airside_pavement)`` for the way's covered
+        stretch — R10-1/A6's admission evidence.
+
+        WHAT COVERS THE BORE is the question a bare-earth DEM cannot
+        answer: it carries no cut under either a terminal or an apron,
+        but a road under a BUILDING is at grade (the building is the
+        deck) while a road under APRON is a bore (the pavement is the
+        deck).  Measured per unit of way length, cached per way — both
+        portals of a way read the same cover.
+        """
+        if way_id in _cover_fraction:
+            return _cover_fraction[way_id]
+        _fb = _fp = None
+        try:
+            _pts = [nodes_m[_n] for _n in way_refs if _n in nodes_m]
+            if len(_pts) >= 2:
+                _line = LineString(_pts)
+                if _line.length > 0.0:
+                    # An ABSENT union is zero cover, not unknown cover:
+                    # an airport with no mapped buildings covers nothing
+                    # with buildings.  Returning None there would make
+                    # the A6 disjunct unreachable on exactly those
+                    # airports.
+                    _fb = (0.0 if building_union is None else round(
+                        _line.intersection(building_union).length
+                        / _line.length, 3))
+                    _fp = (0.0 if pavement_union is None else round(
+                        _line.intersection(pavement_union).length
+                        / _line.length, 3))
+        except _GEOM_EXC:
+            _fb = _fp = None
+        _cover_fraction[way_id] = (_fb, _fp)
+        return (_fb, _fp)
+
     for tw_id, t_nrefs, t_tags in ways_r:
         if t_tags.get("tunnel") not in PORTAL_TUNNEL_VALUES:
             continue
@@ -1982,11 +2049,20 @@ def _gather_portal_walks(
                 _sorted_depths = sorted(_trench_depths)
                 _median_depth = _sorted_depths[
                     len(_sorted_depths) // 2]
-            cut_detected = (
-                os.environ.get("O4_TUNNEL_DEM_CUT", "1") == "1"
-                and _median_depth is not None
+            # EVIDENCE and MODE are separate questions.  ``_cut_measured``
+            # is the physical finding — R10-1 admits on it, because an
+            # env flag is not physical evidence and an operator choosing
+            # the synthetic construction must not thereby delete every
+            # tunnel on the field.  ``cut_detected`` stays what it always
+            # was: the switch to the light-touch construction, which
+            # ``O4_TUNNEL_DEM_CUT=0`` still turns off.
+            _cut_measured = (
+                _median_depth is not None
                 and len(_trench_depths) >= 2
                 and _median_depth >= TUNNEL_DEM_CUT_MIN_DROP_M)
+            cut_detected = (
+                os.environ.get("O4_TUNNEL_DEM_CUT", "1") == "1"
+                and _cut_measured)
             if os.environ.get("O4_TUNNEL_DEBUG") == "1":
                 print(f"    [tunnel-dem-probe] way {tw_id} portal "
                       f"({walk[0][0]:.0f},{walk[0][1]:.0f}): "
@@ -1995,6 +2071,97 @@ def _gather_portal_walks(
                       f"deck_reference={_deck_reference} "
                       f"mouth_min={_mouth_min} "
                       f"cut_detected={cut_detected}")
+            # ── R10-1 / A1: NO PHYSICAL EVIDENCE, NO DEPTH ────────────
+            # The DEM is the physical authority; OSM ``layer=-1`` is a
+            # RELATIVE stacking statement (order against the crossing
+            # feature — at a building passthrough, the building), never
+            # absolute depth.  Per portal:
+            #
+            #     emit below grade ⇔ cut_detected
+            #                        OR (layer < 0 AND the DEM is unusable)
+            #
+            # "Unusable" is the probe's OWN failure condition, so a
+            # refusal never rests on a measurement the probe did not
+            # make.  ``tunnel=building_passage`` is covered-at-grade by
+            # definition and never seeds SYNTHETIC depth whatever the
+            # tag says (a real cut still admits it — the DEM-cut mode
+            # emits no synthetic ramps anyway).  KCLT area 1: four
+            # ``layer=-1`` service ways under a terminal, cross-road
+            # relief 0.016-0.222 m, emitting ramps at −8 m through an
+            # apron.  A refusal is RECORDED, never silent: a wrongly
+            # refused real bore has to be visible evidence.
+            _dem_unusable = (_median_depth is None
+                             or len(_trench_depths) < 2)
+            _layer_below = False
+            _layer_raw = t_tags.get("layer")
+            if _layer_raw is not None:
+                try:
+                    _layer_below = float(
+                        str(_layer_raw).split(";")[0]) < 0.0
+                except (TypeError, ValueError):
+                    _layer_below = False
+            _covered_at_grade = (
+                t_tags.get("tunnel") == "building_passage")
+            # A6's third disjunct: no cut, but the COVER says bore.  A
+            # ``building_passage`` is covered-at-grade by definition and
+            # stays barred from it (R10-1 bullet 2, untouched by A6) —
+            # every OTHH passthrough measures 0.00 pavement cover and
+            # would fail the test anyway, so the bar costs nothing and
+            # keeps the tag meaning what it says.
+            _f_building, _f_pavement = _cover_fractions(tw_id, t_nrefs)
+            _cover_says_bore = (
+                _has_tunnel_tag_evidence(t_tags)
+                and not _covered_at_grade
+                and _f_building is not None
+                and _f_pavement is not None
+                and _f_building < TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC
+                and _f_pavement >= TUNNEL_BORE_PAVEMENT_COVER_FRAC)
+            if _cut_measured:
+                _admitted_by = "dem_cut"
+            elif (_layer_below and _dem_unusable
+                    and not _covered_at_grade):
+                _admitted_by = "layer_below_dem_unusable"
+            elif _cover_says_bore:
+                _admitted_by = "pavement_cover"
+            else:
+                _admitted_by = None
+            if _admitted_by is None:
+                if passthrough_findings is not None:
+                    _f_lat, _f_lon = meters_to_lat_lon(*walk[0])
+                    passthrough_findings.append({
+                        "way_id": tw_id,
+                        "lat": round(_f_lat, 7),
+                        "lon": round(_f_lon, 7),
+                        "x_m": round(walk[0][0], 1),
+                        "y_m": round(walk[0][1], 1),
+                        "median_cross_road_depth_m": _median_depth,
+                        "building_cover_fraction": _f_building,
+                        "airside_pavement_cover_fraction": _f_pavement,
+                        "layer": _layer_raw,
+                        "tunnel": t_tags.get("tunnel"),
+                        "admitted_by": None,
+                        "refused_because": (
+                            "covered_at_grade" if _covered_at_grade
+                            else "building_cover"
+                            if (_f_building is not None
+                                and _f_building
+                                >= TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC)
+                            else "no_cover_no_cut"),
+                    })
+                if os.environ.get("O4_TUNNEL_DEBUG") == "1":
+                    print(f"    [tunnel-passthrough] way {tw_id} portal "
+                          f"({walk[0][0]:.0f},{walk[0][1]:.0f}): no cut "
+                          f"(median={_median_depth}), layer={_layer_raw}, "
+                          f"cover building={_f_building} "
+                          f"pavement={_f_pavement} — nothing below grade "
+                          f"emitted here")
+                continue
+            if (_admitted_by == "pavement_cover"
+                    and os.environ.get("O4_TUNNEL_DEBUG") == "1"):
+                print(f"    [tunnel-cover-bore] way {tw_id} portal "
+                      f"({walk[0][0]:.0f},{walk[0][1]:.0f}): no DEM cut, "
+                      f"admitted on cover (building={_f_building}, "
+                      f"pavement={_f_pavement}) — the pavement is the deck")
             mouth_grade = (_mouth_min if _mouth_min is not None
                            else apt_elev - tunnel_depth_m)
             # Bore polyline INWARD from this portal (for the roof
@@ -2075,50 +2242,308 @@ def _gather_portal_walks(
                 f"an adjacent/crossing road (ramps not modelled).")
         except _GEOM_EXC:
             pass
+    if passthrough_findings:
+        try:
+            UI.vprint(1,
+                f"  [pav-builder] R10-1: {len(passthrough_findings)} "
+                f"tunnel portal(s) emitted NOTHING below grade — the DEM "
+                f"probe found no cut there and the way's layer tag is not "
+                f"corroborated by any measurement (covered-at-grade "
+                f"passthrough).")
+        except _GEOM_EXC:
+            pass
     if os.environ.get("O4_TUNNEL_DEBUG") == "1":
         print(f"    [tunnel-portals] {len(portal_data)} portal walk(s) "
               f"built")
     return portal_data
 
 
-def _dedup_portal_walks(portal_data: list) -> list:
-    """Drop portals whose surface walk substantially overlaps a
-    kept walk from another way (see WALK DEDUP comment below).
+def _facing_same_road_portals(portal_data: list, way_by_id: dict,
+                              max_gap_m: float,
+                              min_gap_m: float = 0.0) -> tuple[set, list]:
+    """FACING same-road portal pairs — ``(facing indices, pairs)``.
+
+    Two portals FACE each other when they belong to different ways of
+    the SAME ROAD (``_way_signature``, the R6-2 same-road law), their
+    stations lie between ``min_gap_m`` and ``max_gap_m``, and each one's
+    outward approach heads at the other.  The mutual test is what keeps
+    a merely NEARBY bore — a parallel service road, the far end of the
+    same system — out of the set.
+
+    ``min_gap_m`` is A8's first case read here: portals within
+    ``portal_cluster_dist_m`` are COMBINED-ENTRANCE SIBLINGS, one
+    entrance that ``_cluster_portals`` merges — there is no gap between
+    them to lower, and treating them as facing minted a degenerate
+    corridor sliver (measured KCLT: 3.6 m² between two stations ~2 m
+    apart).  A gap has to be a gap.
+
+    A3 (owner ruling 2026-08-11): such a pair is not two tunnels with an
+    approach between them, it is ONE lowered stretch of road — "the two
+    close together tunnel mouths indicate the whole area is lowered …
+    and flat between the two mouths".  The gap therefore emits an open
+    CUT (:func:`_emit_facing_corridors`) and neither portal emits
+    ramp-to-grade geometry into it; ramps to grade remain the job of the
+    system's OUTER approaches.
+    """
+    _stations: list = []
+    for _pd in portal_data:
+        _walk = _pd[2]
+        if len(_walk) < 2:
+            _stations.append(None)
+            continue
+        _dx, _dy = _walk[1][0] - _walk[0][0], _walk[1][1] - _walk[0][1]
+        _dl = math.hypot(_dx, _dy)
+        _stations.append(None if _dl < 1e-6
+                         else (_walk[0], (_dx / _dl, _dy / _dl)))
+    _facing: set = set()
+    _pairs: list = []
+    for i in range(len(portal_data)):
+        if _stations[i] is None:
+            continue
+        _wi = way_by_id.get(portal_data[i][1])
+        if _wi is None:
+            continue
+        _pi, _di = _stations[i]
+        for j in range(i + 1, len(portal_data)):
+            if _stations[j] is None:
+                continue
+            if portal_data[j][1] == portal_data[i][1]:
+                # A way's own two ends are the OPPOSITE mouths of one
+                # bore; the ground between them is the bore itself.
+                continue
+            _wj = way_by_id.get(portal_data[j][1])
+            if _wj is None:
+                continue
+            if _way_signature(_wi[1]) != _way_signature(_wj[1]):
+                continue
+            _pj, _dj = _stations[j]
+            _vx, _vy = _pj[0] - _pi[0], _pj[1] - _pi[1]
+            _vl = math.hypot(_vx, _vy)
+            if _vl < 1e-6 or _vl > max_gap_m or _vl <= min_gap_m:
+                continue
+            _ux, _uy = _vx / _vl, _vy / _vl
+            if (_di[0] * _ux + _di[1] * _uy) < 0.5:
+                continue
+            if (_dj[0] * -_ux + _dj[1] * -_uy) < 0.5:
+                continue
+            _facing.add(i)
+            _facing.add(j)
+            _pairs.append((i, j))
+            if os.environ.get("O4_TUNNEL_DEBUG") == "1":
+                print(f"    [tunnel-facing] ways {portal_data[i][1]} / "
+                      f"{portal_data[j][1]} face across {_vl:.0f} m — "
+                      f"the gap is an OPEN CUT, not two ramps")
+    return _facing, _pairs
+
+
+def _mouth_grade_with_clearance(mouth_grade, deck_reference):
+    """R10-3 depth floor: a mouth never sits shallower than
+    ``BRIDGE_ROAD_CLEARANCE_M`` below the MEASURED deck.
+
+    A 1-arcsec DEM under-resolves a narrow cut — the smoothed trench
+    floor mixes face pixels with the deck above — so the probe can read
+    a bore shallower than the crossing structurally requires (KCLT:
+    215.83 under a 219.01 deck).  The DEM may say DEEPER; it may not say
+    shallower.  ``deck_reference`` of ``None`` is the mid-field fallback
+    that samples the trench floor itself, and clamping to it would sink
+    the mouth a clearance below its own road.
+    """
+    if mouth_grade is None or deck_reference is None:
+        return mouth_grade
+    return min(float(mouth_grade),
+               float(deck_reference) - float(_CFG.BRIDGE_ROAD_CLEARANCE_M))
+
+
+def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
+                           pairs: list, exclusion_zones: list,
+                           wall_gap_m: float,
+                           retaining_wall_width_m: float,
+                           dem_at) -> int:
+    """A3's OPEN CUT: one depressed corridor per facing pair.
+
+    The surface spans station to station at the linear interpolation of
+    the two portals' (clearance-floored) mouth grades — flat when they
+    agree — at the pair's shared carriageway width, with a retaining
+    wall down BOTH sides following the DEM the cut is made in.  It is
+    ROOFLESS: the gap is open sky, not tunnel, and nothing here is
+    tagged ``tunnel``.
+
+    The corridor is tunnel PAVEMENT (``ROLE_TUNNEL_RAMP``): R10-2's cuts
+    treat it exactly as a ramp, and like a ramp it CUTS the pavement it
+    lowers — the gap's service junctions cannot be left standing at
+    grade over a road the ruling puts a bore-depth below them.
+    """
+    _n = 0
+    for (i, j) in pairs:
+        _a, _b = portal_data[i], portal_data[j]
+        _pa, _pb = _a[2][0], _b[2][0]
+        _dx, _dy = _pb[0] - _pa[0], _pb[1] - _pa[1]
+        _len = math.hypot(_dx, _dy)
+        if _len < 2.0:
+            continue
+        _ux, _uy = _dx / _len, _dy / _len
+        _px, _py = -_uy, _ux
+        _half = 0.5 * max(float(_a[7]), float(_b[7]))
+        _ga = _mouth_grade_with_clearance(
+            _a[9], _a[11] if len(_a) > 11 else None)
+        _gb = _mouth_grade_with_clearance(
+            _b[9], _b[11] if len(_b) > 11 else None)
+        if _ga is None or _gb is None:
+            continue
+        _ga, _gb = round(float(_ga), 2), round(float(_gb), 2)
+        # 4-corner high/low encoding (ring order 0,3 = high / 1,2 = low),
+        # the encoding that demonstrably reaches the mesh; a flat pair
+        # ships as one altitude so no rounding tilts a level cut.
+        _corners = [
+            (_pb[0] + _px * _half, _pb[1] + _py * _half),
+            (_pa[0] + _px * _half, _pa[1] + _py * _half),
+            (_pa[0] - _px * _half, _pa[1] - _py * _half),
+            (_pb[0] - _px * _half, _pb[1] - _py * _half),
+        ]
+        try:
+            _floor = Polygon(_corners)
+            if not _floor.is_valid:
+                _floor = _floor.buffer(0)
+            if _floor.geom_type != "Polygon" or _floor.is_empty:
+                continue
+        except _GEOM_EXC:
+            continue
+        if abs(_gb - _ga) >= 0.1:
+            _shape = BuiltShape(
+                polygon=_floor, role=ROLE_TUNNEL_RAMP,
+                ref="tunnel_corridor",
+                altitude_high=_gb, altitude_low=_ga)
+        else:
+            _shape = BuiltShape(
+                polygon=_floor, role=ROLE_TUNNEL_RAMP,
+                ref="tunnel_corridor",
+                altitude=round(0.5 * (_ga + _gb), 2))
+        layout.shapes.append(_shape)
+        exclusion_zones.append(_floor)
+        _n += 1
+        # Retaining wall down both sides, DEM-following like every other
+        # tunnel wall (the crest is the ground the cut is made in).
+        for _sign in (+1.0, -1.0):
+            _inner = _half + wall_gap_m
+            _outer = _inner + retaining_wall_width_m
+            _ring = [
+                (_pa[0] + _px * _inner * _sign,
+                 _pa[1] + _py * _inner * _sign),
+                (_pb[0] + _px * _inner * _sign,
+                 _pb[1] + _py * _inner * _sign),
+                (_pb[0] + _px * _outer * _sign,
+                 _pb[1] + _py * _outer * _sign),
+                (_pa[0] + _px * _outer * _sign,
+                 _pa[1] + _py * _outer * _sign),
+            ]
+            try:
+                _wall = Polygon(_ring)
+                if not _wall.is_valid:
+                    _wall = _wall.buffer(0)
+                if _wall.geom_type != "Polygon" or _wall.is_empty:
+                    continue
+            except _GEOM_EXC:
+                continue
+            _alts = []
+            for (_vx, _vy) in _ring:
+                _ground = dem_at(_vx, _vy)
+                _alts.append(round(
+                    float(_ground) if _ground is not None
+                    else max(_ga, _gb), 1))
+            _alts.append(_alts[0])
+            _append_tunnel_cover(
+                layout, exclusion_zones, _tunnel_pavement_union(layout),
+                BuiltShape(polygon=_wall, role=ROLE_RETAINING_WALL,
+                           ref="tunnel_wall", node_altitudes=_alts))
+        if os.environ.get("O4_TUNNEL_DEBUG") == "1":
+            print(f"    [tunnel-corridor] ways {_a[1]}/{_b[1]}: "
+                  f"{_len:.0f} m open cut at {_ga:.2f}..{_gb:.2f}, "
+                  f"width {2 * _half:.0f} m, walled both sides")
+    if _n:
+        try:
+            UI.vprint(1,
+                f"  [pav-builder] A3: {_n} facing-portal gap(s) emitted "
+                f"as ONE depressed open corridor — the road between two "
+                f"close mouths of the same road is lowered whole, not "
+                f"ramped up and back down.")
+        except _GEOM_EXC:
+            pass
+    return _n
+
+
+def _dedup_portal_walks(portal_data: list, nodes_m: dict,
+                        portal_cluster_dist_m: float) -> list:
+    """Drop portals of the LMML MERGE CLASS only (see WALK DEDUP below).
     """
     # WALK DEDUP (user 2026-07-04): twin carriageways that MERGE beyond
     # their portals give two portals the SAME surface walk — two ramps
     # emitted on one stretch of road, one per bore profile (LMML:
-    # coincident tunnel_ramp pieces 4.3 m apart in z).  Drop a portal
-    # whose walk substantially overlaps a kept one from ANOTHER way.
-    # The 4 m buffer keeps genuinely PARALLEL twin walks (≥ 8 m apart —
-    # each carriageway its own ramp / merged by the portal clustering
-    # below) while catching same-road walks at ~0 m.  A way's own two
-    # portals never dedup (opposite tunnel mouths, user 2026-05-03).
+    # coincident tunnel_ramp pieces 4.3 m apart in z).
+    #
+    # A8 (lead ruling 2026-08-11, final form).  Overlap ALONE was the
+    # wrong key and station distance alone was too: three populations
+    # share "two portals whose walks coincide", and only ONE is
+    # duplicate.  They separate by station distance and OUTWARD WALK
+    # DIRECTION:
+    #
+    #   COMBINED-ENTRANCE SIBLINGS — divided carriageways of one
+    #     crossing, stations within ``portal_cluster_dist_m`` (OTHH's
+    #     twin bores measure 7.3-17.8 m apart).  NEVER dropped:
+    #     ``_cluster_portals`` merges them into the one combined-WIDTH
+    #     entrance it exists to build, and dropping one instead left
+    #     each bore spanning a single carriageway.
+    #   FACING ENTRANCES — opposite ends across an open gap, outward
+    #     directions OPPOSING.  NEVER dropped: they are two distinct
+    #     mouths and the A3 open-cut corridor owns the road between
+    #     them (KCLT F|-255 / F|-251, 55.5 m apart).  Their walks DO
+    #     coincide, which is exactly why overlap alone deleted one.
+    #   THE LMML MERGE CLASS — carriageways merging into one roadway
+    #     beyond portals that are far apart, so two ramps land on one
+    #     stretch of road at two profiles (coincident pieces 4.3 m
+    #     apart in z, user 2026-07-04).  Aligned, far apart, and
+    #     overlapping: this, and only this, is dropped.
+    #
+    # A way's own two portals never dedup (opposite tunnel mouths, user
+    # 2026-05-03).  The 4 m buffer is the original overlap geometry.
     _kept_portals: list = []
-    _kept_walk_lines: list = []       # (LineString, tw_id)
+    _kept_meta: list = []      # (walk line, tw_id, station, outward dir)
     for _pd in portal_data:
         _walk_pts = _pd[2]
         _wline = (LineString(_walk_pts) if len(_walk_pts) >= 2 else None)
+        _station = nodes_m.get(_pd[0])
+        _dir = None
+        if len(_walk_pts) >= 2:
+            _dx = _walk_pts[1][0] - _walk_pts[0][0]
+            _dy = _walk_pts[1][1] - _walk_pts[0][1]
+            _dl = math.hypot(_dx, _dy)
+            if _dl > 1e-6:
+                _dir = (_dx / _dl, _dy / _dl)
         _dup = False
-        if _wline is not None:
-            for (_kl, _kw) in _kept_walk_lines:
-                if _kw == _pd[1]:
+        if _wline is not None and _station is not None and _dir is not None:
+            for (_kl, _kw, _kstation, _kdir) in _kept_meta:
+                if _kw == _pd[1] or _kstation is None or _kdir is None:
                     continue
+                if (math.hypot(_station[0] - _kstation[0],
+                               _station[1] - _kstation[1])
+                        < portal_cluster_dist_m):
+                    continue                  # sibling — clustering owns it
+                if (_dir[0] * _kdir[0] + _dir[1] * _kdir[1]) <= 0.0:
+                    continue                  # facing — the corridor owns it
                 try:
                     _ov = _wline.buffer(4.0).intersection(_kl).length
-                    if _ov > 0.5 * min(_wline.length, _kl.length):
-                        _dup = True
-                        break
                 except _GEOM_EXC:
                     continue
+                if _ov > 0.5 * min(_wline.length, _kl.length):
+                    _dup = True
+                    break
         if _dup:
             if os.environ.get("O4_TUNNEL_DEBUG") == "1":
                 print(f"    [tunnel-walk-dedup] dropped portal of way "
-                      f"{_pd[1]} (walk overlaps a kept ramp)")
+                      f"{_pd[1]} (merges into a kept ramp's roadway)")
             continue
         _kept_portals.append(_pd)
         if _wline is not None:
-            _kept_walk_lines.append((_wline, _pd[1]))
+            _kept_meta.append((_wline, _pd[1], _station, _dir))
     return _kept_portals
 
 
@@ -2163,6 +2588,103 @@ def _cluster_portals(portal_data: list, nodes_m: dict,
                 used.add(j)
         clusters.append(cl)
     return clusters
+
+
+# R10-2: the tunnel PAVEMENT refs a cover piece may never sit on, and
+# the smallest surviving arc worth keeping.  ``tunnel_mouth`` carries
+# ROLE_TUNNEL_RAMP and is road surface exactly like ``tunnel_ramp`` —
+# leaving it out of the cutting union is what let a cap cover the mouth
+# it was supposed to face.
+_TUNNEL_PAVEMENT_REFS = ("tunnel_ramp", "tunnel_mouth", "tunnel_corridor")
+_TUNNEL_COVER_REFS = ("tunnel_wall", "tunnel_roof", "tunnel_cap")
+_TUNNEL_COVER_MIN_PIECE_M2 = 0.5
+# Ruling 4's "the tunnel road wins over the pavement it surfaces
+# through" applies to the two RAMP-LIKE surfaces: the approach ramp and
+# A3's open corridor, whose whole purpose is to lower the ground the
+# gap's junctions stand on.  A mouth PLATE keeps its pre-R10 behaviour.
+_TUNNEL_PAVEMENT_CUT_REFS = ("tunnel_ramp", "tunnel_corridor")
+
+
+def _tunnel_pavement_union(layout: "PavementLayout"):
+    """Union of every ``tunnel_ramp``/``tunnel_mouth`` polygon emitted so
+    far, or ``None`` — the surface R10-2 forbids any cover piece to
+    occupy."""
+    _polys = [s.polygon for s in layout.shapes
+              if getattr(s, "ref", "") in _TUNNEL_PAVEMENT_REFS
+              and s.polygon is not None and not s.polygon.is_empty]
+    if not _polys:
+        return None
+    try:
+        _u = unary_union(_polys)
+    except _GEOM_EXC:
+        return None
+    return None if _u.is_empty else _u
+
+
+def _tunnel_cover_pieces(shape, pavement_union) -> list:
+    """``shape`` cut against ``pavement_union`` as a list of BuiltShape.
+
+    R10-2: a wall / roof / cap NEVER covers tunnel pavement, and ALL
+    surviving pieces ≥ ``_TUNNEL_COVER_MIN_PIECE_M2`` are kept.  Keeping
+    only the largest is a DELETION: a perimeter ring cut by the roadway
+    it crosses is three arcs, and dropping two of them left a mouth
+    walled on one side (the ``parts9[0]`` rule this replaces).  Altitude
+    carries by the existing clip conversions — a piece whose profile
+    cannot be answered is dropped rather than shipped with ring-order
+    slope semantics its new ring does not have.
+    """
+    if (pavement_union is None or shape.polygon is None
+            or shape.polygon.is_empty):
+        return [shape]
+    try:
+        if not shape.polygon.intersects(pavement_union):
+            return [shape]
+        _cut = shape.polygon.difference(pavement_union)
+    except _GEOM_EXC:
+        return [shape]
+    if _cut.is_empty:
+        return []
+    try:
+        _old_ring = list(shape.polygon.exterior.coords)
+    except _GEOM_EXC:
+        _old_ring = []
+    if _old_ring and _old_ring[0] == _old_ring[-1]:
+        _old_ring = _old_ring[:-1]
+    _out: list = []
+    for _part in getattr(_cut, "geoms", [_cut]):
+        if (_part.geom_type != "Polygon" or _part.is_empty
+                or _part.area < _TUNNEL_COVER_MIN_PIECE_M2):
+            continue
+        _alt = shape.altitude
+        _hi, _lo = shape.altitude_high, shape.altitude_low
+        _na = None
+        if shape.node_altitudes:
+            _na = _resample_node_altitudes_nn(
+                _part, _old_ring, list(shape.node_altitudes),
+                interior_edge_project=True)
+            if _na is None:
+                continue
+        elif _hi is not None and _lo is not None:
+            _na = _sloped_rect_clipped_altitudes(
+                shape.polygon, _hi, _lo, _part)
+            if _na is None:
+                continue
+            _hi = _lo = None
+        _out.append(BuiltShape(
+            polygon=_part, role=shape.role, ref=shape.ref,
+            altitude=_alt, altitude_high=_hi, altitude_low=_lo,
+            node_altitudes=_na))
+    return _out
+
+
+def _append_tunnel_cover(layout: "PavementLayout", exclusion_zones: list,
+                         pavement_union, shape) -> int:
+    """Append ``shape``'s R10-2 surviving cover pieces; return how many."""
+    _pieces = _tunnel_cover_pieces(shape, pavement_union)
+    for _piece in _pieces:
+        layout.shapes.append(_piece)
+        exclusion_zones.append(_piece.polygon)
+    return len(_pieces)
 
 
 def _emit_portal_cluster(
@@ -2374,8 +2896,18 @@ def _emit_portal_cluster(
     # the airside pavement (a bare-earth model strips the structure
     # above the bore, leaving an open trench that pavement grading
     # alone does not fill).
-    if all(len(portal_data[k]) > 11 and portal_data[k][8]
-           for k in cl):
+    #
+    # A3 (owner ruling 2026-08-11) routes FACING same-road portals here
+    # too, whatever the probe said: the gap between two close mouths of
+    # one road is an OPEN CUT that :func:`_emit_facing_corridors` lays
+    # whole, so a ramp climbing to grade inside it would be geometry
+    # arguing with the corridor beneath it.  What such a portal still
+    # owes is exactly this mode's list — a face at its mapped station at
+    # bore depth, and the roof over its own covered bore.
+    _cl_facing = all(len(portal_data[k]) > 13 and portal_data[k][13]
+                     for k in cl)
+    if _cl_facing or all(len(portal_data[k]) > 11 and portal_data[k][8]
+                         for k in cl):
         emitted_any = False
         # The grade the face cap holds: the measured cross-road deck
         # beside the trench (index 11) — never ``apt_elev``, whose
@@ -2384,10 +2916,26 @@ def _emit_portal_cluster(
             (portal_data[k][11] for k in cl
              if portal_data[k][11] is not None),
             default=apt_elev)
+        # The clearance floor below is only lawful against a MEASURED
+        # deck; ``apt_elev`` is the mid-field fallback that samples the
+        # trench floor itself, and clamping to it would sink the mouth
+        # a clearance below its own road.
+        _deck_ref_measured = any(portal_data[k][11] is not None
+                                 for k in cl)
         mouth_grade = min(
             (portal_data[k][9] for k in cl
              if portal_data[k][9] is not None),
             default=apt_elev - tunnel_depth_m)
+        # R10-3 depth floor, the same helper the A3 corridor uses so a
+        # mouth and the corridor it stands in cannot disagree.
+        if _deck_ref_measured:
+            mouth_grade = _mouth_grade_with_clearance(
+                mouth_grade, deck_grade)
+        # R10-2: the cover pieces below are cut against the tunnel
+        # pavement already on the layout (earlier clusters); this
+        # cluster's own mouth is cut into them by the finalize pass,
+        # which sees the whole build.
+        _pavement_u = _tunnel_pavement_union(layout)
         # 1) GRADED roof cover per member, emitted FIRST: a chain of
         #    quads along each carriageway's own bore from ITS mapped
         #    face to the airside pavement edge (upstream truncation at
@@ -2509,22 +3057,25 @@ def _emit_portal_cluster(
                 # yet root-caused; until it is, the high/low pair is
                 # the encoding that demonstrably reaches the mesh.
                 if abs(elevation_high - elevation_low) >= 0.1:
-                    layout.shapes.append(BuiltShape(
+                    _roof_shape = BuiltShape(
                         polygon=quad,
                         role=ROLE_RETAINING_WALL,
                         ref="tunnel_roof",
                         altitude_high=elevation_high,
-                        altitude_low=elevation_low))
+                        altitude_low=elevation_low)
                 else:
-                    layout.shapes.append(BuiltShape(
+                    _roof_shape = BuiltShape(
                         polygon=quad,
                         role=ROLE_RETAINING_WALL,
                         ref="tunnel_roof",
                         altitude=round(0.5 * (
-                            elevation_high + elevation_low), 2)))
-                roof_polygons.append(quad)
-                exclusion_zones.append(quad)
-                emitted_any = True
+                            elevation_high + elevation_low), 2))
+                for _piece in _tunnel_cover_pieces(
+                        _roof_shape, _pavement_u):
+                    layout.shapes.append(_piece)
+                    roof_polygons.append(_piece.polygon)
+                    exclusion_zones.append(_piece.polygon)
+                    emitted_any = True
         try:
             roof_union = (unary_union(roof_polygons)
                           if roof_polygons else None)
@@ -2539,13 +3090,14 @@ def _emit_portal_cluster(
                 cap_poly = cap_poly.buffer(0)
             if (cap_poly.geom_type == "Polygon"
                     and not cap_poly.is_empty):
-                layout.shapes.append(BuiltShape(
-                    polygon=cap_poly,
-                    role=ROLE_RETAINING_WALL,
-                    ref="tunnel_cap",
-                    altitude=round(deck_grade, 1)))
-                exclusion_zones.append(cap_poly)
-                emitted_any = True
+                if _append_tunnel_cover(
+                        layout, exclusion_zones, _pavement_u,
+                        BuiltShape(
+                            polygon=cap_poly,
+                            role=ROLE_RETAINING_WALL,
+                            ref="tunnel_cap",
+                            altitude=round(deck_grade, 1))):
+                    emitted_any = True
         except _GEOM_EXC:
             pass
         # 3) Mouth plate at the DEM's own road grade, MINUS the roof
@@ -2582,11 +3134,27 @@ def _emit_portal_cluster(
                 if (part.geom_type != "Polygon" or part.is_empty
                         or part.area < 1.0):
                     continue
-                layout.shapes.append(BuiltShape(
+                _mouth_shape = BuiltShape(
                     polygon=part,
                     role=ROLE_TUNNEL_RAMP,
                     ref="tunnel_mouth",
-                    altitude=round(mouth_grade, 2)))
+                    altitude=round(mouth_grade, 2))
+                layout.shapes.append(_mouth_shape)
+                # A7(c): this mode emits cap + roof and NO side walls, by
+                # owner ruling (2026-07-17, "no tunnel ramp running around
+                # the entire parking garage").  Its mouths are therefore
+                # exempt from the R10-2 unwalled-mouth finding — reporting
+                # a by-design shape as a defect trains reviewers to ignore
+                # the check.
+                try:
+                    _lt = getattr(layout, "_tunnel_light_touch_mouths",
+                                  None)
+                    if _lt is None:
+                        _lt = set()
+                        layout._tunnel_light_touch_mouths = _lt
+                    _lt.add(id(_mouth_shape))
+                except (AttributeError, TypeError):
+                    pass
                 exclusion_zones.append(part)
                 emitted_any = True
         except _GEOM_EXC:
@@ -2607,12 +3175,15 @@ def _emit_portal_cluster(
                 cap_poly = cap_poly.buffer(0)
             if (cap_poly.geom_type == "Polygon"
                     and not cap_poly.is_empty):
-                layout.shapes.append(BuiltShape(
-                    polygon=cap_poly,
-                    role=ROLE_RETAINING_WALL,
-                    ref="tunnel_cap",
-                    altitude=round(apt_elev, 1)))
-                exclusion_zones.append(cap_poly)
+                # R10-2: never over tunnel pavement already emitted.
+                _append_tunnel_cover(
+                    layout, exclusion_zones,
+                    _tunnel_pavement_union(layout),
+                    BuiltShape(
+                        polygon=cap_poly,
+                        role=ROLE_RETAINING_WALL,
+                        ref="tunnel_cap",
+                        altitude=round(apt_elev, 1)))
         except _GEOM_EXC:
             pass
     # Per user 2026-05-04: the cap + arm walls form a continuous
@@ -2835,12 +3406,15 @@ def _emit_portal_cluster(
                                 stats=object_trench_yield_stats)
                             if wp is None:
                                 continue
-                            layout.shapes.append(BuiltShape(
-                                polygon=wp,
-                                role=ROLE_RETAINING_WALL,
-                                ref="tunnel_wall",
-                                altitude=round(apt_elev, 1)))
-                            exclusion_zones.append(wp)
+                            # R10-2: never over tunnel pavement.
+                            _append_tunnel_cover(
+                                layout, exclusion_zones,
+                                _tunnel_pavement_union(layout),
+                                BuiltShape(
+                                    polygon=wp,
+                                    role=ROLE_RETAINING_WALL,
+                                    ref="tunnel_wall",
+                                    altitude=round(apt_elev, 1)))
                     except _GEOM_EXC:
                         continue
             if cap_gap and i == 0 \
@@ -3338,26 +3912,38 @@ def _emit_portal_cluster(
                       and s9.polygon is not None]
             if ramps9:
                 ramp_u9 = unary_union(ramps9).buffer(0.3)
+                # R10-2: ALL surviving arcs are kept.  A throat ring cut
+                # by the roadways crossing it is three arcs; keeping only
+                # the largest was a silent DELETION of the other two —
+                # the mouth then faced open ground on the sides the
+                # deleted arcs walled.  Extra pieces are appended as
+                # their own shapes (a wall carries no cross-piece
+                # identity).
+                _extra9: list = []
                 for s9 in layout.shapes[_cl_start_idx:]:
                     if getattr(s9, 'ref', '') != 'tunnel_wall' \
                             or s9.polygon is None:
                         continue
                     if not s9.polygon.intersects(ramp_u9):
                         continue
-                    d9 = s9.polygon.difference(ramp_u9)
-                    if d9.is_empty:
+                    _pieces9 = _tunnel_cover_pieces(s9, ramp_u9)
+                    if not _pieces9:
                         s9.polygon = None
                         continue
-                    parts9 = sorted(
-                        (g for g in getattr(d9, 'geoms', [d9])
-                         if g.geom_type == 'Polygon'
-                         and g.area >= 0.5),
-                        key=lambda g: -g.area)
-                    s9.polygon = parts9[0] if parts9 else None
+                    _head9 = _pieces9[0]
+                    s9.polygon = _head9.polygon
+                    s9.altitude = _head9.altitude
+                    s9.altitude_high = _head9.altitude_high
+                    s9.altitude_low = _head9.altitude_low
+                    s9.node_altitudes = _head9.node_altitudes
+                    _extra9.extend(_pieces9[1:])
                 layout.shapes = [
                     s9 for s9 in layout.shapes
                     if not (getattr(s9, 'ref', '') == 'tunnel_wall'
                             and s9.polygon is None)]
+                for _e9 in _extra9:
+                    layout.shapes.append(_e9)
+                    exclusion_zones.append(_e9.polygon)
         except _GEOM_EXC:
             pass
     # ── B-1: A RAMP NEVER CROSSES A BUILDING PAD EDGE (owner ruling
@@ -3671,9 +4257,22 @@ def _emit_portal_cluster(
                         _wp = Polygon(_ring)
                         if _wp.is_empty:
                             continue
-                        layout.shapes.append(BuiltShape(
-                            polygon=_wp, role=ROLE_RETAINING_WALL,
-                            ref="tunnel_wall", node_altitudes=_na))
+                        # R10-2: the band is buffered per ramp-union
+                        # POLYGON, so it crosses sibling ramps and every
+                        # earlier cluster's; cut it against the whole
+                        # tunnel pavement and keep EVERY surviving arc.
+                        # The exclusion zone stays the ANNULUS ``_bp``
+                        # (the ring fills its own hole — carrying that
+                        # into the zones would over-carve the boundary
+                        # ribbon over ground the band never occupies).
+                        for _piece in _tunnel_cover_pieces(
+                                BuiltShape(
+                                    polygon=_wp,
+                                    role=ROLE_RETAINING_WALL,
+                                    ref="tunnel_wall",
+                                    node_altitudes=_na),
+                                _tunnel_pavement_union(layout)):
+                            layout.shapes.append(_piece)
                         exclusion_zones.append(_bp)
                     except _GEOM_EXC:
                         continue
@@ -3924,6 +4523,12 @@ _AIRSIDE_GATE_ROLES = (
     "secondary_parallel", "stub", "cross_connector", "junction",
     "apron", "building", "groundside_pavement", "service_road",
     "service_junction")
+# R10-1/A6's pavement side of the cover discriminator: the same roles
+# MINUS ``building``, which is the other side.  Derived, never a second
+# hand-written role list — a role added to the gate above is pavement
+# here by construction.
+_TUNNEL_COVER_PAVEMENT_ROLES = tuple(
+    _role for _role in _AIRSIDE_GATE_ROLES if _role != "building")
 
 # RULING 4 SAFETY FLOOR (owner-flagged 2026-08-07, spec
 # ``tunnel-portal-fidelity-spec.md`` §2 C-4): the RUNWAY FAMILY a tunnel
@@ -3997,7 +4602,7 @@ def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
         return airside_gate_union
     ramps = [s for s in layout.shapes
              if id(s) not in pre_emit_shape_ids
-             and getattr(s, "ref", "") == "tunnel_ramp"
+             and getattr(s, "ref", "") in _TUNNEL_PAVEMENT_CUT_REFS
              and s.polygon is not None and not s.polygon.is_empty]
     if not ramps:
         return airside_gate_union
@@ -4252,17 +4857,26 @@ def _finalize_tunnel_emission(
         _n_graze = 0
         for _k9, s9 in enumerate(layout.shapes):
             _ref9 = getattr(s9, "ref", "")
+            # R10-3: ``tunnel_roof`` joins the drop/graze set.  A roof
+            # plate is half a carriageway + wall gap WIDE, so clipping
+            # only its bore CENTERLINE against the pavement left the
+            # plate overhanging the taxiway it was cover for (measured
+            # KCLT: roof over junction 1668).  ``tunnel_mouth`` is road
+            # surface (ROLE_TUNNEL_RAMP) and stays ruling-4 exempt with
+            # the ramps.
             if not (id(s9) not in pre_emit_shape_ids
-                    and _ref9 in
-                    ("tunnel_cap", "tunnel_wall", "tunnel_ramp")
+                    and _ref9 in ("tunnel_cap", "tunnel_wall",
+                                  "tunnel_roof", "tunnel_ramp",
+                                  "tunnel_mouth")
                     and s9.polygon is not None
                     and not s9.polygon.is_empty):
                 _kept9.append(s9)
                 continue
-            if _ref9 == "tunnel_ramp":
+            if _ref9 in _TUNNEL_PAVEMENT_REFS:
                 _kept9.append(s9)       # ruling 4 — emitted whole
                 continue
-            _gate9 = (_post_gate_u if _ref9 == "tunnel_wall"
+            _gate9 = (_post_gate_u if _ref9 in ("tunnel_wall",
+                                                "tunnel_roof")
                       else airside_gate_union)
             if _gate9 is None:          # its pavement is entirely cut
                 _kept9.append(s9)
@@ -4348,9 +4962,17 @@ def _finalize_tunnel_emission(
     # sees its OWN cluster's ramps; clip every emitted wall/cap against
     # the union of ALL emitted ramps.  The 0.6 m ``wall_gap_m`` keeps a
     # wall clear of its OWN ramp, so only cross-walk coverage is removed.
+    # A4 (lead ruling 2026-08-11): this pass carries the SAME R10-2 law
+    # as the per-append cut — it is the only one that sees cross-cluster
+    # ordering, where a later cluster's ramp lands on an earlier
+    # cluster's wall.  Four corrections against the version that let
+    # 2003.9 m² of wall sit on KCLT's ramps: ``tunnel_roof`` is cut too;
+    # ``tunnel_mouth`` is IN the cutting union (it is road surface); ALL
+    # surviving pieces ≥ 0.5 m² are kept instead of the largest; and the
+    # 0.25 m² overlap-ignore is gone — the law is zero, not nearly zero.
     _ramp_polys = [s9.polygon for s9 in layout.shapes
                    if id(s9) not in pre_emit_shape_ids
-                   and getattr(s9, "ref", "") == "tunnel_ramp"
+                   and getattr(s9, "ref", "") in _TUNNEL_PAVEMENT_REFS
                    and s9.polygon is not None
                    and not s9.polygon.is_empty]
     if _ramp_polys:
@@ -4361,25 +4983,28 @@ def _finalize_tunnel_emission(
         if _ramp_u is not None and not _ramp_u.is_empty:
             _keptW = []
             _n_wclip = 0
+            _n_wsplit = 0
             for s9 in layout.shapes:
                 if (id(s9) not in pre_emit_shape_ids
-                        and getattr(s9, "ref", "") in
-                        ("tunnel_cap", "tunnel_wall")
+                        and getattr(s9, "ref", "") in _TUNNEL_COVER_REFS
                         and s9.polygon is not None
                         and not s9.polygon.is_empty):
                     try:
-                        if (s9.polygon.intersection(_ramp_u).area
-                                > 0.25):
-                            _d = s9.polygon.difference(_ramp_u)
-                            if _d.geom_type == "MultiPolygon":
-                                _d = max(_d.geoms, key=lambda g: g.area)
-                            if (_d.is_empty
-                                    or _d.geom_type != "Polygon"
-                                    or _d.area < 1.0):
+                        if s9.polygon.intersects(_ramp_u):
+                            _pieces = _tunnel_cover_pieces(s9, _ramp_u)
+                            if not _pieces:
                                 _n_wclip += 1
                                 continue
-                            s9.polygon = _d
+                            _head = _pieces[0]
+                            s9.polygon = _head.polygon
+                            s9.altitude = _head.altitude
+                            s9.altitude_high = _head.altitude_high
+                            s9.altitude_low = _head.altitude_low
+                            s9.node_altitudes = _head.node_altitudes
                             _n_wclip += 1
+                            for _extra in _pieces[1:]:
+                                _keptW.append(_extra)
+                                _n_wsplit += 1
                     except _GEOM_EXC:
                         pass
                 _keptW.append(s9)
@@ -4388,10 +5013,89 @@ def _finalize_tunnel_emission(
                 try:
                     UI.vprint(1,
                         f"  [pav-builder] clipped {_n_wclip} tunnel "
-                        f"wall/cap piece(s) off overlapping ramps.")
+                        f"wall/roof/cap piece(s) off overlapping tunnel "
+                        f"pavement"
+                        + (f" (kept {_n_wsplit} extra arc(s) the "
+                           f"largest-piece rule used to delete)."
+                           if _n_wsplit else "."))
                 except _GEOM_EXC:
                     pass
+    _record_tunnel_mouth_walling(layout, pre_emit_shape_ids,
+                                 airside_gate_union)
     return n_emitted
+
+
+def _record_tunnel_mouth_walling(layout: "PavementLayout",
+                                 pre_emit_shape_ids: set,
+                                 airside_gate_union) -> None:
+    """R10-2 build check: every below-grade mouth is WALLED.
+
+    Reports, never fails — a mouth left open is a defect to attribute,
+    not a reason to abandon a build.  A mouth edge is answered by a
+    wall/roof/cap piece, by abutting pavement (the covered stretch), or
+    by another tunnel-pavement piece continuing the road.  The residual
+    is the mouth's uncovered edge LENGTH, which is what a reviewer flies
+    to; a counted finding rides on the layout beside
+    ``tunnel_passthrough_findings``.
+    """
+    _light_touch = getattr(layout, "_tunnel_light_touch_mouths", None) or ()
+    _mouths = [s for s in layout.shapes
+               if id(s) not in pre_emit_shape_ids
+               and id(s) not in _light_touch
+               and getattr(s, "ref", "") == "tunnel_mouth"
+               and s.polygon is not None and not s.polygon.is_empty]
+    if not _mouths:
+        return
+    _cover = [s.polygon for s in layout.shapes
+              if getattr(s, "ref", "") in _TUNNEL_COVER_REFS
+              and s.polygon is not None and not s.polygon.is_empty]
+    _findings: list = []
+    for _mouth in _mouths:
+        _answers = list(_cover)
+        if airside_gate_union is not None:
+            _answers.append(airside_gate_union)
+        for _other in layout.shapes:
+            if (_other is _mouth
+                    or getattr(_other, "ref", "") not in
+                    _TUNNEL_PAVEMENT_REFS
+                    or _other.polygon is None
+                    or _other.polygon.is_empty):
+                continue
+            _answers.append(_other.polygon)
+        try:
+            _ring = _mouth.polygon.exterior
+            _total = _ring.length
+            _u = unary_union(_answers).buffer(
+                _TUNNEL_GRAZE_CLEARANCE_M + 0.1) if _answers else None
+            _open = (_total if _u is None
+                     else _ring.difference(_u).length)
+        except _GEOM_EXC:
+            continue
+        if _open <= 0.5:
+            continue
+        _findings.append({
+            "ref": _mouth.ref,
+            "altitude": _mouth.altitude,
+            "perimeter_m": round(_total, 1),
+            "uncovered_m": round(_open, 1),
+        })
+    if not _findings:
+        return
+    try:
+        existing = list(getattr(layout, "tunnel_unwalled_mouth", None)
+                        or [])
+        existing.extend(_findings)
+        layout.tunnel_unwalled_mouth = existing
+    except (AttributeError, TypeError):
+        return
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] R10-2: {len(_findings)} tunnel mouth(s) "
+            f"with an UNWALLED edge (worst "
+            f"{max(f['uncovered_m'] for f in _findings):.1f} m of "
+            f"perimeter answered by neither wall, cap nor pavement).")
+    except _GEOM_EXC:
+        pass
 
 
 def _emit_tunnel_portals(
@@ -4538,11 +5242,18 @@ def _emit_tunnel_portals(
     # following DEM elevations") so their top tracks the real ground the
     # trench is cut into, instead of a single flat apt_elev.
     def _dem_at(cx: float, cy: float) -> float | None:
+        # A missing sample is ``None``, never a raise: every caller is
+        # written for ``None`` (walls fall back to ``apt_elev``), but
+        # ``float(None)`` raises TypeError, which ``_GEOM_EXC`` does not
+        # catch — so a DEM that cannot answer took the whole emission
+        # down.  Reachable since R10-1/A1 kept exactly one branch alive
+        # for portals whose DEM is UNUSABLE.
         try:
             lat, lon = _m_to_ll(cx, cy)
-            return float(_sample_dem(dem, tile_lat, tile_lon, lat, lon))
+            value = _sample_dem(dem, tile_lat, tile_lon, lat, lon)
         except _GEOM_EXC:
             return None
+        return None if value is None else float(value)
 
     # Helper: airport surface elevation at (cx, cy).  Use the
     # boundary-ribbon ``node_altitudes`` (CIFP-anchored, grade-
@@ -4600,12 +5311,47 @@ def _emit_tunnel_portals(
         ways_r, nodes_m, excluded, adjacent_road_dist_m,
         skip_if_adjacent_road, _other_road_lines,
         _other_road_tree, _tunnel_all_nodes)
+    # R10-1/A6 cover evidence.  The PAVEMENT union deliberately excludes
+    # ``building`` — ``_AIRSIDE_GATE_ROLES`` carries it for the
+    # under-pavement drop, but here building-cover and pavement-cover are
+    # the two sides of the discriminator and folding one into the other
+    # would collapse it.
+    try:
+        _building_u = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.role == ROLE_BUILDING and s.polygon is not None
+             and not s.polygon.is_empty])
+        if _building_u.is_empty:
+            _building_u = None
+    except _GEOM_EXC:
+        _building_u = None
+    try:
+        _pavement_u = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.role in _TUNNEL_COVER_PAVEMENT_ROLES
+             and s.polygon is not None and not s.polygon.is_empty])
+        if _pavement_u.is_empty:
+            _pavement_u = None
+    except _GEOM_EXC:
+        _pavement_u = None
+    _passthrough_findings: list = []
     portal_data = _gather_portal_walks(
         ways_r, nodes_m, way_by_id, node_to_ways, excluded,
         _system_veto, _big_way_ids, _airside_gate_u,
         max_boundary_dist_m, arm_walk_max_m, carriageway_width_m,
         _airport_elevation_at, _m_to_ll, dem, tile_lat, tile_lon,
-        tunnel_depth_m, plan_grade, ramp_min_length_m)
+        tunnel_depth_m, plan_grade, ramp_min_length_m,
+        building_union=_building_u, pavement_union=_pavement_u,
+        passthrough_findings=_passthrough_findings)
+    if _passthrough_findings:
+        try:
+            _existing = list(
+                getattr(layout, "tunnel_passthrough_findings", None)
+                or [])
+            _existing.extend(_passthrough_findings)
+            layout.tunnel_passthrough_findings = _existing
+        except (AttributeError, TypeError):
+            pass
     # Crossing OWNERSHIP (user 2026-07-10): where Feature B claims a
     # crossing (classified deck bridge or tunnel-portal pair), this
     # legacy machinery yields the WHOLE road — a portal whose tunnel
@@ -4690,9 +5436,42 @@ def _emit_tunnel_portals(
         portal_data, _low_corridors)
     if not portal_data:
         return 0
-    portal_data = _dedup_portal_walks(portal_data)
+    portal_data = _dedup_portal_walks(portal_data, nodes_m,
+                                      portal_cluster_dist_m)
     if not portal_data:
         return 0
+    # A3: distinct facing entrances both survive dedup, and the roadway
+    # BETWEEN two same-road mouths is one lowered stretch — flagged per
+    # portal (index 13) so the cluster emit withholds ramp-to-grade
+    # there, and laid as an open corridor after the clusters.
+    _facing_idx, _facing_pairs = _facing_same_road_portals(
+        portal_data, way_by_id, TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M,
+        min_gap_m=portal_cluster_dist_m)
+    if _facing_idx:
+        portal_data = [
+            (tuple(_pd) + (None,) * max(0, 13 - len(_pd))
+             + (_i in _facing_idx,))
+            for _i, _pd in enumerate(portal_data)]
+        # ONE DEPTH PER FACING SYSTEM (owner: "the whole area is lowered
+        # … and flat between the two mouths").  Each portal's own floored
+        # grade is a per-end reading — one end's DEM found the trench,
+        # the other's was clamped up to the clearance floor — and letting
+        # them stand gave a corridor sloping 1.61 m between two mouths
+        # the owner describes as one lowered stretch.  The pair takes the
+        # DEEPER reading, mouths included, so the mouths agree and the
+        # interpolation between them is flat by construction.
+        portal_data = [list(_pd) for _pd in portal_data]
+        for (_i, _j) in _facing_pairs:
+            _ga = _mouth_grade_with_clearance(
+                portal_data[_i][9], portal_data[_i][11])
+            _gb = _mouth_grade_with_clearance(
+                portal_data[_j][9], portal_data[_j][11])
+            if _ga is None or _gb is None:
+                continue
+            _joint = min(float(_ga), float(_gb))
+            portal_data[_i][9] = _joint
+            portal_data[_j][9] = _joint
+        portal_data = [tuple(_pd) for _pd in portal_data]
     clusters = _cluster_portals(portal_data, nodes_m,
                                 portal_cluster_dist_m)
     # Per-cluster: build cap + arm walls + ramp chain.
@@ -4734,6 +5513,13 @@ def _emit_tunnel_portals(
             f"classified object-tunnel bodies (+"
             f"{_OBJECT_TRENCH_YIELD_MARGIN_M:g} m) — the object trench is "
             f"the rendered truth there.")
+    # A3's open cut runs AFTER the clusters so the corridor is cut into
+    # the walls its own mouths just emitted, and BEFORE finalize so the
+    # ruling-4 pavement cut and the R10-2 patch-wide cut see it.
+    if _facing_pairs:
+        _emit_facing_corridors(
+            layout, portal_data, _facing_pairs, exclusion_zones,
+            wall_gap_m, retaining_wall_width_m, _dem_at)
     _emit_low_corridor_connectors(
         layout, _low_corridors, exclusion_zones,
         _airside_gate_u, _airport_elevation_at, _dem_at,

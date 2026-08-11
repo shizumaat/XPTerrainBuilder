@@ -104,3 +104,35 @@ effectively-empty insets on the tile (KSTJ etc., 9 flagged by R11)
 will self-heal through R13-1 on their airports' next authorised dem
 refresh — record that expectation in the report, do not refresh them
 here (one authorised scope, one airport's need).
+
+## AMENDMENT 2026-08-11 (lead ruling on the acceptance STOP:
+## THE HARNESS GAINS --warm-insets)
+
+The patch-build path is documented pure-disk and never reaches
+`ensure_airport_insets`; the two existing remedies are each unlawful
+(the standalone fetch tool bypasses the refresh lock/ledger; a tile
+build refreshes every void inset against the one-airport scope). The
+consult-before-create answer is the implementer's third option,
+APPROVED and IN SCOPE:
+
+* `tools/harness/build_airport.py` gains `--warm-insets ICAO[,ICAO..]`
+  — valid ONLY together with `--refresh-data dem`; inside the existing
+  per-scope lock, before the build's DEM prep, it calls
+  `ensure_airport_insets` for exactly the named airports (forcing the
+  pass for them even when the tile's `is_cached` stamp would skip it),
+  with every write inside the authorised scope's snapshot + the
+  refresh ledger record naming the airports. One INDEX.md row update
+  on the existing build_airport entry (a parameter, not a new tool).
+* One harness twin in tests/test_harness.py's idiom: `--warm-insets`
+  without `--refresh-data dem` refuses; with it, the named airport's
+  `ensure_airport_insets` is invoked and a foreign airport's is not
+  (monkeypatched, no network).
+* ACCEPTANCE becomes: `... build_airport.py KMCI --refresh-data dem
+  --warm-insets KMCI` — then the original bullets verbatim (archived
+  stale record, sidecar sources_used/valid_fraction ≥ 0.95 with
+  Missouri-side sources, sweep reads real relief, inset baked in the
+  frame line, KFLV/KMKC byte-identical).
+* The `is_cached` size>0 gate (a non-empty-but-invalid raster skips
+  the whole pass) is RECORDED as a ledger item, not fixed here —
+  `--warm-insets` bypasses it for explicitly named airports, which is
+  the instrument the heal path needs.

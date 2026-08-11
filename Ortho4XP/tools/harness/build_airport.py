@@ -531,6 +531,114 @@ def require_no_implicit_refresh(missing: list, requested: set) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# THE EXPLICIT INSET WARM (--warm-insets, round-13 spec AMENDMENT)
+# ══════════════════════════════════════════════════════════════════════
+# An airport build NEVER fetches an inset: its DEM comes from
+# ``auto_patch.elevation._load_airport_dem`` →
+# ``O4_Vector_Map.compose_tile_dem_from_disk``, which is pure disk state
+# by design.  ``ensure_airport_insets`` is reached only from a TILE
+# build — so the one instrument for "this airport's inset is void, refetch
+# it" was either a whole-tile build (which refreshes every void inset on
+# the tile, against a one-airport authorisation) or the standalone fetch
+# tool (which writes the shared repo outside the lock and the ledger).
+# Both are unlawful for a one-airport need, so the parameter lives HERE,
+# inside the machinery that already locks the scope, snapshots the repo,
+# arms the write guard and stamps the ledger.
+#
+# It is deliberately NOT a fix for the ``is_cached`` size>0 gate (a
+# non-empty but INVALID raster still lets a tile pass skip the whole
+# fetch); it is the explicit override for airports a human names, and the
+# gate is a recorded ledger item.
+
+def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
+    """Fetch/refresh the elevation insets of exactly the named airports.
+
+    Runs the production pass (``O4_Airport_Elevation_Insets.
+    ensure_airport_insets``) over a bounding-box map filtered to
+    ``icaos``, so R13-1's void-record archiving and the border-aware
+    mosaic happen for those airports and NOBODY else's cache moves.  The
+    tile completion stamp is deliberately not written: this pass settled
+    a named subset, and a stamp claiming the whole tile settled would
+    make the next build skip airports this run never looked at.
+
+    ``refresh=True``, because a human naming an airport IS the decision
+    this flag exists to carry: the pass re-queries and re-fetches instead
+    of consulting the cache, negatives included.  Measured 2026-08-11 on
+    the first KMCI warm — the TNM discovery API answered 504 (an outage,
+    not an answer), the strategy reported no coverage, and the index took
+    a DURABLE ``USGS3DEP: no-coverage`` for the airport; without a
+    refresh, every later warm would skip the provider and hand back the
+    30 m global fallback forever.
+
+    The caller owns the law: the scope lock, the before/after snapshot
+    and the armed write guard are already held.  Returns a summary for
+    the frame record.
+    """
+    for p in (root / "src", root, root / "tests", root / "tools"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    import O4_Config_Utils as CFG                          # noqa: E402
+    import O4_File_Names as FNAMES                         # noqa: E402
+    import O4_OSM_Utils as OSM                             # noqa: E402
+    import O4_Vector_Map as VMAP                           # noqa: E402
+    import O4_Airport_Elevation_Insets as INSETS           # noqa: E402
+
+    tile = CFG.Tile(lat, lon, "")
+    try:
+        tile.read_from_config()
+    except Exception:
+        pass
+    # The airport dictionary comes from the CACHED OSM layer — the same
+    # chain production and the standalone DEM prep run, and network-free
+    # because the harness already refuses a build without that cache.
+    airports_cache = FNAMES.osm_cached(lat, lon, "airports")
+    if not os.path.isfile(airports_cache):
+        raise SystemExit(
+            f"REFUSING --warm-insets: no cached airports OSM layer for "
+            f"{lat:+d}{lon:+d}, so the inset bounding boxes would come "
+            f"from an overpass QUERY — a second unauthorised fetch.  "
+            f"Warm it with --refresh-data osm_layers first.")
+    airport_layer = OSM.OSM_layer()
+    OSM.OSM_queries_to_OSM_layer(
+        VMAP.AIRPORTS_QUERIES, airport_layer, lat, lon, ["all"],
+        cached_suffix="airports")
+    dico_airports = VMAP.build_airports_dico(tile, airport_layer)
+    boxes = INSETS._airport_bounding_boxes(tile, dico_airports)
+    wanted = {icao: box for icao, box in boxes.items() if icao in icaos}
+    missing = sorted(set(icaos) - set(wanted))
+    if missing:
+        raise SystemExit(
+            f"REFUSING --warm-insets: {missing} is not an airport of tile "
+            f"{lat:+d}{lon:+d} (its inset cache lives on another tile, and "
+            f"this run's lock and snapshot cover THIS one).  Airports "
+            f"here: {sorted(boxes)[:12]}...")
+    definitions = INSETS.select_provider_definitions(
+        getattr(tile, "airport_elevation_providers", "auto"))
+    resolution_m = INSETS.parse_airport_elevation_level(
+        getattr(tile, "airport_elevation_level", "auto"))
+    fetch_counter = [0]
+    prog.note(f"WARM INSETS (authorised, locked, ledgered): "
+              f"{sorted(wanted)} on tile {lat:+d}{lon:+d} via "
+              f"{[d['code'] for d in definitions]} — a fetch here is the "
+              f"POINT of this run, not a side effect")
+    INSETS.ensure_airport_insets(lat, lon, wanted, definitions,
+                                 resolution_m, refresh=True,
+                                 fetch_counter=fetch_counter)
+    summary = {"airports": sorted(wanted), "fetch_attempts": fetch_counter[0],
+               "insets": {}}
+    for icao in sorted(wanted):
+        for definition in definitions:
+            path = FNAMES.airport_inset_dem(lat, lon, icao,
+                                            definition["code"])
+            if os.path.isfile(path):
+                summary["insets"][os.path.basename(path)] = round(
+                    INSETS.inset_valid_fraction(path), 6)
+    prog.note(f"warm-insets done: {fetch_counter[0]} fetch attempt(s), "
+              f"valid fraction(s) {summary['insets'] or 'NONE CACHED'}")
+    return summary
+
+
+# ══════════════════════════════════════════════════════════════════════
 # THE SWALLOWED-DEGRADATION REFUSALS (2026-08-07) — DETECTOR 2
 # ══════════════════════════════════════════════════════════════════════
 # Detector 1 (``require_no_swallowed_write_block``) reads the write
@@ -1087,6 +1195,14 @@ def main(argv=None) -> int:
                          "(locked, hash-stamped, recorded).  'all' "
                          "authorises every scope.  Scopes: "
                          + ", ".join(s for s, _p, _w in REFRESH_SCOPES))
+    ap.add_argument("--warm-insets", default="",
+                    help="comma-separated ICAOs whose airport elevation "
+                         "INSET this run fetches/refreshes before the build "
+                         "(an airport build otherwise never reaches the "
+                         "fetch: its DEM prep is pure disk state).  Valid "
+                         "ONLY with --refresh-data dem, and it warms exactly "
+                         "the airports named — the rest of the tile's cache "
+                         "is not touched")
     ap.add_argument("--break-stale-lock", action="store_true",
                     help="break a refresh lock whose holder process is gone "
                          "— a dead pid does NOT mean the write completed, "
@@ -1114,6 +1230,15 @@ def main(argv=None) -> int:
             raise SystemExit(
                 f"REFUSING: unknown --refresh-data scope(s) "
                 f"{sorted(unknown)}.  Known scopes: {sorted(all_scopes)}")
+    warm_insets = [icao.strip() for icao in args.warm_insets.split(",")
+                   if icao.strip()]
+    if warm_insets and "dem" not in requested:
+        raise SystemExit(
+            f"REFUSING: --warm-insets {warm_insets} FETCHES into the shared "
+            f"data repo, which is exactly the act --refresh-data authorises "
+            f"(owner ruling e9daef5: downloads are explicit, locked, "
+            f"hash-stamped events, never a build side effect).\n"
+            f"    --refresh-data dem --warm-insets {','.join(warm_insets)}")
 
     root = require_build_cwd(Path.cwd())
 
@@ -1221,6 +1346,21 @@ def main(argv=None) -> int:
         prog.note("shared-repo write guard DISARMED by flag — writes are "
                   "detected after the fact only (the pre-fix behaviour)")
 
+    # THE WARM, before the build's DEM prep and inside everything that
+    # makes a shared-repo write lawful: the scope lock is held, ``before``
+    # is snapshotted, and the guard is armed with ``dem`` authorised.  A
+    # failure here must not be swallowed into a quietly inset-less build,
+    # so it is deliberately outside the try/finally that follows.
+    warm_summary = None
+    if warm_insets:
+        if lat is None:
+            raise SystemExit(
+                f"REFUSING --warm-insets: the anchor tile for {args.icao} "
+                f"did not resolve, so there is no inset cache to warm.")
+        with guard:
+            warm_summary = warm_airport_insets(warm_insets, root, lat, lon,
+                                               prog)
+
     t0 = time.time()
     try:
         if args.tile:
@@ -1252,7 +1392,11 @@ def main(argv=None) -> int:
             if any(in_scope.values()):
                 rec = record_refresh(sc, in_scope,
                                      {"lane": str(root), "tag": tag,
-                                      "argv": sys.argv[1:]})
+                                      "argv": sys.argv[1:],
+                                      # WHAT was warmed, named: a reader
+                                      # asking why an inset changed gets
+                                      # the airports, not just a flag.
+                                      "warm_insets": warm_insets})
                 prog.note(f"REFRESH RECORDED [{sc}]: +{rec['added']} "
                           f"~{rec['modified']} file(s), hash-stamped into "
                           f"{REFRESH_LEDGER}")
@@ -1270,6 +1414,7 @@ def main(argv=None) -> int:
     frame["write_guard_blocked"] = guard.blocked
     frame["write_guard_lock_churn"] = guard.lock_churn
     frame["write_guard_library_index_churn"] = guard.library_index_churn
+    frame["warm_insets"] = warm_summary
     frame["allow_degraded_dem"] = bool(args.allow_degraded_dem)
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")

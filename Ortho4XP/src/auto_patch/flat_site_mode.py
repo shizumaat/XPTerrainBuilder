@@ -60,6 +60,10 @@ __all__ = [
     "claimed_placements_by_icao",
     "cluster_placements_m",
     "claimed_placement_cluster_bounds",
+    # R11-1/R11-2 — the cluster-refusal findings vocabulary.
+    "CLUSTER_FINDING_TOO_FAR",
+    "CLUSTER_FINDING_DATUM",
+    "record_cluster_finding",
 ]
 
 #: Local-metre projection constant — ``layout.R_EARTH``'s value, kept
@@ -314,7 +318,7 @@ def _cifp_runways(xplane_root: str, icao: str) -> dict:
 def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
                                tile_lon: int) -> dict:
     """``{icao: [(longitude, latitude), ...]}`` — every DSF object
-    placement on this tile, partitioned by the airport that CLAIMS it.
+    placement on this tile that an airport claims BY CONTAINMENT.
 
     One pass over the tile's enabled airport packs, shared by every
     airport (the driver's ``scan_cache`` memo, for the same reason: a
@@ -322,12 +326,26 @@ def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
     otherwise).  Airports with no CIFP runways, no associated DSF and no
     pack contribute nothing and appear with no key.
 
-    Returns ``{}`` when nothing on the tile places objects.
+    R11-1 — CONTAINMENT ONLY.  ``post_mesh.worklist_claim_assigner``
+    never drops a point for want of an owner: an unclaimed point falls
+    to the nearest airport holding an entry for that DSF, and a DSF with
+    a single entry answers that entry outright.  Both are right for
+    object ANCHORING and neither is a licence to move TERRAIN, which is
+    the only thing this function's output is used for.  Measured at
+    KMCI: KMCI's own worklist entry failed, so the pack's DSF was left
+    with KFLV's entry alone, 3,529 placements fell to KFLV by that
+    default, and twelve constant 234.24 m insets — the largest 12.73 km²
+    — were laid over KMCI's real ~300 m terrain.  Fallback-claimed
+    placements are COUNTED and REPORTED here, per airport and per DSF,
+    and returned to nobody.
+
+    Returns ``{}`` when nothing on the tile places objects by
+    containment.
     """
     from .driver import (
         _airport_claim_lonlat, _object_anchor_worklist_entries)
     from .dsf_reader import read_dsf_object_placement_positions
-    from .post_mesh import worklist_claim_assigner
+    from .post_mesh import CLAIM_CONTAINMENT, worklist_claim_assigner
 
     scan_cache: dict = {}
     seen_dsf_paths: set = set()
@@ -341,7 +359,15 @@ def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
                 icao, xplane_root, runways, tile_lat, tile_lon,
                 seen_dsf_paths, scan_cache,
                 claim=_airport_claim_lonlat(runways)))
-        except Exception:                                # pragma: no cover
+        except Exception as error:
+            # A silently dropped owner is how a distant airport wins a
+            # pack: it leaves the assigner's candidate set, and the
+            # fallback awards its ground to whoever is left.  The
+            # ``continue`` stands (one broken airport must not take DEM
+            # prep down); the silence does not.
+            UI.vprint(1, "   [flat-site] claim-entry for %s dropped (%s: %s)"
+                         " — its placements can only fall to OTHER airports."
+                      % (icao, type(error).__name__, error))
             continue
     if not entries:
         return {}
@@ -349,6 +375,7 @@ def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
     assign = worklist_claim_assigner(entries)
     positions_by_dsf = scan_cache.setdefault("positions", {})
     out: dict = {}
+    fallback: dict = {}
     scanned: set = set()
     for entry in entries:
         dsf_path = entry.get("dsf_path")
@@ -361,9 +388,21 @@ def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
                 dsf_path, entry.get("pack_root"))
             positions_by_dsf[dsf_path] = positions
         for longitude, latitude in (positions or ()):
-            owner = assign(dsf_path, latitude, longitude)
-            if owner:
+            owner, mode = assign(dsf_path, latitude, longitude,
+                                 with_mode=True)
+            if not owner:
+                continue
+            if mode == CLAIM_CONTAINMENT:
                 out.setdefault(owner, []).append((longitude, latitude))
+            else:
+                fallback.setdefault(
+                    (owner, os.path.basename(dsf_path), mode), 0)
+                fallback[(owner, os.path.basename(dsf_path), mode)] += 1
+    for (owner, dsf_name, mode), count in sorted(fallback.items()):
+        UI.vprint(1, "   [flat-site] %s: %d placement(s) in %s reached it by "
+                     "the %s FALLBACK, not by containment — anchored there, "
+                     "EXCLUDED from flat-site clustering."
+                  % (owner, count, dsf_name, mode))
     return out
 
 
@@ -442,10 +481,38 @@ def cluster_placements_m(points_m, join_m: float | None = None,
     return clusters
 
 
+#: R11-1 — a cluster centroid further from the claiming airport's own
+#: apt.dat extent than ``config.FLAT_SITE_CLUSTER_MAX_KM``.
+CLUSTER_FINDING_TOO_FAR = "cluster_beyond_max_km"
+
+#: R11-2 — a cluster inset whose feather ring disagrees with the base DEM
+#: by more than the datum threshold.  Raised where the bake measures it
+#: (``O4_Airport_Elevation_Insets.overlay_flat_site_insets``), recorded
+#: through the same helper so both refusals count in ONE place.
+CLUSTER_FINDING_DATUM = "cluster_datum_offset"
+
+
+def record_cluster_finding(substitution: dict, kind: str, **fields) -> dict:
+    """Append one REFUSED-cluster finding to a substitution entry.
+
+    Findings live on the substitution itself (key ``cluster_findings``,
+    always present once anything is measured) because that dict is what
+    the bake stamps into the DEM's ``synthetic_flat_site`` provenance —
+    a refusal nobody can read afterwards is a silent drop, which is the
+    class this round exists to end.  Returns the finding.
+    """
+    finding = dict(fields)
+    finding["kind"] = kind
+    substitution.setdefault("cluster_findings", []).append(finding)
+    return finding
+
+
 def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
                                      tile_lon: int,
                                      margin_m: float | None = None,
-                                     inside=None) -> list:
+                                     inside=None,
+                                     max_km: float | None = None,
+                                     findings=None) -> list:
     """One ``(x0, y0, x1, y1)`` tile-degree box PER CLUSTER of claimed
     placements — the R8-1 substitution footprints.
 
@@ -462,16 +529,27 @@ def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
     dropped, so the common case (every placement on the apron) emits
     exactly the insets it emitted before this law.
 
+    R11-1 DISTANCE BOUND.  With an ``inside`` extent to measure from, a
+    cluster whose CENTROID stands further than ``max_km`` (default
+    ``config.FLAT_SITE_CLUSTER_MAX_KM``) from it is refused and its
+    measured distance recorded in ``findings`` (a list the caller owns).
+    Belt and suspenders behind the containment law: HZMB, the case R8-1
+    was written for, is ~1 km outside VHHH's extent, and KFLV reached
+    19 km to flatten KMCI.  With no extent there is nothing to measure
+    from and no bound is applied.
+
     ONE BOX PER CLUSTER, never their union: the union's bbox would span
     the open water between an airport and an offshore reclamation and
     flatten it to Z0.
     """
-    from shapely.geometry import MultiPoint
+    from shapely.geometry import MultiPoint, Point
 
     from .layout import _projection
 
     if margin_m is None:
         margin_m = _config.FLAT_SITE_MARGIN_M
+    if max_km is None:
+        max_km = _config.FLAT_SITE_CLUSTER_MAX_KM
     to_metres = _projection(anchor)
     points_m = []
     for longitude, latitude in (placements_ll or ()):
@@ -493,6 +571,23 @@ def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
                     continue
             except Exception:                            # pragma: no cover
                 pass
+            centroid = Point(
+                sum(x for x, _y in cluster) / len(cluster),
+                sum(y for _x, y in cluster) / len(cluster))
+            try:
+                distance_km = float(centroid.distance(inside)) / 1000.0
+            except Exception:                            # pragma: no cover
+                distance_km = None
+            if distance_km is not None and distance_km > float(max_km):
+                if findings is not None:
+                    findings.append({
+                        "kind": CLUSTER_FINDING_TOO_FAR,
+                        "placements": len(cluster),
+                        "distance_km": round(distance_km, 3),
+                        "max_km": float(max_km),
+                        "extent_area_km2": round(hull.area / 1e6, 4),
+                    })
+                continue
         bounds = extent_bounds_tile_degrees(hull, anchor, tile_lat, tile_lon)
         if bounds is not None:
             out.append({
@@ -607,6 +702,10 @@ def flat_site_substitutions(tile, dico_airports=None,
             # cluster outside the apt.dat extent.  Always present (an
             # empty list is "measured, none"), never absent.
             "object_clusters": [],
+            # R11-1/R11-2: the clusters this airport was REFUSED, with
+            # the number that refused them.  Same rule — an empty list
+            # is "measured, none".
+            "cluster_findings": [],
             "record": record,
         })
     _attach_claimed_object_clusters(
@@ -644,16 +743,29 @@ def _attach_claimed_object_clusters(substitutions, icaos, anchor_by_icao,
         placements = placements_by_icao.get(icao) or []
         if not placements:
             continue
+        findings = substitution.setdefault("cluster_findings", [])
         try:
             clusters = claimed_placement_cluster_bounds(
                 placements, anchor_by_icao[icao], tile_lat, tile_lon,
-                inside=extent_by_icao.get(icao))
+                inside=extent_by_icao.get(icao), findings=findings)
         except Exception as error:                       # pragma: no cover
             UI.vprint(1, "   [flat-site] %s: claimed-placement clustering "
                          "FAILED (%s: %s) — apt.dat extent only."
                       % (icao, type(error).__name__, error))
             continue
         substitution["object_clusters"] = clusters
+        for finding in findings:
+            if finding.get("kind") != CLUSTER_FINDING_TOO_FAR:
+                continue
+            UI.vprint(
+                1,
+                "   [flat-site] %s: REFUSED a %d-placement cluster %.2f km "
+                "from its apt.dat extent (bound %.2f km, %.2f km2) — a flat "
+                "site does not flatten another airport."
+                % (icao, finding.get("placements") or 0,
+                   finding.get("distance_km") or 0.0,
+                   finding.get("max_km") or 0.0,
+                   finding.get("extent_area_km2") or 0.0))
         if clusters:
             UI.vprint(
                 1,

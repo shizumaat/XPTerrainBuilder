@@ -7630,6 +7630,99 @@ def sample_inset_onto_working_grid(
     )
 
 
+# =====================================================================
+# R11-3 -- AN EMPTY INSET IS NO INSET
+# (docs/specs/round11-kmci-flat-claim-spec.md)
+# =====================================================================
+# A fetched raster can be structurally perfect and hold no data at all:
+# ``KMCI_usgs3dep.tif`` is 7993 x 10518 pixels of 1 m lidar, 100.00 %
+# nodata, cut from the Kansas project KS_Statewide_2018_A18 for a
+# Missouri airport.  Every coverage answer in this module was judged by
+# raster EXTENTS -- rectangles -- so that file reported 100 % coverage at
+# 1 m and set the airport's smoothing radius as if it carried metre-class
+# detail, while the bake laid down nothing.  An inset with fewer than
+# ``INSET_MIN_VALID_FRAC`` valid pixels is treated as ABSENT: it is not
+# baked, it contributes no coverage, it is recorded with its measured
+# nodata fraction, and the build proceeds on the base DEM.
+#
+# ONE INSTRUMENT.  The bake and the coverage metric both read the
+# fraction from :func:`inset_valid_fraction` -- two counts of one
+# population is how this repo gets two instruments that disagree.
+INSET_MIN_VALID_FRAC = _parse_float(
+    os.environ.get("O4_INSET_MIN_VALID_FRAC"), 0.05
+)
+
+# The fraction is estimated from a DECIMATED read (GDAL nearest sampling
+# on to at most this many samples per axis, ~262 k samples): reading
+# KMCI's raster whole is 336 MB for a single ratio, and the sampling
+# error at the 5 % gate is far below the gate.
+_INSET_VALID_SAMPLES_PER_AXIS = 512
+
+#: ``{(path, mtime, size): fraction}`` -- the measurement is stable for
+#: the life of a file and is asked for once per consumer per build.
+_inset_valid_fraction_cache = {}
+
+
+def inset_valid_fraction(inset_path):
+    """Fraction of an inset raster's pixels that are NOT nodata.
+
+    ``1.0`` when the file declares no nodata value (every pixel is data
+    by definition) and when the raster cannot be read at all -- an
+    unreadable file is a different failure with its own handling, and
+    this metric must never invent a reason to drop an inset.
+    """
+    try:
+        stat = os.stat(inset_path)
+        key = (inset_path, stat.st_mtime, stat.st_size)
+    except OSError:                                      # pragma: no cover
+        return 1.0
+    if key in _inset_valid_fraction_cache:
+        return _inset_valid_fraction_cache[key]
+    fraction = 1.0
+    if has_gdal:
+        try:
+            dataset = gdal.Open(inset_path)
+            band = dataset.GetRasterBand(1)
+            nodata = band.GetNoDataValue()
+            if nodata is not None:
+                values = band.ReadAsArray(
+                    buf_xsize=min(_INSET_VALID_SAMPLES_PER_AXIS,
+                                  dataset.RasterXSize),
+                    buf_ysize=min(_INSET_VALID_SAMPLES_PER_AXIS,
+                                  dataset.RasterYSize),
+                )
+                if values is not None and values.size:
+                    valid = (values != nodata) & numpy.isfinite(values)
+                    fraction = float(valid.mean())
+        except Exception:                                # pragma: no cover
+            fraction = 1.0
+    _inset_valid_fraction_cache[key] = fraction
+    return fraction
+
+
+def _inset_source_project(inset_path):
+    """The project titles the fetch recorded beside an inset, as one
+    string -- what a reader needs to see WHY a raster is empty (KMCI's
+    names a Kansas project for a Missouri airport).  ``"?"`` when the
+    sidecar is missing or carries no titles."""
+    sidecar = inset_path[:-4] + ".json" if inset_path.endswith(".tif") else None
+    if not sidecar or not os.path.isfile(sidecar):
+        return "?"
+    try:
+        with open(sidecar, "r") as handle:
+            meta = json.load(handle)
+    except Exception:                                    # pragma: no cover
+        return "?"
+    titles = meta.get("project_titles") or meta.get("source_ids") or []
+    return "; ".join(str(title) for title in titles) or "?"
+
+
+def inset_is_effectively_empty(inset_path):
+    """``(is_empty, valid_fraction)`` for one cached inset (R11-3)."""
+    fraction = inset_valid_fraction(inset_path)
+    return (fraction < INSET_MIN_VALID_FRAC, fraction)
+
+
 def bake_airport_insets_into_alt_dem(tile):
     """Bake cached insets into ``tile.dem.alt_dem`` with a feather band.
 
@@ -7663,11 +7756,34 @@ def bake_airport_insets_into_alt_dem(tile):
     # loud.  Absence of the attribute (never set) means the bake never ran.
     baked_provenance = []
     tile.dem.airport_inset_provenance = baked_provenance
+    # R11-3: insets that hold no data.  Kept OFF ``baked_provenance`` --
+    # nothing of theirs reached the raster, so ``raw`` must stay true --
+    # and recorded on their own attribute, which
+    # ``auto_patch.provenance.dem_provenance_from_dem`` reports beside
+    # the baked insets as ``nodata_refused``.
+    nodata_refused = []
+    tile.dem.airport_inset_nodata_refusals = nodata_refused
     if not inset_paths:
         return
     feather_m = getattr(tile, "airport_elevation_inset_feather_m", 60.0)
     provider_ring_offsets = {}
     for inset_path in inset_paths:
+        (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
+        if is_empty:
+            entry = _inset_bake_provenance_entry(inset_path)
+            entry["nodata_fraction"] = round(1.0 - valid_fraction, 6)
+            entry["fallback"] = "base DEM (inset treated as absent)"
+            nodata_refused.append(entry)
+            UI.vprint(
+                0,
+                "   [inset] %s holds %.2f %% valid pixels (< %.2f %%) - NO "
+                "INSET: it is not baked and carries no coverage; the build "
+                "proceeds on the base DEM. Source project(s): %s."
+                % (os.path.basename(inset_path), 100.0 * valid_fraction,
+                   100.0 * INSET_MIN_VALID_FRAC,
+                   _inset_source_project(inset_path)),
+            )
+            continue
         try:
             ring_offset_m = _bake_one_inset(tile, inset_path, feather_m)
         except Exception as error:
@@ -7686,7 +7802,9 @@ def bake_airport_insets_into_alt_dem(tile):
             provider_ring_offsets.setdefault(provider_code, []).append(
                 ring_offset_m
             )
-        baked_provenance.append(_inset_bake_provenance_entry(inset_path))
+        entry = _inset_bake_provenance_entry(inset_path)
+        entry["nodata_fraction"] = round(1.0 - valid_fraction, 6)
+        baked_provenance.append(entry)
     _warn_if_provider_offsets_systematic(provider_ring_offsets)
     # The raster is now the surface the mesher will render, so the QUERY
     # path must read it too: the grading law measures the surface the
@@ -7729,7 +7847,8 @@ def _inset_bake_provenance_entry(inset_path):
     return entry
 
 
-def _bake_one_inset(tile, inset_path, feather_m, inset=None):
+def _bake_one_inset(tile, inset_path, feather_m, inset=None,
+                    refuse_datum_offset_over_m=None):
     """Blend a single inset GeoTIFF into the working grid over its footprint.
 
     The blend weight ramps linearly from 0 at the inset's data edge to 1 at
@@ -7745,6 +7864,13 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None):
     FLAT-SITE mode's synthetic constant inset (:class:`_ConstantInset`)
     rides this exact blend: one feathering implementation in the tree,
     the fetched-GeoTIFF path byte-identical when ``inset`` is omitted.
+
+    ``refuse_datum_offset_over_m`` (R11-2) turns the ring measurement
+    into a GATE: when the measured median exceeds it, the blend is
+    ABANDONED -- the working grid is not written and the offset is
+    returned for the caller to report and count.  The measurement is the
+    same one the warning has always printed, taken at the same point;
+    only what happens next changes, and only for the callers that ask.
     """
     base_dem = tile.dem
     label = os.path.basename(inset_path) if inset_path else (
@@ -7848,6 +7974,12 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None):
         ring_offset_m = float(
             numpy.median(inset_values[ring] - window[ring])
         )
+        # R11-2: for a caller that asked, the ring is a GATE and this is
+        # the last point before the write -- refuse here and the working
+        # grid keeps the surface it already had.
+        if (refuse_datum_offset_over_m is not None
+                and abs(ring_offset_m) > float(refuse_datum_offset_over_m)):
+            return ring_offset_m
         # A few metres is the normal surface-vs-bare-earth gap (canopy in
         # the coarse base); only datum-class magnitudes warrant a warning.
         if abs(ring_offset_m) > INSET_DATUM_WARNING_THRESHOLD_M:
@@ -8015,22 +8147,25 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 ") - that airport stays on the real surface.",
             )
             continue
-        stamped.append(
-            {
-                "icao": icao,
-                "kind": "synthetic_flat_site",
-                "verdict": substitution.get("verdict"),
-                "z0_m": substitution["z0_m"],
-                "extent_tile_degrees": [x0, y0, x1, y1],
-                "extent_wgs84": [
-                    tile.lon + x0, tile.lat + y0,
-                    tile.lon + x1, tile.lat + y1,
-                ],
-                "extent_area_km2": substitution.get("extent_area_km2"),
-                "feather_m": float(feather_m),
-                "record": substitution["record"],
-            }
-        )
+        airport_entry = {
+            "icao": icao,
+            "kind": "synthetic_flat_site",
+            "verdict": substitution.get("verdict"),
+            "z0_m": substitution["z0_m"],
+            "extent_tile_degrees": [x0, y0, x1, y1],
+            "extent_wgs84": [
+                tile.lon + x0, tile.lat + y0,
+                tile.lon + x1, tile.lat + y1,
+            ],
+            "extent_area_km2": substitution.get("extent_area_km2"),
+            "feather_m": float(feather_m),
+            "record": substitution["record"],
+            # R11-1/R11-2: the clusters this airport was REFUSED, filled
+            # in below.  Stamped on the AIRPORT's entry because a refused
+            # cluster has no entry of its own -- that is the point.
+            "cluster_findings": [],
+        }
+        stamped.append(airport_entry)
         # R8-1 (round-8 VHHH close-out spec): ONE MORE CONSTANT INSET PER
         # CLAIMED-PLACEMENT CLUSTER.  An airport's pack can place hundreds
         # of objects on ground the apt.dat record never mentions (VHHH's
@@ -8040,6 +8175,15 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # rectangle, never a grown bbox: the measured 450 m open channel
         # between the airport and the island must stay SEA, and one box
         # spanning both would flatten it.
+        #
+        # R11-2: and the DATUM CHECK REFUSES for these.  A cluster inset
+        # carries the airport's Z0 onto ground the apt.dat record never
+        # mentions, so the feather ring is the only evidence that the two
+        # surfaces belong together -- at KMCI it read a median -64.5 m
+        # and the bake substituted anyway.  Over the threshold, the
+        # cluster is DROPPED and counted.  The airport's OWN extent
+        # substitution above is untouched by this: its Z0 comes from ITS
+        # CIFP consensus over ITS apt.dat footprint.
         for cluster in (substitution.get("object_clusters") or ()):
             cx0, cy0, cx1, cy1 = cluster["extent_deg"]
             cluster_inset = _ConstantInset(
@@ -8047,7 +8191,11 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 label="%s synthetic flat-site object-cluster inset" % icao,
             )
             try:
-                _bake_one_inset(tile, None, feather_m, inset=cluster_inset)
+                ring_offset_m = _bake_one_inset(
+                    tile, None, feather_m, inset=cluster_inset,
+                    refuse_datum_offset_over_m=(
+                        INSET_DATUM_WARNING_THRESHOLD_M),
+                )
             except Exception as error:
                 UI.vprint(
                     0,
@@ -8059,6 +8207,31 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                     ":",
                     str(error),
                     ") - that cluster stays on the real surface.",
+                )
+                continue
+            if (ring_offset_m is not None
+                    and abs(ring_offset_m)
+                    > INSET_DATUM_WARNING_THRESHOLD_M):
+                FLAT_SITE_MODE.record_cluster_finding(
+                    substitution,
+                    FLAT_SITE_MODE.CLUSTER_FINDING_DATUM,
+                    placements=cluster.get("placements"),
+                    ring_offset_m=round(float(ring_offset_m), 2),
+                    threshold_m=float(INSET_DATUM_WARNING_THRESHOLD_M),
+                    extent_area_km2=cluster.get("extent_area_km2"),
+                )
+                UI.vprint(
+                    0,
+                    "   [flat-site] %s: REFUSED a CLAIMED-OBJECT cluster "
+                    "inset at Z0 %.2f m (%d placement(s), %.2f km2) - it "
+                    "differs from the base DEM by a median %.2f m over the "
+                    "feather ring (>%d m; check vertical datum). The cluster "
+                    "stays on the real surface."
+                    % (icao, substitution["z0_m"],
+                       cluster.get("placements") or 0,
+                       cluster.get("extent_area_km2") or 0.0,
+                       float(ring_offset_m),
+                       int(INSET_DATUM_WARNING_THRESHOLD_M)),
                 )
                 continue
             stamped.append(
@@ -8085,6 +8258,23 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 % (icao, substitution["z0_m"],
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
+            )
+        # R11-1/R11-2: the refusals this airport collected, counted once
+        # and carried on its provenance entry.  Refusals raised BEFORE
+        # the bake (the R11-1 distance bound, recorded by
+        # ``flat_site_mode``) and refusals raised here (R11-2's datum
+        # gate) are one list -- a reader asking "what was refused" must
+        # not have to know which half of the machinery said no.
+        airport_entry["cluster_findings"] = list(
+            substitution.get("cluster_findings") or ())
+        if airport_entry["cluster_findings"]:
+            UI.vprint(
+                0,
+                "   [flat-site] %s: %d claimed-object cluster(s) REFUSED "
+                "(%s)."
+                % (icao, len(airport_entry["cluster_findings"]),
+                   ", ".join(str(finding.get("kind"))
+                             for finding in airport_entry["cluster_findings"])),
             )
         UI.vprint(
             0,
@@ -8189,9 +8379,15 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
 
     Returns ``(coverage_fraction, finest_covering_inset_pixel_m)``.
     Coverage is judged by the insets' raster EXTENTS (rectangles in
-    tile-relative degrees) -- interior nodata is not subtracted, which
-    matches how the bake applies them (nodata cells fall back to base).
-    ``(0.0, None)`` when no cached inset touches the mask.
+    tile-relative degrees), each WEIGHTED BY ITS VALID-PIXEL FRACTION
+    (R11-3): a rectangle is where an inset could have data, and the
+    fraction is how much of it does.  An inset under
+    ``INSET_MIN_VALID_FRAC`` valid is absent here exactly as it is
+    absent from the bake -- KMCI's 100 %-nodata 1 m raster reported
+    100 % coverage at 1 m and set the smoothing radius to 0 over a
+    surface it never touched.  A fully-valid inset weighs exactly 1 and
+    the answer is the pre-change answer.  ``(0.0, None)`` when no cached
+    inset touches the mask.
 
     The second element is the resolution the smoothing radius may assume
     over THIS mask, and it is deliberately not the finest pixel of every
@@ -8229,6 +8425,7 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
     )
     boxes = []
     resolved_boxes = []
+    weighted_boxes = []
     for inset_path in inset_paths:
         try:
             dataset = gdal.Open(inset_path)
@@ -8246,6 +8443,10 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
         )
         if not extent_box.intersects(mask_geometry):
             continue
+        (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
+        if is_empty:
+            # R11-3: no data, no coverage, no resolution claim.
+            continue
         boxes.append(extent_box)
         stored_pixel_m = abs(geotransform[5]) * GEO.lat_to_m
         resolved_boxes.append(
@@ -8254,12 +8455,26 @@ def inset_coverage_of_airport_mask(tile, mask_geometry):
                 extent_box,
             )
         )
+        weighted_boxes.append((valid_fraction, extent_box))
     if not boxes:
         return (0.0, None)
     mask_area = mask_geometry.area
-    covered_area = (
-        shapely_ops.unary_union(boxes).intersection(mask_geometry).area
-    )
+    # Best-available-data accounting: walk the insets richest-first and
+    # give each piece of the mask the valid fraction of the best inset
+    # that reaches it, so nothing is double-counted and an all-valid set
+    # returns the union area it always returned.
+    covered_area = 0.0
+    remaining = mask_geometry
+    for valid_fraction, extent_box in sorted(
+        weighted_boxes, key=lambda item: item[0], reverse=True
+    ):
+        piece = remaining.intersection(extent_box)
+        if piece.is_empty:
+            continue
+        covered_area += piece.area * valid_fraction
+        remaining = remaining.difference(extent_box)
+        if remaining.is_empty:
+            break
     # Finest-first, cumulative: the coarsest candidate is the union of
     # everything, so this terminates on the same total coverage the
     # caller's gate sees (None only when even that falls short).

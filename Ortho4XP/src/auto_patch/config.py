@@ -8576,6 +8576,17 @@ FLAT_SITE_PACK_BELOW_GRADE_M = 1.0
 # degeneracy twins measure byte-identity against.
 FLAT_SITE_MODE = _os.environ.get("O4_FLAT_SITE_MODE", "1") == "1"
 
+# R11-1 (docs/specs/round11-kmci-flat-claim-spec.md) — the BELT-AND-
+# SUSPENDERS bound on a claimed-object CLUSTER extension.  A cluster
+# whose centroid lies further than this from the claiming airport's own
+# apt.dat extent is refused with a counted finding, whatever the claim
+# machinery said: HZMB, the motivating VHHH case, is ~1 km out, while
+# KFLV (Z0 234.24 m) reached 19 km to claim the KMCI pack's placements
+# and flattened KMCI's real ~300 m terrain under 12 synthetic insets.
+# Distance, not count, is what separates those two.
+FLAT_SITE_CLUSTER_MAX_KM = float(
+    _os.environ.get("O4_FLAT_SITE_CLUSTER_MAX_KM", "5.0"))
+
 
 # ══════════════════════════════════════════════════════════════════════
 # FLAT-SITE FAST PATH (phase 3) — the SOLVE PARTITION

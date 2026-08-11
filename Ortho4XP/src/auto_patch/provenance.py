@@ -228,20 +228,33 @@ DEM_INSET_PROVENANCE_ATTR = "airport_inset_provenance"
 # DIFFERENT FRAMES, so this travels with the inset record and never inside it.
 DEM_SYNTHETIC_FLAT_SITE_ATTR = "synthetic_flat_site_provenance"
 
+# Attribute name under which the same bake records the insets it REFUSED for
+# holding (almost) no valid pixels — R11-3, docs/specs/round11-kmci-flat-claim-
+# spec.md.  These never touched the raster, so they stay OUT of the inset list
+# and out of ``raw``: the patch WAS graded on the base DEM and must say so.
+DEM_INSET_NODATA_REFUSAL_ATTR = "airport_inset_nodata_refusals"
+
 
 def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
     """Read elevation provenance off the DEM object the solve graded against.
 
     Returns ``{"insets": [ {provider, source_ids, fetch_date, ...}, ... ],
-    "raw": bool, "synthetic_flat_site": entry | None}``.  ``raw`` is True when
-    no inset baked into this DEM — either the bake step never ran (standalone
-    raw-load path: the attribute is absent) or it ran and baked nothing (empty
-    list).  Either way the patch was graded on the base DEM, which the
-    log/stamp must announce loudly.
+    "raw": bool, "synthetic_flat_site": entry | None}``, plus
+    ``"nodata_refused": [ {..., nodata_fraction, fallback}, ... ]`` when — and
+    only when — an inset was refused for holding no data (R11-3).  The key is
+    absent otherwise, so a record with nothing to report is the record every
+    existing reader already knows.  ``raw`` is True when no inset baked into
+    this DEM — either the bake step never ran (standalone raw-load path: the
+    attribute is absent) or it ran and baked nothing (empty list).  Either way
+    the patch was graded on the base DEM, which the log/stamp must announce
+    loudly.
 
     ``raw`` keeps its meaning — it is about FETCHED insets.  A synthetic
     flat-site surface is not an inset of anything and is reported on its own
-    key: Z0, the detector's evidence record and the extent it covers.
+    key: Z0, the detector's evidence record and the extent it covers.  So is a
+    raster that was FETCHED and held no data: it is not an inset either, it is
+    the reason the base DEM is what graded this airport, and ``raw`` stays
+    True beside it.
 
     A production ``tile.dem`` is shared by every airport on the tile and carries
     all their baked insets; ``icao`` filters the record to the insets fetched
@@ -249,19 +262,29 @@ def dem_provenance_from_dem(dem_obj, icao: str | None = None) -> dict:
     name).  Entries with no ICAO field, or when ``icao`` is None, are kept.
     """
     synthetic = _synthetic_flat_site_from_dem(dem_obj, icao=icao)
+    refused = _entries_for_icao(
+        getattr(dem_obj, DEM_INSET_NODATA_REFUSAL_ATTR, None), icao)
     insets = getattr(dem_obj, DEM_INSET_PROVENANCE_ATTR, None)
-    if not insets:
-        return {"insets": [], "raw": True, "synthetic_flat_site": synthetic}
-    normalised = []
-    for entry in insets:
+    normalised = _entries_for_icao(insets, icao) if insets else []
+    out = {"insets": normalised, "raw": len(normalised) == 0,
+           "synthetic_flat_site": synthetic}
+    if refused:
+        out["nodata_refused"] = refused
+    return out
+
+
+def _entries_for_icao(entries, icao: str | None) -> list:
+    """The dict entries of a per-DEM record belonging to ``icao`` (all of
+    them when ``icao`` is None or an entry carries no ICAO)."""
+    out = []
+    for entry in entries or ():
         if not isinstance(entry, dict):
             continue
         if icao is not None and entry.get("icao"):
             if str(entry["icao"]).upper() != str(icao).upper():
                 continue
-        normalised.append(entry)
-    return {"insets": normalised, "raw": len(normalised) == 0,
-            "synthetic_flat_site": synthetic}
+        out.append(entry)
+    return out
 
 
 def _synthetic_flat_site_from_dem(dem_obj, icao: str | None = None):

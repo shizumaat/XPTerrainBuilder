@@ -203,6 +203,16 @@ def object_anchor_worklist_path(tile) -> str:
     )
 
 
+#: How a point reached its owner (R11-1).  ``assign(..., with_mode=True)``
+#: returns one of these beside the icao.  Only ``CLAIM_CONTAINMENT`` says
+#: the airport's own claim geometry holds the point; the other two are the
+#: never-drop FALLBACKS, correct for object ANCHORING and no licence to
+#: rewrite terrain (docs/specs/round11-kmci-flat-claim-spec.md R11-1).
+CLAIM_CONTAINMENT = "containment"
+CLAIM_SOLE_ENTRY = "sole_entry"
+CLAIM_NEAREST = "nearest"
+
+
 def worklist_claim_assigner(entries):
     """``assign(dsf_path, latitude, longitude) -> icao | None`` — WHICH
     AIRPORT OWNS A POINT (round-4 spec R2).
@@ -220,6 +230,17 @@ def worklist_claim_assigner(entries):
     version-2 behaviour, kept exactly), and so does an entry whose
     claim geometry is missing or unusable — a claim nobody can test is
     never a reason to lose objects.
+
+    ``assign(..., with_mode=True)`` returns ``(icao, mode)`` instead —
+    the SAME icao, plus HOW it was reached (``CLAIM_CONTAINMENT`` /
+    ``CLAIM_SOLE_ENTRY`` / ``CLAIM_NEAREST``, and ``None`` mode with a
+    ``None`` icao).  R11-1: a caller that would move TERRAIN on the
+    strength of a claim has to know whether the claim was tested or
+    merely defaulted to, and only the containment answer is a test.  The
+    default call is unchanged in answer AND in cost — the sole-entry
+    short-circuit still returns before any geometry is touched, and the
+    containment test a mode-asking caller needs is paid only by that
+    caller.
     """
     import math as _math
 
@@ -244,11 +265,12 @@ def worklist_claim_assigner(entries):
             (entry.get("icao"), polygon, centre, claim.get("radius_m"))
         )
 
-    def assign(dsf_path: str, latitude: float, longitude: float):
+    def assign(dsf_path: str, latitude: float, longitude: float,
+               with_mode: bool = False):
         candidates = by_dsf.get(os.path.realpath(dsf_path or "")) or ()
         if not candidates:
-            return None
-        if len(candidates) == 1:
+            return (None, None) if with_mode else None
+        if len(candidates) == 1 and not with_mode:
             return candidates[0][0]
         containing = []
         for icao, polygon, centre, radius in candidates:
@@ -271,7 +293,12 @@ def worklist_claim_assigner(entries):
         if containing:
             # Smallest claiming hull wins a genuine overlap: the tighter
             # claim is the more specific one.
-            return min(containing)[1]
+            winner = min(containing)[1]
+            return (winner, CLAIM_CONTAINMENT) if with_mode else winner
+        if with_mode and len(candidates) == 1:
+            # The version-2 answer — this DSF's only entry takes the
+            # point — reported for what it is: NOT a containment test.
+            return (candidates[0][0], CLAIM_SOLE_ENTRY)
         nearest = None
         for icao, _polygon, centre, _radius in candidates:
             if not centre:
@@ -283,7 +310,8 @@ def worklist_claim_assigner(entries):
             )
             if nearest is None or (distance, icao) < nearest:
                 nearest = (distance, icao)
-        return nearest[1] if nearest else candidates[0][0]
+        winner = nearest[1] if nearest else candidates[0][0]
+        return (winner, CLAIM_NEAREST) if with_mode else winner
 
     return assign
 

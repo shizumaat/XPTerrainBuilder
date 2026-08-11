@@ -2578,6 +2578,63 @@ def _threshold_anchors(layout, elev, bucket_to_idx):
 # ── Stage 2: seed initial elevations + HARD anchor flags ─────────
 
 
+#: How far above its own floor a claimed vertex may sit and still be
+#: part of the LEVEL plate (the value contract) rather than the graded
+#: approach.  One emit quantum's worth of rounding, not a design gap.
+_TUNNEL_ROAD_LEVEL_TOL_M = 0.05
+
+
+def _build_tunnel_road_pins(layout, bucket_to_idx, elev, is_hard, intern):
+    """``{node index: elevation}`` for every CLAIMED tunnel-road vertex.
+
+    R14-1/A-1's claimed plates carry their profile in ``node_altitudes``
+    and their ref is ``tunnel_road``.
+
+    ONLY THE LEVEL IS THE CONTRACT.  A claimed shape's ring runs from the
+    bore-depth plate out along the R14-3 approach, and the climbing half
+    is a TRANSITION the solver must still be free to grade — pinning the
+    whole ring froze both ends of the same shape and minted hard-vs-hard
+    law edges of 8.8 m (measured KCLT, build 1556: an 8.90 m step across
+    1.08 m inside way -10603).  So the pin takes the vertices sitting at
+    the shape's own bore-depth floor, which is the value contract the
+    owner's "ONE level surface at bore depth" states, and leaves the
+    approach free.
+
+    A node a SENIOR pin already owns is left alone: the senior family
+    owns the value, and the claim never outranks a runway, seam, deck,
+    skirt or EAT pin.
+    """
+    pins: dict = {}
+    for shape in getattr(layout, "shapes", ()) or ():
+        if getattr(shape, "ref", "") != "tunnel_road":
+            continue
+        alts = getattr(shape, "node_altitudes", None)
+        polygon = getattr(shape, "polygon", None)
+        if not alts or polygon is None or polygon.is_empty:
+            continue
+        try:
+            coords = _open_ring(list(polygon.exterior.coords))
+        except Exception:                              # pragma: no cover
+            continue
+        _values = [float(a) for a in alts[:len(coords)] if a is not None]
+        if not _values:
+            continue
+        _floor = min(_values)
+        for k, (x, y) in enumerate(coords):
+            if k >= len(alts) or alts[k] is None:
+                continue
+            if float(alts[k]) - _floor > _TUNNEL_ROAD_LEVEL_TOL_M:
+                continue                    # the graded approach: free
+            key = intern(float(x), float(y))
+            if key is None:
+                continue
+            i = bucket_to_idx.get(key)
+            if i is None or is_hard[i]:
+                continue
+            pins[i] = float(alts[k])
+    return pins
+
+
 def _seed_elevations(layout, nodes, bucket_to_idx,
                      dem=None, tile_lat: int = 0, tile_lon: int = 0,
                      *, readonly: bool = False):
@@ -3178,6 +3235,39 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     f"departure-surface regulation value.")
             except Exception:                          # pragma: no cover
                 pass
+
+    # ── CLAIMED TUNNEL-ROAD plates (R14-1/A-1, owner 2026-08-11) ────
+    # "The paved area IS the corridor": road pavement covering a tunnel
+    # system's open cut is re-profiled to the bore profile and carries
+    # ref ``tunnel_road``.  Its level is a VALUE CONTRACT exactly like a
+    # deck pin — the whole intersection is ONE surface at bore depth —
+    # but the claim deliberately KEEPS the shape's pavement role, so the
+    # role-keyed feature-weld classifier (which skips PAVEMENT_ROLES)
+    # never hardens it and the projection relaxed the plate by 0.90 m
+    # (measured KCLT, the triangle between the two facing portals).
+    # THE PIN IDIOM IS THE EXISTING ONE, applied to a new member: elev +
+    # is_hard + have_initial + the seam-pin protection set, node-keyed,
+    # so no downstream re-stamp or yield relaxation may move it.  A
+    # senior pin already owning a node is never overwritten.
+    _tunnel_road_pins = _build_tunnel_road_pins(
+        layout, bucket_to_idx, elev, is_hard, _intern)
+    if _tunnel_road_pins:
+        for _idx, _v in _tunnel_road_pins.items():
+            elev[_idx] = float(_v)
+            is_hard[_idx] = True
+            have_initial[_idx] = True
+        _existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
+        layout._seam_pin_idx = (  # type: ignore[attr-defined]
+            set(_existing_pin_idx) if _existing_pin_idx else set()
+        ) | set(_tunnel_road_pins)
+        try:
+            import O4_UI_Utils as _UI_tr
+            _UI_tr.vprint(1,
+                f"    [tunnel-road-pin] {len(_tunnel_road_pins)} claimed "
+                f"road node(s) pinned at the bore profile (value "
+                f"contract, held like a deck pin).")
+        except Exception:                              # pragma: no cover
+            pass
 
     # ── FLAT-SITE FAST PATH: the BORN-AT-Z0 plate (spec §1, gated) ───
     # docs/specs/flat-site-fast-path-spec.md.  The LAST pin family, by

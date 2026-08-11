@@ -312,3 +312,59 @@ class TestSyntheticStandsDown:
         for piece in pieces:
             assert piece.polygon.intersection(
                 claimed_road).area == pytest.approx(0.0, abs=1e-9)
+
+
+# ══════════════════════════════════════════════════════════════════
+# R14-1 item 1 — the claimed plate is PINNED (owner 2026-08-11)
+# ══════════════════════════════════════════════════════════════════
+class TestClaimedPlateIsPinned:
+    """The claim keeps the shape's pavement ROLE, so the role-keyed
+    feature-weld classifier never hardens it and the projection relaxed
+    the plate by 0.90 m.  The fix is the EXISTING born-plate pin idiom
+    applied to a new member — node-keyed, so the role gate is bypassed
+    without touching authority."""
+
+    def _arrays(self, ring, alts, hard=None):
+        from auto_patch.elevation_per_surface import solver_primitives as sp
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        layout.shapes.append(BuiltShape(
+            polygon=__import__("shapely.geometry", fromlist=["Polygon"])
+            .Polygon(ring),
+            role=ROLE_SERVICE_JUNCTION, ref=bridges.TUNNEL_ROAD_REF,
+            node_altitudes=list(alts)))
+        keys = {(round(x, 3), round(y, 3)): i
+                for i, (x, y) in enumerate(ring)}
+        elev = [0.0] * len(ring)
+        is_hard = list(hard or [False] * len(ring))
+
+        def intern(x, y):
+            return (round(x, 3), round(y, 3))
+
+        return sp, layout, keys, elev, is_hard, intern
+
+    def test_every_claimed_vertex_is_pinned_at_its_profile(self):
+        ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0)]
+        alts = [213.9, 213.9, 213.9, 213.9, 213.9]
+        sp, layout, keys, elev, is_hard, intern = self._arrays(ring, alts)
+        pins = sp._build_tunnel_road_pins(layout, keys, elev, is_hard, intern)
+        assert len(pins) == 4
+        assert all(v == pytest.approx(213.9) for v in pins.values())
+
+    def test_a_senior_pin_is_never_overwritten(self):
+        # Runway / seam / deck / skirt / EAT own their value; the claim
+        # never outranks them.
+        ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0)]
+        alts = [213.9] * 5
+        hard = [True, False, False, False]
+        sp, layout, keys, elev, is_hard, intern = self._arrays(
+            ring, alts, hard=hard)
+        pins = sp._build_tunnel_road_pins(layout, keys, elev, is_hard, intern)
+        assert 0 not in pins and len(pins) == 3
+
+    def test_an_unclaimed_road_is_not_pinned(self):
+        ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (0.0, 5.0)]
+        sp, layout, keys, elev, is_hard, intern = self._arrays(
+            ring, [219.8] * 5)
+        layout.shapes[0].ref = ""
+        pins = sp._build_tunnel_road_pins(layout, keys, elev, is_hard, intern)
+        assert pins == {}

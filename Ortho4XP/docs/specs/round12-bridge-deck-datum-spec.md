@@ -231,3 +231,37 @@ refused-viaduct limb entirely.
   member deltas, spread, family delta, per-member world y ranges.
   Class A must not move (its R6-3 limb is untouched by this
   amendment). NEW ruled target; attempt cap resets.
+
+## AMENDMENT 4 — 2026-08-11 (lead ruling: THE AGREEING COALITION
+## SEATS THE ASSEMBLY)
+
+Amendment 3's measured outcome: the clean members (Bridge_06 ×5) read
+the 3.962 m bank exactly and agree within 0.05 m; the polluted members
+(canal-floor samples on land-attributed 0.00 m triangles — B2's known
+residual) scatter with no two deltas within 0.25 m of each other.
+Agreement is the signature of a real measurement; scatter is the
+signature of an artifact. The family-median-with-spread-gate is
+replaced by:
+
+* MEMBER COALITIONS: over the sorted member deltas, the largest subset
+  lying within one 0.25 m window is THE COALITION. The family delta is
+  the coalition's median.
+* The coalition must have ≥ 2 members AND strictly out-number every
+  rival window (a tie is genuine ambiguity ⇒ y-bake +
+  `bridge_seat_fallback`, finding carries all member deltas).
+* A seated family's finding becomes informational: coalition members
+  and outliers, each with its delta and its end-line sample census —
+  the outliers are the evidence trail for the canal-floor residual.
+* Everything else stands: rigid seat over ALL members, B2 water
+  discard, Amendment-1 walk, Amendment-3 member end lines.
+* Twins: the OTHH-shaped fixture (a tight ≥4-member coalition plus
+  scattered outliers ⇒ seats at the coalition median, outliers named);
+  a two-cluster tie ⇒ fallback; all-singleton ⇒ fallback. Class A
+  untouched.
+* Expected OTHH class B: coalition = Bridge_06's members at ~+0.95;
+  one rigid delta; deck tops at the 3.962 bank; supports below the
+  water line. Replay quotes the coalition, outliers, family delta and
+  per-member world y ranges. NEW ruled target; attempt cap resets.
+  If THIS instrument still cannot seat OTHH class B, the fallback
+  stands and the residual goes to the owner — no further iteration in
+  this round.

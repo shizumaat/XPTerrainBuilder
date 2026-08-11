@@ -879,7 +879,10 @@ class TestOneSeatForAConnectedAssembly:
         record = result["bridge_abutment_seat"][0]
         assert record["member_delta_spread_m"] == pytest.approx(1.0, abs=1e-4)
         assert record["baked"] is False
-        assert "not one connected assembly" in record["decision"]
+        # AMENDMENT 4: two members 1.0 m apart form no coalition — every
+        # member is its own island, so nothing is corroborated.
+        assert "do not agree about the seat" in record["decision"]
+        assert "no measurement is corroborated" in record["decision"]
         assert record["seat_fallback"] is True
         # The evidence rides the record AND the finding.
         assert len(record["deck_member_measurements"]) == 2
@@ -973,6 +976,192 @@ class TestOneSeatForAConnectedAssembly:
         ends = result["bridge_abutment_seat"][0]["abutment_ends"]
         assert len(ends) == 4          # two members, two ends each
         assert {end["member"] for end in ends} == set(resources)
+
+
+# ── 3c. the agreeing coalition (amendment 4) ─────────────────────────
+
+
+class TestTheAgreeingCoalitionSeatsTheAssembly:
+    """AMENDMENT 4.  Agreement is the signature of a real measurement;
+    scatter is the signature of an artifact.  The largest group of member
+    deltas inside one 0.25 m window AUTHORS the family's level; the rest
+    are named as outliers with their end-line sample censuses, which is
+    the standing evidence trail for the canal-floor residual B2 cannot
+    see.
+
+    Every member here reads the same LAND grade, so a member's delta is
+    set purely by its own crest (``delta = grade − crest − mesh(anchor)``
+    with the anchor over water at 0.00 m).  That is what lets a fixture
+    place deltas exactly where the OTHH measurement put them."""
+
+    def _members(self, deltas):
+        """One deck member per delta, each its own deck across the same
+        canal, all reading the same land grade."""
+        resources = [
+            f"Objects/Bridges/member_{index:02d}.obj"
+            for index in range(len(deltas))
+        ]
+        # The row is CENTRED on the anchor so every member's end lines
+        # stay inside the fixture mesh: a member off the mesh is silent,
+        # which would quietly change the member count under test.
+        spacing = 55.0
+        offset = (len(deltas) - 1) / 2.0
+        records = [
+            _member_record(
+                resource,
+                # delta = grade - crest - mesh(anchor); mesh(anchor) = 0.
+                LAND_ELEVATION_M - delta,
+                centre_z_m=(index - offset) * spacing,
+            )
+            for index, (resource, delta) in enumerate(zip(resources, deltas))
+        ]
+        return resources, records
+
+    def _seat(self, tmp_path, monkeypatch, harness, deltas):
+        resources, records = self._members(deltas)
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, resources)
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate(resources, records[0]["deck_top_y_m"],
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+                        deck_member_records=records)])
+        return result, pack_root, resources
+
+    #: The OTHH class-B shape, amendment 3's measurement: four clean
+    #: members agreeing inside 0.05 m, and scattered artifacts.
+    OTHH_SHAPED = [0.946, 0.957, 0.959, 0.996,
+                   1.349, -0.247, -0.780, -2.835]
+
+    def test_the_othh_shaped_family_seats_at_the_coalition_median(
+        self, tmp_path, monkeypatch, harness
+    ):
+        result, pack_root, resources = self._seat(
+            tmp_path, monkeypatch, harness, self.OTHH_SHAPED)
+        record = result["bridge_abutment_seat"][0]
+
+        # The four that agree author the level; the scatter does not vote.
+        assert len(record["coalition_members"]) == 4
+        assert record["coalition_spread_m"] == pytest.approx(0.05, abs=1e-3)
+        assert record["seat_delta_m"] == pytest.approx(
+            statistics.median([0.946, 0.957, 0.959, 0.996]), abs=1e-3)
+        # ...and the whole 4.18 m spread never reaches the delta.
+        assert record["member_delta_spread_m"] > 4.0
+        assert len(record["outlier_members"]) == 4
+        assert record["baked"] is True
+
+        # ONE rigid delta over EVERY member.
+        deltas = record["seat_delta_by_resource_m"]
+        assert sorted(deltas) == sorted(resources)
+        assert len(set(round(value, 9) for value in deltas.values())) == 1
+
+    def test_a_seated_family_names_its_outliers_with_their_census(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """The finding is INFORMATIONAL — the seat happened — but the
+        outliers travel with their deltas and their end-line sample
+        censuses, which is the evidence trail for the residual."""
+        result, _pack_root, _resources = self._seat(
+            tmp_path, monkeypatch, harness, self.OTHH_SHAPED)
+
+        findings = [
+            finding for finding in result["bridge_findings"]
+            if finding["finding"] == assembly.BRIDGE_SEAT_COALITION_FINDING
+        ]
+        assert len(findings) == 1
+        finding = findings[0]
+        assert len(finding["coalition"]) == 4
+        assert len(finding["outliers"]) == 4
+        for entry in finding["coalition"] + finding["outliers"]:
+            assert "delta_m" in entry
+            assert "land_sample_count" in entry
+            assert "samples_over_water" in entry
+            assert "walked_m" in entry
+        # A seated family is NOT a fallback.
+        assert not [
+            finding for finding in result["bridge_findings"]
+            if finding["finding"] == assembly.BRIDGE_SEAT_FALLBACK_FINDING
+        ]
+        # ...and it is counted as its own thing, outliers included.
+        from auto_patch import post_mesh
+
+        counts = {key: 0 for key in post_mesh._COUNT_KEYS}
+        post_mesh._report_bridge_findings(
+            "TEST", result["bridge_findings"], counts)
+        assert counts["bridge_seat_coalitions"] == 1
+        assert counts["bridge_seat_coalition_outliers"] == 4
+        assert counts["bridge_seat_fallbacks"] == 0
+
+    def test_two_rival_clusters_tie_and_the_family_falls_back(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Two equally supported stories about the assembly's own level
+        is genuine ambiguity — no median splits it."""
+        result, pack_root, _resources = self._seat(
+            tmp_path, monkeypatch, harness, [0.0, 0.10, 2.0, 2.10])
+        record = result["bridge_abutment_seat"][0]
+
+        assert record["baked"] is False
+        assert "rival groups" in record["decision"]
+        assert "coalition_members" not in record
+        assert record["seat_fallback"] is True
+        assert len(record["deck_member_measurements"]) == 4
+        assert [f["finding"] for f in result["bridge_findings"]] == [
+            assembly.BRIDGE_SEAT_FALLBACK_FINDING]
+        assert not (result.get("bridge_seat_claimed_resources") or set())
+
+    def test_an_all_singleton_family_falls_back(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Nothing corroborates anything: every member is its own island."""
+        result, _pack_root, _resources = self._seat(
+            tmp_path, monkeypatch, harness, [0.0, 1.0, 2.0, 3.0])
+        record = result["bridge_abutment_seat"][0]
+
+        assert record["baked"] is False
+        assert "no measurement is corroborated" in record["decision"]
+        assert record["seat_fallback"] is True
+
+    def test_a_smear_is_not_a_coalition(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Windows are compared by their member SETS, so a smoothly
+        smeared row has two overlapping largest windows and ties: a smear
+        is not agreement, however many members it holds."""
+        result, _pack_root, _resources = self._seat(
+            tmp_path, monkeypatch, harness, [0.0, 0.12, 0.24, 0.36])
+        record = result["bridge_abutment_seat"][0]
+        assert record["baked"] is False
+        assert "rival groups" in record["decision"]
+
+    def test_the_coalition_is_pure_arithmetic_over_the_deltas(self):
+        """The finder itself, away from any mesh: it returns the largest
+        agreeing group, the outliers in delta order, and a reason only
+        when no group may seat."""
+        from auto_patch import post_mesh
+
+        def _entries(deltas):
+            return [{"member": f"m{index}", "delta_m": delta}
+                    for index, delta in enumerate(deltas)]
+
+        coalition, outliers, refusal = post_mesh.agreeing_coalition(
+            _entries(self.OTHH_SHAPED), 0.25)
+        assert refusal is None
+        assert [entry["delta_m"] for entry in coalition] == [
+            0.946, 0.957, 0.959, 0.996]
+        assert [entry["delta_m"] for entry in outliers] == [
+            -2.835, -0.780, -0.247, 1.349]
+
+        # A lone member cannot corroborate itself.
+        _coalition, _outliers, refusal = post_mesh.agreeing_coalition(
+            _entries([1.0]), 0.25)
+        assert refusal and "nothing corroborates" in refusal
+
+        # The window is inclusive at exactly the tolerance.
+        coalition, _outliers, refusal = post_mesh.agreeing_coalition(
+            _entries([0.0, 0.25, 9.0]), 0.25)
+        assert refusal is None
+        assert len(coalition) == 2
 
 
 # ── 4. the frame-split finding (R12-3) ───────────────────────────────

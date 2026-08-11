@@ -1890,6 +1890,12 @@ SEAT_SOURCE_REFUSED_VIADUCT = "refused_viaduct"
 #: frames, two verdicts, one pack.  Both are RECORDED; neither changes
 #: which verdict is used.
 BRIDGE_SEAT_FALLBACK_FINDING = "bridge_seat_fallback"
+#: ``bridge_seat_coalition`` (amendment 4): a family that DID seat, and
+#: which of its deck members authored the level.  Informational, not a
+#: defect — but counted, because its OUTLIERS are the standing evidence
+#: trail for the canal-floor residual B2 cannot see (a member whose end
+#: lines cross unattributed water reads low and lands here).
+BRIDGE_SEAT_COALITION_FINDING = "bridge_seat_coalition"
 BRIDGE_VERDICT_FRAME_SPLIT_FINDING = "bridge_verdict_frame_split"
 
 

@@ -195,6 +195,12 @@ _COUNT_KEYS = (
     # Both are recorded and counted; neither changes a seat or a verdict.
     "bridge_seat_fallbacks",
     "bridge_verdict_frame_splits",
+    # Amendment 4: families seated by an agreeing coalition, and the
+    # deck members that did NOT agree with it.  Informational — the
+    # seat happened — but counted, because the outliers are the evidence
+    # trail for the canal-floor residual.
+    "bridge_seat_coalitions",
+    "bridge_seat_coalition_outliers",
 )
 
 
@@ -1259,14 +1265,83 @@ def _abutment_grade_sample_points(candidate) -> list:
 _ABUTMENT_LAND_WALK_MAX_M = 60.0
 _ABUTMENT_LAND_MIN_SAMPLES = 4
 
+def agreeing_coalition(member_measurements, window_metres):
+    """THE AGREEING COALITION (round-12 amendment 4).
+
+    Returns ``(coalition, outliers, refusal_reason)``.  ``coalition`` is
+    the LARGEST subset of member measurements whose deltas fit inside one
+    ``window_metres`` window; ``outliers`` is everything else, in delta
+    order.  ``refusal_reason`` is a string when no coalition may seat and
+    ``None`` when one may.
+
+    WHY A COALITION AND NOT A MEDIAN.  Measured at OTHH (amendment 3):
+    the members whose deck-face ends land cleanly on the bank read the
+    same grade to the millimetre and their deltas agree within 0.05 m,
+    while the members whose end lines still cross the canal — picking up
+    0.00 m samples on triangles the mesh does not attribute as water,
+    B2's known residual — scatter with no two within 0.25 m of each
+    other.  AGREEMENT IS THE SIGNATURE OF A REAL MEASUREMENT and scatter
+    the signature of an artifact, so the seat is authored by the members
+    that agree, not by a median that lets the artifacts vote.
+
+    Two ways to have no coalition, both genuine ambiguity rather than a
+    number to lean on:
+
+    * fewer than two members agree anywhere (every member is its own
+      island — nothing has been corroborated);
+    * two or more DIFFERENT largest windows tie (the assembly has two
+      equally-supported stories about its own level).
+
+    Windows are compared by their member SETS, so the two overlapping
+    windows of a smoothly-smeared row do count as rivals: a smear is not
+    a coalition."""
+    if len(member_measurements) < 2:
+        return [], list(member_measurements), (
+            f"only {len(member_measurements)} deck member(s) could be "
+            "measured, so nothing corroborates a seat level")
+
+    ordered = sorted(member_measurements, key=lambda e: e["delta_m"])
+    windows: dict = {}
+    for start in range(len(ordered)):
+        limit = ordered[start]["delta_m"] + window_metres
+        members = tuple(
+            index
+            for index in range(start, len(ordered))
+            if ordered[index]["delta_m"] <= limit
+        )
+        windows[frozenset(members)] = len(members)
+
+    largest = max(windows.values())
+    winners = [
+        member_set for member_set, size in windows.items()
+        if size == largest
+    ]
+    if largest < 2:
+        return [], ordered, (
+            f"no two of the {len(ordered)} member deltas lie within "
+            f"{window_metres:.2f} m of each other, so no measurement is "
+            "corroborated")
+    if len(winners) > 1:
+        return [], ordered, (
+            f"{len(winners)} rival groups of {largest} member(s) each "
+            f"agree within {window_metres:.2f} m — the assembly has two "
+            "equally supported stories about its own level")
+
+    chosen = winners[0]
+    coalition = [ordered[index] for index in sorted(chosen)]
+    outliers = [
+        entry for index, entry in enumerate(ordered) if index not in chosen
+    ]
+    return coalition, outliers, None
+
+
 #: ONE AUTHORED ASSEMBLY MUST AGREE WITH ITSELF (round-12 amendment 3).
 #: Each deck member of a refused viaduct implies its own seat delta; a
-#: spread wider than this says they are not one system, and the family
-#: keeps its y-bake with the member deltas on the finding rather than
-#: taking a median that buries half of it.  0.25 m is the ruled
-#: tolerance — under a step a viewer can see on a bridge deck, well over
-#: the mesh-sampling noise between two ends of one structure.
-_MEMBER_DELTA_SPREAD_MAX_M = 0.25
+#: window inside which member deltas COUNT AS AGREEING (amendment 4's
+#: coalition).  0.25 m is the ruled tolerance — under a step a viewer can
+#: see on a bridge deck, well over the mesh-sampling noise between two
+#: ends of one structure (OTHH's clean coalition agrees within 0.05 m).
+_MEMBER_DELTA_AGREEMENT_WINDOW_M = 0.25
 
 
 def _abutment_grade_samples_on_land(candidate, sampler, lines=None) -> tuple:
@@ -1395,6 +1470,43 @@ def _mint_seat_fallback(record, result, member_resources, seat_source) -> None:
         "reason": record.get("decision", ""),
     })
     record["seat_fallback"] = True
+
+
+def _mint_seat_coalition_finding(
+    record, result, member_resources, coalition, outliers
+) -> None:
+    """The INFORMATIONAL finding for a family that seated (amendment 4):
+    who authored the level, and who did not agree with it.
+
+    An outlier is not a defect on its own — it is the standing evidence
+    trail for the canal-floor residual amendment 2's B2 cannot see, which
+    is why its delta AND its end-line sample census travel with it."""
+    from .object_terrain_assembly import BRIDGE_SEAT_COALITION_FINDING
+
+    def _census(entry):
+        return {
+            "member": entry["member"],
+            "delta_m": float(entry["delta_m"]),
+            "grade_m": float(entry["grade_m"]),
+            "crest_effective_m": float(entry["crest_effective_m"]),
+            "land_sample_count": int(entry["land_sample_count"]),
+            "samples_over_water": int(entry.get("samples_over_water", 0)),
+            "walked_m": float(entry.get("walked_m", 0.0)),
+        }
+
+    result.setdefault("bridge_findings", []).append({
+        "finding": BRIDGE_SEAT_COALITION_FINDING,
+        "resources": sorted(member_resources),
+        "seat_delta_m": float(record["seat_delta_m"]),
+        "coalition": [_census(entry) for entry in coalition],
+        "outliers": [_census(entry) for entry in outliers],
+        "reason": (
+            f"seated by {len(coalition)} agreeing deck member(s) "
+            f"(spread {record['coalition_spread_m']:.3f} m); "
+            f"{len(outliers)} member(s) did not agree and are recorded "
+            "with their end-line sample census"
+        ),
+    })
 
 
 #: Elevation materiality floor for the bridge seat's self-checks
@@ -1659,7 +1771,17 @@ def _bake_bridge_abutment_seats(
                 "crest_effective_m": member_crest,
                 # B1's frame, per member: its own ends, its own crest.
                 "delta_m": member_grade - member_crest - anchor_ground,
+                # THE END-LINE SAMPLE CENSUS (amendment 4).  An outlier's
+                # census is the evidence trail: a member whose land
+                # samples sit on canal-floor triangles the mesh does not
+                # attribute as water reads low, and the census is what
+                # shows it without this code ever reading elevation as
+                # water (B2 forbids that).
                 "land_sample_count": len(samples),
+                "samples_over_water": sum(
+                    end["samples_over_water"] for end in end_records),
+                "walked_m": max(
+                    [end["walked_m"] for end in end_records] or [0.0]),
             })
         record["abutment_ends"] = abutment_end_records
         record["abutment_walked_m"] = max(
@@ -1675,14 +1797,12 @@ def _bake_bridge_abutment_seats(
             _mint_seat_fallback(
                 record, result, member_resources, candidate_seat_source)
             continue
-        abutment_grade = float(
-            median([entry["grade_m"] for entry in member_measurements]))
-        record["abutment_grade_m"] = abutment_grade
         record["abutment_sample_count"] = len(abutment_samples)
-        if len(line_sets) > 1 or line_sets[0][0] is not None:
+        if line_sets[0][0] is not None:
+            # Every REFUSED-limb candidate carries its per-member
+            # evidence, seated or not: a reader must not have to
+            # reconstruct who measured what from a finding.
             record["deck_member_measurements"] = member_measurements
-        drop_metres = abutment_grade - anchor_ground
-        record["drop_m"] = drop_metres
 
 
         anchor_ground_by_resource: dict[str, float] = {}
@@ -1752,58 +1872,82 @@ def _bake_bridge_abutment_seats(
         # for every member", verbatim): a rigid body has one offset, and
         # the per-member anchor grounds — which is what tore families
         # apart — never enter the arithmetic.
-        # ONE SEAT FOR A CONNECTED ASSEMBLY (amendment 3).  Each deck
-        # member measured above implies its own delta, in that same
-        # effective frame; the family takes their MEDIAN.  A single-set
+        # ONE SEAT FOR A CONNECTED ASSEMBLY (amendment 3), authored by
+        # THE AGREEING COALITION (amendment 4).  Each deck member
+        # measured above implies its own delta in B1's effective frame;
+        # the members that AGREE — the largest group inside one
+        # agreement window — author the family's delta, and the rest are
+        # named as outliers with their sample censuses.  A single-set
         # candidate (every classified bridge) has exactly one member
-        # measurement, so this IS R6-3's arithmetic there — the
-        # classified limb does not move.
+        # measurement and skips the coalition entirely, so the R6-3 limb
+        # does not move.
         member_deltas = [entry["delta_m"] for entry in member_measurements]
-        seat_delta_metres = float(median(member_deltas))
-        # The crest the record reports is a MEASURED one — the member
-        # sitting at (or nearest) the median — never a number
-        # back-derived from the delta, which would make every check
-        # below true by construction.
+        record["member_delta_spread_m"] = float(
+            max(member_deltas) - min(member_deltas))
+        if len(member_measurements) == 1:
+            coalition = list(member_measurements)
+            outliers: list = []
+        else:
+            coalition, outliers, coalition_refusal = agreeing_coalition(
+                member_measurements, _MEMBER_DELTA_AGREEMENT_WINDOW_M)
+            if coalition_refusal is not None:
+                record["abutment_grade_m"] = float(
+                    median([entry["grade_m"]
+                            for entry in member_measurements]))
+                record["decision"] = (
+                    "not seated — the deck members do not agree about "
+                    f"the seat: {coalition_refusal} (R12-2, amendment 4)")
+                _mint_seat_fallback(
+                    record, result, member_resources,
+                    candidate_seat_source)
+                UI.vprint(
+                    1,
+                    "  [object-anchor] bridge_abutment_seat "
+                    f"{sorted(member_resources)}: " + record["decision"],
+                )
+                continue
+
+        # THE GRADE IS THE COALITION'S (amendment 4).  The family median
+        # over ALL members would report a level no member stands on —
+        # at OTHH 2.49 m, against the 3.96 m bank the seat is actually
+        # authored from — and the reseat threshold would be asked about
+        # that fiction.  Everything downstream reads the level that
+        # authored the seat.
+        abutment_grade = float(
+            median([entry["grade_m"] for entry in coalition]))
+        record["abutment_grade_m"] = abutment_grade
+        drop_metres = abutment_grade - anchor_ground
+        record["drop_m"] = drop_metres
+
+        seat_delta_metres = float(
+            median([entry["delta_m"] for entry in coalition]))
+        record["seat_delta_m"] = seat_delta_metres
+        record["coalition_members"] = [
+            entry["member"] for entry in coalition]
+        record["coalition_spread_m"] = float(
+            max(entry["delta_m"] for entry in coalition)
+            - min(entry["delta_m"] for entry in coalition))
+        record["outlier_members"] = [entry["member"] for entry in outliers]
+        # The crest the record reports is a MEASURED one — the coalition
+        # member sitting at (or nearest) its median — never a number
+        # back-derived from the delta, which would make every check below
+        # true by construction.
         median_member = min(
-            member_measurements,
+            coalition,
             key=lambda entry: abs(entry["delta_m"] - seat_delta_metres),
         )
         deck_top_y_metres = float(median_member["crest_effective_m"])
-        record["seat_delta_m"] = seat_delta_metres
-        record["member_delta_spread_m"] = float(
-            max(member_deltas) - min(member_deltas))
-        # What each member's own deck top misses ITS OWN measured grade
-        # by, once the family moves as one body.  Zero for a single-set
-        # candidate; bounded by the spread gate below otherwise.  This is
-        # the honest residual for an assembly — the family-level one below
-        # only ever checks the median member.
+        # What each COALITION member's own deck top misses its own
+        # measured grade by, once the family moves as one body.  Zero for
+        # a single-set candidate; bounded by the agreement window
+        # otherwise.  Outliers are reported, not held to this.
         record["member_deck_top_residual_m"] = float(
-            max(abs(delta - seat_delta_metres) for delta in member_deltas))
+            max(abs(entry["delta_m"] - seat_delta_metres)
+                for entry in coalition))
+        if len(member_measurements) > 1:
+            _mint_seat_coalition_finding(
+                record, result, member_resources, coalition, outliers)
 
-        # AN ASSEMBLY MUST AGREE WITH ITSELF (amendment 3).  The owner's
-        # ruling is that a connected object HAS a seat level that works
-        # for all of it.  Members that disagree by more than the
-        # tolerance are evidence the "assembly" is not one system — so
-        # the family keeps its y-bake and the finding carries the member
-        # deltas, rather than a median splitting the difference and
-        # burying half the structure.
-        if record["member_delta_spread_m"] > _MEMBER_DELTA_SPREAD_MAX_M:
-            record["decision"] = (
-                "not seated — the deck members disagree about the seat: "
-                f"{len(member_deltas)} member delta(s) spanning "
-                f"{record['member_delta_spread_m']:.3f} m, over the "
-                f"{_MEMBER_DELTA_SPREAD_MAX_M:.2f} m tolerance, so this "
-                "is not one connected assembly and no single level works "
-                "for all of it (R12-2, amendment 3)")
-            record["deck_member_measurements"] = member_measurements
-            _mint_seat_fallback(
-                record, result, member_resources, candidate_seat_source)
-            UI.vprint(
-                1,
-                "  [object-anchor] bridge_abutment_seat "
-                f"{sorted(member_resources)}: " + record["decision"],
-            )
-            continue
         # The seated deck top the law PROMISES for the median member:
         # the family grade, by construction.  ``achieved_deck_top_m`` is
         # what the deltas actually produce, asserted equal below — a
@@ -2052,7 +2196,14 @@ def _bake_bridge_abutment_seats(
                 f"{anchor_ground:.2f} m, so ONE family delta of "
                 f"{seat_delta_metres:+.3f} m over "
                 f"{len(record['objects_written'])} object file(s) "
-                f"[{candidate_seat_source}]")
+                + (
+                    f", authored by {len(record['coalition_members'])} "
+                    f"agreeing deck member(s) (spread "
+                    f"{record['coalition_spread_m']:.3f} m) against "
+                    f"{len(record['outlier_members'])} outlier(s)"
+                    if record.get("outlier_members") else ""
+                )
+                + f" [{candidate_seat_source}]")
         UI.vprint(
             1,
             "  [object-anchor] bridge_abutment_seat "
@@ -2603,12 +2754,33 @@ def _report_bridge_findings(icao: str, findings, counts: dict) -> None:
     (which frame should source the verdict; why this family has no deck)
     and neither must need a debug flag to be seen."""
     from .object_terrain_assembly import (
+        BRIDGE_SEAT_COALITION_FINDING,
         BRIDGE_SEAT_FALLBACK_FINDING,
         BRIDGE_VERDICT_FRAME_SPLIT_FINDING,
     )
 
     for finding in findings or ():
         kind = finding.get("finding")
+        if kind == BRIDGE_SEAT_COALITION_FINDING:
+            counts["bridge_seat_coalitions"] += 1
+            counts["bridge_seat_coalition_outliers"] += len(
+                finding.get("outliers", ()))
+            UI.vprint(
+                1,
+                f"  [object-anchor] {icao}: "
+                f"{BRIDGE_SEAT_COALITION_FINDING} "
+                f"{[r.split('/')[-1] for r in finding.get('coalition_names', ())] or ''}"
+                f"{finding.get('reason', '')} — seat delta "
+                f"{finding.get('seat_delta_m', 0.0):+.3f} m; outliers "
+                + ", ".join(
+                    f"{entry['member'].split('/')[-1]} "
+                    f"{entry['delta_m']:+.3f} m "
+                    f"({entry['land_sample_count']} land / "
+                    f"{entry['samples_over_water']} water sample(s))"
+                    for entry in finding.get("outliers", ())
+                ),
+            )
+            continue
         if kind == BRIDGE_SEAT_FALLBACK_FINDING:
             counts["bridge_seat_fallbacks"] += 1
             UI.vprint(

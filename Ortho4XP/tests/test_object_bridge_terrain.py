@@ -3659,7 +3659,11 @@ class TestBridgeAbutmentSeat:
             _SEAT_LAND_ELEVATION_M, abs=1e-4)
         assert record["achieved_deck_top_m"] == pytest.approx(
             record["expected_deck_top_m"], abs=0.01)
-        assert record["seat_plane_y0_m"] == pytest.approx(
+        # ``seat_plane_y0_m`` was RETIRED by amendment 2 (a single scalar
+        # for "where y=0 lands" mixes the frames B1 corrected: the AGL is
+        # a placement property).  The per-member statement replaces it —
+        # this fixture places at AGL 0, so it lands on the same number.
+        assert record["member_world_y0_m"][_SEAT_RESOURCE] == pytest.approx(
             _SEAT_LAND_ELEVATION_M - _SEAT_DECK_TOP_Y_M, abs=1e-4)
         assert record["baked"] is True
         assert result["objects_written"] == [_SEAT_RESOURCE]

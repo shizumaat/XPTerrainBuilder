@@ -1158,17 +1158,39 @@ def _bake_basin_rim_flush_facilities(
         )
 
 
-def _abutment_line_frame_points(candidate) -> list:
+def _candidate_grade_line_sets(candidate) -> list:
+    """Every SET of deck-end lines the seat may sample for a candidate,
+    as ``[(label, lines), ...]``.
+
+    A CLASSIFIED candidate has exactly one set — its certified pair, the
+    R6-3 instrument, untouched by amendment 3.  A REFUSED viaduct has one
+    set PER DECK MEMBER (amendment 3, owner ruling): the merged min-rect
+    is retired from this limb, and each member's own deck-face ends are
+    real bridge ends that touch the banks."""
+    member_records = getattr(candidate, "deck_member_records", ()) or ()
+    if member_records:
+        return [
+            (record["resource_path"],
+             record["abutment_points_longitude_latitude"])
+            for record in member_records
+        ]
+    return [(None, candidate.abutment_points_longitude_latitude)]
+
+
+def _abutment_line_frame_points(candidate, lines=None) -> list:
     """Each abutment line's two endpoints in the candidate anchor's local
     METRE frame, as ``[((start_x, start_z), (end_x, end_z)), ...]``.
 
     The frame is the candidate anchor's — the same two ``obj8_reader``
     projections every other object-terrain consumer uses, so nothing
     re-derives a frame and the sample density below is metres, not
-    degrees."""
+    degrees.  ``lines`` defaults to the candidate's own family-level
+    pair; the refused limb passes one member's pair instead."""
     origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
+    if lines is None:
+        lines = candidate.abutment_points_longitude_latitude
     out: list = []
-    for line in candidate.abutment_points_longitude_latitude:
+    for line in lines:
         if len(line) < 2:
             continue
         (start, end) = [
@@ -1203,22 +1225,27 @@ def _abutment_line_frame_samples(start, end, offset=(0.0, 0.0)) -> list:
 
 
 def _abutment_grade_sample_points(candidate) -> list:
-    """``(latitude, longitude)`` samples along BOTH abutment lines of a
-    seat candidate, every ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer —
-    the lines exactly as the classifier drew them, with no landward walk.
+    """``(latitude, longitude)`` samples along EVERY deck-end line the
+    seat may read for this candidate, every
+    ``_ABUTMENT_GRADE_SAMPLE_STEP_M`` or finer — the lines exactly as the
+    classifier drew them, with no landward walk.
 
-    THE point set the seat samples when no water is proven, and the
-    starting point of the R12-A walk when water is."""
+    Every line set (:func:`_candidate_grade_line_sets`) is included, so
+    this is also what the mesh-sampler window must cover; the walk then
+    reaches up to :data:`_ABUTMENT_LAND_WALK_MAX_M` beyond it."""
     origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
     out: list = []
-    for start, end in _abutment_line_frame_points(candidate):
-        for frame_x, frame_z in _abutment_line_frame_samples(start, end):
-            out.append(
-                obj8_reader.local_offset_to_lonlat(
-                    origin_latitude, origin_longitude, 0.0,
-                    frame_x, frame_z,
+    for _label, lines in _candidate_grade_line_sets(candidate):
+        for start, end in _abutment_line_frame_points(candidate, lines):
+            for frame_x, frame_z in _abutment_line_frame_samples(
+                start, end
+            ):
+                out.append(
+                    obj8_reader.local_offset_to_lonlat(
+                        origin_latitude, origin_longitude, 0.0,
+                        frame_x, frame_z,
+                    )
                 )
-            )
     return out
 
 
@@ -1232,8 +1259,17 @@ def _abutment_grade_sample_points(candidate) -> list:
 _ABUTMENT_LAND_WALK_MAX_M = 60.0
 _ABUTMENT_LAND_MIN_SAMPLES = 4
 
+#: ONE AUTHORED ASSEMBLY MUST AGREE WITH ITSELF (round-12 amendment 3).
+#: Each deck member of a refused viaduct implies its own seat delta; a
+#: spread wider than this says they are not one system, and the family
+#: keeps its y-bake with the member deltas on the finding rather than
+#: taking a median that buries half of it.  0.25 m is the ruled
+#: tolerance — under a step a viewer can see on a bridge deck, well over
+#: the mesh-sampling noise between two ends of one structure.
+_MEMBER_DELTA_SPREAD_MAX_M = 0.25
 
-def _abutment_grade_samples_on_land(candidate, sampler) -> tuple:
+
+def _abutment_grade_samples_on_land(candidate, sampler, lines=None) -> tuple:
     """The abutment-grade samples that stand on LAND, per deck end, with
     the landward walk the round-12 amendment rules.
 
@@ -1262,7 +1298,7 @@ def _abutment_grade_samples_on_land(candidate, sampler) -> tuple:
     from .object_terrain_assembly import _ABUTMENT_GRADE_SAMPLE_STEP_M
 
     origin_longitude, origin_latitude = candidate.anchor_longitude_latitude
-    lines = _abutment_line_frame_points(candidate)
+    lines = _abutment_line_frame_points(candidate, lines)
     midpoints = [
         ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
         for start, end in lines
@@ -1562,32 +1598,8 @@ def _bake_bridge_abutment_seats(
                 candidate_seat_source)
             continue
 
-        # WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment 1, with
-        # amendment 2's B2 authority).  An abutment stands on LAND:
-        # samples whose MESH TRIANGLE carries the water bits are
-        # discarded, and a deck end that loses its line to water walks
-        # landward until it finds its shore.
-        abutment_samples, abutment_end_records = (
-            _abutment_grade_samples_on_land(candidate, sampler)
-        )
-        record["abutment_ends"] = abutment_end_records
-        record["abutment_walked_m"] = max(
-            [end["walked_m"] for end in abutment_end_records] or [0.0])
-        if not abutment_samples:
-            record["decision"] = (
-                "not seated — no abutment sample stands on land within "
-                f"{_ABUTMENT_LAND_WALK_MAX_M:.0f} m of either deck end "
-                f"({sum(end['samples_over_water'] for end in abutment_end_records)}"
-                " sample(s) on water-attributed mesh triangles), so the "
-                "abutment grade is unmeasured — water never authors a "
-                "bridge datum (never guessed)")
-            _mint_seat_fallback(
-                record, result, member_resources, candidate_seat_source)
-            continue
-        abutment_grade = float(median(abutment_samples))
-        record["abutment_grade_m"] = abutment_grade
-        record["abutment_sample_count"] = len(abutment_samples)
-
+        # The anchor's own ground first: every delta below is measured
+        # from it (amendment 2's B1 frame).
         anchor_elevation = sampler.elevation_at_or_none(
             anchor_latitude, anchor_longitude)
         if anchor_elevation is None or anchor_elevation != anchor_elevation:
@@ -1600,8 +1612,78 @@ def _bake_bridge_abutment_seats(
             continue
         anchor_ground = float(anchor_elevation)
         record["mesh_at_anchor_m"] = anchor_ground
+
+        # WATER NEVER AUTHORS A BRIDGE DATUM (round-12 amendment 1, with
+        # amendment 2's B2 authority).  An abutment stands on LAND:
+        # samples whose MESH TRIANGLE carries the water bits are
+        # discarded, and a deck end that loses its line to water walks
+        # landward until it finds its shore.
+        #
+        # ONE SEAT FOR A CONNECTED ASSEMBLY (amendment 3, owner ruling:
+        # "if it's really several bridges connected as one object, then
+        # there should be a seat level that works for all of them without
+        # splitting").  A CLASSIFIED bridge has ONE certified pair of end
+        # lines.  A REFUSED viaduct has one pair PER DECK MEMBER, and
+        # each member implies its own delta; the family's delta is their
+        # MEDIAN.  Both limbs run the same sampler, the same landward
+        # walk and the same >= 4-sample floor — only the number of line
+        # sets differs, which is why the merged min-rect could be retired
+        # without a second measurement path.
+        line_sets = _candidate_grade_line_sets(candidate)
+        crest_by_member = {
+            member_record["resource_path"]:
+                float(member_record["deck_top_y_m"])
+            for member_record in (
+                getattr(candidate, "deck_member_records", ()) or ())
+        }
+        member_measurements: list = []
+        abutment_samples: list = []
+        abutment_end_records: list = []
+        for label, member_lines in line_sets:
+            samples, end_records = _abutment_grade_samples_on_land(
+                candidate, sampler, member_lines)
+            for end_record in end_records:
+                abutment_end_records.append(
+                    dict(end_record, member=label)
+                    if label is not None else end_record
+                )
+            if not samples:
+                continue
+            abutment_samples.extend(samples)
+            member_crest = crest_by_member.get(
+                label, float(candidate.deck_top_y_m))
+            member_grade = float(median(samples))
+            member_measurements.append({
+                "member": label,
+                "grade_m": member_grade,
+                "crest_effective_m": member_crest,
+                # B1's frame, per member: its own ends, its own crest.
+                "delta_m": member_grade - member_crest - anchor_ground,
+                "land_sample_count": len(samples),
+            })
+        record["abutment_ends"] = abutment_end_records
+        record["abutment_walked_m"] = max(
+            [end["walked_m"] for end in abutment_end_records] or [0.0])
+        if not member_measurements:
+            record["decision"] = (
+                "not seated — no abutment sample stands on land within "
+                f"{_ABUTMENT_LAND_WALK_MAX_M:.0f} m of any deck end "
+                f"({sum(end['samples_over_water'] for end in abutment_end_records)}"
+                " sample(s) on water-attributed mesh triangles), so the "
+                "abutment grade is unmeasured — water never authors a "
+                "bridge datum (never guessed)")
+            _mint_seat_fallback(
+                record, result, member_resources, candidate_seat_source)
+            continue
+        abutment_grade = float(
+            median([entry["grade_m"] for entry in member_measurements]))
+        record["abutment_grade_m"] = abutment_grade
+        record["abutment_sample_count"] = len(abutment_samples)
+        if len(line_sets) > 1 or line_sets[0][0] is not None:
+            record["deck_member_measurements"] = member_measurements
         drop_metres = abutment_grade - anchor_ground
         record["drop_m"] = drop_metres
+
 
         anchor_ground_by_resource: dict[str, float] = {}
         anchor_by_resource: dict[str, tuple[float, float, float]] = {}
@@ -1670,16 +1752,65 @@ def _bake_bridge_abutment_seats(
         # for every member", verbatim): a rigid body has one offset, and
         # the per-member anchor grounds — which is what tore families
         # apart — never enter the arithmetic.
-        deck_top_y_metres = float(candidate.deck_top_y_m)
-        seat_delta_metres = (
-            abutment_grade - deck_top_y_metres - anchor_ground)
+        # ONE SEAT FOR A CONNECTED ASSEMBLY (amendment 3).  Each deck
+        # member measured above implies its own delta, in that same
+        # effective frame; the family takes their MEDIAN.  A single-set
+        # candidate (every classified bridge) has exactly one member
+        # measurement, so this IS R6-3's arithmetic there — the
+        # classified limb does not move.
+        member_deltas = [entry["delta_m"] for entry in member_measurements]
+        seat_delta_metres = float(median(member_deltas))
+        # The crest the record reports is a MEASURED one — the member
+        # sitting at (or nearest) the median — never a number
+        # back-derived from the delta, which would make every check
+        # below true by construction.
+        median_member = min(
+            member_measurements,
+            key=lambda entry: abs(entry["delta_m"] - seat_delta_metres),
+        )
+        deck_top_y_metres = float(median_member["crest_effective_m"])
         record["seat_delta_m"] = seat_delta_metres
-        # The seated deck top the law PROMISES: the abutment grade, by
-        # construction.  ``achieved_deck_top_m`` is what the deltas
-        # actually produce, asserted equal below — a record that promises
-        # one number and bakes another is how R6-3's flush-deck
-        # assumption survived unread.
-        record["expected_deck_top_m"] = abutment_grade
+        record["member_delta_spread_m"] = float(
+            max(member_deltas) - min(member_deltas))
+        # What each member's own deck top misses ITS OWN measured grade
+        # by, once the family moves as one body.  Zero for a single-set
+        # candidate; bounded by the spread gate below otherwise.  This is
+        # the honest residual for an assembly — the family-level one below
+        # only ever checks the median member.
+        record["member_deck_top_residual_m"] = float(
+            max(abs(delta - seat_delta_metres) for delta in member_deltas))
+
+        # AN ASSEMBLY MUST AGREE WITH ITSELF (amendment 3).  The owner's
+        # ruling is that a connected object HAS a seat level that works
+        # for all of it.  Members that disagree by more than the
+        # tolerance are evidence the "assembly" is not one system — so
+        # the family keeps its y-bake and the finding carries the member
+        # deltas, rather than a median splitting the difference and
+        # burying half the structure.
+        if record["member_delta_spread_m"] > _MEMBER_DELTA_SPREAD_MAX_M:
+            record["decision"] = (
+                "not seated — the deck members disagree about the seat: "
+                f"{len(member_deltas)} member delta(s) spanning "
+                f"{record['member_delta_spread_m']:.3f} m, over the "
+                f"{_MEMBER_DELTA_SPREAD_MAX_M:.2f} m tolerance, so this "
+                "is not one connected assembly and no single level works "
+                "for all of it (R12-2, amendment 3)")
+            record["deck_member_measurements"] = member_measurements
+            _mint_seat_fallback(
+                record, result, member_resources, candidate_seat_source)
+            UI.vprint(
+                1,
+                "  [object-anchor] bridge_abutment_seat "
+                f"{sorted(member_resources)}: " + record["decision"],
+            )
+            continue
+        # The seated deck top the law PROMISES for the median member:
+        # the family grade, by construction.  ``achieved_deck_top_m`` is
+        # what the deltas actually produce, asserted equal below — a
+        # record that promises one number and bakes another is how R6-3's
+        # flush-deck assumption survived unread.
+        record["expected_deck_top_m"] = (
+            anchor_ground + seat_delta_metres + deck_top_y_metres)
 
         # THE REFUSED VIADUCT TAKES THIS SAME SEAT (round-12 R12-2, as
         # amended).  Refusing a piered viaduct a terrain FEATURE was

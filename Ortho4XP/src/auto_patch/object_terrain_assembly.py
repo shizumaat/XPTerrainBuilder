@@ -478,7 +478,11 @@ def _discover_sibling_road_networks(
 # restores those fields as the class default ``None``, and the R12-2
 # seat would then read every refused viaduct as "no measurable deck"
 # and hand it back to the per-structure y-bake it exists to replace.
-_CLASSIFICATION_CACHE_VERSION = 16
+# 17: amendment 3 — ``RefusedStructure`` grew ``deck_members``
+# (per-resource deck end lines + effective crests).  A v16 pickle
+# restores it as the class default ``()``, and ``has_measurable_deck``
+# now reads THAT, so every refused viaduct would fall back.
+_CLASSIFICATION_CACHE_VERSION = 17
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -871,7 +875,13 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # carries the narrow member set and no refused family: read on a warm
 # cache it would leave OTHH_Bridge_04_LOD0_004 unseated and Bridge_02/
 # 03/06 torn — the two defects round 12 closes.
-_EXCLUSION_CACHE_VERSION = 6
+# v7 (2026-08-11, amendment 3): a refused-viaduct candidate carries
+# ``deck_member_records`` — the PER-MEMBER deck end lines and crests the
+# seat now measures from — and no longer carries the merged min-rect
+# pair at all.  A v6 entry hands the seat the mega-rect chord (175 m,
+# canal-parallel at OTHH), which is the instrument this amendment
+# retires; read warm it would silently restore it.
+_EXCLUSION_CACHE_VERSION = 7
 
 
 def _cached_post_mesh_records(
@@ -1945,6 +1955,13 @@ class BridgeAbutmentSeatCandidate:
     deck_top_y_m: float
     deck_object_resources: tuple[str, ...] = ()
     seat_source: str = SEAT_SOURCE_CLASSIFIED
+    #: AMENDMENT 3, the refused-viaduct limb's real instrument: one entry
+    #: per deck-carrying member, ``(resource_path, lines, crest)``, with
+    #: ``lines`` in the same ``(longitude, latitude)`` spelling as
+    #: ``abutment_points_longitude_latitude``.  Empty for a CLASSIFIED
+    #: candidate, whose single certified pair is the R6-3 instrument and
+    #: is untouched by this amendment.
+    deck_member_records: tuple = ()
 
     def to_json(self) -> dict:
         """Plain-JSON form for the post-mesh records cache."""
@@ -1959,6 +1976,18 @@ class BridgeAbutmentSeatCandidate:
             "deck_top_y_m": float(self.deck_top_y_m),
             "deck_object_resources": list(self.deck_object_resources),
             "seat_source": str(self.seat_source),
+            "deck_member_records": [
+                {
+                    "resource_path": record["resource_path"],
+                    "abutment_points_longitude_latitude": [
+                        [list(point) for point in line]
+                        for line in record[
+                            "abutment_points_longitude_latitude"]
+                    ],
+                    "deck_top_y_m": float(record["deck_top_y_m"]),
+                }
+                for record in self.deck_member_records
+            ],
         }
 
     @classmethod
@@ -1981,6 +2010,21 @@ class BridgeAbutmentSeatCandidate:
                 payload.get("deck_object_resources", ())),
             seat_source=str(
                 payload.get("seat_source", SEAT_SOURCE_CLASSIFIED)),
+            deck_member_records=tuple(
+                {
+                    "resource_path": record["resource_path"],
+                    "abutment_points_longitude_latitude": tuple(
+                        tuple(
+                            (float(point[0]), float(point[1]))
+                            for point in line
+                        )
+                        for line in record[
+                            "abutment_points_longitude_latitude"]
+                    ),
+                    "deck_top_y_m": float(record["deck_top_y_m"]),
+                }
+                for record in payload.get("deck_member_records", ())
+            ),
         )
 
 
@@ -2101,21 +2145,52 @@ def bridge_abutment_seat_candidates(
                 ),
             })
             continue
+        # AMENDMENT 3: the MEMBER deck faces are the instrument.  The
+        # merged component's own min-rect lines are NOT carried onto a
+        # refused candidate at all — on a mega-pool merge they are a
+        # chord across everything the merge swallowed, and carrying them
+        # "just in case" is how a retired instrument comes back.
+        member_records = tuple(
+            {
+                "resource_path": member.resource_path,
+                "abutment_points_longitude_latitude": tuple(
+                    _abutment_lines_longitude_latitude(
+                        member.abutment_lines,
+                        refusal.frame_origin_longitude_latitude,
+                    )
+                ),
+                "deck_top_y_m": float(member.deck_top_y_m),
+            }
+            for member in refusal.deck_members
+        )
+        member_records = tuple(
+            record for record in member_records
+            if len(record["abutment_points_longitude_latitude"]) >= 2
+        )
+        if not member_records:
+            findings.append({
+                "finding": BRIDGE_SEAT_FALLBACK_FINDING,
+                "resources": sorted(refusal.object_resources),
+                "reason": (
+                    "refused structure whose deck members yielded no "
+                    f"usable end lines ({refusal.reason}) — kept on the "
+                    "generic y-bake (R12-2, amendment 3)"
+                ),
+            })
+            continue
         out.append(
             BridgeAbutmentSeatCandidate(
                 object_resources=_family(refusal.object_resources),
                 anchor_longitude_latitude=tuple(
                     refusal.anchor_longitude_latitude),
-                abutment_points_longitude_latitude=tuple(
-                    _abutment_lines_longitude_latitude(
-                        refusal.abutment_lines,
-                        refusal.frame_origin_longitude_latitude,
-                    )
-                ),
+                # The FAMILY-level pair stays empty for this limb: the
+                # per-member records below are what the seat samples.
+                abutment_points_longitude_latitude=(),
                 deck_top_y_m=float(refusal.deck_top_y_m),
                 deck_object_resources=tuple(
                     sorted(refusal.deck_object_resources or ())),
                 seat_source=SEAT_SOURCE_REFUSED_VIADUCT,
+                deck_member_records=member_records,
             )
         )
     return out, findings

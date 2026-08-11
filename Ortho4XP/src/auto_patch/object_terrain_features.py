@@ -812,6 +812,14 @@ class RefusedStructure:
       them.
     * ``anchor_longitude_latitude`` — the point a DRAPED member seats on.
     * ``deck_top_y_m`` — the authored deck crest in the structure frame.
+    * ``deck_members`` — ONE :class:`RefusedDeckMember` PER RESOURCE that
+      carries deck faces (round-12 amendment 3).  This is the record the
+      seat actually measures from; the whole-component
+      ``abutment_lines`` above are the merged min-rect's, which on a
+      mega-pool merge is a chord across everything the merge swallowed
+      (measured at OTHH: 175.2 m, running ALONG the canal, so the
+      landward walk walked into it).  A member deck face's own end lines
+      are real bridge ends and touch the banks.
     """
 
     object_resources: list[str]
@@ -821,18 +829,43 @@ class RefusedStructure:
     frame_origin_longitude_latitude: tuple[float, float] | None = None
     abutment_lines: list | None = None
     deck_top_y_m: float | None = None
+    deck_members: tuple = ()
 
     @property
     def has_measurable_deck(self) -> bool:
         """True when this refusal carries a deck the R12-2 rigid seat can
-        stand on: both abutment lines and a crest."""
+        stand on: at least one member deck face with two end lines and a
+        crest, and the frame to project them out of."""
         return (
-            self.abutment_lines is not None
-            and len(self.abutment_lines) >= 2
+            bool(self.deck_members)
             and self.anchor_longitude_latitude is not None
             and self.frame_origin_longitude_latitude is not None
-            and self.deck_top_y_m is not None
         )
+
+
+@dataclass(frozen=True)
+class RefusedDeckMember:
+    """One RESOURCE's own deck face inside a refused structure (round-12
+    amendment 3).
+
+    THE OWNER'S RULING.  "If it's really several bridges connected as one
+    object, then there should be a seat level that works for all of them
+    without splitting."  The split was only ever needed for MEASUREMENT,
+    and the classifier already has the measurement: each member's deck
+    faces, with their own axis and their own crest.  So the merged
+    min-rect is retired from the seat and each member speaks for itself —
+    then the assembly has to AGREE with itself, which is a test the merge
+    could never offer.
+
+    ``abutment_lines`` are this member's own deck-end lines in the
+    structure metre frame (same frame as the parent's
+    ``frame_origin_longitude_latitude``); ``deck_top_y_m`` is its own
+    EFFECTIVE crest (AGL + authored y), the frame amendment 2's B1
+    measures the delta in."""
+
+    resource_path: str
+    abutment_lines: list
+    deck_top_y_m: float
 
 
 @dataclass(frozen=True)
@@ -2640,6 +2673,46 @@ def _classify_contract(
     return AMBIGUOUS
 
 
+def _refused_deck_members(deck_faces) -> tuple:
+    """One :class:`RefusedDeckMember` per RESOURCE contributing deck
+    faces, each with its OWN axis end lines and its OWN effective crest
+    (round-12 amendment 3).
+
+    Measured exactly as the whole-structure record is — same union, same
+    axis, same profile helpers — only per resource, so nothing here is a
+    second way of finding a deck end.  A member whose faces will not
+    close into a polygon or will not yield an axis (a sliver, a single
+    triangle) is simply absent: it contributes no grade, and the family's
+    other members still speak.  Sorted by resource path so the record,
+    the cache and the twins all agree on order."""
+    faces_by_resource: dict = {}
+    for face in deck_faces:
+        faces_by_resource.setdefault(face.resource_path, []).append(face)
+
+    members: list = []
+    for resource_path in sorted(faces_by_resource):
+        member_faces = faces_by_resource[resource_path]
+        polygon = _union_horizontal(
+            member_faces, close_m=BRIDGE_DECK_CLOSE_M, keep_all_parts=True
+        )
+        if polygon is None:
+            continue
+        member_axis = _deck_axis(polygon)
+        if member_axis is None:
+            continue
+        profile = _deck_top_profile(member_faces, member_axis)
+        if not profile:
+            continue
+        members.append(
+            RefusedDeckMember(
+                resource_path=resource_path,
+                abutment_lines=list(member_axis.abutment_lines),
+                deck_top_y_m=max(height for _along, height in profile),
+            )
+        )
+    return tuple(members)
+
+
 def _widen_refusal_to_component(
     refusal: "RefusedStructure", component
 ) -> "RefusedStructure":
@@ -2660,6 +2733,7 @@ def _widen_refusal_to_component(
             refusal.frame_origin_longitude_latitude),
         abutment_lines=refusal.abutment_lines,
         deck_top_y_m=refusal.deck_top_y_m,
+        deck_members=refusal.deck_members,
     )
 
 
@@ -2852,6 +2926,10 @@ def _classify_bridge(
             ),
             abutment_lines=list(axis.abutment_lines),
             deck_top_y_m=crest_y_m,
+            # AMENDMENT 3: what the SEAT measures from.  Per member, in
+            # the same frame — its own deck footprint, its own axis, its
+            # own crest.
+            deck_members=_refused_deck_members(deck_faces),
         )
 
     # Underside planes: candidates are near-horizontal faces under the deck

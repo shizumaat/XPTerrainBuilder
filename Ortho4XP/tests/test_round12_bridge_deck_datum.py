@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
+import statistics
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from auto_patch import object_terrain_assembly as assembly  # noqa: E402
@@ -90,7 +92,8 @@ PIER_FOOT_Y_M = -2.0
 
 
 def _write_two_level_mesh(mesh_path, *, water_half_span_m,
-                          water_bits_half_span_m=None) -> None:
+                          water_bits_half_span_m=None,
+                          water_bits_z_band_m=None) -> None:
     """A built-mesh dump: water inside a square about the anchor, land
     outside.  The sampler reads z in 100 km units.
 
@@ -120,10 +123,19 @@ def _write_two_level_mesh(mesh_path, *, water_half_span_m,
             ))
     def _water_bit(*vertex_indices):
         # Attribute 2 = the sea class; a triangle is water only when
-        # EVERY corner is inside the attributed square, so the shoreline
+        # EVERY corner is inside the attributed region, so the shoreline
         # triangle reads as land exactly as a real mesh's does.
+        #
+        # ``water_bits_z_band_m`` attributes an infinite BAND across the
+        # deck axis instead of a square — a canal, which is what lets a
+        # twin drown one member's deck ends and leave its neighbour's
+        # dry.
         for index in vertex_indices:
             east, south = coordinate_pairs[index]
+            if water_bits_z_band_m is not None:
+                if abs(south) > water_bits_z_band_m:
+                    return 0
+                continue
             if not (abs(east) <= water_bits_half_span_m
                     and abs(south) <= water_bits_half_span_m):
                 return 0
@@ -150,28 +162,50 @@ def _write_two_level_mesh(mesh_path, *, water_half_span_m,
     mesh_path.write_text("\n".join(lines) + "\n")
 
 
-def _abutment_lines():
+def _abutment_lines(*, centre_z_m=0.0, half_width_m=ABUTMENT_HALF_WIDTH_M):
+    """The two deck-END lines of one deck, at x = +-ABUTMENT_X_M.
+
+    ``centre_z_m`` slides the whole deck sideways (across its own axis),
+    which is how a twin puts a SECOND member's deck beside the first —
+    two real bridges in one connected assembly."""
     lines = []
     for sign in (-1.0, 1.0):
         points = []
-        for half in (-ABUTMENT_HALF_WIDTH_M, ABUTMENT_HALF_WIDTH_M):
+        for half in (-half_width_m, half_width_m):
             latitude, longitude = local_offset_to_lonlat(
                 ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0,
-                sign * ABUTMENT_X_M, half)
+                sign * ABUTMENT_X_M, centre_z_m + half)
             points.append((longitude, latitude))
         lines.append(tuple(points))
     return tuple(lines)
 
 
+def _member_record(resource_path, deck_top_y_m, *, centre_z_m=0.0):
+    """One ``deck_member_records`` entry: a member's own end lines and
+    its own EFFECTIVE crest (amendment 3)."""
+    return {
+        "resource_path": resource_path,
+        "abutment_points_longitude_latitude": _abutment_lines(
+            centre_z_m=centre_z_m),
+        "deck_top_y_m": deck_top_y_m,
+    }
+
+
 def _candidate(resources, deck_top_y_m, *,
-               seat_source=assembly.SEAT_SOURCE_CLASSIFIED):
+               seat_source=assembly.SEAT_SOURCE_CLASSIFIED,
+               deck_member_records=None):
+    """A seat candidate.  With ``deck_member_records`` the family-level
+    pair is EMPTY, exactly as the refused limb builds it under amendment
+    3 — the merged min-rect is not carried at all."""
     return assembly.BridgeAbutmentSeatCandidate(
         object_resources=tuple(resources),
         anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
-        abutment_points_longitude_latitude=_abutment_lines(),
+        abutment_points_longitude_latitude=(
+            () if deck_member_records else _abutment_lines()),
         deck_top_y_m=deck_top_y_m,
         deck_object_resources=(resources[0],),
         seat_source=seat_source,
+        deck_member_records=tuple(deck_member_records or ()),
     )
 
 
@@ -265,7 +299,7 @@ class _Harness:
         return dsf_path, pack_root
 
     def mesh(self, tmp_path, *, water=True, water_half_span_m=None,
-             water_bits_half_span_m=None):
+             water_bits_half_span_m=None, water_bits_z_band_m=None):
         # A fresh name per fixture: mesh_sampler memoizes its parse by
         # (path, mtime, size), and two fixtures can collide on all three.
         mesh_path = tmp_path / f"Data+36-087_{self._mesh_serial}.mesh"
@@ -274,7 +308,8 @@ class _Harness:
             water_half_span_m = WATER_HALF_SPAN_M if water else -1.0
         _write_two_level_mesh(
             mesh_path, water_half_span_m=water_half_span_m,
-            water_bits_half_span_m=water_bits_half_span_m)
+            water_bits_half_span_m=water_bits_half_span_m,
+            water_bits_z_band_m=water_bits_z_band_m)
         return mesh_path
 
     def rebake(self, dsf_path, mesh_path, pack_root, candidates, **kwargs):
@@ -758,6 +793,188 @@ class TestWaterNeverAuthorsABridgeDatum:
             value == pytest.approx(LAND_ELEVATION_M) for value in samples)
 
 
+# ── 3b. one seat for a connected assembly (amendment 3) ──────────────
+
+
+class TestOneSeatForAConnectedAssembly:
+    """AMENDMENT 3 (owner ruling): "if it's really several bridges
+    connected as one object, then there should be a seat level that works
+    for all of them without splitting."
+
+    The split was only ever needed for MEASUREMENT, and the classifier
+    already holds it — the per-member deck faces.  So the merged min-rect
+    (at OTHH a 175 m chord running ALONG the canal, into which the
+    landward walk walked) is retired from the refused limb: each member
+    speaks from its OWN deck ends, and then the assembly has to agree
+    with itself, which is a test the merge could never offer."""
+
+    #: Two decks side by side across the same canal, at slightly
+    #: different crests — one connected object, two bridges.
+    NEAR_CREST_M = 1.10
+    FAR_CREST_M = 1.19
+
+    def _family(self, crests, *, centres=(-60.0, 60.0)):
+        resources = [DECK_RESOURCE, PIER_RESOURCE][:len(crests)]
+        return resources, [
+            _member_record(resource, crest, centre_z_m=centre)
+            for resource, crest, centre in zip(resources, crests, centres)
+        ]
+
+    def test_an_agreeing_assembly_takes_one_rigid_seat(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Two deck members, crests 0.09 m apart, both ends ashore: the
+        member deltas agree, the family takes their median, and every
+        member — deck or not — moves by that one number."""
+        resources, records = self._family(
+            (self.NEAR_CREST_M, self.FAR_CREST_M))
+        members = resources + [RAIL_RESOURCE]
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, members)
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate(members, self.FAR_CREST_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+                        deck_member_records=records)])
+
+        record = result["bridge_abutment_seat"][0]
+        measurements = record["deck_member_measurements"]
+        assert [entry["member"] for entry in measurements] == resources
+        # Both members read the same LAND grade, so their deltas differ
+        # by exactly their crest difference.
+        for entry in measurements:
+            assert entry["grade_m"] == pytest.approx(
+                LAND_ELEVATION_M, abs=1e-4)
+        assert record["member_delta_spread_m"] == pytest.approx(
+            self.FAR_CREST_M - self.NEAR_CREST_M, abs=1e-4)
+        assert record["member_delta_spread_m"] <= 0.25
+
+        # ONE delta, over EVERY member including the non-deck rail.
+        deltas = record["seat_delta_by_resource_m"]
+        assert sorted(deltas) == sorted(members)
+        assert len(set(round(value, 9) for value in deltas.values())) == 1
+        assert record["seat_delta_m"] == pytest.approx(
+            statistics.median(
+                [entry["delta_m"] for entry in measurements]), abs=1e-9)
+        assert record["intra_family_tear_m"] == pytest.approx(0.0, abs=1e-9)
+        assert record["baked"] is True
+        assert sorted(result["objects_written"]) == sorted(members)
+
+    def test_a_disagreeing_assembly_falls_back_with_the_member_deltas(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """A 1.0 m spread is evidence the "assembly" is not one system.
+        No median splits that difference: the family keeps its y-bake and
+        the finding carries the member deltas."""
+        resources, records = self._family((0.19, 1.19))
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, resources)
+        authored = (pack_root / DECK_RESOURCE).read_text()
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate(resources, 1.19,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+                        deck_member_records=records)])
+
+        record = result["bridge_abutment_seat"][0]
+        assert record["member_delta_spread_m"] == pytest.approx(1.0, abs=1e-4)
+        assert record["baked"] is False
+        assert "not one connected assembly" in record["decision"]
+        assert record["seat_fallback"] is True
+        # The evidence rides the record AND the finding.
+        assert len(record["deck_member_measurements"]) == 2
+        assert [f["finding"] for f in result["bridge_findings"]] == [
+            assembly.BRIDGE_SEAT_FALLBACK_FINDING]
+        # Not routed, pack untouched: the generic y-bake still owns it.
+        assert not (result.get("bridge_seat_claimed_resources") or set())
+        assert (pack_root / DECK_RESOURCE).read_text() == authored
+
+    def test_the_seat_measures_member_ends_never_a_merged_chord(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """THE RETIRED INSTRUMENT.  A refused candidate carries NO
+        family-level pair, and the line sets the seat reads are exactly
+        the member records — so a mega-pool merge's chord cannot come
+        back in through the family field."""
+        from auto_patch import post_mesh
+
+        resources, records = self._family(
+            (self.NEAR_CREST_M, self.FAR_CREST_M))
+        candidate = _candidate(
+            resources, self.FAR_CREST_M,
+            seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+            deck_member_records=records)
+        assert candidate.abutment_points_longitude_latitude == ()
+
+        line_sets = post_mesh._candidate_grade_line_sets(candidate)
+        assert [label for label, _lines in line_sets] == resources
+        for (_label, lines), record_member in zip(line_sets, records):
+            assert lines == record_member[
+                "abutment_points_longitude_latitude"]
+
+        # ...while a CLASSIFIED candidate still has exactly its one
+        # certified pair (amendment 3 does not touch that limb).
+        classified = _candidate([DECK_RESOURCE], RAISED_DECK_TOP_Y_M)
+        classified_sets = post_mesh._candidate_grade_line_sets(classified)
+        assert len(classified_sets) == 1
+        assert classified_sets[0][0] is None
+
+    def test_a_member_whose_ends_are_all_water_is_simply_silent(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """One member drowned, one ashore: the drowned member contributes
+        no grade and the family still seats off the one that can speak —
+        an assembly is not disqualified by the member with no shore."""
+        resources, records = self._family(
+            (self.NEAR_CREST_M, self.FAR_CREST_M),
+            # Member 0's deck spans z -87.5..-32.5; member 1's -27.5..27.5.
+            centres=(-60.0, 0.0))
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, resources)
+        result = harness.rebake(
+            dsf_path,
+            # A CANAL across the axis: |z| <= 30 carries the water bits,
+            # which drowns member 1's ends at every walk offset (the walk
+            # runs along x) and leaves member 0's untouched.
+            harness.mesh(tmp_path, water_bits_z_band_m=30.0),
+            pack_root,
+            [_candidate(resources, self.FAR_CREST_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+                        deck_member_records=records)])
+
+        record = result["bridge_abutment_seat"][0]
+        # Only the member with a shore speaks...
+        assert [entry["member"] for entry in
+                record["deck_member_measurements"]] == [resources[0]]
+        # ...and the drowned member's ends are recorded as such, by name.
+        drowned = [end for end in record["abutment_ends"]
+                   if end["member"] == resources[1]]
+        assert drowned and all(
+            end["found_land"] is False for end in drowned)
+        # ...and the family still seats, rigidly, over BOTH members.
+        assert record["member_delta_spread_m"] == pytest.approx(0.0)
+        assert record["baked"] is True
+        assert sorted(result["objects_written"]) == sorted(resources)
+
+    def test_every_end_record_names_its_member(
+        self, tmp_path, monkeypatch, harness
+    ):
+        """Provenance: with several line sets, "which end walked how far"
+        is meaningless unless each end says whose it is."""
+        resources, records = self._family(
+            (self.NEAR_CREST_M, self.FAR_CREST_M))
+        dsf_path, pack_root = harness.pack(
+            tmp_path, monkeypatch, resources)
+        result = harness.rebake(
+            dsf_path, harness.mesh(tmp_path), pack_root,
+            [_candidate(resources, self.FAR_CREST_M,
+                        seat_source=assembly.SEAT_SOURCE_REFUSED_VIADUCT,
+                        deck_member_records=records)])
+        ends = result["bridge_abutment_seat"][0]["abutment_ends"]
+        assert len(ends) == 4          # two members, two ends each
+        assert {end["member"] for end in ends} == set(resources)
+
+
 # ── 4. the frame-split finding (R12-3) ───────────────────────────────
 
 
@@ -865,6 +1082,23 @@ class TestRefusalRecordsCarryTheDeck:
     measures the axis, the abutment lines and the crest BEFORE the
     viaduct guard fires; the refusal record now carries them."""
 
+    def test_a_refusal_with_merged_lines_but_no_members_is_unmeasurable(
+        self,
+    ):
+        """AMENDMENT 3 retires the merged min-rect: a refusal carrying
+        ONLY the whole-component chords has nothing the seat may use."""
+        refusal = features.RefusedStructure(
+            object_resources=[DECK_RESOURCE],
+            reason="piered viaduct",
+            deck_object_resources=[DECK_RESOURCE],
+            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            frame_origin_longitude_latitude=(
+                ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            abutment_lines=_bridge().abutment_lines,
+            deck_top_y_m=RAISED_DECK_TOP_Y_M,
+        )
+        assert refusal.has_measurable_deck is False
+
     def test_a_refusal_without_deck_data_has_no_measurable_deck(self):
         refusal = features.RefusedStructure(
             object_resources=[DECK_RESOURCE], reason="island deck")
@@ -880,6 +1114,13 @@ class TestRefusalRecordsCarryTheDeck:
                 ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
             abutment_lines=_bridge().abutment_lines,
             deck_top_y_m=RAISED_DECK_TOP_Y_M,
+            deck_members=(
+                features.RefusedDeckMember(
+                    resource_path=DECK_RESOURCE,
+                    abutment_lines=_bridge().abutment_lines,
+                    deck_top_y_m=RAISED_DECK_TOP_Y_M,
+                ),
+            ),
         )
         assert refusal.has_measurable_deck is True
 
@@ -893,6 +1134,13 @@ class TestRefusalRecordsCarryTheDeck:
                 ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
             abutment_lines=_bridge().abutment_lines,
             deck_top_y_m=RAISED_DECK_TOP_Y_M,
+            deck_members=(
+                features.RefusedDeckMember(
+                    resource_path=DECK_RESOURCE,
+                    abutment_lines=_bridge().abutment_lines,
+                    deck_top_y_m=RAISED_DECK_TOP_Y_M,
+                ),
+            ),
         )
         widened = features._widen_refusal_to_component(
             refusal, {DECK_RESOURCE, PIER_RESOURCE, RAIL_RESOURCE})
@@ -901,13 +1149,16 @@ class TestRefusalRecordsCarryTheDeck:
         assert widened.deck_object_resources == [DECK_RESOURCE]
         assert widened.deck_top_y_m == pytest.approx(RAISED_DECK_TOP_Y_M)
         assert widened.reason == refusal.reason
+        # ...and the per-member records ride along, or the seat would
+        # have nothing to measure after the widening.
+        assert widened.deck_members == refusal.deck_members
 
     def test_the_classification_cache_version_moved_for_the_new_fields(self):
         """Adding a field to a PICKLED record is a cache-version event: a
         v15 pickle restores them as ``None`` and every refused viaduct
         would read as "no measurable deck"."""
-        assert assembly._CLASSIFICATION_CACHE_VERSION >= 16
-        assert assembly._EXCLUSION_CACHE_VERSION >= 6
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 17
+        assert assembly._EXCLUSION_CACHE_VERSION >= 7
 
 
 # ── 6. the offline-replay arithmetic pins (spec section 6) ───────────

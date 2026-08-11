@@ -197,3 +197,37 @@ below the water line.
 "band is the reach of the question" fix (longest abutment line + walk
 cap, in place of R6-1's 2 km pad constant) are both APPROVED as
 landed.
+
+## AMENDMENT 3 — 2026-08-11 (owner ruling: ONE SEAT FOR A CONNECTED
+## ASSEMBLY — no split required)
+
+Owner, on class B: "if it's really several bridges connected as one
+object, then there should be a seat level that works for all of them
+without splitting." Correct — the split was only ever needed for
+MEASUREMENT, and the classifier already holds the measurement: the
+per-member DECK FACES. The mega-pool min-rect (whose 175 m
+canal-parallel chords were the failing instrument) is retired from the
+refused-viaduct limb entirely.
+
+* For a `refused_viaduct` family, the grade is sampled at the END
+  LINES of each member DECK FACE (the classifier's per-resource deck
+  records, already carried on `RefusedStructure`) — real bridge ends,
+  which touch the banks. B2's mesh-water discard and Amendment 1's
+  landward walk / cap / ≥4-sample floor apply per end line unchanged.
+* Each deck-face member with a measurable grade implies its own delta:
+  `grade_at_its_ends − its_own_crest_effective − mesh_at_anchor`. One
+  authored assembly must AGREE with itself: the family delta is the
+  MEDIAN of the member deltas, and a spread > 0.25 m is evidence the
+  "assembly" is not one system — the family keeps the y-bake +
+  `bridge_seat_fallback`, and the finding carries the member deltas.
+* The seat stays RIGID (R12-2 verbatim): one delta, every member,
+  including non-deck members (supports, parapets, spans over water).
+* Expected OTHH class B: deck-face end lines land on the 3.96 m banks
+  after water discard; member deltas agree; one rigid delta; deck tops
+  at the land grade; supports descend below the water line. Twins: an
+  agreeing two-deck-member family seats (spread < 0.25); a
+  disagreeing one (1.0 m spread) falls back with the finding; the
+  mega-rect chord instrument is gone from the path. Replay: quote the
+  member deltas, spread, family delta, per-member world y ranges.
+  Class A must not move (its R6-3 limb is untouched by this
+  amendment). NEW ruled target; attempt cap resets.

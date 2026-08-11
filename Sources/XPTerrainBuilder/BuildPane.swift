@@ -863,8 +863,9 @@ struct BuildPane: View {
 }
 
 /// Per-tile rows + the run clock, like the Qt Activity group: each row is
-/// tile key · status · progress bar · per-tile cancel; below them Elapsed /
-/// Remaining. Observes only the high-frequency activity model.
+/// tile key · status · progress bar · per-tile stop (resume, once stopped);
+/// below them Elapsed / Remaining. Observes only the high-frequency
+/// activity model.
 struct ActivityBox: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
@@ -878,16 +879,21 @@ struct ActivityBox: View {
             ForEach(activity.runOrder, id: \.self) { coord in
                 row(coord, activity.tiles[coord])
             }
-            Divider()
-            HStack {
-                Text("Total \(Self.clock(activity.elapsedSeconds))")
-                Spacer()
-                Text(activity.remainingUnreliable
-                     ? "Remaining: estimating…"
-                     : "Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
+            // The run clock belongs to a run: once one has ended and only
+            // stopped rows are left waiting for a resume, there is no
+            // elapsed to report.
+            if buildModel.isBuilding || activity.totalTiles > 0 {
+                Divider()
+                HStack {
+                    Text("Total \(Self.clock(activity.elapsedSeconds))")
+                    Spacer()
+                    Text(activity.remainingUnreliable
+                         ? "Remaining: estimating…"
+                         : "Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -910,17 +916,37 @@ struct ActivityBox: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                if buildModel.usesProtocol, buildModel.isBuilding,
-                   progress.state == .queued || progress.state == .active
-                    || progress.state == .indeterminate {
-                    Button {
-                        buildModel.cancelTile(coord)
-                    } label: {
-                        Image(systemName: "xmark.circle")
+                // Stop sign / resume. Deliberately NOT gated on isBuilding:
+                // a stopped row keeps its resume button after the run ends,
+                // so the tile never has to be found on the map again.
+                if buildModel.usesProtocol {
+                    if progress.state == .queued || progress.state == .active
+                        || progress.state == .indeterminate {
+                        Button {
+                            buildModel.cancelTile(coord)
+                        } label: {
+                            ZStack {
+                                Image(systemName: "octagon.fill")
+                                    .foregroundStyle(.red)
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 5))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .help("Stop this tile")
+                    } else if progress.state == .stopped {
+                        Button {
+                            buildModel.resumeTile(coord)
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                        .help("Resume this tile")
                     }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .help("Cancel this tile")
                 }
             }
             ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
@@ -933,6 +959,7 @@ struct ActivityBox: View {
         switch state {
         case .done: return .green
         case .error: return .red
+        case .stopped: return .orange
         default: return .secondary
         }
     }
@@ -941,6 +968,7 @@ struct ActivityBox: View {
         switch state {
         case .done: return .green
         case .error: return .red
+        case .stopped: return .orange
         default: return .accentColor
         }
     }

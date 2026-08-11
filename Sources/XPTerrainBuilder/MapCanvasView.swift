@@ -34,12 +34,14 @@ struct MapCanvasView: View {
     static let selection = Color.white
 
     // Build mode: our built tiles are green (the ZL still shows in the
-    // center label); selection is yellow; done/error badges green/red;
-    // other installed ortho packages keep their gray outline.
+    // center label); selection is yellow; done/error/stopped badges are
+    // green/red/orange; other installed ortho packages keep their gray
+    // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
     static let builtTile = Color(red: 0.30, green: 0.69, blue: 0.43)
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
+    static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
 
     var body: some View {
         GeometryReader { proxy in
@@ -460,6 +462,10 @@ struct MapCanvasView: View {
         case .error:
             context.fill(circle(radius), with: .color(Self.badgeError))
             context.draw(Text("!").font(.system(size: radius, weight: .bold))
+                            .foregroundStyle(.white), at: center)
+        case .stopped:
+            context.fill(circle(radius), with: .color(Self.badgeStopped))
+            context.draw(Text("■").font(.system(size: radius, weight: .bold))
                             .foregroundStyle(.white), at: center)
         }
         if rect.width > 90, !progress.label.isEmpty, progress.state != .done {

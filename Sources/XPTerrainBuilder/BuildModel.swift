@@ -6,14 +6,26 @@ import os
 private let buildLog = Logger(subsystem: "com.novemberlima.XPTerrainBuilder", category: "build")
 
 /// One tile's live build progress — the Qt map badge / activity row model.
-/// state mirrors the protocol's TileState vocabulary exactly.
+/// state mirrors the protocol's TileState vocabulary, plus ONE app-local
+/// member the engine never sends: `.stopped`. Stopping a tile is a local
+/// state change (the engine only notices its cancel flag at the next phase
+/// boundary — minutes on a mesh phase), so the row must say "stopped" the
+/// instant it is clicked, not when the engine gets around to agreeing.
 struct TileProgress: Equatable {
     enum State: String {
-        case queued, active, indeterminate, done, error
+        case queued, active, indeterminate, done, error, stopped
     }
     var state: State
     var label: String
     var percent: Double
+}
+
+/// The build settings a tile's run was STARTED with, snapshotted per tile so
+/// resuming a stopped tile rebuilds it as it was queued — not with whatever
+/// the pickers happen to say when the user presses resume.
+struct TileRunSettings: Equatable {
+    var provider: String
+    var zl: Int
 }
 
 /// High-frequency build activity (per-tile progress, run clock), isolated
@@ -37,6 +49,9 @@ final class BuildActivityModel: ObservableObject {
     /// Kept apart from TileProgress so the wholesale row replacement in
     /// the TileState/StepProgress handlers can never stomp a clock.
     @Published var tileClocks: [BuildModel.TileCoord: O4TileClock] = [:]
+    /// What each tile in this run was started with — the resume path's
+    /// settings source (a resume must not adopt today's pickers).
+    @Published var runSettings: [BuildModel.TileCoord: TileRunSettings] = [:]
 
     func reset() {
         tiles = [:]
@@ -46,6 +61,28 @@ final class BuildActivityModel: ObservableObject {
         doneTiles = 0
         totalTiles = 0
         tileClocks = [:]
+        runSettings = [:]
+    }
+
+    /// The post-run linger clear. Rows the user STOPPED survive it: their
+    /// resume button is the way back to the tile without hunting for it on
+    /// the map again, so the row (and the settings a resume needs) has to
+    /// outlive the run it was stopped in.
+    func resetKeepingStopped() {
+        let stopped = tiles.filter { $0.value.state == .stopped }
+        guard !stopped.isEmpty else {
+            reset()
+            return
+        }
+        let keep = Set(stopped.keys)
+        let order = runOrder.filter { keep.contains($0) }
+        let clocks = tileClocks.filter { keep.contains($0.key) }
+        let settings = runSettings.filter { keep.contains($0.key) }
+        reset()
+        tiles = stopped
+        runOrder = order
+        tileClocks = clocks
+        runSettings = settings
     }
 }
 
@@ -444,6 +481,7 @@ final class BuildModel: ObservableObject {
         legacyRunner = nil
         isBuilding = false
         isStopping = false
+        resumeQueue = []
         activity.reset()
     }
 
@@ -455,6 +493,7 @@ final class BuildModel: ObservableObject {
             console.append("=== Build stopped. ===")
             isBuilding = false
             isStopping = false
+            resumeQueue = []
             activity.reset()
             // A fresh session reconnects lazily; refresh what's on disk.
             rescan()
@@ -522,18 +561,18 @@ final class BuildModel: ObservableObject {
         case .tileState(let lat, let lon, let state, let label, let percent):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
-            activity.tiles[coord] = TileProgress(
+            applyTileEvent(TileProgress(
                 state: state,
                 label: label.isEmpty ? state.rawValue : label,
-                percent: percent)
+                percent: percent), to: coord)
         case .stepProgress(let lat, let lon, _, let label, let percent, let indeterminate):
             let coord = TileCoord(lat: lat, lon: lon)
             let previous = activity.tiles[coord]?.percent ?? 0
-            activity.tiles[coord] = TileProgress(
+            applyTileEvent(TileProgress(
                 state: indeterminate ? .indeterminate : .active,
                 label: label,
                 // Indeterminate steps report no usable percent — hold it.
-                percent: indeterminate ? previous : percent)
+                percent: indeterminate ? previous : percent), to: coord)
         case .autoPatchBegin, .autoPatchProgress:
             break // folded into StepProgress labels by the session
         case .buildDone(let lat, let lon, let ok, let error):
@@ -568,7 +607,13 @@ final class BuildModel: ObservableObject {
         case .tileClocks(let rows):
             var clocks: [TileCoord: O4TileClock] = [:]
             for row in rows {
-                clocks[TileCoord(lat: row.lat, lon: row.lon)] = row
+                let coord = TileCoord(lat: row.lat, lon: row.lon)
+                // A stopped row's clock is frozen where the stop left it —
+                // the engine keeps counting until its cancel lands, and a
+                // running clock under "stopped" is the same lie the row
+                // itself used to tell.
+                clocks[coord] = activity.tiles[coord]?.state == .stopped
+                    ? activity.tileClocks[coord] : row
             }
             activity.tileClocks = clocks
         case .runDone(let done, let errors, let cancelled):
@@ -580,12 +625,21 @@ final class BuildModel: ObservableObject {
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
             rescan()
-            // Qt lingers 5 s before hiding the activity rows.
+            // Qt lingers 5 s before hiding the activity rows (stopped rows
+            // stay — they are the user's handle on a tile to resume).
             clearProgressTask?.cancel()
             clearProgressTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled, let self, !self.isBuilding else { return }
-                self.activity.reset()
+                self.activity.resetKeepingStopped()
+            }
+            // Tiles the user resumed mid-run get their own follow-up run,
+            // client-side. A run the user STOPPED wholesale takes the queue
+            // down with it — stop is the inverse of resume, at any scale.
+            if cancelled {
+                resumeQueue = []
+            } else {
+                startResumeQueue()
             }
         case .secretRequest(let requestID, let operation, let sessionName,
                             let account, let secret):
@@ -754,7 +808,9 @@ final class BuildModel: ObservableObject {
         return Set(selected.filter { coord in
             switch activity.tiles[coord]?.state {
             case .queued, .active, .indeterminate: return true
-            case .done, .error, nil: return false
+            // A stopped row has left the run: pressing Build (or resume)
+            // may hand that tile to the engine again.
+            case .done, .error, .stopped, nil: return false
             }
         })
     }
@@ -993,6 +1049,11 @@ final class BuildModel: ObservableObject {
             activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
             activity.runOrder.append(coord)
         }
+        // The settings this tile is being STARTED with — what a later
+        // resume of it must use.
+        for coord in todo {
+            activity.runSettings[coord] = TileRunSettings(provider: provider, zl: zl)
+        }
         console.append("=== Building \(todo.count) tile\(todo.count == 1 ? "" : "s"): \(todo.prefix(8).map { $0.key }.joined(separator: " "))\(todo.count > 8 ? " …" : "") ===")
         client.send(command: "enqueue_build", arguments: [
             "tiles": todo.map { [$0.lat, $0.lon] },
@@ -1065,14 +1126,120 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// Per-tile cancel (the little ✕ on an activity row).
+    // MARK: - Per-tile stop / resume (the activity row's stop sign)
+
+    /// Tiles the user resumed while a run was still going, in press order:
+    /// they start as one follow-up run when the current one ends. Purely
+    /// client-side and session-local — the engine knows nothing about it.
+    @Published private(set) var resumeQueue: [TileCoord] = []
+
+    /// Per-tile stop (the red stop sign on an activity row). The engine
+    /// only honours its cancel flag at the next phase boundary — minutes
+    /// away on a mesh phase — so the ROW stops here and now, at the click,
+    /// with its percent frozen where it stood. The engine's eventual
+    /// agreement changes nothing visible.
     func cancelTile(_ coord: TileCoord) {
         guard usesProtocol else { return }
         client?.send(command: "cancel_tile", arguments: ["lat": coord.lat, "lon": coord.lon])
-        if var progress = activity.tiles[coord] {
-            progress.label = "stopping…"
-            activity.tiles[coord] = progress
+        // Stop is the inverse of resume: stopping a "resumes after current
+        // run" row takes it back out of the queue.
+        resumeQueue.removeAll { $0 == coord }
+        let percent = activity.tiles[coord]?.percent ?? 0
+        activity.tiles[coord] = TileProgress(state: .stopped, label: "stopped", percent: percent)
+        if let clock = activity.tileClocks[coord] {
+            activity.tileClocks[coord] = O4TileClock(
+                lat: clock.lat, lon: clock.lon, elapsedSeconds: clock.elapsedSeconds,
+                remainingSeconds: nil, finished: true)
         }
+    }
+
+    /// Resume a stopped tile with the settings ITS run was started with.
+    /// Engine idle: a single-tile run, now. Engine busy: queued behind the
+    /// current run (no protocol change — the queue is ours).
+    func resumeTile(_ coord: TileCoord) {
+        guard usesProtocol else { return }
+        let settings = activity.runSettings[coord]
+            ?? TileRunSettings(provider: buildProvider, zl: buildZL)
+        guard !isBuilding else {
+            resumeQueue = Self.enqueuingResume(coord, into: resumeQueue)
+            activity.tiles[coord] = TileProgress(
+                state: .queued, label: "resumes after current run", percent: 0)
+            activity.tileClocks[coord] = nil
+            return
+        }
+        resumeQueue.removeAll { $0 == coord }
+        startResumeRun([(tiles: [coord], settings: settings)])
+    }
+
+    /// The queued resumes, as one follow-up run when the current one ends.
+    private func startResumeQueue() {
+        let todo = resumeQueue
+        guard !todo.isEmpty, usesProtocol else { return }
+        resumeQueue = []
+        // Each tile carries its own run's settings; group so one batch per
+        // (source, ZL) pair goes over as one enqueue_build.
+        var batches: [(tiles: [TileCoord], settings: TileRunSettings)] = []
+        for coord in todo {
+            let settings = activity.runSettings[coord]
+                ?? TileRunSettings(provider: buildProvider, zl: buildZL)
+            if let index = batches.firstIndex(where: { $0.settings == settings }) {
+                batches[index].tiles.append(coord)
+            } else {
+                batches.append((tiles: [coord], settings: settings))
+            }
+        }
+        startResumeRun(batches)
+    }
+
+    /// The Build button's own machinery (`startProtocolBuild`) without its
+    /// selection guard: a resumed tile need not still be selected on the
+    /// map — not having to re-find it is the whole point.
+    private func startResumeRun(_ batches: [(tiles: [TileCoord], settings: TileRunSettings)]) {
+        guard engine != nil else { return }
+        lastRunSummary = nil
+        // A resumed tile starts over: drop its old row and clock so the run
+        // re-creates both at zero (and keeps one row per tile).
+        for coord in batches.flatMap(\.tiles) {
+            activity.tiles[coord] = nil
+            activity.runOrder.removeAll { $0 == coord }
+            activity.tileClocks[coord] = nil
+        }
+        for batch in batches where !batch.tiles.isEmpty {
+            startProtocolBuild(batch.tiles, provider: batch.settings.provider,
+                               zl: batch.settings.zl)
+        }
+    }
+
+    // MARK: Stop/resume rules (pure — no engine, no view)
+
+    /// May an incoming engine state overwrite a row the user has STOPPED?
+    /// Only a terminal outcome: a tile that finished before its cancel took
+    /// effect is genuinely built, and "stopped" over a built tile would be
+    /// a lie; a failure is likewise real. Everything else is stale news
+    /// from a run the row has already left.
+    static func mayOverwriteStopped(_ incoming: TileProgress.State) -> Bool {
+        switch incoming {
+        case .done, .error: return true
+        case .queued, .active, .indeterminate, .stopped: return false
+        }
+    }
+
+    /// The row an engine event should leave behind, given what the row
+    /// already shows. nil = the event is stale, drop it.
+    static func resolving(_ incoming: TileProgress,
+                          over current: TileProgress?) -> TileProgress? {
+        if current?.state == .stopped, !mayOverwriteStopped(incoming.state) { return nil }
+        return incoming
+    }
+
+    /// Ordered, deduped resume queue append.
+    static func enqueuingResume(_ coord: TileCoord, into queue: [TileCoord]) -> [TileCoord] {
+        queue.contains(coord) ? queue : queue + [coord]
+    }
+
+    private func applyTileEvent(_ incoming: TileProgress, to coord: TileCoord) {
+        guard let next = Self.resolving(incoming, over: activity.tiles[coord]) else { return }
+        activity.tiles[coord] = next
     }
 
     // MARK: - Install links (Installed in X-Plane)

@@ -1,31 +1,41 @@
 """Round 10 — tunnel emission: evidence before depth, walls never cover ramps.
 
 Spec: ``docs/specs/round10-tunnel-emission-spec.md`` including its
-2026-08-11 AMENDMENT (A1-A5), which supersedes three lines of the frozen
-text after the implementer measured them against the code:
+2026-08-11 AMENDMENTS (A1-A7), which supersede several lines of the
+frozen text after the implementer measured them against the code:
 
-R10-1/A1  NO PHYSICAL EVIDENCE, NO DEPTH.  Per portal, below-grade
-          geometry is emitted iff ``cut_detected`` OR (``layer < 0`` AND
-          the DEM probe is UNUSABLE — its own failure condition,
-          ``_median_depth is None or len(_trench_depths) < 2``).  The DEM
-          outranks the tag: ``layer=-1`` is a relative stacking
-          statement, so KCLT area 1's four flat-probed service ways emit
-          nothing.  ``tunnel=building_passage`` never seeds SYNTHETIC
-          depth.  Every refusal mints a ``tunnel_passthrough_findings``
-          record carrying the layer value and the building-cover
-          fraction (evidence, never an admission input).
-R10-2/A4  A wall/roof/cap NEVER covers ``tunnel_ramp``/``tunnel_mouth``,
-          and ALL surviving pieces >= 0.5 m2 are kept — the
-          largest-piece rule was a silent deletion of the other arcs.
-          ``tunnel_unwalled_mouth`` is the reported backstop.
-R10-3/A3  Facing portals across an open gap are DISTINCT entrances:
-          dedup keys on PORTAL IDENTITY (``portal_cluster_dist_m``),
-          never walk overlap, and the shared roadway between them is
-          halved at the facing midpoint.  Mouth depth is floored by
-          ``BRIDGE_ROAD_CLEARANCE_M`` below the measured deck.
+R10-1/A1/A6  NO PHYSICAL EVIDENCE, NO DEPTH — and THE COVER IS THE DECK.
+          Per mapped way, below-grade geometry is emitted iff the DEM
+          probe MEASURED a cut, OR (``layer < 0`` AND the probe could not
+          measure at all), OR (tag evidence AND the way is NOT mostly
+          under a building AND it IS meaningfully under airside
+          pavement).  A1's first two disjuncts alone refused KCLT area
+          1's four building-passthroughs (right) and all 8 of OTHH's
+          mapped bores (wrong): a bare-earth DEM carries no cut under a
+          man-made bore, so WHAT COVERS THE BORE is the discriminator —
+          a building is a deck the road passes under at grade, an apron
+          is a deck the road passes under in a bore.
+          ``tunnel=building_passage`` never seeds SYNTHETIC depth.  Every
+          refusal mints a ``tunnel_passthrough_findings`` record carrying
+          both cover fractions, the layer value and the deciding reason.
+R10-2/A4/A7(c)  A wall/roof/cap NEVER covers tunnel pavement, and ALL
+          surviving pieces >= 0.5 m2 are kept — the largest-piece rule
+          was a silent deletion of the other arcs.
+          ``tunnel_unwalled_mouth`` is the reported backstop, EXEMPTING
+          light-touch clusters (cap + roof, no side walls, by owner
+          ruling 2026-07-17).
+R10-3/A3/A5/A7(b)  Facing portals across an open gap are DISTINCT
+          entrances: dedup keys on PORTAL IDENTITY, never walk overlap.
+          A same-road facing pair is ONE lowered stretch — the gap emits
+          a single roofless walled corridor at the pair's JOINT depth,
+          and neither portal ramps to grade inside it.  Mouth depth is
+          floored by ``BRIDGE_ROAD_CLEARANCE_M`` below the measured deck.
 A2 struck the stationing bullet: mouths already anchor at mapped end
 nodes, so there is no stationing test here — the 10 m acceptance is
 carried by the dedup law and pinned by ``TestFacingBoresBothEmit``.
+A7(a) ratified the ``_cut_measured`` / ``cut_detected`` evidence-vs-mode
+split, pinned by ``tests/test_tunnel_dem_cut_portals.py``'s gate-off test
+passing unmodified.
 
 All fixtures are synthetic and headless (local-metre geometry built in
 code, monkeypatched road loader + DEM sampler; no network, no X-Plane
@@ -136,17 +146,40 @@ def _boundary_ribbon() -> BuiltShape:
                       node_altitudes=[AIRPORT_SURFACE_M] * (len(ring) + 1))
 
 
-def _layout(with_building: bool = False) -> PavementLayout:
+def _building_covered_network() -> tuple[dict, list, set, dict]:
+    """KCLT area 1's shape: the bore runs under a BUILDING, well clear of
+    any pavement — the cover that says "at grade"."""
+    _to_m, m_to_ll = bridges._local_meter_projections(ANCHOR)
+    nodes_m = {
+        "A": (-60.0, 300.0), "M": (0.0, 300.0), "B": (60.0, 300.0),
+        "W1": (-160.0, 300.0), "W2": (-360.0, 300.0),
+        "E1": (160.0, 300.0), "E2": (360.0, 300.0),
+    }
+    nodes_r = {nid: m_to_ll(x, y) for nid, (x, y) in nodes_m.items()}
+    ways_r = [
+        ("TUN", ["A", "M", "B"],
+         {"highway": "service", "tunnel": "yes", "layer": "-1"}),
+        ("APPW", ["A", "W1", "W2"], {"highway": "service"}),
+        ("APPE", ["B", "E1", "E2"], {"highway": "service"}),
+    ]
+    return nodes_r, ways_r, {"TUN"}, {}
+
+
+def _layout(with_building: bool = False, with_taxiway: bool = True,
+            building_box=None) -> PavementLayout:
     layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
-    layout.shapes.append(BuiltShape(
-        polygon=box(-40.0, -200.0, 40.0, 200.0),
-        role=ROLE_JUNCTION, ref="taxiway"))
-    layout.shapes.append(_boundary_ribbon())
-    if with_building:
-        # A footprint covering the WHOLE bore — KCLT area 1's 100 %
-        # cover fraction, the evidence field of the refusal record.
+    if with_taxiway:
+        # The pavement over the bore — A6's "the pavement is the deck".
         layout.shapes.append(BuiltShape(
-            polygon=box(-80.0, -40.0, 80.0, 40.0),
+            polygon=box(-40.0, -200.0, 40.0, 200.0),
+            role=ROLE_JUNCTION, ref="taxiway"))
+    layout.shapes.append(_boundary_ribbon())
+    if with_building or building_box is not None:
+        # A footprint covering the WHOLE bore — KCLT area 1's 100 %
+        # cover fraction, the evidence that refuses it.
+        layout.shapes.append(BuiltShape(
+            polygon=(building_box if building_box is not None
+                     else box(-80.0, -40.0, 80.0, 40.0)),
             role=ROLE_BUILDING, ref="building1"))
     return layout
 
@@ -195,9 +228,10 @@ class TestNoEvidenceNoDepth:
     """A flat DEM refuses below-grade geometry whatever the tag says."""
 
     def test_flat_dem_untagged_layer_emits_nothing(self, monkeypatch):
+        # Nothing covers this bore, so no A6 disjunct can rescue it.
         _install(monkeypatch, network=_road_network({"tunnel": "yes"}),
                  dem=_flat_dem)
-        layout = _layout()
+        layout = _layout(with_taxiway=False)
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         assert _refs(layout, *_BELOW_GRADE_REFS) == []
@@ -231,7 +265,7 @@ class TestNoEvidenceNoDepth:
         _install(monkeypatch,
                  network=_road_network({"tunnel": "yes", "layer": "-1"}),
                  dem=_flat_dem)
-        layout = _layout()
+        layout = _layout(with_taxiway=False)
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         assert _refs(layout, *_BELOW_GRADE_REFS) == []
@@ -263,6 +297,62 @@ class TestNoEvidenceNoDepth:
         bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         assert _refs(layout, *_BELOW_GRADE_REFS) == []
+
+    def test_a_pavement_covered_bore_admits_with_NO_cut(
+            self, monkeypatch):
+        # A6, the OTHH class: 8 mapped bores under aprons on dead-flat
+        # desert.  A bare-earth DEM carries no cut under a man-made bore,
+        # so "no cut" refused every one of them; the APRON over the bore
+        # is the deck that says it is one.
+        _install(monkeypatch,
+                 network=_road_network({"tunnel": "yes", "layer": "-1"}),
+                 dem=_flat_dem)
+        layout = _layout()          # the taxiway strip covers the bore
+        emitted = bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert emitted >= 1
+        assert _refs(layout, *_BELOW_GRADE_REFS), (
+            "pavement cover admits a bore the DEM cannot show")
+
+    def test_a_building_covered_way_still_refuses(self, monkeypatch):
+        # A6 must not re-admit KCLT area 1.  Same flat DEM, same tags —
+        # the cover is a BUILDING, so the road is at grade under it.
+        _install(monkeypatch,
+                 network=_building_covered_network(),
+                 dem=_flat_dem)
+        layout = _layout(building_box=box(-80.0, 260.0, 80.0, 340.0))
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _refs(layout, *_BELOW_GRADE_REFS) == []
+        findings = getattr(layout, "tunnel_passthrough_findings", [])
+        assert findings
+        one = findings[0]
+        assert one["admitted_by"] is None
+        assert one["refused_because"] == "building_cover"
+        assert one["building_cover_fraction"] >= 0.9
+        assert one["airside_pavement_cover_fraction"] < 0.1
+
+    def test_open_ground_with_a_tunnel_tag_and_no_cover_refuses(
+            self, monkeypatch):
+        # The third population: tagged, no cut, and covered by NOTHING.
+        # Neither disjunct fires — a tag alone never digs a hole.
+        _install(monkeypatch,
+                 network=_road_network({"tunnel": "yes", "layer": "-1"}),
+                 dem=_flat_dem)
+        layout = _layout(with_taxiway=False)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _refs(layout, *_BELOW_GRADE_REFS) == []
+        findings = getattr(layout, "tunnel_passthrough_findings", [])
+        assert findings
+        assert findings[0]["refused_because"] == "no_cover_no_cut"
+
+    def test_the_cover_thresholds_straddle_the_measured_gap(self):
+        # The constants are only defensible inside the measured gaps:
+        # passthroughs 0.98-1.00 building / <=0.02 pavement, real bores
+        # 0.00 building / >=0.18 pavement.
+        assert 0.02 < bridges.TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC < 0.98
+        assert 0.02 < bridges.TUNNEL_BORE_PAVEMENT_COVER_FRAC < 0.18
 
     def test_a_real_cut_still_emits(self, monkeypatch):
         # The counter-example that keeps the law honest: R10-1 refuses

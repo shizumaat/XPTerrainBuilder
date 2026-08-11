@@ -214,3 +214,43 @@ minimum. Spec/way naming: area-2 ways are `F|-255` (95 m, the owner's
 two portals) and `F|-251` (59 m) in the engine's road-feed namespace;
 the raw-extract ids `-9699`/`-9695` appear nowhere in the feed cache —
 all greps and acceptance checks use the `F|` ids.
+
+**A6 (lead ruling on the implementer's STOP-4: THE COVER IS THE DECK —
+supersedes A1's "cover fraction is never an admission input").** A1's
+predicate cannot separate "flat ground, no tunnel" from "real bore the
+DEM cannot see", and the implementer's cover measurement fully
+separates them (passthroughs: building-cover 0.98–1.00, airside-
+pavement cover ≤ 0.02; every real KCLT/OTHH bore: building 0.00,
+pavement 0.18–0.90). The admission predicate becomes, per mapped
+tunnel way (portal-level cut evidence unchanged):
+
+    emit below grade ⇔ _cut_measured
+        OR (layer < 0 AND the DEM is unusable, per A1)
+        OR (tag evidence AND f_building < TUNNEL_PASSTHROUGH_BUILDING_
+            COVER_FRAC AND f_airside_pavement ≥ TUNNEL_BORE_PAVEMENT_
+            COVER_FRAC)
+
+where f_building / f_airside_pavement are the covered stretch's cover
+fractions under ROLE_BUILDING footprints and under airside pavement
+shapes respectively — the same fractions A1 already records as
+evidence. Constants: `TUNNEL_PASSTHROUGH_BUILDING_COVER_FRAC = 0.5`,
+`TUNNEL_BORE_PAVEMENT_COVER_FRAC = 0.10` (module constants in
+bridges.py beside the other tunnel constants, each with a comment
+quoting the measured separation margins 0.02 vs 0.18; no env knobs —
+the computation is deterministic). A measured cut still trumps
+everything (a passthrough with a real cut is a cut). The
+`tunnel_passthrough_findings` record carries both fractions and which
+disjunct admitted or refused. This is a NEW ruled target — the
+implementer's attempt cap resets for it.
+
+**A7 (ratifications).** (a) The `_cut_measured` / `cut_detected`
+evidence-vs-mode split is APPROVED — an env flag must never silently
+delete every tunnel. (b) The facing-pair JOINT DEPTH (both mouths and
+the corridor take the deeper reading) is APPROVED — it is the owner's
+"flat between the two mouths" read correctly. (c) The unwalled-mouth
+check EXEMPTS light-touch clusters (the EGGW class, owner 2026-07-17
+"no tunnel ramp running around the entire parking garage" — cap + roof,
+no side walls, by design): such a cluster's record names its mode and
+mints no finding. The acceptance bullet reads "zero unwalled-mouth
+findings outside light-touch clusters"; mouth `-11733`'s 14.4 m
+residual is that class and is ACCEPTED.

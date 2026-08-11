@@ -256,16 +256,25 @@ class TestDemCutPortalMode:
         assert len(_shapes_with_ref(layout, "tunnel_cap")) >= 2
         assert len(_shapes_with_ref(layout, "tunnel_mouth")) >= 2
 
-    def test_flat_dem_keeps_the_legacy_sloped_ramps(self, monkeypatch) -> None:
+    def test_flat_dem_emits_nothing_below_grade(self, monkeypatch) -> None:
+        # ADAPTED for round 10 (R10-1/A1, ``docs/specs/round10-tunnel-
+        # emission-spec.md``).  This test used to pin "a flat DEM falls
+        # back to the synthetic sloped-ramp path" — that fallback IS the
+        # defect R10-1 removes: at KCLT it dug four ``tunnel=yes``
+        # service ways 8 m into dead-flat ground under a terminal.  A
+        # flat DEM is now EVIDENCE OF NO CUT, and a portal with no
+        # evidence emits nothing below grade.  The surviving synthetic
+        # case (``layer<0`` with an UNUSABLE probe) is pinned in
+        # ``tests/test_round10_tunnel_emission.py``.
         layout = _install_scene(monkeypatch, carved=False)
         emitted = bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
-        assert emitted >= 1
-        # Legacy synthetic ramps present, DEM-cut plates absent.
-        assert _sloped_tunnel_ramps(layout), (
-            "a flat DEM must fall back to the synthetic sloped-ramp path")
+        assert emitted == 0
+        assert not _sloped_tunnel_ramps(layout)
         assert not _shapes_with_ref(layout, "tunnel_mouth")
         assert not _shapes_with_ref(layout, "tunnel_roof")
+        assert getattr(layout, "tunnel_passthrough_findings", []), (
+            "a refused portal is RECORDED, never silent")
 
     def test_gate_off_keeps_the_legacy_ramps_despite_the_cut(
         self, monkeypatch

@@ -1,4 +1,65 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260810a (SESSION CLOSE — PRE-SHIP BUG-FIX CAMPAIGN, ROUNDS 1–8)
+# App 1.0.233 SHIPPED (engine 1.50.1678, dist.nosync/, all round
+# symbols bundle-verified).  Main = the lane/fastpath merge.
+# ══════════════════════════════════════════════════════════════════
+#
+# ── HOW THIS PHASE OPERATES (read before doing anything) ────────────
+#  docs/RULINGS.md "PRE-SHIP DEVELOPMENT MODE" is the operating law:
+#  root cause → Fable spec → ONE Opus implementer in a lane → merge →
+#  scripts/make_engine.sh + make_app.sh → THE OWNER'S IN-SIM PASS IS
+#  ACCEPTANCE.  Unit tests for changed behavior only, run ONCE.  Every
+#  skipped verification = one line in docs/DEFERRED_VERIFICATION.md,
+#  all paid in ONE hardening round at the ship gate.  The session's
+#  full round-by-round state lives in the lead's memory file
+#  (othh-object-bug-round) — richer than this block; trust it.
+#
+# ── WHAT SHIPPED TODAY (rounds, all merged) ─────────────────────────
+#  R1-3: reseat threshold 1 m + object_pad consumer + OSM terminal-way
+#  authority + basin experiment→rim-flush (specs: object-reseat-
+#  threshold, osm-terminal-way-authority, basin-rim-flush-seating).
+#  FLAT-SITE: detector v3 (S1 spread <5 m owner law, sea-band, DSM
+#  trim, declarations) + mode (constant-Z0 synthetic inset) + FAST
+#  PATH (642/1312 OTHH shapes born at Z0, equivalence 0.002 m,
+#  certificate exemption).  R4: pad plan-box fallback retired, airport
+#  containment claim, apron hard gates, tag-evidenced implied tunnels,
+#  flat-profile transition law, tunnel-aware gap_fill.  R5: island-
+#  tunnel footprint guard (VHHH sea.obj; guard 1 STRUCK — falsified by
+#  EGLL measurement).  R6: pads clipped by water, evidence rides the
+#  same road, flush-deck bridges seat at abutment grade.  R7: seawall
+#  breaklines + PATCH PAVEMENT IS LAND (VMMC).  R8: claimed-object
+#  cluster insets (HZMB island), reach-band writeback clamp, one
+#  tunnel authority (objects own, OSM yields).
+#
+# ── AWAITING ────────────────────────────────────────────────────────
+#  Owner in-sim verdicts on 1.0.233: OTHH (+25+051) and VHHH/VMMC
+#  (+22+113).  First builds pay one-time cache reclassification.
+#
+# ── OPEN ITEMS FOR THE NEXT SESSION ─────────────────────────────────
+#  * 11 pre-existing test failures ON MAIN (6 test_flat_site_mode
+#    no_data fixtures, 2 test_tunnel_portal_fidelity R4 pins, 3
+#    test_route_band) — reconcile at ship gate, matched-control style.
+#  * Unattributed ~65 s solver residual vs the 205.9 s reference
+#    (DEFERRED_VERIFICATION item g) + the interventional band-escape
+#    attribution (which stage wrote −12.5 at VHHH runway ends).
+#  * VHHH tunnel4_done has a body but no emitted trench (recon note).
+#  * OTBD/OTBH sit on flat knife-edges — owner can pin either via the
+#    flat_site_declared tile-cfg keys.
+#  * Ship gate pays docs/DEFERRED_VERIFICATION.md whole: full suite,
+#    battery A/B + censuses, timing profile, absolute-zero acceptance.
+#
+# ── MERGE-RITUAL GOTCHAS (bitten twice today) ───────────────────────
+#  * BEFORE merging a lane: rm the identical UNCOMMITTED spec copy in
+#    the main tree (diff -q first) or the merge aborts half-visibly —
+#    verify HEAD moved afterward, "Updating…" lines can lie.
+#  * DEFERRED_VERIFICATION.md conflicts are append-only → union-merge.
+#  * make_app.sh refuses while the app runs (correct); 1.0.228-class
+#    mid-merge packaging must never recur — commit before freezing.
+#  * Agent notifications are NOT a heartbeat: poll lane worktrees and
+#    /tmp/harness artifacts when a wait feels long; agents that
+#    "hold" for sub-work are stalled — resume them with a directive.
+#
+# ══════════════════════════════════════════════════════════════════
 # 20260731d (HYGIENE — the item 20260731c FILED AND DID NOT LAND) —
 # THE DEAD ``osm_centerlines`` RECT CHAIN IS RETIRED.  655 lines out of
 # pipeline.py; BYTE-IDENTICAL patches at FOUR airports, including the

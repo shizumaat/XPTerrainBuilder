@@ -2566,6 +2566,128 @@ def test_the_mod_cache_overlay_mirrors_dirs_and_symlinks_files(tmp_path):
         "a corpus with no cache yet is a lawful state, not an error")
 
 
+def _cache_env_entry_values():
+    return {k: os.environ.get(k) for k in ("O4_DSF_CACHE_DIR",
+                                           "O4_AIRPORT_MOD_CACHE_DIR")}
+
+
+def _restore_cache_env(entry):
+    """Put the SESSION's redirect back and recompute from it.
+
+    This test runs inside the suite whose session fixtures own those two
+    variables; leaving them pointed at a ``tmp_path`` would re-break the
+    redirect for every later test on this worker — the exact reload class
+    ``conftest.reapply_dsf_dump_cache_redirect`` exists for.
+    """
+    for key, value in entry.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    import O4_File_Names as FNAMES
+    FNAMES._apply_data_root()
+
+
+def test_the_harness_build_redirects_engine_caches_lane_local(
+        tmp_path, monkeypatch, build_mod):
+    """KNOWN-ANSWER TWIN for the build entry's engine-cache redirect.
+
+    The measured hole (KCLT 2026-08-11): the DSFTool SUBPROCESS wrote its
+    dump into the shared repo while the write guard was armed — no
+    Python-level guard can intercept a subprocess — and the run was
+    flagged CONTAMINATED.  The redirect rides ENV VARIABLES for that exact
+    reason: a subprocess inherits them.
+    """
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
+    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    entry = _cache_env_entry_values()
+    try:
+        rec = build_mod.redirect_engine_caches(tmp_path / "out", "T1",
+                                               prog=None, authorised=())
+        base = tmp_path / "out" / "T1.engine_caches"
+        assert rec["base"] == str(base)
+
+        dump = base / "Default_DSF_cache"
+        assert os.environ["O4_DSF_CACHE_DIR"] == str(dump)
+        assert rec["dsf_dump_cache"] == str(dump) and dump.is_dir()
+
+        overlay = base / "Airport_mod_cache"
+        link = overlay / "packA" / "warm.cache"
+        assert link.is_symlink(), "reads stay WARM on the shared sidecars"
+        assert link.resolve() == (repo / "Airport_mod_cache" / "packA"
+                                  / "warm.cache")
+        assert rec["mod_cache_seeded"] == {"dirs": 1, "files": 1}
+
+        # THE BELT: the engine was already imported, and
+        # ``Default_dsf_cache_dir`` is computed at import time.
+        assert FNAMES.Default_dsf_cache_dir == os.environ["O4_DSF_CACHE_DIR"]
+        assert FNAMES.airport_mod_cache_root() == str(overlay)
+        assert rec["left_shared_for_refresh"] == []
+    finally:
+        _restore_cache_env(entry)
+
+
+def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
+        tmp_path, monkeypatch, build_mod):
+    """An AUTHORISED refresh must land in the shared repo — redirecting it
+    would turn the refresh into a silent no-op, so that half is skipped and
+    creates NOTHING."""
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
+    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    entry = _cache_env_entry_values()
+    try:
+        # ARM 1: both scopes authorised — nothing is redirected at all.
+        rec = build_mod.redirect_engine_caches(
+            tmp_path / "o1", "T2",
+            authorised={"dsf_cache", "airport_mod_cache"})
+        assert rec["left_shared_for_refresh"] == ["airport_mod_cache",
+                                                  "dsf_cache"]
+        assert rec["dsf_dump_cache"] is None and \
+            rec["airport_mod_cache"] is None
+        assert not (tmp_path / "o1" / "T2.engine_caches").exists(), (
+            "a skipped half creates NOTHING")
+        assert _cache_env_entry_values() == entry, (
+            "neither env variable moved: the refresh writes the SHARED repo")
+
+        # ARM 2: only the dump cache is authorised — the mod cache still
+        # redirects, the dump cache is left alone.
+        rec2 = build_mod.redirect_engine_caches(
+            tmp_path / "o2", "T3", authorised={"dsf_cache"})
+        overlay = tmp_path / "o2" / "T3.engine_caches" / "Airport_mod_cache"
+        assert rec2["left_shared_for_refresh"] == ["dsf_cache"]
+        assert rec2["dsf_dump_cache"] is None
+        assert rec2["airport_mod_cache"] == str(overlay)
+        assert os.environ["O4_AIRPORT_MOD_CACHE_DIR"] == str(overlay)
+        assert rec2["mod_cache_seeded"] == {"dirs": 1, "files": 1}
+        assert (overlay / "packA" / "warm.cache").is_symlink()
+        assert os.environ.get("O4_DSF_CACHE_DIR") == entry["O4_DSF_CACHE_DIR"]
+        assert not (tmp_path / "o2" / "T3.engine_caches"
+                    / "Default_DSF_cache").exists()
+    finally:
+        _restore_cache_env(entry)
+
+
+def test_the_engine_cache_redirect_is_in_the_tool_index():
+    """Every promotion lands WITH its index row, in the same commit."""
+    text = INDEX.read_text()
+    for token in ("O4_DSF_CACHE_DIR", "engine_cache_redirects"):
+        assert token in text, (
+            f"{token} is not in tools/INDEX.md — a redirect absent from the "
+            f"index is treated as absent, and the next lane hand-forks it")
+
+
 def test_the_per_test_guard_and_the_mod_cache_overlay_are_LIVE(build_mod):
     """THE ENFORCEMENT, asserted live inside a running test.
 
@@ -2641,17 +2763,20 @@ def test_the_suite_has_no_standing_write_allowance(build_mod):
         "the next lane to refill it")
 
 
-def test_the_detector_uses_the_harness_snapshot_not_a_copy():
+def test_the_detector_uses_the_harness_snapshot_not_a_copy(build_mod):
     conftest_src = (Path(__file__).parent / "conftest.py").read_text()
     assert "shared_repo_snapshot" in conftest_src and \
         "snapshot_diff" in conftest_src and "scope_of" in conftest_src, (
         "the detector must use the harness's own snapshot and scope "
         "register — a private copy is the census-wrapper defect")
-    mirror_src = inspect.getsource(_conftest().mirror_tree_as_symlinks)
-    assert conftest_src.count("os.walk") == mirror_src.count("os.walk") == 1, (
-        "conftest's ONLY tree walk is the mod-cache overlay's mirror, "
-        "which walks the CACHE to symlink it; a second walk is conftest "
-        "snapshotting the shared repo itself — the census-wrapper defect")
+    mirror_src = inspect.getsource(build_mod.mirror_tree_as_symlinks)
+    assert conftest_src.count("os.walk") == 0 and \
+        mirror_src.count("os.walk") == 1, (
+        "conftest walks NO tree at all since the mod-cache overlay's "
+        "mirror moved into shared_repo_guard.py (2026-08-11): a walk in "
+        "conftest is either a private mirror fork or conftest "
+        "snapshotting the shared repo itself — both are the "
+        "census-wrapper defect")
     assert "e9daef5" in conftest_src, "the failure must cite its ruling"
 
 

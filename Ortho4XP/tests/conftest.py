@@ -443,42 +443,12 @@ _LANE_AIRPORT_MOD_CACHE_DIR = None
 
 
 def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
-    """Mirror ``source_root``'s DIRECTORIES into ``overlay_root`` and
-    SYMLINK every regular file into it.  Returns ``{"dirs", "files"}``.
-
-    THE READ-THROUGH OVERLAY.  Redirecting a warm derived cache to an
-    empty directory would make every shared sidecar invisible and rebuild
-    it per session — a different measurement, not a cleaner one.  Real
-    directories + file symlinks give reads the warm corpus and send writes
-    lane-local: the sidecar writers create a temp file in the DIRECTORY
-    (a real one, lane-local) and ``os.replace`` it onto the name, which
-    REPLACES the symlink rather than following it.
-
-    Pure and total (no environment, no fixture state) so it has a
-    known-answer twin — an instrument without one is not an instrument
-    (RULINGS 2026-08-06).  A ``source_root`` that does not exist yields an
-    empty overlay rather than an error: a corpus with no cache yet is a
-    lawful state, not a failure.
-    """
-    made = {"dirs": 0, "files": 0}
-    os.makedirs(overlay_root, exist_ok=True)
-    if not os.path.isdir(source_root):
-        return made
-    for dirpath, _dirnames, filenames in os.walk(source_root):
-        relative = os.path.relpath(dirpath, source_root)
-        target_dir = (overlay_root if relative == os.curdir
-                      else os.path.join(overlay_root, relative))
-        if relative != os.curdir and not os.path.isdir(target_dir):
-            os.makedirs(target_dir, exist_ok=True)
-            made["dirs"] += 1
-        for name in filenames:
-            source = os.path.join(dirpath, name)
-            link = os.path.join(target_dir, name)
-            if not os.path.isfile(source) or os.path.lexists(link):
-                continue
-            os.symlink(source, link)
-            made["files"] += 1
-    return made
+    """Delegates to the harness's single implementation (moved into
+    tools/harness/shared_repo_guard.py 2026-08-11 so the harness build
+    entry's per-run engine-cache redirect and this suite overlay share
+    ONE mirror — the census-wrapper precedent, owner ruling e9daef5)."""
+    return _harness_build_module().mirror_tree_as_symlinks(
+        source_root, overlay_root)
 
 
 @pytest.fixture(scope="session", autouse=True)

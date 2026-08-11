@@ -1478,3 +1478,47 @@ redirect there would turn it into a silent no-op. Corollary: a cold
 derived cache no longer needs `--allow-degraded-dem` to build (the
 rewrite lands lane-local instead of being guard-blocked); warming the
 SHARED cache remains an explicit `--refresh-data` decision.
+
+## 2026-08-11 — Roads serve tunnels; a cut never crosses a taxiway (owner,
+## KCLT round 14)
+
+Owner review of the round-10 KCLT output (`KCLT_20260811T1405`). Three
+rulings, spec `docs/specs/round14-tunnel-road-integration-spec.md`.
+
+1. **THE PAVED AREA IS THE CORRIDOR.** Where mapped road pavement covers a
+   tunnel system's open cut, that pavement IS the tunnel surface: it is
+   re-profiled in place — the whole intersection and both portal areas at
+   bore depth as ONE level surface, the approaches grading back to ambient —
+   instead of a synthetic corridor rectangle being emitted beside it. A
+   synthetic strip next to at-grade road pavement is a CLIFF (measured: an
+   8.31 m step across the 0.6 m graze standoff at the service intersection
+   between KCLT's two facing portals). Claimed shapes take ref `tunnel_road`
+   and keep their own ROLE and authority rank; the ref joins
+   `groundside.BELOW_GRADE_REFS` so the unchanged R5 transition law grades
+   the surroundings toward them. **AIRSIDE IS KING** — an apron or any
+   airside shape inside the extent is never claimed or sunk; it mints a
+   counted `tunnel_airside_conflict` finding for the classify instrument.
+
+2. **A CUT NEVER INTERRUPTS AIRCRAFT-TRANSIT PAVEMENT.** Owner: "nothing may
+   cut a taxiway." `runway`, `runway_clearance`, `runway_crossing` (already
+   never cut) plus `junction`, `cross_connector`, `primary_parallel`,
+   `secondary_parallel`, `stub` leave `bridges._tunnel_ramp_cut_roles`; over
+   them the stretch is COVERED BORE and the open cut ends at the pavement
+   edge. The only exception is a classified hard-deck object bridge.
+   **This supersedes ruling 4 (2026-08-07) for the taxiway family ONLY** —
+   `apron`, `service_road`, `service_junction` and `groundside_pavement`
+   stay cuttable, because ruling 4's beheading precedent was measured
+   exactly there (OTHH's mapped portals open within apron and service
+   pavement).
+
+3. **THE RAMP RUN IS DEPTH OVER GRADE.** Owner, verbatim: *"Ramps should be
+   at up to 5% grade."* `bridges.TUNNEL_APPROACH_GRADE = 0.05` is a CAP, so
+   `bore_depth / TUNNEL_APPROACH_GRADE` is the MINIMUM lawful run — a longer
+   run at a shallower grade is lawful where geometry demands, a steeper one
+   never is. A bore's floor is `deck_reference − BRIDGE_ROAD_CLEARANCE_M`
+   (a measured DEM cut keeps R10-3's deeper-of-the-two; the 8 m
+   `tunnel_depth_m` survives only with no deck reference at all). The three
+   mechanisms that used to outrun grade-reach — the 8 m synthetic floor, the
+   3.5 % highway planning grade, and `ramp_min_length_m`'s 200 m MINIMUM —
+   are all retired from the portal walk. Measured effect: KCLT's SE chain
+   173 m → 90 m, clear of taxiway junction 378.

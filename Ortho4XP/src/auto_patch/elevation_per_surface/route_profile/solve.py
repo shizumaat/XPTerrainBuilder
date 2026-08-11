@@ -2263,6 +2263,25 @@ def solve_route_profile(layout, icao: str,
     # band without ``.batch`` → the exact per-node scan, byte-identical.
     node_band = node_bands(nodes, band, skip_from=_zone_skip,
                            skip_idx=_fp_band_skip or None)
+    # ── THE BAND IS CARRIED FROM HERE, UNCONDITIONALLY (round 9, spec
+    # ``round9-writeback-band-frame-spec.md`` §1) ────────────────────────
+    # THIS list is THE band: the solve's, the validator's, the census's,
+    # the envelope's and the writeback clamp's.  It is minted ONCE here,
+    # keyed by CANONICAL POINT (the identity every later node space
+    # resolves through) and in the uncrowned PROFILE space it was
+    # computed in — a second construction anywhere downstream would be a
+    # second law, which is exactly the defect round 9 deletes.
+    # Unconditional because the writeback clamp reads it on EVERY build;
+    # the ENVELOPE's own consumption stays gated at its call site in
+    # ``final_grade_projection``.  Born-at-Z0 fast-path nodes are ``None``
+    # in ``node_band`` (skip_idx) — they simply carry no key, and every
+    # reader's documented default for a missing key is off-net.
+    _store_of(layout).mint(
+        "env_band", "interval",
+        {_bkey: (float(_bb[0]), float(_bb[1]))
+         for _bkey, _bi in bucket_to_idx.items()
+         if _bi < len(node_band) and (_bb := node_band[_bi]) is not None},
+        replace=True)
     # ── THE FEASIBILITY ENVELOPE READS THIS BAND (owner ruling 2026-07-30,
     # spec ``envelope-uses-the-centerline-graph``; gate
     # ``O4_ENVELOPE_FROM_BAND``, default OFF pending the reference field;
@@ -5153,29 +5172,12 @@ def solve_route_profile(layout, icao: str,
     # the final pass's reference builder ONLY; it died with the refs
     # channel.  The band the final projection's ENVELOPE needs is
     # carried below, separately and for every node.)
-    # ── THE SAME BAND, CARRIED FOR THE FINAL PROJECTION'S ENVELOPE
-    # (spec ``envelope-uses-the-centerline-graph``, gate
-    # ``O4_ENVELOPE_FROM_BAND``) ─────────────────────────────────────
-    # ``final_grade_projection`` runs ``feasibility_project`` in a
-    # REBUILT node space, so THE graph's band reaches it the way every
-    # other cross-space artefact does: by CANONICAL KEY.  This is a
-    # transport of the list computed once at the top of this solve — the
-    # band is NOT sampled a second time (the owner's constraint: "we
-    # already have the graph, use it, don't duplicate it").  Unlike the
-    # reference carry above this needs EVERY node, not just the
-    # quarantined ones, because it is the envelope itself, and it must
-    # outlive BOTH final-projection passes — so it stays on the layout
-    # (~len(nodes) small tuples).  A key that does not survive the
-    # rebuild reads off-net there, which is the documented "local
-    # within-shape law governs" default.
-    if _ENV_FROM_BAND and node_band is not None:
-        _ekey = {i: k for k, i in bucket_to_idx.items()}
-        _store_of(layout).mint(
-            "env_band", "interval",
-            {_ekey[_bi]: (float(_bb[0]), float(_bb[1]))
-             for _bi, _bb in enumerate(node_band)
-             if _bb is not None and _bi in _ekey},
-            replace=True)
+    # (The band the final projection's ENVELOPE reads used to be minted
+    # HERE, under ``O4_ENVELOPE_FROM_BAND``.  Round 9 moved that mint up
+    # to the line that BUILDS the band (§1) and dropped the gate: one
+    # carry, unconditional, for every reader.  The gate never belonged on
+    # the CARRIAGE — and minting here was also too late for the stage-6
+    # ``_writeback`` above, which runs before this line.)
     if _os.environ.get("O4_STEP_DEBUG") == "1":
         print(f"  [unified] {icao}: {len(frozen)} spine node(s) solved, "
               f"{n_free} body node(s); feasibility-project → {rem} edge(s) "

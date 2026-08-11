@@ -291,10 +291,13 @@ def test_the_runway_datum_is_not_clamped():
     assert layout.band_clamp_findings == []
 
 
-def test_a_layout_with_no_buildable_band_degrades_to_the_old_writeback():
+def test_a_layout_with_no_carried_band_degrades_to_the_old_writeback():
     """The PRODUCTION call signature (``band`` omitted): the writeback
-    builds the band itself, and where it cannot, the pass is exactly the
-    pre-change writeback — never a crash, never a silent clamp."""
+    RESOLVES the band the solve carried (round 9 — it no longer builds
+    one of its own), and where nothing was carried the pass is exactly
+    the pre-change writeback — never a crash, never a silent clamp.
+    ``tests/test_round9_writeback_band_frame.py`` pins the WARN this
+    path owes and the frame the resolved band is compared in."""
     layout, shape, bucket_to_idx = _square_layout()
 
     SP._writeback(layout, [-12.5] * 4, bucket_to_idx)

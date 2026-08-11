@@ -3295,7 +3295,9 @@ def _sample_node_dem(layout, nodes, dem, tile_lat, tile_lon):
 #
 # THE LAW (this is the standing band doctrine, now ENFORCED): the
 # writeback clamps every solved value to its unified reach band BEFORE
-# any consumer reads it.  ``adjacent_ground`` consumes the pavement edge
+# any consumer reads it — THE band the solve computed and carried, in
+# THE frame it was computed in (round 9 §§1-3; the clamp resolves, it
+# does not build).  ``adjacent_ground`` consumes the pavement edge
 # altitudes this function stamps (``_build_fill_bands(edge_stations,
 # edge_alts, ...)``) — the clamp lives HERE, upstream at the writeback,
 # and not per-consumer, so one implementation covers every reader of a
@@ -3323,117 +3325,117 @@ def _sample_node_dem(layout, nodes, dem, tile_lat, tile_lon):
 #     become a material row).
 WRITEBACK_BAND_CLAMP_MATERIALITY_M = 0.01
 
-#: The two layout attributes ``_build_node_list`` publishes in ITS OWN
-#: node-index space (its docstring names them): a caller that rebuilds
-#: the node list purely to MEASURE must snapshot and restore them, or the
-#: rebuild's indices leak into the solve's frame.
-_NODE_LIST_PUBLISHED_ATTRS = (
-    "_terrain_host_yield_first_index",
-    "_adjacent_ground_first_zone_index",
-)
-_BAND_ATTR_ABSENT = object()
+def _carried_band_closure(layout):
+    """THE band the solve carried, as a ``band(x, y)`` closure, or ``None``.
 
-
-def _writeback_reach_band(layout):
-    """THE unified reach band for the writeback clamp, or ``None``.
-
-    Built exactly as ``adjacent_ground._build_construct_reach_band``
-    builds it — ``_build_node_list`` → ``grade_graph.build_unified_graph``
-    → ``building_feasibility.reach_band_unified`` — so the interval this
-    clamp enforces is the SAME interval the solve, the validator and the
-    census read.  A second band construction would be a second law.
+    ONE BAND (round 9, spec ``round9-writeback-band-frame-spec.md`` §2).
+    ``solve_route_profile`` mints the ``env_band`` store artifact at the
+    line that BUILDS the band — keyed by canonical point, in the uncrowned
+    profile space — and every reader resolves THAT.  This function is the
+    writeback's resolver, nothing more: it never builds a band.  The
+    predecessor did (a node-list rebuild → unified graph →
+    ``reach_band_unified`` at writeback time), and a second construction
+    is a second law: it ran after the crown field was published, so its
+    anchor seeds were de-crowned in a frame they were never in, and its
+    ``reach_band_unified`` call overwrote the layout's FINAL band record
+    with the crown-shifted snapshot the post-solve law assert then judged.
 
     Contract: ``band(x, y) -> (floor, ceiling) | None``; ``None`` at a
     point means off-net (the within-shape law governs it) and nothing is
-    clamped there.
+    clamped there.  Lookup is the ``crown.crown_drop_at`` idiom verbatim —
+    the same canonical registry at the same tolerance — because the key
+    space is the same key space.
 
-    Returns ``None`` — loudly — when the band cannot be built, in which
-    case the writeback is exactly the pre-change writeback.  A band this
-    frame cannot build is not a reason to fail a build; it IS a reason to
-    say so, because a silently band-less airport clamps nothing.
-
-    PURITY.  The node list is rebuilt ``readonly=True`` (the registry's
-    get-without-add) and both layout attributes ``_build_node_list``
-    publishes in ITS node-index space are snapshotted and restored — the
-    probe-spec §1x fence.  ``get_or_add`` is not "add if missing" in any
-    harmless sense here: the registry snaps within ``tol_m``, so one
-    extra insertion changes which LATER vertices weld and the registry
-    feeds ``to_osm``'s consensus (round 6 measured exactly that moving
-    SPJC's emitted surface).  This band is a bound, not a surface author.
+    Returns ``None`` — loudly, once — when no band was carried (an early
+    solve return, a probe layout, a caller with no registry), in which
+    case NOTHING is clamped and the writeback is exactly the pre-clamp
+    writeback.  A band-less writeback is not a reason to fail a build; it
+    IS a reason to say so, because a silently band-less airport clamps
+    nothing.
     """
-    saved = [(name, getattr(layout, name, _BAND_ATTR_ABSENT))
-             for name in _NODE_LIST_PUBLISHED_ATTRS]
+    raw = None
     try:
-        from auto_patch import grade_graph as _GG
-        from auto_patch.elevation_per_surface.building_feasibility import (
-            reach_band_unified)
-
-        _nodes, b2i = _build_node_list(layout, readonly=True)
-        if not _nodes:
-            return None
-        ctx = _GG.build_context(layout, b2i)
-        G = _GG.build_unified_graph(layout, b2i, ctx=ctx)
-        return reach_band_unified(layout, G)
-    except Exception as band_exc:                          # pragma: no cover
+        from auto_patch.elevation_per_surface.node_space import store_of
+        raw = store_of(layout).raw("env_band")
+    except Exception:                                      # pragma: no cover
+        raw = None
+    reg = getattr(layout, "canonical_points", None) if raw else None
+    if not raw or reg is None:
         try:
             import O4_UI_Utils as _UI
-            _UI.vprint(1, f"  [writeback-band] WARN: reach band could not "
-                          f"be built ({band_exc!r}) — NO solved value was "
-                          f"clamped this writeback.")
-        except Exception:
+            _UI.vprint(1, "  [writeback-band] WARN: no carried band — "
+                          "writeback unclamped (NO solved value was "
+                          "confined to its reach band this pass).")
+        except Exception:                                  # pragma: no cover
             pass
         return None
-    finally:
-        for name, value in saved:
-            if value is _BAND_ATTR_ABSENT:
-                try:
-                    delattr(layout, name)
-                except AttributeError:
-                    pass
-            else:
-                try:
-                    setattr(layout, name, value)
-                except AttributeError:                     # pragma: no cover
-                    pass
+
+    def band(x, y):
+        try:
+            cp = reg.find_nearest(x, y, reg.tol_m)
+        except Exception:                                  # pragma: no cover
+            return None
+        if cp is None:
+            return None
+        return raw.get(cp)
+
+    return band
 
 
-def _clamp_corner_elevs_to_band(coords_open, corner_elevs, band, shape,
-                                findings):
+def _clamp_corner_elevs_to_band(layout, coords_open, corner_elevs, band,
+                                shape, findings):
     """Clamp one shape's corner elevations into their reach band.
 
     Returns the (possibly new) corner list.  Every material clamp appends
     ``(site, role, ref, delta_m, side, x, y)`` to ``findings`` — the
-    signed delta is ``clamped - solved``, so a floor-side escape reports
+    signed delta is ``stamped - solved``, so a floor-side escape reports
     a positive lift and a ceiling-side escape a negative drop.
+
+    THE FRAME (round 9 §3).  Corner values arriving here are EMITTED
+    space (``z = z′ − c``: both call sites apply the crown transform back
+    before the writeback), while the band lives in the uncrowned PROFILE
+    space the solve computed it in.  Comparing the two directly is a
+    frame error worth one crown drop per crowned node — which is exactly
+    how a runway-join node came to be floored one crown above its OWN
+    hard value.  So each value is lifted by its crown drop, clamped
+    there, and lowered back.  Where the crown field is absent or empty
+    (both call sites before the crown computation, and every hermetic
+    test) ``crown_drop_at`` is 0.0 and this is byte-identical to a
+    frameless clamp.
     """
+    from auto_patch.crown import crown_drop_at
     out = None
     for i, (point, value) in enumerate(zip(coords_open, corner_elevs)):
+        px, py = float(point[0]), float(point[1])
         try:
-            interval = band(float(point[0]), float(point[1]))
+            interval = band(px, py)
         except Exception:                                  # pragma: no cover
             interval = None
         if interval is None:
             continue
         floor_m, ceiling_m = interval
         value_f = float(value)
-        clamped = value_f
+        crown_m = crown_drop_at(layout, px, py)
+        profile_v = value_f + crown_m
+        clamped = profile_v
         side = None
-        if floor_m is not None and value_f < float(floor_m) - \
+        if floor_m is not None and profile_v < float(floor_m) - \
                 WRITEBACK_BAND_CLAMP_MATERIALITY_M:
             clamped, side = float(floor_m), "floor"
-        elif ceiling_m is not None and value_f > float(ceiling_m) + \
+        elif ceiling_m is not None and profile_v > float(ceiling_m) + \
                 WRITEBACK_BAND_CLAMP_MATERIALITY_M:
             clamped, side = float(ceiling_m), "ceil"
         if side is None:
             continue
         if out is None:
             out = list(corner_elevs)
-        out[i] = clamped
+        stamped = clamped - crown_m
+        out[i] = stamped
         findings.append((
             "band_clamp", getattr(shape, "role", ""),
             getattr(shape, "ref", "") or "",
-            round(clamped - value_f, 4), side,
-            round(float(point[0]), 2), round(float(point[1]), 2),
+            round(stamped - value_f, 4), side,
+            round(px, 2), round(py, 2),
         ))
     return out if out is not None else corner_elevs
 
@@ -3486,17 +3488,17 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
 
     THE BAND CLAMP (R8-2, see the block comment above): every value
     stamped on a shape here is first confined to its unified reach band.
-    ``band`` is the ``band(x, y) -> (floor, ceiling) | None`` closure; it
-    is built here when the caller does not supply one, so the two live
-    call sites need no change (and a caller that already holds the band
-    can hand it in rather than pay a second graph build).
+    ``band`` is the ``band(x, y) -> (floor, ceiling) | None`` closure; a
+    caller that already holds one (the hermetic tests) hands it in, and
+    otherwise it is RESOLVED — never rebuilt — from the band the solve
+    carried (round 9 §2, :func:`_carried_band_closure`).
     """
     from shapely.geometry import Polygon
     from auto_patch.elevation import (
         _corner_elevation_bucket, _short_end_pairs_by_axis,
     )
     if band is None:
-        band = _writeback_reach_band(layout)
+        band = _carried_band_closure(layout)
     clamp_findings: list = []
     n_terms = n_rects = n_juncs = 0
     for s in layout.shapes:
@@ -3568,7 +3570,7 @@ def _writeback(layout, elev, bucket_to_idx, band=None):
         # of scope by design (CIFP-hard, band-checker-exempt).
         if band is not None and s.role != ROLE_RUNWAY:
             corner_elevs = _clamp_corner_elevs_to_band(
-                coords_open, corner_elevs, band, s, clamp_findings)
+                layout, coords_open, corner_elevs, band, s, clamp_findings)
         if s.role == ROLE_BUILDING and _role_grade(ROLE_BUILDING) <= 0.0:
             # Terminal is FLAT (the default: TERMINAL_MAX_GRADE = 0, a terminal
             # sits on one floor altitude — per user 2026-05-18).  The flat

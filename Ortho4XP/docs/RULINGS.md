@@ -1456,3 +1456,25 @@ under v2 (`pipeline` gates it behind `_scorer_owns_roles`) — the gate
 is its v2 rebirth. Measured specimens, owner build 1.0.229 (OTHH):
 sid102 (376 m², 51 % of its perimeter on the runway) for the first;
 sid105 (4.1 m OBB width) and sid104 (2.4 m) for the second.
+
+## 2026-08-11 — Harness builds redirect the engine's derived-cache roots lane-local (lead session, applying owner ruling e9daef5)
+
+Measured: the round-9 KCLT acceptance build — guard armed — still wrote
+`Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text` into the
+shared repo: the DSFTool SUBPROCESS writes its dump directly, which no
+Python-level write guard can intercept, and only the post-build snapshot
+caught it (run flagged CONTAMINATED, on the deferred-verification
+ledger). The pytest suite closed this class on 2026-08-08 with
+env-overridden lane-local cache roots; the harness build entry now arms
+the SAME mechanism: every `build_patch` and `--tile` run points
+`O4_DSF_CACHE_DIR` and `O4_AIRPORT_MOD_CACHE_DIR` at per-run dirs under
+`<out>/<tag>.engine_caches/`, the mod-cache root as a symlink-seeded
+read-through overlay (warm reads, lane-local writes; the overlay's pure
+core, `mirror_tree_as_symlinks`, moved into `shared_repo_guard.py` — one
+implementation, conftest delegates). A scope the run is AUTHORISED to
+refresh (`--refresh-data airport_mod_cache` / `dsf_cache`) is NOT
+redirected — an authorised refresh must land in the shared repo, and a
+redirect there would turn it into a silent no-op. Corollary: a cold
+derived cache no longer needs `--allow-degraded-dem` to build (the
+rewrite lands lane-local instead of being guard-blocked); warming the
+SHARED cache remains an explicit `--refresh-data` decision.

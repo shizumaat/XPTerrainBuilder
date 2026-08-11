@@ -122,6 +122,18 @@ WHAT IT RECORDS, always, next to the patch:
   write audit.  Quote no elevation without it.
 * ``<tag>.progress`` — START / step / EXIT stamps (the ``.progress``
   convention) so a lead can audit liveness without touching the run.
+* ``engine_cache_redirects`` (in ``<tag>.result.json`` and
+  ``<tag>.frame.json``) — every build re-points the engine's two WRITABLE
+  derived-cache roots lane-local, under ``<out>/<tag>.engine_caches/``:
+  the DSFTool dump cache (``O4_DSF_CACHE_DIR``) and the per-pack
+  ``Airport_mod_cache`` root (``O4_AIRPORT_MOD_CACHE_DIR``, a
+  symlink-seeded read-through overlay).  It is the pytest suite's own
+  mechanism, and it closes the hole item 7's guard cannot see: the DSFTool
+  SUBPROCESS writes its dump itself (measured KCLT 2026-08-11,
+  ``Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text``, run
+  flagged CONTAMINATED).  A scope this run is AUTHORISED to refresh
+  (``--refresh-data airport_mod_cache`` / ``dsf_cache``) is deliberately
+  NOT redirected — an authorised refresh must land in the shared repo.
 * the patch body sha256 (``tail -n +3``: the provenance stamp makes the raw
   file hash useless for A/B identity).
 
@@ -163,7 +175,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
     SharedRepoWriteBlocked, SharedRepoWriteGuard,
     report_unauthorised_writes, _DEGRADED_OPTIONS,
-    require_no_swallowed_write_block,
+    require_no_swallowed_write_block, mirror_tree_as_symlinks,
 )
 
 #: The owner's production app config — the one the shipped app runs with.
@@ -648,6 +660,96 @@ def body_sha256(osm: Path) -> str:
     return hashlib.sha256(b"\n".join(lines[2:])).hexdigest()
 
 
+def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
+    """Point the engine's two WRITABLE derived-cache roots lane-local.
+
+    THE MEASURED DEFECT (2026-08-11, the round-9 KCLT acceptance build).
+    The shared-repo write guard was armed and the build still wrote
+    ``Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text`` into
+    the shared repo: the DSFTool SUBPROCESS writes its dump directly, so no
+    Python-level guard can intercept it, and only the post-build snapshot
+    caught it — the run was flagged CONTAMINATED.
+
+    THE MECHANISM IS THE PYTEST SUITE'S OWN (``tests/conftest.py``),
+    pointed at this tag's artifact area: ``O4_DSF_CACHE_DIR`` for the
+    DSFTool dump cache (read inside ``O4_File_Names._apply_data_root``, so
+    a module reload recomputes the redirect instead of undoing it) and
+    ``O4_AIRPORT_MOD_CACHE_DIR`` for the per-pack sidecar cache, seeded as
+    a symlink-seeded READ-THROUGH overlay (:func:`mirror_tree_as_symlinks`
+    — real dirs, file symlinks: warm reads, lane-local writes).  A
+    subprocess inherits the environment, which is precisely why the
+    redirect rides env variables and not an assignment.
+
+    THE AUTHORISED-REFRESH SKIP.  A scope this run may refresh
+    (``--refresh-data airport_mod_cache`` / ``dsf_cache``) is NOT
+    redirected, and its half creates nothing: an authorised refresh must
+    land in the SHARED repo, so redirecting it would turn the refresh into
+    a silent no-op.  The skip is recorded instead.
+
+    Owner ruling e9daef5 (one shared data repo; a build never mutates it
+    as a side effect).
+    """
+    authorised = set(authorised or ())
+    base = Path(out_dir) / f"{tag}.engine_caches"
+    skipped = []
+    dsf_dir = mod_dir = None
+    seeded = None
+
+    if "dsf_cache" in authorised:
+        skipped.append("dsf_cache")
+    else:
+        dsf_dir = base / "Default_DSF_cache"
+        dsf_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["O4_DSF_CACHE_DIR"] = str(dsf_dir)
+
+    if "airport_mod_cache" in authorised:
+        skipped.append("airport_mod_cache")
+    else:
+        mod_dir = base / "Airport_mod_cache"
+        # ``DATA_REPO`` bare on purpose: the module global is what a twin
+        # monkeypatches to point the seed at a fake corpus.
+        seeded = mirror_tree_as_symlinks(str(DATA_REPO / "Airport_mod_cache"),
+                                         str(mod_dir))
+        os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = str(mod_dir)
+
+    # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
+    # may already have imported the engine, and ``Default_dsf_cache_dir``
+    # is computed at import; ``_apply_data_root`` recomputes it from the
+    # environment (the mod-cache root is read at call time and needs no
+    # nudge).
+    fnames = sys.modules.get("O4_File_Names")
+    if fnames is not None:
+        fnames._apply_data_root()
+
+    if os.environ.get("ORTHO4XP_DATA_ROOT") and prog is not None:
+        prog.note("WARNING: ORTHO4XP_DATA_ROOT is set, so the "
+                  "O4_AIRPORT_MOD_CACHE_DIR override is INERT "
+                  "(O4_File_Names.airport_mod_cache_root: an explicitly "
+                  "chosen data root is the more specific instruction) — "
+                  "the per-pack sidecar cache stays under that root.")
+
+    if prog is not None:
+        prog.note(
+            f"engine derived-cache roots redirected LANE-LOCAL under {base}: "
+            f"dump cache={dsf_dir or 'SHARED (authorised refresh)'}, "
+            f"mod cache={mod_dir or 'SHARED (authorised refresh)'}"
+            + (f" (overlay seeded: {seeded['files']} file symlink(s), "
+               f"{seeded['dirs']} dir(s))" if seeded is not None else "")
+            + ".  This closes the DSFTool SUBPROCESS dump hole the write "
+              "guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED)."
+            + (f"  Left SHARED for the authorised refresh: {sorted(skipped)} "
+               f"— a redirect there would make the refresh a silent no-op."
+               if skipped else ""))
+
+    return {
+        "base": str(base),
+        "dsf_dump_cache": (str(dsf_dir) if dsf_dir is not None else None),
+        "airport_mod_cache": (str(mod_dir) if mod_dir is not None else None),
+        "mod_cache_seeded": seeded,
+        "left_shared_for_refresh": sorted(skipped),
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE BUILDS
 # ══════════════════════════════════════════════════════════════════════
@@ -730,6 +832,14 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     for p in (root / "src", root, root / "tests", root / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
+    # THE ENGINE CACHE REDIRECT, before the engine is imported and for the
+    # same reason the guard is armed HERE rather than in ``main``:
+    # ``oracle.py`` and ``who_wrote.py`` call this function directly, and
+    # the DSFTool subprocess a direct call spawns writes the shared corpus
+    # just as a CLI build's does.
+    redirects = redirect_engine_caches(
+        out_dir, tag, prog,
+        authorised=getattr(write_guard, "requested", None))
     from conftest import xplane_root                      # noqa: E402
     from auto_patch.pipeline import build_airport_pavement  # noqa: E402
     from auto_patch import config as ap_cfg               # noqa: E402
@@ -841,6 +951,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
         "write_guard_library_index_churn": list(guard.library_index_churn),
         "dem_frame_effective": frame_surface_keys(root),
         "dem_inset_provenance": getattr(layout, "dem_inset_provenance", None),
+        "engine_cache_redirects": redirects,
         "anchor": (list(layout.anchor) if layout.anchor is not None else None),
     }
 
@@ -1113,10 +1224,15 @@ def main(argv=None) -> int:
     t0 = time.time()
     try:
         if args.tile:
+            # ``build_patch`` redirects the engine's cache roots itself;
+            # the tile path never goes through it, so it does it here.
+            redirects = redirect_engine_caches(out_dir, tag, prog,
+                                               authorised=requested)
             with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,
                     args.build_dir or str(out_dir / f"tile_{tag}"), prog)
+            result["engine_cache_redirects"] = redirects
         else:
             result = build_patch(args.icao, root, out_dir, tag, prog,
                                  const_dem=args.dem,
@@ -1158,6 +1274,7 @@ def main(argv=None) -> int:
     frame["dem_frame_effective"] = frame_surface_keys(root)
     frame["synthetic_dem"] = result.get("synthetic_dem")
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
+    frame["engine_cache_redirects"] = result.get("engine_cache_redirects")
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)
     (out_dir / f"{tag}.frame.json").write_text(json.dumps(frame, indent=1))

@@ -95,3 +95,50 @@ Constraints:
 R16-3 real-data arm; ramps-clipped-after-wall class (both stay DEFERRED
 lines); any change to splice tolerance (`_WELD_TOL_M`), snap tolerance,
 or the candidate gate's thresholds.
+
+## AMENDMENT 3 (Fable lead, 2026-08-12, after the lane's attribution) —
+## the real generator is slice-C decimation, and it joins the R16-1 frame
+
+The lane's measured attribution REFUTES this spec's ruled root cause.
+At the R16-1b loop, OTHH's hole rings are ALREADY the pad's spelling
+(`same_spelling` 771/791; KCLT 116/116) — pre-splice nid identity holds
+today and fix shape (i) is INERT (correctly unattempted; the one-attempt
+budget is unspent). The splice signature is absent (0/281, 0/166 within
+5 mm of a neighbour chord); the decimation signature is total (47/47
+differing vertices within `_DEC_PERP_M` = 0.02 m of the pad chord;
+interventional repro + control flip on that single variable).
+
+Mechanism: CHAIN-AWARE FINAL DECIMATION (slice C, `layout.py:2519`)
+builds `_occ` from `pending` only (`:2585-2595`), walks `pending` only
+(`:2670`), writes back to `pending` only (`:2749`). `_interior_rings`
+never enter, so a vertex shared by a pad exterior and its hole ring is
+judged and removed ONE-SIDEDLY — the exact class the block's own comment
+forbids, and the same one-sidedness R16-1 already cured in needle
+removal.
+
+RULED FIX (supersedes fix shape (i); fix shape (ii) stays refused):
+slice-C decimation joins the R16-1 frame. `_interior_rings` enter
+`_occ`, the chord-agreement/geometry predicates, the max-chord retention
+walk, and the removal sweep as FIRST-CLASS CHAINS — a shared vertex is
+kept or removed consistently on every chain that spells it. Ring-private
+vertices keep their existing protection (the `_a1 is None` clause — rings
+never lose their own vertices); the chord-agreement veto (`_cend !=
+_chord`) stands; NO constant changes.
+
+The attribution instrumentation (pairing census + candidate trace,
+commits `5c7f7f2`/`8bf7947`, proven byte-neutral) is KEPT as the standing
+window on this frame.
+
+Amended acceptance (patch frame; no tile build required — the patch-only
+build carries the pad population):
+- OTHH twin-ring pairs **21 → 0** in this tree's frame (owner artifact
+  24 — measured for the record, not a gate); every differing-vertex
+  class within `_DEC_PERP_M` must vanish.
+- KCLT: the 3 pairs within `_DEC_PERP_M` → 0; the 31.9 mm outlier is a
+  DIFFERENT generator — REPORT it, do not chase it (it becomes a
+  deferred attribution line).
+- Sub-micron clusters 0; census re-baseline + Δ0 beyond the 0.01 m floor
+  (honest instrument); KCLT body hash quoted before/after.
+- The second decimator (`emit_decimate.py`) is NOT audited in this lane
+  — recorded as a deferred line.
+- Attempt cap: ONE attempt at the ruled fix (the budget is unspent).

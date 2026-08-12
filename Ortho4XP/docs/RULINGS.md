@@ -1550,3 +1550,9 @@ evidence):
   unusable DEM, or airside-pavement cover (THE COVER IS THE DECK);
   building cover means passthrough-at-grade.
   `docs/specs/round10-tunnel-emission-spec.md` A1/A6.
+
+## 2026-08-11b (session rulings, interview)
+* **QB4 RETIRED (owner-ruled):** the "SecretRequest handler / no Win-Linux credential prompt" Q3 drift item is retired on the qtbacklog lane's measurement (in-process engine — no reachable SecretRequest path; parallel-worker secrets serviced parent-side via bundled keyring backends; the Qt sign-in dialog covers all three credential kinds). Do not re-file without new evidence.
+* **Swift sign-in parity FILED (owner-ruled):** the macOS app's missing provider sign-in UI is a backlog item; the Qt `_SignInDialog` is the behavioural authority in reverse.
+* **+39-095 contamination records ACCEPTED-AS-ANNOTATED; stray clip tmp deleted under explicit owner authorisation; OTBD/OTBH flat declarations DEFERRED pending in-sim look** (ledger line 2026-08-11b).
+* **VHHH round QUEUED (owner in-sim on 1.0.239):** runway ends dropping to zero; the island connector grades FLAT like the airport (owner intent ruling); the WHOLE reclaimed perimeter is vertical sea walls.

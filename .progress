@@ -5,3 +5,5 @@ phase1 arms running; A flex 3 runways resid 51.33, B flex 2 runways resid 56.31 
 ARM-C start 2026-08-12T20:17:28Z (substitution + flex round cap 40, attribution only)
 phase1 VERDICT: anchors legit (hard seeds 736/627/109 identical, CIFP pins identical); flex law line moved (drained 428.86->349.84); both arms hit round cap 12 with residual 51.33/56.31 m; arm C (cap 40) running 2026-08-12T20:19:11Z
 controls DONE: CYXY + KSTJ byte-identical bodies (07321502759a / 70eb39d813a7), KSTJ 0 band inversions, shared repo UNCHANGED; awaiting arm C 2026-08-12T20:23:18Z
+PHASE2 STOP: spec lever measured inert (arm C 40 rounds worse: 752 nodes/2.0009 m); substitution PARKED default-OFF (commit 9ae6d4e); OTHH controls running 2026-08-12T20:30:55Z
+EXIT 2026-08-12T20:36:14Z — STOP reported; commits 0e5919c + 9ae6d4e on lane/t11vouch; OTHH controls still in flight (logs /tmp/t11vouch/othh_*.log)

@@ -1,4 +1,67 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260812b (SESSION CLOSE — TASKS #10/#11/#15/#16 + APP 1.0.243)
+# App 1.0.243 BUILT (engine 1.50.1686, dist.nosync/), launch smoke-
+# tested. Owner in-sim PENDING — that pass gates the PROFILING ROUND.
+#
+# ── SHIPPED (all merged to main, DEFERRED_VERIFICATION has a line per lane) ──
+#  #15 overlay write-through RESCUED from uncommitted hguard worktree
+#    (lane/hguard 8e3b546, merge dc9a66e): clonefile COW overlay + the
+#    guard judges the RESOLVED path; parallel pack-cache arms lawful.
+#  #10 twin-ring (lane/t10twin, merge f0abd19): spec premise REFUTED by
+#    lane attribution (same_spelling 771/791 — pre-splice identity holds);
+#    Amendment 3 = slice-C decimation joins the R16-1 frame
+#    (_interior_rings first-class). OTHH pairs 21→0, KCLT 4→0 (incl. the
+#    31.9 mm "outlier" — same one-sided removal), census Δ0 both.
+#  #11 r18b (lane/t11vouch, merge ae6e947): phase-1 attribution CONFIRMED
+#    (substitution moves the flex law line; anchors surface-lawful; pair
+#    05C/23C 110.610 / 05L/23R 61.280, law spread 49.635 vs budget
+#    47.559 = 2.076 short). Relax lever measured INERT (0.000 m, 0 minted
+#    anchors; 40 rounds made it WORSE 680→752). Scoped predicate PARKED
+#    default-OFF (O4_DSF_OBJECT_NAME_VOUCH_SCOPED); HECA is the only
+#    airport it moves (Tai Models pack). BAND REMEDY = owner-visible
+#    design round: what authors the 05L/23R law half; lawful-sag seeding
+#    (O4_BAND_SEED_COMPLETE, flex item 4) is the standing suspect.
+#  #16 pad-host (lane/t16pad, merge 0200452): premise REFUTED — family
+#    forms and adopts at relevel; LATE final_grade_projection re-stamps.
+#    Amendment 1 = second relevel AFTER the late projection (R17 guard
+#    untouched-green). building114 88.50→85.63, ring −10189 rows 14→0;
+#    +71 census rows RULED newly-legible (RULINGS 2026-08-07); apron
+#    −10629's own ~11 m spread = relief-round territory. Weld-relation
+#    accessor +0.76 s/build — PROFILING ROUND adjudicates.
+#
+# ── CONSOLIDATED ACCEPTANCE (merged tree, 5 parallel labeled builds, all
+#    rc=0, shared repo UNCHANGED) ──
+#  CYXY 07321502759a + KSTJ 70eb39d813a7 byte-identical; OTHH
+#  4ecaaa5ac1be byte-identical to the #10 arm (pairs 0 by identity);
+#  KCLT df50c400a22f pairs 0 / census −19 LAW-TRUE −22 adjudicated
+#  (pad-host law improvement); HECA 7fbe7c26d7e3 census = t16a2 exactly
+#  (LAW-TRUE 5576, adjudicated 3372, airside_for_acceptance 1711).
+#
+# ── QUEUE ──────────────────────────────────────────────────────────
+#  1. Owner in-sim on 1.0.243 (adds to the 1.0.241 list: HECA pads at
+#     host level, twin-ring lens slivers gone).
+#  2. FINAL PROFILING ROUND after the pass (HECA solve 326 s target #1;
+#     adjudicate the #16 +0.76 s enumeration and the 60 s/300 s budgets).
+#  3. #11 band-remedy design round (above). Ratifications from 20260812a
+#     still pending (phantom-EAT table, shaping margin, island
+#     simplification, light-touch datum, drift instrument).
+#
+# ── GOTCHAS (this session) ──────────────────────────────────────────
+#  * BOTH build scripts auto-bump versions (make_engine freeze bump,
+#    make_app package bump) — do NOT hand-bump first; 1.0.242 was
+#    consumed by the double increment, shipped app is 1.0.243.
+#  * Five same-tag harness builds overwrite one /tmp/harness/<tag>.osm —
+#    per-airport tags or snapshot-on-exit; printed body_sha + artifact
+#    ledger are per-build and trustworthy either way.
+#  * Two lane spec premises in one session refuted by lane attribution
+#    (both #10 and #16) — the attribution-first lane shape caught both
+#    before any fix attempt was wasted; keep it.
+#  * Worktrees left up: t10twin/t11vouch/t16pad (merged lanes, products
+#    kept), t11base + t16ctl (detached controls — ritual refuses down
+#    while products are untracked; owner may want the arms; tear down
+#    with down --force once quoted numbers are final).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260812a (SESSION CLOSE — ROUNDS 16-21 + OWNER-REPORT ROUNDS + SPEED/PROCESS OVERHAUL)
 # Apps 1.0.240 then 1.0.241 SHIPPED (engines 1.50.1683/1684, dist.nosync/).
 # Main @ the 1.0.241 stamp eeca2cf + RULINGS ef4958b. Owner in-sim on

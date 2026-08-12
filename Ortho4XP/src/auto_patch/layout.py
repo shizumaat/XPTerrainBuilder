@@ -2059,6 +2059,18 @@ class PavementLayout:
 
         _n_adopt = 0
         _divergent: list = []
+        # PAIRING CENSUS (task #10).  The candidate loop's own view, per
+        # REJECTION CLAUSE — the only window on the PRE-SPLICE frame (the
+        # emitted patch shows the post-splice chains, where the weld has
+        # already manufactured shared nids that this loop never saw).
+        # It reports and adjudicates nothing.
+        _pair_stat: dict[str, int] = {}
+        _gate_ex: list = []
+        _ring_trace: list = []
+
+        def _pstat(_k: str) -> None:
+            _pair_stat[_k] = _pair_stat.get(_k, 0) + 1
+
         for _r_i, _ring_nids in enumerate(_interior_rings):
             _r_open = (_ring_nids[:-1]
                        if (len(_ring_nids) > 1
@@ -2070,8 +2082,15 @@ class PavementLayout:
                 for _p_i in _pending_of_nid.get(_nid, ()):  # shared nids
                     _cand[_p_i] = _cand.get(_p_i, 0) + 1
             _best_p = None
+            _outcome = "no_shared_pending" if not _cand else None
+            _trace: list = []
             for _p_i, _n_shared in sorted(_cand.items(),
                                           key=lambda kv: -kv[1]):
+                if len(_trace) < 4:
+                    _trace.append(
+                        (pending[_p_i][1].role, pending[_p_i][1].ref,
+                         _n_shared, len(pending[_p_i][2]) - 1,
+                         set(pending[_p_i][2][:-1]) == _r_set))
                 # A candidate must SHARE most of the ring to be the same
                 # boundary at all: a building way that happens to share
                 # three nids with a large hole is a neighbour, not a
@@ -2079,11 +2098,19 @@ class PavementLayout:
                 # buries the real ones (attempt 1 reported 41 pairs, the
                 # worst 139 m apart).
                 if _n_shared < 3 or _n_shared * 2 < len(_r_open):
+                    if _outcome is None:
+                        _outcome = "gate_share"
+                        _gate_ex.append(
+                            (len(_r_open), _n_shared,
+                             pending[_p_i][1].role,
+                             node_id_to_ll.get(_r_open[0])))
                     continue
                 _e_chain = pending[_p_i][2]
                 _e_set = set(_e_chain[:-1])
                 if _e_set == _r_set:
                     _best_p = None
+                    if _outcome is None:
+                        _outcome = "same_spelling"
                     break                 # already ONE spelling
                 _diff = _e_set ^ _r_set
                 if not _diff:             # pragma: no cover
@@ -2098,15 +2125,42 @@ class PavementLayout:
                         _premove_offset.get(_nid, 0.0))
                 if _worst <= ONEDGE_SNAP_TOL_M:
                     _best_p = _p_i
+                    if _outcome is None:
+                        _outcome = "adopted"
                     break
+                if _outcome is None:
+                    _outcome = "beyond_frame"
                 _divergent.append((_worst, pending[_p_i][1].role,
                                    node_id_to_ll.get(next(iter(_diff)))))
+            _pstat(_outcome or "no_candidate_passed_gate")
+            if (_outcome != "adopted" and len(_r_open) <= 60
+                    and any(_t[0] == ROLE_OBJECT_PAD for _t in _trace)):
+                _ring_trace.append(
+                    (len(_r_open), _outcome, node_id_to_ll.get(_r_open[0]),
+                     list(_trace)))
             if _best_p is None:
                 continue
             _adopted = list(pending[_best_p][2])
             if len(_adopted) >= 4:
                 _interior_rings[_r_i] = _adopted
                 _n_adopt += 1
+        if _pair_stat:
+            UI.vprint(1,
+                f"  [pav-builder] R16-1b pairing census "
+                f"({len(_interior_rings)} hole ring(s)): "
+                + ", ".join(f"{_k}={_v}" for _k, _v
+                            in sorted(_pair_stat.items())))
+            for _ge in sorted(_gate_ex, reverse=True)[:12]:
+                UI.vprint(1,
+                    f"      gate_share: ring={_ge[0]} vertices, "
+                    f"best candidate shares {_ge[1]} (role={_ge[2]}) "
+                    f"at {_ge[3]}")
+            for _rt in _ring_trace[:25]:
+                UI.vprint(1,
+                    f"      ring n={_rt[0]} outcome={_rt[1]} at {_rt[2]}: "
+                    + " | ".join(
+                        f"{_c[0]}/{_c[1]} shares {_c[2]} of {_c[3]}"
+                        f"{' EQUAL' if _c[4] else ''}" for _c in _rt[3]))
         if _n_adopt:
             UI.vprint(1,
                 f"  [pav-builder] hole rings adopting their pad's chain "
@@ -2528,25 +2582,51 @@ class PavementLayout:
             # ways while another's keep the coordinate leaves a chord
             # passing exactly through the survivor (an exact T-vertex,
             # the lens class).
+            # THE FRAME: INTERIOR RINGS ARE CHAINS TOO (round-16 R16-1,
+            # applied here by task #10 amendment 3).  This scan read
+            # ``pending`` alone, so a vertex spelled by BOTH a pad's
+            # exterior chain and the hole ring bounding the same boundary
+            # was judged and removed ONE-SIDEDLY: the pad chain lost it,
+            # the ring kept it, and the emitted patch carried a twin-ring
+            # pair — the very lens class this block's own comment forbids.
+            # Measured (OTHH, patch frame): 21 pairs / 47 differing
+            # vertices, EVERY one of them within ``_DEC_PERP_M`` of the
+            # partner chord, while the R16-1b loop upstream had already
+            # reported the two chains as ONE spelling (same_spelling
+            # 771/791; the traced pad object_pad:25 read "shares 11 of 11
+            # EQUAL" and emitted 9-vs-11).  Rings join as FIRST-CLASS
+            # chains — occurrence map, chord-agreement and geometry
+            # predicates, max-chord retention, degeneracy veto and the
+            # removal sweep — so a shared vertex is kept or removed on
+            # every chain that spells it.  Ring-PRIVATE vertices are
+            # interned unvalued, so the altitude clause below keeps them
+            # exactly as it did before (a ring never loses its own
+            # vertices), and no constant changes.
+            _dec_chains: list = (
+                [("p", _p_i, _e[2]) for _p_i, _e in enumerate(pending)]
+                + [("r", _r_i, _r)
+                   for _r_i, _r in enumerate(_interior_rings)])
             _occ: dict[tuple, list[tuple[int, int, int]]] = {}
             _multi: set[tuple] = set()
-            for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
-                _open = _enids[:-1]
+            for _c_i, (_kind, _idx, _cnids) in enumerate(_dec_chains):
+                _open = _cnids[:-1]
                 _seen_local: set[tuple] = set()
                 for _pos, _nid in enumerate(_open):
                     _ll = node_id_to_ll[_nid]
                     if _ll in _seen_local:
                         _multi.add(_ll)
                     _seen_local.add(_ll)
-                    _occ.setdefault(_ll, []).append((_p_i, _pos, _nid))
+                    _occ.setdefault(_ll, []).append((_c_i, _pos, _nid))
             _removable_ll: set[tuple] = set()
             for _ll, _sites in _occ.items():
                 if _ll in _multi:
                     continue
                 _a1 = None
-                for _p_i, _pos, _nid in _sites:
+                for _c_i, _pos, _nid in _sites:
                     _v = node_id_to_consensus.get(_nid)
                     if _v is None:
+                        # UNVALUED — a hole ring's own vertex, or an
+                        # unclaimed node: never removable (unchanged).
                         _a1 = None
                         break
                     if _a1 is None:
@@ -2560,8 +2640,8 @@ class PavementLayout:
                     continue
                 _ok = True
                 _chord = None
-                for _p_i, _pos, _nid in _sites:
-                    _open = pending[_p_i][2][:-1]
+                for _c_i, _pos, _nid in _sites:
+                    _open = _dec_chains[_c_i][2][:-1]
                     _m = len(_open)
                     if _m <= 3:
                         _ok = False
@@ -2626,8 +2706,8 @@ class PavementLayout:
             # chains stay identical (a per-nid retention would be the
             # one-sided-removal lens class).
             _retain_ll: set[tuple] = set()
-            for _si, _s, _enids, _sa, _sna in pending:
-                _open = _enids[:-1]
+            for _kind, _idx, _cnids in _dec_chains:
+                _open = _cnids[:-1]
                 _m = len(_open)
                 if _m < 3:
                     continue
@@ -2671,18 +2751,20 @@ class PavementLayout:
                 break
             _removable: set[int] = set()
             for _ll in _removable_ll:
-                for _p_i, _pos, _nid in _occ[_ll]:
+                for _c_i, _pos, _nid in _occ[_ll]:
                     _removable.add(_nid)
             if not _removable:
                 break
             # A ring that simultaneous removals would degenerate below
             # 3 vertices VETOES its removable nids GLOBALLY — skipping
             # only that ring's update while partners drop the nid would
-            # be a one-sided removal (the lens class).
+            # be a one-sided removal (the lens class).  Hole rings are
+            # chains here too, so a hole that would degenerate protects
+            # its vertices in the partner chains as well.
             for _retry in range(4):
                 _veto: set[int] = set()
-                for _si, _s, _enids, _sa, _sna in pending:
-                    _open = _enids[:-1]
+                for _kind, _idx, _cnids in _dec_chains:
+                    _open = _cnids[:-1]
                     if (len([_n for _n in _open
                              if _n not in _removable]) < 3):
                         _veto.update(_n for _n in _open
@@ -2692,12 +2774,16 @@ class PavementLayout:
                 _removable -= _veto
             if not _removable:
                 break
-            for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
-                _open = [_n for _n in _enids[:-1]
+            for _kind, _idx, _cnids in _dec_chains:
+                _open = [_n for _n in _cnids[:-1]
                          if _n not in _removable]
-                if len(_open) >= 3 and len(_open) < len(_enids) - 1:
-                    pending[_p_i] = (_si, _s, _open + [_open[0]],
-                                     _sa, _sna)
+                if len(_open) >= 3 and len(_open) < len(_cnids) - 1:
+                    if _kind == "p":
+                        _si, _s, _old, _sa, _sna = pending[_idx]
+                        pending[_idx] = (_si, _s, _open + [_open[0]],
+                                         _sa, _sna)
+                    else:
+                        _interior_rings[_idx] = _open + [_open[0]]
 
         if _n_chord_retained:
             UI.vprint(1,

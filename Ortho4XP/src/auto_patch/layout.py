@@ -1603,58 +1603,6 @@ class PavementLayout:
                 if _h_nids and len(_h_nids) >= 4:
                     _interior_rings.append(_h_nids)
 
-        # ── Chain-consistent needle removal (weld ruling 2026-07-09) ──
-        # A vertex the sliver-corner repair removed from one way must
-        # also leave every OTHER way that passes through it NEAR-
-        # COLLINEARLY (within the needle height, 0.09 m of its
-        # neighbour chord) — welded seams share vertex chains, and a
-        # one-sided removal diverges the two constrained chains into a
-        # near-parallel sliver lens that Ruppert-refines to machine
-        # epsilon.  A partner where the vertex is a REAL corner keeps
-        # it (never deform genuine geometry; that seam keeps its
-        # sliver — rare, logged by the epsilon-wedge tripwire).
-        if emit_removed_nids:
-            n_chain = 0
-            for p_i, (s_idx, s, ext_nids, sa, sna) in enumerate(pending):
-                open_nids = ext_nids[:-1]
-                if not any(nid in emit_removed_nids for nid in open_nids):
-                    continue
-                kept = list(open_nids)
-                changed = True
-                while changed and len(kept) > 3:
-                    changed = False
-                    m = len(kept)
-                    for k in range(m):
-                        nid = kept[k]
-                        if nid not in emit_removed_nids:
-                            continue
-                        la0, lo0 = node_id_to_ll[kept[(k - 1) % m]]
-                        la1, lo1 = node_id_to_ll[nid]
-                        la2, lo2 = node_id_to_ll[kept[(k + 1) % m]]
-                        ax, ay = self.ll_to_m(la0, lo0)
-                        bx, by = self.ll_to_m(la1, lo1)
-                        cx, cy = self.ll_to_m(la2, lo2)
-                        dx, dy = cx - ax, cy - ay
-                        seg2 = dx * dx + dy * dy
-                        if seg2 < 1e-12:
-                            continue
-                        t = ((bx - ax) * dx + (by - ay) * dy) / seg2
-                        t = min(1.0, max(0.0, t))
-                        perp = math.hypot(bx - (ax + t * dx),
-                                          by - (ay + t * dy))
-                        if perp <= 0.09:
-                            del kept[k]
-                            n_chain += 1
-                            changed = True
-                            break
-                if len(kept) >= 3 and len(kept) < len(open_nids):
-                    pending[p_i] = (s_idx, s, kept + [kept[0]], sa, sna)
-            if n_chain:
-                UI.vprint(1,
-                    f"  [pav-builder] chain-consistent needle removal: "
-                    f"dropped {n_chain} partner vertex(es) so welded "
-                    f"seam chains stay identical.")
-
         # ── NID-LEVEL FINAL WELD (chain identity, 2026-07-09) ────
         # The canonical-point interning above can move a vertex
         # SIDEWAYS (0.5 m bucket) after the layout-level conformance
@@ -1736,6 +1684,86 @@ class PavementLayout:
                 f"  [pav-builder] interior rings: {len(_interior_rings)} "
                 f"ring(s), no duplicates at weld time.")
         _interior_rings[:] = _deduped_rings
+
+        # ── Chain-consistent needle removal (weld ruling 2026-07-09;
+        # REORDERED here by round 16, R16-1 "one boundary, one
+        # spelling") ─────────────────────────────────────────────────
+        # A vertex the sliver-corner repair removed from one way must
+        # also leave every OTHER chain that passes through it NEAR-
+        # COLLINEARLY (within the needle height, 0.09 m of its
+        # neighbour chord) — welded seams share vertex chains, and a
+        # one-sided removal diverges the two constrained chains into a
+        # near-parallel sliver lens that Ruppert-refines to machine
+        # epsilon.  A partner where the vertex is a REAL corner keeps
+        # it (never deform genuine geometry; that seam keeps its
+        # sliver — rare, logged by the epsilon-wedge tripwire).
+        #
+        # THE FRAME: it now runs where EVERY final chain exists —
+        # exterior ways AND interior hole rings, the holes already
+        # deduped to one chain each by the hoisted ``_hole_key`` pass
+        # above.  Scanning ``pending`` alone (its pre-round-16 frame)
+        # left the hole rings out in BOTH directions: a pad's exterior
+        # lost a needle vertex, its hole-ring partner kept it, and the
+        # two chains spelled ONE boundary TWICE differing by a vertex
+        # sitting exactly on the chord — a zero-width constrained lens
+        # Triangle answers with Steiner points (measured in the OTHH
+        # patch, R15-2 ledger: 33 twin-ring pairs / 59 differing
+        # vertices).  For a true twin the chord is identical, so the
+        # symmetric scan converges both chains by construction.
+        # It stays BEFORE the nid-level final weld, which remains the
+        # last geometry-affecting step of emission (its own standing
+        # law).
+        if emit_removed_nids:
+            n_chain = 0
+            _needle_chains: list = (
+                [("p", _p_i, _e[2]) for _p_i, _e in enumerate(pending)]
+                + [("r", _r_i, _r)
+                   for _r_i, _r in enumerate(_interior_rings)])
+            for _kind, _idx, _cnids in _needle_chains:
+                open_nids = _cnids[:-1]
+                if not any(nid in emit_removed_nids for nid in open_nids):
+                    continue
+                kept = list(open_nids)
+                changed = True
+                while changed and len(kept) > 3:
+                    changed = False
+                    m = len(kept)
+                    for k in range(m):
+                        nid = kept[k]
+                        if nid not in emit_removed_nids:
+                            continue
+                        la0, lo0 = node_id_to_ll[kept[(k - 1) % m]]
+                        la1, lo1 = node_id_to_ll[nid]
+                        la2, lo2 = node_id_to_ll[kept[(k + 1) % m]]
+                        ax, ay = self.ll_to_m(la0, lo0)
+                        bx, by = self.ll_to_m(la1, lo1)
+                        cx, cy = self.ll_to_m(la2, lo2)
+                        dx, dy = cx - ax, cy - ay
+                        seg2 = dx * dx + dy * dy
+                        if seg2 < 1e-12:
+                            continue
+                        t = ((bx - ax) * dx + (by - ay) * dy) / seg2
+                        t = min(1.0, max(0.0, t))
+                        perp = math.hypot(bx - (ax + t * dx),
+                                          by - (ay + t * dy))
+                        if perp <= 0.09:
+                            del kept[k]
+                            n_chain += 1
+                            changed = True
+                            break
+                if len(kept) >= 3 and len(kept) < len(open_nids):
+                    if _kind == "p":
+                        s_idx, s, _old, sa, sna = pending[_idx]
+                        pending[_idx] = (s_idx, s, kept + [kept[0]], sa, sna)
+                    else:
+                        _interior_rings[_idx] = kept + [kept[0]]
+            if n_chain:
+                UI.vprint(1,
+                    f"  [pav-builder] chain-consistent needle removal: "
+                    f"dropped {n_chain} partner vertex(es) so welded "
+                    f"seam chains stay identical (exterior ways AND "
+                    f"interior hole rings).")
+
         _weld_chains: list = ([("p", _p_i, _e[2])
                                for _p_i, _e in enumerate(pending)]
                               + [("r", _r_i, _r)

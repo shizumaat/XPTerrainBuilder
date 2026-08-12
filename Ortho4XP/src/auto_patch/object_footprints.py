@@ -231,6 +231,25 @@ def evidence_name_vouches(resource_paths) -> bool:
     return False
 
 
+def _wide_path_name_vouches(resource_paths) -> bool:
+    """The SHIPPED (wide) name-vouch of the two hull floors — a token
+    ANYWHERE in the resource path.
+
+    Kept only because ``DSF_OBJECT_NAME_VOUCH_SCOPED`` is parked OFF
+    (r18b STOP — the gate's comment in ``config`` carries the measured
+    numbers).  It is a claim about the DIRECTORY as often as the object,
+    which is exactly the HECA trap ``evidence_name_vouches`` above
+    refuses; when the band remedy lands, this function goes with the
+    gate and ``evidence_name_vouches`` is the only implementation.
+    """
+    for resource_path in resource_paths:
+        lowered = resource_path.lower()
+        if ("hangar" in lowered or "term_building" in lowered
+                or "/terminal" in lowered):
+            return True
+    return False
+
+
 def _triangle_union_footprint(
     triangle_corner_points: list[tuple[tuple[float, float],
                                        tuple[float, float],
@@ -678,6 +697,7 @@ def structure_ring(
         DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
         DSF_OBJECT_MIN_FOOTPRINT_FILL,
         DSF_OBJECT_MIN_TALL_BASE_FILL,
+        DSF_OBJECT_NAME_VOUCH_SCOPED,
         DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
     )
 
@@ -861,36 +881,32 @@ def structure_ring(
     # the 0.002 slab/mast floor calibrated at HECA), so the heuristic
     # alone would cull real stock hangars.
     #
-    # ⚠ MEASURED DEFECT, NOT YET FIXED — STOP-AND-REPORT (R18-2, round
-    # 18, 2026-08-11).  This predicate matches the token ANYWHERE in the
-    # path, which is a claim about the DIRECTORY as often as the object.
-    # HECA's Tai Models pack files its whole airport — apron slabs,
-    # jersey barriers, jet-blast fences — under ``Airport/Hangar_Tower/``
-    # and ``Airport/Hangar/``, so 667 of its 817 rings are name-vouched
-    # and BOTH floors below are disabled across the entire pack.  That
-    # is the deeper cause of the phantom pads: the 31,184 m² ring under
-    # HECA's building176 measures hull fill 0.00036 against the 0.1
-    # floor and is kept anyway.  ``evidence_name_vouches`` (used by the
-    # R18-2 gate, and by the CYXY case it was calibrated for — a STOCK
-    # LIBRARY hangar at ``lib/airport/…``) is the correct predicate.
+    # HISTORY — the WIDE predicate this line replaced (R18-2 round 18
+    # STOP report 2026-08-11, remedied in r18b 2026-08-12).  Until r18b
+    # this gate matched "hangar"/"term_building"/"/terminal" ANYWHERE in
+    # the resource path, which is a claim about the DIRECTORY as often as
+    # the object.  HECA's Tai Models pack files its whole airport — apron
+    # slabs, jersey barriers, jet-blast fences — under
+    # ``Airport/Hangar_Tower/`` and ``Airport/Hangar/``, so 667 of its
+    # 817 rings were name-vouched and BOTH floors below were disabled
+    # across the entire pack.  That was the deeper cause of the phantom
+    # pads: the 31,184 m² ring under HECA's building176 measures hull
+    # fill 0.00036 against the 0.1 floor and was kept anyway.
     #
-    # Substituting it here was MEASURED and is CORRECT on the ring
-    # population (HECA 817 → 210 rings; every survivor's hull fill
-    # 0.11-1.64, i.e. a real building's bases filling their own hull),
-    # but it makes the HECA build FAIL: ``assert_no_final_band_inversion``
-    # refuses at 679 of 4,792 band-covered nodes, contradictory anchor
-    # pair 5984 (110.610 m, 05C/23C) vs 3284 (60.980 m, 05L/23R) — a
-    # 2.0709 m route-budget shortfall.  ATTRIBUTED INTERVENTIONALLY: the
-    # same failure appears with the R18-2 gate switched OFF and only this
-    # substitution live, so it is THIS change and not the evidence gate.
-    # The remedy is in the route-budget / seating machinery under
-    # ``elevation_per_surface/`` — outside this round's scope — so the
-    # wide predicate stands and the finding is reported.
-    # docs/DEFERRED_VERIFICATION.md carries the line.
-    name_vouched = any(
-        ("hangar" in rp.lower() or "term_building" in rp.lower()
-         or "/terminal" in rp.lower())
-        for rp in structure.triangles_by_resource)
+    # ``evidence_name_vouches`` — the SAME predicate the R18-2 evidence
+    # gate uses, and the one the CYXY 2026-07-28 case was calibrated for
+    # (a STOCK LIBRARY hangar at ``lib/airport/…``, which vouches via its
+    # library virtual path) — is the correct predicate, and the r18b spec
+    # ruled the substitution TOTAL.  It is PARKED behind
+    # ``DSF_OBJECT_NAME_VOUCH_SCOPED`` (default OFF) instead: measured
+    # right on population (HECA 817 → 210 rings, 215 → 73 building pads)
+    # and it makes the HECA build REFUSE the final band-inversion law,
+    # whose remedy is measured OUTSIDE this file — see the gate's own
+    # comment in ``config`` for the numbers and the STOP.
+    name_vouched = (
+        evidence_name_vouches(structure.triangles_by_resource)
+        if DSF_OBJECT_NAME_VOUCH_SCOPED
+        else _wide_path_name_vouches(structure.triangles_by_resource))
     if evidence_out is not None:
         evidence_out["use_base_vertices"] = use_base_vertices
         evidence_out["name_vouched"] = name_vouched

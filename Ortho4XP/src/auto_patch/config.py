@@ -44,6 +44,7 @@ __all__ = [
     "DSF_OBJECT_MAX_STRUCTURE_SPAN_M",
     "DSF_OBJECT_MIN_BUILDING_HEIGHT_M",
     "DSF_OBJECT_BUILDING_EVIDENCE",
+    "DSF_OBJECT_NAME_VOUCH_SCOPED",
     "DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M",
     "DSF_OBJECT_EVIDENCE_MIN_COVERAGE",
     "DSF_OBJECT_PAD_FLAG_SPAN_M",
@@ -3516,6 +3517,39 @@ DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M = float(
 # median.
 DSF_OBJECT_BUILDING_EVIDENCE = (
     _os.environ.get("O4_DSF_OBJECT_BUILDING_EVIDENCE", "1") == "1")
+
+# ── SCOPED NAME-VOUCHING FOR THE TWO HULL FLOORS (r18b, PARKED OFF) ──
+# The floors in ``object_footprints.structure_ring`` yield to a resource
+# that NAMES itself a building.  Two predicates exist for that:
+#
+#   OFF (default, shipped): the WIDE path-anywhere match — "hangar" /
+#       "term_building" / "/terminal" anywhere in the resource path.
+#       HECA's Tai Models pack files its whole airport (apron slabs,
+#       jersey barriers, jet-blast fences) under ``Airport/Hangar_Tower/``
+#       and ``Airport/Hangar/``, so 667 of its 817 rings vouch on a
+#       DIRECTORY name and BOTH floors are disabled across the pack —
+#       the deeper cause of the phantom pads (building176's seed ring
+#       measures hull fill 0.00036 against the 0.1 floor and is kept).
+#   ON: ``object_footprints.evidence_name_vouches`` — basename, or a
+#       stock-library virtual path (``lib/airport/…/hangars/…``, the CYXY
+#       2026-07-28 case).  ONE predicate with the R18-2 evidence gate.
+#
+# WHY IT IS PARKED OFF (r18b STOP, 2026-08-12).  ON is measured CORRECT
+# on population (HECA 817 → 210 rings, 215 → 73 building pads) and makes
+# the HECA build REFUSE ``assert_no_final_band_inversion``: 680 of 4,792
+# band-covered nodes, worst pair 05C/23C 110.6100 (law 110.6131) against
+# 05L/23R 61.2800 (law 60.9778) — a 49.6353 m law-line spread over a
+# 47.5591 m route budget, 2.0762 m short.  A default-ON change may not
+# refuse a battery airport (``lateral_spine_nodes.py:150-154``), and the
+# remedy the r18b spec named (runway_redistribute's relax-don't-drop) is
+# measured INERT for it: every refused flex bin reports "relax allowed
+# 0.000 m", 05C/23C's flex is fully converged (drained 126.41 m,
+# residual 0.00 m) and 40 flex rounds instead of 12 leave its binding
+# anchor at 110.6100 unchanged while the inversion grows (680 → 752
+# nodes, worst 1.7709 → 2.0009 m).  So the substitution parks here with
+# its STOP report instead of landing default-ON.
+DSF_OBJECT_NAME_VOUCH_SCOPED = (
+    _os.environ.get("O4_DSF_OBJECT_NAME_VOUCH_SCOPED", "0") == "1")
 
 # What makes a member resource BUILDING-TALL for the vertical test: its
 # OWN above-grade vertical extent (the A11 clamp applied per member — a

@@ -2295,7 +2295,11 @@ def _gather_portal_walks(
             # met.  A minimum that outlives grade-reach is not a floor,
             # it is a canyon: it carried KCLT's SE chain 173 m into a
             # taxiway junction.  ``ramp_min_length_m`` is retired from
-            # this walk (the parameter stays for the callers).
+            # this walk (the parameter stays for the callers).  R20-2
+            # leaves all three retired: the 5 % cap below is still what
+            # sizes the MINIMUM lawful run, and the DEM-reach extension
+            # after it is a per-station measurement of the ground, not a
+            # length anyone declared.
             _ambient = (float(_deck_reference) if _deck_reference is not None
                         else float(apt_elev))
             # The MINIMUM lawful run at the owner's 5 % cap.  Walking
@@ -2303,7 +2307,111 @@ def _gather_portal_walks(
             # not (steeper), and the ``max_drop`` cap below holds the
             # emitted top edge to the cap either way.
             _bore_depth = max(0.0, _ambient - elev_low)
-            _run_limit = max(_bore_depth / TUNNEL_APPROACH_GRADE, 1.0)
+            _run_floor = max(_bore_depth / TUNNEL_APPROACH_GRADE, 1.0)
+            # ── R20-2: THE RUN REACHES GRADE ──────────────────────
+            # The minimum above is PORTAL-LOCAL: it measures depth
+            # against the ambient AT THE MOUTH and assumes the ground
+            # stays there.  Where the road climbs away from the portal
+            # it does not, and the run stops with the ramp still buried:
+            # at the owner's KCLT portal the deck reference is 211.44
+            # while the DEM on the walk reaches 216.71, so a run sized
+            # on 211.44 − 206.36 ended 101 m out and the ramp topped
+            # 4.26 m under the ground beside it — a 4.4 m cliff, with
+            # ~97 m of corridor to the taxiway carrying no shape at all.
+            #
+            # The run is sized against the GROUND ALONG THE WALK, and
+            # against the grade this module actually EMITS.  Those were
+            # two different constants: the sizing used
+            # ``TUNNEL_APPROACH_GRADE`` (5 %) and the emit uses
+            # ``plan_grade`` (the ramp cap less its safety margin,
+            # 3.5 %), so even on flat ground the run was 30 % short of
+            # what its own ramp needed.  ONE constant now runs the whole
+            # path — sizing here, the ``max_drop`` cap below, and
+            # ``_emit_chain``'s effective-space clamp all read the
+            # emitted grade.
+            #
+            # The run therefore extends while
+            # ``dem_along_walk(s) − elev_low > emit_grade · s`` and ends
+            # where the ramp MEETS the ground, so the top edge lands on
+            # the DEM instead of under it.  Nothing that R14 removed
+            # comes back: this is a floor-and-extend, never a minimum —
+            # it cannot make a run SHORTER than the R14 minimum above,
+            # and it stops the moment the ramp is at grade, so neither
+            # the 200 m minimum nor the 8 m synthetic floor is
+            # reachable from here.  Past the meeting station the walk's
+            # surface is ordinary road: the R14-1 claim machinery
+            # re-profiles the mapped pavement it covers (the approach
+            # zone is this same run-limited walk), and where nothing is
+            # mapped the road law owns it.
+            #
+            # SCOPE: the portals that HAVE a synthetic ramp.  A
+            # ``cut_detected`` portal emits the light-touch
+            # cap/mouth/roof construction instead — the bare-earth DEM
+            # already carries the descending approach — so there is no
+            # ramp there to bring up to ground and nothing to reach for;
+            # extending its walk would only widen the R14-1 claim's
+            # approach zone over ground the trench already models.  Those
+            # portals keep the R14 run exactly.
+            _emit_grade = max(float(plan_grade), 1e-3)
+
+            def _walk_ground(_pt):
+                """DEM on the walk, ``None`` when it cannot answer."""
+                try:
+                    _g_lat, _g_lon = meters_to_lat_lon(*_pt)
+                    _g_raw = _sample_dem(
+                        dem, tile_lat, tile_lon, _g_lat, _g_lon)
+                except _GEOM_EXC:
+                    return None
+                return None if _g_raw is None else float(_g_raw)
+
+            _meet_at = 0.0
+            if not cut_detected:
+                _stations: list[float] = [0.0]
+                for _i in range(1, len(walk)):
+                    _stations.append(_stations[-1] + math.hypot(
+                        walk[_i][0] - walk[_i - 1][0],
+                        walk[_i][1] - walk[_i - 1][1]))
+                # Deficit = how far the emitted ramp is still BELOW the
+                # ground at that station.  Sampled at the walk's own
+                # vertices — the stations the ramp quads are cut at — so
+                # the crossing this finds is the crossing the emitted
+                # profile has.  The LAST station still below ground is
+                # what sizes the run, not the first crossing: a dip in
+                # the road must not end a run the ground beyond it still
+                # demands.
+                _deficits: list[float] = []
+                for _i, _pt in enumerate(walk):
+                    _g = _walk_ground(_pt)
+                    if _g is None:
+                        _g = _ambient
+                    _deficits.append(
+                        _g - elev_low - _emit_grade * _stations[_i])
+                _last_below = -1
+                for _i in range(len(_deficits) - 1, -1, -1):
+                    if _deficits[_i] > 0.0:
+                        _last_below = _i
+                        break
+                if _last_below < 0:
+                    # The ramp is at or above ground from the mouth out —
+                    # nothing to reach.  R14's minimum governs.
+                    _meet_at = 0.0
+                elif _last_below >= len(walk) - 1:
+                    # The ground outruns the ramp for the whole walk: no
+                    # meeting station exists on this road.  Surface all
+                    # of it; the ``max_drop`` cap below keeps the top
+                    # lawful and the residual gap is the road's, not the
+                    # ramp's.
+                    _meet_at = _stations[-1]
+                else:
+                    _d0 = _deficits[_last_below]
+                    _d1 = _deficits[_last_below + 1]
+                    _t = (_d0 / (_d0 - _d1)
+                          if (_d0 - _d1) > 1e-9 else 1.0)
+                    _t = min(1.0, max(0.0, _t))
+                    _meet_at = (_stations[_last_below]
+                                + _t * (_stations[_last_below + 1]
+                                        - _stations[_last_below]))
+            _run_limit = max(_run_floor, _meet_at)
             cum = 0.0
             kept_pts: list[tuple[float, float]] = [walk[0]]
             for i in range(1, len(walk)):
@@ -2338,8 +2446,11 @@ def _gather_portal_walks(
                 far_dem = None
             if far_dem is None:
                 far_dem = _ambient
-            # The visible top edge never outruns the approach grade.
-            max_drop = TUNNEL_APPROACH_GRADE * grade_ok_at
+            # The visible top edge never outruns the grade the chain is
+            # emitted at (R20-2: ONE constant on the whole path — the
+            # cap that judges the top must be the cap the run was sized
+            # on, or the run buys reach the cap then refuses to spend).
+            max_drop = _emit_grade * grade_ok_at
             if (far_dem - elev_low) > max_drop:
                 far_dem = elev_low + max_drop
             mouth_grade = (_mouth_min if _mouth_min is not None

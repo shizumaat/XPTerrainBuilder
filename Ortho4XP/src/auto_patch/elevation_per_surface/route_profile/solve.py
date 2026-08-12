@@ -1088,7 +1088,7 @@ _PROBE_ABSENT = object()
 #: three; the two index publications are ``_build_node_list``'s.
 _PROBE_PUBLISHED_ATTRS = ("_seam_pin_idx", "_seam_pin_ll",
                           "_seam_pin_residuals", "_eat_anchor_pin_idx",
-                          "_eat_anchor_pin_prev",
+                          "_eat_anchor_pin_prev", "_eat_anchor_pin_rect",
                           "_terrain_host_yield_first_index",
                           "_adjacent_ground_first_zone_index")
 
@@ -2157,6 +2157,54 @@ def solve_route_profile(layout, icao: str,
     # RELEASES the node to the seed ``_seed_elevations`` snapshotted, so
     # it solves as ordinary pavement under the caps instead of carrying
     # an immovable value the law cannot reconcile.
+    # ── THE UNROUTABLE EAT IS NOT AN EAT (owner ruling 2026-08-12,
+    # "CANYON ROOT FIELD-CONFIRMED"; r17d law 1) ──────────────────────
+    # AN EAT ANCHOR-RECT WHOSE GOVERNED NODES HAVE NO ROUTE TO ANY
+    # RUNWAY ANCHOR IS REFUSED WHOLE-RECT.  The rect is scoped
+    # GEOMETRICALLY — a corridor about the extended centreline — so a
+    # perimeter road lying there is claimed by it; a road is not an
+    # end-around taxiway and the AIRSIDE route graph (the service pairs
+    # withheld, ``REACH_NO_SERVICE_SPINES``) says so exactly.
+    #
+    # HERE, and above its sibling: an unroutable rect is not a facility
+    # the contradiction guard should be pricing the VALUE of at all.
+    # Same graph, same place in the pass, same release, same carried
+    # verdict — one guard site, two laws, no second machinery.
+    #
+    # ATTRIBUTION-FIRST (instrumented arms 2026-08-12, one report-only
+    # line per airport, this tree): KCLT's reference EAT — 11 pins over
+    # ONE rect — is TAXI-BOUND (4 of its 11 nodes route to a runway
+    # anchor), so the whole-rect law takes NOTHING there.  That margin
+    # is the whole reason the law is whole-rect: a PER-NODE spelling
+    # would have refused 7 of the reference feature's 11 pins.  KSTJ's
+    # single rect binds too (5 of 18) and keeps every pin, so its five
+    # contradiction-refusals stand unchanged.  VHHH's 38 pins over SEVEN
+    # rects bind NOTHING — zero of 38, against 59 runway anchors on the
+    # graph — which is the phantom the field report names.
+    _eat_pins_route = getattr(layout, "_eat_anchor_pin_idx", None) or {}
+    if _eat_pins_route:
+        _eat_rects = getattr(layout, "_eat_anchor_pin_rect", None) or {}
+        _n_rects_pre = len({_eat_rects.get(int(_i), -int(_i) - 1)
+                            for _i in _eat_pins_route})
+        _n_route_pre = len(_eat_pins_route)
+        _route_refused = eat_unroutable_rect_refusals(
+            _eat_pins_route, _eat_rects,
+            eat_pin_taxi_bound(_eat_pins_route, u_spine_adj_airside,
+                               G.runway_anchor))
+        if _route_refused:
+            _n_route_rel = release_refused_eat_pins(
+                layout, _route_refused, elev, base_hard, _have_initial)
+            publish_eat_refusal_keys(layout, _route_refused, nodes)
+            import O4_UI_Utils as _UI_eatr
+            _UI_eatr.vprint(1, format_eat_unroutable_line(
+                icao, _route_refused, _n_route_pre, _n_rects_pre))
+            if _n_route_rel != len(_route_refused):
+                _UI_eatr.vprint(0,
+                    f"  [eat-anchor-rect] WARN: {icao}: "
+                    f"{len(_route_refused) - _n_route_rel} refused pin(s) "
+                    f"had NO pre-pin snapshot and were left stamped — "
+                    f"``_eat_anchor_pin_prev`` is out of step with "
+                    f"``_eat_anchor_pin_idx``.")
     _eat_pins_guard = getattr(layout, "_eat_anchor_pin_idx", None) or {}
     if _eat_pins_guard:
         _n_pins_pre = len(_eat_pins_guard)
@@ -4856,7 +4904,8 @@ def solve_route_profile(layout, icao: str,
     # since this call is a MEASUREMENT of the solve's own node space and
     # must not republish anything in it.
     _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
-                  "_eat_anchor_pin_idx", "_eat_anchor_pin_prev")
+                  "_eat_anchor_pin_idx", "_eat_anchor_pin_prev",
+                  "_eat_anchor_pin_rect")
     _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
     try:
         _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
@@ -5418,7 +5467,8 @@ def _capture_projection_snapshot(layout, fairing_moved_keys=None,
     saved_pins = [(attr, getattr(layout, attr, None))
                   for attr in ("_seam_pin_idx", "_seam_pin_ll",
                                "_eat_anchor_pin_idx",
-                               "_eat_anchor_pin_prev")]
+                               "_eat_anchor_pin_prev",
+                               "_eat_anchor_pin_rect")]
     values: dict = {}
     try:
         nodes, bucket_to_idx = _build_node_list(layout)
@@ -7982,6 +8032,103 @@ def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
         if viol is not None:
             refused[int(i)] = viol
     return refused
+
+
+def eat_pin_taxi_bound(pins, spine_adj, runway_anchor):
+    """THE ROUTE TEST — the subset of ``pins`` whose node can TAXI to a
+    runway anchor over the AIRSIDE route graph.
+
+    An end-around taxiway is a TAXIWAY: an aircraft reaches it from the
+    runway it goes around.  So "does a route exist from this pin's node
+    to any runway anchor" is the feature's own definition, priced on the
+    graph the anchor envelope is priced on (``u_spine_adj_airside`` —
+    the unified spine graph with the service pairs excluded, which is
+    what ``REACH_NO_SERVICE_SPINES`` means by a taxi route).
+
+    Reachability, not budget: ``build_anchor_envelope`` builds no
+    horizon, so a node the anchors can bound is exactly a node the
+    anchors can REACH, and the two readings of "within the envelope's
+    reach" coincide.  Spelling it as a plain traversal keeps this a
+    connectivity question — it asks whether a route exists, never how
+    much grade budget lies along it.
+
+    ``runway_anchor`` — ``G.runway_anchor`` at the guard site, which is
+    the genuine runway ring anchors: the EAT pins do not join that map
+    until AFTER the flex pass, well below the guard, so a phantom pin
+    can never certify itself or its sibling as the runway it routes to.
+
+    Returns the SET of bound pin nodes.  Every pin is bound when the
+    graph is empty of anchors — a missing bound is honest and the caller
+    then refuses nothing.
+    """
+    if not pins:
+        return set()
+    seeds = [int(i) for i in (runway_anchor or ()) if int(i) in spine_adj]
+    if not spine_adj or not seeds:
+        return set(int(i) for i in pins)
+    seen = set(seeds)
+    stack = list(seeds)
+    while stack:
+        u = stack.pop()
+        for edge in spine_adj.get(u, ()):
+            v = edge[0] if isinstance(edge, tuple) else edge
+            if v not in seen:
+                seen.add(v)
+                stack.append(v)
+    return {int(i) for i in pins if int(i) in seen}
+
+
+def eat_unroutable_rect_refusals(pins, pin_rect, bound):
+    """THE UNROUTABLE-EAT LAW (owner ruling 2026-08-12, "CANYON ROOT
+    FIELD-CONFIRMED"; r17d law 1) — ``{node: rect}`` for every pin of
+    every anchor rect NO node of which can taxi to a runway anchor.
+
+    **AN EAT ANCHOR-RECT WHOSE GOVERNED NODES HAVE NO ROUTE TO ANY
+    RUNWAY ANCHOR IS NOT AN END-AROUND TAXIWAY.**  The rect's scoping is
+    purely GEOMETRIC — a corridor about the extended centreline beyond
+    the runway end — so any pavement lying there is claimed, and a
+    PERIMETER ROAD lying there is claimed too.  A road is not an
+    end-around taxiway: no aircraft taxis onto it, and the airside route
+    graph says so exactly (``REACH_NO_SERVICE_SPINES`` withholds the
+    service pairs, so a road-only component holds no route to a runway).
+    Pinning it at the departure-surface regulation authored the band at
+    VHHH's remaining runway ends and the seal enforced it.
+
+    WHOLE-RECT, and not per node, because the question the law asks is
+    about the FACILITY: "is this pavement an end-around taxiway?" is
+    answered once for the crossing segment, not vertex by vertex.  A
+    genuine EAT that happens to carry one node whose spine edges were
+    decimated away therefore keeps its whole rect (some node of it
+    routes); a road corridor keeps none.  The contradiction guard beside
+    it stays PER NODE for the same reason in reverse — that law asks
+    whether one VALUE contradicts a senior anchor.
+
+    ``pin_rect`` — ``layout._eat_anchor_pin_rect``, the segmentation the
+    pin builder already did.  A pin with no rect identity is treated as
+    its own rect, so a missing publication can only ever refuse less.
+    """
+    if not pins:
+        return {}
+    rect_of = {int(i): (pin_rect or {}).get(int(i), -int(i) - 1)
+               for i in pins}
+    routable_rects = {rect_of[int(i)] for i in bound if int(i) in rect_of}
+    return {int(i): rect_of[int(i)] for i in pins
+            if rect_of[int(i)] not in routable_rects}
+
+
+def format_eat_unroutable_line(icao, refused, n_pins, n_rects):
+    """THE ONE LOUD LINE the unroutable-EAT law prints — how many pins
+    over how many rects, and which rects they were.  Formatted HERE so
+    the twin drives the string the build emits."""
+    rects = sorted({int(r) for r in refused.values()})
+    return (
+        f"  [eat-anchor-rect] {icao}: {len(refused)} of {n_pins} pin(s) "
+        f"REFUSED over {len(rects)} of {n_rects} rect(s) "
+        f"{rects if len(rects) <= 12 else rects[:12] + ['...']} — NO taxi "
+        f"route from any node of the rect to any runway anchor, so it is "
+        f"not an end-around taxiway (a perimeter road in the corridor is "
+        f"claimed by the rect's geometry and refused by its route); "
+        f"released to their seed.")
 
 
 def publish_eat_refusal_keys(layout, refused, nodes):

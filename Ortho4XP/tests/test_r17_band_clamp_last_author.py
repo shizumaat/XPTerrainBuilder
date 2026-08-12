@@ -131,6 +131,31 @@ class TestSealClampsTheEmittedSurface:
         assert SP.seal_pavement_to_band(layout, "TEST") == 0
         assert s.node_altitudes == [20.0] * 4
 
+    def test_a_flat_shape_stays_flat(self):
+        """A pad / level apron is one surface: a per-vertex clamp would
+        mint the within-shape rows this pass exists to prevent."""
+        s = _shape(alts=(20.0, 20.0, 20.0, 20.0))
+        s.role = ROLE_JUNCTION
+        layout = _Layout([s])
+
+        def _band_one_corner(x, y):
+            return (4.6, 9.4) if (x, y) == (0.0, 0.0) else None
+
+        BF.publish_band_of_record(layout, _band_one_corner)
+        assert SP.seal_pavement_to_band(layout, "TEST") == 1
+        assert s.node_altitudes == [9.4] * 4
+
+    def test_the_hard_roles_are_never_clamped(self):
+        from auto_patch.layout import (ROLE_BRIDGE_CAUSEWAY,
+                                       ROLE_RUNWAY_CROSSING)
+        for role in (ROLE_RUNWAY, ROLE_RUNWAY_CROSSING,
+                     ROLE_BRIDGE_CAUSEWAY):
+            s = _shape(role=role, alts=(20.0, 20.0, 20.0, 20.0))
+            layout = _Layout([s])
+            BF.publish_band_of_record(layout, _band())
+            assert SP.seal_pavement_to_band(layout, "TEST") == 0
+            assert s.node_altitudes == [20.0] * 4
+
     def test_no_band_of_record_clamps_nothing(self):
         s = _shape(alts=(20.0, 20.0, 20.0, 20.0))
         layout = _Layout([s])

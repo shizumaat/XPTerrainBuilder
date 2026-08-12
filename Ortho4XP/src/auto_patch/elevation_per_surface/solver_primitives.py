@@ -3588,6 +3588,17 @@ def _record_band_clamp_findings(layout, findings) -> None:
 #: Where the seal's fingerprint of the emitted pavement lives.
 BAND_SEAL_ATTR = "_band_clamp_seal"
 
+#: Roles the FINAL clamp never touches, because their values are HARD by
+#: law and a late clamp could only fight the datum that set them:
+#: ROLE_RUNWAY (CIFP-absolute, "airside is king" — the writeback exempts
+#: it for the same reason), ROLE_RUNWAY_CROSSING (runway-interpolated
+#: node altitudes) and the object-bridge plates (hard pins written at
+#: shape birth, `layout._object_bridge_pin_values`).
+SEAL_HARD_ROLES = frozenset({
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_BRIDGE_TRENCH,
+    ROLE_BRIDGE_CAUSEWAY,
+})
+
 
 def _shape_ring_and_values(shape):
     """``(open ring, per-vertex values, form)`` for an emitted shape.
@@ -3662,7 +3673,7 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
     n_shapes = 0
     if band is not None:
         for s in getattr(layout, "shapes", ()) or ():
-            if s.role not in PAVEMENT_ROLES or s.role == ROLE_RUNWAY:
+            if s.role not in PAVEMENT_ROLES or s.role in SEAL_HARD_ROLES:
                 continue
             ring, vals, form = _shape_ring_and_values(s)
             if ring is None:
@@ -3673,6 +3684,16 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
             if out is before or list(out) == before:
                 continue
             n_shapes += 1
+            # A FLAT SHAPE STAYS FLAT.  A building pad is a rigid flat
+            # group and an apron seated level is one surface: clamping it
+            # per-vertex would mint the within-shape rows this pass
+            # exists to prevent.  One level for the whole ring — the one
+            # the clamp moved furthest, so no vertex is left outside its
+            # own interval on the side the clamp acted.
+            if max(before) - min(before) <= WRITEBACK_BAND_CLAMP_MATERIALITY_M:
+                level = round(float(
+                    max(out, key=lambda v: abs(v - before[0]))), 2)
+                out = [level] * len(out)
             if form == "node":
                 s.node_altitudes = list(out)
             elif form == "plane":

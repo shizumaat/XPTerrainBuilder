@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -506,6 +507,84 @@ class _SignInDialog(QDialog):
         self.password_edit.setFocus()
 
 
+class _ElidedLabel(QLabel):
+    """One-line label that elides its text and keeps the full string.
+
+    QLabel has no eliding mode of its own, so the widget re-elides on
+    every resize and carries the untruncated text as its tooltip.  Its
+    horizontal size policy is Ignored: it accepts whatever width the row
+    has left over instead of demanding room for the longest state, which
+    is what lets a fixed control beside it stay pinned.
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setTextFormat(Qt.PlainText)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.set_full_text(text)
+
+    def full_text(self):
+        """The complete, un-elided text (what the tooltip shows)."""
+        return self._full_text
+
+    def set_full_text(self, text):
+        self._full_text = str(text or "")
+        self.setToolTip(self._full_text)
+        self._apply_elide()
+
+    def setText(self, text):  # noqa: N802 (Qt naming)
+        """Any caller setting text sets the FULL text (never a stale one)."""
+        self.set_full_text(text)
+
+    def resizeEvent(self, event):  # noqa: N802 (Qt naming)
+        super().resizeEvent(event)
+        self._apply_elide()
+
+    def _apply_elide(self):
+        width = self.width()
+        if width <= 0:  # not laid out yet: nothing to elide against
+            QLabel.setText(self, self._full_text)
+            return
+        QLabel.setText(
+            self,
+            self.fontMetrics().elidedText(
+                self._full_text, Qt.ElideRight, width
+            ),
+        )
+
+
+# The one context-aware action a provider row offers.  Dialog-opening
+# actions carry the ellipsis; the direct sign-out does not.
+ACTION_SIGN_IN = "sign_in"
+ACTION_SIGN_OUT = "sign_out"
+ACTION_ADD_API_KEY = "add_api_key"
+ACTION_EDIT_API_KEY = "edit_api_key"
+
+ACTION_LABELS = {
+    ACTION_SIGN_IN: "Sign in…",
+    ACTION_SIGN_OUT: "Sign out",
+    ACTION_ADD_API_KEY: "Add API Key…",
+    ACTION_EDIT_API_KEY: "Edit…",
+}
+
+STATUS_OK_STYLE = "color: #2E7D32;"
+STATUS_MUTED_STYLE = "color: gray;"
+
+
+def provider_row_action(api_key_kind, is_stored):
+    """The action a provider row offers, from its kind and local state.
+
+    ``api_key_kind`` providers store a key (add it, or edit/replace it);
+    session and http_basic providers hold a session (sign in, or sign
+    out).  ``is_stored`` is LOCAL state only — a stored key, saved
+    credentials or a saved cookie jar.
+    """
+    if api_key_kind:
+        return ACTION_EDIT_API_KEY if is_stored else ACTION_ADD_API_KEY
+    return ACTION_SIGN_OUT if is_stored else ACTION_SIGN_IN
+
+
 class _ProviderSignInSection(QWidget):
     """Account sign-ins for providers that require one (app-level).
 
@@ -514,13 +593,24 @@ class _ProviderSignInSection(QWidget):
     the settings window never touches the network; the build pipeline
     verifies and re-logs sessions on its own (O4_Authenticated_Sessions.
     ensure_session).
+
+    Each row carries ONE context-aware button (owner ruling 2026-08-12):
+    what it says is what it does — Sign in…/Sign out for session and
+    http_basic providers, Add API Key…/Edit… for api_key ones.  The
+    button is pinned to the row's right edge and the status text takes
+    whatever space is left.
     """
+
+    _sign_out_finished = Signal(str)  # session_name
 
     def __init__(self, parent=None):
         super().__init__(parent)
         import O4_Authenticated_Sessions as SESSIONS
 
         self._sessions = SESSIONS
+        self._actions = {}  # session_name -> ACTION_* the button performs
+        self._busy = set()  # session_names with an action in flight
+        self._sign_out_finished.connect(self._finish_sign_out)
         self._search_haystack = "sign in account provider "
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -539,7 +629,7 @@ class _ProviderSignInSection(QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(note)
-        self._rows = {}  # session_name -> (definition, status QLabel, out btn)
+        self._rows = {}  # session_name -> (definition, status, action btn)
         for definition in self._session_definitions():
             self._add_row(layout, definition)
         self._refresh_statuses()
@@ -601,23 +691,24 @@ class _ProviderSignInSection(QWidget):
             title.setToolTip(
                 "Create an account: %s" % definition["registration_url"]
             )
-        row.addWidget(title, 1)
-        status = QLabel("")
-        row.addWidget(status)
-        sign_in_button = QPushButton("Sign in…")
-        sign_in_button.clicked.connect(
-            lambda _=False, d=definition: self._sign_in(d)
+        row.addWidget(title)
+        # The status is the row's ONLY elastic element and the button
+        # keeps its ideal width, so every row's button shares the same
+        # trailing edge whatever the status says (Qt twin of the SwiftUI
+        # fixedSize()/layoutPriority idiom).
+        status = _ElidedLabel("")
+        status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(status, 1)
+        action_button = QPushButton("")
+        action_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        action_button.clicked.connect(
+            lambda _=False, n=session_name: self._activate(n)
         )
-        row.addWidget(sign_in_button)
-        sign_out_button = QPushButton("Sign out")
-        sign_out_button.clicked.connect(
-            lambda _=False, n=session_name: self._sign_out(n)
-        )
-        row.addWidget(sign_out_button)
+        row.addWidget(action_button, 0, Qt.AlignRight)
         container = QWidget()
         container.setLayout(row)
         layout.addWidget(container)
-        self._rows[session_name] = (definition, status, sign_out_button)
+        self._rows[session_name] = (definition, status, action_button)
         self._search_haystack += " ".join(
             str(definition.get(key, ""))
             for key in ("code", "attribution", "session_name")
@@ -629,51 +720,77 @@ class _ProviderSignInSection(QWidget):
     def _refresh_statuses(self):
         import os
 
-        for session_name, (definition, status, sign_out_button) in (
+        for session_name, (definition, status, action_button) in (
             self._rows.items()
         ):
-            if (
+            api_key_kind = (
                 self._sessions.credential_kind(definition)
                 == self._sessions.CREDENTIAL_KIND_API_KEY
-            ):
-                has_api_key = bool(
-                    self._sessions.load_api_key(session_name)
-                )
-                status.setText(
-                    "<span style='color: #2E7D32;'>API key stored</span>"
-                    if has_api_key
-                    else "<span style='color: gray;'>No API key</span>"
-                )
-                status.setTextFormat(Qt.RichText)
-                sign_out_button.setEnabled(has_api_key)
-                continue
-            credentials = self._sessions.load_credentials(session_name)
-            has_cookies = os.path.isfile(
-                self._sessions.cookie_file_path(session_name)
             )
-            if credentials is not None:
-                status.setText(
-                    "<span style='color: #2E7D32;'>Signed in as %s</span>"
-                    % credentials[0]
-                )
-            elif has_cookies:
-                status.setText(
-                    "<span style='color: #2E7D32;'>Session saved</span>"
-                )
+            if api_key_kind:
+                is_stored = bool(self._sessions.load_api_key(session_name))
+                text = "API key stored" if is_stored else "No API key"
             else:
-                status.setText(
-                    "<span style='color: gray;'>Not signed in</span>"
+                credentials = self._sessions.load_credentials(session_name)
+                has_cookies = os.path.isfile(
+                    self._sessions.cookie_file_path(session_name)
                 )
-            status.setTextFormat(Qt.RichText)
-            sign_out_button.setEnabled(credentials is not None or has_cookies)
+                is_stored = credentials is not None or has_cookies
+                if credentials is not None:
+                    text = "Signed in as %s" % credentials[0]
+                elif has_cookies:
+                    text = "Session saved"
+                else:
+                    text = "Not signed in"
+            status.setStyleSheet(
+                STATUS_OK_STYLE if is_stored else STATUS_MUTED_STYLE
+            )
+            status.set_full_text(text)
+            if session_name in self._busy:
+                # In flight: the label stays whatever it said when the
+                # user pressed it, just disabled.
+                action_button.setEnabled(False)
+                continue
+            action = provider_row_action(api_key_kind, is_stored)
+            self._actions[session_name] = action
+            action_button.setText(ACTION_LABELS[action])
+            action_button.setEnabled(True)
+
+    def _activate(self, session_name):
+        """Run the row's one context-aware action."""
+        definition = self._rows[session_name][0]
+        if self._actions.get(session_name) == ACTION_SIGN_OUT:
+            self._start_sign_out(session_name)
+        else:  # sign in, add or replace an API key — all one dialog
+            self._sign_in(definition)
 
     def _sign_in(self, definition):
         dialog = _SignInDialog(definition, self)
         if dialog.exec():
             self._refresh_statuses()
 
-    def _sign_out(self, session_name):
-        self._sessions.sign_out(session_name)
+    def _start_sign_out(self, session_name):
+        """Forget the session off the UI thread (keychain deletes can
+        block), then re-derive the row from local state."""
+        import threading
+
+        self._busy.add(session_name)
+        self._refresh_statuses()
+
+        def _worker():
+            try:
+                self._sessions.sign_out(session_name)
+            except Exception:
+                # Best effort, like sign_out's own OSError swallow: a
+                # failed delete simply leaves the row signed in, which
+                # is the honest status.
+                pass
+            self._sign_out_finished.emit(session_name)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_sign_out(self, session_name):
+        self._busy.discard(session_name)
         self._refresh_statuses()
 
 

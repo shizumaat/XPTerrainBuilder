@@ -1522,3 +1522,31 @@ rulings, spec `docs/specs/round14-tunnel-road-integration-spec.md`.
    3.5 % highway planning grade, and `ramp_min_length_m`'s 200 m MINIMUM —
    are all retired from the portal walk. Measured effect: KCLT's SE chain
    173 m → 90 m, clear of taxiway junction 378.
+
+## 2026-08-11 — Session rulings (rounds 9–15), pointers to the frozen specs
+
+Owner rulings landed this session, canonical text in the named specs
+(each FROZEN + amended in place; commit messages carry the measured
+evidence):
+
+* **Bridges seat by the DECK TOP, one rigid seat per family, and a
+  connected assembly takes ONE seat without splitting** (owner: "if
+  it's really several bridges connected as one object, there should be
+  a seat level that works for all of them") — the agreeing coalition of
+  member deck-face witnesses seats the family; water never authors a
+  bridge datum (the MESH's own water bits are the authority).
+  `docs/specs/round12-bridge-deck-datum-spec.md` + amendments 1–4.
+  In-sim ACCEPTED by the owner 2026-08-11.
+* **Roads serve tunnels — "the paved area IS the corridor"** (owner
+  verbatim): road-family shapes inside a tunnel's open cut are CLAIMED
+  and re-profiled (bore-depth level plate between facing portals, the
+  graded approach IS the service road); ramps run at up to **5 % grade**
+  (owner cap, `TUNNEL_APPROACH_GRADE`); a cut NEVER interrupts
+  runway/taxiway-family pavement (hard-deck object bridge is the only
+  exception — supersedes ruling 4 for the taxiway family only).
+  `docs/specs/round14-tunnel-road-integration-spec.md` + amendment.
+* **Below-grade admission needs physical evidence** — a mapped tunnel
+  way emits below grade iff a measured DEM cut, or layer<0 with an
+  unusable DEM, or airside-pavement cover (THE COVER IS THE DECK);
+  building cover means passthrough-at-grade.
+  `docs/specs/round10-tunnel-emission-spec.md` A1/A6.

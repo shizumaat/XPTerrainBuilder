@@ -243,7 +243,12 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
     if flat_site_inset:
         inset_entries, inset_clusters, inset_note = (
             flat_site_inset_stamp(tile))
-        coastal = VMAP.coastline_wall_admission(tile, sea)
+        # R17c-3: the admission is scoped to the AIRPORT'S ISLAND, and the
+        # graded coverage is what production scopes it with — so the tool
+        # hands it the same union, or it would measure a wider island than
+        # the build makes.
+        coastal = VMAP.coastline_wall_admission(tile, sea,
+                                                graded_area=coverage)
         if not coastal.is_empty:
             from shapely import ops as _ops
             wall_admission = _ops.unary_union([coverage, coastal])

@@ -411,6 +411,174 @@ def _in_flat_extent(layout, pos):
         return f"? ({type(exc).__name__})"
 
 
+class _WriteTracedElev(list):
+    """The solve's ``elev`` list, with a WRITE LOG for the values that
+    matter (R17c-1).
+
+    r17b named the poisoned SEED (node 419 at −12.537, a surface-lawful
+    junction node inside a flat site's Z0 core) but not its WRITER: the
+    seed set the band reads is ``elev`` at the moment
+    ``route_profile.solve`` publishes ``_seed_hard_truth_values``, and
+    between ``_seed_elevations`` and that publication a dozen passes may
+    write it.  Attribution by code reading is exactly the "attribution
+    reads are not causal" trap; this records the writer.
+
+    Only writes whose VALUE crosses ``thresh`` (default 0.0 — the
+    question is "who wrote a below-sea-level number onto a surface
+    node") or that land on a WATCHED index are logged, so the log stays
+    small while the solve's millions of ordinary writes cost one
+    comparison each."""
+
+    __slots__ = ("log", "thresh", "watch")
+
+    def __init__(self, seq, thresh=0.0, watch=()):
+        super().__init__(seq)
+        self.log: dict = {}
+        self.thresh = float(thresh)
+        self.watch = set(watch)
+
+    def __setitem__(self, i, v):
+        try:
+            if type(i) is int and (v < self.thresh or i in self.watch):
+                f = sys._getframe(1)
+                self.log.setdefault(i, []).append(
+                    (f"{os.path.basename(f.f_code.co_filename)}:"
+                     f"{f.f_lineno} {f.f_code.co_name}",
+                     float(list.__getitem__(self, i)), float(v)))
+        except Exception:                                   # pragma: no cover
+            pass
+        list.__setitem__(self, i, v)
+
+
+def _branch_of(call, idx):
+    """The SEEDING BRANCH that supplied node ``idx``'s value, from the
+    call's own ``O4_SEED_BRANCH_ATTRIB`` map — the measurement that
+    settles CONSTANT FILL vs PER-VERTEX SAMPLE, which select different
+    fixes and which no amount of code reading can separate."""
+    rec = (call.get("branch") or {}).get(int(idx))
+    if rec is None:
+        return ("(no branch recorded — run with O4_SEED_BRANCH_ATTRIB=1)")
+    return ("{0}   shape {1}/{2} ring#{3}".format(
+        rec.get("branch"), rec.get("ref"), rec.get("role"),
+        rec.get("ring_index")))
+
+
+def _seed_pin_family(layout, idx, extra):
+    """WHICH PIN FAMILY hardened node ``idx`` inside ``_seed_elevations``.
+
+    Production publishes each family's own index set (``_seam_pin_idx``
+    is the UNION protection set, ``_eat_anchor_pin_idx`` is exact, and
+    the tunnel-road / flat-fast-path families are captured from their own
+    builders by the shim) — this reads those, never a second opinion
+    about what a pin is."""
+    hits = [name for (name, s) in extra.items() if idx in s]
+    if idx in (getattr(layout, "_eat_anchor_pin_idx", None) or {}):
+        hits.append("eat_anchor_rect")
+    prot = getattr(layout, "_seam_pin_idx", None) or set()
+    if idx in prot and not hits:
+        hits.append("seam/deck/skirt pin (protection set, family not "
+                    "separately published)")
+    return ", ".join(hits) if hits else "runway/CIFP block or later pass"
+
+
+def _report_hard_seed_writers(layout, captured, thresh=0.0, worst=12):
+    """R17c-1's ATTRIBUTION: who wrote the below-``thresh`` value that the
+    band reads as a seed.
+
+    Two facts per poisoned node, both measured on the build's own solve:
+    (a) was the value already there when ``_seed_elevations`` RETURNED
+    (born in seeding) or written by a later pass; (b) the write log —
+    ``file:line function`` for every write that crossed the threshold."""
+    calls = list((captured or {}).get("seed_calls") or [])
+    if not calls:
+        print("!! no _seed_elevations call was captured — run this on a "
+              "build")
+        return
+    print(f"\n=== HARD-SEED WRITERS (threshold {thresh:+.3f} m) ===")
+    for c in calls:
+        print(f"\n-- seed call #{c['i']}: {c['n']} node(s), "
+              f"{c['n_hard']} hard, {len(c['born'])} of them BELOW "
+              f"{thresh:+.3f} m at _seed_elevations RETURN")
+        for name, s in sorted(c["extra"].items()):
+            print(f"     family {name}: {len(s)} node(s) pinned")
+        print(f"     published sets: eat_anchor_rect="
+              f"{len(c.get('eat_pin_idx') or {})}, seam-family protection="
+              f"{len(c.get('seam_pin_idx') or set())}")
+        _tally: dict = {}
+        for _i in c["born"]:
+            _rec = (c.get("branch") or {}).get(int(_i)) or {}
+            _tally[_rec.get("branch")] = _tally.get(_rec.get("branch"), 0) + 1
+        # THE UNION'S OWN COMPOSITION (lead question, round 17c): the
+        # BAND-SEED COMPLETENESS law unions EVERY ``base_hard`` node into
+        # the band's seed set, while its STATED law is runway anchors plus
+        # tile-seam pins.  This is what closing the union to its stated
+        # law would LOSE, branch by branch.
+        _all: dict = {}
+        for _i in c.get("hard_idx") or ():
+            _rec = (c.get("branch") or {}).get(int(_i)) or {}
+            _b = _rec.get("branch")
+            _all[_b] = _all.get(_b, 0) + 1
+        print("     BRANCH TALLY over ALL base_hard node(s) — what the "
+              "seed-completeness union carries:")
+        for (_k, _v) in sorted(_all.items(), key=lambda kv: -kv[1]):
+            print(f"       {_v:7d}  {_k}")
+        _stated = sum(_v for (_k, _v) in _all.items()
+                      if _k in ("runway_cifp_profile", "tile_seam_pin"))
+        print(f"       STATED LAW (runway anchors + tile-seam pins) = "
+              f"{_stated} of {sum(_all.values())}; closing the union to it "
+              f"would drop {sum(_all.values()) - _stated} seed(s)")
+        print("     BRANCH TALLY over the born-below set: "
+              + (", ".join(f"{k}={v}" for (k, v) in sorted(
+                  _tally.items(), key=lambda kv: -kv[1]))
+                 or "(none)"))
+        born = sorted(c["born"].items(), key=lambda kv: kv[1][0])[:worst]
+        for idx, (val, pos) in born:
+            print(f"   node {idx} @({pos[0]:.1f},{pos[1]:.1f}) = "
+                  f"{val:.4f}  BORN IN SEEDING")
+            print(f"       BRANCH: {_branch_of(c, idx)}")
+            print(f"       pin set: "
+                  + ("eat_anchor_rect" if idx in (c.get("eat_pin_idx") or {})
+                     else "seam-family protection set"
+                     if idx in (c.get("seam_pin_idx") or set())
+                     else "none of the published pin sets")
+                  + f"  [{_seed_pin_family(layout, idx, c['extra'])}]")
+            print(f"       shapes: {_owning_shape(layout, pos)}")
+            print(f"       extent: {_in_flat_extent(layout, pos)}")
+            print(f"       DEM at this point: {_dem_at(layout, c, pos)}")
+        log = c.get("log") or {}
+        late = {i: rec for (i, rec) in log.items() if i not in c["born"]}
+        print(f"   post-seeding writes below {thresh:+.3f} m: "
+              f"{len(late)} node(s)")
+        for idx in sorted(late, key=lambda k: min(r[2] for r in late[k]))[:worst]:
+            pos = c["nodes"][idx] if idx < len(c["nodes"]) else None
+            print(f"   node {idx}"
+                  + (f" @({pos[0]:.1f},{pos[1]:.1f})" if pos else "")
+                  + f" — {len(late[idx])} write(s)")
+            for (where, old, new) in late[idx][:6]:
+                print(f"       {old:10.4f} -> {new:10.4f}   by {where}")
+            if pos is not None:
+                print(f"       shapes: {_owning_shape(layout, pos)}")
+                print(f"       extent: {_in_flat_extent(layout, pos)}")
+
+
+def _dem_at(layout, call, pos):
+    """The DEM value the solve's own seeding would sample at ``pos`` —
+    the test of "is this number the terrain, or something the pipeline
+    minted".  Uses the DEM object the captured seed call was handed."""
+    dem = call.get("dem")
+    if dem is None or pos is None:
+        return "no DEM handed to the seed call"
+    try:
+        from auto_patch.elevation import _sample_dem
+        lat, lon = layout.m_to_ll(float(pos[0]), float(pos[1]))
+        v = _sample_dem(dem, call.get("tile_lat", 0), call.get("tile_lon", 0),
+                        lat, lon)
+        return ("None (no sample)" if v is None
+                else f"{float(v):.4f} m at ({lat:.6f},{lon:.6f})")
+    except Exception as exc:                                # pragma: no cover
+        return f"? ({type(exc).__name__}: {exc})"
+
+
 def _report_anchor_seed_classes(layout, captured=None, worst=12):
     """THE ANCHOR-SEED CLASSIFICATION — R17b-1's attribution deliverable.
 
@@ -802,7 +970,103 @@ def _kml(layout, r, x, y, label, out_path):
     print(f"wrote {out_path}")
 
 
-def _build(icao, const_dem=None):
+def _install_seed_writer_capture(seen, thresh=0.0):
+    """Capture WHO wrote each below-``thresh`` hard seed (R17c-1).
+
+    Three shims, all read-only pass-throughs:
+
+      * ``solver_primitives._seed_elevations`` — on return, snapshot the
+        hard nodes already below ``thresh`` (BORN IN SEEDING) and hand
+        the solve a :class:`_WriteTracedElev` in place of its plain
+        ``elev`` list, so every LATER write is attributed to its
+        ``file:line``.  ``readonly=True`` calls (measurement probes)
+        are passed straight through untouched — instrumenting a probe
+        would attribute the probe;
+      * ``flat_fast_path.apply_seed_pins`` and
+        ``solver_primitives._build_tunnel_road_pins`` — the two pin
+        families that do NOT publish a private index set, captured from
+        their own arguments/returns so the family report is production's
+        own answer.
+
+    Returns the ``restore()`` callable."""
+    from auto_patch.elevation_per_surface import solver_primitives as SP
+    from auto_patch import flat_fast_path as FFP
+
+    real_seed = SP._seed_elevations
+    real_apply = FFP.apply_seed_pins
+    real_tunnel = SP._build_tunnel_road_pins
+    pending: dict = {}
+
+    def _apply_shim(layout, plan, nodes, bucket_to_idx, elev, is_hard,
+                    *a, **k):
+        before = {i for i, h in enumerate(is_hard) if h}
+        out = real_apply(layout, plan, nodes, bucket_to_idx, elev, is_hard,
+                         *a, **k)
+        pending.setdefault("flat_fast_path", set()).update(
+            {i for i, h in enumerate(is_hard) if h} - before)
+        return out
+
+    def _tunnel_shim(layout, bucket_to_idx, elev, is_hard, intern,
+                     *a, **k):
+        out = real_tunnel(layout, bucket_to_idx, elev, is_hard, intern,
+                          *a, **k)
+        pending.setdefault("tunnel_road_pin", set()).update(
+            int(i) for i in (out or {}))
+        return out
+
+    def _seed_shim(layout, nodes, bucket_to_idx, dem=None, tile_lat=0,
+                   tile_lon=0, *, readonly=False):
+        pending.clear()
+        elev, is_hard, have = real_seed(layout, nodes, bucket_to_idx, dem,
+                                        tile_lat, tile_lon,
+                                        readonly=readonly)
+        if readonly:
+            return elev, is_hard, have
+        born = {i: (float(elev[i]), tuple(nodes[i][:2]))
+                for i in range(min(len(elev), len(is_hard), len(nodes)))
+                if is_hard[i] and elev[i] < thresh}
+        hard_idx = [i for i in range(min(len(elev), len(is_hard)))
+                    if is_hard[i]]
+        # THE BRANCH THAT SUPPLIED EACH VALUE, in the CALL'S OWN node
+        # space (``O4_SEED_BRANCH_ATTRIB=1``).  Snapshotted here rather
+        # than read at report time: a solve's node indices are valid only
+        # inside the ``_build_node_list`` call that assigned them, and
+        # reading a later solve's map against this call's indices is the
+        # index-join-across-a-rebuild trap this repo has a law about.
+        branch = dict(getattr(layout, "_seed_branch_attrib", None) or {})
+        traced = _WriteTracedElev(elev, thresh, watch=born)
+        seen.setdefault("seed_calls", []).append({
+            "i": len(seen.get("seed_calls") or []),
+            "n": len(elev),
+            "n_hard": sum(1 for h in is_hard if h),
+            "born": born,
+            "branch": branch,
+            "hard_idx": hard_idx,
+            "seam_pin_idx": set(getattr(layout, "_seam_pin_idx", None)
+                                or ()),
+            "eat_pin_idx": dict(getattr(layout, "_eat_anchor_pin_idx",
+                                        None) or {}),
+            "extra": {k2: set(v) for (k2, v) in pending.items()},
+            "nodes": nodes,
+            "dem": dem,
+            "tile_lat": tile_lat,
+            "tile_lon": tile_lon,
+            "log": traced.log,
+        })
+        return traced, is_hard, have
+
+    SP._seed_elevations = _seed_shim
+    FFP.apply_seed_pins = _apply_shim
+    SP._build_tunnel_road_pins = _tunnel_shim
+
+    def _restore():
+        SP._seed_elevations = real_seed
+        FFP.apply_seed_pins = real_apply
+        SP._build_tunnel_road_pins = real_tunnel
+    return _restore
+
+
+def _build(icao, const_dem=None, seed_writers=None):
     """The layout to trace — REAL DEM by default, a CONSTANT-DEM world with
     ``--dem`` (RULINGS: the flat oracle worlds; real DEM is gated on
     flat-green, so the canyon/plateau trace must not need a real-DEM build).
@@ -886,6 +1150,8 @@ def _build(icao, const_dem=None):
 
     BF.assert_no_final_band_inversion = _capturing_assert
     BF._record_band_inversions = _capturing_record
+    _restore_seed = (_install_seed_writer_capture(seen, seed_writers)
+                     if seed_writers is not None else None)
     try:
         layout = build_airport_pavement(icao, xplane_root(), **kw)
         return layout, None, seen
@@ -898,6 +1164,8 @@ def _build(icao, const_dem=None):
     finally:
         BF.assert_no_final_band_inversion = real_assert
         BF._record_band_inversions = real_record
+        if _restore_seed is not None:
+            _restore_seed()
 
 
 def main():
@@ -920,10 +1188,22 @@ def main():
                     help="classify every anchor seed of the live field and "
                          "name the BELOW-GRADE ones (R17b-1): value, body, "
                          "governed nodes, ceilings authored")
+    ap.add_argument("--hard-seed-writers", nargs="?", type=float,
+                    const=0.0, default=None, metavar="THRESH",
+                    help="attribute WHO wrote each hard seed below THRESH "
+                         "metres (default 0.0) — born-in-seeding vs a later "
+                         "pass, with the writing file:line (R17c-1)")
     ap.add_argument("--out", default="/tmp/reach_route.kml")
     args = ap.parse_args()
 
-    layout, band_err, captured = _build(args.icao, args.dem)
+    layout, band_err, captured = _build(args.icao, args.dem,
+                                        seed_writers=args.hard_seed_writers)
+
+    if args.hard_seed_writers is not None:
+        _report_hard_seed_writers(layout, captured, args.hard_seed_writers)
+        if (not args.coord and not args.ref and not args.inverted_pairs
+                and not args.below_grade_anchors):
+            return 0
 
     if args.below_grade_anchors:
         _report_anchor_seed_classes(layout, captured)

@@ -8339,6 +8339,41 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
 # ``.alt`` build product.
 
 
+def _feather_outward_extent(tile, x0, y0, x1, y1, feather_m):
+    """R17c-2 -- THE FEATHER STOPS AT THE WALL.
+
+    ``_bake_one_inset`` ramps its blend weight from 0 at the inset's own
+    data edge to 1 ``feather_m`` INSIDE it.  For a fetched GeoTIFF that is
+    right: the ramp lives over ground the inset also covers.  For the
+    FLAT-SITE synthetic constant inset it eats the last ``feather_m`` of
+    the site itself -- and at a reclaimed island the site's edge IS the
+    shoreline, so the ramp is the beach the owner ruled is a vertical sea
+    wall (measured VHHH 2026-08-11: the north-shore transect falls 7.315
+    -> 0 over 33-44 m, four mesh samples, with the wall breakline already
+    admitted beside it).
+
+    THE LAW (round-17 amendment 2, R17c-2): the constant inset extends AT
+    Z0 to the wall line and the feather happens SEAWARD of it.  The
+    mechanism is one line of geometry -- the synthetic raster is built
+    ``feather_m`` LARGER than the declared extent, so weight reaches 1
+    exactly ON the declared boundary and the whole ramp lies outside it.
+    Nothing in the bake changes; the declared extent is what every
+    consumer still reads, because the PROVENANCE stamp keeps it (the
+    wall's admission geometry must stay the island, never the grown box).
+
+    Returns the grown ``(x0, y0, x1, y1)`` in tile-relative degrees.
+    """
+    if not feather_m or feather_m <= 0:
+        return (x0, y0, x1, y1)
+    centre_latitude = tile.lat + (float(y0) + float(y1)) / 2.0
+    d_lat = float(feather_m) / GEO.lat_to_m
+    metres_per_degree_longitude = GEO.lon_to_m(centre_latitude)
+    d_lon = (float(feather_m) / metres_per_degree_longitude
+             if metres_per_degree_longitude else d_lat)
+    return (float(x0) - d_lon, float(y0) - d_lat,
+            float(x1) + d_lon, float(y1) + d_lat)
+
+
 class _ConstantInset:
     """An in-memory inset raster holding one elevation everywhere.
 
@@ -8436,8 +8471,12 @@ def overlay_flat_site_insets(tile, dico_airports=None):
     for substitution in substitutions:
         icao = substitution["icao"]
         x0, y0, x1, y1 = substitution["extent_deg"]
+        # R17c-2: the raster is grown by the feather so the ramp lands
+        # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
+        # provenance below keeps the DECLARED box.
         inset = _ConstantInset(
-            x0, y0, x1, y1, substitution["z0_m"],
+            *_feather_outward_extent(tile, x0, y0, x1, y1, feather_m),
+            substitution["z0_m"],
             label="%s synthetic flat-site inset" % icao,
         )
         try:
@@ -8495,7 +8534,9 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         for cluster in (substitution.get("object_clusters") or ()):
             cx0, cy0, cx1, cy1 = cluster["extent_deg"]
             cluster_inset = _ConstantInset(
-                cx0, cy0, cx1, cy1, substitution["z0_m"],
+                *_feather_outward_extent(tile, cx0, cy0, cx1, cy1,
+                                         feather_m),
+                substitution["z0_m"],
                 label="%s synthetic flat-site object-cluster inset" % icao,
             )
             try:
@@ -8583,7 +8624,9 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         for corridor in (substitution.get("declared_corridors") or ()):
             dx0, dy0, dx1, dy1 = corridor["extent_deg"]
             corridor_inset = _ConstantInset(
-                dx0, dy0, dx1, dy1, substitution["z0_m"],
+                *_feather_outward_extent(tile, dx0, dy0, dx1, dy1,
+                                         feather_m),
+                substitution["z0_m"],
                 label="%s declared corridor inset" % icao,
             )
             try:

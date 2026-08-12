@@ -798,6 +798,119 @@ def below_grade_governed_nodes(layout, G, anchor_seeds):
     return out
 
 
+# ── R17c-1: A BELOW-GRADE HARD VALUE ON A SURFACE NODE IS NOT A SEED ───
+#
+# THE WRITER, MEASURED (VHHH, round 17c, tools/trace_reach_route.py
+# ``--hard-seed-writers``).  r17b named the canyon's binding anchor —
+# node 419 @(2077.5, 719.7) at −12.5370, a junction/adjacent_ground node
+# INSIDE the Z0 7.315 constant core, surface-lawful, present only in the
+# mid-solve band pass — but not who wrote it.  The trace answers it: the
+# 38 sub-zero hard seeds are BORN IN SEEDING, the DEM at each of them
+# reads 7.3150 m (so the value is not the terrain), and their count
+# matches the EAT anchor-rect pin family exactly, pass for pass (38 pins
+# / 38 born in the first solve; 5 / 5 in each later one, with the later
+# five attributed ``eat_anchor_rect`` by name).  The writer is
+# ``solver_primitives._build_eat_anchor_rect_pins``, applied inside
+# ``_seed_elevations``: the end-around-taxiway rect pins pavement at
+# ``end_elev + eat_pavement_ceiling(...)`` — a design-aircraft TAIL
+# clearance value ~20.2 m BELOW the runway end — onto junction and
+# adjacent_ground/graded_strip nodes that are ordinary airport surface.
+#
+# THE LAW (round-17 amendment 2, R17c-1).  A hard value authored by
+# below-grade machinery onto a SURFACE-role node inside a flat site's
+# constant core is unlawful AS A BAND SEED: the band is what the
+# writeback clamp obeys, and a ceiling MIN carrying a −12.5 m value
+# across surface pavement is how the runway-end canyons were authored.
+# It is refused at the SEED-COMPLETENESS UNION, with a counted finding.
+#
+# SCOPE, deliberately: this is the BAND's seed set only.  The pin itself
+# still stands in ``elev`` — the writer may also be the defect, and
+# moving upstream of the union is a separate, owner-facing act (reported
+# with the mechanism, per the amendment).
+#
+# MEMBERSHIP IS PRODUCTION'S OWN, never a second opinion: the site and
+# its core come from ``flat_fast_path.substitution_entry`` /
+# ``constant_core`` (the stamp the bake wrote), "below grade" is the
+# owner's 1 m law (``config.FLAT_SITE_PACK_BELOW_GRADE_M``, ruling
+# 2026-08-09 — one constant, no second number), and a node inside a
+# BELOW-GRADE BODY is EXEMPT because there the value IS the surface and
+# R17b-1 already scopes its reach to that body (KCLT's and OTHH's tunnel
+# tables must hold).
+
+
+def _flat_core_inert_reason(layout):
+    """WHY R17c-1 refused nothing — the four distinguishable answers.
+
+    An inert law that cannot say why it was inert is indistinguishable
+    from a broken one, which is exactly the ambiguity two instrumented
+    VHHH builds left this round."""
+    try:
+        from auto_patch import flat_fast_path as FFP
+        entry = FFP.substitution_entry(layout)
+        if entry is None:
+            return "no flat-site substitution stamped on this build"
+        if entry.get("z0_m") is None:
+            return "the flat-site entry carries no Z0"
+        core = FFP.constant_core(layout, entry)
+        if core is None or core.is_empty:
+            return "the flat-site entry yields no constant core"
+        return (f"no hard-truth seed is more than "
+                f"1 m below Z0={float(entry['z0_m']):.3f} inside the core, "
+                f"outside a below-grade body")
+    except Exception as exc:                               # pragma: no cover
+        return f"reason unavailable ({type(exc).__name__})"
+
+
+def flat_core_below_grade_seed_refusals(layout, G, hard_truth):
+    """``{node: value}`` — the hard-truth seeds R17c-1 refuses.
+
+    ``{}`` — the inert answer — on every build with no flat-site
+    substitution stamped, which is every non-flat airport: the seed set
+    is then exactly what it was, node for node.
+    """
+    if not hard_truth:
+        return {}
+    try:
+        from auto_patch import flat_fast_path as FFP
+        from auto_patch.config import FLAT_SITE_PACK_BELOW_GRADE_M
+        entry = FFP.substitution_entry(layout)
+        if entry is None:
+            return {}
+        z0 = entry.get("z0_m")
+        if z0 is None:
+            return {}
+        core = FFP.constant_core(layout, entry)
+        if core is None or core.is_empty:
+            return {}
+    except Exception:                                      # pragma: no cover
+        return {}
+    limit = float(z0) - float(FLAT_SITE_PACK_BELOW_GRADE_M)
+    candidates = {int(i): float(v) for (i, v) in hard_truth.items()
+                  if float(v) < limit}
+    if not candidates:
+        return {}
+    # EXEMPT: an anchor inside its own below-grade body (R17b-1's
+    # membership, the family's own enumeration).
+    bodies = below_grade_anchor_bodies(layout, G, candidates)
+    pos = getattr(G, "pos", None) or {}
+    from shapely.geometry import Point
+    from shapely.prepared import prep
+    inside = prep(core)
+    refused: dict = {}
+    for i, v in candidates.items():
+        if i in bodies:
+            continue
+        p = pos.get(i)
+        if p is None:
+            continue
+        try:
+            if inside.contains(Point(float(p[0]), float(p[1]))):
+                refused[i] = v
+        except Exception:                                  # pragma: no cover
+            continue
+    return refused
+
+
 def spine_value_fields(layout, G):
     """The ROUTE-METRIC reach value fields on the unified spine graph — the
     ONE producer of reach VALUE in the tree (spec rod-compose-and-band-
@@ -841,7 +954,39 @@ def spine_value_fields(layout, G):
     # empty extra map, so ``anchor_elev`` is ``G.runway_anchor`` with its
     # insertion order intact there.
     anchor_elev = dict(G.runway_anchor)
-    for _hi, _hv in _hard_truth_spine_seeds(layout, G).items():
+    _truth = _hard_truth_spine_seeds(layout, G)
+    # R17c-1: a below-grade hard value on a SURFACE node inside a flat
+    # site's constant core is not a band seed (block above).  ``{}``
+    # wherever no flat site is stamped ⇒ inert.
+    _refused = flat_core_below_grade_seed_refusals(layout, G, _truth)
+    # PRODUCTION STATES WHAT IT DID, FIRED OR NOT.  "The law is inert
+    # here" and "the law refused N seeds" are different facts, and a
+    # reader must not have to re-run an instrument to tell them apart
+    # (RULINGS 2026-08-06, instrument truth).  Round 17c paid for this
+    # rule the hard way: two instrumented VHHH builds printed nothing
+    # here, and "it did not fire" was indistinguishable from "it fired
+    # and the line was lost".
+    try:
+        layout._flat_core_seed_refusals = dict(_refused)
+        import O4_UI_Utils as _UI_fc
+        if _refused:
+            _UI_fc.vprint(1,
+                          f"    [flat-core-seed] REFUSED {len(_refused)} of "
+                          f"{len(_truth)} hard-truth band seed(s): a "
+                          f"below-grade value on a SURFACE node inside the "
+                          f"flat site's constant core (worst "
+                          f"{min(_refused.values()):.4f} m). R17c-1 — the "
+                          f"pin itself still stands in the solve.")
+        elif _truth:
+            _UI_fc.vprint(1,
+                          f"    [flat-core-seed] inert: 0 of {len(_truth)} "
+                          f"hard-truth band seed(s) refused "
+                          f"({_flat_core_inert_reason(layout)}).")
+    except Exception:                                      # pragma: no cover
+        pass
+    for _hi, _hv in _truth.items():
+        if _hi in _refused:
+            continue
         anchor_elev.setdefault(_hi, float(_hv))
     anchor_seeds = _decrowned_anchor_seeds(layout, G, anchor_elev)
     svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
@@ -919,7 +1064,15 @@ def spine_value_fields(layout, G):
     _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
                               floor_via, floor_dist)
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,
-                            hard_truth=_hard_truth_spine_seeds(layout, G),
+                            # R17c-1: ONE union.  A value refused as a
+                            # SEED is equally refused as the reference
+                            # the band is JUDGED against — keeping it
+                            # here would make the law mint a
+                            # ``floor_above_own_hard_value`` inversion at
+                            # every node it just refused, which is the
+                            # law contradicting itself.
+                            hard_truth={_k: _v for (_k, _v) in _truth.items()
+                                        if _k not in _refused},
                             ceil_via=ceil_via, floor_via=floor_via,
                             anchor_seeds=anchor_seeds,
                             anchor_law=_anchor_law_values(layout, G,

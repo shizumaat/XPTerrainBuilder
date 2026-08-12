@@ -58,6 +58,9 @@ ISLAND = geometry.box(0.30, 0.30, 0.40, 0.40)
 SEA = geometry.box(0.0, 0.0, 1.0, 1.0).difference(ISLAND)
 #: The constant inset covering the island (and some water around it).
 INSET = (0.28, 0.28, 0.42, 0.42)
+#: R17c-3 — the airport's own graded coverage ON the island: what
+#: says which land inside the rectangle is the airport's.
+COVERAGE = geometry.box(0.34, 0.34, 0.36, 0.36)
 
 
 class TestTheInsetFootprintIsREAD:
@@ -80,18 +83,27 @@ class TestTheInsetFootprintIsREAD:
         assert not area.is_empty
         assert area.contains(ISLAND)
 
-    def test_clusters_and_declared_corridors_join_the_footprint(self):
-        """A claimed-object cluster and an owner-declared corridor are
-        both baked at the same Z0, so both carry a wall (R17-2's
-        'the corridor's long edges join the admission set')."""
-        area = VMAP.constant_inset_area(_Tile(_Dem([
+    def test_declared_corridors_join_the_footprint_and_clusters_do_not(self):
+        """R17c-3 REPLACES R17b-2's enumeration here.
+
+        r17b admitted the claimed-object CLUSTER rectangles too, and
+        those are the boxes that reached the mainland (VHHH's 15.11 km²
+        HZMB cluster; 66,971 m of wall over 55.47 km² spanning three
+        flat sites).  The owner's ruling (2026-08-12) names the
+        airport's constant CORE ∪ its DECLARED corridors — so a cluster
+        is out of the island reading and still in the BAKED reading
+        (``kinds=None``), which is a different question."""
+        entries = [
             _entry("synthetic_flat_site", 0.30, 0.30, 0.40, 0.40),
             _entry("synthetic_flat_site_object_cluster",
                    0.50, 0.30, 0.55, 0.35),
             _entry("declared_corridor", 0.40, 0.33, 0.50, 0.34),
-        ])))
-        assert area.contains(geometry.Point(0.52, 0.32))
-        assert area.contains(geometry.Point(0.45, 0.335))
+        ]
+        area = VMAP.constant_inset_area(_Tile(_Dem(entries)))
+        assert area.contains(geometry.Point(0.45, 0.335))   # the corridor
+        assert not area.contains(geometry.Point(0.52, 0.32))  # the cluster
+        baked = VMAP.constant_inset_area(_Tile(_Dem(entries)), kinds=None)
+        assert baked.contains(geometry.Point(0.52, 0.32))
 
     def test_a_malformed_entry_is_skipped_not_fatal(self):
         area = VMAP.constant_inset_area(_Tile(_Dem([
@@ -105,7 +117,7 @@ class TestTheInsetFootprintIsREAD:
 class TestTheCoastlineAdmission:
     def test_it_is_the_LAND_inside_the_inset(self):
         tile = _Tile(_Dem([_entry("synthetic_flat_site", *INSET)]))
-        land = VMAP.coastline_wall_admission(tile, SEA)
+        land = VMAP.coastline_wall_admission(tile, SEA, graded_area=COVERAGE)
         assert not land.is_empty
         # The island is admitted; the water inside the inset box is not.
         assert land.contains(geometry.Point(0.35, 0.35))
@@ -124,13 +136,15 @@ class TestTheCoastlineAdmission:
         there and its breaklines are NOT byte-identical.  Reported to the
         lead; the assertion below is about the mechanism, not about VMMC.
         """
-        assert VMAP.coastline_wall_admission(_Tile(), SEA).is_empty
-        assert VMAP.coastline_wall_admission(_Tile(_Dem([])), SEA).is_empty
+        assert VMAP.coastline_wall_admission(_Tile(), SEA,
+                                          graded_area=COVERAGE).is_empty
+        assert VMAP.coastline_wall_admission(_Tile(_Dem([])), SEA,
+                                          graded_area=COVERAGE).is_empty
 
     def test_no_sea_means_nothing_to_admit(self):
         tile = _Tile(_Dem([_entry("synthetic_flat_site", *INSET)]))
         assert VMAP.coastline_wall_admission(
-            tile, geometry.Polygon()).is_empty
+            tile, geometry.Polygon(), graded_area=COVERAGE).is_empty
 
 
 class TestTheWallItself:
@@ -145,7 +159,7 @@ class TestTheWallItself:
 
     def test_the_island_coastline_carries_a_wall(self):
         tile = _Tile(_Dem([_entry("synthetic_flat_site", *INSET)]))
-        land = VMAP.coastline_wall_admission(tile, SEA)
+        land = VMAP.coastline_wall_admission(tile, SEA, graded_area=COVERAGE)
         n, total = self._wall_m(land)
         assert n >= 1
         # The wall runs right around the island: its length is the
@@ -166,7 +180,7 @@ class TestTheWallItself:
         from shapely import ops
         tile = _Tile(_Dem([_entry("synthetic_flat_site", *INSET)]))
         pavement = geometry.box(0.34, 0.34, 0.36, 0.36)
-        land = VMAP.coastline_wall_admission(tile, SEA)
+        land = VMAP.coastline_wall_admission(tile, SEA, graded_area=COVERAGE)
         n_union, m_union = self._wall_m(ops.unary_union([pavement, land]))
         n_land, m_land = self._wall_m(land)
         assert n_union == n_land

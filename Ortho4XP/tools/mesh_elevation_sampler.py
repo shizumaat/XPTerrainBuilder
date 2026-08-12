@@ -157,3 +157,112 @@ class MeshElevationSampler:
             self._vertices[:, 0] - longitude, self._vertices[:, 1] - latitude
         )
         return float(self._vertices[int(distances.argmin()), 2])
+
+
+# ── CLI: TRANSECTS (round 17c) ────────────────────────────────────────
+#
+# The shore/canyon acceptance in rounds 17, 17b and 17c is a PROFILE
+# across the built mesh — "does the north shore read Z0 to the wall and
+# then sea, or a 40 m ramp?".  r17b answered it from a scratchpad
+# script; this is that script's SECOND use, which is the signal to
+# promote it into the tool that already owns the question (tool
+# discipline, RULINGS 7e90032 — extend the near-fit, never fork it).
+#
+#   venv/bin/python tools/mesh_elevation_sampler.py MESH \
+#       --lon 113.9200 --lat-range 22.3260 22.3400 --step 0.0001
+#   venv/bin/python tools/mesh_elevation_sampler.py MESH \
+#       --lat 22.3100 --lon-range 113.8930 113.9070 --step 0.0001
+#   venv/bin/python tools/mesh_elevation_sampler.py MESH \
+#       --point 22.3089 113.9147
+#
+# ``--step-flag M`` annotates any sample-to-sample jump of at least M
+# metres, which is how a FACE (one step) is told from a RAMP (several).
+
+def _transect(sampler, points, fmt, step_flag):
+    rows = [(lon, lat, sampler.elevation_at(lat, lon))
+            for (lon, lat) in points]
+    previous = None
+    for (lon, lat, z) in rows:
+        note = ""
+        if previous is not None and z is not None:
+            delta = z - previous
+            if abs(delta) >= step_flag:
+                note = "   <-- STEP {:+.2f} m".format(delta)
+        print(fmt.format(lon=lon, lat=lat,
+                         z=("None" if z is None else "{:8.3f}".format(z)))
+              + note)
+        previous = z
+    return rows
+
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Sample or transect a built Data<tile>.mesh.")
+    parser.add_argument("mesh")
+    parser.add_argument("--lon", type=float,
+                        help="fixed longitude for a latitude sweep")
+    parser.add_argument("--lat-range", nargs=2, type=float,
+                        metavar=("LAT0", "LAT1"))
+    parser.add_argument("--lat", type=float,
+                        help="fixed latitude for a longitude sweep")
+    parser.add_argument("--lon-range", nargs=2, type=float,
+                        metavar=("LON0", "LON1"))
+    parser.add_argument("--step", type=float, default=0.0001,
+                        help="sweep step in degrees (default 0.0001)")
+    parser.add_argument("--step-flag", type=float, default=1.0,
+                        help="annotate jumps of at least this many metres")
+    parser.add_argument("--point", nargs=2, type=float, action="append",
+                        default=[], metavar=("LAT", "LON"),
+                        help="one point (repeatable)")
+    parser.add_argument("--label", default="")
+    args = parser.parse_args(argv)
+
+    margin = 0.001
+    if args.lon is not None and args.lat_range:
+        lat0, lat1 = sorted(args.lat_range)
+        values = []
+        v = lat0
+        while v <= lat1 + 1e-12:
+            values.append(v)
+            v += args.step
+        bounds = (args.lon - margin, lat0 - margin,
+                  args.lon + margin, lat1 + margin)
+        sampler = MeshElevationSampler(args.mesh, bounds)
+        print("=== {} lon {:.5f} (lat sweep, {} sample(s)) ===".format(
+            args.label or "TRANSECT", args.lon, len(values)))
+        _transect(sampler, [(args.lon, v) for v in values],
+                  "  lat {lat:.5f}  z {z}", args.step_flag)
+    elif args.lat is not None and args.lon_range:
+        lon0, lon1 = sorted(args.lon_range)
+        values = []
+        v = lon0
+        while v <= lon1 + 1e-12:
+            values.append(v)
+            v += args.step
+        bounds = (lon0 - margin, args.lat - margin,
+                  lon1 + margin, args.lat + margin)
+        sampler = MeshElevationSampler(args.mesh, bounds)
+        print("=== {} lat {:.5f} (lon sweep, {} sample(s)) ===".format(
+            args.label or "TRANSECT", args.lat, len(values)))
+        _transect(sampler, [(v, args.lat) for v in values],
+                  "  lon {lon:.5f}  z {z}", args.step_flag)
+    elif args.point:
+        lats = [p[0] for p in args.point]
+        lons = [p[1] for p in args.point]
+        sampler = MeshElevationSampler(
+            args.mesh, (min(lons) - margin, min(lats) - margin,
+                        max(lons) + margin, max(lats) + margin))
+        for (lat, lon) in args.point:
+            z = sampler.elevation_at(lat, lon)
+            print("  {:.6f} {:.6f}  z {}".format(
+                lat, lon, "None" if z is None else "{:.3f}".format(z)))
+    else:
+        parser.error("give --lon/--lat-range, --lat/--lon-range, or --point")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(main())

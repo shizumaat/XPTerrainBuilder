@@ -240,26 +240,42 @@ def seawall_admission_area(patches_area, graded_area):
     return graded_area
 
 
-def constant_inset_area(tile):
+#: R17c-3 — the provenance KINDS that carry the airport's own island.
+#: The owner's ruling walls THE AIRPORT's reclaimed edge, so the scope is
+#: the airport's flat-site constant CORE plus the corridors the owner
+#: DECLARED — never the claimed-object cluster rectangles, which are the
+#: boxes that reached the mainland (VHHH's 15.11 km² HZMB cluster) and
+#: which the ruling does not name.
+AIRPORT_ISLAND_INSET_KINDS = ("synthetic_flat_site", "declared_corridor")
+
+
+def constant_inset_area(tile, kinds=AIRPORT_ISLAND_INSET_KINDS):
     """THE FLAT-SITE CONSTANT-INSET FOOTPRINT, tile-relative (R17b-2).
 
-    The union of every box DEM prep actually BAKED a synthetic constant
-    inset over on this tile — the airport's own extent, its claimed-object
-    clusters, and the R17-2 declared corridors — read from the stamp
+    The union of the boxes DEM prep actually BAKED a synthetic constant
+    inset over on this tile, read from the stamp
     ``O4_Airport_Elevation_Insets.overlay_flat_site_insets`` writes on the
     DEM object (``synthetic_flat_site_provenance``).
+
+    ``kinds`` selects which stamped families count.  The default is
+    R17c-3's: the airport's own extent and the owner's declared
+    corridors.  ``None`` takes every stamped entry (the pre-R17c
+    reading), which is what a caller measuring the BAKED surface — as
+    opposed to the airport's island — wants.
 
     IT IS READ, NEVER RE-DERIVED.  The extents are decided by the flat-site
     detector, the cluster law and the owner's declaration, and a cluster
     the R11-2 datum check REFUSED is not stamped — so a second computation
     here would claim ground the DEM does not actually hold at Z0.  Empty
     geometry (the inert answer) on every tile with no flat-site
-    substitution, which is what keeps VMMC a byte-identical control.
+    substitution.
     """
     dem = getattr(tile, "dem", None)
     entries = list(getattr(dem, "synthetic_flat_site_provenance", None) or [])
     boxes = []
     for entry in entries:
+        if kinds is not None and entry.get("kind") not in kinds:
+            continue
         extent = entry.get("extent_tile_degrees")
         if not extent or len(extent) != 4:
             continue
@@ -279,8 +295,54 @@ def constant_inset_area(tile):
         return geometry.Polygon()
 
 
-def coastline_wall_admission(tile, sea_area):
-    """R17b-2 — THE WALL STANDS ON THE COASTLINE.
+def airport_island_land(inset_land, graded_area):
+    """R17c-3 — THE AIRPORT'S ISLAND, out of the inset's land.
+
+    A flat-site extent is a RECTANGLE around an airport, so the land
+    inside it is not only the airport's island: at VHHH the box also
+    holds Lantau's north shore, and r17b's tile-wide union admitted
+    66,971 m of wall over 55.47 km² spanning three flat sites and the
+    mainland.  The owner's ruling walls THE AIRPORT's reclaimed edge.
+
+    THE ISLAND IS THE LAND COMPONENT THE AIRPORT STANDS ON — a connected
+    component of the inset's land that carries some of the tile's EMITTED
+    GRADED COVERAGE.  Production's own coverage union answers it: an
+    island with an airport on it has graded rings on it, mainland inside
+    the same rectangle does not, and a component reached only across
+    water is a different island.  A DECLARED corridor joins the island
+    exactly when the declaration has made the two continuous, which is
+    what declaring it means.
+
+    ``graded_area`` empty ⇒ empty: with no coverage there is nothing that
+    says which land is the airport's, and admitting the whole rectangle
+    is the wrong scope the ruling names.  Every airport on the tile is
+    served by the same pass — VMMC's island is admitted by VMMC's own
+    coverage — so this scopes without ever naming an ICAO.
+    """
+    if inset_land is None or getattr(inset_land, "is_empty", True):
+        return geometry.Polygon()
+    if graded_area is None or getattr(graded_area, "is_empty", True):
+        return geometry.Polygon()
+    keep = []
+    for piece in getattr(inset_land, "geoms", [inset_land]):
+        if piece is None or piece.is_empty:
+            continue
+        try:
+            if piece.intersects(graded_area):
+                keep.append(piece)
+        except Exception:                                  # pragma: no cover
+            continue
+    if not keep:
+        return geometry.Polygon()
+    try:
+        return ops.unary_union(keep)
+    except Exception:                                      # pragma: no cover
+        return geometry.Polygon()
+
+
+def coastline_wall_admission(tile, sea_area, graded_area=None):
+    """R17b-2 — THE WALL STANDS ON THE COASTLINE, R17c-3 — ON THE
+    AIRPORT'S ISLAND.
 
     Owner ruling (2026-08-11): the WHOLE edge of a reclaimed airport
     island is a vertical sea wall, not the ~26 % beach ramps R7's
@@ -297,9 +359,16 @@ def coastline_wall_admission(tile, sea_area):
     between it and the Z0 coastline is vertical.  The admission geometry
     widens; not one line of ``seawall_breaklines`` changes.
 
-    VMMC IS THE CONTROL and cannot fire: it has no constant inset over
-    sea, so :func:`constant_inset_area` is empty there and this returns
-    empty — its breaklines stay byte-identical.
+    R17c-3 SCOPES IT to the airport's island (see
+    :func:`airport_island_land`): the constant CORE and the DECLARED
+    corridors, and of their land only the components the tile's graded
+    coverage stands on.  ``graded_area`` omitted ⇒ empty, because
+    "which land is the airport's" is then unanswerable and the whole
+    rectangle is the wrong scope.
+
+    VMMC is NOT a byte-identical control (owner ruling 2026-08-12: it is
+    itself a flat site at Z0 6.10) — its island is admitted by the same
+    scoping, judged against its own island edge.
     """
     inset = constant_inset_area(tile)
     if inset is None or inset.is_empty:
@@ -314,7 +383,7 @@ def coastline_wall_admission(tile, sea_area):
         return geometry.Polygon()
     if land is None or land.is_empty:
         return geometry.Polygon()
-    return land
+    return airport_island_land(land, graded_area)
 
 
 def seawall_breaklines(patches_area, water_area, lat, offset_m=None):
@@ -1560,7 +1629,13 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         # corridor).  One admission union, one wall law — the offset and
         # the breakline idiom are untouched.
         admission = seawall_admission_area(patches_area, graded_area)
-        coastal = coastline_wall_admission(tile, sea_area)
+        # R17c-3: SCOPED to the airport's island — the graded coverage is
+        # what says which land inside a flat-site rectangle is the
+        # airport's, so it is threaded in rather than the whole box
+        # admitted (the mainland/other-island scope the owner refused).
+        coastal = coastline_wall_admission(
+            tile, sea_area, graded_area=seawall_admission_area(
+                patches_area, graded_area))
         if not coastal.is_empty:
             try:
                 admission = (coastal if admission is None
@@ -1568,8 +1643,9 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
                              else ops.unary_union([admission, coastal]))
                 UI.vprint(
                     1,
-                    "      R17b-2: the constant-inset coastline joins the "
-                    "wall admission set ({:.2f} km2 of inset land).".format(
+                    "      R17b-2/R17c-3: the AIRPORT ISLAND's constant-inset "
+                    "coastline joins the wall admission set ({:.2f} km2 of "
+                    "island land).".format(
                         coastal.area * GEO.lat_to_m
                         * GEO.lon_to_m(tile.lat + 0.5) / 1e6),
                 )

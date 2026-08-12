@@ -93,7 +93,13 @@ class TestDeclaredCorridorInset:
         corridor_bake = baked[-1]
         assert "declared corridor" in corridor_bake["label"]
         assert corridor_bake["elevation_m"] == 7.315
-        assert corridor_bake["extent"] == corridor["extent_deg"]
+        # R17c-2: the RASTER is the declared box grown by the feather, so
+        # the ramp lands outside the declaration and Z0 holds to its
+        # boundary.  The declared box is what the PROVENANCE keeps (the
+        # test below), because that is what the wall admission reads.
+        assert corridor_bake["extent"] == INSETS._feather_outward_extent(
+            _Tile(), *corridor["extent_deg"], 60.0)
+        assert corridor_bake["extent"] != corridor["extent_deg"]
 
     def test_the_datum_refusal_is_not_applied_to_a_declaration(
             self, monkeypatch):
@@ -130,4 +136,8 @@ class TestDeclaredCorridorInset:
         _tile, baked = _run(monkeypatch, boxes)
         assert len(baked) == 3
         extents = {b["extent"] for b in baked[1:]}
-        assert extents == {b["extent_deg"] for b in boxes}
+        # R17c-2: each declared box is grown by the feather ON ITS OWN —
+        # two rasters, never one union, and never one grown extent.
+        assert extents == {
+            INSETS._feather_outward_extent(_Tile(), *b["extent_deg"], 60.0)
+            for b in boxes}

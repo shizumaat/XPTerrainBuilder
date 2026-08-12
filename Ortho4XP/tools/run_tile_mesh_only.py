@@ -36,8 +36,27 @@ import os
 import sys
 
 sys.path.append(os.path.join(".", "src"))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "harness"))
 
-import O4_File_Names as FNAMES
+# THE REDIRECT MUST PRECEDE THE ENGINE IMPORT (measured 2026-08-12, round
+# 18).  Arming the write guard is not enough here: the auto_patch driver
+# runs a ProcessPool, and a worker process has no guard — a +30+031
+# mesh-only run wrote EIGHT ``Airport_mod_cache/*/o4_object_footprints_*``
+# sidecars into the shared corpus with ``guard.blocked`` EMPTY, and only
+# the post-run snapshot caught it (the run was flagged CONTAMINATED).
+# Redirecting the engine's two writable derived-cache roots rides env
+# variables, so the workers and the DSFTool subprocess inherit it, and
+# ``O4_File_Names.Default_dsf_cache_dir`` is computed AT IMPORT — hence
+# before the imports below.  Same single implementation as the build
+# entry (``build_airport.redirect_engine_caches``); a second arrangement
+# of the two halves is the defect this closes.
+from build_airport import redirect_engine_caches  # noqa: E402
+
+_CACHE_REDIRECTS = redirect_engine_caches(
+    os.path.join(os.getcwd(), "tmp", "run_tile_mesh_only"), "mesh_only")
+
+import O4_File_Names as FNAMES  # noqa: E402
 
 sys.path.append(FNAMES.Provider_dir)
 import O4_Imagery_Utils as IMG
@@ -51,11 +70,12 @@ import O4_Bathymetry_Band as BATHYBAND
 # worker (see run_tile_build.py).  The write guard and the audit belong
 # in here for the same reason: a worker must never arm or audit.
 if __name__ == "__main__":
-    sys.path.insert(0, os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "harness"))
+    # (the harness dir is already on sys.path — the redirect above needs
+    # it BEFORE the engine import)
     from shared_repo_guard import (SharedRepoWriteGuard, shared_repo_snapshot,
                                    snapshot_diff, report_unauthorised_writes,
                                    require_no_swallowed_write_block)
+    from build_airport import apply_xplane_install_paths
 
     IMG.initialize_extents_dict()
     IMG.initialize_color_filters_dict()
@@ -67,6 +87,24 @@ if __name__ == "__main__":
     first_step = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     if first_step not in (1, 2):
         raise SystemExit("first_step must be 1 (vector+mesh) or 2 (mesh)")
+    if first_step == 1:
+        # THE EMPTY-CIFP TRAP, closed here too (measured 2026-08-12,
+        # round 18).  ``run_auto_patch_generation`` only calls the
+        # generator when it can resolve a CIFP directory, and the dev
+        # tree ships ``cifp_data_path`` and ``custom_scenery_dir``
+        # EMPTY — so step 1 printed "[flat-site] mode ON but no X-Plane
+        # root resolved", skipped auto_patch entirely, and MESHED
+        # WHATEVER PATCH FILES WERE ALREADY ON DISK.  In a lane worktree
+        # those are whatever was copied in: a +30+031 mesh acceptance
+        # run for round 18 meshed a patch built 2026-08-05 under a
+        # different tree and reported it as the round's own surface.
+        # ``harness/build_airport.py --tile`` has refused this since it
+        # was written; the mesh-only entry inherits the SAME single
+        # implementation rather than a second arrangement of it, and it
+        # refuses identically when nothing resolves.
+        applied = apply_xplane_install_paths()
+        print("X-Plane install paths applied:", sorted(applied))
+    print("engine cache redirects:", _CACHE_REDIRECTS)
     tile = CFG.Tile(latitude, longitude, "")
     tile.read_from_config()
     print("build directory:", tile.build_dir)

@@ -1,4 +1,79 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260812a (SESSION CLOSE — ROUNDS 16-21 + OWNER-REPORT ROUNDS + SPEED/PROCESS OVERHAUL)
+# Apps 1.0.240 then 1.0.241 SHIPPED (engines 1.50.1683/1684, dist.nosync/).
+# Main @ the 1.0.241 stamp eeca2cf + RULINGS ef4958b. Owner in-sim on
+# 1.0.241 PENDING (VHHH canyons+walls+auto-causeway; HECA hill/pads/
+# walls/pocket; KCLT ramp curve/zero-cliff/corridor; KSTJ un-dropped).
+#
+# ── SHIPPED (all merged, ledgered; DEFERRED_VERIFICATION has a line per lane) ──
+#  R16+A1+A2 wall-face owned/portal anchor/joint floor/rings-as-sources
+#    (R16-1b pairing residual = task #10); R17 seal+ONE-band+corridor;
+#    R17b (attribution: canyon=EAT pins, surface-lawful, mid-solve);
+#    R17c (writer=EAT anchor-rect, refuse law inert, feather+scope);
+#    R17d unroutable-EAT whole-rect refusal (KCLT binds 4/11 so rect
+#    stands; VHHH 38/38 refused; KSTJ byte-identical) + connected-
+#    cluster walls; R18 evidence gate + R18-1b harmonic interior
+#    (HECA hill 99.3→91.1=its ring); R19 census domain honesty (628
+#    edges restored — the census had been BLIND to the owner's worst
+#    edges), enclosed-hole subdivision, WALLS RULING EXECUTED (56→0,
+#    feathers), object-pad reconciliation (R19-1 = task #16); R20
+#    curvature walk (1.86→0.105 m) + ONE-DATUM ramp (KCLT cliff
+#    0.00 m; OTHH +2.90 signature) + taxiway stop (R20-3 refuted:
+#    road already outranks lot; lot's 7 rows→relief round); R21
+#    land-connected continuity AUTOMATIC (causeway measured land,
+#    148 m neck; corridor override RETIRED, empty key WARNs; ZGSZ
+#    mainland-refused; VMMC datum band 10 m); scorer round (wide_blob
+#    gate + vouching fixpoint + groundside LAW=8% road cap with 5%
+#    SHAPING split); EAT contradiction guard (KSTJ rc=0); transient-
+#    504; classify_report guarded; Qt backlog QB1-3 (QB4 retired by
+#    measurement); Swift Provider Accounts UI (protocol 1.5) + single
+#    context-aware button BOTH platforms; sweep selection (6-of-113,
+#    100% recall) + artifact ledger (55.9s→0.3s base arms); repro
+#    cutter v1 (disc fidelity REFUTED for coupled classes — pin
+#    harness + input capture, NOT a fix-loop oracle).
+#
+# ── NEXT-SESSION QUEUE (owner-directed 2026-08-12) ──────────────────
+#  1. Fable specs then lanes for tasks #10 (twin-ring pairing: block
+#     is PRE-SPLICE NID IDENTITY, tolerance exonerated 3×, evidence in
+#     r16 report + chain_divergence_audit), #11 (r18b: Hangar_Tower
+#     path-vouching scope + the HECA band inversion it exposes —
+#     solver-side remedy), #16 (pad-host law frame: family is EMIT-
+#     TIME, all 3 mechanisms' evidence ledgered, coalition EXACT on
+#     artifact preserved on branch lane/r19-1-coalition).
+#  2. FINAL PROFILING ROUND (owner complaint: HECA tile 30+ min;
+#     solve 326 s is target #1; budgets 60 s/airport + 300 s/tile
+#     adjudicated per the suspended hard law).
+#  3. #15 overlay write-through IN FLIGHT at close (lane hguard) —
+#     merge on its report if not already done.
+#  ratifications pending: phantom-EAT scoping table (VHHH+KSTJ
+#  exhibits, HECA pin measured ABSENT); shaping-margin question;
+#  island-connection simplification (fixpoint kept, measured
+#  identical); light-touch datum half; drift instrument.
+#
+# ── GOTCHAS LEARNED (beyond standing traps) ─────────────────────────
+#  * OVERLAY WRITE-THROUGH: symlink-seeded cache overlays let engine
+#    writes truncate SHARED files with blocked=[] — 3 incidents; fix
+#    in flight (#15). Until merged: no parallel arms sharing pack
+#    caches without serial re-runs for quoted numbers.
+#  * The census was BLIND to 628 ring edges (lockstep pair_caps
+#    branch) — pre-R19-5 "census Δ0" claims on soft-shape edges are
+#    unreliable; the honest instrument GROWS counts.
+#  * Owner rebuilds OVERWRITE shipped patches in the data repo — a
+#    "1.0.239 control" may no longer exist; check provenance headers
+#    before calling any patch a baseline (kcltrecon caught this).
+#  * App engine's working dir is the DATA repo (patches land there,
+#    not Ortho4XP/Patches — hecarecon2 caught the inversion).
+#  * Retired agents drain stale waiters as repeat notifications —
+#    content-free; don't re-action them.
+#  * cfg keys can exist EMPTY (flat_site_declared_corridors= built
+#    nothing, silently) — retired now, but check values not keys.
+#  * PARALLEL LABELED BUILD TASKS is owner law (RULINGS ef4958b):
+#    one labeled background task per tile, never a serial wrapper.
+#  * Sessions/ account+cookie files can land in lane worktrees;
+#    preserve to Ortho4XP/Sessions/ before teardown (owner's live
+#    logins — done once this session).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260811a (SESSION CLOSE — ROUNDS 9–15 + UI/QT PARITY + CORPUS HEALS)
 # App 1.0.239 SHIPPED (engine 1.50.1682, dist.nosync/). Main @ the
 # version-stamp commit after lane/r15mesh + lane/qtparity merges.

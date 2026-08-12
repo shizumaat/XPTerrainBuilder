@@ -2014,12 +2014,19 @@ class PavementLayout:
         # single-owner, UNVALUED, 0.00-2.29 mm off the pad's chord).
         # One boundary, one spelling: a hole ring that bounds the same
         # boundary an exterior chain already spells ADOPTS that chain
-        # verbatim rather than shipping a private denser one.  The test
-        # is the weld's OWN tolerance (``_WELD_TOL_M``), so a real
-        # geometric divergence — the measured 70.44 mm building~pad
-        # case — is NOT adopted: it keeps both spellings and is
-        # REPORTED, because at that distance the two rings are two
-        # boundaries, not one.
+        # verbatim rather than shipping a private denser one.
+        #
+        # THE DISCRIMINATOR IS THE ON-EDGE MOVE'S OWN FRAME (round-16
+        # amendment 2).  A vertex whose PRE-MOVE offset is within
+        # ``ONEDGE_SNAP_TOL_M`` is one the ratified private on-edge move
+        # would lawfully put on that very chord — adoption just picks
+        # ONE spelling instead of splicing the vertex into both chains.
+        # Amendment 1's 5 mm (``_WELD_TOL_M``) test measured ZERO
+        # adoptions TWICE: the OTHH population's pre-move offsets all
+        # sit in [5 mm, 90 mm] — inside the snap frame, outside the weld
+        # frame — which is why the twin-ring count never moved.  Beyond
+        # the snap frame the two rings really are two boundaries: they
+        # keep both spellings and are REPORTED.
         _pending_of_nid: dict[int, set] = {}
         for _p_i, _e in enumerate(pending):
             for _nid in _e[2][:-1]:
@@ -2089,7 +2096,7 @@ class PavementLayout:
                             _nid, list(_r_open) if _nid in _e_set
                             else list(_e_chain)),
                         _premove_offset.get(_nid, 0.0))
-                if _worst <= _WELD_TOL_M:
+                if _worst <= ONEDGE_SNAP_TOL_M:
                     _best_p = _p_i
                     break
                 _divergent.append((_worst, pending[_p_i][1].role,
@@ -2111,8 +2118,8 @@ class PavementLayout:
             UI.vprint(1,
                 f"  [pav-builder] {len(_divergent)} hole/exterior pair(s) "
                 f"NOT adopted — the rings differ by more than the "
-                f"{_WELD_TOL_M} m weld tolerance, so they are two "
-                f"boundaries, not one spelling (worst "
+                f"{ONEDGE_SNAP_TOL_M} m on-edge snap frame, so they are "
+                f"two boundaries, not one spelling (worst "
                 f"{_divergent[0][0]:.4f} m, role={_divergent[0][1]}, "
                 f"at {_divergent[0][2]}).")
 

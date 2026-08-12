@@ -460,18 +460,38 @@ def test_r16_1b_the_hole_adopts_the_pads_chain():
             f"pad's {len(set(pad[0]))} — one boundary spelled twice")
 
 
-def test_r16_1b_a_real_divergence_is_not_adopted():
-    """The weld tolerance is the test.  A hole whose vertex stands
-    70 mm off the pad's chord is a DIFFERENT boundary: it keeps its own
-    spelling (and the emitter reports it) rather than being snapped
-    onto geometry it does not share."""
+def test_r16_1b_the_snap_frame_is_the_discriminator():
+    """AMENDMENT 2: the test is the private on-edge move's OWN frame.
+    A hole vertex 70 mm off the pad's chord is one that ratified move
+    would put ON the chord anyway, so adoption picks ONE spelling
+    instead of letting the weld splice it into both.
+
+    (Amendment 1 read this case as a keep-both divergence at the 5 mm
+    weld tolerance; measured, that tolerance adopted NOTHING at OTHH —
+    the whole population lives between the two frames.)
+    """
     layout = _dense_hole_scene(extra_offset_m=0.070)
     nodes, ways = _emit_and_parse(layout)
     pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
     rings = _hole_rings(ways)
     assert pad and rings
+    for _wid, nds in rings:
+        assert set(nds) == set(pad[0]), (
+            f"a {0.070} m offset is inside the snap frame and must "
+            f"adopt: ring {sorted(set(nds))} vs pad {sorted(set(pad[0]))}")
+
+
+def test_r16_1b_beyond_the_snap_frame_keeps_both_spellings():
+    """The control the amendment kept: past ``ONEDGE_SNAP_TOL_M`` the
+    move itself would not touch the vertex, so the two rings are two
+    boundaries — both spellings ship and the emitter reports it."""
+    layout = _dense_hole_scene(extra_offset_m=0.200)
+    nodes, ways = _emit_and_parse(layout)
+    pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
+    rings = _hole_rings(ways)
+    assert pad and rings
     assert any(set(nds) != set(pad[0]) for _wid, nds in rings), (
-        "a 70 mm divergence was adopted as if it were a twin")
+        "a 0.20 m divergence — beyond the snap frame — was adopted")
 
 
 def test_r16_4b_an_interior_ring_needle_is_repaired():

@@ -96,7 +96,7 @@ module-level work — they are libraries and are safe to import.
 | `trace_building_frontage.py` | Why a building's flat seat landed where it did: whole-ring median ceiling vs what its taxi-facing frontage can reach (the CYXY A2 apron cliff) |
 | `probe_default_terrain.py` | Reconnaissance over X-Plane default Global Scenery: terrain-library namespace, non-projected land terrains, water terrain paths — the format basis for the texture-mode work |
 | `mesh_region_tris.py` | Total built-mesh triangle count and how many fall inside the airport bbox — the number X-Plane load time actually tracks, not the patch's node count |
-| `mesh_elevation_sampler.py` | Samples elevations from a built `Data<tile>.mesh` — the terrain the sim renders, *after* grading. Sampling the source DEM instead misleads by metres |
+| `mesh_elevation_sampler.py` | Samples elevations from a built `Data<tile>.mesh` — the terrain the sim renders, *after* grading. Sampling the source DEM instead misleads by metres. CLI: `--lon L --lat-range A B` / `--lat L --lon-range A B` sweeps a TRANSECT, `--point LAT LON` samples one, `--step-flag M` annotates jumps ≥ M m — which is how a shore FACE (one step) is told from a beach RAMP (several) |
 
 ## Utilities and data
 

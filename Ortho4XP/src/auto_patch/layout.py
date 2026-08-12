@@ -2066,6 +2066,7 @@ class PavementLayout:
         # It reports and adjudicates nothing.
         _pair_stat: dict[str, int] = {}
         _gate_ex: list = []
+        _ring_trace: list = []
 
         def _pstat(_k: str) -> None:
             _pair_stat[_k] = _pair_stat.get(_k, 0) + 1
@@ -2082,8 +2083,14 @@ class PavementLayout:
                     _cand[_p_i] = _cand.get(_p_i, 0) + 1
             _best_p = None
             _outcome = "no_shared_pending" if not _cand else None
+            _trace: list = []
             for _p_i, _n_shared in sorted(_cand.items(),
                                           key=lambda kv: -kv[1]):
+                if len(_trace) < 4:
+                    _trace.append(
+                        (pending[_p_i][1].role, pending[_p_i][1].ref,
+                         _n_shared, len(pending[_p_i][2]) - 1,
+                         set(pending[_p_i][2][:-1]) == _r_set))
                 # A candidate must SHARE most of the ring to be the same
                 # boundary at all: a building way that happens to share
                 # three nids with a large hole is a neighbour, not a
@@ -2126,6 +2133,11 @@ class PavementLayout:
                 _divergent.append((_worst, pending[_p_i][1].role,
                                    node_id_to_ll.get(next(iter(_diff)))))
             _pstat(_outcome or "no_candidate_passed_gate")
+            if (_outcome != "adopted" and len(_r_open) <= 60
+                    and any(_t[0] == ROLE_OBJECT_PAD for _t in _trace)):
+                _ring_trace.append(
+                    (len(_r_open), _outcome, node_id_to_ll.get(_r_open[0]),
+                     list(_trace)))
             if _best_p is None:
                 continue
             _adopted = list(pending[_best_p][2])
@@ -2143,6 +2155,12 @@ class PavementLayout:
                     f"      gate_share: ring={_ge[0]} vertices, "
                     f"best candidate shares {_ge[1]} (role={_ge[2]}) "
                     f"at {_ge[3]}")
+            for _rt in _ring_trace[:25]:
+                UI.vprint(1,
+                    f"      ring n={_rt[0]} outcome={_rt[1]} at {_rt[2]}: "
+                    + " | ".join(
+                        f"{_c[0]}/{_c[1]} shares {_c[2]} of {_c[3]}"
+                        f"{' EQUAL' if _c[4] else ''}" for _c in _rt[3]))
         if _n_adopt:
             UI.vprint(1,
                 f"  [pav-builder] hole rings adopting their pad's chain "

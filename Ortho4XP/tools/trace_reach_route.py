@@ -450,6 +450,19 @@ class _WriteTracedElev(list):
         list.__setitem__(self, i, v)
 
 
+def _branch_of(call, idx):
+    """The SEEDING BRANCH that supplied node ``idx``'s value, from the
+    call's own ``O4_SEED_BRANCH_ATTRIB`` map — the measurement that
+    settles CONSTANT FILL vs PER-VERTEX SAMPLE, which select different
+    fixes and which no amount of code reading can separate."""
+    rec = (call.get("branch") or {}).get(int(idx))
+    if rec is None:
+        return ("(no branch recorded — run with O4_SEED_BRANCH_ATTRIB=1)")
+    return ("{0}   shape {1}/{2} ring#{3}".format(
+        rec.get("branch"), rec.get("ref"), rec.get("role"),
+        rec.get("ring_index")))
+
+
 def _seed_pin_family(layout, idx, extra):
     """WHICH PIN FAMILY hardened node ``idx`` inside ``_seed_elevations``.
 
@@ -488,11 +501,47 @@ def _report_hard_seed_writers(layout, captured, thresh=0.0, worst=12):
               f"{thresh:+.3f} m at _seed_elevations RETURN")
         for name, s in sorted(c["extra"].items()):
             print(f"     family {name}: {len(s)} node(s) pinned")
+        print(f"     published sets: eat_anchor_rect="
+              f"{len(c.get('eat_pin_idx') or {})}, seam-family protection="
+              f"{len(c.get('seam_pin_idx') or set())}")
+        _tally: dict = {}
+        for _i in c["born"]:
+            _rec = (c.get("branch") or {}).get(int(_i)) or {}
+            _tally[_rec.get("branch")] = _tally.get(_rec.get("branch"), 0) + 1
+        # THE UNION'S OWN COMPOSITION (lead question, round 17c): the
+        # BAND-SEED COMPLETENESS law unions EVERY ``base_hard`` node into
+        # the band's seed set, while its STATED law is runway anchors plus
+        # tile-seam pins.  This is what closing the union to its stated
+        # law would LOSE, branch by branch.
+        _all: dict = {}
+        for _i in c.get("hard_idx") or ():
+            _rec = (c.get("branch") or {}).get(int(_i)) or {}
+            _b = _rec.get("branch")
+            _all[_b] = _all.get(_b, 0) + 1
+        print("     BRANCH TALLY over ALL base_hard node(s) — what the "
+              "seed-completeness union carries:")
+        for (_k, _v) in sorted(_all.items(), key=lambda kv: -kv[1]):
+            print(f"       {_v:7d}  {_k}")
+        _stated = sum(_v for (_k, _v) in _all.items()
+                      if _k in ("runway_cifp_profile", "tile_seam_pin"))
+        print(f"       STATED LAW (runway anchors + tile-seam pins) = "
+              f"{_stated} of {sum(_all.values())}; closing the union to it "
+              f"would drop {sum(_all.values()) - _stated} seed(s)")
+        print("     BRANCH TALLY over the born-below set: "
+              + (", ".join(f"{k}={v}" for (k, v) in sorted(
+                  _tally.items(), key=lambda kv: -kv[1]))
+                 or "(none)"))
         born = sorted(c["born"].items(), key=lambda kv: kv[1][0])[:worst]
         for idx, (val, pos) in born:
             print(f"   node {idx} @({pos[0]:.1f},{pos[1]:.1f}) = "
                   f"{val:.4f}  BORN IN SEEDING")
-            print(f"       family: {_seed_pin_family(layout, idx, c['extra'])}")
+            print(f"       BRANCH: {_branch_of(c, idx)}")
+            print(f"       pin set: "
+                  + ("eat_anchor_rect" if idx in (c.get("eat_pin_idx") or {})
+                     else "seam-family protection set"
+                     if idx in (c.get("seam_pin_idx") or set())
+                     else "none of the published pin sets")
+                  + f"  [{_seed_pin_family(layout, idx, c['extra'])}]")
             print(f"       shapes: {_owning_shape(layout, pos)}")
             print(f"       extent: {_in_flat_extent(layout, pos)}")
             print(f"       DEM at this point: {_dem_at(layout, c, pos)}")
@@ -976,12 +1025,27 @@ def _install_seed_writer_capture(seen, thresh=0.0):
         born = {i: (float(elev[i]), tuple(nodes[i][:2]))
                 for i in range(min(len(elev), len(is_hard), len(nodes)))
                 if is_hard[i] and elev[i] < thresh}
+        hard_idx = [i for i in range(min(len(elev), len(is_hard)))
+                    if is_hard[i]]
+        # THE BRANCH THAT SUPPLIED EACH VALUE, in the CALL'S OWN node
+        # space (``O4_SEED_BRANCH_ATTRIB=1``).  Snapshotted here rather
+        # than read at report time: a solve's node indices are valid only
+        # inside the ``_build_node_list`` call that assigned them, and
+        # reading a later solve's map against this call's indices is the
+        # index-join-across-a-rebuild trap this repo has a law about.
+        branch = dict(getattr(layout, "_seed_branch_attrib", None) or {})
         traced = _WriteTracedElev(elev, thresh, watch=born)
         seen.setdefault("seed_calls", []).append({
             "i": len(seen.get("seed_calls") or []),
             "n": len(elev),
             "n_hard": sum(1 for h in is_hard if h),
             "born": born,
+            "branch": branch,
+            "hard_idx": hard_idx,
+            "seam_pin_idx": set(getattr(layout, "_seam_pin_idx", None)
+                                or ()),
+            "eat_pin_idx": dict(getattr(layout, "_eat_anchor_pin_idx",
+                                        None) or {}),
             "extra": {k2: set(v) for (k2, v) in pending.items()},
             "nodes": nodes,
             "dem": dem,

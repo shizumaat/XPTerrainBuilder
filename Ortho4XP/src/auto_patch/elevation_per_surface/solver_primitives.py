@@ -2677,6 +2677,42 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     is_hard: list[bool] = [False] * n
     have_initial: list[bool] = [False] * n
 
+    # ── SEEDING-BRANCH ATTRIBUTION (O4_SEED_BRANCH_ATTRIB, round 17c) ──
+    # WHICH BRANCH supplied a node's seed value.  This function has ten
+    # of them — the runway/CIFP profile, five pin families, the
+    # flat-site fast path, the warm start off a shape's own altitudes,
+    # the per-vertex DEM sample, and the nearest-hard backfill — and
+    # every one of them writes the same ``elev`` array, so afterwards
+    # the value carries no record of where it came from.  Round 17c's
+    # attribution turns on exactly that distinction: a CONSTANT FILL
+    # over a run of vertices and a PER-VERTEX DEM SAMPLE select
+    # different fixes, and no amount of code reading settles which one
+    # authored a given node (the "attribution reads are not causal"
+    # trap).
+    #
+    # OFF BY DEFAULT and byte-inert: with the gate unset ``_mark`` is a
+    # no-op closure and not one seeded value changes.
+    _branch_attrib: dict = {}
+    if _os.environ.get("O4_SEED_BRANCH_ATTRIB") == "1":
+        def _mark(idx, branch, shape=None, ring=None):
+            if idx is None:
+                return
+            _branch_attrib[int(idx)] = {
+                "branch": branch,
+                "ref": (None if shape is None
+                        else str(getattr(shape, "ref", None))),
+                "role": (None if shape is None
+                         else str(getattr(shape, "role", None))),
+                "ring_index": (None if ring is None else int(ring)),
+            }
+        try:
+            layout._seed_branch_attrib = _branch_attrib
+        except AttributeError:                             # pragma: no cover
+            pass
+    else:
+        def _mark(idx, branch, shape=None, ring=None):
+            return
+
     # Runway corners — HARD-anchor every runway segment, sloped or
     # flat.  The runway's elevation profile is authoritative truth
     # for adjacent pavement: when a junction shares a vertex with a
@@ -2726,7 +2762,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     per += [per[-1]] * (len(coords) - len(per))
             else:
                 continue
-            for (x, y), a in zip(coords, per):
+            for _ri, ((x, y), a) in enumerate(zip(coords, per)):
                 k = _intern(float(x), float(y))
                 idx = bucket_to_idx.get(k)
                 if idx is None:
@@ -2737,6 +2773,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     elev[idx] = float(a)
                     is_hard[idx] = True
                     have_initial[idx] = True
+                    _mark(idx, "runway_cifp_profile", s, _ri)
 
     # Per user 2026-05-13: seam vertices are HARD anchors with
     # OVERRIDE priority over runway CIFP corners.  When a runway
@@ -3075,6 +3112,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             elev[idx] = v
             is_hard[idx] = True
             have_initial[idx] = True
+            _mark(idx, "tile_seam_pin")
         # Publish the pinned indices: seam pins are GRADED-TO hard anchors
         # (user 2026-07-04, "treat the seam like a runway edge or
         # building") — downstream passes that re-stamp or free anchor
@@ -3129,6 +3167,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 is_hard[idx] = True
                 have_initial[idx] = True
                 bridge_pinned_idx.add(idx)
+                _mark(idx, "object_bridge_deck_pin", s)
         if bridge_pinned_idx:
             # Deck pins share the seam pins' protection: downstream
             # re-stamp / relaxation passes must never move them.
@@ -3191,6 +3230,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 is_hard[idx] = True
                 have_initial[idx] = True
                 skirt_pinned_idx.add(idx)
+                _mark(idx, "runway_end_skirt_pin", s)
         if skirt_pinned_idx:
             existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
             layout._seam_pin_idx = (  # type: ignore[attr-defined]
@@ -3221,6 +3261,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             elev[idx] = float(v)
             is_hard[idx] = True
             have_initial[idx] = True
+            _mark(idx, "eat_anchor_rect_pin")
         layout._eat_anchor_pin_idx = dict(eat_pins)  # type: ignore[attr-defined]
         if eat_pins:
             existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
@@ -3256,6 +3297,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             elev[_idx] = float(_v)
             is_hard[_idx] = True
             have_initial[_idx] = True
+            _mark(_idx, "claimed_tunnel_road_pin")
         _existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
         layout._seam_pin_idx = (  # type: ignore[attr-defined]
             set(_existing_pin_idx) if _existing_pin_idx else set()
@@ -3285,9 +3327,20 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         from auto_patch import flat_fast_path as _fast_path
         if readonly:
             _fast_plan = _fast_plan.clone()
+        # The fast path pins inside ANOTHER module, so its branch is
+        # attributed by the hard set it added rather than by a call it
+        # does not make.  Cheap and exact; skipped entirely off-gate.
+        _fp_hard_before = ({i for i, h in enumerate(is_hard) if h}
+                           if _branch_attrib is not None
+                           and _os.environ.get(
+                               "O4_SEED_BRANCH_ATTRIB") == "1" else None)
         _fast_path.apply_seed_pins(
             layout, _fast_plan, nodes, bucket_to_idx, elev, is_hard,
             have_initial, _intern, readonly=readonly)
+        if _fp_hard_before is not None:
+            for _i in ({i for i, h in enumerate(is_hard) if h}
+                       - _fp_hard_before):
+                _mark(_i, "flat_fast_path_born_at_z0")
 
     # Warm-start soft nodes.
     for s in layout.shapes:
@@ -3308,13 +3361,25 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 per += [per[-1]] * (len(coords) - len(per))
         else:
             continue
-        for (x, y), a in zip(coords, per):
+        for _ri, ((x, y), a) in enumerate(zip(coords, per)):
             k = _intern(float(x), float(y))
             idx = bucket_to_idx.get(k)
             if idx is None or is_hard[idx] or have_initial[idx]:
                 continue
             elev[idx] = float(a)
             have_initial[idx] = True
+            # THE FILL-VS-SAMPLE DISTINCTION lives here: a shape with a
+            # single ``altitude`` fills every ring vertex with ONE value
+            # (a run of identical seeds), while ``node_altitudes`` is
+            # per-vertex.  The branch names which.
+            _mark(idx,
+                  ("warm_start_shape_constant_fill"
+                   if (s.altitude_high is None or s.altitude_low is None)
+                   and s.altitude is not None
+                   else "warm_start_shape_high_low"
+                   if s.altitude_high is not None
+                   and s.altitude_low is not None
+                   else "warm_start_shape_node_altitudes"), s, _ri)
 
     # DEM seed for soft nodes that warm-start didn't cover.
     if dem is not None and any(not h for h in have_initial):
@@ -3327,6 +3392,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             if e is not None:
                 elev[i] = float(e)
                 have_initial[i] = True
+                _mark(i, "per_vertex_dem_sample")
 
     # Backfill any node still without an initial value via nearest
     # HARD anchor's elevation (cheap geometric pass).
@@ -3346,6 +3412,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                     best_e = he
             elev[i] = best_e
             have_initial[i] = True
+            _mark(i, "nearest_hard_backfill")
 
     return elev, is_hard, have_initial
 

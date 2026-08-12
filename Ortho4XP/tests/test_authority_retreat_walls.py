@@ -8,16 +8,25 @@ value — the same defect the mean had, minus the averaging, and the
 measured cause of the groundside tear family.
 
 ``adjacent_ground.emit_authority_retreat_walls`` is the other half: the
-loser retreats ``STACKED_WALL_RETREAT_M`` into its own interior and the
-difference ships as a ``retaining_wall`` face.  A loser WITHIN tol
-adopts, unchanged.
+loser retreats into its own interior and the difference ships as a face.
+A loser WITHIN tol adopts, unchanged.
 
-These twins pin the four things that must hold:
-  1. the loser moves and gets a face;
-  2. the WINNER never moves (airside-is-king as constraint direction);
-  3. within tol nothing happens at all;
-  4. no face is minted inside a runway-strip footprint (owner
-     2026-08-01, walls at runway edges are never lawful).
+THE WALLS RULING (owner 2026-08-07, executed R19-4) decides WHICH face:
+a retaining wall ONLY at a carve structure (tunnel/bridge portal,
+abutment); everywhere else the vacated band is a graded FEATHER under
+the loser's own role and cap — "where ground must change height it
+grades ... tight spots get steep slopes, never walls".
+
+These twins pin what must hold:
+  1. the loser moves and gets a FEATHER, graded inside its own cap, and
+     no wall;
+  2. at a carve structure the wall stays, with its own retreat;
+  3. the WINNER never moves (airside-is-king as constraint direction);
+  4. within tol nothing happens at all;
+  5. no face is minted inside a runway-strip footprint (owner
+     2026-08-01, walls at runway edges are never lawful);
+  6. a feather that does not FIT is not forced — the loser adopts, and
+     no wall is minted in its place.
 """
 import pytest
 from shapely.geometry import Polygon
@@ -35,23 +44,39 @@ from auto_patch.layout import (
 APRON_Z = 100.0
 
 
-def _layout(lot_z):
+def _layout(lot_z, lot_depth=200.0, carve=False):
     """An apron and a groundside lot sharing a whole EDGE.
 
     The apron outranks the lot in ``AUTHORITY_PRECEDENCE``, so the lot is
-    the losing claimant at both shared corners.
+    the losing claimant at both shared corners.  ``lot_depth`` is how
+    much room the lot has for the feather run (``spread / cap``);
+    ``carve`` puts a tunnel ramp at the shared edge, which is where a
+    retaining wall is still lawful.
     """
     layout = PavementLayout(icao="KFAKE", anchor=(51.87, -0.37))
     layout.canonical_points = CanonicalPointRegistry(
         tol_m=SHARED_VERTEX_TOL_M)
+    # The apron abuts the MIDDLE of the lot's top edge, so the two
+    # contested vertices are mid-ring on the lot (the production
+    # geometry: a lot welded to a road/apron along part of an edge).  A
+    # ring CORNER can only retreat along the diagonal of its two edges,
+    # which is why the fixture must not make the contested vertices
+    # corners.
     layout.shapes.append(BuiltShape(
-        polygon=Polygon([(0, 0), (40, 0), (40, 40), (0, 40)]),
+        polygon=Polygon([(100, 0), (140, 0), (140, 40), (100, 40)]),
         role=ROLE_APRON, ref="apr",
         node_altitudes=[APRON_Z] * 5))
     layout.shapes.append(BuiltShape(
-        polygon=Polygon([(0, 0), (0, -40), (40, -40), (40, 0)]),
+        polygon=Polygon([(0, 0), (0, -lot_depth), (400, -lot_depth),
+                         (400, 0), (140, 0), (100, 0)]),
         role=ROLE_GROUNDSIDE_PAVEMENT, ref="lot",
-        node_altitudes=[lot_z] * 5))
+        node_altitudes=[lot_z] * 7))
+    if carve:
+        from auto_patch.layout import ROLE_TUNNEL_RAMP
+        layout.shapes.append(BuiltShape(
+            polygon=Polygon([(110, 2), (130, 2), (130, 12), (110, 12)]),
+            role=ROLE_TUNNEL_RAMP, ref="ramp",
+            node_altitudes=[APRON_Z - 6.0] * 5))
     return layout
 
 
@@ -60,17 +85,64 @@ def _walls(layout):
             if (s.ref or "") == "authority_retreat_wall"]
 
 
-def test_a_loser_beyond_tolerance_retreats_and_walls():
-    """4 m below the apron at a shared edge: the lot retreats and the
-    step ships as geometry instead of being dragged up 4 m."""
+def _feathers(layout):
+    return [s for s in layout.shapes
+            if (s.ref or "") == "authority_retreat_feather"]
+
+
+def test_a_loser_beyond_tolerance_retreats_and_feathers():
+    """4 m below the apron at a shared edge, no carve structure in sight:
+    the lot retreats and the step ships as a GRADED FEATHER instead of a
+    wall — and instead of being dragged up 4 m."""
+    from auto_patch.config import ROLE_GRADE_LIMITS
     layout = _layout(APRON_Z - 4.0)
     lot = layout.shapes[1]
     before = list(lot.polygon.exterior.coords)
     n = AG.emit_authority_retreat_walls(layout)
-    assert n > 0, "the losing claimant was not walled"
-    assert _walls(layout), "no retaining_wall face was emitted"
+    assert n > 0, "the losing claimant was not resolved at all"
+    assert not _walls(layout), (
+        "a retaining wall was emitted away from any carve structure — "
+        "the owner's 2026-08-07 ruling retires exactly this face")
+    feathers = _feathers(layout)
+    assert feathers, "no feather face was emitted"
     assert list(lot.polygon.exterior.coords) != before, (
         "the loser kept its vertices — it will be dragged at emit")
+    # The feather carries the LOSER'S OWN role, so the census judges it
+    # under that role's law...
+    cap = ROLE_GRADE_LIMITS[ROLE_GROUNDSIDE_PAVEMENT]
+    assert all(f.role == ROLE_GROUNDSIDE_PAVEMENT for f in feathers)
+    # ...and it is wide enough to be lawful under it.
+    for f in feathers:
+        alts = [a for a in (f.node_altitudes or []) if a is not None]
+        rise = max(alts) - min(alts)
+        run = f.polygon.bounds[3] - f.polygon.bounds[1]   # across the band
+        assert rise / run <= cap + 1e-6, (
+            f"the feather grades at {rise / run:.3%}, over the "
+            f"{cap:.1%} cap it is supposed to satisfy")
+
+
+def test_a_carve_structure_keeps_its_wall():
+    """The ONE admission the ruling leaves: "walls are lawful ONLY at
+    tunnel/bridge carve structures (portals, abutments)"."""
+    layout = _layout(APRON_Z - 4.0, carve=True)
+    n = AG.emit_authority_retreat_walls(layout)
+    assert n > 0
+    assert _walls(layout), (
+        "the portal's wall was retired too — the ruling's own exception")
+
+
+def test_a_tight_spot_gets_a_steep_feather_never_a_wall():
+    """The ruling, verbatim: "tight spots get steep slopes, never walls
+    (no tight-spot exception)".  A lot with no room for ``spread / cap``
+    takes the widest band that FITS — a steep graded face the census
+    reads under the lot's own law — and still no wall."""
+    layout = _layout(APRON_Z - 4.0, lot_depth=6.0)
+    assert AG.emit_authority_retreat_walls(layout) > 0
+    assert not _walls(layout)
+    feathers = _feathers(layout)
+    assert feathers
+    assert all(f.role == ROLE_GROUNDSIDE_PAVEMENT for f in feathers), (
+        "a tight spot must not smuggle the wall role back in")
 
 
 def test_the_winner_never_moves():

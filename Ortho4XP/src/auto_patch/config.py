@@ -6108,6 +6108,16 @@ PAD_HOST_LEVEL_TRIGGER_M = 0.5
 # the reach the pad stays exactly where the solve put it.
 PAD_HOST_BODY_REACH_M = 10.0
 
+# (20260812, R19-4) THE WALLS RULING's carve radius.  Owner 2026-08-07:
+# "retaining walls emit ONLY at carve structures" — tunnel/bridge portals
+# and abutments.  A portal's wall sits BESIDE its structure rather than
+# on it, so the admission is a neighbourhood, and this is its one number
+# (``adjacent_ground._carve_structure_zone``).  50 m is the distance the
+# HECA attribution measured the mid-road wall to be CLEAR of any tunnel
+# or bridge — the population the ruling retires (56 of that airport's 58
+# walls) is not within an order of magnitude of it.
+WALL_CARVE_SITE_RADIUS_M = 50.0
+
 
 def taxi_grade_cap_for_letter(letter, *, enabled: bool = None,
                               ruleset=None) -> float:

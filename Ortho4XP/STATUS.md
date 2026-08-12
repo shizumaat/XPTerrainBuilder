@@ -1,4 +1,83 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260811a (SESSION CLOSE — ROUNDS 9–15 + UI/QT PARITY + CORPUS HEALS)
+# App 1.0.239 SHIPPED (engine 1.50.1682, dist.nosync/). Main @ the
+# version-stamp commit after lane/r15mesh + lane/qtparity merges.
+# ══════════════════════════════════════════════════════════════════
+#
+# ── WHAT SHIPPED TODAY (all merged, all ledgered) ───────────────────
+#  R9  writeback band crown-frame fix (EVERY airport built again; the
+#      clamp reads THE carried band in THE frame).
+#  R10 tunnel emission (cover-is-the-deck admission; walls never cover
+#      ramps; mouths at mapped portals; open-cut corridor; direction-
+#      split dedup) — KCLT area-1 passthroughs 10→0 shapes.
+#  R11 KMCI flat-claim guards (KFLV's 12.7 km² plateau dead; NODATA
+#      insets refuse loudly) — adjacent step 59.36→1.70 m.
+#  R12 bridge deck-top datum + rigid family + agreeing-coalition seat
+#      (owner in-sim ACCEPTED: "bridges fixed").
+#  R13 border-aware inset fetch + --warm-insets (KMCI now on REAL 1 m
+#      MO_FEMANRCS lidar, valid_fraction 1.0, KS tiles recorded empty).
+#  R14 roads-serve-tunnels (claimed tunnel_road plates, 5% owner ramp
+#      cap, taxiway family never cut) — the triangle cliff class dead.
+#  R15 mesh crash containment (REAL ele attrs; the last-char fast-skip
+#      bug that silently skipped SEA/WATER post-treatment for attrs
+#      ending in 0 is FIXED) — +25+051 builds again.
+#  UI  selection restore; stop/resume (16 pt octagon, resume queue);
+#      Qt parity (172 tests) — Windows/Linux current with Swift.
+#  CORPUS (owner-authorised, all in refresh_ledger): KMCI lidar
+#      refetched via --warm-insets; +39-095/+35-081 mod caches warmed;
+#      stale Aug-8 dem.lock lawfully broken.
+#
+# ── AWAITING ────────────────────────────────────────────────────────
+#  Owner in-sim on 1.0.239: +25+051 (tunnels recomposed + crash fix),
+#  +35-081 (tunnel-road integration), +39-095 (first build on real
+#  lidar), +22+113 (VHHH/VMMC, rounds 1-8 still unverdicted).
+#
+# ── NEXT-SESSION QUEUE (owner-RULED 2026-08-11, interview) ──────────
+#  1. ROUND 16, ONE FULL ROUND — the geometry-consistency family:
+#     twin-ring spelling (33 OTHH ring pairs spelled twice; minted the
+#     R15 crash slivers; needle-removal law partners exterior ways
+#     only — layout.py:1596/1606/1657); wall-face becomes real geometry
+#     + deepest-station anchor (groundside.py:343 prose vs shallow-end
+#     behaviour; 275-node population, owner's 25.2566,51.6095 tearing);
+#     ONE floor per connected claimed plate (KCLT 0.13 m residual);
+#     the 25° pavement-needle class. Evidence: r15 ledger line + the
+#     OTHH cliff recon (this session's memory kclt/othh files).
+#  2. QT BACKLOG, ALL FOUR: SecretRequest handler (Win/Linux has NO
+#     credential prompt — most substantive), optimistic launch overlay,
+#     ETA suppression, config-conflict badges. Spec: the qtparity spec's
+#     Q3 list + Swift sources as behavioural authority.
+#  3. SMALL QUEUE, ALL THREE: KSTJ inverted band (31 nodes, EVERY
+#     +39-095 build, patch dropped); classification adjudication with
+#     the newly-INDEX'd classify_report.py (apron -10602 in KCLT's
+#     triangle = tunnel_airside_conflict finding; KMCI parking-lot-as-
+#     apron shapeID 995); transient-504 fetch fix (discover() returns
+#     None for an outage → durable 'no-coverage'; raise
+#     TransientFetchError).
+#
+# ── OPEN OWNER ITEMS ────────────────────────────────────────────────
+#  * rm the stray guard-blocked temp: OSM_data/_regional_extracts/
+#    clips/clip_+039-0095_ca6faf7adabd-part0.osm.pbf.tmp-38055-*.pbf
+#  * OTBD/OTBH flat knife-edges — flat_site_declared tile-cfg keys.
+#  * +39-095 masks + DSFTool-dump contamination records (frame.json,
+#    2026-08-11 morning runs) — regularise or accept; content is
+#    regenerated-correct, records are procedural.
+#
+# ── GOTCHAS LEARNED TODAY (beyond the standing traps) ───────────────
+#  * Engine TRACEBACKS go to the app console (stderr), NOT Ortho4XP.log
+#    — a "clean" log does not mean no crash.
+#  * A rootless checkout's run_tile_mesh_only silently builds a SMALLER
+#    mesh at rc=0 — use the new first_step=2 replay arg on real inputs.
+#  * The refresh path fetches MISSING artifacts only; --warm-insets
+#    ICAO (with --refresh-data dem) is the sanctioned single-airport
+#    refetch; a sidecar json without its raster is auto-archived now.
+#  * make_app consumed a version number on a failed CommandLineTools
+#    attempt — always DEVELOPER_DIR=/Applications/Xcode-beta.app.
+#  * printf with % in ledger text breaks — use heredocs for DEFERRED
+#    lines.
+#  * Implementer battery-run-LAST discipline caught its own regression
+#    (r12b) — keep it in every brief.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260810a (SESSION CLOSE — PRE-SHIP BUG-FIX CAMPAIGN, ROUNDS 1–8)
 # App 1.0.233 SHIPPED (engine 1.50.1678, dist.nosync/, all round
 # symbols bundle-verified).  Main = the lane/fastpath merge.

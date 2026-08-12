@@ -128,7 +128,10 @@ WHAT IT RECORDS, always, next to the patch:
   derived-cache roots lane-local, under ``<out>/<tag>.engine_caches/``:
   the DSFTool dump cache (``O4_DSF_CACHE_DIR``) and the per-pack
   ``Airport_mod_cache`` root (``O4_AIRPORT_MOD_CACHE_DIR``, a
-  symlink-seeded read-through overlay).  It is the pytest suite's own
+  COPY-ON-WRITE read-through overlay: APFS ``clonefile`` seeding, so a
+  writer that truncates a cache in place cannot reach the shared file —
+  symlink seeding let exactly that through, measured three times on
+  2026-08-12).  It is the pytest suite's own
   mechanism, and it closes the hole item 7's guard cannot see: the DSFTool
   SUBPROCESS writes its dump itself (measured KCLT 2026-08-11,
   ``Airport_mod_cache/zOrtho4XP_+35-081/+35-081.dsf.8828b7db.text``, run
@@ -195,7 +198,7 @@ from shared_repo_guard import (                          # noqa: E402,F401
     LIB_INDEX_ARTIFACT_RE, LIB_INDEX_FILE_OPS, is_library_index_artifact,
     SharedRepoWriteBlocked, SharedRepoWriteGuard,
     report_unauthorised_writes, _DEGRADED_OPTIONS,
-    require_no_swallowed_write_block, mirror_tree_as_symlinks,
+    require_no_swallowed_write_block, mirror_tree_as_overlay,
 )
 
 #: The owner's production app config — the one the shipped app runs with.
@@ -803,8 +806,11 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
     DSFTool dump cache (read inside ``O4_File_Names._apply_data_root``, so
     a module reload recomputes the redirect instead of undoing it) and
     ``O4_AIRPORT_MOD_CACHE_DIR`` for the per-pack sidecar cache, seeded as
-    a symlink-seeded READ-THROUGH overlay (:func:`mirror_tree_as_symlinks`
-    — real dirs, file symlinks: warm reads, lane-local writes).  A
+    a COPY-ON-WRITE READ-THROUGH overlay (:func:`mirror_tree_as_overlay`
+    — real dirs, clonefile-seeded files: warm reads, and a write lands
+    lane-local even when the writer TRUNCATES IN PLACE, which is what the
+    engine's sidecar writers do and what symlink seeding did not survive
+    (measured 2026-08-12, seven OTHH sidecars)).  A
     subprocess inherits the environment, which is precisely why the
     redirect rides env variables and not an assignment.
 
@@ -836,8 +842,8 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
         mod_dir = base / "Airport_mod_cache"
         # ``DATA_REPO`` bare on purpose: the module global is what a twin
         # monkeypatches to point the seed at a fake corpus.
-        seeded = mirror_tree_as_symlinks(str(DATA_REPO / "Airport_mod_cache"),
-                                         str(mod_dir))
+        seeded = mirror_tree_as_overlay(str(DATA_REPO / "Airport_mod_cache"),
+                                        str(mod_dir))
         os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = str(mod_dir)
 
     # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
@@ -861,7 +867,8 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
             f"engine derived-cache roots redirected LANE-LOCAL under {base}: "
             f"dump cache={dsf_dir or 'SHARED (authorised refresh)'}, "
             f"mod cache={mod_dir or 'SHARED (authorised refresh)'}"
-            + (f" (overlay seeded: {seeded['files']} file symlink(s), "
+            + (f" (overlay seeded copy-on-write: {seeded['files']} file(s) "
+               f"— {seeded['cloned']} cloned, {seeded['copied']} copied — "
                f"{seeded['dirs']} dir(s))" if seeded is not None else "")
             + ".  This closes the DSFTool SUBPROCESS dump hole the write "
               "guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED)."
@@ -889,8 +896,11 @@ def arm_shared_repo_protection(root, out_dir, tag, prog=None,
     built two airports with NEITHER half and wrote ten files into the
     shared corpus (mod-cache sidecars and DSFTool dumps under ``+35-081``
     and ``+39-095``); the same session's guarded builds reported the repo
-    unchanged.  A symlink-seeded overlay alone does not save you either —
-    without an armed guard the writers write THROUGH the symlinks.
+    unchanged.  Nor does the overlay alone save you: when it was symlink-
+    seeded, an unguarded writer wrote THROUGH the links, and the guard
+    could not see it either (both halves fixed 2026-08-12 —
+    :func:`mirror_tree_as_overlay` seeds copy-on-write and
+    :class:`SharedRepoWriteGuard` judges the RESOLVED path).
 
     TWO PHASES, deliberately not one context manager:
 

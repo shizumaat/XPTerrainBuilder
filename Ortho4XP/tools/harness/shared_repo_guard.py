@@ -143,17 +143,88 @@ def _file_stamp(repo: Path, rel: str, max_hash_bytes: int = 64 * 1024 * 1024):
     return out
 
 
-def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
-    """Mirror ``source_root``'s DIRECTORIES into ``overlay_root`` and
-    SYMLINK every regular file into it.  Returns ``{"dirs", "files"}``.
+def _clonefile(source: str, target: str) -> bool:
+    """APFS ``clonefile(2)``: a REAL file at ``target`` sharing the source's
+    data BLOCKS copy-on-write, in the FILESYSTEM.  True on success.
 
-    THE READ-THROUGH OVERLAY.  Redirecting a warm derived cache to an
+    This is the primitive the overlay law rests on.  A clone is not a link
+    of any kind: it has its own inode, its own metadata and its own
+    directory entry, and the first write to EITHER side privately copies
+    the blocks it touches.  So a writer that truncates the clone in place —
+    which is exactly what the engine's sidecar writers do — cannot reach
+    the shared file, and no interception is needed to stop it.
+
+    Measured 2026-08-12 on the real corpus: 1,131 files / 22 GB apparent
+    cloned in 0.10 s for ~420 KB of actual disk.
+
+    Total and quiet: any failure (a non-APFS or cross-volume target, an
+    older kernel, a target that exists) returns False so the caller can
+    fall back to a real copy.  It never raises.
+    """
+    try:
+        import ctypes
+        lib = _clonefile._lib                       # type: ignore[attr-defined]
+        if lib is None:
+            return False
+    except AttributeError:
+        import ctypes
+        try:
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+            if not hasattr(lib, "clonefile"):
+                lib = None
+            else:
+                lib.clonefile.argtypes = [ctypes.c_char_p, ctypes.c_char_p,
+                                          ctypes.c_int]
+                lib.clonefile.restype = ctypes.c_int
+        except OSError:
+            lib = None
+        _clonefile._lib = lib                       # type: ignore[attr-defined]
+        if lib is None:
+            return False
+    try:
+        # flags=0 FOLLOWS a symlinked source, so a source that is itself a
+        # link still yields a clone of the DATA rather than a copied link.
+        return lib.clonefile(os.fsencode(source), os.fsencode(target), 0) == 0
+    except Exception:
+        return False
+
+
+def mirror_tree_as_overlay(source_root: str, overlay_root: str) -> dict:
+    """Mirror ``source_root``'s DIRECTORIES into ``overlay_root`` and seed
+    every regular file into it COPY-ON-WRITE.  Returns
+    ``{"dirs", "files", "cloned", "copied"}``.
+
+    THE COPY-ON-WRITE OVERLAY.  Redirecting a warm derived cache to an
     empty directory would make every shared sidecar invisible and rebuild
-    it per session — a different measurement, not a cleaner one.  Real
-    directories + file symlinks give reads the warm corpus and send writes
-    lane-local: the sidecar writers create a temp file in the DIRECTORY
-    (a real one, lane-local) and ``os.replace`` it onto the name, which
-    REPLACES the symlink rather than following it.
+    it per session — a different measurement, not a cleaner one.  So the
+    overlay must give reads the warm corpus AND guarantee that a write
+    lands lane-local with the shared file byte-untouched.
+
+    WHY NOT SYMLINKS (the measured defect, 2026-08-12, three times in one
+    session: two SQ2 classify runs, the r18 KMCI overlay, and the r20
+    parallel arms, which rewrote SEVEN OTHH sidecars).  This function
+    seeded FILE SYMLINKS into the shared repo and its docstring argued the
+    writers ``os.replace`` a temp file onto the name, which replaces the
+    link instead of following it.  Some do.  The ones that matter do not:
+    ``auto_patch.dsf_reader`` (three sites), ``object_terrain_assembly``
+    (two) and ``post_mesh`` open the sidecar path directly as
+    ``open(path, "wb")`` — a TRUNCATE IN PLACE, which follows the symlink
+    and empties the SHARED file.  And :class:`SharedRepoWriteGuard` was
+    structurally blind to it: the open path was lane-local, so the guard
+    saw nothing and every such run reported ``blocked: []``.
+
+    WHY NOT HARDLINKS.  A hardlink is the same inode.  Truncate-in-place is
+    precisely the write pattern a hardlink does NOT protect against — it
+    would corrupt the shared file just as thoroughly, and silently.
+
+    SO: ``clonefile(2)`` (:func:`_clonefile`), falling back to a real
+    ``shutil.copyfile``.  Both leave a REAL lane-local file whose first
+    write copies rather than follows; neither can be reached from the
+    shared side.  There is deliberately NO symlink fallback — a seeding
+    mode that cannot make the guarantee is not a cheaper overlay, it is
+    the defect above.  The two counts come back separately so a corpus
+    that fell back to real copies is a number in the build record rather
+    than a surprise in the disk graph.
 
     Pure and total (no environment, no fixture state) so it has a
     known-answer twin — an instrument without one is not an instrument
@@ -165,7 +236,9 @@ def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
     so the harness build entry's per-run engine-cache redirect and the
     suite overlay share ONE implementation — the census-wrapper precedent.
     """
-    made = {"dirs": 0, "files": 0}
+    import shutil
+
+    made = {"dirs": 0, "files": 0, "cloned": 0, "copied": 0}
     os.makedirs(overlay_root, exist_ok=True)
     if not os.path.isdir(source_root):
         return made
@@ -178,12 +251,23 @@ def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
             made["dirs"] += 1
         for name in filenames:
             source = os.path.join(dirpath, name)
-            link = os.path.join(target_dir, name)
-            if not os.path.isfile(source) or os.path.lexists(link):
+            entry = os.path.join(target_dir, name)
+            if not os.path.isfile(source) or os.path.lexists(entry):
                 continue
-            os.symlink(source, link)
+            if _clonefile(source, entry):
+                made["cloned"] += 1
+            else:
+                shutil.copyfile(source, entry)      # lawful, just costlier
+                made["copied"] += 1
             made["files"] += 1
     return made
+
+
+#: DEPRECATED NAME, kept because ``tools/repro_cut.py`` still calls it.
+#: It no longer symlinks anything (see :func:`mirror_tree_as_overlay`); the
+#: name is a lie the moment you read it, which is why the truthful one is
+#: the definition and this is one line of forwarding.
+mirror_tree_as_symlinks = mirror_tree_as_overlay
 
 
 class RefreshLock:
@@ -438,6 +522,16 @@ class SharedRepoWriteGuard:
     detect the remainder.  Defence in depth, not one mechanism claimed to
     be complete.
 
+    THE PATH IT JUDGES IS THE RESOLVED ONE (2026-08-12).  A write is a
+    shared-repo write when it REACHES the shared repo, whatever the string
+    at the call site says: a lane-local overlay entry that is a symlink
+    into the corpus is the measured case, and until this landed the guard
+    compared the lane-local string, matched nothing and reported
+    ``blocked: []`` while ``open(entry, "wb")`` truncated the shared file
+    through the link.  See :func:`mirror_tree_as_overlay`, which removes
+    the condition, and ``_violation``, which no longer depends on it
+    having been removed.
+
     ALWAYS-ALLOWED: the harness's own state directory (``.harness/`` — the
     refresh ledger and the lock files), every path under an authorised
     scope, and — each for the calls that handle it — the engine's own
@@ -508,7 +602,29 @@ class SharedRepoWriteGuard:
             s = s.decode("utf-8", "replace")
         ap = s if os.path.isabs(s) else os.path.abspath(s)
         if not ap.startswith(self._prefixes):
-            return None                        # cheap reject: the hot path
+            # THE WRITE-THROUGH HOLE (measured 2026-08-12, three times in
+            # one session — see mirror_tree_as_overlay).  A lane-local
+            # overlay entry that is a SYMLINK into the shared repo is a
+            # shared-repo write: ``open(entry, "wb")`` follows the link and
+            # truncates the shared file, while every string the guard was
+            # comparing said "lane-local".  Every such run reported
+            # ``blocked: []`` — the guard was not lenient, it was blind.
+            #
+            # So the cheap prefix test is a fast ACCEPT, never the whole
+            # answer: on a miss, resolve and ask again.  What a write
+            # REACHES is what it writes.  ``realpath`` resolves the parents
+            # of a not-yet-existing file and leaves the tail, so a create
+            # through a symlinked directory is caught too.  It costs a few
+            # microseconds against a file write, and it is belt to the
+            # overlay's braces: with copy-on-write seeding no lawful
+            # overlay write can resolve into the repo at all.
+            try:
+                real_s = os.path.realpath(ap)
+            except OSError:
+                return None
+            if real_s == ap or not real_s.startswith(self._prefixes):
+                return None                    # genuinely outside the repo
+            ap = real_s
         try:                                   # follow the lane's symlinks
             real = Path(ap).resolve()
             rel = str(real.relative_to(self.repo.resolve()))

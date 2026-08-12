@@ -34,6 +34,7 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
 )
@@ -101,6 +102,56 @@ def parse_tile_key(key):
     if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
         return None
     return (lat, lon)
+
+
+# Mixed-imagery-source audit (docs/specs/qt-backlog-parity2-spec.md §QB3).
+# Ortho4XP names every texture "{y}_{x}_{Provider}{ZL}.dds", and a tile's
+# DSF references textures from ONE source — its config's default_website.
+# Files carrying any other provider token are dead weight from an earlier
+# build with a different source.  Imagery zones legitimately mix ZOOM
+# LEVELS, so only the provider token decides foreignness; masks and other
+# non-.dds files are ignored.  The two-digit ZL anchor is what lets a
+# provider code that itself ends in digits ("USA_2" -> "…_USA_216.dds")
+# parse correctly.
+_TEXTURE_DDS_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+
+
+def texture_provider(name):
+    """The provider token of one texture file name, or None.
+
+    Pure: a name in, a token out.  Anything that is not a .dds named the
+    way the imagery writer names them (masks, stray files, a half-written
+    download) yields None and is simply not evidence either way.
+    """
+    if not isinstance(name, str) or not name.lower().endswith(".dds"):
+        return None
+    match = _TEXTURE_DDS_RE.fullmatch(name[:-4])
+    return match.group(1) if match else None
+
+
+def has_foreign_sources(textures_dir, provider):
+    """True if a built tile's textures folder mixes imagery sources.
+
+    NAMES ONLY — one directory listing per tile, no per-file stat calls —
+    so sweeping a full ortho install stays a couple of seconds' work off
+    the UI thread.  Returns as soon as one foreign texture is seen.  An
+    unknown current provider, or a folder that cannot be listed, is not a
+    conflict: no call can be made without knowing what the tile is
+    supposed to be built from.
+    """
+    provider = str(provider or "").strip()
+    if not provider:
+        return False
+    try:
+        names = os.listdir(textures_dir)
+    except OSError:
+        return False
+    current = provider.lower()
+    for name in names:
+        found = texture_provider(name)
+        if found is not None and found.lower() != current:
+            return True
+    return False
 
 
 def provider_is_mappable(provider_code):
@@ -171,6 +222,7 @@ class MapView(QGraphicsView):
         # Overlay state
         self._built = {}             # (lat, lon) -> TileInfo
         self._installed = set()      # (lat, lon)
+        self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._selection = set()
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
@@ -285,6 +337,12 @@ class MapView(QGraphicsView):
 
     def set_installed(self, installed):
         self._installed = set(installed)
+        self.viewport().update()
+
+    def set_conflicts(self, conflicts):
+        """Built tiles whose textures folder mixes imagery sources — the
+        warning-badge set, computed off the UI thread by the window."""
+        self._conflicts = set(conflicts)
         self.viewport().update()
 
     def selection(self):
@@ -849,6 +907,12 @@ class MapView(QGraphicsView):
                 )
                 painter.setPen(QPen(QColor(15, 23, 32, 235)))
                 painter.drawText(r, Qt.AlignCenter, label)
+            # Mixed imagery sources: a warning triangle in the top-right
+            # corner so affected tiles stand out at a glance.  Only once
+            # the square is big enough to carry it — below that the badge
+            # is bigger than the tile and reads as noise on the grid.
+            if tile in self._conflicts and px > 14:
+                self._draw_conflict_badge(painter, r, px, scale)
 
         if selected:
             fill = QColor("#FFD60A")
@@ -864,6 +928,36 @@ class MapView(QGraphicsView):
 
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
+
+    def _draw_conflict_badge(self, painter, r, px, scale):
+        """The mixed-imagery-source warning: a yellow triangle carrying an
+        exclamation mark, top-right of the tile square.
+
+        Sized in SCREEN points (11-20, growing with the square up to a
+        sixth of it) and converted back into scene units, so the badge
+        stays legible at every zoom instead of tracking the tile's own
+        enormous scene rect.
+        """
+        size = min(max(px * 0.16, 11.0), 20.0) / max(scale, 1e-12)
+        cx = r.right() - size * 0.7
+        cy = r.top() + size * 0.7
+        triangle = QPainterPath()
+        triangle.moveTo(QPointF(cx, cy - size * 0.46))
+        triangle.lineTo(QPointF(cx + size * 0.5, cy + size * 0.4))
+        triangle.lineTo(QPointF(cx - size * 0.5, cy + size * 0.4))
+        triangle.closeSubpath()
+        outline = QPen(QColor(15, 23, 32, 200))
+        outline.setCosmetic(True)
+        outline.setWidth(1)
+        painter.setPen(outline)
+        painter.setBrush(QColor("#FFD60A"))
+        painter.drawPath(triangle)
+        painter.setPen(QPen(QColor(15, 23, 32, 255)))
+        painter.drawText(
+            QRectF(cx - size * 0.5, cy - size * 0.32, size, size * 0.8),
+            Qt.AlignCenter,
+            "!",
+        )
 
     def _draw_progress_badge(self, painter, r, px, progress):
         state, label, pct = progress

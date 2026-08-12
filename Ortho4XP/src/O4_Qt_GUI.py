@@ -9,6 +9,7 @@ via UI.progress_bar (adapted to Qt signals), cancellation via UI.red_flag,
 console output via a stdout tee.
 """
 
+import dataclasses
 import json
 import math
 import os
@@ -92,6 +93,20 @@ MAX_CONSOLE_LINES = 5000
 SELECTED_TILES_KEY = "selected_tiles"
 ACTIVE_TILE_KEY = "active_tile"
 
+# Persisted tile-scan results for the optimistic launch overlay
+# (docs/specs/qt-backlog-parity2-spec.md §QB1).  A CACHE, not user state:
+# it lives beside the airport-index cache under the writable data root,
+# NOT in .qt_prefs.json, and losing it costs nothing but the first
+# seconds of a launch.
+TILE_SCAN_CACHE_FILE = FNAMES.data_path(".tile_scan_cache.json")
+# 1: initial.  Bump whenever the cached TileInfo shape or the
+# normalisation below changes — a stale-shaped snapshot is DROPPED, never
+# migrated (the mac app's v3 bump exists because caches written before
+# provider normalisation poisoned the imagery-source audit with legacy
+# cfg quotes; here providers are normalised on the way IN, and the
+# version is what guarantees no pre-normalisation snapshot survives).
+TILE_SCAN_CACHE_VERSION = 1
+
 # Point size of the per-tile stop / resume glyphs on the Activity rows.
 # Shared, so the button never changes size when a row flips between
 # them, and big enough to read AS a stop sign (owner, on 1.0.238).
@@ -173,6 +188,119 @@ def save_prefs(prefs):
     try:
         with open(PREFS_FILE, "w") as f:
             json.dump(prefs, f, indent=2)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Tile-scan cache (pure — no widgets, no engine): the optimistic launch
+# overlay's store.  docs/specs/qt-backlog-parity2-spec.md §QB1.
+# ---------------------------------------------------------------------------
+def _normalized_provider(provider):
+    """A provider code as the imagery-source audit must see it.
+
+    Legacy per-tile configs quote string values
+    (``default_website='Arc'``); ``O4_Tile_Info._parse_cfg`` already
+    strips them, and this is the cache's own belt-and-braces so a quoted
+    code can never be RE-INTRODUCED by a snapshot — a cached "'Arc'"
+    matches no provider and turns every texture on the tile foreign.
+    """
+    text = str(provider or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1]
+    return text
+
+
+def scan_cache_payload(built, installed, working_dir, custom_scenery_dir):
+    """The JSON-able snapshot of one completed scan.
+
+    ``built`` maps (lat, lon) -> TileInfo; the tiles are stored as a flat
+    list because each TileInfo carries its own lat/lon, and ``installed``
+    as [lat, lon] pairs.  Both directories are stored VERBATIM: the
+    snapshot only describes the pair it was scanned against.
+    """
+    tiles = []
+    for info in built.values():
+        try:
+            fields = dataclasses.asdict(info)
+        except TypeError:
+            continue
+        fields["provider"] = _normalized_provider(fields.get("provider"))
+        tiles.append(fields)
+    return {
+        "version": TILE_SCAN_CACHE_VERSION,
+        "working_dir": str(working_dir or ""),
+        "custom_scenery_dir": str(custom_scenery_dir or ""),
+        "built": tiles,
+        "installed": [[int(lat), int(lon)] for (lat, lon) in installed],
+    }
+
+
+def scan_cache_restore(payload, working_dir, custom_scenery_dir):
+    """``(built, installed)`` from a snapshot, or None.
+
+    None whenever the snapshot cannot be trusted to describe THIS
+    session: a different schema version, or either folder differing from
+    the pair the scan ran against (a changed working dir or Custom
+    Scenery folder describes a different world, and a stale overlay
+    would be a lie the user acts on before the rescan lands).  Individual
+    entries that no longer fit the TileInfo shape are dropped silently.
+    """
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("version") != TILE_SCAN_CACHE_VERSION:
+        return None
+    if payload.get("working_dir") != str(working_dir or ""):
+        return None
+    if payload.get("custom_scenery_dir") != str(custom_scenery_dir or ""):
+        return None
+    known = {field.name for field in dataclasses.fields(TINFO.TileInfo)}
+    built = {}
+    for entry in payload.get("built") or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            info = TINFO.TileInfo(
+                **{key: value for key, value in entry.items()
+                   if key in known})
+            key = (int(info.lat), int(info.lon))
+        except (TypeError, ValueError):
+            continue
+        info.provider = _normalized_provider(info.provider)
+        built[key] = info
+    installed = set()
+    for pair in payload.get("installed") or []:
+        try:
+            (lat, lon) = pair
+            installed.add((int(lat), int(lon)))
+        except (TypeError, ValueError):
+            continue
+    return (built, installed)
+
+
+def load_scan_cache(working_dir, custom_scenery_dir, path=None):
+    """Last session's scan results for this folder pair, or None."""
+    try:
+        with open(path or TILE_SCAN_CACHE_FILE, "r") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    return scan_cache_restore(payload, working_dir, custom_scenery_dir)
+
+
+def save_scan_cache(built, installed, working_dir, custom_scenery_dir,
+                    path=None):
+    """Write one completed scan's results.  Best effort, like the prefs:
+    a cache that cannot be written costs the next launch its overlay and
+    nothing else."""
+    path = path or TILE_SCAN_CACHE_FILE
+    payload = scan_cache_payload(
+        built, installed, working_dir, custom_scenery_dir)
+    try:
+        temporary = path + ".tmp"
+        with open(temporary, "w") as handle:
+            json.dump(payload, handle)
+        os.replace(temporary, path)
     except Exception:
         pass
 
@@ -388,6 +516,9 @@ class _EngineBridge(QObject):
 
     event = Signal(object)
     size_computed = Signal()
+    # (generation, {(lat, lon), ...}) from a worker sweep of built tiles'
+    # textures folders for mixed imagery sources.
+    conflicts_ready = Signal(object)
     # (tile, [modified_packs entry, ...]) from a worker probe of the
     # reanchor provenance sidecars in Custom Scenery.
     reanchor_ready = Signal(object)
@@ -472,6 +603,7 @@ class MainWindow(QMainWindow):
         self._bridge = _EngineBridge()
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
+        self._bridge.conflicts_ready.connect(self._on_conflicts_ready)
         self._session.subscribe(self._bridge.event.emit)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
@@ -486,6 +618,17 @@ class MainWindow(QMainWindow):
         }
         self._scan_built = {}
         self._scan_installed = set()
+        # (working dir, Custom Scenery dir) the in-flight scan was
+        # started against — the key its results are cached under, taken
+        # at scan start so a folder changed mid-scan can never file the
+        # results under the wrong pair.
+        self._scan_dirs = None
+        # Built tiles whose textures folder mixes imagery sources (only
+        # one source can be in use) — the map's warning badges.  Swept
+        # off the UI thread; the generation counter retires a sweep whose
+        # scan has already been superseded.
+        self._conflict_tiles = set()
+        self._conflict_generation = 0
         self._last_run_eta = None
         # (lat,lon) -> (elapsed_seconds, remaining_seconds|None, finished)
         # from the engine's TileClocks rows (protocol 1.3); rendered by
@@ -503,6 +646,11 @@ class MainWindow(QMainWindow):
         self._make_widgets()
         self._make_menus()
         self._apply_prefs(initial=True)
+        # Optimistic launch: last session's squares are on the map before
+        # the engine has finished booting.  Runs BEFORE the selection
+        # restore below, so the restored active tile's info panel and
+        # toolbar combos see `_built` exactly as they do on a user click.
+        self._load_cached_tile_states()
 
         # Persisted window layout: geometry (size + position), console
         # drawer visibility and splitter split, remembered across
@@ -1133,6 +1281,137 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Selection / tile info
     # ------------------------------------------------------------------
+    def _load_cached_tile_states(self):
+        """Paint last session's scan results, pending the first rescan.
+
+        The engine takes seconds just to boot, and until its first scan
+        reports, the map has nothing to draw — so the previous scan's
+        squares go up immediately and the rescan revalidates them in the
+        background: ScanBatch streams the truth in and ScanDone swaps it
+        wholesale, exactly as it does over a live overlay.  Cached state
+        is only ever adopted into an EMPTY map, and only when it was
+        scanned against the very folders this session will scan.
+        """
+        if self._built or self._installed:
+            return
+        import O4_Config_Utils as CFG
+
+        cached = load_scan_cache(self.working_dir(), CFG.custom_scenery_dir)
+        if cached is None:
+            return
+        (self._built, self._installed) = cached
+        self.map.set_built(self._built)
+        self.map.set_installed(self._installed)
+        # The badges are part of the overlay, not of the scan: a cached
+        # tile's textures folder is on disk and can be audited now.
+        self._refresh_conflict_tiles()
+
+    # ------------------------------------------------------------------
+    # Mixed-imagery-source badges (docs/specs/qt-backlog-parity2-spec.md
+    # §QB3)
+    # ------------------------------------------------------------------
+    def _refresh_conflict_tiles(self):
+        """Re-audit every built tile's textures folder, off the UI thread.
+
+        One directory listing per tile and no stat calls, so a full ortho
+        install sweeps in a couple of seconds.  Re-armed on every scan: a
+        sweep already running is retired by the generation bump rather
+        than interrupted, and its result is discarded when it lands.
+        """
+        self._conflict_generation += 1
+        generation = self._conflict_generation
+        snapshot = [
+            (tile, info.build_dir, info.provider)
+            for (tile, info) in self._built.items()
+            if getattr(info, "provider", "") and getattr(info, "build_dir", "")
+        ]
+
+        def _worker():
+            conflicts = set()
+            for (tile, build_dir, provider) in snapshot:
+                if generation != self._conflict_generation:
+                    return  # a newer scan owns the badges now
+                if QTMAP.has_foreign_sources(
+                        os.path.join(build_dir, "textures"), provider):
+                    conflicts.add(tile)
+            self._emit_conflicts(generation, conflicts)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _reaudit_conflict(self, tile):
+        """Re-audit ONE tile and update its badge immediately.
+
+        The hook for anything that changes a tile's textures folder
+        without a rescan behind it (a cleanup action, a manual deletion
+        the user reports): the warning clears — or appears — at once
+        instead of waiting for the next scan to come round.
+        """
+        info = self._built.get(tile)
+        if info is None or not info.provider or not info.build_dir:
+            self._conflict_tiles.discard(tile)
+            self.map.set_conflicts(self._conflict_tiles)
+            self._refresh_conflict_indicator()
+            return
+        (build_dir, provider) = (info.build_dir, info.provider)
+        generation = self._conflict_generation
+        known = set(self._conflict_tiles)  # snapshot: the worker never
+                                           # reads GUI-thread state
+
+        def _worker():
+            conflict = QTMAP.has_foreign_sources(
+                os.path.join(build_dir, "textures"), provider)
+            if generation != self._conflict_generation:
+                return  # a full sweep started meanwhile and owns the set
+            conflicts = set(known)
+            if conflict:
+                conflicts.add(tile)
+            else:
+                conflicts.discard(tile)
+            self._emit_conflicts(generation, conflicts)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _emit_conflicts(self, generation, conflicts):
+        """Hand a sweep's result to the GUI thread.
+
+        A sweep can outlive the window that started it (the app quitting
+        mid-audit); emitting on a deleted bridge would take the worker
+        thread down with a RuntimeError nobody is there to see.
+        """
+        try:
+            self._bridge.conflicts_ready.emit((generation, conflicts))
+        except RuntimeError:
+            pass
+
+    def _on_conflicts_ready(self, payload):
+        """A finished sweep, back on the GUI thread."""
+        (generation, conflicts) = payload
+        if generation != self._conflict_generation:
+            return
+        self._conflict_tiles = set(conflicts)
+        self.map.set_conflicts(self._conflict_tiles)
+        self._refresh_conflict_indicator()
+
+    def _refresh_conflict_indicator(self, tile=None):
+        """The info panel's half of the badge: the active tile's Imagery
+        row says so when its textures folder mixes sources."""
+        if tile is None:
+            tile = self.map.active_tile()
+        info = self._built.get(tile) if tile is not None else None
+        if info is None:
+            return
+        conflicted = tile in self._conflict_tiles
+        self.info_provider.setText(
+            ("%s  ⚠ mixed" % (info.provider or "?")) if conflicted
+            else (info.provider or "?")
+        )
+        self.info_provider.setToolTip(
+            "This tile's textures folder also holds imagery from another "
+            "source. Only the source above is used; the rest is disk "
+            "space a rebuild left behind."
+            if conflicted else ""
+        )
+
     def refresh_tiles(self):
         import O4_Config_Utils as CFG
 
@@ -1143,7 +1422,9 @@ class MainWindow(QMainWindow):
         self._scan_built = {}
         self._scan_installed = set()
         self._scanning = True
-        self._session.scan(self.working_dir(), CFG.custom_scenery_dir)
+        working_dir = self.working_dir()
+        self._scan_dirs = (working_dir, CFG.custom_scenery_dir)
+        self._session.scan(working_dir, CFG.custom_scenery_dir)
         # An already-shown "(not built)" verdict is stale the moment a
         # rescan starts — repaint the active tile as pending.
         self._active_changed(self.map.active_tile())
@@ -1178,6 +1459,13 @@ class MainWindow(QMainWindow):
         self._installed = set(self._scan_installed)
         self.map.clear_scan_status()
         self._push_overlays()
+        # The truth, filed under the folder pair it was scanned against:
+        # next launch draws it before the engine has booted.
+        if self._scan_dirs is not None:
+            save_scan_cache(self._built, self._installed, *self._scan_dirs)
+        # Badges follow the authoritative built set, never a partial one:
+        # a mid-scan sweep would audit tiles the swap is about to drop.
+        self._refresh_conflict_tiles()
 
     def _push_overlays(self):
         self.map.set_built(self._built)
@@ -1411,7 +1699,7 @@ class MainWindow(QMainWindow):
             self.install_check.setEnabled(False)
             self.install_check.setChecked(False)
             return
-        self.info_provider.setText(info.provider or "?")
+        self._refresh_conflict_indicator(tile)
         zl_text = str(info.zl) if info.zl else "?"
         # Airport high-ZL cover: show the upgraded zoomlevel and its scope
         # (e.g. "16 + ZL18 ICAO") so the setting is visible at a glance.

@@ -1872,7 +1872,7 @@ def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
         in composed, (
         "the composition must supply BOTH halves — the redirect closes the "
         "subprocess hole the guard cannot see, and the guard is what stops "
-        "a writer writing THROUGH the overlay's symlinks")
+        "a writer reaching the corpus THROUGH the overlay")
     assert "getattr(write_guard, \"requested\"" in composed, (
         "an AUTHORISED refresh scope must be left SHARED, or the refresh is "
         "a silent no-op")
@@ -2497,8 +2497,9 @@ def test_the_mesh_only_entry_has_no_refresh_mechanism_of_its_own():
 # CONTAMINATED flag onto an unrelated lane's run.
 #
 # The second measured fact, and the reason the redirect is not enough on
-# its own: the mod-cache overlay is SYMLINK-SEEDED, and an unguarded writer
-# writes THROUGH the symlinks into the shared file.  Redirect and guard are
+# its own: the mod-cache overlay was SYMLINK-SEEDED, and an unguarded
+# writer wrote THROUGH the symlinks into the shared file (seeding is
+# copy-on-write since 2026-08-12).  Redirect and guard are
 # one composition (``arm_shared_repo_protection``), and these twins pin
 # that this tool arms it rather than a private arrangement of the parts.
 
@@ -2610,8 +2611,9 @@ def test_the_classify_build_path_ARMS_guard_AND_redirect(
     base = tmp_path / "out" / "classify_KCLT.engine_caches"
     assert seen["icao"] == "KCLT"
     assert seen["guard_live"], (
-        "the build ran OUTSIDE the write guard — the symlink-seeded overlay "
-        "does not save you, writers write THROUGH the symlinks")
+        "the build ran OUTSIDE the write guard — the overlay alone does "
+        "not save you: writers wrote THROUGH the seeded symlinks, and the "
+        "guard is what catches whatever the seeding does not")
     assert seen["dsf"] == str(base / "Default_DSF_cache"), (
         "the DSFTool SUBPROCESS inherits the environment; that is the only "
         "handle on a write no Python-level guard can see")
@@ -2622,14 +2624,19 @@ def test_the_classify_build_path_ARMS_guard_AND_redirect(
     assert report["engine_cache_redirects"]["base"] == str(base)
     assert report["summary"]["shapes"] == 1 and len(report["decisions"]) == 1
 
-    # Item 2: REAL directories, SYMLINKED files — a symlinked DIRECTORY
-    # would send every write inside it back into the shared corpus.
+    # Item 2: REAL directories, COPY-ON-WRITE files.  A symlinked
+    # DIRECTORY would send every write inside it back into the shared
+    # corpus; a symlinked FILE did exactly that until 2026-08-12, because
+    # the sidecar writers truncate the path in place.
     assert overlay.is_dir() and not overlay.is_symlink()
     pack = overlay / "packA"
     assert pack.is_dir() and not pack.is_symlink()
-    link = overlay / "packA" / "warm.cache"
-    assert link.is_symlink() and link.resolve() == (
-        repo / "Airport_mod_cache" / "packA" / "warm.cache")
+    entry = overlay / "packA" / "warm.cache"
+    shared = repo / "Airport_mod_cache" / "packA" / "warm.cache"
+    assert not entry.is_symlink() and entry.read_bytes() == shared.read_bytes()
+    with open(entry, "wb") as handle:
+        handle.write(b"rebuilt by the writer's own pattern")
+    assert shared.read_bytes() != b"rebuilt by the writer's own pattern"
 
 
 def test_the_classify_build_path_REFUSES_a_shared_corpus_write(
@@ -2865,8 +2872,10 @@ def test_the_census_flag_is_in_the_tool_index():
 # Closed structurally 2026-08-08 (suite-corpus-clean lane): both writable
 # cache roots are ENV-OVERRIDDEN to lane-local homes (so a module reload
 # recomputes the redirect instead of undoing it, and a SUBPROCESS's write
-# lands there too), the mod-cache root is a read-through symlink overlay
-# (warm reads, lane-local writes), every test runs inside a refusing
+# lands there too), the mod-cache root is a COPY-ON-WRITE read-through
+# overlay (warm reads, lane-local writes even under a truncate-in-place
+# writer — symlink seeding was not, 2026-08-12), every test runs inside a
+# refusing
 # ``SharedRepoWriteGuard``, and the allowance register is EMPTY.  The twins
 # below are the known answers for each of those.
 
@@ -3060,11 +3069,15 @@ def test_the_harness_build_redirects_engine_caches_lane_local(
         assert rec["dsf_dump_cache"] == str(dump) and dump.is_dir()
 
         overlay = base / "Airport_mod_cache"
-        link = overlay / "packA" / "warm.cache"
-        assert link.is_symlink(), "reads stay WARM on the shared sidecars"
-        assert link.resolve() == (repo / "Airport_mod_cache" / "packA"
-                                  / "warm.cache")
-        assert rec["mod_cache_seeded"] == {"dirs": 1, "files": 1}
+        seeded = overlay / "packA" / "warm.cache"
+        shared = repo / "Airport_mod_cache" / "packA" / "warm.cache"
+        assert not seeded.is_symlink(), (
+            "COPY-ON-WRITE seeding: a symlink is followed by the sidecar "
+            "writers' truncate-in-place, straight into the shared file")
+        assert seeded.read_bytes() == shared.read_bytes(), (
+            "reads stay WARM on the shared sidecars")
+        assert rec["mod_cache_seeded"] == {"dirs": 1, "files": 1,
+                                           "cloned": 1, "copied": 0}
 
         # THE BELT: the engine was already imported, and
         # ``Default_dsf_cache_dir`` is computed at import time.
@@ -3112,8 +3125,9 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         assert rec2["dsf_dump_cache"] is None
         assert rec2["airport_mod_cache"] == str(overlay)
         assert os.environ["O4_AIRPORT_MOD_CACHE_DIR"] == str(overlay)
-        assert rec2["mod_cache_seeded"] == {"dirs": 1, "files": 1}
-        assert (overlay / "packA" / "warm.cache").is_symlink()
+        assert rec2["mod_cache_seeded"] == {"dirs": 1, "files": 1,
+                                            "cloned": 1, "copied": 0}
+        assert not (overlay / "packA" / "warm.cache").is_symlink()
         assert os.environ.get("O4_DSF_CACHE_DIR") == entry["O4_DSF_CACHE_DIR"]
         assert not (tmp_path / "o2" / "T3.engine_caches"
                     / "Default_DSF_cache").exists()

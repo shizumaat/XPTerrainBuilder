@@ -6094,6 +6094,19 @@ PAD_HOST_LEVEL_LIFT_M = 6.0
 # the sub-decimetre agreement of a normally-seated pad (CYXY residual deltas
 # ≤ 0.14 m) and far below a genuine pit/hump (building8 = 3.67 m).
 PAD_HOST_LEVEL_TRIGGER_M = 0.5
+# (20260812, R19-1) REACH (m) of the LIP-RUN WALK: how far past a pad's own
+# welded frontage the host-body probe may read.  A pad WELDED INTO a coarse
+# host ring has no differing host vertex inside ``PAD_HOST_LEVEL_CONTACT_M``
+# at all — every host node near it IS a pad node carrying the pad's own
+# value — so the probe walks the host ring THROUGH that lip run and reads
+# the first vertex beyond it (HECA building114: the apron's body vertex sits
+# 7.84 m out, three times the contact radius; 53 of HECA's 214 pads share
+# the geometry, and the pad never re-levelled).  The reach bounds that walk
+# to the pad's own contact scale: where a host ring runs coarse BETWEEN two
+# pads the next vertex is 26-800 m away and belongs to the OTHER pad's
+# neighbourhood (measured swaps: HECA 140↔141, 146↔151, 210↔211).  Beyond
+# the reach the pad stays exactly where the solve put it.
+PAD_HOST_BODY_REACH_M = 10.0
 
 
 def taxi_grade_cap_for_letter(letter, *, enabled: bool = None,

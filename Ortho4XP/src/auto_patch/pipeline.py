@@ -6498,6 +6498,26 @@ def build_airport_pavement(icao: str, xplane_root: str,
                         dem=_projection_dem,
                         skip_roles=_pad_skip,
                     )
+                    # R19-3: OBJECT PADS RECONCILE WITH THE HOST.  The
+                    # pad's target is the OBJECT's rendered/draped ground
+                    # and nothing reconciled it with the pavement the
+                    # solve produced — HECA's object_pad:56 sat at 105.51
+                    # welded to an apron solved to ~93.5, and its values
+                    # rode into the apron ring as a 148 % and a 55.6 %
+                    # edge.  The SAME machinery the building pads use
+                    # (``relevel_pads_to_host_pavement``), by role, at the
+                    # pad's own relief budget.  Runs HERE because the pads
+                    # do not exist at the post-projection pass where the
+                    # building half runs.
+                    from .elevation_per_surface.route_profile.anchors \
+                        import relevel_pads_to_host_pavement as _relevel
+                    from .layout import ROLE_OBJECT_PAD as _ROLE_OPAD
+                    _n_opad = _relevel(layout, pad_role=_ROLE_OPAD)
+                    if _n_opad:
+                        UI.vprint(1,
+                            f"  [pav-builder] {icao}: object-pad host "
+                            f"level — {_n_opad} pad request(s) adopted "
+                            f"the host pavement's solved level.")
             except (_GEOM_EXC + (TypeError, AttributeError, KeyError,
                                  IndexError, OSError)) as exc:
                 # LOUD (verbosity 0): unlike a reporter, a failed pad

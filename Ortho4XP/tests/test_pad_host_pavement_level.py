@@ -142,3 +142,186 @@ def test_gate_off_is_noop(monkeypatch):
     assert pad.altitude == pytest.approx(PIT, abs=0.01)
     # lip stays contaminated (byte-identical to the pre-fix behaviour)
     assert apron.node_altitudes[4] == pytest.approx(PIT, abs=0.01)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R19-1 — A PAD WELDED INTO A COARSE HOST RING FINDS ITS BODY
+# ══════════════════════════════════════════════════════════════════════
+#
+# The class this removes: the host-body probe only ever looked within
+# ``PAD_HOST_LEVEL_CONTACT_M`` (2.5 m) of the pad ring.  A pad WELDED INTO
+# a coarse host ring has no differing host vertex there at all — every
+# host node near it IS a pad node carrying the pad's own value — and the
+# host's first body vertex sits one long ring edge away.  HECA
+# building114: contacts -771/-772/-773/-774 all at the pad's 88.50, body
+# -767 at 85.63 7.84 m off; the pad never re-levelled and the apron's
+# 36.6 % edge and 14 building|building 2.87 m rows stood.  53 of HECA's
+# 214 pads share the geometry.
+
+WELD_BODY = 85.63                  # the host apron's body level
+WELD_PAD = 88.50                   # building114's stranded pad level
+
+
+def _welded_apron(body_arc_m=7.84, body=WELD_BODY, lip=WELD_PAD):
+    """A host apron ring whose vertices at the pad corners ARE the pad's
+    (welded lip run), with the first body vertex ``body_arc_m`` further
+    along the ring — the building114 geometry."""
+    ring = [
+        (0.0, 0.0), (60.0, 0.0), (60.0, 10.0),
+        (30.0 + body_arc_m, 10.0),   # first body vertex past the run
+        (30.0, 10.0),                # welded lip @ pad corner
+        (20.0, 10.0),                # welded lip @ pad corner
+        (20.0 - body_arc_m, 10.0),   # first body vertex the other way
+        (0.0, 10.0),
+    ]
+    alt = [body, body, body, body, lip, lip, body, body]
+    return BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                      node_altitudes=alt + [alt[0]])
+
+
+def test_a_pad_welded_into_a_coarse_host_ring_finds_its_body(monkeypatch):
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _welded_apron()
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 1, (
+        "the pad has NO differing host vertex within the contact radius — "
+        "the lip-run walk is the only thing that can find its body")
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)
+    # The host BODY is untouched (the pad adopts FROM the host).
+    assert apron.node_altitudes[3] == pytest.approx(WELD_BODY, abs=0.01)
+    assert apron.node_altitudes[6] == pytest.approx(WELD_BODY, abs=0.01)
+
+
+def test_the_walk_stops_at_the_pads_own_contact_scale(monkeypatch):
+    """``PAD_HOST_BODY_REACH_M``: where a host ring runs coarse BETWEEN
+    two pads the next vertex is dozens to hundreds of metres away and
+    belongs to the OTHER pad's neighbourhood — adopting it made
+    neighbouring pads read each other's level and swap (HECA 140↔141,
+    146↔151, 210↔211, at 26-800 m of ring arc).  Out of reach ⇒ the pad
+    stays exactly where the solve put it."""
+    from auto_patch.config import PAD_HOST_BODY_REACH_M
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    far = float(PAD_HOST_BODY_REACH_M) + 5.0
+    apron = _welded_apron(body_arc_m=far)
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 0
+    assert pad.altitude == pytest.approx(WELD_PAD, abs=0.01)
+
+
+def test_a_lawful_lip_run_on_a_flat_host_moves_nothing(monkeypatch):
+    """LIPS STAY LIPS.  A pad welded into a host that agrees with it
+    reads AGREEMENT through the walk too — the vertex past the run is
+    within the trigger, so there is no body and no re-level."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _welded_apron(body=WELD_PAD + 0.2, lip=WELD_PAD)
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 0
+    assert pad.altitude == pytest.approx(WELD_PAD, abs=0.01)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R19-3 — OBJECT PADS RECONCILE WITH THE HOST
+# ══════════════════════════════════════════════════════════════════════
+#
+# An object pad's target is the OBJECT's rendered/draped ground
+# (``object_anchor.target_ground_metres``) and NOTHING reconciled it with
+# the pavement the solve produced: HECA's object_pad:56 sat at 105.51
+# welded to an apron solved to ~93.5, and the apron ring carried its
+# 106 m values into the airport's two worst edges (148.4 % over 8.49 m,
+# 55.6 % over 22.39 m).  Same machinery, by role, at the pad's own relief
+# budget (``DSF_OBJECT_PAD_MAX_RELIEF_M``).
+
+OPAD_HOST = 93.45                  # the apron's solved body level
+OPAD_TARGET = 105.51               # object_pad:56's draped target
+
+
+def _object_pad_group(core_alt, blend_alts, x0=20.0, y0=10.0):
+    """A pad REQUEST as the emitter writes it: a flat core plus one blend
+    plate ramping out of it (``object_pad:7`` / ``object_pad_blend:7``)."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    core = BuiltShape(
+        polygon=Polygon([(x0, y0), (x0 + 8, y0), (x0 + 8, y0 + 8),
+                         (x0, y0 + 8)]),
+        role=ROLE_OBJECT_PAD, ref="object_pad:7",
+        node_altitudes=[core_alt] * 5)
+    blend = BuiltShape(
+        polygon=Polygon([(x0 - 2, y0 - 2), (x0 + 10, y0 - 2),
+                         (x0 + 10, y0 + 10), (x0 - 2, y0 + 10)]),
+        role=ROLE_OBJECT_PAD, ref="object_pad_blend:7",
+        node_altitudes=list(blend_alts) + [blend_alts[0]])
+    return core, blend
+
+
+def _welded_object_apron(contact_alt, body=OPAD_HOST, body_arc_m=8.49):
+    """The apron ring at an object pad's contact: the welded nodes carry
+    the PAD's value (the contamination), the body is one long ring edge
+    further along."""
+    ring = [
+        (0.0, -30.0), (60.0, -30.0), (60.0, 8.0),
+        (30.0 + body_arc_m, 8.0),
+        (30.0, 8.0), (20.0, 8.0),
+        (20.0 - body_arc_m, 8.0), (0.0, 8.0),
+    ]
+    alt = [body, body, body, body, contact_alt, contact_alt, body, body]
+    return BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                      node_altitudes=alt + [alt[0]])
+
+
+def test_an_over_budget_object_pad_adopts_the_host_level(monkeypatch):
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    core, blend = _object_pad_group(OPAD_TARGET,
+                                    [OPAD_TARGET + 0.5] * 4)
+    apron = _welded_object_apron(OPAD_TARGET + 0.55)
+    layout = _FakeLayout([apron, core, blend])
+
+    n = relevel_pads_to_host_pavement(layout, pad_role=ROLE_OBJECT_PAD)
+    assert n == 1, (
+        "a pad 12 m above the pavement it welds to is exactly what "
+        "nothing reconciled")
+    assert core.node_altitudes[0] == pytest.approx(OPAD_HOST, abs=0.01)
+    # PAD + BLEND: the blend moves by the SAME delta, keeping its ramp.
+    delta = OPAD_HOST - OPAD_TARGET
+    assert blend.node_altitudes[0] == pytest.approx(
+        OPAD_TARGET + 0.5 + delta, abs=0.01)
+    # The host BODY is untouched.
+    assert apron.node_altitudes[3] == pytest.approx(OPAD_HOST, abs=0.01)
+
+
+def test_an_object_pad_within_its_relief_budget_keeps_its_target(
+        monkeypatch):
+    """Within the budget the pad keeps its own value — an object seated a
+    metre or two above its apron is the relief the pad exists to build."""
+    from auto_patch.config import DSF_OBJECT_PAD_MAX_RELIEF_M
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    near = OPAD_HOST + float(DSF_OBJECT_PAD_MAX_RELIEF_M) - 0.5
+    core, blend = _object_pad_group(near, [near + 0.2] * 4)
+    apron = _welded_object_apron(near + 0.25)
+    layout = _FakeLayout([apron, core, blend])
+
+    assert relevel_pads_to_host_pavement(
+        layout, pad_role=ROLE_OBJECT_PAD) == 0
+    assert core.node_altitudes[0] == pytest.approx(near, abs=0.01)
+
+
+def test_the_building_pass_never_touches_an_object_pad(monkeypatch):
+    """ONE implementation, TWO roles — and each pass moves only its own.
+    A building-role pass that swept object pads would re-level them at
+    the 0.5 m trigger instead of their 3 m relief budget."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    core, blend = _object_pad_group(OPAD_TARGET, [OPAD_TARGET + 0.5] * 4)
+    apron = _welded_object_apron(OPAD_TARGET + 0.55)
+    layout = _FakeLayout([apron, core, blend])
+
+    assert relevel_pads_to_host_pavement(layout) == 0
+    assert core.node_altitudes[0] == pytest.approx(OPAD_TARGET, abs=0.01)
+    assert relevel_pads_to_host_pavement(
+        layout, pad_role=ROLE_OBJECT_PAD) == 1

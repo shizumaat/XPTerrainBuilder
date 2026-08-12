@@ -838,6 +838,29 @@ def below_grade_governed_nodes(layout, G, anchor_seeds):
 # tables must hold).
 
 
+def _flat_core_inert_reason(layout):
+    """WHY R17c-1 refused nothing — the four distinguishable answers.
+
+    An inert law that cannot say why it was inert is indistinguishable
+    from a broken one, which is exactly the ambiguity two instrumented
+    VHHH builds left this round."""
+    try:
+        from auto_patch import flat_fast_path as FFP
+        entry = FFP.substitution_entry(layout)
+        if entry is None:
+            return "no flat-site substitution stamped on this build"
+        if entry.get("z0_m") is None:
+            return "the flat-site entry carries no Z0"
+        core = FFP.constant_core(layout, entry)
+        if core is None or core.is_empty:
+            return "the flat-site entry yields no constant core"
+        return (f"no hard-truth seed is more than "
+                f"1 m below Z0={float(entry['z0_m']):.3f} inside the core, "
+                f"outside a below-grade body")
+    except Exception as exc:                               # pragma: no cover
+        return f"reason unavailable ({type(exc).__name__})"
+
+
 def flat_core_below_grade_seed_refusals(layout, G, hard_truth):
     """``{node: value}`` — the hard-truth seeds R17c-1 refuses.
 
@@ -936,26 +959,31 @@ def spine_value_fields(layout, G):
     # site's constant core is not a band seed (block above).  ``{}``
     # wherever no flat site is stamped ⇒ inert.
     _refused = flat_core_below_grade_seed_refusals(layout, G, _truth)
-    if _refused:
-        # PRODUCTION STATES WHAT IT REFUSED, and counts it: a seed the
-        # band silently dropped and a seed it never had are different
-        # facts (RULINGS 2026-08-06, instrument truth).
-        try:
-            layout._flat_core_seed_refusals = dict(_refused)
-        except Exception:                                  # pragma: no cover
-            pass
-        try:
-            import O4_UI_Utils as _UI_fc
-            _worst = min(_refused.values())
+    # PRODUCTION STATES WHAT IT DID, FIRED OR NOT.  "The law is inert
+    # here" and "the law refused N seeds" are different facts, and a
+    # reader must not have to re-run an instrument to tell them apart
+    # (RULINGS 2026-08-06, instrument truth).  Round 17c paid for this
+    # rule the hard way: two instrumented VHHH builds printed nothing
+    # here, and "it did not fire" was indistinguishable from "it fired
+    # and the line was lost".
+    try:
+        layout._flat_core_seed_refusals = dict(_refused)
+        import O4_UI_Utils as _UI_fc
+        if _refused:
             _UI_fc.vprint(1,
                           f"    [flat-core-seed] REFUSED {len(_refused)} of "
                           f"{len(_truth)} hard-truth band seed(s): a "
                           f"below-grade value on a SURFACE node inside the "
-                          f"flat site's constant core (worst {_worst:.4f} m). "
-                          f"R17c-1 — the pin itself still stands in the "
-                          f"solve.")
-        except Exception:                                  # pragma: no cover
-            pass
+                          f"flat site's constant core (worst "
+                          f"{min(_refused.values()):.4f} m). R17c-1 — the "
+                          f"pin itself still stands in the solve.")
+        elif _truth:
+            _UI_fc.vprint(1,
+                          f"    [flat-core-seed] inert: 0 of {len(_truth)} "
+                          f"hard-truth band seed(s) refused "
+                          f"({_flat_core_inert_reason(layout)}).")
+    except Exception:                                      # pragma: no cover
+        pass
     for _hi, _hv in _truth.items():
         if _hi in _refused:
             continue

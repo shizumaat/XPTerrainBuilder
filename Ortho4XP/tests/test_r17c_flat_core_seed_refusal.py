@@ -159,7 +159,8 @@ class TestWhatItMustNotTouch:
             layout, G, BF._hard_truth_spine_seeds(layout, G)) == {}
         ceiling, _floor = spine_value_fields(layout, G)
         assert abs(ceiling[1] - EAT_PIN_M) < 1e-9
-        assert not hasattr(layout, "_flat_core_seed_refusals")
+        # Published EMPTY, never absent: "inert" is a stated fact.
+        assert layout._flat_core_seed_refusals == {}
 
     def test_A_BELOW_GRADE_BODY_KEEPS_ITS_SEED(self):
         """KCLT's round-10 tunnel table and OTHH's 8/8 systems: inside a
@@ -226,4 +227,28 @@ class TestTheRefusalIsONEUnion:
         spine_value_fields(layout, G)
         # No refusal happened (no flat site), so the hard truth is intact
         # and the recorder saw all of it.
-        assert not hasattr(layout, "_flat_core_seed_refusals")
+        assert layout._flat_core_seed_refusals == {}
+
+
+class TestProductionSAYSWhatItDid:
+    """Fired or inert, the build states it — and an inert law says WHY.
+
+    Round 17c paid for this rule: two instrumented VHHH builds printed
+    nothing here, and "the law did not fire" was indistinguishable from
+    "it fired and the line was lost".
+    """
+
+    def test_it_publishes_the_refusal_map_even_when_empty(self):
+        layout, G = _vhhh_shape(value=Z0_M)
+        spine_value_fields(layout, G)
+        assert layout._flat_core_seed_refusals == {}
+
+    def test_the_inert_reason_names_a_missing_flat_site(self):
+        layout, _G_ = _vhhh_shape(flat_site=False)
+        assert "no flat-site substitution" in BF._flat_core_inert_reason(
+            layout)
+
+    def test_the_inert_reason_names_the_margin_when_the_site_is_there(self):
+        layout, _G_ = _vhhh_shape()
+        reason = BF._flat_core_inert_reason(layout)
+        assert "below Z0=7.315" in reason and "core" in reason

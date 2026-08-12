@@ -1786,11 +1786,22 @@ ROLE_GRADE_LIMITS = {
     # full step over a sub-metre run.
     "retaining_wall":     None,
     # Groundside pavement (cars / buildings, curbside / drop-off /
-    # parking) follows the DEM but is graded like a ramp to ≤ 5 % slope
-    # (owner 2026-08-03, ADA §403.3 / SUDAS §8B-1 / Santa Barbara §D.5 —
-    # see GROUNDSIDE_MAX_GRADE above; was 4 %, uncited) so steep terrain
-    # is smoothed to a navigable surface rather than tracing raw terrain.
-    "groundside_pavement": GROUNDSIDE_MAX_GRADE,
+    # parking) follows the DEM but is graded like a ramp so steep
+    # terrain is smoothed to a navigable surface rather than tracing raw
+    # terrain.  ITS CAP IS THE ROAD LIMIT (owner 2026-08-12, RULINGS
+    # "GROUNDSIDE PAVEMENT GRADES AT THE ROAD LIMIT"): it carries the
+    # same vehicles the service road does, so it takes the same number —
+    # THE SAME CONSTANT, never a second one (the owner cited "~7 %"; the
+    # ruling's substance is the road limit itself, and inventing a 7 %
+    # of our own is precisely the second number the ruling forbids).
+    # Was GROUNDSIDE_MAX_GRADE (5 %, the ADA §403.3 / SUDAS §8B-1 /
+    # Santa Barbara §D.5 walking-surface ceiling, owner 2026-08-03);
+    # that constant keeps its other consumers — the fan-ramp law and
+    # the groundside band's off-route pricing are different laws that
+    # happen to have shared the value.  Specimen: KCLT's hillside lots
+    # (ways -11715 / -11729), 5-7 % of real terrain, flat only while
+    # apron law was flattening a car park.
+    "groundside_pavement": SERVICE_ROAD_MAX_GRADE,
     # Wingtip / RESA clearance cuts trace the cut terrain surface
     # (per-vertex node_altitudes computed directly against the DEM
     # and a ramped ceiling); like the boundary they carry no

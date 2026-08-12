@@ -41,12 +41,19 @@ class TestLateralContiguityLaw:
             {"service_road", "primary_parallel"}) == 0.015
         # a road beside a groundside lot takes the LOT's cap — the class the
         # earlier apron/taxi-only adoption passes could not express.  The
-        # number itself is an owner constant (docs/RULINGS.md 2026-08-03),
-        # so it is read from config rather than spelled here.
+        # number itself is an owner constant, read from config rather than
+        # spelled here.  Since the 2026-08-12 ruling that cap IS the road
+        # limit, so this cross-section is uniform: the law still answers
+        # "the strictest cap present", and both classes now name the same
+        # one (the lot no longer binds a road — pinned in
+        # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption).
         from auto_patch import config as _cfg
         assert lateral_contiguity_cap(
             {"service_road", "groundside_pavement"}) == \
-            _cfg.GROUNDSIDE_MAX_GRADE
+            _cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+        assert lateral_contiguity_cap(
+            {"service_road", "groundside_pavement"}) == \
+            _cfg.SERVICE_ROAD_MAX_GRADE
         # a free road is alone in its cross-section and keeps its own cap
         assert lateral_contiguity_cap({"service_road"}) == \
             _cfg.SERVICE_ROAD_MAX_GRADE

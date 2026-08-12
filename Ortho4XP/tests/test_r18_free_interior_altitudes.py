@@ -368,3 +368,46 @@ class TestPatchValuedVertexIdentification:
                             lambda tile: "/nonexistent/in.node")
         assert MESH.patch_valued_vertex_indices(
             object(), numpy.zeros(60)) is None
+
+
+class TestScopeIsPinned:
+    """The pass governs the vector-authored patch/road regions
+    (attribute EXACTLY ``INTERP_ALT``), not everything the INTERP_ALT
+    TREATMENT covers (which is ``>= INTERP_ALT``, i.e. the apt.dat
+    RUNWAY / TAXIWAY / APRON / HANGAR regions too).
+
+    MEASURED when the widening was tried (2026-08-12): it changed the
+    interpolated set NOT AT ALL (12,123 free vertices either way, the
+    owner point 91.13 m and the class identical), while moving 49,717
+    vertices instead of 11,960 — 3,771 of them by more than 3 m, one by
+    32.19 m.  The motivating hypothesis was refuted in the same run: the
+    owner point's triangle came back with attribute 8, already in scope.
+    So the scope is PINNED here, and widening it must be a deliberate
+    act that fails this test first."""
+
+    def test_apt_dat_region_attributes_are_out_of_scope(self):
+        from O4_Vector_Utils import Vector_Map
+        treated = Vector_Map.dico_attributes["INTERP_ALT"]
+        for name in ("RUNWAY", "TAXIWAY", "APRON", "HANGAR"):
+            attribute = Vector_Map.dico_attributes[name]
+            # They pass the TREATMENT's >= test …
+            assert attribute >= treated, name
+            # … and must fail the interpolation's == scope.
+            assert attribute != treated, name
+
+    def test_a_component_without_a_patch_ring_is_never_captured(self):
+        # The 55,020 free vertices in patch-ring-free components on
+        # +30+031 (road ribbons, other airports' ground) must keep their
+        # values however the scope is drawn — that is the containment
+        # half of the law, and it is what the isolation branch does.
+        rows = [(0.0, 0.0, 86.0), (1.0, 0.0, 86.0), (0.5, 1.0, 86.0),
+                (5.0, 5.0, DEM_SENTINEL), (6.0, 5.0, DEM_SENTINEL),
+                (5.5, 6.0, DEM_SENTINEL), (5.5, 5.5, DEM_SENTINEL)]
+        vertices = build(rows)
+        before = vertices.copy()
+        triangles = [(3, 4, 6), (4, 5, 6), (5, 3, 6)]
+        report = {}
+        assert MESH.interpolate_free_interior_altitudes(
+            vertices, triangles, {0, 1, 2}, report=report) == 0
+        assert report["isolated"] == 4
+        assert (vertices == before).all()

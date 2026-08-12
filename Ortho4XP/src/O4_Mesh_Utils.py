@@ -558,15 +558,27 @@ def post_process_nodes_altitudes(tile):
             vertices[6 * v3 + 2] = max(vertices[6 * v3 + 2], 0)
     UI.vprint(1, "   Treatment of airports, roads and patches.")
     # R18-1b: give every FREE INTERIOR vertex of an INTERP_ALT face the
-    # value its face's authored vertices imply, BEFORE the assignment
-    # below copies column 5 into the altitude.  Scoped to the triangles
-    # whose attribute is EXACTLY ``INTERP_ALT`` — the vector-authored
-    # patch and road regions.  The apt.dat RUNWAY / TAXIWAY / APRON /
-    # HANGAR regions (attributes 16/32/64/128, which also satisfy the
-    # ``>= INTERP_ALT`` test above) are deliberately left alone: their
-    # interiors ride the airport-smoothed DEM raster on purpose, and
-    # re-deriving them from their rings is a different question than the
-    # one this amendment rules.
+    # value its face's PATCH-VALUED vertices imply, BEFORE the
+    # assignment below copies column 5 into the altitude.  Scoped to the
+    # triangles whose attribute is EXACTLY ``INTERP_ALT`` — the
+    # vector-authored patch and road regions.  The apt.dat RUNWAY /
+    # TAXIWAY / APRON / HANGAR regions (attributes 16/32/64/128, which
+    # also satisfy the ``>= INTERP_ALT`` test above) are deliberately
+    # left alone: their interiors ride the airport-smoothed DEM raster
+    # on purpose.
+    #
+    # WIDENING THIS WAS TRIED AND MEASURED OUT (2026-08-12, the round's
+    # last attempt).  The hypothesis was that HECA's patch faces are
+    # flooded by the apt.dat APRON/TAXIWAY seeds and so were being
+    # skipped.  A probe of the owner's own point reported its triangle's
+    # attribute as **8** — plain INTERP_ALT, already in scope — so the
+    # hypothesis is REFUTED.  Passing the whole ``>= INTERP_ALT`` set
+    # instead then measured: the interpolated set was UNCHANGED (12,123
+    # both ways, owner point 91.13 m and the class identical to the
+    # decimal), while 49,717 vertices moved instead of 11,960, 3,771 of
+    # them by more than 3 m and one by 32.19 m — the apt.dat surfaces
+    # being re-derived from patch rings for no measured gain.  Widening
+    # is therefore a deliberate, separately-measured act, not a default.
     if _interp_alt_only_tris:
         report = {}
         patch_valued = patch_valued_vertex_indices(tile, vertices)

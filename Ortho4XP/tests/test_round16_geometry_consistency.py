@@ -257,3 +257,75 @@ def test_r16_3_the_claim_still_never_raises_a_vertex():
     bridges._claim_road_pavement(layout, rows, pairs, 0.6)
     assert min(layout.shapes[1].node_altitudes) == pytest.approx(
         _FLOOR_DEEP - 3.0, abs=1e-6)
+
+
+# ── R16-2a: the anchor is the portal (the DEEPEST station) ──────────
+
+_CAP = 0.04
+
+
+def _ramp(alt_at_x0, alt_at_x100, x0=0.0, x1=100.0):
+    """One below-grade source: a 10 m wide quad whose profile dives
+    along x.  Ring order is ``(x0,0) (x1,0) (x1,10) (x0,10)``, so the
+    deepest station is hand-nameable."""
+    ring = [(x0, 0.0), (x1, 0.0), (x1, 10.0), (x0, 10.0)]
+    alts = [alt_at_x0, alt_at_x100, alt_at_x100, alt_at_x0]
+    return (Polygon(ring), ring, alts)
+
+
+def test_r16_2a_the_anchor_is_pinned_at_the_deepest_station():
+    """Hand-computable: the body's deepest station is (100, 0) at
+    -8.00 m; the governed ring's nearest vertex to it is (50, 12), a
+    gap of hypot(50, 12) = 51.42 m, so the anchor is pinned at
+    -8.00 + 0.04 * 51.42 = -5.94 m.
+
+    The pre-round-16 mechanism answered -4.42 m there: it minimised
+    ``nearest profile + cap * d`` per vertex, and the nearest profile
+    of (50, 12) is the ramp's SHALLOWEST station in reach (-4.50 at
+    x = 50), which is the reading the law's own prose forbids.
+    """
+    from auto_patch.groundside import transition_law_altitudes
+    ring = [(0.0, 12.0), (50.0, 12.0), (50.0, 30.0), (0.0, 30.0)]
+    alts, touched = transition_law_altitudes(
+        ring, [0.0] * 4, [_ramp(-1.0, -8.0)], _CAP)
+    assert touched
+    expected = -8.0 + _CAP * math.hypot(50.0, 12.0)
+    assert alts[1] == pytest.approx(expected, abs=0.01), alts
+    assert alts[1] < -5.0, (
+        f"the anchor took a shallow-station floor: {alts[1]:.2f} m")
+
+
+def test_r16_2a_out_of_the_portals_reach_the_crest_stands():
+    """The mirror-collapse guard.  A body whose DEEPEST station is
+    0.86 m above what the cap can reach from the nearest governed
+    vertex pulls NOTHING down: -1.20 + 0.04 * 51.42 = +0.86 m, above
+    the surrounding surface at 0.00 m.
+
+    The pre-round-16 mechanism pinned -0.92 m here — the shallow
+    station 2 m away — which is terrain hugging the ramp instead of
+    standing beside it.
+    """
+    from auto_patch.groundside import transition_law_altitudes
+    ring = [(0.0, 12.0), (50.0, 12.0), (50.0, 30.0), (0.0, 30.0)]
+    alts, touched = transition_law_altitudes(
+        ring, [0.0] * 4, [_ramp(-1.0, -1.2)], _CAP)
+    assert touched == 0, alts
+    assert alts == [0.0] * 4
+
+
+def test_r16_2a_one_anchor_per_body_still():
+    """Unchanged: a body contributes exactly ONE anchor, however many
+    quads it is emitted as."""
+    from auto_patch.groundside import (
+        _BelowGradeIndex, transition_law_altitudes)
+    sources = [_ramp(-1.0, -4.0, 0.0, 50.0), _ramp(-4.0, -8.0, 50.0, 100.0)]
+    index = _BelowGradeIndex(sources)
+    assert len(set(index.component_of)) == 1, index.component_of
+    assert index.deepest_station[0][1] == pytest.approx(-8.0)
+    ring = [(0.0, 12.0), (50.0, 12.0), (100.0, 12.0),
+            (100.0, 40.0), (0.0, 40.0)]
+    alts, _touched = transition_law_altitudes(ring, [0.0] * 5, index, _CAP)
+    pinned = [i for i, v in enumerate(alts)
+              if v == pytest.approx(-8.0 + _CAP * math.hypot(0.0, 12.0),
+                                    abs=0.01)]
+    assert len(pinned) == 1, (pinned, alts)

@@ -236,6 +236,28 @@ class TestTheClaim:
         assert findings and findings[0]["role"] == ROLE_APRON
         assert "level_it_would_need_m" in findings[0]
 
+    def test_the_conflict_finding_carries_a_lat_lon_join_key(self):
+        """KCLT adjudication 2026-08-11 §4: the record named a role, an
+        area and a level and NO PLACE, so joining it to the classify
+        instrument's rows meant re-deriving the shape geometrically off
+        an emitted patch.  The centroid is the join key — in the
+        module's own projection, the frame every sibling finding here
+        records."""
+        layout, rows, _floor = _claim_scene(road_role=ROLE_APRON)
+        bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
+        finding = layout.tunnel_airside_conflict[0]
+        centroid = layout.shapes[0].polygon.centroid
+        assert finding["x_m"] == pytest.approx(centroid.x, abs=0.05)
+        assert finding["y_m"] == pytest.approx(centroid.y, abs=0.05)
+        expect_lat, expect_lon = bridges._local_meter_projections(
+            ANCHOR)[1](centroid.x, centroid.y)
+        assert finding["lat"] == pytest.approx(expect_lat, abs=1e-7)
+        assert finding["lon"] == pytest.approx(expect_lon, abs=1e-7)
+        # …and it lands where the shape actually is: metres from the
+        # anchor, not degrees adrift from a transposed lat/lon.
+        assert abs(finding["lat"] - ANCHOR[0]) < 0.01
+        assert abs(finding["lon"] - ANCHOR[1]) < 0.01
+
     def test_a_transit_shape_inside_the_open_cut_is_never_sunk(self):
         layout, rows, _floor = _claim_scene(road_role=ROLE_JUNCTION)
         n, _claimed = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)

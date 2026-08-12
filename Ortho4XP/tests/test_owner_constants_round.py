@@ -100,11 +100,29 @@ class TestOwnerConstants:
 
     def test_the_lot_cap_is_the_walking_surface_ceiling(self):
         # ADA 2010 §403.3 running slope 1:20; Iowa SUDAS §8B-1; City of
-        # Santa Barbara Parking Design Standards §D.5.
+        # Santa Barbara Parking Design Standards §D.5.  The CONSTANT is
+        # unchanged by the 2026-08-12 ruling — only the role map moved
+        # (see below); the fan-ramp law and the groundside band's
+        # off-route pricing still read this number.
         from auto_patch import config as cfg
         assert cfg.GROUNDSIDE_MAX_GRADE == pytest.approx(0.050)
-        assert cfg.ROLE_GRADE_LIMITS["groundside_pavement"] == \
-            pytest.approx(0.050)
+
+    def test_groundside_pavement_grades_at_the_road_limit(self):
+        """Owner ruling 2026-08-12: groundside_pavement's cap IS the road
+        limit — the SAME constant, never a second number.
+
+        Identity, not value: a copied 0.080 would drift the first time
+        the road limit is re-ruled, and "one constant, no second number"
+        is the ruling's own emphasis (the owner cited "~7 %"; the
+        substance is the road limit itself).
+        """
+        from auto_patch import config as cfg
+        assert (cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+                is cfg.ROLE_GRADE_LIMITS["service_road"])
+        assert (cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+                is cfg.SERVICE_ROAD_MAX_GRADE)
+        assert cfg.ROLE_GRADE_LIMITS["groundside_pavement"] \
+            != pytest.approx(cfg.GROUNDSIDE_MAX_GRADE)
 
     def test_the_service_road_cap_is_the_vdot_level_terrain_standard(self):
         # VDOT Road Design Manual App. A1, GS-9: level terrain 8 % at
@@ -123,8 +141,16 @@ class TestOwnerConstants:
 
     def test_the_landside_caps_stay_distinct_from_the_tunnel_ramp(self):
         """Several dispatch sites resolve a cap by VALUE equality; the lot
-        cap used to collide with the tunnel ramp's 4 %.  It must not
-        collide with anything now."""
+        cap used to collide with the tunnel ramp's 4 %. It must not
+        collide with anything now.
+
+        NOTE (2026-08-12): the CONSTANTS below stay distinct, but the ROLE
+        MAP now gives `groundside_pavement` and `service_road` the same
+        number by owner ruling. The one value-equality consumer that sees
+        it is `grade_law._cap_runs`, which segments a road's lateral
+        stations at cap CHANGES — a road/lot cross-section is now one run
+        instead of two, which is what "same cap" means and is why this
+        test pins the constants, not the map."""
         from auto_patch import config as cfg
         vals = [cfg.GROUNDSIDE_MAX_GRADE, cfg.SERVICE_ROAD_MAX_GRADE,
                 cfg.TUNNEL_RAMP_MAX_GRADE, cfg.TAXI_MAX_GRADE,
@@ -139,7 +165,33 @@ class TestOwnerConstants:
 class TestMergedSurfaceIsOneSurface:
     """Ruling 2026-08-03: after a road stretch is absorbed, the lot
     emitter's ramp-limited DEM follow is re-run over the MERGED ring.
-    Moving the host's pre-existing vertices is lawful."""
+    Moving the host's pre-existing vertices is lawful.
+
+    THE PRECONDITION, EXPLICIT SINCE 2026-08-12: absorption binds only
+    where the cross-section holds a STRICTER class than the road's own
+    (``binding = [r for r in runs if r[2] < own_cap]``).  The owner's
+    2026-08-12 ruling put ``groundside_pavement`` ON the road limit, so
+    a road beside a LOT no longer binds anything — see
+    :meth:`TestTheRoadLimitEndsLotAbsorption` for that fact, pinned as
+    its own.  The machinery below is unchanged and still governs every
+    genuinely stricter host, so it is exercised with the lot cap held at
+    its pre-ruling 5 %: the scene is the law's, not the constant's.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _stricter_lot(self, absorption_on, monkeypatch):
+        # AFTER ``absorption_on``: that fixture RELOADS config, which
+        # rebinds ROLE_GRADE_LIMITS to a fresh dict.  BOTH dicts must be
+        # patched — ``grade_law`` imported the table at MODULE level, so
+        # after a reload the station caps and the absorb-target lookup
+        # read two different objects, and patching one gives a
+        # split-brain run (binding fires at 5 %, the target lookup
+        # compares against 8 %, nothing absorbs).
+        from auto_patch import config as cfg
+        from auto_patch import grade_law as gl
+        for table in (cfg.ROLE_GRADE_LIMITS, gl.ROLE_GRADE_LIMITS):
+            monkeypatch.setitem(table, "groundside_pavement",
+                                cfg.GROUNDSIDE_MAX_GRADE)
 
     def _merge(self, gs, dem_at, z=10.0):
         lot = _dem_lot(0, 0, 100, 60, z=z)
@@ -156,7 +208,11 @@ class TestMergedSurfaceIsOneSurface:
         assert summary["host_regraded"] == 1
         worst = _worst_adjacent(lot)
         # the ring limiter's own bound plus the 0.01 m emit rounding over
-        # the shortest ring edge
+        # the shortest ring edge.  The limiter reads the LOT CAP constant
+        # (the road limit since 2026-08-12), not the role table this
+        # class patches to keep the absorption binding — two different
+        # questions: WHICH cap the merged surface grades at, and WHETHER
+        # the road had a stricter neighbour to be absorbed into.
         assert worst <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3, worst
 
     def test_the_hosts_own_vertices_move(self, absorption_on):
@@ -193,6 +249,113 @@ class TestMergedSurfaceIsOneSurface:
         lot, _b, summary = self._merge(absorption_on, _ramp_dem(slope=2.0))
         assert summary["host_regraded"] == 1
         assert _worst_adjacent(lot) <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3
+
+
+class TestTheRoadLimitEndsLotAbsorption:
+    """The knock-on of the 2026-08-12 ruling, pinned as a fact rather
+    than discovered again.
+
+    The lateral-contiguity law absorbs a road stretch only into a
+    STRICTER neighbour ("the cross-section takes the STRICTEST cap of
+    any class present in it").  Now that a lot grades at the road limit,
+    a road beside a lot has nothing to yield to: no binding run, no cut,
+    no absorption, no carried cap — and equally no defect, because the
+    surface the road hands the lot is one the lot's own law can follow.
+    That is the HEAZ way -10284 precedent (a road seat at 8 % minting
+    136 within-shape rows on a 5 % lot) dissolving, not being papered
+    over.
+    """
+
+    def test_a_road_beside_a_lot_no_longer_binds(self, absorption_on):
+        from auto_patch import config as cfg
+        assert (cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+                is cfg.ROLE_GRADE_LIMITS["service_road"])
+        lot = _dem_lot(0, 0, 100, 60, z=10.0)
+        road = BuiltShape(polygon=_rect(0, 60, 100, 70),
+                          role="service_road")
+        summary = absorption_on.apply_lateral_contiguity_law(
+            _layout([lot, road]), "TEST", dem_at=_ramp_dem())
+        assert summary["absorbed"] == 0
+        assert summary["cut"] == 0
+        assert summary["capped"] == 0
+        assert road.lateral_cap is None
+        assert road.polygon.equals(_rect(0, 60, 100, 70))
+
+
+class TestTheLimitersRideTheRoadCap:
+    """THE LAW IS THE ROAD LIMIT; THE SHAPING SITS BELOW IT (owner
+    2026-08-12, lead ruling on the measurement).
+
+    Two numbers on purpose.  ``ROLE_GRADE_LIMITS["groundside_pavement"]``
+    IS the road cap — that is the owner's ruling and it is what the
+    validator adjudicates a lot against.  Every LIMITER in
+    ``groundside`` shapes at ``GROUNDSIDE_MAX_GRADE`` (5 %), which is
+    the MARGIN that makes the law reachable: measured, pointing the
+    limiters at the cap put lots exactly ON it and the emitted 2-dp
+    quantization over short chords tipped families of pairs 0.08-2.36 pp
+    past it (CYXY within_shape 4 → 62 on ONE lot, KMCI 420 → 490,
+    +58/+75 adjudicated) while the road-stub class it was supposed to
+    clear did not move (transverse Δ0 at both airports).
+
+    These tests fail if either half drifts: if the LAW stops being the
+    road cap, or if a limiter is re-pointed AT the cap with no margin.
+    """
+
+    def test_the_law_is_the_road_cap(self):
+        from auto_patch import config as cfg
+        # Identity WITHIN one config instance: the alias is the road cap
+        # object, so re-ruling the road limit re-rules the lot with it.
+        assert cfg.GROUNDSIDE_PAVEMENT_MAX_GRADE is cfg.SERVICE_ROAD_MAX_GRADE
+        assert (cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+                is cfg.ROLE_GRADE_LIMITS["service_road"])
+        # …and the walking-surface constant is still its own thing, for
+        # the laws that kept it.
+        assert cfg.GROUNDSIDE_MAX_GRADE == pytest.approx(0.050)
+        assert cfg.FAN_RAMP_CAP is cfg.GROUNDSIDE_MAX_GRADE
+
+    def test_the_shaping_sits_strictly_below_the_law(self):
+        """The margin itself, as a number: shaping < law.  A limiter
+        re-pointed at the cap fails HERE, before any build."""
+        from auto_patch import config as cfg
+        from auto_patch import groundside as gs
+        assert gs.GROUNDSIDE_MAX_GRADE < cfg.ROLE_GRADE_LIMITS[
+            "groundside_pavement"], (
+            "the lot shaping cap must stay BELOW the law it has to "
+            "satisfy — emit quantization needs the headroom")
+
+    def test_the_ring_limiter_shapes_at_the_margin_not_the_cap(self):
+        """``_regrade_merged_host`` → the lot emitter's ramp-limited DEM
+        follow.  A 50 % DEM ramp is limited to exactly the shaping cap,
+        so the number it lands on IS the constant it read."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        lot = _dem_lot(0, 0, 100, 60, z=10.0)
+        gs._regrade_merged_host(lot, _ramp_dem())
+        worst = _worst_adjacent(lot)
+        assert worst <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3, worst
+        assert worst < cfg.ROLE_GRADE_LIMITS["groundside_pavement"], (
+            "shaped at the law with no margin — the quantization-tip "
+            "class re-opens")
+
+    def test_the_chord_limiter_shapes_at_the_margin_not_the_cap(self):
+        """The post-solve Lipschitz (chord) limiter is the LAST
+        groundside-altitude writer: if it shaped at the cap it would
+        re-open the class after every other site had honoured the
+        margin."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        import inspect
+        default = inspect.signature(
+            gs.chord_limit_ring_altitudes).parameters["cap"].default
+        assert default == cfg.GROUNDSIDE_MAX_GRADE
+        assert default < cfg.ROLE_GRADE_LIMITS["groundside_pavement"]
+        # Behaviour: two ring nodes 10 m apart, 1 m apart in height
+        # (10 %), pull down to the SHAPING cap over that chord.
+        coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        alts = [10.0, 11.0, 11.0, 10.0]
+        out = gs.chord_limit_ring_altitudes(coords, alts)
+        assert max(out) - min(out) == pytest.approx(
+            10.0 * cfg.GROUNDSIDE_MAX_GRADE, abs=1e-6)
 
 
 class TestRegradeHelperIsSafe:

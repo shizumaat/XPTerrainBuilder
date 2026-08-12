@@ -52,6 +52,23 @@ from .elevation import _sample_dem, _resample_node_altitudes_nn
 # Groundside ramp-grade cap (rise/run, user 2026-05-22) — single source of
 # truth in ``config``; groundside follows the DEM but is graded to this
 # cap so steep terrain becomes a navigable car/parking surface.
+#
+# THE LAW AND THE SHAPING ARE TWO NUMBERS, DELIBERATELY (owner
+# 2026-08-12 + lead ruling on the measurement).  The LAW — what the
+# validator adjudicates a lot against — is the ROAD LIMIT, and it lives
+# in ``config.ROLE_GRADE_LIMITS["groundside_pavement"]``
+# (= ``GROUNDSIDE_PAVEMENT_MAX_GRADE``, an alias of the road cap).  The
+# SHAPING every limiter in this module applies stays at
+# ``GROUNDSIDE_MAX_GRADE`` (5 %), BY MEASUREMENT: pointing the limiters
+# at the cap made lots ride exactly ON it, and the emitted 2-decimal
+# quantization over short chords then tipped whole families of pairs
+# 0.08-2.36 pp past it — CYXY within_shape 4 → 62 on ONE lot (way
+# -10268), KMCI 420 → 490, +58/+75 adjudicated, while the road-stub
+# class it was meant to clear did not move (transverse Δ0 both
+# airports).  Shaping BELOW the law is the margin that makes the law
+# reachable; it is not a second law, and a limiter re-pointed at the
+# cap without a margin re-opens that class (twin:
+# tests/test_owner_constants_round.TestTheLimitersRideTheRoadCap).
 from .config import GROUNDSIDE_MAX_GRADE
 
 # Narrow exception tuple for shapely / numeric-geometry failure
@@ -1874,7 +1891,7 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
         rebuilt, alts, law_anchors, GROUNDSIDE_MAX_GRADE,
         key_fn=anchor_key, prior_at=_prior_field_reader(prior),
         stats=stats, seat_out=seat_out)
-    # Grade-limit to GROUNDSIDE_MAX_GRADE (ramp-graded, user 2026-05-22)
+    # Grade-limit to the SHAPING cap (ramp-graded, user 2026-05-22)
     # before rounding.  2 decimals, matching the emit resolution — 0.1 m
     # quantization on sub-metre groundside chords reads as 10-15 % stairs
     # (the V15 waviness class).

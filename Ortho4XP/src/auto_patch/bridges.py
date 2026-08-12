@@ -5469,6 +5469,40 @@ def _approach_zone(portal_row, wall_gap_m: float):
         return None
 
 
+def _airside_conflict_finding(layout: "PavementLayout", shape, poly,
+                              role: str, level_m: float) -> dict:
+    """One ``tunnel_airside_conflict`` record — WITH ITS JOIN KEY.
+
+    Folded-in finding, KCLT adjudication 2026-08-11 §4: the record named
+    a role, an area and a level and NO PLACE, so saying WHICH shape it
+    meant took a geometric re-derivation off an emitted patch — ``ref``
+    is empty on most of these and the emitted ``shapeID`` does not
+    survive a rebuild, while the classify instrument's rows carry
+    lat/lon.  The centroid joins the two directly and is the coordinate
+    the owner flies to.
+
+    Frame: ``_local_meter_projections`` — the module's own shared
+    equirectangular projection, the one every sibling finding here
+    records (see the tunnel-passthrough findings' lat/lon/x_m/y_m).
+    """
+    finding = {
+        "role": role, "ref": getattr(shape, "ref", ""),
+        "area_m2": round(poly.area, 1),
+        "level_it_would_need_m": round(float(level_m), 2),
+    }
+    try:
+        centroid = poly.centroid
+        _, meters_to_lat_lon = _local_meter_projections(layout.anchor)
+        lat, lon = meters_to_lat_lon(centroid.x, centroid.y)
+        finding["lat"] = round(lat, 7)
+        finding["lon"] = round(lon, 7)
+        finding["x_m"] = round(centroid.x, 1)
+        finding["y_m"] = round(centroid.y, 1)
+    except (AttributeError, TypeError, ValueError, _GEOM_EXC):
+        pass
+    return finding
+
+
 def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
                          facing_pairs: list, wall_gap_m: float) -> tuple:
     """R14-1/A-1: THE PAVED AREA IS THE CORRIDOR.
@@ -5543,11 +5577,8 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
             continue
         if _role not in _TUNNEL_CLAIMABLE_ROAD_ROLES:
             if _role in _TUNNEL_PROTECTED_TRANSIT_ROLES or _role == ROLE_APRON:
-                _airside.append({
-                    "role": _role, "ref": getattr(_shape, "ref", ""),
-                    "area_m2": round(_poly.area, 1),
-                    "level_it_would_need_m": round(_best, 2),
-                })
+                _airside.append(_airside_conflict_finding(
+                    layout, _shape, _poly, _role, _best))
             continue
         _ring, _alts = _ring_and_altitudes(_shape)
         if _ring is None or not _alts:
@@ -5664,12 +5695,9 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
             continue
         if _role not in _TUNNEL_CLAIMABLE_ROAD_ROLES:
             if _role in _TUNNEL_PROTECTED_TRANSIT_ROLES or _role == ROLE_APRON:
-                _airside.append({
-                    "role": _role, "ref": getattr(_shape, "ref", ""),
-                    "area_m2": round(_poly.area, 1),
-                    "level_it_would_need_m": round(
-                        min(_f for _l, _f in _hits), 2),
-                })
+                _airside.append(_airside_conflict_finding(
+                    layout, _shape, _poly, _role,
+                    min(_f for _l, _f in _hits)))
             continue
         _ring, _alts = _ring_and_altitudes(_shape)
         if _ring is None or not _alts:
@@ -5714,11 +5742,16 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         except (AttributeError, TypeError):
             pass
         try:
+            _at = ", ".join(
+                f"{_a['role']} {_a['area_m2']:.0f} m² at "
+                f"{_a['lat']:.6f},{_a['lon']:.6f}"
+                for _a in _airside if "lat" in _a)
             UI.vprint(1,
                 f"  [pav-builder] R14-1: {len(_airside)} AIRSIDE shape(s) "
                 f"lie inside a tunnel open cut and were NOT claimed "
                 f"(airside is king) — likely road pavement the scorer "
-                f"mis-roled; adjudicate with the classify instrument.")
+                f"mis-roled; adjudicate with the classify instrument"
+                f"{' — ' + _at if _at else ''}.")
         except _GEOM_EXC:
             pass
     if _n:

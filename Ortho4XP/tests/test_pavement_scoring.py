@@ -574,7 +574,13 @@ def test_a_low_margin_shape_falls_back_to_the_legacy_verdict(monkeypatch):
         "wide_blob": {"APRON": 1.0, "TAXI": 0.95},
     })
     shape = _rect(0.0, 0.0, 300.0, 300.0)
-    record = PS.score_shape(shape, _layout(), legacy_class=PS.CLASS_TAXI)
+    # ``connected=True`` is the scene's airside-contact feature: without
+    # one, G-APRON-AIRSIDE removes APRON before the argmax and the
+    # low-margin fallback under test would never be reached (the blob
+    # would simply be groundside).  ``runway_connected`` carries no
+    # weight in the patched table, so the SCORES are untouched.
+    record = PS.score_shape(shape, _layout(), legacy_class=PS.CLASS_TAXI,
+                            connected=True)
     assert record["winner"] == PS.CLASS_APRON
     assert record["band"] == "LOW"
     assert record["final"] == PS.CLASS_TAXI
@@ -980,7 +986,11 @@ def test_gate_boundary_spares_a_fence_crosser():
     gate; the outside fraction stays plain groundside evidence for the
     rest of the rules."""
     layout = _fence(_layout(), max_x=100.0)
-    record = PS.score_shape(_rect(50.0, 0.0, 150.0, 50.0), layout)
+    # Runway-connected: the apron half of "airside apron + outside lot"
+    # is what the refinement is about, and G-APRON-AIRSIDE would
+    # otherwise remove APRON for want of any airside feature at all.
+    record = PS.score_shape(_rect(50.0, 0.0, 150.0, 50.0), layout,
+                            connected=True)
     assert "G-BOUNDARY" not in record["gates"]
     assert "APRON" in record["candidates"]
     assert record["features"]["outside_boundary"] == pytest.approx(
@@ -1059,7 +1069,10 @@ def test_gate_runway_contact_spares_pavement_clear_of_the_runway():
     pad = _rect(100.0, 45.6, 300.0, 65.6)
     layout = _layout([BuiltShape(polygon=pad, role=ROLE_APRON)],
                      runway_union=_RUNWAY)
-    record = PS.score_shape(pad, layout)
+    # A pad beside a runway is reachable from it — the scene's
+    # airside-contact feature, without which G-APRON-AIRSIDE (not the
+    # gate under test) would take APRON away.
+    record = PS.score_shape(pad, layout, connected=True)
     assert record["features"]["runway_contact"] == 0.0
     assert "G-RUNWAY-CONTACT" not in record["gates"]
     assert PS.CLASS_APRON in record["candidates"]
@@ -1082,7 +1095,7 @@ def test_gate_runway_contact_is_inert_without_a_runway_union():
     """Absence of the source is never evidence: an airport publishing
     no runway union fires no gate."""
     pad = _rect(100.0, 45.0, 300.0, 65.0)
-    record = PS.score_shape(pad, _layout())
+    record = PS.score_shape(pad, _layout(), connected=True)
     assert record["features"]["runway_contact"] == 0.0
     assert "G-RUNWAY-CONTACT" not in record["gates"]
     assert PS.CLASS_APRON in record["candidates"]
@@ -1123,10 +1136,263 @@ def test_gate_apron_width_spares_real_pavement():
     so neither is gated — the floor is a floor, not a taxiway-width
     test."""
     for shape in (_corridor(), _rect(0.0, 0.0, 300.0, 300.0)):
-        record = PS.score_shape(shape, _layout())
+        # ``connected=True``: the width floor is the subject here, so the
+        # scene carries the one airside-contact feature G-APRON-AIRSIDE
+        # asks for and only the erosion decides.
+        record = PS.score_shape(shape, _layout(), connected=True)
         assert record["features"]["sub_taxi_width"] == 0.0
         assert "G-APRON-WIDTH" not in record["gates"]
         assert PS.CLASS_APRON in record["candidates"]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# G-APRON-AIRSIDE — wide_blob may MAGNIFY, never AUTHOR (owner ruling
+# 2026-08-11b, RULINGS c366c13).  Every specimen below is the KMCI
+# landside parking body the ruling adjudicated: idx 139 (36,628 m²,
+# 39.299923,-94.708464) and its sibling idx 1052 (53,154 m²), both
+# promoted GROUNDSIDE → APRON at HIGH margin on ``wide_blob`` 1.0 ALONE
+# (APRON 1.81 vs GROUNDSIDE 0.84 / 1.69 vs 0.99) with every airside
+# feature reading zero.
+# ═════════════════════════════════════════════════════════════════════
+
+def _landside_blob():
+    """The idx 139 twin: 191 × 192 m ≈ 36.6k m² of bare parking lot.
+
+    Wide enough to be a ``wide_blob``, and — in a layout holding
+    nothing else — carrying not one airside-contact feature.
+    """
+    return _rect(0.0, 0.0, 191.0, 192.0)
+
+
+def test_the_airside_contact_list_is_the_production_feature_registry():
+    """"Never invent a feature": every name the gate reads must be one
+    ``shape_features`` actually publishes."""
+    published = set(PS.shape_features(_landside_blob(), _layout()))
+    assert set(PS._AIRSIDE_CONTACT_FEATURES) <= published
+    assert set(PS._AIRSIDE_CONTACT_FEATURES) == {
+        "name_apron", "osm_apron", "osm_stand",
+        "runway_connected", "airside_contact", "taxi_contact"}
+
+
+def test_gate_apron_airside_denies_apron_to_a_landside_wide_blob():
+    """The KMCI shapeID 995 / idx 139 twin: a big paved blob with zero
+    airside corroboration is a car park, not an apron."""
+    blob = _landside_blob()
+    record = PS.score_shape(blob, _layout(),
+                            legacy_class=PS.CLASS_GROUNDSIDE)
+    assert record["features"]["wide_blob"] == 1.0
+    for feature in PS._AIRSIDE_CONTACT_FEATURES:
+        assert record["features"][feature] == 0.0, feature
+    assert "G-APRON-AIRSIDE" in record["gates"]
+    assert PS.CLASS_APRON not in record["candidates"]
+    assert record["winner"] != PS.CLASS_APRON
+    assert record["final"] != PS.CLASS_APRON
+
+
+@pytest.mark.parametrize("feature", PS._AIRSIDE_CONTACT_FEATURES)
+def test_any_one_airside_contact_feature_opens_the_gate(feature,
+                                                        monkeypatch):
+    """One positive airside feature — ANY of the six — restores APRON.
+
+    The feature is injected at the ``shape_features`` seam so each of
+    the six is exercised as the gate reads it, including the ones a
+    synthetic scene cannot raise on its own.
+    """
+    blob = _landside_blob()
+    _real = PS.shape_features
+
+    def _patched(polygon, layout, **kwargs):
+        x = _real(polygon, layout, **kwargs)
+        x[feature] = 1.0
+        return x
+
+    monkeypatch.setattr(PS, "shape_features", _patched)
+    record = PS.score_shape(blob, _layout())
+    assert "G-APRON-AIRSIDE" not in record["gates"]
+    assert PS.CLASS_APRON in record["candidates"]
+
+
+def test_wide_blob_keeps_its_full_weight_when_the_gate_is_open(monkeypatch):
+    """MAGNIFY, NEVER AUTHOR — the two halves of the ruling, one scene.
+
+    Weights are pinned to ``wide_blob`` alone at the ratio the KMCI
+    artifact measured (APRON 1.81 vs GROUNDSIDE 0.84), and the arm that
+    opens the gate uses ``runway_connected``, which carries no weight in
+    that table.  So the two arms' SCORES are byte-for-byte identical —
+    the gate takes nothing away from ``wide_blob`` — and only the
+    candidate set, and therefore the authorship, differs.
+    """
+    monkeypatch.setattr(PS, "PAVEMENT_SCORE_WEIGHTS", {
+        "wide_blob": {"APRON": 1.81, "GROUNDSIDE": 0.84},
+    })
+    blob = _landside_blob()
+    gated = PS.score_shape(blob, _layout())
+    opened = PS.score_shape(blob, _layout(), connected=True)
+    assert gated["scores"] == opened["scores"]
+    assert gated["scores"]["APRON"] == pytest.approx(1.81, abs=1e-9)
+    assert gated["winner"] == PS.CLASS_GROUNDSIDE
+    assert opened["winner"] == PS.CLASS_APRON
+    assert "G-APRON-AIRSIDE" in gated["gates"]
+    assert "G-APRON-AIRSIDE" not in opened["gates"]
+
+
+def test_gate_apron_airside_survives_the_conflict_reset():
+    """The reset re-opens the candidate set; an absolute gate must
+    survive it.  A wide blob that is chain-disconnected (G-CHAIN takes
+    APRON and TAXI), not road-width (G-FREE-ROAD takes SERVICE) and
+    enclosed by airside (G-ENCLAVE takes GROUNDSIDE) empties the set —
+    the reset reopens all four, and APRON must not come back."""
+    blob = _landside_blob()
+    record = PS.score_shape(blob, _layout(), connected=False, enclosed=True)
+    assert "G-CONFLICT" in record["gates"]
+    assert "G-APRON-AIRSIDE" in record["gates"]
+    assert PS.CLASS_APRON not in record["candidates"]
+
+
+def test_gate_apron_airside_census_line_counts_gated_shapes(capsys):
+    """The ruling's "one loud census line per build"."""
+    import O4_UI_Utils as UI
+    layout, _shapes = _shadow_layout()
+    UI.verbosity = 1
+    summary = PS.shadow_classify(layout, icao="TEST")
+    # The named + OSM-mapped apron is not gated; the road-covered
+    # landside lot (60 × 600 m, so a wide blob) is.
+    assert summary["apron_gated"] == 1
+    gated = [d for d in layout.pavement_score_decisions
+             if "G-APRON-AIRSIDE" in d["gates"]]
+    assert [d["ref"] for d in gated] == ["lot-1"]
+    line = [ln for ln in capsys.readouterr().out.splitlines()
+            if "G-APRON-AIRSIDE" in ln]
+    assert len(line) == 1
+    assert "gated 1 of 2 shape(s) out of APRON" in line[0]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# S1b — LAWFUL-AIRSIDE VOUCHING (owner ruling 2026-08-12).  "Contact
+# evidence counts ONLY from a shape that is itself lawfully airside — a
+# neighbour that got apron solely via the legacy chain, or that the
+# apron gate would itself refuse, vouches for nothing (evaluate to a
+# fixpoint)."  The specimen is KMCI's emitted shapeID-995 body: a
+# landside lot roled apron by the LEGACY chain, reading taxi_contact 1.0
+# off the landside lot next to it, which reads taxi_contact 1.0 straight
+# back — a mutually-vouching cycle no amount of gating dissolves.
+# ═════════════════════════════════════════════════════════════════════
+
+def _two_landside_lots(role=ROLE_APRON):
+    """Two 191 × 96 m lots sharing their full 191 m edge.
+
+    Both are `role`-roled (apron by the legacy chain), both wide blobs,
+    and NEITHER carries one scrap of evidence a neighbour did not give
+    it.  The 0.6 m halo the contact predicate uses makes the shared edge
+    real for both.
+    """
+    a = _rect(0.0, 0.0, 191.0, 96.0)
+    b = _rect(0.0, 96.0, 191.0, 192.0)
+    shape_a = BuiltShape(polygon=a, role=role, ref="lot-a")
+    shape_b = BuiltShape(polygon=b, role=role, ref="lot-b")
+    return _layout([shape_a, shape_b]), shape_a, shape_b
+
+
+def test_two_landside_lots_cannot_vouch_for_each_other():
+    layout, shape_a, shape_b = _two_landside_lots()
+    not_airside = PS.lawful_airside_closure(layout, [shape_a, shape_b])
+    assert not_airside == frozenset({id(shape_a), id(shape_b)})
+    layout._pavement_score_not_airside = not_airside
+    layout._pavement_score_abut_unions = None
+    for shape in (shape_a, shape_b):
+        record = PS.score_shape(shape.polygon, layout, owner=shape,
+                                legacy_class=PS.CLASS_APRON)
+        assert record["features"]["taxi_contact"] == 0.0
+        assert "G-APRON-AIRSIDE" in record["gates"]
+        assert PS.CLASS_APRON not in record["candidates"]
+
+
+def test_without_the_closure_the_cycle_stands():
+    """The defect this amendment closes, pinned as its own fact: with no
+    closure the two lots vouch for each other and APRON survives."""
+    layout, shape_a, shape_b = _two_landside_lots()
+    record = PS.score_shape(shape_a.polygon, layout, owner=shape_a,
+                            legacy_class=PS.CLASS_APRON)
+    assert record["features"]["taxi_contact"] == 1.0
+    assert "G-APRON-AIRSIDE" not in record["gates"]
+
+
+def test_a_runway_seeds_the_closure_and_contact_propagates():
+    """A runway IS airside by identity — it is never scored, so nothing
+    can gate it — and lawfulness travels outward from it one contact at
+    a time: runway → plate A → plate B, while a detached pair stays
+    unvouched."""
+    runway = BuiltShape(polygon=_rect(-500.0, 0.0, 0.0, 45.0),
+                        role=ROLE_RUNWAY, ref="09/27")
+    plate_a = BuiltShape(polygon=_rect(0.0, 0.0, 100.0, 45.0),
+                         role=ROLE_APRON, ref="A")
+    plate_b = BuiltShape(polygon=_rect(100.0, 0.0, 200.0, 45.0),
+                         role=ROLE_APRON, ref="B")
+    far_c = BuiltShape(polygon=_rect(900.0, 0.0, 1000.0, 45.0),
+                       role=ROLE_APRON, ref="C")
+    far_d = BuiltShape(polygon=_rect(1000.0, 0.0, 1100.0, 45.0),
+                       role=ROLE_APRON, ref="D")
+    layout = _layout([runway, plate_a, plate_b, far_c, far_d])
+    candidates = [plate_a, plate_b, far_c, far_d]
+    not_airside = PS.lawful_airside_closure(layout, candidates)
+    assert not_airside == frozenset({id(far_c), id(far_d)})
+
+
+def test_the_closure_seeds_on_evidence_no_neighbour_can_supply():
+    """Any of the four voucher-free features seeds a shape, and the seed
+    then vouches for its neighbour (the fixpoint's whole point)."""
+    layout, shape_a, shape_b = _two_landside_lots()
+    # apt.dat's own name for lot A: RAMP 1.
+    layout.apt_pavement_records = [(shape_a.polygon, "RAMP 1", 1)]
+    assert PS.lawful_airside_closure(layout, [shape_a, shape_b]) \
+        == frozenset()
+    # …and connectivity seeds it just as well.
+    layout2, a2, b2 = _two_landside_lots()
+    assert PS.lawful_airside_closure(
+        layout2, [a2, b2], {id(a2): True}) == frozenset()
+    # A shape connectivity says FALSE is not a seed.
+    layout3, a3, b3 = _two_landside_lots()
+    assert PS.lawful_airside_closure(
+        layout3, [a3, b3], {id(a3): False}) == frozenset(
+            {id(a3), id(b3)})
+
+
+def test_an_unlawful_shape_cannot_vouch_for_itself_by_role():
+    """The identity disjunct — "a chain-role owner is airside by
+    identity" — is a shape vouching for ITSELF out of its legacy role.
+    Once the closure has refused it, that door is shut too."""
+    lot = _rect(0.0, 0.0, 191.0, 192.0)
+    owner = BuiltShape(polygon=lot, role=ROLE_APRON, ref="lot")
+    building = BuiltShape(polygon=_rect(0.0, 192.0, 60.0, 240.0),
+                          role=ROLE_BUILDING, ref="terminal")
+    layout = _layout([owner, building])
+    before = PS.score_shape(lot, layout, owner=owner)
+    assert before["features"]["building_abut"] == 1.0
+    assert before["features"]["airside_contact"] == 1.0   # by role alone
+    layout._pavement_score_not_airside = PS.lawful_airside_closure(
+        layout, [owner])
+    layout._pavement_score_abut_unions = None
+    after = PS.score_shape(lot, layout, owner=owner)
+    assert after["features"]["building_abut"] == 1.0      # unchanged
+    assert after["features"]["airside_contact"] == 0.0
+    assert "G-APRON-AIRSIDE" in after["gates"]
+
+
+def test_the_shadow_pass_publishes_the_vouching_census(capsys):
+    """Enact and shadow both settle vouching before scoring, and the
+    census line says how many shapes vouch for nothing."""
+    import O4_UI_Utils as UI
+    layout, shape_a, shape_b = _two_landside_lots()
+    UI.verbosity = 1
+    summary = PS.shadow_classify(layout, icao="TEST")
+    assert summary["shapes"] == 2
+    assert summary["not_airside"] == 2
+    assert summary["apron_gated"] == 2
+    line = [ln for ln in capsys.readouterr().out.splitlines()
+            if "G-APRON-AIRSIDE" in ln]
+    assert "2 shape(s) vouch for nothing" in line[0]
+    # And the set never outlives the pass that computed it.
+    assert getattr(layout, "_pavement_score_not_airside", None) is None
 
 
 def _tunnel_ribbon():
@@ -1434,12 +1700,38 @@ def test_alt_names_feed_the_score_of_a_shape_the_pack_never_named(tmp_path):
                      source_pavement_union=box(0.0, 0.0, 500.0, 200.0))
     _write_global_apt_dat(root, layout)
     PS.ensure_alt_sources(layout, "ZZZZ", root)
-    record = PS.score_shape(apron, layout, legacy_class=PS.CLASS_APRON)
+    record = PS.score_shape(apron, layout, legacy_class=PS.CLASS_APRON,
+                            connected=True)
     assert record["features"]["name_apron"] == 0.0      # our pack: silent
     assert record["features"]["alt_name_apron"] == pytest.approx(
         1.0, abs=0.02)
     assert record["scores"][PS.CLASS_APRON] > 0.0
     assert record["winner"] == PS.CLASS_APRON
+
+
+def test_alt_names_alone_do_not_author_apron(tmp_path):
+    """The G-APRON-AIRSIDE consequence for the cross-reference pack.
+
+    The owner's airside-contact list (RULINGS 2026-08-11b) names
+    ``name_apron`` — OUR pack's row-110 name — and not its
+    cross-reference twin ``alt_name_apron``.  So a shape ONLY the
+    global pack calls an apron, with no other airside evidence, still
+    SCORES apron (the alt layer is untouched) but cannot WIN it.  The
+    same scene with one airside-contact feature is the test above.
+    Flagged for the owner: the list is the ruling's, not this lane's.
+    """
+    root = str(tmp_path / "X-Plane 12")
+    apron = _rect(0.0, 0.0, 200.0, 200.0)
+    layout = _layout([BuiltShape(polygon=apron, role=ROLE_APRON)],
+                     source_pavement_union=box(0.0, 0.0, 500.0, 200.0))
+    _write_global_apt_dat(root, layout)
+    PS.ensure_alt_sources(layout, "ZZZZ", root)
+    record = PS.score_shape(apron, layout, legacy_class=PS.CLASS_APRON)
+    assert record["features"]["alt_name_apron"] == pytest.approx(
+        1.0, abs=0.02)
+    assert record["scores"][PS.CLASS_APRON] > 0.0       # still scores
+    assert "G-APRON-AIRSIDE" in record["gates"]
+    assert PS.CLASS_APRON not in record["candidates"]
 
 
 def test_alt_sources_survive_an_unreadable_pack(tmp_path):

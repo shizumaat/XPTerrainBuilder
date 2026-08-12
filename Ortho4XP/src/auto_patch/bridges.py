@@ -5442,6 +5442,69 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _level_surface = unary_union(_level_parts) if _level_parts else None
     except _GEOM_EXC:
         _level_surface = None
+    # ── R16-3: ONE FLOOR PER CONNECTED CLAIMED PLATE ─────────────────
+    # Two ADJACENT plates of one level surface used to carry different
+    # clearance floors — each shape took the lowest floor among the
+    # REGIONS it covers, and two members covering different regions
+    # answered differently (measured KCLT triangle: 210.87 vs 210.98, a
+    # 0.13 m spread against the level-plate bullet's 0.10 m).  A level
+    # surface is ONE surface: connected members share the JOINT DEPTH,
+    # the minimum of their own floors.  Connectivity is the claim law's
+    # OWN — the components of ``_level_surface``, the union pass 2
+    # already grades away from — never a private union built here.
+    _joint_floor: dict[int, float] = {}
+    if _level_members and _level_surface is not None:
+        _bodies = [_g for _g in getattr(_level_surface, "geoms",
+                                        [_level_surface])
+                   if _g is not None and not _g.is_empty]
+        if len(_bodies) > 1:
+            try:
+                from shapely.strtree import STRtree as _STRtree
+                _body_tree = _STRtree(_bodies)
+            except Exception:                          # pragma: no cover
+                _body_tree = None
+        else:
+            _body_tree = None
+        _component_of: dict[int, int] = {}
+        for _shape, _r, _a, _floor in _level_members:
+            _comp = 0
+            if _body_tree is not None:
+                try:
+                    _pt = _shape.polygon.representative_point()
+                    _hit = _body_tree.query(_pt)
+                    _comp = id(_shape)
+                    for _hi in _hit:                   # bbox hits: the
+                        # body that really covers the plate decides
+                        if _bodies[int(_hi)].intersects(_pt):
+                            _comp = int(_hi)
+                            break
+                    else:
+                        if len(_hit):
+                            _comp = int(_hit[0])
+                except _GEOM_EXC:                      # pragma: no cover
+                    _comp = id(_shape)
+            _component_of[id(_shape)] = _comp
+            _cur = _joint_floor.get(_comp)
+            if _cur is None or float(_floor) < _cur:
+                _joint_floor[_comp] = float(_floor)
+        _level_members = [
+            (_shape, _r, _a,
+             _joint_floor.get(_component_of[id(_shape)], _floor))
+            for _shape, _r, _a, _floor in _level_members]
+        _spread = [(_joint_floor[_c], _c) for _c in _joint_floor]
+        if len(_spread) < len(_level_members):
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] R16-3: {len(_level_members)} "
+                    f"claimed plate(s) resolved to {len(_joint_floor)} "
+                    f"connected level surface(s) — each plate takes its "
+                    f"surface's JOINT DEPTH "
+                    f"({', '.join(f'{_f:.2f}' for _f, _c in sorted(_spread))}"
+                    f" m), so adjacent plates cannot carry different "
+                    f"clearance floors.")
+            except _GEOM_EXC:
+                pass
+
     _claimed_polys: list = []
     _n = 0
     for _shape, _ring, _alts, _floor in _level_members:

@@ -28,12 +28,15 @@ import re
 import tempfile
 from pathlib import Path
 
-from shapely.geometry import Polygon
+import pytest
+from shapely.geometry import Polygon, box
 
+from auto_patch import bridges
 from auto_patch.layout import (
     BuiltShape,
     PavementLayout,
     ROLE_GROUNDSIDE_PAVEMENT,
+    ROLE_SERVICE_JUNCTION,
 )
 
 
@@ -172,3 +175,85 @@ def test_r16_1_a_real_corner_is_never_deformed():
     assert corner, [tags for _w, _n, tags in ways]
     assert _nids_near(layout, nodes, corner[0], _TIP_M), (
         "a real corner was deformed by the chain-consistent removal")
+
+
+# ── R16-3: one floor per connected claimed plate ────────────────────
+
+_CLAIM_ANCHOR = (35.215, -80.944)
+_AMBIENT_M = 219.8
+#: KCLT's triangle in miniature: two ADJACENT claimed plates whose own
+#: regions carry floors 0.11 m apart — the measured 210.87 / 210.98.
+_FLOOR_DEEP = 210.87
+_FLOOR_SHALLOW = 210.98
+
+
+def _portal_row(way_id, station, outward, mouth_grade, carriage_w=10.0):
+    """One ``portal_data`` row with NO deck reference, so the mouth
+    grade IS the floor (``_mouth_grade_with_clearance`` passes it
+    through) and the twin can name both floors exactly."""
+    return ("n" + way_id, way_id, [station, outward], "service",
+            _AMBIENT_M, _AMBIENT_M, False, carriage_w, False,
+            mouth_grade, [], None, None)
+
+
+def _two_plate_scene(separate=False):
+    """Two facing pairs 40 m apart, each covered by its own road plate.
+
+    ``separate=False`` puts the plates edge to edge — ONE connected
+    level surface.  ``separate=True`` leaves a 6 m gap between them:
+    two surfaces, and the law must NOT join their floors.
+    """
+    layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
+    y_split = 12.0 if not separate else 12.0
+    plate_a = box(-6.0, -12.0, 62.0, y_split)
+    plate_b = box(-6.0, y_split + (6.0 if separate else 0.0), 62.0, 46.0)
+    for poly in (plate_a, plate_b):
+        layout.shapes.append(BuiltShape(
+            polygon=poly, role=ROLE_SERVICE_JUNCTION, ref="",
+            node_altitudes=[_AMBIENT_M] * 5))
+    rows = [_portal_row("W1", (0.0, 0.0), (56.0, 0.0), _FLOOR_DEEP),
+            _portal_row("W2", (56.0, 0.0), (0.0, 0.0), _FLOOR_DEEP),
+            _portal_row("W3", (0.0, 40.0), (56.0, 40.0), _FLOOR_SHALLOW),
+            _portal_row("W4", (56.0, 40.0), (0.0, 40.0), _FLOOR_SHALLOW)]
+    return layout, rows, [(0, 1), (2, 3)]
+
+
+def test_r16_3_connected_claimed_plates_share_the_joint_depth():
+    """Both plates of ONE level surface take the JOINT depth — the
+    minimum of the members' own floors — so the level-plate bullet
+    (spread <= 0.10 m) holds across the whole surface.
+
+    Mutation-checked: with each plate taking its own region's floor
+    this reads a 0.11 m spread (KCLT's 210.87 / 210.98).
+    """
+    layout, rows, pairs = _two_plate_scene()
+    n, _claimed = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
+    assert n == 2, f"both plates must be claimed, got {n}"
+    values = [v for shape in layout.shapes for v in shape.node_altitudes]
+    assert max(values) - min(values) <= 0.10, (
+        f"level-plate spread {max(values) - min(values):.3f} m across "
+        f"two adjacent claimed plates")
+    assert min(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
+    assert max(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
+
+
+def test_r16_3_disconnected_plates_keep_their_own_floors():
+    """The control: the law is per CONNECTED plate.  Two level surfaces
+    that do not touch answer with their own depths — joining them would
+    sink pavement no bore runs under."""
+    layout, rows, pairs = _two_plate_scene(separate=True)
+    n, _claimed = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
+    assert n == 2
+    floors = sorted(round(min(s.node_altitudes), 2) for s in layout.shapes)
+    assert floors == [round(_FLOOR_DEEP, 2), round(_FLOOR_SHALLOW, 2)], (
+        f"disconnected surfaces were joined: {floors}")
+
+
+def test_r16_3_the_claim_still_never_raises_a_vertex():
+    """R14 behaviour, unchanged: the joint depth can only DIG.  A plate
+    already below the joint floor keeps its own value."""
+    layout, rows, pairs = _two_plate_scene()
+    layout.shapes[1].node_altitudes = [_FLOOR_DEEP - 3.0] * 5
+    bridges._claim_road_pavement(layout, rows, pairs, 0.6)
+    assert min(layout.shapes[1].node_altitudes) == pytest.approx(
+        _FLOOR_DEEP - 3.0, abs=1e-6)

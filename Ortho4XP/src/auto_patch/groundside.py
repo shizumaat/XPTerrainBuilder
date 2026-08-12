@@ -332,6 +332,37 @@ def below_grade_sources(layout, refs=BELOW_GRADE_REFS) -> list:
     return sources
 
 
+def below_grade_family_shapes(layout) -> list:
+    """Every shape that IS below-grade geometry — THE ONE family test.
+
+    The families were enumerated in three places that had to agree and
+    were not one authority: :data:`BELOW_GRADE_REFS` here (the ramp /
+    trench / claimed-road profiles the transition law grades away from)
+    and ``gap_fill._TUNNEL_BLOCKER_ROLES`` / ``_TUNNEL_BLOCKER_REFS``
+    (the law-cut hole R6 already had to enumerate: the tunnel roles and
+    the wall ref).  ``flat_fast_path`` composed both by hand at two
+    sites.  This is that composition, once, so a fourth reader
+    (R17b-1's below-grade ANCHOR law) extends it rather than forking it
+    (`consult-before-create`).
+
+    Returns the shapes in ``layout.shapes`` order; a shape with no
+    usable polygon is skipped, because every consumer is geometric.
+    """
+    from .gap_fill import _TUNNEL_BLOCKER_REFS, _TUNNEL_BLOCKER_ROLES
+
+    out = []
+    for shape in getattr(layout, "shapes", ()) or ():
+        polygon = getattr(shape, "polygon", None)
+        if polygon is None or polygon.is_empty:
+            continue
+        ref = getattr(shape, "ref", "")
+        if (ref in BELOW_GRADE_REFS
+                or ref in _TUNNEL_BLOCKER_REFS
+                or getattr(shape, "role", None) in _TUNNEL_BLOCKER_ROLES):
+            out.append(shape)
+    return out
+
+
 class _BelowGradeIndex:
     """The below-grade surfaces plus an R-tree over them.
 

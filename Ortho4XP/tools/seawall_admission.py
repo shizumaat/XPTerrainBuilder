@@ -148,8 +148,71 @@ def sea_area_for_tile(tile, lat: int, lon: int):
         VECT.coastline_to_MultiPolygon(coastline, lat, lon, False))
 
 
+def flat_site_inset_stamp(tile):
+    """Stamp the tile's DEM stub with the flat-site inset extents.
+
+    R17b-2's admission is ``coastline ∩ constant-inset coverage``, and
+    production reads that footprint from the provenance
+    ``O4_Airport_Elevation_Insets.overlay_flat_site_insets`` writes while
+    BAKING.  This tool never runs DEM prep (read-only, no DEM
+    composition), so it asks production's own extent generator —
+    ``auto_patch.flat_site_mode.flat_site_substitutions``, the same call
+    the bake consumes — and stamps the entries in the same shape, so
+    ``O4_Vector_Map.constant_inset_area`` reads them unmodified.
+
+    TWO DIFFERENCES, BOTH STATED RATHER THAN SWALLOWED:
+
+    * the bake DROPS a claimed-object cluster whose feather ring fails
+      the R11-2 datum check, and that refusal is a DEM measurement this
+      tool cannot make;
+    * the detector CLASSIFIES AGAINST THE DEM (``flat_site_substitutions``
+      returns ``[]`` outright when the tile carries no composed
+      ``alt_dem``), and this tool composes no DEM by design.  A bare
+      "0 entries" would then read exactly like "this tile has no flat
+      site", which is the silent-degradation class this repo refuses —
+      so the caller gets a NOTE saying which of the two it is.
+
+    Returns ``(entry_count, unchecked_cluster_count, note)``.
+    """
+    from auto_patch import flat_site_mode as FLAT
+    dem = getattr(tile, "dem", None)
+    if dem is None or getattr(dem, "alt_dem", None) is None:
+        return 0, 0, ("NOT MEASURED — the flat-site detector classifies "
+                      "against the composed tile DEM and this tool composes "
+                      "none.  Read the footprint off a real build's "
+                      "[flat-site] lines instead; this is not evidence that "
+                      "the tile has no flat site.")
+    subs = FLAT.flat_site_substitutions(tile)
+    entries = []
+    for sub in subs or ():
+        entries.append({"kind": "synthetic_flat_site",
+                        "icao": sub.get("icao"),
+                        "z0_m": sub.get("z0_m"),
+                        "extent_tile_degrees": list(sub["extent_deg"])})
+        for cluster in (sub.get("object_clusters") or ()):
+            entries.append({"kind": "synthetic_flat_site_object_cluster",
+                            "icao": sub.get("icao"),
+                            "z0_m": sub.get("z0_m"),
+                            "extent_tile_degrees": list(
+                                cluster["extent_deg"])})
+        for corridor in (sub.get("declared_corridors") or ()):
+            entries.append({"kind": "declared_corridor",
+                            "icao": sub.get("icao"),
+                            "z0_m": sub.get("z0_m"),
+                            "extent_tile_degrees": list(
+                                corridor["extent_deg"])})
+    if getattr(tile, "dem", None) is None:
+        tile.dem = type("_DemStub", (), {})()
+    tile.dem.synthetic_flat_site_provenance = entries
+    n_cluster = sum(1 for e in entries
+                    if e["kind"] == "synthetic_flat_site_object_cluster")
+    return len(entries), n_cluster, ("measured from the detector's own "
+                                     "extents; cluster datum refusals not "
+                                     "reproduced")
+
+
 def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
-            build_dir: str = ""):
+            build_dir: str = "", flat_site_inset: bool = False):
     """The three numbers, plus the geometry that produced them."""
     import O4_Config_Utils as CFG
     import O4_Vector_Map as VMAP
@@ -171,7 +234,20 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
     sea = sea_area_for_tile(tile, lat, lon)
     tidal = VMAP._tidal_water_area(tile)
     seed = VMAP.sea_seed_areas(sea, tidal, patch_pavement_area=coverage)
-    lines = VMAP.seawall_breaklines(coverage, seed, float(lat))
+    # R17b-2: the wall admission may also carry the CONSTANT-INSET
+    # coastline.  The DENOMINATOR below stays on the graded coverage, so
+    # the percentage remains comparable with the pre-R17b recon number.
+    wall_admission = coverage
+    inset_entries = inset_clusters = 0
+    inset_note = "not requested"
+    if flat_site_inset:
+        inset_entries, inset_clusters, inset_note = (
+            flat_site_inset_stamp(tile))
+        coastal = VMAP.coastline_wall_admission(tile, sea)
+        if not coastal.is_empty:
+            from shapely import ops as _ops
+            wall_admission = _ops.unary_union([coverage, coastal])
+    lines = VMAP.seawall_breaklines(wall_admission, seed, float(lat))
     wall_m = sum(metre_length(geometry.LineString(c), cos_lat)
                  for c in lines if len(c) >= 2)
     # THE DENOMINATOR: the shoreline BESIDE the coverage — the coastline
@@ -184,7 +260,11 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
         geometry.MultiLineString([p.exterior for p in polys
                                   if p.exterior is not None]), cos_lat)
     return {
-        "admission_mode": mode,
+        "admission_mode": mode + ("+flat-site-inset" if flat_site_inset
+                                  else ""),
+        "flat_site_inset_entries": inset_entries,
+        "flat_site_inset_clusters_unchecked": inset_clusters,
+        "flat_site_inset_note": inset_note,
         "rings_seen": n_rings,
         "rings_admitted": n_kept,
         "coverage_km2": round(coverage.area * DEG_M * DEG_M * cos_lat / 1e6,
@@ -219,6 +299,11 @@ def main(argv=None) -> int:
     ap.add_argument("--build-dir", default="",
                     help="tile build dir holding Ortho4XP_+LL+LLL.cfg — read "
                          "for the DECLARED corridors (R17-2)")
+    ap.add_argument("--flat-site-inset", action="store_true",
+                    help="R17b-2: also admit the COASTLINE inside the "
+                         "flat-site constant-inset footprint (the reclaimed "
+                         "island).  The denominator stays on the graded "
+                         "coverage so the percentage stays comparable")
     ap.add_argument("--json", default=None)
     args = ap.parse_args(argv)
 
@@ -236,11 +321,14 @@ def main(argv=None) -> int:
               + ", ".join(str(p) for p in missing))
         return 2
     out = measure(args.lat, args.lon, patch_files, args.admission,
-                  args.near_m, build_dir=args.build_dir)
+                  args.near_m, build_dir=args.build_dir,
+                  flat_site_inset=args.flat_site_inset)
     out["patches"] = [str(p) for p in patch_files]
     print(f"=== SEAWALL ADMISSION  tile +{args.lat:02d}+{args.lon:03d}  "
           f"[{out['admission_mode']}] ===")
-    for key in ("patches", "rings_seen", "rings_admitted", "coverage_km2",
+    for key in ("patches", "flat_site_inset_entries",
+                "flat_site_inset_clusters_unchecked", "flat_site_inset_note",
+                "rings_seen", "rings_admitted", "coverage_km2",
                 "coverage_perimeter_m", "wall_lines", "wall_m",
                 "shoreline_near_m", "near_m", "coverage_pct",
                 "longest_walls_m", "error"):

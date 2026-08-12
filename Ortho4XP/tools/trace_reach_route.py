@@ -266,8 +266,8 @@ def _binding_route(layout, x, y):
     if G is None:
         return {"error": "layout has no solver nodes"}
     att = band.attachment_at(x, y) if hasattr(band, "attachment_at") else None
-    out: dict = {"G": G, "band": band(x, y), "attachment": att,
-                 "nodespace": _nodespace(G)}
+    out: dict = {"G": G, "layout": layout, "band": band(x, y),
+                 "attachment": att, "nodespace": _nodespace(G)}
     if out["band"] is None:
         out["why_none"] = _why_band_none(band, att)
     prov = getattr(layout, "_band_anchor_provenance", None) or {}
@@ -303,6 +303,215 @@ def _binding_route(layout, x, y):
         s["runway"] = _runway_at(layout, s["anchor_pos"])
         out[side] = s
     return out
+
+
+def _anchor_class(layout, G, node, pos=None):
+    """WHAT KIND OF ANCHOR this is — ``"surface-lawful"`` or a named
+    BELOW-GRADE body membership.
+
+    R17b-1's instrument half.  The canyon question the base round could
+    not answer from this tool was never "which anchor" (it printed that)
+    but "is that anchor LAWFUL AT THE SURFACE" — a below-grade seed
+    (tunnel bore, ramp, claimed plate) binds a ceiling MIN that has no
+    business governing surface pavement, and the printout looked exactly
+    like a legitimate runway anchor.
+
+    THE CLASSIFICATION IS PRODUCTION'S OWN
+    (``building_feasibility.below_grade_anchor_bodies`` over
+    ``groundside.below_grade_family_shapes``) — the tool must never carry
+    a second opinion about what is below grade, which is how the law and
+    the instrument drift apart.
+    """
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        below_grade_anchor_bodies, BELOW_GRADE_BODY_TOL_M)
+    if node is None:
+        return "?"
+    bodies = below_grade_anchor_bodies(layout, G, {int(node): 0.0})
+    body = bodies.get(int(node))
+    if body is None:
+        return "surface-lawful"
+    if pos is None:
+        pos = (getattr(G, "pos", None) or {}).get(int(node))
+    owner = "?"
+    if pos is not None:
+        from shapely.geometry import Point
+        from auto_patch.groundside import below_grade_family_shapes
+        p = Point(float(pos[0]), float(pos[1]))
+        best = None
+        for s in below_grade_family_shapes(layout):
+            try:
+                d = s.polygon.distance(p)
+            except Exception:                           # pragma: no cover
+                continue
+            if best is None or d < best[0]:
+                best = (d, s)
+        if best is not None and best[0] <= BELOW_GRADE_BODY_TOL_M:
+            owner = f"{best[1].ref}/{best[1].role}"
+        elif best is not None:
+            owner = f"{best[1].ref}/{best[1].role} (+{best[0]:.3f} m)"
+    return (f"BELOW-GRADE body {owner}, body area {body.area:.0f} m2 "
+            f"— R17b-1: governs only nodes inside this body")
+
+
+def _owning_shape(layout, pos, limit=5):
+    """EVERY shape whose polygon owns ``pos`` — the plain "what IS this
+    anchor standing on" question.
+
+    ALL of them, never the first hit: airport shapes OVERLAP (a claimed
+    tunnel plate under a junction, adjacent-ground under everything), and
+    a single-owner answer silently picks whichever the shape list happens
+    to reach first.  That is how a below-grade plate hides behind the
+    junction drawn over it."""
+    if pos is None:
+        return "?"
+    from shapely.geometry import Point
+    p = Point(float(pos[0]), float(pos[1]))
+    hits, nearest = [], None
+    for s in getattr(layout, "shapes", ()) or ():
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            d = poly.distance(p)
+        except Exception:                               # pragma: no cover
+            continue
+        if d <= 1e-6:
+            hits.append(f"{getattr(s, 'ref', '?')}/{getattr(s, 'role', '?')}")
+        elif nearest is None or d < nearest[0]:
+            nearest = (d, s)
+    if hits:
+        extra = "" if len(hits) <= limit else f" (+{len(hits) - limit} more)"
+        return ", ".join(hits[:limit]) + extra
+    if nearest is None:
+        return "?"
+    return (f"{getattr(nearest[1], 'ref', '?')}/"
+            f"{getattr(nearest[1], 'role', '?')} (+{nearest[0]:.2f} m, "
+            f"NO shape owns this point)")
+
+
+def _in_flat_extent(layout, pos):
+    """Is ``pos`` inside the flat site's substituted extent / its provable
+    constant core?  A submarine DEM sample OUTSIDE the extent is a wholly
+    different story from a below-grade STRUCTURE inside it."""
+    if pos is None:
+        return "?"
+    try:
+        from auto_patch import flat_fast_path as FFP
+        entry = FFP.substitution_entry(layout)
+        if entry is None:
+            return "no flat-site substitution on this build"
+        from shapely.geometry import Point
+        p = Point(float(pos[0]), float(pos[1]))
+        core = FFP.constant_core(layout, entry)
+        z0 = entry.get("z0_m")
+        inside = core is not None and core.contains(p)
+        return (f"{'INSIDE' if inside else 'OUTSIDE'} the constant core "
+                f"(Z0={z0})")
+    except Exception as exc:                            # pragma: no cover
+        return f"? ({type(exc).__name__})"
+
+
+def _report_anchor_seed_classes(layout, captured=None, worst=12):
+    """THE ANCHOR-SEED CLASSIFICATION — R17b-1's attribution deliverable.
+
+    Which seeds does the value field carry, which of them are BELOW
+    GRADE, and — the question the canyon actually asks — which seed
+    carries the LOWEST value, since the ceiling is a MIN over anchors and
+    a min never forgets.
+
+    IT READS THE BUILD'S OWN PASSES, never a rebuild.  The field is
+    rebuilt several times during one build and the layout GROWS between
+    them, so the post-build rebuild a bare ``reach_band_unified`` gives
+    is a different node space AND a different seed set from the one the
+    writeback clamp obeyed (measured VHHH 2026-08-11: the rebuild's
+    worst seed is Z0 7.315 while the clamp reports a carried ceiling of
+    −12.14 at the same point).  ``_build`` captures every
+    ``spine_value_fields`` pass; this reports them all and singles out
+    the pass with the most-negative seed — the poisoned one.
+    """
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        below_grade_anchor_bodies)
+    passes = list((captured or {}).get("passes") or [])
+    if not passes:
+        print("!! no band pass was captured — run this on a build")
+        return
+    print(f"band passes captured: {len(passes)}")
+    for p in passes:
+        print(f"  pass {p['i']}: {len(p['seeds'])} seed(s), "
+              f"{p['nodes']} node(s), seed value min {p['seed_min']:.4f} "
+              f"max {p['seed_max']:.4f}; ceiling min "
+              f"{p['ceil_min']:.4f}  [{p['nodespace']}]")
+    worst_pass = min(passes, key=lambda p: p["seed_min"])
+    print(f"\n=== POISON CANDIDATE: pass {worst_pass['i']} "
+          f"(lowest seed {worst_pass['seed_min']:.4f}) ===")
+    G = worst_pass["G"]
+    seeds = worst_pass["seeds"]
+    pos = getattr(G, "pos", None) or {}
+    bound: dict = {}
+    for _u, rec in (worst_pass["ceiling"] or {}).items():
+        bound[int(rec[0])] = bound.get(int(rec[0]), 0) + 1
+    bodies = below_grade_anchor_bodies(layout, G, seeds)
+    n_ceil = len(worst_pass["ceiling"] or {})
+    sub = [a for a in seeds if seeds[a] < 0.0]
+    sub_ceil = sum(bound.get(int(a), 0) for a in sub)
+    print(f"anchor seeds: {len(seeds)};  BELOW-GRADE by body membership: "
+          f"{len(bodies)};  seeds with a NEGATIVE value: {len(sub)} "
+          f"(authoring {sub_ceil} of {n_ceil} ceilings)")
+    order = sorted(seeds, key=lambda k: seeds[k])[:worst]
+    print(f"the {len(order)} LOWEST-VALUED seed(s) — a ceiling MIN "
+          f"propagates each of these along every route it can reach:")
+    for a in order:
+        p = pos.get(int(a))
+        print(f"  anchor {a} value {seeds[a]:.4f}"
+              + (f" @({p[0]:.1f},{p[1]:.1f})" if p else "")
+              + f"  authored {bound.get(int(a), 0)} ceiling(s) of {n_ceil}")
+        print(f"      shapes: {_owning_shape(layout, p)}")
+        print(f"      extent: {_in_flat_extent(layout, p)}")
+        print(f"      class:  {_anchor_class(layout, G, a, p)}")
+
+
+def _report_pass_bands_at(layout, captured, x, y):
+    """THE BAND AT ONE POINT, PASS BY PASS, with the anchor that authored
+    it — the link between a clamp's reported band and the seed behind it.
+
+    The writeback clamp obeys the band CARRIED out of the solve; naming
+    the seed behind a clamped value therefore means asking the pass the
+    clamp saw, not the post-build rebuild.
+    """
+    import math as _math
+    passes = list((captured or {}).get("passes") or [])
+    if not passes:
+        print("!! no band pass was captured — run this on a build")
+        return
+    print(f"\n=== BAND AT ({x:.1f},{y:.1f}) PASS BY PASS ===")
+    for p in passes:
+        G = p["G"]
+        pos = getattr(G, "pos", None) or {}
+        ceil_side = p["ceiling"] or {}
+        seeds = p["seeds"]
+        best = None
+        for n in ceil_side:
+            q = pos.get(int(n))
+            if q is None:
+                continue
+            d = _math.hypot(q[0] - x, q[1] - y)
+            if best is None or d < best[0]:
+                best = (d, int(n), q)
+        if best is None:
+            print(f"  pass {p['i']}: no ceiling-carrying node at all")
+            continue
+        d, node, q = best
+        rec = ceil_side[node]
+        anchor, budget = int(rec[0]), float(rec[1])
+        ceiling = seeds.get(anchor, 0.0) + budget
+        ap = pos.get(anchor)
+        print(f"  pass {p['i']}: nearest ceiling node {node} "
+              f"@({q[0]:.1f},{q[1]:.1f}) {d:.1f} m away — ceiling "
+              f"{ceiling:.4f} = anchor {anchor} value "
+              f"{seeds.get(anchor, float('nan')):.4f} + budget {budget:.4f}")
+        print(f"      anchor shapes: {_owning_shape(layout, ap)}")
+        print(f"      anchor extent: {_in_flat_extent(layout, ap)}")
+        print(f"      anchor class:  {_anchor_class(layout, G, anchor, ap)}")
 
 
 def _runway_at(layout, pos):
@@ -383,6 +592,8 @@ def _report(r, x, y):
               + ("" if s["path_complete"] else "  [PATH INCOMPLETE — the "
                  "recorded budgets do not reconcile through the graph; the "
                  "anchor and budget above are still the field's own]"))
+        print(f"           anchor class: "
+              f"{_anchor_class(r.get('layout'), r.get('G'), s['anchor'], ap)}")
         _print_caps(s)
 
 
@@ -513,6 +724,8 @@ def _report_inverted_pairs(layout, captured=None):
                      f"  [BUDGET DRIFT vs the build's own field "
                      f"{drift:+.4f} m > contract "
                      f"{ROUTE_BUDGET_AGREEMENT_M:g} m; {frames_short}]"))
+            print(f"             anchor class: "
+                  f"{_anchor_class(layout, G, s['anchor'], ap)}")
             _print_caps(s, indent="             ")
 
 
@@ -637,6 +850,28 @@ def _build(icao, const_dem=None):
         # LAST CALL WINS — exactly the rule the assertion reads by.
         out = real_record(layout, G, *a, **k)
         prov = getattr(layout, "_band_anchor_provenance", None) or {}
+        # EVERY PASS, not only the last (R17b-1).  The clamp obeys the
+        # band CARRIED out of the solve, which an intermediate pass
+        # built; the last pass is the post-emit rebuild, on a layout
+        # that has since grown.  Attributing the clamp from the last
+        # pass is the two-instruments trap.
+        _seeds = {int(k2): float(v) for (k2, v)
+                  in (prov.get("anchor_value") or {}).items()}
+        _ceil = dict(prov.get("ceiling") or {})
+        if _seeds:
+            _cvals = [(_seeds.get(int(r[0]), 0.0) + float(r[1]))
+                      for r in _ceil.values()] or [float("nan")]
+            seen.setdefault("passes", []).append({
+                "i": len(seen.get("passes") or []),
+                "G": G,
+                "seeds": _seeds,
+                "ceiling": _ceil,
+                "nodes": len(getattr(G, "pos", None) or ()),
+                "seed_min": min(_seeds.values()),
+                "seed_max": max(_seeds.values()),
+                "ceil_min": min(_cvals),
+                "nodespace": _nodespace(G),
+            })
         seen["G"] = G
         seen["prov"] = {"anchor_value": dict(prov.get("anchor_value") or {}),
                         "ceiling": dict(prov.get("ceiling") or {}),
@@ -681,10 +916,22 @@ def main():
                     help="trace the routes behind every contradictory anchor "
                          "pair the FINAL BAND INVERSION named (works on a "
                          "build that failed that law)")
+    ap.add_argument("--below-grade-anchors", action="store_true",
+                    help="classify every anchor seed of the live field and "
+                         "name the BELOW-GRADE ones (R17b-1): value, body, "
+                         "governed nodes, ceilings authored")
     ap.add_argument("--out", default="/tmp/reach_route.kml")
     args = ap.parse_args()
 
     layout, band_err, captured = _build(args.icao, args.dem)
+
+    if args.below_grade_anchors:
+        _report_anchor_seed_classes(layout, captured)
+        for c in args.coord:
+            _x, _y = (float(v) for v in c.split(","))
+            _report_pass_bands_at(layout, captured, _x, _y)
+        if not args.coord and not args.ref and not args.inverted_pairs:
+            return 0
 
     if args.inverted_pairs:
         _report_inverted_pairs(layout, captured)
@@ -701,7 +948,8 @@ def main():
             sys.exit(f"ref {args.ref} not found / no polygon")
         targets.append((s.polygon.centroid.x, s.polygon.centroid.y, args.ref))
     if not targets and not args.inverted_pairs:
-        sys.exit("give --ref, --coord or --inverted-pairs")
+        sys.exit("give --ref, --coord, --inverted-pairs or "
+                 "--below-grade-anchors")
 
     rc = 0
     for i, (x, y, label) in enumerate(targets):

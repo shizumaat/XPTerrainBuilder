@@ -56,7 +56,9 @@ from auto_patch.layout import (
 __all__ = ["building_feasible_levels", "reach_band_unified",
            "runway_edge_anchors", "spine_value_fields",
            "BandInversionError", "assert_no_final_band_inversion",
-           "FINAL_BAND_INVERSION_TOL_M"]
+           "FINAL_BAND_INVERSION_TOL_M",
+           "below_grade_bodies", "below_grade_anchor_bodies",
+           "below_grade_governed_nodes", "BELOW_GRADE_BODY_TOL_M"]
 
 # ── BAND-SEED COMPLETENESS — STANDING LAW ────────────────────────────────
 # (seed-fix round §2; formerly gate ``O4_BAND_SEED_COMPLETE``, retired
@@ -647,6 +649,155 @@ def _decrowned_anchor_seeds(layout, G, anchor_elev):
     return out
 
 
+# ── R17b-1: BELOW-GRADE ANCHORS GOVERN ONLY THEIR OWN BODY ──────────────
+#
+# THE DEFECT (measured, VHHH round 17b).  ``spine_value_fields`` seeds the
+# value fields from ``G.runway_anchor`` UNION the on-spine hard truth the
+# solve published (the BAND-SEED COMPLETENESS law above).  That hard-truth
+# set is every node ``_seed_elevations`` hardened — which includes the
+# R14-1 CLAIMED TUNNEL-ROAD plate pinned at its bore profile
+# (``solver_primitives._build_tunnel_road_pins``: ``is_hard[i] = True`` at
+# the plate's own floor).  A bore floor is metres BELOW grade, the ceiling
+# field is a MIN over anchors, and a min never forgets: one below-grade
+# seed drags the ceiling down along every route it can reach, right across
+# surface pavement that has nothing to do with the tunnel.  At VHHH (flat
+# site, Z0 7.315) the junction ceiling read [−12.93, −12.14] where the
+# solve said 7.01, and the writeback clamp — obeying that carried band —
+# authored the −13 m runway-end canyons.  Same family as the KCLT R10
+# tunnel leak.
+#
+# THE LAW (Fable lead, round-17 amendment 1).  An anchor whose value is
+# below grade — a tunnel ramp / trench / wall, or a claimed tunnel-road
+# plate — contributes to the band ONLY for nodes inside its OWN below-grade
+# body.  Everywhere else the band comes from surface-lawful anchors.  A
+# below-grade body keeps its own lawful band (KCLT's round-10 tunnel table
+# must hold), because inside the body the anchor still governs.
+#
+# MEMBERSHIP IS THE FAMILY'S OWN, never a private union: the shapes come
+# from ``groundside.below_grade_family_shapes`` (the ONE family
+# enumeration) and a BODY is a connected component of them — the same
+# definition ``groundside._BelowGradeIndex`` already uses to give a tunnel
+# cluster ONE portal instead of one per ramp quad.
+
+#: A node exactly ON a body's ring is INSIDE it — the plate's own vertices
+#: are where its pin sits, so boundary membership is the point.
+BELOW_GRADE_BODY_TOL_M = 1e-6
+
+
+def below_grade_bodies(layout):
+    """``[geometry]`` — one entry per connected BELOW-GRADE BODY.
+
+    Cached on the layout against the below-grade shape COUNT: the solve
+    calls the value fields several times and the emitters mint most of
+    this geometry between them, so a stale body set must not survive the
+    layout growing."""
+    from auto_patch.groundside import below_grade_family_shapes
+    shapes = below_grade_family_shapes(layout)
+    cached = getattr(layout, "_below_grade_bodies_cache", None)
+    if cached is not None and cached[0] == len(shapes):
+        return cached[1]
+    bodies: list = []
+    if shapes:
+        from shapely.ops import unary_union
+        polys = [s.polygon for s in shapes]
+        try:
+            merged = unary_union(polys)
+            bodies = [g for g in getattr(merged, "geoms", [merged])
+                      if g is not None and not g.is_empty]
+        except Exception:                                  # pragma: no cover
+            bodies = list(polys)
+    try:
+        layout._below_grade_bodies_cache = (len(shapes), bodies)
+    except Exception:                                      # pragma: no cover
+        pass
+    return bodies
+
+
+def below_grade_anchor_bodies(layout, G, anchor_seeds):
+    """``{anchor_node: body}`` for every anchor seed sitting in a body.
+
+    An anchor is BELOW-GRADE by MEMBERSHIP, not by comparing its value
+    with a datum: there is no single "grade" to compare against on a
+    sloped site, and the families already name exactly the geometry that
+    is cut below the surrounding ground."""
+    bodies = below_grade_bodies(layout)
+    if not bodies or not anchor_seeds:
+        return {}
+    from shapely.geometry import Point
+    try:
+        from shapely.strtree import STRtree
+        tree = STRtree(bodies)
+    except Exception:                                      # pragma: no cover
+        tree = None
+    pos = getattr(G, "pos", None) or {}
+    out: dict = {}
+    for k in anchor_seeds:
+        p = pos.get(k)
+        if p is None:
+            continue
+        pt = Point(float(p[0]), float(p[1]))
+        if tree is not None:
+            try:
+                idxs = [int(j) for j in tree.query(
+                    pt.buffer(BELOW_GRADE_BODY_TOL_M))]
+            except Exception:                              # pragma: no cover
+                idxs = list(range(len(bodies)))
+        else:                                              # pragma: no cover
+            idxs = list(range(len(bodies)))
+        for j in idxs:
+            try:
+                if bodies[j].distance(pt) <= BELOW_GRADE_BODY_TOL_M:
+                    out[int(k)] = bodies[j]
+                    break
+            except Exception:                              # pragma: no cover
+                continue
+    return out
+
+
+def below_grade_governed_nodes(layout, G, anchor_seeds):
+    """``{anchor_node: frozenset(node_idx)}`` — the ONLY nodes each
+    below-grade anchor may contribute a band value to (R17b-1).
+
+    ``{}`` — the inert answer — whenever no anchor seed sits in a
+    below-grade body, which is every airport that has no tunnel geometry
+    on the spine: the fields then run exactly as before, node for node.
+    """
+    by_anchor = below_grade_anchor_bodies(layout, G, anchor_seeds)
+    if not by_anchor:
+        return {}
+    from shapely.geometry import Point
+    from shapely.prepared import prep
+    pos = getattr(G, "pos", None) or {}
+    idx_list = list(pos.items())
+    pts = [Point(float(p[0]), float(p[1])) for _i, p in idx_list]
+    tree = None
+    try:
+        from shapely.strtree import STRtree
+        tree = STRtree(pts)
+    except Exception:                                      # pragma: no cover
+        tree = None
+    per_body: dict = {}
+    out: dict = {}
+    for a, body in by_anchor.items():
+        key = id(body)
+        members = per_body.get(key)
+        if members is None:
+            try:
+                cand = ([int(j) for j in tree.query(body)] if tree is not None
+                        else range(len(pts)))
+                ptest = prep(body)
+                members = frozenset(int(idx_list[int(j)][0]) for j in cand
+                                    if ptest.intersects(pts[int(j)]))
+            except Exception:                              # pragma: no cover
+                members = frozenset()
+            per_body[key] = members
+        # The anchor itself is always a member of its own body (it is how
+        # it was classified); a degenerate geometry that answers otherwise
+        # must not silently delete the anchor.
+        out[int(a)] = members | {int(a)}
+    return out
+
+
 def spine_value_fields(layout, G):
     """The ROUTE-METRIC reach value fields on the unified spine graph — the
     ONE producer of reach VALUE in the tree (spec rod-compose-and-band-
@@ -695,6 +846,24 @@ def spine_value_fields(layout, G):
     anchor_seeds = _decrowned_anchor_seeds(layout, G, anchor_elev)
     svc_pairs = (getattr(G, "service_spine_pairs", None) or set()
                  if REACH_NO_SERVICE_SPINES else set())
+    # R17b-1: a BELOW-GRADE anchor governs only its own body (block above).
+    # ``{}`` on every airport with no below-grade anchor seed ⇒ inert.
+    governed = below_grade_governed_nodes(layout, G, anchor_seeds)
+    if governed:
+        # PRODUCTION STATES WHAT IT DID.  "The law is inert here" and
+        # "the law fired and scoped N anchors" are different facts, and
+        # a reader must not have to re-run an instrument to tell them
+        # apart (RULINGS 2026-08-06, instrument truth).
+        try:
+            import O4_UI_Utils as _UI_bg
+            _UI_bg.vprint(1,
+                          f"    [below-grade-anchor] {len(governed)} of "
+                          f"{len(anchor_seeds)} band anchor(s) are inside a "
+                          f"below-grade body and govern only it "
+                          f"({sum(len(v) for v in governed.values())} "
+                          f"governed node-slot(s)).")
+        except Exception:                                  # pragma: no cover
+            pass
 
     def _field(sign):
         best: dict = {}
@@ -723,6 +892,14 @@ def spine_value_fields(layout, G):
             _key, dd, ae, src, u = heapq.heappop(pq)
             if u in best:
                 continue
+            # R17b-1.  A below-grade anchor's value is law INSIDE its own
+            # body and nowhere else: reject the entry (so a lawful anchor
+            # still reaches ``u`` from the heap) and do not expand from
+            # it, so the bore value cannot ride the route network out.
+            if governed:
+                gov = governed.get(src)
+                if gov is not None and u not in gov:
+                    continue
             best[u] = (ae + dd) if sign > 0 else (ae - dd)
             dist[u] = dd
             via[u] = src

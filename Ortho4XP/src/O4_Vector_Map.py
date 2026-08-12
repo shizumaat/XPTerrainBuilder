@@ -239,6 +239,83 @@ def seawall_admission_area(patches_area, graded_area):
     return graded_area
 
 
+def constant_inset_area(tile):
+    """THE FLAT-SITE CONSTANT-INSET FOOTPRINT, tile-relative (R17b-2).
+
+    The union of every box DEM prep actually BAKED a synthetic constant
+    inset over on this tile — the airport's own extent, its claimed-object
+    clusters, and the R17-2 declared corridors — read from the stamp
+    ``O4_Airport_Elevation_Insets.overlay_flat_site_insets`` writes on the
+    DEM object (``synthetic_flat_site_provenance``).
+
+    IT IS READ, NEVER RE-DERIVED.  The extents are decided by the flat-site
+    detector, the cluster law and the owner's declaration, and a cluster
+    the R11-2 datum check REFUSED is not stamped — so a second computation
+    here would claim ground the DEM does not actually hold at Z0.  Empty
+    geometry (the inert answer) on every tile with no flat-site
+    substitution, which is what keeps VMMC a byte-identical control.
+    """
+    dem = getattr(tile, "dem", None)
+    entries = list(getattr(dem, "synthetic_flat_site_provenance", None) or [])
+    boxes = []
+    for entry in entries:
+        extent = entry.get("extent_tile_degrees")
+        if not extent or len(extent) != 4:
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in extent)
+            box = geometry.box(min(x0, x1), min(y0, y1),
+                               max(x0, x1), max(y0, y1))
+        except (TypeError, ValueError):
+            continue
+        if box.is_valid and box.area:
+            boxes.append(box)
+    if not boxes:
+        return geometry.Polygon()
+    try:
+        return ops.unary_union(boxes)
+    except Exception:
+        return geometry.Polygon()
+
+
+def coastline_wall_admission(tile, sea_area):
+    """R17b-2 — THE WALL STANDS ON THE COASTLINE.
+
+    Owner ruling (2026-08-11): the WHOLE edge of a reclaimed airport
+    island is a vertical sea wall, not the ~26 % beach ramps R7's
+    pavement-touches-water admission left it as.  Where the OSM coastline
+    runs INSIDE a flat site's constant-inset footprint, the ground on the
+    land side of it is held at the inset's Z0 by the inset itself (the
+    coastline is encoded with ``tile.dem.alt_vec``, so its own nodes
+    already carry Z0 there) — what is missing is the sea-side node that
+    turns the drop into a face instead of a ramp.
+
+    So this returns the LAND inside the inset, and the wall law's own
+    unchanged 0.5 m outward-offset idiom does the rest: the breakline
+    lands 0.5 m seaward of the coastline ring, at sea level, and the face
+    between it and the Z0 coastline is vertical.  The admission geometry
+    widens; not one line of ``seawall_breaklines`` changes.
+
+    VMMC IS THE CONTROL and cannot fire: it has no constant inset over
+    sea, so :func:`constant_inset_area` is empty there and this returns
+    empty — its breaklines stay byte-identical.
+    """
+    inset = constant_inset_area(tile)
+    if inset is None or inset.is_empty:
+        return geometry.Polygon()
+    if sea_area is None or getattr(sea_area, "is_empty", True):
+        # No sea on this tile: the inset is all land and its own outer
+        # box edge is not a coastline.  Nothing to admit.
+        return geometry.Polygon()
+    try:
+        land = inset.difference(sea_area)
+    except Exception:
+        return geometry.Polygon()
+    if land is None or land.is_empty:
+        return geometry.Polygon()
+    return land
+
+
 def seawall_breaklines(patches_area, water_area, lat, offset_m=None):
     """Outward-offset breaklines along the patch ring where it meets water.
 
@@ -323,7 +400,19 @@ def insert_seawalls(
         patches_area, water_area, tile.lat, offset_m=offset_m
     )
     inserted = 0
+    wall_m = 0.0
     for coords in lines:
+        try:
+            # THE LENGTH IS THE ACCEPTANCE NUMBER (R17-3 / R17b-2 state
+            # the wall as a PERCENTAGE of the shoreline), so production
+            # states it rather than leaving every reader to re-measure
+            # the breaklines from the built tile.
+            step = numpy.diff(numpy.asarray(coords, dtype=float), axis=0)
+            wall_m += float(numpy.hypot(
+                step[:, 0] * GEO.lon_to_m(tile.lat + 0.5),
+                step[:, 1] * GEO.lat_to_m).sum())
+        except Exception:
+            pass
         try:
             if alt_vec is None:
                 alti = numpy.full(
@@ -342,8 +431,8 @@ def insert_seawalls(
     if inserted:
         UI.vprint(
             1,
-            "      Seawall: {} breakline(s) at the patch pavement/water"
-            " edge.".format(inserted),
+            "      Seawall: {} breakline(s), {:.0f} m at the graded"
+            " coverage/water edge.".format(inserted, wall_m),
         )
     return inserted
 
@@ -1456,9 +1545,29 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         # wall from the inland limb in ``include_water`` instead.  The
         # pavement subtraction inside ``seed_area`` costs nothing here:
         # the wall lies 0.5 m OUTSIDE the pavement.
-        insert_seawalls(vector_map, tile,
-                        seawall_admission_area(patches_area, graded_area),
-                        seed_area)
+        # R17b-2: the wall also stands on the COASTLINE wherever the
+        # coastline runs inside the flat site's constant inset (the
+        # reclaimed island, its claimed-object clusters and the declared
+        # corridor).  One admission union, one wall law — the offset and
+        # the breakline idiom are untouched.
+        admission = seawall_admission_area(patches_area, graded_area)
+        coastal = coastline_wall_admission(tile, sea_area)
+        if not coastal.is_empty:
+            try:
+                admission = (coastal if admission is None
+                             or getattr(admission, "is_empty", True)
+                             else ops.unary_union([admission, coastal]))
+                UI.vprint(
+                    1,
+                    "      R17b-2: the constant-inset coastline joins the "
+                    "wall admission set ({:.2f} km2 of inset land).".format(
+                        coastal.area * GEO.lat_to_m
+                        * GEO.lon_to_m(tile.lat + 0.5) / 1e6),
+                )
+            except Exception:
+                UI.vprint(1, "      R17b-2 coastline admission union "
+                             "failed — the wall keeps its patch admission.")
+        insert_seawalls(vector_map, tile, admission, seed_area)
 
 
 ################################################################################

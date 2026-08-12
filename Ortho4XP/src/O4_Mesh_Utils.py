@@ -4,7 +4,7 @@ import os
 import pickle
 import subprocess
 import numpy
-from math import cos, pi
+from math import cos, isfinite, pi
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
@@ -158,6 +158,40 @@ def build_curv_tol_weight_map(tile, weight_array):
 
 
 ################################################################################
+# Triangle's .ele format declares the triangle ATTRIBUTE column REAL, and
+# Triangle4XP does write a genuine float in it when it had to mesh inside a
+# degenerate sliver: tile +25+051 came back with two triangles carrying the
+# attribute 1.4375, whose four corners are one and the same point down to the
+# 11th decimal.  Vertex index columns are always ints and keep being read as
+# such; only the attribute needs the real reading.  A NON-integral attribute
+# is a measured degeneracy -- no combination of the dico_attributes bits can
+# be meant by it -- so the triangle gets the dummy attribute, which asks for
+# no post-treatment at all.  For a sliver whose corners are the same point to
+# within a micron that is not an approximation, it is exact.
+ATTRIBUTE_INTEGRAL_TOL = 1e-6
+
+
+def read_triangle_attribute(text):
+    """Read one triangle attribute column: (attribute, is_integral).
+
+    The attribute comes back as an int in both integral cases -- plain
+    integer text ("16") and an integral real ("16.0").  Anything else the
+    REAL column may legally hold (a fractional value like "1.4375", or a
+    non-finite one) reports the dummy attribute and False.
+    """
+    try:
+        return (int(text), True)
+    except ValueError:
+        pass
+    attribute = float(text)
+    if isfinite(attribute):
+        rounded = int(round(attribute))
+        if abs(attribute - rounded) <= ATTRIBUTE_INTEGRAL_TOL:
+            return (rounded, True)
+    return (VECT.Vector_Map.dico_attributes["DUMMY"], False)
+
+
+################################################################################
 def post_process_nodes_altitudes(tile):
     dico_attributes = VECT.Vector_Map.dico_attributes
     f_node = open(FNAMES.output_node_file(tile), "r")
@@ -177,14 +211,27 @@ def post_process_nodes_altitudes(tile):
     water_tris = set()
     sea_tris = set()
     interp_alt_tris = set()
+    degenerate_attr_nbr = 0
+    degenerate_attr_sample = []
     for i in range(nbr_tri):
         line = f_ele.readline()
         # triangle attributes are powers of 2, except for the dummy attributed
-        # which doesn't require post-treatment
-        if line[-2] == "0":
+        # which doesn't require post-treatment.  The test is on the last
+        # FIELD, hence the space in front of the zero: the bare last-character
+        # test this replaces also skipped "10" (INTERP_ALT|SEA), "20", "16.0"
+        # and any other attribute merely ending in a zero.
+        if line[-2] == "0" and line[-3] in " \t":
             continue
-        (v1, v2, v3, attr) = [int(x) - 1 for x in line.split()[1:5]]
-        attr += 1
+        columns = line.split()
+        (v1, v2, v3) = [int(x) - 1 for x in columns[1:4]]
+        (attr, attr_is_integral) = read_triangle_attribute(columns[4])
+        if not attr_is_integral:
+            # A degenerate triangle: dummy attribute, no post-treatment,
+            # counted for the one loud line below.
+            degenerate_attr_nbr += 1
+            if len(degenerate_attr_sample) < 3:
+                degenerate_attr_sample.append((i + 1, columns[4], v1))
+            continue
         if attr >= dico_attributes["INTERP_ALT"]:
             interp_alt_tris.add((v1, v2, v3))
         elif attr & dico_attributes["SEA"] and not (
@@ -201,6 +248,24 @@ def post_process_nodes_altitudes(tile):
             or attr & dico_attributes["SEA_EQUIV"]
         ):
             water_tris.add((v1, v2, v3))
+    if degenerate_attr_nbr:
+        UI.lvprint(
+            1,
+            "WARNING:",
+            degenerate_attr_nbr,
+            "triangle(s) came back from Triangle4XP with a non-integral",
+            "attribute, i.e. degenerate; they are left untreated (dummy",
+            "attribute). First ones:",
+            ", ".join(
+                "#{} attr={} at ({:.9f}, {:.9f})".format(
+                    tri_idx,
+                    attr_text,
+                    vertices[6 * v1] + tile.lon,
+                    vertices[6 * v1 + 1] + tile.lat,
+                )
+                for (tri_idx, attr_text, v1) in degenerate_attr_sample
+            ),
+        )
     if tile.water_smoothing:
         UI.vprint(1, "   Smoothing inland water.")
         for j in range(tile.water_smoothing):
@@ -305,7 +370,16 @@ def write_mesh_file(tile, vertices):
     f.write("Triangles\n")
     f.write(str(nbr_tri) + "\n")
     for i in range(0, nbr_tri):
-        f.write(" ".join(f_ele.readline().split()[1:]) + "\n")
+        columns = f_ele.readline().split()[1:]
+        if len(columns) > 3:
+            # The .ele attribute column is REAL and a degenerate triangle
+            # can hold a float in it (post_process_nodes_altitudes reports
+            # those once, loudly); the mesh file's own column is read as an
+            # int everywhere downstream -- read_mesh_file, the mask
+            # builders, auto_patch's mesh_sampler -- so it is normalised
+            # here rather than copied over verbatim.
+            columns[3] = str(read_triangle_attribute(columns[3])[0])
+        f.write(" ".join(columns) + "\n")
     f_ele.close()
     f.close()
     os.replace(temporary_mesh_file_name, mesh_file_name)
@@ -798,11 +872,11 @@ def read_mesh_file(mesh_file):
     tri_idx  = numpy.zeros(3 * nbr_tris, dtype = numpy.uint32)
     tri_types = numpy.zeros(nbr_tris, dtype = numpy.uint32)
     for i in range(nbr_tris):
-        (n1, n2, n3, t) = [
-            int(x) - 1 for x in f.readline().split()[:4]
-        ]
+        columns = f.readline().split()
+        (n1, n2, n3) = [int(x) - 1 for x in columns[:3]]
+        # the attribute column is REAL in the .ele this was copied from
         tri_idx[3 * i: 3 * i + 3] = (n1, n2, n3)
-        tri_types[i] = t + 1
+        tri_types[i] = read_triangle_attribute(columns[3])[0]
     f.close()
 
     return (mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx, tri_types)

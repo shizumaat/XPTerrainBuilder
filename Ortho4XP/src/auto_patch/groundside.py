@@ -22,7 +22,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import (
-    LineString, MultiLineString, MultiPolygon, Point, Polygon, box)
+    LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    box)
 from shapely.ops import linemerge, nearest_points, snap, unary_union
 
 from .layout import (
@@ -383,16 +384,27 @@ class _BelowGradeIndex:
                         int(hit[0]) if len(hit) else index)
         except Exception:                              # pragma: no cover
             self.component_of = list(range(len(self.sources)))
+        _deepest: dict = {}
         for index, (_polygon, ring, alts) in enumerate(self.sources):
             component = self.component_of[index]
             for position, vertex in enumerate(ring):
                 if position >= len(alts):              # pragma: no cover
                     break
                 value = float(alts[position])
-                current = self.deepest_station.get(component)
-                if current is None or value < current[1]:
-                    self.deepest_station[component] = (
-                        (float(vertex[0]), float(vertex[1])), value)
+                point = (float(vertex[0]), float(vertex[1]))
+                current = _deepest.get(component)
+                if current is None or value < current[0] - 1e-9:
+                    _deepest[component] = (value, [point])
+                elif abs(value - current[0]) <= 1e-9:
+                    current[1].append(point)
+        # A STATION is a CROSS-SECTION, not one vertex: a ramp quad
+        # reaches its portal depth on BOTH its edges, and measuring the
+        # gap to whichever of the two the ring scan met first would put
+        # the whole ramp WIDTH into the anchor's ``cap * gap`` (10.6 m
+        # instead of 0.6 m on the R5 band twin).  Every vertex at the
+        # body's minimum altitude is the same station.
+        for component, (value, points) in _deepest.items():
+            self.deepest_station[component] = (MultiPoint(points), value)
         xs0, ys0, xs1, ys1 = zip(*(p.bounds for p in polygons))
         self.bounds = (min(xs0), min(ys0), max(xs1), max(ys1))
 
@@ -541,11 +553,14 @@ def transition_law_altitudes(ring, surface_alts, sources,
         station = index.deepest_station.get(component)
         if station is None:                            # pragma: no cover
             continue
-        (station_x, station_y), deepest_alt = station
+        station_geom, deepest_alt = station
         best = None
         for position, vertex in enumerate(ring):
-            gap = math.hypot(float(vertex[0]) - station_x,
-                             float(vertex[1]) - station_y)
+            try:
+                gap = station_geom.distance(
+                    Point(float(vertex[0]), float(vertex[1])))
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
             if best is None or gap < best[0]:
                 best = (gap, position)
         if best is None:                               # pragma: no cover

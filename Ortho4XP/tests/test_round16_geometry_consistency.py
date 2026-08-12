@@ -274,10 +274,10 @@ def _ramp(alt_at_x0, alt_at_x100, x0=0.0, x1=100.0):
 
 
 def test_r16_2a_the_anchor_is_pinned_at_the_deepest_station():
-    """Hand-computable: the body's deepest station is (100, 0) at
-    -8.00 m; the governed ring's nearest vertex to it is (50, 12), a
-    gap of hypot(50, 12) = 51.42 m, so the anchor is pinned at
-    -8.00 + 0.04 * 51.42 = -5.94 m.
+    """Hand-computable: the body's deepest STATION is the cross-section
+    at x = 100 (both (100, 0) and (100, 10) at -8.00 m); the governed
+    ring's nearest vertex to it is (50, 12), a gap of hypot(50, 2) =
+    50.04 m, so the anchor is pinned at -8.00 + 0.04 * 50.04 = -6.00 m.
 
     The pre-round-16 mechanism answered -4.42 m there: it minimised
     ``nearest profile + cap * d`` per vertex, and the nearest profile
@@ -289,7 +289,7 @@ def test_r16_2a_the_anchor_is_pinned_at_the_deepest_station():
     alts, touched = transition_law_altitudes(
         ring, [0.0] * 4, [_ramp(-1.0, -8.0)], _CAP)
     assert touched
-    expected = -8.0 + _CAP * math.hypot(50.0, 12.0)
+    expected = -8.0 + _CAP * math.hypot(50.0, 2.0)
     assert alts[1] == pytest.approx(expected, abs=0.01), alts
     assert alts[1] < -5.0, (
         f"the anchor took a shallow-station floor: {alts[1]:.2f} m")
@@ -297,8 +297,8 @@ def test_r16_2a_the_anchor_is_pinned_at_the_deepest_station():
 
 def test_r16_2a_out_of_the_portals_reach_the_crest_stands():
     """The mirror-collapse guard.  A body whose DEEPEST station is
-    0.86 m above what the cap can reach from the nearest governed
-    vertex pulls NOTHING down: -1.20 + 0.04 * 51.42 = +0.86 m, above
+    0.80 m above what the cap can reach from the nearest governed
+    vertex pulls NOTHING down: -1.20 + 0.04 * 50.04 = +0.80 m, above
     the surrounding surface at 0.00 m.
 
     The pre-round-16 mechanism pinned -0.92 m here — the shallow
@@ -326,8 +326,7 @@ def test_r16_2a_one_anchor_per_body_still():
             (100.0, 40.0), (0.0, 40.0)]
     alts, _touched = transition_law_altitudes(ring, [0.0] * 5, index, _CAP)
     pinned = [i for i, v in enumerate(alts)
-              if v == pytest.approx(-8.0 + _CAP * math.hypot(0.0, 12.0),
-                                    abs=0.01)]
+              if v == pytest.approx(-8.0 + _CAP * 2.0, abs=0.01)]
     assert len(pinned) == 1, (pinned, alts)
 
 

@@ -1084,6 +1084,23 @@ def _build(icao, const_dem=None, seed_writers=None):
     any of the three post-build lands in a different one.  Production is
     untouched: both shims call straight through and only read."""
     from conftest import xplane_root
+    # THE ARMING COMPOSITION, imported from the harness build entry and
+    # never re-assembled here (``build_airport.arm_shared_repo_protection``
+    # — the classify_report precedent: a tool that built the engine
+    # in-process with NEITHER half wrote ten files into the shared corpus
+    # on 2026-08-11).  The redirect must land BEFORE the engine import, so
+    # it happens first and ``auto_patch.pipeline`` is imported after it.
+    _harness = os.path.join(os.path.dirname(__file__), "harness")
+    if _harness not in sys.path:
+        sys.path.insert(0, _harness)
+    import build_airport as _HB
+    _root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    _tag = f"trace_{icao}"
+    _out_dir = os.environ.get("O4_TRACE_OUT_DIR") or "/tmp/harness"
+    guard, redirects = _HB.arm_shared_repo_protection(_root, _out_dir, _tag)
+    print(f"[trace] shared-repo write guard ARMED (enabled={guard.enabled}); "
+          f"engine cache redirects: {sorted(redirects)}")
+
     from auto_patch.pipeline import build_airport_pavement
     from auto_patch.elevation_per_surface import building_feasibility as BF
 
@@ -1153,13 +1170,21 @@ def _build(icao, const_dem=None, seed_writers=None):
     _restore_seed = (_install_seed_writer_capture(seen, seed_writers)
                      if seed_writers is not None else None)
     try:
-        layout = build_airport_pavement(icao, xplane_root(), **kw)
+        with guard:
+            layout = build_airport_pavement(icao, xplane_root(), **kw)
+        _HB.require_no_swallowed_write_block(guard.blocked)
+        _HB.report_guard_churn(guard)
         return layout, None, seen
     except BF.BandInversionError as exc:
         if "layout" not in seen:
             raise
         print("[trace] the build FAILED its final band-inversion law; "
               "tracing the layout it failed on.\n")
+        # The guard's own verdict still has to be reported: a refusal the
+        # engine SWALLOWED would make this trace a different frame from
+        # production's, band error or not.
+        _HB.require_no_swallowed_write_block(guard.blocked)
+        _HB.report_guard_churn(guard)
         return seen["layout"], exc, seen
     finally:
         BF.assert_no_final_band_inversion = real_assert

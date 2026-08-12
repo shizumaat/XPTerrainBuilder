@@ -325,3 +325,39 @@ def test_the_building_pass_never_touches_an_object_pad(monkeypatch):
     assert core.node_altitudes[0] == pytest.approx(OPAD_TARGET, abs=0.01)
     assert relevel_pads_to_host_pavement(
         layout, pad_role=ROLE_OBJECT_PAD) == 1
+
+
+def _dense_welded_apron(body=WELD_BODY, lip=WELD_PAD, body_arc_m=7.84):
+    """The PRODUCTION geometry: the host ring is denser than the pad's
+    contact radius, so the lip run continues past it — vertices still at
+    the pad's value that are NOT contacts of the pad."""
+    ring = [
+        (0.0, 0.0), (60.0, 0.0), (60.0, 10.0),
+        (30.0 + body_arc_m, 10.0),   # body
+        (33.0, 10.0),                # lip value, OUTSIDE the contact radius
+        (30.0, 10.0), (25.0, 10.0), (20.0, 10.0),   # welded lip run
+        (17.0, 10.0),                # lip value, outside the radius
+        (20.0 - body_arc_m, 10.0),   # body
+        (0.0, 10.0),
+    ]
+    alt = [body, body, body, body, lip, lip, lip, lip, lip, body, body]
+    return BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                      node_altitudes=alt + [alt[0]])
+
+
+def test_the_lip_run_is_defined_by_value_not_by_contact(monkeypatch):
+    """R19-1 attempt 2, measured at HECA building114: a host ring denser
+    than ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's own value at
+    vertices that are not contacts.  Stopping at the first NON-CONTACT
+    vertex reads agreement and the pad keeps its pit value while the
+    host body sits metres below.  The run is every vertex still AT the
+    pad's value; the reach cap is what bounds it."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _dense_welded_apron()
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 1, (
+        "the walk stopped on a lip vertex that merely sat outside the "
+        "contact radius — the HECA building114 class")
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)

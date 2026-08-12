@@ -4060,14 +4060,27 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
                         arc += math.hypot(r_pts[nk][0] - r_pts[k][0],
                                           r_pts[nk][1] - r_pts[k][1])
                         k = nk
-                        if (hrid, nk) in contact_keys:
-                            continue          # still inside the pad's own run
                         if arc > body_reach:
                             break             # host body out of contact scale
                         av = r_alts[nk]
+                        # THE LIP RUN IS DEFINED BY VALUE, not by the
+                        # contact radius.  A host ring DENSER than
+                        # ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's
+                        # own value at vertices that are not contacts of
+                        # it: measured at HECA building114, where
+                        # stopping at the first non-contact vertex read
+                        # AGREEMENT and the pad kept its 88.50 while the
+                        # apron body sat at 85.63 a few metres further
+                        # along the same ring.  Walk through every vertex
+                        # still at the pad's value; the reach above is
+                        # what bounds the run.
+                        if (hrid, nk) in contact_keys:
+                            continue
+                        if av is not None and abs(av - cur) <= trigger:
+                            continue
                         if av is not None and abs(av - cur) > adopt_delta:
                             body_vals.append(av)
-                        break                 # first vertex past the run
+                        break                 # first vertex off the run
         if not body_vals:                     # agrees with host / not adjacent
             continue
         body_vals.sort()

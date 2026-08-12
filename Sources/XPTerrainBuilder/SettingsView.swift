@@ -365,15 +365,30 @@ private struct ProviderAccountRow: View {
 
     var body: some View {
         LabeledContent {
+            // The status text is the only elastic part of the row: it takes
+            // the slack (right-aligned against the controls) and truncates
+            // when a long "Signed in as …" would otherwise widen the row.
+            // The buttons are fixed-size and outrank it, so every row's
+            // controls share one trailing edge in every state — a signed-in
+            // row used to push its buttons left. Same idiom as
+            // `PathSettingRow`, with the full string in the tooltip.
             HStack(spacing: 10) {
                 Text(account.statusText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .foregroundStyle(account.signedIn ? AnyShapeStyle(.green)
                                      : AnyShapeStyle(.secondary))
-                Button("Sign in…", action: signIn)
-                Button("Sign out") {
-                    Task { await buildModel.providerSignOut(sessionName: account.sessionName) }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .help(account.statusText)
+                HStack(spacing: 10) {
+                    Button("Sign in…", action: signIn)
+                    Button("Sign out") {
+                        Task { await buildModel.providerSignOut(sessionName: account.sessionName) }
+                    }
+                    .disabled(!account.signedIn)
                 }
-                .disabled(!account.signedIn)
+                .fixedSize()
+                .layoutPriority(1)
             }
         } label: {
             VStack(alignment: .leading, spacing: 1) {

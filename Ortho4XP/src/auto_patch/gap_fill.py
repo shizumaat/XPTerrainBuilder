@@ -96,11 +96,14 @@ from .layout import (
     ROLE_BUILDING,
     ROLE_CROSS_CONNECTOR,
     ROLE_GRADED_STRIP,
+    ROLE_GROUNDSIDE_PAVEMENT,
     ROLE_JUNCTION,
     ROLE_PRIMARY_PARALLEL,
     ROLE_RUNWAY,
     ROLE_RUNWAY_CROSSING,
     ROLE_SECONDARY_PARALLEL,
+    ROLE_SERVICE_JUNCTION,
+    ROLE_SERVICE_ROAD,
     ROLE_STUB,
     ROLE_TUNNEL_RAMP,
     ROLE_TUNNEL_TRENCH,
@@ -153,6 +156,20 @@ _OPEN_FRONTAGE_FOREIGN_STANDOFF_M = 1.0
 # 2026-08-07 HECA specimen this exemption was minted for).
 _TUNNEL_BLOCKER_ROLES = frozenset((ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH))
 _TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall",))
+# ── R19-2: THE SUBDIVIDERS OF AN ENCLOSED HOLE ───────────────────────
+# An ENCLOSED hole (an interior ring of the airside union — it touches
+# no coverage-box edge by construction) that the width test refuses is
+# not one wide field: the groundside and service surfaces standing IN it
+# already divide it into pockets, each of them narrow.  HECA's 22,483 m²
+# airside hole is refused at a 188.5 m min-rect short side — 8 % over
+# ``GAP_FILL_MAX_WIDTH_M`` — and every residual face between its
+# groundside/service shapes is far under it.  Those shapes bound the
+# ground the way pavement does; subdividing by them is not a cap raise
+# (the cap NEVER moves — a blanket raise would take the airport's 3.40
+# km² infield with it) but a truer reading of what the face is.
+_POCKET_SUBDIVIDER_ROLES = frozenset((
+    ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+))
 # A cross-section thinner than this is not a gradeable half-gap — the
 # station is a pinch of the ring, not the drainage body.
 _MIN_CROSS_WIDTH_M = 2.0
@@ -385,6 +402,119 @@ def _parent_residual_faces(gap_poly, parents, chain_keys):
         faces.append(g)
     UI.vprint(1, f"  [gap-fill] parent-bounded gap (parent(s)={refs}): "
                  f"{len(faces)} residual face(s) of {residual_area:.0f} m2 "
+                 f"centroid=({_c.x:.0f},{_c.y:.0f}).")
+    return faces
+
+
+def _veto_is_only_subdividers(layout, gap_poly, blockers) -> bool:
+    """R19-2 — True when every shape vetoing this ENCLOSED hole is one of
+    its own SUBDIVIDERS and the hole is over the width cap.
+
+    The foreign-shape veto says "a foreign shape inside the gap means
+    the corridor bands own it".  That is right for a shape the gap law
+    cannot read — a tunnel, a crossing zone, a partial-straddle strip.
+    It is NOT right for the groundside/service surfaces standing in an
+    enclosed hole: they BOUND the ground the way a building pad does
+    (``_parent_residual_faces``), and the hole between them is exactly
+    the pocket the drainage law exists for.
+
+    The deferral is deliberately NARROW — both conditions, always:
+
+      * every blocker overlapping the gap is a subdivider role.  One
+        tunnel, one crossing zone, one shape of any other class and the
+        veto stands unchanged.
+
+    A vetoed gap emits NOTHING today, so deferring the veto can only ADD
+    the faces the law says are owed — and the caller's own guard (every
+    residual pocket must be under ``GAP_FILL_MAX_WIDTH_M``) is what
+    keeps a WIDE region from being subdivided into the pocket-collar
+    machinery instead.
+    """
+    hit = []
+    for _oid, op in blockers:
+        try:
+            if gap_poly.intersection(op).area > 1.0:
+                hit.append(_oid)
+        except _GEOM_EXC:
+            return False
+    if not hit:
+        return False
+    by_id = {id(sh): sh for sh in (getattr(layout, "shapes", ()) or ())}
+    for _oid in hit:
+        sh = by_id.get(_oid)
+        if sh is None or sh.role not in _POCKET_SUBDIVIDER_ROLES:
+            return False
+    return True
+
+
+def _subdivide_enclosed_face(layout, face_poly, chain_keys):
+    """R19-2 — the residual faces of an ENCLOSED hole, split by the
+    groundside/service shapes standing inside it.  ``[]`` when nothing
+    inside subdivides it, or when no residual part is chain-safe.
+
+    Same law as ``_parent_residual_faces``: the shapes BOUND the ground
+    the way pavement does, the gradeable ground is the residual, and a
+    part whose boundary carries a difference-minted crossing vertex is
+    BLOCKED (the zero-lens law).  The chain here is the face's own
+    boundary plus the subdividers' rings, which are emitted geometry in
+    their own right.
+
+    This never raises ``GAP_FILL_MAX_WIDTH_M``: every residual part goes
+    back through the SAME width test.  A hole whose parts are still wide
+    is still refused."""
+    subs = []
+    for sh in (getattr(layout, "shapes", ()) or ()):
+        if sh.role not in _POCKET_SUBDIVIDER_ROLES:
+            continue
+        if sh.polygon is None or sh.polygon.is_empty:
+            continue
+        if sh.polygon.geom_type not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            if face_poly.intersection(sh.polygon).area > 1.0:
+                subs.append(sh)
+        except _GEOM_EXC:
+            continue
+    if not subs:
+        return []
+    keys = set(chain_keys or ())
+    for (vx, vy) in _open_coords(face_poly):
+        keys.add(_key(vx, vy))
+    for sh in subs:
+        geoms = ([sh.polygon] if sh.polygon.geom_type == "Polygon"
+                 else list(sh.polygon.geoms))
+        for g in geoms:
+            try:
+                for (vx, vy) in g.exterior.coords:
+                    keys.add(_key(vx, vy))
+            except _GEOM_EXC:
+                continue
+    try:
+        residual = face_poly.difference(
+            unary_union([sh.polygon for sh in subs]))
+    except _GEOM_EXC:
+        return []
+    parts = ([] if residual is None or residual.is_empty
+             else [residual] if residual.geom_type == "Polygon"
+             else [g for g in getattr(residual, "geoms", [])
+                   if g.geom_type == "Polygon"])
+    refs = ",".join(str(getattr(sh, "ref", None) or sh.role)
+                    for sh in subs)
+    faces = []
+    for g in parts:
+        if g.is_empty or g.area < GAP_FILL_MIN_AREA_M2:
+            continue
+        if not _face_is_verbatim(g, keys):
+            _cc = g.centroid
+            UI.vprint(1, f"  [gap-fill] enclosed-hole residual part "
+                         f"non-verbatim boundary area={g.area:.0f} m2 "
+                         f"centroid=({_cc.x:.0f},{_cc.y:.0f}) — blocked.")
+            continue
+        faces.append(g)
+    _c = face_poly.centroid
+    UI.vprint(1, f"  [gap-fill] enclosed hole subdivided by {len(subs)} "
+                 f"groundside/service shape(s) ({refs}): {len(faces)} "
+                 f"residual face(s) of {sum(g.area for g in faces):.0f} m2 "
                  f"centroid=({_c.x:.0f},{_c.y:.0f}).")
     return faces
 
@@ -2738,6 +2868,62 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                         break
                 except _GEOM_EXC:
                     continue
+            subdivided = None
+            if overlapped and _veto_is_only_subdividers(
+                    layout, gap_poly, blockers):
+                # ── R19-2: SUBDIVIDE INSTEAD OF SKIP ──────────────────
+                # MEASURED (HECA arm 2026-08-12, the owner's pocket at
+                # 30.1165544,31.4112743): the pocket is lost at THIS
+                # line, not at the width test — a 19,080 m² enclosed
+                # hole vetoed by a single service_junction overlapping
+                # it by 37 m².  A groundside/service surface standing in
+                # an enclosed hole is not a foreign owner of that
+                # ground: it BOUNDS it, exactly as a building pad does
+                # (``_parent_residual_faces``), and the pockets between
+                # them are what the drainage law is for.
+                #
+                # THE GUARD, and it is what keeps this from being a cap
+                # raise in disguise: the subdivision stands ONLY if
+                # every residual pocket is itself POCKET WIDTH.  HECA's
+                # 3.40 km² infield is vetoed by a service_junction too;
+                # subdividing it would hand its parts to the width skip
+                # and the pocket-collar rings, which stand the
+                # adjacent-ground bands down over the whole region (the
+                # measurement in ``_enclave_treatable``: 150,438 m² of
+                # Annex 14 §3.4.11-13 graded strip lost).  Its parts are
+                # far over the cap, so the subdivision is ABANDONED and
+                # the region keeps the veto it has always had.
+                _parts = _subdivide_enclosed_face(layout, gap_poly,
+                                                  chain_keys)
+                _all_pocket = bool(_parts)
+                for _pt in _parts:
+                    try:
+                        _ax = _mrr_axes(min_rotated_rect(_pt))
+                    except _GEOM_EXC:
+                        _all_pocket = False
+                        break
+                    if _ax is None or _ax[0] is None \
+                            or _ax[0] > GAP_FILL_MAX_WIDTH_M:
+                        _all_pocket = False
+                        break
+                _c = gap_poly.centroid
+                if _all_pocket:
+                    UI.vprint(1,
+                        f"  [gap-fill] enclosed hole vetoed ONLY by its "
+                        f"own groundside/service subdividers and every "
+                        f"residual pocket is under the width cap "
+                        f"(area={gap_poly.area:.0f} m2 "
+                        f"centroid=({_c.x:.0f},{_c.y:.0f})) — "
+                        f"subdividing instead of skipping.")
+                    subdivided = _parts
+                    overlapped = False
+                else:
+                    UI.vprint(1,
+                        f"  [gap-fill] enclosed hole subdivision "
+                        f"ABANDONED (residual pocket over the width cap, "
+                        f"or nothing chain-safe) area={gap_poly.area:.0f} "
+                        f"m2 centroid=({_c.x:.0f},{_c.y:.0f}) — the veto "
+                        f"stands.")
             if overlapped:
                 _c = gap_poly.centroid
                 # NAME THE BLOCKER (instrument truth, owner 2026-08-06):
@@ -2796,8 +2982,12 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
             # RESIDUAL ground around the parent(s), each a chain-safe
             # part (parent-fill → lawful vanish; non-verbatim →
             # blocked; both logged in the helper).
-            faces = (_parent_residual_faces(gap_poly, parents, chain_keys)
-                     if parents else [gap_poly])
+            _bodies = subdivided if subdivided else [gap_poly]
+            faces = []
+            for _body in _bodies:
+                faces.extend(
+                    _parent_residual_faces(_body, parents, chain_keys)
+                    if parents else [_body])
             n_faces = 0
             for face_poly in faces:
                 n_faces += _grade_face(

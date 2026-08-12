@@ -327,11 +327,40 @@ def test_an_in_enclave_shape_does_not_veto_the_ruled_treatment():
     assert _gap_faces(layout)
 
 
-def test_the_same_sliver_still_vetoes_with_nothing_published():
-    """The A/B that shows the LAW is doing the work, not the geometry:
-    identical shapes, an empty published set, and the foreign-shape
-    blocker fires exactly as it did before."""
+def test_the_same_sliver_no_longer_vetoes_but_subdivides(monkeypatch):
+    """AMENDED BY R19-2 (2026-08-12).  This twin used to assert that with
+    nothing published the 5.8 m² GROUNDSIDE sliver vetoed the void — the
+    A/B for "the enclave LAW is doing the work, not the geometry".
+
+    R19-2 answers the same geometry a second way: a groundside/service
+    surface standing in an ENCLOSED hole is not a foreign owner of that
+    ground, it SUBDIVIDES it, and each residual pocket takes the width
+    test (measured at HECA: the owner's pocket at 30.1165544,31.4112743
+    is a 19,080 m² hole vetoed by one service_junction overlapping it by
+    37 m²).  So the void now takes the ring + spine treatment on EITHER
+    route, and the sliver is subtracted from the graded face rather than
+    condemning it.
+
+    The A/B the twin exists for is preserved with a blocker the R19-2
+    law does NOT reach — the enclave law's own non-exempt class — where
+    publishing still decides the outcome."""
     layout = _frame([_sliver()])
+    layout.airside_enclaves = []          # nothing published
+    assert GF.emit_gap_fill_spines(layout, None, 0, 0) >= 1
+    faces = _gap_faces(layout)
+    assert faces
+    sliver = _sliver()
+    for f in faces:
+        assert f.polygon.intersection(sliver.polygon).area <= 1.0, (
+            "the face was graded OVER the sliver that subdivides it")
+
+
+def test_a_non_subdividing_blocker_still_needs_the_enclave_law():
+    """The A/B, on a blocker R19-2 never reaches: a TUNNEL RAMP inside
+    the void (a law-cut hole with its own profile, never enclave-
+    interior content) vetoes with nothing published."""
+    ramp = _sliver(role=ROLE_TUNNEL_RAMP)
+    layout = _frame([ramp])
     layout.airside_enclaves = []          # nothing published
     assert GF.emit_gap_fill_spines(layout, None, 0, 0) == 0
     assert _gap_faces(layout) == []

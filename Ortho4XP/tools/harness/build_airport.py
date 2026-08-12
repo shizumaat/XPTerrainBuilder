@@ -4,7 +4,8 @@
         [--patch-only | --tile LAT LON] [--out DIR] [--dem CONST_M]
         [--allow-degraded-dem] [--allow-no-sidecar] [--no-ledger]
         [--refresh-data SCOPE[,SCOPE...]] [--break-stale-lock]
-        [--allow-private-data]
+        [--allow-private-data] [--base-arm | --from-ledger]
+        [--no-artifact-ledger]
 
 Run it from ``Ortho4XP/`` (or a lane worktree set up with
 ``tools/harness/lane_worktree.sh``).  Every lane builds through THIS entry;
@@ -137,6 +138,24 @@ WHAT IT RECORDS, always, next to the patch:
 * the patch body sha256 (``tail -n +3``: the provenance stamp makes the raw
   file hash useless for A/B identity).
 
+THE BASE-ARM ARTIFACT LEDGER (``--base-arm`` / ``--from-ledger``, 2026-08-12,
+spec ``docs/specs/blast-sweep-and-artifact-ledger-spec.md`` BS2).  The run
+ledger remembers whether a build PASSED; it forgets what it PRODUCED, so
+base arms at identical trees were rebuilt 2-4x across lanes this session at
+7-10 min each.  Every successful patch build now also STORES its patch,
+sidecar, frame, env and result in ``~/.ortho4xp/artifact_ledger`` (outside
+the shared data repo, gitignored, size-capped LRU), content-addressed by
+(code-tree hash, ICAO, the O4_* env the run ledger keys on, CORPUS STAMP,
+build variant).  ``--base-arm`` asks for that artifact instead of a build:
+on a hit it is copied in byte-identically behind a loud provenance line
+naming the original build, its timestamp and its duration; on a miss the
+line NAMES the component that moved.  A corpus-stamp mismatch is always a
+miss — a changed corpus is a different measurement (the KCLT road-feed
+precedent) — and the combination with ``--no-ledger`` (a timing run),
+``--tile`` or ``--refresh-data`` is refused.  The store implementation is
+``tools/harness/artifact_ledger.py``; a run that was authorised to refresh
+or that the write audit flagged CONTAMINATED is never stored.
+
 Consolidated from (and replacing): ``tools/full_airport_build.py``,
 ``scratchpad/integrate/build.sh``, ``scratchpad/refpull_interim/arm.sh``
 and ``arm.py``, ``scratchpad/reltiles/run_release_tile.py`` and
@@ -167,6 +186,7 @@ ROOT = Path(__file__).resolve().parents[2]
 _HARNESS_DIR = str(Path(__file__).resolve().parent)
 if _HARNESS_DIR not in sys.path:
     sys.path.insert(0, _HARNESS_DIR)
+import artifact_ledger as AL                             # noqa: E402
 from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
@@ -1265,6 +1285,19 @@ def main(argv=None) -> int:
                          "afterwards.  For diagnosing what a build wants to "
                          "write; the corpus every other lane reads changes "
                          "under them if you use it.")
+    ap.add_argument("--base-arm", action="store_true",
+                    help="this build is a BASE ARM (a reference side, not "
+                         "the change under test): serve it from the ARTIFACT "
+                         "LEDGER when one was already built at this exact "
+                         "code tree, ICAO, O4_* env and CORPUS STAMP, instead "
+                         "of rebuilding it.  Implies --from-ledger.  Refused "
+                         "for timing runs (--no-ledger) and for --tile.")
+    ap.add_argument("--from-ledger", action="store_true",
+                    help="serve a stored artifact if the key hits (the "
+                         "--base-arm behaviour, on its own)")
+    ap.add_argument("--no-artifact-ledger", action="store_true",
+                    help="neither serve NOR store the artifact ledger entry "
+                         "for this run")
     ap.add_argument("--allow-private-data", action="store_true",
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
@@ -1282,6 +1315,40 @@ def main(argv=None) -> int:
             raise SystemExit(
                 f"REFUSING: unknown --refresh-data scope(s) "
                 f"{sorted(unknown)}.  Known scopes: {sorted(all_scopes)}")
+    # ── THE ARTIFACT LEDGER'S REFUSALS (BS2) ─────────────────────────
+    # Each combination below would turn a served artifact into a claim it
+    # cannot support.  They are refused rather than silently ignored: a
+    # flag that quietly does nothing is how a lane ends up believing it
+    # measured something it did not.
+    from_ledger = args.base_arm or args.from_ledger
+    if from_ledger and args.no_ledger:
+        raise SystemExit(
+            "REFUSING: --base-arm/--from-ledger with --no-ledger.  "
+            "--no-ledger exists for runs whose OUTPUT IS A TIME, and a "
+            "stored artifact has no wall time to give you — replaying one "
+            "would report a build that happened on another day as this "
+            "run's measurement.  Time a base arm by BUILDING it (single-run "
+            "wall times swing +-25 %: tools/check_build_time.py --runs N).")
+    if from_ledger and args.tile:
+        raise SystemExit(
+            "REFUSING: --base-arm/--from-ledger with --tile.  The ledger "
+            "stores PATCH builds (patch + sidecar + frame); a tile's product "
+            "is a whole scenery pack, and serving a patch in its place would "
+            "be a different artifact under the same name.")
+    if from_ledger and args.no_artifact_ledger:
+        raise SystemExit(
+            "REFUSING: --base-arm/--from-ledger with --no-artifact-ledger.  "
+            "The second switches OFF the store the first asks to be served "
+            "from, so the run would quietly rebuild while reporting that it "
+            "was asked for a base arm — a flag that silently does nothing is "
+            "how a lane comes to believe it measured something it did not.")
+    if from_ledger and args.refresh_data:
+        raise SystemExit(
+            "REFUSING: --base-arm/--from-ledger with --refresh-data.  A "
+            "refresh CHANGES the corpus the key is stamped against, so the "
+            "arm you would serve was measured on a corpus this run is about "
+            "to replace.  Refresh first, then take the base arm.")
+
     warm_insets = [icao.strip() for icao in args.warm_insets.split(",")
                    if icao.strip()]
     if warm_insets and "dem" not in requested:
@@ -1373,6 +1440,63 @@ def main(argv=None) -> int:
               f"dirty={snapshot['git_dirty']} "
               f"tree={str(snapshot['code_tree_hash'])[:12]} "
               f"O4_*={sorted(snapshot['o4_env']) or 'NONE'}")
+
+    # ── THE ARTIFACT LEDGER (BS2): the key, then the serve ───────────
+    # Computed HERE because every component is known BEFORE any engine code
+    # runs — the code tree, the ICAO, the O4_* env, the corpus this build
+    # would read and the request variant — and because a served arm must
+    # skip the build entirely, guard and redirect included: it writes
+    # nothing, so there is nothing to guard.
+    ledger_key = ledger_parts = None
+    if not args.no_artifact_ledger and not args.tile:
+        stamp_frame = dict(frame, dem_frame_effective=frame_surface_keys(root))
+        ledger_parts = {
+            "tree": snapshot["code_tree_hash"], "icao": args.icao,
+            "env": AL.key_env(), "corpus": AL.corpus_stamp(stamp_frame, root),
+            "variant": AL.build_variant(
+                const_dem=args.dem,
+                allow_degraded_dem=args.allow_degraded_dem,
+                allow_no_sidecar=args.allow_no_sidecar)}
+        ledger_key = AL.artifact_key(
+            ledger_parts["tree"], args.icao, ledger_parts["env"],
+            ledger_parts["corpus"], ledger_parts["variant"])
+        prog.note(f"artifact-ledger key {ledger_key[:12]} "
+                  f"(corpus {ledger_parts['corpus']['sha256'][:12]}, "
+                  f"store {AL.store_dir()})")
+    if from_ledger and ledger_key:
+        record, why = AL.lookup(ledger_key, ledger_parts)
+        if record is None:
+            prog.note(f"artifact ledger {why} — BUILDING this arm")
+        else:
+            written = AL.serve(record, out_dir, tag)
+            prog.note(AL.provenance_line(record, written))
+            served_sha = body_sha256(Path(written["patch"]))
+            if served_sha != record.get("body_sha256"):
+                raise SystemExit(
+                    f"REFUSING: the served patch's body sha256 "
+                    f"{served_sha[:16]} is not the {str(record.get('body_sha256'))[:16]} "
+                    f"the ledger recorded for this key — the store is not "
+                    f"serving what it stored.  Rebuild this arm.")
+            (out_dir / f"{tag}.served.json").write_text(json.dumps(
+                {"served_from_artifact_ledger": True, "key": ledger_key,
+                 "key_parts": ledger_parts, "store": str(AL.store_dir()),
+                 "original": {k: record.get(k) for k in
+                              ("tag", "lane", "stored_at_iso",
+                               "build_seconds", "wall_seconds",
+                               "body_sha256", "shapes")},
+                 "written": written, "served_at":
+                     time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 "note": "The patch, sidecar and frame are BYTE-IDENTICAL "
+                         "copies of that build's; no engine code ran here, "
+                         "so this run has no wall time of its own."},
+                indent=1, default=str))
+            prog.note(f"EXIT {tag} rc=0 SERVED (no build)")
+            print(f"\n  [harness] artifacts in {out_dir}: {tag}.osm"
+                  f"(+.axes.json), {tag}.frame.json, {tag}.env.json, "
+                  f"{tag}.served.json  — served, not built")
+            print(f"  [harness] next: venv/bin/python tools/harness/census.py "
+                  f"{out_dir / (tag + '.osm')}")
+            return 0
 
     os.environ.setdefault("O4_LOG_VERBOSITY", "1")   # the sidecar gate
 
@@ -1478,6 +1602,42 @@ def main(argv=None) -> int:
     (out_dir / f"{tag}.result.json").write_text(json.dumps(
         {k: v for k, v in result.items() if not k.startswith("_")},
         indent=1, default=str))
+    # ── THE ARTIFACT LEDGER: store this arm ──────────────────────────
+    # Every successful patch build pays it forward; only a request to serve
+    # (--base-arm) ever reads it back, so a plain build is unchanged apart
+    # from one copy of its own products.  Two runs are deliberately NOT
+    # stored: one that was authorised to refresh (its corpus stamp
+    # describes a corpus it then changed) and one the write audit marked
+    # CONTAMINATED (serving it later would spread a corpus mutation into
+    # every arm that hits the key).
+    if ledger_key and not args.tile:
+        why_not = ("an authorised --refresh-data run" if requested
+                   else "the run was flagged CONTAMINATED" if frame["contaminated"]
+                   else None)
+        if why_not:
+            prog.note(f"artifact ledger: NOT stored — {why_not}")
+        else:
+            try:
+                rec = AL.store_build(
+                    ledger_key, ledger_parts,
+                    {"patch": result.get("patch"),
+                     "sidecar": result.get("sidecar"),
+                     "frame": str(out_dir / f"{tag}.frame.json"),
+                     "env": str(out_dir / f"{tag}.env.json"),
+                     "result": str(out_dir / f"{tag}.result.json")},
+                    {"tag": tag, "lane": str(root), "icao": args.icao,
+                     "argv": sys.argv[1:],
+                     "build_seconds": result.get("build_seconds"),
+                     "wall_seconds": result.get("wall_seconds"),
+                     "body_sha256": result.get("body_sha256"),
+                     "shapes": result.get("shapes")})
+                prog.note(f"artifact ledger STORED {ledger_key[:12]} "
+                          f"({rec['bytes'] / 1e6:.1f} MB) — a later "
+                          f"--base-arm at this tree, env and corpus serves "
+                          f"this patch instead of rebuilding it")
+            except Exception as exc:                  # never fail a good build
+                prog.note(f"artifact ledger: NOT stored ({exc!r})")
+
     # ``--tile`` does not go through ``build_patch``, so detector 1 runs
     # here for it (detector 2 needs the layout, which a tile build never
     # returns).  AFTER the artifacts on purpose: a tile build's forensics

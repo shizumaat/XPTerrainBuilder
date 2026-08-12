@@ -1265,7 +1265,8 @@ def _abutment_grade_sample_points(candidate) -> list:
 _ABUTMENT_LAND_WALK_MAX_M = 60.0
 _ABUTMENT_LAND_MIN_SAMPLES = 4
 
-def agreeing_coalition(member_measurements, window_metres):
+def agreeing_coalition(member_measurements, window_metres,
+                       weight_of=None, tiebreak_of=None):
     """THE AGREEING COALITION (round-12 amendment 4).
 
     Returns ``(coalition, outliers, refusal_reason)``.  ``coalition`` is
@@ -1273,6 +1274,22 @@ def agreeing_coalition(member_measurements, window_metres):
     ``window_metres`` window; ``outliers`` is everything else, in delta
     order.  ``refusal_reason`` is a string when no coalition may seat and
     ``None`` when one may.
+
+    ``weight_of`` (R19-1, 2026-08-12) makes "largest" mean largest
+    SUMMED WEIGHT rather than most members — the pad LEVEL-FAMILY caller
+    weights each member by its AREA, so a 181 m² pad can never out-vote
+    a 15,298 m² one however many small neighbours it brings.  Omitted,
+    every member weighs 1 and this is R12's own reading unchanged: the
+    bridge-deck caller passes nothing and reads the coalitions it always
+    did.
+
+    ``tiebreak_of`` (R19-1) breaks EQUALLY-WEIGHTED rivals by a second
+    quantity before the ambiguity refusal fires — the pad caller scores
+    rivals by their HOST weight, because that law has an arbitration
+    direction of its own ("the pad adopts FROM the host, never the
+    reverse"), so a family split evenly between a pad and the host it
+    stands on is not ambiguous: the host wins.  Omitted, an even split
+    refuses exactly as R12 rules it.
 
     WHY A COALITION AND NOT A MEDIAN.  Measured at OTHH (amendment 3):
     the members whose deck-face ends land cleanly on the bank read the
@@ -1311,16 +1328,34 @@ def agreeing_coalition(member_measurements, window_metres):
         )
         windows[frozenset(members)] = len(members)
 
+    # WHAT "LARGEST" MEANS: member count by default (R12), summed member
+    # WEIGHT when the caller supplies one (R19-1's area weighting).  The
+    # ≥2-member rule is the same law in both readings — one member is
+    # nobody's corroboration, whatever it weighs.
+    if weight_of is not None:
+        windows = {
+            member_set: sum(float(weight_of(ordered[i]))
+                            for i in member_set)
+            for member_set in windows
+        }
     largest = max(windows.values())
     winners = [
         member_set for member_set, size in windows.items()
         if size == largest
     ]
-    if largest < 2:
+    if max((len(w) for w in winners), default=0) < 2:
         return [], ordered, (
             f"no two of the {len(ordered)} member deltas lie within "
             f"{window_metres:.2f} m of each other, so no measurement is "
             "corroborated")
+    if len(winners) > 1 and tiebreak_of is not None:
+        scores = {
+            member_set: sum(float(tiebreak_of(ordered[i]))
+                            for i in member_set)
+            for member_set in winners
+        }
+        best_score = max(scores.values())
+        winners = [ms for ms in winners if scores[ms] == best_score]
     if len(winners) > 1:
         return [], ordered, (
             f"{len(winners)} rival groups of {largest} member(s) each "

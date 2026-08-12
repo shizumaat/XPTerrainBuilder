@@ -194,22 +194,67 @@ def test_a_pad_welded_into_a_coarse_host_ring_finds_its_body(monkeypatch):
     assert apron.node_altitudes[6] == pytest.approx(WELD_BODY, abs=0.01)
 
 
-def test_the_walk_stops_at_the_pads_own_contact_scale(monkeypatch):
-    """``PAD_HOST_BODY_REACH_M``: where a host ring runs coarse BETWEEN
-    two pads the next vertex is dozens to hundreds of metres away and
-    belongs to the OTHER pad's neighbourhood — adopting it made
-    neighbouring pads read each other's level and swap (HECA 140↔141,
-    146↔151, 210↔211, at 26-800 m of ring arc).  Out of reach ⇒ the pad
-    stays exactly where the solve put it."""
-    from auto_patch.config import PAD_HOST_BODY_REACH_M
+def test_the_field_sample_has_no_reach(monkeypatch):
+    """R19-1 RE-RULED (2026-08-12).  The pad adopts its HOST'S SOLVED
+    SURFACE at its own ring — a surface has a value everywhere, so there
+    is no radius to satisfy.  This twin used to assert the opposite (a
+    bounded ring walk, ``PAD_HOST_BODY_REACH_M``), and the bound is
+    exactly what missed HECA building114 twice: its host body sits
+    16.59 m out.  Here the body is 30 m out and the pad still finds it.
+    """
     monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
-    far = float(PAD_HOST_BODY_REACH_M) + 5.0
-    apron = _welded_apron(body_arc_m=far)
+    apron = _welded_apron(body_arc_m=30.0)
     pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
     layout = _FakeLayout([apron, pad])
 
-    assert relevel_pads_to_host_pavement(layout) == 0
-    assert pad.altitude == pytest.approx(WELD_PAD, abs=0.01)
+    assert relevel_pads_to_host_pavement(layout) == 1, (
+        "a host body 30 m out is still the host's surface at this pad — "
+        "the reach cap is retired, not renamed")
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)
+
+
+def test_a_neighbour_pads_lip_is_never_the_value(monkeypatch):
+    """WHY THE REACH COULD BE RETIRED: neighbour-swap is impossible by
+    construction.  A neighbouring pad's lip sits NEARER this pad than
+    the host's own body does — the geometry that made the vertex-hunting
+    mechanisms swap two pads (HECA 140↔141, 146↔151, 210↔211) — and it
+    is still never the value read, because the field is ONE host
+    polygon's own vertex set with this pad's lips removed by value.
+
+    The family here is {this pad 88.50, the neighbour 120.00, the host's
+    own body 85.63}: the host corroborates itself, so the coalition is
+    the host's level and the two pads are its outliers.  A mechanism
+    that reads "the nearest differing vertex" takes the neighbour's
+    120.00 instead."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    NEIGHBOUR = 120.0
+    ring = [
+        (0.0, -40.0), (60.0, -40.0), (60.0, 10.0),
+        (34.0, 10.0),                 # the NEIGHBOUR pad's lip, 4 m off
+        (30.0, 10.0), (20.0, 10.0),   # this pad's welded lip run
+        (-14.0, 10.0), (-30.0, 10.0),  # the host's OWN body, 34 m off
+        (-60.0, 10.0), (-60.0, -40.0),
+    ]
+    alt = [WELD_BODY, WELD_BODY, WELD_BODY,
+           NEIGHBOUR, WELD_PAD, WELD_PAD,
+           WELD_BODY, WELD_BODY, WELD_BODY, WELD_BODY]
+    apron = BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                       node_altitudes=alt + [alt[0]])
+    # The neighbour's lip is a WELD: the apron vertex at (34,10) is a
+    # vertex of the neighbour pad's own ring, which is what makes it that
+    # pad's value rather than the host's surface.
+    neighbour = BuiltShape(
+        polygon=Polygon([(30.0, 10.0), (34.0, 10.0), (38.0, 10.0),
+                         (38.0, 18.0), (30.0, 18.0)]),
+        role=ROLE_BUILDING, altitude=NEIGHBOUR)
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, neighbour, pad])
+
+    relevel_pads_to_host_pavement(layout)
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.6), (
+        f"the pad took {pad.altitude} — the neighbour's lip is nearer "
+        f"than the host body, and a vertex hunt would read it")
+    assert abs(pad.altitude - NEIGHBOUR) > 5.0
 
 
 def test_a_lawful_lip_run_on_a_flat_host_moves_nothing(monkeypatch):
@@ -345,13 +390,13 @@ def _dense_welded_apron(body=WELD_BODY, lip=WELD_PAD, body_arc_m=7.84):
                       node_altitudes=alt + [alt[0]])
 
 
-def test_the_lip_run_is_defined_by_value_not_by_contact(monkeypatch):
-    """R19-1 attempt 2, measured at HECA building114: a host ring denser
-    than ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's own value at
-    vertices that are not contacts.  Stopping at the first NON-CONTACT
-    vertex reads agreement and the pad keeps its pit value while the
-    host body sits metres below.  The run is every vertex still AT the
-    pad's value; the reach cap is what bounds it."""
+def test_a_dense_host_ring_still_yields_one_family(monkeypatch):
+    """The geometry that defeated the earlier mechanisms, under the
+    LEVEL FAMILY law: a host ring denser than
+    ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's value at vertices
+    that are not the pad's own contacts.  Membership is structural — the
+    lip run and the host body past it are on ONE chain — so the density
+    of the ring cannot hide the host's body from the family."""
     monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
     apron = _dense_welded_apron()
     pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
@@ -361,3 +406,180 @@ def test_the_lip_run_is_defined_by_value_not_by_contact(monkeypatch):
         "the walk stopped on a lip vertex that merely sat outside the "
         "contact radius — the HECA building114 class")
     assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)
+
+
+# The HECA areas the lead ruling names, so the twin and the site are the
+# same numbers: building114 = 181.3 m2, building112 = 15,298.4 m2.
+SMALL_AREA_PAD_M = 13.5          # ~181 m2 square
+BIG_AREA_PAD_M = 123.7           # ~15,298 m2 square
+
+
+def _square(x0, y0, side, alt):
+    return _pad(x0, y0, x0 + side, y0 + side, alt)
+
+
+def _shared_host(small_alt, big_alt, host_alt):
+    """One apron ring with TWO pads welded into it — a small pad and a
+    big one — so both are on one chain and one family."""
+    ring = [
+        (-200.0, -60.0), (200.0, -60.0), (200.0, 0.0),
+        (150.0, 0.0),                              # host body
+        (20.0 + SMALL_AREA_PAD_M, 0.0), (20.0, 0.0),        # small lips
+        (-10.0, 0.0),                                        # host body
+        (-10.0 - BIG_AREA_PAD_M, 0.0),                       # big lips
+        (-200.0, 0.0),
+    ]
+    alt = [host_alt, host_alt, host_alt, host_alt,
+           small_alt, small_alt, host_alt, big_alt, host_alt]
+    apron = BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                       node_altitudes=alt + [alt[0]])
+    small = _square(20.0, 0.0, SMALL_AREA_PAD_M, small_alt)
+    big = _square(-10.0 - BIG_AREA_PAD_M, 0.0, BIG_AREA_PAD_M, big_alt)
+    return apron, small, big
+
+
+def test_a_small_pad_never_drags_a_big_one(monkeypatch):
+    """THE SWAP-SAFETY THE RULING RESTS ON, in the ruling's own numbers.
+    A 181 m² pad at 88.50 and a 15,298 m² pad at 85.63 are welded into
+    one apron ring, so they are ONE level family.  The coalition is
+    AREA-weighted: the big pad and the host's own corners carry it, the
+    small pad is the outlier and conforms.  The big pad does not move by
+    so much as a centimetre."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron, small, big = _shared_host(small_alt=WELD_PAD,
+                                     big_alt=WELD_BODY,
+                                     host_alt=WELD_BODY)
+    layout = _FakeLayout([apron, small, big])
+
+    n = relevel_pads_to_host_pavement(layout)
+    assert n == 1, "exactly the outlier should have conformed"
+    assert small.altitude == pytest.approx(WELD_BODY, abs=0.01), (
+        "the 181 m2 outlier did not adopt its family's level")
+    assert big.altitude == pytest.approx(WELD_BODY, abs=0.001), (
+        "the 15,298 m2 pad MOVED — a small neighbour dragged it, which "
+        "is the class the area weighting exists to make impossible")
+
+
+def test_the_big_pad_wins_even_when_outnumbered(monkeypatch):
+    """AREA, NOT HEADCOUNT — the one difference between this law and
+    R12's own coalition.  EIGHT small pads (181 m² each, 1,450 m² all
+    told) share one apron edge with a 15,298 m² pad, so all nine are ONE
+    family (each pad's corner is its neighbour's corner).  A coalition
+    that COUNTS members seats the eight and drags the big pad; one that
+    weighs them by the ground they own seats the big pad and the eight
+    conform."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    # A CONTIGUOUS run: pad k's right corner IS pad k+1's left corner,
+    # which is the shared host-ring vertex that chains them.
+    S = SMALL_AREA_PAD_M
+    xs = [20.0 + S * k for k in range(8)]
+    edge = [20.0 - BIG_AREA_PAD_M, 20.0] + [x + S for x in xs]
+    ring = [(-400.0, -80.0), (400.0, -80.0), (400.0, 0.0)]
+    alt = [WELD_BODY, WELD_BODY, WELD_BODY]
+    for x in reversed(edge):
+        ring.append((x, 0.0))
+        alt.append(WELD_PAD if x > 20.0 - 0.001 else WELD_BODY)
+    ring.append((-400.0, 0.0))
+    alt.append(WELD_BODY)
+    alt[3 + 0] = WELD_PAD          # the run's own corners carry the pads
+    apron = BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                       node_altitudes=alt + [alt[0]])
+    smalls = [_square(x, 0.0, S, WELD_PAD) for x in xs]
+    big = _square(20.0 - BIG_AREA_PAD_M, 0.0, BIG_AREA_PAD_M, WELD_BODY)
+    layout = _FakeLayout([apron, big] + smalls)
+
+    # Premises, so the twin cannot go vacuous.
+    assert len(smalls) > 3
+    assert sum(p.polygon.area for p in smalls) < big.polygon.area / 5.0
+
+    relevel_pads_to_host_pavement(layout)
+    assert big.altitude == pytest.approx(WELD_BODY, abs=0.001), (
+        "the big pad moved — eight small neighbours out-VOTED 15,298 m², "
+        "which is a headcount coalition, not an area-weighted one")
+    for small in smalls:
+        assert small.altitude == pytest.approx(WELD_BODY, abs=0.01), (
+            "a small outlier did not conform to its family")
+
+
+def test_two_families_on_separate_chains_never_merge(monkeypatch):
+    """Membership is STRUCTURAL: a pad joins through host-ring vertices
+    its own contact radius touches.  Two pads welded into DIFFERENT host
+    shapes are two families however close they sit — the geometry that
+    let every distance-based mechanism read a stranger's level."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron_a = BuiltShape(
+        polygon=Polygon([(0.0, -40.0), (60.0, -40.0), (60.0, 0.0),
+                         (30.0, 0.0), (20.0, 0.0), (0.0, 0.0)]),
+        role=ROLE_APRON,
+        node_altitudes=[WELD_BODY, WELD_BODY, WELD_BODY,
+                        WELD_PAD, WELD_PAD, WELD_BODY, WELD_BODY])
+    # A SECOND host, 3 m away — beyond the contact radius, so nothing of
+    # family A touches it.
+    # A SECOND host 3 m away, deliberately made the DOMINANT ground
+    # nearby (10x the area of apron A): any membership rule that reaches
+    # by DISTANCE rather than through this pad's own chain seats its
+    # 120.00 over apron A's 85.63.
+    apron_b = BuiltShape(
+        # Its ring carries a VERTEX 3 m from the pad, so a rule that
+        # reaches by distance has something to grab; the chain rule has
+        # not, because nothing of this pad touches apron B.
+        polygon=Polygon([(-200.0, 3.0), (25.0, 3.0), (200.0, 3.0),
+                         (200.0, 203.0), (-200.0, 203.0)]),
+        role=ROLE_APRON,
+        node_altitudes=[120.0] * 6)
+    pad = _pad(20.0, 0.0, 30.0, -8.0, WELD_PAD)
+    layout = _FakeLayout([apron_a, apron_b, pad])
+
+    relevel_pads_to_host_pavement(layout)
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01), (
+        f"the pad took {pad.altitude} — apron B is 3 m away and in no "
+        f"chain of this pad's, so its 120.00 must be unreachable")
+
+
+def test_the_family_itself_never_contains_a_stranger_host(monkeypatch):
+    """The membership rule, asserted directly on the family builder — the
+    end-to-end twin above can be satisfied by a coalition that merely
+    out-weighs the stranger, and the LAW is that the stranger is not in
+    the family at all.
+
+    Apron B is 3 m away and ten times apron A's area; the pad is welded
+    only into A.  A membership rule that reaches by DISTANCE puts B's
+    120.00 in this list."""
+    from auto_patch.elevation_per_surface.route_profile import (
+        anchors as _A)
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron_a = BuiltShape(
+        polygon=Polygon([(0.0, -40.0), (60.0, -40.0), (60.0, 0.0),
+                         (30.0, 0.0), (20.0, 0.0), (0.0, 0.0)]),
+        role=ROLE_APRON,
+        node_altitudes=[WELD_BODY, WELD_BODY, WELD_BODY,
+                        WELD_PAD, WELD_PAD, WELD_BODY, WELD_BODY])
+    apron_b = BuiltShape(
+        polygon=Polygon([(-200.0, 3.0), (25.0, 3.0), (200.0, 3.0),
+                         (200.0, 203.0), (-200.0, 203.0)]),
+        role=ROLE_APRON, node_altitudes=[120.0] * 6)
+    pad = _pad(20.0, 0.0, 30.0, -8.0, WELD_PAD)
+    layout = _FakeLayout([apron_a, apron_b, pad])
+
+    host_rings = []
+    areas = []
+    for sh in (apron_a, apron_b):
+        ring = _A._open_ring(list(sh.polygon.exterior.coords))
+        n = len(ring)
+        host_rings.append(
+            ([(float(x), float(y)) for (x, y) in ring],
+             [_A._shape_vertex_alt(sh, i, n) for i in range(n)]))
+        areas.append(sh.polygon.area)
+    lips = _A._pad_lip_index(layout, host_rings, 2.5, 6.25)
+    host_lip = [[bool(lips.get(r, {}).get(i)) for i in range(len(pts))]
+                for r, (pts, _a) in enumerate(host_rings)]
+    members = _A._level_family_members(
+        [pad], {id(pad): pad}, host_rings, areas, host_lip, lips,
+        0.5, 36.0)
+
+    assert members, "the pad is welded into apron A — it has a family"
+    levels = sorted({round(e["delta_m"], 2) for e in members})
+    assert 120.0 not in levels, (
+        f"apron B's level is in the family ({levels}) — membership "
+        f"reached by DISTANCE instead of through the pad's own chain")
+    assert WELD_BODY in levels, "apron A's own body is missing"

@@ -89,6 +89,148 @@ def _footprint_span_metres(footprint_lonlat: Polygon) -> float:
         * obj8_reader.METRES_PER_DEGREE_LATITUDE)
 
 
+# ── BUILDING EVIDENCE (R18-2, owner ruling 2026-08-11b) ─────────────
+# A DSF-object footprint ring may seed a building pad only with BUILDING
+# EVIDENCE.  This module owns the half of that ruling that is readable
+# from the object's OWN solid geometry — the vertical-structure test;
+# the OSM-footprint half is the pipeline's (it is the only place an OSM
+# building polygon exists).  Both halves are OR-ed there.
+#
+# The vertical test, one sentence: a real building is TALL OVER ITS OWN
+# FOOTPRINT.  Per member resource of the structure we already measure
+# (a) its own ABOVE-GRADE vertical extent and (b) the footprint area its
+# base triangles contribute; the evidence is the fraction of the
+# structure's hull covered by members that are building-tall.
+#
+# This is deliberately NOT the ``DSF_OBJECT_MIN_TALL_BASE_FILL`` gate a
+# few hundred lines below, even though it reads the same two quantities.
+# That floor is a REFUSAL calibrated at 0.002 against HECA's thin-wall
+# terminal shells (raising it toward 0.05 culled ~140 real buildings —
+# see its config note), so it cannot be raised to a confident-building
+# bar without deleting real pads.  The evidence coverage is the
+# confident-building bar, and a structure that misses it is not refused:
+# it falls through to the OSM half of the ruling.
+
+#: One evidence row per member resource of a structure.
+#: ``(resource_path, above_grade_extent_metres, base_area_degrees2)``.
+StructureMemberEvidence = tuple[str, float, float]
+
+
+def tall_member_coverage(
+    member_evidence: list[StructureMemberEvidence],
+    hull_area_degrees2: float,
+    minimum_above_grade_extent_metres: float,
+) -> float:
+    """Fraction of a structure's footprint hull covered by the base
+    triangles of members whose OWN above-grade vertical extent reaches
+    ``minimum_above_grade_extent_metres``.
+
+    THE one definition: the gate in :func:`structure_ring`, the twins,
+    and ``tools/object_pad_evidence_report.py``'s population table all
+    call this — a second implementation of "how tall is it over its own
+    footprint" is exactly the census-wrapper defect.
+
+    Areas are both in degree space (the lat/lon anisotropy cancels), and
+    the triangle sum may double-count overlaps, which can only ever KEEP
+    a structure.  Returns 0.0 for a degenerate hull.
+    """
+    if hull_area_degrees2 <= 0.0:
+        return 0.0
+    covered = sum(
+        base_area
+        for _resource, above_grade_extent, base_area in member_evidence
+        if above_grade_extent >= minimum_above_grade_extent_metres)
+    return covered / hull_area_degrees2
+
+
+def tallest_member_extent(
+    member_evidence: list[StructureMemberEvidence],
+) -> float:
+    """Tallest ABOVE-GRADE vertical extent among a structure's member
+    resources — the vertical test's primary reading."""
+    return max(
+        (above_grade_extent
+         for _resource, above_grade_extent, _base_area in member_evidence),
+        default=0.0)
+
+
+def has_vertical_structure_evidence(
+    member_evidence: list[StructureMemberEvidence],
+    hull_area_degrees2: float,
+    name_vouched: bool = False,
+) -> tuple[bool, float]:
+    """``(verdict, coverage)`` for the vertical half of the R18-2
+    evidence ruling, at the armed configuration values.
+
+    THE TEST: some member resource of the structure stands at least
+    ``DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M`` above grade on its own, and the
+    tall members cover at least ``DSF_OBJECT_EVIDENCE_MIN_COVERAGE`` of
+    the hull.  The coverage term is a floor for packs that need it and
+    is armed at 0 by default — MEASURED at HECA (2026-08-11): a
+    material-split pack authors a terminal shell as thin per-material
+    wall strips whose tall members cover 0.000-0.02 of the fused hull,
+    which is the SAME range as the phantom slab class, so no coverage
+    floor separates them.  Height does, cleanly.  The coverage-shaped
+    defence is already carried upstream by
+    ``DSF_OBJECT_MIN_TALL_BASE_FILL`` (the plate+mast weld).
+
+    ``name_vouched`` — a resource whose LIBRARY path names it a hangar
+    or terminal (owner CYXY 2026-07-28).  Note the caller passes the
+    EVIDENCE vouching (``evidence_name_vouches``), not the hull-fill
+    gate's wider path match: at HECA every object of the Tai Models pack
+    lives under ``Airport/Hangar_Tower/``, which vouched 667 of 817
+    rings on a DIRECTORY name and would have vouched every phantom pad
+    this gate exists to refuse (measured 2026-08-11).
+    """
+    from .config import (
+        DSF_OBJECT_EVIDENCE_MIN_COVERAGE,
+        DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M,
+    )
+    coverage = tall_member_coverage(
+        member_evidence, hull_area_degrees2,
+        DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M)
+    if name_vouched:
+        return True, coverage
+    if DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M > 0.0 and (
+            tallest_member_extent(member_evidence)
+            < DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M):
+        return False, coverage
+    return coverage >= DSF_OBJECT_EVIDENCE_MIN_COVERAGE, coverage
+
+
+#: Tokens that NAME a resource a building.  Matched on the resource
+#: BASENAME, or anywhere inside a stock-library virtual path — the same
+#: "basename only, so a directory cannot false-vouch" discipline
+#: ``dsf_reader._is_pavement_object`` already applies to its decorative
+#: veto vocabulary, and the fix for the measured HECA trap above.
+_BUILDING_NAME_TOKENS = ("hangar", "term_building", "terminal")
+
+
+def evidence_name_vouches(resource_paths) -> bool:
+    """True when a structure's own resource NAMES it a building (R18-2).
+
+    The CYXY ruling's subject is a STOCK LIBRARY resource whose virtual
+    path (``lib/airport/…/hangars/…``) is a semantic statement by the
+    library author.  A payware pack's directory layout is not: HECA's
+    Tai Models pack files its whole airport — jet-blast fences, apron
+    slabs, barriers — under ``Airport/Hangar_Tower/`` and
+    ``Airport/Hangar/``, and a path-anywhere match vouched 667 of its
+    817 rings, the phantom pads included.  So: the token must be in the
+    resource's own BASENAME, or the path must be a library virtual path.
+    """
+    import os as _os
+
+    for resource_path in resource_paths:
+        lowered = resource_path.lower().replace("\\", "/")
+        basename = _os.path.basename(lowered)
+        if any(token in basename for token in _BUILDING_NAME_TOKENS):
+            return True
+        if (lowered.startswith("lib/") or "/lib/" in lowered) and any(
+                token in lowered for token in _BUILDING_NAME_TOKENS):
+            return True
+    return False
+
+
 def _triangle_union_footprint(
     triangle_corner_points: list[tuple[tuple[float, float],
                                        tuple[float, float],
@@ -493,6 +635,7 @@ def structure_ring(
     structure: Structure,
     geometry_by_resource: dict[str, ObjectGeometry],
     placements: list[ObjectPlacement],
+    evidence_out: dict | None = None,
 ) -> list[tuple[float, float]] | None:
     """Build a footprint ring for one structure, in ``(longitude,
     latitude)``, unclosed (first vertex not repeated) — matching
@@ -509,11 +652,25 @@ def structure_ring(
       (rooftop clutter is not a building pad), and — reported, never
       silent — above ``DSF_OBJECT_MAX_FOOTPRINT_AREA_M2`` when that cap
       is enabled.
+
+    ``evidence_out``, when passed, is FILLED with this structure's
+    building-evidence measurement (R18-2) whatever the outcome — the
+    refusals included, so the population table can say what each gate
+    would catch.  Keys: ``verdict`` (``"ring"`` or the refusing gate's
+    name), ``members`` (:data:`StructureMemberEvidence` rows),
+    ``hull_area_degrees2`` / ``hull_area_m2`` / ``span_m`` /
+    ``centroid`` (absent before a hull exists), ``above_grade_extent_m``,
+    ``total_extent_m``, ``name_vouched``, ``hull_fill``,
+    ``tall_base_fill``, ``vertical_evidence`` and ``evidence_coverage``.
+    It never changes what this function returns: the OSM half of the
+    ruling lives in the pipeline, so the reader stamps the verdict on the
+    ring's ROLE and the gate closes there.
     """
     # Function-local flag imports so tests can monkeypatch the config
     # module (the module-level idiom freezes the value — spec section
     # 4-W1, "one trap").
     from .config import (
+        DSF_OBJECT_BUILDING_EVIDENCE,
         DSF_OBJECT_FOOTPRINT_HEIGHT_M,
         DSF_OBJECT_FOOTPRINT_UNION,
         DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
@@ -524,11 +681,30 @@ def structure_ring(
         DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
     )
 
-    if not structure.is_ground_touching:
+    def _record(verdict: str, **fields):
+        """Stamp the evidence record and return ``None`` — every early
+        return of this function goes through it, so a refused structure
+        is measured exactly like an admitted one."""
+        if evidence_out is not None:
+            evidence_out["verdict"] = verdict
+            evidence_out.update(fields)
         return None
+
+    if evidence_out is not None:
+        evidence_out.clear()
+        evidence_out.update({
+            "verdict": "unmeasured",
+            "members": [],
+            "name_vouched": False,
+            "vertical_evidence": False,
+            "evidence_coverage": 0.0,
+        })
+
+    if not structure.is_ground_touching:
+        return _record("not_ground_touching")
     if (not structure.triangles_by_resource
             or not structure.minimum_base_y_by_resource):
-        return None
+        return _record("no_geometry")
 
     placement_by_resource = {
         placement.resource_path: placement for placement in placements}
@@ -555,6 +731,9 @@ def structure_ring(
     # vertical extent clears the building-height floor — the evidence a
     # tall member covers the footprint.
     tall_base_area = 0.0
+    # R18-2 evidence rows — one per member resource, kept whatever the
+    # outcome (``StructureMemberEvidence``).
+    member_evidence: list[StructureMemberEvidence] = []
 
     for resource_path, triangles in structure.triangles_by_resource.items():
         geometry = geometry_by_resource.get(resource_path)
@@ -596,7 +775,9 @@ def structure_ring(
         # floors — collect them whenever any consumer is active.
         if (DSF_OBJECT_FOOTPRINT_UNION
                 or DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
-                or DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0):
+                or DSF_OBJECT_MIN_TALL_BASE_FILL > 0.0
+                or DSF_OBJECT_BUILDING_EVIDENCE
+                or evidence_out is not None):
             for triangle in triangles:
                 corner_points = tuple(
                     projected_by_vertex_index[vertex_index]
@@ -617,9 +798,26 @@ def structure_ring(
         if (DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M <= 0.0
                 or _res_extent >= DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M):
             tall_base_area += _res_base_area
+        # R18-2: the member's own ABOVE-GRADE extent (the A11 clamp, per
+        # member) — a 3.9 m drainage pit and a 3.9 m wall are not the
+        # same evidence, and only the part standing above grade is a
+        # building.
+        member_evidence.append((
+            resource_path,
+            ((max(_res_max_y, 0.0) - max(_res_min_y, 0.0))
+             if (_res_min_y is not None and _res_max_y is not None)
+             else 0.0),
+            _res_base_area,
+        ))
+
+    if evidence_out is not None:
+        evidence_out["members"] = list(member_evidence)
+        evidence_out["total_extent_m"] = maximum_local_y - minimum_base_y
+        evidence_out["above_grade_extent_m"] = (
+            max(maximum_local_y, 0.0) - max(minimum_base_y, 0.0))
 
     if len(all_points) < 3:
-        return None
+        return _record("degenerate")
     # Amendment A11 (from the HECA Tai Models pack): a building has
     # walls; a ground plate, sign or decal does not.  A near-flat
     # structure gets NO Phase-1 pad — Phase 2 still y-bakes it, since a
@@ -650,10 +848,52 @@ def structure_ring(
             f"{DSF_OBJECT_MIN_BUILDING_HEIGHT_M:.2f} m building floor "
             "(O4_DSF_OBJECT_MIN_BUILDING_HEIGHT_M) — ground plate, decal "
             "or below-grade pit, no pad.")
-        return None
+        return _record("min_building_height")
     # Fewer than 3 base vertices → all solid vertices (low flat objects
     # authored entirely above the height window).
     use_base_vertices = len(base_points) >= 3
+    # NAME-VOUCHED BUILDINGS (owner CYXY 2026-07-28, missing hangar at
+    # 60.706235,-135.0696776): a resource whose library path NAMES it a
+    # building (lib/airport/hangars/…, terminal kits) is definitionally a
+    # building — the same semantic trust the .fac path classifier
+    # (dsf_reader._building_role_for_def) already extends.  An
+    # arched-shell hangar's footings project ~0.001 of its hull (below
+    # the 0.002 slab/mast floor calibrated at HECA), so the heuristic
+    # alone would cull real stock hangars.
+    #
+    # ⚠ MEASURED DEFECT, NOT YET FIXED — STOP-AND-REPORT (R18-2, round
+    # 18, 2026-08-11).  This predicate matches the token ANYWHERE in the
+    # path, which is a claim about the DIRECTORY as often as the object.
+    # HECA's Tai Models pack files its whole airport — apron slabs,
+    # jersey barriers, jet-blast fences — under ``Airport/Hangar_Tower/``
+    # and ``Airport/Hangar/``, so 667 of its 817 rings are name-vouched
+    # and BOTH floors below are disabled across the entire pack.  That
+    # is the deeper cause of the phantom pads: the 31,184 m² ring under
+    # HECA's building176 measures hull fill 0.00036 against the 0.1
+    # floor and is kept anyway.  ``evidence_name_vouches`` (used by the
+    # R18-2 gate, and by the CYXY case it was calibrated for — a STOCK
+    # LIBRARY hangar at ``lib/airport/…``) is the correct predicate.
+    #
+    # Substituting it here was MEASURED and is CORRECT on the ring
+    # population (HECA 817 → 210 rings; every survivor's hull fill
+    # 0.11-1.64, i.e. a real building's bases filling their own hull),
+    # but it makes the HECA build FAIL: ``assert_no_final_band_inversion``
+    # refuses at 679 of 4,792 band-covered nodes, contradictory anchor
+    # pair 5984 (110.610 m, 05C/23C) vs 3284 (60.980 m, 05L/23R) — a
+    # 2.0709 m route-budget shortfall.  ATTRIBUTED INTERVENTIONALLY: the
+    # same failure appears with the R18-2 gate switched OFF and only this
+    # substitution live, so it is THIS change and not the evidence gate.
+    # The remedy is in the route-budget / seating machinery under
+    # ``elevation_per_surface/`` — outside this round's scope — so the
+    # wide predicate stands and the finding is reported.
+    # docs/DEFERRED_VERIFICATION.md carries the line.
+    name_vouched = any(
+        ("hangar" in rp.lower() or "term_building" in rp.lower()
+         or "/terminal" in rp.lower())
+        for rp in structure.triangles_by_resource)
+    if evidence_out is not None:
+        evidence_out["use_base_vertices"] = use_base_vertices
+        evidence_out["name_vouched"] = name_vouched
 
     footprint: Polygon | None
     if DSF_OBJECT_FOOTPRINT_UNION:
@@ -666,7 +906,7 @@ def structure_ring(
                 base_points if use_base_vertices else all_points
             ).convex_hull
         except (ValueError, _GEOS_EXCEPTION):
-            return None
+            return _record("hull_failed")
         footprint = hull if (not hull.is_empty
                              and hull.geom_type == "Polygon") else None
         # HULL-FILL FLOOR (owner defect 2026-07-27, HECA building188 —
@@ -696,19 +936,9 @@ def structure_ring(
                             else all_triangle_corner_points)
             triangle_area = _tri_area_sum(corner_lists)
             hull_area = footprint.area
-            # NAME-VOUCHED BUILDINGS (owner CYXY 2026-07-28, missing
-            # hangar at 60.706235,-135.0696776): a resource whose
-            # library path NAMES it a building (lib/airport/hangars/…,
-            # terminal kits) is definitionally a building — the same
-            # semantic trust the .fac path classifier
-            # (dsf_reader._building_role_for_def) already extends.  An
-            # arched-shell hangar's footings project ~0.001 of its hull
-            # (below the 0.002 slab/mast floor calibrated at HECA), so
-            # the heuristic alone would cull real stock hangars.
-            name_vouched = any(
-                ("hangar" in rp.lower() or "term_building" in rp.lower()
-                 or "/terminal" in rp.lower())
-                for rp in structure.triangles_by_resource)
+            if evidence_out is not None and hull_area > 0.0:
+                evidence_out["hull_fill"] = triangle_area / hull_area
+                evidence_out["tall_base_fill"] = tall_base_area / hull_area
             # TALL-BASE FILL (see config.DSF_OBJECT_MIN_TALL_BASE_FILL):
             # a plate+mast weld passes base fill AND the height gate,
             # but no TALL member covers the footprint.  Base-evidence
@@ -730,7 +960,14 @@ def structure_ring(
                         " m2 hull) — no tall member covers the "
                         "footprint: a slab/mast weld, not a building; "
                         "skipped.")
-                    return None
+                    return _record(
+                        "min_tall_base_fill",
+                        hull_area_degrees2=hull_area,
+                        hull_area_m2=_footprint_area_square_metres(
+                            footprint),
+                        span_m=_footprint_span_metres(footprint),
+                        centroid=(footprint.centroid.y,
+                                  footprint.centroid.x))
             if (DSF_OBJECT_MIN_FOOTPRINT_FILL > 0.0
                     and corner_lists and hull_area > 0.0
                     and not name_vouched):
@@ -747,9 +984,39 @@ def structure_ring(
                         f"({_footprint_area_square_metres(footprint):.0f}"
                         " m2 hull) — sparse bases under one hull are "
                         "street furniture, not a building pad; skipped.")
-                    return None
+                    return _record(
+                        "min_footprint_fill",
+                        hull_area_degrees2=hull_area,
+                        hull_area_m2=_footprint_area_square_metres(
+                            footprint),
+                        span_m=_footprint_span_metres(footprint),
+                        centroid=(footprint.centroid.y,
+                                  footprint.centroid.x))
     if footprint is None:
-        return None
+        return _record("no_footprint")
+
+    # R18-2 building evidence, vertical half — measured on the FINAL
+    # hull, so what the pipeline gates on is what a reviewer sees.
+    _hull_area_degrees2 = footprint.area
+    # The EVIDENCE gate uses the scoped predicate, never the wide one
+    # above (see its note): at HECA the wide match vouches 667 of 817
+    # rings on a directory name, phantom pads included.
+    _evidence_name_vouched = evidence_name_vouches(
+        structure.triangles_by_resource)
+    _vertical_evidence, _evidence_coverage = has_vertical_structure_evidence(
+        member_evidence, _hull_area_degrees2, _evidence_name_vouched)
+    if evidence_out is not None:
+        evidence_out["evidence_name_vouched"] = _evidence_name_vouched
+        evidence_out["tallest_member_extent_m"] = tallest_member_extent(
+            member_evidence)
+        evidence_out["hull_area_degrees2"] = _hull_area_degrees2
+        evidence_out["hull_area_m2"] = _footprint_area_square_metres(
+            footprint)
+        evidence_out["span_m"] = _footprint_span_metres(footprint)
+        evidence_out["centroid"] = (footprint.centroid.y,
+                                    footprint.centroid.x)
+        evidence_out["vertical_evidence"] = _vertical_evidence
+        evidence_out["evidence_coverage"] = _evidence_coverage
 
     # Structure span gate (defect 2026-07-17): a structure whose footprint
     # ring spans past the cap is a residual field-spanning hull the
@@ -765,7 +1032,7 @@ def structure_ring(
                 f"{DSF_OBJECT_MAX_STRUCTURE_SPAN_M:.0f} m structure span "
                 "gate (O4_DSF_OBJECT_MAX_STRUCTURE_SPAN_M) — skipped; a "
                 "field-spanning structure is not a building pad.")
-            return None
+            return _record("max_structure_span")
 
     if DSF_OBJECT_MAX_FOOTPRINT_AREA_M2 > 0.0:
         area_square_metres = _footprint_area_square_metres(footprint)
@@ -778,8 +1045,12 @@ def structure_ring(
                 f"{DSF_OBJECT_MAX_FOOTPRINT_AREA_M2:.0f} m2 cap "
                 "(O4_DSF_OBJECT_MAX_FOOTPRINT_AREA_M2) — skipped; "
                 "the structure needs a pad review.")
-            return None
+            return _record("max_footprint_area")
 
     ring = [(float(longitude), float(latitude))
             for longitude, latitude in footprint.exterior.coords[:-1]]
-    return ring if len(ring) >= 3 else None
+    if len(ring) < 3:
+        return _record("degenerate_ring")
+    if evidence_out is not None:
+        evidence_out["verdict"] = "ring"
+    return ring

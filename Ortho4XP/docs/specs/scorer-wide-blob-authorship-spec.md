@@ -71,3 +71,21 @@ Cap 2, STOP on second miss; `.progress` heartbeat; DEFERRED lines
 per skip; tripwire only. Cross-refs: RULINGS c366c13,
 [[pavement-classification-overhaul]] (§7 hard gates; owner shapeID
 joins), [[emit-consensus-mints-violations]], sq2 artifacts.
+
+## AMENDMENT 1 (Fable lead, 2026-08-12, owner-ruled) — vouching and the groundside cap
+
+* **S1b LAWFUL-AIRSIDE VOUCHING (owner-ruled):** contact evidence
+  counts only from shapes that are themselves lawfully airside;
+  evaluate the gate to a fixpoint (a legacy-only or would-be-gated
+  neighbour vouches for nothing). Acceptance: KMCI shapeID 995's
+  EMITTED body stays groundside-family; the enact/shadow frames agree
+  on the specimens (the two-instruments gap closes).
+* **S3 GROUNDSIDE AT THE ROAD LIMIT (owner-ruled):**
+  `ROLE_GRADE_LIMITS["groundside_pavement"]` becomes the road cap —
+  reference the SAME constant as `service_road` (ROAD limit, 8.0 %),
+  never a second number; GROUNDSIDE_MAX_GRADE keeps its other
+  consumers unless they are the same law (check, report).
+  Acceptance: KCLT's +129 within_shape groundside rows → the rows at
+  ≤ the road limit clear (quote survivors, if any, with grades);
+  KMCI/CYXY re-censused, deltas quoted.
+* alt_name_apron stays OFF (owner-ruled; the existing twin pins it).

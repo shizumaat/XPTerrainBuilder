@@ -628,7 +628,15 @@ class TestReadDsfObjectBuildings:
         # missing_shed is unresolvable, the .agp is not a .obj.
         assert len(buildings) == 3
         for outer_ring, holes, role in buildings:
-            assert role == "object"
+            # R18-2: the role carries the vertical-evidence verdict.
+            # These harness fixtures are FLAT slabs (the autouse fixture
+            # disables the height/tall-base gates so the ring SHAPE can
+            # be asserted), so they come back UNVOUCHED — which is the
+            # honest reading of a flat slab and the whole point of the
+            # gate.  Both values are the object vocabulary.
+            assert role in (D.OBJECT_BUILDING_ROLE,
+                            D.OBJECT_BUILDING_UNVOUCHED_ROLE)
+            assert role == D.OBJECT_BUILDING_UNVOUCHED_ROLE
             assert holes == []
             assert len(outer_ring) >= 3
             assert outer_ring[0] != outer_ring[-1]
@@ -1117,7 +1125,9 @@ class TestReadDsfObjectBuildingsRealReader:
                                                 xplane_root=None)
         assert len(buildings) == 1
         outer_ring, holes, role = buildings[0]
-        assert role == "object" and holes == []
+        # 3 m tall box → no building-height member → UNVOUCHED (R18-2);
+        # the ring itself is unchanged, which is what this test asserts.
+        assert role == D.OBJECT_BUILDING_UNVOUCHED_ROLE and holes == []
         polygon = Polygon(outer_ring)
         centroid = polygon.centroid
         assert centroid.x == pytest.approx(-80.930, abs=2e-5)
@@ -1397,3 +1407,375 @@ class TestStructureRingTallBaseFill:
             {"plate.obj": geometry, "terminal.obj": geometry},
             [make_placement("plate.obj"),
              make_placement("terminal.obj")]) is not None
+
+
+# ── R18-2: A BUILDING PAD NEEDS BUILDING EVIDENCE ────────────────────
+# Owner ruling 2026-08-11b; spec docs/specs/round18-heca-mesh-and-pads-
+# spec.md.  Four HECA pads (172/176/177/186) sat 11-18 m below their own
+# ground on footprints that were pack OBJECT rings — apron slabs,
+# jersey barriers, fuel trucks, buses — with ZERO OSM buildings under
+# them.  The gate: a DSF-object ring may seed a pad only with an
+# intersecting OSM building footprint OR a vertical-structure test on
+# its own solid geometry.
+
+def _slab_and_member(member_height_m, member_resource="member.obj"):
+    """A 40 x 40 apron slab welded to one upright member of the given
+    height — the phantom-pad shape (barrier / vehicle) at low heights,
+    a building at high ones."""
+    vertices = [
+        (0.0, 0.0, 0.0), (40.0, 0.0, 0.0),
+        (40.0, 0.1, 40.0), (0.0, 0.1, 40.0),
+    ]
+    slab_triangles = [(0, 1, 2), (0, 2, 3)]
+    base = len(vertices)
+    vertices += [
+        (0.0, 0.0, 0.0), (6.0, 0.0, 0.0), (6.0, 0.0, 6.0),
+        (0.0, member_height_m, 0.0), (6.0, member_height_m, 0.0),
+        (6.0, member_height_m, 6.0),
+    ]
+    member_triangles = [(base, base + 1, base + 2),
+                        (base + 3, base + 4, base + 5)]
+    geometry = make_geometry(vertices, slab_triangles + member_triangles)
+    structure = make_structure(
+        {"slab.obj": slab_triangles, member_resource: member_triangles},
+        {"slab.obj": 0.0, member_resource: 0.0})
+    return (structure,
+            {"slab.obj": geometry, member_resource: geometry},
+            [make_placement("slab.obj"), make_placement(member_resource)])
+
+
+def _evidence_of(member_height_m, member_resource="member.obj"):
+    structure, geometry, placements = _slab_and_member(
+        member_height_m, member_resource)
+    evidence = {}
+    ring = object_footprints.structure_ring(
+        structure, geometry, placements, evidence_out=evidence)
+    return ring, evidence
+
+
+class TestVerticalStructureEvidence:
+    def test_barrier_height_member_is_not_building_evidence(
+            self, fake_projection):
+        # 3.00 m is the HECA pack's measured barrier/strip class, and
+        # 5.87 m its jet-blast deflectors — the tallest NON-building
+        # structure on the field.  Neither vouches at the armed 6.0 m.
+        for height in (3.0, 4.53, 5.87):
+            ring, evidence = _evidence_of(height)
+            assert ring is not None, height       # still a ring …
+            assert evidence["vertical_evidence"] is False, height
+            assert evidence["verdict"] == "ring"
+
+    def test_building_height_member_is_building_evidence(
+            self, fake_projection):
+        # 6.09-6.10 m is where the pack's building members start.
+        for height in (6.1, 12.0, 113.0):
+            ring, evidence = _evidence_of(height)
+            assert ring is not None, height
+            assert evidence["vertical_evidence"] is True, height
+
+    def test_threshold_moves_the_verdict(self, fake_projection,
+                                         monkeypatch):
+        # Mutation check: the armed value is what decides, not a
+        # coincidence of the fixture.
+        monkeypatch.setattr(config, "DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M", 3.0)
+        _ring, evidence = _evidence_of(5.87)
+        assert evidence["vertical_evidence"] is True
+        monkeypatch.setattr(config, "DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M", 20.0)
+        _ring, evidence = _evidence_of(12.0)
+        assert evidence["vertical_evidence"] is False
+
+    def test_coverage_floor_is_a_second_condition_when_armed(
+            self, fake_projection, monkeypatch):
+        # Armed at 0 by measurement (a material-split pack's real
+        # terminal shells cover as little of their hull as the phantom
+        # class), but it must still BE a condition when a pack arms it:
+        # the member's one BASE triangle (its roof face sits above the
+        # footprint band) covers 18 / 1600 = 0.01125 of the slab hull.
+        _ring, evidence = _evidence_of(12.0)
+        assert evidence["evidence_coverage"] == pytest.approx(0.01125,
+                                                              rel=0.05)
+        monkeypatch.setattr(config, "DSF_OBJECT_EVIDENCE_MIN_COVERAGE", 0.5)
+        _ring, evidence = _evidence_of(12.0)
+        assert evidence["vertical_evidence"] is False
+
+    def test_above_grade_not_total_extent(self, fake_projection):
+        # A below-grade pit is not a building however deep (the A11
+        # rationale, applied per MEMBER).
+        vertices = [
+            (0.0, 0.0, 0.0), (40.0, 0.0, 0.0),
+            (40.0, 0.1, 40.0), (0.0, 0.1, 40.0),
+        ]
+        slab_triangles = [(0, 1, 2), (0, 2, 3)]
+        base = len(vertices)
+        vertices += [
+            (0.0, -20.0, 0.0), (6.0, -20.0, 0.0), (6.0, -20.0, 6.0),
+            (0.0, 0.05, 0.0), (6.0, 0.05, 0.0), (6.0, 0.05, 6.0),
+        ]
+        pit_triangles = [(base, base + 1, base + 2),
+                         (base + 3, base + 4, base + 5)]
+        geometry = make_geometry(vertices, slab_triangles + pit_triangles)
+        structure = make_structure(
+            {"slab.obj": slab_triangles, "pit.obj": pit_triangles},
+            {"slab.obj": 0.0, "pit.obj": -20.0})
+        evidence = {}
+        object_footprints.structure_ring(
+            structure, {"slab.obj": geometry, "pit.obj": geometry},
+            [make_placement("slab.obj"), make_placement("pit.obj")],
+            evidence_out=evidence)
+        assert evidence["vertical_evidence"] is False
+
+    def test_tall_member_coverage_is_one_definition(self):
+        # The gate, the twins and tools/object_pad_evidence_report.py
+        # all call THIS function; a second implementation of "how tall
+        # is it over its own footprint" is the census-wrapper defect.
+        members = [("a.obj", 10.0, 2.0), ("b.obj", 1.0, 8.0)]
+        assert object_footprints.tall_member_coverage(
+            members, 10.0, 6.0) == pytest.approx(0.2)
+        assert object_footprints.tall_member_coverage(
+            members, 10.0, 0.5) == pytest.approx(1.0)
+        assert object_footprints.tall_member_coverage(members, 0.0, 6.0) == 0.0
+        assert object_footprints.tallest_member_extent(members) == 10.0
+        assert object_footprints.tallest_member_extent([]) == 0.0
+
+
+class TestEvidenceNameVouching:
+    def test_pack_directory_named_hangar_does_not_vouch(self):
+        # THE MEASURED TRAP (HECA 2026-08-11): the Tai Models pack files
+        # its whole airport under ``Airport/Hangar_Tower/`` and
+        # ``Airport/Hangar/``, and a path-anywhere match vouched 667 of
+        # its 817 rings — every phantom pad included.
+        assert object_footprints.evidence_name_vouches(
+            ["Airport/Hangar_Tower/metal_strip_2.obj"]) is False
+        assert object_footprints.evidence_name_vouches(
+            ["Airport/Hangar/Plastic.obj",
+             "Airport/Hangar_Tower/jet_Blash_02.obj"]) is False
+
+    def test_basename_and_library_paths_vouch(self):
+        # The CYXY ruling's subject: a STOCK LIBRARY resource whose
+        # virtual path is the library author's semantic statement.
+        assert object_footprints.evidence_name_vouches(
+            ["lib/airport/Common_Elements/Hangars/hangar_01.obj"]) is True
+        assert object_footprints.evidence_name_vouches(
+            ["Objects/term_building_Ground.obj"]) is True
+        assert object_footprints.evidence_name_vouches(
+            ["opensceneryx/objects/buildings/terminal_a.obj"]) is True
+        assert object_footprints.evidence_name_vouches(
+            ["Objects/box.obj"]) is False
+
+    def test_name_vouching_overrides_the_height_test(self, fake_projection):
+        _ring, evidence = _evidence_of(
+            3.0, member_resource="lib/airport/hangars/shed.obj")
+        assert evidence["evidence_name_vouched"] is True
+        assert evidence["vertical_evidence"] is True
+
+
+class TestReaderStampsTheEvidenceRole:
+    def test_role_carries_the_vertical_verdict(self, fake_projection,
+                                               monkeypatch):
+        # The tuple SHAPE is unchanged (role is already a vocabulary);
+        # the pipeline reads the role and OR-s it with the OSM half.
+        for height, expected in ((3.0, D.OBJECT_BUILDING_UNVOUCHED_ROLE),
+                                 (12.0, D.OBJECT_BUILDING_ROLE)):
+            structure, geometry, placements = _slab_and_member(height)
+            monkeypatch.setattr(
+                object_anchor, "partition_structures",
+                lambda *args, **kwargs: [structure])
+            evidence_records = []
+            out = []
+            # Drive structure_ring exactly as the reader does.
+            evidence = {}
+            ring = object_footprints.structure_ring(
+                structure, geometry, placements, evidence_out=evidence)
+            evidence_records.append(evidence)
+            out.append((ring, [],
+                        D.OBJECT_BUILDING_ROLE
+                        if evidence.get("vertical_evidence")
+                        else D.OBJECT_BUILDING_UNVOUCHED_ROLE))
+            assert out[0][2] == expected, height
+
+    def test_real_reader_stamps_unvouched_for_a_flat_pack_ring(
+            self, tmp_path, monkeypatch):
+        # End to end through the real reader: a 40 m box only 3 m tall
+        # is a slab, and comes back UNVOUCHED even though it is a ring.
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_BUILDING_HEIGHT_M", 0.0)
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_TALL_BASE_FILL", 0.0)
+        body = "\n".join([
+            "OBJECT_DEF Objects/slab.obj",
+            "OBJECT 0 -80.930000 35.210000 0.000000",
+        ]) + "\n"
+        dsf_path, pack_root = _write_fake_dsf(tmp_path, body)
+        physical = os.path.join(pack_root, "Objects", "slab.obj")
+        os.makedirs(os.path.dirname(physical), exist_ok=True)
+        with open(physical, "w") as handle:
+            handle.write(_REAL_BOX_OBJ)
+        buildings, evidence = D.read_dsf_object_building_evidence(
+            dsf_path, xplane_root=None)
+        assert len(buildings) == 1
+        assert buildings[0][2] == D.OBJECT_BUILDING_UNVOUCHED_ROLE
+        # The evidence record is populated for every structure the
+        # reader considered — that is what the population table reads.
+        assert evidence and evidence[0]["verdict"] == "ring"
+        assert evidence[0]["vertical_evidence"] is False
+
+
+class TestPipelineBuildingEvidenceGate:
+    """The gate closes in the PIPELINE (R18-2): the reader's vertical
+    verdict rides on the role, the OSM half is only knowable here, and
+    the two are OR-ed before anything enters the building pool — so a
+    refused ring never reaches facade clustering."""
+
+    RING = [(-80.930, 35.210), (-80.929, 35.210), (-80.929, 35.211)]
+
+    def _collect(self, monkeypatch, role, osm=None, **flags):
+        monkeypatch.setattr(config, "DSF_OBJECT_BUILDINGS", True)
+        for name, value in flags.items():
+            monkeypatch.setattr(config, name, value)
+        monkeypatch.setattr(
+            D, "read_dsf_object_buildings",
+            lambda dsf_path, cache_dir=None, xplane_root=None: [
+                (self.RING, [], role)])
+        refused = []
+        admitted = pipeline._collect_dsf_object_building_footprints(
+            "/nonexistent.dsf", None,
+            lambda outer_ring, hole_rings: True,
+            osm_building_evidence=osm, refused_out=refused)
+        return admitted, refused
+
+    def test_no_height_and_no_osm_is_refused(self, monkeypatch):
+        admitted, refused = self._collect(
+            monkeypatch, D.OBJECT_BUILDING_UNVOUCHED_ROLE,
+            osm=lambda ring: False)
+        assert admitted == 0
+        assert refused == [self.RING]
+
+    def test_no_osm_ARM_AT_ALL_is_not_evidence_of_absence(self, monkeypatch):
+        # ``osm_building_evidence=None`` means the caller has no OSM in
+        # hand — the gate then rests on the vertical test alone, and an
+        # unvouched ring is still refused.
+        admitted, refused = self._collect(
+            monkeypatch, D.OBJECT_BUILDING_UNVOUCHED_ROLE, osm=None)
+        assert admitted == 0 and refused == [self.RING]
+
+    def test_osm_building_alone_admits(self, monkeypatch):
+        admitted, refused = self._collect(
+            monkeypatch, D.OBJECT_BUILDING_UNVOUCHED_ROLE,
+            osm=lambda ring: True)
+        assert admitted == 1 and refused == []
+
+    def test_vertical_evidence_alone_admits(self, monkeypatch):
+        admitted, refused = self._collect(
+            monkeypatch, D.OBJECT_BUILDING_ROLE, osm=lambda ring: False)
+        assert admitted == 1 and refused == []
+
+    def test_gate_off_admits_everything(self, monkeypatch):
+        admitted, refused = self._collect(
+            monkeypatch, D.OBJECT_BUILDING_UNVOUCHED_ROLE,
+            osm=lambda ring: False,
+            DSF_OBJECT_BUILDING_EVIDENCE=False)
+        assert admitted == 1 and refused == []
+
+
+class TestOsmBuildingEvidenceExtraction:
+    """Evidence source (a).  Deliberately NOT ``_extract_osm_terminals``:
+    that function carries pad-SELECTION policy (the explicit-terminal
+    restriction, HANGAR_PADS, the 100 m² pad floor), and reusing it
+    would make a DSF ring's admission depend on how mappers tagged some
+    other building on the field."""
+
+    def _square(self, x0, y0, size=10.0):
+        return [(x0, y0), (x0 + size, y0), (x0 + size, y0 + size),
+                (x0, y0 + size), (x0, y0)]
+
+    def _osm(self, tags, x0=0.0, y0=0.0):
+        from auto_patch import terminals
+        nodes = {}
+        node_ids = []
+        for index, (x, y) in enumerate(self._square(x0, y0)[:-1]):
+            node_id = f"n{x0}_{index}"
+            nodes[node_id] = (y, x)          # (lat, lon)
+            node_ids.append(node_id)
+        node_ids.append(node_ids[0])
+        ways = [("w1", node_ids, tags)]
+        return terminals._extract_osm_building_evidence(
+            nodes, ways, [], lambda lon, lat: (lon, lat))
+
+    def test_plain_building_tag_is_evidence(self):
+        assert len(self._osm({"building": "yes"})) == 1
+        assert len(self._osm({"building": "warehouse"})) == 1
+        assert len(self._osm({"aeroway": "terminal"})) == 1
+        assert len(self._osm({"aeroway": "hangar"})) == 1
+
+    def test_non_building_tags_are_not_evidence(self):
+        assert self._osm({"aeroway": "taxiway"}) == []
+        assert self._osm({"building": "no"}) == []
+        assert self._osm({"highway": "service"}) == []
+
+    def test_no_area_floor_a_small_mapped_building_is_evidence(self):
+        # ``_extract_osm_terminals`` drops anything under 100 m²; the
+        # evidence set must not — a small mapped building is still a
+        # building, and the phantom pads have NO building at all.
+        from auto_patch import terminals
+        nodes, node_ids = {}, []
+        for index, (x, y) in enumerate(
+                [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]):
+            nodes[f"s{index}"] = (y, x)
+            node_ids.append(f"s{index}")
+        node_ids.append(node_ids[0])
+        polygons = terminals._extract_osm_building_evidence(
+            nodes, [("w", node_ids, {"building": "yes"})], [],
+            lambda lon, lat: (lon, lat))
+        assert len(polygons) == 1 and polygons[0].area == pytest.approx(4.0)
+
+    def test_predicate_is_false_with_no_mapped_buildings(self):
+        predicate, count = pipeline._osm_building_evidence_predicate(
+            {}, [], [], lambda lon, lat: (lon, lat))
+        assert count == 0
+        assert predicate([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]) is False
+
+    def test_predicate_answers_intersection(self):
+        nodes, node_ids = {}, []
+        for index, (x, y) in enumerate(
+                [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]):
+            nodes[f"b{index}"] = (y, x)
+            node_ids.append(f"b{index}")
+        node_ids.append(node_ids[0])
+        predicate, count = pipeline._osm_building_evidence_predicate(
+            nodes, [("w", node_ids, {"building": "yes"})], [],
+            lambda lon, lat: (lon, lat))
+        assert count == 1
+        assert predicate([(1.0, 1.0), (2.0, 1.0), (2.0, 2.0)]) is True
+        assert predicate([(50.0, 50.0), (51.0, 50.0), (51.0, 51.0)]) is False
+
+
+class TestPendingDefencesStayOffByMeasurement:
+    """Both pending defences were RULED BY MEASUREMENT in this round
+    (spec R18-2, "MEASURE what each would have caught ... then arm at
+    the values the measurement supports (or report why not)").  Neither
+    is armed; these twins pin that decision to its reason, and prove
+    each still WORKS when a pack arms it."""
+
+    def test_neither_defence_is_armed(self):
+        # HECA measurement (tools/object_pad_evidence_report.py):
+        #  * span gate — 6 rings caught at 300 m, 3 already refused by
+        #    the evidence gate, and all 3 marginal ones are REAL
+        #    buildings (60,392 m² shell, 113 m member).  No value
+        #    removes a phantom the evidence gate misses.
+        #  * connector pre-filter — drops 192 of the 336 evidence-
+        #    vouched rings (433,766 m² of real building footprint): the
+        #    documented EGGW/EGLL failure reproduced, because in a
+        #    material-split pack EVERY texture page spans the field.
+        assert config.DSF_OBJECT_MAX_STRUCTURE_SPAN_M == 0.0
+        assert config.DSF_OBJECT_CONNECTOR_PREFILTER is False
+
+    def test_span_gate_still_works_when_a_pack_arms_it(
+            self, fake_projection, monkeypatch):
+        # Mutation check on the OFF default: the gate is off, not dead.
+        structure, geometry, placements = _slab_and_member(12.0)
+        assert object_footprints.structure_ring(
+            structure, geometry, placements) is not None
+        monkeypatch.setattr(config, "DSF_OBJECT_MAX_STRUCTURE_SPAN_M", 10.0)
+        evidence = {}
+        assert object_footprints.structure_ring(
+            structure, geometry, placements,
+            evidence_out=evidence) is None
+        assert evidence["verdict"] == "max_structure_span"

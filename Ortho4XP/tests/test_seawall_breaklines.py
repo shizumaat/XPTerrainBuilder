@@ -358,12 +358,14 @@ class TestSeawallPlumbing:
         source = " ".join(inspect.getsource(VMAP.include_sea).split())
         # R17-3: the union offered to the wall law is the role-scoped
         # GRADED COVERAGE (``seawall_admission_area``), not the land
-        # cutter; the cutter (``seed_area``) is unchanged.
-        assert (
-            "insert_seawalls(vector_map, tile,"
-            " seawall_admission_area(patches_area, graded_area),"
-            " seed_area)" in source
-        )
+        # cutter; R17b-2 unions the CONSTANT-INSET COASTLINE into it;
+        # the cutter (``seed_area``) is unchanged by both.
+        assert "admission = seawall_admission_area(patches_area," \
+               " graded_area)" in source
+        assert "coastal = coastline_wall_admission(tile, sea_area)" in source
+        assert "ops.unary_union([admission, coastal])" in source
+        assert "insert_seawalls(vector_map, tile, admission, seed_area)" \
+               in source
 
     def test_include_water_accepts_the_pavement_union(self):
         parameters = inspect.signature(VMAP.include_water).parameters

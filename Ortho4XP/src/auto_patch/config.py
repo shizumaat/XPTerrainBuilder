@@ -43,6 +43,9 @@ __all__ = [
     "DSF_OBJECT_CONNECTOR_MAX_FILL",
     "DSF_OBJECT_MAX_STRUCTURE_SPAN_M",
     "DSF_OBJECT_MIN_BUILDING_HEIGHT_M",
+    "DSF_OBJECT_BUILDING_EVIDENCE",
+    "DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M",
+    "DSF_OBJECT_EVIDENCE_MIN_COVERAGE",
     "DSF_OBJECT_PAD_FLAG_SPAN_M",
     "DSF_OBJECT_FOOT_ANCHOR",
     "DSF_OBJECT_FOOT_MIN_REACH_M",
@@ -3458,6 +3461,75 @@ DSF_OBJECT_MIN_TALL_BASE_FILL = float(
 # tall" when they do.
 DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M = float(
     _os.environ.get("O4_DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M", "2.5"))
+
+# ── BUILDING EVIDENCE (R18-2, owner ruling 2026-08-11b) ─────────────
+# A DSF-object footprint ring may seed a building pad ONLY with BUILDING
+# EVIDENCE — never on solid reach alone.  Two evidence sources, OR-ed:
+#
+#   (a) an intersecting OSM building / terminal / hangar footprint
+#       (the pipeline half — ``_collect_dsf_object_building_footprints``
+#       is the only place an OSM polygon exists);
+#   (b) a VERTICAL-STRUCTURE test on the object's own solid geometry
+#       (the reader half — ``object_footprints.structure_ring``), plus
+#       the name-vouching the hull-fill floor already extends.
+#
+# The defect it closes (HECA Tai Models, measured 2026-08-11): four flat
+# pads 11-18 m BELOW their own ground (building172 −10171, 14,672 m² at
+# 86.71 m over 104.7 m DEM; 176 −10174; 177 −10175; 186 −10184) whose
+# footprints are pack OBJECT rings — apron slabs, jersey barriers, fuel
+# trucks and buses — with ZERO OSM buildings under them.  Nothing in the
+# admission chain asked whether a BUILDING was there: 25 m solid reach
+# admitted them, the 2 m gap bridge and 110 m outline fill in
+# ``terminals.py`` fused them, and ``PAD_HOST_PAVEMENT_LEVEL``
+# (untouched — correct for real pads) dropped them to the host apron
+# median.
+DSF_OBJECT_BUILDING_EVIDENCE = (
+    _os.environ.get("O4_DSF_OBJECT_BUILDING_EVIDENCE", "1") == "1")
+
+# What makes a member resource BUILDING-TALL for the vertical test: its
+# OWN above-grade vertical extent (the A11 clamp applied per member — a
+# 3.9 m drainage pit and a 3.9 m wall are not the same evidence).
+#
+# 6.0 m IS MEASURED, not chosen (HECA Tai Models, 2026-08-11,
+# tools/object_pad_evidence_report.py over the pack's 817 emitted rings
+# / 10,746 structures).  The per-member above-grade extents separate
+# into a ground-furniture class and a building class with a real gap:
+#
+#   3.00 m  the barrier / strip class (metal_strip_2.obj and siblings,
+#           an exact manufactured height repeated across the field)
+#   4.53 m  tallest slab/vehicle-class member measured
+#   5.87 m  jet_Blash_02.obj x60 — the JET BLAST DEFLECTORS, the tallest
+#           non-building structure on the field
+#   ────────────────── the gap ──────────────────
+#   6.09 m  Private_hall/palm.obj, 6.10 m interior_glass.obj — building
+#           interior members
+#   7-113 m every real terminal shell
+#
+# The four phantom pads' rings top out at 2.85-5.36 m; every real
+# terminal shell reaches 6.1 m or more.  Raise it and single-storey
+# buildings start falling through to the OSM half; lower it and the
+# jet-blast fences vouch themselves.  0 disables the height test.
+DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M = float(
+    _os.environ.get("O4_DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M", "6.0"))
+
+# How much of the structure's own footprint hull those building-tall
+# members must cover.  ARMED AT 0 (= no coverage floor) BY MEASUREMENT,
+# and the measurement is the point: a material-split pack authors one
+# terminal as a stack of per-material thin wall/strip objects, so its
+# TALL members cover 0.000-0.02 of the fused hull — the SAME range as
+# the phantom slab class (HECA 2026-08-11: a 22,743 m² ring with a
+# 14.98 m member measures 0.0020, a 31,184 m² ring with a 10.81 m
+# member 0.0004, while the phantom 61,481 m² ring measures 0.0000).
+# Any floor that catches the phantoms deletes the real terminals; the
+# HEIGHT does the separation alone.  The coverage-shaped defence is
+# already carried, upstream and as a refusal, by
+# ``DSF_OBJECT_MIN_TALL_BASE_FILL`` (the plate+mast weld class — 188
+# HECA structures refused there before this gate is reached).
+# A pack that needs the floor arms it here; it stays a floor on the
+# EVIDENCE, never a refusal — a structure below it falls through to
+# evidence source (a) and needs an OSM building under it.
+DSF_OBJECT_EVIDENCE_MIN_COVERAGE = float(
+    _os.environ.get("O4_DSF_OBJECT_EVIDENCE_MIN_COVERAGE", "0.0"))
 
 # (20260708) DSF OBJECT RE-ANCHOR (user 2026-07-08, rulings R1 + R2):
 # post-mesh, rewrite the ``y`` column of each structure's vertices by

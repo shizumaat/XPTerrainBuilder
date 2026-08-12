@@ -64,6 +64,7 @@ module-level work — they are libraries and are safe to import.
 | `clearance_conformance_audit.py` | Whether clearance cuts actually protect anything: a cut riding the DEM reads as "covered" to the spike audit while protecting nothing |
 | `patch_provenance.py` | Decodes a patch's provenance stamp — git sha + dirty flag, gate configuration, which elevation insets baked into its DEM, timestamp. Root-line only, so seconds-fast over any patch tree |
 | `object_seating_report.py` | Per-structure predicted float/sink against the mesh, worst-first with lat/lon, so an in-sim "that building floats" maps to a row |
+| `object_pad_evidence_report.py` | Per-structure BUILDING EVIDENCE for a pack's OBJ8 rings (R18-2): the vertical-structure reading, the OSM-footprint join, the name vouching, the upstream refusal ledger, and what each pending default-OFF defence would cost on this pack. Guarded; reads every number out of the engine's own code path |
 | `decode_dsf_terrain_table.py` | Decodes an emitted DSF's `TERRAIN_DEF` table and per-patch attributes via `DSFTool --dsf2text`. The verification companion to the `texture_mode` writer |
 
 ## Build drivers — run a build, a bake or a suite

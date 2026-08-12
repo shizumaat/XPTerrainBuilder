@@ -678,8 +678,46 @@ def _admit_dsf_building_footprint(
         return False
 
 
+def _osm_building_evidence_predicate(nodes, ways, relations, to_m):
+    """``ring_lonlat -> bool``: does an OSM building footprint intersect
+    this DSF-object ring?  Evidence source (a) of R18-2.
+
+    Built once per build (the STRtree over the OSM building polygons is
+    the whole point — the gate runs over every object ring), and returns
+    a predicate that is always ``False`` when the airport has no mapped
+    buildings at all, which is the honest answer: no OSM evidence.
+    """
+    from .terminals import _extract_osm_building_evidence
+    try:
+        buildings = _extract_osm_building_evidence(
+            nodes, ways, relations, to_m)
+    except _GEOM_EXC:
+        buildings = []
+    if not buildings:
+        return (lambda _ring_lonlat: False), 0
+    from shapely.strtree import STRtree
+    tree = STRtree(buildings)
+
+    def _has_evidence(ring_lonlat) -> bool:
+        try:
+            ring_m = Polygon([to_m(lon, lat) for (lon, lat) in ring_lonlat])
+            if not ring_m.is_valid:
+                ring_m = ring_m.buffer(0)
+            if ring_m.is_empty:
+                return False
+            for index in tree.query(ring_m):
+                if buildings[index].intersects(ring_m):
+                    return True
+        except _GEOM_EXC:
+            return False
+        return False
+
+    return _has_evidence, len(buildings)
+
+
 def _collect_dsf_object_building_footprints(
-        dsf_path, xplane_root, admit_footprint) -> int:
+        dsf_path, xplane_root, admit_footprint,
+        osm_building_evidence=None, refused_out=None) -> int:
     """Phase 1 of the DSF object integration: OBJ8 structure footprints
     join the DSF building pool beside the ``.fac`` facades, through the
     IDENTICAL downstream path (``admit_footprint`` =
@@ -688,20 +726,39 @@ def _collect_dsf_object_building_footprints(
     and ``_combine_building_sources`` exactly like a facade — additive,
     no overlap predicate (ruling R4; spec section 2.3).
 
+    THE BUILDING-EVIDENCE GATE (R18-2, owner ruling 2026-08-11b) closes
+    HERE, before anything enters the pool and therefore before facade
+    clustering.  A ring is admitted when EITHER
+    ``dsf_reader.OBJECT_BUILDING_ROLE`` (the reader's vertical-structure
+    verdict, carried on the role) OR ``osm_building_evidence(ring)`` (an
+    intersecting OSM building footprint) holds.  Neither ⇒ the ring is
+    an apron slab / barrier / vehicle hull with no building under it and
+    seeds no pad.  ``osm_building_evidence=None`` means the caller has
+    no OSM in hand, which is NOT evidence of absence — the gate then
+    rests on the vertical test alone.
+
     Gated on ``DSF_OBJECT_BUILDINGS`` here (function-local import so
     tests can monkeypatch the flag); the caller has already gated on
     ``DSF_BUILDINGS`` (the object source shares the building path).
-    Returns the number of footprints admitted.
+    ``refused_out``, when a list, collects one
+    ``(ring_lonlat, centroid_lonlat, area_m2)`` row per refusal for the
+    build log.  Returns the number of footprints admitted.
     """
-    from .config import DSF_OBJECT_BUILDINGS
+    from .config import DSF_OBJECT_BUILDING_EVIDENCE, DSF_OBJECT_BUILDINGS
     if not DSF_OBJECT_BUILDINGS:
         return 0
     from . import dsf_reader as _DSFR
     admitted = 0
-    for outer_ring, hole_rings, _role in _DSFR.read_dsf_object_buildings(
+    for outer_ring, hole_rings, role in _DSFR.read_dsf_object_buildings(
             dsf_path, xplane_root=xplane_root):
         if len(outer_ring) < 3:
             continue
+        if DSF_OBJECT_BUILDING_EVIDENCE and role != _DSFR.OBJECT_BUILDING_ROLE:
+            if not (osm_building_evidence is not None
+                    and osm_building_evidence(outer_ring)):
+                if refused_out is not None:
+                    refused_out.append(outer_ring)
+                continue
         if admit_footprint(outer_ring, hole_rings):
             admitted += 1
     return admitted
@@ -1244,6 +1301,12 @@ def build_airport_pavement(icao: str, xplane_root: str,
     dsf_building_polys: List[Polygon] = []
     n_dsf_buildings = 0
     n_dsf_object_buildings = 0
+    # R18-2 building evidence, the OSM half.  Built ONCE for the whole
+    # DSF sweep (the same nodes/ways/relations loaded above; no second
+    # OSM read) and bound into every pack's object-ring gate.
+    _osm_building_evidence, _n_osm_building_evidence = (
+        _osm_building_evidence_predicate(nodes, ways, relations, to_m))
+    _object_rings_refused: List = []
     # Rebuild-freshness record: which pack DSFs this build ACTUALLY reads and
     # which 1°×1° tiles it looks for them in (``layout.dsf_sources_read`` /
     # ``dsf_tiles_scanned``, stamped by ``to_osm`` and re-stat'ed by the
@@ -1524,10 +1587,14 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # OBJ8 structure footprints from the SAME DSF (Phase 1
                 # of the DSF object integration) join the pool through
                 # the IDENTICAL admission path.  Gated inside on
-                # DSF_OBJECT_BUILDINGS (default off).
+                # DSF_OBJECT_BUILDINGS (default off) and on the R18-2
+                # building-evidence ruling (the OSM half of which is the
+                # predicate built once, above this sweep).
                 n_dsf_object_buildings += \
                     _collect_dsf_object_building_footprints(
-                        dsf, xplane_root, _admit)
+                        dsf, xplane_root, _admit,
+                        osm_building_evidence=_osm_building_evidence,
+                        refused_out=_object_rings_refused)
         # ── SHOULDER readmission (owner in-sim report 2026-07-18) ──
         # Runs after the whole sweep so the contact test sees EVERY
         # kept pavement polygon (apt.dat row-110 + .pol + wide object
@@ -1593,6 +1660,41 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     f"  [pav-builder] {icao}: DSF object buildings: "
                     f"{n_dsf_object_buildings} OBJ8 structure "
                     f"footprint(s) inside boundary.")
+            except _GEOM_EXC:
+                pass
+        if _object_rings_refused:
+            # Skip-and-report, never silent (R18-2): each refused ring
+            # is a pad that WOULD have been laid on no building
+            # evidence.  Worst-first by area so the phantom mega-pads
+            # lead.
+            try:
+                _rows = []
+                for _ring in _object_rings_refused:
+                    try:
+                        _rm = Polygon([to_m(lon, lat)
+                                       for (lon, lat) in _ring])
+                        if not _rm.is_valid:
+                            _rm = _rm.buffer(0)
+                        # Centroid in the ring's OWN lon/lat (there is no
+                        # inverse projection in scope, and a lon/lat
+                        # centroid is what a reviewer flies to).
+                        _cll = Polygon(_ring).buffer(0).centroid
+                        _rows.append((_rm.area, _cll.y, _cll.x))
+                    except _GEOM_EXC:
+                        continue
+                _rows.sort(reverse=True)
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: building evidence gate "
+                    f"REFUSED {len(_object_rings_refused)} OBJ8 "
+                    "structure ring(s) — no tall structure over their "
+                    "own footprint and no OSM building under them "
+                    f"({_n_osm_building_evidence} OSM building "
+                    "footprint(s) in the evidence set; "
+                    "O4_DSF_OBJECT_BUILDING_EVIDENCE).")
+                for _area, _lat, _lon in _rows[:10]:
+                    UI.vprint(1,
+                        f"      refused {_area:9.0f} m2 at "
+                        f"{_lat:.7f},{_lon:.7f}")
             except _GEOM_EXC:
                 pass
     except StopIteration:

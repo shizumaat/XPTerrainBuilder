@@ -192,6 +192,259 @@ def read_triangle_attribute(text):
 
 
 ################################################################################
+# R18-1b — NO VERTEX INSIDE A PATCH FACE ANSWERS WITH DEM
+# (Fable lead amendment 1, 2026-08-12, docs/specs/round18-heca-mesh-and-
+# pads-spec.md, on the round-18 refutation of the seeding hypothesis).
+#
+# THE DEFECT, measured interventionally on +30+031: every one of the
+# 3,204 faces in HECA's patch coverage is INTERP_ALT-seeded (the round's
+# sub-cell seeding pass adds ZERO), and the hill at 30.1170578,
+# 31.4098155 still stood at 98.05 m inside an 86 m apron, with 54 free
+# interior vertices more than 3 m above their 8 nearest patch nodes.
+# The cause is the treatment itself: for an INTERP_ALT triangle the loop
+# below assigns each vertex ITS OWN carried vector altitude
+# (``vertices[6v+2] = vertices[6v+5]``).  For a vertex the vector map
+# authored — a patch ring node, a road ribbon node — that value IS the
+# patched surface.  For a FREE INTERIOR vertex, one Triangle4XP inserted
+# to refine the face, it is the DEM the mesher sampled.  So the flood
+# marks the face correctly and then hands its interior back to the DEM.
+#
+# THE LAW: such a vertex takes its altitude INTERPOLATED FROM THE
+# PATCH-VALUED VERTICES of its face.  Implemented as the discrete
+# HARMONIC extension over the INTERP_ALT sub-mesh: the authored vertices
+# are Dirichlet data, every free vertex is the (uniformly) weighted mean
+# of its neighbours, solved exactly as one sparse linear system.  That
+# is planar on a face whose authored boundary is planar (it reproduces
+# the plane exactly), smooth across a face whose boundary is not,
+# deterministic, and costs one solve over the free vertices alone.
+# No new marker, no new attribute, nothing written for any vertex the
+# vector map authored.
+_INTERPOLATED_INTERIOR_REPORT = {}
+
+
+def interpolate_free_interior_altitudes(
+    vertices, triangles, patch_valued_indices, report=None,
+):
+    """Harmonic-extend the PATCH-VALUED altitudes over everything else.
+
+    ``vertices``   — the flat 6-per-vertex array
+                     ``post_process_nodes_altitudes`` loads.  Column 5 is
+                     each vertex's carried vector altitude; this function
+                     writes column 5 ONLY, for free vertices only, and
+                     the caller's existing ``z = column 5`` assignment
+                     then does what it always did.  Every patch-valued
+                     vertex comes out byte-identical.
+    ``triangles``  — the INTERP_ALT-treated triangles, as
+                     ``(v1, v2, v3)`` index tuples.
+    ``patch_valued_indices`` — the vertices ON A PATCH RING, i.e. the
+                     Dirichlet data.  MEASURED, not inferred from the
+                     index: the first cut of this used "index below the
+                     input-vertex count", which is the vector map's
+                     AUTHORED set — and that set includes the orthogrid
+                     and gluing-network nodes, which carry the DEM.
+                     HECA's hill vertex is exactly one of those (input
+                     node 138790, carried altitude 99.33 m, all four
+                     incident edges DUMMY), so it was classified
+                     untouchable and kept the DEM while 12,936 genuine
+                     Steiner points were fixed.  A vertex is
+                     patch-valued when it is an endpoint of a
+                     ``PATCH_RING_MARKER`` edge — the amendment's own
+                     words, "on a patch ring / constrained edge carrying
+                     a patch value".
+
+    A free vertex in a component that reaches NO patch-valued vertex has
+    no data to interpolate from and keeps its own value — reported,
+    never silent, as a legitimate survivor.  That is also what leaves a
+    road ribbon outside any patch byte-unchanged.
+
+    Returns the number of free vertices whose altitude was replaced.
+    """
+    if patch_valued_indices is None or not triangles:
+        return 0
+    import numpy as _np
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.linalg import spsolve
+
+    # The sub-mesh: every vertex an INTERP_ALT triangle touches, and
+    # every edge of those triangles.
+    tri = _np.asarray(sorted(triangles), dtype=_np.int64)
+    edges = _np.vstack([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]])
+    edges.sort(axis=1)
+    edges = _np.unique(edges, axis=0)
+    touched = _np.unique(tri)
+    patch_valued = _np.zeros(int(touched.max()) + 1, dtype=bool)
+    fixed = _np.asarray(sorted(patch_valued_indices), dtype=_np.int64)
+    fixed = fixed[(fixed >= 0) & (fixed < patch_valued.size)]
+    if fixed.size == 0:
+        if report is not None:
+            report.update({"free": 0, "solved": 0, "isolated": 0,
+                           "non_finite": 0})
+        return 0
+    patch_valued[fixed] = True
+    free = touched[~patch_valued[touched]]
+    if free.size == 0:
+        if report is not None:
+            report.update({"free": 0, "solved": 0, "isolated": 0})
+        return 0
+
+    # Compact indexing over the free vertices; patch-valued vertices
+    # stay in the right-hand side as Dirichlet data.
+    position = _np.full(int(touched.max()) + 1, -1, dtype=_np.int64)
+    position[free] = _np.arange(free.size)
+    a, b = edges[:, 0], edges[:, 1]
+    a_free = position[a] >= 0
+    b_free = position[b] >= 0
+
+    rows, cols, data = [], [], []
+    rhs = _np.zeros(free.size)
+    # Degree (the diagonal) counts EVERY incident edge, so a patch-valued
+    # neighbour pulls exactly as hard as a free one — that is what makes
+    # the result the harmonic extension rather than a free-only average.
+    degree = _np.zeros(free.size)
+    both = a_free & b_free
+    _np.add.at(degree, position[a[both]], 1.0)
+    _np.add.at(degree, position[b[both]], 1.0)
+    rows.extend(position[a[both]])
+    cols.extend(position[b[both]])
+    data.extend([-1.0] * int(both.sum()))
+    rows.extend(position[b[both]])
+    cols.extend(position[a[both]])
+    data.extend([-1.0] * int(both.sum()))
+
+    # MIXED edges (one patch-valued endpoint, one free) carry the
+    # Dirichlet data.  ONE branch, written without assuming which side is
+    # which — a two-branch version leaves half of it permanently
+    # unexecuted, and unexecuted code is code no twin can check.
+    #
+    # ``authored_neighbours`` is counted SEPARATELY from ``rhs`` on
+    # purpose: a patch-valued neighbour whose altitude is exactly 0.0 m
+    # contributes nothing to the right-hand side, so "rhs is still zero"
+    # cannot mean "no Dirichlet data" — an airport at sea level would
+    # have had its whole interior declared isolated and left on the DEM.
+    authored_neighbours = _np.zeros(free.size)
+    mixed = a_free ^ b_free
+    free_side = _np.where(a_free[mixed], a[mixed], b[mixed])
+    authored_side = _np.where(a_free[mixed], b[mixed], a[mixed])
+    _np.add.at(degree, position[free_side], 1.0)
+    _np.add.at(authored_neighbours, position[free_side], 1.0)
+    _np.add.at(rhs, position[free_side], vertices[6 * authored_side + 5])
+
+    # A free vertex whose component never touches a patch-valued vertex has
+    # no Dirichlet data at all.  Pin it to its own current value: the
+    # system stays non-singular and the vertex is reported untouched.
+    reachable = authored_neighbours > 0
+    isolated = _np.zeros(free.size, dtype=bool)
+    if not reachable.all():
+        # Propagate reachability along free-free edges (the component
+        # test) — a few sparse sweeps, bounded by the component diameter.
+        adjacency = coo_matrix(
+            (_np.ones(int(both.sum()) * 2),
+             (_np.concatenate([position[a[both]], position[b[both]]]),
+              _np.concatenate([position[b[both]], position[a[both]]]))),
+            shape=(free.size, free.size)).tocsr()
+        seen = reachable.copy()
+        while True:
+            grown = seen | (adjacency.dot(seen.astype(float)) > 0)
+            if grown.sum() == seen.sum():
+                break
+            seen = grown
+        isolated = ~seen
+        if isolated.any():
+            index = _np.nonzero(isolated)[0]
+            degree[index] += 1.0
+            rhs[index] += vertices[6 * free[index] + 5]
+
+    rows.extend(range(free.size))
+    cols.extend(range(free.size))
+    data.extend(degree + 1e-12)          # keeps a 0-degree row solvable
+    laplacian = coo_matrix(
+        (data, (rows, cols)), shape=(free.size, free.size)).tocsr()
+    solution = spsolve(laplacian, rhs)
+    solution = _np.asarray(solution).ravel()
+    good = _np.isfinite(solution)
+    changed = good & ~isolated
+    vertices[6 * free[changed] + 5] = solution[changed]
+    if report is not None:
+        report.update({"free": int(free.size),
+                       "solved": int(changed.sum()),
+                       "isolated": int(isolated.sum()),
+                       "non_finite": int((~good).sum())})
+    return int(changed.sum())
+
+
+# PATCH_RING_MARKER, mirrored from ``O4_Vector_Map`` (importing it here
+# would close an import cycle: the vector map is the mesh's producer).
+# ``tests/test_r18_free_interior_altitudes.py`` twin-asserts the two
+# agree, so a change on either side fails a test rather than silently
+# re-scoping this law.
+PATCH_RING_MARKER = (
+    VECT.Vector_Map.dico_attributes["WATER"]
+    | VECT.Vector_Map.dico_attributes["SEA"]
+    | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
+    | VECT.Vector_Map.dico_attributes["INTERP_ALT"]
+)
+
+
+def patch_valued_vertex_indices(tile, vertices):
+    """The 0-based output-vertex indices that carry a PATCH value.
+
+    A vertex is patch-valued exactly when it is an endpoint of a
+    ``PATCH_RING_MARKER`` edge of the input ``.poly`` — that marker is
+    what ``include_patches`` stamps on a closed patch way, and nothing
+    else wears it.  MEASURED at +30+031: 39,260 of the 157,208 input
+    nodes.  Everything else inside an INTERP_ALT face — the orthogrid
+    nodes, the gluing network, the road ribbons, and every point the
+    mesher inserted — is free, which is the point: HECA's hill was an
+    ORTHOGRID node carrying 99.33 m with four DUMMY edges, and any
+    discriminator based on "the vector map authored it" protects it.
+
+    Input node ids are 1-based and Triangle writes the input vertices
+    first, in order, so id ``i`` is output vertex ``i - 1``.  That is
+    VERIFIED against the coordinates rather than trusted; a mismatch
+    returns ``None``, which disables the interpolation and leaves the
+    historical behaviour, with one loud line.
+
+    Returns ``None`` when it cannot be established.
+    """
+    try:
+        with open(FNAMES.input_node_file(tile)) as handle:
+            count = int(handle.readline().split()[0])
+            if count <= 0 or 6 * count > len(vertices):
+                return None
+            for index in range(count):
+                columns = handle.readline().split()
+                if (float(columns[1]) != vertices[6 * index]
+                        or float(columns[2]) != vertices[6 * index + 1]):
+                    UI.lvprint(
+                        1,
+                        "WARNING: the mesher did not preserve the input "
+                        f"vertex order at index {index} — the "
+                        "free-interior interpolation (R18-1b) is DISABLED "
+                        "for this tile and interior vertices keep the DEM.")
+                    return None
+        indices = set()
+        with open(FNAMES.input_poly_file(tile)) as handle:
+            line = handle.readline()
+            while line.strip() == "" or line.startswith("0 2"):
+                line = handle.readline()
+            nbr_edges = int(line.split()[0])
+            for _ in range(nbr_edges):
+                columns = handle.readline().split()
+                if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
+                    continue
+                indices.add(int(columns[1]) - 1)
+                indices.add(int(columns[2]) - 1)
+        return indices
+    except Exception as error:
+        UI.lvprint(
+            1,
+            "WARNING: could not read the vector inputs to find the "
+            "patch-valued vertices — the free-interior interpolation "
+            "(R18-1b) is disabled:", str(error))
+        return None
+
+
+################################################################################
 def post_process_nodes_altitudes(tile):
     dico_attributes = VECT.Vector_Map.dico_attributes
     f_node = open(FNAMES.output_node_file(tile), "r")
@@ -211,6 +464,10 @@ def post_process_nodes_altitudes(tile):
     water_tris = set()
     sea_tris = set()
     interp_alt_tris = set()
+    # R18-1b: the vector-authored patch/road regions alone (attribute
+    # EXACTLY INTERP_ALT), which are what the free-interior
+    # interpolation governs — see its note above.
+    _interp_alt_only_tris = []
     degenerate_attr_nbr = 0
     degenerate_attr_sample = []
     for i in range(nbr_tri):
@@ -234,6 +491,8 @@ def post_process_nodes_altitudes(tile):
             continue
         if attr >= dico_attributes["INTERP_ALT"]:
             interp_alt_tris.add((v1, v2, v3))
+            if attr == dico_attributes["INTERP_ALT"]:
+                _interp_alt_only_tris.append((v1, v2, v3))
         elif attr & dico_attributes["SEA"] and not (
             attr & dico_attributes["WATER"]
         ):
@@ -298,6 +557,51 @@ def post_process_nodes_altitudes(tile):
             vertices[6 * v2 + 2] = max(vertices[6 * v2 + 2], 0)
             vertices[6 * v3 + 2] = max(vertices[6 * v3 + 2], 0)
     UI.vprint(1, "   Treatment of airports, roads and patches.")
+    # R18-1b: give every FREE INTERIOR vertex of an INTERP_ALT face the
+    # value its face's PATCH-VALUED vertices imply, BEFORE the
+    # assignment below copies column 5 into the altitude.  Scoped to the
+    # triangles whose attribute is EXACTLY ``INTERP_ALT`` — the
+    # vector-authored patch and road regions.  The apt.dat RUNWAY /
+    # TAXIWAY / APRON / HANGAR regions (attributes 16/32/64/128, which
+    # also satisfy the ``>= INTERP_ALT`` test above) are deliberately
+    # left alone: their interiors ride the airport-smoothed DEM raster
+    # on purpose.
+    #
+    # WIDENING THIS WAS TRIED AND MEASURED OUT (2026-08-12, the round's
+    # last attempt).  The hypothesis was that HECA's patch faces are
+    # flooded by the apt.dat APRON/TAXIWAY seeds and so were being
+    # skipped.  A probe of the owner's own point reported its triangle's
+    # attribute as **8** — plain INTERP_ALT, already in scope — so the
+    # hypothesis is REFUTED.  Passing the whole ``>= INTERP_ALT`` set
+    # instead then measured: the interpolated set was UNCHANGED (12,123
+    # both ways, owner point 91.13 m and the class identical to the
+    # decimal), while 49,717 vertices moved instead of 11,960, 3,771 of
+    # them by more than 3 m and one by 32.19 m — the apt.dat surfaces
+    # being re-derived from patch rings for no measured gain.  Widening
+    # is therefore a deliberate, separately-measured act, not a default.
+    if _interp_alt_only_tris:
+        report = {}
+        patch_valued = patch_valued_vertex_indices(tile, vertices)
+        try:
+            n_interpolated = interpolate_free_interior_altitudes(
+                vertices, _interp_alt_only_tris, patch_valued, report=report)
+        except Exception as error:
+            # Never break a mesh build over a refinement: the historical
+            # per-vertex copy below still runs.
+            n_interpolated = 0
+            UI.lvprint(
+                1, "WARNING: free-interior interpolation (R18-1b) failed, "
+                   "interior vertices keep the DEM:", str(error))
+        if report:
+            UI.vprint(
+                1,
+                f"   Patch/road interiors: {n_interpolated} free interior "
+                f"vertex(es) of {report.get('free', 0)} took their face's "
+                "interpolated altitude instead of the DEM"
+                + (f"; {report['isolated']} kept their own value (no "
+                   "authored vertex in their component)"
+                   if report.get("isolated") else "")
+                + ".")
     for v1, v2, v3 in interp_alt_tris:
         vertices[6 * v1 + 2] = vertices[6 * v1 + 5]
         vertices[6 * v2 + 2] = vertices[6 * v2 + 5]

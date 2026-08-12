@@ -5,6 +5,7 @@ from math import pi, sin, cos, sqrt, atan, exp, floor
 import numpy
 from shapely import affinity, geometry, ops
 from shapely.prepared import prep
+from shapely.strtree import STRtree
 
 # from PIL import Image, ImageDraw, ImageFilter
 import O4_DEM_Utils as DEM
@@ -880,6 +881,14 @@ def build_poly_file(tile):
     if UI.red_flag:
         UI.exit_message_and_bottom_line()
         return 0
+
+    # R18-1: patch faces are cut into SUB-CELLS by the INTERP_ALT
+    # geometry encoded after ``include_patches`` seeded them — the
+    # banked road ribbons above all, the seawall breaklines too.  Seed
+    # each of those sub-cells now that every one of those encoders has
+    # run; an unseeded sub-cell keeps the raw DEM inside a patched
+    # apron.  Purely additive (see ``seed_interp_alt_subcells``).
+    seed_interp_alt_subcells(vector_map)
 
     # Buildings
     # include_buildings(vector_map)
@@ -1839,6 +1848,93 @@ def _read_obj8_anchor(objfile_name, alt_lookup):
 
 
 ################################################################################
+def seed_interp_alt_subcells(vector_map):
+    """R18-1 — seed every ROAD-CUT SUB-CELL of every patch face.
+
+    ``include_patches`` seeds one point per planar FACE of the patch
+    coverage, polygonizing the patch RING boundaries.  But the flood
+    Triangle4XP runs is blocked by ANY segment carrying the same
+    attribute bit, and the patch rings are not the only INTERP_ALT
+    geometry on the tile: ``include_roads`` encodes the buffered banked
+    road network with the very same marker, and the seawall breaklines
+    do too.  Those ribbons cut a patch face into SUB-CELLS that the
+    per-face seeding never sees, because they are encoded several steps
+    AFTER ``include_patches`` runs.  A sub-cell with no seed keeps the
+    raw DEM altitude even though every ring vertex around it carries the
+    patched one.
+
+    MEASURED (HECA, +30+031, 2026-08-11): the 339,000 m² apron face is
+    cut by 40 road lines into 38 cells; the single seed sits in cell #9,
+    and the owner's point at 30.1170578,31.4098155 sits in cell #3 whose
+    one interior vertex keeps 99.33 m inside an 86 m apron.  Tile-wide,
+    89 free interior vertices stand more than 3 m above their 8 nearest
+    patch nodes.
+
+    THE CUTTER SET IS THE VECTOR MAP'S OWN EDGES, not a re-derivation of
+    the road geometry: what blocks the flood is exactly what was
+    encoded, the edges are already planar-noded by ``insert_way``'s
+    intersection cutting, and re-running the road extraction here would
+    be a second construction of one thing (the ONE BAND CONSTRUCTION
+    discipline, RULINGS 2026-08-11b).  No new marker semantics: the
+    seeds are the same ``INTERP_ALT`` seeds, in the same list.
+
+    Call AFTER every INTERP_ALT-carrying encoder has run.  Existing
+    seeds are honoured — a sub-cell that already holds one gets no
+    second — so this is purely additive and a tile whose patch faces no
+    road crosses is left byte-identical.  Returns the number of seeds
+    added.  Never raises: a failure here must not break a tile build,
+    and the historical seeding already stands.
+    """
+    patch_polygons = getattr(vector_map, "interp_alt_patch_polygons", None)
+    patches_area = getattr(vector_map, "interp_alt_patches_area", None)
+    if not patch_polygons or patches_area is None or patches_area.is_empty:
+        return 0
+    interp_alt_bit = vector_map.dico_attributes["INTERP_ALT"]
+    try:
+        # Every INTERP_ALT-carrying edge whose bbox meets the patch
+        # coverage — the ribbons that will block the flood inside it.
+        # The rtree query is a bbox prefilter; faces outside the
+        # coverage are dropped by the ``covered`` test below anyway.
+        cutters = [pol.boundary for pol in patch_polygons]
+        for edge_id in vector_map.ebbox.intersection(patches_area.bounds):
+            if not (vector_map.data_edges.get(edge_id, 0) & interp_alt_bit):
+                continue
+            id0, id1 = vector_map.edges_dico[edge_id]
+            cutters.append(geometry.LineString(
+                [vector_map.nodes_dico[id0], vector_map.nodes_dico[id1]]))
+        covered = prep(patches_area)
+        existing = [
+            geometry.Point(seed[0], seed[1])
+            for seed in vector_map.seeds.get("INTERP_ALT", [])]
+        existing_tree = STRtree(existing) if existing else None
+        added = []
+        for face in ops.polygonize(ops.unary_union(cutters)):
+            seed_point = face.representative_point()
+            if not covered.contains(seed_point):
+                continue
+            if existing_tree is not None:
+                prepared_face = prep(face)
+                if any(prepared_face.contains(existing[index])
+                       for index in existing_tree.query(face)):
+                    continue
+            added.append(numpy.array(seed_point.coords[0]))
+        if added:
+            vector_map.seeds.setdefault("INTERP_ALT", []).extend(added)
+        UI.vprint(
+            1,
+            f"   Patch faces: {len(added)} road-cut sub-cell(s) seeded "
+            f"INTERP_ALT beside the {len(existing)} face seed(s) "
+            "already placed.")
+        return len(added)
+    except Exception as error:
+        UI.vprint(
+            1,
+            "   Sub-cell INTERP_ALT seeding skipped (the per-face seeds "
+            "stand):", str(error))
+        return 0
+
+
+################################################################################
 def include_patches(vector_map, tile):
     def tanh_profile(alpha, x):
         return (numpy.tanh((x - 0.5) * alpha) / numpy.tanh(0.5 * alpha) + 1) / 2
@@ -2235,6 +2331,13 @@ def include_patches(vector_map, tile):
         vector_map.seeds.setdefault("INTERP_ALT", []).extend(
             interp_alt_seeds
         )
+        # R18-1: the faces above are cut by the patch RING boundaries
+        # only, and the roads have not been encoded yet — they come in
+        # ``include_roads``, several steps later in ``build_poly_file``.
+        # Carry the inputs so the sub-cell pass can run once the road
+        # ribbons exist (see :func:`seed_interp_alt_subcells`).
+        vector_map.interp_alt_patch_polygons = interp_alt_patch_polygons
+        vector_map.interp_alt_patches_area = patches_area
     for pdir_name in os.listdir(patch_dir):
         if not os.path.isdir(os.path.join(patch_dir, pdir_name)):
             continue

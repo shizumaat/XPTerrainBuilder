@@ -43,18 +43,18 @@
 #  2. FINAL PROFILING ROUND (owner complaint: HECA tile 30+ min;
 #     solve 326 s is target #1; budgets 60 s/airport + 300 s/tile
 #     adjudicated per the suspended hard law).
-#  3. #15 overlay write-through IN FLIGHT at close (lane hguard) —
-#     merge on its report if not already done.
+#  3. #15 overlay write-through MERGED 2026-08-12 (lane/hguard 8e3b546,
+#     merge dc9a66e) — clonefile COW overlay + resolved-path guard; 4
+#     tests green in-lane; repro_cut.py still on the deprecated alias.
 #  ratifications pending: phantom-EAT scoping table (VHHH+KSTJ
 #  exhibits, HECA pin measured ABSENT); shaping-margin question;
 #  island-connection simplification (fixpoint kept, measured
 #  identical); light-touch datum half; drift instrument.
 #
 # ── GOTCHAS LEARNED (beyond standing traps) ─────────────────────────
-#  * OVERLAY WRITE-THROUGH: symlink-seeded cache overlays let engine
-#    writes truncate SHARED files with blocked=[] — 3 incidents; fix
-#    in flight (#15). Until merged: no parallel arms sharing pack
-#    caches without serial re-runs for quoted numbers.
+#  * OVERLAY WRITE-THROUGH: FIXED (#15 merged dc9a66e) — overlays now
+#    seed copy-on-write (clonefile), guard judges the RESOLVED path;
+#    parallel arms sharing pack caches are lawful again.
 #  * The census was BLIND to 628 ring edges (lockstep pair_caps
 #    branch) — pre-R19-5 "census Δ0" claims on soft-shape edges are
 #    unreliable; the honest instrument GROWS counts.

@@ -2212,6 +2212,16 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
     needs.  Returns ``(pins, counts)`` — ``pins`` maps node index →
     regulation value; ``counts = (n_segments, n_no_anchor,
     n_hard_skipped)``.
+
+    THE RECT IDENTITY IS PUBLISHED TOO (r17d law 1).  Each pinned node
+    carries the CROSSING SEGMENT — the rect — it belongs to, in
+    ``layout._eat_anchor_pin_rect``.  The unroutable-EAT law judges a
+    RECT ("is this pavement an end-around taxiway at all?"), not a node,
+    so the rect has to survive the flattening into ``pins``; deriving it
+    a second time at the guard site would be a second spelling of the
+    segmentation.  Where two ends' corridors overlap one node, the rect
+    recorded is the one whose (lower, most restrictive) value won, so
+    the identity always names the rect that authored the pin.
     """
     from auto_patch.config import (EAT_MIN_CROSSING_DIST_M,
                                    EAT_MIN_RUNWAY_CODE_NUMBER,
@@ -2220,6 +2230,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
     end_specs = getattr(layout, "eat_ceiling_presolve", None) or []
     cps = layout.canonical_points
     pins: dict[int, float] = {}
+    pin_rect: dict[int, int] = {}
     min_s = float(EAT_MIN_CROSSING_DIST_M)
     gap = float(EAT_RECT_SEGMENT_GAP_M)
     max_along = float(EAT_RECT_MAX_ALONG_M)
@@ -2337,6 +2348,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                 prev = pins.get(i)
                 if prev is None or value < prev:
                     pins[i] = float(value)
+                    pin_rect[i] = n_seg
     if n_refused_along:
         try:
             import O4_UI_Utils as _UI_eatg
@@ -2363,7 +2375,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
               f"{n_no_anchor} end(s) had no resolvable anchor, "
               f"{n_refused_along} over-long segment(s) refused, "
               f"{n_guard_refused} guard-refused vertex read(s) skipped")
-    return pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along)
+    return pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along), pin_rect
 
 
 def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
@@ -3285,7 +3297,7 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     from auto_patch.config import EAT_SURFACE_CEILING_ENABLED
     if EAT_SURFACE_CEILING_ENABLED \
             and getattr(layout, "eat_ceiling_presolve", None):
-        eat_pins, _eat_counts = _build_eat_anchor_rect_pins(
+        eat_pins, _eat_counts, _eat_pin_rect = _build_eat_anchor_rect_pins(
             layout, bucket_to_idx, elev, is_hard)
         # ── PRE-PIN SNAPSHOT for the CONTRADICTION GUARD (docs/specs/
         # eat-anchor-contradiction-guard-spec.md) ────────────────────
@@ -3312,6 +3324,11 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             have_initial[idx] = True
             _mark(idx, "eat_anchor_rect_pin")
         layout._eat_anchor_pin_idx = dict(eat_pins)  # type: ignore[attr-defined]
+        # r17d law 1: the RECT each pin belongs to, published beside the
+        # pins in ONE statement so the unroutable-EAT guard — which
+        # refuses a WHOLE RECT — never has to re-segment the corridor.
+        layout._eat_anchor_pin_rect = dict(  # type: ignore[attr-defined]
+            _eat_pin_rect)
         if eat_pins:
             existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
             layout._seam_pin_idx = (  # type: ignore[attr-defined]

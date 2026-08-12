@@ -33,6 +33,11 @@ X-Plane, no network) and they run in the normal suite.
   (``harness/shared_repo_guard.py``); ``build_airport.py`` re-exports the
   guard module's own objects and ``run_tile_mesh_only.py`` arms them, in
   the order that makes the audit mean something.
+* §6d THE GUARD FOLLOWS THE BUILD, NOT THE ENTRY — ``tools/classify_report.py``
+  builds an airport in process, so it arms the SAME composition
+  (``arm_shared_repo_protection``: redirects + refuse-mode guard) and
+  refuses a swallowed refusal; its ``--from-json`` render path builds
+  nothing and arms nothing.
 """
 from __future__ import annotations
 
@@ -1775,14 +1780,29 @@ def test_the_write_guard_is_armed_by_the_BUILD_ENTRY_not_only_the_cli(
     are the entries a lane actually runs most.  ``build_patch`` therefore
     arms its own (defaulting to "nothing authorised") and ``main`` hands
     its own guard down rather than wrapping the call.
+
+    Since 2026-08-11 the arming is ONE named composition
+    (``arm_shared_repo_protection``, shared with
+    ``tools/classify_report.py`` — §6d), so the default guard is asserted
+    THERE; what ``build_patch`` must still do is call it and run the build
+    inside what it hands back.
     """
     import inspect
     sig = inspect.signature(build_mod.build_patch)
     assert "write_guard" in sig.parameters
     src = inspect.getsource(build_mod.build_patch)
-    assert "SharedRepoWriteGuard(" in src, (
-        "build_patch must arm a guard when its caller passes none")
+    assert "arm_shared_repo_protection(" in src, (
+        "build_patch must arm the composition when its caller passes none")
     assert "with guard:" in src
+    composed = inspect.getsource(build_mod.arm_shared_repo_protection)
+    assert "SharedRepoWriteGuard(" in composed and "redirect_engine_caches(" \
+        in composed, (
+        "the composition must supply BOTH halves — the redirect closes the "
+        "subprocess hole the guard cannot see, and the guard is what stops "
+        "a writer writing THROUGH the overlay's symlinks")
+    assert "getattr(write_guard, \"requested\"" in composed, (
+        "an AUTHORISED refresh scope must be left SHARED, or the refresh is "
+        "a silent no-op")
 
 
 def test_every_build_result_carries_the_frame_and_guard_state(build_mod):
@@ -2390,6 +2410,238 @@ def test_the_mesh_only_entry_has_no_refresh_mechanism_of_its_own():
     src = MESH_ONLY.read_text()
     assert "RefreshLock" not in src and "record_refresh" not in src
     assert "add_argument" not in src, "the CLI stays two positional args"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §6d THE GUARD FOLLOWS THE BUILD, NOT THE ENTRY
+# ══════════════════════════════════════════════════════════════════════
+# Landed 2026-08-11 against a MEASURED defect of the same shape as §6c's,
+# one tool further out: ``tools/classify_report.py`` BUILDS an airport and
+# armed neither half of the protection, and two adjudication runs wrote ten
+# files into the shared corpus (``Airport_mod_cache`` sidecars and DSFTool
+# dumps under ``+35-081`` and ``+39-095``) while every guarded build of the
+# same session reported the repo unchanged — and cross-attributed a
+# CONTAMINATED flag onto an unrelated lane's run.
+#
+# The second measured fact, and the reason the redirect is not enough on
+# its own: the mod-cache overlay is SYMLINK-SEEDED, and an unguarded writer
+# writes THROUGH the symlinks into the shared file.  Redirect and guard are
+# one composition (``arm_shared_repo_protection``), and these twins pin
+# that this tool arms it rather than a private arrangement of the parts.
+
+CLASSIFY = ROOT / "tools" / "classify_report.py"
+
+
+@pytest.fixture(scope="module")
+def classify_mod():
+    return _load("harness_twin_classify", CLASSIFY)
+
+
+class _StubLayout:
+    """What ``build_airport_pavement`` hands back, shadow keys only."""
+
+    pavement_score_summary = {"mode": "shadow", "shapes": 1, "agree": 1,
+                              "disagree": 0, "low": 0, "reliability": {}}
+    pavement_score_decisions = [{"legacy": "APRON", "winner": "APRON"}]
+
+
+def _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod):
+    """A fake shared repo, wired into EVERY module that reads the global.
+
+    ``guard_mod.DATA_REPO`` is what a default-constructed guard defends;
+    the BUILD ENTRY's ``DATA_REPO`` is what the mod-cache overlay is seeded
+    from.  Patching one and not the other runs the test against the REAL
+    corpus (the ``guard_mod`` fixture's docstring records that happening),
+    and the build entry to patch is the instance ``classify_report``
+    ITSELF imports — this file's ``build_mod`` fixture loads a second copy
+    under another name, whose globals nothing in the tool ever reads.
+    """
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
+    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
+    (repo / "Elevation_data").mkdir(parents=True)
+    monkeypatch.setattr(guard_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(classify_mod._harness_build_module(),
+                        "DATA_REPO", repo)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    return repo
+
+
+def _patch_engine_build(monkeypatch, fn):
+    """Replace the engine entry ``classify_report`` calls."""
+    import auto_patch.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "build_airport_pavement", fn)
+
+
+def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
+    """SOURCE twin, §6c's own test applied to the third entry."""
+    src = CLASSIFY.read_text()
+    assert "arm_shared_repo_protection" in src, (
+        "the classify entry must arm the harness's OWN composition — it "
+        "builds an airport, and an unguarded build wrote the corpus twice "
+        "on 2026-08-11")
+    assert "require_no_swallowed_write_block" in src, (
+        "a refusal the engine swallowed is itself the finding")
+    for definition in ("class SharedRepoWriteGuard",
+                       "def arm_shared_repo_protection",
+                       "def redirect_engine_caches",
+                       "def require_no_swallowed_write_block",
+                       "def mirror_tree_as_symlinks",
+                       "os.environ[\"O4_DSF_CACHE_DIR\"]",
+                       "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]"):
+        assert definition not in src, (
+            f"{definition} is a SECOND copy of the write law / the redirect")
+    assert "e9daef5" in src, "the guarded path must cite its ruling"
+    row = [ln for ln in INDEX.read_text().splitlines()
+           if "tools/classify_report.py`" in ln]
+    assert row and "arm_shared_repo_protection" in row[0], (
+        "the index row must state that this tool's build path is guarded — "
+        "the next lane reaches for it from the index, and 'does it touch "
+        "the corpus' is exactly what it needs to know before running it")
+
+
+def test_the_classify_build_path_ARMS_guard_AND_redirect(
+        classify_mod, guard_mod, tmp_path, monkeypatch):
+    """BEHAVIOURAL twin: both halves are live DURING the build call.
+
+    Asserted from inside the engine entry — a redirect or a guard that is
+    only installed in the caller's imagination is exactly the class the
+    session detector kept catching.
+    """
+    import builtins
+    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
+    seen = {}
+    # The suite's OWN autouse guard already replaced ``builtins.open``, so
+    # "open is patched" proves nothing here; what must be true is that THIS
+    # CALL installed another interception on top of it.
+    outer_open = builtins.open
+
+    def _fake_build(icao, xplane_root, **kw):
+        seen["icao"] = icao
+        seen["guard_live"] = builtins.open is not outer_open
+        seen["dsf"] = os.environ.get("O4_DSF_CACHE_DIR")
+        seen["mod"] = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
+        return _StubLayout()
+
+    _patch_engine_build(monkeypatch, _fake_build)
+    entry = _cache_env_entry_values()
+    try:
+        report = classify_mod.build_report("KCLT", "/X-Plane",
+                                           out_dir=tmp_path / "out")
+    finally:
+        _restore_cache_env(entry)
+
+    base = tmp_path / "out" / "classify_KCLT.engine_caches"
+    assert seen["icao"] == "KCLT"
+    assert seen["guard_live"], (
+        "the build ran OUTSIDE the write guard — the symlink-seeded overlay "
+        "does not save you, writers write THROUGH the symlinks")
+    assert seen["dsf"] == str(base / "Default_DSF_cache"), (
+        "the DSFTool SUBPROCESS inherits the environment; that is the only "
+        "handle on a write no Python-level guard can see")
+    overlay = base / "Airport_mod_cache"
+    assert seen["mod"] == str(overlay)
+    assert report["write_guard_armed"] is True
+    assert report["write_guard_blocked"] == []
+    assert report["engine_cache_redirects"]["base"] == str(base)
+    assert report["summary"]["shapes"] == 1 and len(report["decisions"]) == 1
+
+    # Item 2: REAL directories, SYMLINKED files — a symlinked DIRECTORY
+    # would send every write inside it back into the shared corpus.
+    assert overlay.is_dir() and not overlay.is_symlink()
+    pack = overlay / "packA"
+    assert pack.is_dir() and not pack.is_symlink()
+    link = overlay / "packA" / "warm.cache"
+    assert link.is_symlink() and link.resolve() == (
+        repo / "Airport_mod_cache" / "packA" / "warm.cache")
+
+
+def test_the_classify_build_path_REFUSES_a_shared_corpus_write(
+        classify_mod, guard_mod, tmp_path, monkeypatch):
+    """A corpus write attempted DURING the build is refused at the call.
+
+    The measured writes were mod-cache sidecars and DSFTool dumps; an
+    inset is used here because it is the scope no redirect covers, so it
+    can only be the guard that stops it.
+    """
+    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
+    target = repo / "Elevation_data" / "N30E031.hgt"
+
+    def _writing_build(icao, xplane_root, **kw):        # pragma: no cover
+        open(target, "w").write("regenerated mid-build")
+        return _StubLayout()
+
+    _patch_engine_build(monkeypatch, _writing_build)
+    entry = _cache_env_entry_values()
+    try:
+        with pytest.raises(guard_mod.SharedRepoWriteBlocked) as exc:
+            classify_mod.build_report("KCLT", "/X-Plane",
+                                      out_dir=tmp_path / "out")
+    finally:
+        _restore_cache_env(entry)
+    assert "N30E031.hgt" in str(exc.value) and "dem" in str(exc.value)
+    assert "--refresh-data" in str(exc.value)
+    assert not target.exists(), "the guard must prevent, not just report"
+
+
+def test_the_classify_build_path_REFUSES_a_SWALLOWED_refusal(
+        classify_mod, guard_mod, tmp_path, monkeypatch):
+    """The engine catches the refusal and returns anyway — rc must not be 0.
+
+    ``auto_patch.elevation._load_airport_dem`` wraps production's whole DEM
+    prep in one ``except Exception``, so a blocked write becomes a WARN and
+    a silently degraded layout.  A classification report built on that
+    layout is not production's frame either.
+    """
+    repo = _fake_corpus(tmp_path, monkeypatch, guard_mod, classify_mod)
+    target = repo / "Elevation_data" / "N30E031.hgt"
+
+    def _swallowing_build(icao, xplane_root, **kw):
+        try:
+            open(target, "w").write("regenerated mid-build")
+        except Exception:                     # the engine's own fallback
+            pass
+        return _StubLayout()
+
+    _patch_engine_build(monkeypatch, _swallowing_build)
+    entry = _cache_env_entry_values()
+    try:
+        with pytest.raises(SystemExit) as exc:
+            classify_mod.build_report("KCLT", "/X-Plane",
+                                      out_dir=tmp_path / "out")
+    finally:
+        _restore_cache_env(entry)
+    assert "N30E031.hgt" in str(exc.value)
+    assert "REFUSING" in str(exc.value)
+
+
+def test_the_classify_from_json_path_ARMS_NOTHING(
+        classify_mod, tmp_path, monkeypatch):
+    """``--from-json`` builds nothing, so it guards nothing (item 3).
+
+    It must not import the harness, must not move the cache environment,
+    and must not create the build path's artifact directory — a render is
+    a render.
+    """
+    def _boom():                                        # pragma: no cover
+        raise AssertionError("the render path armed the build machinery")
+
+    monkeypatch.setattr(classify_mod, "_harness_build_module", _boom)
+    monkeypatch.setattr(classify_mod, "ARTIFACT_DIR", tmp_path / "artifacts")
+    monkeypatch.setenv("O4_PAVEMENT_SCORE_V2", "shadow")
+    dump = tmp_path / "dump.json"
+    dump.write_text(json.dumps({"airports": [
+        {"icao": "KCLT", "summary": _StubLayout.pavement_score_summary,
+         "decisions": list(_StubLayout.pavement_score_decisions)}]}))
+
+    entry = _cache_env_entry_values()
+    assert classify_mod.main(["--from-json", str(dump)]) == 0
+    assert _cache_env_entry_values() == entry, (
+        "the render path moved the engine cache redirect")
+    assert not (tmp_path / "artifacts").exists(), (
+        "a render leaves no build artifacts")
 
 
 # ══════════════════════════════════════════════════════════════════════

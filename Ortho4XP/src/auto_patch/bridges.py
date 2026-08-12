@@ -254,6 +254,32 @@ TUNNEL_RAMP_GRADE_SAFETY_MARGIN = 0.005
 # ``tunnel-ramp-cut-boundaries-spec.md`` §2, ramp-internal corner
 # agreement).  It was 0.1 m — up to 0.05 m of disagreement.
 _TUNNEL_RAMP_FLAT_QUAD_M = 0.02
+# ── R20-1: THE SURFACE WALK'S PLAN FILTER ─────────────────────────────
+# The grid ``layout.to_osm`` writes ``alt_abs`` on, and the grid the ramp
+# quads' own ``altitude_high``/``altitude_low`` round to.  Both are
+# 0.01 m; the 0.1 m the walk filter's old comment sized itself against
+# has not been the emitted precision for a long time.
+_TUNNEL_ALT_EMIT_STEP_M = 0.01
+# Plan tolerance of the walk's deviation filter: a surface-walk vertex is
+# dropped only when the retained chain passes within this distance of it,
+# so the emitted ramp centreline is within it of the OSM way at EVERY
+# node — whatever the node spacing.  0.25 m is a quarter of the campaign's
+# worst measured deletion (KCLT node -75937, 1.86 m off the chord the old
+# 15 m SPACING merge left behind) and comfortably under the round's 0.3 m
+# claim; it is well below a lane width, so no vertex a driver could see
+# the road turn at survives it.
+_TUNNEL_WALK_DEVIATION_TOL_M = 0.25
+# The rounding-safe segment floor, DERIVED rather than guessed.  One
+# segment's Δe carries at most one emit grid step of rounding error, so
+# the error it adds to that segment's grade is
+# ``_TUNNEL_ALT_EMIT_STEP_M / length``.  Keeping that inside the ramp's
+# existing planning headroom needs ``step / margin`` = 0.01 / 0.005 = 2 m
+# — which is the whole of what the 15 m spacing merge was buying, at the
+# real emitted precision.  (``layout``'s law-aware emit snap picks each
+# pair's rounding DIRECTION against that pair's own raw cap, so this
+# floor is the second line of defence, not the first.)
+_TUNNEL_WALK_MIN_SEGMENT_M = (
+    _TUNNEL_ALT_EMIT_STEP_M / TUNNEL_RAMP_GRADE_SAFETY_MARGIN)
 # FORK SUSTAIN (spec ``docs/specs/tunnel-fork-sustain-spec.md`` §2, owner
 # 2026-08-07).  Fraction of the probe stations FROM the divergence
 # crossing to the end of the probe window at which the member spread must
@@ -1328,6 +1354,74 @@ def _orient_away(o_nrefs: list[str],
         else backward
 
 
+def _deviation_filter(pts: list, tol_m: float,
+                      min_segment_m: float) -> list:
+    """R20-1: thin a plan polyline by DEVIATION, never by spacing.
+
+    Douglas-Peucker at ``tol_m``: a vertex survives unless the retained
+    chain already passes within ``tol_m`` of it, so the returned chain
+    is within ``tol_m`` of EVERY input vertex by construction — which is
+    the round's claim metric (max lateral offset emitted-vs-OSM).  The
+    endpoints always survive.
+
+    ``min_segment_m`` is the rounding-safe floor
+    (``_TUNNEL_WALK_MIN_SEGMENT_M``): survivors closer together than it
+    would carry a grade whose emit-rounding error eats the ramp's
+    planning headroom, so they merge — the LATER one is dropped, except
+    at the far end, where the endpoint is kept and its predecessor goes
+    (the endpoint is the walk's grade-reach station and must stay
+    exact).  A merge here moves the chain by less than ``min_segment_m``
+    laterally in the worst case and by far less in practice: two
+    vertices that close together on a road cannot subtend a turn.
+    """
+    if len(pts) < 3:
+        return list(pts)
+
+    keep = [False] * len(pts)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i0, i1 = stack.pop()
+        if i1 <= i0 + 1:
+            continue
+        ax, ay = pts[i0]
+        bx, by = pts[i1]
+        dx, dy = bx - ax, by - ay
+        seg2 = dx * dx + dy * dy
+        worst_d = -1.0
+        worst_k = -1
+        for k in range(i0 + 1, i1):
+            px, py = pts[k]
+            if seg2 <= 1e-18:
+                d = math.hypot(px - ax, py - ay)
+            else:
+                t = ((px - ax) * dx + (py - ay) * dy) / seg2
+                t = max(0.0, min(1.0, t))
+                d = math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+            if d > worst_d:
+                worst_d, worst_k = d, k
+        if worst_d > tol_m and worst_k > i0:
+            keep[worst_k] = True
+            stack.append((i0, worst_k))
+            stack.append((worst_k, i1))
+    out = [pts[k] for k in range(len(pts)) if keep[k]]
+
+    if min_segment_m <= 0.0 or len(out) < 3:
+        return out
+    merged = [out[0]]
+    for k in range(1, len(out) - 1):
+        if math.hypot(out[k][0] - merged[-1][0],
+                      out[k][1] - merged[-1][1]) >= min_segment_m:
+            merged.append(out[k])
+    last = out[-1]
+    while (len(merged) >= 2
+           and math.hypot(last[0] - merged[-1][0],
+                          last[1] - merged[-1][1]) < min_segment_m):
+        merged.pop()
+    merged.append(last)
+    return merged
+
+
 # Helper: from a portal node, walk a chain of connecting non-
 # tunnel surface roads OUTWARD for ``length_m`` metres.  When
 # the current OSM way ends, follow the connected highway way
@@ -1926,19 +2020,34 @@ def _gather_portal_walks(
                     print(f"    [tunnel-drop] way {tw_id} portal "
                           f"({_px:.0f},{_py:.0f}): no surface walk")
                 continue
-            # Merge very short consecutive segments so altitude
-            # rounding to 0.1 m can't push the per-segment grade
-            # above ``max_ramp_grade``.  At a 0.05 m worst-case
-            # round-up, a 15 m segment rounds to ≤ 0.33 %/error.
-            min_segment_m = 15.0
-            merged: list[tuple[float, float]] = [walk[0]]
-            for k in range(1, len(walk)):
-                d = math.hypot(walk[k][0] - merged[-1][0],
-                               walk[k][1] - merged[-1][1])
-                if d < min_segment_m and k != len(walk) - 1:
-                    continue
-                merged.append(walk[k])
-            walk = merged
+            # ── R20-1: CURVATURE SURVIVES THE WALK ────────────────
+            # What stood here was a 15 m SPACING merge: it deleted a
+            # vertex for being CLOSE to its neighbour, with no reference
+            # to whether the road TURNED there.  At the owner's KCLT
+            # portal it deleted three of the surface walk's seven OSM
+            # nodes — node -75937 among them, 1.86 m off the chord the
+            # merge left behind — and the densify below only subdivides
+            # the SURVIVORS' chords, so nothing came back: the road's
+            # bend was gone from the plan geometry before ``_emit_chain``
+            # (faithful, miters every vertex it is given) ever saw it.
+            #
+            # The filter is now a DEVIATION filter: a vertex is dropped
+            # only where the retained chain already passes within
+            # ``_TUNNEL_WALK_DEVIATION_TOL_M`` of it, so the emitted
+            # centreline is within that tolerance of the OSM way at
+            # EVERY node, however tightly the nodes are spaced.
+            #
+            # THE ALTITUDE-ROUNDING RATIONALE THE SPACING MERGE CARRIED
+            # IS KEPT — and is now derived from the two constants that
+            # actually set it (see ``_TUNNEL_WALK_MIN_SEGMENT_M``): the
+            # emitted grid is 0.01 m, not the 0.1 m the old comment
+            # sized 15 m against, so 2 m of segment already holds the
+            # worst-case rounding error inside
+            # ``TUNNEL_RAMP_GRADE_SAFETY_MARGIN``.  The filter enforces
+            # that floor on its survivors, so no ramp quad is emitted
+            # shorter than the rounding budget allows.
+            walk = _deviation_filter(walk, _TUNNEL_WALK_DEVIATION_TOL_M,
+                                     _TUNNEL_WALK_MIN_SEGMENT_M)
             if len(walk) < 2:
                 continue
             # Densify long segments so the visible ramp tracks the

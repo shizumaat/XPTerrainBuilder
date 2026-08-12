@@ -557,3 +557,90 @@ def test_r16_2b_the_cap_face_reaches_the_mouth_plate(monkeypatch):
     assert welded, (
         "no cap reaches its mouth plate — every one still stands a "
         "wall_gap strip away from the pavement it faces")
+
+
+# ── AMENDMENT 3 (task #10) ──────────────────────────────────────────
+# THE FINAL DECIMATION RUNS IN THE FRAME THAT HOLDS EVERY CHAIN.
+# Slice C scanned ``pending`` alone, so a vertex spelled by both a pad's
+# exterior chain and the hole ring bounding the same boundary was removed
+# ONE-SIDEDLY — the measured generator of the twin-ring class (OTHH patch
+# frame: 21 pairs / 47 differing vertices, every one within _DEC_PERP_M
+# of the partner chord, with the R16-1b loop reporting the two chains as
+# ONE spelling upstream).
+
+def _redundant_vertex_scene(offset_m=0.005):
+    """A pad whose ring carries ONE 3D-redundant mid-edge vertex
+    (``offset_m`` off the chord of its neighbours, flat altitude, chord
+    well under the 60 m cap), and a cover whose HOLE spells that same
+    ring IDENTICALLY — the configuration the emitter reaches with
+    ``same_spelling`` at the R16-1b loop."""
+    pad = [(0.0, 0.0), (20.0, offset_m), (40.0, 0.0),
+           (40.0, 30.0), (0.0, 30.0)]
+    layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
+    layout.shapes.append(_pav(Polygon(pad), ref="pad"))
+    layout.shapes.append(_pav(
+        Polygon([(-40.0, -40.0), (90.0, -40.0), (90.0, 80.0),
+                 (-40.0, 80.0)], [list(pad)]), ref="cover"))
+    return layout
+
+
+def test_r16_1_decimation_removes_from_every_chain_or_none():
+    """One boundary, one spelling — through the FINAL decimation too.
+
+    The redundant vertex is 5 mm off the chord (inside ``_DEC_PERP_M``),
+    so slice C removes it; the hole ring spelling the same boundary must
+    lose it in the same sweep.
+
+    Mutation-checked: with ``_interior_rings`` left out of the
+    occurrence map the pad ring emits 4 vertices and the hole ring 5 —
+    a twin-ring pair whose differing vertex sits 5.000 mm off the
+    partner chord.
+    """
+    nodes, ways = _emit_and_parse(_redundant_vertex_scene())
+    pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
+    rings = _hole_rings(ways)
+    assert pad and rings, [tags for _w, _n, tags in ways]
+    for _wid, nds in rings:
+        assert set(nds) == set(pad[0]), (
+            f"the hole ring spells {len(set(nds))} vertices against the "
+            f"pad's {len(set(pad[0]))} — the decimation removed from one "
+            f"chain and not the other")
+
+
+def test_r16_1_decimation_control_a_vertex_outside_the_tolerance_stays():
+    """The control that keeps the twin honest: at 25 mm the vertex is
+    NOT decimation-eligible, so BOTH chains keep it and there is still
+    exactly one spelling.  (A 'fix' that simply stopped decimating, or
+    one that deleted ring vertices wholesale, fails here.)"""
+    nodes, ways = _emit_and_parse(_redundant_vertex_scene(offset_m=0.025))
+    pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
+    rings = _hole_rings(ways)
+    assert pad and rings
+    assert len(set(pad[0])) == 5, (
+        f"a 25 mm vertex is outside _DEC_PERP_M and must survive: "
+        f"{sorted(set(pad[0]))}")
+    for _wid, nds in rings:
+        assert set(nds) == set(pad[0]), (
+            f"ring {sorted(set(nds))} vs pad {sorted(set(pad[0]))}")
+
+
+def test_r16_1_a_ring_never_loses_its_own_unvalued_vertex():
+    """Ring-PRIVATE protection (amendment 3): a hole-ring vertex no
+    exterior chain claims is interned UNVALUED, and the decimation's
+    altitude clause keeps it — rings are removal partners, never
+    victims.  Here the hole is a plain 5-vertex ring of its own, with a
+    mid-edge vertex that is geometrically redundant; nothing values it,
+    so it ships."""
+    hole = [(10.0, 10.0), (30.0, 10.005), (50.0, 10.0),
+            (50.0, 40.0), (10.0, 40.0)]
+    layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
+    layout.shapes.append(_pav(
+        Polygon([(-40.0, -40.0), (90.0, -40.0), (90.0, 80.0),
+                 (-40.0, 80.0)], [hole]), ref="cover"))
+    nodes, ways = _emit_and_parse(layout)
+    rings = _hole_rings(ways)
+    assert rings, [tags for _w, _n, tags in ways]
+    for _wid, nds in rings:
+        assert len(set(nds)) == 5, (
+            f"the ring lost an unvalued vertex of its own: "
+            f"{sorted(set(nds))}")

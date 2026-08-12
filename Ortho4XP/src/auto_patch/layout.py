@@ -2582,25 +2582,51 @@ class PavementLayout:
             # ways while another's keep the coordinate leaves a chord
             # passing exactly through the survivor (an exact T-vertex,
             # the lens class).
+            # THE FRAME: INTERIOR RINGS ARE CHAINS TOO (round-16 R16-1,
+            # applied here by task #10 amendment 3).  This scan read
+            # ``pending`` alone, so a vertex spelled by BOTH a pad's
+            # exterior chain and the hole ring bounding the same boundary
+            # was judged and removed ONE-SIDEDLY: the pad chain lost it,
+            # the ring kept it, and the emitted patch carried a twin-ring
+            # pair — the very lens class this block's own comment forbids.
+            # Measured (OTHH, patch frame): 21 pairs / 47 differing
+            # vertices, EVERY one of them within ``_DEC_PERP_M`` of the
+            # partner chord, while the R16-1b loop upstream had already
+            # reported the two chains as ONE spelling (same_spelling
+            # 771/791; the traced pad object_pad:25 read "shares 11 of 11
+            # EQUAL" and emitted 9-vs-11).  Rings join as FIRST-CLASS
+            # chains — occurrence map, chord-agreement and geometry
+            # predicates, max-chord retention, degeneracy veto and the
+            # removal sweep — so a shared vertex is kept or removed on
+            # every chain that spells it.  Ring-PRIVATE vertices are
+            # interned unvalued, so the altitude clause below keeps them
+            # exactly as it did before (a ring never loses its own
+            # vertices), and no constant changes.
+            _dec_chains: list = (
+                [("p", _p_i, _e[2]) for _p_i, _e in enumerate(pending)]
+                + [("r", _r_i, _r)
+                   for _r_i, _r in enumerate(_interior_rings)])
             _occ: dict[tuple, list[tuple[int, int, int]]] = {}
             _multi: set[tuple] = set()
-            for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
-                _open = _enids[:-1]
+            for _c_i, (_kind, _idx, _cnids) in enumerate(_dec_chains):
+                _open = _cnids[:-1]
                 _seen_local: set[tuple] = set()
                 for _pos, _nid in enumerate(_open):
                     _ll = node_id_to_ll[_nid]
                     if _ll in _seen_local:
                         _multi.add(_ll)
                     _seen_local.add(_ll)
-                    _occ.setdefault(_ll, []).append((_p_i, _pos, _nid))
+                    _occ.setdefault(_ll, []).append((_c_i, _pos, _nid))
             _removable_ll: set[tuple] = set()
             for _ll, _sites in _occ.items():
                 if _ll in _multi:
                     continue
                 _a1 = None
-                for _p_i, _pos, _nid in _sites:
+                for _c_i, _pos, _nid in _sites:
                     _v = node_id_to_consensus.get(_nid)
                     if _v is None:
+                        # UNVALUED — a hole ring's own vertex, or an
+                        # unclaimed node: never removable (unchanged).
                         _a1 = None
                         break
                     if _a1 is None:
@@ -2614,8 +2640,8 @@ class PavementLayout:
                     continue
                 _ok = True
                 _chord = None
-                for _p_i, _pos, _nid in _sites:
-                    _open = pending[_p_i][2][:-1]
+                for _c_i, _pos, _nid in _sites:
+                    _open = _dec_chains[_c_i][2][:-1]
                     _m = len(_open)
                     if _m <= 3:
                         _ok = False
@@ -2680,8 +2706,8 @@ class PavementLayout:
             # chains stay identical (a per-nid retention would be the
             # one-sided-removal lens class).
             _retain_ll: set[tuple] = set()
-            for _si, _s, _enids, _sa, _sna in pending:
-                _open = _enids[:-1]
+            for _kind, _idx, _cnids in _dec_chains:
+                _open = _cnids[:-1]
                 _m = len(_open)
                 if _m < 3:
                     continue
@@ -2725,18 +2751,20 @@ class PavementLayout:
                 break
             _removable: set[int] = set()
             for _ll in _removable_ll:
-                for _p_i, _pos, _nid in _occ[_ll]:
+                for _c_i, _pos, _nid in _occ[_ll]:
                     _removable.add(_nid)
             if not _removable:
                 break
             # A ring that simultaneous removals would degenerate below
             # 3 vertices VETOES its removable nids GLOBALLY — skipping
             # only that ring's update while partners drop the nid would
-            # be a one-sided removal (the lens class).
+            # be a one-sided removal (the lens class).  Hole rings are
+            # chains here too, so a hole that would degenerate protects
+            # its vertices in the partner chains as well.
             for _retry in range(4):
                 _veto: set[int] = set()
-                for _si, _s, _enids, _sa, _sna in pending:
-                    _open = _enids[:-1]
+                for _kind, _idx, _cnids in _dec_chains:
+                    _open = _cnids[:-1]
                     if (len([_n for _n in _open
                              if _n not in _removable]) < 3):
                         _veto.update(_n for _n in _open
@@ -2746,12 +2774,16 @@ class PavementLayout:
                 _removable -= _veto
             if not _removable:
                 break
-            for _p_i, (_si, _s, _enids, _sa, _sna) in enumerate(pending):
-                _open = [_n for _n in _enids[:-1]
+            for _kind, _idx, _cnids in _dec_chains:
+                _open = [_n for _n in _cnids[:-1]
                          if _n not in _removable]
-                if len(_open) >= 3 and len(_open) < len(_enids) - 1:
-                    pending[_p_i] = (_si, _s, _open + [_open[0]],
-                                     _sa, _sna)
+                if len(_open) >= 3 and len(_open) < len(_cnids) - 1:
+                    if _kind == "p":
+                        _si, _s, _old, _sa, _sna = pending[_idx]
+                        pending[_idx] = (_si, _s, _open + [_open[0]],
+                                         _sa, _sna)
+                    else:
+                        _interior_rings[_idx] = _open + [_open[0]]
 
         if _n_chord_retained:
             UI.vprint(1,

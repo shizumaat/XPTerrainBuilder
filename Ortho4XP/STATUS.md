@@ -46,6 +46,40 @@
 #     still pending (phantom-EAT table, shaping margin, island
 #     simplification, light-touch datum, drift instrument).
 #
+# ── IN-SIM REPORT ATTRIBUTIONS (owner on 1.0.243, four sites, all
+#    measured on the consol patches; NO fixes landed) ──────────────
+#  * KCLT ramp→taxiway gap (35.2139,-80.9414): road EXISTS in OSM
+#    (-12868/-12869, node-shared) and is ingested, but the only
+#    centerline→pavement minter is ENABLE_SERVICE_ROADS=False
+#    (config.py:2136, hardcoded). R20-2's second clause ("corridor to
+#    the taxiway surfaced") is an UNDOCUMENTED UNPAID acceptance item —
+#    Amendment 1 narrowed the lane to the datum fix, no DEFERRED line.
+#  * KCLT road-as-apron (35.2075,-80.9297): R20-3 site verbatim. The
+#    263 m ribbon fails road_corridor because ONE ≥25 m widening at the
+#    lot entrance denies the whole shape; the ruled service-adjacency
+#    feature (RULINGS:128) ships OFF (SCORER_SERVICE_ADJ, config:2413)
+#    — written law, inert in production. The +5.6 m hang at the third
+#    coord is the groundside terrace law working as ruled; "grade
+#    smoothly to DEM" is NOT currently a law → relief round charter.
+#  * HECA 13 m knoll (30.11366,31.40854): NOT #11's phantom class (ring
+#    217 correctly evidence-refused — barriers/fuel truck, no building)
+#    and NOT #16 (no pad exists). A ~1,000 m² coverage hole at the rim
+#    of a 13 m-excavated apron; DSM-contaminated DEM knoll stands
+#    ungraded, wears the ortho roof texture ("too-small building").
+#    = part-30f OPEN item (STATUS:6669) extended to the OPEN-boundary
+#    case (R19-2 closed only the enclosed-hole case).
+#  * HECA spines (31.406→31.411): plan is STRAIGHT (≤7.7 m); defect is
+#    vertical — 6.18 m cap-ridden hump (crest 30.11268,31.40684, no
+#    anchor within 60 m), ±8% cap-riding flanks, −25%/−19% discharge
+#    pockets = break-region/quarantine blend residue; corridor is FOUR
+#    disjoint 2-node axes with two long axis-free gaps; segment 2 has
+#    ZERO road representation (imagery draped on mega-apron −10629,
+#    15.89 m spread). The "none actionable / breaks inherent"
+#    disposition judges against a RETIRED standard — RULINGS:19-24
+#    (quarantine UNAUTHORIZED) + :369-373 (accepted-residue retired)
+#    ⇒ RE-OPEN as a design round: one law object per service corridor,
+#    end-to-end.
+#
 # ── GOTCHAS (this session) ──────────────────────────────────────────
 #  * BOTH build scripts auto-bump versions (make_engine freeze bump,
 #    make_app package bump) — do NOT hand-bump first; 1.0.242 was

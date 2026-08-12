@@ -432,6 +432,77 @@ def declared_flat_elevations(value=None) -> dict:
     return out
 
 
+def declared_flat_corridors(value=None) -> dict:
+    """``{ICAO: [(lat0, lon0, lat1, lon1), ...]}`` — the DECLARED corridors.
+
+    Round 17 §R17-2 (owner ruling 2026-08-11).  A causeway between an
+    airport and the ground it connects to is declared as one or more
+    lat/lon boxes, ``ICAO:LAT0,LON0,LAT1,LON1``, several separated by
+    ``;``.  Inside a box the ground joins the flat extent, joins the
+    patch land cutter and takes sea walls; OUTSIDE every box the water
+    is untouched, which is why the declaration is a box list and never a
+    grown extent (the R8-1 channel ruling stands elsewhere).
+
+    Corners are NORMALISED (lo/hi per axis) so a box written in either
+    order describes the same ground.  A malformed entry is SKIPPED, never
+    raised on and never guessed at — same rule as
+    :func:`declared_flat_elevations`: a typo in a cfg string must not
+    take a build down, and an airport with no parsable corridor simply
+    has none.
+    """
+    raw = _cfg_value("flat_site_declared_corridors", value)
+    out: dict = {}
+    for entry in raw.replace("\n", ";").split(";"):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        icao, _, box = entry.partition(":")
+        parts = [token.strip() for token in box.split(",")]
+        if len(parts) != 4:
+            continue
+        try:
+            lat0, lon0, lat1, lon1 = (float(token) for token in parts)
+        except (TypeError, ValueError):
+            continue
+        if lat0 == lat1 or lon0 == lon1:
+            continue
+        out.setdefault(icao.strip().upper(), []).append(
+            (min(lat0, lat1), min(lon0, lon1),
+             max(lat0, lat1), max(lon0, lon1)))
+    return out
+
+
+def corridors_for_tile(tile, value=None) -> dict:
+    """The declared corridors in scope for ``tile`` — TILE CFG FIRST.
+
+    THE DECLARATION IS A TILE-CFG KEY (spec §R17-2), and a per-tile
+    config value lands on the ``Tile`` INSTANCE (``Tile.read_from_config``
+    execs ``self.<var> = …``), never on ``O4_Config_Utils``' module
+    attribute — which is what :func:`_cfg_value` reads.  So a corridor
+    written into ``Ortho4XP_+22+113.cfg`` is invisible to the module-level
+    reader, exactly as ``flat_site_declared`` is.  Every corridor consumer
+    holds the tile, so every one of them resolves through here: the tile's
+    own value when it has one, the global config otherwise.
+    """
+    raw = getattr(tile, "flat_site_declared_corridors", None) if tile else None
+    if value is None and raw:
+        value = raw
+    return declared_flat_corridors(value)
+
+
+def corridor_bounds_tile_degrees(corridor, tile_lat: int, tile_lon: int):
+    """One declared corridor as TILE-RELATIVE degrees ``(x0, y0, x1, y1)``.
+
+    The same ``(x0, y0, x1, y1)`` contract every other flat-site
+    substitution box carries (``flat_site_mode.extent_bounds_tile_
+    degrees``), so the inset baker consumes declared corridors and
+    measured extents through one code path.
+    """
+    lat0, lon0, lat1, lon1 = corridor
+    return (float(lon0) - tile_lon, float(lat0) - tile_lat,
+            float(lon1) - tile_lon, float(lat1) - tile_lat)
+
+
 def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
                z0_m=None, relief_floor_m=None) -> dict:
     """S2's measurement over ``extent_m`` (local metres about ``anchor``).

@@ -737,11 +737,44 @@ def flat_site_substitutions(tile, dico_airports=None,
             # the number that refused them.  Same rule — an empty list
             # is "measured, none".
             "cluster_findings": [],
+            # R17-2: the owner's DECLARED corridors for this airport, as
+            # tile-relative boxes.  A declaration, unlike a claimed
+            # cluster, is not subject to the datum refusal — it IS the
+            # authority the datum check exists to protect (the check
+            # rules on evidence; the owner rules on intent).
+            "declared_corridors": _declared_corridor_boxes(
+                icao, tile_lat, tile_lon, tile=tile),
             "record": record,
         })
     _attach_claimed_object_clusters(
         out, icaos, anchor_by_icao, extent_by_icao,
         xplane_root, tile_lat, tile_lon)
+    return out
+
+
+def _declared_corridor_boxes(icao: str, tile_lat: int, tile_lon: int,
+                             tile=None) -> list:
+    """R17-2: the owner's declared corridors for ``icao``, tile-relative.
+
+    Only the boxes that INTERSECT this tile are returned — a corridor
+    declared on a neighbouring tile is not this tile's business, and a
+    box outside the tile would bake a constant inset over nothing.  Each
+    entry carries the WGS84 corners too, so a log line or a provenance
+    stamp can name the ground the owner declared.
+    """
+    from . import flat_site as _flat_site
+    out = []
+    for corridor in (_flat_site.corridors_for_tile(tile).get(
+            str(icao or "").upper()) or ()):
+        lat0, lon0, lat1, lon1 = corridor
+        if (lat1 < tile_lat or lat0 > tile_lat + 1
+                or lon1 < tile_lon or lon0 > tile_lon + 1):
+            continue
+        out.append({
+            "extent_deg": _flat_site.corridor_bounds_tile_degrees(
+                corridor, tile_lat, tile_lon),
+            "corridor_wgs84": [lat0, lon0, lat1, lon1],
+        })
     return out
 
 

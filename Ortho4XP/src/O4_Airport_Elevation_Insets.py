@@ -8570,6 +8570,59 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
+        # R17-2: THE DECLARED CORRIDORS.  Same constant inset at the same
+        # Z0 as the airport's own extent, one per declared box, and
+        # DELIBERATELY WITHOUT the R11-2 datum refusal: that gate weighs
+        # EVIDENCE (does the feather ring say these two surfaces belong
+        # together), and a declaration is the owner overruling the
+        # evidence on intent -- VHHH's causeway cluster is refused at a
+        # -10.82 m median precisely because the channel it crosses is
+        # water, which is the thing being declared away.  Open water
+        # OUTSIDE the box is untouched: one inset per declared box, never
+        # a grown extent (the R8-1 channel ruling).
+        for corridor in (substitution.get("declared_corridors") or ()):
+            dx0, dy0, dx1, dy1 = corridor["extent_deg"]
+            corridor_inset = _ConstantInset(
+                dx0, dy0, dx1, dy1, substitution["z0_m"],
+                label="%s declared corridor inset" % icao,
+            )
+            try:
+                _bake_one_inset(tile, None, feather_m, inset=corridor_inset)
+            except Exception as error:
+                UI.vprint(
+                    0,
+                    "   ERROR: FLAT-SITE mode could not bake the DECLARED "
+                    "corridor inset for", icao,
+                    "(", type(error).__name__, ":", str(error),
+                    ") - that corridor stays on the real surface.",
+                )
+                continue
+            stamped.append(
+                {
+                    "icao": icao,
+                    "kind": "declared_corridor",
+                    "verdict": substitution.get("verdict"),
+                    "z0_m": substitution["z0_m"],
+                    "extent_tile_degrees": [dx0, dy0, dx1, dy1],
+                    "extent_wgs84": [
+                        tile.lon + dx0, tile.lat + dy0,
+                        tile.lon + dx1, tile.lat + dy1,
+                    ],
+                    "corridor_wgs84": corridor.get("corridor_wgs84"),
+                    "feather_m": float(feather_m),
+                }
+            )
+            UI.vprint(
+                0,
+                "   [flat-site] %s: DECLARED CORRIDOR inset at Z0 %.2f m "
+                "over lat %.7f..%.7f lon %.7f..%.7f (feather %g m) - owner "
+                "declaration, datum check not applied."
+                % ((icao, substitution["z0_m"])
+                   + tuple(corridor.get("corridor_wgs84")
+                           or (tile.lat + dy0, tile.lon + dx0,
+                               tile.lat + dy1, tile.lon + dx1))
+                   + (feather_m,)),
+            )
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE
         # the bake (the R11-1 distance bound, recorded by

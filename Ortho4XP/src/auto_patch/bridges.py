@@ -3177,8 +3177,30 @@ def _emit_portal_cluster(
             # welded by the canonical point registry), and keeps the
             # deck grade on its crest.  Its outboard half-width and its
             # back face are unchanged, so nothing outside the cap moved.
-            _cap_f = (cap_centre[0] + first_dir[0] * wall_gap_m,
-                      cap_centre[1] + first_dir[1] * wall_gap_m)
+            # HOW FAR THE FACE REACHES (attempt 2): to the tunnel
+            # pavement it actually faces, not a fixed ``wall_gap_m``.
+            # Measured at KCLT after attempt 1: 2 of 3 unowned cap nodes
+            # closed, and the third stood 1.04 m from CLAIMED ROAD
+            # pavement (the R14 claim) rather than 0.6 m from a mouth
+            # plate — a 0.6 m reach could not span it, and R10-2 then
+            # cut the overhang back off.  Reaching exactly the nearest
+            # tunnel pavement leaves zero-area contact, so the cover cut
+            # is a no-op and no strip is left unowned.  Bounded by the
+            # cap's own footprint so a cap far from any pavement is
+            # unchanged.
+            _cap_reach = wall_gap_m
+            try:
+                if _pavement_u is not None:
+                    _face_line = LineString([c0, c1])
+                    _d_face = float(_pavement_u.distance(_face_line))
+                    if _d_face > 0.0:
+                        _cap_reach = min(max(_d_face, wall_gap_m),
+                                         wall_gap_m
+                                         + retaining_wall_width_m)
+            except _GEOM_EXC:
+                _cap_reach = wall_gap_m
+            _cap_f = (cap_centre[0] + first_dir[0] * _cap_reach,
+                      cap_centre[1] + first_dir[1] * _cap_reach)
             _cap_ring = [
                 (_cap_f[0] + first_perp[0] * cap_half_len,
                  _cap_f[1] + first_perp[1] * cap_half_len),

@@ -634,3 +634,312 @@ def test_gate_on_without_a_store_is_silent(monkeypatch, tmp_path):
     counts = V.verify_and_log(layout, "KTST", str(log))
     assert counts["eat_ceiling"] == 0
     assert "EAT-CEILING" not in (log.read_text() if log.exists() else "")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE CONTRADICTION GUARD — an EAT pin never contradicts a senior hard
+# anchor within route budget (docs/specs/
+# eat-anchor-contradiction-guard-spec.md)
+# ══════════════════════════════════════════════════════════════════════
+# THE GEOMETRY IS KSTJ's, from the SQ1 interventional attribution: the
+# rect pinned 241.8184 m into junction nodes at ANOTHER runway's
+# threshold, 5.692 m below the RW35 CIFP floor anchor 247.510 over
+# 0.93-1.24 m of route budget, which inverted the final band at 31 nodes
+# and dropped the whole KSTJ patch from every +39-095 build.
+_KSTJ_ANCHOR = 100          # the RW35 CIFP floor anchor node
+_KSTJ_ANCHOR_V = 247.510
+_KSTJ_PIN_V = 241.8184
+#: 100 --0.93-- 201 --0.31-- 200 : route budgets 0.93 m and 1.24 m, the
+#: two the attribution named.
+_KSTJ_ADJ = {
+    _KSTJ_ANCHOR: [(201, 0.93)],
+    201: [(_KSTJ_ANCHOR, 0.93), (200, 0.31)],
+    200: [(201, 0.31)],
+    # a sibling crossing node in its OWN component: the anchors do not
+    # reach it, so it has no bound and its pin stands (refusal is per
+    # node, never per rect).
+    300: [(301, 0.40)],
+    301: [(300, 0.40)],
+}
+
+
+def _kstj_pins():
+    return {200: _KSTJ_PIN_V, 201: _KSTJ_PIN_V, 300: _KSTJ_PIN_V}
+
+
+class TestEatPinContradictionGuard:
+    """Twin (a): the KSTJ shape."""
+
+    def test_the_guard_refuses_the_pins_that_contradict_the_threshold(self):
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        refused = SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ,
+            {**_kstj_pins(), _KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        assert set(refused) == {200, 201}, (
+            "the two nodes inside the anchor's reach are refused; the "
+            "sibling the anchors cannot reach keeps its pin")
+        for i in (200, 201):
+            assert refused[i]["side"] == "floor"
+            assert refused[i]["witness"] == _KSTJ_ANCHOR
+        # 247.510 − 0.93 = 246.580 floor at 201 ⇒ 4.7616 m short;
+        # 247.510 − 1.24 = 246.270 floor at 200 ⇒ 4.4516 m short.
+        assert refused[201]["excess_m"] == pytest.approx(4.7616, abs=1e-4)
+        assert refused[200]["excess_m"] == pytest.approx(4.4516, abs=1e-4)
+        assert refused[201]["route_budget_m"] == pytest.approx(0.93)
+        assert refused[200]["route_budget_m"] == pytest.approx(1.24)
+
+    def test_the_predicate_is_the_seat_guards_own_implementation(self):
+        """THE SAME PREDICATE THROUGH THE SAME IMPLEMENTATION (spec):
+        the refusal is exactly ``AnchorEnvelope.violation`` on the
+        law-graph budget oracle.  A second spelling of ``pin + cap·route
+        < anchor`` is the census-wrapper defect class."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        from auto_patch.elevation_per_surface.route_profile \
+            .law_graph_budget import build_anchor_envelope
+        env = build_anchor_envelope(_KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        refused = SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        for i, row in refused.items():
+            assert row == env.violation(i, _KSTJ_PIN_V, tol=0.01)
+
+    def test_a_pin_never_bounds_itself_or_its_sibling(self):
+        """The law asks whether the pin contradicts a SENIOR anchor.  A
+        pin is junior by construction, so the pins are removed from the
+        anchor set before the envelope is built.
+
+        THE CONFIGURATION THAT SEPARATES THE TWO READINGS is the one the
+        rect builder already produces: two crossing segments pinned at
+        their OWN ``D_mid`` regulation values, close together on the
+        graph.  Both sit comfortably inside the senior anchor's box, so
+        the law refuses neither — but each is 10 m from the other across
+        0.5 m of budget, so a guard that let a pin act as an anchor would
+        refuse BOTH on the authority of a value that is itself only a
+        junior derivative of the runway end."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        adj = {400: [(401, 0.5), (402, 10.0)],
+               401: [(400, 0.5), (402, 10.0)],
+               402: [(400, 10.0), (401, 10.0)]}
+        pins = {400: 240.0, 401: 250.0}
+        # ``hard_values`` is shaped as the solve passes it: EVERY hard
+        # node on the graph, and a stamped pin IS hard — so the exclusion
+        # has to happen inside the guard, where the law is.
+        assert SV.eat_pin_contradiction_refusals(
+            pins, adj, {**pins, 402: 245.0}) == {}
+        # every hard node IS a pin ⇒ no senior anchor ⇒ nothing to refuse
+        assert SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ, dict(_kstj_pins())) == {}
+
+    def test_no_graph_and_no_pins_refuse_nothing(self):
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        assert SV.eat_pin_contradiction_refusals(
+            {}, _KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V}) == {}
+        assert SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), {}, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V}) == {}
+        assert SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ, {}) == {}
+
+    def test_the_released_nodes_no_longer_invert_the_band(self):
+        """The pre-registered outcome: after the refusal the node's own
+        value sits INSIDE the senior envelope — the inversion the pin
+        authored is gone, and it is gone because the pin is, not because
+        anything moved a runway."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        from auto_patch.elevation_per_surface.route_profile \
+            .law_graph_budget import build_anchor_envelope
+        env = build_anchor_envelope(_KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        n = 302
+        elev = [0.0] * n
+        base_hard = [False] * n
+        have_initial = [False] * n
+        seed = 247.4          # the real 1 m-lidar ground at those nodes
+        layout = PavementLayout(icao="KSTJ", anchor=(39.77, -94.91))
+        layout._eat_anchor_pin_prev = {i: (seed, True)
+                                       for i in _kstj_pins()}
+        layout._eat_anchor_pin_idx = _kstj_pins()
+        layout._seam_pin_idx = set(_kstj_pins())
+        for i, v in _kstj_pins().items():
+            elev[i] = v
+            base_hard[i] = True
+        refused = SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        assert SV.release_refused_eat_pins(
+            layout, refused, elev, base_hard, have_initial) == 2
+        for i in (200, 201):
+            assert elev[i] == pytest.approx(seed)
+            assert not base_hard[i], "a refused pin is not a truth anchor"
+            assert i not in layout._eat_anchor_pin_idx, (
+                "a refused pin is not registered as a runway-class "
+                "reach-band anchor either")
+            assert i not in layout._seam_pin_idx
+            assert env.violation(i, elev[i], tol=0.01) is None
+        # the sibling the guard did not refuse is untouched
+        assert elev[300] == pytest.approx(_KSTJ_PIN_V)
+        assert base_hard[300]
+        assert layout._eat_anchor_pin_idx == {300: _KSTJ_PIN_V}
+        assert 300 in layout._seam_pin_idx
+
+    def test_a_node_with_no_snapshot_is_left_alone(self):
+        """Inventing a seed for a node the seeder did not record would be
+        the same class of defect the pin itself committed."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        layout = PavementLayout(icao="KSTJ", anchor=(39.77, -94.91))
+        layout._eat_anchor_pin_prev = {}
+        layout._eat_anchor_pin_idx = {200: _KSTJ_PIN_V}
+        elev = [0.0] * 201
+        elev[200] = _KSTJ_PIN_V
+        base_hard = [False] * 201
+        base_hard[200] = True
+        assert SV.release_refused_eat_pins(
+            layout, {200: {}}, elev, base_hard, None) == 0
+        assert elev[200] == pytest.approx(_KSTJ_PIN_V)
+        assert base_hard[200]
+
+
+class TestTheRefusalIsCarriedAcrossRebuilds:
+    """The verdict is priced ONCE (only the solve has the graph) and
+    CARRIED to every later ``_seed_elevations`` by CANONICAL POINT."""
+
+    def test_a_carried_verdict_makes_the_seeder_skip_the_node(self):
+        layout = _layout(_IN)
+        _nodes, b2i, _elev, _hard = _seed(layout)
+        idx = _taxi_idx(layout, b2i, _IN)
+        cps = layout.canonical_points
+        refused_xy = list(_IN.exterior.coords)[:2]
+        layout._eat_pin_refused_keys = {
+            cps.get_or_add(float(x), float(y)) for (x, y) in refused_xy}
+        # a fresh seeding pass, exactly as the final projection does it
+        layout2 = _layout(_IN)
+        layout2.canonical_points = cps
+        layout2._eat_pin_refused_keys = layout._eat_pin_refused_keys
+        nodes2, b2i2 = SP._build_node_list(layout2)
+        elev2, hard2, _h2 = SP._seed_elevations(layout2, nodes2, b2i2)
+        skipped = {b2i2[cps.get_or_add(float(x), float(y))]
+                   for (x, y) in refused_xy}
+        for i in skipped:
+            assert not hard2[i], (
+                "a node the guard refused must never be re-pinned by a "
+                "later pass — the writeback clamp rescuing it is not the "
+                "law holding")
+            assert i not in layout2._eat_anchor_pin_idx
+        kept = set(_taxi_idx(layout2, b2i2, _IN)) - skipped
+        assert kept, "the fixture must still leave lawful siblings"
+        for i in kept:
+            assert hard2[i]
+            assert i in layout2._eat_anchor_pin_idx
+        assert len(idx) == 4
+
+    def test_the_verdict_is_keyed_by_point_never_by_node_index(self):
+        """Index keys are meaningful inside ONE ``_build_node_list`` call
+        only; every later pass rebuilds on a GROWN layout."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        layout = _layout(_IN)
+        nodes, b2i, _elev, _hard = _seed(layout)
+        idx = _taxi_idx(layout, b2i, _IN)[:2]
+        keys = SV.publish_eat_refusal_keys(layout, {i: {} for i in idx},
+                                           nodes)
+        assert keys == layout._eat_pin_refused_keys
+        assert not (keys & set(range(len(nodes)))) or all(
+            not isinstance(k, int) for k in keys), (
+            "a node index must never end up in the point-keyed set")
+        for i in idx:
+            assert layout.canonical_points.get(
+                float(nodes[i][0]), float(nodes[i][1])) in keys
+
+    def test_no_verdict_carries_nothing(self):
+        layout = _layout(_IN)
+        _nodes, b2i, _elev, hard = _seed(layout)
+        assert not hasattr(layout, "_eat_pin_refused_keys")
+        assert all(hard[i] for i in _taxi_idx(layout, b2i, _IN))
+
+
+class TestLawfulEatRectIsUnchanged:
+    """Twin (b): a lawful EAT rect pins identically to today."""
+
+    def test_the_seeder_publishes_the_pre_pin_snapshot(self):
+        """The refusal restores the node to the seed the seeder found —
+        so the seeder records it, for EVERY pin, lawful or not."""
+        layout = _layout(_IN)
+        _nodes, b2i, elev, _hard = _seed(layout)
+        idx = set(_taxi_idx(layout, b2i, _IN))
+        assert set(layout._eat_anchor_pin_prev) == idx
+        for i in idx:
+            prev_elev, prev_have = layout._eat_anchor_pin_prev[i]
+            assert prev_elev != pytest.approx(_IN_PIN), (
+                "the snapshot is the PRE-pin value, not the pin")
+            assert isinstance(prev_have, bool)
+            assert elev[i] == pytest.approx(_IN_PIN)
+
+    def test_a_lawful_rect_is_refused_nothing_and_moves_nothing(self):
+        """The senior anchor sits within cap of the regulation value, so
+        the guard refuses nothing and the pinned state is byte-identical
+        to the un-guarded build."""
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        layout = _layout(_IN)
+        _nodes, b2i, elev, hard = _seed(layout)
+        pins = dict(layout._eat_anchor_pin_idx)
+        idx = sorted(pins)
+        # a senior anchor one hop away at the pin's own value: lawful by
+        # construction, whatever the cap.
+        anchor = max(idx) + 1000
+        adj = {anchor: [(idx[0], 0.5)], idx[0]: [(anchor, 0.5)]}
+        adj.update({i: [(idx[0], 0.5)] for i in idx[1:]})
+        adj[idx[0]] = adj[idx[0]] + [(i, 0.5) for i in idx[1:]]
+        before = (list(elev), list(hard), dict(pins),
+                  set(layout._seam_pin_idx))
+        refused = SV.eat_pin_contradiction_refusals(
+            pins, adj, {anchor: _IN_PIN})
+        assert refused == {}
+        assert SV.release_refused_eat_pins(
+            layout, refused, elev, hard, None) == 0
+        assert (list(elev), list(hard), dict(layout._eat_anchor_pin_idx),
+                set(layout._seam_pin_idx)) == before
+
+    def test_the_guard_runs_before_the_pins_hold_any_authority(self):
+        """THE WIRING, which no unit call can show: inside
+        ``solve_route_profile`` the guard must sit AFTER the airside view
+        of the unified graph it prices on and BEFORE the runway-flex
+        pass, the runway-class anchor registration and the hard-truth
+        publication — a refused pin that reached any of those would
+        already have authored a band."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        src = inspect.getsource(SV.solve_route_profile)
+        at_graph = src.index("u_spine_adj_airside = adj_without_pairs")
+        at_guard = src.index("eat_pin_contradiction_refusals(")
+        at_flex = src.index("_apply_runway_flex_hook(")
+        at_anchor = src.index("G.runway_anchor.setdefault(_pi, float(_pv))")
+        at_truth = src.index("layout._seed_hard_truth_values")
+        assert at_graph < at_guard < at_flex < at_anchor < at_truth
+
+    def test_the_guard_needs_no_env_flag(self):
+        """No new switch: ``EAT_SURFACE_CEILING`` stays the feature's
+        only gate, and the guard is part of the feature."""
+        import os
+        assert not any(k.startswith("O4_EAT_") and
+                       k != "O4_EAT_SURFACE_CEILING" for k in os.environ)
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        import inspect
+        src = inspect.getsource(SV.eat_pin_contradiction_refusals)
+        assert "environ" not in src
+
+
+class TestGuardRefusalLine:
+    """Twin (c): the ONE loud line."""
+
+    def test_the_line_carries_count_worst_shortfall_and_anchor(self):
+        from auto_patch.elevation_per_surface.route_profile import solve as SV
+        refused = SV.eat_pin_contradiction_refusals(
+            _kstj_pins(), _KSTJ_ADJ, {_KSTJ_ANCHOR: _KSTJ_ANCHOR_V})
+        worst_node, worst = max(refused.items(),
+                                key=lambda r: r[1]["excess_m"])
+        worst = dict(worst, pin_m=_KSTJ_PIN_V)
+        line = SV.format_eat_guard_line(
+            "KSTJ", 2, 3, worst_node, worst, _KSTJ_ANCHOR_V)
+        assert line.count("\n") == 0, "ONE loud line, not a report"
+        assert line.lstrip().startswith("[eat-anchor-rect] KSTJ:")
+        assert "2 of 3 pin(s) REFUSED" in line          # nodes refused
+        assert "node 201" in line                        # worst node
+        assert "241.818" in line                         # its pin
+        assert "4.762 m past its floor 246.580" in line  # worst shortfall
+        assert "witness anchor 100 = 247.510" in line    # anchor identity
+        assert "route budget 0.9300 m" in line

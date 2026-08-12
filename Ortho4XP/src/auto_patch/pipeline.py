@@ -6887,6 +6887,55 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: late final "
                          f"grade projection failed ({_late_fgp_exc!r}) "
                          f"— mid-pipeline projection values kept.")
+
+        # ★ THE PAD-HOST LAW RE-ASSERTS ON TOP OF THE LATE PROJECTION
+        # (task #16 amendment 1, Fable lead 2026-08-12).  The earlier
+        # invocation's own docstring claimed "nothing re-seats the pad
+        # afterwards" — measured FALSE: the late projection above re-runs
+        # the DEM-biased frontage seat on the final geometry and re-stamps
+        # the pad it just levelled.  HECA building114: relevelled to 85.59
+        # at the post-projection pass, re-stamped 88.5 here
+        # (``who_wrote.py`` node history, 2026-08-12), which is why all
+        # THREE r19-1 mechanisms measured exact on the artifact and missed
+        # in production — none of them was ever the miss.
+        #
+        # The remedy is authorship ORDER, not a change to either law: the
+        # projection keeps full authority over the terrain (it runs
+        # unmodified, and this pass reads the values it just wrote), and
+        # the pad-host law re-asserts on top of that surface.  It is
+        # convergent by construction — the pad adopts FROM the host and
+        # the host body is never touched — so a second application on a
+        # settled surface is a no-op, and it stays BEFORE the band seal,
+        # which remains the pipeline's last elevation author (R17-1(b);
+        # ``tests/test_r17_band_clamp_last_author.py``).
+        try:
+            from .elevation_per_surface.route_profile.anchors import (
+                relevel_pads_to_host_pavement as _relevel_late)
+            _n_padhost_late = _relevel_late(layout)
+            if _n_padhost_late:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: pad-host level (post-late-"
+                    f"projection) — {_n_padhost_late} embedded pad(s) "
+                    f"re-levelled to the host pavement the projection "
+                    f"actually left.")
+            # The object-pad half only where the requests exist by now
+            # (they are emitted upstream of here; at an airport with no
+            # object pads this is not called at all).
+            if getattr(layout, "object_pad_records", None):
+                from .layout import ROLE_OBJECT_PAD as _ROLE_OPAD_LATE
+                _n_opad_late = _relevel_late(layout,
+                                             pad_role=_ROLE_OPAD_LATE)
+                if _n_opad_late:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: object-pad host level "
+                        f"(post-late-projection) — {_n_opad_late} pad "
+                        f"request(s) re-adopted the host level.")
+        except (_GEOM_EXC + (TypeError, AttributeError, KeyError,
+                             IndexError)) as _relevel_late_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: post-late-"
+                         f"projection pad-host level failed "
+                         f"({_relevel_late_exc!r}) — projection values "
+                         f"kept.")
     _rod_ckpt(layout, "23_final_projection_late")
 
     # ★ DRAINAGE-SPINE LAW re-clamp (owner field report 2026-08-02, gate

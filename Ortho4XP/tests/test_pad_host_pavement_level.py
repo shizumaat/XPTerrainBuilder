@@ -692,3 +692,32 @@ def test_rings_further_apart_than_the_weld_tolerance_never_family(
 
     assert relevel_pads_to_host_pavement(layout) == 0
     assert small.altitude == pytest.approx(WELD_PAD, abs=0.01)
+
+
+def test_the_pad_law_re_asserts_after_the_late_projection():
+    """AUTHORSHIP ORDER, structural (task #16 amendment 1).
+
+    The pad-host law's own docstring claimed "nothing re-seats the pad
+    afterwards".  Measured false: the LATE ``final_grade_projection``
+    re-runs the DEM-biased frontage seat on the final geometry and
+    re-stamped HECA building114's 85.59 back to 88.5 — the reason all
+    three R19-1 mechanisms measured exact on the artifact and missed in
+    production.  So the law runs AGAIN after that projection, and the
+    band seal is still the last elevation author (R17-1(b)).
+
+    Asserted on the pipeline's source, in ``test_r17_band_clamp_last_
+    author``'s own idiom: an ordering that holds "currently, by luck" is
+    exactly what this pins.
+    """
+    import inspect
+    from auto_patch import pipeline as PIPE
+
+    source = inspect.getsource(PIPE.build_airport_pavement)
+    after_late = source.split("_late_fgp(layout, icao", 1)[1]
+    assert "relevel_pads_to_host_pavement as _relevel_late" in after_late, (
+        "no pad-host re-level after the late projection — the projection "
+        "is the last author of the pad value again")
+    # ...and it is still BEFORE the seal (the R17 guard asserts the
+    # complement: nothing after the seal).
+    before_seal = source.split("_seal_band(layout, icao)", 1)[0]
+    assert "_relevel_late(layout)" in before_seal

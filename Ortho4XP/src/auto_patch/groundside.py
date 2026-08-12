@@ -22,7 +22,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import (
-    LineString, MultiLineString, MultiPolygon, Point, Polygon, box)
+    LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    box)
 from shapely.ops import linemerge, nearest_points, snap, unary_union
 
 from .layout import (
@@ -340,7 +341,8 @@ class _BelowGradeIndex:
     the whole build-time cost of this law, and the index removes it.
     """
 
-    __slots__ = ("sources", "tree", "bounds", "component_of")
+    __slots__ = ("sources", "tree", "bounds", "component_of",
+                 "deepest_station")
 
     def __init__(self, sources):
         self.sources = list(sources)
@@ -354,6 +356,11 @@ class _BelowGradeIndex:
         # contributes exactly one anchor — its deepest station, which is
         # where it meets grade under the pavement: the portal.
         self.component_of = [0] * len(self.sources)
+        #: ``{component: ((x, y), altitude)}`` — THE PORTAL of each
+        #: below-grade body: its DEEPEST station, the minimum profile
+        #: altitude over that body's source rings (R16-2a).  Filled
+        #: after ``component_of`` resolves.
+        self.deepest_station = {}
         if not self.sources:
             return
         polygons = [polygon for polygon, _ring, _alts in self.sources]
@@ -377,6 +384,27 @@ class _BelowGradeIndex:
                         int(hit[0]) if len(hit) else index)
         except Exception:                              # pragma: no cover
             self.component_of = list(range(len(self.sources)))
+        _deepest: dict = {}
+        for index, (_polygon, ring, alts) in enumerate(self.sources):
+            component = self.component_of[index]
+            for position, vertex in enumerate(ring):
+                if position >= len(alts):              # pragma: no cover
+                    break
+                value = float(alts[position])
+                point = (float(vertex[0]), float(vertex[1]))
+                current = _deepest.get(component)
+                if current is None or value < current[0] - 1e-9:
+                    _deepest[component] = (value, [point])
+                elif abs(value - current[0]) <= 1e-9:
+                    current[1].append(point)
+        # A STATION is a CROSS-SECTION, not one vertex: a ramp quad
+        # reaches its portal depth on BOTH its edges, and measuring the
+        # gap to whichever of the two the ring scan met first would put
+        # the whole ramp WIDTH into the anchor's ``cap * gap`` (10.6 m
+        # instead of 0.6 m on the R5 band twin).  Every vertex at the
+        # body's minimum altitude is the same station.
+        for component, (value, points) in _deepest.items():
+            self.deepest_station[component] = (MultiPoint(points), value)
         xs0, ys0, xs1, ys1 = zip(*(p.bounds for p in polygons))
         self.bounds = (min(xs0), min(ys0), max(xs1), max(ys1))
 
@@ -498,30 +526,61 @@ def transition_law_altitudes(ring, surface_alts, sources,
         reach_m = transition_reach_m(surface_alts, index, max_grade)
     alts = [float(a) for a in surface_alts]
 
-    # THE PORTAL ANCHORS.  Per below-grade body, the ring vertex whose
-    # lawful floor is lowest: the closest approach to that body's
-    # deepest station.  ``cap * gap`` is the only role the horizontal
-    # gap keeps — it is what the anchor may stand above the ramp, not a
-    # run any other vertex grades over.
-    floor_by_component: dict[int, tuple[float, int]] = {}
+    # THE PORTAL ANCHORS (R16-2a).  Per below-grade body the portal is
+    # the body's DEEPEST STATION — the minimum profile altitude over its
+    # source rings — and the anchor is the governed ring vertex NEAREST
+    # THAT STATION, pinned at ``deepest_alt + cap * gap`` measured to
+    # that station.  ``cap * gap`` is the only role the horizontal gap
+    # keeps: what the anchor may stand above the ramp, never a run any
+    # other vertex grades over.
+    #
+    # The pre-round-16 mechanism minimised ``nearest_profile + cap * d``
+    # PER VERTEX, and ``_nearest_source_profile`` answers with the
+    # NEAREST edge of the NEAREST quad — so the winner was whichever
+    # station happened to lie closest to the ring, i.e. the SHALLOWEST
+    # one, and the docstring's own prose (this law's text) measured out
+    # false.  Which BODIES govern the ring is unchanged: still the
+    # bodies a ring vertex finds in reach.
+    governed: set = set()
     for position, vertex in enumerate(ring):
         source_alt, distance, source_index = _nearest_source_profile(
             vertex, index, reach_m)
         if source_alt is None:
             continue
-        floor = float(source_alt) + max_grade * float(distance)
+        governed.add(index.component_of[source_index])
+    floor_by_component: dict[int, tuple[float, int]] = {}
+    for component in governed:
+        station = index.deepest_station.get(component)
+        if station is None:                            # pragma: no cover
+            continue
+        station_geom, deepest_alt = station
+        best = None
+        for position, vertex in enumerate(ring):
+            try:
+                gap = station_geom.distance(
+                    Point(float(vertex[0]), float(vertex[1])))
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if best is None or gap < best[0]:
+                best = (gap, position)
+        if best is None:                               # pragma: no cover
+            continue
+        gap, position = best
+        floor = float(deepest_alt) + max_grade * float(gap)
         if floor >= alts[position] - 1e-3:
             continue                   # nothing below grade to grade to
-        component = index.component_of[source_index]
-        current = floor_by_component.get(component)
-        if current is None or floor < current[0]:
-            floor_by_component[component] = (floor, position)
+        floor_by_component[component] = (floor, position)
     if not floor_by_component:
         return alts, 0
 
     pinned = set()
     for floor, position in floor_by_component.values():
-        alts[position] = floor
+        # Two bodies can name the SAME nearest vertex; the deeper floor
+        # is the one that governs it (a vertex has one lawful value).
+        if position in pinned:
+            alts[position] = min(alts[position], floor)
+        else:
+            alts[position] = floor
         pinned.add(position)
     # The relaxation IS the along-the-ring run, so it must actually
     # converge: the primitive's default budget (max(300, 4n)) is sized

@@ -2495,8 +2495,12 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
         # Retaining wall down both sides, DEM-following like every other
         # tunnel wall (the crest is the ground the cut is made in).
         for _sign in (+1.0, -1.0):
-            _inner = _half + wall_gap_m
-            _outer = _inner + retaining_wall_width_m
+            # R16-2b: the face's inner edge IS the cut floor's edge
+            # (``_half``), so the two share their vertices and nothing
+            # between them is unowned; the crest stays where it was,
+            # ``wall_gap + width`` out.
+            _inner = _half
+            _outer = _half + wall_gap_m + retaining_wall_width_m
             _ring = [
                 (_pa[0] + _px * _inner * _sign,
                  _pa[1] + _py * _inner * _sign),
@@ -2515,8 +2519,12 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
                     continue
             except _GEOM_EXC:
                 continue
-            _alts = []
-            for (_vx, _vy) in _ring:
+            # The ring is ``[inner@_pa, inner@_pb, outer@_pb, outer@_pa]``:
+            # the first two vertices ARE the cut floor's edge and carry
+            # its profile (``_ga`` at ``_pa``, ``_gb`` at ``_pb``); the
+            # outer pair is the crest and keeps the DEM (R16-2b).
+            _alts = [round(float(_ga), 2), round(float(_gb), 2)]
+            for (_vx, _vy) in _ring[2:]:
                 _ground = dem_at(_vx, _vy)
                 _alts.append(round(
                     float(_ground) if _ground is not None
@@ -3157,9 +3165,61 @@ def _emit_portal_cluster(
         #    combined carriageways at the cluster face line.  Overlap
         #    with the roof cover is at the SAME grade — benign.
         try:
-            cap_poly = Polygon([c0, c1, c1_back, c0_back])
+            # R16-2b (round-16 amendment 1): THE CAP FACE IS OWNED
+            # GEOMETRY TOO.  The cap used to stop at the portal station
+            # while the mouth plate starts ``wall_gap_m`` further out,
+            # leaving the same unowned strip the wall bands had —
+            # measured at KCLT: 3 cap nodes 1.16/5.10 m above the
+            # pavement across a 0.60-1.71 m gap no shape owned.  The cap
+            # now reaches the mouth plate's NEAR EDGE, carries the
+            # mouth's grade on the two vertices it shares with it (the
+            # plate's own near corners, coincident by construction and
+            # welded by the canonical point registry), and keeps the
+            # deck grade on its crest.  Its outboard half-width and its
+            # back face are unchanged, so nothing outside the cap moved.
+            # HOW FAR THE FACE REACHES (attempt 2): to the tunnel
+            # pavement it actually faces, not a fixed ``wall_gap_m``.
+            # Measured at KCLT after attempt 1: 2 of 3 unowned cap nodes
+            # closed, and the third stood 1.04 m from CLAIMED ROAD
+            # pavement (the R14 claim) rather than 0.6 m from a mouth
+            # plate — a 0.6 m reach could not span it, and R10-2 then
+            # cut the overhang back off.  Reaching exactly the nearest
+            # tunnel pavement leaves zero-area contact, so the cover cut
+            # is a no-op and no strip is left unowned.  Bounded by the
+            # cap's own footprint so a cap far from any pavement is
+            # unchanged.
+            _cap_reach = wall_gap_m
+            try:
+                if _pavement_u is not None:
+                    _face_line = LineString([c0, c1])
+                    _d_face = float(_pavement_u.distance(_face_line))
+                    if _d_face > 0.0:
+                        _cap_reach = min(max(_d_face, wall_gap_m),
+                                         wall_gap_m
+                                         + retaining_wall_width_m)
+            except _GEOM_EXC:
+                _cap_reach = wall_gap_m
+            _cap_f = (cap_centre[0] + first_dir[0] * _cap_reach,
+                      cap_centre[1] + first_dir[1] * _cap_reach)
+            _cap_ring = [
+                (_cap_f[0] + first_perp[0] * cap_half_len,
+                 _cap_f[1] + first_perp[1] * cap_half_len),
+                (_cap_f[0] + first_perp[0] * combined_half,
+                 _cap_f[1] + first_perp[1] * combined_half),
+                (_cap_f[0] - first_perp[0] * combined_half,
+                 _cap_f[1] - first_perp[1] * combined_half),
+                (_cap_f[0] - first_perp[0] * cap_half_len,
+                 _cap_f[1] - first_perp[1] * cap_half_len),
+                c1_back, c0_back,
+            ]
+            _cap_alts = [round(deck_grade, 2),
+                         round(mouth_grade, 2), round(mouth_grade, 2),
+                         round(deck_grade, 2),
+                         round(deck_grade, 2), round(deck_grade, 2)]
+            cap_poly = Polygon(_cap_ring)
             if not cap_poly.is_valid:
                 cap_poly = cap_poly.buffer(0)
+                _cap_alts = None          # ring order no longer aligned
             if (cap_poly.geom_type == "Polygon"
                     and not cap_poly.is_empty):
                 if _append_tunnel_cover(
@@ -3168,7 +3228,11 @@ def _emit_portal_cluster(
                             polygon=cap_poly,
                             role=ROLE_RETAINING_WALL,
                             ref="tunnel_cap",
-                            altitude=round(deck_grade, 1))):
+                            altitude=(round(deck_grade, 1)
+                                      if _cap_alts is None else None),
+                            node_altitudes=(
+                                None if _cap_alts is None
+                                else _cap_alts + [_cap_alts[0]]))):
                     emitted_any = True
         except _GEOM_EXC:
             pass
@@ -4212,9 +4276,17 @@ def _emit_portal_cluster(
                 try:
                     _outer = _rp.buffer(_g1, join_style=2,
                                         mitre_limit=2.0)
-                    _inner = _rp.buffer(_g0, join_style=2,
-                                        mitre_limit=2.0)
-                    _band = _outer.difference(_inner)
+                    # R16-2b: THE WALL FACE IS OWNED GEOMETRY.  The band
+                    # used to start ``_g0`` (0.6 m) outboard of the ramp,
+                    # leaving an annulus NO shape owned — the mesh draped
+                    # it at DEM/Z0 under a crest standing 6.5-8 m above
+                    # the ramp (measured OTHH: 17 wall nodes over a
+                    # 0.6-1.6 m unowned gap).  The face IS the wall's:
+                    # its inner boundary is the ramp's outer boundary,
+                    # welded by node identity because the ring is derived
+                    # from that polygon, and it carries the ramp's values
+                    # there (below), so the face spans the drop.
+                    _band = _outer.difference(_rp)
                     if _open_u is not None:
                         _band = _band.difference(_open_u)
                 except _GEOM_EXC:
@@ -4318,9 +4390,28 @@ def _emit_portal_cluster(
                                 _sources.append((
                                     _sr.polygon, _rr,
                                     [float(_sr.altitude)] * len(_rr)))
+                        from .groundside import (
+                            _nearest_source_profile as _nsp)
+                        _idx = _BelowGradeIndex(_sources)
                         _vals, _n_moved = transition_law_altitudes(
-                            _ring, _surface,
-                            _BelowGradeIndex(_sources), _GS_CAP)
+                            _ring, _surface, _idx, _GS_CAP)
+                        # R16-2b: the inner edge is the RAMP's boundary,
+                        # so it carries the RAMP's value — the crest
+                        # (the transition law's answer) stays on the
+                        # outer edge and the face spans the drop between
+                        # them.  Nothing between the two is unowned.
+                        for _vi, (_vx, _vy) in enumerate(_ring):
+                            try:
+                                if (_rp.boundary.distance(Point(_vx, _vy))
+                                        > _WALL_FACE_ON_PAVEMENT_TOL_M):
+                                    continue
+                            except _GEOM_EXC:
+                                continue
+                            _ra, _rd, _rsi = _nsp(
+                                (_vx, _vy), _idx,
+                                _WALL_FACE_ON_PAVEMENT_TOL_M + 0.5)
+                            if _ra is not None:
+                                _vals[_vi] = float(_ra)
                     except _GEOM_EXC:
                         _vals = _surface
                     _na = [round(_v, 1) for _v in _vals]
@@ -4486,6 +4577,7 @@ def _emit_low_corridor_connectors(
         surf_parts = ([open_part] if open_part.geom_type == "Polygon"
                       else [g for g in getattr(open_part, "geoms", ())
                             if g.geom_type == "Polygon"])
+        emitted_surface: list = []
         for part in surf_parts:
             if part.is_empty or part.area < 4.0:
                 continue
@@ -4498,20 +4590,28 @@ def _emit_low_corridor_connectors(
                 ref="tunnel_low_connector",
                 node_altitudes=[round(elev_low, 2)] * n_vertices))
             exclusion_zones.append(simple)
+            emitted_surface.append(simple)
             n_rects += 1
         # Retaining wall around the corridor's open sides: a 1 m band
         # offset by the standard wall gap, minus airside pavement (the
         # bores continue under the taxiways — no wall across the road).
         try:
+            # R16-2b: the face starts AT the EMITTED surface's edge (the
+            # simplified, graze-cut rects — not the corridor they were
+            # derived from), so the wall's inner boundary is that
+            # surface's boundary vertex for vertex, and no strip between
+            # them is left for the mesh to drape.
+            _surface_u = (unary_union(emitted_surface) if emitted_surface
+                          else corridor)
             band = (corridor.buffer(
                         wall_gap_m + retaining_wall_width_m,
                         join_style=2)
-                    .difference(corridor.buffer(wall_gap_m,
-                                                join_style=2)))
+                    .difference(_surface_u))
             if airside_gate_union is not None:
                 band = band.difference(airside_gate_union.buffer(0.5))
         except _GEOM_EXC:
             band = None
+            _surface_u = corridor
         band_parts = ([] if band is None else
                       ([band] if band.geom_type == "Polygon"
                        else [g for g in getattr(band, "geoms", ())
@@ -4553,6 +4653,17 @@ def _emit_low_corridor_connectors(
                 continue
             wall_alts = []
             for (vx, vy) in ring:
+                # R16-2b: a vertex ON the corridor edge is the CORRIDOR's
+                # vertex and carries its value (one node, one value); the
+                # crest keeps the DEM.
+                try:
+                    _on_edge = (_surface_u.boundary.distance(Point(vx, vy))
+                                <= _WALL_FACE_ON_PAVEMENT_TOL_M)
+                except _GEOM_EXC:                      # pragma: no cover
+                    _on_edge = False
+                if _on_edge:
+                    wall_alts.append(round(float(elev_low), 2))
+                    continue
                 ground = dem_at(vx, vy)
                 wall_alts.append(round(
                     ground if ground is not None else float(apt_elev), 1))
@@ -4584,6 +4695,16 @@ def _emit_low_corridor_connectors(
 # (user 2026-05-03: one node with two altitudes renders as a vertical
 # glitch).
 _TUNNEL_GRAZE_CLEARANCE_M = 0.6
+
+# R16-2b: how close a wall-band vertex must sit to the pavement it
+# faces to BE that boundary's vertex (metres).  The band's inner ring
+# is derived FROM the ramp/corridor polygon, so the coincidence is
+# exact; the tolerance only absorbs buffer/difference round-off.  A
+# vertex inside it carries the RAMP's value, which is what makes the
+# shared node one value instead of two (the 2026-05-03 glitch class
+# the old ``wall_gap`` standoff avoided by leaving the strip UNOWNED —
+# and an unowned strip is drape-at-DEM, the defect this replaces).
+_WALL_FACE_ON_PAVEMENT_TOL_M = 0.01
 
 # The pavement union a tunnel piece is gated against (the per-portal
 # AIRSIDE / DOUBLE-EMIT gate and the pavement-overlap clip read the same
@@ -5442,6 +5563,69 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _level_surface = unary_union(_level_parts) if _level_parts else None
     except _GEOM_EXC:
         _level_surface = None
+    # ── R16-3: ONE FLOOR PER CONNECTED CLAIMED PLATE ─────────────────
+    # Two ADJACENT plates of one level surface used to carry different
+    # clearance floors — each shape took the lowest floor among the
+    # REGIONS it covers, and two members covering different regions
+    # answered differently (measured KCLT triangle: 210.87 vs 210.98, a
+    # 0.13 m spread against the level-plate bullet's 0.10 m).  A level
+    # surface is ONE surface: connected members share the JOINT DEPTH,
+    # the minimum of their own floors.  Connectivity is the claim law's
+    # OWN — the components of ``_level_surface``, the union pass 2
+    # already grades away from — never a private union built here.
+    _joint_floor: dict[int, float] = {}
+    if _level_members and _level_surface is not None:
+        _bodies = [_g for _g in getattr(_level_surface, "geoms",
+                                        [_level_surface])
+                   if _g is not None and not _g.is_empty]
+        if len(_bodies) > 1:
+            try:
+                from shapely.strtree import STRtree as _STRtree
+                _body_tree = _STRtree(_bodies)
+            except Exception:                          # pragma: no cover
+                _body_tree = None
+        else:
+            _body_tree = None
+        _component_of: dict[int, int] = {}
+        for _shape, _r, _a, _floor in _level_members:
+            _comp = 0
+            if _body_tree is not None:
+                try:
+                    _pt = _shape.polygon.representative_point()
+                    _hit = _body_tree.query(_pt)
+                    _comp = id(_shape)
+                    for _hi in _hit:                   # bbox hits: the
+                        # body that really covers the plate decides
+                        if _bodies[int(_hi)].intersects(_pt):
+                            _comp = int(_hi)
+                            break
+                    else:
+                        if len(_hit):
+                            _comp = int(_hit[0])
+                except _GEOM_EXC:                      # pragma: no cover
+                    _comp = id(_shape)
+            _component_of[id(_shape)] = _comp
+            _cur = _joint_floor.get(_comp)
+            if _cur is None or float(_floor) < _cur:
+                _joint_floor[_comp] = float(_floor)
+        _level_members = [
+            (_shape, _r, _a,
+             _joint_floor.get(_component_of[id(_shape)], _floor))
+            for _shape, _r, _a, _floor in _level_members]
+        _spread = [(_joint_floor[_c], _c) for _c in _joint_floor]
+        if len(_spread) < len(_level_members):
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] R16-3: {len(_level_members)} "
+                    f"claimed plate(s) resolved to {len(_joint_floor)} "
+                    f"connected level surface(s) — each plate takes its "
+                    f"surface's JOINT DEPTH "
+                    f"({', '.join(f'{_f:.2f}' for _f, _c in sorted(_spread))}"
+                    f" m), so adjacent plates cannot carry different "
+                    f"clearance floors.")
+            except _GEOM_EXC:
+                pass
+
     _claimed_polys: list = []
     _n = 0
     for _shape, _ring, _alts, _floor in _level_members:

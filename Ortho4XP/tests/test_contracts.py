@@ -66,6 +66,24 @@ FLAG_EXPECTATIONS = [
     ("DSF_OBJECT_CONNECTOR_SPAN_M", float, 300.0),
     ("DSF_OBJECT_CONNECTOR_MAX_FILL", float, 0.20),
     ("DSF_OBJECT_MAX_STRUCTURE_SPAN_M", float, 0.0),
+    # R18-2 building evidence (owner ruling 2026-08-11b).  ON by default:
+    # it IS the law, not a refinement.  The two values are MEASURED, not
+    # chosen (HECA Tai Models, tools/object_pad_evidence_report.py):
+    # 6.0 m sits in the pack's own gap between the tallest non-building
+    # structure (jet blast deflector, 5.87 m) and the shortest building
+    # member (6.09 m); the coverage floor is 0 because a material-split
+    # pack's REAL terminal shells measure the same 0.000-0.02 coverage
+    # as the phantom slab class, so no floor separates them.
+    # The same measurement ruled the two pending defences: neither is
+    # armed.  The structure-span gate at HECA catches 6 rings of which
+    # the evidence gate already refuses 3, and all 3 marginal ones are
+    # real buildings (a 60,392 m² terminal shell with a 113 m member);
+    # the connector pre-filter drops 192 of the 336 evidence-vouched
+    # rings — the documented EGGW/EGLL failure reproduced, because in a
+    # material-split pack every texture page spans the field.
+    ("DSF_OBJECT_BUILDING_EVIDENCE", bool, True),
+    ("DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M", float, 6.0),
+    ("DSF_OBJECT_EVIDENCE_MIN_COVERAGE", float, 0.0),
     # Per-cluster seating (docs/specs/per-cluster-object-seating-spec.md).
     # Phase C lands GATED OFF (spec section 7.1: default-on waits on the
     # owner's HECA in-sim verdict); T and the pad relief cap ship at
@@ -468,11 +486,20 @@ def test_object_rebake_signatures():
 # ---------------------------------------------------------------------------
 
 def test_object_footprints_signature():
+    # ``evidence_out`` (R18-2) is an OPTIONAL out-parameter appended to
+    # the frozen three: it never changes what the function returns, and
+    # it is how the population table is read through production's own
+    # code path instead of a second implementation.
     assert _parameter_names(object_footprints.structure_ring) == [
         "structure",
         "geometry_by_resource",
         "placements",
+        "evidence_out",
     ]
+    import inspect
+    assert inspect.signature(
+        object_footprints.structure_ring
+    ).parameters["evidence_out"].default is None
 
 
 # ---------------------------------------------------------------------------

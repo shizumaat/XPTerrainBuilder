@@ -1186,7 +1186,17 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # bypass the slab/mast + sparse-fill heuristics in
 # object_footprints.structure_ring (owner CYXY 2026-07-28 — the stock
 # arched hangar measured tall-base fill 0.001 and was culled).
-_OBJECT_FOOTPRINT_CACHE_VERSION = 4
+# v5: R18-2 building evidence — the ring ROLE now carries the vertical
+# evidence verdict, so a v4 sidecar's rings are all stamped "object"
+# and would vouch every phantom pad they hold.
+_OBJECT_FOOTPRINT_CACHE_VERSION = 5
+
+# Ring roles for the OBJ8 structure footprint reader (R18-2).  The role
+# carries the VERTICAL half of the building-evidence verdict; the
+# pipeline OR-s it with the OSM half.  ``OBJECT_BUILDING_ROLE`` is the
+# historical ``"object"`` literal every existing consumer discards.
+OBJECT_BUILDING_ROLE = "object"
+OBJECT_BUILDING_UNVOUCHED_ROLE = "object_unvouched"
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_footprints_<dsf-stem>.cache``) so two DSFs of one pack
@@ -1487,10 +1497,13 @@ def _object_buildings_sidecar(
     if os.environ.get("O4_OBJECT_FOOTPRINT_CACHE", "1") != "1":
         return None, None
     from .config import (
+        DSF_OBJECT_BUILDING_EVIDENCE,
         DSF_OBJECT_CONNECTOR_MAX_FILL,
         DSF_OBJECT_CONNECTOR_PREFILTER,
         DSF_OBJECT_CONNECTOR_SPAN_M,
         DSF_OBJECT_CONTACT_EPSILON_M,
+        DSF_OBJECT_EVIDENCE_MIN_COVERAGE,
+        DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M,
         DSF_OBJECT_MAX_FOOTPRINT_AREA_M2,
         DSF_OBJECT_MAX_STRUCTURE_SPAN_M,
         DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
@@ -1525,6 +1538,14 @@ def _object_buildings_sidecar(
             # unchanged pack — the same silent reuse the hull-fill entry
             # was added for.
             DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
+            # R18-2 building evidence: the ring ROLE is computed from
+            # these two, so a cached ring set is only valid under the
+            # values it was stamped with (same reasoning as every entry
+            # above; the flag rides too because gate-off leaves every
+            # ring vouched).
+            float(DSF_OBJECT_BUILDING_EVIDENCE),
+            DSF_OBJECT_EVIDENCE_MIN_HEIGHT_M,
+            DSF_OBJECT_EVIDENCE_MIN_COVERAGE,
             # Terrain-feature exclusion (defect 2026-07-17, EGLL
             # Building36): tunnel/bridge/deck resources drop from the
             # building pool when this feature is on, so the cached
@@ -1534,19 +1555,53 @@ def _object_buildings_sidecar(
     )
 
 
+def read_dsf_object_building_evidence(
+    dsf_path: str,
+    cache_dir: str | None = None,
+    xplane_root: str | None = None,
+) -> tuple[list[tuple[list[tuple[float, float]],
+                      list[list[tuple[float, float]]],
+                      str]],
+           list[dict]]:
+    """``(rings, evidence)`` — the object-building reader's full result
+    PLUS one R18-2 evidence record per structure it considered, refused
+    structures included.
+
+    Deliberately UNCACHED (no sidecar read, no sidecar write): the
+    sidecar stores rings, not evidence, so serving this from it would
+    silently answer with a partial population.  The rings returned are
+    computed by the same call the cached path computes, so a population
+    table and a build cannot disagree.
+
+    This is the reporting entry ``tools/object_pad_evidence_report.py``
+    uses; nothing in the pipeline calls it (a build takes the cached
+    :func:`read_dsf_object_buildings`).
+    """
+    evidence: list[dict] = []
+    rings = _compute_dsf_object_buildings(
+        dsf_path, cache_dir, xplane_root, None, None,
+        evidence_out=evidence)
+    return rings, evidence
+
+
 def _compute_dsf_object_buildings(
     dsf_path: str,
     cache_dir: str | None,
     xplane_root: str | None,
     sidecar_path: str | None,
     fingerprint: str | None,
+    evidence_out: list | None = None,
 ) -> list[tuple[list[tuple[float, float]],
                 list[list[tuple[float, float]]],
                 str]]:
     """The full (uncached) building-footprint computation behind
     :func:`read_dsf_object_buildings`, ending with the sidecar write
     when ``sidecar_path``/``fingerprint`` are known.  Config imports are
-    function-local so tests can monkeypatch the values."""
+    function-local so tests can monkeypatch the values.
+
+    ``evidence_out``, when a list, collects one R18-2 evidence record
+    per structure — the refused ones too (see
+    :func:`object_footprints.structure_ring`)."""
     from .config import (
         DSF_OBJECT_CONNECTOR_MAX_FILL,
         DSF_OBJECT_CONNECTOR_PREFILTER,
@@ -1767,10 +1822,28 @@ def _compute_dsf_object_buildings(
             epsilon_metres=DSF_OBJECT_CONTACT_EPSILON_M,
         )
         for structure in structures:
+            evidence: dict = {}
             ring = _FOOTPRINTS.structure_ring(
-                structure, pool_geometry_by_resource, pool.placements)
+                structure, pool_geometry_by_resource, pool.placements,
+                evidence_out=evidence)
+            if evidence_out is not None:
+                evidence["resources"] = sorted(
+                    structure.triangles_by_resource)
+                evidence_out.append(evidence)
             if ring is not None and len(ring) >= 3:
-                out.append((ring, [], "object"))
+                # R18-2: the ring's ROLE carries the vertical half of the
+                # building-evidence verdict to the pipeline, which OR-s
+                # it with the OSM half and closes the gate there.  The
+                # tuple SHAPE is unchanged (role is already a vocabulary:
+                # terminal / hangar / bridge / object) so every existing
+                # reader — the pipeline's admission loop and
+                # ``O4_Airport_Elevation_Insets``'s inset-mask footprint
+                # source, both of which discard the role — is untouched.
+                out.append((
+                    ring, [],
+                    OBJECT_BUILDING_ROLE
+                    if evidence.get("vertical_evidence")
+                    else OBJECT_BUILDING_UNVOUCHED_ROLE))
 
     # Persist the finished ring set for the next build of this unchanged
     # pack.  A write failure must never break a build (out of space, a

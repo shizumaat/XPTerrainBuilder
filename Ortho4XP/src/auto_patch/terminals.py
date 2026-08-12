@@ -48,6 +48,7 @@ _BUILDING_REF_RE = re.compile(r"building(\d+)")
 
 __all__ = [
     "_build_osm_aeroway_footprint",
+    "_extract_osm_building_evidence",
     "_extract_osm_terminals",
     "_terminal_groundside_zone",
     "_terminal_pad_from_building",
@@ -789,6 +790,110 @@ def _extract_osm_terminals(
         else:
             continue
         out.extend(components)
+    return out
+
+
+#: OSM tags that say "a building stands here" for the R18-2 evidence
+#: gate.  Deliberately WIDER than ``_extract_osm_terminals``' pad
+#: vocabulary: this set answers "is there a building under this DSF
+#: object ring", not "which building gets a terminal pad", so a plain
+#: ``building=yes`` warehouse or a ``building=hangar`` counts, and none
+#: of the terminal extractor's pad-selection guards (the
+#: explicit-terminal restriction, the HANGAR_PADS gate) apply.
+_BUILDING_EVIDENCE_AEROWAY_TAGS = frozenset({"terminal", "hangar", "tower"})
+
+
+def _is_building_evidence_tags(tags: Dict[str, str]) -> bool:
+    """True when an OSM element's tags assert a building (R18-2)."""
+    building = tags.get("building")
+    if building and building.lower() not in ("no", "none"):
+        return True
+    if tags.get("building:part") not in (None, "no"):
+        return True
+    return tags.get("aeroway") in _BUILDING_EVIDENCE_AEROWAY_TAGS
+
+
+def _extract_osm_building_evidence(
+    nodes: Dict[str, Tuple[float, float]],
+    ways: List[Tuple[str, List[str], Dict[str, str]]],
+    relations: List[Tuple[str, List[str], Dict[str, str]]],
+    to_m,
+) -> List[Polygon]:
+    """Every OSM footprint that ASSERTS a building, in meter space —
+    evidence source (a) of the R18-2 building-evidence ruling.
+
+    Separate from :func:`_extract_osm_terminals` on purpose.  That
+    function selects which buildings become terminal PADS and carries
+    pad-selection policy (the explicit-``aeroway=terminal`` restriction,
+    ``HANGAR_PADS``, the 100 m² pad floor); reusing it as the evidence
+    set would make a DSF object ring's admission depend on whether the
+    mappers used ``aeroway=terminal`` somewhere else on the field.  The
+    question here is only "is a building mapped here", so the tag
+    vocabulary is wide (:data:`_BUILDING_EVIDENCE_AEROWAY_TAGS` plus any
+    ``building=*``) and there is no area floor beyond degeneracy — a
+    small mapped building is still a building, and the phantom pads this
+    gate closes have NO OSM building under them at all.
+
+    Relation members are polygonized exactly as the terminal extractor
+    does (open member ways are segments of one boundary, not rings).
+    """
+    out: List[Polygon] = []
+    way_by_id = {wid: (nds, tags) for wid, nds, tags in ways}
+
+    def _ring_polygon(nds: List[str]) -> Optional[Polygon]:
+        pts = []
+        for n in nds:
+            if n in nodes:
+                lat, lon = nodes[n]
+                pts.append(to_m(lon, lat))
+        if len(pts) < 3:
+            return None
+        try:
+            p = Polygon(pts).buffer(0)
+        except _GEOM_EXC:
+            return None
+        if p.is_empty:
+            return None
+        if p.geom_type == "MultiPolygon":
+            p = max(p.geoms, key=lambda g: g.area)
+        return p if (p.geom_type == "Polygon" and p.area > 0.0) else None
+
+    for _wid, nds, tags in ways:
+        if not _is_building_evidence_tags(tags):
+            continue
+        p = _ring_polygon(nds)
+        if p is not None:
+            out.append(p)
+
+    for _rid, outer_wids, tags in relations:
+        if not _is_building_evidence_tags(tags):
+            continue
+        seglines: List[LineString] = []
+        for wid in outer_wids:
+            if wid not in way_by_id:
+                continue
+            nds, _ = way_by_id[wid]
+            pts = [to_m(nodes[n][1], nodes[n][0])
+                   for n in nds if n in nodes]
+            if len(pts) < 2:
+                continue
+            if len(pts) >= 4 and pts[0] == pts[-1]:
+                p = _ring_polygon(nds)
+                if p is not None:
+                    out.append(p)
+                continue
+            try:
+                seglines.append(LineString(pts))
+            except _GEOM_EXC:
+                continue
+        if not seglines:
+            continue
+        try:
+            for p in polygonize(unary_union(seglines)):
+                if p.geom_type == "Polygon" and p.area > 0.0:
+                    out.append(p)
+        except _GEOM_EXC:
+            continue
     return out
 
 

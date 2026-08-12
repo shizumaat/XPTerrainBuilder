@@ -96,6 +96,7 @@ module-level work — they are libraries and are safe to import.
 | `trace_building_frontage.py` | Why a building's flat seat landed where it did: whole-ring median ceiling vs what its taxi-facing frontage can reach (the CYXY A2 apron cliff) |
 | `probe_default_terrain.py` | Reconnaissance over X-Plane default Global Scenery: terrain-library namespace, non-projected land terrains, water terrain paths — the format basis for the texture-mode work |
 | `mesh_region_tris.py` | Total built-mesh triangle count and how many fall inside the airport bbox — the number X-Plane load time actually tracks, not the patch's node count |
+| `runway_end_ground.py` | The GROUND off a runway end as the patch emitted it: SURFACE-role vertices (graded_strip/junction/service_junction/apron — below-grade families deliberately out) within `--radius-m` of each `--end`, and how many sit at or below `--level-m`. The rounds-17/17b/17c acceptance population (VHHH's 1,681 canyon vertices → ~0). Reads the patch with `check_grade._parse_osm`, so it and the census read one geometry |
 | `mesh_elevation_sampler.py` | Samples elevations from a built `Data<tile>.mesh` — the terrain the sim renders, *after* grading. Sampling the source DEM instead misleads by metres. CLI: `--lon L --lat-range A B` / `--lat L --lon-range A B` sweeps a TRANSECT, `--point LAT LON` samples one, `--step-flag M` annotates jumps ≥ M m — which is how a shore FACE (one step) is told from a beach RAMP (several) |
 
 ## Utilities and data

@@ -1735,6 +1735,79 @@ def test_the_write_guard_follows_the_lane_mount_symlinks(build_mod, tmp_path):
                    "osm_roadfeed")
 
 
+def test_the_write_guard_REFUSES_a_write_through_an_overlay_symlink(
+        build_mod, tmp_path):
+    """THE GUARD HOLE, measured three times on 2026-08-12.
+
+    A lane-local overlay entry that is a SYMLINK into the shared repo is a
+    shared-repo write: ``open(entry, "wb")`` follows the link and truncates
+    the corpus file.  The guard compared the OPEN path — lane-local,
+    outside every prefix — matched nothing, and every such run reported
+    ``blocked: []``.  It was not lenient; it was structurally blind, which
+    is why nobody found it by reading it.
+
+    So the predicate judges the RESOLVED path.  Delete the resolution from
+    ``_violation`` and this test fails — that mutation is the point of it.
+    The overlay's copy-on-write seeding removes the condition; this removes
+    the DEPENDENCE on it having been removed.
+    """
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "PACK").mkdir(parents=True)
+    shared = repo / "Airport_mod_cache" / "PACK" / "o4_object_footprints.cache"
+    shared.write_bytes(b"warm shared sidecar")
+
+    lane = tmp_path / "lane"
+    # Deliberately NOT under a lane mount name: the overlay lives beside
+    # the build's artifacts, so no prefix of the guard's mentions it.
+    overlay = lane / "CYXY.engine_caches" / "Airport_mod_cache" / "PACK"
+    overlay.mkdir(parents=True)
+    entry = overlay / "o4_object_footprints.cache"
+    entry.symlink_to(shared)
+
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with pytest.raises(build_mod.SharedRepoWriteBlocked) as exc:
+        with guard:
+            open(entry, "wb").write(b"truncated through the link")
+    assert "Airport_mod_cache/PACK/o4_object_footprints.cache" in str(exc.value)
+    assert guard.blocked and guard.blocked[0]["path"] == (
+        "Airport_mod_cache/PACK/o4_object_footprints.cache"), (
+        "the refusal must name the path in the SHARED repo, not the "
+        "lane-local string the writer used")
+    assert shared.read_bytes() == b"warm shared sidecar", (
+        "the guard must prevent, not just report")
+
+
+def test_the_resolving_guard_leaves_a_REAL_overlay_entry_alone(
+        build_mod, tmp_path):
+    """The other half of the same predicate: a copy-on-write overlay entry
+    is a real lane-local file, resolves lane-local, and must NOT refuse.
+
+    Without this, "resolve everything" could be satisfied by refusing the
+    lawful overlay write too — which would make the fixed overlay
+    unusable and send the next lane back to symlinks.
+    """
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "PACK").mkdir(parents=True)
+    shared = repo / "Airport_mod_cache" / "PACK" / "o4_object_footprints.cache"
+    shared.write_bytes(b"warm shared sidecar")
+
+    lane = tmp_path / "lane"
+    overlay = lane / "CYXY.engine_caches" / "Airport_mod_cache"
+    made = build_mod.mirror_tree_as_overlay(
+        str(repo / "Airport_mod_cache"), str(overlay))
+    assert made["files"] == 1
+    entry = overlay / "PACK" / "o4_object_footprints.cache"
+
+    guard = build_mod.SharedRepoWriteGuard(set(), lane, repo=repo)
+    with guard:
+        assert open(entry, "rb").read() == b"warm shared sidecar"  # warm read
+        open(entry, "wb").write(b"rebuilt lane-local")
+    assert guard.blocked == [], (
+        "a copy-on-write overlay write is lane-local and must pass clean")
+    assert entry.read_bytes() == b"rebuilt lane-local"
+    assert shared.read_bytes() == b"warm shared sidecar"
+
+
 def test_the_write_guard_restores_every_hook_it_installed(build_mod, tmp_path):
     """An instrument that leaks its own monkeypatches poisons the process
     it was supposed to observe."""
@@ -2488,6 +2561,7 @@ def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
                        "def arm_shared_repo_protection",
                        "def redirect_engine_caches",
                        "def require_no_swallowed_write_block",
+                       "def mirror_tree_as_overlay",
                        "def mirror_tree_as_symlinks",
                        "os.environ[\"O4_DSF_CACHE_DIR\"]",
                        "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]"):
@@ -2846,15 +2920,24 @@ def test_the_airport_mod_cache_root_honours_its_env_override(
         tmp_path / "chosen" / "Airport_mod_cache")
 
 
-def test_the_mod_cache_overlay_mirrors_dirs_and_symlinks_files(tmp_path):
-    """KNOWN-ANSWER TWIN for the overlay's pure core (spec §8.4).
+def test_the_mod_cache_overlay_seeds_COPY_ON_WRITE_not_symlinks(tmp_path):
+    """KNOWN-ANSWER TWIN for the overlay's pure core (spec §8.4), on the
+    property the whole scheme rests on.
 
-    Directories must be REAL (a symlinked directory would make every write
-    inside it follow into the shared corpus); files must be SYMLINKS (so
-    reads stay warm on the shared sidecars).  The last arm is the property
-    the whole scheme rests on: the sidecar writers ``os.replace`` a temp
-    file onto the name, which REPLACES the symlink instead of following
-    it, so the shared file is untouched.
+    THE MEASURED DEFECT (2026-08-12, three times in one session — two SQ2
+    classify runs, the r18 KMCI overlay, the r20 parallel arms, seven OTHH
+    sidecars rewritten).  This overlay used to seed FILE SYMLINKS, on the
+    argument that the sidecar writers ``os.replace`` a temp file onto the
+    name and so REPLACE the link.  Some do.  The ones that matter open the
+    path as ``open(path, "wb")`` — a truncate IN PLACE, which follows the
+    link and empties the SHARED file.  So the arm that decides this test is
+    the truncating write: the overlay entry must change and the source must
+    come back byte-identical.  Restore symlink seeding and that arm fails.
+
+    Directories stay REAL for the same reason they always were (a
+    symlinked directory sends every write inside it into the corpus), and
+    the warm READ arm is the overlay's whole purpose — an overlay that is
+    safe but cold is a different measurement, not a cleaner one.
     """
     conftest = _conftest()
     source = tmp_path / "shared"
@@ -2864,28 +2947,65 @@ def test_the_mod_cache_overlay_mirrors_dirs_and_symlinks_files(tmp_path):
     (source / "sub" / "inner.cache").write_bytes(b"deep")
     overlay = tmp_path / "overlay"
 
-    made = conftest.mirror_tree_as_symlinks(str(source), str(overlay))
-    assert made == {"dirs": 2, "files": 2}
+    made = conftest.mirror_tree_as_overlay(str(source), str(overlay))
+    assert made["dirs"] == 2 and made["files"] == 2
+    assert made["cloned"] + made["copied"] == 2, (
+        "every seeded file is either a clone or a real copy — there is no "
+        "third, cheaper seeding mode that keeps the guarantee")
     assert (overlay / "sub").is_dir() and not (overlay / "sub").is_symlink()
     assert (overlay / "empty").is_dir()
-    assert (overlay / "top.cache").is_symlink()
-    assert (overlay / "sub" / "inner.cache").is_symlink()
-    assert (overlay / "top.cache").resolve() == (source / "top.cache")
+
+    # NOT LINKS OF ANY KIND: not a symlink (which a write follows), and not
+    # a hardlink (whose inode a truncating write empties just as thoroughly).
+    for rel in ("top.cache", "sub/inner.cache"):
+        assert not (overlay / rel).is_symlink(), f"{rel} seeded as a symlink"
+        assert (overlay / rel).stat().st_ino != (source / rel).stat().st_ino, (
+            f"{rel} shares the shared file's INODE — a hardlink does not "
+            f"survive truncate-in-place either")
+
+    # WARM READS — the overlay's purpose.
+    assert (overlay / "top.cache").read_bytes() == b"warm"
     assert (overlay / "sub" / "inner.cache").read_bytes() == b"deep"
 
-    rewritten = overlay / "fresh.tmp"
-    rewritten.write_bytes(b"rebuilt")
-    os.replace(str(rewritten), str(overlay / "top.cache"))
-    assert (overlay / "top.cache").read_bytes() == b"rebuilt"
-    assert not (overlay / "top.cache").is_symlink()
+    # THE DECIDING ARM: the engine's actual write pattern.
+    before = (source / "top.cache").stat()
+    with open(overlay / "top.cache", "wb") as handle:
+        handle.write(b"rebuilt in place")
+    assert (overlay / "top.cache").read_bytes() == b"rebuilt in place"
     assert (source / "top.cache").read_bytes() == b"warm", (
-        "os.replace must swap the symlink, never write through it")
+        "open(path, 'wb') TRUNCATES IN PLACE — with symlink seeding it "
+        "followed the link and emptied the shared corpus file")
+    after = (source / "top.cache").stat()
+    assert (before.st_size, before.st_mtime_ns) == (after.st_size,
+                                                    after.st_mtime_ns)
 
-    missing = conftest.mirror_tree_as_symlinks(
+    # …and the ``os.replace`` writers, which were always safe, still are.
+    (overlay / "fresh.tmp").write_bytes(b"replaced")
+    os.replace(str(overlay / "fresh.tmp"), str(overlay / "sub" / "inner.cache"))
+    assert (overlay / "sub" / "inner.cache").read_bytes() == b"replaced"
+    assert (source / "sub" / "inner.cache").read_bytes() == b"deep"
+
+    missing = conftest.mirror_tree_as_overlay(
         str(tmp_path / "absent"), str(tmp_path / "overlay2"))
-    assert missing == {"dirs": 0, "files": 0}
+    assert missing["dirs"] == 0 and missing["files"] == 0
     assert (tmp_path / "overlay2").is_dir(), (
         "a corpus with no cache yet is a lawful state, not an error")
+
+
+def test_the_overlay_seeding_offers_NO_symlink_mode(build_mod):
+    """SOURCE twin: the defect was a seeding mode, so the fix is the
+    absence of one.  A fallback that symlinks "when cloning is
+    unavailable" would reintroduce the whole class on the first machine
+    that took it, and silently — the write-through leaves no log line."""
+    src = inspect.getsource(build_mod.mirror_tree_as_overlay)
+    assert "os.symlink" not in src, (
+        "no symlink seeding, not even as a fallback: a mode that cannot "
+        "keep the guarantee is the defect, not a cheaper overlay")
+    assert "os.link" not in src, (
+        "a hardlink shares the inode, and the measured writers truncate "
+        "IN PLACE — it protects nothing")
+    assert "clonefile" in src and "copyfile" in src, (
+        "clone first, real copy as the lawful fallback")
 
 
 def _cache_env_entry_values():
@@ -3091,7 +3211,7 @@ def test_the_detector_uses_the_harness_snapshot_not_a_copy(build_mod):
         "snapshot_diff" in conftest_src and "scope_of" in conftest_src, (
         "the detector must use the harness's own snapshot and scope "
         "register — a private copy is the census-wrapper defect")
-    mirror_src = inspect.getsource(build_mod.mirror_tree_as_symlinks)
+    mirror_src = inspect.getsource(build_mod.mirror_tree_as_overlay)
     assert conftest_src.count("os.walk") == 0 and \
         mirror_src.count("os.walk") == 1, (
         "conftest walks NO tree at all since the mod-cache overlay's "

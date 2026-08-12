@@ -346,7 +346,7 @@ def _harness_build_module():
 #: warm it" and "no other lane may be measuring right now" are different
 #: claims and only the first was written down.  The two scopes are now
 #: structurally unreachable instead of authorised: the mod cache is a
-#: lane-local symlink overlay (fixture below), and an inset the suite
+#: lane-local copy-on-write overlay (fixture below), and an inset the suite
 #: would have to CUT is refused loudly rather than warmed — a privately
 #: cut inset is a private measurement frame (warm-vs-cold has moved
 #: terrain 12 m), which is the two-corpora defect itself.
@@ -442,12 +442,17 @@ def _dsf_dump_cache_is_lane_local(tmp_path_factory):
 _LANE_AIRPORT_MOD_CACHE_DIR = None
 
 
-def mirror_tree_as_symlinks(source_root: str, overlay_root: str) -> dict:
+def mirror_tree_as_overlay(source_root: str, overlay_root: str) -> dict:
     """Delegates to the harness's single implementation (moved into
     tools/harness/shared_repo_guard.py 2026-08-11 so the harness build
     entry's per-run engine-cache redirect and this suite overlay share
-    ONE mirror — the census-wrapper precedent, owner ruling e9daef5)."""
-    return _harness_build_module().mirror_tree_as_symlinks(
+    ONE mirror — the census-wrapper precedent, owner ruling e9daef5).
+
+    Renamed with the mirror itself 2026-08-12: it seeds COPY-ON-WRITE
+    (clonefile) rather than symlinks, because the engine's sidecar writers
+    truncate the cache path in place and followed the links straight into
+    the shared corpus."""
+    return _harness_build_module().mirror_tree_as_overlay(
         source_root, overlay_root)
 
 
@@ -464,7 +469,9 @@ def _airport_mod_cache_is_a_lane_local_overlay(tmp_path_factory):
     not structure, so the redirect is unconditional.
 
     Per WORKER (``tmp_path_factory`` is worker-private under xdist), and
-    instant in practice: ~991 files, symlinks only.
+    instant in practice: 1,131 files / 22 GB apparent seeded in 0.10 s for
+    ~420 KB of real disk, because a clone shares its blocks until written
+    (measured 2026-08-12 on the real corpus).
     """
     global _LANE_AIRPORT_MOD_CACHE_DIR
     try:
@@ -475,7 +482,7 @@ def _airport_mod_cache_is_a_lane_local_overlay(tmp_path_factory):
         return
     shared = os.path.join(harness.DATA_REPO, "Airport_mod_cache")
     overlay = str(tmp_path_factory.mktemp("airport_mod_cache"))
-    mirror_tree_as_symlinks(shared, overlay)
+    mirror_tree_as_overlay(shared, overlay)
     previous_env = os.environ.get("O4_AIRPORT_MOD_CACHE_DIR")
     os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = overlay
     _LANE_AIRPORT_MOD_CACHE_DIR = overlay

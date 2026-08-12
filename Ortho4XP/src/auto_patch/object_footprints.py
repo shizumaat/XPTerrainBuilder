@@ -860,9 +860,33 @@ def structure_ring(
     # arched-shell hangar's footings project ~0.001 of its hull (below
     # the 0.002 slab/mast floor calibrated at HECA), so the heuristic
     # alone would cull real stock hangars.
-    # Hoisted out of the hull-fill block (R18-2): the same vouching is
-    # the name half of the building-evidence ruling, and the evidence
-    # verdict is computed on BOTH ring paths.
+    #
+    # ⚠ MEASURED DEFECT, NOT YET FIXED — STOP-AND-REPORT (R18-2, round
+    # 18, 2026-08-11).  This predicate matches the token ANYWHERE in the
+    # path, which is a claim about the DIRECTORY as often as the object.
+    # HECA's Tai Models pack files its whole airport — apron slabs,
+    # jersey barriers, jet-blast fences — under ``Airport/Hangar_Tower/``
+    # and ``Airport/Hangar/``, so 667 of its 817 rings are name-vouched
+    # and BOTH floors below are disabled across the entire pack.  That
+    # is the deeper cause of the phantom pads: the 31,184 m² ring under
+    # HECA's building176 measures hull fill 0.00036 against the 0.1
+    # floor and is kept anyway.  ``evidence_name_vouches`` (used by the
+    # R18-2 gate, and by the CYXY case it was calibrated for — a STOCK
+    # LIBRARY hangar at ``lib/airport/…``) is the correct predicate.
+    #
+    # Substituting it here was MEASURED and is CORRECT on the ring
+    # population (HECA 817 → 210 rings; every survivor's hull fill
+    # 0.11-1.64, i.e. a real building's bases filling their own hull),
+    # but it makes the HECA build FAIL: ``assert_no_final_band_inversion``
+    # refuses at 679 of 4,792 band-covered nodes, contradictory anchor
+    # pair 5984 (110.610 m, 05C/23C) vs 3284 (60.980 m, 05L/23R) — a
+    # 2.0709 m route-budget shortfall.  ATTRIBUTED INTERVENTIONALLY: the
+    # same failure appears with the R18-2 gate switched OFF and only this
+    # substitution live, so it is THIS change and not the evidence gate.
+    # The remedy is in the route-budget / seating machinery under
+    # ``elevation_per_surface/`` — outside this round's scope — so the
+    # wide predicate stands and the finding is reported.
+    # docs/DEFERRED_VERIFICATION.md carries the line.
     name_vouched = any(
         ("hangar" in rp.lower() or "term_building" in rp.lower()
          or "/terminal" in rp.lower())
@@ -974,6 +998,9 @@ def structure_ring(
     # R18-2 building evidence, vertical half — measured on the FINAL
     # hull, so what the pipeline gates on is what a reviewer sees.
     _hull_area_degrees2 = footprint.area
+    # The EVIDENCE gate uses the scoped predicate, never the wide one
+    # above (see its note): at HECA the wide match vouches 667 of 817
+    # rings on a directory name, phantom pads included.
     _evidence_name_vouched = evidence_name_vouches(
         structure.triangles_by_resource)
     _vertical_evidence, _evidence_coverage = has_vertical_structure_evidence(

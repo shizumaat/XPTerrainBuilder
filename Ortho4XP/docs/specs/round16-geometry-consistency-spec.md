@@ -194,3 +194,22 @@ Acceptance for the amendment: pads-frame OTHH twin-ring pairs
 20 → 0 (or the reported outlier set, each ≥ the weld tolerance);
 census delta 0 beyond the materiality floor; KCLT control unchanged;
 sub-2° interior-ring tips 2 → 0; KCLT unowned wall nodes 3 → 0.
+
+## AMENDMENT 2 (Fable lead, 2026-08-11, on the attempt-2 STOP) — adoption rides the on-edge move's own frame
+
+The attempt-2 A/B proved the mechanism (twins green) and located the
+block in AMENDMENT 1's own tolerance: the 20 pairs' pre-move offsets
+all lie in [`_WELD_TOL_M` 5 mm, 90 mm], inside the private on-edge
+move's `ONEDGE_SNAP_TOL_M` 0.15 m. RULING: adoption's discriminator
+is THE MOVE'S OWN FRAME — a hole-ring extra vertex whose pre-move
+offset is within `ONEDGE_SNAP_TOL_M` of the partner chain's edge
+adopts the partner chain (the move would lawfully put it on that
+chord anyway; adoption chooses ONE spelling instead of splicing into
+both). This SUPERSEDES Amendment 1's 70 mm keep-both ruling by the
+same logic: within the snap frame ⇒ adopts; beyond it ⇒ keeps both
+spellings, REPORTED. No new constant — reuse `ONEDGE_SNAP_TOL_M`
+itself. The attempt cap resets for this re-ruled target (one
+attempt; a miss is a STOP, not a widening hunt). Acceptance: OTHH
+pads-frame twin-ring pairs 20 → 0 (plus any beyond-frame reported
+set); everything already green stays green (census Δ0, clusters 0,
+KCLT control).

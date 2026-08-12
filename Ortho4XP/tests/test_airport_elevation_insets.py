@@ -4770,3 +4770,221 @@ def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
         assert INSETS.list_cached_inset_dems(60, -136) == [destination]
     finally:
         INSETS.ACCESS_STRATEGIES.pop("box_sweep_strategy", None)
+
+
+# =====================================================================
+# DISCOVERY OUTAGES ARE NOT NO-COVERAGE ANSWERS (small-queue spec SQ3)
+# =====================================================================
+#
+# The defect: every HTTP ``discover()`` answered ``None`` for a timeout, a
+# 503/504 and an error page, and ``None`` is the module's DURABLE
+# "no coverage here" answer -- so one outage wrote a permanent negative
+# into index.json and no later run re-queried the provider.  The law:
+# a failure that says nothing about coverage RAISES TransientFetchError;
+# only a real answer (a 4xx about this request, or a successful response
+# with no usable items) stays ``None``.
+def _fake_response(status_code=200, payload=None, body_is_json=True):
+    """A requests-shaped response object (no network, no requests import)."""
+    import types
+
+    def _json():
+        if not body_is_json:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+        return payload if payload is not None else {}
+
+    return types.SimpleNamespace(status_code=status_code, json=_json)
+
+
+def test_discovery_status_classifier_splits_transient_from_durable():
+    transient = INSETS.discovery_status_is_transient
+    # Says nothing about coverage: the server broke, or told us to wait.
+    for status in (500, 502, 503, 504, 429):
+        assert transient(status) is True, status
+    # The server ANSWERED about this request: durable.
+    for status in (200, 204, 400, 401, 403, 404, 410, 418):
+        assert transient(status) is False, status
+
+
+def test_discovery_json_payload_classifies_every_shape():
+    payload = INSETS.discovery_json_payload
+    # A real answer comes back as the parsed body.
+    assert payload(_fake_response(200, {"items": []}), "probe") == {
+        "items": []
+    }
+    # 5xx / 429 -> transient.
+    for status in (500, 503, 504, 429):
+        with pytest.raises(INSETS.TransientFetchError):
+            payload(_fake_response(status), "probe")
+    # 4xx other than 429 -> durable no-coverage.
+    for status in (400, 403, 404):
+        assert payload(_fake_response(status), "probe") is None
+    # An error page served with a 200 is an outage artefact, not a catalog.
+    with pytest.raises(INSETS.TransientFetchError):
+        payload(_fake_response(200, body_is_json=False), "probe")
+
+
+def _tnm_definition():
+    return {
+        "code": "USGS3DEP",
+        "access_strategy": "tnm_cog",
+        "discovery_url_template": "https://tnm.test/search?bbox={west}",
+    }
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 504, 429])
+def test_tnm_discovery_server_failure_raises_transient(monkeypatch, status):
+    import requests
+
+    monkeypatch.setattr(
+        requests, "get", lambda url, timeout=None: _fake_response(status)
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
+
+
+def test_tnm_discovery_transport_failure_raises_transient(monkeypatch):
+    import requests
+
+    def _boom(url, timeout=None):
+        raise OSError("Operation timed out after 30000 milliseconds")
+
+    monkeypatch.setattr(requests, "get", _boom)
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
+
+
+def test_tnm_discovery_non_json_body_raises_transient(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, timeout=None: _fake_response(200, body_is_json=False),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
+
+
+def test_tnm_discovery_empty_catalog_stays_durable_none(monkeypatch):
+    """The ONE durable negative: the provider answered, with no data."""
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, timeout=None: _fake_response(200, {"items": []}),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    assert (
+        strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
+        is None
+    )
+
+
+def test_tnm_discovery_404_stays_durable_none(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests, "get", lambda url, timeout=None: _fake_response(404)
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["tnm_cog"]()
+    assert (
+        strategy.discover(_tnm_definition(), (-95.0, 39.7, -94.9, 39.8))
+        is None
+    )
+
+
+def _wfs_definition():
+    return {
+        "code": "WFSTEST",
+        "access_strategy": "wfs_tile_index",
+        "wfs_service_url": "https://wfs.test/geoplateforme",
+        "wfs_type_name": "lidar:tiles",
+        "url_property": "url",
+    }
+
+
+@pytest.mark.parametrize("status", [503, 429])
+def test_wfs_tile_index_server_failure_raises_transient(monkeypatch, status):
+    import requests
+
+    monkeypatch.setattr(
+        requests, "get", lambda url, timeout=None: _fake_response(status)
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3))
+
+
+def test_wfs_tile_index_non_json_raises_transient(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, timeout=None: _fake_response(200, body_is_json=False),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
+    with pytest.raises(INSETS.TransientFetchError):
+        strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3))
+
+
+def test_wfs_tile_index_empty_feature_set_stays_durable_none(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, timeout=None: _fake_response(200, {"features": []}),
+    )
+    strategy = INSETS.ACCESS_STRATEGIES["wfs_tile_index"]()
+    assert strategy.discover(_wfs_definition(), (6.0, 46.2, 6.1, 46.3)) is None
+
+
+def test_transient_discovery_failure_is_not_cached_as_negative(
+    tmp_path, monkeypatch
+):
+    """THE CALLER-LEVEL PROOF: a raise from DISCOVERY records nothing.
+
+    ``ensure_airport_insets`` writes a durable ``no-coverage`` for a
+    returned ``None``; a raised failure must leave the record untouched so
+    the next run re-queries.  This is the whole point of the change --
+    the classifier is only correct if the layer above honours it.
+    """
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    discover_calls = {"count": 0}
+
+    @INSETS.register_access_strategy("transient_discovery_strategy")
+    class _TransientDiscoveryStrategy:
+        def discover(self, definition, bounding_box_wgs84):
+            discover_calls["count"] += 1
+            INSETS.raise_transient_discovery_failure(
+                "test discovery request", "status 504"
+            )
+
+        def fetch(self, definition, bbox, resolution_m, destination_path):
+            return self.discover(definition, bbox)
+
+    try:
+        definition = {
+            "code": "OUTAGE",
+            "access_strategy": "transient_discovery_strategy",
+            "role": INSETS.ROLE_AIRPORT_INSET,
+            "enabled": True,
+            "priority": 1.0,
+        }
+        boxes = {"KSTJ": (-94.95, 39.74, -94.87, 39.80)}
+
+        first = INSETS.ensure_airport_insets(39, -95, boxes, [definition], 3.0)
+        assert first["KSTJ"].get("OUTAGE") is None
+        assert first["KSTJ"].get("OUTAGE") != INSETS.NO_COVERAGE
+        assert discover_calls["count"] == 1
+
+        # The next run asks again — a durable negative would have blocked it.
+        INSETS.ensure_airport_insets(39, -95, boxes, [definition], 3.0)
+        assert discover_calls["count"] == 2
+    finally:
+        INSETS.ACCESS_STRATEGIES.pop("transient_discovery_strategy", None)

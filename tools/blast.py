@@ -4,11 +4,33 @@
     Ortho4XP/venv/bin/python tools/blast.py <file>   # print the blast card
     tools/blast.py --rebuild                         # force a rebuild
     tools/blast.py --audit                           # recall audit + canaries
+    tools/blast.py --audit --mutations 3             # + the mutation-recall twin
+    tools/blast.py --tests-for <file> [--since REF]  # the SWEEP SELECTION
 
 Design rule: the index must fail LOUD ("not indexed", "stale", "low
 confidence"), never fail PLAUSIBLE.  Absence of data is never rendered as a
 safety claim.  Import lines are AST-exact; co-change is a weak historical
 signal and is labelled as such.  Importable without side effects.
+
+``--tests-for`` (BS1, spec docs/specs/blast-sweep-and-artifact-ledger-spec.md)
+turns the index into a SWEEP SELECTOR: it reads the diff, works out which
+top-level symbols actually moved, and prints the test files whose recorded
+symbol USE intersects them.  Its law is RECALL OVER PRECISION — every clause
+below is a UNION, and anything the index cannot attribute falls back WIDE
+(all direct-importer tests) instead of silently narrowing:
+
+    1. the tests attributed to the changed SYMBOLS;
+    2. ALL direct-importer tests of a changed file whose total test count is
+       small (<= --cheap-ceiling, default 15) — a cheap file just runs
+       everything;
+    3. ALL direct-importer tests of a changed file carrying a symbol the
+       index cannot attribute (dynamic use, a re-export, ``__all__``, a
+       module-level edit outside any named symbol);
+    4. changed test files themselves.
+
+The file list goes to STDOUT, one per line (``| xargs venv/bin/python -m
+pytest``); the stamped header — changed symbols, per-clause sizes, fallbacks
+fired — goes to STDERR, so the pipe stays clean.
 """
 from __future__ import annotations
 
@@ -22,10 +44,19 @@ import subprocess
 import sys
 from collections import defaultdict
 
-VERSION = "1"
+#: v2 adds the per-symbol TEST attribution and the attributed-symbol roster
+#: (``symbol_tests`` / ``symbols_attributed``) that --tests-for selects on.
+#: Bumping it makes every v1 index on disk rebuild instead of answering a
+#: --tests-for query out of shards that never recorded symbol edges.
+VERSION = "2"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCAN_ROOTS = ("Ortho4XP/src", "Ortho4XP/tools", "Ortho4XP/tests")
 SRC_PREFIX = "Ortho4XP/src/"
+TESTS_PREFIX = "Ortho4XP/tests/"
+#: Clause 2's threshold: a file whose whole direct-importer test sweep is
+#: this small is not worth narrowing — running all of it costs less than
+#: one wrong selection.
+CHEAP_CEILING = 15
 SKIP = (".claude/worktrees", "/venv/", "/build/", "/dist/", "__pycache__",
         "dist.nosync")
 SHARDS = ("modules", "roles", "flags", "wire", "artifacts", "meta")
@@ -337,16 +368,35 @@ def build(idx):
     d = parse_all(roles)
     cc, n_commits = cochange()
     cards = {}
+    by_module = defaultdict(dict)
+    for (m, s), users in d["sym_users"].items():
+        by_module[m][s] = users
     for rel in d["paths"]:
         key, card = modkey(rel), {}
         imps = sorted(d["importers"].get(key, ()))
         if imps:
             card["imported_by"] = imps
-            card["tests"] = [f for f in imps if f.startswith("Ortho4XP/tests/")]
-        hot = sorted(((len(v), s) for (m, s), v in d["sym_users"].items()
-                      if m == key and len(v) >= 3), reverse=True)[:12]
+            card["tests"] = [f for f in imps if f.startswith(TESTS_PREFIX)]
+        syms = by_module.get(key, {})
+        hot = sorted(((len(v), s) for s, v in syms.items() if len(v) >= 3),
+                     reverse=True)[:12]
         if hot:
             card["hot_symbols"] = {s: n for n, s in hot}
+        # THE SWEEP-SELECTION EDGES (v2).  ``symbol_tests`` is the per-symbol
+        # test attribution --tests-for's clause 1 selects on; it stores only
+        # the TEST users, which is what keeps the shard small.
+        # ``symbols_attributed`` is the roster of every symbol the index saw
+        # imported AT ALL — it is what makes clause 3 possible: a symbol
+        # absent from it is one the index CANNOT attribute (dynamic use, a
+        # re-export, ``__all__``), and the selector must then fall back wide
+        # rather than report "no tests" for it, which reads as safety.
+        sym_tests = {s: sorted(f for f in v if f.startswith(TESTS_PREFIX))
+                     for s, v in syms.items()}
+        sym_tests = {s: v for s, v in sym_tests.items() if v}
+        if sym_tests:
+            card["symbol_tests"] = sym_tests
+        if syms:
+            card["symbols_attributed"] = sorted(syms)
         if cc.get(rel):
             card["cochange"] = cc[rel]
         cards[rel] = card
@@ -555,12 +605,372 @@ def cmd_query(arg, idx):
     return 0
 
 
+# ══════════════════════════════════════════════════════════════════════
+# BS1 — SYMBOL-LEVEL SWEEP SELECTION (--tests-for)
+# ══════════════════════════════════════════════════════════════════════
+# The four-clause union law is in the module docstring.  Everything here
+# obeys one rule: a thing the index cannot attribute widens the selection
+# and SAYS SO on stderr.  Narrowing in silence is the failure mode this
+# whole tool exists to refuse (a sweep that skips the one failing test is
+# indistinguishable from a green run).
+
+def _git_show(ref, rel):
+    """File content at ``ref``, or None when it did not exist there."""
+    proc = subprocess.run(("git", "show", f"{ref}:{rel}"), cwd=REPO,
+                          capture_output=True, text=True)
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def top_level_symbols(text):
+    """``{name: normalised source}`` for every top-level def/class/constant.
+
+    Normalised through :func:`ast.unparse`, following the index's own
+    AST-exact idiom: a reformatting or a comment edit is not a symbol
+    change, and a renamed argument or a changed default is.  Raises
+    ``SyntaxError`` for the caller to turn into a wide fallback.
+    """
+    out = {}
+    for node in ast.parse(text).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            out[node.name] = ast.unparse(node)
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out[t.id] = ast.unparse(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target,
+                                                            ast.Name):
+            out[node.target.id] = ast.unparse(node)
+    return out
+
+
+def _module_level_source(text):
+    """Everything OUTSIDE the top-level named symbols, normalised.
+
+    An edit here (an import, a module-level ``if``, a registry mutation)
+    belongs to no symbol, so clause 1 can never see it.  It is reported as
+    an unattributable change and widens the selection.
+    """
+    body = [n for n in ast.parse(text).body
+            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef, ast.Assign, ast.AnnAssign))]
+    return "\n".join(ast.unparse(n) for n in body)
+
+
+def changed_symbols(rel, ref="HEAD"):
+    """``(symbols, notes)`` for one file: what moved between ``ref`` and the
+    working tree.  ``notes`` carries the widening reasons, never a silence.
+    """
+    notes = []
+    after_path = os.path.join(REPO, rel)
+    after = _read(rel) if os.path.exists(after_path) else None
+    before = _git_show(ref, rel)
+    if after is None:
+        return set(), ["file DELETED in the working tree"]
+    if before is None:
+        notes.append(f"file is NEW since {ref} (no before-image)")
+        before = ""
+    try:
+        old, new = top_level_symbols(before), top_level_symbols(after)
+        mod_changed = _module_level_source(before) != _module_level_source(after)
+    except SyntaxError as exc:
+        return set(), [f"UNPARSEABLE ({exc.__class__.__name__}: {exc}) — "
+                       f"every symbol treated as changed"]
+    syms = {n for n in set(old) | set(new) if old.get(n) != new.get(n)}
+    if mod_changed:
+        notes.append("MODULE-LEVEL code outside any top-level symbol changed "
+                     "(imports, module body) — belongs to no symbol")
+    return syms, notes
+
+
+def diff_files(ref="HEAD"):
+    """Changed .py files in index scope: tracked diff vs ``ref`` + untracked."""
+    tracked = _git("diff", "--name-only", ref, "--").split()
+    untracked = _git("ls-files", "--others", "--exclude-standard").split()
+    out = []
+    for rel in sorted(set(tracked) | set(untracked)):
+        if not rel.endswith(".py") or any(k in "/" + rel for k in SKIP):
+            continue
+        if rel.startswith(SCAN_ROOTS) or rel.startswith("tools/"):
+            out.append(rel)
+    return out
+
+
+def _card_tests(card):
+    """The direct-importer test files of a card, conftest excluded (pytest
+    loads conftest itself; naming it in a selection is noise)."""
+    return [t for t in card.get("tests", ())
+            if os.path.basename(t) != "conftest.py"]
+
+
+def select_tests(changed, shards, ceiling=CHEAP_CEILING, wide_reasons=None):
+    """THE SELECTION LAW.  ``changed`` is ``{rel: set(changed symbols)}``.
+
+    ``wide_reasons`` — ``{rel: [why, ...]}`` for files whose change the
+    caller already knows it cannot attribute symbol-wise (an unparseable
+    file, a module-level edit, a file that did not move at all).  They enter
+    clause 3 with the unattributed symbols, by the same law: fall back to
+    the file's whole direct-importer test set, and say why.
+
+    Returns a record with the union, each clause's own contribution, the
+    fallbacks that fired and the size of the FULL direct-importer sweep the
+    selection replaces — every number the header quotes, computed once.
+    """
+    clauses = {"symbol": set(), "cheap_file": set(), "fallback": set(),
+               "changed_test": set()}
+    fallbacks, unindexed, full = [], [], set()
+    wide_reasons = dict(wide_reasons or {})
+    for rel in wide_reasons:
+        changed.setdefault(rel, set())
+    for rel, syms in sorted(changed.items()):
+        if rel.startswith(TESTS_PREFIX) and os.path.basename(rel) \
+                != "conftest.py":
+            clauses["changed_test"].add(rel)            # clause 4
+        card = shards["modules"].get(rel)
+        if card is None:
+            unindexed.append(rel)
+            fallbacks.append(f"{rel}: NOT IN THE INDEX (outside "
+                             f"{', '.join(SCAN_ROOTS)}) — no test can be "
+                             f"attributed to it; this is not a claim that "
+                             f"nothing covers it")
+            continue
+        tests = set(_card_tests(card))
+        full |= tests
+        sym_tests = card.get("symbol_tests", {})
+        attributed = set(card.get("symbols_attributed", ()))
+        for why in wide_reasons.get(rel, ()):            # clause 3, file-wide
+            clauses["fallback"] |= tests
+            fallbacks.append(f"{rel}: {why} — falling back to all "
+                             f"{len(tests)} direct-importer test(s)")
+        for sym in sorted(syms):
+            if sym in attributed:
+                clauses["symbol"] |= {t for t in sym_tests.get(sym, ())
+                                      if os.path.basename(t) != "conftest.py"}
+            else:                                        # clause 3
+                clauses["fallback"] |= tests
+                fallbacks.append(
+                    f"{rel}: symbol {sym!r} is UNATTRIBUTED by the index "
+                    f"(dynamic use, a re-export or __all__) — falling back "
+                    f"to all {len(tests)} direct-importer test(s)")
+        if len(tests) <= ceiling:                        # clause 2
+            clauses["cheap_file"] |= tests
+    selected = set().union(*clauses.values())
+    return {"selected": sorted(selected),
+            "clauses": {k: sorted(v) for k, v in clauses.items()},
+            "fallbacks": fallbacks, "unindexed": unindexed,
+            "full_sweep": sorted(full), "ceiling": ceiling}
+
+
+def cmd_tests_for(files, idx, ref="HEAD", ceiling=CHEAP_CEILING):
+    """``--tests-for``: the selection, stdout = file list, stderr = header.
+
+    The rebuild notice is redirected to stderr with everything else: this
+    command's stdout is a PIPE into pytest, and one "index rebuilt (stale)"
+    line in it becomes a pytest argument that does not exist.
+    """
+    import contextlib
+    err = sys.stderr
+    with contextlib.redirect_stdout(err):
+        s = ensure_fresh(idx)
+    if files:
+        targets = []
+        for arg in files:
+            rel, exists = normalize(arg)
+            if not exists:
+                print(f"ERROR: no such file in repo: {arg}", file=err)
+                return 2
+            targets.append(rel)
+    else:
+        targets = diff_files(ref)
+        if not targets:
+            print(f"# no .py file differs from {ref} — nothing to select",
+                  file=err)
+            return 0
+    changed, wide = {}, {}
+    for rel in targets:
+        syms, why = changed_symbols(rel, ref)
+        changed[rel] = syms
+        if not syms and not why:
+            why = [f"NO top-level symbol changed vs {ref} (identical, or the "
+                   f"edit is formatting/comments only)"]
+        if why:
+            wide[rel] = why
+    result = select_tests(changed, s, ceiling, wide_reasons=wide)
+    selected = result["selected"]
+
+    print(f"# blast --tests-for  [index {s['meta']['head_sha'][:7]}] "
+          f"vs {ref}", file=err)
+    for rel in targets:
+        syms = sorted(changed[rel])
+        print(f"#   {rel}: {len(syms)} changed symbol(s)"
+              + (": " + ", ".join(syms[:12]) + (" ..." if len(syms) > 12 else "")
+                 if syms else ""), file=err)
+    c = result["clauses"]
+    print("#   clauses: symbol-attributed=%d cheap-file(<=%d)=%d "
+          "fallback-wide=%d changed-test=%d"
+          % (len(c["symbol"]), ceiling, len(c["cheap_file"]),
+             len(c["fallback"]), len(c["changed_test"])), file=err)
+    for line in result["fallbacks"]:
+        print(f"#   FALLBACK {line}", file=err)
+    print("#   SELECTED %d test file(s) of the %d-file full direct-importer "
+          "sweep" % (len(selected), len(result["full_sweep"])), file=err)
+    for path in selected:
+        print(path)
+    return 0
+
+
+# ── the mutation-recall twin (--audit --mutations N) ──────────────────
+# A selection law can only be believed if something INDEPENDENT of it says
+# which tests a change breaks.  That witness is a real mutation and a real
+# pytest run: seed one mutation per hot symbol of a sample file, run the
+# file's FULL direct-importer sweep against it, and require that every test
+# file the sweep reports failing is IN the selection.  Recall is the
+# acceptance; precision (selected vs the full sweep) is printed beside it
+# because a selector that returns everything is trivially 100 % recalling.
+
+#: The mutation spec the audit hands its pytest child: ``<rel path>::<symbol>``.
+MUTATE_ENV = "BLAST_MUTATE"
+
+
+def pytest_configure(config):                       # pragma: no cover - hook
+    """THE MUTATION, applied at RUNTIME — blast.py is its own pytest plugin.
+
+    The obvious implementation (rewrite the symbol's definition on disk, run
+    pytest, restore) is unsafe HERE: lanes build concurrently against this
+    same working tree, and a build that imports the file inside the mutation
+    window measures a tree nobody authored.  Deleting the attribute from the
+    imported module instead touches NO file, needs no restore (the child
+    process dies with it), and is at least as broad a break: ``from mod
+    import sym`` raises ImportError, ``mod.sym`` raises AttributeError, and
+    the defining module's own internal uses resolve through the same module
+    dict and break too.
+
+    Loaded only when the audit passes ``-p blast`` with :data:`MUTATE_ENV`
+    set; blast.py imports with no side effects otherwise.  NOTE: pluggy
+    validates EVERY ``pytest_*`` name in a plugin module as a hook, so no
+    other function here may carry that prefix (``sweep_failures`` is the
+    audit's runner for exactly that reason).
+    """
+    spec = os.environ.get(MUTATE_ENV)
+    if not spec:
+        return
+    import importlib
+    rel, sym = spec.rsplit("::", 1)
+    src = os.path.join(REPO, "Ortho4XP", "src")
+    if src not in sys.path:
+        sys.path.insert(0, src)
+    mod = importlib.import_module(modkey(rel))
+    if not hasattr(mod, sym):
+        raise SystemExit(f"BLAST_MUTATE: {modkey(rel)} has no attribute "
+                         f"{sym!r} — the mutation would be a no-op and the "
+                         f"recall number meaningless")
+    delattr(mod, sym)
+    print(f"[blast] MUTATION ACTIVE: {modkey(rel)}.{sym} deleted")
+
+
+FAIL_RE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+?)(?:::|\s|$)", re.M)
+
+
+def sweep_failures(tests, mutation=None):
+    """Run ``tests`` (optionally under a mutation) and return the
+    repo-relative test FILES that failed.
+
+    ``-o addopts=`` on purpose: the ini's ``-n auto`` would scatter the run
+    across xdist workers for no gain on a handful of files, and the audit
+    needs the plain short-summary lines it parses.
+    """
+    cwd = os.path.join(REPO, "Ortho4XP")
+    rel = [os.path.relpath(os.path.join(REPO, t), cwd) for t in tests]
+    env = dict(os.environ)
+    extra = []
+    if mutation:
+        env[MUTATE_ENV] = "%s::%s" % mutation
+        env["PYTHONPATH"] = os.pathsep.join(
+            [os.path.join(REPO, "tools")] + ([env["PYTHONPATH"]]
+                                             if env.get("PYTHONPATH") else []))
+        extra = ["-p", "blast"]
+    else:
+        env.pop(MUTATE_ENV, None)
+    cmd = [sys.executable, "-m", "pytest", "-o", "addopts=", "-q", "--tb=no",
+           "-rfE", "-p", "no:cacheprovider", *extra, *rel]
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                          env=env)
+    out = proc.stdout + proc.stderr
+    failed = {os.path.join("Ortho4XP", p) for p in FAIL_RE.findall(out)}
+    return failed, proc.returncode, out
+
+
+def mutation_audit(shards, sample, n, ceiling=CHEAP_CEILING):
+    """The twin: N mutations, each judged by a real run of the FULL sweep."""
+    card = shards["modules"].get(sample)
+    if card is None:
+        print(f"  MUTATION AUDIT: {sample} is not in the index — FAIL")
+        return ["mutation-sample-unindexed"]
+    full = _card_tests(card)
+    hot = [s for s in (card.get("hot_symbols") or {})][:n]
+    if not full or not hot:
+        print(f"  MUTATION AUDIT: {sample} has {len(full)} direct-importer "
+              f"test(s) and {len(hot)} hot symbol(s) — nothing to mutate, "
+              f"FAIL (pick another --mutation-sample)")
+        return ["mutation-sample-empty"]
+    bad, signals = [], 0
+    print(f"  sample {sample}: {len(full)} test file(s) in the FULL "
+          f"direct-importer sweep, mutating {hot}")
+    # THE BASELINE, once: a file already red at this tree would otherwise be
+    # counted as this mutation's signal, and a selector would be judged on a
+    # failure it had no way to predict (the matched-control law).
+    base_fail, _rc, _o = sweep_failures(full)
+    if base_fail:
+        print(f"    baseline (UNMUTATED) already failing, discounted from "
+              f"every mutation: {sorted(base_fail)}")
+    for sym in hot:
+        selected = select_tests({sample: {sym}}, shards, ceiling)["selected"]
+        # Clause 1 ALONE (ceiling -1 disables the cheap-file clause).  On a
+        # cheap sample the whole law degenerates to "run everything", which
+        # would make recall unfalsifiable; this second number says whether
+        # the SYMBOL ATTRIBUTION itself predicted the failures, and where it
+        # falls short it is exactly what clause 2 exists to cover.
+        sym_only = select_tests({sample: {sym}}, shards, -1)["selected"]
+        failing, rc, _out = sweep_failures(full, mutation=(sample, sym))
+        failing = set(failing) - set(base_fail)
+        missed = sorted(set(failing) - set(selected))
+        if not failing:
+            print(f"    {sym:<28} the full sweep reported NO failing file "
+                  f"(pytest rc={rc}) — no signal, not counted")
+            continue
+        signals += 1
+        hit = len(failing & set(selected))
+        sym_hit = len(failing & set(sym_only))
+        print(f"    {sym:<28} failures {len(failing):3d}  selected "
+              f"{len(selected):3d}/{len(full)} (precision "
+              f"{hit}/{len(selected)})  LAW recall {hit / len(failing):.2f}"
+              f"  symbol-clause-only {sym_hit}/{len(failing)} via "
+              f"{len(sym_only)} file(s)"
+              + ("" if not missed else f"  MISSED {missed}"))
+        if missed:
+            bad.append(f"mutation:{sym}")
+    if not signals:
+        print("  MUTATION AUDIT: no mutation produced a single failing test "
+              "— the audit proved NOTHING, FAIL")
+        bad.append("mutation-no-signal")
+    else:
+        print(f"  MUTATION AUDIT: {signals} mutation(s) with signal, recall "
+              f"{'1.00 (100%)' if not bad else 'INCOMPLETE'}")
+    return bad
+
+
 GT = (r"(?:from\s+(?:[.\w]*\.)?{s}\s+import"          # from [pkg.]mod import x
       r"|import\s+(?:[.\w]*\.)?{s}\b"                 # import [pkg.]mod
       r"|from\s+[.\w]+\s+import\s+[^\n]*\b{s}\b)")    # from pkg import mod
 
 
-def cmd_audit(idx):
+#: The mutation twin's default sample: a real module with a SMALL full
+#: direct-importer sweep, so one audit costs seconds instead of the whole
+#: suite.  Override with --mutation-sample.
+MUTATION_SAMPLE = SRC_PREFIX + "auto_patch/strip_seam_law.py"
+
+
+def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
     s, bad = ensure_fresh(idx, force=True), []
     print("== canaries ==")
     for rel, floor in ((SRC_PREFIX + "auto_patch/layout.py", 120),
@@ -604,6 +1014,11 @@ def cmd_audit(idx):
     print("  live wire: %d events, python_only=%s swift_only=%s, commands=%s"
           % (len(w["events"]), w["python_only"] or "[]", w["swift_only"] or "[]",
              w["commands_scan"]))
+    if mutations:
+        print("== sweep-selection recall (%d seeded mutation(s), judged by a "
+              "REAL run of the full direct-importer sweep) ==" % mutations)
+        bad += mutation_audit(s, mutation_sample or MUTATION_SAMPLE,
+                              mutations, ceiling)
     print("\n" + ("AUDIT PASS" if not bad else "AUDIT FAIL: %s" % bad))
     return 0 if not bad else 1
 
@@ -614,10 +1029,35 @@ def main(argv=None):
     p.add_argument("--rebuild", action="store_true")
     p.add_argument("--audit", action="store_true")
     p.add_argument("--index-dir")
+    p.add_argument("--tests-for", nargs="*", metavar="FILE",
+                   help="print the test files a change to FILE(s) selects "
+                        "(no FILE: every .py the diff touched).  stdout is "
+                        "the pipeable list; the header goes to stderr")
+    p.add_argument("--since", default=None, metavar="REF",
+                   help="--tests-for: diff against REF instead of HEAD")
+    p.add_argument("--diff", action="store_true",
+                   help="--tests-for: the working-tree diff vs HEAD (the "
+                        "default; explicit for readable command lines)")
+    p.add_argument("--cheap-ceiling", type=int, default=CHEAP_CEILING,
+                   help="clause 2's threshold: a changed file with at most "
+                        "this many direct-importer tests contributes ALL of "
+                        "them (default %d)" % CHEAP_CEILING)
+    p.add_argument("--mutations", type=int, default=0, metavar="N",
+                   help="--audit: also seed N mutations (one per hot symbol "
+                        "of --mutation-sample) and require the selection to "
+                        "contain every test file the full sweep fails on")
+    p.add_argument("--mutation-sample", default=None, metavar="FILE",
+                   help="--audit --mutations: the file to mutate (default "
+                        "%s)" % MUTATION_SAMPLE)
     a = p.parse_args(argv)
     idx = index_dir(a.index_dir)
+    if a.tests_for is not None:
+        return cmd_tests_for(a.tests_for, idx, ref=a.since or "HEAD",
+                             ceiling=a.cheap_ceiling)
     if a.audit:
-        return cmd_audit(idx)
+        return cmd_audit(idx, mutations=a.mutations,
+                         mutation_sample=a.mutation_sample,
+                         ceiling=a.cheap_ceiling)
     if a.rebuild:
         ensure_fresh(idx, force=True)
         return 0

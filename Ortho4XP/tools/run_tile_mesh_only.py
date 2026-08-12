@@ -19,7 +19,18 @@ of its own and never will — a COLD tile is warmed deliberately with
 ``tools/harness/build_airport.py --refresh-data <scope>``, under a lock
 and hash-stamped into the shared refresh ledger.
 
-Usage: run_tile_mesh_only.py <latitude> <longitude>   (from the checkout root)
+Usage: run_tile_mesh_only.py <latitude> <longitude> [first_step]
+(from the checkout root).  ``first_step`` is 1 (default, vector then mesh)
+or 2 -- the MESH REPLAY: step 2 alone, on the ``.node`` / ``.poly`` /
+``.weight`` / ``.alt`` inputs already sitting in the build directory.
+That is the loop for a change in the mesh CONSUMER itself (round 15's
+degenerate-attribute containment), where re-running step 1 would rewrite
+the very inputs under test: copy a build's four input files into a
+lane-local build directory beside its ``Ortho4XP_+XX+YYY.cfg`` and the
+replay meshes exactly the geometry that build meshed.  Step 1 in a
+checkout that resolves no X-Plane root skips auto_patch entirely and
+still exits 0 (the same trap ``harness/build_airport.py --tile``
+refuses), so a patch-dependent input can only be reproduced this way.
 """
 import os
 import sys
@@ -53,6 +64,9 @@ if __name__ == "__main__":
 
     latitude = int(sys.argv[1])
     longitude = int(sys.argv[2])
+    first_step = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    if first_step not in (1, 2):
+        raise SystemExit("first_step must be 1 (vector+mesh) or 2 (mesh)")
     tile = CFG.Tile(latitude, longitude, "")
     tile.read_from_config()
     print("build directory:", tile.build_dir)
@@ -65,7 +79,7 @@ if __name__ == "__main__":
             for step_name, step in (
                 ("1 vector", VMAP.build_poly_file),
                 ("2 mesh", MESH.build_mesh),
-            ):
+            )[first_step - 1:]:
                 print(f"=== step {step_name} ===", flush=True)
                 result = step(tile)
                 if not result:

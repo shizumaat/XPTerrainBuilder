@@ -356,9 +356,13 @@ class TestRingMarkerSurvivesTheWall:
 class TestSeawallPlumbing:
     def test_include_sea_walls_the_sea_seed_area(self):
         source = " ".join(inspect.getsource(VMAP.include_sea).split())
+        # R17-3: the union offered to the wall law is the role-scoped
+        # GRADED COVERAGE (``seawall_admission_area``), not the land
+        # cutter; the cutter (``seed_area``) is unchanged.
         assert (
-            "insert_seawalls(vector_map, tile, patches_area, seed_area)"
-            in source
+            "insert_seawalls(vector_map, tile,"
+            " seawall_admission_area(patches_area, graded_area),"
+            " seed_area)" in source
         )
 
     def test_include_water_accepts_the_pavement_union(self):
@@ -373,12 +377,14 @@ class TestSeawallPlumbing:
 
     def test_build_poly_file_forwards_the_union_to_the_water(self):
         source = " ".join(inspect.getsource(VMAP.build_poly_file).split())
+        # R17-3: both limbs now receive the graded coverage BESIDE the
+        # land cutter — two unions, two laws, both forwarded.
         assert (
-            "include_water(vector_map, tile, patches_area=patches_area)"
-            in source
+            "include_water(vector_map, tile, patches_area=patches_area,"
+            " graded_area=graded_area)" in source
         )
         # R6-1's forwarding to the sea is unchanged.
         assert (
-            "include_sea(vector_map, tile, patches_area=patches_area)"
-            in source
+            "include_sea(vector_map, tile, patches_area=patches_area,"
+            " graded_area=graded_area)" in source
         )

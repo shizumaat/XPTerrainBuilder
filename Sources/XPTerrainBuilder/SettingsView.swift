@@ -355,21 +355,57 @@ private struct GeneralPane: View {
 // MARK: - Provider accounts
 
 /// One provider account row: who the service is, the codes that share the
-/// account, its status, and the two controls. Status comes from the engine
-/// (`auth_providers`) — building this pane never touches the network, and
-/// the sign-in itself runs engine-side.
+/// account, its status, and ONE context-aware control. Status comes from the
+/// engine (`auth_providers`) — building this pane never touches the network,
+/// and the sign-in itself runs engine-side.
+///
+/// The row shows the action that applies to the state it is in, never both:
+/// a session provider offers "Sign in…" (sheet) or "Sign out" (direct); an
+/// api_key provider offers "Add API Key…" or "Edit…", both the same sheet.
+/// Ellipsis follows the macOS convention — it marks the actions that open
+/// the sheet, and only those.
 private struct ProviderAccountRow: View {
     @EnvironmentObject var buildModel: BuildModel
     let account: O4ProviderAccount
     let signIn: () -> Void
 
+    /// A sign-out command is in flight. The outcome lands as a
+    /// `SignInResult`, which refreshes the rows — this only holds the
+    /// control disabled for the command's own round trip, so a refused
+    /// command (no event follows) can never leave the row stuck.
+    @StateObject private var signingOut = ViewState(false)
+
+    /// The store-derived status has not landed yet (an api_key row is read
+    /// on an engine worker thread): show the not-signed-in wording rather
+    /// than guess, and let the disabled state say "ask again shortly".
+    private var pending: Bool { account.statusPending }
+
+    /// Signed-in wording is only earned once the status is real.
+    private var established: Bool { account.signedIn && !pending }
+
+    private var buttonTitle: String {
+        if account.isAPIKey { return established ? "Edit…" : "Add API Key…" }
+        return established ? "Sign out" : "Sign in…"
+    }
+
+    /// Sign-out is the one action that acts directly; everything else opens
+    /// the existing sheet (which forces Remember on for an api_key).
+    private func act() {
+        guard established, !account.isAPIKey else { return signIn() }
+        signingOut.value = true
+        Task {
+            await buildModel.providerSignOut(sessionName: account.sessionName)
+            signingOut.value = false
+        }
+    }
+
     var body: some View {
         LabeledContent {
             // The status text is the only elastic part of the row: it takes
-            // the slack (right-aligned against the controls) and truncates
+            // the slack (right-aligned against the control) and truncates
             // when a long "Signed in as …" would otherwise widen the row.
-            // The buttons are fixed-size and outrank it, so every row's
-            // controls share one trailing edge in every state — a signed-in
+            // The button is fixed-size and outranks it, so every row's
+            // control shares one trailing edge in every state — a signed-in
             // row used to push its buttons left. Same idiom as
             // `PathSettingRow`, with the full string in the tooltip.
             HStack(spacing: 10) {
@@ -380,15 +416,10 @@ private struct ProviderAccountRow: View {
                                      : AnyShapeStyle(.secondary))
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .help(account.statusText)
-                HStack(spacing: 10) {
-                    Button("Sign in…", action: signIn)
-                    Button("Sign out") {
-                        Task { await buildModel.providerSignOut(sessionName: account.sessionName) }
-                    }
-                    .disabled(!account.signedIn)
-                }
-                .fixedSize()
-                .layoutPriority(1)
+                Button(buttonTitle, action: act)
+                    .disabled(pending || signingOut.value)
+                    .fixedSize()
+                    .layoutPriority(1)
             }
         } label: {
             VStack(alignment: .leading, spacing: 1) {

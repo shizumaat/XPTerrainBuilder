@@ -144,3 +144,42 @@ R8-2 (superseded-in-part, cite exactly which bullets), r7seawall
 spec, round4 patch-pavement-is-land spec, [[r8-writeback-band-crown-
 frame]] (the "fix must cover BOTH halves" memory — (b) is the second
 half, finally).
+
+## AMENDMENT 1 (Fable lead, 2026-08-11, on the lane's attribution) — r17b: the poisoned band and the coastline wall
+
+The lane REFUTED R17-1's premise: the canyon author is the CLAMP,
+obeying a carried band whose junction ceiling is [−12.93, −12.14]
+where the solve said 7.01 at Z0 7.315 — a BELOW-GRADE ANCHOR leaks
+into `spine_value_fields`' ceiling MIN (the KCLT R10 family; VHHH's
+flat fast path reports 202 shapes refused on below-grade reach).
+Lane: **r17b**.
+
+* **R17b-1 BELOW-GRADE ANCHORS GOVERN ONLY THEIR OWN BODY.** First
+  name the anchor: trace the band route at layout-local (2049, 712)
+  (the lane's deferred instrument suggestion; extend an INDEX'd
+  tracer, never fork). Then the law: an anchor whose value is
+  below-grade (tunnel/ramp/claimed-plate) contributes to the band
+  ceiling ONLY for nodes inside its own below-grade body or claimed
+  plate (the claim law's own membership — never a private union);
+  everywhere else the ceiling comes from surface-lawful anchors.
+  Acceptance: the six VHHH runway-end mesh transects flat within
+  band (the 25C −6 m canyon GONE); the ≤0 m population within 500 m
+  of ends (4 surface roles) 1,662 → ~0 (tunnel_trench exempt);
+  census canyon families (within_shape junction 19.57 m worst-ten)
+  collapse; KCLT round-10 tunnel table HOLDING and OTHH 8/8 systems
+  unchanged (below-grade bodies must keep their lawful bands).
+* **R17b-2 THE WALL STANDS ON THE COASTLINE.** Where the OSM
+  coastline lies within a flat site's CONSTANT-INSET footprint (the
+  reclaimed island; the declared corridor counts), the seawall
+  breakline stands ON the coastline ring itself — land side at the
+  inset's Z0, sea outside — the vertical face the owner ruled.
+  Admission = coastline ∩ constant-inset coverage, so VMMC (no
+  constant inset over sea) never fires: it stays the control,
+  breaklines byte-identical. Acceptance: VHHH shoreline wall
+  coverage ≥ 90 % of the 20,873 m denominator; the north-shore
+  (lon 113.9200) and west-shore transects read a vertical drop; the
+  corridor keeps its two walls.
+
+Standing from the lane, unchanged: the seal, one-band-construction,
+the corridor. DEFERRED (ship gate): the labelled drift instrument;
+extending one-band to seats/anchors/apron-terrace/adjacent-ground.

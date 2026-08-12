@@ -281,6 +281,96 @@ def error_message_indicates_transient_network_failure(message):
         for fragment in _TRANSIENT_NETWORK_ERROR_FRAGMENTS
     )
 
+
+# =====================================================================
+# HTTP DISCOVERY CLASSIFIER — the ONE place a discovery response becomes
+# "no coverage" or "come back later"
+# =====================================================================
+#
+# THE LAW (small-queue spec 2026-08-11 SQ3): a discovery failure that says
+# NOTHING about coverage raises :class:`TransientFetchError`; only a
+# genuine no-data answer -- a successful response carrying no usable items
+# -- returns ``None``.  The module-wide convention every ``fetch_inset`` /
+# ``discover_inset`` caller already honours does the rest: a RAISED
+# failure is never recorded as a durable no-coverage negative, a returned
+# ``None`` is.
+#
+# The defect this closes: every HTTP ``discover()`` used to answer ``None``
+# for a timeout, a 503, a 504 or an error page, so one outage wrote
+# "this provider has no data at this airport" into the coverage index and
+# no later run ever asked again.
+#
+# Exactly ONE convention lives here -- a second classifier at a call site
+# is the defect, not a refinement.
+def discovery_status_is_transient(status_code):
+    """Does an HTTP status say nothing about coverage?
+
+    ``5xx`` (the server broke: 500, 502, 503, 504) and ``429`` (rate
+    limiting says "come back later", never "no data here").  Every other
+    non-2xx status -- 400, 401, 403, 404 -- is the server ANSWERING about
+    this request, so it stays a durable answer.
+    """
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return False
+    return code == 429 or 500 <= code <= 599
+
+
+def raise_transient_discovery_failure(description, reason):
+    """WARN in the module idiom and raise :class:`TransientFetchError`.
+
+    Never returns.  ``description`` names the request ("TNM discovery
+    request"), ``reason`` what went wrong (an exception, a status).
+    """
+    UI.vprint(
+        1,
+        "   WARNING: " + str(description) + " failed:",
+        str(reason),
+        "- transient, NOT recorded as no-coverage.",
+    )
+    raise TransientFetchError("%s failed: %s" % (description, reason))
+
+
+def discovery_json_payload(response, description):
+    """The parsed JSON body of one discovery response, or ``None``.
+
+    * 2xx + JSON body      -> the payload (the caller decides whether the
+      items in it amount to coverage; an EMPTY catalog is a durable
+      answer).
+    * 5xx / 429            -> :class:`TransientFetchError`.
+    * any other non-2xx    -> ``None`` with a WARN (durable: the server
+      answered about this request).
+    * 2xx + non-JSON body  -> :class:`TransientFetchError`.  An error page
+      served with a 200 is an outage artefact (proxies, captive portals,
+      maintenance pages), never a catalog answer -- and treating it as
+      "no data" is exactly how an outage became permanent.
+    """
+    status = getattr(response, "status_code", 200)
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = 200
+    if not 200 <= status < 300:
+        if discovery_status_is_transient(status):
+            raise_transient_discovery_failure(
+                description, "status %d" % status
+            )
+        UI.vprint(
+            1,
+            "   WARNING: " + str(description) + " returned status",
+            status,
+            "- durable, recorded as no-coverage.",
+        )
+        return None
+    try:
+        return response.json()
+    except Exception:
+        raise_transient_discovery_failure(
+            description, "a non-JSON body on a %d response" % status
+        )
+
+
 # Detail tier (spec section 3.6).  A definition without an explicit ``role``
 # is an airport inset; ``role=base`` definitions describe tile-wide sources
 # (the Phase A2 legacy refactor) and are ignored by the inset path here.
@@ -1003,24 +1093,17 @@ class TnmCloudOptimizedGeoTiffStrategy:
             .replace("{east}", repr(east))
             .replace("{north}", repr(north))
         )
+        # A DISCOVERY OUTAGE IS NOT A NO-COVERAGE ANSWER (spec SQ3): the
+        # transport failure, the 5xx/429 and the non-JSON body all raise
+        # transient through the one classifier; only a real answer (a 4xx
+        # about this request, or a catalog with no usable items) returns
+        # None and is recorded durably.
         try:
             response = requests.get(url, timeout=30)
         except Exception as error:
-            UI.vprint(
-                1, "   WARNING: TNM discovery request failed:", str(error)
-            )
-            return None
-        if response.status_code != 200:
-            UI.vprint(
-                1,
-                "   WARNING: TNM discovery returned status",
-                response.status_code,
-            )
-            return None
-        try:
-            payload = response.json()
-        except Exception:
-            UI.vprint(1, "   WARNING: TNM discovery returned non-JSON body.")
+            raise_transient_discovery_failure("TNM discovery request", error)
+        payload = discovery_json_payload(response, "TNM discovery")
+        if payload is None:
             return None
         items = payload.get("items") or []
         sources = []
@@ -1661,20 +1744,17 @@ class AuthenticatedTokenSearchStrategy:
         ]
         if collections:
             body["collections"] = collections
+        # Same law as every other HTTP discovery (spec SQ3): the search
+        # dying tells us nothing about coverage, so it raises transient
+        # instead of writing a durable no-coverage negative for this
+        # provider/airport pair.
+        description = "token search for provider %s" % definition.get("code")
         try:
             response = requests.post(search_url, json=body, timeout=30)
-            if response.status_code != 200:
-                UI.vprint(
-                    1,
-                    "   WARNING: token search returned status",
-                    response.status_code,
-                    "for provider",
-                    definition.get("code"),
-                )
-                return None
-            payload = response.json()
         except Exception as error:
-            UI.vprint(1, "   WARNING: token search failed:", str(error))
+            raise_transient_discovery_failure(description, error)
+        payload = discovery_json_payload(response, description)
+        if payload is None:
             return None
         items = StacCloudOptimizedGeoTiffStrategy._parse_search_payload(
             payload
@@ -2079,19 +2159,22 @@ class StaticStacCatalogStrategy:
             json.dump(index, handle)
 
     def _fetch_json(self, session, url):
+        """One catalog/collection/item document, or ``None``.
+
+        Spec SQ3: the catalog being unreachable is not the catalog saying
+        "no data here" -- a transport failure, a 5xx/429 and an error page
+        served as 200 all raise transient, so an outage during indexing is
+        never written into the coverage index as a durable negative.
+        """
         try:
             response = session.get(url, timeout=60)
         except Exception as error:
-            UI.vprint(
-                1, "   WARNING: static catalog request failed:", str(error)
+            raise_transient_discovery_failure(
+                "static catalog request %s" % url, error
             )
-            return None
-        if response.status_code != 200:
-            return None
-        try:
-            return response.json()
-        except ValueError:
-            return None
+        return discovery_json_payload(
+            response, "static catalog request %s" % url
+        )
 
     def _prefer_asset_keys(self, definition):
         return [
@@ -4099,9 +4182,17 @@ class ArcgisFeatureTileStrategy:
                 + url_field
                 + "&returnGeometry=false&f=json"
             )
+            # Spec SQ3: a layer query that dies says nothing about
+            # coverage.  Skipping it here and returning the OTHER
+            # endpoints' answer records a truncated archive list as a
+            # durable one, so the failure raises transient instead.
+            description = "ArcGIS layer query %s" % layer_url
             try:
-                payload = session.get(query, timeout=60).json()
-            except Exception:
+                response = session.get(query, timeout=60)
+            except Exception as error:
+                raise_transient_discovery_failure(description, error)
+            payload = discovery_json_payload(response, description)
+            if payload is None:
                 continue
             for feature in payload.get("features", []) or []:
                 archive_url = (feature.get("attributes") or {}).get(
@@ -4506,22 +4597,22 @@ class WfsTileIndexStrategy:
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
         url_property = definition.get("url_property", "url")
+        # Spec SQ3: an outage on the tile-index query is not an answer
+        # about coverage -- it raises transient rather than recording a
+        # durable no-coverage negative for this provider/airport.
         try:
             response = requests.get(
                 self._feature_query_url(definition, bounding_box_wgs84),
                 timeout=60,
             )
         except Exception as error:
-            UI.vprint(
-                1, "   WARNING: WFS tile-index query failed:", str(error)
+            raise_transient_discovery_failure(
+                "WFS tile-index query", error
             )
+        payload = discovery_json_payload(response, "WFS tile-index query")
+        if payload is None:
             return None
-        if response.status_code != 200:
-            return None
-        try:
-            features = response.json().get("features") or []
-        except ValueError:
-            return None
+        features = payload.get("features") or []
         sources = []
         for feature in features:
             properties = feature.get("properties") or {}

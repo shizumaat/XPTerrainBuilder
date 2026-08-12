@@ -157,11 +157,32 @@ def test_discover_returns_none_outside_coverage(monkeypatch):
     assert _strategy().discover(_definition(), outside) is None
 
 
-def test_discover_returns_none_on_non_200(monkeypatch):
-    """A non-200 search response yields None."""
+def test_discover_raises_transient_on_server_failure(monkeypatch):
+    """A 5xx/429 search response says NOTHING about coverage.
+
+    Rewritten from ``test_discover_returns_none_on_non_200`` (small-queue
+    spec SQ3, 2026-08-11): it asserted that a 503 yields ``None``, and
+    ``None`` is this module's DURABLE "no coverage here" answer -- so one
+    outage wrote a permanent negative into index.json for this
+    provider/airport and no later run re-queried it.
+    """
+    for status in (503, 504, 429):
+        monkeypatch.setattr(
+            "requests.post",
+            lambda url, json=None, timeout=None, _s=status: FakeResponse(
+                _s, payload={}
+            ),
+        )
+        bounding_box = (-9.2, 38.6, -9.0, 38.8)
+        with pytest.raises(INSETS.TransientFetchError):
+            _strategy().discover(_definition(), bounding_box)
+
+
+def test_discover_returns_none_on_durable_4xx(monkeypatch):
+    """A 4xx other than 429 is the server ANSWERING: durable ``None``."""
 
     def _post(url, json=None, timeout=None):
-        return FakeResponse(503, payload={})
+        return FakeResponse(404, payload={})
 
     monkeypatch.setattr("requests.post", _post)
     bounding_box = (-9.2, 38.6, -9.0, 38.8)

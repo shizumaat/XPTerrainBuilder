@@ -3814,7 +3814,34 @@ def _building_flat_level(s):
     return None
 
 
-def relevel_pads_to_host_pavement(layout):
+def _object_pad_groups(layout):
+    """``[(core_shape, [core + blend shapes])]`` — one entry per emitted
+    object-pad REQUEST (R19-3).
+
+    An object pad is not one shape: ``object_pads.emit_object_pads``
+    writes a flat CORE (``ref="object_pad:<i>"``) and the blend plates
+    that ramp it out to DEM (``ref="object_pad_blend:<i>"``), all under
+    ``ROLE_OBJECT_PAD``.  The request's LEVEL is the core's; the whole
+    group moves together.  A blend with no surviving core (the pad the
+    clip left as a bare ramp) governs no level and is skipped."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    cores: dict = {}
+    members: dict = {}
+    for s in layout.shapes:
+        if s.role != ROLE_OBJECT_PAD:
+            continue
+        ref = str(getattr(s, "ref", "") or "")
+        kind, _, idx = ref.partition(":")
+        if not idx:
+            continue
+        members.setdefault(idx, []).append(s)
+        if kind == "object_pad" and s.polygon is not None \
+                and not s.polygon.is_empty:
+            cores.setdefault(idx, s)
+    return [(cores[idx], members[idx]) for idx in sorted(cores)]
+
+
+def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     """POST-SOLVE: re-level every building pad embedded in / abutting SOLVED
     pavement to the level the HOST pavement solved to at the contact.
 
@@ -3833,18 +3860,48 @@ def relevel_pads_to_host_pavement(layout):
     the same level so pad and host weld at one flat level (no emit cliff).  The
     pad adopts FROM the host, never the reverse; the host BODY is untouched.
 
+    ``pad_role`` (R19-3) selects WHICH pads this pass reconciles — ONE
+    implementation, two roles:
+
+    * ``ROLE_BUILDING`` (default): the law above, at
+      ``PAD_HOST_LEVEL_TRIGGER_M``.
+    * ``ROLE_OBJECT_PAD``: the object-pad half.  A pad's target comes from
+      the OBJECT's rendered/draped ground (``object_anchor``'s
+      ``target_ground_metres``) and nothing reconciled it with the solved
+      host — HECA's ``object_pad:56`` sat at 105.51 welded to an apron
+      that solved to ~93.5, and the apron ring carried the pad's 106 m
+      values into two of the airport's worst edges (148.4 % over 8.49 m,
+      55.6 % over 22.39 m).  The law: an object pad whose level exceeds
+      the host's solved level at its ring by more than THE PAD'S OWN
+      RELIEF BUDGET (``DSF_OBJECT_PAD_MAX_RELIEF_M`` — the same budget
+      that decides admissibility against DEM) ADOPTS the host level.  The
+      whole pad group moves — core AND its blend plates, by one delta, so
+      the blend keeps the ramp it was built with — and the host body is
+      untouched.  Within the budget the pad keeps its own target: an
+      object seated a metre or two above its apron is the relief the pad
+      exists to build.
+
     ``config.PAD_HOST_PAVEMENT_LEVEL`` off → no-op (byte-identical; the env
     override died 2026-08-05).  Returns
     the count of pads re-levelled."""
     from auto_patch.config import (
         PAD_HOST_PAVEMENT_LEVEL, PAD_HOST_LEVEL_CONTACT_M,
         PAD_HOST_LEVEL_LIFT_M, PAD_HOST_LEVEL_TRIGGER_M,
+        PAD_HOST_BODY_REACH_M, DSF_OBJECT_PAD_MAX_RELIEF_M,
     )
+    from auto_patch.layout import ROLE_OBJECT_PAD
     if not PAD_HOST_PAVEMENT_LEVEL:
         return 0
+    pad_role = pad_role or ROLE_BUILDING
+    object_pads = (pad_role == ROLE_OBJECT_PAD)
 
-    # Host pavement vertices with a solved altitude: (x, y, alt).
+    # Host pavement vertices with a solved altitude: (x, y, alt, ring_id,
+    # vertex_index).  The ring id / index carry the RING TOPOLOGY into the
+    # probe: a contact vertex that turns out to be a LIP can be walked
+    # outward along its own host ring to the body it belongs to (see the
+    # lip-run walk below).
     host_verts: list = []
+    host_rings: list = []          # [(pts, alts)] indexed by ring_id
     for s in layout.shapes:
         if s.role not in _PAD_HOST_ROLES:
             continue
@@ -3855,10 +3912,14 @@ def relevel_pads_to_host_pavement(layout):
         except (ValueError, TypeError):
             continue
         n_open = len(ring)
-        for idx, (x, y) in enumerate(ring):
-            a = _shape_vertex_alt(s, idx, n_open)
+        rid = len(host_rings)
+        r_pts = [(float(x), float(y)) for (x, y) in ring]
+        r_alts = [_shape_vertex_alt(s, idx, n_open) for idx in range(n_open)]
+        host_rings.append((r_pts, r_alts))
+        for idx, (x, y) in enumerate(r_pts):
+            a = r_alts[idx]
             if a is not None:
-                host_verts.append((float(x), float(y), a))
+                host_verts.append((x, y, a, rid, idx))
     if not host_verts:
         return 0
 
@@ -3866,25 +3927,46 @@ def relevel_pads_to_host_pavement(layout):
     r2 = r * r
     lift_r2 = float(PAD_HOST_LEVEL_LIFT_M) ** 2
     trigger = float(PAD_HOST_LEVEL_TRIGGER_M)
+    body_reach = float(PAD_HOST_BODY_REACH_M)
 
     # Host shapes indexed by role for the shared-boundary lift below.
     host_shapes = [s for s in layout.shapes
                    if s.role in _PAD_HOST_ROLES
                    and s.polygon is not None and not s.polygon.is_empty]
 
+    # THE PAD GROUPS.  A building pad is one shape; an OBJECT pad is a
+    # request — a flat CORE plus the blend plates that ramp it out — and
+    # the group moves together or not at all (R19-3: "pad + blend").
+    # ``adopt_delta`` is the role's own threshold: the trigger for a
+    # building, the pad's RELIEF BUDGET for an object pad.
+    if object_pads:
+        groups = _object_pad_groups(layout)
+        adopt_delta = float(DSF_OBJECT_PAD_MAX_RELIEF_M)
+    else:
+        groups = [(s, [s]) for s in layout.shapes
+                  if s.role == ROLE_BUILDING
+                  and s.polygon is not None and not s.polygon.is_empty]
+        adopt_delta = trigger
+
     n_relevelled = 0
-    for s in layout.shapes:
-        if s.role != ROLE_BUILDING:
-            continue
+    for (s, group) in groups:
         if s.polygon is None or s.polygon.is_empty:
             continue
         cur = _building_flat_level(s)
         if cur is None:
             continue
-        try:
-            ring = _open_ring(list(s.polygon.exterior.coords))
-        except (ValueError, TypeError):
-            continue
+        ring = []
+        for g in group:
+            # An object-pad request's contact with the host is made by
+            # whichever of its plates reaches the pavement, so the probe
+            # ring is the whole GROUP's boundary (for a building pad the
+            # group is the pad itself, so this is the same ring as before).
+            if g.polygon is None or g.polygon.is_empty:
+                continue
+            try:
+                ring.extend(_open_ring(list(g.polygon.exterior.coords)))
+            except (ValueError, TypeError):
+                continue
         if not ring:
             continue
         # Host pavement nodes within reach of the pad ring.  The pad ring and
@@ -3895,15 +3977,110 @@ def relevel_pads_to_host_pavement(layout):
         # (possibly pit) level is a shared-boundary lip (the contamination); a
         # host node that DIFFERS by more than the trigger is the genuine step
         # partner = the HOST BODY the pad must adopt.
+        # THE PAD'S OWN VALUE ENVELOPE.  A flat building pad is a single
+        # value, so ``[cur, cur]``; an object-pad request spans its core
+        # AND its blend plates (the ramp out to DEM), and a host node
+        # welded anywhere along that ramp carries a PAD value — HECA's
+        # apron -10629 held 106.05 / 106.12 at object_pad:56's contact,
+        # half a metre off the core's 105.51, which a ``cur``-only lip
+        # test reads as neither lip nor body and the probe then walks
+        # nowhere.  For a building pad the envelope collapses to the
+        # existing test exactly.
+        grp_vals = [float(v) for g in group
+                    for v in ((g.node_altitudes or [])
+                              + ([g.altitude] if g.altitude is not None
+                                 else []))
+                    if v is not None]
+        grp_lo = min(grp_vals) if grp_vals else cur
+        grp_hi = max(grp_vals) if grp_vals else cur
+
         body_vals: list = []
+        lip_contacts: set = set()
+        contact_keys: set = set()
         for (px, py) in ring:
-            for (hx, hy, ha) in host_verts:
+            for (hx, hy, ha, hrid, hidx0) in host_verts:
                 dx = hx - px
                 dy = hy - py
                 if dx * dx + dy * dy > r2:
                     continue
-                if abs(ha - cur) > trigger:
+                contact_keys.add((hrid, hidx0))
+                if abs(ha - cur) > adopt_delta:
                     body_vals.append(ha)
+                elif grp_lo - trigger <= ha <= grp_hi + trigger:
+                    lip_contacts.add((hrid, hidx0))
+        if not body_vals and lip_contacts:
+            # ── THE LIP-RUN WALK (R19-1) ────────────────────────────────
+            # A pad WELDED INTO a coarse host ring has no differing host
+            # vertex within the contact radius at all: every host node
+            # near it IS a pad node, carrying the pad's own (pit) value,
+            # and the host's first genuine body vertex sits one long ring
+            # edge away.  HECA building114: the four contact nodes are the
+            # apron's own -771/-772/-773/-774 at the pad's 88.50, and the
+            # body -767 at 85.63 is 7.84 m off — three times the contact
+            # radius — so the pad never re-levelled and the 2.87 m pad↔pad
+            # rows and the 36.6 % apron edge stood.  53 of HECA's 214 pads
+            # share that geometry.
+            #
+            # The law: the probe reaches the HOST'S OWN BODY.  From each
+            # lip contact, walk the host ring outward in both directions
+            # THROUGH the lip run — the consecutive host vertices that are
+            # themselves pad CONTACTS (the pad's own welded frontage) —
+            # and read the FIRST vertex beyond it.  That vertex is the
+            # host body at this pad; it counts only if it DIFFERS by more
+            # than the trigger, exactly as a contact body vertex does.
+            #
+            # The walk stops at the first vertex OFF the run and never
+            # walks the open host: a gently sloping apron whose first
+            # off-pad vertex is within the trigger reads AGREEMENT and the
+            # pad stays where it is (the walk cannot climb a 1 % apron
+            # until it accumulates a trigger's worth of rise).  LIPS STAY
+            # LIPS — a contact at the pad's value is never a body value;
+            # only what the walk REACHES beyond the run is.
+            #
+            # REACH (``PAD_HOST_BODY_REACH_M``): the body must be at the
+            # pad's own contact scale.  Where a host ring runs coarse
+            # BETWEEN two pads, the vertex past one pad's run is dozens to
+            # hundreds of metres away and belongs to the OTHER pad's
+            # neighbourhood; adopting it made neighbouring pads read each
+            # other's level and swap (measured on the owner's HECA
+            # artifact: 140↔141, 146↔151, 210↔211, at 26-800 m of ring
+            # arc).  Beyond the reach the pad is left exactly where the
+            # solve put it — an unreadable host body is not a licence to
+            # move a pad.
+            for (hrid, hidx0) in lip_contacts:
+                r_pts, r_alts = host_rings[hrid]
+                nring = len(r_pts)
+                if nring < 2:
+                    continue
+                for step in (1, -1):
+                    k = hidx0
+                    arc = 0.0
+                    for _ in range(nring - 1):
+                        nk = (k + step) % nring
+                        arc += math.hypot(r_pts[nk][0] - r_pts[k][0],
+                                          r_pts[nk][1] - r_pts[k][1])
+                        k = nk
+                        if arc > body_reach:
+                            break             # host body out of contact scale
+                        av = r_alts[nk]
+                        # THE LIP RUN IS DEFINED BY VALUE, not by the
+                        # contact radius.  A host ring DENSER than
+                        # ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's
+                        # own value at vertices that are not contacts of
+                        # it: measured at HECA building114, where
+                        # stopping at the first non-contact vertex read
+                        # AGREEMENT and the pad kept its 88.50 while the
+                        # apron body sat at 85.63 a few metres further
+                        # along the same ring.  Walk through every vertex
+                        # still at the pad's value; the reach above is
+                        # what bounds the run.
+                        if (hrid, nk) in contact_keys:
+                            continue
+                        if av is not None and abs(av - cur) <= trigger:
+                            continue
+                        if av is not None and abs(av - cur) > adopt_delta:
+                            body_vals.append(av)
+                        break                 # first vertex off the run
         if not body_vals:                     # agrees with host / not adjacent
             continue
         body_vals.sort()
@@ -3911,6 +4088,31 @@ def relevel_pads_to_host_pavement(layout):
         med = (body_vals[m // 2] if m % 2
                else 0.5 * (body_vals[m // 2 - 1] + body_vals[m // 2]))
         new_level = round(float(med), 2)
+        if object_pads:
+            # THE OBJECT-PAD ADOPTION (R19-3): the whole request moves by
+            # ONE delta — the flat core to the host level, every blend
+            # plate by the same amount, so the ramp the blend was built
+            # with (core value → DEM) is preserved rather than re-derived
+            # from a value the emitter no longer has.  The host body is
+            # untouched and NO lip lift runs: an object pad's contact with
+            # pavement is made at emit time (the pad is clipped out of
+            # every pavement ring before it is written), so the apron
+            # nodes that carried the pad's value are welds of the pad's
+            # own number and follow it down by construction.
+            delta = new_level - cur
+            for g in group:
+                if g.altitude is not None:
+                    g.altitude = round(float(g.altitude) + delta, 2)
+                if g.node_altitudes:
+                    g.node_altitudes = [
+                        (None if v is None else round(float(v) + delta, 2))
+                        for v in g.node_altitudes]
+                if g.altitude_high is not None:
+                    g.altitude_high = round(float(g.altitude_high) + delta, 2)
+                if g.altitude_low is not None:
+                    g.altitude_low = round(float(g.altitude_low) + delta, 2)
+            n_relevelled += 1
+            continue
         # (1) The pad seats FLAT at the host body level.
         s.altitude = new_level
         if s.node_altitudes:

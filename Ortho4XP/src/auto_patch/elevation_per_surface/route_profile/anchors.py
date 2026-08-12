@@ -4304,6 +4304,23 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
                 for (_pts, _alts) in host_rings]
     # The LEVEL FAMILY's membership table and the per-host area the
     # host's own body vertices vote with (R19-1).
+    # ATTRIBUTION PROBE (task #16).  ``O4_PAD_FAMILY_DEBUG=ref[,ref...]``
+    # reports each named pad's SEEDS, its family MEMBERS and the
+    # COALITION — the reading that says why a pad did or did not adopt.
+    # It is what measured the task-#16 finding (2026-08-12): at HECA the
+    # family forms and building114 DOES adopt 85.59 here, and the LATE
+    # final grade projection (``pipeline.py``, ``O4_FINAL_PROJECTION_LATE``)
+    # re-stamps 88.5 over it afterwards.  Off ⇒ zero cost.
+    _dbg = {r for r in _os.environ.get("O4_PAD_FAMILY_DEBUG", "").split(",")
+            if r}
+
+    def _dbg_line(msg):
+        try:
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, "  " + msg)
+        except Exception:
+            pass
+
     # THE WELD'S OWN TOLERANCE — the membership relation is "will weld
     # together" (task #16); this module never spells the number itself.
     from auto_patch.conformance import FINAL_WELD_TOL_M as _WELD_TOL_M
@@ -4419,6 +4436,16 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         members = _level_family_members(
             group, pad_by_id, host_rings, host_areas, host_lip,
             pad_lips_by_ring, trigger, lift_r2)
+        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+            _own = {id(g) for g in group}
+            _seeds = [(rid, i)
+                      for rid, verts in pad_lips_by_ring.items()
+                      for i, ids in verts.items() if ids & _own]
+            _mm = ("None" if members is None else
+                   "; ".join(f"{e['kind']}:{e['delta_m']:.2f}"
+                             f"@{e['weight']:.0f}" for e in members[:12]))
+            _dbg_line(f"[padfam] {s.ref} cur={cur:.2f} seeds={_seeds[:8]} "
+                      f"n_seeds={len(_seeds)} members={_mm}")
         if members is None:
             continue
         coalition, _outliers, refusal = _AGREEING_COALITION(
@@ -4429,6 +4456,10 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             # the side carrying the host's own ground wins.
             tiebreak_of=lambda entry: (entry["weight"]
                                        if entry["kind"] == "host" else 0.0))
+        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+            _dbg_line(f"[padfam] {s.ref} coalition="
+                      f"{[round(e['delta_m'], 2) for e in coalition][:8]} "
+                      f"refusal={refusal} adopt_delta={adopt_delta}")
         if refusal is not None or not coalition:
             continue      # genuine ambiguity — the pad stays put
         level = _median_of([e["delta_m"] for e in coalition])

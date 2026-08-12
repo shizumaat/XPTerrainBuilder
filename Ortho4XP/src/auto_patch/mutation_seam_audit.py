@@ -1,0 +1,160 @@
+"""POST-SOLVE MUTATION SEAM AUDIT — which pass moved the emitted surface.
+
+Round 17 §R17-1(a).  ``final_grade_projection`` reports a post-solve
+MUTATION SET (:func:`route_profile.solve.post_solve_mutation_set`): the
+nodes whose value at the projection's entry differs from the value the
+solve carried.  At VHHH that set is 8,438 moved nodes with p90 19.55 m —
+a number that names the SIZE of the re-authoring but not its AUTHOR: the
+window it is measured over spans every pipeline stage between the solve's
+writeback and the projection.
+
+This audit splits that window at the seams the pipeline ALREADY marks
+(``pipeline._rod_ckpt``), diffing the EMITTED pavement values — the
+values the shapes carry, which is what ships — across each seam and
+naming the stage that moved them.  Same population as the band-membership
+report (``grade_graph_validate._band_roles``), same positional node space
+(rounded ``(x, y)`` in layout-local metres), so a site named here is the
+same site the census and the band report name.
+
+REPORT-ONLY and GATED (``O4_MUTATION_SEAM_AUDIT=1``).  It reads shape
+altitudes and writes nothing but its own log records; with the gate off
+the checkpoint is one environment read and a return.
+"""
+
+import os
+
+#: |dz| under this is not a move (the convergence guards' elevation floor).
+SEAM_MOVE_MATERIALITY_M = 0.01
+
+
+def enabled() -> bool:
+    """True when the audit is armed (``O4_MUTATION_SEAM_AUDIT=1``)."""
+    return os.environ.get("O4_MUTATION_SEAM_AUDIT") == "1"
+
+
+def _emitted_values(layout) -> dict:
+    """``{(x, y) rounded: (elevation, role)}`` over EVERY emitted shape.
+
+    The population is deliberately the WHOLE patch, not the band report's
+    airside roles: the VHHH runway-end canyons are ``graded_strip /
+    adjacent_ground`` vertices, so an audit scoped to the band's roles
+    would have watched the wrong population (the two-instruments trap in
+    its usual costume).  Values are read through
+    ``grade_graph_validate._shape_elevs`` — the same reader the band
+    report and the census use — so "moved" here means moved in the frame
+    those instruments read."""
+    from .grade_graph_validate import _shape_elevs
+    from .elevation_per_surface.solver_primitives import _open_ring
+    out: dict = {}
+    for s in getattr(layout, "shapes", ()) or ():
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except Exception:                                  # pragma: no cover
+            continue
+        els = _shape_elevs(s, len(ring))
+        if not els:
+            continue
+        for (x, y), e in zip(ring, els):
+            if e is None:
+                continue
+            out[(round(float(x), 2), round(float(y), 2))] = (
+                float(e), getattr(s, "role", ""))
+    return out
+
+
+def checkpoint(layout, name: str) -> None:
+    """Diff the emitted pavement against the previous seam; name the mover.
+
+    Called from ``pipeline._rod_ckpt`` at every named post-solve seam.
+    Gate off ⇒ one env read.
+    """
+    if not enabled():
+        return
+    try:
+        cur = _emitted_values(layout)
+    except Exception as exc:                               # pragma: no cover
+        _vprint(f"  [mutation-seam] {name}: audit FAILED {exc!r}")
+        return
+    prev = getattr(layout, "_mutation_seam_prev", None)
+    log = list(getattr(layout, "_mutation_seam_log", None) or [])
+    if prev is None:
+        layout._mutation_seam_prev = cur
+        layout._mutation_seam_log = log
+        _vprint(f"  [mutation-seam] {name}: BASELINE — "
+                f"{len(cur)} audited vertex(es), "
+                f"{sum(1 for (v, _r) in cur.values() if v <= 0.0)} "
+                f"at or below 0 m.")
+        return
+    moved = []
+    for key, (val, role) in cur.items():
+        old = prev.get(key)
+        if old is None:
+            continue
+        dz = val - old[0]
+        if abs(dz) > SEAM_MOVE_MATERIALITY_M:
+            moved.append((abs(dz), dz, key[0], key[1], role))
+    n_new = sum(1 for k in cur if k not in prev)
+    n_gone = sum(1 for k in prev if k not in cur)
+    # THE SUB-ZERO POPULATION (round 17 acceptance metric): how many
+    # emitted vertices sit at or below 0 m after this seam, and how many
+    # of them THIS seam minted.  A canyon is a population, not a worst
+    # case, and the seam that grows it is the author.
+    sub0 = sum(1 for (v, _r) in cur.values() if v <= 0.0)
+    sub0_prev = sum(1 for (v, _r) in prev.values() if v <= 0.0)
+    rec = {"seam": name, "audited": len(cur), "moved": len(moved),
+           "new": n_new, "gone": n_gone, "worst_m": 0.0, "worst": [],
+           "sub_zero": sub0, "sub_zero_delta": sub0 - sub0_prev}
+    if moved:
+        moved.sort(reverse=True)
+        rec["worst_m"] = round(moved[0][0], 3)
+        rec["p50_m"] = round(moved[len(moved) // 2][0], 3)
+        rec["p90_m"] = round(moved[int(len(moved) * 0.9)][0], 3)
+        rec["worst"] = [{"dz_m": round(m[1], 3), "x": m[2], "y": m[3],
+                         "role": m[4]} for m in moved[:5]]
+        _vprint(
+            f"  [mutation-seam] {name}: {len(moved)} vertex(es) MOVED "
+            f"(p50 {rec['p50_m']:.3f} p90 {rec['p90_m']:.3f} max "
+            f"{rec['worst_m']:.3f} m), {n_new} new, {n_gone} gone, of "
+            f"{len(cur)} audited; sub-zero {sub0} "
+            f"({rec['sub_zero_delta']:+d}); worst: " + "; ".join(
+                f"{w['dz_m']:+.2f} m on {w['role']} at "
+                f"({w['x']:.0f},{w['y']:.0f})" for w in rec["worst"][:3]))
+    else:
+        _vprint(f"  [mutation-seam] {name}: no material move "
+                f"({n_new} new, {n_gone} gone, {len(cur)} audited; "
+                f"sub-zero {sub0} {rec['sub_zero_delta']:+d}).")
+    log.append(rec)
+    layout._mutation_seam_log = log
+    layout._mutation_seam_prev = cur
+
+
+def report(layout, icao: str = "") -> None:
+    """The seam ledger, worst seam first — the answer to "which pass"."""
+    if not enabled():
+        return
+    log = list(getattr(layout, "_mutation_seam_log", None) or [])
+    if not log:
+        return
+    ranked = sorted(log, key=lambda r: -float(r.get("worst_m", 0.0)))
+    _vprint(f"  [mutation-seam] {icao}: SEAM LEDGER (worst move first) — "
+            + " | ".join(
+                f"{r['seam']} {r['moved']}@{r.get('worst_m', 0.0):.2f} m"
+                for r in ranked[:8] if r.get("moved")))
+    minted = sorted(log, key=lambda r: -int(r.get("sub_zero_delta", 0) or 0))
+    _vprint(f"  [mutation-seam] {icao}: SUB-ZERO LEDGER (who minted the "
+            f"below-0 m population) — " + " | ".join(
+                f"{r['seam']} {int(r.get('sub_zero_delta', 0)):+d} "
+                f"(total {int(r.get('sub_zero', 0))})"
+                for r in minted[:8]
+                if int(r.get("sub_zero_delta", 0) or 0)))
+
+
+def _vprint(msg: str) -> None:
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1, msg)
+    except Exception:                                      # pragma: no cover
+        pass

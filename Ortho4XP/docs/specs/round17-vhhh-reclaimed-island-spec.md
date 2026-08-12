@@ -183,3 +183,41 @@ Lane: **r17b**.
 Standing from the lane, unchanged: the seal, one-band-construction,
 the corridor. DEFERRED (ship gate): the labelled drift instrument;
 extending one-band to seats/anchors/apron-terrace/adjacent-ground.
+
+## AMENDMENT 2 (Fable lead, 2026-08-12, on r17b's three measured STOPs) — r17c
+
+* **R17c-1 TRACE THE WRITER.** r17b proved the canyon's binding
+  anchor is node 419 @(2077.5, 719.7), value −12.5370, a
+  junction/adjacent_ground node INSIDE the Z0 7.315 core,
+  surface-lawful, present ONLY in the mid-solve seed pass (pass 2 of
+  5: 6,324 seeds, min −12.88; passes 0/1/3/4 clean; 38 negative
+  seeds each authoring exactly its own node). ATTRIBUTE: which stage
+  writes −12.537 as a base_hard value onto node 419 (and the other
+  37) between passes 1 and 3 — the instruments exist
+  (trace_reach_route, mutation_seam_audit, the 5-pass field dumps).
+  THEN the law, from the measured writer: a hard value authored by
+  below-grade machinery onto a SURFACE-role node inside a flat
+  site's constant core is unlawful as a band seed — refuse it at the
+  seed-completeness union with a counted finding (the writer itself
+  may also be the defect; STOP with the mechanism if the fix wants
+  to move upstream of the union). Acceptance: the six VHHH
+  runway-end transects flat (canyon GONE, the r17b 31-of-121
+  sub-zero samples → 0); ≤0 m within 500 m on surface roles → ~0;
+  KCLT/OTHH tunnel tables HOLDING; census canyon families collapse,
+  no family grows.
+* **R17c-2 THE FEATHER STOPS AT THE WALL.** The admission is
+  necessary, not sufficient: the constant inset FEATHERS to sea
+  across 33–44 m, which is the ramp. Where a seawall breakline is
+  admitted, the constant inset extends AT Z0 TO the wall line and
+  the feather happens seaward of it (or not at all — the wall face
+  spans the whole drop). Acceptance: the north-shore (lon 113.9200)
+  and west-shore (lat 22.3100) transects read Z0 to the wall then
+  ≤1 sample to sea level — a face, not a ramp.
+* **R17c-3 SCOPE: THE AIRPORT'S ISLAND.** The owner's ruling walls
+  THE AIRPORT's reclaimed edge. Admission scopes to coastline within
+  the AIRPORT's flat-site constant core ∪ its declared corridors —
+  never every flat rectangle on the tile, never mainland coastline
+  (r17b measured 66,971 m over 55.47 km² spanning three flat sites
+  + mainland: wrong scope). VMMC is NOT a byte-identical control
+  (itself flat at Z0 6.10) — its walls are lawful under the same
+  scoping; quote its numbers, judge against its own island edge.

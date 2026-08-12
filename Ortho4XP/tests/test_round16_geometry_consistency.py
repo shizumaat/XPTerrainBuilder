@@ -29,7 +29,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from shapely.geometry import Polygon, box
+from shapely.geometry import Point, Polygon, box
 
 from auto_patch import bridges
 from auto_patch.layout import (
@@ -329,3 +329,87 @@ def test_r16_2a_one_anchor_per_body_still():
               if v == pytest.approx(-8.0 + _CAP * math.hypot(0.0, 12.0),
                                     abs=0.01)]
     assert len(pinned) == 1, (pinned, alts)
+
+
+# ── R16-2b: the wall face is owned geometry ─────────────────────────
+
+_WALL_GAP_M = 0.6
+_WALL_W_M = 1.0
+
+
+def _corridor_scene(floor_a=210.87, floor_b=210.87):
+    layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
+    rows = [_portal_row("W1", (0.0, 0.0), (56.0, 0.0), floor_a),
+            _portal_row("W2", (56.0, 0.0), (0.0, 0.0), floor_b)]
+    zones: list = []
+    n = bridges._emit_facing_corridors(
+        layout, rows, [(0, 1)], zones, _WALL_GAP_M, _WALL_W_M,
+        lambda x, y: _AMBIENT_M)
+    assert n == 1, n
+    floor = [s for s in layout.shapes if s.ref == "tunnel_corridor"]
+    walls = [s for s in layout.shapes if s.ref == "tunnel_wall"]
+    assert len(floor) == 1 and len(walls) == 2, (
+        [(s.ref, s.role) for s in layout.shapes])
+    return layout, floor[0], walls
+
+
+def _ring_open(polygon):
+    ring = list(polygon.exterior.coords)
+    return ring[:-1] if ring and ring[0] == ring[-1] else ring
+
+
+def test_r16_2b_the_wall_inner_edge_is_the_pavement_boundary():
+    """No unowned strip: the wall polygon TOUCHES the cut floor (gap
+    0 m), and at least two of its vertices sit ON the floor's own
+    boundary — the canonical join the emitter's vertex interning then
+    welds into one node id.
+
+    Mutation-checked: with the wall standing ``wall_gap_m`` outboard
+    this reads a 0.60 m strip of ground no shape owns.
+    """
+    _layout, floor, walls = _corridor_scene()
+    for wall in walls:
+        assert wall.polygon.distance(floor.polygon) == pytest.approx(
+            0.0, abs=1e-9), (
+            f"a {wall.polygon.distance(floor.polygon):.3f} m strip "
+            f"between the ramp and its wall is owned by nothing")
+        on_edge = [v for v in _ring_open(wall.polygon)
+                   if floor.polygon.exterior.distance(Point(v)) <= 1e-9]
+        assert len(on_edge) >= 2, (
+            f"the wall face does not spell the floor's boundary: "
+            f"{_ring_open(wall.polygon)}")
+
+
+def test_r16_2b_the_inner_edge_carries_the_ramps_values():
+    """One node, one value: every vertex the wall shares with the cut
+    floor carries the FLOOR's profile there (210.0 at the W1 station,
+    212.0 at W2), and the crest keeps ambient — so the face spans the
+    drop instead of a vertical glitch at a doubly-valued node."""
+    _layout, floor, walls = _corridor_scene(floor_a=210.0, floor_b=212.0)
+    shared = 0
+    for wall in walls:
+        ring = _ring_open(wall.polygon)
+        alts = list(wall.node_altitudes)[:len(ring)]
+        for (vx, vy), value in zip(ring, alts):
+            if floor.polygon.exterior.distance(Point((vx, vy))) <= 1e-9:
+                # the floor runs 210.0 at x=0 to 212.0 at x=56
+                expect = 210.0 + 2.0 * (vx / 56.0)
+                assert value == pytest.approx(expect, abs=0.01), (
+                    f"wall vertex on the floor edge at x={vx:.1f} "
+                    f"carries {value}, the floor carries {expect}")
+                shared += 1
+            else:
+                assert value == pytest.approx(_AMBIENT_M, abs=0.11), (
+                    f"a crest vertex took {value}")
+    assert shared >= 4, shared
+
+
+def test_r16_2b_the_crest_stays_where_it_was():
+    """The face widened inward, never outward: the crest (the outer
+    edge) still stands ``wall_gap + width`` = 1.6 m off the pavement,
+    so nothing outside the wall moved."""
+    _layout, floor, walls = _corridor_scene()
+    for wall in walls:
+        far = max(floor.polygon.exterior.distance(Point(v))
+                  for v in _ring_open(wall.polygon))
+        assert far == pytest.approx(_WALL_GAP_M + _WALL_W_M, abs=0.01), far

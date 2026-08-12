@@ -2495,8 +2495,12 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
         # Retaining wall down both sides, DEM-following like every other
         # tunnel wall (the crest is the ground the cut is made in).
         for _sign in (+1.0, -1.0):
-            _inner = _half + wall_gap_m
-            _outer = _inner + retaining_wall_width_m
+            # R16-2b: the face's inner edge IS the cut floor's edge
+            # (``_half``), so the two share their vertices and nothing
+            # between them is unowned; the crest stays where it was,
+            # ``wall_gap + width`` out.
+            _inner = _half
+            _outer = _half + wall_gap_m + retaining_wall_width_m
             _ring = [
                 (_pa[0] + _px * _inner * _sign,
                  _pa[1] + _py * _inner * _sign),
@@ -2515,8 +2519,12 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
                     continue
             except _GEOM_EXC:
                 continue
-            _alts = []
-            for (_vx, _vy) in _ring:
+            # The ring is ``[inner@_pa, inner@_pb, outer@_pb, outer@_pa]``:
+            # the first two vertices ARE the cut floor's edge and carry
+            # its profile (``_ga`` at ``_pa``, ``_gb`` at ``_pb``); the
+            # outer pair is the crest and keeps the DEM (R16-2b).
+            _alts = [round(float(_ga), 2), round(float(_gb), 2)]
+            for (_vx, _vy) in _ring[2:]:
                 _ground = dem_at(_vx, _vy)
                 _alts.append(round(
                     float(_ground) if _ground is not None
@@ -4212,9 +4220,17 @@ def _emit_portal_cluster(
                 try:
                     _outer = _rp.buffer(_g1, join_style=2,
                                         mitre_limit=2.0)
-                    _inner = _rp.buffer(_g0, join_style=2,
-                                        mitre_limit=2.0)
-                    _band = _outer.difference(_inner)
+                    # R16-2b: THE WALL FACE IS OWNED GEOMETRY.  The band
+                    # used to start ``_g0`` (0.6 m) outboard of the ramp,
+                    # leaving an annulus NO shape owned — the mesh draped
+                    # it at DEM/Z0 under a crest standing 6.5-8 m above
+                    # the ramp (measured OTHH: 17 wall nodes over a
+                    # 0.6-1.6 m unowned gap).  The face IS the wall's:
+                    # its inner boundary is the ramp's outer boundary,
+                    # welded by node identity because the ring is derived
+                    # from that polygon, and it carries the ramp's values
+                    # there (below), so the face spans the drop.
+                    _band = _outer.difference(_rp)
                     if _open_u is not None:
                         _band = _band.difference(_open_u)
                 except _GEOM_EXC:
@@ -4318,9 +4334,28 @@ def _emit_portal_cluster(
                                 _sources.append((
                                     _sr.polygon, _rr,
                                     [float(_sr.altitude)] * len(_rr)))
+                        from .groundside import (
+                            _nearest_source_profile as _nsp)
+                        _idx = _BelowGradeIndex(_sources)
                         _vals, _n_moved = transition_law_altitudes(
-                            _ring, _surface,
-                            _BelowGradeIndex(_sources), _GS_CAP)
+                            _ring, _surface, _idx, _GS_CAP)
+                        # R16-2b: the inner edge is the RAMP's boundary,
+                        # so it carries the RAMP's value — the crest
+                        # (the transition law's answer) stays on the
+                        # outer edge and the face spans the drop between
+                        # them.  Nothing between the two is unowned.
+                        for _vi, (_vx, _vy) in enumerate(_ring):
+                            try:
+                                if (_rp.boundary.distance(Point(_vx, _vy))
+                                        > _WALL_FACE_ON_PAVEMENT_TOL_M):
+                                    continue
+                            except _GEOM_EXC:
+                                continue
+                            _ra, _rd, _rsi = _nsp(
+                                (_vx, _vy), _idx,
+                                _WALL_FACE_ON_PAVEMENT_TOL_M + 0.5)
+                            if _ra is not None:
+                                _vals[_vi] = float(_ra)
                     except _GEOM_EXC:
                         _vals = _surface
                     _na = [round(_v, 1) for _v in _vals]
@@ -4486,6 +4521,7 @@ def _emit_low_corridor_connectors(
         surf_parts = ([open_part] if open_part.geom_type == "Polygon"
                       else [g for g in getattr(open_part, "geoms", ())
                             if g.geom_type == "Polygon"])
+        emitted_surface: list = []
         for part in surf_parts:
             if part.is_empty or part.area < 4.0:
                 continue
@@ -4498,20 +4534,28 @@ def _emit_low_corridor_connectors(
                 ref="tunnel_low_connector",
                 node_altitudes=[round(elev_low, 2)] * n_vertices))
             exclusion_zones.append(simple)
+            emitted_surface.append(simple)
             n_rects += 1
         # Retaining wall around the corridor's open sides: a 1 m band
         # offset by the standard wall gap, minus airside pavement (the
         # bores continue under the taxiways — no wall across the road).
         try:
+            # R16-2b: the face starts AT the EMITTED surface's edge (the
+            # simplified, graze-cut rects — not the corridor they were
+            # derived from), so the wall's inner boundary is that
+            # surface's boundary vertex for vertex, and no strip between
+            # them is left for the mesh to drape.
+            _surface_u = (unary_union(emitted_surface) if emitted_surface
+                          else corridor)
             band = (corridor.buffer(
                         wall_gap_m + retaining_wall_width_m,
                         join_style=2)
-                    .difference(corridor.buffer(wall_gap_m,
-                                                join_style=2)))
+                    .difference(_surface_u))
             if airside_gate_union is not None:
                 band = band.difference(airside_gate_union.buffer(0.5))
         except _GEOM_EXC:
             band = None
+            _surface_u = corridor
         band_parts = ([] if band is None else
                       ([band] if band.geom_type == "Polygon"
                        else [g for g in getattr(band, "geoms", ())
@@ -4553,6 +4597,17 @@ def _emit_low_corridor_connectors(
                 continue
             wall_alts = []
             for (vx, vy) in ring:
+                # R16-2b: a vertex ON the corridor edge is the CORRIDOR's
+                # vertex and carries its value (one node, one value); the
+                # crest keeps the DEM.
+                try:
+                    _on_edge = (_surface_u.boundary.distance(Point(vx, vy))
+                                <= _WALL_FACE_ON_PAVEMENT_TOL_M)
+                except _GEOM_EXC:                      # pragma: no cover
+                    _on_edge = False
+                if _on_edge:
+                    wall_alts.append(round(float(elev_low), 2))
+                    continue
                 ground = dem_at(vx, vy)
                 wall_alts.append(round(
                     ground if ground is not None else float(apt_elev), 1))
@@ -4584,6 +4639,16 @@ def _emit_low_corridor_connectors(
 # (user 2026-05-03: one node with two altitudes renders as a vertical
 # glitch).
 _TUNNEL_GRAZE_CLEARANCE_M = 0.6
+
+# R16-2b: how close a wall-band vertex must sit to the pavement it
+# faces to BE that boundary's vertex (metres).  The band's inner ring
+# is derived FROM the ramp/corridor polygon, so the coincidence is
+# exact; the tolerance only absorbs buffer/difference round-off.  A
+# vertex inside it carries the RAMP's value, which is what makes the
+# shared node one value instead of two (the 2026-05-03 glitch class
+# the old ``wall_gap`` standoff avoided by leaving the strip UNOWNED —
+# and an unowned strip is drape-at-DEM, the defect this replaces).
+_WALL_FACE_ON_PAVEMENT_TOL_M = 0.01
 
 # The pavement union a tunnel piece is gated against (the per-portal
 # AIRSIDE / DOUBLE-EMIT gate and the pavement-overlap clip read the same

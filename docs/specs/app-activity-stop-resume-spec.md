@@ -45,12 +45,19 @@ disappears and nothing offers a restart.
 ### S2 THE STOP BUTTON IS A STOP SIGN; STOPPED ROWS GET RESUME
 
 * For queued/active/indeterminate rows, the button becomes a red
-  stop-sign: `Image(systemName: "octagon.fill")` in `.red` with a
-  small white `stop.fill` overlaid (ZStack, the octagon is the
-  stop-sign shape), `.help("Stop this tile")`. Same borderless/small
-  styling as today. (If the owner's "hexagon" is meant literally a
-  6-sided swap is one symbol name; the octagon IS the stop-sign shape
-  and is what ships.)
+  stop-sign: `Image(systemName: "octagon.fill")` at 16 pt in `.red`
+  with a white `RoundedRectangle` overlaid at 38% of that size,
+  `.help("Stop this tile")`. Same borderless/small styling as today.
+  (OWNER RULINGS on the shipped 1.0.238 build. The shape question this
+  spec left open is CLOSED: the octagon IS the stop-sign shape and
+  stays — "stop sign should be octagon!" The two real defects were
+  size and centring: "It's just so small it's too hard to see", hence
+  16 pt for both this and the resume glyph. And the white square must
+  be a plain SHAPE via `.overlay`, never a second SF Symbol in a
+  ZStack — two symbols align by FRAME, but each glyph carries its own
+  internal padding, which is what pushed the shipped `stop.fill`
+  off-centre. An overlay centres geometrically: centred by
+  construction, not by tuning.)
 * For a `.stopped` row the button is `play.circle.fill` in `.green`,
   `.help("Resume this tile")`, calling `resumeTile(coord)`.
 * The stop/resume buttons no longer require `buildModel.isBuilding` —

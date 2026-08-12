@@ -870,6 +870,12 @@ struct ActivityBox: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
 
+    /// Point size of the per-tile stop / resume glyphs. Shared so the two
+    /// buttons stay the same size as each other beside the row's small text.
+    /// 16 pt, not the default caption size: at the shipped size the octagon
+    /// was too small to read AS a stop sign (owner, on 1.0.238).
+    static let stopIconSize: CGFloat = 16
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if activity.totalTiles > 0 {
@@ -925,13 +931,22 @@ struct ActivityBox: View {
                         Button {
                             buildModel.cancelTile(coord)
                         } label: {
-                            ZStack {
-                                Image(systemName: "octagon.fill")
-                                    .foregroundStyle(.red)
-                                Image(systemName: "stop.fill")
-                                    .font(.system(size: 5))
-                                    .foregroundStyle(.white)
-                            }
+                            // The octagon IS the stop-sign shape (owner-confirmed).
+                            // The white square is an overlaid SHAPE, not a second
+                            // SF Symbol: two symbols in a ZStack align by frame,
+                            // but each glyph carries its own internal padding, so
+                            // the inner one sat visibly off-centre. An overlay
+                            // centres geometrically, so this is centred by
+                            // construction — do not go back to a ZStack.
+                            Image(systemName: "octagon.fill")
+                                .font(.system(size: Self.stopIconSize))
+                                .foregroundStyle(.red)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 0.75)
+                                        .fill(.white)
+                                        .frame(width: Self.stopIconSize * 0.38,
+                                               height: Self.stopIconSize * 0.38)
+                                }
                         }
                         .buttonStyle(.borderless)
                         .controlSize(.small)
@@ -941,6 +956,7 @@ struct ActivityBox: View {
                             buildModel.resumeTile(coord)
                         } label: {
                             Image(systemName: "play.circle.fill")
+                                .font(.system(size: Self.stopIconSize))
                                 .foregroundStyle(.green)
                         }
                         .buttonStyle(.borderless)

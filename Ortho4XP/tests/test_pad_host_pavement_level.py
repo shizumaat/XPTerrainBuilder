@@ -194,22 +194,63 @@ def test_a_pad_welded_into_a_coarse_host_ring_finds_its_body(monkeypatch):
     assert apron.node_altitudes[6] == pytest.approx(WELD_BODY, abs=0.01)
 
 
-def test_the_walk_stops_at_the_pads_own_contact_scale(monkeypatch):
-    """``PAD_HOST_BODY_REACH_M``: where a host ring runs coarse BETWEEN
-    two pads the next vertex is dozens to hundreds of metres away and
-    belongs to the OTHER pad's neighbourhood — adopting it made
-    neighbouring pads read each other's level and swap (HECA 140↔141,
-    146↔151, 210↔211, at 26-800 m of ring arc).  Out of reach ⇒ the pad
-    stays exactly where the solve put it."""
-    from auto_patch.config import PAD_HOST_BODY_REACH_M
+def test_the_field_sample_has_no_reach(monkeypatch):
+    """R19-1 RE-RULED (2026-08-12).  The pad adopts its HOST'S SOLVED
+    SURFACE at its own ring — a surface has a value everywhere, so there
+    is no radius to satisfy.  This twin used to assert the opposite (a
+    bounded ring walk, ``PAD_HOST_BODY_REACH_M``), and the bound is
+    exactly what missed HECA building114 twice: its host body sits
+    16.59 m out.  Here the body is 30 m out and the pad still finds it.
+    """
     monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
-    far = float(PAD_HOST_BODY_REACH_M) + 5.0
-    apron = _welded_apron(body_arc_m=far)
+    apron = _welded_apron(body_arc_m=30.0)
     pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
     layout = _FakeLayout([apron, pad])
 
-    assert relevel_pads_to_host_pavement(layout) == 0
-    assert pad.altitude == pytest.approx(WELD_PAD, abs=0.01)
+    assert relevel_pads_to_host_pavement(layout) == 1, (
+        "a host body 30 m out is still the host's surface at this pad — "
+        "the reach cap is retired, not renamed")
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)
+
+
+def test_a_neighbour_pads_lip_is_never_the_value(monkeypatch):
+    """WHY THE REACH COULD BE RETIRED: neighbour-swap is impossible by
+    construction.  A neighbouring pad's lip sits NEARER this pad than
+    the host's own body does — the geometry that made the vertex-hunting
+    mechanisms swap two pads (HECA 140↔141, 146↔151, 210↔211) — and it
+    is still never the value read, because the field is ONE host
+    polygon's own vertex set with this pad's lips removed by value.
+
+    A mutation that goes back to "nearest differing vertex" takes the
+    neighbour's 120.00 and fails here."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    NEIGHBOUR = 120.0
+    ring = [
+        (0.0, 0.0), (60.0, 0.0), (60.0, 10.0),
+        (34.0, 10.0),                 # the NEIGHBOUR pad's lip, 4 m off
+        (30.0, 10.0), (20.0, 10.0),   # this pad's welded lip run
+        (-14.0, 10.0),                # the host's own body, 34 m off
+        (0.0, 10.0),
+    ]
+    alt = [WELD_BODY, WELD_BODY, WELD_BODY,
+           NEIGHBOUR, WELD_PAD, WELD_PAD, WELD_BODY, WELD_BODY]
+    apron = BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                       node_altitudes=alt + [alt[0]])
+    # The neighbour's lip is a WELD: the apron vertex at (34,10) is a
+    # vertex of the neighbour pad's own ring, which is what makes it that
+    # pad's value rather than the host's surface.
+    neighbour = BuiltShape(
+        polygon=Polygon([(30.0, 10.0), (34.0, 10.0), (38.0, 10.0),
+                         (38.0, 18.0), (30.0, 18.0)]),
+        role=ROLE_BUILDING, altitude=NEIGHBOUR)
+    pad = _pad(20.0, 10.0, 30.0, 18.0, WELD_PAD)
+    layout = _FakeLayout([apron, neighbour, pad])
+
+    relevel_pads_to_host_pavement(layout)
+    assert pad.altitude == pytest.approx(WELD_BODY, abs=0.6), (
+        f"the pad took {pad.altitude} — the neighbour's lip is nearer "
+        f"than the host body, and a vertex hunt would read it")
+    assert abs(pad.altitude - NEIGHBOUR) > 5.0
 
 
 def test_a_lawful_lip_run_on_a_flat_host_moves_nothing(monkeypatch):
@@ -361,3 +402,38 @@ def test_the_lip_run_is_defined_by_value_not_by_contact(monkeypatch):
         "the walk stopped on a lip vertex that merely sat outside the "
         "contact radius — the HECA building114 class")
     assert pad.altitude == pytest.approx(WELD_BODY, abs=0.01)
+
+
+def test_the_value_is_the_surface_not_the_nearest_vertex(monkeypatch):
+    """THE RE-RULING'S OWN TEST.  "Evaluate the host polygon's solved
+    elevation FIELD at the pad's ring positions" is not "find the right
+    vertex": on a host that is not flat, the surface AT the pad is a
+    MIXTURE of its ring values, and no vertex carries that number.
+
+    The host's low body (80.00) is nearer to every pad ring position
+    than its high body (90.00), so a nearest-vertex hunt — either of the
+    mechanisms this law replaced — reads a flat 80.00.  The surface
+    reads the mixture."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    LOW, HIGH, PIT = 80.0, 90.0, 100.0
+    ring = [
+        (-40.0, -30.0), (100.0, -30.0), (100.0, 10.0),
+        (75.0, 10.0),                 # HIGH body, further from every
+        (30.0, 10.0), (20.0, 10.0),   # the pad's welded lip run
+        (0.0, 10.0),                  # LOW body, nearer to every
+        (-40.0, 10.0),
+    ]
+    alt = [LOW, HIGH, HIGH, HIGH, PIT, PIT, LOW, LOW]
+    apron = BuiltShape(polygon=Polygon(ring), role=ROLE_APRON,
+                       node_altitudes=alt + [alt[0]])
+    pad = _pad(20.0, 10.0, 30.0, 18.0, PIT)
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 1
+    # Measured: the surface reads 82.76 here; the nearest body vertex
+    # is 80.00 at every one of the pad's ring positions.
+    assert pad.altitude > LOW + 1.0, (
+        f"the pad took {pad.altitude} — that is the NEAREST body "
+        f"vertex's value, not the host's surface, which carries the "
+        f"high body too")
+    assert pad.altitude < HIGH - 1.0

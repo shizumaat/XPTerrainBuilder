@@ -3814,6 +3814,41 @@ def _building_flat_level(s):
     return None
 
 
+def _surface_value_at(field, px, py):
+    """The value of a solved surface at ``(px, py)`` (R19-1).
+
+    ``field`` is ``[(x, y, value)]`` — the ring positions of ONE host
+    shape and the altitudes the solve wrote on them, with the pad's own
+    shared-boundary lips already removed by the caller.  Returns the
+    surface's value at the query point by inverse-SQUARE distance
+    weighting, or ``None`` for an empty field.
+
+    Why this reading: the emit / mesh frame interpolates a shape's
+    surface linearly between its ring values, so on a locally planar
+    host (an apron plateau — the class this law is about) the weighted
+    value IS the mesh's value.  A triangulation would be the exact
+    frame, but the field is a PUNCTURED ring once the lips are removed
+    and no triangulation of it is well defined; inverse-square weighting
+    is total over any vertex set, is exact AT a vertex, and decays fast
+    enough that a far part of the same apron cannot outvote the ground
+    the pad actually stands on.  There is deliberately NO radius here:
+    a surface has a value everywhere, which is the whole point of the
+    re-ruling.
+    """
+    num = 0.0
+    den = 0.0
+    for (hx, hy, v) in field:
+        dx = hx - px
+        dy = hy - py
+        d2 = dx * dx + dy * dy
+        if d2 <= 1e-6:
+            return v
+        w = 1.0 / d2
+        num += w * v
+        den += w
+    return (num / den) if den else None
+
+
 def _object_pad_groups(layout):
     """``[(core_shape, [core + blend shapes])]`` — one entry per emitted
     object-pad REQUEST (R19-3).
@@ -3887,7 +3922,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     from auto_patch.config import (
         PAD_HOST_PAVEMENT_LEVEL, PAD_HOST_LEVEL_CONTACT_M,
         PAD_HOST_LEVEL_LIFT_M, PAD_HOST_LEVEL_TRIGGER_M,
-        PAD_HOST_BODY_REACH_M, DSF_OBJECT_PAD_MAX_RELIEF_M,
+        DSF_OBJECT_PAD_MAX_RELIEF_M,
     )
     from auto_patch.layout import ROLE_OBJECT_PAD
     if not PAD_HOST_PAVEMENT_LEVEL:
@@ -3896,10 +3931,10 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     object_pads = (pad_role == ROLE_OBJECT_PAD)
 
     # Host pavement vertices with a solved altitude: (x, y, alt, ring_id,
-    # vertex_index).  The ring id / index carry the RING TOPOLOGY into the
-    # probe: a contact vertex that turns out to be a LIP can be walked
-    # outward along its own host ring to the body it belongs to (see the
-    # lip-run walk below).
+    # vertex_index).  ``host_rings`` carries each host's own SOLVED
+    # SURFACE — the ring positions and the values the solve wrote on them
+    # — because the probe below samples that surface AT the pad ring
+    # (R19-1, re-ruled 2026-08-12) rather than hunting for a vertex.
     host_verts: list = []
     host_rings: list = []          # [(pts, alts)] indexed by ring_id
     for s in layout.shapes:
@@ -3927,7 +3962,46 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     r2 = r * r
     lift_r2 = float(PAD_HOST_LEVEL_LIFT_M) ** 2
     trigger = float(PAD_HOST_LEVEL_TRIGGER_M)
-    body_reach = float(PAD_HOST_BODY_REACH_M)
+
+    # ── THE FIELD'S PURITY FILTER (R19-1) ────────────────────────────
+    # A host ring vertex within the contact radius of ANY pad ring is
+    # SOMEBODY'S LIP: it carries that pad's value, written into the host
+    # ring by the weld, and it is not a sample of the host's own solved
+    # surface.  Removing every pad's lips — not just the lips of the pad
+    # being levelled — is what makes the field swap-proof: a neighbouring
+    # pad's value is not in the host's field at all, however near it
+    # sits.  (Measured while writing this law: with only the levelled
+    # pad's own lips removed, a neighbour lip 4 m away outvoted the
+    # host's body 34 m away and the pad took the neighbour's level.)
+    #
+    # Gridded at the contact radius so this stays linear in the corpus:
+    # HECA is ~10k host vertices against ~2k pad ring positions.
+    pad_cells: dict = {}
+    for _s in layout.shapes:
+        if _s.role not in (ROLE_BUILDING, ROLE_OBJECT_PAD):
+            continue
+        if _s.polygon is None or _s.polygon.is_empty:
+            continue
+        try:
+            _pring = _open_ring(list(_s.polygon.exterior.coords))
+        except (ValueError, TypeError):
+            continue
+        for (_px, _py) in _pring:
+            pad_cells.setdefault((int(_px // r), int(_py // r)),
+                                 []).append((float(_px), float(_py)))
+
+    def _touched_by_a_pad(hx, hy):
+        cx = int(hx // r)
+        cy = int(hy // r)
+        for dx_ in (-1, 0, 1):
+            for dy_ in (-1, 0, 1):
+                for (px, py) in pad_cells.get((cx + dx_, cy + dy_), ()):
+                    if (hx - px) ** 2 + (hy - py) ** 2 <= r2:
+                        return True
+        return False
+
+    host_lip = [[_touched_by_a_pad(x, y) for (x, y) in _pts]
+                for (_pts, _alts) in host_rings]
 
     # Host shapes indexed by role for the shared-boundary lift below.
     host_shapes = [s for s in layout.shapes
@@ -3994,93 +4068,66 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         grp_lo = min(grp_vals) if grp_vals else cur
         grp_hi = max(grp_vals) if grp_vals else cur
 
+        # ── THE HOST'S SOLVED SURFACE, SAMPLED AT THE PAD RING ──────
+        # (R19-1, re-ruled 2026-08-12 after two measured misses.)  The
+        # value a pad adopts is the HOST'S OWN SURFACE where the pad
+        # stands — not whichever host vertex happens to be nearest, and
+        # not the first differing vertex a ring walk reaches.  Both
+        # earlier mechanisms asked "which vertex?", and both answered
+        # wrong at HECA building114: the contact radius saw only lips
+        # (2.5 m), and the bounded ring walk could not reach a body that
+        # sits 16.59 m out.  A SURFACE has a value everywhere, so there
+        # is no radius to choose and no vertex to hunt.
+        #
+        # THE FIELD IS THE HOST'S, NOT THE PAD'S.  A host ring vertex
+        # inside the pad's own value envelope is a shared-boundary LIP
+        # carrying the PAD's value (the contamination this law exists to
+        # undo) — it is not a sample of the host's surface and is
+        # excluded from the field.  What remains is the host's own
+        # solved surface, evaluated at each pad ring position by
+        # inverse-square distance weighting over that host's remaining
+        # vertices: the emit/mesh frame interpolates a shape's surface
+        # linearly between its ring values, and this reproduces that
+        # reading where the host is locally planar (an apron plateau)
+        # while staying total for a punctured ring.
+        #
+        # NEIGHBOUR-SWAP IS IMPOSSIBLE BY CONSTRUCTION: every sample
+        # comes from ONE host polygon's own field, so a neighbouring
+        # pad's lip can never be the value read — it is not a host
+        # vertex at all, and the lips of the pad being levelled are
+        # excluded by value.  That is what retires the reach cap: the
+        # swap class it was minted for cannot occur here.
         body_vals: list = []
-        lip_contacts: set = set()
-        contact_keys: set = set()
-        for (px, py) in ring:
-            for (hx, hy, ha, hrid, hidx0) in host_verts:
-                dx = hx - px
-                dy = hy - py
-                if dx * dx + dy * dy > r2:
-                    continue
-                contact_keys.add((hrid, hidx0))
-                if abs(ha - cur) > adopt_delta:
-                    body_vals.append(ha)
-                elif grp_lo - trigger <= ha <= grp_hi + trigger:
-                    lip_contacts.add((hrid, hidx0))
-        if not body_vals and lip_contacts:
-            # ── THE LIP-RUN WALK (R19-1) ────────────────────────────────
-            # A pad WELDED INTO a coarse host ring has no differing host
-            # vertex within the contact radius at all: every host node
-            # near it IS a pad node, carrying the pad's own (pit) value,
-            # and the host's first genuine body vertex sits one long ring
-            # edge away.  HECA building114: the four contact nodes are the
-            # apron's own -771/-772/-773/-774 at the pad's 88.50, and the
-            # body -767 at 85.63 is 7.84 m off — three times the contact
-            # radius — so the pad never re-levelled and the 2.87 m pad↔pad
-            # rows and the 36.6 % apron edge stood.  53 of HECA's 214 pads
-            # share that geometry.
-            #
-            # The law: the probe reaches the HOST'S OWN BODY.  From each
-            # lip contact, walk the host ring outward in both directions
-            # THROUGH the lip run — the consecutive host vertices that are
-            # themselves pad CONTACTS (the pad's own welded frontage) —
-            # and read the FIRST vertex beyond it.  That vertex is the
-            # host body at this pad; it counts only if it DIFFERS by more
-            # than the trigger, exactly as a contact body vertex does.
-            #
-            # The walk stops at the first vertex OFF the run and never
-            # walks the open host: a gently sloping apron whose first
-            # off-pad vertex is within the trigger reads AGREEMENT and the
-            # pad stays where it is (the walk cannot climb a 1 % apron
-            # until it accumulates a trigger's worth of rise).  LIPS STAY
-            # LIPS — a contact at the pad's value is never a body value;
-            # only what the walk REACHES beyond the run is.
-            #
-            # REACH (``PAD_HOST_BODY_REACH_M``): the body must be at the
-            # pad's own contact scale.  Where a host ring runs coarse
-            # BETWEEN two pads, the vertex past one pad's run is dozens to
-            # hundreds of metres away and belongs to the OTHER pad's
-            # neighbourhood; adopting it made neighbouring pads read each
-            # other's level and swap (measured on the owner's HECA
-            # artifact: 140↔141, 146↔151, 210↔211, at 26-800 m of ring
-            # arc).  Beyond the reach the pad is left exactly where the
-            # solve put it — an unreadable host body is not a licence to
-            # move a pad.
-            for (hrid, hidx0) in lip_contacts:
-                r_pts, r_alts = host_rings[hrid]
-                nring = len(r_pts)
-                if nring < 2:
-                    continue
-                for step in (1, -1):
-                    k = hidx0
-                    arc = 0.0
-                    for _ in range(nring - 1):
-                        nk = (k + step) % nring
-                        arc += math.hypot(r_pts[nk][0] - r_pts[k][0],
-                                          r_pts[nk][1] - r_pts[k][1])
-                        k = nk
-                        if arc > body_reach:
-                            break             # host body out of contact scale
-                        av = r_alts[nk]
-                        # THE LIP RUN IS DEFINED BY VALUE, not by the
-                        # contact radius.  A host ring DENSER than
-                        # ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's
-                        # own value at vertices that are not contacts of
-                        # it: measured at HECA building114, where
-                        # stopping at the first non-contact vertex read
-                        # AGREEMENT and the pad kept its 88.50 while the
-                        # apron body sat at 85.63 a few metres further
-                        # along the same ring.  Walk through every vertex
-                        # still at the pad's value; the reach above is
-                        # what bounds the run.
-                        if (hrid, nk) in contact_keys:
-                            continue
-                        if av is not None and abs(av - cur) <= trigger:
-                            continue
-                        if av is not None and abs(av - cur) > adopt_delta:
-                            body_vals.append(av)
-                        break                 # first vertex off the run
+        for (hrid, (r_pts, r_alts)) in enumerate(host_rings):
+            # IS THIS HOST IN CONTACT?  (Which host owns the ground the
+            # pad stands on — not how far a body may be hunted.)  A pad
+            # is embedded in or abutting its host, so contact is a ring
+            # position inside the host or within the weld-scale contact
+            # radius of it.
+            touching = False
+            for (px, py) in ring:
+                for (hx, hy) in r_pts:
+                    dx = hx - px
+                    dy = hy - py
+                    if dx * dx + dy * dy <= r2:
+                        touching = True
+                        break
+                if touching:
+                    break
+            if not touching:
+                continue
+            field = [(r_pts[i][0], r_pts[i][1], float(r_alts[i]))
+                     for i in range(len(r_pts))
+                     if r_alts[i] is not None
+                     and not host_lip[hrid][i]
+                     and not (grp_lo - trigger <= r_alts[i]
+                              <= grp_hi + trigger)]
+            if not field:
+                continue      # the host agrees with the pad everywhere
+            for (px, py) in ring:
+                v = _surface_value_at(field, px, py)
+                if v is not None and abs(v - cur) > adopt_delta:
+                    body_vals.append(v)
         if not body_vals:                     # agrees with host / not adjacent
             continue
         body_vals.sort()

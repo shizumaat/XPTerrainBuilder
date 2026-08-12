@@ -4548,3 +4548,159 @@ def test_the_host_resolution_is_deterministic(cg, tmp_path):
     assert len(seen) == 1
     assert cg._authority_rank("runway") < cg._authority_rank("apron")
     assert cg._authority_rank("apron") < cg._authority_rank(None)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §11 THE CONSTRAINED-PAIR DOMAIN KEEPS EVERY RING EDGE (R19-5)
+# ══════════════════════════════════════════════════════════════════════
+#
+# The class this removes: ``iter_shape_grade_constraints``'s LOCKSTEP
+# CONSUMPTION branch — a soft airside shape whose sidecar carries baked
+# ``pair_caps`` was constrained at EXACTLY the baked pairs, so a ring edge
+# the bake never selected (a post-projection insert, a weld) left the
+# constrained-pair domain entirely and the census carried NO ROW for it,
+# however steep it was.  The docstring has always promised "ring edges
+# always kept".  Measured on the owner's 2026-08-12 HECA artifact: 628
+# ring edges of graded soft shapes silently unconstrained, among them
+# apron -10629's 148.4 % over 8.49 m and 55.6 % over 22.39 m — the two
+# worst defects in the airport, with zero census rows.
+
+_RING_EDGE_OSM = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' generator='harness-twin'>
+  <node id='-1' lat='30.50000000000' lon='31.50000000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-2' lat='30.50000000000' lon='31.50052000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-3' lat='30.50045000000' lon='31.50052000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-4' lat='30.50045000000' lon='31.50000000000'>
+    <tag k='alt_abs' v='10.00' /></node>
+  <node id='-5' lat='30.50022500000' lon='31.50000000000'>
+    <tag k='alt_abs' v='%(insert_alt)s' /></node>
+  <way id='-10'>
+    <nd ref='-1' /><nd ref='-2' /><nd ref='-3' /><nd ref='-4' />
+    <nd ref='-5' /><nd ref='-1' />
+    <tag k='role' v='apron' />
+    <tag k='shapeID' v='R1' />
+  </way>
+</osm>
+"""
+
+# The four ORIGINAL corners of the ring above; node -5 is the INSERT the
+# solver's pair-cap bake never saw (it sits mid-way along the -4→-1 edge).
+_RING_CORNERS = {
+    "-1": (30.50000000000, 31.50000000000),
+    "-2": (30.50000000000, 31.50052000000),
+    "-3": (30.50045000000, 31.50052000000),
+    "-4": (30.50045000000, 31.50000000000),
+}
+
+
+def _ring_edge_fixture(tmp_path, insert_alt="13.00", baked=True):
+    """An apron ring with one post-projection INSERT (-5) and a sidecar
+    whose ``pair_caps`` bake covers only the four original corners."""
+    osm = tmp_path / "ringedge.osm"
+    osm.write_text(_RING_EDGE_OSM % {"insert_alt": insert_alt})
+    caps = []
+    if baked:
+        ks = sorted(_RING_CORNERS)
+        for i, ka in enumerate(ks):
+            for kb in ks[i + 1:]:
+                caps.append([list(_RING_CORNERS[ka]),
+                             list(_RING_CORNERS[kb]), 0.60])
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": [30.50022500000, 31.50026000000], "pair_caps": caps}))
+    return osm
+
+
+def _within_rows(cg, osm):
+    fams: dict = {}
+    cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+    return fams.get("within_shape", [])
+
+
+def _constrained_ring_edges(cg, osm):
+    """The RING-EDGE keys the constrained-pair domain actually carries,
+    read through the census's own law context (one code path)."""
+    ctx = cg.law_context_from_sidecar(osm, announce=False)
+    nodes, ways = cg._parse_osm(osm)
+    ll_to_m = cg._ll_to_m_factory(nodes, anchor=tuple(ctx["anchor"]))
+    cons = cg.iter_shape_grade_constraints(
+        ways, nodes, ll_to_m, 0.015,
+        seam_nids=cg._seam_nids(nodes),
+        pair_caps_ll=ctx.get("pair_caps_ll"))
+    have = {frozenset((c.nid_a, c.nid_b)) for c in cons}
+    w = next(w for w in ways if w.wid == "-10")
+    ring = w.nids[:-1]
+    want = {frozenset((ring[i], ring[(i + 1) % len(ring)]))
+            for i in range(len(ring))}
+    return want, have
+
+
+def test_the_bake_never_removes_a_ring_edge_from_the_domain(cg, tmp_path):
+    """R19-5, the domain half: with a bake covering only the four original
+    corners, the insert's TWO ring edges (-4→-5, -5→-1) are still
+    constrained.  The bake is a pair SELECTION over the body; the physical
+    boundary edge is the one pair no selection may remove."""
+    want, have = _constrained_ring_edges(
+        cg, _ring_edge_fixture(tmp_path, baked=True))
+    missing = want - have
+    assert not missing, (
+        f"ring edge(s) {sorted(map(sorted, missing))} left the "
+        f"constrained-pair domain — the census can carry no row for them "
+        f"however steep they are (HECA -10629's 148 % edge, measured)")
+    # …and the UNBAKED reading of the same ring is the same ring-edge set,
+    # so the fix did not merely widen one path: both agree on the boundary.
+    want_nb, have_nb = _constrained_ring_edges(
+        cg, _ring_edge_fixture(tmp_path, baked=False))
+    assert want_nb <= have_nb
+    assert want == want_nb
+
+
+def test_a_steep_unbaked_ring_edge_mints_its_census_row(cg, tmp_path):
+    """The instrument half: the domain fix has to reach the CENSUS, not
+    just the pair iterator.  A 3 m step over the ~25 m insert edge is a
+    ~12 % apron edge; before R19-5 the law-true census reported nothing."""
+    steep = _within_rows(cg, _ring_edge_fixture(tmp_path, insert_alt="13.00"))
+    assert steep, (
+        "the census carries NO within-shape row for a 3 m step on an "
+        "apron ring edge — the R19-5 class, exactly")
+    assert max(r.de_m for r in steep) >= 2.99
+    # The twin is not vacuous the other way either: a FLAT insert on the
+    # identical geometry mints nothing.
+    flat = _within_rows(cg, _ring_edge_fixture(tmp_path, insert_alt="10.00"))
+    assert not flat, "the fixture flags a lawful flat ring — twin is noise"
+
+
+def test_a_within_shape_row_points_at_its_pair_not_its_shape(cg, tmp_path):
+    """R19-5, the site half: a within-shape row reports the PAIR MIDPOINT.
+    Every other family's lat/lon is the offending way's ring centroid
+    (``run_checks._way_latlon``) — on a 1.2 km apron ring that puts a
+    148 % edge hundreds of metres from where it is, which is why the HECA
+    attribution had to re-derive its sites by hand."""
+    osm = _ring_edge_fixture(tmp_path, insert_alt="13.00")
+    rows = _within_rows(cg, osm)
+    nodes, ways = cg._parse_osm(osm)
+    w = next(w for w in ways if w.wid == "-10")
+    lls = [nodes[n] for n in w.nids[:-1]]
+    centroid = (sum(p[0] for p in lls) / len(lls),
+                sum(p[1] for p in lls) / len(lls))
+    row = max(rows, key=lambda r: r.de_m)
+    # The row's two endpoints are known: -5 and one of its ring neighbours.
+    mids = {((nodes["-5"][0] + nodes[k][0]) / 2.0,
+             (nodes["-5"][1] + nodes[k][1]) / 2.0) for k in ("-4", "-1")}
+    assert any(abs(row.lat - m[0]) < 1e-9 and abs(row.lon - m[1]) < 1e-9
+               for m in mids), (
+        f"the row reports ({row.lat},{row.lon}); expected one of "
+        f"{sorted(mids)} — the pair midpoint")
+    assert abs(row.lat - centroid[0]) > 1e-9, (
+        "the row still reports the SHAPE centroid")
+    # Other families keep the shape centroid — this is a within-shape rule,
+    # not a global re-siting.
+    fams: dict = {}
+    cg.run_checks_law_true(osm, family_out=fams, quiet=True, top_n=0)
+    for key, _t, _b in cg.LAW_FAMILIES:
+        if key == "within_shape":
+            continue
+        for r in fams.get(key, []):
+            assert r.lat is not None

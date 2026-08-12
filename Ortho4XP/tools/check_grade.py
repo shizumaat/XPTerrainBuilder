@@ -1476,6 +1476,33 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
                           if mesh_edges_m else None))
 
 
+def _soft_grade_shape(w: "Way", role0: str, pts, pnids):
+    """The ``grade_graph.GradeShape`` for ONE soft airside ring.
+
+    ONE construction, shared by both consumers inside
+    :func:`iter_shape_grade_constraints` (the re-bake path and the
+    baked path's ring-edge floor) — the law tags below must never
+    differ between them.
+
+    THE FAN-RAMP LAW (owner RULINGS 21f0980), the census half: the flag
+    goes into the SAME ``GradeShape`` the solver builds, so both sides
+    reach the zone cap through ONE function
+    (``grade_graph._body_cap_unbounded``) rather than each carrying its
+    own idea of where the ramp is.  A patch predating the law has no
+    tag and is judged as before.
+    """
+    from auto_patch import grade_graph as _GG
+    return _GG.GradeShape(
+        role=role0, ring=[(p[0], p[1]) for p in pts], keys=list(pnids),
+        fan_ramp_zone=(w.tags.get("o4_grade_law") == _FAN_RAMP_LAW),
+        adopts_apron_grade=(w.tags.get("o4_grade_law") == "apron"),
+        adopts_taxi_grade=(w.tags.get("o4_grade_law") == "taxi"),
+        adopted_taxi_letter=(w.tags.get("code_letter")
+                             if w.tags.get("o4_grade_law") == "taxi"
+                             else None),
+        lateral_cap=_lateral_cap_tag(w))
+
+
 def iter_shape_grade_constraints(
         ways: List[Way],
         nodes: Dict[str, Tuple[float, float]],
@@ -1499,6 +1526,12 @@ def iter_shape_grade_constraints(
     window (ring edges always kept); per-axis junction/apron allowance with the
     cross-axis diagonal skip; seam-anchored pairs dropped (DEM controls); road-
     frontage and back-edge-ramp relaxed caps.
+
+    "Ring edges always kept" binds the BAKED path too (R19-5): a soft shape
+    with sidecar ``pair_caps`` coverage constrains the baked pairs AND every
+    ring edge the bake missed, the latter at the law's own ring-only budget.
+    The bake selects which BODY pairs were enforced; it never removes a
+    physical boundary edge from the domain.
     """
     seam_nids = seam_nids or set()
     out: List[ShapePairConstraint] = []
@@ -1597,10 +1630,8 @@ def iter_shape_grade_constraints(
         if role0 in _SOFT_ROLES and _pair_cap_map:
             # LOCKSTEP CONSUMPTION: constrain exactly the solver-baked
             # pairs of this ring (matched by rounded lat/lon endpoint
-            # keys).  Vertices absent from the bake (post-projection
-            # inserts — their values interpolate along a baked edge)
-            # contribute no pairs; a ring with ZERO matches falls
-            # through to the re-bake path below (no bake ⇒ old law).
+            # keys).  A ring with ZERO matches falls through to the
+            # re-bake path below (no bake ⇒ old law).
             _llk = [(round(nodes[pnids[k]][0], 7),
                      round(nodes[pnids[k]][1], 7)) for k in range(n)]
             _matched = []
@@ -1631,28 +1662,52 @@ def iter_shape_grade_constraints(
                         offset=_crown_off(
                             crown_by_nid.get(pnids[_ia], 0.0),
                             crown_by_nid.get(pnids[_ib], 0.0))))
+                # ── RING-EDGE FLOOR (R19-5) ─────────────────────────
+                # The bake is a PAIR SELECTION, not a domain: a vertex
+                # absent from it (post-projection insert, weld) used to
+                # take its whole ring edge out of the constrained-pair
+                # domain, so the census carried NO ROW for it however
+                # steep it was — this docstring's "ring edges always
+                # kept" was false exactly here.  Measured on the owner's
+                # 2026-08-12 HECA artifact: 628 ring edges of graded
+                # soft shapes silently unconstrained, including apron
+                # -10629's 148.4 % over 8.49 m and 55.6 % over 22.39 m.
+                # The physical boundary edge is the one pair no
+                # selection may remove, so every ring edge the bake
+                # missed is re-added at THE LAW's own budget — the
+                # ring-only ``shape_constraints`` pass, the same
+                # ``classify_pair`` the no-bake path below uses (its
+                # seam / min-distance / relaxation rulings therefore
+                # still decide; only the bake's silent subtraction is
+                # gone).
+                _mk = {(min(_ia, _ib), max(_ia, _ib))
+                       for (_ia, _ib, _c) in _matched}
+                _ring_gs = _soft_grade_shape(w, role0, pts, pnids)
+                _idx = {pnids[k]: k for k in range(n)}
+                for (ka, kb, cap) in _GG.shape_constraints(
+                        _ring_gs, _law_ctx, ring_only=True).edges:
+                    ia = _idx.get(ka)
+                    ib = _idx.get(kb)
+                    if ia is None or ib is None:
+                        continue
+                    if (min(ia, ib), max(ia, ib)) in _mk:
+                        continue
+                    xi, yi, ei, _si = pts[ia]
+                    xj, yj, ej, _sj = pts[ib]
+                    d = math.hypot(xi - xj, yi - yj)
+                    if d < 0.5:
+                        continue
+                    out.append(ShapePairConstraint(
+                        way=w, nid_a=pnids[ia], nid_b=pnids[ib],
+                        xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
+                        dist=d, cap=cap.flat_cap(),
+                        allowance=_pair_grade_allowance(cap, d, w),
+                        offset=_crown_off(
+                            crown_by_nid.get(pnids[ia], 0.0),
+                            crown_by_nid.get(pnids[ib], 0.0))))
                 continue
         if role0 in _SOFT_ROLES:
-            ring = [(p[0], p[1]) for p in pts]
-            gs = _GG.GradeShape(
-                role=role0, ring=ring, keys=list(pnids),
-                # THE FAN-RAMP LAW (owner RULINGS 21f0980), the census
-                # half.  This is the whole lockstep: the flag goes into
-                # the SAME ``GradeShape`` the solver builds, so both
-                # sides reach the zone cap through ONE function
-                # (``grade_graph._body_cap_unbounded``) rather than each
-                # carrying its own idea of where the ramp is.  A patch
-                # predating the law has no tag and is judged as before.
-                fan_ramp_zone=(
-                    w.tags.get("o4_grade_law") == _FAN_RAMP_LAW),
-                adopts_apron_grade=(
-                    w.tags.get("o4_grade_law") == "apron"),
-                adopts_taxi_grade=(
-                    w.tags.get("o4_grade_law") == "taxi"),
-                adopted_taxi_letter=(
-                    w.tags.get("code_letter")
-                    if w.tags.get("o4_grade_law") == "taxi" else None),
-                lateral_cap=_lateral_cap_tag(w))
+            gs = _soft_grade_shape(w, role0, pts, pnids)
             sc = _GG.shape_constraints(gs, _law_ctx)
             idx = {pnids[k]: k for k in range(n)}
             for (ka, kb, cap) in sc.edges:
@@ -4001,14 +4056,27 @@ def _check_within_shape(ways: List[Way],
         if de <= allowance:
             continue
         grade = de / c.dist
-        out.append(Violation(
+        v = Violation(
             grade_pct=grade * 100,
             excess_pct=(grade - c.cap) * 100,
             distance_m=c.dist,
             de_m=de,
             way_a=c.way, way_b=c.way,
             pt_a=(c.xa, c.ya), pt_b=(c.xb, c.yb),
-            elev_a=c.ea, elev_b=c.eb))
+            elev_a=c.ea, elev_b=c.eb)
+        # THE ROW POINTS AT THE PAIR, NOT THE SHAPE (R19-5).  Every other
+        # family's ``lat``/``lon`` is the offending way's ring centroid
+        # (``run_checks._way_latlon``), which on a 1.2 km apron ring puts
+        # a 148 % edge hundreds of metres from where it is — the HECA
+        # attribution had to re-derive sites by hand because of it.  A
+        # within-shape row has TWO known vertices, so it reports their
+        # MIDPOINT; ``site_m`` (the metre-frame endpoints) is untouched.
+        _lla = nodes.get(c.nid_a)
+        _llb = nodes.get(c.nid_b)
+        if _lla is not None and _llb is not None:
+            v.lat = (_lla[0] + _llb[0]) / 2.0
+            v.lon = (_lla[1] + _llb[1]) / 2.0
+        out.append(v)
     return out
 
 
@@ -5861,7 +5929,12 @@ def run_checks(
                 sum(p[1] for p in lls) / len(lls))
 
     for v in within + cross:
-        v.lat, v.lon = _way_latlon(v.way_a)
+        # A row that already KNOWS where it is keeps its own site: the
+        # within-shape check reports its pair MIDPOINT (R19-5).  The ring
+        # centroid stays the fallback for every row whose location is a
+        # whole shape.
+        if v.lat is None:
+            v.lat, v.lon = _way_latlon(v.way_a)
     for s in steps + mid_steps:
         s.lat, s.lon = _way_latlon(s.way_v)
 

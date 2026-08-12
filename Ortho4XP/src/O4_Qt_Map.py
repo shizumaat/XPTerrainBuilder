@@ -14,6 +14,7 @@ Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 
 import math
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -68,9 +69,38 @@ BUILT_COLOR = "#4CAF6E"
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
                      # so later builds can reuse them via the shared cache
 
+# A stopped tile's badge: the same orange the Activity row's status text
+# uses, so one glance at map and panel tells the same story.
+STOPPED_COLOR = "#F29419"
+
+# Canonical tile key ("+48-006"): the spelling built-tile folders and the
+# console already use.  One spelling, one parser — the persisted selection
+# is written in it and nothing else.
+_TILE_KEY_RE = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
+
 
 def livemap_cache_dir():
     return os.path.join(FNAMES.Preview_dir, "livemap")
+
+
+def tile_key(lat, lon):
+    """The tile's canonical key — FNAMES.short_latlon, no second format."""
+    return FNAMES.short_latlon(lat, lon)
+
+
+def parse_tile_key(key):
+    """(lat, lon) from a canonical tile key, or None.
+
+    The reader half of :func:`tile_key`, strict on both shape and range:
+    anything that is not a well-formed on-globe key is refused here so
+    callers restoring stored keys can simply drop what does not parse.
+    """
+    if not isinstance(key, str) or not _TILE_KEY_RE.match(key):
+        return None
+    lat, lon = int(key[:3]), int(key[3:])
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        return None
+    return (lat, lon)
 
 
 def provider_is_mappable(provider_code):
@@ -286,7 +316,9 @@ class MapView(QGraphicsView):
 
     def set_progress(self, progress):
         """progress: {(lat, lon): (state, label, pct)} with state in
-        'queued' | 'active' | 'indeterminate' | 'done' | 'error'."""
+        'queued' | 'active' | 'indeterminate' | 'done' | 'error' |
+        'stopped'.  'stopped' is the one state the engine never sends —
+        it is the view's own record of a tile the user stopped."""
         self._progress = dict(progress)
         self.viewport().update()
 
@@ -855,6 +887,14 @@ class MapView(QGraphicsView):
             painter.drawEllipse(rect)
             painter.setPen(QPen(QColor("#FFFFFF")))
             painter.drawText(rect, Qt.AlignCenter, "!")
+        elif state == "stopped":
+            # The user stopped this tile: an orange badge carrying the
+            # stop square, not a spinner that would keep implying work.
+            painter.setPen(QPen(QColor(STOPPED_COLOR), 0))
+            painter.setBrush(QColor(STOPPED_COLOR))
+            painter.drawEllipse(rect)
+            painter.setPen(QPen(QColor("#FFFFFF")))
+            painter.drawText(rect, Qt.AlignCenter, "■")
         elif state == "queued":
             pen = QPen(QColor(255, 255, 255, 150))
             pen.setCosmetic(True)

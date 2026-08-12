@@ -1,10 +1,12 @@
-"""Headless tests for the per-tile cancel button on the build progress rows
-(docs/specs/parallel-tile-builds.md §3.6).
+"""Headless tests for the per-tile stop button on the build progress rows
+(docs/specs/parallel-tile-builds.md §3.6; the stop sign and the immediate
+stopped state are docs/specs/qt-parity-selection-stop-resume-spec.md §Q2,
+whose own coverage is ``test_qt_stop_resume``).
 
 Offscreen (``QT_QPA_PLATFORM=offscreen``), no network, no X-Plane install.
 The rows are driven directly through ``MainWindow._setup_progress_page`` and
 ``MainWindow._on_tile_state`` — the same entry points the engine event
-dispatch uses — so the padding, the standard close ("X") button, and the
+dispatch uses — so the padding, the painted stop-sign button, and the
 terminal-state disabling are all asserted without a real build.
 
 The PREFS_FILE monkeypatch BEFORE construction is mandatory (see the note
@@ -74,18 +76,19 @@ def test_rows_have_padding_and_spacing(window):
                 margins.right(), margins.bottom()) == (6, 4, 6, 4)
 
 
-def test_each_row_has_standard_cancel_button(window):
+def test_each_row_has_a_stop_sign_button(window):
     window._setup_progress_page(TILES)
     for tile in TILES:
         _bar, _status, _row, cancel = _row_widgets(window, tile)
         assert isinstance(cancel, QToolButton)
         assert cancel.isEnabled()
         assert not cancel.icon().isNull(), (
-            "the cancel button must carry the platform close icon")
-        assert cancel.toolTip() == "Cancel this tile"
+            "the stop button must carry the painted stop sign")
+        assert cancel.toolTip() == "Stop this tile"
 
 
-def test_clicking_cancel_calls_session_once_and_disables(window, monkeypatch):
+def test_clicking_stop_calls_session_once_and_offers_resume(window,
+                                                            monkeypatch):
     window._setup_progress_page(TILES)
     calls = []
     monkeypatch.setattr(
@@ -97,8 +100,11 @@ def test_clicking_cancel_calls_session_once_and_disables(window, monkeypatch):
     cancel.click()
 
     assert calls == [tile], "cancel_tile must be called exactly once, once"
-    assert cancel.isEnabled() is False
-    assert status.text() == "stopping…"
+    # The row stops HERE, at the click — no "stopping…" limbo — and the
+    # button becomes the way back in.
+    assert status.text() == "stopped"
+    assert cancel.isEnabled() is True
+    assert cancel.toolTip() == "Resume this tile"
 
 
 def test_done_state_disables_button(window):

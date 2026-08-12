@@ -18,8 +18,27 @@ import threading
 import time
 import traceback
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence, QTextCursor
+from PySide6.QtCore import (
+    QByteArray,
+    QEvent,
+    QObject,
+    QPointF,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPixmap,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -65,6 +84,21 @@ import O4_Qt_Wizard as QTWIZ
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 AIRPORT_CACHE = FNAMES.airport_index_cache()
 MAX_CONSOLE_LINES = 5000
+
+# Prefs keys for the restored tile selection (docs/specs/qt-parity-
+# selection-stop-resume-spec.md §Q1).  The selected set is a list of
+# canonical tile keys, the active tile one key ("" = none); both live in
+# the same .qt_prefs.json the window geometry does — one store, not two.
+SELECTED_TILES_KEY = "selected_tiles"
+ACTIVE_TILE_KEY = "active_tile"
+
+# Point size of the per-tile stop / resume glyphs on the Activity rows.
+# Shared, so the button never changes size when a row flips between
+# them, and big enough to read AS a stop sign (owner, on 1.0.238).
+STOP_ICON_PT = 16
+STOP_SIGN_COLOR = "#E5372B"
+RESUME_COLOR = "#2E9E5B"
+STOPPED_COLOR = QTMAP.STOPPED_COLOR
 
 # Build-area texture-mode selector: user-visible label -> tile config value.
 # Order is significant (it is the popup-menu item order).
@@ -141,6 +175,111 @@ def save_prefs(prefs):
             json.dump(prefs, f, indent=2)
     except Exception:
         pass
+
+
+def _glyph_pixmap(size):
+    """A transparent square pixmap at the screen's device pixel ratio.
+
+    The painter that follows still works in logical points; only the
+    backing store is denser, which is what keeps a hand-painted glyph
+    crisp on a HiDPI display instead of being upscaled from 16 pixels.
+    """
+    app = QApplication.instance()
+    ratio = float(app.devicePixelRatio()) if app is not None else 1.0
+    pixmap = QPixmap(max(1, int(round(size * ratio))),
+                     max(1, int(round(size * ratio))))
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.transparent)
+    return pixmap
+
+
+def stop_sign_icon(size=STOP_ICON_PT):
+    """The per-tile stop button: a red stop-sign octagon with a centred
+    white square.
+
+    Painted rather than taken from the platform style: the standard close
+    icon reads as "dismiss this row", and what the button does is stop a
+    tile.  The white square is drawn about the octagon's own centre, so
+    it is centred by construction — there is no glyph padding to tune
+    around, which is what pushed the mac app's first attempt off-centre.
+    """
+    pixmap = _glyph_pixmap(size)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    center = size / 2.0
+    radius = center - 0.5  # half a point of room for the antialiased edge
+    path = QPainterPath()
+    for index in range(8):
+        # The 22.5° offset puts a flat edge on top: the road sign, not a
+        # diamond standing on one of its vertices.
+        angle = math.radians(22.5 + 45 * index)
+        point = QPointF(center + radius * math.cos(angle),
+                        center + radius * math.sin(angle))
+        if index:
+            path.lineTo(point)
+        else:
+            path.moveTo(point)
+    path.closeSubpath()
+    painter.fillPath(path, QColor(STOP_SIGN_COLOR))
+    side = size * 0.38
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#FFFFFF"))
+    painter.drawRoundedRect(
+        QRectF(center - side / 2, center - side / 2, side, side), 0.75, 0.75
+    )
+    painter.end()
+    return QIcon(pixmap)
+
+
+def resume_icon(size=STOP_ICON_PT):
+    """A stopped row's button: the standard play triangle, in white on a
+    green disc, painted at the same size as the stop sign it replaces."""
+    pixmap = _glyph_pixmap(size)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(RESUME_COLOR))
+    painter.drawEllipse(QRectF(0.5, 0.5, size - 1, size - 1))
+    # The triangle sits a touch right of the disc's centre: a play
+    # triangle centred on its bounding box reads as left-heavy.
+    triangle = QPainterPath()
+    triangle.moveTo(QPointF(size * 0.38, size * 0.27))
+    triangle.lineTo(QPointF(size * 0.38, size * 0.73))
+    triangle.lineTo(QPointF(size * 0.75, size * 0.50))
+    triangle.closeSubpath()
+    painter.fillPath(triangle, QColor("#FFFFFF"))
+    painter.end()
+    return QIcon(pixmap)
+
+
+# ---------------------------------------------------------------------------
+# Stop/resume rules (pure — no widgets, no engine)
+# ---------------------------------------------------------------------------
+def may_overwrite_stopped(state):
+    """May an incoming engine state overwrite a row the user STOPPED?
+
+    Only a terminal outcome: a tile that finished before its cancel took
+    effect is genuinely built, and saying "stopped" over a built tile
+    would be a lie; a failure is just as real.  Everything else is stale
+    news from a run the row has already left — the engine goes on sending
+    progress (and its own "stopped" notice) until it reaches the phase
+    boundary where it notices the cancel flag.
+    """
+    return state in ("done", "error")
+
+
+def resolve_tile_state(incoming, current):
+    """The row an engine event should leave behind, given what the row
+    already shows.  None = the event is stale, drop it."""
+    if current is not None and current[0] == "stopped":
+        if not may_overwrite_stopped(incoming[0]):
+            return None
+    return incoming
+
+
+def enqueue_resume(tile, queue):
+    """Ordered, deduped append to the pending-resume queue."""
+    return list(queue) if tile in queue else list(queue) + [tile]
 
 
 class _StdoutTee:
@@ -302,6 +441,15 @@ class MainWindow(QMainWindow):
         self._progress_states = {}
         self._building = False
         self._stop_requested = False
+        # Tiles the user resumed while a run was still going, in press
+        # order: they start as ONE follow-up run when the current one
+        # ends.  Purely client-side and session-local — the engine knows
+        # nothing about this queue.
+        self._resume_queue = []
+        # What each tile of the current run was STARTED with — the resume
+        # path's settings source, so resuming a tile rebuilds it as it was
+        # queued and not with whatever the toolbar says now.
+        self._run_settings = {}
         # Last (output dir, selection) the toolbar combos were synced to:
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
@@ -394,10 +542,23 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # The selection outlives the app: last session's selected set and
+        # its active tile come back on launch, the same doctrine as the
+        # built-tile overlay.  Restored LAST, so the map, the info panel
+        # and the toolbar combos see it exactly the way they see a click.
+        selection, active = self._restore_selection()
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
+        if active is not None:
+            lat, lon = active
         self.map.center_on_tile(lat, lon, zoom=7)
-        self.map.set_active(lat, lon)
+        if selection:
+            self.map.set_selection(selection)
+            self.map.set_active(active[0], active[1], select=False)
+        else:
+            # Nothing stored (or nothing that still parses): exactly the
+            # launch this window has always had.
+            self.map.set_active(lat, lon)
 
     # ------------------------------------------------------------------
     # Widgets
@@ -1027,6 +1188,49 @@ class MainWindow(QMainWindow):
         sel = self.map.selection()
         self._sync_build_controls_to_selection(sel)
         self._update_build_summary(sel)
+        self._persist_selection(sel)
+
+    def _persist_selection(self, selection=None):
+        """Write the selected set and the active tile to the prefs file.
+
+        A selection is hand-sized (the user clicks tiles), so there is
+        nothing to debounce.  The panel does refresh on an UNCHANGED
+        selection though — scan results streaming in, build bookkeeping —
+        so an identical write is skipped rather than re-serialising the
+        prefs file behind every one of them.
+        """
+        if selection is None:
+            selection = self.map.selection()
+        keys = [QTMAP.tile_key(*tile) for tile in sorted(selection)]
+        active = self.map.active_tile()
+        active_key = QTMAP.tile_key(*active) if active else ""
+        if (keys == self.prefs.get(SELECTED_TILES_KEY)
+                and active_key == self.prefs.get(ACTIVE_TILE_KEY)):
+            return
+        self.prefs[SELECTED_TILES_KEY] = keys
+        self.prefs[ACTIVE_TILE_KEY] = active_key
+        save_prefs(self.prefs)
+
+    def _restore_selection(self):
+        """([tiles], active) from the prefs file — the launch selection.
+
+        Keys that no longer parse are dropped silently, and an active tile
+        outside the restored set falls back to the set's first tile (the
+        deselect path's rule).  Absent keys give an empty selection: a
+        fresh install launches exactly as it always did.
+        """
+        stored = self.prefs.get(SELECTED_TILES_KEY)
+        tiles = []
+        if isinstance(stored, list):
+            for key in stored:
+                tile = QTMAP.parse_tile_key(key)
+                if tile is not None and tile not in tiles:
+                    tiles.append(tile)
+        tiles.sort()
+        active = QTMAP.parse_tile_key(self.prefs.get(ACTIVE_TILE_KEY) or "")
+        if active not in tiles:
+            active = tiles[0] if tiles else None
+        return tiles, active
 
     def _sync_build_controls_to_selection(self, selection):
         """Point the Imagery / Build ZL combos at the selection's config.
@@ -1733,6 +1937,21 @@ class MainWindow(QMainWindow):
                 do_vector, do_imagery, do_overlays)
             return
 
+        self._start_run(todo, {
+            "provider": provider,
+            "zoomlevel": zoomlevel,
+            "do_vector": do_vector,
+            "do_imagery": do_imagery,
+            "do_overlays": do_overlays,
+        })
+
+    def _start_run(self, todo, settings):
+        """Start a fresh run for ``todo`` with ``settings``.
+
+        The Build button's own machinery without its selection guard: a
+        resumed tile need not still be selected on the map — not having
+        to re-find it is the whole point of the resume button.
+        """
         self._building = True
         self._stop_requested = False
         self.stop_btn.setEnabled(True)
@@ -1743,6 +1962,7 @@ class MainWindow(QMainWindow):
         }
         self.map.set_progress(self._progress_states)
         self._setup_progress_page(todo)
+        self._snapshot_run_settings(todo, settings)
         self._update_build_summary()
         # Re-gate the info panel (install toggle) for the active tile
         # now that it may be part of the run.
@@ -1752,12 +1972,8 @@ class MainWindow(QMainWindow):
 
         started = self._session.enqueue_build(
             todo,
-            provider=provider,
-            zoomlevel=zoomlevel,
             custom_build_dir=self.output_dir(),
-            do_vector=do_vector,
-            do_imagery=do_imagery,
-            do_overlays=do_overlays,
+            **settings
         )
         if not started:
             self._building = False
@@ -1795,6 +2011,13 @@ class MainWindow(QMainWindow):
             # A finished tile being built again starts a fresh stopwatch.
             self._tile_started_at.pop(tile, None)
             self._tile_results.pop(tile, None)
+        self._snapshot_run_settings(fresh, {
+            "provider": provider,
+            "zoomlevel": zoomlevel,
+            "do_vector": do_vector,
+            "do_imagery": do_imagery,
+            "do_overlays": do_overlays,
+        })
         self.map.set_progress(self._progress_states)
         self._add_progress_rows(fresh)
         self._ntiles += len(fresh)
@@ -1814,6 +2037,10 @@ class MainWindow(QMainWindow):
             row.deleteLater()
         self._tile_rows = {}
         self._tile_clocks = {}
+        # A fresh run owns the box: rows the previous one left behind
+        # (stopped tiles waiting for a resume) go with it, and so do the
+        # settings snapshots that belonged to them.
+        self._run_settings = {}
         self._add_progress_rows(todo)
         self._done_count = 0
         self._ntiles = len(todo)
@@ -1831,7 +2058,8 @@ class MainWindow(QMainWindow):
 
     def _add_progress_rows(self, tiles):
         """Create Activity rows for tiles that lack one; reset (to
-        "queued") the row of a finished tile being built again."""
+        "queued") the row of a finished or stopped tile being built
+        again."""
         for tile in tiles:
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
@@ -1840,6 +2068,8 @@ class MainWindow(QMainWindow):
                 status.setStyleSheet("color: gray; font-size: 11px;")
                 clock.setText("")
                 cancel.setEnabled(True)
+                cancel.setVisible(True)
+                self._set_row_button_mode(cancel, "stop")
                 continue
             row = QWidget()
             rl = QVBoxLayout(row)
@@ -1856,16 +2086,18 @@ class MainWindow(QMainWindow):
             status = QLabel("queued")
             status.setStyleSheet("color: gray; font-size: 11px;")
             head.addWidget(status)
-            # Per-tile cancel: the platform style's standard close icon
-            # (the operating-system-appropriate "X"), spec §3.6.
+            # Per-tile stop / resume: one button that changes what it
+            # offers with the row's state — a red stop sign while the
+            # tile is live, a green resume once the user has stopped it.
+            # An "X" reads as "dismiss this row", which is not what it
+            # does, so the glyphs are painted here (qt-parity spec §Q2).
             cancel = QToolButton()
             cancel.setAutoRaise(True)
-            cancel.setIcon(self.style().standardIcon(
-                QStyle.SP_TitleBarCloseButton))
-            cancel.setToolTip("Cancel this tile")
-            cancel.setFixedSize(18, 18)
+            cancel.setIconSize(QSize(STOP_ICON_PT, STOP_ICON_PT))
+            cancel.setFixedSize(STOP_ICON_PT + 6, STOP_ICON_PT + 6)
+            self._set_row_button_mode(cancel, "stop")
             cancel.clicked.connect(
-                lambda _checked=False, t=tile: self._cancel_tile_clicked(t)
+                lambda _checked=False, t=tile: self._tile_button_clicked(t)
             )
             head.addWidget(cancel)
             rl.addLayout(head)
@@ -1882,11 +2114,17 @@ class MainWindow(QMainWindow):
 
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
-        self._tile_started_at.setdefault(tile, time.time())
         state = "indeterminate" if event.indeterminate else "active"
-        self._progress_states[tile] = (state, event.label, event.percent)
+        resolved = resolve_tile_state(
+            (state, event.label, event.percent),
+            self._progress_states.get(tile),
+        )
+        if resolved is None:
+            return  # stale news from a run this row has already left
+        self._tile_started_at.setdefault(tile, time.time())
+        self._progress_states[tile] = resolved
         self.map.set_progress(self._progress_states)
-        self._update_tile_row(tile, event.percent, event.label)
+        self._render_row_state(tile)
         self.setWindowTitle(
             "Ortho4XP — building %s · %s · %d%%"
             % (FNAMES.short_latlon(*tile), event.label, event.percent)
@@ -1894,24 +2132,21 @@ class MainWindow(QMainWindow):
 
     def _on_tile_state(self, event):
         tile = (event.lat, event.lon)
-        state, label, pct = event.state, event.label, event.percent
+        resolved = resolve_tile_state(
+            (event.state, event.label, event.percent),
+            self._progress_states.get(tile),
+        )
+        if resolved is None:
+            # The row is locally stopped and this is not a terminal
+            # outcome — including the engine's own late "stopped" notice,
+            # which the row said minutes ago.
+            return
+        state, label, _pct = resolved
         if state == "done":
             self._done_count += 1
-        self._progress_states[tile] = (state, label, pct)
+        self._progress_states[tile] = resolved
         self.map.set_progress(self._progress_states)
-        if tile in self._tile_rows:
-            bar, status, _, cancel, _clock = self._tile_rows[tile]
-            if state == "done":
-                bar.setValue(100)
-                status.setText("done ✓")
-                status.setStyleSheet("color: green; font-size: 11px;")
-            elif state == "error":
-                status.setText("failed")
-                status.setStyleSheet("color: red; font-size: 11px;")
-            elif label == "stopped":
-                status.setText("stopped")
-            if state in ("done", "error") or label == "stopped":
-                cancel.setEnabled(False)
+        self._render_row_state(tile)
         if state in ("done", "error") or label == "stopped":
             # The tile left the active run: selected finished/failed
             # tiles become queueable again (button label + gating).
@@ -1925,24 +2160,204 @@ class MainWindow(QMainWindow):
     def _on_tile_clocks(self, event):
         """Per-tile clocks (protocol 1.3): stash; the 1 Hz clock tick
         renders (same discipline as RunEta — views never compute)."""
-        self._tile_clocks = {
+        rows = {
             (int(row[0]), int(row[1])): (row[2], row[3], bool(row[4]))
             for row in event.rows
         }
+        # A stopped row's clock stays frozen where the stop left it: the
+        # engine goes on counting until its cancel lands, and that number
+        # describes a tile the user has already stopped.
+        for tile in list(rows):
+            if self._progress_states.get(tile, (None,))[0] != "stopped":
+                continue
+            previous = self._tile_clocks.get(tile)
+            if previous is None:
+                rows.pop(tile)
+            else:
+                rows[tile] = previous
+        self._tile_clocks = rows
 
     def _update_tile_row(self, tile, pct, label):
+        """Legacy entry point (progress push): the row renders itself
+        from ``_progress_states``, which this updates first."""
         if tile in self._tile_rows:
-            bar, status, _, _cancel, _clock = self._tile_rows[tile]
+            state = self._progress_states.get(tile, ("active", label, pct))[0]
+            self._progress_states[tile] = (state, label, pct)
+            self._render_row_state(tile)
+
+    def _set_row_button_mode(self, button, mode):
+        """Point a row's one button at stop or at resume."""
+        if mode == "resume":
+            button.setIcon(resume_icon())
+            button.setToolTip("Resume this tile")
+        else:
+            button.setIcon(stop_sign_icon())
+            button.setToolTip("Stop this tile")
+
+    def _render_row_state(self, tile):
+        """Repaint one Activity row from ``_progress_states``: status text
+        and colour, the progress bar, and which of the two things the
+        row's button is offering.
+
+        The button is deliberately NOT gated on a run being in progress —
+        a stopped row keeps its resume button after the run ends, so the
+        tile never has to be found on the map again.
+        """
+        row = self._tile_rows.get(tile)
+        if row is None:
+            return
+        bar, status, _row, button, _clock = row
+        state, label, pct = self._progress_states.get(
+            tile, ("queued", "queued", 0))
+        color = "gray"
+        if state == "done":
+            bar.setValue(100)
+            status.setText("done ✓")
+            color = "green"
+        elif state == "error":
+            status.setText("failed")
+            color = "red"
+        elif state == "stopped":
+            # Frozen where the stop caught it — the percent is the last
+            # thing the tile actually reached, not a number still moving.
+            bar.setValue(int(pct))
+            status.setText(label or "stopped")
+            color = STOPPED_COLOR
+        elif state in ("active", "indeterminate"):
             bar.setValue(int(pct))
             status.setText("%s · %d%%" % (label, pct))
+        else:
+            bar.setValue(int(pct))
+            status.setText(label or "queued")
+            if label == "stopped":
+                color = STOPPED_COLOR
+        status.setStyleSheet("color: %s; font-size: 11px;" % color)
+        if state in ("done", "error"):
+            # Nothing left to stop and nothing to resume: a finished tile
+            # goes back through the Build button.
+            button.setEnabled(False)
+            button.setVisible(False)
+            return
+        if label == "stopped" and state != "stopped":
+            # The ENGINE reports this tile drained (a wholesale stop, or a
+            # per-tile cancel that landed on a row the user did not stop
+            # here): there is nothing left to stop.
+            button.setEnabled(False)
+            return
+        button.setEnabled(True)
+        button.setVisible(True)
+        self._set_row_button_mode(
+            button, "resume" if state == "stopped" else "stop")
+
+    def _tile_button_clicked(self, tile):
+        """The row's one button: stop while the tile is live, resume once
+        it is stopped."""
+        state = self._progress_states.get(tile, ("queued",))[0]
+        if state == "stopped":
+            self._resume_tile_clicked(tile)
+        else:
+            self._cancel_tile_clicked(tile)
 
     def _cancel_tile_clicked(self, tile):
-        """Per-tile X button: stop this tile, let the others continue."""
-        if self._session.cancel_tile(tile[0], tile[1]):
-            if tile in self._tile_rows:
-                _bar, status, _row, cancel, _clock = self._tile_rows[tile]
-                cancel.setEnabled(False)
-                status.setText("stopping…")
+        """The row's stop sign: this tile stops HERE, at the click.
+
+        The engine only notices its cancel flag at the next phase
+        boundary — minutes away inside a mesh step — so a row that waited
+        for the engine to agree is what made the button feel broken.  The
+        cancel still goes over exactly as before; the ROW goes "stopped"
+        now, percent frozen, and the engine's eventual events for the
+        tile are stale (``resolve_tile_state`` drops them).
+        """
+        self._session.cancel_tile(tile[0], tile[1])
+        # Stop is the inverse of resume, at any scale: stopping a row that
+        # was waiting for the follow-up run takes it out of the queue.
+        self._resume_queue = [t for t in self._resume_queue if t != tile]
+        _state, _label, pct = self._progress_states.get(
+            tile, ("queued", "queued", 0))
+        self._progress_states[tile] = ("stopped", "stopped", pct)
+        self.map.set_progress(self._progress_states)
+        # The clock freezes too: the engine keeps counting until its
+        # cancel lands, and a running clock under "stopped" is the same
+        # lie the row itself used to tell.
+        clock = self._tile_clocks.get(tile)
+        if clock is not None:
+            self._tile_clocks[tile] = (clock[0], None, True)
+        self._render_row_state(tile)
+        self._update_build_summary()
+
+    def _resume_tile_clicked(self, tile):
+        """The row's green resume: rebuild this tile with the settings ITS
+        run was started with, not whatever the toolbar says now.
+
+        A run in progress is left alone — the tile joins a client-side
+        queue and starts as one follow-up run when the current one ends
+        (no protocol change: the engine knows nothing about the queue).
+        """
+        settings = self._run_settings.get(tile) or self._toolbar_settings()
+        if settings is None:
+            self._status(
+                "Pick an imagery source and zoom level to resume this tile.")
+            return
+        if self._building:
+            self._resume_queue = enqueue_resume(tile, self._resume_queue)
+            self._progress_states[tile] = (
+                "queued", "resumes after current run", 0)
+            self.map.set_progress(self._progress_states)
+            self._tile_clocks.pop(tile, None)
+            row = self._tile_rows.get(tile)
+            if row is not None:
+                row[4].setText("")
+            self._render_row_state(tile)
+            self._update_build_summary()
+            return
+        self._resume_queue = [t for t in self._resume_queue if t != tile]
+        self._start_run([tile], settings)
+
+    def _toolbar_settings(self):
+        """The run settings the toolbar currently spells out, or None while
+        a combo is unresolved ("--")."""
+        if self.imagery_combo.currentIndex() < 0:
+            return None
+        if self.zl_combo.currentIndex() < 0:
+            return None
+        return {
+            "provider": self.imagery_combo.currentText(),
+            "zoomlevel": int(self.zl_combo.currentText()),
+            "do_vector": self.chk_vector.isChecked(),
+            "do_imagery": self.chk_imagery.isChecked(),
+            "do_overlays": self.chk_overlays.isChecked(),
+        }
+
+    def _snapshot_run_settings(self, tiles, settings):
+        """Record what each tile is being STARTED with — what a later
+        resume of it must use."""
+        for tile in tiles:
+            self._run_settings[tile] = dict(settings)
+
+    def _start_resume_queue(self):
+        """The tiles resumed mid-run, as ONE follow-up run.
+
+        Each carries its own run's settings, so they are grouped: one
+        batch per distinct settings set, the first batch starting the run
+        and the rest queued into it.
+        """
+        todo, self._resume_queue = self._resume_queue, []
+        batches = []
+        for tile in todo:
+            settings = self._run_settings.get(tile) or self._toolbar_settings()
+            if settings is None:
+                continue
+            for batch_tiles, batch_settings in batches:
+                if batch_settings == settings:
+                    batch_tiles.append(tile)
+                    break
+            else:
+                batches.append(([tile], dict(settings)))
+        for index, (tiles, settings) in enumerate(batches):
+            if index == 0:
+                self._start_run(tiles, settings)
+            else:
+                self._queue_into_running_build(tiles, **settings)
 
     def _update_build_clock(self):
         import time as _time
@@ -2012,17 +2427,53 @@ class MainWindow(QMainWindow):
             # Activity display must not be torn down under it.
             if self._building:
                 return
-            self.map.set_progress({})
-            self._progress_states = {}
-            self._set_activity_box_visible(False)
+            # Rows the user STOPPED survive the linger: their resume
+            # button is the way back to the tile without hunting for it
+            # on the map again, so the row — and the settings a resume
+            # needs — has to outlive the run it was stopped in.
+            stopped = {
+                tile: state
+                for tile, state in self._progress_states.items()
+                if state[0] == "stopped"
+            }
+            for tile in list(self._tile_rows):
+                if tile in stopped:
+                    continue
+                self._tile_rows.pop(tile)[2].deleteLater()
+                self._tile_clocks.pop(tile, None)
+            self._run_settings = {
+                tile: settings
+                for tile, settings in self._run_settings.items()
+                if tile in stopped
+            }
+            self._progress_states = stopped
+            self.map.set_progress(stopped)
+            self._set_activity_box_visible(bool(stopped))
+            if stopped:
+                # The run is over: there is no elapsed left to report,
+                # only the stopped rows waiting for a resume.
+                self.progress_title.setText("")
+                self.elapsed_label.setText("")
+                self.eta_label.setText("")
             self._selection_changed()
 
         QTimer.singleShot(5000, revert)
+        # Tiles the user resumed mid-run get their own follow-up run,
+        # client-side.  A run the user STOPPED wholesale takes the queue
+        # down with it — stop is the inverse of resume, at any scale.
+        if self._stop_requested:
+            self._resume_queue = []
+        else:
+            self._start_resume_queue()
         self.refresh_tiles()
         QApplication.beep()
 
     def request_stop(self):
         self._stop_requested = True
+        # Stopping the whole run takes the pending resumes with it: a
+        # follow-up run starting behind a wholesale stop is the opposite
+        # of what the button was pressed for.
+        self._resume_queue = []
         self._session.cancel()
         self.stop_btn.setText("Stopping after current step…")
         self.stop_btn.setEnabled(False)

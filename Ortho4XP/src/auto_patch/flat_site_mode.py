@@ -953,9 +953,15 @@ def _island_component(land, core_box):
 def _connecting_pieces(island, members):
     """The land BETWEEN the family's footprints, on ``island``.
 
-    ``members`` — the family's boxes.  Returns ``(polygon, cut)``: the
-    connecting land, and whether the "between" clip actually removed
-    part of a connecting piece (reported, never silent).
+    ``members`` — the family's boxes.  Returns ``(polygon, cut, why)``:
+    the connecting land, whether the "between" clip removed part of a
+    connecting piece, and a DIAGNOSTIC dict.
+
+    ``why`` exists because "no isthmus" has three different causes — no
+    residual land at all (the footprints already cover it), residual land
+    that joins nothing (every piece touches one member), and residual
+    land the between-clip removed — and one message for three causes is
+    an attribution nobody can make afterwards.
     """
     from shapely import geometry, ops
 
@@ -964,9 +970,11 @@ def _connecting_pieces(island, members):
         try:
             residual = residual.difference(box)
         except Exception:                                  # pragma: no cover
-            return geometry.Polygon(), False
+            return geometry.Polygon(), False, {"error": "difference failed"}
     pieces = [piece for piece in getattr(residual, "geoms", [residual])
               if piece is not None and not piece.is_empty]
+    why = {"pieces": len(pieces), "best_touch": 0, "joined_area": 0.0,
+           "clipped_area": 0.0}
     joining = []
     for piece in pieces:
         touched = 0
@@ -976,22 +984,24 @@ def _connecting_pieces(island, members):
                     touched += 1
             except Exception:                              # pragma: no cover
                 continue
-            if touched >= 2:
-                break
+        why["best_touch"] = max(why["best_touch"], touched)
         if touched >= 2:
             joining.append(piece)
     if not joining:
-        return geometry.Polygon(), False
+        return geometry.Polygon(), False, why
     try:
         joined = ops.unary_union(joining)
         between = ops.unary_union(members).convex_hull
         clipped = joined.intersection(between)
     except Exception:                                      # pragma: no cover
-        return geometry.Polygon(), False
+        return geometry.Polygon(), False, why
+    why["joined_area"] = float(joined.area)
+    why["clipped_area"] = float(
+        0.0 if clipped is None or clipped.is_empty else clipped.area)
     if clipped is None or clipped.is_empty:
-        return geometry.Polygon(), bool(joined.area)
+        return geometry.Polygon(), bool(joined.area), why
     cut = clipped.area < joined.area * (1.0 - 1e-9)
-    return clipped, cut
+    return clipped, cut, why
 
 
 def island_continuity_regions(tile, stamped) -> list:
@@ -1059,13 +1069,25 @@ def island_continuity_regions(tile, stamped) -> list:
                 "stand on the island component."
                 % (icao, len(on_island)))
             continue
-        polygon, clipped = _connecting_pieces(island, on_island)
+        polygon, clipped, why = _connecting_pieces(island, on_island)
         if polygon is None or polygon.is_empty:
+            scale = metres_lat * metres_lon / 1e6
             UI.vprint(
-                1,
-                "   [flat-site] %s: no isthmus — the island carries no land "
-                "joining two footprints (the family is separated by water)."
-                % icao)
+                0,
+                "   [flat-site] %s: no isthmus — %d footprint(s) on a %.2f "
+                "km2 island leave %d residual land piece(s), best touching "
+                "%d footprint(s); joined %.4f km2, between-clip left %.4f "
+                "km2. %s"
+                % (icao, len(on_island),
+                   island.area * scale, why.get("pieces", 0),
+                   why.get("best_touch", 0),
+                   why.get("joined_area", 0.0) * scale,
+                   why.get("clipped_area", 0.0) * scale,
+                   "The family's footprints already cover the connecting "
+                   "land." if not why.get("pieces") else
+                   ("No residual piece joins two footprints (they are "
+                    "separated by water)." if why.get("best_touch", 0) < 2
+                    else "The between-clip removed the joining land.")))
             continue
         z0 = entry.get("z0_m")
         if z0 is None:

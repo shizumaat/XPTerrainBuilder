@@ -8442,7 +8442,7 @@ class _MaskedConstantInset(_ConstantInset):
     """
 
     def __init__(self, polygon, elevation_m, x_step, y_step, *, label=None,
-                 nodata=-32768.0):
+                 nodata=-32768.0, base_reader=None, band_m=None):
         minx, miny, maxx, maxy = polygon.bounds
         step_x = abs(float(x_step)) / _ISTHMUS_MASK_SUBDIVISION
         step_y = abs(float(y_step)) / _ISTHMUS_MASK_SUBDIVISION
@@ -8457,8 +8457,45 @@ class _MaskedConstantInset(_ConstantInset):
         self.nydem = ny
         self.alt_dem = numpy.full((ny, nx), self.nodata, dtype=numpy.float32)
         mask = self._rasterise(polygon, nx, ny)
+        self.mask_land_posts = int(mask.sum())
+        self.mask_band_dropped = 0
+        if base_reader is not None and band_m:
+            mask = self._within_band(mask, base_reader, float(band_m))
         self.alt_dem[mask] = numpy.float32(self.elevation_m)
         self.mask_valid_posts = int(mask.sum())
+
+    def _within_band(self, mask, base_reader, band_m):
+        """R21 datum band — grade only ground already NEAR Z0.
+
+        MEASURED 2026-08-12 (+22+113, VMMC): "the land between the
+        footprints" as geometry alone put 0.0536 km² of Taipa hillside
+        standing at 60-72 m onto the airport's 6.10 m datum — a hill is
+        not a causeway.  So the connecting land is graded only where the
+        surface the build already has sits within ``band_m`` of Z0: the
+        seam this law exists to close is between grounds that BELONG
+        together, which is the same evidence question the R11-2 cluster
+        datum gate asks (and the same threshold).  Ground outside the
+        band keeps the real surface and is counted, never dropped
+        silently.
+        """
+        rows, columns = numpy.nonzero(mask)
+        if not len(rows):
+            return mask
+        span_x = (self.x1 - self.x0) or 1.0
+        span_y = (self.y1 - self.y0) or 1.0
+        xs = self.x0 + columns * (span_x / max(self.nxdem - 1, 1))
+        ys = self.y1 - rows * (span_y / max(self.nydem - 1, 1))
+        try:
+            base = numpy.asarray(
+                base_reader(numpy.column_stack((xs, ys))), dtype=float
+            ).reshape(-1)
+        except Exception:                                  # pragma: no cover
+            return mask
+        keep = numpy.abs(base - float(self.elevation_m)) <= band_m
+        out = numpy.zeros_like(mask)
+        out[rows[keep], columns[keep]] = True
+        self.mask_band_dropped = int((~keep).sum())
+        return out
 
     def _rasterise(self, polygon, nx, ny):
         """Boolean post mask, row 0 NORTH (the working grid's convention)."""
@@ -8533,7 +8570,20 @@ def _bake_island_continuity(tile, stamped, feather_m):
         try:
             inset = _MaskedConstantInset(
                 polygon, region["z0_m"], x_step, y_step,
-                label="%s synthetic flat-site isthmus inset" % icao)
+                label="%s synthetic flat-site isthmus inset" % icao,
+                base_reader=base_dem.alt_vec,
+                band_m=INSET_DATUM_WARNING_THRESHOLD_M)
+            if not inset.mask_valid_posts:
+                UI.vprint(
+                    0,
+                    "   [flat-site] %s: no isthmus — the connecting land "
+                    "(%.4f km2) stands more than %d m from Z0 %.2f m "
+                    "everywhere (a hill is not a causeway); it keeps the "
+                    "real surface."
+                    % (icao, region["area_km2"],
+                       int(INSET_DATUM_WARNING_THRESHOLD_M), region["z0_m"]),
+                )
+                continue
             _bake_one_inset(tile, None, 0.0, inset=inset)
         except Exception as error:
             UI.vprint(
@@ -8556,6 +8606,9 @@ def _bake_island_continuity(tile, stamped, feather_m):
             "members": region["members"],
             "between_clip_cut": region["clipped"],
             "base_offset_m": offset_m,
+            "datum_band_m": float(INSET_DATUM_WARNING_THRESHOLD_M),
+            "band_kept_posts": int(inset.mask_valid_posts),
+            "band_dropped_posts": int(inset.mask_band_dropped),
             "feather_m": 0.0,
         })
         UI.vprint(
@@ -8563,12 +8616,16 @@ def _bake_island_continuity(tile, stamped, feather_m):
             "   [flat-site] %s: ISTHMUS inset at Z0 %.2f m over %.4f km2 of "
             "LAND joining %d family footprint(s) on a %.2f km2 sea-bounded "
             "island (lat %.7f..%.7f lon %.7f..%.7f; base DEM sat %s m from "
-            "Z0 there%s)."
+            "Z0 there; %d of %d mask post(s) kept, %d outside the %d m "
+            "datum band keep the real surface%s)."
             % (icao, region["z0_m"], region["area_km2"], region["members"],
                region["island_area_km2"],
                tile.lat + miny, tile.lat + maxy,
                tile.lon + minx, tile.lon + maxx,
                "%.2f" % offset_m if offset_m is not None else "?",
+               inset.mask_valid_posts, inset.mask_land_posts,
+               inset.mask_band_dropped,
+               int(INSET_DATUM_WARNING_THRESHOLD_M),
                "; the between-clip cut a connecting piece"
                if region["clipped"] else ""),
         )

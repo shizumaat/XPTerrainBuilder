@@ -290,6 +290,55 @@ class TestTheBake:
         assert [entry["kind"] for entry in stamped] == [
             FSM.CORE_INSET_KIND, FSM.CLUSTER_INSET_KIND]
 
+    def test_A_HILL_IS_NOT_A_CAUSEWAY(self, monkeypatch):
+        """THE DATUM BAND, measured into existence.
+
+        +22+113, 2026-08-12: geometry alone ("land between the
+        footprints, on one island") put 0.0536 km² of Taipa ground onto
+        VMMC's 6.10 m datum.  Most of it was already there (DEM median
+        6.10 m) but the tail was not: the DEM ran to 19.79 m over the
+        polygon and the rendered mesh to 71.95 m at its edges — 82 of
+        234 mesh sample points moved, worst -8.44 m, and the worst DEM
+        move was 13.70 m.  Connecting land is now graded only where the
+        surface the build already has sits within the R11-2 datum
+        threshold of Z0 (measured effect at VMMC: 97.4 % of the sample
+        still graded, worst move 13.70 -> 9.94 m); the rest keeps the
+        real surface and is COUNTED, never dropped silently.
+        """
+        _with_land(monkeypatch, LAND)
+        tile = _Tile()
+        tile.dem = _Dem(base_m=70.0)                  # a hill, not a bar
+        before = tile.dem.alt_dem.copy()
+        stamped = _family()
+        INSETS._bake_island_continuity(tile, stamped, 60.0)
+        assert numpy.array_equal(tile.dem.alt_dem, before)
+        assert [entry["kind"] for entry in stamped] == [
+            FSM.CORE_INSET_KIND, FSM.CLUSTER_INSET_KIND]
+
+    def test_the_band_grades_the_bar_and_leaves_the_hill(self, monkeypatch):
+        """Half the connecting land at Z0-ish, half a hill: the bar
+        grades, the hill does not, and the stamp says how many posts
+        each way."""
+        _with_land(monkeypatch, LAND)
+        tile = _Tile()
+        step = 1.0 / (tile.dem.nxdem - 1)
+        rows = numpy.arange(tile.dem.nydem)
+        latitudes = 1.0 - rows * step
+        tile.dem.alt_dem[latitudes > 0.3685, :] = 70.0   # north half a hill
+        stamped = _family()
+        INSETS._bake_island_continuity(tile, stamped, 60.0)
+        entry = stamped[-1]
+        assert entry["kind"] == FSM.ISTHMUS_INSET_KIND
+        assert entry["band_dropped_posts"] > 0
+        assert entry["band_kept_posts"] > 0
+        assert entry["datum_band_m"] == INSETS.INSET_DATUM_WARNING_THRESHOLD_M
+        # the hill kept its 70 m…
+        assert abs(tile.dem.at(TILE_LAT + 0.3700, TILE_LON + 0.42)
+                   - 70.0) < 0.01
+        # …and the bar took Z0.
+        assert abs(tile.dem.at(TILE_LAT + 0.3670, TILE_LON + 0.42)
+                   - Z0) < 0.01
+
     def test_the_masked_inset_holds_Z0_only_inside_the_polygon(self):
         """The mask itself: posts inside the polygon carry Z0, posts
         outside carry nodata — which is what ``_bake_one_inset`` already

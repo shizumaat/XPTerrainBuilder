@@ -240,13 +240,21 @@ def seawall_admission_area(patches_area, graded_area):
     return graded_area
 
 
-#: R17c-3 — the provenance KINDS that carry the airport's own island.
-#: The owner's ruling walls THE AIRPORT's reclaimed edge, so the scope is
-#: the airport's flat-site constant CORE plus the corridors the owner
-#: DECLARED — never the claimed-object cluster rectangles, which are the
-#: boxes that reached the mainland (VHHH's 15.11 km² HZMB cluster) and
-#: which the ruling does not name.
+#: R17c-3 — the provenance KINDS that carry the airport's own island
+#: UNCONDITIONALLY: the airport's flat-site constant CORE and the
+#: corridors the owner DECLARED.
 AIRPORT_ISLAND_INSET_KINDS = ("synthetic_flat_site", "declared_corridor")
+
+#: R17D LAW 2 — the CLAIMED-OBJECT CLUSTER kind, admitted CONDITIONALLY
+#: (see :func:`connected_cluster_inset_area`).  r17c kept it out whole,
+#: because a cluster rectangle is the box that reached the mainland
+#: (VHHH's 15.11 km² HZMB cluster; 66,971 m of wall over 55.47 km²).
+#: The owner's 2026-08-12 ruling ("CONNECTED-ISLAND WALLS", in-sim on the
+#: rebuilt +22+113) names the other half: the island CONNECTED to the
+#: airport complex gets the straight seawall too — its edge must not
+#: slope to water.  So the kind joins the reading exactly where it is
+#: connected, and stays out where it is not.
+AIRPORT_ISLAND_CLUSTER_INSET_KIND = "synthetic_flat_site_object_cluster"
 
 
 def constant_inset_area(tile, kinds=AIRPORT_ISLAND_INSET_KINDS):
@@ -292,6 +300,83 @@ def constant_inset_area(tile, kinds=AIRPORT_ISLAND_INSET_KINDS):
     try:
         return ops.unary_union(boxes)
     except Exception:
+        return geometry.Polygon()
+
+
+def connected_cluster_inset_area(tile, core_area):
+    """R17D LAW 2 — the CLAIMED-CLUSTER inset boxes JOINED to the airport
+    complex, tile-relative.
+
+    THE LAW (owner ruling 2026-08-12, "CONNECTED-ISLAND WALLS", in-sim on
+    the rebuilt +22+113): the wall/feather treatment extends to the
+    claimed-cluster inset islands CONNECTED to the airport complex —
+    contact with the core/corridor footprint, or joined by a DECLARED
+    corridor, which is what declaring one means.  Distant, unconnected
+    clusters stay out: r17c excluded the kind whole precisely because a
+    cluster box can reach the mainland, and admitting one that touches
+    nothing of the airport would re-open that.
+
+    CONNECTED IS TRANSITIVE, by fixpoint: a cluster that touches a
+    cluster that touches the core is joined to the core.  A chain of
+    reclamation boxes along one causeway is one complex, and stopping at
+    the first hop would split it arbitrarily.
+
+    This is the FOOTPRINT half of the ruling only.  Which LAND inside the
+    admitted boxes is the airport's stays :func:`airport_island_land`'s
+    question, and it still refuses the mainland reach of an admitted
+    cluster box: the mainland is a different land COMPONENT and carries
+    none of the tile's graded coverage.  Two gates, two different
+    failures, neither one spelled twice.
+
+    ``core_area`` — the union of the unconditional kinds
+    (:data:`AIRPORT_ISLAND_INSET_KINDS`).  Empty core ⇒ empty: with no
+    airport footprint on the tile there is nothing to be connected TO.
+    """
+    if core_area is None or getattr(core_area, "is_empty", True):
+        return geometry.Polygon()
+    clusters = []
+    dem = getattr(tile, "dem", None)
+    for entry in list(getattr(dem, "synthetic_flat_site_provenance", None)
+                      or []):
+        if entry.get("kind") != AIRPORT_ISLAND_CLUSTER_INSET_KIND:
+            continue
+        extent = entry.get("extent_tile_degrees")
+        if not extent or len(extent) != 4:
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in extent)
+            box = geometry.box(min(x0, x1), min(y0, y1),
+                               max(x0, x1), max(y0, y1))
+        except (TypeError, ValueError):
+            continue
+        if box.is_valid and box.area:
+            clusters.append(box)
+    if not clusters:
+        return geometry.Polygon()
+    joined = []
+    frontier = core_area
+    pending = list(clusters)
+    while True:
+        reached = []
+        rest = []
+        for box in pending:
+            try:
+                (reached if box.intersects(frontier) else rest).append(box)
+            except Exception:                              # pragma: no cover
+                rest.append(box)
+        if not reached:
+            break
+        joined.extend(reached)
+        pending = rest
+        try:
+            frontier = ops.unary_union(reached)
+        except Exception:                                  # pragma: no cover
+            break
+    if not joined:
+        return geometry.Polygon()
+    try:
+        return ops.unary_union(joined)
+    except Exception:                                      # pragma: no cover
         return geometry.Polygon()
 
 
@@ -366,6 +451,14 @@ def coastline_wall_admission(tile, sea_area, graded_area=None):
     "which land is the airport's" is then unanswerable and the whole
     rectangle is the wrong scope.
 
+    R17D LAW 2 EXTENDS THE FOOTPRINT to the claimed-cluster inset
+    islands CONNECTED to the airport complex (owner 2026-08-12,
+    "CONNECTED-ISLAND WALLS": the island joined to the airport by the
+    declared corridor gets the straight seawall too) — see
+    :func:`connected_cluster_inset_area`.  The island scoping below is
+    unchanged and still refuses the mainland an admitted cluster box
+    happens to reach.
+
     VMMC is NOT a byte-identical control (owner ruling 2026-08-12: it is
     itself a flat site at Z0 6.10) — its island is admitted by the same
     scoping, judged against its own island edge.
@@ -373,6 +466,12 @@ def coastline_wall_admission(tile, sea_area, graded_area=None):
     inset = constant_inset_area(tile)
     if inset is None or inset.is_empty:
         return geometry.Polygon()
+    clusters = connected_cluster_inset_area(tile, inset)
+    if clusters is not None and not getattr(clusters, "is_empty", True):
+        try:
+            inset = ops.unary_union([inset, clusters])
+        except Exception:                                  # pragma: no cover
+            pass
     if sea_area is None or getattr(sea_area, "is_empty", True):
         # No sea on this tile: the inset is all land and its own outer
         # box edge is not a coastline.  Nothing to admit.

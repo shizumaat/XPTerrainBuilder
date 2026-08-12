@@ -58,3 +58,25 @@ instrument if r19 has merged by then — say which). No acceptance
 batteries; claims tables; the lead runs the consolidated +35-081 arm.
 Files: bridges.py (R20-1/2); R20-3 waits. Never write the shared
 repo/X-Plane. DEFERRED lines per skip.
+
+## AMENDMENT 1 (Fable lead, 2026-08-12, on the R20-2 STOP) — one datum on the whole path
+
+Measured: the run is SIZED against the R14-3 clearance floor
+(_bore_floor_elevation ≈ 210.5) but _emit_portal_cluster (~:3027)
+EMITS from apt_elev − tunnel_depth_m = 206.36 — the ~4.5 m datum
+split IS the 4.26 m cliff. R20-2b: the cluster emit adopts the SAME
+floor the sizing uses (one datum: gather, size, emit — route
+_bore_floor_elevation into _emit_portal_cluster; the legacy
+apt_elev−depth datum retires for cut-detected and light-touch alike
+only if measurement supports it — scope to the sized path first,
+STOP if light-touch needs its own ruling). WITH the safety stop the
+lane itself flagged: the run TERMINATES at the first taxiway-family
+pavement (extend the drop rule beyond runway-family) so a
+never-meeting run cannot lay ramp over taxiways — twin it. REQUIRED
+this time: ONE OTHH --patch-only interventional arm (blast radius is
+every cluster) — 8/8 systems, ramp/road/wall table vs the shipped
+reference, geometry deltas quoted; KCLT arm re-quoted (cliff gone,
+corridor surfaced, mouth→DEM ≤ cap). One attempt (cap resets for the
+re-ruled target). Fold-in: promote the twice-used kclt_site.py /
+osmfeed.py readers into tools/ with INDEX rows + twins (RULINGS
+7e90032) in the same lane.

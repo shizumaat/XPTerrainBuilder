@@ -31,7 +31,8 @@ import O4_UI_Utils as UI
 from .events import (
     AutoPatchBegin, AutoPatchProgress, BuildDone, EngineEvent, EngineHello,
     ImageryDownloadsDone,
-    RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, StepProgress,
+    RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
+    StepProgress,
     TileClocks,
     TileState,
 )
@@ -564,6 +565,12 @@ class EngineSession:
         self._work_queue_lock = threading.Lock()
         # Serializes enqueue_build decisions (one view command at a time).
         self._command_lock = threading.Lock()
+        # Provider-account status the secret store owns and the command
+        # thread may not read (see _api_key_stored): session_name -> bool,
+        # plus the set of sessions a probe worker is currently reading.
+        self._provider_status_lock = threading.Lock()
+        self._api_key_stored_cache: dict = {}
+        self._api_key_probes: set = set()
         UI.engine_session = self
         self._emit(EngineHello(ortho4xp_version=version,
                                capabilities=("scan", "build", "cancel",
@@ -1282,3 +1289,227 @@ class EngineSession:
         if not os.path.isdir(pack_path):
             raise ValueError("not a scenery pack folder: " + str(pack_path))
         return {"restored": object_rebake.restore(pack_path)}
+
+    # ------------------------------------------------------------------
+    # Commands: provider account sign-in
+    # (docs/specs/swift-provider-signin-spec.md)
+    #
+    # A front end with no Python of its own (the macOS application) drives
+    # the login flows THROUGH the engine, so these commands mirror what
+    # the Qt settings window's _ProviderSignInSection / _SignInDialog do
+    # in-process — same enumeration, same status vocabulary, same errors.
+    #
+    # THE READ-LOOP HAZARD, which shapes all three: command handlers run
+    # on the JSON-lines transport's read loop, and under that transport
+    # the secret store is BROKERED — every store operation becomes a
+    # SecretRequest event whose answer the read loop itself delivers.  A
+    # store operation issued from that thread can therefore never be
+    # answered; the broker detects it and fails fast (secret_broker's
+    # threading contract).  So: sign-in and sign-out run on worker
+    # threads and complete through SignInResult, and the descriptor's
+    # store-derived status is read by a probe worker, never inline.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _account_definitions():
+        """Every enabled provider definition that declares an account.
+
+        The elevation provider registry's own parsed definitions — the
+        same enumeration O4_Qt_Settings._ProviderSignInSection makes,
+        never a private re-parse of the .elv files.
+        """
+        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+        if not ELEVATION_PROVIDERS.elevation_providers_dict:
+            ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+        definitions = []
+        for definition in sorted(
+                ELEVATION_PROVIDERS.elevation_providers_dict.values(),
+                key=lambda d: str(d.get("code"))):
+            if not definition.get("session_name"):
+                continue
+            if not definition.get("enabled", True):
+                continue
+            definitions.append(definition)
+        return definitions
+
+    @classmethod
+    def _definition_for_session(cls, session_name):
+        """One representative definition for an account session."""
+        for definition in cls._account_definitions():
+            if definition.get("session_name") == session_name:
+                return definition
+        raise ValueError("unknown provider session: %r" % (session_name,))
+
+    @staticmethod
+    def _service_host(definition):
+        """The service's host name, as the Qt sign-in dialog derives it."""
+        reference_url = str(definition.get("login_url")
+                            or definition.get("registration_url") or "")
+        return reference_url.split("/")[2] if "://" in reference_url else ""
+
+    def auth_providers(self):
+        """Descriptors for every provider account a front end can sign in.
+
+        One entry per account SESSION (several provider codes may share
+        one account), carrying everything the sign-in sheet needs plus the
+        locally-knowable status — no network probe, exactly like the Qt
+        section, which derives its status from local state only.
+        """
+        import O4_Authenticated_Sessions as SESSIONS
+        representative = {}
+        codes = {}
+        for definition in self._account_definitions():
+            session_name = definition["session_name"]
+            representative.setdefault(session_name, definition)
+            codes.setdefault(session_name, []).append(
+                str(definition.get("code", "")))
+        return [
+            self._provider_descriptor(SESSIONS, session_name, definition,
+                                      sorted(codes[session_name]))
+            for session_name, definition in representative.items()
+        ]
+
+    def _provider_descriptor(self, SESSIONS, session_name, definition, codes):
+        kind = SESSIONS.credential_kind(definition)
+        status_pending = False
+        if kind == SESSIONS.CREDENTIAL_KIND_API_KEY:
+            (signed_in, status_pending) = self._api_key_stored(
+                SESSIONS, session_name)
+            username = ""
+            status_text = "API key stored" if signed_in else "No API key"
+        else:
+            username = SESSIONS.stored_username(session_name) or ""
+            saved_session = os.path.isfile(
+                SESSIONS.cookie_file_path(session_name))
+            signed_in = bool(username) or saved_session
+            if username:
+                status_text = "Signed in as %s" % username
+            elif saved_session:
+                status_text = "Session saved"
+            else:
+                status_text = "Not signed in"
+        return {
+            "session_name": session_name,
+            "codes": codes,
+            "attribution": str(definition.get("attribution") or ""),
+            "credential_kind": kind,
+            "login_url": str(definition.get("login_url") or ""),
+            "registration_url": str(definition.get("registration_url") or ""),
+            "service_host": self._service_host(definition),
+            "setup_steps": SESSIONS.setup_steps(definition),
+            "credential_store_available": SESSIONS.credential_store_available(),
+            "signed_in": bool(signed_in),
+            "username": username,
+            "status_text": status_text,
+            # True while the store-derived status is still being read off
+            # this thread: the answer in hand may be stale, ask again.
+            "status_pending": bool(status_pending),
+        }
+
+    def _api_key_stored(self, SESSIONS, session_name):
+        """``(stored, pending)`` for an api_key session's secret.
+
+        A sign-in or sign-out THIS session made is authoritative — it is
+        the write itself — so the remembered answer wins.  Otherwise, with
+        no broker (command line, Tkinter, in-process Qt session) the store
+        is read directly, exactly as the Qt section does.  Under the
+        transport the read must happen OFF this thread (see the hazard
+        note above), so it is done once by a probe worker and remembered;
+        until that first probe lands the descriptor reports ``pending`` and
+        the front end asks again.
+        """
+        with self._provider_status_lock:
+            known = self._api_key_stored_cache.get(session_name)
+        if known is not None:
+            return (known, False)
+        if getattr(UI, "secret_broker", None) is None:
+            return (bool(SESSIONS.load_api_key(session_name)), False)
+        with self._provider_status_lock:
+            start_probe = (
+                self._api_key_stored_cache.get(session_name) is None
+                and session_name not in self._api_key_probes)
+            if start_probe:
+                self._api_key_probes.add(session_name)
+        if start_probe:
+            threading.Thread(target=self._probe_api_key,
+                             args=(session_name,), daemon=True,
+                             name="o4-api-key-probe").start()
+        return (False, True)   # not known yet: ask again after the probe
+
+    def _probe_api_key(self, session_name):
+        import O4_Authenticated_Sessions as SESSIONS
+        try:
+            stored = bool(SESSIONS.load_api_key(session_name))
+        except Exception:
+            stored = False
+        self._remember_api_key_stored(session_name, stored)
+
+    def _remember_api_key_stored(self, session_name, stored):
+        with self._provider_status_lock:
+            self._api_key_stored_cache[session_name] = bool(stored)
+            self._api_key_probes.discard(session_name)
+
+    def provider_sign_in(self, session_name, username="", secret="",
+                         remember=True):
+        """Start one provider sign-in; completion arrives as SignInResult.
+
+        Returns immediately (``{"started": true}``) because the work runs
+        on a worker thread — it is a network login AND, with ``remember``,
+        a secret-store write, which the calling thread may not make (the
+        hazard note above).  api_key-kind definitions take the key as
+        ``secret`` and ignore ``username``.  Failure text is the
+        LoginError message verbatim, and any other exception carries its
+        own ``str`` — precisely what the Qt dialog's worker shows.
+        """
+        import O4_Authenticated_Sessions as SESSIONS
+        definition = self._definition_for_session(session_name)
+        kind = SESSIONS.credential_kind(definition)
+        remember = bool(remember)
+
+        def work():
+            try:
+                if kind == SESSIONS.CREDENTIAL_KIND_API_KEY:
+                    SESSIONS.sign_in_api_key(definition, secret,
+                                             remember=remember)
+                    self._remember_api_key_stored(session_name, remember)
+                else:
+                    SESSIONS.sign_in(definition, username, secret,
+                                     remember=remember)
+            except Exception as error:
+                # LoginError's message is written to be shown; anything
+                # else (a network hiccup, something odd) is displayed the
+                # same way, as the Qt worker does.
+                self._emit(SignInResult(session_name=session_name, ok=False,
+                                        error_text=str(error)))
+                return
+            self._emit(SignInResult(session_name=session_name, ok=True,
+                                    error_text=""))
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-provider-sign-in").start()
+        return {"started": True}
+
+    def provider_sign_out(self, session_name):
+        """Forget one provider account; completion arrives as SignInResult.
+
+        Also a worker thread, and NOT because it is slow: sign_out deletes
+        the stored credentials and API key, which are secret-store
+        operations — made from this thread they would fail fast and leave
+        the secret behind while the row claimed to be signed out.
+        """
+        self._definition_for_session(session_name)  # unknown name => error
+
+        def work():
+            import O4_Authenticated_Sessions as SESSIONS
+            try:
+                SESSIONS.sign_out(session_name)
+            except Exception as error:
+                self._emit(SignInResult(session_name=session_name, ok=False,
+                                        error_text=str(error)))
+                return
+            self._remember_api_key_stored(session_name, False)
+            self._emit(SignInResult(session_name=session_name, ok=True,
+                                    error_text=""))
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-provider-sign-out").start()
+        return {"started": True}

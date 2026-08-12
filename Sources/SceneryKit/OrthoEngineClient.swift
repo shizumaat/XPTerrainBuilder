@@ -70,6 +70,63 @@ public struct O4TileClock: Sendable, Equatable {
     }
 }
 
+/// One provider account the engine can sign into, as the `auth_providers`
+/// command describes it (protocol 1.5). Several provider codes may share
+/// one account, so this is per SESSION, not per provider.
+///
+/// The status fields are derived from LOCAL state only — the engine never
+/// probes the network to build this, exactly as the Qt settings section
+/// doesn't.
+public struct O4ProviderAccount: Sendable, Equatable, Identifiable {
+    public var id: String { sessionName }
+    public let sessionName: String
+    /// Provider codes sharing this account (e.g. PORTUGAL2M, PORTUGALTIDAL).
+    public let codes: [String]
+    public let attribution: String
+    /// "session" | "http_basic" | "api_key".
+    public let credentialKind: String
+    public let loginURL: String
+    public let registrationURL: String
+    public let serviceHost: String
+    public let setupSteps: [String]
+    public let credentialStoreAvailable: Bool
+    public let signedIn: Bool
+    public let username: String
+    /// The status line, in the engine's own vocabulary ("Signed in as …",
+    /// "Session saved", "Not signed in", "API key stored", "No API key").
+    public let statusText: String
+    /// The store-derived status is still being read off the engine's
+    /// command thread: what is here may be stale, ask again shortly.
+    public let statusPending: Bool
+
+    /// One secret string IS the whole credential: no username, and it only
+    /// works stored (it is read back at build time).
+    public var isAPIKey: Bool { credentialKind == "api_key" }
+    /// Row title: the service's own attribution, else the account name.
+    public var title: String { attribution.isEmpty ? sessionName : attribution }
+    /// Sheet title: the attribution, else the service host.
+    public var sheetTitle: String { attribution.isEmpty ? serviceHost : attribution }
+
+    public init?(json: O4JSON) {
+        guard let object = json.objectValue,
+              let sessionName = object["session_name"]?.stringValue
+        else { return nil }
+        self.sessionName = sessionName
+        codes = object["codes"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+        attribution = object["attribution"]?.stringValue ?? ""
+        credentialKind = object["credential_kind"]?.stringValue ?? "session"
+        loginURL = object["login_url"]?.stringValue ?? ""
+        registrationURL = object["registration_url"]?.stringValue ?? ""
+        serviceHost = object["service_host"]?.stringValue ?? ""
+        setupSteps = object["setup_steps"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+        credentialStoreAvailable = object["credential_store_available"]?.boolValue ?? false
+        signedIn = object["signed_in"]?.boolValue ?? false
+        username = object["username"]?.stringValue ?? ""
+        statusText = object["status_text"]?.stringValue ?? ""
+        statusPending = object["status_pending"]?.boolValue ?? false
+    }
+}
+
 /// Typed mirror of the engine protocol's event stream
 /// (docs/specs/engine-protocol-multi-gui.md §5; src/o4_engine/events.py is
 /// the schema). Unknown event types and fields are ignored by protocol rule.
@@ -98,6 +155,12 @@ public enum O4Event: Sendable, Equatable {
     /// `secret_response` command carrying the same requestID).
     case secretRequest(requestID: Int, operation: String, sessionName: String,
                        account: String, secret: String)
+    /// A `provider_sign_in` / `provider_sign_out` attempt finished
+    /// (protocol 1.5). Both commands reply `{"started": true}` at once and
+    /// work on an engine worker thread — they touch the brokered secret
+    /// store, which the engine's own command thread may not do.
+    /// `errorText` is the failure message, ready to show.
+    case signInResult(sessionName: String, ok: Bool, errorText: String)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -190,6 +253,9 @@ public enum O4Event: Sendable, Equatable {
             return .secretRequest(requestID: int("request_id"), operation: string("operation"),
                                   sessionName: string("session_name"),
                                   account: string("account"), secret: string("secret"))
+        case "SignInResult":
+            return .signInResult(sessionName: string("session_name"),
+                                 ok: bool("ok"), errorText: string("error_text"))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -379,6 +445,59 @@ public final class OrthoEngineClient: @unchecked Sendable {
     public func kill() {
         guard process.isRunning else { return }
         Darwin.kill(process.processIdentifier, SIGKILL)
+    }
+
+    // MARK: - Provider accounts (protocol 1.5)
+
+    /// Every provider account this engine can sign into, with the status it
+    /// can know without touching the network. Empty when the engine
+    /// predates the command (unknown commands reply ok=false).
+    public func authProviders() async -> [O4ProviderAccount] {
+        await withCheckedContinuation { continuation in
+            send(command: "auth_providers") { reply in
+                guard reply.ok, let rows = reply.result?.arrayValue else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                continuation.resume(
+                    returning: rows.compactMap { O4ProviderAccount(json: $0) })
+            }
+        }
+    }
+
+    /// Start one sign-in. Returns nil once the engine has STARTED it — the
+    /// outcome arrives later as a `signInResult` event — or the engine's
+    /// error text when the command itself was refused.
+    ///
+    /// `secret` is the password, or the whole credential for an api_key
+    /// provider (whose `username` is empty). It travels the private stdio
+    /// pipe to the engine and, with `remember`, back to this app's own
+    /// Keychain as a brokered `SecretRequest` — this app writes provider
+    /// credentials no other way.
+    public func providerSignIn(sessionName: String, username: String,
+                               secret: String, remember: Bool) async -> String? {
+        await withCheckedContinuation { continuation in
+            send(command: "provider_sign_in", arguments: [
+                "session_name": sessionName, "username": username,
+                "secret": secret, "remember": remember,
+            ]) { reply in
+                continuation.resume(returning: reply.ok
+                                    ? nil : (reply.error ?? "unknown engine error"))
+            }
+        }
+    }
+
+    /// Forget one account: stored credentials, API key and saved session.
+    /// Also completes through `signInResult` (the deletions are secret-store
+    /// operations, so they run on an engine worker thread too).
+    public func providerSignOut(sessionName: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            send(command: "provider_sign_out",
+                 arguments: ["session_name": sessionName]) { reply in
+                continuation.resume(returning: reply.ok
+                                    ? nil : (reply.error ?? "unknown engine error"))
+            }
+        }
     }
 
     // MARK: - Stream handling

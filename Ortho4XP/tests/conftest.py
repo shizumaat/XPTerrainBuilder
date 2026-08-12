@@ -759,6 +759,13 @@ def stricter_lot_cap(monkeypatch):
     genuinely stricter host.  Tests of the ruling itself (a road beside
     a lot binds nothing) must NOT use this fixture.
 
+    IT IS THE LAW THAT BINDS, NOT THE SHAPING.  ``groundside`` shapes
+    lots at 5 % (the margin that keeps the emitted field inside the
+    law), and it is tempting to read that as "the lot is strict again,
+    drop this fixture".  It is not: the station caps come from
+    ``ROLE_GRADE_LIMITS``, which is the road limit, so the binding test
+    reads 8 % vs 8 % however the limiters are tuned.
+
     Returns a callable, not a patch: the fixtures that reload
     ``auto_patch.config`` rebind ``ROLE_GRADE_LIMITS`` to a fresh dict,
     so the patch has to be applied AFTER the reload, from inside the

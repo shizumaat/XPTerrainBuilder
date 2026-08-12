@@ -34,6 +34,7 @@ from auto_patch.conformance import (
     _resolve_edge_crossings,
     _resolve_yielding_tjunctions,
     enforce_conformance,
+    weld_candidate_pairs,
 )
 from auto_patch.layout import (
     BuiltShape,
@@ -348,3 +349,75 @@ def test_crossing_insert_skipped_on_top_of_its_own_corner():
                 if 0.0 < math.hypot(p[0], p[1]) < 1e-6]
     assert any(abs(p[1]) < 1e-9 and 0.1 < p[0] < 0.3 for p in ring)
     assert len(receiver.node_altitudes) == len(ring) + 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# TASK #16 — THE WELD'S CANDIDATE PAIRS, EXPOSED
+# ══════════════════════════════════════════════════════════════════════
+#
+# ``weld_candidate_pairs`` is the weld's OWN candidate enumeration, read
+# without running it: the pad-host level family's membership relation is
+# "will weld together" (``anchors._pad_lip_index``).  The twin that
+# matters is not that the accessor returns something plausible — it is
+# that the weld then identifies EXACTLY the pairs it predicted.  A second
+# implementation that merely agreed by inspection is the census-wrapper
+# defect; this asserts the shared code path from the outside.
+
+
+def _weld_fixture():
+    """A receiver square with THREE distinct donors on its bottom edge —
+    one plain T-junction, one float-noise twin of it (the weld dedupes
+    that one), and one well clear of the others."""
+    receiver = _receiver_square(10.0, 10.4)
+    donors = [_donor_triangle(apex_alt=10.05)]
+    for apex, name in (((10.0 + 1e-9, 0.0), "twin"), ((4.0, 0.0), "far")):
+        donors.append(BuiltShape(
+            polygon=Polygon([(apex[0] - 3.0, -8.0), (apex[0] + 3.0, -8.0),
+                             apex]),
+            role=ROLE_JUNCTION, ref=name,
+            node_altitudes=[9.9, 9.9, 10.05]))
+    return receiver, donors
+
+
+def test_weld_candidate_pairs_predicts_exactly_what_the_weld_welds():
+    receiver, donors = _weld_fixture()
+    layout = _make_layout(receiver, *donors)
+    predicted = weld_candidate_pairs(layout, tol=CONFORMANCE_TOL_M)
+
+    # PURITY: reading the prediction must not weld anything.
+    rings_before = {id(s): list(s.polygon.exterior.coords)
+                    for s in layout.shapes}
+    weld_candidate_pairs(layout, tol=CONFORMANCE_TOL_M)
+    assert all(list(s.polygon.exterior.coords) == rings_before[id(s)]
+               for s in layout.shapes), "the accessor mutated the layout"
+
+    n_shapes, n_verts = enforce_conformance(layout, tol=CONFORMANCE_TOL_M)
+    assert n_verts == len(predicted) > 0, (
+        f"the weld inserted {n_verts} vertices, the accessor predicted "
+        f"{len(predicted)}")
+    assert n_shapes == len({id(p.receiver) for p in predicted})
+    # ...and each predicted pair IS a node of its receiver's welded ring.
+    for pair in predicted:
+        ring = list(pair.receiver.polygon.exterior.coords)
+        assert any(math.hypot(x - pair.point[0], y - pair.point[1]) < 1e-9
+                   for (x, y) in ring), (
+            f"predicted weld at {pair.point} is absent from the ring")
+    # A SECOND read predicts nothing: the weld is idempotent and so is
+    # its prediction (no phantom pair survives the weld).
+    assert weld_candidate_pairs(layout, tol=CONFORMANCE_TOL_M) == []
+
+
+def test_weld_candidate_pairs_names_the_donor_and_its_edge():
+    """The pair is (donor vertex → receiver edge): a consumer joins on
+    the donor coordinate to find WHICH neighbour welds, and on the edge
+    index to find WHERE on the receiver's boundary."""
+    receiver, donors = _weld_fixture()
+    layout = _make_layout(receiver, *donors)
+    pairs = weld_candidate_pairs(layout, tol=CONFORMANCE_TOL_M)
+    assert {p.donor_point for p in pairs} == {(10.0, 0.0), (4.0, 0.0)}, (
+        "the float-noise twin must dedupe to ONE pair, as the weld does")
+    assert all(id(p.receiver) == id(receiver) for p in pairs)
+    # Both donors sit on the receiver's bottom edge — ring index 0.
+    assert {p.edge_index for p in pairs} == {0}
+    for p in pairs:
+        assert 0.0 < p.t < 1.0

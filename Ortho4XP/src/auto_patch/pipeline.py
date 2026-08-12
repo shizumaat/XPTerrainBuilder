@@ -5839,7 +5839,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     _rod_ckpt(layout, "04_deconflict_road_features")
 
     from .conformance import (
-        enforce_conformance, find_conformance_violations)
+        enforce_conformance, find_conformance_violations,
+        FINAL_WELD_TOL_M as _FINAL_WELD_TOL_M)
     if _airside_unified_presolve:
         n_shapes, n_verts = enforce_conformance(
             layout, owner_roles=set(_POSTSOLVE_FEATURE_OWNER_ROLES))
@@ -5979,7 +5980,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # 0.000-0.003 m); the full 0.5 m weld tolerance would bow an edge
     # outward by up to the tolerance and mint hairline overlaps
     # (zero-tolerance test_no_self_overlap).
-    _n_ws, _n_wv = enforce_conformance(layout, tol=0.01,
+    _n_ws, _n_wv = enforce_conformance(layout, tol=_FINAL_WELD_TOL_M,
                                        include_overlay_refs=True)
     if _n_wv:
         UI.vprint(1,
@@ -6565,7 +6566,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     if compute_elevations:
         from .conformance import (enforce_conformance as _enf_final,
                                   find_conformance_violations as _fcv,
-                                  snap_subcm_vertex_twins as _snap_twins)
+                                  snap_subcm_vertex_twins as _snap_twins,
+                                  FINAL_WELD_TOL_M as _FINAL_WELD_TOL_M)
         # SUB-CM TWIN SNAP (2026-07-27): unify mm-apart cross-shape
         # vertex twins (arrangement-grid vs full-precision rings) onto
         # one coordinate BEFORE the weld — the weld inserts T-vertices
@@ -6583,7 +6585,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # which the host-edge lerp cannot see (SPJC runway_end_resa: the
         # weld floated two inserts +2.12 / +2.22 m above the DEM envelope
         # over a depression between two ceiling-limited hosts).
-        _n_ews, _n_ewv = _enf_final(layout, tol=0.01,
+        _n_ews, _n_ewv = _enf_final(layout, tol=_FINAL_WELD_TOL_M,
                                     include_overlay_refs=True,
                                     dem=_projection_dem,
                                     tile_lat=_projection_tile_lat,
@@ -6885,6 +6887,55 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: late final "
                          f"grade projection failed ({_late_fgp_exc!r}) "
                          f"— mid-pipeline projection values kept.")
+
+        # ★ THE PAD-HOST LAW RE-ASSERTS ON TOP OF THE LATE PROJECTION
+        # (task #16 amendment 1, Fable lead 2026-08-12).  The earlier
+        # invocation's own docstring claimed "nothing re-seats the pad
+        # afterwards" — measured FALSE: the late projection above re-runs
+        # the DEM-biased frontage seat on the final geometry and re-stamps
+        # the pad it just levelled.  HECA building114: relevelled to 85.59
+        # at the post-projection pass, re-stamped 88.5 here
+        # (``who_wrote.py`` node history, 2026-08-12), which is why all
+        # THREE r19-1 mechanisms measured exact on the artifact and missed
+        # in production — none of them was ever the miss.
+        #
+        # The remedy is authorship ORDER, not a change to either law: the
+        # projection keeps full authority over the terrain (it runs
+        # unmodified, and this pass reads the values it just wrote), and
+        # the pad-host law re-asserts on top of that surface.  It is
+        # convergent by construction — the pad adopts FROM the host and
+        # the host body is never touched — so a second application on a
+        # settled surface is a no-op, and it stays BEFORE the band seal,
+        # which remains the pipeline's last elevation author (R17-1(b);
+        # ``tests/test_r17_band_clamp_last_author.py``).
+        try:
+            from .elevation_per_surface.route_profile.anchors import (
+                relevel_pads_to_host_pavement as _relevel_late)
+            _n_padhost_late = _relevel_late(layout)
+            if _n_padhost_late:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: pad-host level (post-late-"
+                    f"projection) — {_n_padhost_late} embedded pad(s) "
+                    f"re-levelled to the host pavement the projection "
+                    f"actually left.")
+            # The object-pad half only where the requests exist by now
+            # (they are emitted upstream of here; at an airport with no
+            # object pads this is not called at all).
+            if getattr(layout, "object_pad_records", None):
+                from .layout import ROLE_OBJECT_PAD as _ROLE_OPAD_LATE
+                _n_opad_late = _relevel_late(layout,
+                                             pad_role=_ROLE_OPAD_LATE)
+                if _n_opad_late:
+                    UI.vprint(1,
+                        f"  [pav-builder] {icao}: object-pad host level "
+                        f"(post-late-projection) — {_n_opad_late} pad "
+                        f"request(s) re-adopted the host level.")
+        except (_GEOM_EXC + (TypeError, AttributeError, KeyError,
+                             IndexError)) as _relevel_late_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: post-late-"
+                         f"projection pad-host level failed "
+                         f"({_relevel_late_exc!r}) — projection values "
+                         f"kept.")
     _rod_ckpt(layout, "23_final_projection_late")
 
     # ★ DRAINAGE-SPINE LAW re-clamp (owner field report 2026-08-02, gate

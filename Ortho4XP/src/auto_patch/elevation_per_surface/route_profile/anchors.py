@@ -3814,6 +3814,339 @@ def _building_flat_level(s):
     return None
 
 
+#: THE COALITION WINDOW.  R12 amendment 4's ratified constant, reused
+#: verbatim for the pad level family (lead ruling 2026-08-12: "reuse
+#: R12's window constant/idiom, 0.25 m class").  One definition, two
+#: laws: ``post_mesh._MEMBER_DELTA_AGREEMENT_WINDOW_M``.
+def _coalition_window_m() -> float:
+    from auto_patch.post_mesh import _MEMBER_DELTA_AGREEMENT_WINDOW_M
+    return float(_MEMBER_DELTA_AGREEMENT_WINDOW_M)
+
+
+def _AGREEING_COALITION(members, window_m, weight_of=None,
+                        tiebreak_of=None):
+    """R12 amendment 4's own function (``post_mesh.agreeing_coalition``),
+    imported at call time so this module carries no copy of it."""
+    from auto_patch.post_mesh import agreeing_coalition
+    return agreeing_coalition(members, window_m, weight_of=weight_of,
+                              tiebreak_of=tiebreak_of)
+
+
+def _median_of(values):
+    vals = sorted(float(v) for v in values)
+    m = len(vals)
+    if not m:
+        return None
+    return (vals[m // 2] if m % 2
+            else 0.5 * (vals[m // 2 - 1] + vals[m // 2]))
+
+
+def _pad_lip_index(layout, host_rings, host_shapes_by_rid, weld_tol):
+    """``{ring_id: {vertex_index: {pad_shape_id, ...}}}`` — which pads the
+    FINAL EPSILON-WEDGE WELD makes one node with each host ring vertex
+    (R19-1 as re-ruled by task #16).
+
+    This is the LEVEL FAMILY's only membership relation: two pads are in
+    one family when they reach a common host ring vertex, transitively.
+    It is structural — a shared piece of the host's own boundary — so no
+    distance between two pads can put them in one family, and no distance
+    can keep two welded neighbours out of one.
+
+    WHY THE WELD AND NOT A CONTACT RADIUS (task #16).  The level family is
+    an EMIT-TIME structure.  This pass runs post-solve, pre-emit, and the
+    shared ring vertices that chain a pad to its host are minted LATER, by
+    ``conformance.enforce_conformance(tol=0.01)`` — the final weld
+    (``pipeline.py``, part 30j) — after ``decimate_emit_nodes`` has just
+    dropped each shape's ring vertices independently.  Read at relevel
+    time, "shares a vertex" is therefore blind to the family the weld will
+    create, and the 2.5 m contact radius that stood in for it was a
+    proximity join with a tolerance of its own (HECA building114: nothing
+    inside 2.5 m, host body 16.59 m out, the pad never re-levelled).  The
+    relation is now **"will weld together"**, read from the weld's OWN law
+    through ``conformance.weld_candidate_pairs`` — one code path, no
+    tolerance of ours:
+
+    * ALREADY ONE NODE — a pad ring vertex inside the weld's own node
+      identity radius (``weld_node_identity_tol``) of a host ring vertex;
+      the weld treats such a pair as one node and inserts nothing.
+    * THE PAD WELDS INTO THE HOST — a pad ring vertex the weld will insert
+      into host ring edge ``i → i+1``.  Post-weld that node sits ON that
+      edge, i.e. on the host boundary BETWEEN vertices ``i`` and ``i+1``,
+      so the pad reaches both of its ends: the lip run the family walks is
+      that edge.  (Two pads welding into one long apron edge therefore
+      land in one family — which is what the emitted ring says, since the
+      weld leaves their nodes consecutive on it with no host body vertex
+      between them.  Level arbitration is the coalition's job, and its
+      weight is AREA.)
+    * THE HOST WELDS INTO THE PAD — a host ring vertex ``i`` the weld will
+      insert into the PAD's ring; the pad adopts that exact node.
+
+    ``weld_tol`` is the final weld's own tolerance, passed down from the
+    caller — never a constant of this module's.
+    """
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    from auto_patch.conformance import (weld_candidate_pairs,
+                                        weld_node_identity_tol,
+                                        _open_ring as _conf_open_ring)
+    out: dict = {}
+
+    def _mark(rid, i, sid):
+        out.setdefault(rid, {}).setdefault(i, set()).add(sid)
+
+    # The pads, and their ring vertices as the WELD sees them (the same
+    # ring expression conformance builds its donor index from, so a donor
+    # point compares exactly).
+    pad_pt_owner: dict = {}
+    pad_ids: set = set()
+    for sh in (getattr(layout, "shapes", ()) or ()):
+        if sh.role not in (ROLE_BUILDING, ROLE_OBJECT_PAD):
+            continue
+        if sh.polygon is None or sh.polygon.is_empty:
+            continue
+        pring = _conf_open_ring(sh.polygon)
+        if pring is None:
+            continue
+        pad_ids.add(id(sh))
+        for pt in pring:
+            pad_pt_owner.setdefault(pt, set()).add(id(sh))
+
+    # ── (a) ALREADY ONE NODE, at the weld's own identity radius ───────
+    ident = weld_node_identity_tol(weld_tol)
+    ident2 = ident * ident
+    cells: dict = {}
+    for rid, (pts, _alts) in enumerate(host_rings):
+        for i, (x, y) in enumerate(pts):
+            cells.setdefault((int(x // ident), int(y // ident)), []).append(
+                (x, y, rid, i))
+    for (px, py), sids in pad_pt_owner.items():
+        cx = int(px // ident)
+        cy = int(py // ident)
+        for dx_ in (-1, 0, 1):
+            for dy_ in (-1, 0, 1):
+                for (hx, hy, rid, i) in cells.get((cx + dx_, cy + dy_), ()):
+                    if (hx - px) ** 2 + (hy - py) ** 2 <= ident2:
+                        for sid in sids:
+                            _mark(rid, i, sid)
+
+    # ── (b)/(c) THE WELD'S OWN CANDIDATE PAIRS ───────────────────────
+    # Same arguments as the final weld (``pipeline.py`` part 30j), so the
+    # pairs read here are the pairs it will make.
+    host_pt_key: dict = {}
+    for rid, (pts, _alts) in enumerate(host_rings):
+        for i, pt in enumerate(pts):
+            host_pt_key.setdefault(pt, []).append((rid, i))
+    rid_of_host = {id(hs): rid
+                   for rid, hs in enumerate(host_shapes_by_rid)}
+    import time as _time
+    _t0 = _time.perf_counter()
+    _pairs = weld_candidate_pairs(layout, tol=weld_tol,
+                                  include_overlay_refs=True)
+    # The build-time line this law owes: the enumeration runs ONCE more
+    # per build (the weld itself is unchanged), so its cost is stated
+    # where it is paid rather than inferred from a wall-clock A/B.
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+                   f"  [pav-builder] pad-host level family: weld candidate "
+                   f"enumeration {len(_pairs)} pair(s) in "
+                   f"{_time.perf_counter() - _t0:.2f} s")
+    except Exception:
+        pass
+    for pair in _pairs:
+        rid = rid_of_host.get(id(pair.receiver))
+        if rid is not None:
+            sids = pad_pt_owner.get(pair.donor_point)
+            if not sids:
+                continue
+            n = len(host_rings[rid][0])
+            if n < 2:
+                continue
+            for sid in sids:
+                _mark(rid, pair.edge_index, sid)
+                _mark(rid, (pair.edge_index + 1) % n, sid)
+        elif id(pair.receiver) in pad_ids:
+            for (rid_h, i_h) in host_pt_key.get(pair.donor_point, ()):
+                _mark(rid_h, i_h, id(pair.receiver))
+    return out
+
+
+def _level_family_members(group, pad_by_id, host_rings, host_areas,
+                          host_lip, pad_lips_by_ring, trigger,
+                          drift_r2):
+    """The LEVEL FAMILY of one pad, as coalition members (R19-1).
+
+    Members are ``{"delta_m": level, "weight": area, "kind": ...}`` — the
+    shape ``post_mesh.agreeing_coalition`` reads — and they are:
+
+    * every PAD chained to this one by LIP ADJACENCY on a shared host
+      ring (transitively: a host ring vertex both pads' contact radii
+      touch), weighted by its polygon AREA;
+    * the HOST'S OWN BODY VERTICES on that chain — ring vertices inside
+      the span the family covers that are neither TOUCHED by a pad nor
+      carrying a family pad's own VALUE — each weighted by the host's
+      area per ring vertex, so a host votes in proportion to how much of
+      it the family actually spans.
+
+    Both lip tests are needed, and each is scoped by what it is for.
+    The GEOMETRIC test catches the weld itself (contact radius).  The
+    VALUE test catches a weld that DRIFTED — a shared node sitting
+    decimetres off the pad vertex on a ring denser than the contact
+    radius, the class that defeated the first mechanism — so it applies
+    only within the weld-drift neighbourhood
+    (``PAD_HOST_LEVEL_LIFT_M``) of a family pad.  Unscoped it would
+    strip a host of its own body wherever a pad has ALREADY conformed to
+    it, which is the normal state of a healthy airport: measured here,
+    it emptied a family of every host member the moment its neighbour
+    adopted the host's level.
+
+    ``None`` when the pad touches no host ring (nothing to conform to).
+    The pad being levelled is always a member, so the family always has
+    something to compare it against.
+
+    MEMBERSHIP IS STRUCTURAL.  A pad joins only through the host
+    boundary it is welded into, so no distance can merge two families on
+    separate chains, and none can keep two welded neighbours apart."""
+    own_ids = {id(g) for g in group}
+    seeds = [(rid, i)
+             for rid, verts in pad_lips_by_ring.items()
+             for i, ids in verts.items() if ids & own_ids]
+    if not seeds:
+        return None
+
+    # Which vertices each pad touches — the reverse index, built once per
+    # call over the same table (small: only pads that touch a host ring).
+    verts_of_pad: dict = {}
+    for rid, verts in pad_lips_by_ring.items():
+        for i, ids in verts.items():
+            for sid in ids:
+                verts_of_pad.setdefault(sid, []).append((rid, i))
+
+    pad_ids = set(own_ids)
+    family_vertices = set(seeds)
+    frontier = list(seeds)
+    while frontier:
+        rid, i = frontier.pop()
+        for sid in pad_lips_by_ring.get(rid, {}).get(i, ()):
+            if sid in pad_ids:
+                continue
+            pad_ids.add(sid)
+            for key in verts_of_pad.get(sid, ()):
+                if key not in family_vertices:
+                    family_vertices.add(key)
+                    frontier.append(key)
+
+    members: list = []
+    pad_levels: list = []
+    family_pad_pts: list = []
+    for sid in pad_ids:
+        sh = pad_by_id.get(sid)
+        if sh is None or sh.polygon is None or sh.polygon.is_empty:
+            continue
+        lvl = _building_flat_level(sh)
+        if lvl is None:
+            continue
+        members.append({"delta_m": float(lvl),
+                        "weight": float(sh.polygon.area),
+                        "kind": "pad", "id": sid})
+        pad_levels.append(float(lvl))
+        try:
+            family_pad_pts.extend(
+                _open_ring(list(sh.polygon.exterior.coords)))
+        except (ValueError, TypeError):
+            pass
+
+    # THE HOST'S OWN BODY ON THIS CHAIN: the non-lip vertices inside the
+    # ring span the family covers (the shorter arc between its extreme
+    # family vertices, so a family on one side of a big apron does not
+    # annex the whole ring).
+    by_ring: dict = {}
+    for (rid, i) in family_vertices:
+        by_ring.setdefault(rid, []).append(i)
+    for rid, idxs in by_ring.items():
+        pts, alts = host_rings[rid]
+        n = len(pts)
+        if n < 3:
+            continue
+        idxs = sorted(set(idxs))
+        lo, hi = idxs[0], idxs[-1]
+        forward = list(range(lo, hi + 1))
+        backward = list(range(hi, n)) + list(range(0, lo + 1))
+        span = forward if len(forward) <= len(backward) else backward
+        # THE CHAIN'S ENDS.  A family's own vertices are all lips by
+        # construction, so the host's body on this chain begins at the
+        # first ring vertex past each end of the lip run.  Extend the
+        # span outward through consecutive lips and take that vertex on
+        # each side — structural (where the host's own surface resumes),
+        # never a search for a value.
+        def _is_weld(i, _rid=rid, _alts=alts, _pts=pts):
+            """Indistinguishable from a pad's weld: touched by a pad, or
+            carrying a family pad's value INSIDE that pad's weld-drift
+            neighbourhood."""
+            if host_lip[_rid][i]:
+                return True
+            if _alts[i] is None:
+                return True
+            if not any(abs(float(_alts[i]) - lvl) <= trigger
+                       for lvl in pad_levels):
+                return False
+            hx, hy = _pts[i]
+            return any((hx - px) ** 2 + (hy - py) ** 2 <= drift_r2
+                       for (px, py) in family_pad_pts)
+
+        for step in (1, -1):
+            k = span[-1] if step == 1 else span[0]
+            for _ in range(n - len(span)):
+                k = (k + step) % n
+                if k in span:
+                    break
+                span = (span + [k]) if step == 1 else ([k] + span)
+                if not _is_weld(k):
+                    break
+        per_vertex_area = (float(host_areas[rid]) / n) if n else 0.0
+        for i in span:
+            if _is_weld(i):
+                continue          # a weld, not the host's own body
+            members.append({"delta_m": float(alts[i]),
+                            "weight": per_vertex_area,
+                            "kind": "host", "id": (rid, i)})
+    return members
+
+
+def _surface_value_at(field, px, py):
+    """The value of a solved surface at ``(px, py)`` (R19-1).
+
+    ``field`` is ``[(x, y, value)]`` — the ring positions of ONE host
+    shape and the altitudes the solve wrote on them, with the pad's own
+    shared-boundary lips already removed by the caller.  Returns the
+    surface's value at the query point by inverse-SQUARE distance
+    weighting, or ``None`` for an empty field.
+
+    Why this reading: the emit / mesh frame interpolates a shape's
+    surface linearly between its ring values, so on a locally planar
+    host (an apron plateau — the class this law is about) the weighted
+    value IS the mesh's value.  A triangulation would be the exact
+    frame, but the field is a PUNCTURED ring once the lips are removed
+    and no triangulation of it is well defined; inverse-square weighting
+    is total over any vertex set, is exact AT a vertex, and decays fast
+    enough that a far part of the same apron cannot outvote the ground
+    the pad actually stands on.  There is deliberately NO radius here:
+    a surface has a value everywhere, which is the whole point of the
+    re-ruling.
+    """
+    num = 0.0
+    den = 0.0
+    for (hx, hy, v) in field:
+        dx = hx - px
+        dy = hy - py
+        d2 = dx * dx + dy * dy
+        if d2 <= 1e-6:
+            return v
+        w = 1.0 / d2
+        num += w * v
+        den += w
+    return (num / den) if den else None
+
+
 def _object_pad_groups(layout):
     """``[(core_shape, [core + blend shapes])]`` — one entry per emitted
     object-pad REQUEST (R19-3).
@@ -3887,7 +4220,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     from auto_patch.config import (
         PAD_HOST_PAVEMENT_LEVEL, PAD_HOST_LEVEL_CONTACT_M,
         PAD_HOST_LEVEL_LIFT_M, PAD_HOST_LEVEL_TRIGGER_M,
-        PAD_HOST_BODY_REACH_M, DSF_OBJECT_PAD_MAX_RELIEF_M,
+        DSF_OBJECT_PAD_MAX_RELIEF_M,
     )
     from auto_patch.layout import ROLE_OBJECT_PAD
     if not PAD_HOST_PAVEMENT_LEVEL:
@@ -3896,12 +4229,13 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     object_pads = (pad_role == ROLE_OBJECT_PAD)
 
     # Host pavement vertices with a solved altitude: (x, y, alt, ring_id,
-    # vertex_index).  The ring id / index carry the RING TOPOLOGY into the
-    # probe: a contact vertex that turns out to be a LIP can be walked
-    # outward along its own host ring to the body it belongs to (see the
-    # lip-run walk below).
+    # vertex_index).  ``host_rings`` carries each host's own SOLVED
+    # SURFACE — the ring positions and the values the solve wrote on them
+    # — because the probe below samples that surface AT the pad ring
+    # (R19-1, re-ruled 2026-08-12) rather than hunting for a vertex.
     host_verts: list = []
     host_rings: list = []          # [(pts, alts)] indexed by ring_id
+    host_shapes_by_rid: list = []  # the shape each ring_id came from
     for s in layout.shapes:
         if s.role not in _PAD_HOST_ROLES:
             continue
@@ -3913,6 +4247,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             continue
         n_open = len(ring)
         rid = len(host_rings)
+        host_shapes_by_rid.append(s)
         r_pts = [(float(x), float(y)) for (x, y) in ring]
         r_alts = [_shape_vertex_alt(s, idx, n_open) for idx in range(n_open)]
         host_rings.append((r_pts, r_alts))
@@ -3927,7 +4262,86 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     r2 = r * r
     lift_r2 = float(PAD_HOST_LEVEL_LIFT_M) ** 2
     trigger = float(PAD_HOST_LEVEL_TRIGGER_M)
-    body_reach = float(PAD_HOST_BODY_REACH_M)
+
+    # ── THE FIELD'S PURITY FILTER (R19-1) ────────────────────────────
+    # A host ring vertex within the contact radius of ANY pad ring is
+    # SOMEBODY'S LIP: it carries that pad's value, written into the host
+    # ring by the weld, and it is not a sample of the host's own solved
+    # surface.  Removing every pad's lips — not just the lips of the pad
+    # being levelled — is what makes the field swap-proof: a neighbouring
+    # pad's value is not in the host's field at all, however near it
+    # sits.  (Measured while writing this law: with only the levelled
+    # pad's own lips removed, a neighbour lip 4 m away outvoted the
+    # host's body 34 m away and the pad took the neighbour's level.)
+    #
+    # Gridded at the contact radius so this stays linear in the corpus:
+    # HECA is ~10k host vertices against ~2k pad ring positions.
+    pad_cells: dict = {}
+    for _s in layout.shapes:
+        if _s.role not in (ROLE_BUILDING, ROLE_OBJECT_PAD):
+            continue
+        if _s.polygon is None or _s.polygon.is_empty:
+            continue
+        try:
+            _pring = _open_ring(list(_s.polygon.exterior.coords))
+        except (ValueError, TypeError):
+            continue
+        for (_px, _py) in _pring:
+            pad_cells.setdefault((int(_px // r), int(_py // r)),
+                                 []).append((float(_px), float(_py)))
+
+    def _touched_by_a_pad(hx, hy):
+        cx = int(hx // r)
+        cy = int(hy // r)
+        for dx_ in (-1, 0, 1):
+            for dy_ in (-1, 0, 1):
+                for (px, py) in pad_cells.get((cx + dx_, cy + dy_), ()):
+                    if (hx - px) ** 2 + (hy - py) ** 2 <= r2:
+                        return True
+        return False
+
+    host_lip = [[_touched_by_a_pad(x, y) for (x, y) in _pts]
+                for (_pts, _alts) in host_rings]
+    # The LEVEL FAMILY's membership table and the per-host area the
+    # host's own body vertices vote with (R19-1).
+    # ATTRIBUTION PROBE (task #16).  ``O4_PAD_FAMILY_DEBUG=ref[,ref...]``
+    # reports each named pad's SEEDS, its family MEMBERS and the
+    # COALITION — the reading that says why a pad did or did not adopt.
+    # It is what measured the task-#16 finding (2026-08-12): at HECA the
+    # family forms and building114 DOES adopt 85.59 here, and the LATE
+    # final grade projection (``pipeline.py``, ``O4_FINAL_PROJECTION_LATE``)
+    # re-stamps 88.5 over it afterwards.  Off ⇒ zero cost.
+    _dbg = {r for r in _os.environ.get("O4_PAD_FAMILY_DEBUG", "").split(",")
+            if r}
+
+    def _dbg_line(msg):
+        try:
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, "  " + msg)
+        except Exception:
+            pass
+
+    # THE WELD'S OWN TOLERANCE — the membership relation is "will weld
+    # together" (task #16); this module never spells the number itself.
+    from auto_patch.conformance import FINAL_WELD_TOL_M as _WELD_TOL_M
+    pad_lips_by_ring = _pad_lip_index(layout, host_rings,
+                                      host_shapes_by_rid, _WELD_TOL_M)
+    host_areas = []
+    _hi = 0
+    for _s in layout.shapes:
+        if _s.role not in _PAD_HOST_ROLES:
+            continue
+        if _s.polygon is None or _s.polygon.is_empty:
+            continue
+        try:
+            _open_ring(list(_s.polygon.exterior.coords))
+        except (ValueError, TypeError):
+            continue
+        host_areas.append(float(_s.polygon.area))
+        _hi += 1
+    pad_by_id = {id(_s): _s for _s in layout.shapes
+                 if _s.role in (ROLE_BUILDING, ROLE_OBJECT_PAD)}
+    _COALITION_WINDOW_M = _coalition_window_m()
 
     # Host shapes indexed by role for the shared-boundary lift below.
     host_shapes = [s for s in layout.shapes
@@ -3994,93 +4408,62 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         grp_lo = min(grp_vals) if grp_vals else cur
         grp_hi = max(grp_vals) if grp_vals else cur
 
-        body_vals: list = []
-        lip_contacts: set = set()
-        contact_keys: set = set()
-        for (px, py) in ring:
-            for (hx, hy, ha, hrid, hidx0) in host_verts:
-                dx = hx - px
-                dy = hy - py
-                if dx * dx + dy * dy > r2:
-                    continue
-                contact_keys.add((hrid, hidx0))
-                if abs(ha - cur) > adopt_delta:
-                    body_vals.append(ha)
-                elif grp_lo - trigger <= ha <= grp_hi + trigger:
-                    lip_contacts.add((hrid, hidx0))
-        if not body_vals and lip_contacts:
-            # ── THE LIP-RUN WALK (R19-1) ────────────────────────────────
-            # A pad WELDED INTO a coarse host ring has no differing host
-            # vertex within the contact radius at all: every host node
-            # near it IS a pad node, carrying the pad's own (pit) value,
-            # and the host's first genuine body vertex sits one long ring
-            # edge away.  HECA building114: the four contact nodes are the
-            # apron's own -771/-772/-773/-774 at the pad's 88.50, and the
-            # body -767 at 85.63 is 7.84 m off — three times the contact
-            # radius — so the pad never re-levelled and the 2.87 m pad↔pad
-            # rows and the 36.6 % apron edge stood.  53 of HECA's 214 pads
-            # share that geometry.
-            #
-            # The law: the probe reaches the HOST'S OWN BODY.  From each
-            # lip contact, walk the host ring outward in both directions
-            # THROUGH the lip run — the consecutive host vertices that are
-            # themselves pad CONTACTS (the pad's own welded frontage) —
-            # and read the FIRST vertex beyond it.  That vertex is the
-            # host body at this pad; it counts only if it DIFFERS by more
-            # than the trigger, exactly as a contact body vertex does.
-            #
-            # The walk stops at the first vertex OFF the run and never
-            # walks the open host: a gently sloping apron whose first
-            # off-pad vertex is within the trigger reads AGREEMENT and the
-            # pad stays where it is (the walk cannot climb a 1 % apron
-            # until it accumulates a trigger's worth of rise).  LIPS STAY
-            # LIPS — a contact at the pad's value is never a body value;
-            # only what the walk REACHES beyond the run is.
-            #
-            # REACH (``PAD_HOST_BODY_REACH_M``): the body must be at the
-            # pad's own contact scale.  Where a host ring runs coarse
-            # BETWEEN two pads, the vertex past one pad's run is dozens to
-            # hundreds of metres away and belongs to the OTHER pad's
-            # neighbourhood; adopting it made neighbouring pads read each
-            # other's level and swap (measured on the owner's HECA
-            # artifact: 140↔141, 146↔151, 210↔211, at 26-800 m of ring
-            # arc).  Beyond the reach the pad is left exactly where the
-            # solve put it — an unreadable host body is not a licence to
-            # move a pad.
-            for (hrid, hidx0) in lip_contacts:
-                r_pts, r_alts = host_rings[hrid]
-                nring = len(r_pts)
-                if nring < 2:
-                    continue
-                for step in (1, -1):
-                    k = hidx0
-                    arc = 0.0
-                    for _ in range(nring - 1):
-                        nk = (k + step) % nring
-                        arc += math.hypot(r_pts[nk][0] - r_pts[k][0],
-                                          r_pts[nk][1] - r_pts[k][1])
-                        k = nk
-                        if arc > body_reach:
-                            break             # host body out of contact scale
-                        av = r_alts[nk]
-                        # THE LIP RUN IS DEFINED BY VALUE, not by the
-                        # contact radius.  A host ring DENSER than
-                        # ``PAD_HOST_LEVEL_CONTACT_M`` carries the pad's
-                        # own value at vertices that are not contacts of
-                        # it: measured at HECA building114, where
-                        # stopping at the first non-contact vertex read
-                        # AGREEMENT and the pad kept its 88.50 while the
-                        # apron body sat at 85.63 a few metres further
-                        # along the same ring.  Walk through every vertex
-                        # still at the pad's value; the reach above is
-                        # what bounds the run.
-                        if (hrid, nk) in contact_keys:
-                            continue
-                        if av is not None and abs(av - cur) <= trigger:
-                            continue
-                        if av is not None and abs(av - cur) > adopt_delta:
-                            body_vals.append(av)
-                        break                 # first vertex off the run
+        # ── THE LEVEL FAMILY AND ITS AGREEING COALITION (R19-1) ─────
+        # Re-ruled 2026-08-12 (lead), after a contact probe, a bounded
+        # ring walk and a host-surface field sample each missed: do not
+        # read the host's surface at all.  Pads WELDED INTO ONE HOST
+        # RING, chained by lip adjacency, are one LEVEL FAMILY together
+        # with the host's own body vertices on that chain, and the
+        # family's level is the AGREEING COALITION — R12 amendment 4's
+        # ratified idiom (``post_mesh.agreeing_coalition``), reused here
+        # with its window constant class (0.25 m,
+        # ``post_mesh._MEMBER_DELTA_AGREEMENT_WINDOW_M``) and its
+        # ≥2-member / no-tie refusals.  Members outside the coalition
+        # ADOPT it.
+        #
+        # THE WEIGHT IS AREA, which is what makes swap impossible.  A
+        # member votes with the ground it owns: HECA building114 is
+        # 181.3 m² and building112 is 15,298.4 m², so the small pad can
+        # never drag the big one whatever it reads, and the coalition at
+        # that site is 112 + 113 + the apron's own corners at 85.63.  The
+        # previous mechanism had no such floor and moved building112 off
+        # its host level (85.63 → 86.45, measured, arm r19field).
+        #
+        # MEMBERSHIP IS STRUCTURAL, never a distance: a pad joins only
+        # through host-ring vertices its own contact radius touches, so
+        # two families on separate chains cannot merge however near they
+        # sit.
+        members = _level_family_members(
+            group, pad_by_id, host_rings, host_areas, host_lip,
+            pad_lips_by_ring, trigger, lift_r2)
+        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+            _own = {id(g) for g in group}
+            _seeds = [(rid, i)
+                      for rid, verts in pad_lips_by_ring.items()
+                      for i, ids in verts.items() if ids & _own]
+            _mm = ("None" if members is None else
+                   "; ".join(f"{e['kind']}:{e['delta_m']:.2f}"
+                             f"@{e['weight']:.0f}" for e in members[:12]))
+            _dbg_line(f"[padfam] {s.ref} cur={cur:.2f} seeds={_seeds[:8]} "
+                      f"n_seeds={len(_seeds)} members={_mm}")
+        if members is None:
+            continue
+        coalition, _outliers, refusal = _AGREEING_COALITION(
+            members, _COALITION_WINDOW_M,
+            weight_of=lambda entry: entry["weight"],
+            # THE ARBITRATION DIRECTION, when two rival levels weigh the
+            # same: the pad adopts FROM the host, never the reverse, so
+            # the side carrying the host's own ground wins.
+            tiebreak_of=lambda entry: (entry["weight"]
+                                       if entry["kind"] == "host" else 0.0))
+        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+            _dbg_line(f"[padfam] {s.ref} coalition="
+                      f"{[round(e['delta_m'], 2) for e in coalition][:8]} "
+                      f"refusal={refusal} adopt_delta={adopt_delta}")
+        if refusal is not None or not coalition:
+            continue      # genuine ambiguity — the pad stays put
+        level = _median_of([e["delta_m"] for e in coalition])
+        body_vals = [level] if abs(level - cur) > adopt_delta else []
         if not body_vals:                     # agrees with host / not adjacent
             continue
         body_vals.sort()

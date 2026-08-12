@@ -86,3 +86,29 @@ per skip; tripwire only. The census's blindness to both classes
 instrument boundary — a pad-cut instrument is a ship-gate question,
 not this round. Cross-refs: RULINGS 2026-08-11b, hecarecon report,
 [[shared-datum-pack-authoring]] (every heavy pack is first contact).
+
+## AMENDMENT 1 (Fable lead, 2026-08-12, on the R18-1 refutation) — the interior vertex takes the face's value
+
+Interventionally measured: all 3,204 faces in HECA's coverage are
+seeded (the sub-cell pass adds 0), the hill stands at 98.05 m, and
+the mechanism is `O4_Mesh_Utils.post_process_altitudes` assigning
+each INTERP_ALT vertex ITS OWN carried altitude
+(`vertices[6v+2] = vertices[6v+5]`) — for a free interior Steiner
+vertex inside a patch face that is the DEM, not the patch.
+
+* **R18-1b:** an INTERP_ALT-treated FREE INTERIOR vertex (not on any
+  patch ring / constrained edge carrying a patch value) takes its
+  altitude INTERPOLATED FROM THE PATCH-VALUED vertices of its
+  constrained face — planar/harmonic across the face interior,
+  deterministic, O(vertices), no new marker; ring/constrained
+  vertices byte-unchanged. Implementation freedom on the mechanism
+  (mesh-side interpolation vs .alt-build authoring) — the LAW is
+  that no vertex inside a patch face answers with DEM.
+  Acceptance: mesh at 30.1170578, 31.4098155 reads 86–89 m; the
+  free-interior class (currently 54 >3 m) → 0 with any legitimate
+  survivors named; mesh = patch at ring vertices unchanged; cost
+  within the tile-budget tripwire.
+* The landed sub-cell seeding stays (harmless, additive, twinned —
+  0 seeds on this tree, insurance on others). The two
+  `run_tile_mesh_only.py` trap fixes stay (install paths; cache
+  redirects) — DEFERRED lines note them.

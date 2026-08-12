@@ -66,7 +66,7 @@ def metre_length(geom, cos_lat: float) -> float:
                           origin=(0, 0)).length
 
 
-def coverage_union(patch_files, lat: int, lon: int, mode: str):
+def coverage_union(patch_files, lat: int, lon: int, mode: str, tile=None):
     """The admission union for ``mode``, tile-relative, from the patches.
 
     Rings come from ``check_grade._parse_osm`` (the harness library's
@@ -110,8 +110,9 @@ def coverage_union(patch_files, lat: int, lon: int, mode: str):
     # part of it here — through production's own generator, with the
     # same cfg parser, or the tool would measure a different island.
     if mode != "pavement":
-        tile_stub = type("_TileStub", (), {"lat": lat, "lon": lon})()
-        for (pol, _box) in VMAP.declared_corridor_rings(tile_stub):
+        corridor_tile = tile or type(
+            "_TileStub", (), {"lat": lat, "lon": lon})()
+        for (pol, _box) in VMAP.declared_corridor_rings(corridor_tile):
             polys.append(pol)
             n_kept += 1
     if not polys:
@@ -147,14 +148,21 @@ def sea_area_for_tile(tile, lat: int, lon: int):
         VECT.coastline_to_MultiPolygon(coastline, lat, lon, False))
 
 
-def measure(lat: int, lon: int, patch_files, mode: str, near_m: float):
+def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
+            build_dir: str = ""):
     """The three numbers, plus the geometry that produced them."""
     import O4_Config_Utils as CFG
     import O4_Vector_Map as VMAP
     from shapely import geometry
 
-    tile = CFG.Tile(lat, lon, "")
-    coverage, n_rings, n_kept = coverage_union(patch_files, lat, lon, mode)
+    tile = CFG.Tile(lat, lon, build_dir or "")
+    if build_dir:
+        # The DECLARED corridors live in the tile cfg (R17-2), which lands
+        # on the Tile instance — read it, or the tool measures an island
+        # production does not build.
+        tile.read_from_config()
+    coverage, n_rings, n_kept = coverage_union(patch_files, lat, lon, mode,
+                                               tile=tile)
     if coverage.is_empty:
         return {"error": "no coverage rings in the given patches",
                 "rings_seen": n_rings, "admission_mode": mode}
@@ -208,6 +216,9 @@ def main(argv=None) -> int:
                     choices=("graded-coverage", "all-rings", "pavement"))
     ap.add_argument("--near-m", type=float, default=300.0,
                     help="shoreline denominator band (default 300 m)")
+    ap.add_argument("--build-dir", default="",
+                    help="tile build dir holding Ortho4XP_+LL+LLL.cfg — read "
+                         "for the DECLARED corridors (R17-2)")
     ap.add_argument("--json", default=None)
     args = ap.parse_args(argv)
 
@@ -225,7 +236,7 @@ def main(argv=None) -> int:
               + ", ".join(str(p) for p in missing))
         return 2
     out = measure(args.lat, args.lon, patch_files, args.admission,
-                  args.near_m)
+                  args.near_m, build_dir=args.build_dir)
     out["patches"] = [str(p) for p in patch_files]
     print(f"=== SEAWALL ADMISSION  tile +{args.lat:02d}+{args.lon:03d}  "
           f"[{out['admission_mode']}] ===")

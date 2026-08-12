@@ -1088,6 +1088,7 @@ _PROBE_ABSENT = object()
 #: three; the two index publications are ``_build_node_list``'s.
 _PROBE_PUBLISHED_ATTRS = ("_seam_pin_idx", "_seam_pin_ll",
                           "_seam_pin_residuals", "_eat_anchor_pin_idx",
+                          "_eat_anchor_pin_prev",
                           "_terrain_host_yield_first_index",
                           "_adjacent_ground_first_zone_index")
 
@@ -2133,6 +2134,65 @@ def solve_route_profile(layout, icao: str,
     # (``_withhold_service_edges_probe``), so ``u_spine_adj`` above is
     # ALREADY pruned when the gate is on and every consumer of every graph
     # is covered.  Nothing to do here.
+    # ── EAT PIN vs SENIOR HARD ANCHOR — THE CONTRADICTION GUARD
+    # (docs/specs/eat-anchor-contradiction-guard-spec.md) ─────────────
+    # AN EAT PIN NEVER CONTRADICTS A SENIOR HARD ANCHOR WITHIN ROUTE
+    # BUDGET.  The predicate is the seat-guard's, through the seat
+    # guard's implementation (``eat_pin_contradiction_refusals`` ->
+    # ``law_graph_budget``); there is no second spelling and no new env
+    # flag — ``EAT_SURFACE_CEILING`` stays the feature's only switch.
+    #
+    # HERE, and not at the pin site, because the predicate is priced on
+    # THE GRAPH PHASE A PROJECTS ON, which is the line above.  This is
+    # the first point at which the pins hold any authority: the runway
+    # flex pass, the anchor registration, the hard-truth publication, the
+    # reach band, the seats, the envelope and every projection are ALL
+    # below.  Two constraint builders upstream did read ``elev`` /
+    # ``base_hard`` with the pin in place — the flatness certificate
+    # (a hard node REFUSES certification, i.e. MORE law, never less) and
+    # the gap-spine disjoint-parent tie-break — and both are recorded in
+    # docs/DEFERRED_VERIFICATION.md rather than left unsaid.
+    #
+    # The refusal is PER NODE (lawful pins in the same rect stand) and
+    # RELEASES the node to the seed ``_seed_elevations`` snapshotted, so
+    # it solves as ordinary pavement under the caps instead of carrying
+    # an immovable value the law cannot reconcile.
+    _eat_pins_guard = getattr(layout, "_eat_anchor_pin_idx", None) or {}
+    if _eat_pins_guard:
+        _n_pins_pre = len(_eat_pins_guard)
+        _n_hard_eat = min(len(base_hard), len(elev))
+        _eat_refused = eat_pin_contradiction_refusals(
+            _eat_pins_guard, u_spine_adj_airside,
+            {_i: float(elev[_i]) for _i in u_spine_adj_airside
+             if _i < _n_hard_eat and base_hard[_i]})
+        if _eat_refused:
+            _worst_node, _worst = max(
+                _eat_refused.items(), key=lambda r: r[1]["excess_m"])
+            _worst = dict(_worst,
+                          pin_m=float(_eat_pins_guard[_worst_node]))
+            _w_anchor = _worst.get("witness")
+            _w_value = (float(elev[_w_anchor])
+                        if _w_anchor is not None and _w_anchor < len(elev)
+                        else float("nan"))
+            _n_released = release_refused_eat_pins(
+                layout, _eat_refused, elev, base_hard, _have_initial)
+            publish_eat_refusal_keys(layout, _eat_refused, nodes)
+            import O4_UI_Utils as _UI_eatg2
+            _UI_eatg2.vprint(1, format_eat_guard_line(
+                icao, _n_released, _n_pins_pre, _worst_node, _worst,
+                _w_value))
+            # A refusal the release could not carry out is a WIRING
+            # defect (the seeder publishes both maps in one statement, so
+            # the only path here is a probe that restored one and not the
+            # other).  It is reported rather than swallowed: a silently
+            # under-released count reads exactly like a lawful build.
+            if _n_released != len(_eat_refused):
+                _UI_eatg2.vprint(0,
+                    f"  [eat-anchor-rect] WARN: {icao}: "
+                    f"{len(_eat_refused) - _n_released} refused pin(s) "
+                    f"had NO pre-pin snapshot and were left stamped — "
+                    f"``_eat_anchor_pin_prev`` is out of step with "
+                    f"``_eat_anchor_pin_idx``.")
     # ── RUNWAY FLEX Stage B (user 2026-07-06, docs/runway_flex_plan.md) ──
     # FLEX-LAST: with every route edge at its FULL legal budget (= the
     # taxiways at max cap), find runway-contact pairs whose value gap
@@ -4796,7 +4856,7 @@ def solve_route_profile(layout, icao: str,
     # since this call is a MEASUREMENT of the solve's own node space and
     # must not republish anything in it.
     _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
-                  "_eat_anchor_pin_idx")
+                  "_eat_anchor_pin_idx", "_eat_anchor_pin_prev")
     _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
     try:
         _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
@@ -5357,7 +5417,8 @@ def _capture_projection_snapshot(layout, fairing_moved_keys=None,
     geom_exc = _snapshot_geom_exceptions()
     saved_pins = [(attr, getattr(layout, attr, None))
                   for attr in ("_seam_pin_idx", "_seam_pin_ll",
-                               "_eat_anchor_pin_idx")]
+                               "_eat_anchor_pin_idx",
+                               "_eat_anchor_pin_prev")]
     values: dict = {}
     try:
         nodes, bucket_to_idx = _build_node_list(layout)
@@ -7867,6 +7928,149 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 def _open4(poly):
     c = list(poly.exterior.coords)
     return c[:-1] if c and c[0] == c[-1] else c
+
+
+def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
+                                   *, tol: float = 0.01):
+    """THE EAT PIN GUARD — ``{node: violation}`` for every EAT anchor-rect
+    pin that CAP-CONTRADICTS a senior hard runway/seam anchor within its
+    own route budget (docs/specs/eat-anchor-contradiction-guard-spec.md).
+
+    THE LAW: **an EAT pin never contradicts a senior hard anchor within
+    route budget.**  The seat machinery already owns exactly this guard
+    (the ``[seat-guard]`` block in :func:`solve_route_profile`, seed-fix
+    round §4 hard-stamp guard), so this consumer adopts the SAME
+    PREDICATE THROUGH THE SAME IMPLEMENTATION —
+    ``law_graph_budget.build_anchor_envelope`` + ``AnchorEnvelope.
+    violation`` — rather than spelling ``pin + cap·route < anchor`` a
+    second time.  A second spelling of a predicate is the census-wrapper
+    defect class: two readers of one law that look identical and are not.
+
+    Attribution (SQ1, KSTJ +39-095, interventional): the pin authored
+    241.8184 m into 18 junction nodes at another runway's threshold —
+    5.692 m below the RW35 CIFP floor anchor 247.510 over 0.93–1.24 m of
+    route budget — which inverted the final band at 31 nodes and dropped
+    the whole patch from every build.  ``O4_EAT_SURFACE_CEILING=0`` built
+    clean; the DEM and the seed cell were exonerated.
+
+    ``pins`` — ``{node: regulation value}`` (``layout.
+    _eat_anchor_pin_idx``).  ``spine_adj`` — the projection's own
+    adjacency, AIRSIDE view (service pairs excluded, exactly as the seat
+    guard's envelope is built).  ``hard_values`` — ``{node: elev}`` for
+    every hard node on that graph.
+
+    THE PINS ARE REMOVED FROM THE ANCHOR SET before the envelope is
+    built: the question the law asks is whether the pin contradicts a
+    SENIOR anchor, so a pin may never bound itself, and one EAT pin may
+    never bound its sibling (they are the same, junior, authority).
+
+    Returns ``{}`` when there is nothing to test or no senior anchor to
+    test against — a missing bound is honest, never a silent refusal.
+    Refusal is PER NODE: lawful pins in the same rect stand.
+    """
+    if not pins or not spine_adj:
+        return {}
+    from .law_graph_budget import build_anchor_envelope
+    senior = {int(i): float(v) for i, v in (hard_values or {}).items()
+              if int(i) not in pins}
+    env = build_anchor_envelope(spine_adj, senior)
+    if env is None:
+        return {}
+    refused: dict = {}
+    for i, v in pins.items():
+        viol = env.violation(int(i), float(v), tol=tol)
+        if viol is not None:
+            refused[int(i)] = viol
+    return refused
+
+
+def publish_eat_refusal_keys(layout, refused, nodes):
+    """CARRY the guard's verdict by CANONICAL POINT.
+
+    The guard can only be priced where the graph phase A projects on
+    exists — inside the solve.  But ``_seed_elevations`` runs again at
+    every later pass (the crown re-seed, each ``final_grade_projection``)
+    on a layout that has GROWN, and re-pinned exactly the nodes the solve
+    refused; the writeback band then CLAMPED them back, which is a clamp
+    rescuing a law violation rather than the law holding (measured KSTJ:
+    16 clamps, worst +4.76 m, at the refused pins' own value).
+
+    The join is the CANONICAL POINT, never the node index — index ``i``
+    names a different node after a rebuild (the canonical-identity-join
+    law; index keys once landed 448 of 455 SPJC seeds on the wrong node).
+    Nodes whose point cannot be resolved are simply not carried, which is
+    honest: the guard then re-refuses them on the next pass it can price.
+    """
+    cps = getattr(layout, "canonical_points", None)
+    keys: set = set(getattr(layout, "_eat_pin_refused_keys", None) or ())
+    if cps is None:
+        return keys
+    for i in refused:
+        if i >= len(nodes):
+            continue
+        try:
+            key = cps.get(float(nodes[i][0]), float(nodes[i][1]))
+        except Exception:                                  # pragma: no cover
+            key = None
+        if key is not None:
+            keys.add(key)
+    layout._eat_pin_refused_keys = keys  # type: ignore[attr-defined]
+    return keys
+
+
+def release_refused_eat_pins(layout, refused, elev, base_hard,
+                             have_initial):
+    """Put every REFUSED EAT pin back exactly as ``_seed_elevations``
+    found the node, and un-publish it.
+
+    The seeder snapshotted ``(elev, have_initial)`` per pinned node in
+    ``layout._eat_anchor_pin_prev``; ``base_hard`` and the seam-pin
+    protection set need no snapshot because the pin builder skips every
+    already-hard node, so a pinned node was neither.  After this the node
+    is an ordinary SOFT node carrying its DEM seed: it is not a phase-A
+    truth anchor, not a reach-band anchor (``_eat_anchor_pin_idx`` no
+    longer names it), not seam-protected, and not a runway-flex seed.
+
+    Returns the number of nodes released.  A node with no snapshot is
+    LEFT ALONE and reported by the caller's count mismatch rather than
+    guessed at — inventing a seed would be the same class of defect the
+    pin itself committed.
+    """
+    prev = getattr(layout, "_eat_anchor_pin_prev", None) or {}
+    pins = getattr(layout, "_eat_anchor_pin_idx", None) or {}
+    seam = getattr(layout, "_seam_pin_idx", None)
+    n = 0
+    for i in refused:
+        row = prev.get(i)
+        if row is None:
+            continue
+        if i < len(elev):
+            elev[i] = float(row[0])
+        if i < len(base_hard):
+            base_hard[i] = False
+        if have_initial is not None and i < len(have_initial):
+            have_initial[i] = bool(row[1])
+        pins.pop(i, None)
+        if seam is not None:
+            seam.discard(i)
+        n += 1
+    layout._eat_anchor_pin_idx = pins   # type: ignore[attr-defined]
+    return n
+
+
+def format_eat_guard_line(icao, n_refused, n_pins, worst_node, worst,
+                          anchor_value):
+    """THE ONE LOUD LINE the guard prints (spec: nodes refused, worst
+    shortfall, anchor identity).  Formatted HERE so the twin drives the
+    string the build emits."""
+    return (
+        f"  [eat-anchor-rect] {icao}: {n_refused} of {n_pins} pin(s) "
+        f"REFUSED — an EAT pin never contradicts a senior hard "
+        f"runway/seam anchor within route budget; worst node "
+        f"{worst_node} pin {worst['pin_m']:.3f} is {worst['excess_m']:.3f} "
+        f"m past its {worst['side']} {worst['bound']:.3f} (witness anchor "
+        f"{worst['witness']} = {anchor_value:.3f}, route budget "
+        f"{worst['route_budget_m']:.4f} m); released to their seed.")
 
 
 def classify_hard_anchors(n, base_hard, flexed_idx, seam_pins,

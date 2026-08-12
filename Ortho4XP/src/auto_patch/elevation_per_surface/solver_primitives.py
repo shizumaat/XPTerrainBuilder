@@ -2224,6 +2224,20 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
     gap = float(EAT_RECT_SEGMENT_GAP_M)
     max_along = float(EAT_RECT_MAX_ALONG_M)
     n_seg = n_no_anchor = n_hard_skip = n_refused_along = 0
+    # ── THE CONTRADICTION GUARD'S CARRIED VERDICT (docs/specs/
+    # eat-anchor-contradiction-guard-spec.md) ────────────────────────
+    # The guard is priced ONCE, in the solve, on the graph phase A
+    # projects on — the only place that graph exists.  Its verdict is
+    # then CARRIED here by CANONICAL POINT (never by node index: every
+    # later pass rebuilds the node list on a GROWN layout, so index ``i``
+    # no longer names the node it named — the canonical-identity-join
+    # law).  Without this, the final-projection re-seeds re-pinned the
+    # very nodes the solve refused and the writeback band CLAMPED them
+    # back, which is a clamp rescuing a law violation, not the law
+    # holding.  Empty/absent on the solve's own first pass, which is when
+    # the verdict is computed.
+    refused_keys = getattr(layout, "_eat_pin_refused_keys", None) or ()
+    n_guard_refused = 0
     for spec in end_specs:
         half = spec.get("half_width_m")
         if half is None:
@@ -2263,7 +2277,14 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                 sv, qv = eat_end_projection(spec, x, y)
                 if sv < min_s or abs(qv) > bounds[1]:
                     continue
-                i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                _key = cps.get_or_add(float(x), float(y))
+                if _key in refused_keys:
+                    # REFUSED by the contradiction guard on an earlier
+                    # pass: it is not a member, so it does not stretch
+                    # the segment's extent or shift its D_mid either.
+                    n_guard_refused += 1
+                    continue
+                i = bucket_to_idx.get(_key)
                 if i is None or i in seen:
                     continue
                 shape_members.append((sv, i))
@@ -2326,13 +2347,22 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                 f"corridor, not an end-around crossing).")
         except Exception:                              # pragma: no cover
             pass
+    if n_guard_refused:
+        import O4_UI_Utils as _UI_eatgv
+        _UI_eatgv.vprint(1,
+            f"    [eat-anchor-rect] {n_guard_refused} vertex read(s) "
+            f"skipped on the CARRIED contradiction-guard verdict (nodes "
+            f"the solve refused against a senior hard runway/seam "
+            f"anchor; carried by canonical point across the node-list "
+            f"rebuild).")
     if _os.environ.get("O4_STEP_DEBUG") == "1" and (
             pins or n_no_anchor or n_refused_along):
         print(f"    [eat-anchor-rect] {n_seg} crossing segment(s), "
               f"{len(pins)} pavement node(s) pinned at the regulation "
               f"value, {n_hard_skip} senior-hard node(s) kept, "
               f"{n_no_anchor} end(s) had no resolvable anchor, "
-              f"{n_refused_along} over-long segment(s) refused")
+              f"{n_refused_along} over-long segment(s) refused, "
+              f"{n_guard_refused} guard-refused vertex read(s) skipped")
     return pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along)
 
 
@@ -3217,6 +3247,25 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
             and getattr(layout, "eat_ceiling_presolve", None):
         eat_pins, _eat_counts = _build_eat_anchor_rect_pins(
             layout, bucket_to_idx, elev, is_hard)
+        # ── PRE-PIN SNAPSHOT for the CONTRADICTION GUARD (docs/specs/
+        # eat-anchor-contradiction-guard-spec.md) ────────────────────
+        # THE LAW: an EAT pin never contradicts a senior hard runway/seam
+        # anchor within route budget.  Its predicate is the seat-guard's
+        # (``law_graph_budget.AnchorEnvelope.violation`` over the unified
+        # spine graph), and that graph does not exist until the solve
+        # builds it — so the REFUSAL, which happens there, has to be able
+        # to put a node back EXACTLY as this seeder found it.
+        # Only ``elev`` and ``have_initial`` are recorded, because
+        # ``_build_eat_anchor_rect_pins`` skips every node that was
+        # ALREADY hard (its ``n_hard_skip`` counter): a pinned node's
+        # ``is_hard`` was therefore False, and it was not in
+        # ``_seam_pin_idx`` either — every senior family hardens what it
+        # protects.  Published unconditionally beside
+        # ``_eat_anchor_pin_idx`` so the guard never has to guess whether
+        # the snapshot is stale.
+        layout._eat_anchor_pin_prev = {  # type: ignore[attr-defined]
+            idx: (float(elev[idx]), bool(have_initial[idx]))
+            for idx in eat_pins}
         for idx, v in eat_pins.items():
             elev[idx] = float(v)
             is_hard[idx] = True

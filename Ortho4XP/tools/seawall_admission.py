@@ -160,13 +160,28 @@ def flat_site_inset_stamp(tile):
     the bake consumes — and stamps the entries in the same shape, so
     ``O4_Vector_Map.constant_inset_area`` reads them unmodified.
 
-    ONE DIFFERENCE, STATED: the bake DROPS a claimed-object cluster whose
-    feather ring fails the R11-2 datum check, and that refusal is a DEM
-    measurement this tool cannot make.  Returns the entry count and a
-    caveat flag so the report can say so instead of implying the two
-    footprints are identical.
+    TWO DIFFERENCES, BOTH STATED RATHER THAN SWALLOWED:
+
+    * the bake DROPS a claimed-object cluster whose feather ring fails
+      the R11-2 datum check, and that refusal is a DEM measurement this
+      tool cannot make;
+    * the detector CLASSIFIES AGAINST THE DEM (``flat_site_substitutions``
+      returns ``[]`` outright when the tile carries no composed
+      ``alt_dem``), and this tool composes no DEM by design.  A bare
+      "0 entries" would then read exactly like "this tile has no flat
+      site", which is the silent-degradation class this repo refuses —
+      so the caller gets a NOTE saying which of the two it is.
+
+    Returns ``(entry_count, unchecked_cluster_count, note)``.
     """
     from auto_patch import flat_site_mode as FLAT
+    dem = getattr(tile, "dem", None)
+    if dem is None or getattr(dem, "alt_dem", None) is None:
+        return 0, 0, ("NOT MEASURED — the flat-site detector classifies "
+                      "against the composed tile DEM and this tool composes "
+                      "none.  Read the footprint off a real build's "
+                      "[flat-site] lines instead; this is not evidence that "
+                      "the tile has no flat site.")
     subs = FLAT.flat_site_substitutions(tile)
     entries = []
     for sub in subs or ():
@@ -191,7 +206,9 @@ def flat_site_inset_stamp(tile):
     tile.dem.synthetic_flat_site_provenance = entries
     n_cluster = sum(1 for e in entries
                     if e["kind"] == "synthetic_flat_site_object_cluster")
-    return len(entries), n_cluster
+    return len(entries), n_cluster, ("measured from the detector's own "
+                                     "extents; cluster datum refusals not "
+                                     "reproduced")
 
 
 def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
@@ -222,8 +239,10 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
     # the percentage remains comparable with the pre-R17b recon number.
     wall_admission = coverage
     inset_entries = inset_clusters = 0
+    inset_note = "not requested"
     if flat_site_inset:
-        inset_entries, inset_clusters = flat_site_inset_stamp(tile)
+        inset_entries, inset_clusters, inset_note = (
+            flat_site_inset_stamp(tile))
         coastal = VMAP.coastline_wall_admission(tile, sea)
         if not coastal.is_empty:
             from shapely import ops as _ops
@@ -245,6 +264,7 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
                                   else ""),
         "flat_site_inset_entries": inset_entries,
         "flat_site_inset_clusters_unchecked": inset_clusters,
+        "flat_site_inset_note": inset_note,
         "rings_seen": n_rings,
         "rings_admitted": n_kept,
         "coverage_km2": round(coverage.area * DEG_M * DEG_M * cos_lat / 1e6,
@@ -307,7 +327,7 @@ def main(argv=None) -> int:
     print(f"=== SEAWALL ADMISSION  tile +{args.lat:02d}+{args.lon:03d}  "
           f"[{out['admission_mode']}] ===")
     for key in ("patches", "flat_site_inset_entries",
-                "flat_site_inset_clusters_unchecked",
+                "flat_site_inset_clusters_unchecked", "flat_site_inset_note",
                 "rings_seen", "rings_admitted", "coverage_km2",
                 "coverage_perimeter_m", "wall_lines", "wall_m",
                 "shoreline_near_m", "near_m", "coverage_pct",

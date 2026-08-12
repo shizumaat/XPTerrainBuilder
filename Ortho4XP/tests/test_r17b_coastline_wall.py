@@ -111,10 +111,19 @@ class TestTheCoastlineAdmission:
         assert land.contains(geometry.Point(0.35, 0.35))
         assert not land.contains(geometry.Point(0.29, 0.29))
 
-    def test_VMMC_CONTROL_no_inset_no_admission(self):
-        """VMMC has no constant inset over sea, so this law cannot fire
-        there at all — the admission is empty and its wall is whatever
-        R17-3 already gave it."""
+    def test_NO_INSET_NO_ADMISSION(self):
+        """The mechanism's own control: with no stamped inset the law
+        cannot fire at all.
+
+        MEASURED CAVEAT (2026-08-11, VHHH real-DEM build log).  The
+        amendment names VMMC as a byte-identical control on the grounds
+        that it has "no constant inset over sea".  On tile +22+113 that
+        is FALSE: the detector calls VMMC ``flat_candidate`` at Z0 6.10 m
+        and bakes its extent plus two claimed-object cluster insets.
+        VMMC is a reclaimed-platform airport too, so this law DOES fire
+        there and its breaklines are NOT byte-identical.  Reported to the
+        lead; the assertion below is about the mechanism, not about VMMC.
+        """
         assert VMAP.coastline_wall_admission(_Tile(), SEA).is_empty
         assert VMAP.coastline_wall_admission(_Tile(_Dem([])), SEA).is_empty
 

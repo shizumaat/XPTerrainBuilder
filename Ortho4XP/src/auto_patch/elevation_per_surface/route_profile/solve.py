@@ -2181,6 +2181,18 @@ def solve_route_profile(layout, icao: str,
             _UI_eatg2.vprint(1, format_eat_guard_line(
                 icao, _n_released, _n_pins_pre, _worst_node, _worst,
                 _w_value))
+            # A refusal the release could not carry out is a WIRING
+            # defect (the seeder publishes both maps in one statement, so
+            # the only path here is a probe that restored one and not the
+            # other).  It is reported rather than swallowed: a silently
+            # under-released count reads exactly like a lawful build.
+            if _n_released != len(_eat_refused):
+                _UI_eatg2.vprint(0,
+                    f"  [eat-anchor-rect] WARN: {icao}: "
+                    f"{len(_eat_refused) - _n_released} refused pin(s) "
+                    f"had NO pre-pin snapshot and were left stamped — "
+                    f"``_eat_anchor_pin_prev`` is out of step with "
+                    f"``_eat_anchor_pin_idx``.")
     # ── RUNWAY FLEX Stage B (user 2026-07-06, docs/runway_flex_plan.md) ──
     # FLEX-LAST: with every route edge at its FULL legal budget (= the
     # taxiways at max cap), find runway-contact pairs whose value gap

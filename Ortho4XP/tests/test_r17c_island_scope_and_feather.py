@@ -128,22 +128,23 @@ class TestR17c3TheScopeIsTheAirportsIsland:
                                              graded_area=COVERAGE)
         assert not land.intersects(MAINLAND.buffer(-1e-4))
 
-    def test_the_declared_corridor_joins_when_it_is_continuous(self):
-        """A corridor is declared precisely to make two grounds one, so
-        it joins the island exactly when it has: the component test is
-        the membership law, never a private union."""
+    def test_the_isthmus_joins_when_it_is_continuous(self):
+        """R21 in the corridor's slot: the isthmus is measured precisely
+        because it makes two grounds one, so it joins the island exactly
+        when it has — the component test is the membership law, never a
+        private union."""
         east = geometry.box(0.42, 0.35, 0.48, 0.39)
-        corridor = geometry.box(0.40, 0.363, 0.42, 0.367)
+        isthmus = geometry.box(0.40, 0.363, 0.42, 0.367)
         sea = geometry.box(0.0, 0.0, 1.0, 1.0).difference(
-            ISLAND.union(MAINLAND).union(east).union(corridor))
+            ISLAND.union(MAINLAND).union(east).union(isthmus))
         tile = _Tile(_Dem([
             _entry("synthetic_flat_site", *CORE),
-            _entry("declared_corridor", 0.40, 0.363, 0.48, 0.367),
+            _entry("flat_site_isthmus", 0.40, 0.363, 0.48, 0.367),
         ]))
         land = VMAP.coastline_wall_admission(tile, sea,
                                              graded_area=COVERAGE)
         assert land.intersects(ISLAND)
-        assert land.intersects(corridor)
+        assert land.intersects(isthmus)
 
 
 class TestR17c3TheWallLength:

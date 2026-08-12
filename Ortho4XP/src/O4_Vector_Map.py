@@ -140,12 +140,8 @@ SEAWALL_PAVEMENT_ROLES = frozenset({
     "stub", "cross_connector", "apron", "junction", "service_junction",
     "groundside_pavement", "building", "object_pad",
 })
-#: The declared causeway corridor (Round 17 §R17-2) rides the same
-#: admission as pavement: it is DECLARED graded ground.
-DECLARED_CORRIDOR_ROLE = "declared_corridor"
 GRADED_COVERAGE_ROLES = frozenset(SEAWALL_PAVEMENT_ROLES | {
     "graded_strip", "tunnel_trench", "tunnel_ramp", "retaining_wall",
-    DECLARED_CORRIDOR_ROLE,
 })
 # Sea level.  The coastline limb of the wall sits at zero because that is
 # where O4_Mesh_Utils levels SEA triangles; the inland-water limb is given
@@ -171,42 +167,6 @@ def seawall_offset_m():
     except (TypeError, ValueError):
         return SEAWALL_OFFSET_M
     return value if value > 0 else SEAWALL_OFFSET_M
-
-
-def declared_corridor_rings(tile):
-    """The owner's DECLARED corridors on this tile (Round 17 §R17-2).
-
-    Yields ``(polygon, (icao, lat0, lon0, lat1, lon1))`` with the polygon
-    in the vector map's TILE-RELATIVE frame (``lon - tile.lon``,
-    ``lat - tile.lat``).  The declaration is read through
-    ``auto_patch.flat_site.declared_flat_corridors`` — the same parser
-    the DEM-side substitution uses, so the ground that grades flat and
-    the ground that counts as land can never be two different boxes.
-
-    A corridor that does not intersect this tile is skipped.  Any
-    failure (no cfg key, an engine without ``auto_patch``) yields
-    nothing: a tile with no declaration behaves exactly as before.
-    """
-    try:
-        from auto_patch.flat_site import corridors_for_tile
-        # TILE CFG FIRST: the declaration is a per-tile key, and a tile
-        # cfg value lives on the Tile, not on the config module.
-        declared = corridors_for_tile(tile)
-    except Exception:
-        return
-    if not declared:
-        return
-    tile_lat, tile_lon = int(floor(tile.lat)), int(floor(tile.lon))
-    for icao, corridors in sorted(declared.items()):
-        for (lat0, lon0, lat1, lon1) in corridors:
-            if (lat1 < tile_lat or lat0 > tile_lat + 1
-                    or lon1 < tile_lon or lon0 > tile_lon + 1):
-                continue
-            x0, y0 = lon0 - tile_lon, lat0 - tile_lat
-            x1, y1 = lon1 - tile_lon, lat1 - tile_lat
-            yield (geometry.Polygon(
-                [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]),
-                (icao, lat0, lon0, lat1, lon1))
 
 
 def _flatten_linestrings(geom):
@@ -241,9 +201,12 @@ def seawall_admission_area(patches_area, graded_area):
 
 
 #: R17c-3 — the provenance KINDS that carry the airport's own island
-#: UNCONDITIONALLY: the airport's flat-site constant CORE and the
-#: corridors the owner DECLARED.
-AIRPORT_ISLAND_INSET_KINDS = ("synthetic_flat_site", "declared_corridor")
+#: UNCONDITIONALLY: the airport's flat-site constant CORE and (R21) the
+#: ISTHMUS the flat-site family was found to be land-connected across.
+#: The isthmus is unconditional here for the same reason the core is: it
+#: is not a claim about distant ground, it is the LAND MEASURED between
+#: two footprints already admitted on one sea-bounded component.
+AIRPORT_ISLAND_INSET_KINDS = ("synthetic_flat_site", "flat_site_isthmus")
 
 #: R17D LAW 2 — the CLAIMED-OBJECT CLUSTER kind, admitted CONDITIONALLY
 #: (see :func:`connected_cluster_inset_area`).  r17c kept it out whole,
@@ -1604,6 +1567,130 @@ def _tidal_water_area(tile):
         return geometry.MultiPolygon()
 
 
+def sea_area_from_coastline(coastline, lat, lon, custom_source=False):
+    """THE SEA, out of a coastline MultiLineString (tile-relative).
+
+    The topology reconstruction ``include_sea`` has always done, factored
+    out so the SEA/LAND partition has exactly ONE implementation in the
+    tree.  R21's land-connected continuity asks the same question in DEM
+    prep — which ground is land — and a second derivation there would be
+    two instruments over one population: the ground that grades flat and
+    the ground that counts as land must never be two different polygons
+    (the lesson the retired declared corridor was written around).
+
+    Closed rings are set aside first because ``linemerge`` is expensive;
+    the open remainder is cut to the tile and merged, and
+    ``VECT.coastline_to_MultiPolygon`` closes the result against the tile
+    frame.  Returns a (possibly empty) MultiPolygon.
+    """
+    loops = geometry.MultiLineString(
+        [line for line in coastline.geoms if line.is_ring]
+    )
+    remainder = VECT.ensure_MultiLineString(
+        VECT.cut_to_tile(
+            geometry.MultiLineString(
+                [line for line in coastline.geoms if not line.is_ring]
+            ),
+            strictly_inside=True,
+        )
+    )
+    UI.vprint(3, "Linemerge...")
+    if not remainder.is_empty:
+        remainder = VECT.ensure_MultiLineString(ops.linemerge(remainder))
+    UI.vprint(3, "...done.")
+    closed = geometry.MultiLineString(
+        list(remainder.geoms) + list(loops.geoms)
+    )
+    return VECT.ensure_MultiPolygon(
+        VECT.coastline_to_MultiPolygon(closed, lat, lon, custom_source)
+    )
+
+
+def cached_coastline_multilinestring(tile):
+    """The tile's coastline from data ALREADY ON DISK — never a download.
+
+    R21: DEM prep (``overlay_flat_site_insets``) needs the land/sea
+    partition BEFORE ``include_sea`` runs, and a fetch there would be an
+    implicit download into the shared data repo — the exact class the
+    harness guard refuses.  So this reads the user's custom coastline
+    when there is one and the layer cache when it is present, and answers
+    ``(None, False)`` otherwise: no cache, no continuity claim, said out
+    loud by the caller rather than silently downloaded.
+
+    Returns ``(coastline, custom_source)``.
+    """
+    custom_coastline = FNAMES.custom_coastline(tile.lat, tile.lon)
+    custom_coastline_dir = FNAMES.custom_coastline_dir(tile.lat, tile.lon)
+    sea_layer = OSM.OSM_layer()
+    custom_source = False
+    if os.path.isfile(custom_coastline):
+        sea_layer.update_dicosm(custom_coastline, input_tags=None,
+                                target_tags=None)
+        custom_source = True
+    elif os.path.isdir(custom_coastline_dir):
+        # READ ONLY: ``include_sea``'s merge of this directory writes the
+        # merged file; this reader never writes anything.
+        for osm_file in sorted(os.listdir(custom_coastline_dir)):
+            sea_layer.update_dicosm(
+                os.path.join(custom_coastline_dir, osm_file),
+                input_tags=None, target_tags=None)
+        custom_source = True
+    else:
+        cached = FNAMES.osm_cached(tile.lat, tile.lon, "coastline")
+        if not os.path.isfile(cached):
+            return (None, False)
+        try:
+            if not OSM._cached_osm_schema_matches(cached, ""):
+                # A stale-schema cache would make the normal reader
+                # RE-DOWNLOAD; here that is exactly what must not happen.
+                return (None, False)
+        except Exception:                                  # pragma: no cover
+            return (None, False)
+        if not OSM.OSM_queries_to_OSM_layer(
+                COASTLINE_QUERIES, sea_layer, tile.lat, tile.lon, [],
+                cached_suffix="coastline"):
+            return (None, False)
+    try:
+        coastline = OSM.OSM_to_MultiLineString(sea_layer, tile.lat, tile.lon)
+    except Exception:                                      # pragma: no cover
+        return (None, False)
+    if coastline is None or coastline.is_empty:
+        return (None, custom_source)
+    return (coastline, custom_source)
+
+
+def cached_tile_land_area(tile):
+    """THE TILE'S LAND from already-cached coastline data, tile-relative.
+
+    ``tile frame minus sea``.  ``None`` — never an empty polygon — when
+    no coastline data is on disk, because "no data" and "no land" are
+    different answers and the continuity law must refuse the first.
+    A tile with coastline data but no sea (an inland tile whose cache
+    holds nothing) answers the whole frame, which is one land component
+    touching the frame: not an island, so nothing is flattened.
+
+    Memoised on the tile: one read per build.
+    """
+    cached = getattr(tile, "_r21_land_area", "unset")
+    if cached != "unset":
+        return cached
+    coastline, custom_source = cached_coastline_multilinestring(tile)
+    land = None
+    if coastline is not None:
+        try:
+            sea = sea_area_from_coastline(
+                coastline, tile.lat, tile.lon, custom_source)
+            land = VECT.ensure_MultiPolygon(
+                geometry.box(0, 0, 1, 1).difference(sea))
+        except Exception:                                  # pragma: no cover
+            land = None
+    try:
+        tile._r21_land_area = land
+    except Exception:                                      # pragma: no cover
+        pass
+    return land
+
+
 def include_sea(vector_map, tile, patches_area=None, graded_area=None):
     """Encode the coastline and seed the SEA attribute.
 
@@ -1665,28 +1752,8 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         # coastline linemerge being expensive we first set aside what is
         # already known to be closed loops
         UI.vprint(1, "    * Reconstructing its topology.")
-        loops = geometry.MultiLineString(
-            [line for line in coastline.geoms if line.is_ring]
-        )
-        remainder = VECT.ensure_MultiLineString(
-            VECT.cut_to_tile(
-                geometry.MultiLineString(
-                    [line for line in coastline.geoms if not line.is_ring]
-                ),
-                strictly_inside=True,
-            )
-        )
-        UI.vprint(3, "Linemerge...")
-        if not remainder.is_empty:
-            remainder = VECT.ensure_MultiLineString(ops.linemerge(remainder))
-        UI.vprint(3, "...done.")
-        coastline = geometry.MultiLineString(
-            list(remainder.geoms) + list(loops.geoms)
-        )
-        sea_area = VECT.ensure_MultiPolygon(
-            VECT.coastline_to_MultiPolygon(
-                coastline, tile.lat, tile.lon, custom_source
-            )
+        sea_area = sea_area_from_coastline(
+            coastline, tile.lat, tile.lon, custom_source
         )
         if sea_area.geoms:
             UI.vprint(
@@ -2415,41 +2482,16 @@ def include_patches(vector_map, tile):
                 vector_map.insert_way(
                     numpy.hstack([way, alti_way]), "DUMMY", check=True
                 )
-    # ── R17-2: THE DECLARED CORRIDORS ARE LAND ─────────────────────────
-    # (owner ruling 2026-08-11, spec round17 §R17-2.)  A declared
-    # corridor is graded ground the airport's patch does not draw: its
-    # ELEVATION comes from the flat-site constant inset baked over the
-    # same box, and here it takes the other two authorities — the ring
-    # blocks the sea flood (PATCH_RING_MARKER, the R4 idiom) and joins
-    # the wall admission set.  R4's "THE CUTTER IS THE PAVEMENT UNION"
-    # law gains the DECLARED CORRIDOR as an explicit, owner-authorised
-    # member: a ruled exception, not a drift.  The altitude is the
-    # tile's own DEM at the ring nodes — which is Z0 inside the box
-    # because the inset put it there — so there is exactly one authority
-    # for the corridor's level.
-    for (corridor_pol, corridor_box) in declared_corridor_rings(tile):
-        try:
-            ring = numpy.array(corridor_pol.exterior.coords, dtype=float)
-            alti_ring = numpy.asarray(
-                tile.dem.alt_vec(ring), dtype=float).reshape((len(ring), 1))
-            vector_map.insert_way(
-                numpy.hstack([ring, alti_ring]), PATCH_RING_MARKER,
-                check=True,
-            )
-        except Exception:
-            UI.vprint(1, "     Skipping an unusable declared corridor ring.")
-            continue
-        patches_area_polys.append(corridor_pol)
-        graded_area_polys.append(corridor_pol)
-        interp_alt_patch_polygons.append(corridor_pol)
-        UI.vprint(
-            1,
-            "   Declared corridor {}: lat {:.7f}..{:.7f} lon {:.7f}..{:.7f}"
-            " is LAND at {:.2f} m (mean of its ring) — sea floods stop at"
-            " it and its edges take sea walls.".format(
-                corridor_box[0], corridor_box[1], corridor_box[3],
-                corridor_box[2], corridor_box[4], float(alti_ring.mean())),
-        )
+    # ── R21: THE ISTHMUS NEEDS NO RING ─────────────────────────────────
+    # (owner ruling 2026-08-12, "LAND-CONNECTED CONTINUITY".)  R17-2's
+    # DECLARED CORRIDOR needed the two authorities above — a ring to stop
+    # the sea flood and an entry in the wall admission — because it
+    # claimed WATER as land.  The isthmus claims nothing: it is land the
+    # coastline data already carries, so the sea flood already stops at
+    # its own shoreline and the wall admission already finds it through
+    # ``coastline_wall_admission`` (the isthmus inset kind joins
+    # :data:`AIRPORT_ISLAND_INSET_KINDS`).  Only its LEVEL was missing,
+    # and that is the flat-site inset's job, in DEM prep.
     graded_area = geometry.Polygon()
     if graded_area_polys:
         try:

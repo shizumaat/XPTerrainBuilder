@@ -83,24 +83,25 @@ class TestTheInsetFootprintIsREAD:
         assert not area.is_empty
         assert area.contains(ISLAND)
 
-    def test_declared_corridors_join_the_footprint_and_clusters_do_not(self):
-        """R17c-3 REPLACES R17b-2's enumeration here.
+    def test_the_isthmus_joins_the_footprint_and_clusters_do_not(self):
+        """R17c-3's scoping, with R21's mechanism in the corridor's slot.
 
         r17b admitted the claimed-object CLUSTER rectangles too, and
         those are the boxes that reached the mainland (VHHH's 15.11 km²
         HZMB cluster; 66,971 m of wall over 55.47 km² spanning three
-        flat sites).  The owner's ruling (2026-08-12) names the
-        airport's constant CORE ∪ its DECLARED corridors — so a cluster
-        is out of the island reading and still in the BAKED reading
-        (``kinds=None``), which is a different question."""
+        flat sites).  The unconditional reading is the airport's
+        constant CORE ∪ the ISTHMUS measured between its footprints
+        (R21; the DECLARED corridor that used to sit here retired) — so
+        a cluster is out of the island reading and still in the BAKED
+        reading (``kinds=None``), which is a different question."""
         entries = [
             _entry("synthetic_flat_site", 0.30, 0.30, 0.40, 0.40),
             _entry("synthetic_flat_site_object_cluster",
                    0.50, 0.30, 0.55, 0.35),
-            _entry("declared_corridor", 0.40, 0.33, 0.50, 0.34),
+            _entry("flat_site_isthmus", 0.40, 0.33, 0.50, 0.34),
         ]
         area = VMAP.constant_inset_area(_Tile(_Dem(entries)))
-        assert area.contains(geometry.Point(0.45, 0.335))   # the corridor
+        assert area.contains(geometry.Point(0.45, 0.335))   # the isthmus
         assert not area.contains(geometry.Point(0.52, 0.32))  # the cluster
         baked = VMAP.constant_inset_area(_Tile(_Dem(entries)), kinds=None)
         assert baked.contains(geometry.Point(0.52, 0.32))

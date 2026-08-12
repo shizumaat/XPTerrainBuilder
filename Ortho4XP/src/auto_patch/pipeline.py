@@ -5839,7 +5839,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     _rod_ckpt(layout, "04_deconflict_road_features")
 
     from .conformance import (
-        enforce_conformance, find_conformance_violations)
+        enforce_conformance, find_conformance_violations,
+        FINAL_WELD_TOL_M as _FINAL_WELD_TOL_M)
     if _airside_unified_presolve:
         n_shapes, n_verts = enforce_conformance(
             layout, owner_roles=set(_POSTSOLVE_FEATURE_OWNER_ROLES))
@@ -5979,7 +5980,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # 0.000-0.003 m); the full 0.5 m weld tolerance would bow an edge
     # outward by up to the tolerance and mint hairline overlaps
     # (zero-tolerance test_no_self_overlap).
-    _n_ws, _n_wv = enforce_conformance(layout, tol=0.01,
+    _n_ws, _n_wv = enforce_conformance(layout, tol=_FINAL_WELD_TOL_M,
                                        include_overlay_refs=True)
     if _n_wv:
         UI.vprint(1,
@@ -6565,7 +6566,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     if compute_elevations:
         from .conformance import (enforce_conformance as _enf_final,
                                   find_conformance_violations as _fcv,
-                                  snap_subcm_vertex_twins as _snap_twins)
+                                  snap_subcm_vertex_twins as _snap_twins,
+                                  FINAL_WELD_TOL_M as _FINAL_WELD_TOL_M)
         # SUB-CM TWIN SNAP (2026-07-27): unify mm-apart cross-shape
         # vertex twins (arrangement-grid vs full-precision rings) onto
         # one coordinate BEFORE the weld — the weld inserts T-vertices
@@ -6583,7 +6585,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # which the host-edge lerp cannot see (SPJC runway_end_resa: the
         # weld floated two inserts +2.12 / +2.22 m above the DEM envelope
         # over a depression between two ceiling-limited hosts).
-        _n_ews, _n_ewv = _enf_final(layout, tol=0.01,
+        _n_ews, _n_ewv = _enf_final(layout, tol=_FINAL_WELD_TOL_M,
                                     include_overlay_refs=True,
                                     dem=_projection_dem,
                                     tile_lat=_projection_tile_lat,

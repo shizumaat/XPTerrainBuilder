@@ -3841,41 +3841,132 @@ def _median_of(values):
             else 0.5 * (vals[m // 2 - 1] + vals[m // 2]))
 
 
-def _pad_lip_index(layout, host_rings, r, r2):
-    """``{ring_id: {vertex_index: [pad_shape_id, ...]}}`` — which pads'
-    contact radii touch each host ring vertex (R19-1).
+def _pad_lip_index(layout, host_rings, host_shapes_by_rid, weld_tol):
+    """``{ring_id: {vertex_index: {pad_shape_id, ...}}}`` — which pads the
+    FINAL EPSILON-WEDGE WELD makes one node with each host ring vertex
+    (R19-1 as re-ruled by task #16).
 
     This is the LEVEL FAMILY's only membership relation: two pads are in
-    one family when they touch a common host ring vertex, transitively.
+    one family when they reach a common host ring vertex, transitively.
     It is structural — a shared piece of the host's own boundary — so no
-    distance between two pads can put them in one family, and no
-    distance can keep two welded neighbours out of one."""
+    distance between two pads can put them in one family, and no distance
+    can keep two welded neighbours out of one.
+
+    WHY THE WELD AND NOT A CONTACT RADIUS (task #16).  The level family is
+    an EMIT-TIME structure.  This pass runs post-solve, pre-emit, and the
+    shared ring vertices that chain a pad to its host are minted LATER, by
+    ``conformance.enforce_conformance(tol=0.01)`` — the final weld
+    (``pipeline.py``, part 30j) — after ``decimate_emit_nodes`` has just
+    dropped each shape's ring vertices independently.  Read at relevel
+    time, "shares a vertex" is therefore blind to the family the weld will
+    create, and the 2.5 m contact radius that stood in for it was a
+    proximity join with a tolerance of its own (HECA building114: nothing
+    inside 2.5 m, host body 16.59 m out, the pad never re-levelled).  The
+    relation is now **"will weld together"**, read from the weld's OWN law
+    through ``conformance.weld_candidate_pairs`` — one code path, no
+    tolerance of ours:
+
+    * ALREADY ONE NODE — a pad ring vertex inside the weld's own node
+      identity radius (``weld_node_identity_tol``) of a host ring vertex;
+      the weld treats such a pair as one node and inserts nothing.
+    * THE PAD WELDS INTO THE HOST — a pad ring vertex the weld will insert
+      into host ring edge ``i → i+1``.  Post-weld that node sits ON that
+      edge, i.e. on the host boundary BETWEEN vertices ``i`` and ``i+1``,
+      so the pad reaches both of its ends: the lip run the family walks is
+      that edge.  (Two pads welding into one long apron edge therefore
+      land in one family — which is what the emitted ring says, since the
+      weld leaves their nodes consecutive on it with no host body vertex
+      between them.  Level arbitration is the coalition's job, and its
+      weight is AREA.)
+    * THE HOST WELDS INTO THE PAD — a host ring vertex ``i`` the weld will
+      insert into the PAD's ring; the pad adopts that exact node.
+
+    ``weld_tol`` is the final weld's own tolerance, passed down from the
+    caller — never a constant of this module's.
+    """
     from auto_patch.layout import ROLE_OBJECT_PAD
-    cells: dict = {}
-    for rid, (pts, _alts) in enumerate(host_rings):
-        for i, (x, y) in enumerate(pts):
-            cells.setdefault((int(x // r), int(y // r)), []).append(
-                (x, y, rid, i))
+    from auto_patch.conformance import (weld_candidate_pairs,
+                                        weld_node_identity_tol,
+                                        _open_ring as _conf_open_ring)
     out: dict = {}
+
+    def _mark(rid, i, sid):
+        out.setdefault(rid, {}).setdefault(i, set()).add(sid)
+
+    # The pads, and their ring vertices as the WELD sees them (the same
+    # ring expression conformance builds its donor index from, so a donor
+    # point compares exactly).
+    pad_pt_owner: dict = {}
+    pad_ids: set = set()
     for sh in (getattr(layout, "shapes", ()) or ()):
         if sh.role not in (ROLE_BUILDING, ROLE_OBJECT_PAD):
             continue
         if sh.polygon is None or sh.polygon.is_empty:
             continue
-        try:
-            pring = _open_ring(list(sh.polygon.exterior.coords))
-        except (ValueError, TypeError):
+        pring = _conf_open_ring(sh.polygon)
+        if pring is None:
             continue
-        for (px, py) in pring:
-            cx = int(px // r)
-            cy = int(py // r)
-            for dx_ in (-1, 0, 1):
-                for dy_ in (-1, 0, 1):
-                    for (hx, hy, rid, i) in cells.get((cx + dx_, cy + dy_),
-                                                      ()):
-                        if (hx - px) ** 2 + (hy - py) ** 2 <= r2:
-                            out.setdefault(rid, {}).setdefault(
-                                i, set()).add(id(sh))
+        pad_ids.add(id(sh))
+        for pt in pring:
+            pad_pt_owner.setdefault(pt, set()).add(id(sh))
+
+    # ── (a) ALREADY ONE NODE, at the weld's own identity radius ───────
+    ident = weld_node_identity_tol(weld_tol)
+    ident2 = ident * ident
+    cells: dict = {}
+    for rid, (pts, _alts) in enumerate(host_rings):
+        for i, (x, y) in enumerate(pts):
+            cells.setdefault((int(x // ident), int(y // ident)), []).append(
+                (x, y, rid, i))
+    for (px, py), sids in pad_pt_owner.items():
+        cx = int(px // ident)
+        cy = int(py // ident)
+        for dx_ in (-1, 0, 1):
+            for dy_ in (-1, 0, 1):
+                for (hx, hy, rid, i) in cells.get((cx + dx_, cy + dy_), ()):
+                    if (hx - px) ** 2 + (hy - py) ** 2 <= ident2:
+                        for sid in sids:
+                            _mark(rid, i, sid)
+
+    # ── (b)/(c) THE WELD'S OWN CANDIDATE PAIRS ───────────────────────
+    # Same arguments as the final weld (``pipeline.py`` part 30j), so the
+    # pairs read here are the pairs it will make.
+    host_pt_key: dict = {}
+    for rid, (pts, _alts) in enumerate(host_rings):
+        for i, pt in enumerate(pts):
+            host_pt_key.setdefault(pt, []).append((rid, i))
+    rid_of_host = {id(hs): rid
+                   for rid, hs in enumerate(host_shapes_by_rid)}
+    import time as _time
+    _t0 = _time.perf_counter()
+    _pairs = weld_candidate_pairs(layout, tol=weld_tol,
+                                  include_overlay_refs=True)
+    # The build-time line this law owes: the enumeration runs ONCE more
+    # per build (the weld itself is unchanged), so its cost is stated
+    # where it is paid rather than inferred from a wall-clock A/B.
+    try:
+        import O4_UI_Utils as _UI
+        _UI.vprint(1,
+                   f"  [pav-builder] pad-host level family: weld candidate "
+                   f"enumeration {len(_pairs)} pair(s) in "
+                   f"{_time.perf_counter() - _t0:.2f} s")
+    except Exception:
+        pass
+    for pair in _pairs:
+        rid = rid_of_host.get(id(pair.receiver))
+        if rid is not None:
+            sids = pad_pt_owner.get(pair.donor_point)
+            if not sids:
+                continue
+            n = len(host_rings[rid][0])
+            if n < 2:
+                continue
+            for sid in sids:
+                _mark(rid, pair.edge_index, sid)
+                _mark(rid, (pair.edge_index + 1) % n, sid)
+        elif id(pair.receiver) in pad_ids:
+            for (rid_h, i_h) in host_pt_key.get(pair.donor_point, ()):
+                _mark(rid_h, i_h, id(pair.receiver))
     return out
 
 
@@ -4144,6 +4235,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     # (R19-1, re-ruled 2026-08-12) rather than hunting for a vertex.
     host_verts: list = []
     host_rings: list = []          # [(pts, alts)] indexed by ring_id
+    host_shapes_by_rid: list = []  # the shape each ring_id came from
     for s in layout.shapes:
         if s.role not in _PAD_HOST_ROLES:
             continue
@@ -4155,6 +4247,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             continue
         n_open = len(ring)
         rid = len(host_rings)
+        host_shapes_by_rid.append(s)
         r_pts = [(float(x), float(y)) for (x, y) in ring]
         r_alts = [_shape_vertex_alt(s, idx, n_open) for idx in range(n_open)]
         host_rings.append((r_pts, r_alts))
@@ -4211,7 +4304,11 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
                 for (_pts, _alts) in host_rings]
     # The LEVEL FAMILY's membership table and the per-host area the
     # host's own body vertices vote with (R19-1).
-    pad_lips_by_ring = _pad_lip_index(layout, host_rings, r, r2)
+    # THE WELD'S OWN TOLERANCE — the membership relation is "will weld
+    # together" (task #16); this module never spells the number itself.
+    from auto_patch.conformance import FINAL_WELD_TOL_M as _WELD_TOL_M
+    pad_lips_by_ring = _pad_lip_index(layout, host_rings,
+                                      host_shapes_by_rid, _WELD_TOL_M)
     host_areas = []
     _hi = 0
     for _s in layout.shapes:

@@ -570,7 +570,9 @@ def test_the_family_itself_never_contains_a_stranger_host(monkeypatch):
             ([(float(x), float(y)) for (x, y) in ring],
              [_A._shape_vertex_alt(sh, i, n) for i in range(n)]))
         areas.append(sh.polygon.area)
-    lips = _A._pad_lip_index(layout, host_rings, 2.5, 6.25)
+    from auto_patch.conformance import FINAL_WELD_TOL_M
+    lips = _A._pad_lip_index(layout, host_rings, [apron_a, apron_b],
+                             FINAL_WELD_TOL_M)
     host_lip = [[bool(lips.get(r, {}).get(i)) for i in range(len(pts))]
                 for r, (pts, _a) in enumerate(host_rings)]
     members = _A._level_family_members(
@@ -583,3 +585,110 @@ def test_the_family_itself_never_contains_a_stranger_host(monkeypatch):
         f"apron B's level is in the family ({levels}) — membership "
         f"reached by DISTANCE instead of through the pad's own chain")
     assert WELD_BODY in levels, "apron A's own body is missing"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# TASK #16 — THE FAMILY IS AN EMIT-TIME STRUCTURE
+# ══════════════════════════════════════════════════════════════════════
+#
+# The production shape the fixtures above could not express: at relevel
+# time (post-solve, pre-emit) the pad and its host share NO ring vertex
+# at all.  ``decimate_emit_nodes`` has just dropped each shape's ring
+# vertices independently, and the nodes that chain pad to host are minted
+# LATER, by the final epsilon-wedge weld
+# (``conformance.enforce_conformance(tol=FINAL_WELD_TOL_M)``).  Measured
+# at HECA: only 11 of 214 pads share a host vertex with another pad even
+# in the EMITTED frame, and building114 — the pad this law was written
+# for — had nothing at all within the 2.5 m contact radius the old
+# membership relation used (its host body sits 16.59 m out).  The
+# relation is therefore "will weld together", read from the weld's own
+# candidate enumeration.
+
+def _coarse_host(level=WELD_BODY):
+    """A host apron whose top edge (y=0) runs 400 m with NO vertex on it —
+    the coarse ring of production, post-decimation."""
+    return BuiltShape(
+        polygon=Polygon([(-200.0, -60.0), (200.0, -60.0),
+                         (200.0, 0.0), (-200.0, 0.0)]),
+        role=ROLE_APRON, node_altitudes=[level] * 5)
+
+
+def _pads_on_the_edge(y0=0.0):
+    """A small pad (181 m²) and a big one (15,298 m²), each with its
+    bottom edge lying ON the host's top edge but sharing no vertex with
+    it — the weld will insert their corners into that one long edge."""
+    small = _pad(20.0, y0, 20.0 + SMALL_AREA_PAD_M, y0 + SMALL_AREA_PAD_M,
+                 WELD_PAD)
+    big = _pad(-10.0 - BIG_AREA_PAD_M, y0, -10.0, y0 + BIG_AREA_PAD_M,
+               WELD_BODY)
+    return small, big
+
+
+def _nearest_host_vertex_m(pad, host):
+    pring = list(pad.polygon.exterior.coords)
+    hring = list(host.polygon.exterior.coords)
+    return min(((hx - px) ** 2 + (hy - py) ** 2) ** 0.5
+               for (px, py) in pring for (hx, hy) in hring)
+
+
+def test_a_family_the_weld_has_not_yet_created_still_forms(monkeypatch):
+    """THE PRODUCTION CLASS (task #16).  Two pads sit on one host edge,
+    neither sharing a vertex with it and neither within the old contact
+    radius of any host vertex.  The final weld will insert all four of
+    their corners into that edge, making pads and host one chain — so the
+    family exists at relevel time under the weld's own law, and the small
+    pad adopts the host's level while the big one does not move."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    from auto_patch.config import PAD_HOST_LEVEL_CONTACT_M
+    apron = _coarse_host()
+    small, big = _pads_on_the_edge()
+    layout = _FakeLayout([apron, small, big])
+
+    # PREMISES, so the twin cannot go vacuous: no shared vertex, and
+    # nothing inside the contact radius the old relation used.
+    hset = {(round(x, 9), round(y, 9))
+            for (x, y) in apron.polygon.exterior.coords}
+    for p in (small, big):
+        assert not hset & {(round(x, 9), round(y, 9))
+                           for (x, y) in p.polygon.exterior.coords}
+        assert (_nearest_host_vertex_m(p, apron)
+                > float(PAD_HOST_LEVEL_CONTACT_M))
+
+    n = relevel_pads_to_host_pavement(layout)
+    assert n == 1, (
+        "the pads weld into the host's edge — the family is there to be "
+        "read, whatever the pre-weld rings share")
+    assert small.altitude == pytest.approx(WELD_BODY, abs=0.01)
+    assert big.altitude == pytest.approx(WELD_BODY, abs=0.001), (
+        "the 15,298 m2 pad moved — AREA is the weight")
+    # The host BODY is untouched.
+    assert all(v == pytest.approx(WELD_BODY, abs=0.001)
+               for v in apron.node_altitudes)
+
+
+def test_rings_further_apart_than_the_weld_tolerance_never_family(
+        monkeypatch):
+    """THE NEGATIVE.  Lift the same two pads 0.05 m off the host edge —
+    five times the weld's tolerance and far outside its node identity, so
+    the weld inserts nothing and the shapes stay strangers.  The pad
+    keeps the level the solve gave it: no proximity join is left to
+    reach across the gap."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    from auto_patch.conformance import (FINAL_WELD_TOL_M,
+                                        weld_candidate_pairs,
+                                        weld_node_identity_tol)
+    GAP = 0.05
+    assert GAP > FINAL_WELD_TOL_M
+    apron = _coarse_host()
+    small, big = _pads_on_the_edge(y0=GAP)
+    layout = _FakeLayout([apron, small, big])
+
+    # PREMISE: the weld itself finds nothing to do between them, and no
+    # host vertex is inside its node-identity radius either.
+    assert weld_candidate_pairs(layout, tol=FINAL_WELD_TOL_M,
+                                include_overlay_refs=True) == []
+    assert (_nearest_host_vertex_m(small, apron)
+            > weld_node_identity_tol(FINAL_WELD_TOL_M))
+
+    assert relevel_pads_to_host_pavement(layout) == 0
+    assert small.altitude == pytest.approx(WELD_PAD, abs=0.01)

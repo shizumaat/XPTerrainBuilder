@@ -22,7 +22,7 @@ end of the pipeline for EVERY airport, not just baselines.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 
 import O4_UI_Utils as UI
 from shapely.geometry import LineString
@@ -44,6 +44,10 @@ __all__ = [
     "find_conformance_violations",
     "enforce_conformance",
     "planarize_airside",
+    "weld_candidate_pairs",
+    "FINAL_WELD_TOL_M",
+    "weld_node_identity_tol",
+    "WeldPair",
     "CONFORMANCE_TOL_M",
 ]
 
@@ -52,6 +56,18 @@ __all__ = [
 # snap tolerance so a point already treated as a shared corner elsewhere is
 # treated consistently here.
 CONFORMANCE_TOL_M = SHARED_VERTEX_TOL_M
+
+# THE FINAL WELD'S OWN TOLERANCE.  The post-solve T-vertex weld and the
+# final epsilon-wedge weld (``pipeline.py`` parts 30h / 30j) both run
+# TIGHT: only truly-ON-edge nodes (the wedge class sits at 0.000-0.003 m
+# perpendicular); the full 0.5 m conformance tolerance would bow an edge
+# outward by up to the tolerance and mint hairline overlaps
+# (zero-tolerance ``test_no_self_overlap``).  Named here, once, because a
+# CONSUMER now reads the weld's law as well as the weld: the pad-host
+# level family's membership relation is "will weld together"
+# (``anchors._pad_lip_index``, task #16), and a second spelling of this
+# number in that consumer would be a second tolerance.
+FINAL_WELD_TOL_M = 0.01
 
 # Refs whose footprints intentionally OVERLAY other pavement rather than
 # tiling with it, so they are exempt from the conformance partition.  The
@@ -584,6 +600,181 @@ def snap_subcm_vertex_twins(layout: "PavementLayout",
     return (n_shapes, n_vertices)
 
 
+#: ONE candidate pair of the weld: the neighbour vertex ``donor_point``
+#: welds into ``receiver``'s ring edge ``edge_index → edge_index+1`` at
+#: ``point`` (the donor's own coordinate, or the canonical point it
+#: interns to — see the canonical-identity guard in
+#: ``_plan_shape_inserts``).  After the weld the two shapes carry ``point``
+#: as ONE node: that is the vertex-identity class this pair creates.
+WeldPair = namedtuple("WeldPair",
+                      "receiver edge_index t point donor_point")
+
+
+def weld_node_identity_tol(tol=CONFORMANCE_TOL_M) -> float:
+    """The radius at which the weld treats two vertices as ALREADY one
+    node (``_radius_index`` over the receiver's own ring).  A consumer
+    that needs the weld's node identity must ask for it here rather than
+    invent a tolerance of its own — there is exactly one weld law."""
+    return max(float(tol), _NODE_IDENTITY_TOL_M)
+
+
+def _weld_frame(layout: "PavementLayout", include_overlay_refs: bool):
+    """The weld's own working set: ``(elig, cell, grid, registry)``.
+    Shared by ``enforce_conformance`` and ``weld_candidate_pairs`` so both
+    enumerate candidates against the SAME donor index."""
+    elig = [s for s in layout.shapes
+            if (_eligible(s) or (include_overlay_refs
+                                 and getattr(s, "polygon", None) is not None
+                                 and not s.polygon.is_empty
+                                 and s.polygon.geom_type == "Polygon"))]
+    cell, grid = _build_vertex_index(elig)
+    return elig, cell, grid, getattr(layout, "canonical_points", None)
+
+
+def _plan_shape_inserts(ring, grid, cell, tol, registry):
+    """PURE: the T-vertex inserts the weld would make into ONE open ring.
+
+    Returns ``(inserts, new_ring)`` where ``inserts`` is
+    ``[(edge_index, t, (px, py), (dx, dy)), ...]`` in ring order — the
+    donor vertex ``(dx, dy)`` welding into edge ``edge_index`` at
+    ``(px, py)`` — and ``new_ring`` is the open ring the weld would build.
+    Nothing is mutated: the caller decides what to do with the plan
+    (``enforce_conformance`` derives insert altitudes and rebuilds the
+    polygon; ``weld_candidate_pairs`` just reports the pairs).
+
+    THIS IS THE WELD'S CANDIDATE ENUMERATION — the only one.  A second
+    implementation of "which vertices will weld together" is a defect
+    (the census-wrapper precedent), which is why the accessor and the
+    weld share this function rather than agreeing by inspection."""
+    n = len(ring)
+    ownset = set(ring)
+    # NODE IDENTITY, not the insert tolerance (see
+    # ``_NODE_IDENTITY_TOL_M``): an insert within the canonical WELD
+    # radius of a vertex this ring already carries is that vertex —
+    # reuse it, never mint a twin.  With the full conformance
+    # tolerance the two radii coincide, so only the TIGHT
+    # (planarize) pass changes behaviour, which is where the
+    # post-solve near-duplicates were minted.
+    near_own, own_add = _radius_index(ring, weld_node_identity_tol(tol))
+    inserts: list = []
+    new_ring: list = []
+    for i in range(n):
+        ax, ay = ring[i]
+        bx, by = ring[(i + 1) % n]
+        new_ring.append((ax, ay))
+        cands = [pt for pt in _points_near_edge(
+                    grid, cell, ax, ay, bx, by, tol)
+                 if pt not in ownset]
+        for t, (px, py) in _tjunctions_on_edge(ax, ay, bx, by, cands, tol):
+            donor = (px, py)
+            # CANONICAL-IDENTITY GUARD (2026-07-29, CYXY service
+            # sliver): the OSM emitter interns every vertex through
+            # the canonical-point registry, so an inserted vertex
+            # that resolves to a DIFFERENT canonical point is
+            # dragged onto that point at emit.  When the canonical
+            # point still lies on this edge, insert IT (the
+            # position the node will actually emit at); when it
+            # lies off the edge, skip the insert — the "weld"
+            # would emit bent (a groundside vertex 0.40 m from its
+            # canonical point bowtied a CYXY service sliver via the
+            # emit ``buffer(0)`` repair, minting a vertex the final
+            # grade projection never graded).
+            if registry is not None:
+                _cp = registry.find_nearest(px, py, registry.tol_m)
+                if _cp is not None and _cp != (px, py):
+                    _tc = _param_on_edge(ax, ay, bx, by, _cp[0], _cp[1])
+                    if not (0.0 < _tc < 1.0):
+                        continue
+                    _fx = ax + (bx - ax) * _tc
+                    _fy = ay + (by - ay) * _tc
+                    if math.hypot(_cp[0] - _fx, _cp[1] - _fy) > tol:
+                        continue
+                    t, (px, py) = _tc, _cp
+            # A candidate near a shallow corner can qualify on TWO
+            # edges of this ring; inserting it twice self-touches
+            # the ring, the rebuild goes invalid, and the bail
+            # below used to discard EVERY insertion for the shape
+            # (the immortal-T-vertex class: dense welded rings
+            # never conformed).  First edge wins.
+            if (px, py) in ownset:
+                continue
+            # ...and "twice" needs no exact tuple match: two DONOR
+            # rings can each carry a vertex at the same location,
+            # bitwise-distinct by float noise, and each passes the
+            # tolerance checks independently — the second insert
+            # minted a zero-length edge (SPJC ``runway_end_resa``
+            # 2026-07-25: inserts #26/#27 both at (-824.764,
+            # 1609.243), from two adjacent_ground donors).
+            # Coordinate-identical within ``tol`` ⇒ ONE insert.
+            if near_own(px, py):
+                continue
+            ownset.add((px, py))
+            own_add(px, py)
+            new_ring.append((px, py))
+            inserts.append((i, t, (px, py), donor))
+    return inserts, new_ring
+
+
+def _rebuilt_ring_polygon(s, new_ring):
+    """``(polygon, reason)`` for the ring the weld built — the SHARED
+    rebuild test, so a shape the weld would leave UNWELDED (invalid
+    rebuild) is dropped identically by the accessor and the weld.
+
+    Interior rings MUST ride along: an exterior-only rebuild fills the
+    shape's holes, silently covering whatever shape occupies them (SPJC:
+    ``gap_pit_floor`` over an ``adjacent_ground`` strip inside its hole,
+    31.86 m² — the zero-tolerance self-overlap invariant)."""
+    from shapely.geometry import Polygon
+    try:
+        new_poly = Polygon(new_ring, [list(r.coords)
+                                      for r in s.polygon.interiors])
+        if not new_poly.is_valid or new_poly.is_empty:
+            return None, "invalid"
+        return new_poly, None
+    except Exception:
+        return None, "exception"
+
+
+def weld_candidate_pairs(layout: "PavementLayout",
+                         tol=CONFORMANCE_TOL_M,
+                         owner_roles: "set[str] | None" = None,
+                         include_overlay_refs: bool = False,
+                         ) -> "list[WeldPair]":
+    """PURE, SIDE-EFFECT-FREE: the candidate pairs ``enforce_conformance``
+    would weld on ``layout`` AS IT STANDS, as ``WeldPair`` records.
+
+    Same arguments, same enumeration, same rebuild bail as the weld
+    itself — the DEM/cut-clamp arguments are omitted because they only
+    value an inserted vertex, never decide whether it is inserted.
+
+    Why it exists (task #16): the pad-host LEVEL FAMILY is an EMIT-TIME
+    structure.  ``relevel_pads_to_host_pavement`` runs post-solve,
+    pre-emit, but the shared ring vertices that chain a pad to its host
+    are minted LATER, by the final epsilon-wedge weld.  The family's
+    membership relation is therefore "will weld together", read from the
+    weld's own law through this accessor — never a second proximity join.
+
+    The layout is NOT modified; call it as often as you like."""
+    elig, cell, grid, registry = _weld_frame(layout, include_overlay_refs)
+    out: list = []
+    for s in elig:
+        if owner_roles is not None and (s.role or "") not in owner_roles:
+            continue
+        ring = _open_ring(s.polygon)
+        if ring is None:
+            continue
+        inserts, new_ring = _plan_shape_inserts(ring, grid, cell, tol,
+                                                registry)
+        if not inserts:
+            continue
+        poly, _reason = _rebuilt_ring_polygon(s, new_ring)
+        if poly is None:
+            continue      # the weld bails and leaves the shape UNWELDED
+        for (ei, t, pt, donor) in inserts:
+            out.append(WeldPair(s, ei, t, pt, donor))
+    return out
+
+
 def enforce_conformance(layout: "PavementLayout",
                         tol=CONFORMANCE_TOL_M,
                         owner_roles: "set[str] | None" = None,
@@ -620,12 +811,7 @@ def enforce_conformance(layout: "PavementLayout",
     unwelded on-edge node tears Triangle4XP's triangulation), so the FINAL
     post-solve weld pass includes them.
     """
-    elig = [s for s in layout.shapes
-            if (_eligible(s) or (include_overlay_refs
-                                 and getattr(s, "polygon", None) is not None
-                                 and not s.polygon.is_empty
-                                 and s.polygon.geom_type == "Polygon"))]
-    cell, grid = _build_vertex_index(elig)
+    elig, cell, grid, registry = _weld_frame(layout, include_overlay_refs)
     # Donor altitudes, for OVERLAY receivers only: a vertex welded into a
     # DEM-bridge / clearance edge must ADOPT the donor's altitude (the two
     # coincident nodes would otherwise emit metres apart — the very tear the
@@ -645,11 +831,9 @@ def enforce_conformance(layout: "PavementLayout",
                     donor_alt[(dx, dy)] = float(da)
     shapes_modified = 0
     vertices_inserted = 0
-    registry = getattr(layout, "canonical_points", None)
     insert_altitude = _make_insert_altitude(layout, elig)
     # Final bound for CUT-ONLY receivers (None ⇒ no clamp at all).
     cut_bound = _make_cut_law_clamp(layout, dem, tile_lat, tile_lon)
-    from shapely.geometry import Polygon
 
     for s in elig:
         if owner_roles is not None and (s.role or "") not in owner_roles:
@@ -658,16 +842,6 @@ def enforce_conformance(layout: "PavementLayout",
         if ring is None:
             continue
         n = len(ring)
-        ownset = set(ring)
-        # NODE IDENTITY, not the insert tolerance (see
-        # ``_NODE_IDENTITY_TOL_M``): an insert within the canonical WELD
-        # radius of a vertex this ring already carries is that vertex —
-        # reuse it, never mint a twin.  With the full conformance
-        # tolerance the two radii coincide, so only the TIGHT
-        # (planarize) pass changes behaviour, which is where the
-        # post-solve near-duplicates were minted.
-        near_own, own_add = _radius_index(
-            ring, max(float(tol), _NODE_IDENTITY_TOL_M))
         alts = _vertex_alts(s, n)
         # A shape emitted with a SINGLE ``altitude`` (no high/low, no
         # node_altitudes) is flat: every corner sits at that level, so a
@@ -680,69 +854,28 @@ def enforce_conformance(layout: "PavementLayout",
                            and s.altitude_high is None
                            and s.altitude_low is None
                            and s.altitude is not None)
-        # Build the new ring edge by edge, inserting T-junction points.
-        new_ring = []
-        new_alts = [] if alts is not None else None
-        inserted_here = 0
-        for i in range(n):
-            ax, ay = ring[i]
-            bx, by = ring[(i + 1) % n]
-            new_ring.append((ax, ay))
-            if new_alts is not None:
-                new_alts.append(alts[i])
-            cands = [pt for pt in _points_near_edge(
-                        grid, cell, ax, ay, bx, by, tol)
-                     if pt not in ownset]
-            tjs = _tjunctions_on_edge(ax, ay, bx, by, cands, tol)
+        # THE CANDIDATE PAIRS — the weld's own enumeration, the same call
+        # ``weld_candidate_pairs`` makes (one code path, task #16).
+        inserts, new_ring = _plan_shape_inserts(ring, grid, cell, tol,
+                                                registry)
+        inserted_here = len(inserts)
+        if not inserted_here:
+            continue
+        # Value each inserted vertex on the edge it landed on.  The plan is
+        # in ring order, so walking it edge by edge reproduces ``new_ring``
+        # position for position.
+        new_alts = None
+        if alts is not None:
             _recv_overlay = getattr(s, "ref", None) in _OVERLAY_REFS
-            for t, (px, py) in tjs:
-                # CANONICAL-IDENTITY GUARD (2026-07-29, CYXY service
-                # sliver): the OSM emitter interns every vertex through
-                # the canonical-point registry, so an inserted vertex
-                # that resolves to a DIFFERENT canonical point is
-                # dragged onto that point at emit.  When the canonical
-                # point still lies on this edge, insert IT (the
-                # position the node will actually emit at); when it
-                # lies off the edge, skip the insert — the "weld"
-                # would emit bent (a groundside vertex 0.40 m from its
-                # canonical point bowtied a CYXY service sliver via the
-                # emit ``buffer(0)`` repair, minting a vertex the final
-                # grade projection never graded).
-                if registry is not None:
-                    _cp = registry.find_nearest(px, py, registry.tol_m)
-                    if _cp is not None and _cp != (px, py):
-                        _tc = _param_on_edge(ax, ay, bx, by,
-                                             _cp[0], _cp[1])
-                        if not (0.0 < _tc < 1.0):
-                            continue
-                        _fx = ax + (bx - ax) * _tc
-                        _fy = ay + (by - ay) * _tc
-                        if math.hypot(_cp[0] - _fx,
-                                      _cp[1] - _fy) > tol:
-                            continue
-                        t, (px, py) = _tc, _cp
-                # A candidate near a shallow corner can qualify on TWO
-                # edges of this ring; inserting it twice self-touches
-                # the ring, the rebuild goes invalid, and the bail
-                # below used to discard EVERY insertion for the shape
-                # (the immortal-T-vertex class: dense welded rings
-                # never conformed).  First edge wins.
-                if (px, py) in ownset:
-                    continue
-                # ...and "twice" needs no exact tuple match: two DONOR
-                # rings can each carry a vertex at the same location,
-                # bitwise-distinct by float noise, and each passes the
-                # tolerance checks independently — the second insert
-                # minted a zero-length edge (SPJC ``runway_end_resa``
-                # 2026-07-25: inserts #26/#27 both at (-824.764,
-                # 1609.243), from two adjacent_ground donors).
-                # Coordinate-identical within ``tol`` ⇒ ONE insert.
-                if near_own(px, py):
-                    continue
-                ownset.add((px, py))
-                own_add(px, py)
-                new_ring.append((px, py))
-                if new_alts is not None:
+            by_edge: dict = {}
+            for (_ei, _t, _pt, _dp) in inserts:
+                by_edge.setdefault(_ei, []).append((_t, _pt))
+            new_alts = []
+            for i in range(n):
+                ax, ay = ring[i]
+                bx, by = ring[(i + 1) % n]
+                new_alts.append(alts[i])
+                for t, (px, py) in by_edge.get(i, ()):
                     _da = (donor_alt.get((px, py))
                            if _recv_overlay else None)
                     if _da is not None:
@@ -758,28 +891,18 @@ def enforce_conformance(layout: "PavementLayout",
                     if cut_bound is not None:
                         _ins_alt = cut_bound(s, _ins_alt, px, py)
                     new_alts.append(_ins_alt)
-                inserted_here += 1
-        if not inserted_here:
-            continue
         # Rebuild the polygon; bail (leave shape untouched) if invalid —
         # LOUDLY: a bailed shape keeps every T-vertex it should have
         # welded, and the un-welded nodes Ruppert-explode the tile mesh.
-        # Interior rings MUST ride along: an exterior-only rebuild fills
-        # the shape's holes, silently covering whatever shape occupies
-        # them (SPJC: gap_pit_floor over an adjacent_ground strip inside
-        # its hole, 31.86 m² — the zero-tolerance self-overlap invariant).
-        try:
-            new_poly = Polygon(new_ring, [list(r.coords)
-                                          for r in s.polygon.interiors])
-            if not new_poly.is_valid or new_poly.is_empty:
+        new_poly, _bail = _rebuilt_ring_polygon(s, new_ring)
+        if new_poly is None:
+            if _bail == "invalid":
                 import O4_UI_Utils as UI
                 UI.vprint(1,
                     f"  [conformance] WARN: {s.role}/"
                     f"{getattr(s, 'ref', None)}: rebuilt ring invalid "
                     f"after {inserted_here} T-vertex insert(s) — shape "
                     f"left UNWELDED (mesh-sliver risk).")
-                continue
-        except Exception:
             continue
         s.polygon = new_poly
         if new_alts is not None and not flat_single_alt:

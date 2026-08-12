@@ -362,7 +362,10 @@ class TestSeawallPlumbing:
         # the cutter (``seed_area``) is unchanged by both.
         assert "admission = seawall_admission_area(patches_area," \
                " graded_area)" in source
-        assert "coastal = coastline_wall_admission(tile, sea_area)" in source
+        # R17c-3: and it is SCOPED to the airport's island by the graded
+        # coverage — the ruling's "never every flat rectangle on the tile".
+        assert "coastal = coastline_wall_admission( tile, sea_area, " \
+               "graded_area=" in source
         assert "ops.unary_union([admission, coastal])" in source
         assert "insert_seawalls(vector_map, tile, admission, seed_area)" \
                in source

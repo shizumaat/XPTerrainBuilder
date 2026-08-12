@@ -606,13 +606,29 @@ def route_band_violations(layout, noise=ELEV_ROUNDING_NOISE_M, G=None,
     Returns ``[(excess_m, side, role, x, y, elev, lo, hi), ...]`` worst (largest
     ``excess_m``) first."""
     from .elevation_per_surface.solver_primitives import _build_node_list
-    from .elevation_per_surface.building_feasibility import reach_band_unified
-    if G is None:
-        nodes, b2i = _build_node_list(layout)
-        if not nodes:
-            return []
-        G = GG.build_unified_graph(layout, b2i)
-    band = reach_band_unified(layout, G)
+    from .elevation_per_surface.building_feasibility import (
+        band_of_record, publish_band_of_record, reach_band_unified)
+    # ── ONE BAND CONSTRUCTION (round 17 §R17-1(c); owner ruling RULINGS
+    # 2026-08-11b, emphatic) ──────────────────────────────────────────
+    # THE BAND OF RECORD, when the solve published one: this check is the
+    # AS-BUILT CONFIRMATION of a rule the solve enforced, and confirming
+    # it against a DIFFERENT construction of the band confirms nothing.
+    # Measured at VHHH (vhhh17 recon + the r17 attribution build): the
+    # writeback clamp stamped a junction at −12.14 m because the carried
+    # band read [−12.93, −12.14] there, and this report — rebuilding the
+    # band on the emitted geometry, 6,019 route attachments against the
+    # solve's 8,599 — called that same node 17.23 m below ITS floor.  All
+    # 245 "material" rows were that disagreement.  The rebuild below now
+    # runs ONLY for a layout that never solved (a hermetic fixture, an
+    # offline reader), where it is the FIRST construction, not a second.
+    band = band_of_record(layout)
+    if band is None:
+        if G is None:
+            nodes, b2i = _build_node_list(layout)
+            if not nodes:
+                return []
+            G = GG.build_unified_graph(layout, b2i)
+        band = publish_band_of_record(layout, reach_band_unified(layout, G))
     roles = _band_roles()
 
     # SMALL buildings (grade_law.building_requires_full_frontage == False) are

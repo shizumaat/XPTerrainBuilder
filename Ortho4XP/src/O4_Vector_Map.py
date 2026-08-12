@@ -1,7 +1,7 @@
 import os
 import time
 import threading
-from math import pi, sin, cos, sqrt, atan, exp
+from math import pi, sin, cos, sqrt, atan, exp, floor
 import numpy
 from shapely import affinity, geometry, ops
 from shapely.prepared import prep
@@ -117,6 +117,35 @@ PATCH_RING_MARKER = (
 # untouched and the normal blends are unchanged.
 SEAWALL_OFFSET_M = 0.5
 SEAWALL_OFFSET_ENV = "O4_SEAWALL_OFFSET_M"
+
+# THE ADMISSION SET IS THE EMITTED GRADED COVERAGE (Round 17 §R17-3,
+# owner ruling: "the WHOLE airport edge is vertical sea wall").  The wall
+# law's geometry used to be ``patches_area`` — EVERY valid closed way in
+# the patch, which is the LAND cutter's union (R4) and includes the
+# aerodrome BOUNDARY ribbon and the water-spanning bridge/road ribbons.
+# The admission set is now role-scoped: the rings that carry a LAND
+# altitude.  Two spellings of the role vocabulary would be a second law,
+# so ``tests/test_r17_seawall_admission.py`` twin-asserts these against
+# ``auto_patch.layout``'s own constants; they are spelled literally here
+# only to keep the vector map's import light.
+#
+# EXCLUDED, and why: ``boundary`` (the OSM aerodrome boundary — VMMC's
+# spans real open sea, the standing R4 control), ``service_road`` /
+# ``bridge_causeway`` / ``bridge_trench`` (ribbon roles that legitimately
+# cross water), and the clearance / OLS cuts (cut-only rings, not graded
+# ground).
+SEAWALL_PAVEMENT_ROLES = frozenset({
+    "runway", "runway_crossing", "primary_parallel", "secondary_parallel",
+    "stub", "cross_connector", "apron", "junction", "service_junction",
+    "groundside_pavement", "building", "object_pad",
+})
+#: The declared causeway corridor (Round 17 §R17-2) rides the same
+#: admission as pavement: it is DECLARED graded ground.
+DECLARED_CORRIDOR_ROLE = "declared_corridor"
+GRADED_COVERAGE_ROLES = frozenset(SEAWALL_PAVEMENT_ROLES | {
+    "graded_strip", "tunnel_trench", "tunnel_ramp", "retaining_wall",
+    DECLARED_CORRIDOR_ROLE,
+})
 # Sea level.  The coastline limb of the wall sits at zero because that is
 # where O4_Mesh_Utils levels SEA triangles; the inland-water limb is given
 # the same altitude source the water rings themselves are draped on
@@ -143,6 +172,42 @@ def seawall_offset_m():
     return value if value > 0 else SEAWALL_OFFSET_M
 
 
+def declared_corridor_rings(tile):
+    """The owner's DECLARED corridors on this tile (Round 17 §R17-2).
+
+    Yields ``(polygon, (icao, lat0, lon0, lat1, lon1))`` with the polygon
+    in the vector map's TILE-RELATIVE frame (``lon - tile.lon``,
+    ``lat - tile.lat``).  The declaration is read through
+    ``auto_patch.flat_site.declared_flat_corridors`` — the same parser
+    the DEM-side substitution uses, so the ground that grades flat and
+    the ground that counts as land can never be two different boxes.
+
+    A corridor that does not intersect this tile is skipped.  Any
+    failure (no cfg key, an engine without ``auto_patch``) yields
+    nothing: a tile with no declaration behaves exactly as before.
+    """
+    try:
+        from auto_patch.flat_site import corridors_for_tile
+        # TILE CFG FIRST: the declaration is a per-tile key, and a tile
+        # cfg value lives on the Tile, not on the config module.
+        declared = corridors_for_tile(tile)
+    except Exception:
+        return
+    if not declared:
+        return
+    tile_lat, tile_lon = int(floor(tile.lat)), int(floor(tile.lon))
+    for icao, corridors in sorted(declared.items()):
+        for (lat0, lon0, lat1, lon1) in corridors:
+            if (lat1 < tile_lat or lat0 > tile_lat + 1
+                    or lon1 < tile_lon or lon0 > tile_lon + 1):
+                continue
+            x0, y0 = lon0 - tile_lon, lat0 - tile_lat
+            x1, y1 = lon1 - tile_lon, lat1 - tile_lat
+            yield (geometry.Polygon(
+                [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]),
+                (icao, lat0, lon0, lat1, lon1))
+
+
 def _flatten_linestrings(geom):
     """Every LineString inside ``geom``, at any nesting depth."""
     if geom is None or geom.is_empty:
@@ -155,6 +220,23 @@ def _flatten_linestrings(geom):
             out.extend(_flatten_linestrings(sub))
         return out
     return []
+
+
+def seawall_admission_area(patches_area, graded_area):
+    """THE WALL'S ADMISSION GEOMETRY (Round 17 §R17-3).
+
+    The emitted GRADED COVERAGE — ``include_patches``' role-scoped union
+    — when there is one, and the full patch union otherwise.  The
+    fallback is not a second law: it is the pre-R17 behaviour for a patch
+    that carries no role tags at all (a hand-written manual patch), where
+    "the rings that carry land altitudes" is unanswerable and the only
+    honest answer is the whole coverage.  A patch WITH roles never takes
+    it, so VMMC's aerodrome boundary ribbon — which spans real open sea —
+    is out of the admission set for every generated patch.
+    """
+    if graded_area is None or getattr(graded_area, "is_empty", True):
+        return patches_area
+    return graded_area
 
 
 def seawall_breaklines(patches_area, water_area, lat, offset_m=None):
@@ -667,7 +749,8 @@ def build_poly_file(tile):
         return 0
 
     # Airports
-    (apt_array, apt_area, patches_area) = include_airports(vector_map, tile)
+    (apt_array, apt_area, patches_area, graded_area) = include_airports(
+        vector_map, tile)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -688,7 +771,8 @@ def build_poly_file(tile):
         return 0
 
     # Sea
-    include_sea(vector_map, tile, patches_area=patches_area)
+    include_sea(vector_map, tile, patches_area=patches_area,
+                graded_area=graded_area)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -698,7 +782,8 @@ def build_poly_file(tile):
         return 0
 
     # Water
-    include_water(vector_map, tile, patches_area=patches_area)
+    include_water(vector_map, tile, patches_area=patches_area,
+                  graded_area=graded_area)
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)
     )
@@ -1039,9 +1124,10 @@ def include_airports(vector_map, tile):
     UI.vprint(0, "-> Dealing with airports")
     (airport_layer, dico_airports) = load_airports_and_prepare_dem(tile)
     if airport_layer is None:
-        return (0, 0, geometry.Polygon())
+        return (0, 0, geometry.Polygon(), geometry.Polygon())
     run_auto_patch_generation(tile, airport_layer, dico_airports)
-    (patches_area, patches_list) = include_patches(vector_map, tile)
+    (patches_area, patches_list, graded_area) = include_patches(
+        vector_map, tile)
     runway_taxiway_apron_area = APT.encode_runways_taxiways_and_aprons(
         tile, airport_layer, dico_airports, vector_map, patches_list,
         patches_area=patches_area,
@@ -1052,7 +1138,7 @@ def include_airports(vector_map, tile):
     APT.flatten_helipads(airport_layer, vector_map, tile, treated_area)
     # APT.encode_aprons(tile,dico_airports,vector_map)
     apt_array = APT.build_airport_array(tile, dico_airports)
-    return (apt_array, treated_area, patches_area)
+    return (apt_array, treated_area, patches_area, graded_area)
 
 
 ################################################################################
@@ -1252,7 +1338,7 @@ def _tidal_water_area(tile):
         return geometry.MultiPolygon()
 
 
-def include_sea(vector_map, tile, patches_area=None):
+def include_sea(vector_map, tile, patches_area=None, graded_area=None):
     """Encode the coastline and seed the SEA attribute.
 
     ``patches_area`` is the patch pavement union from
@@ -1370,11 +1456,13 @@ def include_sea(vector_map, tile, patches_area=None):
         # wall from the inland limb in ``include_water`` instead.  The
         # pavement subtraction inside ``seed_area`` costs nothing here:
         # the wall lies 0.5 m OUTSIDE the pavement.
-        insert_seawalls(vector_map, tile, patches_area, seed_area)
+        insert_seawalls(vector_map, tile,
+                        seawall_admission_area(patches_area, graded_area),
+                        seed_area)
 
 
 ################################################################################
-def include_water(vector_map, tile, patches_area=None):
+def include_water(vector_map, tile, patches_area=None, graded_area=None):
     """Encode the tile's inland water.
 
     ``patches_area`` is the patch pavement union from
@@ -1527,7 +1615,7 @@ def include_water(vector_map, tile, patches_area=None):
         insert_seawalls(
             vector_map,
             tile,
-            patches_area,
+            seawall_admission_area(patches_area, graded_area),
             inland_area,
             alt_vec=tile.dem.alt_vec,
         )
@@ -1662,12 +1750,18 @@ def include_patches(vector_map, tile):
     # +30+031, HECA + HEAZ ≈ 3.7k ways).  ``ops.unary_union`` at the end
     # computes the same region.
     patches_area_polys = []
+    # R17-3: the SEAWALL ADMISSION union — the rings whose role carries a
+    # LAND altitude (GRADED_COVERAGE_ROLES), which is a SUBSET of
+    # ``patches_area``: the aerodrome boundary ribbon and the
+    # water-spanning bridge/road ribbons are land cutters (R4) but must
+    # never admit a sea wall (VMMC's boundary spans real open sea).
+    graded_area_polys = []
     # Closed patch polygons, kept so that INTERP_ALT seeds can be placed
     # per planar FACE after all patch files are read (see below).
     interp_alt_patch_polygons = []
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
     if not os.path.exists(patch_dir):
-        return (patches_area, patches_list)
+        return (patches_area, patches_list, geometry.Polygon())
     # Sort patch files so manual patches are processed before auto patches.
     # This ensures manual patches take priority: if a manual patch covers an
     # airport, the corresponding _auto patch is skipped.
@@ -1909,6 +2003,12 @@ def include_patches(vector_map, tile):
                     pol = geometry.Polygon(way)
                     if pol.is_valid and pol.area:
                         patches_area_polys.append(pol)
+                        # R17-3: role-scoped seawall admission.  The role
+                        # tag is the patch's own (``layout.to_osm``);
+                        # a ring without one is not graded coverage.
+                        if (dt["w"].get(wayid, {}).get("role")
+                                in GRADED_COVERAGE_ROLES):
+                            graded_area_polys.append(pol)
                         # Pavement in our patch is LAND: the ring blocks
                         # the WATER / SEA / SEA_EQUIV floods as well as
                         # the INTERP_ALT one (see PATCH_RING_MARKER).
@@ -1935,6 +2035,52 @@ def include_patches(vector_map, tile):
                 vector_map.insert_way(
                     numpy.hstack([way, alti_way]), "DUMMY", check=True
                 )
+    # ── R17-2: THE DECLARED CORRIDORS ARE LAND ─────────────────────────
+    # (owner ruling 2026-08-11, spec round17 §R17-2.)  A declared
+    # corridor is graded ground the airport's patch does not draw: its
+    # ELEVATION comes from the flat-site constant inset baked over the
+    # same box, and here it takes the other two authorities — the ring
+    # blocks the sea flood (PATCH_RING_MARKER, the R4 idiom) and joins
+    # the wall admission set.  R4's "THE CUTTER IS THE PAVEMENT UNION"
+    # law gains the DECLARED CORRIDOR as an explicit, owner-authorised
+    # member: a ruled exception, not a drift.  The altitude is the
+    # tile's own DEM at the ring nodes — which is Z0 inside the box
+    # because the inset put it there — so there is exactly one authority
+    # for the corridor's level.
+    for (corridor_pol, corridor_box) in declared_corridor_rings(tile):
+        try:
+            ring = numpy.array(corridor_pol.exterior.coords, dtype=float)
+            alti_ring = numpy.asarray(
+                tile.dem.alt_vec(ring), dtype=float).reshape((len(ring), 1))
+            vector_map.insert_way(
+                numpy.hstack([ring, alti_ring]), PATCH_RING_MARKER,
+                check=True,
+            )
+        except Exception:
+            UI.vprint(1, "     Skipping an unusable declared corridor ring.")
+            continue
+        patches_area_polys.append(corridor_pol)
+        graded_area_polys.append(corridor_pol)
+        interp_alt_patch_polygons.append(corridor_pol)
+        UI.vprint(
+            1,
+            "   Declared corridor {}: lat {:.7f}..{:.7f} lon {:.7f}..{:.7f}"
+            " is LAND at {:.2f} m (mean of its ring) — sea floods stop at"
+            " it and its edges take sea walls.".format(
+                corridor_box[0], corridor_box[1], corridor_box[3],
+                corridor_box[2], corridor_box[4], float(alti_ring.mean())),
+        )
+    graded_area = geometry.Polygon()
+    if graded_area_polys:
+        try:
+            graded_area = ops.unary_union(graded_area_polys)
+        except Exception:
+            # A wall is a refinement: a union failure costs the wall,
+            # never the coastline.  (The land cutter below has its own
+            # per-polygon fallback because it costs the WATER LAW.)
+            UI.vprint(1, "     Seawall admission union failed — no wall "
+                         "this tile.")
+            graded_area = geometry.Polygon()
     if patches_area_polys:
         try:
             patches_area = ops.unary_union(patches_area_polys)
@@ -2007,7 +2153,7 @@ def include_patches(vector_map, tile):
                     tile,
                 )
             )
-    return (patches_area, patches_list)
+    return (patches_area, patches_list, graded_area)
 
 
 ################################################################################

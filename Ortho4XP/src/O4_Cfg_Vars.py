@@ -211,6 +211,20 @@ cfg_tile_vars = {
         "default": "",
         "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
     },
+    # ── DECLARED CORRIDORS (Round 17 §R17-2, owner ruling 2026-08-11)
+    # A causeway between an airport and the ground it connects to is
+    # neither apt.dat pavement nor a claimed-object cluster the datum
+    # check can accept (VHHH's connector cluster is refused at
+    # -10.82 m median, correctly).  The lawful path is a DECLARATION:
+    # inside the box the corridor grades flat at the airport's Z0, is
+    # LAND (the sea flood stops at its ring), and its long edges take
+    # sea walls.  OUTSIDE the box the water is untouched — that is why
+    # this is a box list and never a grown extent.
+    "flat_site_declared_corridors": {
+        "type": str,
+        "default": "",
+        "hint": "Owner-declared flat CORRIDORS (causeways) as ICAO:LAT0,LON0,LAT1,LON1 boxes, several separated by ';' (e.g. \"VHHH:22.3125624,113.9426422,22.3145276,113.9469981\"). Inside a declared box the ground grades flat at the airport's flat-site elevation, counts as land, and takes vertical sea walls on its edges; open water outside every box is untouched.",
+    },
     "modify_custom_airports": {
         "type": bool,
         "default": True,
@@ -706,6 +720,7 @@ list_vector_vars = [
     "auto_patch",
     "flat_site_declared",
     "flat_site_declared_elevation_m",
+    "flat_site_declared_corridors",
     "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",

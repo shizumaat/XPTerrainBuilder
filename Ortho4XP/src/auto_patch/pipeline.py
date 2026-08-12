@@ -50,6 +50,9 @@ from . import apt_dat_reader as APR
 # ``rod_ckpt`` returns immediately unless O4_ROD_CARRY_AUDIT=1, so the
 # post-solve checkpoint calls below are inert in a default build.
 from .rod_carry_audit import checkpoint as _rod_carry_checkpoint
+# Post-solve mutation seam audit (round 17 §R17-1(a)); returns immediately
+# unless O4_MUTATION_SEAM_AUDIT=1, so every seam below is inert by default.
+from .mutation_seam_audit import checkpoint as _mutation_seam_checkpoint
 
 
 def _rod_ckpt(layout, name: str) -> None:
@@ -58,18 +61,24 @@ def _rod_ckpt(layout, name: str) -> None:
     Two write-only instruments hang off the same seam list — they are the
     seams that EXIST, and neither invents one:
 
-    * the rod-carry checkpoint (gate ``O4_ROD_CARRY_AUDIT``), and
+    * the rod-carry checkpoint (gate ``O4_ROD_CARRY_AUDIT``),
     * the string mover ledger's ``final_proj_N.entry`` sub-boundary
       (round-2 spec §2; gate ``O4_STRING_MOVER_LEDGER``, which is the only
-      thing that puts a ledger on the layout).
+      thing that puts a ledger on the layout), and
+    * the post-solve MUTATION SEAM audit (round 17 §R17-1(a); gate
+      ``O4_MUTATION_SEAM_AUDIT``) — which pass moved the EMITTED
+      pavement, the attribution the projection's mutation-set count
+      cannot give because its window spans every stage at once.
 
-    Both gates off ⇒ one function call and one ``getattr`` per seam.
+    All gates off ⇒ one function call, one ``getattr`` and one env read
+    per seam.
     """
     _rod_carry_checkpoint(layout, name)
     if getattr(layout, "_string_mover_ledger", None) is not None:
         from .elevation_per_surface.route_profile.solve import (
             mover_stage_boundary as _mover_stage_boundary)
         _mover_stage_boundary(layout, name)
+    _mutation_seam_checkpoint(layout, name)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -6050,6 +6059,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         final_grade_projection(layout, icao, dem=_projection_dem,
                                tile_lat=_projection_tile_lat,
                                tile_lon=_projection_tile_lon)
+        _rod_ckpt(layout, "19_final_projection_mid")
 
         def _post_projection_conformance_passes():
             # PAD-IN-SOLVED-PAVEMENT HOST LEVEL (user 2026-07-10, round 6
@@ -6121,6 +6131,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # values, which a later projection then moves again (measured OTHH:
         # break-region pairs 42 → 61 without the reorder).
         _post_projection_conformance_passes()
+        _rod_ckpt(layout, "20_post_projection_conformance")
 
         # SPINE CROWN v2 (user ruling 2026-07-07, part 30): the crown is
         # built INSIDE the solve now — runway rings (uniform per-ref
@@ -6292,6 +6303,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             except _GEOM_EXC as exc:
                 UI.vprint(1, f"  [pav-builder] {icao}: adjacent-ground "
                              f"band emission FAILED: {exc!r}")
+        _rod_ckpt(layout, "21_skirts_gapfill_bands")
 
         # ── Obstacle limitation surfaces (gate OLS_CUT_ENABLED) ─────────
         # docs/specs/obstacle-limitation-surfaces-spec.md.  LAST of the
@@ -6547,6 +6559,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     f"pavement edges.")
         except _GEOM_EXC:
             pass
+    _rod_ckpt(layout, "22_weld_crown_densify")
 
     # ── STRIP RECONCILE (seam blend → tear heal → conflict walls) ───────
     # These three passes reconcile the graded_strip / adjacent_ground
@@ -6750,6 +6763,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: late final "
                          f"grade projection failed ({_late_fgp_exc!r}) "
                          f"— mid-pipeline projection values kept.")
+    _rod_ckpt(layout, "23_final_projection_late")
 
     # ★ DRAINAGE-SPINE LAW re-clamp (owner field report 2026-08-02, gate
     # O4_DRAINAGE_SPINE_LAW).  The gap spines were valued against the
@@ -6766,12 +6780,35 @@ def build_airport_pavement(icao: str, xplane_root: str,
         UI.vprint(1, f"  [pav-builder] WARN {icao}: drainage-spine "
                      f"re-clamp failed ({_spine_reclamp_exc!r}) — "
                      f"emitted spine values kept.")
+    _rod_ckpt(layout, "24_spine_reclamp")
 
     # ★ SPEC §2b: the strip reconcile unit runs HERE by default — after the
     # last pavement move, so graded strips settle against the pavement that
     # actually ships instead of a value the late projection then invalidates.
     if _strip_resolve_last:
         _strip_reconcile_passes()
+    _rod_ckpt(layout, "25_strip_reconcile")
+
+    # ★ THE CLAMP IS THE LAST ELEVATION AUTHOR (round 17 §R17-1(b);
+    # docs/specs/round17-vhhh-reclaimed-island-spec.md).  Every emitter,
+    # every weld, both final projections and the strip reconcile have
+    # run: this is the last point in the pipeline that can see a
+    # pavement altitude before ``to_osm`` spells it.  The reach-band
+    # clamp runs HERE, on THE band of record (§R17-1(c)) — so the order
+    # is structural, not "currently last by luck" — and seals the result
+    # so a post-seal author can be NAMED rather than inferred (the seal
+    # is verified beside the band report below).
+    if compute_elevations:
+        try:
+            from .elevation_per_surface.solver_primitives import (
+                seal_pavement_to_band as _seal_band)
+            _seal_band(layout, icao)
+        except _GEOM_EXC as _seal_exc:
+            UI.vprint(1, f"  [pav-builder] WARN {icao}: final band seal "
+                         f"failed ({_seal_exc!r}) — emitted values kept, "
+                         f"and the clamp is NOT the last author on this "
+                         f"build.")
+    _rod_ckpt(layout, "26_band_seal")
 
 
     # ★ THE LOUD ERROR (spec ``docs/specs/kill-half-spec.md`` §3) — the
@@ -6830,6 +6867,39 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1, f"  [pav-builder] WARN {icao}: final band EXCESS "
                          f"report failed ({_band_excess_exc!r}) — membership "
                          f"NOT measured this build.")
+
+        # THE SEAL VERIFICATION (round 17 §R17-1(b)): did anything write
+        # a pavement altitude after the clamp?  Reported at zero too —
+        # an absent line means the seal did not run.
+        try:
+            from .elevation_per_surface.solver_primitives import (
+                verify_band_seal as _verify_seal)
+            _seal_moved = _verify_seal(layout)
+            if _seal_moved is None:
+                UI.vprint(1, f"  [band-seal] {icao}: NOT SEALED this build "
+                             f"— the last-author law is unproven here.")
+            elif _seal_moved:
+                UI.vprint(1, f"  [band-seal] {icao}: {len(_seal_moved)} "
+                             f"shape(s) MOVED AFTER THE CLAMP — the clamp "
+                             f"is not the last author: "
+                             + "; ".join(f"#{i} {role} {dz:+.3f} m"
+                                         for i, role, dz in _seal_moved[:5]))
+            else:
+                UI.vprint(1, f"  [band-seal] {icao}: SEAL INTACT — no "
+                             f"pavement altitude was written after the "
+                             f"band clamp.")
+        except Exception as _seal_ver_exc:                 # pragma: no cover
+            UI.vprint(1, f"  [band-seal] {icao}: seal verification FAILED "
+                         f"({_seal_ver_exc!r}).")
+
+        # THE SEAM LEDGER (round 17 §R17-1(a)) — which post-solve pass
+        # moved the emitted surface, at the seams the pipeline marks.
+        # Gate off (the default) ⇒ one env read.
+        try:
+            from .mutation_seam_audit import report as _seam_report
+            _seam_report(layout, icao)
+        except Exception:                                  # pragma: no cover
+            pass
 
     # GROUNDSIDE LAW SEATING — what every groundside ring was seated ON
     # (cycle-6 ingestion, spec Part D).  The requirement is that a ring

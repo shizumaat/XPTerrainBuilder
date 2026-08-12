@@ -1554,6 +1554,41 @@ def assert_no_final_band_inversion(layout, icao="",
     raise BandInversionError("\n".join(lines))
 
 
+#: Where THE band of record lives on the layout (round 17 §R17-1(c)).
+BAND_OF_RECORD_ATTR = "_band_of_record"
+
+
+def publish_band_of_record(layout, band):
+    """Record ``band`` as THE band this solve constructed, and return it.
+
+    ONE BAND CONSTRUCTION (owner ruling, RULINGS 2026-08-11b, emphatic):
+    "the reach band is constructed ONCE per solve; every consumer — the
+    writeback clamp, the final band-excess report, seats, endpoints —
+    reads THAT band.  A second construction is a defect wherever it
+    appears."  The vhhh17 finding is what that ruling is about: the
+    writeback clamp resolved the CARRIED band and stamped a junction at
+    −12.14 m (its band read [−12.93, −12.14] where the solve had solved
+    7.01), while the final band-excess report REBUILT the band on the
+    emitted geometry and reported that same node 17.23 m below ITS
+    floor.  Two constructions, two verdicts, one surface.
+    """
+    try:
+        setattr(layout, BAND_OF_RECORD_ATTR, band)
+    except AttributeError:                                 # pragma: no cover
+        pass
+    return band
+
+
+def band_of_record(layout):
+    """THE band this solve constructed, or ``None`` if none was published.
+
+    ``None`` is a real answer — a layout that never solved (a probe, a
+    hermetic fixture, an offline reader) has no band of record, and the
+    caller's own construction is then the ONLY construction in that
+    process, not a second one."""
+    return getattr(layout, BAND_OF_RECORD_ATTR, None)
+
+
 def reach_band_unified(layout, G):
     """THE reach band — ONE engine, route-metric, service-excluded.
 

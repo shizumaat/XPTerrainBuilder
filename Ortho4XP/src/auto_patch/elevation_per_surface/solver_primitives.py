@@ -3526,8 +3526,30 @@ def _clamp_corner_elevs_to_band(layout, coords_open, corner_elevs, band,
             getattr(shape, "ref", "") or "",
             round(stamped - value_f, 4), side,
             round(px, 2), round(py, 2),
+            # THE INTERVAL THAT DID IT (round 17 §R17-1(a)): a clamp
+            # finding without the band it clamped TO names the victim and
+            # not the authority.  VHHH's worst clamp reads "-19.15 m on
+            # junction" — which is only attributable once the log says
+            # whether the band said [4.6, 9.4] or [-13, -12].
+            (None if floor_m is None else round(float(floor_m), 3)),
+            (None if ceiling_m is None else round(float(ceiling_m), 3)),
+            round(profile_v, 3),
         ))
     return out if out is not None else corner_elevs
+
+
+def _finding_band_note(finding) -> str:
+    """" — solved z′ V against band [floor, ceiling]" for a clamp finding.
+
+    Empty for a finding minted before the interval fields existed (the
+    hermetic tests build 7-tuples), so no caller has to know the length.
+    """
+    if len(finding) < 10:
+        return ""
+    floor_m, ceiling_m, profile_v = finding[7], finding[8], finding[9]
+    return (f" — solved z′ {float(profile_v):.2f} against band "
+            f"[{'None' if floor_m is None else format(float(floor_m), '.2f')}, "
+            f"{'None' if ceiling_m is None else format(float(ceiling_m), '.2f')}]")
 
 
 def _record_band_clamp_findings(layout, findings) -> None:
@@ -3555,11 +3577,198 @@ def _record_band_clamp_findings(layout, findings) -> None:
             f"into the unified reach band ({len(floor_side)} floor-side, "
             f"{len(findings) - len(floor_side)} ceiling-side); worst "
             f"{float(worst[3]):+.2f} m on {worst[1]}/{worst[2]} at "
-            f"({worst[5]:.0f}, {worst[6]:.0f}).  A clamp is EVIDENCE of a "
+            f"({worst[5]:.0f}, {worst[6]:.0f})"
+            f"{_finding_band_note(worst)}.  A clamp is EVIDENCE of a "
             f"solver defect upstream, not a fix — see "
             f"docs/DEFERRED_VERIFICATION.md (band-escape attribution).")
     except Exception:                                      # pragma: no cover
         pass
+
+
+#: Where the seal's fingerprint of the emitted pavement lives.
+BAND_SEAL_ATTR = "_band_clamp_seal"
+
+#: Roles the FINAL clamp never touches, because their values are HARD by
+#: law and a late clamp could only fight the datum that set them:
+#: ROLE_RUNWAY (CIFP-absolute, "airside is king" — the writeback exempts
+#: it for the same reason), ROLE_RUNWAY_CROSSING (runway-interpolated
+#: node altitudes) and the object-bridge plates (hard pins written at
+#: shape birth, `layout._object_bridge_pin_values`).
+SEAL_HARD_ROLES = frozenset({
+    ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_BRIDGE_TRENCH,
+    ROLE_BRIDGE_CAUSEWAY,
+})
+
+
+def _shape_ring_and_values(shape):
+    """``(open ring, per-vertex values, form)`` for an emitted shape.
+
+    ``form`` is ``"node"`` / ``"plane"`` / ``"const"`` — which altitude
+    field the values came from, so the seal can write them back in the
+    same form it read them (never converting a plane rect into a
+    per-node shape, which would change what X-Plane draws).
+    """
+    poly = getattr(shape, "polygon", None)
+    if poly is None or poly.is_empty:
+        return None, None, None
+    try:
+        coords = list(poly.exterior.coords)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None, None, None
+    ring = coords[:-1] if coords and coords[0] == coords[-1] else coords
+    if not ring:
+        return None, None, None
+    node_alts = getattr(shape, "node_altitudes", None)
+    if node_alts is not None:
+        vals = list(node_alts)
+        if len(vals) == len(ring) + 1:
+            vals = vals[:-1]
+        if len(vals) == len(ring) and all(v is not None for v in vals):
+            return ring, [float(v) for v in vals], "node"
+        return None, None, None
+    hi = getattr(shape, "altitude_high", None)
+    lo = getattr(shape, "altitude_low", None)
+    if hi is not None and lo is not None and len(ring) == 4:
+        return ring, [float(hi), float(lo), float(lo), float(hi)], "plane"
+    alt = getattr(shape, "altitude", None)
+    if alt is not None:
+        return ring, [float(alt)] * len(ring), "const"
+    return None, None, None
+
+
+def seal_pavement_to_band(layout, icao: str = "", band=None):
+    """THE CLAMP IS THE LAST ELEVATION AUTHOR (round 17 §R17-1(b)).
+
+    The R8-2 writeback clamp confines every value the SOLVER publishes;
+    it does not confine what the passes AFTER the solve publish — band
+    emission, welds, tile cuts, densify, the two final projections, the
+    strip reconcile.  Whether any of them re-authors a pavement altitude
+    used to be a question answerable only by measuring
+    (``O4_MUTATION_SEAM_AUDIT=1``, which is how this round answered it).
+    This pass makes it structural: it runs at the END of
+    ``build_airport_pavement``, after every emitter and every projection,
+    and confines the EMITTED altitudes — the numbers ``to_osm`` spells —
+    to THE band of record.  Nothing in the pipeline runs after it.
+
+    ONE BAND, ONE CLAMP.  The interval comes from
+    ``building_feasibility.band_of_record`` (§R17-1(c)) — the same object
+    the writeback clamp resolved and the same object the band-excess
+    report reads, so the three cannot disagree.  No band of record ⇒
+    NOTHING is clamped and the pass says so: a band-less airport is not a
+    reason to invent one here.
+
+    ROLE_RUNWAY is not clamped (CIFP-hard, "airside is king"), and the
+    write-back form is preserved per shape.  Every material clamp is a
+    counted, logged finding on ``layout.band_clamp_findings``, exactly as
+    at the writeback — a clamp is EVIDENCE, never silence.
+
+    Returns the number of shapes changed, and seals the result: see
+    :func:`verify_band_seal`.
+    """
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        band_of_record)
+    if band is None:
+        band = band_of_record(layout)
+    findings: list = []
+    n_shapes = 0
+    if band is not None:
+        for s in getattr(layout, "shapes", ()) or ():
+            if s.role not in PAVEMENT_ROLES or s.role in SEAL_HARD_ROLES:
+                continue
+            ring, vals, form = _shape_ring_and_values(s)
+            if ring is None:
+                continue
+            before = list(vals)
+            out = _clamp_corner_elevs_to_band(
+                layout, ring, vals, band, s, findings)
+            if out is before or list(out) == before:
+                continue
+            n_shapes += 1
+            # A FLAT SHAPE STAYS FLAT.  A building pad is a rigid flat
+            # group and an apron seated level is one surface: clamping it
+            # per-vertex would mint the within-shape rows this pass
+            # exists to prevent.  One level for the whole ring — the one
+            # the clamp moved furthest, so no vertex is left outside its
+            # own interval on the side the clamp acted.
+            if max(before) - min(before) <= WRITEBACK_BAND_CLAMP_MATERIALITY_M:
+                level = round(float(
+                    max(out, key=lambda v: abs(v - before[0]))), 2)
+                out = [level] * len(out)
+            if form == "node":
+                s.node_altitudes = list(out)
+            elif form == "plane":
+                s.altitude_high = round(float(max(out[0], out[3])), 2)
+                s.altitude_low = round(float(min(out[1], out[2])), 2)
+            else:
+                # A constant shape stays constant: take the value the
+                # clamp moved FURTHEST from its solved level, so no
+                # corner is left outside its own interval on the side
+                # the clamp acted.
+                s.altitude = round(float(
+                    max(out, key=lambda v: abs(v - before[0]))), 2)
+    _record_band_clamp_findings(layout, findings)
+    try:
+        import O4_UI_Utils as _UI
+        if band is None:
+            _UI.vprint(1, f"  [band-seal] {icao}: NO band of record — "
+                          f"nothing clamped, and the emitted pavement is "
+                          f"NOT confined to any band this build.")
+        else:
+            _UI.vprint(1, f"  [band-seal] {icao}: the band clamp is the "
+                          f"LAST elevation author — {n_shapes} shape(s) "
+                          f"re-clamped after every post-solve pass "
+                          f"({len(findings)} vertex finding(s)).")
+    except Exception:                                      # pragma: no cover
+        pass
+    _seal_pavement(layout)
+    return n_shapes
+
+
+def _seal_pavement(layout) -> None:
+    """Fingerprint the emitted pavement altitudes at the seal."""
+    try:
+        setattr(layout, BAND_SEAL_ATTR, _pavement_fingerprint(layout))
+    except AttributeError:                                 # pragma: no cover
+        pass
+
+
+def _pavement_fingerprint(layout) -> dict:
+    out: dict = {}
+    for i, s in enumerate(getattr(layout, "shapes", ()) or ()):
+        if s.role not in PAVEMENT_ROLES or s.role == ROLE_RUNWAY:
+            continue
+        _ring, vals, _form = _shape_ring_and_values(s)
+        if vals is not None:
+            out[i] = tuple(vals)
+    return out
+
+
+def verify_band_seal(layout):
+    """Which shapes moved AFTER the seal — the proof that none can.
+
+    Returns ``[]`` when nothing wrote a pavement altitude after
+    :func:`seal_pavement_to_band` (the structural claim), or the list of
+    ``(shape index, role, worst |dz|)`` that did.  A post-seal author is
+    a DEFECT and is named; the caller decides what to do about it, and
+    the build log says it happened either way.  ``None`` when there is no
+    seal to verify against (the pass did not run).
+    """
+    sealed = getattr(layout, BAND_SEAL_ATTR, None)
+    if sealed is None:
+        return None
+    now = _pavement_fingerprint(layout)
+    moved = []
+    shapes = list(getattr(layout, "shapes", ()) or ())
+    for i, before in sealed.items():
+        after = now.get(i)
+        if after is None or len(after) != len(before):
+            continue
+        worst = max((abs(a - b) for a, b in zip(after, before)), default=0.0)
+        if worst > WRITEBACK_BAND_CLAMP_MATERIALITY_M:
+            role = shapes[i].role if i < len(shapes) else "?"
+            moved.append((i, role, round(float(worst), 4)))
+    moved.sort(key=lambda row: -row[2])
+    return moved
 
 
 def _writeback(layout, elev, bucket_to_idx, band=None):

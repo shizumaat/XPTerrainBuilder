@@ -205,7 +205,10 @@ def _run_include_patches(tmp_path, monkeypatch):
         VMAP.FNAMES, "patch_dir", lambda lat, lon: str(patch_dir)
     )
     vector_map = VECT.Vector_Map()
-    (patches_area, patches_list) = VMAP.include_patches(vector_map, tile)
+    # R17-3 added the role-scoped seawall admission union as a third
+    # return value; the LAND authority this file is about is unchanged.
+    (patches_area, patches_list, _graded) = VMAP.include_patches(
+        vector_map, tile)
     return (vector_map, patches_area, patches_list, ring, tile)
 
 
@@ -374,12 +377,12 @@ class TestPavementUnionReachesTheSeeding:
             inspect.getsource(VMAP.build_poly_file).split()
         )
         assert (
-            "(apt_array, apt_area, patches_area) ="
-            " include_airports(vector_map, tile)" in source
+            "(apt_array, apt_area, patches_area, graded_area) ="
+            " include_airports( vector_map, tile)" in source
         )
         assert (
-            "include_sea(vector_map, tile, patches_area=patches_area)"
-            in source
+            "include_sea(vector_map, tile, patches_area=patches_area,"
+            " graded_area=graded_area)" in source
         )
 
     def test_include_airports_without_airports_returns_an_empty_union(
@@ -389,5 +392,7 @@ class TestPavementUnionReachesTheSeeding:
             VMAP, "load_airports_and_prepare_dem", lambda tile: (None, None)
         )
         result = VMAP.include_airports(VECT.Vector_Map(), _Tile())
-        assert len(result) == 3
+        # R17-3: (apt_array, treated_area, patches_area, graded_area).
+        assert len(result) == 4
         assert result[2].is_empty
+        assert result[3].is_empty

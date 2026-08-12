@@ -191,7 +191,13 @@ def reach_band_for(layout, elev, bucket_to_idx, dem, tile_lat, tile_lon,
 
     runway_pts = _runway_edge_pts(layout, elev, bucket_to_idx)
     G = unified_graph
-    band = reach_band_unified(layout, G)
+    # THE BAND OF RECORD (round 17 §R17-1(c), owner ruling 2026-08-11b).
+    # This is the solve's own construction — the line the carried
+    # ``env_band`` store is minted from — so it is the object every later
+    # consumer must read rather than build a second one of.
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        publish_band_of_record)
+    band = publish_band_of_record(layout, reach_band_unified(layout, G))
 
     def _dem(x, y):
         try:

@@ -1294,7 +1294,7 @@ class TestStructureRingHullFill:
 
     # Three tiny 2 m "masts" at the corners of a ~100 m triangle: tall
     # (passes the building-height floor) but the hull is ~99.98 % empty.
-    def _sparse_ring(self):
+    def _sparse_ring(self, resource="a.obj"):
         vertices = []
         triangles = []
         for cx, cz in ((0.0, 0.0), (100.0, 0.0), (0.0, 100.0)):
@@ -1308,13 +1308,53 @@ class TestStructureRingHullFill:
             triangles += [(base, base + 1, base + 2),
                           (base + 3, base + 4, base + 5)]
         geometry = make_geometry(vertices, triangles)
-        structure = make_structure({"a.obj": triangles}, {"a.obj": 0.0})
+        structure = make_structure({resource: triangles}, {resource: 0.0})
         return object_footprints.structure_ring(
-            structure, {"a.obj": geometry}, [make_placement("a.obj")])
+            structure, {resource: geometry}, [make_placement(resource)])
 
     def test_sparse_bases_get_no_pad(self, fake_projection, monkeypatch):
         monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
         assert self._sparse_ring() is None
+
+    def test_pack_hangar_directory_does_not_disable_the_floor(
+            self, fake_projection, monkeypatch):
+        # r18b ruling 1 (PARKED behind DSF_OBJECT_NAME_VOUCH_SCOPED):
+        # with the gate ON the floors' name-vouch is
+        # ``evidence_name_vouches`` — basename or library virtual path —
+        # so a payware pack's DIRECTORY name cannot switch them off.
+        # Measured at HECA: the wide path-anywhere predicate vouched 667
+        # of 817 rings under ``Airport/Hangar_Tower/`` and kept every
+        # phantom pad; 817 → 210 rings with the scoped predicate.
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
+        monkeypatch.setattr(config, "DSF_OBJECT_NAME_VOUCH_SCOPED", True)
+        assert self._sparse_ring(
+            "Airport/Hangar_Tower/jet_blast_02.obj") is None
+        assert self._sparse_ring("Airport/Hangar/Plastic.obj") is None
+
+    def test_gate_off_keeps_the_shipped_wide_predicate(
+            self, fake_projection, monkeypatch):
+        # THE PARKED STATE IS ALSO A CONTRACT (r18b STOP): default OFF is
+        # the shipped behaviour — the pack directory still vouches and
+        # the floor still yields — so the park is measured, not assumed.
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
+        monkeypatch.setattr(config, "DSF_OBJECT_NAME_VOUCH_SCOPED", False)
+        assert self._sparse_ring(
+            "Airport/Hangar_Tower/jet_blast_02.obj") is not None
+
+    def test_library_hangar_path_still_vouches_past_the_floor(
+            self, fake_projection, monkeypatch):
+        # The CYXY 2026-07-28 calibration case, preserved by
+        # construction under BOTH gate states: the stock arched hangar's
+        # footings project ~0.001 of its hull, and its LIBRARY VIRTUAL
+        # PATH is the library author's semantic statement, so the floor
+        # yields either way.
+        monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.1)
+        for scoped in (True, False):
+            monkeypatch.setattr(
+                config, "DSF_OBJECT_NAME_VOUCH_SCOPED", scoped)
+            assert self._sparse_ring(
+                "lib/airport/Common_Elements/Hangars/hangar_01.obj"
+            ) is not None, scoped
 
     def test_zero_disables_the_gate(self, fake_projection, monkeypatch):
         monkeypatch.setattr(config, "DSF_OBJECT_MIN_FOOTPRINT_FILL", 0.0)

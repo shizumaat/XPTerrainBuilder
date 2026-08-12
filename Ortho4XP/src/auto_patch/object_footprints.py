@@ -231,6 +231,25 @@ def evidence_name_vouches(resource_paths) -> bool:
     return False
 
 
+def _wide_path_name_vouches(resource_paths) -> bool:
+    """The SHIPPED (wide) name-vouch of the two hull floors — a token
+    ANYWHERE in the resource path.
+
+    Kept only because ``DSF_OBJECT_NAME_VOUCH_SCOPED`` is parked OFF
+    (r18b STOP — the gate's comment in ``config`` carries the measured
+    numbers).  It is a claim about the DIRECTORY as often as the object,
+    which is exactly the HECA trap ``evidence_name_vouches`` above
+    refuses; when the band remedy lands, this function goes with the
+    gate and ``evidence_name_vouches`` is the only implementation.
+    """
+    for resource_path in resource_paths:
+        lowered = resource_path.lower()
+        if ("hangar" in lowered or "term_building" in lowered
+                or "/terminal" in lowered):
+            return True
+    return False
+
+
 def _triangle_union_footprint(
     triangle_corner_points: list[tuple[tuple[float, float],
                                        tuple[float, float],
@@ -678,6 +697,7 @@ def structure_ring(
         DSF_OBJECT_MIN_BUILDING_HEIGHT_M,
         DSF_OBJECT_MIN_FOOTPRINT_FILL,
         DSF_OBJECT_MIN_TALL_BASE_FILL,
+        DSF_OBJECT_NAME_VOUCH_SCOPED,
         DSF_OBJECT_TALL_MEMBER_MIN_EXTENT_M,
     )
 
@@ -876,10 +896,17 @@ def structure_ring(
     # ``evidence_name_vouches`` — the SAME predicate the R18-2 evidence
     # gate uses, and the one the CYXY 2026-07-28 case was calibrated for
     # (a STOCK LIBRARY hangar at ``lib/airport/…``, which vouches via its
-    # library virtual path) — is now the ONE implementation; the wide
-    # predicate is deleted (r18b spec ruling 1).  Measured at HECA:
-    # 817 → 210 rings, every survivor's hull fill 0.11-1.64.
-    name_vouched = evidence_name_vouches(structure.triangles_by_resource)
+    # library virtual path) — is the correct predicate, and the r18b spec
+    # ruled the substitution TOTAL.  It is PARKED behind
+    # ``DSF_OBJECT_NAME_VOUCH_SCOPED`` (default OFF) instead: measured
+    # right on population (HECA 817 → 210 rings, 215 → 73 building pads)
+    # and it makes the HECA build REFUSE the final band-inversion law,
+    # whose remedy is measured OUTSIDE this file — see the gate's own
+    # comment in ``config`` for the numbers and the STOP.
+    name_vouched = (
+        evidence_name_vouches(structure.triangles_by_resource)
+        if DSF_OBJECT_NAME_VOUCH_SCOPED
+        else _wide_path_name_vouches(structure.triangles_by_resource))
     if evidence_out is not None:
         evidence_out["use_base_vertices"] = use_base_vertices
         evidence_out["name_vouched"] = name_vouched

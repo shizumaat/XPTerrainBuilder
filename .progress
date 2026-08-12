@@ -1,1 +1,7 @@
 START 2026-08-12T19:59:50Z t11vouch phase1 read-spec
+ARM-B start 2026-08-12T20:04:00Z
+ARM-A start 2026-08-12T20:05:26Z (t11base worktree, 07eb113)
+phase1 arms running; A flex 3 runways resid 51.33, B flex 2 runways resid 56.31 2026-08-12T20:10:37Z
+ARM-C start 2026-08-12T20:17:28Z (substitution + flex round cap 40, attribution only)
+phase1 VERDICT: anchors legit (hard seeds 736/627/109 identical, CIFP pins identical); flex law line moved (drained 428.86->349.84); both arms hit round cap 12 with residual 51.33/56.31 m; arm C (cap 40) running 2026-08-12T20:19:11Z
+controls DONE: CYXY + KSTJ byte-identical bodies (07321502759a / 70eb39d813a7), KSTJ 0 band inversions, shared repo UNCHANGED; awaiting arm C 2026-08-12T20:23:18Z

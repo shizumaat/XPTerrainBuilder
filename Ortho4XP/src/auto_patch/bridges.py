@@ -3165,9 +3165,39 @@ def _emit_portal_cluster(
         #    combined carriageways at the cluster face line.  Overlap
         #    with the roof cover is at the SAME grade — benign.
         try:
-            cap_poly = Polygon([c0, c1, c1_back, c0_back])
+            # R16-2b (round-16 amendment 1): THE CAP FACE IS OWNED
+            # GEOMETRY TOO.  The cap used to stop at the portal station
+            # while the mouth plate starts ``wall_gap_m`` further out,
+            # leaving the same unowned strip the wall bands had —
+            # measured at KCLT: 3 cap nodes 1.16/5.10 m above the
+            # pavement across a 0.60-1.71 m gap no shape owned.  The cap
+            # now reaches the mouth plate's NEAR EDGE, carries the
+            # mouth's grade on the two vertices it shares with it (the
+            # plate's own near corners, coincident by construction and
+            # welded by the canonical point registry), and keeps the
+            # deck grade on its crest.  Its outboard half-width and its
+            # back face are unchanged, so nothing outside the cap moved.
+            _cap_f = (cap_centre[0] + first_dir[0] * wall_gap_m,
+                      cap_centre[1] + first_dir[1] * wall_gap_m)
+            _cap_ring = [
+                (_cap_f[0] + first_perp[0] * cap_half_len,
+                 _cap_f[1] + first_perp[1] * cap_half_len),
+                (_cap_f[0] + first_perp[0] * combined_half,
+                 _cap_f[1] + first_perp[1] * combined_half),
+                (_cap_f[0] - first_perp[0] * combined_half,
+                 _cap_f[1] - first_perp[1] * combined_half),
+                (_cap_f[0] - first_perp[0] * cap_half_len,
+                 _cap_f[1] - first_perp[1] * cap_half_len),
+                c1_back, c0_back,
+            ]
+            _cap_alts = [round(deck_grade, 2),
+                         round(mouth_grade, 2), round(mouth_grade, 2),
+                         round(deck_grade, 2),
+                         round(deck_grade, 2), round(deck_grade, 2)]
+            cap_poly = Polygon(_cap_ring)
             if not cap_poly.is_valid:
                 cap_poly = cap_poly.buffer(0)
+                _cap_alts = None          # ring order no longer aligned
             if (cap_poly.geom_type == "Polygon"
                     and not cap_poly.is_empty):
                 if _append_tunnel_cover(
@@ -3176,7 +3206,11 @@ def _emit_portal_cluster(
                             polygon=cap_poly,
                             role=ROLE_RETAINING_WALL,
                             ref="tunnel_cap",
-                            altitude=round(deck_grade, 1))):
+                            altitude=(round(deck_grade, 1)
+                                      if _cap_alts is None else None),
+                            node_altitudes=(
+                                None if _cap_alts is None
+                                else _cap_alts + [_cap_alts[0]]))):
                     emitted_any = True
         except _GEOM_EXC:
             pass

@@ -1272,6 +1272,7 @@ class PavementLayout:
         # tags prevail where it covers.  A true multipolygon hole needs
         # a patch-parser change and is named as such.
         _interior_rings: list = []
+        _n_hole_needle = 0          # R16-4b: hole-ring needle removals
         way_blocks: list[tuple[int, list[int], dict[str, str]]] = []
         # Pass-1 holding pen: each entry survives validation +
         # interning and waits for the consensus pass to write its
@@ -1600,8 +1601,55 @@ class PavementLayout:
                     _h_nids, _ = _ring_to_nids(_hole.coords, None)
                 except _GEOM_EXC:
                     continue
-                if _h_nids and len(_h_nids) >= 4:
-                    _interior_rings.append(_h_nids)
+                if not _h_nids or len(_h_nids) < 4:
+                    continue
+                # ── R16-4b: INTERIOR RINGS ARE REMOVAL SOURCES TOO
+                # (round-16 amendment 1) ──────────────────────────────
+                # The sliver-corner repair above runs on EXTERIOR rings
+                # only, so a needle tip that lives on a hole ring
+                # survived at any angle: measured in the OTHH patch, two
+                # interior-ring tips at 1.44° and 0.58° — inside the
+                # emitter's own ``SLIVER_ANGLE_THRESHOLD_DEG`` (2.0°) —
+                # shipped as constrained needles Triangle refines.  The
+                # ring joins the repair here under the SAME constants
+                # (no new threshold: the 25° reading covers 1,189 lawful
+                # corners and was refused).  A removed nid enters
+                # ``emit_removed_nids`` like any other, so the
+                # chain-consistent pass takes it out of every partner
+                # chain it is near-collinear in — the law running in the
+                # direction R16-1 opened.
+                _h_open = list(_h_nids[:-1])
+                _h_m = [self.ll_to_m(*node_id_to_ll[_n]) for _n in _h_open]
+                _cos_hole = math.cos(
+                    math.radians(SLIVER_ANGLE_THRESHOLD_DEG))
+                for _h_attempt in range(len(_h_m)):
+                    _hm = len(_h_m)
+                    if _hm < 4:
+                        break
+                    _h_worst_i = None
+                    _h_worst_c = _cos_hole
+                    for _hvi in range(_hm):
+                        _hax, _hay = _h_m[(_hvi - 1) % _hm]
+                        _hbx, _hby = _h_m[_hvi]
+                        _hcx, _hcy = _h_m[(_hvi + 1) % _hm]
+                        _h1x, _h1y = _hax - _hbx, _hay - _hby
+                        _h2x, _h2y = _hcx - _hbx, _hcy - _hby
+                        _hn1 = math.hypot(_h1x, _h1y)
+                        _hn2 = math.hypot(_h2x, _h2y)
+                        if _hn1 < 1e-9 or _hn2 < 1e-9:
+                            continue
+                        _hc = (_h1x * _h2x + _h1y * _h2y) / (_hn1 * _hn2)
+                        if _hc > _h_worst_c:
+                            _h_worst_c = _hc
+                            _h_worst_i = _hvi
+                    if _h_worst_i is None:
+                        break
+                    emit_removed_nids.add(_h_open[_h_worst_i])
+                    del _h_m[_h_worst_i]
+                    del _h_open[_h_worst_i]
+                    _n_hole_needle += 1
+                if len(_h_open) >= 3:
+                    _interior_rings.append(_h_open + [_h_open[0]])
 
         # ── NID-LEVEL FINAL WELD (chain identity, 2026-07-09) ────
         # The canonical-point interning above can move a vertex
@@ -1763,6 +1811,116 @@ class PavementLayout:
                     f"dropped {n_chain} partner vertex(es) so welded "
                     f"seam chains stay identical (exterior ways AND "
                     f"interior hole rings).")
+
+        if _n_hole_needle:
+            UI.vprint(1,
+                f"  [pav-builder] hole-ring needle repair (R16-4b): "
+                f"{_n_hole_needle} interior-ring needle vertex(es) "
+                f"removed at the emitter's own "
+                f"{SLIVER_ANGLE_THRESHOLD_DEG}° threshold — interior "
+                f"rings are removal SOURCES, not just partners.")
+
+        # ── R16-1b THE HOLE ADOPTS THE PAD'S CHAIN (round-16
+        # amendment 1) ────────────────────────────────────────────────
+        # MEASURED GENERATOR of the twin-ring class (OTHH pads frame,
+        # single-tree A/B): the differing vertices are NEVER removal
+        # products — every pair is this interning path spelling the hole
+        # DENSER than the pad's exterior chain (extra vertices are
+        # single-owner, UNVALUED, 0.00-2.29 mm off the pad's chord).
+        # One boundary, one spelling: a hole ring that bounds the same
+        # boundary an exterior chain already spells ADOPTS that chain
+        # verbatim rather than shipping a private denser one.  The test
+        # is the weld's OWN tolerance (``_WELD_TOL_M``), so a real
+        # geometric divergence — the measured 70.44 mm building~pad
+        # case — is NOT adopted: it keeps both spellings and is
+        # REPORTED, because at that distance the two rings are two
+        # boundaries, not one.
+        _pending_of_nid: dict[int, set] = {}
+        for _p_i, _e in enumerate(pending):
+            for _nid in _e[2][:-1]:
+                _pending_of_nid.setdefault(_nid, set()).add(_p_i)
+
+        def _chain_offset_m(_nid: int, _chain: list) -> float:
+            """Distance from ``_nid`` to the closed chain, in metres."""
+            _px, _py = self.ll_to_m(*node_id_to_ll[_nid])
+            _open = (_chain[:-1] if (len(_chain) > 1
+                                     and _chain[0] == _chain[-1])
+                     else _chain)
+            _best = float("inf")
+            _mm = len(_open)
+            for _k in range(_mm):
+                _ax, _ay = self.ll_to_m(*node_id_to_ll[_open[_k]])
+                _bx, _by = self.ll_to_m(
+                    *node_id_to_ll[_open[(_k + 1) % _mm]])
+                _dx, _dy = _bx - _ax, _by - _ay
+                _seg2 = _dx * _dx + _dy * _dy
+                if _seg2 < 1e-12:
+                    _d = math.hypot(_px - _ax, _py - _ay)
+                else:
+                    _t = ((_px - _ax) * _dx + (_py - _ay) * _dy) / _seg2
+                    _t = min(1.0, max(0.0, _t))
+                    _d = math.hypot(_px - (_ax + _t * _dx),
+                                    _py - (_ay + _t * _dy))
+                if _d < _best:
+                    _best = _d
+            return _best
+
+        _n_adopt = 0
+        _divergent: list = []
+        for _r_i, _ring_nids in enumerate(_interior_rings):
+            _r_open = (_ring_nids[:-1]
+                       if (len(_ring_nids) > 1
+                           and _ring_nids[0] == _ring_nids[-1])
+                       else list(_ring_nids))
+            _r_set = set(_r_open)
+            _cand: dict[int, int] = {}
+            for _nid in _r_set:
+                for _p_i in _pending_of_nid.get(_nid, ()):  # shared nids
+                    _cand[_p_i] = _cand.get(_p_i, 0) + 1
+            _best_p = None
+            for _p_i, _n_shared in sorted(_cand.items(),
+                                          key=lambda kv: -kv[1]):
+                if _n_shared < 3:
+                    continue
+                _e_chain = pending[_p_i][2]
+                _e_set = set(_e_chain[:-1])
+                if _e_set == _r_set:
+                    _best_p = None
+                    break                 # already ONE spelling
+                _diff = _e_set ^ _r_set
+                if not _diff:             # pragma: no cover
+                    continue
+                _worst = 0.0
+                for _nid in _diff:
+                    _worst = max(_worst, _chain_offset_m(
+                        _nid, list(_r_open) if _nid in _e_set
+                        else list(_e_chain)))
+                if _worst <= _WELD_TOL_M:
+                    _best_p = _p_i
+                    break
+                _divergent.append((_worst, pending[_p_i][1].role,
+                                   node_id_to_ll.get(next(iter(_diff)))))
+            if _best_p is None:
+                continue
+            _adopted = list(pending[_best_p][2])
+            if len(_adopted) >= 4:
+                _interior_rings[_r_i] = _adopted
+                _n_adopt += 1
+        if _n_adopt:
+            UI.vprint(1,
+                f"  [pav-builder] hole rings adopting their pad's chain "
+                f"(R16-1b): {_n_adopt} of {len(_interior_rings)} ring(s) "
+                f"re-spelled as the exterior chain they bound — one "
+                f"boundary, one spelling, no zero-width lens.")
+        if _divergent:
+            _divergent.sort(reverse=True)
+            UI.vprint(1,
+                f"  [pav-builder] {len(_divergent)} hole/exterior pair(s) "
+                f"NOT adopted — the rings differ by more than the "
+                f"{_WELD_TOL_M} m weld tolerance, so they are two "
+                f"boundaries, not one spelling (worst "
+                f"{_divergent[0][0]:.4f} m, role={_divergent[0][1]}, "
+                f"at {_divergent[0][2]}).")
 
         _weld_chains: list = ([("p", _p_i, _e[2])
                                for _p_i, _e in enumerate(pending)]

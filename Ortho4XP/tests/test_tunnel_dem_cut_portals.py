@@ -231,8 +231,29 @@ class TestDemCutPortalMode:
             plates = _shapes_with_ref(layout, ref)
             assert plates, f"expected {ref} plates"
             for plate in plates:
+                if ref == "tunnel_cap" and plate.node_altitudes:
+                    # ROUND-16 AMENDMENT 1 (R16-2b): the cap's face now
+                    # REACHES the mouth plate's near edge instead of
+                    # standing a ``wall_gap_m`` strip away from it, so
+                    # the two vertices it SHARES with that plate carry
+                    # the mouth's grade (one node, one value) while its
+                    # crest keeps the deck grade.  Before the amendment
+                    # every vertex read the deck grade and the strip
+                    # between cap and mouth was owned by nothing —
+                    # measured at KCLT as 3 unowned cap nodes.
+                    for vertex_altitude in plate.node_altitudes:
+                        assert vertex_altitude == pytest.approx(
+                            AIRPORT_SURFACE_M, abs=0.1) or \
+                            vertex_altitude == pytest.approx(
+                                TRENCH_FLOOR_M, abs=0.1), vertex_altitude
+                    assert any(
+                        v == pytest.approx(TRENCH_FLOOR_M, abs=0.1)
+                        for v in plate.node_altitudes), (
+                        "the cap face no longer meets the mouth plate")
+                    continue
                 if plate.altitude is not None:
-                    # The cap is a flat plate at the deck grade.
+                    # A cap whose ring the validity repair rebuilt falls
+                    # back to the flat deck grade.
                     assert plate.altitude == pytest.approx(
                         AIRPORT_SURFACE_M, abs=0.1)
                 else:

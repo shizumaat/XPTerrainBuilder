@@ -95,6 +95,9 @@ def _nids_near(layout, nodes, way_nids, point_m, tol_m=0.5):
 #: near-collinear predicate), which is what makes the pair a twin.
 _TIP_M = (50.0, 20.0)
 
+#: The R16-4b hole-ring needle tip (a 1.56 deg spur INTO a valid hole).
+_HOLE_TIP_M = (45.0, 15.0)
+
 
 def _twin_ring_scene():
     layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
@@ -412,3 +415,125 @@ def test_r16_2b_the_crest_stays_where_it_was():
         far = max(floor.polygon.exterior.distance(Point(v))
                   for v in _ring_open(wall.polygon))
         assert far == pytest.approx(_WALL_GAP_M + _WALL_W_M, abs=0.01), far
+
+
+# ── AMENDMENT 1 ─────────────────────────────────────────────────────
+# R16-1b  the hole adopts the pad's chain (the MEASURED generator)
+# R16-4b  interior rings are sliver-repair SOURCES
+# R16-2b  the tunnel_cap face joins the wall-face weld law
+
+def _dense_hole_scene(extra_offset_m=0.002):
+    """A pad, and a covering shape whose HOLE spells the pad's boundary
+    DENSER: an extra vertex ``extra_offset_m`` off the pad's chord.
+
+    This is the generator the pads-frame A/B measured — the extra
+    vertices are single-owner, unvalued, 0.00-2.29 mm off the chord.
+    """
+    layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
+    pad = [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+    layout.shapes.append(_pav(Polygon(pad), ref="pad"))
+    hole = [(0.0, 0.0), (20.0, extra_offset_m), (40.0, 0.0),
+            (40.0, 30.0), (0.0, 30.0)]
+    layout.shapes.append(_pav(
+        Polygon([(-40.0, -40.0), (90.0, -40.0), (90.0, 80.0),
+                 (-40.0, 80.0)], [hole]),
+        ref="cover", alt=101.0))
+    return layout
+
+
+def test_r16_1b_the_hole_adopts_the_pads_chain():
+    """One boundary, one spelling: the hole ring ships the pad's own
+    chain, not a denser private one, so the two constrained chains
+    Triangle sees are identical and no zero-width lens exists.
+
+    Mutation-checked: without the adoption the emitted ring carries one
+    vertex the pad's ring does not (a twin-ring pair).
+    """
+    layout = _dense_hole_scene()
+    nodes, ways = _emit_and_parse(layout)
+    pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
+    rings = _hole_rings(ways)
+    assert pad and rings, [tags for _w, _n, tags in ways]
+    for _wid, nds in rings:
+        assert set(nds) == set(pad[0]), (
+            f"hole ring spells {len(set(nds))} vertices against the "
+            f"pad's {len(set(pad[0]))} — one boundary spelled twice")
+
+
+def test_r16_1b_a_real_divergence_is_not_adopted():
+    """The weld tolerance is the test.  A hole whose vertex stands
+    70 mm off the pad's chord is a DIFFERENT boundary: it keeps its own
+    spelling (and the emitter reports it) rather than being snapped
+    onto geometry it does not share."""
+    layout = _dense_hole_scene(extra_offset_m=0.070)
+    nodes, ways = _emit_and_parse(layout)
+    pad = [nds for _w, nds, tags in ways if tags.get("ref") == "pad"]
+    rings = _hole_rings(ways)
+    assert pad and rings
+    assert any(set(nds) != set(pad[0]) for _wid, nds in rings), (
+        "a 70 mm divergence was adopted as if it were a twin")
+
+
+def test_r16_4b_an_interior_ring_needle_is_repaired():
+    """Interior rings join the sliver repair as SOURCES, under the
+    emitter's own 2.0 deg / 0.09 m constants — no new 25 deg constant.
+    The 1.15 deg tip in this hole is removed exactly as it would be on
+    an exterior ring.
+
+    Mutation-checked: with rings left out of the repair the tip ships.
+    """
+    layout = PavementLayout(icao="KFAKE", anchor=(30.12, 31.40))
+    # A VALID hole with a 1.56 deg spur reaching into it (legs 25 m,
+    # base 0.8 m apart — both outside the 0.5 m intern bucket).
+    hole = [(10.0, 10.0), (60.0, 10.0), (60.0, 40.0), (35.0, 40.0),
+            _HOLE_TIP_M, (34.2, 40.0), (10.0, 40.0)]
+    layout.shapes.append(_pav(
+        Polygon([(-40.0, -40.0), (140.0, -40.0), (140.0, 90.0),
+                 (-40.0, 90.0)], [hole]), ref="cover", alt=101.0))
+    nodes, ways = _emit_and_parse(layout)
+    rings = _hole_rings(ways)
+    assert rings, [tags for _w, _n, tags in ways]
+    survivors = []
+    for _wid, nds in rings:
+        survivors += _nids_near(layout, nodes, nds, _HOLE_TIP_M)
+    assert not survivors, (
+        f"an interior-ring needle tip below "
+        f"SLIVER_ANGLE_THRESHOLD_DEG survived: {survivors}")
+
+
+def test_r16_2b_the_cap_face_reaches_the_mouth_plate(monkeypatch):
+    """The cap's face is owned geometry: it reaches the mouth plate's
+    near edge (distance 0), shares that edge's two corners, and carries
+    the mouth's grade there while its crest keeps the deck grade.
+
+    Mutation-checked: with the cap stopping at the portal station the
+    gap reads ``wall_gap_m`` (0.6 m) of ground no shape owns — KCLT's
+    3 remaining unowned wall nodes.
+    """
+    from tests.test_tunnel_dem_cut_portals import (
+        TILE_LATITUDE, TILE_LONGITUDE, _install_scene, _shapes_with_ref)
+    layout = _install_scene(monkeypatch, carved=True)
+    bridges._emit_tunnel_portals(
+        layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+    caps = _shapes_with_ref(layout, "tunnel_cap")
+    mouths = _shapes_with_ref(layout, "tunnel_mouth")
+    assert caps and mouths, [(s.ref, s.role) for s in layout.shapes]
+    welded = 0
+    for cap in caps:
+        near = min(mouths, key=lambda m: cap.polygon.distance(m.polygon))
+        if cap.polygon.distance(near.polygon) > 1e-6:
+            continue
+        welded += 1
+        shared = [v for v in _ring_open(cap.polygon)
+                  if near.polygon.exterior.distance(Point(v)) <= 1e-6]
+        assert len(shared) >= 2, _ring_open(cap.polygon)
+        assert cap.node_altitudes, "the cap lost its per-vertex profile"
+        assert min(cap.node_altitudes) == pytest.approx(
+            float(near.altitude), abs=0.02), (
+            f"the cap's shared edge carries {min(cap.node_altitudes)}, "
+            f"the mouth plate carries {near.altitude}")
+        assert max(cap.node_altitudes) > min(cap.node_altitudes), (
+            "the cap face must span the drop, not sit flat")
+    assert welded, (
+        "no cap reaches its mouth plate — every one still stands a "
+        "wall_gap strip away from the pavement it faces")

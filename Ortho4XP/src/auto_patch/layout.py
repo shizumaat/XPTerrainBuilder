@@ -2059,6 +2059,17 @@ class PavementLayout:
 
         _n_adopt = 0
         _divergent: list = []
+        # PAIRING CENSUS (task #10).  The candidate loop's own view, per
+        # REJECTION CLAUSE — the only window on the PRE-SPLICE frame (the
+        # emitted patch shows the post-splice chains, where the weld has
+        # already manufactured shared nids that this loop never saw).
+        # It reports and adjudicates nothing.
+        _pair_stat: dict[str, int] = {}
+        _gate_ex: list = []
+
+        def _pstat(_k: str) -> None:
+            _pair_stat[_k] = _pair_stat.get(_k, 0) + 1
+
         for _r_i, _ring_nids in enumerate(_interior_rings):
             _r_open = (_ring_nids[:-1]
                        if (len(_ring_nids) > 1
@@ -2070,6 +2081,7 @@ class PavementLayout:
                 for _p_i in _pending_of_nid.get(_nid, ()):  # shared nids
                     _cand[_p_i] = _cand.get(_p_i, 0) + 1
             _best_p = None
+            _outcome = "no_shared_pending" if not _cand else None
             for _p_i, _n_shared in sorted(_cand.items(),
                                           key=lambda kv: -kv[1]):
                 # A candidate must SHARE most of the ring to be the same
@@ -2079,11 +2091,19 @@ class PavementLayout:
                 # buries the real ones (attempt 1 reported 41 pairs, the
                 # worst 139 m apart).
                 if _n_shared < 3 or _n_shared * 2 < len(_r_open):
+                    if _outcome is None:
+                        _outcome = "gate_share"
+                        _gate_ex.append(
+                            (len(_r_open), _n_shared,
+                             pending[_p_i][1].role,
+                             node_id_to_ll.get(_r_open[0])))
                     continue
                 _e_chain = pending[_p_i][2]
                 _e_set = set(_e_chain[:-1])
                 if _e_set == _r_set:
                     _best_p = None
+                    if _outcome is None:
+                        _outcome = "same_spelling"
                     break                 # already ONE spelling
                 _diff = _e_set ^ _r_set
                 if not _diff:             # pragma: no cover
@@ -2098,15 +2118,31 @@ class PavementLayout:
                         _premove_offset.get(_nid, 0.0))
                 if _worst <= ONEDGE_SNAP_TOL_M:
                     _best_p = _p_i
+                    if _outcome is None:
+                        _outcome = "adopted"
                     break
+                if _outcome is None:
+                    _outcome = "beyond_frame"
                 _divergent.append((_worst, pending[_p_i][1].role,
                                    node_id_to_ll.get(next(iter(_diff)))))
+            _pstat(_outcome or "no_candidate_passed_gate")
             if _best_p is None:
                 continue
             _adopted = list(pending[_best_p][2])
             if len(_adopted) >= 4:
                 _interior_rings[_r_i] = _adopted
                 _n_adopt += 1
+        if _pair_stat:
+            UI.vprint(1,
+                f"  [pav-builder] R16-1b pairing census "
+                f"({len(_interior_rings)} hole ring(s)): "
+                + ", ".join(f"{_k}={_v}" for _k, _v
+                            in sorted(_pair_stat.items())))
+            for _ge in sorted(_gate_ex, reverse=True)[:12]:
+                UI.vprint(1,
+                    f"      gate_share: ring={_ge[0]} vertices, "
+                    f"best candidate shares {_ge[1]} (role={_ge[2]}) "
+                    f"at {_ge[3]}")
         if _n_adopt:
             UI.vprint(1,
                 f"  [pav-builder] hole rings adopting their pad's chain "

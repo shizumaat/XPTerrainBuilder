@@ -29,7 +29,11 @@ from typing import Optional
 # download queue drained and only its local DDS tail remains, so the
 # parallel orchestrator can release that tile's imagery fetch token
 # (docs/specs/apron-string-and-scheduling-spec.md §A.2).
-PROTOCOL_VERSION = "1.4"
+# 1.5 (2026-08-11, additive): SignInResult, beside the auth_providers /
+# provider_sign_in / provider_sign_out commands — a front end with no
+# Python of its own (the macOS application) drives provider account
+# sign-in engine-side (docs/specs/swift-provider-signin-spec.md).
+PROTOCOL_VERSION = "1.5"
 
 
 @dataclass(frozen=True)
@@ -249,6 +253,27 @@ class SecretRequest(EngineEvent):
     session_name: str = ""
     account: str = ""
     secret: str = ""
+
+
+@dataclass(frozen=True)
+class SignInResult(EngineEvent):
+    """One provider-account sign-in (or sign-out) attempt finished.
+
+    The completion half of the ``provider_sign_in`` / ``provider_sign_out``
+    commands (docs/specs/swift-provider-signin-spec.md): both reply
+    ``{"started": true}`` at once and do their work on a worker thread,
+    because the work touches the secret store and a store operation made
+    on the transport's own read loop can never be answered (see
+    o4_engine.secret_broker's threading contract).
+
+    ``ok`` False carries the user-safe failure text in ``error_text``
+    (``O4_Authenticated_Sessions.LoginError``'s message verbatim, exactly
+    what the Qt sign-in dialog displays).
+    """
+
+    session_name: str = ""
+    ok: bool = False
+    error_text: str = ""
 
 
 @dataclass(frozen=True)

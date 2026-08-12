@@ -166,6 +166,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "links_uninstall": session.links_uninstall,
         "reanchor_status": session.reanchor_status,
         "reanchor_restore": session.reanchor_restore,
+        # Provider account sign-in (protocol 1.5).  sign-in and sign-out
+        # reply {"started": true} and complete through SignInResult: both
+        # touch the brokered secret store, which THIS thread may not do
+        # (see the secret_broker threading contract, and the hazard note
+        # on EngineSession's provider commands).
+        "auth_providers": session.auth_providers,
+        "provider_sign_in": session.provider_sign_in,
+        "provider_sign_out": session.provider_sign_out,
     }
 
 

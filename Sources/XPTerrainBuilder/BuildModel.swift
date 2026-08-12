@@ -267,6 +267,12 @@ final class BuildModel: ObservableObject {
     /// Live map imagery for the selected provider (Qt-map parity).
     let imagery = ImageryModel()
 
+    /// Provider accounts the engine can sign into (auth_providers), and the
+    /// last sign-in / sign-out outcome the engine reported.
+    @Published private(set) var providerAccounts: [O4ProviderAccount] = []
+    @Published private(set) var lastSignInResult: ProviderSignInResult?
+    private var signInResultCounter = 0
+
     private var client: OrthoEngineClient?
     private var clearProgressTask: Task<Void, Never>?
 
@@ -646,6 +652,13 @@ final class BuildModel: ObservableObject {
             serviceSecretRequest(requestID: requestID, operation: operation,
                                  sessionName: sessionName, account: account,
                                  secret: secret)
+        case .signInResult(let sessionName, let ok, let errorText):
+            signInResultCounter += 1
+            lastSignInResult = ProviderSignInResult(
+                id: signInResultCounter, sessionName: sessionName,
+                ok: ok, errorText: errorText)
+            // Whatever the sheet does with it, the rows' status changed.
+            Task { @MainActor [weak self] in await self?.refreshProviderAccounts() }
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
@@ -687,6 +700,54 @@ final class BuildModel: ObservableObject {
             }
             client.send(command: "secret_response", arguments: arguments)
         }
+    }
+
+    // MARK: - Provider accounts (engine-side sign-in)
+
+    /// One finished sign-in / sign-out attempt, as the engine reported it.
+    /// `id` rises with every result so a sheet can react to each one.
+    struct ProviderSignInResult: Sendable, Equatable {
+        let id: Int
+        let sessionName: String
+        let ok: Bool
+        let errorText: String
+    }
+
+    /// Re-read the provider account rows from the engine. The login flows
+    /// live in the engine (O4_Authenticated_Sessions), so this app only
+    /// renders what `auth_providers` reports and sends the two commands.
+    func refreshProviderAccounts() async {
+        connectIfNeeded()
+        guard let client else { return }
+        let accounts = await client.authProviders()
+        providerAccounts = accounts
+        // The engine reads an api_key's stored state on a worker thread
+        // (its command thread cannot answer its own brokered secret
+        // request); a pending row means "ask again once that lands".
+        guard accounts.contains(where: { $0.statusPending }) else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, let client = self.client else { return }
+            self.providerAccounts = await client.authProviders()
+        }
+    }
+
+    /// Start a sign-in; the outcome arrives as `lastSignInResult`. Returns
+    /// the engine's error text when the command itself was refused.
+    func providerSignIn(sessionName: String, username: String,
+                        secret: String, remember: Bool) async -> String? {
+        connectIfNeeded()
+        guard let client else { return "engine not running" }
+        return await client.providerSignIn(sessionName: sessionName,
+                                           username: username, secret: secret,
+                                           remember: remember)
+    }
+
+    /// Forget one account (credentials, API key, saved session).
+    func providerSignOut(sessionName: String) async {
+        connectIfNeeded()
+        guard let client else { return }
+        _ = await client.providerSignOut(sessionName: sessionName)
     }
 
     // MARK: - Reanchor status (auto-patch object reseating)

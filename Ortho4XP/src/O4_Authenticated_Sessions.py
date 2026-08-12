@@ -373,6 +373,28 @@ def load_credentials(session_name):
     return (username, password)
 
 
+def stored_username(session_name):
+    """The remembered account name for a session, or None.
+
+    Reads ONLY the plain username sidecar :func:`store_credentials`
+    writes — never the secret store.  That matters for the JSON-lines
+    transport: a front end brokering the platform store answers secret
+    requests on the transport's read loop, so a status read made from
+    that loop could never be answered (o4_engine.secret_broker's
+    threading contract).  The sidecar is written after a successful
+    secret_set and removed by :func:`delete_credentials`, so its
+    presence is the local record of "credentials are remembered".
+    """
+    try:
+        with open(
+            _account_file_path(session_name), "r", encoding="utf-8"
+        ) as handle:
+            username = json.load(handle).get("username")
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+    return username or None
+
+
 def delete_credentials(session_name):
     """Remove stored credentials (secret store entry + username sidecar)."""
     credentials = load_credentials(session_name)

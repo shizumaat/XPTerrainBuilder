@@ -170,6 +170,7 @@ private struct GeneralPane: View {
     @StateObject private var showingXPlanePicker = ViewState(false)
     @StateObject private var showingDataPicker = ViewState(false)
     @StateObject private var showingEnginePicker = ViewState(false)
+    @StateObject private var signInTarget = ViewState<O4ProviderAccount?>(nil)
 
     private var xplaneValid: Bool {
         !xplanePath.isEmpty
@@ -282,6 +283,22 @@ private struct GeneralPane: View {
                     .foregroundStyle(.secondary)
             }
 
+            if !buildModel.providerAccounts.isEmpty {
+                Section {
+                    ForEach(buildModel.providerAccounts) { account in
+                        ProviderAccountRow(account: account) {
+                            signInTarget.value = account
+                        }
+                    }
+                } header: {
+                    Text("Provider Accounts")
+                } footer: {
+                    Text("These data sources need a signed-in account.  Sessions are kept alive automatically once you sign in.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Engine Defaults") {
                 ForEach(SettingsLayout.engineGeneral) { item in
                     ConfigItemRow(item: item)
@@ -290,6 +307,11 @@ private struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .navigationTitle("General")
+        .task { await buildModel.refreshProviderAccounts() }
+        .sheet(item: $signInTarget.value) { account in
+            ProviderSignInSheet(account: account)
+                .environmentObject(buildModel)
+        }
     }
 
     private func pathText(_ path: String) -> some View {
@@ -327,6 +349,199 @@ private struct GeneralPane: View {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "Terminal", engine.installScriptURL.path]
         try? process.run()
+    }
+}
+
+// MARK: - Provider accounts
+
+/// One provider account row: who the service is, the codes that share the
+/// account, its status, and the two controls. Status comes from the engine
+/// (`auth_providers`) — building this pane never touches the network, and
+/// the sign-in itself runs engine-side.
+private struct ProviderAccountRow: View {
+    @EnvironmentObject var buildModel: BuildModel
+    let account: O4ProviderAccount
+    let signIn: () -> Void
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                Text(account.statusText)
+                    .foregroundStyle(account.signedIn ? AnyShapeStyle(.green)
+                                     : AnyShapeStyle(.secondary))
+                Button("Sign in…", action: signIn)
+                Button("Sign out") {
+                    Task { await buildModel.providerSignOut(sessionName: account.sessionName) }
+                }
+                .disabled(!account.signedIn)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(account.title)
+                if !account.codes.isEmpty {
+                    Text(account.codes.joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .help(account.registrationURL.isEmpty ? ""
+                  : "Create an account: \(account.registrationURL)")
+        }
+    }
+}
+
+/// The credentials prompt, ported from the Qt settings window's
+/// `_SignInDialog` (copy and behaviour are its authority). The password or
+/// key lives only here and in the one command send: the engine performs the
+/// login and, with Remember, stores the secret in THIS app's Keychain
+/// through the brokered secret protocol.
+private struct ProviderSignInSheet: View {
+    @EnvironmentObject var buildModel: BuildModel
+    let account: O4ProviderAccount
+    @Environment(\.dismiss) private var dismiss
+
+    @StateObject private var username = ViewState("")
+    @StateObject private var secret = ViewState("")
+    @StateObject private var remember = ViewState(true)
+    @StateObject private var errorText = ViewState("")
+    @StateObject private var busy = ViewState(false)
+    @FocusState private var secretFocused: Bool
+
+    private var introduction: String {
+        account.isAPIKey
+            ? "This provider requires a (free) account at \(account.serviceHost) and an API key generated there.  Paste the key below; it is stored in the system keychain."
+            : "This provider requires a (free) account at \(account.serviceHost).  Your password is sent only to that service."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sign in — \(account.sheetTitle)")
+                .font(.headline)
+            Text(introduction)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let registration = URL(string: account.registrationURL),
+               !account.registrationURL.isEmpty {
+                Link("No account yet?  Create one here.", destination: registration)
+            }
+
+            if !account.setupSteps.isEmpty {
+                // Some accounts need work before credentials will work at
+                // all (Sweden: order the free product; Denmark: copy a
+                // token) — the checklist belongs right here.
+                Text("Setup").bold()
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(account.setupSteps.enumerated()), id: \.offset) { step in
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("\(step.offset + 1).")
+                                .foregroundStyle(.secondary)
+                            Text(linkified(step.element))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.leading, 4)
+            }
+
+            if !account.isAPIKey {
+                TextField("Username or email address", text: $username.value)
+                    .disabled(busy.value)
+            }
+            SecureField(account.isAPIKey ? "API key" : "Password", text: $secret.value)
+                .focused($secretFocused)
+                .disabled(busy.value)
+
+            if !account.isAPIKey {
+                // An API key only works stored: it is read back at build
+                // time, unlike a session which persists as cookies — so
+                // that kind forces Remember on and hides the control.
+                Toggle("Remember on this device (stored in the system keychain)",
+                       isOn: $remember.value)
+                    .disabled(busy.value || !account.credentialStoreAvailable)
+                    .help(account.credentialStoreAvailable ? ""
+                          : "No system keychain is available on this machine; the session lasts until it expires, then sign in again.")
+            }
+
+            if !errorText.value.isEmpty {
+                Text(errorText.value)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(busy.value ? "Signing in…" : "Sign in") { startSignIn() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy.value)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onAppear {
+            remember.value = account.isAPIKey || account.credentialStoreAvailable
+        }
+        .onChange(of: buildModel.lastSignInResult?.id) {
+            guard let result = buildModel.lastSignInResult,
+                  result.sessionName == account.sessionName, busy.value
+            else { return }
+            if result.ok {
+                dismiss()
+                return
+            }
+            errorText.value = result.errorText
+            busy.value = false
+            secretFocused = true
+        }
+    }
+
+    private func startSignIn() {
+        let key = secret.value
+        if account.isAPIKey {
+            guard !key.trimmingCharacters(in: .whitespaces).isEmpty else {
+                errorText.value = "Paste an API key."
+                return
+            }
+        } else if username.value.trimmingCharacters(in: .whitespaces).isEmpty
+                    || key.isEmpty {
+            errorText.value = "Enter both a username and a password."
+            return
+        }
+        errorText.value = ""
+        busy.value = true
+        let name = account.sessionName
+        let user = account.isAPIKey ? ""
+            : username.value.trimmingCharacters(in: .whitespaces)
+        let wantsRemember = account.isAPIKey || remember.value
+        Task {
+            if let failure = await buildModel.providerSignIn(
+                sessionName: name, username: user, secret: key,
+                remember: wantsRemember) {
+                errorText.value = failure
+                busy.value = false
+                secretFocused = true
+            }
+        }
+    }
+
+    /// Any http(s) URL inside a setup step becomes a link (the Qt dialog's
+    /// `_linkify_urls` behaviour).
+    private func linkified(_ text: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard let detector = try? NSDataDetector(
+            types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return attributed
+        }
+        let whole = NSRange(text.startIndex..<text.endIndex, in: text)
+        detector.enumerateMatches(in: text, range: whole) { match, _, _ in
+            guard let match, let url = match.url,
+                  url.scheme == "http" || url.scheme == "https",
+                  let stringRange = Range(match.range, in: text),
+                  let range = Range(stringRange, in: attributed) else { return }
+            attributed[range].link = url
+        }
+        return attributed
     }
 }
 

@@ -159,3 +159,38 @@ Every skipped verification = one line for
 `docs/DEFERRED_VERIFICATION.md` (lead writes the final lines).
 Cross-refs: r15 spec (mesh containment stays; this round removes the
 minting), r14 spec (claim law, walk floor), RULINGS.md (canonical).
+
+## AMENDMENT 1 (Fable lead, 2026-08-11, after the lane's A/B) — the real twin-ring law
+
+The lane's single-tree object-pad-frame A/B REFUTED the carried
+mechanism: the 20 twin-ring pairs' differing vertices are NEVER in
+`emit_removed_nids` — every pair is the interior-ring interning path
+(`_ring_to_nids(_hole.coords, None)`) spelling the hole DENSER than
+the pad's exterior chain (extra vertices single-owner, UNVALUED,
+0.00–2.29 mm off the pad's chord; one building~pad case 70.44 mm).
+R16-1's reorder stands (correct, harmless); the authorized fix is:
+
+* **R16-1b THE HOLE ADOPTS THE PAD'S CHAIN.** When an interior hole
+  ring bounds the same boundary a shape's exterior chain spells
+  (vertex set within the weld/chord tolerances), the hole ring is
+  interned AGAINST the exterior chain registry and adopts that chain
+  verbatim — never a denser private spelling. Implementation freedom:
+  adopt-at-intern or reconcile-before-the-final-weld, but ONE
+  spelling must ship. The 70 mm building~pad outlier follows the same
+  law only if it is within the existing weld tolerance frame;
+  otherwise it keeps both spellings and is REPORTED (it is a real
+  geometric divergence, not a twin).
+* **R16-4b INTERIOR RINGS JOIN THE SLIVER REPAIR AS SOURCES.** The
+  2 sub-2° interior-ring tips (1.44°, 0.58°) survive only because
+  rings are never removal sources. Rings join the existing repair
+  under the EXISTING constants (`SLIVER_ANGLE_THRESHOLD_DEG` 2.0°,
+  0.09 m) — NO new 25° constant (measured: it would deform 1,189
+  lawful corners). The queue's "25° class" is RETIRED on this
+  measurement pending owner review.
+* **R16-2b residual:** the `tunnel_cap` emitter joins the wall-face
+  weld law (KCLT's 3 remaining unowned nodes, rise 1.16/5.10 m).
+
+Acceptance for the amendment: pads-frame OTHH twin-ring pairs
+20 → 0 (or the reported outlier set, each ≥ the weld tolerance);
+census delta 0 beyond the materiality floor; KCLT control unchanged;
+sub-2° interior-ring tips 2 → 0; KCLT unowned wall nodes 3 → 0.

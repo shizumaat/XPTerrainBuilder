@@ -196,3 +196,34 @@ class TestWhatItMustNotTouch:
     def test_an_empty_hard_truth_is_the_inert_answer(self):
         layout, G = _vhhh_shape()
         assert flat_core_below_grade_seed_refusals(layout, G, {}) == {}
+
+
+class TestTheRefusalIsONEUnion:
+    """A value refused as a SEED is refused as the REFERENCE too.
+
+    ``_record_band_inversions`` re-reads the hard truth to raise
+    ``floor_above_own_hard_value`` wherever a hard node sits below its
+    own band floor.  Left unrefused there, R17c-1 would guarantee an
+    inversion at every node it refuses — the band's floor now comes from
+    the surface anchors, ~19.9 m above the EAT pin — and
+    ``assert_no_final_band_inversion`` would kill the build on the law's
+    own doing.
+    """
+
+    def test_the_refused_node_mints_no_band_inversion(self):
+        layout, G = _vhhh_shape()
+        spine_value_fields(layout, G)
+        rows = list(getattr(layout, "_final_band_inversions", None) or [])
+        assert not [r for r in rows
+                    if r.get("klass") == "floor_above_own_hard_value"]
+        assert BF.assert_no_final_band_inversion(layout, "VHHH") == 0
+
+    def test_an_UNREFUSED_below_grade_hard_node_still_reports(self):
+        """The recorder is not disabled — a below-grade node inside its
+        own BODY keeps both its seed and its inversion accounting."""
+        layout, G = _vhhh_shape(flat_site=False)
+        G.runway_anchor = {0: SURFACE_M}
+        spine_value_fields(layout, G)
+        # No refusal happened (no flat site), so the hard truth is intact
+        # and the recorder saw all of it.
+        assert not hasattr(layout, "_flat_core_seed_refusals")

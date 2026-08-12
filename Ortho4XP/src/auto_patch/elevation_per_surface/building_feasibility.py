@@ -1036,7 +1036,15 @@ def spine_value_fields(layout, G):
     _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
                               floor_via, floor_dist)
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,
-                            hard_truth=_truth,
+                            # R17c-1: ONE union.  A value refused as a
+                            # SEED is equally refused as the reference
+                            # the band is JUDGED against — keeping it
+                            # here would make the law mint a
+                            # ``floor_above_own_hard_value`` inversion at
+                            # every node it just refused, which is the
+                            # law contradicting itself.
+                            hard_truth={_k: _v for (_k, _v) in _truth.items()
+                                        if _k not in _refused},
                             ceil_via=ceil_via, floor_via=floor_via,
                             anchor_seeds=anchor_seeds,
                             anchor_law=_anchor_law_values(layout, G,

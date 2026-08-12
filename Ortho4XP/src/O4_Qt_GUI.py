@@ -410,6 +410,48 @@ def enqueue_resume(tile, queue):
     return list(queue) if tile in queue else list(queue) + [tile]
 
 
+# ---------------------------------------------------------------------------
+# Estimate credibility (pure).  docs/specs/qt-backlog-parity2-spec.md §QB2.
+# ---------------------------------------------------------------------------
+# The window of (elapsed, remaining) samples kept, the age a sample must
+# reach to serve as the baseline, and how far the estimate may climb
+# above that baseline before the number stops being worth showing.
+ETA_SAMPLE_WINDOW_SECONDS = 45.0
+ETA_BASELINE_AGE_SECONDS = 30.0
+ETA_CLIMB_TOLERANCE_SECONDS = 5.0
+
+
+def eta_credibility(samples, elapsed, remaining):
+    """``(samples, unreliable)`` after one RunEta report.
+
+    An estimate that has GROWN over the last ~30 s means the model is
+    being outlived — a download, or a step with no live signal — and a
+    precise-looking number that keeps getting further away is worse than
+    no number: the UI says it is still estimating instead.
+
+    A missing estimate is not evidence of anything (the engine has
+    simply not formed one): it clears both the window and the flag, and
+    the caller renders its dash.
+    """
+    if remaining is None:
+        return ([], False)
+    kept = [
+        (at, value)
+        for (at, value) in list(samples) + [(elapsed, remaining)]
+        if elapsed - at <= ETA_SAMPLE_WINDOW_SECONDS
+    ]
+    baseline = next(
+        (value for (at, value) in kept
+         if elapsed - at >= ETA_BASELINE_AGE_SECONDS),
+        None,
+    )
+    unreliable = (
+        baseline is not None
+        and remaining > baseline + ETA_CLIMB_TOLERANCE_SECONDS
+    )
+    return (kept, unreliable)
+
+
 class _StdoutTee:
     """Duplicates pipeline stdout into a queue for the console drawer."""
 
@@ -630,6 +672,11 @@ class MainWindow(QMainWindow):
         self._conflict_tiles = set()
         self._conflict_generation = 0
         self._last_run_eta = None
+        # The climbing-estimate detector's window: (elapsed, remaining)
+        # samples from recent RunEta events, and its verdict on whether
+        # the current estimate is worth showing as a number.
+        self._eta_samples = []
+        self._eta_unreliable = False
         # (lat,lon) -> (elapsed_seconds, remaining_seconds|None, finished)
         # from the engine's TileClocks rows (protocol 1.3); rendered by
         # the same 1 Hz clock tick as the run totals.
@@ -2325,6 +2372,8 @@ class MainWindow(QMainWindow):
             row.deleteLater()
         self._tile_rows = {}
         self._tile_clocks = {}
+        self._eta_samples = []
+        self._eta_unreliable = False
         # A fresh run owns the box: rows the previous one left behind
         # (stopped tiles waiting for a resume) go with it, and so do the
         # settings snapshots that belonged to them.
@@ -2444,6 +2493,8 @@ class MainWindow(QMainWindow):
 
     def _on_run_eta(self, event):
         self._last_run_eta = event
+        (self._eta_samples, self._eta_unreliable) = eta_credibility(
+            self._eta_samples, event.elapsed_seconds, event.remaining_seconds)
 
     def _on_tile_clocks(self, event):
         """Per-tile clocks (protocol 1.3): stash; the 1 Hz clock tick
@@ -2658,7 +2709,11 @@ class MainWindow(QMainWindow):
         # The engine session owns the estimate (learned per-step model +
         # live in-step rate + the auto-patch model); the view only renders.
         eta = self._last_run_eta
-        if eta is not None and eta.remaining_seconds is not None:
+        if self._eta_unreliable:
+            # The estimate keeps growing: showing it would be a precise
+            # number the run is visibly outrunning.
+            self.eta_label.setText("Total remaining: still estimating…")
+        elif eta is not None and eta.remaining_seconds is not None:
             self.eta_label.setText(
                 "Total remaining ≈ %s"
                 % _fmt_remaining(eta.remaining_seconds)
@@ -2683,6 +2738,10 @@ class MainWindow(QMainWindow):
     def _on_run_done(self, event):
         self._building = False
         self._last_run_eta = None
+        # The window describes the run that just ended; the next run's
+        # estimate is judged on its own samples.
+        self._eta_samples = []
+        self._eta_unreliable = False
         # One last render so every row shows its frozen final clock,
         # then stop ticking (the stash stays for the visible rows).
         self._update_build_clock()

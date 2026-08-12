@@ -118,6 +118,55 @@ def test_scan_cache_absent_file_is_not_an_error(tmp_path):
 
 
 # ===========================================================================
+# QB2 — the climbing-estimate detector (pure)
+# ===========================================================================
+def test_eta_needs_a_baseline_before_judging():
+    """Nothing is unreliable until a sample is 30 s old — every estimate
+    wobbles in its first seconds."""
+    (samples, unreliable) = GUI.eta_credibility([], 0.0, 100.0)
+    assert (samples, unreliable) == ([(0.0, 100.0)], False)
+    (samples, unreliable) = GUI.eta_credibility(samples, 20.0, 400.0)
+    assert unreliable is False
+
+
+def test_eta_climbing_past_the_tolerance_is_unreliable():
+    (samples, _u) = GUI.eta_credibility([], 0.0, 100.0)
+    (samples, unreliable) = GUI.eta_credibility(samples, 30.0, 105.0)
+    assert unreliable is False, "exactly the tolerance is still credible"
+    (_samples, unreliable) = GUI.eta_credibility(samples, 31.0, 105.1)
+    assert unreliable is True
+
+
+def test_eta_falling_estimate_stays_credible():
+    samples = []
+    for elapsed in (0.0, 10.0, 20.0, 31.0, 42.0):
+        (samples, unreliable) = GUI.eta_credibility(
+            samples, elapsed, 200.0 - elapsed)
+        assert unreliable is False
+
+
+def test_eta_window_forgets_samples_older_than_45_s():
+    (samples, _u) = GUI.eta_credibility([], 0.0, 100.0)
+    (samples, unreliable) = GUI.eta_credibility(samples, 46.0, 900.0)
+    assert samples == [(46.0, 900.0)], "the 46 s-old sample is gone"
+    assert unreliable is False, "and with it the only possible baseline"
+
+
+def test_eta_absent_estimate_clears_window_and_flag():
+    (samples, _u) = GUI.eta_credibility([], 0.0, 100.0)
+    (samples, unreliable) = GUI.eta_credibility(samples, 31.0, 200.0)
+    assert unreliable is True
+    (samples, unreliable) = GUI.eta_credibility(samples, 32.0, None)
+    assert (samples, unreliable) == ([], False)
+
+
+def test_eta_constants_are_the_specified_ones():
+    assert GUI.ETA_SAMPLE_WINDOW_SECONDS == 45.0
+    assert GUI.ETA_BASELINE_AGE_SECONDS == 30.0
+    assert GUI.ETA_CLIMB_TOLERANCE_SECONDS == 5.0
+
+
+# ===========================================================================
 # QB3 — the foreign-source audit predicate (pure)
 # ===========================================================================
 @pytest.mark.parametrize("name,expected", [
@@ -290,3 +339,21 @@ def test_a_superseded_sweep_is_discarded(qapp, make_window):
     assert window._conflict_tiles == set()
     window._on_conflicts_ready((7, {TILE}))
     assert window._conflict_tiles == {TILE}
+
+
+def test_climbing_estimate_replaces_the_number_in_the_run_clock(
+        qapp, make_window):
+    window = make_window()
+    window._build_t0 = time.time()
+    window._on_run_eta(EV.RunEta(elapsed_seconds=0.0, remaining_seconds=100.0))
+    window._update_build_clock()
+    assert "≈" in window.eta_label.text()
+    window._on_run_eta(
+        EV.RunEta(elapsed_seconds=31.0, remaining_seconds=300.0))
+    window._update_build_clock()
+    assert window.eta_label.text() == "Total remaining: still estimating…"
+    # No estimate at all is a dash, never a wild number.
+    window._on_run_eta(
+        EV.RunEta(elapsed_seconds=32.0, remaining_seconds=None))
+    window._update_build_clock()
+    assert window.eta_label.text() == "Total remaining —"

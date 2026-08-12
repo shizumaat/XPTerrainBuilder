@@ -535,3 +535,99 @@ def test_concave_notch_of_one_shape_is_not_a_corridor(monkeypatch):
     layout = _FakeLayout([u, far])
     emit_gap_fill_spines(layout, None, 0, 0)
     assert _open_faces(layout) == []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R19-2 — AN ENCLOSED HOLE IS SUBDIVIDED BEFORE IT IS REFUSED ON WIDTH
+# ══════════════════════════════════════════════════════════════════════
+#
+# HECA's 22,483 m² enclosed airside hole gets no fill: its min-rect short
+# side is 188.5 m, 8 % over ``GAP_FILL_MAX_WIDTH_M``.  But the hole is
+# not one wide field — the groundside/service surfaces standing in it
+# already divide it into pockets, every one of them far under the cap.
+# Those shapes bound the ground the way pavement does (the same argument
+# ``_parent_residual_faces`` makes for pads and skirts), so an ENCLOSED
+# hole is subdivided by them and each residual face takes the SAME width
+# test.  The cap itself never moves: a blanket raise would take the
+# airport's 3.40 km² infield with it.
+
+def _groundside_strip(x0, y0, x1, y1):
+    from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+    poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+    return BuiltShape(polygon=poly, role=ROLE_GROUNDSIDE_PAVEMENT,
+                      ref="lot",
+                      node_altitudes=[EDGE_ALT - 1.0]
+                      * len(poly.exterior.coords))
+
+
+def _wide_hole_with_subdivider(strip_y0=120.0, strip_y1=140.0,
+                               gap_half_width_m=100.0):
+    """A frame whose hole is WIDER than the cap (2 × half-width), with a
+    groundside lot spanning it — the HECA geometry in miniature."""
+    layout, pav = _frame_layout(gap_half_width_m=gap_half_width_m)
+    layout.shapes.append(_groundside_strip(30.0, strip_y0, 1270.0,
+                                           strip_y1))
+    return layout, pav
+
+
+def test_a_wide_enclosed_hole_is_subdivided_by_its_groundside():
+    """The whole hole is 200 m across (over the 175 m cap); split by the
+    lot it is two ~90 m pockets, and those are gradeable ground."""
+    layout, _ = _wide_hole_with_subdivider()
+    n = emit_gap_fill_spines(layout, None, 0, 0)
+    assert n > 0, (
+        "the hole was refused whole — the pockets its groundside "
+        "divides it into are far under the width cap")
+    faces = _faces(layout)
+    assert faces
+    lot = next(s for s in layout.shapes if (s.ref or "") == "lot")
+    for f in faces:
+        assert f.polygon.intersection(lot.polygon).area <= 1.0, (
+            "a residual face was graded OVER the groundside that "
+            "subdivides it — the subdivider is not gradeable ground")
+
+
+def test_the_width_cap_never_rises():
+    """The control that keeps this from being a cap raise: subdivide a
+    hole whose PARTS are still over the cap and nothing emits."""
+    layout, _ = _wide_hole_with_subdivider(
+        strip_y0=440.0, strip_y1=460.0, gap_half_width_m=250.0)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _faces(layout) == []
+
+
+def test_one_oversize_pocket_abandons_the_whole_subdivision():
+    """THE GUARD, made observable.  A hole that splits into one pocket
+    UNDER the cap and one OVER it is left exactly as it was — veto
+    standing, nothing emitted.
+
+    Why all-or-nothing: HECA's 3.40 km² infield is vetoed by a
+    service_junction too, and handing its oversize parts to the width
+    skip would pass them to the pocket-collar rings, which stand the
+    adjacent-ground bands down over the whole region (150,438 m² of
+    Annex 14 §3.4.11-13 graded strip, measured — see
+    ``_enclave_treatable``).  A region is subdivided only when the
+    subdivision answers for ALL of it."""
+    layout, _ = _wide_hole_with_subdivider(
+        strip_y0=120.0, strip_y1=140.0, gap_half_width_m=200.0)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0, (
+        "the 90 m pocket was graded while its 290 m sibling was handed "
+        "to the width skip — the subdivision must answer for the whole "
+        "hole or not run")
+    assert _faces(layout) == []
+
+
+def test_a_non_subdivider_blocker_keeps_the_veto():
+    """The deferral is for the hole's OWN subdividers only.  One tunnel
+    ramp inside — a law-cut hole in the ground with its own profile, not
+    interior ground the gap law may read (R6, OTHH S6) — and the veto
+    stands whatever else is in there."""
+    from auto_patch.layout import ROLE_TUNNEL_RAMP
+    layout, _ = _wide_hole_with_subdivider()
+    ramp = Polygon([(400.0, 60.0), (500.0, 60.0), (500.0, 100.0),
+                    (400.0, 100.0)])
+    layout.shapes.append(BuiltShape(
+        polygon=ramp, role=ROLE_TUNNEL_RAMP, ref="ramp",
+        node_altitudes=[EDGE_ALT - 6.0] * len(ramp.exterior.coords)))
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _faces(layout) == []

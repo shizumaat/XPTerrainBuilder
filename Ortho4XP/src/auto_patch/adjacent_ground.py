@@ -112,6 +112,9 @@ from .layout import (
     ROLE_SECONDARY_PARALLEL,
     ROLE_STUB,
     ROLE_TUNNEL_RAMP,
+    ROLE_TUNNEL_TRENCH,
+    ROLE_BRIDGE_TRENCH,
+    ROLE_BRIDGE_CAUSEWAY,
     RUNWAY_END_REGIME_REFS,
     VERTEX_ALT_MERGE_TOL_M,
     taxi_shape_code_letter,
@@ -2580,6 +2583,33 @@ STACKED_WALL_RETREAT_M = 0.6
 # survived a 0.3 m floor exactly this way — the shoulder's own spread
 # was small but its merged value was not).
 STACKED_WALL_TAPER_MIN_M = 0.05
+# ── THE WALLS RULING, EXECUTED (R19-4; owner 2026-08-07 "retaining walls
+# emit ONLY at carve structures") ────────────────────────────────────
+# Owner, verbatim: "I can't think of a reason we need to emit retaining
+# walls except around tunnels."  Walls are lawful ONLY at tunnel/bridge
+# CARVE structures (portals, abutments); everywhere else "the
+# replacement form is FEATHER: graded transitions under grade caps, NO
+# explicit relief feature ... tight spots get steep slopes, never walls".
+#
+# Measured at HECA on the owner's artifact: 56 of 58 emitted walls are
+# authority_retreat faces resolving a lot-vs-road authority split of
+# 2.3-2.7 m with NO tunnel or bridge within 50 m — the mid-road wall the
+# owner reported.  So a retreat run at a carve structure keeps its wall
+# (unchanged geometry, unchanged ref); every other retreat run vacates a
+# band WIDE ENOUGH for the step to grade at the loser's own cap, and the
+# band emits as the LOSER'S OWN ROLE — a graded feather the census then
+# judges under that role's law, instead of a relief feature no law reads.
+_CARVE_STRUCTURE_ROLES = frozenset((
+    ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH,
+    ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY,
+))
+_CARVE_STRUCTURE_REFS = frozenset((
+    "tunnel_wall", "tunnel_portal", "bridge_abutment",
+))
+# The feather run is ``spread / cap`` with this much margin, so the
+# emitted transition lands strictly INSIDE its cap rather than exactly
+# on it (emit quantisation would otherwise flag the law's own remedy).
+_FEATHER_RUN_MARGIN = 1.1
 
 
 def emit_stacked_conflict_walls(layout) -> int:
@@ -2791,7 +2821,7 @@ def emit_stacked_conflict_walls(layout) -> int:
 
 
 def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
-                       keepout):
+                       keepout, retreat_m=None, face_spec=None):
     """THE RETREAT MACHINE — one derivation, two callers.
 
     Given a shape's open ring (``coords``/``alts``), the value a HIGHER
@@ -2807,6 +2837,14 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
     Callers: ``emit_stacked_conflict_walls`` (strip vs authority, owner
     ruling 2026-07-19) and ``emit_authority_retreat_walls``
     (consensus-retirement §2: any LOSING claimant beyond tol retreats).
+
+    ``retreat_m(i)`` (R19-4) is the per-vertex retreat distance, default
+    ``STACKED_WALL_RETREAT_M``; ``face_spec(run)`` returns the
+    ``(role, ref)`` of the face that fills the vacated band, default the
+    ``retaining_wall`` / ``stacked_conflict_wall`` pair.  Together they
+    are how the WALLS RULING is executed without a second copy of the
+    retreat machine: a FEATHER is the same vacated band, made wide enough
+    to grade and emitted under the loser's own role.
     """
     n = len(coords)
     _dbg = (os.environ.get("O4_RETREAT_DIAG")
@@ -2852,15 +2890,34 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
         if norm < 1e-9:
             continue
         tx, ty = tx / norm, ty / norm
-        for (nx_, ny_) in ((-ty, tx), (ty, -tx)):
-            px = bx + nx_ * STACKED_WALL_RETREAT_M
-            py = by + ny_ * STACKED_WALL_RETREAT_M
-            try:
-                if poly.contains(Point(px, py)):
-                    moved_pos[i] = (px, py)
-                    break
-            except _GEOM_EXC:
-                continue
+        _rm = (float(retreat_m(i)) if retreat_m is not None
+               else STACKED_WALL_RETREAT_M)
+        # BACK OFF TO WHAT FITS (R19-4).  The wall's 0.6 m always landed
+        # inside; a FEATHER's run is ``spread / cap`` — tens of metres —
+        # and at a ring CORNER the inward normal is the diagonal of two
+        # edges, so the full run can leave the shape.  Take the widest
+        # run that fits, never narrower than the retreat that has always
+        # fitted.  The ruling is explicit that this is the right
+        # direction: "tight spots get steep slopes, never walls" (no
+        # tight-spot exception) — a shortened feather reads as the steep
+        # face it is, where a wall would hide it from every grade law.
+        _tries = [_rm]
+        while _tries[-1] > STACKED_WALL_RETREAT_M * 2.0:
+            _tries.append(max(_tries[-1] * 0.5, STACKED_WALL_RETREAT_M))
+        if _tries[-1] > STACKED_WALL_RETREAT_M:
+            _tries.append(STACKED_WALL_RETREAT_M)
+        for _try in _tries:
+            for (nx_, ny_) in ((-ty, tx), (ty, -tx)):
+                px = bx + nx_ * _try
+                py = by + ny_ * _try
+                try:
+                    if poly.contains(Point(px, py)):
+                        moved_pos[i] = (px, py)
+                        break
+                except _GEOM_EXC:
+                    continue
+            if moved_pos[i] is not None:
+                break
     run_indices = [i for i in range(n) if moved_pos[i] is not None]
     _d(f"moved_pos set at {run_indices}")
     if not run_indices:
@@ -2930,9 +2987,10 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
                 and wall_poly.intersects(_strip_keepout)):
             _d(f"run={run} FACE DROPPED: runway-strip keepout")
             continue            # runway-strip wall law (see above)
+        _role, _ref = ((ROLE_RETAINING_WALL, "stacked_conflict_wall")
+                       if face_spec is None else face_spec(run))
         shape_walls.append(BuiltShape(
-            polygon=wall_poly, role=ROLE_RETAINING_WALL,
-            ref="stacked_conflict_wall",
+            polygon=wall_poly, role=_role, ref=_ref,
             node_altitudes=wall_alts + [wall_alts[0]]))
         for i in run:
             new_coords[i] = moved_pos[i]
@@ -3063,6 +3121,33 @@ _STRIP_SEAM_JOINT_PICKUP_M = (
     STACKED_WALL_RETREAT_M + STRIP_SEAM_WALL_STRADDLE_TOL_M)
 
 
+def _carve_structure_zone(layout):
+    """The prepared union of every CARVE STRUCTURE at this airport,
+    buffered by ``WALL_CARVE_SITE_RADIUS_M`` — or ``None`` when the
+    airport has none (R19-4).
+
+    A carve structure is a tunnel/bridge cut and its portal furniture
+    (``_CARVE_STRUCTURE_ROLES`` / ``_CARVE_STRUCTURE_REFS``): the ONE
+    place the owner's 2026-08-07 ruling still admits a retaining wall.
+    The radius is the portal's own neighbourhood — an abutment wall sits
+    beside its structure, not on it — and is a config constant so the
+    ruling has one number, not one per call site."""
+    from .config import WALL_CARVE_SITE_RADIUS_M
+    polys = []
+    for sh in (getattr(layout, "shapes", ()) or ()):
+        if (sh.role in _CARVE_STRUCTURE_ROLES
+                or getattr(sh, "ref", None) in _CARVE_STRUCTURE_REFS):
+            if sh.polygon is not None and not sh.polygon.is_empty:
+                polys.append(sh.polygon)
+    if not polys:
+        return None
+    try:
+        return prep(unary_union(polys).buffer(
+            float(WALL_CARVE_SITE_RADIUS_M)))
+    except _GEOM_EXC:
+        return None
+
+
 def emit_authority_retreat_walls(layout) -> int:
     """CONSENSUS RETIREMENT §2 — the losing claimant RETREATS.
 
@@ -3154,6 +3239,11 @@ def emit_authority_retreat_walls(layout) -> int:
             return None
         return best[2]
 
+    # THE WALLS RULING (R19-4).  Carve sites keep their wall; every
+    # other retreat run becomes a graded FEATHER.
+    carve_zone = _carve_structure_zone(layout)
+    from .config import ROLE_GRADE_LIMITS, GROUNDSIDE_MAX_GRADE
+
     emitted = 0
     new_walls: list = []
     _diag = os.environ.get("O4_RETREAT_DIAG") or ""
@@ -3203,15 +3293,48 @@ def emit_authority_retreat_walls(layout) -> int:
                 continue        # cross-tile contract — adopt, no wall
             coincident_top[i] = top
             spread[i] = sp
+        # Per-vertex: is this retreat run at a CARVE STRUCTURE?  A wall
+        # there is lawful and keeps today's geometry exactly; anywhere
+        # else the band must be wide enough to GRADE the step at the
+        # loser's own cap (the ruling's own remedy: "where ground must
+        # change height it grades").
+        _cap = ROLE_GRADE_LIMITS.get(role)
+        if not _cap:
+            _cap = float(GROUNDSIDE_MAX_GRADE)
+        _is_carve = [False] * n
+        if carve_zone is not None:
+            for i in range(n):
+                if coincident_top[i] is None:
+                    continue
+                try:
+                    _is_carve[i] = carve_zone.contains(
+                        Point(coords[i][0], coords[i][1]))
+                except _GEOM_EXC:
+                    _is_carve[i] = False
+
+        def _retreat_m(i, _c=_cap, _carve=_is_carve, _sp=spread):
+            if _carve[i]:
+                return STACKED_WALL_RETREAT_M
+            return max(STACKED_WALL_RETREAT_M,
+                       _sp[i] / _c * _FEATHER_RUN_MARGIN)
+
+        def _face_spec(run, _carve=_is_carve, _role=role):
+            if any(_carve[i] for i in run):
+                return (ROLE_RETAINING_WALL, "authority_retreat_wall")
+            # THE FEATHER: the vacated band emits as the LOSER'S OWN
+            # surface, so the transition is regulated by that role's
+            # grade law instead of hidden inside a relief feature.
+            return (_role, "authority_retreat_feather")
+
         walls = _retreat_run_walls(shape, coords, alts, coincident_top,
-                                   spread, keepout)
+                                   spread, keepout,
+                                   retreat_m=_retreat_m,
+                                   face_spec=_face_spec)
         if _diag and role in _diag:
             print(f"  [retreat-diag]   own={[round(a, 2) for a in alts]} "
                   f"top={[None if t is None else round(t, 2) for t in coincident_top]} "
                   f"spread={[round(s, 2) for s in spread]} "
                   f"walls={len(walls)}", flush=True)
-        for w in walls:
-            w.ref = "authority_retreat_wall"
         new_walls.extend(walls)
         emitted += len(walls)
     if new_walls:

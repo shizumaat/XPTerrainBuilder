@@ -1559,5 +1559,19 @@ evidence):
 * **ONE BAND CONSTRUCTION (owner-ruled 2026-08-11b, emphatic):** the reach band is constructed ONCE per solve; every consumer — the writeback clamp, the final band-excess report, seats, endpoints — reads THAT band. A second construction (the vhhh17 finding: clamp on the carried env_band, report on a rebuilt reach_band_unified) is a defect wherever it appears. Extends the standing "ONE band (reach_band_unified)" law from consumers to constructions.
 * **KCLT triangle ADJUDICATED (owner 2026-08-11b):** the tunnel-conflict shapes are claimable road pavement (r14 claim law applies); the `tunnel_airside_conflict` finding closes. Artifact: session sq2/KCLT-apron-10602-adjudication.md.
 * **KMCI shapeID 995 ADJUDICATED (owner 2026-08-11b):** the parking-lot APRON flip is a real scorer defect; ruled law for the scorer round: `wide_blob` may MAGNIFY but never AUTHOR apron absent at least one airside-contact feature. Companion finding queued with it: KCLT idx 1254 (13k m² apron scoring TAXI 0.58 HIGH). Artifact: session sq2/KMCI-shapeID995-parking-lot-adjudication.md.
+  LANDED (lane scorer) as `G-APRON-AIRSIDE` in
+  `pavement_scoring.score_shape`: APRON is removed from the candidates
+  unless at least one of `name_apron`, `osm_apron`, `osm_stand`,
+  `runway_connected`, `airside_contact`, `taxi_contact` is positive —
+  the adjudication's own list, spelled with the production feature
+  registry's names. The gate is STRUCTURAL (a candidate removal, not a
+  weight): `wide_blob` keeps its full weight wherever an airside
+  feature is present, so no re-weighting can un-rule it. It survives
+  the G-CONFLICT reopen like the two 2026-08-10 apron gates, and each
+  build prints one census line counting the shapes it gated. Known
+  consequence, flagged for the owner: `alt_name_apron` (the Global
+  Airports cross-reference name) is NOT on the ruled list, so a shape
+  only the alt pack calls an apron still scores apron but cannot win
+  it without other airside evidence.
 * **HECA cache refresh AUTHORIZED (owner 2026-08-11b):** one explicit `--refresh-data airport_mod_cache` HECA run regularises the recon build's 5-file footprint-cache contamination; refresh-ledgered.
 * **HECA phantom pads: EVIDENCE GATE ruled (owner 2026-08-11b):** building-pad seeds require BUILDING EVIDENCE (OSM footprint or vertical-structure test), not solid-reach alone; the two pending default-OFF defences (connector prefilter, structure-span gate) get ruled by measurement inside the same round.

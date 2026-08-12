@@ -1832,6 +1832,22 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
 # Stages 3+4 — gates, argmax, confidence
 # ═════════════════════════════════════════════════════════════════════
 
+# G-APRON-AIRSIDE (owner ruling 2026-08-11b, RULINGS c366c13): the
+# AIRSIDE-CONTACT features — the exact set the KMCI shapeID 995
+# adjudication enumerated, spelled with the production feature
+# registry's own names.  Each one is a statement that AIRCRAFT reach
+# this shape: the airport's own name for it (``name_apron``), the
+# mapper's apron/stand tagging (``osm_apron`` / ``osm_stand``), an
+# aircraft touch-chain to a runway (``runway_connected``), a
+# building's airside face (``airside_contact``), or a shared edge with
+# aircraft pavement (``taxi_contact``).  Nothing is invented here and
+# nothing is added: a feature outside this list may still SCORE apron,
+# it just cannot open the gate.
+_AIRSIDE_CONTACT_FEATURES = (
+    "name_apron", "osm_apron", "osm_stand",
+    "runway_connected", "airside_contact", "taxi_contact",
+)
+
 def score_shape(polygon, layout, *, adjacency=None, owner=None,
                 connected: bool | None = None,
                 legacy_class: str | None = None,
@@ -1956,6 +1972,27 @@ def score_shape(polygon, layout, *, adjacency=None, owner=None,
         # (2.4 m).
         candidates.discard(CLASS_APRON)
         gates.append("G-APRON-WIDTH")
+    # G-APRON-AIRSIDE (owner ruling 2026-08-11b, verbatim intent):
+    # "``wide_blob`` may MAGNIFY but never AUTHOR apron absent at least
+    # one airside-contact feature".  A shape may be APRON only if at
+    # least one of ``_AIRSIDE_CONTACT_FEATURES`` is positive.  "Large
+    # paved blob" is not evidence of airside use — every big car park is
+    # a large paved blob, and at KMCI two of them (idx 139 / 1052,
+    # 36.6k and 53.2k m² of landside terminal-frontage parking) were
+    # promoted GROUNDSIDE → APRON at HIGH margin on ``wide_blob`` 1.0
+    # ALONE, with every airside feature reading zero.
+    #
+    # THE GATE IS STRUCTURAL, NOT A WEIGHT (the ruling's own emphasis):
+    # ``wide_blob`` keeps its full weight wherever an airside feature is
+    # present, so a real apron's size still magnifies its evidence; what
+    # the gate removes is AUTHORSHIP, and no future re-weighting of
+    # ``wide_blob`` (or of any other feature) can un-rule it, because
+    # the candidate is gone before the argmax ever sees the scores.
+    airside_any = any(x.get(f, 0.0) > 0.0
+                      for f in _AIRSIDE_CONTACT_FEATURES)
+    if not airside_any:
+        candidates.discard(CLASS_APRON)
+        gates.append("G-APRON-AIRSIDE")
     if connected is False:
         # G-CHAIN: no aircraft touch-chain to a runway (terminal guard
         # already applied — ``connected`` is None when the guard bites).
@@ -1995,13 +2032,17 @@ def score_shape(polygon, layout, *, adjacency=None, owner=None,
         # apron gates are absolute in the same sense: they are
         # statements about what the shape IS (it touches the runway; no
         # aircraft fits on it), not about which evidence outweighs
-        # which.  {TAXI} always survives, so the reset never re-empties.
+        # which.  G-APRON-AIRSIDE is absolute in that same sense (no
+        # airside feature is positive — nothing says aircraft reach
+        # it), and it can only ever REMOVE apron, so it never empties
+        # the reset.  {TAXI} always survives, so the reset never
+        # re-empties.
         candidates = set(CLASSES)
         if enclosed:
             candidates.discard(CLASS_GROUNDSIDE)
         if abut_fired or taxi_only_fired:
             candidates -= {CLASS_SERVICE, CLASS_GROUNDSIDE}
-        if runway_contact or sub_taxi_width:
+        if runway_contact or sub_taxi_width or not airside_any:
             candidates.discard(CLASS_APRON)
         gates.append("G-CONFLICT")
     if x.get("outside_boundary", 0.0) >= PAVEMENT_SCORE_BOUNDARY_OUT_FRAC:
@@ -2106,7 +2147,8 @@ def shadow_classify(layout, icao: str = "",
     ``layout.pavement_score_summary``; prints one line.
     """
     summary = {"mode": PAVEMENT_SCORE_V2, "shapes": 0, "agree": 0,
-               "disagree": 0, "low": 0, "confusion": {}, "seconds": 0.0}
+               "disagree": 0, "low": 0, "confusion": {}, "seconds": 0.0,
+               "apron_gated": 0}
     if PAVEMENT_SCORE_V2 == "off":
         layout.pavement_score_summary = summary
         return summary
@@ -2153,6 +2195,8 @@ def shadow_classify(layout, icao: str = "",
                 pass
             decisions.append(record)
             summary["shapes"] += 1
+            if "G-APRON-AIRSIDE" in record["gates"]:
+                summary["apron_gated"] += 1
             if record["band"] == "LOW" or record["winner"] is None:
                 summary["low"] += 1
             verdict = record["winner"] or legacy_class
@@ -2193,6 +2237,11 @@ def shadow_classify(layout, icao: str = "",
         f"agree with legacy ({100 * summary['agree'] / total:.0f}%), "
         f"{summary['disagree']} differ, {summary['low']} low-margin; "
         f"rel {summary['reliability']}; {summary['seconds']:.2f} s.")
+    UI.vprint(1,
+        f"  [pav-score] {icao}: G-APRON-AIRSIDE gated "
+        f"{summary['apron_gated']} of {total} shape(s) out of APRON "
+        f"(no airside-contact feature — wide_blob may magnify, never "
+        f"author).")
     return summary
 
 
@@ -2271,7 +2320,8 @@ def enact_classify(layout, icao: str = "", dem=None,
     contract the v1 slot documents).
     """
     summary = {"mode": PAVEMENT_SCORE_V2, "shapes": 0, "enacted": 0,
-               "low": 0, "severed": 0, "flips": {}, "seconds": 0.0}
+               "low": 0, "severed": 0, "flips": {}, "seconds": 0.0,
+               "apron_gated": 0}
     if PAVEMENT_SCORE_V2 != "on":
         layout.pavement_score_summary = summary
         return summary
@@ -2350,6 +2400,8 @@ def enact_classify(layout, icao: str = "", dem=None,
                 n_groundside += 1
         if record["band"] == "LOW" or record["winner"] is None:
             summary["low"] += 1
+        if "G-APRON-AIRSIDE" in record["gates"]:
+            summary["apron_gated"] += 1
         decisions.append(record)
         return moved
 
@@ -2467,4 +2519,14 @@ def enact_classify(layout, icao: str = "", dem=None,
         f"{summary['shapes']} shape(s) re-classed "
         f"({summary['flips']}), {summary['low']} low-margin "
         f"{low_note}{sever_note}; {summary['seconds']:.2f} s.")
+    # The gate's own census line (owner 2026-08-11b: "one loud census
+    # line counts gated shapes per build").  Counts DECISIONS, not
+    # shapes: a shape re-verdicted by the orphan or enclave sweep is
+    # counted once per decision it received, which is what "how often
+    # did the law bite" means here.
+    UI.vprint(1,
+        f"  [pav-score] {icao}: G-APRON-AIRSIDE gated "
+        f"{summary['apron_gated']} of {len(decisions)} decision(s) out "
+        f"of APRON (no airside-contact feature — wide_blob may magnify, "
+        f"never author).")
     return summary

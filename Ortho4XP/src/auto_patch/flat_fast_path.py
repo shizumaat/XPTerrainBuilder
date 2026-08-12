@@ -299,19 +299,12 @@ def below_grade_present(layout) -> bool:
 
     The same family test :func:`below_grade_keepout` uses, without the
     unions — for the re-application check, which runs after the emitters
-    that create most of them."""
-    from .gap_fill import _TUNNEL_BLOCKER_REFS, _TUNNEL_BLOCKER_ROLES
-    from .groundside import BELOW_GRADE_REFS
+    that create most of them.  The families themselves come from
+    ``groundside.below_grade_family_shapes``, the ONE enumeration (this
+    site used to spell it out a second time)."""
+    from .groundside import below_grade_family_shapes
 
-    for shape in getattr(layout, "shapes", ()) or ():
-        polygon = getattr(shape, "polygon", None)
-        if polygon is None or polygon.is_empty:
-            continue
-        ref = getattr(shape, "ref", "")
-        if (shape.role in _TUNNEL_BLOCKER_ROLES
-                or ref in _TUNNEL_BLOCKER_REFS or ref in BELOW_GRADE_REFS):
-            return True
-    return False
+    return bool(below_grade_family_shapes(layout))
 
 
 def below_grade_keepout(layout, z0_m: float):

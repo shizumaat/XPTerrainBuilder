@@ -113,3 +113,46 @@ relevel time cannot see the family the weld will create.
 Tile build (consolidated lead-owned acceptance covers it); object-pad
 production claim (ruling 4); any change to `to_osm` authority consensus;
 mechanism-2 field sampling behavior.
+
+## AMENDMENT 1 (Fable lead, 2026-08-12, after the lane's attribution) —
+## the last author is the LATE projection; the pad law re-asserts after it
+
+The lane's measurement refutes this spec's premise. At relevel time the
+layout is already conformant (the final weld would insert only 18
+vertices corpus-wide there), the level family FORMS, and building114
+ADOPTS 85.59 (`pipeline:6183`, both arms) — then the late
+`final_grade_projection` (`O4_FINAL_PROJECTION_LATE`, default on,
+`solve.py:7856` via `pipeline:6885`) re-stamps 88.5. Interventional arm
+`t16nolate` (late projection off) lands every named claim exactly but
+costs LAW-TRUE +86 — the projection stays ON.
+
+RULED REMEDY: a SECOND `relevel_pads_to_host_pavement` invocation
+immediately AFTER the late projection (building-pad branch; object-pad
+branch only if object pads exist at that stage). It reads the
+post-projection host values, so the projection keeps full authority over
+the terrain and the pad-host law re-asserts on top — pad adopts FROM the
+host, convergent, no loop. Constraints:
+- The R17 band-clamp-last-author guard
+  (`tests/test_r17_band_clamp_last_author.py`) must stay green UNTOUCHED.
+  If the second invocation cannot be placed without breaking it, that is
+  a STOP-and-report — an authorship conflict for the lead, not a test to
+  edit.
+- The FIRST invocation stays where it is (downstream passes between 6183
+  and 6885 continue to see releveled pads).
+- No behavior change to the projection itself.
+
+RATIFIED: the lane's both-endpoints reading of an edge-insert identity
+class (measured inert at HECA) is accepted as the spec's meaning. The
+weld-relation `_pad_lip_index` and the `weld_candidate_pairs` accessor
+LAND as built (+0.36 s measured, twice per build — flagged to the
+profiling round for adjudication, not reverted here).
+
+Amended acceptance (HECA --patch-only, production arm, late projection ON):
+- building114 → 85.59 ±0.01 (the post-projection host value — 85.59, not
+  the artifact's 85.63; quote both); building189 ring flat at the host
+  value; building112 UNMOVED; ring −10189 `building|building` rows
+  14 → 0; swap class unswapped (quote the three pairs).
+- Census before/after: LAW-TRUE delta ≤ 0 expected (pad rows leaving);
+  any positive family delta is a STOP. Row-class table quoted.
+- Shared repo UNCHANGED; rc=0; arms ledgered; attempt cap: this is
+  attempt 2 of 2 — a miss is a STOP, final.

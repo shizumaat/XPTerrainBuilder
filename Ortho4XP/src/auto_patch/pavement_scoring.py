@@ -95,7 +95,7 @@ __all__ = [
     "CLASSES", "ScoreSources", "SourceReliability", "score_sources",
     "source_reliability", "ensure_alt_sources", "shape_features",
     "score_shape", "shadow_classify", "enact_classify",
-    "runway_connectivity", "sever_unreachable",
+    "runway_connectivity", "sever_unreachable", "lawful_airside_closure",
     "reclass_building_faces",
 ]
 
@@ -1275,8 +1275,33 @@ _SERVICE_ADJ_MIN_M = 20.0
 _SERVICE_ADJ_MIN_FRAC = 0.20
 
 
+# The shared edge that makes aircraft-pavement CONTACT (the
+# ``taxi_contact`` bar, owner CYXY #208).  Named once: the closure that
+# decides WHO may vouch and the feature that reads the vouch must ask
+# the same question (S1b).
+_TAXI_CONTACT_MIN_M = 3.0
+
+
+def _not_lawfully_airside(layout) -> frozenset:
+    """Shape ids proven NOT lawfully airside this pass (S1b).
+
+    Empty when the closure has not run — the gate then reads exactly as
+    it did before the amendment.
+    """
+    return getattr(layout, "_pavement_score_not_airside", None) or frozenset()
+
+
 def _abutment_index(layout):
     """Memoized ``(apron_tree, apron_polys, apron_ids, bld_union, …)``.
+
+    S1b (owner 2026-08-12): the AIRSIDE vouching layers — apron and
+    chain — exclude every shape in ``_not_lawfully_airside``. "Contact
+    evidence counts only from a shape that is itself lawfully airside";
+    a neighbour that holds apron only through the legacy chain, or that
+    the apron gate would itself refuse, is not in the layer at all, so
+    it cannot lend ``taxi_contact`` / ``airside_contact`` /
+    ``apron_edge_bound`` to anyone.  The BUILDING and SERVICE layers are
+    other laws and are untouched.
 
     The apron side is an STRtree with owner ids so a shape never
     counts its OWN polygon as an apron edge; the building/terminal
@@ -1292,19 +1317,22 @@ def _abutment_index(layout):
     aprons, apron_ids, buildings = [], [], []
     chain, chain_ids = [], []
     service, service_ids = [], []
+    not_airside = _not_lawfully_airside(layout)
     for s in layout.shapes:
         p = s.polygon
         if p is None or p.is_empty:
             continue
+        vouches = id(s) not in not_airside
         if s.role == ROLE_APRON:
-            aprons.append(p)
-            apron_ids.append(id(s))
+            if vouches:
+                aprons.append(p)
+                apron_ids.append(id(s))
         elif s.role in (ROLE_BUILDING, "terminal"):
             buildings.append(p)
         if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
             service.append(p)
             service_ids.append(id(s))
-        if s.role in _CHAIN_ROLES:
+        if s.role in _CHAIN_ROLES and vouches:
             chain.append(p)
             chain_ids.append(id(s))
     tree = None
@@ -1350,6 +1378,111 @@ def _abutment_index(layout):
         (chain_tree, chain, chain_ids), bld_shadow_u,
         (service_tree, service, service_ids))
     return layout._pavement_score_abut_unions
+
+
+def lawful_airside_closure(layout, candidates, connectivity=None) -> frozenset:
+    """S1b — the ids of CANDIDATE shapes that are NOT lawfully airside.
+
+    Owner ruling 2026-08-12: "airside-contact evidence counts ONLY from
+    a shape that is itself lawfully airside — a neighbour that got apron
+    solely via the legacy chain, or that the apron gate would itself
+    refuse, vouches for nothing (evaluate to a fixpoint)."
+
+    THE FIXPOINT IS THE LEAST ONE, and that is the whole mechanism.
+    Starting from "everyone vouches" and removing the refused ones is a
+    GREATEST fixpoint, and it leaves mutually-vouching cycles standing —
+    which is exactly the KMCI defect: two adjacent landside lots, both
+    apron only by the legacy chain, each one the other's
+    ``taxi_contact``.  Growing OUTWARD from evidence that needs no
+    voucher dissolves the cycle, because neither lot is ever seeded.
+
+    Seeds (evidence no neighbour can supply):
+
+    * the airport's own name for it (``name_apron``), the mapper's
+      apron/stand tagging (``osm_apron`` / ``osm_stand``), or an
+      aircraft touch-chain to a runway (``runway_connected``);
+    * every chain-role shape the scorer never judges — runways and
+      runway crossings above all: a runway IS airside by identity, and
+      nothing here can gate it.
+
+    Propagation: a shape becomes lawful when its shared edge with
+    ALREADY-LAWFUL aircraft pavement reaches ``_TAXI_CONTACT_MIN_M``,
+    the same bar ``taxi_contact`` uses.  Shared lengths are measured
+    ONCE per partner on the UNFILTERED layer and then summed over the
+    lawful subset — one geometry pass for the whole fixpoint instead of
+    one per round.  Summing per-partner lengths is a hair different from
+    the feature's own union-then-measure (partners can share a boundary
+    point), and the difference decides membership only: every FEATURE
+    value is still measured by ``shape_features`` on the filtered layer,
+    so a shape this admits can still be gated there, and one it refuses
+    simply vouches for nobody.
+    """
+    polys = [s.polygon for s in candidates]
+    if not polys:
+        return frozenset()
+    ev = evidence_sources(layout)
+    ss = score_sources(layout)
+    name_apron = list(ss.name_apron.cover_fractions(polys))
+    osm_apron = list(ev.osm_apron.cover_fractions(polys))
+    osm_stand = list(ev.osm_stand.cover_fractions(polys))
+    connected = connectivity or {}
+    lawful: set = set()
+    candidate_ids: set = set()
+    for i, shape in enumerate(candidates):
+        candidate_ids.add(id(shape))
+        if (name_apron[i] > 0.0 or osm_apron[i] > 0.0 or osm_stand[i] > 0.0
+                or connected.get(id(shape)) is True):
+            lawful.add(id(shape))
+    for shape in layout.shapes:
+        if (getattr(shape, "role", "") in _CHAIN_ROLES
+                and id(shape) not in candidate_ids):
+            lawful.add(id(shape))
+    # The contact graph, measured on the UNFILTERED layer (the closure
+    # decides what the filter will be, so it cannot read the filter).
+    saved = getattr(layout, "_pavement_score_not_airside", None)
+    layout._pavement_score_not_airside = frozenset()
+    layout._pavement_score_abut_unions = None
+    try:
+        (_apron_tree, _apron_polys, _apron_ids, _bld_u,
+         (chain_tree, chain_polys, chain_ids),
+         _bld_shadow_u, _service_layer) = _abutment_index(layout)
+        edges: dict = {}
+        if chain_tree is not None:
+            for shape, poly in zip(candidates, polys):
+                if id(shape) in lawful:
+                    continue
+                try:
+                    boundary = poly.exterior
+                    partners: dict = {}
+                    for k in chain_tree.query(poly, predicate="dwithin",
+                                              distance=0.6):
+                        k = int(k)
+                        if (chain_ids[k] == id(shape)
+                                or chain_polys[k] is poly):
+                            continue
+                        shared = boundary.intersection(
+                            chain_polys[k].buffer(0.6)).length
+                        if shared > 0.0:
+                            partners[chain_ids[k]] = (
+                                partners.get(chain_ids[k], 0.0) + shared)
+                    if partners:
+                        edges[id(shape)] = partners
+                except _GEOM_EXC:
+                    continue
+    finally:
+        layout._pavement_score_not_airside = saved
+        layout._pavement_score_abut_unions = None
+    changed = True
+    while changed:
+        changed = False
+        for shape_id, partners in edges.items():
+            if shape_id in lawful:
+                continue
+            if sum(m for pid, m in partners.items()
+                   if pid in lawful) >= _TAXI_CONTACT_MIN_M:
+                lawful.add(shape_id)
+                changed = True
+    return frozenset(sid for sid in candidate_ids if sid not in lawful)
 
 
 def reclass_building_faces(layout) -> int:
@@ -1742,11 +1875,17 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
         # access signal for the taxi-only law (owner 2026-07-28,
         # CYXY #208: "the difference is the service road connections
         # to 104... while 208 has taxiway and no roads").
-        if chain_shared >= 3.0:
+        if chain_shared >= _TAXI_CONTACT_MIN_M:
             x["taxi_contact"] = 1.0
         if x["building_abut"] >= 1.0 and (
                 chain_shared >= _BUILDING_ABUT_MIN_M
-                or (owner is not None and owner.role in _CHAIN_ROLES)):
+                # S1b: the identity disjunct is a shape vouching for
+                # ITSELF out of its legacy role.  A shape the closure
+                # has proven not lawfully airside cannot do that — "a
+                # neighbour that got apron solely via the legacy chain
+                # vouches for nothing", and least of all for itself.
+                or (owner is not None and owner.role in _CHAIN_ROLES
+                    and id(owner) not in _not_lawfully_airside(layout))):
             # The face disambiguator: touching aircraft pavement —
             # or BEING aircraft pavement (a chain-role owner is airside
             # by identity) — marks the building's AIRSIDE face; a
@@ -2163,9 +2302,15 @@ def shadow_classify(layout, icao: str = "",
         layout.pavement_score_summary = summary
         return summary
     layout._pavement_score_abut_unions = None    # final roles here
+    layout._pavement_score_not_airside = None
     ensure_alt_sources(layout, icao, xplane_root)
     connectivity = runway_connectivity(layout)
     adjacency = _pavement_adjacency_index(layout)
+    # S1b: WHO MAY VOUCH, settled before anything is scored (the closure
+    # also clears the abutment memo, so every layer below is filtered).
+    layout._pavement_score_not_airside = lawful_airside_closure(
+        layout, candidates, connectivity)
+    summary["not_airside"] = len(layout._pavement_score_not_airside)
     decisions: list[dict] = []
     reliability = source_reliability(layout)
     layout._pavement_score_feature_rows = _precompute_feature_rows(
@@ -2209,8 +2354,10 @@ def shadow_classify(layout, icao: str = "",
                     summary["confusion"].get(key, 0) + 1
     finally:
         # Rows are keyed by ``id`` — never leave them to outlive the
-        # polygons they were computed for.
+        # polygons they were computed for.  Same for the vouching set.
         layout._pavement_score_feature_rows = None
+        layout._pavement_score_not_airside = None
+        layout._pavement_score_abut_unions = None
     summary["reliability"] = {
         "apt_names": round(reliability.apt_names, 3),
         "osm_aeroway": round(reliability.osm_aeroway, 3),
@@ -2241,7 +2388,8 @@ def shadow_classify(layout, icao: str = "",
         f"  [pav-score] {icao}: G-APRON-AIRSIDE gated "
         f"{summary['apron_gated']} of {total} shape(s) out of APRON "
         f"(no airside-contact feature — wide_blob may magnify, never "
-        f"author).")
+        f"author); {summary.get('not_airside', 0)} shape(s) vouch for "
+        f"nothing (S1b lawful-airside closure).")
     return summary
 
 
@@ -2356,6 +2504,14 @@ def enact_classify(layout, icao: str = "", dem=None,
         candidates = _candidates()
     connectivity = runway_connectivity(layout, zone)
     adjacency = _pavement_adjacency_index(layout)
+    # S1b (owner 2026-08-12): settle WHO MAY VOUCH before the first
+    # verdict.  This is the frame the shadow pass also computes, so the
+    # two instruments answer the same question about the same shapes —
+    # the gap that let KMCI's shapeID 995 body read taxi_contact 1.0
+    # here and 0.0 there.
+    layout._pavement_score_not_airside = lawful_airside_closure(
+        layout, candidates, connectivity)
+    summary["not_airside"] = len(layout._pavement_score_not_airside)
     from .groundside import (_dem_sampler, law_anchor_values,
                              law_anchor_key, _law_seat_stats)
     dem_at = (_dem_sampler(layout, dem, tile_lat, tile_lon)
@@ -2528,5 +2684,7 @@ def enact_classify(layout, icao: str = "", dem=None,
         f"  [pav-score] {icao}: G-APRON-AIRSIDE gated "
         f"{summary['apron_gated']} of {len(decisions)} decision(s) out "
         f"of APRON (no airside-contact feature — wide_blob may magnify, "
-        f"never author).")
+        f"never author); {summary.get('not_airside', 0)} shape(s) vouch "
+        f"for nothing (S1b lawful-airside closure).")
+    layout._pavement_score_not_airside = None
     return summary

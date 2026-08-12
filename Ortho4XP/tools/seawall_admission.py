@@ -105,16 +105,10 @@ def coverage_union(patch_files, lat: int, lon: int, mode: str, tile=None):
             if pol.is_valid and pol.area:
                 polys.append(pol)
                 n_kept += 1
-    # THE DECLARED CORRIDORS (R17-2) are part of the coverage in
-    # production (``include_patches`` inserts their rings), so they are
-    # part of it here — through production's own generator, with the
-    # same cfg parser, or the tool would measure a different island.
-    if mode != "pavement":
-        corridor_tile = tile or type(
-            "_TileStub", (), {"lat": lat, "lon": lon})()
-        for (pol, _box) in VMAP.declared_corridor_rings(corridor_tile):
-            polys.append(pol)
-            n_kept += 1
+    # R21: the declared corridor (R17-2) RETIRED, and the isthmus that
+    # replaced it needs no ring in the coverage — it is land in the
+    # coastline data already, so the island this tool measures is the
+    # same island production measures without one.
     if not polys:
         return geometry.Polygon(), n_rings, 0
     return ops.unary_union(polys), n_rings, n_kept
@@ -195,12 +189,6 @@ def flat_site_inset_stamp(tile):
                             "z0_m": sub.get("z0_m"),
                             "extent_tile_degrees": list(
                                 cluster["extent_deg"])})
-        for corridor in (sub.get("declared_corridors") or ()):
-            entries.append({"kind": "declared_corridor",
-                            "icao": sub.get("icao"),
-                            "z0_m": sub.get("z0_m"),
-                            "extent_tile_degrees": list(
-                                corridor["extent_deg"])})
     if getattr(tile, "dem", None) is None:
         tile.dem = type("_DemStub", (), {})()
     tile.dem.synthetic_flat_site_provenance = entries
@@ -220,9 +208,9 @@ def measure(lat: int, lon: int, patch_files, mode: str, near_m: float,
 
     tile = CFG.Tile(lat, lon, build_dir or "")
     if build_dir:
-        # The DECLARED corridors live in the tile cfg (R17-2), which lands
-        # on the Tile instance — read it, or the tool measures an island
-        # production does not build.
+        # The tile cfg lands on the Tile instance; read it so the tool's
+        # frame is the tile's own (R21: no corridor declaration to read
+        # any more — the isthmus is measured from the coastline).
         tile.read_from_config()
     coverage, n_rings, n_kept = coverage_union(patch_files, lat, lon, mode,
                                                tile=tile)
@@ -303,7 +291,7 @@ def main(argv=None) -> int:
                     help="shoreline denominator band (default 300 m)")
     ap.add_argument("--build-dir", default="",
                     help="tile build dir holding Ortho4XP_+LL+LLL.cfg — read "
-                         "for the DECLARED corridors (R17-2)")
+                         "so the tool builds the tile's own frame")
     ap.add_argument("--flat-site-inset", action="store_true",
                     help="R17b-2: also admit the COASTLINE inside the "
                          "flat-site constant-inset footprint (the reclaimed "

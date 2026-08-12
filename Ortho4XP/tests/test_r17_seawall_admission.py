@@ -30,7 +30,6 @@ if str(SRC) not in sys.path:
 
 import O4_Vector_Map as VMAP  # noqa: E402
 import O4_Vector_Utils as VECT  # noqa: E402
-from auto_patch import flat_site as FS  # noqa: E402
 from auto_patch import layout as LAYOUT  # noqa: E402
 
 TILE_LAT, TILE_LON = 22, 113
@@ -45,8 +44,9 @@ class TestRoleVocabularyIsNotASecondSpelling:
         known = {value for name, value in vars(LAYOUT).items()
                  if name.startswith("ROLE_") and isinstance(value, str)}
         assert VMAP.SEAWALL_PAVEMENT_ROLES <= known
-        assert VMAP.GRADED_COVERAGE_ROLES - {
-            VMAP.DECLARED_CORRIDOR_ROLE} <= known
+        # R21: with the declared corridor retired, EVERY graded-coverage
+        # role is a layout role — no exemption left to carve out.
+        assert VMAP.GRADED_COVERAGE_ROLES <= known
 
     def test_the_named_land_roles_are_admitted(self):
         for role in (LAYOUT.ROLE_APRON, LAYOUT.ROLE_JUNCTION,
@@ -63,8 +63,12 @@ class TestRoleVocabularyIsNotASecondSpelling:
                      LAYOUT.ROLE_RUNWAY_CLEARANCE, LAYOUT.ROLE_OLS_CUT):
             assert role not in VMAP.GRADED_COVERAGE_ROLES
 
-    def test_the_declared_corridor_rides_with_pavement(self):
-        assert VMAP.DECLARED_CORRIDOR_ROLE in VMAP.GRADED_COVERAGE_ROLES
+    def test_no_corridor_role_survives_the_retirement(self):
+        """R21: the DECLARED CORRIDOR role retires with its cfg key —
+        the ground it used to name is LAND in the coastline data and
+        needs no role of its own (``test_r21_corridor_retirement``)."""
+        assert not hasattr(VMAP, "DECLARED_CORRIDOR_ROLE")
+        assert "declared_corridor" not in VMAP.GRADED_COVERAGE_ROLES
 
 
 class TestAdmissionAreaContract:
@@ -128,14 +132,12 @@ def _box(lon0, lat0, lon1, lat1):
             (lon0, lat0)]
 
 
-def _run(tmp_path, monkeypatch, rings, declaration=None):
+def _run(tmp_path, monkeypatch, rings):
     patch_dir = tmp_path / "patches"
     patch_dir.mkdir()
     _patch_file(patch_dir, rings)
     monkeypatch.setattr(VMAP.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
-    monkeypatch.setattr(FS, "declared_flat_corridors",
-                        lambda value=None: declaration or {})
     vector_map = VECT.Vector_Map()
     return VMAP.include_patches(vector_map, _Tile())
 
@@ -204,13 +206,15 @@ class TestBoundaryRibbonNeverAdmitsAWall:
         line = geometry.LineString([(0.0, 0.0), (0.0, 1.0)])
         assert abs(module.metre_length(line, 1.0) - module.DEG_M) < 1.0
 
-    def test_the_declared_corridor_is_walled(self, tmp_path, monkeypatch):
-        # A corridor across the channel: its long edges meet the water,
-        # so they take walls (R17-2's third authority).
-        corridor = (22.0040, 113.0030, 22.0048, 113.0080)
+    def test_graded_pavement_across_the_channel_is_walled(
+            self, tmp_path, monkeypatch):
+        # R21 (converted from the declared-corridor twin): graded
+        # coverage whose long edges meet the water takes walls.  The
+        # ground a corridor used to declare is now LAND that the
+        # airport's own coverage or its flat-site island carries.
+        strip = _box(113.0030, 22.0040, 113.0080, 22.0048)
         (patches_area, _list, graded) = _run(
-            tmp_path, monkeypatch, [("apron", APRON)],
-            declaration={"VMMC": [corridor]})
+            tmp_path, monkeypatch, [("apron", APRON), ("apron", strip)])
         assert graded.contains(geometry.Point(0.0055, 0.0044))
         lines = VMAP.seawall_breaklines(
             VMAP.seawall_admission_area(patches_area, graded), SEA,

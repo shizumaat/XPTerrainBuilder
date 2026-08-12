@@ -64,6 +64,11 @@ __all__ = [
     "CLUSTER_FINDING_TOO_FAR",
     "CLUSTER_FINDING_DATUM",
     "record_cluster_finding",
+    # R21 — land-connected continuity.
+    "CORE_INSET_KIND",
+    "CLUSTER_INSET_KIND",
+    "ISTHMUS_INSET_KIND",
+    "island_continuity_regions",
 ]
 
 #: Local-metre projection constant — ``layout.R_EARTH``'s value, kept
@@ -737,44 +742,11 @@ def flat_site_substitutions(tile, dico_airports=None,
             # the number that refused them.  Same rule — an empty list
             # is "measured, none".
             "cluster_findings": [],
-            # R17-2: the owner's DECLARED corridors for this airport, as
-            # tile-relative boxes.  A declaration, unlike a claimed
-            # cluster, is not subject to the datum refusal — it IS the
-            # authority the datum check exists to protect (the check
-            # rules on evidence; the owner rules on intent).
-            "declared_corridors": _declared_corridor_boxes(
-                icao, tile_lat, tile_lon, tile=tile),
             "record": record,
         })
     _attach_claimed_object_clusters(
         out, icaos, anchor_by_icao, extent_by_icao,
         xplane_root, tile_lat, tile_lon)
-    return out
-
-
-def _declared_corridor_boxes(icao: str, tile_lat: int, tile_lon: int,
-                             tile=None) -> list:
-    """R17-2: the owner's declared corridors for ``icao``, tile-relative.
-
-    Only the boxes that INTERSECT this tile are returned — a corridor
-    declared on a neighbouring tile is not this tile's business, and a
-    box outside the tile would bake a constant inset over nothing.  Each
-    entry carries the WGS84 corners too, so a log line or a provenance
-    stamp can name the ground the owner declared.
-    """
-    from . import flat_site as _flat_site
-    out = []
-    for corridor in (_flat_site.corridors_for_tile(tile).get(
-            str(icao or "").upper()) or ()):
-        lat0, lon0, lat1, lon1 = corridor
-        if (lat1 < tile_lat or lat0 > tile_lat + 1
-                or lon1 < tile_lon or lon0 > tile_lon + 1):
-            continue
-        out.append({
-            "extent_deg": _flat_site.corridor_bounds_tile_degrees(
-                corridor, tile_lat, tile_lon),
-            "corridor_wgs84": [lat0, lon0, lat1, lon1],
-        })
     return out
 
 
@@ -850,3 +822,284 @@ def _attach_claimed_object_clusters(substitutions, icaos, anchor_by_icao,
                                 c.get("fallback_placements") or 0,
                                 c["extent_area_km2"])
                              for c in clusters)))
+
+
+# =====================================================================
+# R21 — LAND-CONNECTED CONTINUITY
+# (docs/specs/round21-land-connected-continuity-spec.md; owner ruling
+#  2026-08-12 "LAND-CONNECTED CONTINUITY, NO DECLARATIONS".)
+# =====================================================================
+# THE LAW.  A flat site is one FAMILY of footprints — the constant core
+# and the claimed-object clusters the datum check admitted.  Where two
+# members of that family stand on ONE SEA-BOUNDED LAND COMPONENT, the
+# land BETWEEN them is the same reclaimed ground and grades with them:
+# the isthmus joins the flat extent automatically, at the airport's own
+# Z0, with the component's sea edge taking the wall it already takes.
+#
+# IT IS AUTOMATIC, NOT DECLARED.  R17-2's ``flat_site_declared_corridors``
+# asked the owner to type the causeway's bounding box into a per-tile
+# cfg; it retires with this round (owner ruling above).  Nothing here
+# reads a declaration, and the same measurement runs for every airport
+# and every user.
+#
+# IT IS MEASURED, NEVER CONJURED.  The connecting ground must BE LAND in
+# the tile's own coastline data (VHHH's causeway is: the airport
+# platform and the east island are one 21.2 km² sea-bounded component,
+# the neck ~148 m wide).  Where the data carries no land bridge there is
+# no isthmus and nothing is baked — this law cannot manufacture land,
+# and a claim across open water is the thing R8-1 refused.
+#
+# THREE BOUNDS, each of which alone stops a mainland from flattening:
+#   1. ISLAND.  The component must not reach the working frame's edge.
+#      A mainland component inside a 1°x1° tile always does, and a tile
+#      with no coastline data at all is one frame-touching component —
+#      so HECA (no sea) and every inland airport are structurally out.
+#   2. FAMILY.  At least TWO members of one airport's family must stand
+#      on that component.  One footprint has nothing to be continuous
+#      WITH, which is every ordinary coastal airport.
+#   3. BETWEEN.  Only the land pieces that TOUCH TWO OR MORE members,
+#      clipped to the members' convex hull.  Land hanging off a single
+#      member is not connecting anything, and the hull is what "between"
+#      means — the whole component never flattens.
+
+#: The provenance kinds of the family's members, and of the connecting
+#: land this law bakes.  Spelled here because this module decides them;
+#: ``O4_Vector_Map`` twin-asserts its own copies against these.
+CORE_INSET_KIND = "synthetic_flat_site"
+CLUSTER_INSET_KIND = "synthetic_flat_site_object_cluster"
+ISTHMUS_INSET_KIND = "flat_site_isthmus"
+
+#: How far a land component may come to the tile frame and still count
+#: as sea-bounded (degrees; ~1 cm).  Not a tuning knob: the coastline
+#: cutter lands frame-touching components exactly ON the frame, so this
+#: only absorbs float noise.
+ISLAND_FRAME_TOLERANCE_DEG = 1e-7
+
+
+def _member_boxes(stamped, icao):
+    """One airport's admitted family footprints, tile-relative boxes.
+
+    Reads the PROVENANCE the bake has just written — never the
+    substitution request — so a cluster the R11-2 datum gate refused is
+    not a member: the family is what actually landed on the DEM.
+    """
+    from shapely import geometry
+
+    boxes = []
+    for entry in stamped or ():
+        if str(entry.get("icao") or "") != str(icao or ""):
+            continue
+        if entry.get("kind") not in (CORE_INSET_KIND, CLUSTER_INSET_KIND):
+            continue
+        extent = entry.get("extent_tile_degrees")
+        if not extent or len(extent) != 4:
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in extent)
+        except (TypeError, ValueError):
+            continue
+        box = geometry.box(min(x0, x1), min(y0, y1),
+                           max(x0, x1), max(y0, y1))
+        if box.is_valid and box.area:
+            boxes.append((entry.get("kind"), box))
+    return boxes
+
+
+def _island_component(land, core_box):
+    """The land component the airport stands on, or ``None``.
+
+    The component containing the core extent's CENTRE, and failing that
+    the one holding most of the core extent — a flat-site extent is a
+    rectangle, and at VHHH it also covers part of Lantau's north shore,
+    so "the component the rectangle touches" is not an answer.
+
+    ISLAND TEST: the component must not reach the working frame.  A
+    mainland reaches it; an island does not.
+    """
+    from shapely import geometry
+
+    if land is None or getattr(land, "is_empty", True):
+        return None, "no land data"
+    pieces = [piece for piece in getattr(land, "geoms", [land])
+              if piece is not None and not piece.is_empty]
+    centre = core_box.centroid
+    found = None
+    for piece in pieces:
+        try:
+            if piece.contains(centre) or piece.buffer(1e-9).contains(centre):
+                found = piece
+                break
+        except Exception:                                  # pragma: no cover
+            continue
+    if found is None:
+        best_area = 0.0
+        for piece in pieces:
+            try:
+                overlap = piece.intersection(core_box).area
+            except Exception:                              # pragma: no cover
+                continue
+            if overlap > best_area:
+                best_area, found = overlap, piece
+    if found is None:
+        return None, "the core extent holds no land"
+    minx, miny, maxx, maxy = found.bounds
+    tol = ISLAND_FRAME_TOLERANCE_DEG
+    if (minx <= tol or miny <= tol or maxx >= 1.0 - tol
+            or maxy >= 1.0 - tol):
+        return None, "mainland (the land component reaches the tile frame)"
+    return found, None
+
+
+def _connecting_pieces(island, members):
+    """The land BETWEEN the family's footprints, on ``island``.
+
+    ``members`` — the family's boxes.  Returns ``(polygon, cut, why)``:
+    the connecting land, whether the "between" clip removed part of a
+    connecting piece, and a DIAGNOSTIC dict.
+
+    ``why`` exists because "no isthmus" has three different causes — no
+    residual land at all (the footprints already cover it), residual land
+    that joins nothing (every piece touches one member), and residual
+    land the between-clip removed — and one message for three causes is
+    an attribution nobody can make afterwards.
+    """
+    from shapely import geometry, ops
+
+    residual = island
+    for box in members:
+        try:
+            residual = residual.difference(box)
+        except Exception:                                  # pragma: no cover
+            return geometry.Polygon(), False, {"error": "difference failed"}
+    pieces = [piece for piece in getattr(residual, "geoms", [residual])
+              if piece is not None and not piece.is_empty]
+    why = {"pieces": len(pieces), "best_touch": 0, "joined_area": 0.0,
+           "clipped_area": 0.0}
+    joining = []
+    for piece in pieces:
+        touched = 0
+        for box in members:
+            try:
+                if piece.buffer(1e-12).intersects(box):
+                    touched += 1
+            except Exception:                              # pragma: no cover
+                continue
+        why["best_touch"] = max(why["best_touch"], touched)
+        if touched >= 2:
+            joining.append(piece)
+    if not joining:
+        return geometry.Polygon(), False, why
+    try:
+        joined = ops.unary_union(joining)
+        between = ops.unary_union(members).convex_hull
+        clipped = joined.intersection(between)
+    except Exception:                                      # pragma: no cover
+        return geometry.Polygon(), False, why
+    why["joined_area"] = float(joined.area)
+    why["clipped_area"] = float(
+        0.0 if clipped is None or clipped.is_empty else clipped.area)
+    if clipped is None or clipped.is_empty:
+        return geometry.Polygon(), bool(joined.area), why
+    cut = clipped.area < joined.area * (1.0 - 1e-9)
+    return clipped, cut, why
+
+
+def island_continuity_regions(tile, stamped) -> list:
+    """R21 — the CONNECTING LAND to grade, one entry per airport family.
+
+    ``stamped`` is the flat-site provenance the bake has just written.
+    Returns ``[{icao, z0_m, polygon, area_km2, island_area_km2,
+    members, clipped}]`` — ``polygon`` in the vector map's TILE-RELATIVE
+    frame, ready for a masked constant inset at ``z0_m``.
+
+    Empty (with a reason at verbosity 1) whenever any bound fails: no
+    coastline data on disk, a mainland component, a single-member
+    family, or no land actually joining two members.  Never raises: a
+    failure here leaves the real surface in place.
+    """
+    import O4_Geo_Utils as GEO
+
+    if not stamped:
+        return []
+    try:
+        import O4_Vector_Map as VMAP
+
+        land = VMAP.cached_tile_land_area(tile)
+    except Exception as error:                             # pragma: no cover
+        UI.vprint(1, "   [flat-site] land-connected continuity: no land "
+                     "reading (%s) — nothing joined."
+                     % type(error).__name__)
+        return []
+    if land is None:
+        UI.vprint(
+            0,
+            "   [flat-site] land-connected continuity: NO COASTLINE DATA "
+            "on disk for this tile — the isthmus law is inert (it never "
+            "downloads; run the tile's step 1 first).")
+        return []
+    metres_lat = GEO.lat_to_m
+    metres_lon = GEO.lon_to_m(float(getattr(tile, "lat", 0)) + 0.5)
+    out = []
+    seen = []
+    for entry in stamped:
+        icao = str(entry.get("icao") or "")
+        if not icao or icao in seen:
+            continue
+        seen.append(icao)
+        family = _member_boxes(stamped, icao)
+        cores = [box for kind, box in family if kind == CORE_INSET_KIND]
+        if not cores or len(family) < 2:
+            continue
+        island, refusal = _island_component(land, cores[0])
+        if island is None:
+            UI.vprint(1, "   [flat-site] %s: no isthmus — %s."
+                         % (icao, refusal))
+            continue
+        on_island = []
+        for _kind, box in family:
+            try:
+                if box.intersects(island):
+                    on_island.append(box)
+            except Exception:                              # pragma: no cover
+                continue
+        if len(on_island) < 2:
+            UI.vprint(
+                1,
+                "   [flat-site] %s: no isthmus — only %d family footprint(s) "
+                "stand on the island component."
+                % (icao, len(on_island)))
+            continue
+        polygon, clipped, why = _connecting_pieces(island, on_island)
+        if polygon is None or polygon.is_empty:
+            scale = metres_lat * metres_lon / 1e6
+            UI.vprint(
+                0,
+                "   [flat-site] %s: no isthmus — %d footprint(s) on a %.2f "
+                "km2 island leave %d residual land piece(s), best touching "
+                "%d footprint(s); joined %.4f km2, between-clip left %.4f "
+                "km2. %s"
+                % (icao, len(on_island),
+                   island.area * scale, why.get("pieces", 0),
+                   why.get("best_touch", 0),
+                   why.get("joined_area", 0.0) * scale,
+                   why.get("clipped_area", 0.0) * scale,
+                   "The family's footprints already cover the connecting "
+                   "land." if not why.get("pieces") else
+                   ("No residual piece joins two footprints (they are "
+                    "separated by water)." if why.get("best_touch", 0) < 2
+                    else "The between-clip removed the joining land.")))
+            continue
+        z0 = entry.get("z0_m")
+        if z0 is None:
+            continue
+        out.append({
+            "icao": icao,
+            "z0_m": float(z0),
+            "polygon": polygon,
+            "area_km2": round(polygon.area * metres_lat * metres_lon / 1e6, 4),
+            "island_area_km2": round(
+                island.area * metres_lat * metres_lon / 1e6, 4),
+            "members": len(on_island),
+            "clipped": bool(clipped),
+        })
+    return out

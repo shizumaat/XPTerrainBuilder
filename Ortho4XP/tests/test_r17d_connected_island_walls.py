@@ -2,8 +2,14 @@
 
 Owner ruling 2026-08-12 ("CONNECTED-ISLAND WALLS", in-sim on the rebuilt
 +22+113): the island CONNECTED to the airport complex — the owner's
-point 22.3123837, 113.9521587, joined to VHHH by the declared corridor —
+point 22.3123837, 113.9521587, joined to VHHH across the causeway —
 gets the straight seawall too; its edge must not slope to water.
+
+R21 CONVERTED THE JOINING MECHANISM.  Where these twins used the
+DECLARED CORRIDOR (retired with its cfg key, owner 2026-08-12) they now
+use the ISTHMUS the flat-site family is measured to stand across: the
+same structural role — an unconditional inset kind spanning the two
+footprints — reached automatically instead of by declaration.
 
 r17c had walled the airport's constant CORE ∪ its DECLARED corridors and
 kept the claimed-object CLUSTER rectangles out WHOLE, because a cluster
@@ -13,8 +19,10 @@ is CONNECTED, and the island scoping still refuses the mainland reach of
 an admitted box — two gates, two different failures.
 
 The FEATHER half (R17c-2, Z0 to the wall line and the ramp seaward) is
-asserted here for the cluster and corridor bakes, which is what "the
-same treatment as the declared corridor" means for a cluster island.
+asserted here for the cluster bake, which is what "the same treatment"
+means for a cluster island.  The isthmus bake takes NO feather (its edge
+is the shoreline or the family's own footprint) — twinned in
+``tests/test_r21_land_connected_continuity.py``.
 
 Headless: no DEM, no network, no X-Plane install.
 """
@@ -39,25 +47,30 @@ TILE_LAT, TILE_LON = 22, 113
 #: The VHHH shape in miniature: the airport's island, the EAST island
 #: joined to it by the declared corridor, the mainland shore, the sea.
 ISLAND = geometry.box(0.30, 0.34, 0.40, 0.40)
+#: R21: the two islands are ONE land component — the isthmus is real
+#: ground in the coastline data, which is what the law measures (VHHH's
+#: causeway: one 21.2 km² sea-bounded component, the neck ~148 m wide).
+ISTHMUS_LAND = geometry.box(0.40, 0.3625, 0.44, 0.3675)
 EAST = geometry.box(0.44, 0.35, 0.50, 0.39)
 MAINLAND = geometry.box(0.25, 0.18, 0.60, 0.28)
 #: A cluster island the airport claims but that touches nothing of it.
 FARAWAY = geometry.box(0.80, 0.80, 0.86, 0.86)
 SEA = geometry.box(0.0, 0.0, 1.0, 1.0).difference(
-    ISLAND.union(EAST).union(MAINLAND).union(FARAWAY))
+    ISLAND.union(ISTHMUS_LAND).union(EAST).union(MAINLAND).union(FARAWAY))
 CORE = (0.28, 0.32, 0.42, 0.42)
-#: The declared corridor: it spans the channel and OVERLAPS both shores.
-CORRIDOR = (0.39, 0.362, 0.46, 0.368)
+#: The ISTHMUS stamp: the connecting land between the two footprints,
+#: measured by R21's law and stamped by the bake.  It touches both, which
+#: is what "connecting" means.
+ISTHMUS = (0.39, 0.362, 0.46, 0.368)
 #: The cluster box over the east island, and one over the far one.
 EAST_CLUSTER = (0.43, 0.34, 0.51, 0.40)
 FAR_CLUSTER = (0.79, 0.79, 0.87, 0.87)
-#: The airport's own emitted graded coverage, on its island.  Production
-#: puts the DECLARED CORRIDOR ring in this union too (``include_patches``
-#: appends it to ``graded_area_polys``), which is how a corridor makes
-#: two grounds one for every consumer downstream.
+#: The airport's own emitted graded coverage, on its island.  R21 needs
+#: no second polygon beside it: the isthmus is LAND on the same
+#: component, so the component the coverage stands on already carries it
+#: (that is the whole point of the land-connection law).
 COVERAGE = geometry.box(0.33, 0.36, 0.37, 0.38)
-COVERAGE_WITH_CORRIDOR = geometry.MultiPolygon(
-    [COVERAGE, geometry.box(*CORRIDOR)])
+COVERAGE_WITH_CORRIDOR = COVERAGE
 
 
 class _Dem:
@@ -78,12 +91,12 @@ def _entry(kind, x0, y0, x1, y1, icao="VHHH", z0=7.315):
 
 
 def _vhhh_tile():
-    """Core + declared corridor + BOTH cluster boxes — the connected one
-    and the distant one, so every assertion below is made against one
-    stamp, never a stamp curated per test."""
+    """Core + isthmus + BOTH cluster boxes — the connected one and the
+    distant one, so every assertion below is made against one stamp,
+    never a stamp curated per test."""
     return _Tile(_Dem([
         _entry("synthetic_flat_site", *CORE),
-        _entry("declared_corridor", *CORRIDOR),
+        _entry("flat_site_isthmus", *ISTHMUS),
         _entry("synthetic_flat_site_object_cluster", *EAST_CLUSTER),
         _entry("synthetic_flat_site_object_cluster", *FAR_CLUSTER),
     ]))
@@ -92,7 +105,7 @@ def _vhhh_tile():
 class TestTheConnectedClusterFootprint:
     """:func:`connected_cluster_inset_area` — the FOOTPRINT half."""
 
-    def test_a_cluster_joined_by_the_declared_corridor_is_connected(self):
+    def test_a_cluster_joined_by_the_isthmus_is_connected(self):
         core = VMAP.constant_inset_area(_vhhh_tile())
         joined = VMAP.connected_cluster_inset_area(_vhhh_tile(), core)
         assert joined.contains(geometry.Point(0.47, 0.37))
@@ -135,7 +148,7 @@ class TestTheConnectedClusterFootprint:
     def test_a_malformed_cluster_entry_is_skipped_not_fatal(self):
         tile = _Tile(_Dem([
             _entry("synthetic_flat_site", *CORE),
-            _entry("declared_corridor", *CORRIDOR),
+            _entry("flat_site_isthmus", *ISTHMUS),
             {"kind": "synthetic_flat_site_object_cluster"},
             {"kind": "synthetic_flat_site_object_cluster",
              "extent_tile_degrees": [1, 2]},
@@ -147,7 +160,7 @@ class TestTheConnectedClusterFootprint:
 
     def test_the_UNCONDITIONAL_kinds_reading_is_untouched(self):
         """``constant_inset_area``'s default still answers "the core and
-        the declared corridors" — the cluster kind is admitted through
+        the isthmus" — the cluster kind is admitted through
         the CONNECTION gate, never by widening that reading (a caller
         measuring the BAKED surface still asks with ``kinds=None``)."""
         core = VMAP.constant_inset_area(_vhhh_tile())
@@ -168,13 +181,13 @@ class TestTheConnectedIslandTakesTheWall:
         assert land.intersects(EAST)
         assert land.contains(geometry.Point(0.49, 0.385))
 
-    def test_r17c_would_have_admitted_only_the_corridors_overlap(self):
+    def test_r17c_would_have_admitted_only_the_isthmus_overlap(self):
         """The measured gap this law closes: without the cluster kind the
-        island is in the reading only where the CORRIDOR box happens to
+        island is in the reading only where the ISTHMUS box happens to
         cover it, and the rest of its shore keeps the beach ramp."""
         r17c_tile = _Tile(_Dem([
             _entry("synthetic_flat_site", *CORE),
-            _entry("declared_corridor", *CORRIDOR),
+            _entry("flat_site_isthmus", *ISTHMUS),
         ]))
         land = VMAP.coastline_wall_admission(
             r17c_tile, SEA, graded_area=COVERAGE_WITH_CORRIDOR)
@@ -191,7 +204,7 @@ class TestTheConnectedIslandTakesTheWall:
         different land COMPONENT carrying none of the graded coverage."""
         tile = _Tile(_Dem([
             _entry("synthetic_flat_site", *CORE),
-            _entry("declared_corridor", *CORRIDOR),
+            _entry("flat_site_isthmus", *ISTHMUS),
             _entry("synthetic_flat_site_object_cluster",
                    0.43, 0.18, 0.51, 0.40),
         ]))
@@ -212,7 +225,8 @@ class TestTheConnectedIslandTakesTheWall:
         #: cluster box brings its outer shore into the reading.
         vmmc_spur = geometry.box(0.68, 0.63, 0.74, 0.67)
         sea = geometry.box(0.0, 0.0, 1.0, 1.0).difference(
-            ISLAND.union(EAST).union(vmmc).union(vmmc_spur))
+            ISLAND.union(ISTHMUS_LAND).union(EAST).union(vmmc)
+            .union(vmmc_spur))
         tile = _Tile(_Dem([
             _entry("synthetic_flat_site", *CORE),
             _entry("synthetic_flat_site", 0.60, 0.60, 0.70, 0.70,
@@ -237,24 +251,22 @@ class TestTheConnectedIslandTakesTheWall:
             _vhhh_tile(), SEA, graded_area=None).is_empty
 
 
-class TestTheFeatherOnTheClusterAndCorridorBakes:
-    """R17c-2 applied to the cluster inset the same as to the declared
-    corridor: Z0 holds to the wall line, the ramp lands seaward."""
+class TestTheFeatherOnTheClusterBake:
+    """R17c-2 applied to the cluster inset exactly as to the airport's
+    own extent: Z0 holds to the wall line, the ramp lands seaward."""
 
-    def test_every_synthetic_bake_grows_its_raster_by_the_feather(self):
+    def test_every_RECTANGULAR_bake_grows_its_raster_by_the_feather(self):
         src = inspect.getsource(INSETS.overlay_flat_site_insets)
         assert "_feather_outward_extent(tile, x0, y0, x1, y1" in src
         assert "_feather_outward_extent(tile, cx0, cy0, cx1, cy1" in src
-        assert "_feather_outward_extent(tile, dx0, dy0, dx1, dy1" in src
 
-    def test_every_PROVENANCE_extent_is_the_DECLARED_one(self):
+    def test_every_PROVENANCE_extent_is_the_MEASURED_one(self):
         """The stamp is what the wall's admission reads, and admitting a
         grown box would wall 60 m of open sea — for a cluster island
         exactly as for the airport's own extent."""
         src = inspect.getsource(INSETS.overlay_flat_site_insets)
         assert '"extent_tile_degrees": [x0, y0, x1, y1]' in src
         assert '"extent_tile_degrees": [cx0, cy0, cx1, cy1]' in src
-        assert '"extent_tile_degrees": [dx0, dy0, dx1, dy1]' in src
 
     def test_the_grown_cluster_extent_holds_Z0_to_its_declared_edge(self):
         """The bake ramps ``clip(distance_to_edge / feather_m)`` from its

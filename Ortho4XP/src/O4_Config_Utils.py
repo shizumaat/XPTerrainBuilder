@@ -34,6 +34,8 @@ from O4_Cfg_Vars import (
     list_mesh_vars,
     list_tile_vars,
     list_vector_vars,
+    retired_cfg_key_warning,
+    retired_cfg_keys,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,7 +103,7 @@ for var in cfg_vars:
 # Config keys of retired settings, recognised so configs written by older
 # versions load without noise.  airport_elevation_inset_resolution_m was
 # superseded by airport_elevation_level (2026-07-24).
-RETIRED_CFG_KEYS = ("airport_elevation_inset_resolution_m",)
+RETIRED_CFG_KEYS = tuple(retired_cfg_keys)
 
 ################################################################################
 # Update from Global Ortho4XP.cfg
@@ -116,9 +118,13 @@ try:
         try:
             (var, value) = line.split("=", 1)
             if var in RETIRED_CFG_KEYS:
-                # A key from an older version, superseded by a newer
-                # setting: skipped silently (the next config write drops
-                # it), never reported as an invalid line.
+                # A key from an older version: skipped (the next config
+                # write drops it), never reported as an invalid line.
+                # A LOUDLY retired key says so — a user whose setting
+                # stopped being read must be told, not silently ignored.
+                retirement = retired_cfg_key_warning(var, value)
+                if retirement:
+                    UI.lvprint(0, "   WARNING:", retirement)
                 continue
             value = config_compatibility(value)
             # Set all tile and app config variables
@@ -222,6 +228,16 @@ class Tile:
                     continue
                 try:
                     (var, value) = line.split("=", 1)
+                    if var in retired_cfg_keys:
+                        # RETIRED: a tile cfg carrying it loads, with a
+                        # loud line when the retirement is loud.  The
+                        # generic handler below would have swallowed it
+                        # as an unknown key at verbosity 2 — a setting
+                        # that stopped being read must be visible.
+                        retirement = retired_cfg_key_warning(var, value)
+                        if retirement:
+                            UI.lvprint(0, "   WARNING:", retirement)
+                        continue
                     # compatibility with config files from version <= 1.20
                     value = config_compatibility(value)
                     # Values from other forks map to their closest

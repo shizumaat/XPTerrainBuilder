@@ -211,20 +211,15 @@ cfg_tile_vars = {
         "default": "",
         "hint": "Optional per-airport flat elevation in metres, as ICAO:METRES pairs (e.g. \"OTHH:3.96,VHHH:7.32\"). Airports declared without a value here use their CIFP threshold consensus elevation.",
     },
-    # ── DECLARED CORRIDORS (Round 17 §R17-2, owner ruling 2026-08-11)
-    # A causeway between an airport and the ground it connects to is
-    # neither apt.dat pavement nor a claimed-object cluster the datum
-    # check can accept (VHHH's connector cluster is refused at
-    # -10.82 m median, correctly).  The lawful path is a DECLARATION:
-    # inside the box the corridor grades flat at the airport's Z0, is
-    # LAND (the sea flood stops at its ring), and its long edges take
-    # sea walls.  OUTSIDE the box the water is untouched — that is why
-    # this is a box list and never a grown extent.
-    "flat_site_declared_corridors": {
-        "type": str,
-        "default": "",
-        "hint": "Owner-declared flat CORRIDORS (causeways) as ICAO:LAT0,LON0,LAT1,LON1 boxes, several separated by ';' (e.g. \"VHHH:22.3125624,113.9426422,22.3145276,113.9469981\"). Inside a declared box the ground grades flat at the airport's flat-site elevation, counts as land, and takes vertical sea walls on its edges; open water outside every box is untouched.",
-    },
+    # ── DECLARED CORRIDORS: RETIRED (Round 21, owner ruling 2026-08-12
+    # "LAND-CONNECTED CONTINUITY, NO DECLARATIONS").  R17-2 asked the
+    # owner to type a causeway's bounding box into a per-tile cfg; the
+    # law is now MEASURED — where the airport's flat-site family stands
+    # on one sea-bounded land component, the land between its members
+    # grades with them, for every airport and every user, with no key to
+    # set.  The key lives on only in ``retired_cfg_keys`` below, so a cfg
+    # that still carries the line loads with a loud no-op warning instead
+    # of an error.
     "modify_custom_airports": {
         "type": bool,
         "default": True,
@@ -720,7 +715,6 @@ list_vector_vars = [
     "auto_patch",
     "flat_site_declared",
     "flat_site_declared_elevation_m",
-    "flat_site_declared_corridors",
     "modify_custom_airports",
     "elevation_level",
     "elevation_coastline_band_km",
@@ -830,3 +824,46 @@ list_global_dsf_vars = [global_prefix + item for item in list_dsf_vars]
 list_global_mask_vars = [global_prefix + item for item in list_mask_vars]
 
 list_cfg_vars = list_tile_vars + list_global_tile_vars + list_app_vars
+# ──────────────────────────────────────────────────────────────────────
+# RETIRED KEYS
+# ──────────────────────────────────────────────────────────────────────
+#: Keys that WERE settings and are not any more.  Mapping a key to
+#: ``None`` retires it SILENTLY (a superseded knob nobody needs to know
+#: about); mapping it to a sentence retires it LOUDLY — the reader warns
+#: with that sentence and carries on, because a stale line in a user's
+#: cfg must never take a build down (the owner's own +22+113 tile cfg
+#: still carries ``flat_site_declared_corridors=``).
+#:
+#: The registry lives HERE, beside the live keys, so a reader never has
+#: to look in two places to answer "is this key known".
+retired_cfg_keys = {
+    # Superseded by airport_elevation_level (2026-07-24).
+    "airport_elevation_inset_resolution_m": None,
+    # Round 21, owner ruling 2026-08-12: the causeway is MEASURED now.
+    "flat_site_declared_corridors": (
+        "flat_site_declared_corridors is RETIRED and IGNORED: the ground "
+        "between an airport's flat-site footprints is now detected "
+        "automatically (land-connected continuity, owner ruling "
+        "2026-08-12) — delete the line."
+    ),
+}
+
+
+def retired_cfg_key_warning(var, value=None):
+    """The warning line for a retired cfg key, or ``None``.
+
+    ``None`` for a live key and for a silently-retired one.  A LOUD key
+    warns whether or not it carries a value: an empty declaration is
+    still a line claiming a setting exists.  A value is quoted when
+    there is one, because a user who wrote a corridor deserves to be
+    told exactly which declaration stopped being read.
+    """
+    if var not in retired_cfg_keys:
+        return None
+    message = retired_cfg_keys[var]
+    if not message:
+        return None
+    text = str(value or "").strip()
+    if text:
+        return message + " (it carried: " + text + ")"
+    return message

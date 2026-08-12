@@ -8414,6 +8414,250 @@ class _ConstantInset:
         return DEM.DEM.alt_vec_bilinear_strict(self, way)
 
 
+#: R21 — how many mask posts the isthmus raster puts inside one working
+#: grid cell, per axis, and the hard cap on either axis.  Finer than the
+#: working grid on both axes on purpose: the bake then AREA-AVERAGES it
+#: (``inset_bake_resample_mode``), so a working node takes Z0 when its
+#: own cell holds land and keeps the base DEM when it does not.  The cap
+#: bounds the memory of a pathological extent (4096² float32 = 64 MB is
+#: never reached; the isthmus at VHHH is 76 x 123 posts).
+_ISTHMUS_MASK_SUBDIVISION = 4
+_ISTHMUS_MASK_MAX_POSTS = 4096
+
+
+class _MaskedConstantInset(_ConstantInset):
+    """A constant-Z0 inset raster MASKED to a polygon (R21).
+
+    ``_ConstantInset`` holds one elevation over a rectangle; the isthmus
+    is not a rectangle.  It is LAND, measured from the tile's coastline,
+    and the water beside it must keep the surface it has — so the raster
+    carries Z0 on the posts inside the polygon and ``nodata`` outside it.
+    Nothing in ``_bake_one_inset`` changes: nodata posts are exactly what
+    it already means by "the base keeps its value", and the mask edge is
+    a hard step at the shoreline, which is the vertical sea wall the
+    owner ruled a reclaimed edge is (R17b-2) rather than a beach ramp.
+
+    Rasterised with PIL — the tree's mask rasteriser (``O4_Mask_Utils``)
+    — never with a per-cell Python containment loop.
+    """
+
+    def __init__(self, polygon, elevation_m, x_step, y_step, *, label=None,
+                 nodata=-32768.0, base_reader=None, band_m=None):
+        minx, miny, maxx, maxy = polygon.bounds
+        step_x = abs(float(x_step)) / _ISTHMUS_MASK_SUBDIVISION
+        step_y = abs(float(y_step)) / _ISTHMUS_MASK_SUBDIVISION
+        nx = int(numpy.ceil((maxx - minx) / step_x)) + 1 if step_x else 2
+        ny = int(numpy.ceil((maxy - miny) / step_y)) + 1 if step_y else 2
+        nx = int(min(max(nx, 2), _ISTHMUS_MASK_MAX_POSTS))
+        ny = int(min(max(ny, 2), _ISTHMUS_MASK_MAX_POSTS))
+        super().__init__(minx, miny, maxx, maxy, elevation_m,
+                         label=label or "synthetic flat-site isthmus inset",
+                         nodata=nodata)
+        self.nxdem = nx
+        self.nydem = ny
+        self.alt_dem = numpy.full((ny, nx), self.nodata, dtype=numpy.float32)
+        mask = self._rasterise(polygon, nx, ny)
+        self.mask_land_posts = int(mask.sum())
+        self.mask_band_dropped = 0
+        if base_reader is not None and band_m:
+            mask = self._within_band(mask, base_reader, float(band_m))
+        self.alt_dem[mask] = numpy.float32(self.elevation_m)
+        self.mask_valid_posts = int(mask.sum())
+
+    def _within_band(self, mask, base_reader, band_m):
+        """R21 datum band — grade only ground already NEAR Z0.
+
+        MEASURED 2026-08-12 (+22+113, VMMC): "the land between the
+        footprints" as geometry alone put 0.0536 km² of Taipa hillside
+        standing at 60-72 m onto the airport's 6.10 m datum — a hill is
+        not a causeway.  So the connecting land is graded only where the
+        surface the build already has sits within ``band_m`` of Z0: the
+        seam this law exists to close is between grounds that BELONG
+        together, which is the same evidence question the R11-2 cluster
+        datum gate asks (and the same threshold).  Ground outside the
+        band keeps the real surface and is counted, never dropped
+        silently.
+        """
+        rows, columns = numpy.nonzero(mask)
+        if not len(rows):
+            return mask
+        span_x = (self.x1 - self.x0) or 1.0
+        span_y = (self.y1 - self.y0) or 1.0
+        xs = self.x0 + columns * (span_x / max(self.nxdem - 1, 1))
+        ys = self.y1 - rows * (span_y / max(self.nydem - 1, 1))
+        try:
+            base = numpy.asarray(
+                base_reader(numpy.column_stack((xs, ys))), dtype=float
+            ).reshape(-1)
+        except Exception:                                  # pragma: no cover
+            return mask
+        keep = numpy.abs(base - float(self.elevation_m)) <= band_m
+        out = numpy.zeros_like(mask)
+        out[rows[keep], columns[keep]] = True
+        self.mask_band_dropped = int((~keep).sum())
+        return out
+
+    def _rasterise(self, polygon, nx, ny):
+        """Boolean post mask, row 0 NORTH (the working grid's convention)."""
+        from PIL import Image, ImageDraw
+
+        image = Image.new("1", (nx, ny), 0)
+        draw = ImageDraw.Draw(image)
+        span_x = (self.x1 - self.x0) or 1.0
+        span_y = (self.y1 - self.y0) or 1.0
+
+        def to_pixels(coords):
+            return [((x - self.x0) / span_x * (nx - 1),
+                     (self.y1 - y) / span_y * (ny - 1)) for x, y in coords]
+
+        for piece in getattr(polygon, "geoms", [polygon]):
+            if piece is None or piece.is_empty:
+                continue
+            try:
+                draw.polygon(to_pixels(piece.exterior.coords), fill=1)
+                for hole in piece.interiors:
+                    draw.polygon(to_pixels(hole.coords), fill=0)
+            except Exception:                              # pragma: no cover
+                continue
+        return numpy.array(image, dtype=bool)
+
+
+def _bake_island_continuity(tile, stamped, feather_m):
+    """R21 — grade the CONNECTING LAND with the family it joins.
+
+    Runs after every airport's core and admitted clusters are baked and
+    stamped, because the family is what LANDED, not what was requested
+    (a cluster the R11-2 datum gate refused is not connected to
+    anything).  ``stamped`` is extended in place with one
+    ``flat_site_isthmus`` entry per airport that has an isthmus.
+
+    NO FEATHER.  The isthmus edge is either the family's own footprint,
+    already at the same Z0, or the shoreline, where the ramp is the beach
+    R17c-2 moved outside the site.  A feather here would ramp Z0 down
+    across the isthmus itself.
+
+    NO DATUM REFUSAL.  The R11-2 gate weighs whether a CLAIMED rectangle
+    belongs to the airport; the isthmus is measured land BETWEEN two
+    footprints that already passed their own gates.  What the ring would
+    have told us is printed instead: the median metres the base DEM sits
+    from Z0 over the ground this grades.
+    """
+    base_dem = getattr(tile, "dem", None)
+    if base_dem is None or getattr(base_dem, "alt_dem", None) is None:
+        return
+    try:
+        from auto_patch import flat_site_mode as FLAT_SITE_MODE
+
+        regions = FLAT_SITE_MODE.island_continuity_regions(tile, stamped)
+    except Exception as error:
+        UI.vprint(
+            0,
+            "   ERROR: FLAT-SITE mode could not measure land-connected "
+            "continuity (", type(error).__name__, ":", str(error),
+            ") - the connecting ground stays on the real surface.",
+        )
+        return
+    if not regions:
+        return
+    x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
+              if base_dem.nxdem > 1 else 0.0)
+    y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
+              if base_dem.nydem > 1 else 0.0)
+    for region in regions:
+        icao = region["icao"]
+        polygon = region["polygon"]
+        offset_m = _isthmus_base_offset_m(tile, polygon, region["z0_m"])
+        try:
+            inset = _MaskedConstantInset(
+                polygon, region["z0_m"], x_step, y_step,
+                label="%s synthetic flat-site isthmus inset" % icao,
+                base_reader=base_dem.alt_vec,
+                band_m=INSET_DATUM_WARNING_THRESHOLD_M)
+            if not inset.mask_valid_posts:
+                UI.vprint(
+                    0,
+                    "   [flat-site] %s: no isthmus — the connecting land "
+                    "(%.4f km2) stands more than %d m from Z0 %.2f m "
+                    "everywhere (a hill is not a causeway); it keeps the "
+                    "real surface."
+                    % (icao, region["area_km2"],
+                       int(INSET_DATUM_WARNING_THRESHOLD_M), region["z0_m"]),
+                )
+                continue
+            _bake_one_inset(tile, None, 0.0, inset=inset)
+        except Exception as error:
+            UI.vprint(
+                0,
+                "   ERROR: FLAT-SITE mode could not bake the ISTHMUS inset "
+                "for", icao, "(", type(error).__name__, ":", str(error),
+                ") - the connecting ground stays on the real surface.",
+            )
+            continue
+        minx, miny, maxx, maxy = polygon.bounds
+        stamped.append({
+            "icao": icao,
+            "kind": FLAT_SITE_MODE.ISTHMUS_INSET_KIND,
+            "z0_m": region["z0_m"],
+            "extent_tile_degrees": [minx, miny, maxx, maxy],
+            "extent_wgs84": [tile.lon + minx, tile.lat + miny,
+                             tile.lon + maxx, tile.lat + maxy],
+            "extent_area_km2": region["area_km2"],
+            "island_area_km2": region["island_area_km2"],
+            "members": region["members"],
+            "between_clip_cut": region["clipped"],
+            "base_offset_m": offset_m,
+            "datum_band_m": float(INSET_DATUM_WARNING_THRESHOLD_M),
+            "band_kept_posts": int(inset.mask_valid_posts),
+            "band_dropped_posts": int(inset.mask_band_dropped),
+            "feather_m": 0.0,
+        })
+        UI.vprint(
+            0,
+            "   [flat-site] %s: ISTHMUS inset at Z0 %.2f m over %.4f km2 of "
+            "LAND joining %d family footprint(s) on a %.2f km2 sea-bounded "
+            "island (lat %.7f..%.7f lon %.7f..%.7f; base DEM sat %s m from "
+            "Z0 there; %d of %d mask post(s) kept, %d outside the %d m "
+            "datum band keep the real surface%s)."
+            % (icao, region["z0_m"], region["area_km2"], region["members"],
+               region["island_area_km2"],
+               tile.lat + miny, tile.lat + maxy,
+               tile.lon + minx, tile.lon + maxx,
+               "%.2f" % offset_m if offset_m is not None else "?",
+               inset.mask_valid_posts, inset.mask_land_posts,
+               inset.mask_band_dropped,
+               int(INSET_DATUM_WARNING_THRESHOLD_M),
+               "; the between-clip cut a connecting piece"
+               if region["clipped"] else ""),
+        )
+
+
+def _isthmus_base_offset_m(tile, polygon, z0_m):
+    """Median metres the base DEM sits BELOW/above ``z0_m`` over ``polygon``.
+
+    Attribution only — nothing refuses on it.  Sampled on a bounded grid
+    inside the polygon; ``None`` when no sample lands on it.
+    """
+    try:
+        minx, miny, maxx, maxy = polygon.bounds
+        xs = numpy.linspace(minx, maxx, 40)
+        ys = numpy.linspace(miny, maxy, 40)
+        grid_x, grid_y = numpy.meshgrid(xs, ys)
+        points = numpy.column_stack((grid_x.ravel(), grid_y.ravel()))
+        from shapely import geometry
+        from shapely.prepared import prep
+
+        ready = prep(polygon)
+        inside = numpy.array([ready.contains(geometry.Point(px, py))
+                              for px, py in points], dtype=bool)
+        if not inside.any():
+            return None
+        altitudes = numpy.asarray(tile.dem.alt_vec(points[inside]),
+                                  dtype=float)
+        return round(float(numpy.median(altitudes - float(z0_m))), 2)
+    except Exception:                                      # pragma: no cover
+        return None
+
+
 def overlay_flat_site_insets(tile, dico_airports=None):
     """Blend a constant-Z0 inset over every flat airport on the tile.
 
@@ -8611,61 +8855,6 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
-        # R17-2: THE DECLARED CORRIDORS.  Same constant inset at the same
-        # Z0 as the airport's own extent, one per declared box, and
-        # DELIBERATELY WITHOUT the R11-2 datum refusal: that gate weighs
-        # EVIDENCE (does the feather ring say these two surfaces belong
-        # together), and a declaration is the owner overruling the
-        # evidence on intent -- VHHH's causeway cluster is refused at a
-        # -10.82 m median precisely because the channel it crosses is
-        # water, which is the thing being declared away.  Open water
-        # OUTSIDE the box is untouched: one inset per declared box, never
-        # a grown extent (the R8-1 channel ruling).
-        for corridor in (substitution.get("declared_corridors") or ()):
-            dx0, dy0, dx1, dy1 = corridor["extent_deg"]
-            corridor_inset = _ConstantInset(
-                *_feather_outward_extent(tile, dx0, dy0, dx1, dy1,
-                                         feather_m),
-                substitution["z0_m"],
-                label="%s declared corridor inset" % icao,
-            )
-            try:
-                _bake_one_inset(tile, None, feather_m, inset=corridor_inset)
-            except Exception as error:
-                UI.vprint(
-                    0,
-                    "   ERROR: FLAT-SITE mode could not bake the DECLARED "
-                    "corridor inset for", icao,
-                    "(", type(error).__name__, ":", str(error),
-                    ") - that corridor stays on the real surface.",
-                )
-                continue
-            stamped.append(
-                {
-                    "icao": icao,
-                    "kind": "declared_corridor",
-                    "verdict": substitution.get("verdict"),
-                    "z0_m": substitution["z0_m"],
-                    "extent_tile_degrees": [dx0, dy0, dx1, dy1],
-                    "extent_wgs84": [
-                        tile.lon + dx0, tile.lat + dy0,
-                        tile.lon + dx1, tile.lat + dy1,
-                    ],
-                    "corridor_wgs84": corridor.get("corridor_wgs84"),
-                    "feather_m": float(feather_m),
-                }
-            )
-            UI.vprint(
-                0,
-                "   [flat-site] %s: DECLARED CORRIDOR inset at Z0 %.2f m "
-                "over lat %.7f..%.7f lon %.7f..%.7f (feather %g m) - owner "
-                "declaration, datum check not applied."
-                % ((icao, substitution["z0_m"])
-                   + tuple(corridor.get("corridor_wgs84")
-                           or (tile.lat + dy0, tile.lon + dx0,
-                               tile.lat + dy1, tile.lon + dx1))
-                   + (feather_m,)),
-            )
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE
         # the bake (the R11-1 distance bound, recorded by
@@ -8690,6 +8879,12 @@ def overlay_flat_site_insets(tile, dico_airports=None):
             % (icao, substitution["z0_m"],
                substitution.get("extent_area_km2") or 0.0, feather_m),
         )
+    # R21 -- LAND-CONNECTED CONTINUITY, after every family member has
+    # actually landed: the connecting land between two admitted
+    # footprints on one sea-bounded island grades with them.  Automatic
+    # and universal; nothing here reads a declaration (the retired
+    # ``flat_site_declared_corridors``).
+    _bake_island_continuity(tile, stamped, feather_m)
     base_dem.synthetic_flat_site_provenance = stamped
     # The substitution lives in ``alt_dem``.  Every reader of a baked DEM
     # reads that array (``alt_baked``, ``alt_nostrict``, the ``.alt`` file

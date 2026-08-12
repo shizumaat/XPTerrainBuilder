@@ -19,6 +19,25 @@ Usage:
 A build takes 60-90 s per airport; ``--from-json`` is instant and is how
 the rendering is exercised without paying for one.
 
+THE BUILD PATH IS GUARDED (2026-08-11).  This tool builds an airport in
+process, so it is bound by the shared-data-repo law (owner ruling
+e9daef5) exactly as ``tools/harness/build_airport.py`` is, and until now
+it was not: MEASURED this session, two unguarded runs wrote ten files into
+``/Users/noah/XPTerrainBuilderData`` (``Airport_mod_cache`` sidecars and
+DSFTool dumps under ``+35-081`` and ``+39-095``) while every guarded build
+of the same session reported the corpus unchanged — and those writes also
+cross-attributed a CONTAMINATED flag onto an unrelated lane's run.  The
+build path now arms the harness's OWN composition
+(``build_airport.arm_shared_repo_protection``: the engine cache redirects
+plus a refuse-mode ``SharedRepoWriteGuard``); nothing is re-implemented
+here.  Note the redirect alone is NOT enough — its ``Airport_mod_cache``
+overlay is symlink-seeded, and an unguarded writer writes THROUGH the
+symlinks; the guard is what makes the overlay hold.
+
+``--from-json`` stays BUILD-FREE and GUARD-FREE: it builds nothing, so it
+has nothing to guard, and arming a refuse-mode guard around a pure render
+would only give it a way to fail.
+
 BUILD-TIME IMPACT: none.  This is a report-only tool — nothing here is
 imported by the engine, and every ``auto_patch`` import is deferred into
 the function that needs it so ``--from-json`` never loads the pipeline.
@@ -61,14 +80,64 @@ def _scoring_tables():
 # Building
 # ═════════════════════════════════════════════════════════════════════
 
-def build_report(icao: str, xplane_root: str) -> dict:
-    """Build ``icao`` and harvest its shadow-pass decisions."""
+#: Where this tool's lane-local build artifacts go: the engine cache
+#: redirect's overlay roots and the ``.progress`` stamps.  Under ``tmp/``,
+#: which is gitignored and lane-local by the standing product rule.
+ARTIFACT_DIR = _ROOT / "tmp" / "classify_report"
+
+
+def _harness_build_module():
+    """The harness build entry, imported (never copied).
+
+    It owns the arming composition and re-exports the write law's own
+    objects; importing it is what keeps this tool on the SAME
+    implementation the build entry runs — a second arrangement of the guard
+    is the census-wrapper defect at one remove.  Deferred into this
+    function so ``--from-json`` loads none of it.
+    """
+    import importlib
+    harness = _ROOT / "tools" / "harness"
+    if str(harness) not in sys.path:
+        sys.path.insert(0, str(harness))
+    return importlib.import_module("build_airport")
+
+
+def build_report(icao: str, xplane_root: str, out_dir=None,
+                 prog=None) -> dict:
+    """Build ``icao`` and harvest its shadow-pass decisions.
+
+    GUARDED, with the harness's own composition (module docstring): the
+    engine's two writable derived-cache roots are redirected lane-local
+    BEFORE the engine is imported — the DSFTool subprocess inherits the
+    environment, which no Python-level guard can otherwise reach — and the
+    build itself runs inside a refuse-mode ``SharedRepoWriteGuard``.  A
+    refusal the engine SWALLOWED is then itself the finding: the run is
+    refused rather than reported, because a build that carried on without
+    what it was denied is not production's frame.
+    """
+    build_mod = _harness_build_module()
+    out_dir = Path(out_dir) if out_dir is not None else ARTIFACT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"classify_{icao}"
+    guard, redirects = build_mod.arm_shared_repo_protection(
+        _ROOT, out_dir, tag, prog)
+
     import auto_patch.pipeline as pipeline
-    layout = pipeline.build_airport_pavement(
-        icao, xplane_root, compute_elevations=True)
+    with guard:
+        layout = pipeline.build_airport_pavement(
+            icao, xplane_root, compute_elevations=True)
+    build_mod.require_no_swallowed_write_block(guard.blocked, prog=prog)
+    build_mod.report_guard_churn(guard, prog)
+
     summary = dict(getattr(layout, "pavement_score_summary", None) or {})
     decisions = list(getattr(layout, "pavement_score_decisions", None) or [])
-    return {"icao": icao, "summary": summary, "decisions": decisions}
+    return {"icao": icao, "summary": summary, "decisions": decisions,
+            # The corpus frame this report was produced under, IN the
+            # artifact: a dump whose build redirected nothing is not
+            # comparable with one whose build did.
+            "engine_cache_redirects": redirects,
+            "write_guard_armed": guard.enabled,
+            "write_guard_blocked": list(guard.blocked)}
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -312,10 +381,20 @@ def main(argv=None) -> int:
             xplane_root = _xplane_root()
         if not os.path.isdir(xplane_root):
             parser.error(f"no X-Plane root at {xplane_root!r}")
+        # The ``.progress`` convention, and the sink the guard/redirect
+        # notes print through — the arming is not armed if nobody can see
+        # it happened.  Built only on the BUILD path: ``--from-json`` is
+        # build-free and leaves no stamps.
+        build_mod = _harness_build_module()
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        prog = build_mod.Progress(ARTIFACT_DIR / "classify_report.progress")
         reports = []
         for icao in args.icao:
             print(f"building {icao.upper()} … (60-90 s)", file=sys.stderr)
-            reports.append(build_report(icao.upper(), xplane_root))
+            prog.note(f"START classify_report build {icao.upper()}")
+            reports.append(build_report(icao.upper(), xplane_root,
+                                        prog=prog))
+            prog.note(f"EXIT classify_report build {icao.upper()}")
 
     for report in reports:
         render(report, max_rows=args.max_rows)

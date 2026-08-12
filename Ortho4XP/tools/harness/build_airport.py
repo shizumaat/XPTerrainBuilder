@@ -858,6 +858,68 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
     }
 
 
+def arm_shared_repo_protection(root, out_dir, tag, prog=None,
+                               write_guard=None):
+    """THE ARMING COMPOSITION, in ONE place: ``(guard, redirects)``.
+
+    Every entry that calls the engine IN PROCESS needs both halves, in this
+    order, and a hand-assembled second arrangement of them is the
+    census-wrapper defect at one remove — it looks armed and covers one
+    hole.  MEASURED 2026-08-11 (lane/smallq): ``tools/classify_report.py``
+    built two airports with NEITHER half and wrote ten files into the
+    shared corpus (mod-cache sidecars and DSFTool dumps under ``+35-081``
+    and ``+39-095``); the same session's guarded builds reported the repo
+    unchanged.  A symlink-seeded overlay alone does not save you either —
+    without an armed guard the writers write THROUGH the symlinks.
+
+    TWO PHASES, deliberately not one context manager:
+
+    * the REDIRECT must happen BEFORE the engine is imported
+      (``O4_File_Names.Default_dsf_cache_dir`` is computed at import), and
+      it rides env variables so the DSFTool SUBPROCESS inherits it;
+    * the GUARD is armed only around the BUILD CALL — it is handed back
+      un-entered.  Arming it across the engine import would refuse imports
+      the write law never meant to cover, and the callers differ in what
+      they do between the two moments.
+
+    ``write_guard`` — an already-configured :class:`SharedRepoWriteGuard`
+    (its authorised scopes are what the redirect leaves SHARED), or
+    ``None`` for the default: nothing authorised, guard ARMED.
+
+    Owner ruling e9daef5 (one shared data repo; a build never mutates it
+    as a side effect).
+    """
+    redirects = redirect_engine_caches(
+        out_dir, tag, prog, authorised=getattr(write_guard, "requested", None))
+    guard = (write_guard if write_guard is not None
+             else SharedRepoWriteGuard(set(), root))
+    return guard, redirects
+
+
+def report_guard_churn(guard, prog=None) -> None:
+    """Record the two ALLOWED churn classes on a finished guard.
+
+    Neither is corpus data — the engine's cross-process ``.lock`` files are
+    coordination state and the library-index sidecar is derived cache — but
+    "the repo was untouched apart from the ruled churn" is only a claim
+    worth making if the churn is written down.  Shared by every entry that
+    arms the guard, so no entry reports a quieter run than another.
+    """
+    if prog is None:
+        return
+    if guard.lock_churn:
+        prog.note(f"lock churn allowed (coordination state, never corpus "
+                  f"data): {len(guard.lock_churn)} operation(s), e.g. "
+                  f"{guard.lock_churn[0]['op']} "
+                  f"{guard.lock_churn[0]['path']}")
+    if guard.library_index_churn:
+        prog.note(f"library-index churn allowed (derived install-index "
+                  f"cache, never corpus data): "
+                  f"{len(guard.library_index_churn)} operation(s), e.g. "
+                  f"{guard.library_index_churn[0]['op']} "
+                  f"{guard.library_index_churn[0]['path']}")
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE BUILDS
 # ══════════════════════════════════════════════════════════════════════
@@ -921,8 +983,11 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
 
     ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
-    default: nothing authorised, guard ARMED).  It is armed HERE, not in
-    ``main``, because ``main`` is not the only entry that builds:
+    default: nothing authorised, guard ARMED), composed with the engine
+    cache redirect by :func:`arm_shared_repo_protection` — the ONE arming
+    composition, shared with ``tools/classify_report.py``.  It is armed
+    HERE, not in ``main``, because ``main`` is not the only entry that
+    builds:
     ``tools/harness/oracle.py`` and ``tools/harness/who_wrote.py`` both
     call this function directly, and those are the entries a lane actually
     runs most.  Arming in the CLI only would have left every oracle and
@@ -940,14 +1005,13 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     for p in (root / "src", root, root / "tests", root / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
-    # THE ENGINE CACHE REDIRECT, before the engine is imported and for the
-    # same reason the guard is armed HERE rather than in ``main``:
-    # ``oracle.py`` and ``who_wrote.py`` call this function directly, and
-    # the DSFTool subprocess a direct call spawns writes the shared corpus
-    # just as a CLI build's does.
-    redirects = redirect_engine_caches(
-        out_dir, tag, prog,
-        authorised=getattr(write_guard, "requested", None))
+    # THE ARMING COMPOSITION (redirect now, guard around the build call),
+    # before the engine is imported and for the same reason the guard is
+    # armed HERE rather than in ``main``: ``oracle.py`` and ``who_wrote.py``
+    # call this function directly, and the DSFTool subprocess a direct call
+    # spawns writes the shared corpus just as a CLI build's does.
+    guard, redirects = arm_shared_repo_protection(
+        root, out_dir, tag, prog, write_guard=write_guard)
     from conftest import xplane_root                      # noqa: E402
     from auto_patch.pipeline import build_airport_pavement  # noqa: E402
     from auto_patch import config as ap_cfg               # noqa: E402
@@ -988,8 +1052,6 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                       f"guard is never reached, because an oracle DEM "
                       f"arrives as override_dem.")
 
-    guard = write_guard if write_guard is not None else SharedRepoWriteGuard(
-        set(), root)
     t0 = time.time()
     with guard:
         layout = build_airport_pavement(icao, xplane_root(), **kw)
@@ -1002,17 +1064,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                                      allow_degraded=allow_degraded, prog=prog)
     require_dem_prep_succeeded(getattr(layout, "dem_inset_provenance", None),
                                allow_degraded=allow_degraded, prog=prog)
-    if guard.lock_churn:
-        prog.note(f"lock churn allowed (coordination state, never corpus "
-                  f"data): {len(guard.lock_churn)} operation(s), e.g. "
-                  f"{guard.lock_churn[0]['op']} "
-                  f"{guard.lock_churn[0]['path']}")
-    if guard.library_index_churn:
-        prog.note(f"library-index churn allowed (derived install-index "
-                  f"cache, never corpus data): "
-                  f"{len(guard.library_index_churn)} operation(s), e.g. "
-                  f"{guard.library_index_churn[0]['op']} "
-                  f"{guard.library_index_churn[0]['path']}")
+    report_guard_churn(guard, prog)
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"
     layout.to_osm(str(osm))

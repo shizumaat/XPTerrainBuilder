@@ -189,6 +189,7 @@ __all__ = [
     "TUNNEL_MOUTH_WINDOW_M",
     "TUNNEL_ROOF_PLATE_MAX_LENGTH_M",
     "GROUNDSIDE_MAX_GRADE",
+    "GROUNDSIDE_PAVEMENT_MAX_GRADE",
     "GROUNDSIDE_BAND_OFFNET_RADIUS_M",
     "FAN_RAMP_CAP",
     "FAN_RAMP_LAW",
@@ -1369,6 +1370,25 @@ TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M = 100.0
 # ICAO Annex 14 / Doc 9157, EASA CS-ADR-DSN and ACRP 25 verified SILENT), so
 # the value is region-invariant — there is no FAA/ICAO split to apply.
 GROUNDSIDE_MAX_GRADE = 0.050
+# ── THE CAP GROUNDSIDE **PAVEMENT** GRADES AT (owner 2026-08-12) ─────
+# "groundside_pavement's cap moves from GROUNDSIDE_MAX_GRADE 5 % to THE
+# ROAD LIMIT (config's ROAD/SERVICE_ROAD cap — one constant, no second
+# number)."  A lot carries the same vehicles a service road does, so it
+# takes the same number.
+#
+# THIS IS AN ALIAS, NOT A VALUE: it is ``SERVICE_ROAD_MAX_GRADE``
+# itself (asserted by identity in ``tests/test_owner_constants_round``),
+# so re-ruling the road limit re-rules the lot with it and no copy can
+# drift.  It exists so that every SAME-LAW site — the role table, the
+# lot emitter's seat and ring limiter, the post-solve chord (Lipschitz)
+# limiter, the lateral strictest-cap min — says WHICH law it obeys
+# instead of spelling "the service-road standard" over a car park.
+#
+# ``GROUNDSIDE_MAX_GRADE`` above keeps its OTHER consumers: they are
+# different laws that happened to share the value (the fan-ramp zone
+# ``FAN_RAMP_CAP``, the groundside band's off-route pricing, the
+# object-pad pull rate, the below-grade transition law).
+GROUNDSIDE_PAVEMENT_MAX_GRADE = SERVICE_ROAD_MAX_GRADE
 # ── THE GROUNDSIDE BAND's off-route radius (RULINGS 2026-08-06, "ONE
 # graph: groundside joins the route graph") ─────────────────────────────
 # ``building_feasibility.groundside_reach_band`` answers a groundside
@@ -1801,7 +1821,7 @@ ROLE_GRADE_LIMITS = {
     # happen to have shared the value.  Specimen: KCLT's hillside lots
     # (ways -11715 / -11729), 5-7 % of real terrain, flat only while
     # apron law was flattening a car park.
-    "groundside_pavement": SERVICE_ROAD_MAX_GRADE,
+    "groundside_pavement": GROUNDSIDE_PAVEMENT_MAX_GRADE,
     # Wingtip / RESA clearance cuts trace the cut terrain surface
     # (per-vertex node_altitudes computed directly against the DEM
     # and a ramped ceiling); like the boundary they carry no

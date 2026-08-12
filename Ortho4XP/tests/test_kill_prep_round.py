@@ -82,6 +82,15 @@ class TestClassUniversalAbsorption:
     """Owner 2026-08-03: "another class" in the lateral-contiguity law means
     ANY paved class — groundside lots included, not only aprons."""
 
+    # The absorption machinery needs a host STRICTER than the road (owner
+    # 2026-08-12 put a lot on the road limit, so a road beside a lot binds
+    # nothing).  These scenes exercise the MACHINERY, so they supply the
+    # precondition explicitly; the ruling itself is pinned in
+    # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption.
+    @pytest.fixture(autouse=True)
+    def _absorption_precondition(self, absorption_on, stricter_lot_cap):
+        stricter_lot_cap()
+
     def test_a_dem_followed_lot_is_now_a_legal_host(self, absorption_on):
         lot = _dem_lot(0, 0, 100, 60)
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
@@ -127,6 +136,15 @@ class TestPortionOnlyAbsorption:
     """Owner amendment 2026-08-03: only the portion sharing a LATERAL edge
     absorbs; the portion with no pavement beside it stays a service road,
     and the mouth cut between them is mandatory."""
+
+    # The absorption machinery needs a host STRICTER than the road (owner
+    # 2026-08-12 put a lot on the road limit, so a road beside a lot binds
+    # nothing).  These scenes exercise the MACHINERY, so they supply the
+    # precondition explicitly; the ruling itself is pinned in
+    # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption.
+    @pytest.fixture(autouse=True)
+    def _absorption_precondition(self, absorption_on, stricter_lot_cap):
+        stricter_lot_cap()
 
     def test_only_the_contiguous_portion_is_absorbed(self, absorption_on):
         lot = _dem_lot(0, 0, 100, 60)

@@ -208,8 +208,12 @@ class TestMergedSurfaceIsOneSurface:
         assert summary["host_regraded"] == 1
         worst = _worst_adjacent(lot)
         # the ring limiter's own bound plus the 0.01 m emit rounding over
-        # the shortest ring edge
-        assert worst <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3, worst
+        # the shortest ring edge.  The limiter reads the LOT CAP constant
+        # (the road limit since 2026-08-12), not the role table this
+        # class patches to keep the absorption binding — two different
+        # questions: WHICH cap the merged surface grades at, and WHETHER
+        # the road had a stricter neighbour to be absorbed into.
+        assert worst <= cfg.GROUNDSIDE_PAVEMENT_MAX_GRADE + 1e-3, worst
 
     def test_the_hosts_own_vertices_move(self, absorption_on):
         """The half attempt 1 refused to do — and the reason it measured
@@ -244,7 +248,7 @@ class TestMergedSurfaceIsOneSurface:
         from auto_patch import config as cfg
         lot, _b, summary = self._merge(absorption_on, _ramp_dem(slope=2.0))
         assert summary["host_regraded"] == 1
-        assert _worst_adjacent(lot) <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3
+        assert _worst_adjacent(lot) <= cfg.GROUNDSIDE_PAVEMENT_MAX_GRADE + 1e-3
 
 
 class TestTheRoadLimitEndsLotAbsorption:
@@ -276,6 +280,72 @@ class TestTheRoadLimitEndsLotAbsorption:
         assert summary["capped"] == 0
         assert road.lateral_cap is None
         assert road.polygon.equals(_rect(0, 60, 100, 70))
+
+
+class TestTheLimitersRideTheRoadCap:
+    """The same-law FOLLOW-THROUGH (owner 2026-08-12, amendment 1
+    follow-up): every site that SHAPES groundside pavement grades at the
+    lot's ruled cap, not at the 5 % walking-surface constant it used to
+    share.  One cap, named once.
+
+    Identity first, then behaviour: a constant can be re-spelled by
+    accident, but a limiter that still flattens a 6.5 % lot to 5 % is
+    the defect this closes — it was leaving road stubs unabsorbed and
+    lots over-flattened at the same time.
+    """
+
+    def test_the_lot_cap_constant_is_the_road_cap(self):
+        from auto_patch import config as cfg
+        from auto_patch import groundside as gs
+        # Identity WITHIN one config instance: the alias is the road cap
+        # object, so re-ruling the road limit re-rules the lot with it.
+        assert cfg.GROUNDSIDE_PAVEMENT_MAX_GRADE is cfg.SERVICE_ROAD_MAX_GRADE
+        assert cfg.FAN_RAMP_CAP is cfg.GROUNDSIDE_MAX_GRADE
+        # ACROSS modules only equality holds: another test's fixture may
+        # have reloaded ``config`` since ``groundside`` bound its import,
+        # and two equal floats from two module instances are not one
+        # object.  (Identity across a reload is not a property worth
+        # asserting — the behaviour twins below are the real pin.)
+        assert gs.GROUNDSIDE_PAVEMENT_MAX_GRADE == cfg.SERVICE_ROAD_MAX_GRADE
+        assert gs.GROUNDSIDE_PAVEMENT_MAX_GRADE != pytest.approx(
+            cfg.GROUNDSIDE_MAX_GRADE)
+        # …and the walking-surface constant is still its own thing, for
+        # the laws that kept it.
+        assert cfg.GROUNDSIDE_MAX_GRADE == pytest.approx(0.050)
+
+    def test_the_ring_limiter_lets_a_lot_stand_at_the_road_cap(self):
+        """The ring limiter (``_regrade_merged_host`` → the lot
+        emitter's own ramp-limited DEM follow) must now leave a hillside
+        lot at up to the ROAD cap.  A 50 % DEM ramp is limited to
+        exactly the cap, so the number it lands on IS the law it read."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        lot = _dem_lot(0, 0, 100, 60, z=10.0)
+        gs._regrade_merged_host(lot, _ramp_dem())
+        worst = _worst_adjacent(lot)
+        assert worst <= cfg.SERVICE_ROAD_MAX_GRADE + 1e-3, worst
+        assert worst > cfg.GROUNDSIDE_MAX_GRADE + 1e-3, (
+            "the limiter is still flattening the lot to the 5 % "
+            "walking-surface cap")
+
+    def test_the_chord_limiter_defaults_to_the_road_cap(self):
+        """The post-solve Lipschitz (chord) limiter is the LAST
+        groundside-altitude writer — if it kept 5 % it would undo the
+        ruling after every other site had honoured it."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        import inspect
+        default = inspect.signature(
+            gs.chord_limit_ring_altitudes).parameters["cap"].default
+        assert default == cfg.SERVICE_ROAD_MAX_GRADE
+        assert default != pytest.approx(cfg.GROUNDSIDE_MAX_GRADE)
+        # Behaviour: two ring nodes 10 m apart, 1 m apart in height
+        # (10 %), pull down to the cap over that chord.
+        coords = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        alts = [10.0, 11.0, 11.0, 10.0]
+        out = gs.chord_limit_ring_altitudes(coords, alts)
+        assert max(out) - min(out) == pytest.approx(
+            10.0 * cfg.SERVICE_ROAD_MAX_GRADE, abs=1e-6)
 
 
 class TestRegradeHelperIsSafe:

@@ -744,3 +744,34 @@ def pytest_collection_modifyitems(config, items):
             reason="O4_SHIP_MODE=1 (tests disabled for shipping)")
         for item in items:
             item.add_marker(skip_marker)
+
+
+@pytest.fixture()
+def stricter_lot_cap(monkeypatch):
+    """Hold ``groundside_pavement``'s cap at the 5 % walking-surface value.
+
+    THE LATERAL-CONTIGUITY ABSORPTION PRECONDITION.  A road stretch is
+    absorbed into a neighbour only where that neighbour's class is
+    STRICTER than the road's own (``binding = [r for r in runs if
+    r[2] < own_cap]``).  Since the owner's 2026-08-12 ruling put a lot
+    ON the road limit, a road beside a LOT no longer binds — so a scene
+    written to exercise the ABSORPTION MACHINERY has to supply a
+    genuinely stricter host.  Tests of the ruling itself (a road beside
+    a lot binds nothing) must NOT use this fixture.
+
+    Returns a callable, not a patch: the fixtures that reload
+    ``auto_patch.config`` rebind ``ROLE_GRADE_LIMITS`` to a fresh dict,
+    so the patch has to be applied AFTER the reload, from inside the
+    class fixture's body.  BOTH tables are patched — ``grade_law``
+    imported the role table at MODULE level, so after a reload the
+    station caps and the absorb-target lookup read two different
+    objects, and patching one gives a split-brain run (binding fires at
+    5 %, the target lookup compares against 8 %, nothing absorbs).
+    """
+    def _apply():
+        from auto_patch import config as cfg
+        from auto_patch import grade_law as gl
+        for table in (cfg.ROLE_GRADE_LIMITS, gl.ROLE_GRADE_LIMITS):
+            monkeypatch.setitem(table, "groundside_pavement",
+                                cfg.GROUNDSIDE_MAX_GRADE)
+    return _apply

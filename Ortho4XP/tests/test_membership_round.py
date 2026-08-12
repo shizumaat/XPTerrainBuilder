@@ -124,6 +124,15 @@ def _absorbed_lot_layout(gs):
 
 class TestRetainedContextFootprint:
 
+    # The absorption machinery needs a host STRICTER than the road (owner
+    # 2026-08-12 put a lot on the road limit, so a road beside a lot binds
+    # nothing).  These scenes exercise the MACHINERY, so they supply the
+    # precondition explicitly; the ruling itself is pinned in
+    # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption.
+    @pytest.fixture(autouse=True)
+    def _absorption_precondition(self, absorption_on, stricter_lot_cap):
+        stricter_lot_cap()
+
     def test_the_absorbed_stretch_is_retained_as_a_footprint(
             self, absorption_on):
         layout, lot, _other, summary = _absorbed_lot_layout(absorption_on)
@@ -208,6 +217,15 @@ class TestContextConservationInertness:
 
 class TestMergedSurfaceIdentity:
 
+    # The absorption machinery needs a host STRICTER than the road (owner
+    # 2026-08-12 put a lot on the road limit, so a road beside a lot binds
+    # nothing).  These scenes exercise the MACHINERY, so they supply the
+    # precondition explicitly; the ruling itself is pinned in
+    # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption.
+    @pytest.fixture(autouse=True)
+    def _absorption_precondition(self, absorption_on, stricter_lot_cap):
+        stricter_lot_cap()
+
     def test_the_merged_host_is_recognised(self, absorption_on):
         layout, lot, other, _s = _absorbed_lot_layout(absorption_on)
         assert is_absorbed_merged_surface(layout, lot) is True
@@ -256,6 +274,15 @@ class TestFinalizeChainHasNoExemption:
     that repairs it, so exempting the surface removes its only repairer.
     These tests exist so the exemption cannot come back silently: a merged
     surface is an ORDINARY lot to every pass in the chain."""
+
+    # The absorption machinery needs a host STRICTER than the road (owner
+    # 2026-08-12 put a lot on the road limit, so a road beside a lot binds
+    # nothing).  These scenes exercise the MACHINERY, so they supply the
+    # precondition explicitly; the ruling itself is pinned in
+    # test_owner_constants_round.TestTheRoadLimitEndsLotAbsorption.
+    @pytest.fixture(autouse=True)
+    def _absorption_precondition(self, absorption_on, stricter_lot_cap):
+        stricter_lot_cap()
 
     def test_merge_touching_groundside_merges_it(self, absorption_on):
         gs = absorption_on

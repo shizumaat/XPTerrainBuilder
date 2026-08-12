@@ -442,13 +442,13 @@ def emit_terrain_transition_features(layout: PavementLayout, icao: str, xplane_r
         except _GEOM_EXC:
             pass
         # Chord grade limit — LAST groundside-altitude writer: pull every
-        # groundside field to the largest 4 %-Lipschitz field ≤ DEM over
+        # groundside field to the largest lot-cap-Lipschitz field ≤ DEM over
         # straight-line pairs (the within-shape validator metric; the
         # ring-ramp limit alone leaves hillside pieces >4 % across the
         # interior).  Must follow the separation above, which re-derives
         # DEM altitudes for clipped results.
         try:
-            from .config import GROUNDSIDE_MAX_GRADE as _GS_CAP
+            from .config import GROUNDSIDE_PAVEMENT_MAX_GRADE as _GS_CAP
             from .groundside import _grade_limit_groundside_chords
             n_gl = _grade_limit_groundside_chords(layout)
             if n_gl:

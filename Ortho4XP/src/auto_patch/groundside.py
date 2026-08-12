@@ -52,7 +52,16 @@ from .elevation import _sample_dem, _resample_node_altitudes_nn
 # Groundside ramp-grade cap (rise/run, user 2026-05-22) — single source of
 # truth in ``config``; groundside follows the DEM but is graded to this
 # cap so steep terrain becomes a navigable car/parking surface.
-from .config import GROUNDSIDE_MAX_GRADE
+#
+# TWO CONSTANTS, TWO LAWS (owner 2026-08-12).  The PAVEMENT's cap is
+# ``GROUNDSIDE_PAVEMENT_MAX_GRADE`` — the road limit, because a lot
+# carries the same vehicles a service road does — and every site that
+# shapes or seats groundside PAVEMENT uses it: the lot emitter's seat
+# and ring limiter, the post-solve chord (Lipschitz) limiter, the
+# lateral strictest-cap min.  ``GROUNDSIDE_MAX_GRADE`` (5 %, the
+# walking-surface ceiling) stays for the OTHER laws that share the
+# module — the below-grade TRANSITION law's default reach and rate.
+from .config import GROUNDSIDE_MAX_GRADE, GROUNDSIDE_PAVEMENT_MAX_GRADE
 
 # Narrow exception tuple for shapely / numeric-geometry failure
 # modes.  Programming errors propagate so they surface immediately.
@@ -1440,7 +1449,8 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         # ``_shape_prior`` refuses.
         seat_out: dict = {}
         alts, pinned = _seat_ring_on_law_anchors(
-            ring, dem_alts, anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
+            ring, dem_alts, anchors, GROUNDSIDE_PAVEMENT_MAX_GRADE,
+            key_fn=key,
             stats=stats, seat_out=seat_out, band_at=band_at)
         if not seat_out.get("law_seated"):
             # The ladder ran and found NO law source — no weld, no prior
@@ -1458,7 +1468,7 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
             # It reached the law this pass (a band arrived): the mark is a
             # statement about the CURRENT layout, never a sticky label.
             setattr(s, _DISCONNECTED_ATTR, False)
-        alts = _grade_limit_ring(ring, alts, GROUNDSIDE_MAX_GRADE,
+        alts = _grade_limit_ring(ring, alts, GROUNDSIDE_PAVEMENT_MAX_GRADE,
                                  pinned=pinned)
         alts = [round(float(a), 2) for a in alts]
         s.node_altitudes = alts + [alts[0]]
@@ -1566,7 +1576,7 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
         # conservative in the only direction that matters.
         cap = min(float(ROLE_GRADE_LIMITS.get(role)
                         or SERVICE_ROAD_MAX_GRADE),
-                  float(GROUNDSIDE_MAX_GRADE))
+                  float(GROUNDSIDE_PAVEMENT_MAX_GRADE))
         anchors = law_anchor_values(layout, for_role=role)
         key = law_anchor_key(layout, anchors)
         for s in layout.shapes:
@@ -1871,14 +1881,15 @@ def _dem_follow_polygon(p, _dem_at, densify_step_m: float = 15.0,
     # so the terrain was the authority and the welds were overwritten at
     # emit — the 9 914 m HEAZ canyon row.)
     alts, _pinned = _seat_ring_on_law_anchors(
-        rebuilt, alts, law_anchors, GROUNDSIDE_MAX_GRADE,
+        rebuilt, alts, law_anchors, GROUNDSIDE_PAVEMENT_MAX_GRADE,
         key_fn=anchor_key, prior_at=_prior_field_reader(prior),
         stats=stats, seat_out=seat_out)
-    # Grade-limit to GROUNDSIDE_MAX_GRADE (ramp-graded, user 2026-05-22)
+    # Grade-limit to the lot cap (ramp-graded, user 2026-05-22; the cap
+    # is the ROAD limit since owner 2026-08-12)
     # before rounding.  2 decimals, matching the emit resolution — 0.1 m
     # quantization on sub-metre groundside chords reads as 10-15 % stairs
     # (the V15 waviness class).
-    alts = _grade_limit_ring(rebuilt, alts, GROUNDSIDE_MAX_GRADE,
+    alts = _grade_limit_ring(rebuilt, alts, GROUNDSIDE_PAVEMENT_MAX_GRADE,
                              pinned=_pinned)
     alts = [round(float(a), 2) for a in alts]
     return new_poly, alts + [alts[0]]
@@ -1898,7 +1909,8 @@ def _regrade_merged_host(host, _dem_at) -> Optional[float]:
     vertices are shared with the neighbours the absorbed stretch was
     welded to; a re-simplify / re-densify here would desync those shared
     nodes and tear the arrangement.  "Sample the DEM at every vertex, then
-    ramp-limit the ring at ``GROUNDSIDE_MAX_GRADE``" IS the lot law —
+    ramp-limit the ring at ``GROUNDSIDE_PAVEMENT_MAX_GRADE``" IS the lot
+    law —
     densify and simplify are emit-resolution choices, not law.
 
     Why the whole ring and not just the new vertices: FIX ATTEMPT 1
@@ -1950,7 +1962,7 @@ def _regrade_merged_host(host, _dem_at) -> Optional[float]:
             "precondition ensuring at least one valid sample")
         alts[k] = found
     vals = _grade_limit_ring(ring, [float(a) for a in alts],
-                             GROUNDSIDE_MAX_GRADE)
+                             GROUNDSIDE_PAVEMENT_MAX_GRADE)
     vals = [round(float(v), 2) for v in vals]
     host.node_altitudes = vals + [vals[0]]      # the CLOSED convention
     host.altitude = None
@@ -3304,7 +3316,7 @@ def conform_parallel_service_edges(layout, window_m: float = 2.0,
 
 
 def chord_limit_ring_altitudes(coords, alts,
-                               cap: float = GROUNDSIDE_MAX_GRADE,
+                               cap: float = GROUNDSIDE_PAVEMENT_MAX_GRADE,
                                sweeps: int = 4):
     """Largest ``cap``-Lipschitz field ≤ ``alts`` over straight-line CHORD
     pairs of ONE ring (the within-shape validator metric) — the single-ring
@@ -3354,7 +3366,8 @@ def chord_limit_ring_altitudes(coords, alts,
 
 def _grade_limit_groundside_chords(layout) -> int:
     """Pull every groundside shape's altitude field down to the largest
-    ``GROUNDSIDE_MAX_GRADE``-Lipschitz field ≤ its current (DEM) values,
+    ``GROUNDSIDE_PAVEMENT_MAX_GRADE``-Lipschitz field ≤ its current (DEM)
+    values,
     measured over straight-line CHORD pairs — the within-shape validator
     metric.  ``_dem_follow_polygon``'s ring-ramp limit only bounds
     CONSECUTIVE ring vertices; a ring-compliant hillside piece still
@@ -3403,7 +3416,7 @@ def _grade_limit_groundside_chords(layout) -> int:
                         continue
                     xb, yb = keys[bj]
                     dd = math.hypot(xa - xb, ya - yb)
-                    cap = node_alt[keys[bj]] + GROUNDSIDE_MAX_GRADE * dd
+                    cap = node_alt[keys[bj]] + GROUNDSIDE_PAVEMENT_MAX_GRADE * dd
                     if cap < best:
                         best = cap
                 if best < node_alt[keys[ai]] - 1e-6:

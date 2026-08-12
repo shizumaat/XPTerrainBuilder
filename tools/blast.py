@@ -885,6 +885,10 @@ def sweep_failures(tests, mutation=None):
     extra = []
     if mutation:
         env[MUTATE_ENV] = "%s::%s" % mutation
+        # The repo root has no __pycache__ ignore rule (only Ortho4XP does),
+        # and loading blast.py as a plugin would leave an untracked bytecode
+        # dir beside it.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = os.pathsep.join(
             [os.path.join(REPO, "tools")] + ([env["PYTHONPATH"]]
                                              if env.get("PYTHONPATH") else []))

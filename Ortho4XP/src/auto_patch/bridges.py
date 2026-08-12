@@ -1821,6 +1821,7 @@ def _gather_portal_walks(
         tunnel_depth_m: float, plan_grade: float,
         ramp_min_length_m: float,
         building_union=None, pavement_union=None,
+        transit_union=None,
         passthrough_findings: list | None = None) -> list:
     """Walk every qualifying tunnel portal's surface approach
     and collect the per-portal ramp data (twin-rail merge, the
@@ -1830,6 +1831,12 @@ def _gather_portal_walks(
     footprint union and the airside-pavement union; under R10-1/A6 they
     are the COVER EVIDENCE the admission predicate reads (A1 recorded
     them but forbade reading them, which cost OTHH all 8 of its bores).
+    ``transit_union`` is the AIRCRAFT-TRANSIT pavement union
+    (``_TUNNEL_PROTECTED_TRANSIT_ROLES`` — the taxiway family R14-2/A-3
+    protects outright).  R20-2b stops every run at it: a ramp may not be
+    laid across pavement an aircraft cannot detour around, and the run
+    that could reach one is exactly the run R20-2 made possible.
+
     ``passthrough_findings`` collects the refusal records the caller
     publishes on the layout.
     """
@@ -1838,7 +1845,10 @@ def _gather_portal_walks(
     # carriageway_width_m — from the way's own ``width=`` / ``lanes=``
     # tags when mapped, else the per-type table, dem_cut_detected,
     # mouth_grade_m, bore_inward_pts, deck_reference_m — the last four
-    # feed the DEM-cut light-touch mode, see TUNNEL_DEM_CUT_MIN_DROP_M).
+    # feed the DEM-cut light-touch mode, see TUNNEL_DEM_CUT_MIN_DROP_M;
+    # then inner_deck_m and, at index 13, bore_floor_m — the floor the
+    # run was SIZED against, which R20-2b makes the floor the chain is
+    # EMITTED from too).
     portal_data: list[tuple] = []
     # Rail tunnel lines, for the TWIN-corridor pairing below (user
     # 2026-07-04, KCLT: two parallel ``railway=rail`` tracks are one
@@ -2412,6 +2422,53 @@ def _gather_portal_walks(
                                 + _t * (_stations[_last_below + 1]
                                         - _stations[_last_below]))
             _run_limit = max(_run_floor, _meet_at)
+            # ── R20-2b: THE TAXIWAY STOP ─────────────────────────────
+            # A run that never meets ground walks the WHOLE walk, and
+            # the walk follows a road that can cross aircraft-transit
+            # pavement.  A ramp there is neither cut (R14-2/A-3 forbids
+            # cutting a taxiway) nor yielded, so it would simply lie on
+            # the taxiway at ramp elevation — the R14 canyon in a new
+            # costume.  The run therefore ENDS at the first transit
+            # pavement it reaches.  The safety floor in
+            # ``_tunnel_ramp_pavement_cut`` is the second half of this
+            # (a piece that still lands mostly on transit pavement is
+            # dropped); this half keeps the chain from being built into
+            # it at all, so the drop never has to remove a mid-chain
+            # piece and leave a hole.
+            #
+            # An INITIAL run already on transit pavement is skipped:
+            # a portal at the face of the very pavement its bore passes
+            # under starts there by construction, and stopping at
+            # station 0 would delete every such ramp (the AIRSIDE /
+            # DOUBLE-EMIT GATE is what judges those, on whether the ramp
+            # LEADS AWAY from pavement).  It is the first RE-ENTRY that
+            # stops the run.
+            if transit_union is not None:
+                _left_transit = False
+                _stop_at: float | None = None
+                _s_t = 0.0
+                for _i in range(len(walk)):
+                    if _i:
+                        _s_t += math.hypot(
+                            walk[_i][0] - walk[_i - 1][0],
+                            walk[_i][1] - walk[_i - 1][1])
+                    try:
+                        _inside = transit_union.intersects(
+                            Point(walk[_i]))
+                    except _GEOM_EXC:
+                        _inside = False
+                    if not _inside:
+                        _left_transit = True
+                        continue
+                    if _left_transit:
+                        _stop_at = _s_t
+                        break
+                if _stop_at is not None and _stop_at < _run_limit:
+                    _run_limit = max(_stop_at, 1.0)
+                    if os.environ.get("O4_TUNNEL_DEBUG") == "1":
+                        print(f"    [tunnel-transit-stop] way {tw_id}: "
+                              f"run cut to {_run_limit:.1f} m at the "
+                              f"first aircraft-transit pavement")
             cum = 0.0
             kept_pts: list[tuple[float, float]] = [walk[0]]
             for i in range(1, len(walk)):
@@ -2525,7 +2582,17 @@ def _gather_portal_walks(
                  (float(_deck_reference)
                   if _deck_reference is not None else None),
                  (float(_inner_deck)
-                  if _inner_deck is not None else None)))
+                  if _inner_deck is not None else None),
+                 # R20-2b (AMENDMENT 1) — index 13, THE BORE FLOOR THIS
+                 # WALK WAS SIZED AGAINST.  It used to die here: the run
+                 # was sized on ``_bore_floor_elevation`` while
+                 # ``_emit_portal_cluster`` emitted the chain from
+                 # ``apt_elev − tunnel_depth_m``, and at the owner's KCLT
+                 # portal those are 210.5 and 206.36 — the 4.5 m between
+                 # them WAS the 4.26 m cliff, not the run length.  One
+                 # number now leaves this function and is gathered, sized
+                 # and emitted against.
+                 float(elev_low)))
     if _n_adj_skip:
         try:
             UI.vprint(1,
@@ -3024,7 +3091,34 @@ def _emit_portal_cluster(
     # and carried per portal.
     carriage_w = head_carriage_w
     half_carriage = 0.5 * carriage_w
-    elev_low = apt_elev - tunnel_depth_m
+    # ── R20-2b (AMENDMENT 1): ONE DATUM ON THE WHOLE PATH ────────────
+    # This was ``apt_elev − tunnel_depth_m`` — the 8 m synthetic floor —
+    # while ``_gather_portal_walks`` sized the very same chain's run
+    # against ``_bore_floor_elevation`` (the R14-3/A-2 clearance floor,
+    # ``deck_reference − BRIDGE_ROAD_CLEARANCE_M``).  Two floors for one
+    # ramp: at the owner's KCLT portal the sizing floor is ~210.5 and
+    # this one was 206.36, so a run correctly sized for a 5.1 m climb
+    # was spent on a 9.3 m one and the chain topped 4.26 m under the
+    # ground beside it.  The measurement is in the round-20 report; the
+    # cliff was the DATUM SPLIT, not the run length.  R14-3/A-2 already
+    # ruled what the floor is — this is that ruling reaching the emitter.
+    #
+    # The cluster takes the DEEPEST member floor, the same "one depth per
+    # system" rule the facing pairs take for their mouths, so a cluster's
+    # two carriageways cannot sit at two depths.  ``tunnel_depth_m``
+    # survives as the fallback for a portal that recorded no floor at all
+    # (the pre-R20 tuple shape, and the mid-field portal with no deck
+    # reference — where ``_bore_floor_elevation`` itself returns exactly
+    # this expression, so the fallback is the same number by
+    # construction).  SCOPE: the SIZED path only.  The light-touch and
+    # facing branches above return before this line and keep their own
+    # mouth-grade datum untouched — whether the legacy datum should
+    # retire there too is a separate ruling this round does not take.
+    _cl_floors = [portal_data[k][13] for k in cl
+                  if len(portal_data[k]) > 13
+                  and portal_data[k][13] is not None]
+    elev_low = (min(float(_f) for _f in _cl_floors) if _cl_floors
+                else apt_elev - tunnel_depth_m)
     elev_high = far_dem
     # Compute the walk's cumulative distance for elevation
     # interpolation.
@@ -3204,7 +3298,7 @@ def _emit_portal_cluster(
     # arguing with the corridor beneath it.  What such a portal still
     # owes is exactly this mode's list — a face at its mapped station at
     # bore depth, and the roof over its own covered bore.
-    _cl_facing = all(len(portal_data[k]) > 13 and portal_data[k][13]
+    _cl_facing = all(len(portal_data[k]) > 14 and portal_data[k][14]
                      for k in cl)
     if _cl_facing or all(len(portal_data[k]) > 11 and portal_data[k][8]
                          for k in cl):
@@ -4952,9 +5046,20 @@ _TUNNEL_COVER_PAVEMENT_ROLES = tuple(
 # fraction.  So these roles are removed from the ramp's cut set, and a
 # ramp piece mostly ON one is dropped LOUDLY rather than silently
 # clipped.
+# R20-2b (AMENDMENT 1): the AIRCRAFT-TRANSIT family, not just the runway
+# family.  R14-2/A-3 already ruled that a cut never interrupts a taxiway
+# ("an aircraft cannot detour round a trench") and removed those roles
+# from :func:`_tunnel_ramp_cut_roles` — but the SAFETY FLOOR here only
+# ever dropped runway-family pieces, so a ramp reaching a taxiway neither
+# cut it nor stood down: it simply laid ramp pavement on top of it at
+# ramp elevation.  Nothing produced that before, because the run could
+# not reach; R20-2's DEM-reach extension can, and a run that never meets
+# ground would walk its whole 500 m walk.  Not cutting and not yielding
+# is the worst of the three, so the two sets are now the same set — the
+# roles a ramp may not cut are exactly the roles a ramp yields to.
 _RAMP_NEVER_CUT_ROLES = frozenset({
     ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_RUNWAY_CLEARANCE,
-})
+}) | _TUNNEL_PROTECTED_TRANSIT_ROLES
 # Fraction of a ramp piece's own area that must lie on a runway-family
 # shape for the safety floor to drop it (mirrors the pavement-overlap
 # clip's "mostly covered" discriminator).
@@ -6267,6 +6372,19 @@ def _emit_tunnel_portals(
             _pavement_u = None
     except _GEOM_EXC:
         _pavement_u = None
+    # R20-2b: the aircraft-transit pavement every run stops at.  Built
+    # here (the gatherer has no layout) from the SAME role set the ramp
+    # cut and the ramp safety floor read, so a ramp cannot stop at one
+    # definition of "taxiway" and be judged against another.
+    try:
+        _transit_u = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.role in _TUNNEL_PROTECTED_TRANSIT_ROLES
+             and s.polygon is not None and not s.polygon.is_empty])
+        if _transit_u.is_empty:
+            _transit_u = None
+    except _GEOM_EXC:
+        _transit_u = None
     _passthrough_findings: list = []
     portal_data = _gather_portal_walks(
         ways_r, nodes_m, way_by_id, node_to_ways, excluded,
@@ -6275,6 +6393,7 @@ def _emit_tunnel_portals(
         _airport_elevation_at, _m_to_ll, dem, tile_lat, tile_lon,
         tunnel_depth_m, plan_grade, ramp_min_length_m,
         building_union=_building_u, pavement_union=_pavement_u,
+        transit_union=_transit_u,
         passthrough_findings=_passthrough_findings)
     if _passthrough_findings:
         try:
@@ -6375,14 +6494,14 @@ def _emit_tunnel_portals(
         return 0
     # A3: distinct facing entrances both survive dedup, and the roadway
     # BETWEEN two same-road mouths is one lowered stretch — flagged per
-    # portal (index 13) so the cluster emit withholds ramp-to-grade
+    # portal (index 14) so the cluster emit withholds ramp-to-grade
     # there, and laid as an open corridor after the clusters.
     _facing_idx, _facing_pairs = _facing_same_road_portals(
         portal_data, way_by_id, TUNNEL_LOW_CONNECTOR_MAX_OPEN_GAP_M,
         min_gap_m=portal_cluster_dist_m)
     if _facing_idx:
         portal_data = [
-            (tuple(_pd) + (None,) * max(0, 13 - len(_pd))
+            (tuple(_pd) + (None,) * max(0, 14 - len(_pd))
              + (_i in _facing_idx,))
             for _i, _pd in enumerate(portal_data)]
         # ONE DEPTH PER FACING SYSTEM (owner: "the whole area is lowered

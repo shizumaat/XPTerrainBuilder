@@ -44,6 +44,7 @@ from auto_patch.layout import (  # noqa: E402
     PavementLayout,
     ROLE_BOUNDARY,
     ROLE_JUNCTION,
+    ROLE_RUNWAY,
 )
 
 
@@ -274,20 +275,34 @@ def _synthetic_road_network(*, curved: bool) -> tuple[dict, list, set, dict]:
     return nodes_r, ways_r, {"TUN"}, {}
 
 
-def _build_layout() -> PavementLayout:
+def _build_layout(ribbon_m: float, far_taxiway: bool,
+                  portal_on_pavement: bool) -> PavementLayout:
     layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+    # The taxiway the bore passes under.  ``portal_on_pavement`` extends
+    # it PAST the portal (x = 60), so the surface walk starts ON transit
+    # pavement — the ordinary shape of a portal at the face of the very
+    # pavement its bore runs under.
     layout.shapes.append(BuiltShape(
-        polygon=box(-40.0, -200.0, 40.0, 200.0),
+        polygon=box(-40.0, -200.0,
+                    68.0 if portal_on_pavement else 40.0, 200.0),
         role=ROLE_JUNCTION, ref="taxiway"))
+    if far_taxiway:
+        # A second taxiway the climbing road crosses ~200 m out.
+        layout.shapes.append(BuiltShape(
+            polygon=box(260.0, -200.0, 300.0, 200.0),
+            role=ROLE_JUNCTION, ref="far_taxiway"))
     layout.shapes.append(BuiltShape(
         polygon=box(-100.0, -100.0, 100.0, 100.0),
         role=ROLE_BOUNDARY, ref="airport_boundary",
-        node_altitudes=[RIBBON_SURFACE_M] * 5))
+        node_altitudes=[ribbon_m] * 5))
     return layout
 
 
 def _install_scene(monkeypatch, *, climb_rate: float,
-                   curved: bool = False) -> PavementLayout:
+                   curved: bool = False,
+                   ribbon_m: float | None = None,
+                   far_taxiway: bool = False,
+                   portal_on_pavement: bool = False) -> PavementLayout:
     """Flat ground over the airport, then ground CLIMBING at
     ``climb_rate`` away from the east portal (negative = falling).
 
@@ -307,7 +322,9 @@ def _install_scene(monkeypatch, *, climb_rate: float,
         return GROUND_M + climb_rate * beyond
 
     monkeypatch.setattr(bridges, "_sample_dem", _fake_sample_dem)
-    return _build_layout()
+    return _build_layout(
+        RIBBON_SURFACE_M if ribbon_m is None else ribbon_m, far_taxiway,
+        portal_on_pavement)
 
 
 def _east_ramps(layout: PavementLayout) -> list[BuiltShape]:
@@ -452,3 +469,124 @@ class TestRunReachesGrade:
             rise = _east_ramp_top_m(layout) - EMIT_FLOOR_M
             assert rise / max(reach, 1e-6) <= (
                 float(config.TUNNEL_RAMP_MAX_GRADE) + 1e-6), climb
+
+
+# ══════════════════════════════════════════════════════════════════
+# R20-2b (AMENDMENT 1) — one datum, and the taxiway stop
+# ══════════════════════════════════════════════════════════════════
+class TestOneDatum:
+    """Gather, size and emit against ONE floor.
+
+    The cliff this round was called for was not the run length: the run
+    was sized against ``_bore_floor_elevation`` and the chain emitted
+    from ``apt_elev - tunnel_depth_m``, ~4.5 m lower at the owner's KCLT
+    portal.  The scene keeps the two apart (ribbon 214.3, ground 211.4,
+    so the legacy datum is 206.3 and the clearance floor 206.3 — equal by
+    construction here) and the twins below force them APART to prove the
+    emitted chain follows the sizing floor and not the legacy one.
+    """
+
+    def test_portal_row_carries_the_sized_floor(self, monkeypatch) -> None:
+        layout = _install_scene(monkeypatch, climb_rate=0.0)
+        rows: list = []
+        real = bridges._gather_portal_walks
+        monkeypatch.setattr(
+            bridges, "_gather_portal_walks",
+            lambda *a, **k: rows.append(real(*a, **k)) or rows[-1])
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert rows and rows[0]
+        for row in rows[0]:
+            assert len(row) > 13, "the bore floor must ride at index 13"
+            assert row[13] is not None
+            # deck reference - road clearance, the R14-3/A-2 floor.
+            assert row[13] == pytest.approx(
+                GROUND_M - float(config.BRIDGE_ROAD_CLEARANCE_M), abs=0.3)
+
+    def test_ramp_bottom_is_the_sized_floor_not_the_legacy_datum(
+        self, monkeypatch
+    ) -> None:
+        # Push the ribbon UP so the legacy datum (apt_elev - 8) and the
+        # clearance floor (deck - 5.1) disagree by 3 m.  The emitted ramp
+        # must sit on the clearance floor.
+        layout = _install_scene(monkeypatch, climb_rate=0.0,
+                                ribbon_m=RIBBON_SURFACE_M + 3.0)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        ramps = _east_ramps(layout)
+        assert ramps
+        bottom = min(float(s.altitude_low) for s in ramps)
+        clearance_floor = GROUND_M - float(config.BRIDGE_ROAD_CLEARANCE_M)
+        legacy = (RIBBON_SURFACE_M + 3.0) - TUNNEL_DEPTH_DEFAULT_M
+        assert bottom == pytest.approx(clearance_floor, abs=0.15), bottom
+        assert abs(bottom - legacy) > 1.0, (bottom, legacy)
+
+    def test_top_still_meets_the_ground_when_the_datums_disagree(
+        self, monkeypatch
+    ) -> None:
+        # The whole point: with one datum the chain reaches the ground it
+        # was sized to reach, whatever the ribbon says.
+        climb = 0.01
+        layout = _install_scene(monkeypatch, climb_rate=climb,
+                                ribbon_m=RIBBON_SURFACE_M + 3.0)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        top = _east_ramp_top_m(layout)
+        ground_at_top = GROUND_M + climb * _east_ramp_reach_m(layout)
+        assert abs(ground_at_top - top) <= 0.35, (top, ground_at_top)
+
+
+class TestTaxiwayStop:
+    """A run that never meets ground must not lay ramp over pavement an
+    aircraft cannot detour around."""
+
+    def test_run_stops_at_the_first_transit_pavement(
+        self, monkeypatch
+    ) -> None:
+        # Ground climbing at 6 % outruns the 3.5 % ramp forever, so the
+        # run would walk the whole 400 m walk — straight through a
+        # taxiway placed at x = 260..300 (station ~200..240).
+        layout = _install_scene(monkeypatch, climb_rate=0.06,
+                                far_taxiway=True)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _east_ramps(layout)
+        reach = _east_ramp_reach_m(layout)
+        assert reach < 205.0, reach          # stopped at the taxiway face
+        assert reach > R14_MINIMUM_RUN_M     # …and not before R14's floor
+
+    def test_no_ramp_piece_lands_on_transit_pavement(
+        self, monkeypatch
+    ) -> None:
+        layout = _install_scene(monkeypatch, climb_rate=0.06,
+                                far_taxiway=True)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        far = [s for s in layout.shapes
+               if getattr(s, "ref", "") == "far_taxiway"]
+        assert far
+        for ramp in _east_ramps(layout):
+            overlap = ramp.polygon.intersection(far[0].polygon).area
+            assert overlap < 0.5 * ramp.polygon.area, overlap
+
+    def test_the_drop_rule_covers_the_transit_family(self) -> None:
+        # The safety floor's set and the never-cut set are the SAME set:
+        # a role a ramp may not cut is a role a ramp yields to.
+        assert bridges._TUNNEL_PROTECTED_TRANSIT_ROLES <= \
+            bridges._RAMP_NEVER_CUT_ROLES
+        assert ROLE_JUNCTION in bridges._RAMP_NEVER_CUT_ROLES
+        assert ROLE_RUNWAY in bridges._RAMP_NEVER_CUT_ROLES
+        assert not (bridges._RAMP_NEVER_CUT_ROLES
+                    & bridges._tunnel_ramp_cut_roles())
+
+    def test_a_portal_at_its_own_pavement_face_still_emits(
+        self, monkeypatch
+    ) -> None:
+        # The portal starts ON the taxiway its bore passes under.  If the
+        # stop fired at station 0 every such ramp would vanish — it is
+        # the first RE-ENTRY that stops a run, never the initial one.
+        layout = _install_scene(monkeypatch, climb_rate=0.0,
+                                portal_on_pavement=True)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _east_ramps(layout), "the portal's own pavement stopped it"

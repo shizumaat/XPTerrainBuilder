@@ -147,7 +147,8 @@ def _build_layout() -> PavementLayout:
     return layout
 
 
-def _install_scene(monkeypatch, *, carved: bool) -> PavementLayout:
+def _install_scene(monkeypatch, *, carved: bool,
+                   trench_climb: float = 0.0) -> PavementLayout:
     """Wire the synthetic road network and the DEM sampler onto the
     ``bridges`` module and return the freshly built layout.
 
@@ -157,7 +158,19 @@ def _install_scene(monkeypatch, *, carved: bool) -> PavementLayout:
     with the airport surface (no cut).  The trench must be LOCAL to the
     road: the detection discriminator is cross-road relief — trench
     floor versus the deck beside it at the same station — never an
-    absolute drop, so a uniformly low DEM is correctly NOT a cut."""
+    absolute drop, so a uniformly low DEM is correctly NOT a cut.
+
+    ``trench_climb`` (R20-2b) makes the trench CLIMB OUT beyond the
+    portals at that grade, as a real lidar approach cut does, instead of
+    running flat to the horizon.  It defaults to 0.0, so every scene that
+    does not ask for it is byte-identical to the pre-R20 fixture.  It
+    matters only where a SYNTHETIC ramp is emitted over a cut (the
+    ``O4_TUNNEL_DEM_CUT=0`` fallback): with one datum on the whole ramp
+    path the chain now starts at the floor it was SIZED against — the
+    measured trench floor — so on a trench that never rises there is
+    genuinely nothing to climb and the pieces come out flat.  A ramp is
+    sloped when the ground it climbs to is higher, which is what this
+    parameter supplies."""
     monkeypatch.setattr(
         bridges, "_load_tunnel_road_network",
         lambda _layout: _synthetic_road_network())
@@ -169,7 +182,11 @@ def _install_scene(monkeypatch, *, carved: bool) -> PavementLayout:
         if not carved:
             return AIRPORT_SURFACE_M
         _x_m, _y_m = to_meters(_lon, _lat)
-        return TRENCH_FLOOR_M if abs(_y_m) <= 6.0 else AIRPORT_SURFACE_M
+        if abs(_y_m) > 6.0:
+            return AIRPORT_SURFACE_M
+        _beyond = max(0.0, abs(_x_m) - 60.0)
+        return min(AIRPORT_SURFACE_M,
+                   TRENCH_FLOOR_M + trench_climb * _beyond)
 
     monkeypatch.setattr(bridges, "_sample_dem", _fake_sample_dem)
     return _build_layout()
@@ -294,7 +311,12 @@ class TestDemCutPortalMode:
         # ``O4_TUNNEL_DEM_CUT=0`` forces the legacy path even when the DEM
         # carries the cut.
         monkeypatch.setenv("O4_TUNNEL_DEM_CUT", "0")
-        layout = _install_scene(monkeypatch, carved=True)
+        # The trench CLIMBS OUT here (R20-2b): see ``_install_scene``.
+        # A synthetic ramp is sloped because the ground it reaches for is
+        # higher, and this scene now says so instead of relying on the
+        # chain starting at a datum 12 m above the trench it sits in.
+        layout = _install_scene(monkeypatch, carved=True,
+                                trench_climb=0.06)
         emitted = bridges._emit_tunnel_portals(
             layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
         assert emitted >= 1
@@ -315,3 +337,37 @@ def test_scene_has_no_hidden_dependencies() -> None:
             assert nref in nodes_r
     # The two approach roads share exactly the portal nodes with the bore.
     assert math.isfinite(nodes_r["A"][0])
+
+
+class TestOneDatumOverACut:
+    """R20-2b: the ramp chain starts at the floor its run was SIZED
+    against — ``_bore_floor_elevation`` — not at ``apt_elev −
+    tunnel_depth_m``.
+
+    Pinned on the ORIGINAL flat-bottomed trench, where the two datums
+    differ by 12 m: the chain used to descend 92 → 80 (it began above the
+    trench it stood in purely because sizing and emitting used different
+    floors), and now sits ON the measured floor for its whole length.
+    """
+
+    def test_ramps_over_a_flat_cut_sit_on_the_measured_floor(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("O4_TUNNEL_DEM_CUT", "0")
+        layout = _install_scene(monkeypatch, carved=True)
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        ramps = _shapes_with_ref(layout, "tunnel_ramp")
+        assert ramps, "the gate-off fallback must still emit ramp pieces"
+        for ramp in ramps:
+            for value in [v for v in (ramp.altitude, ramp.altitude_high,
+                                      ramp.altitude_low) if v is not None]:
+                assert value == pytest.approx(TRENCH_FLOOR_M, abs=0.1), (
+                    "a ramp over a measured cut may not start at "
+                    "apt_elev - tunnel_depth_m")
+        # …and never at the retired 8 m synthetic datum.
+        assert not any(
+            v == pytest.approx(AIRPORT_SURFACE_M - 8.0, abs=0.1)
+            for ramp in ramps
+            for v in (ramp.altitude, ramp.altitude_high, ramp.altitude_low)
+            if v is not None)

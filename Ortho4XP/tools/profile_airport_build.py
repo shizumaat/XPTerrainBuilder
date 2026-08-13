@@ -21,22 +21,27 @@ Usage:
     venv/bin/python tools/profile_airport_build.py ICAO [--interval 0.02]
         [--out /tmp/ICAO_profile.txt]
     venv/bin/python tools/profile_airport_build.py --replay CAPTURE_DIR
+        [--baseline-manifest FILE --baseline-key NAME]
         [--count auto_patch.grade_graph:shape_constraints ...]
+        [--interval 0.02] [--out ...]
 
-``--replay`` profiles a SOLVE-STAGE CAPTURE (``tools/solve_cut.py``)
-instead of a whole build: the same sampler over the same reports, but
-the target is ``pipeline.solve_and_finalize`` replayed from the capture,
-so phases [5]+[6] are profiled in seconds-per-iteration rather than
-minutes.  The capture's ``O4_*`` frame is restored and the replay's body
-hash is printed — a profile of a run that did not reproduce the baseline
-is not a profile of production.  Everything else (phase bucketing,
-inclusive / leaf tables) is unchanged, so replay profiles and build
-profiles are read the same way.
+``--replay`` profiles a SOLVE-STAGE REPLAY (``tools/solve_cut.py
+--replay``) instead of a whole build: same sampler, same report, but the
+target is phases [5]+[6] rebuilt from a capture.  That is the perf-P3
+optimisation loop's instrument — the sink lives in the solve, and a
+whole build to see it costs ten times the wall.  The replay is
+``solve_cut.replay`` itself (IMPORTED, never re-implemented: a second
+spelling of the replay would be a second measurement frame), so the run
+still checks its own body hash against ``--baseline*`` and still refuses
+env drift.  Phase attribution is unavailable on this path (a replay
+enters below pipeline.py's step boundaries), so the phase table reports
+one bucket and the report says so; the function/leaf tables — which is
+what a sink lane reads — are exactly as on the build path.
 
 ``--count MODULE:ATTR`` (repeatable) additionally wraps a named callable
 with a call counter and an inclusive timer, for questions a sampler
 cannot answer ("is this memo missing, or is the miss expensive?").  The
-wrapper is installed for the profiled run only.
+wrapper is installed for the profiled run only, on either target.
 """
 
 import argparse
@@ -182,35 +187,25 @@ def _install_counters(specs):
     return counters
 
 
-def _run_replay(capture_dir):
-    """Replay a solve capture in-process; return (icao, body_sha256)."""
-    sys.path.insert(0, os.path.join(ROOT, "tools", "harness"))
-    import solve_cut                                        # noqa: E402
-    from auto_patch.solve_capture import (                  # noqa: E402
-        read_manifest, load_capture, CAPTURE_ENV)
-    from shared_repo_guard import SharedRepoWriteGuard      # noqa: E402
-    import auto_patch.pipeline as pipeline                  # noqa: E402
-
-    manifest = read_manifest(capture_dir)
-    solve_cut.restore_env(manifest)
-    os.environ.pop(CAPTURE_ENV, None)
-    tail, _m = load_capture(capture_dir)
-    out = os.path.join(capture_dir, "replay",
-                       f"{manifest.get('icao')}.profile.osm")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with SharedRepoWriteGuard(requested=(), root=ROOT):
-        layout = pipeline.solve_and_finalize(**tail)
-    layout.to_osm(out)
-    from build_airport import body_sha256                   # noqa: E402
-    return manifest.get("icao"), body_sha256(out)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("icao", nargs="?")
+    parser.add_argument("icao", nargs="?", default=None)
     parser.add_argument("--replay", default=None, metavar="CAPTURE_DIR",
-                        help="profile a solve-stage capture replay "
-                             "(phases [5]+[6]) instead of a whole build")
+                        help="profile a solve_cut REPLAY of this capture "
+                             "directory instead of a whole airport build")
+    parser.add_argument("--replay-out", default=None, metavar="PATCH.osm",
+                        help="--replay only: where the replayed patch goes "
+                             "(default: CAPTURE_DIR/replay/<ICAO>.osm)")
+    parser.add_argument("--baseline", default=None, metavar="SHA",
+                        help="--replay only: body hash the replay owes")
+    parser.add_argument("--baseline-manifest", default=None, metavar="FILE",
+                        help="--replay only: read --baseline from a frozen "
+                             "baseline MANIFEST")
+    parser.add_argument("--baseline-key", default=None, metavar="NAME",
+                        help="--replay only: which manifest row to read")
+    parser.add_argument("--allow-env-drift", action="store_true",
+                        help="--replay only: replay under a different O4_* "
+                             "frame knowingly (recorded)")
     parser.add_argument("--count", action="append", default=[],
                         metavar="MODULE:ATTR",
                         help="also count calls + inclusive seconds of this "
@@ -219,31 +214,58 @@ def main():
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
     if bool(args.icao) == bool(args.replay):
-        parser.error("pass an ICAO to profile a build, or --replay "
-                     "CAPTURE_DIR to profile a capture replay — not both")
-
-    label = args.icao or os.path.basename(str(args.replay).rstrip("/"))
-    out_path = args.out or f"/tmp/{label}_profile.txt"
-    counters = _install_counters(args.count) if args.count else []
-    replay_sha = None
+        # A profiler that quietly picks one of two targets is how a lane
+        # ends up reading a build's distribution and calling it a replay's.
+        raise SystemExit(
+            "REFUSING: name exactly one target — a positional ICAO (whole "
+            "airport build) or --replay CAPTURE_DIR (solve-stage replay).")
 
     if args.replay:
-        target = lambda: _run_replay(args.replay)           # noqa: E731
+        label = os.path.basename(os.path.normpath(args.replay))
+        out_path = args.out or f"/tmp/{label}_replay_profile.txt"
     else:
-        from conftest import xplane_root                    # noqa: E402
+        label = args.icao
+        out_path = args.out or f"/tmp/{args.icao}_profile.txt"
+
+    if args.replay:
+        # THE REPLAY IS solve_cut's OWN — imported, never re-spelled.
+        import solve_cut                                    # noqa: E402
+        baseline = args.baseline
+        if args.baseline_manifest or args.baseline_key:
+            if not (args.baseline_manifest and args.baseline_key):
+                raise SystemExit("REFUSING: --baseline-manifest needs "
+                                 "--baseline-key and vice versa.")
+            from pathlib import Path as _Path
+            baseline = solve_cut._baseline_from_manifest(
+                _Path(args.baseline_manifest), args.baseline_key)
+
+        def _run():
+            from pathlib import Path as _Path
+            rc = solve_cut.replay(
+                _Path(args.replay),
+                _Path(args.replay_out) if args.replay_out else None,
+                baseline=baseline,
+                allow_env_drift=args.allow_env_drift,
+                want_census=False, restore=False, json_out=None)
+            if rc:
+                raise SystemExit(rc)
+    else:
+        from conftest import xplane_root                        # noqa: E402
         from auto_patch.pipeline import build_airport_pavement  # noqa: E402
-        target = lambda: build_airport_pavement(            # noqa: E731
-            args.icao, xplane_root(), compute_elevations=True)
+
+        def _run():
+            build_airport_pavement(args.icao, xplane_root(),
+                                   compute_elevations=True)
+
+    counters = _install_counters(args.count) if args.count else []
 
     sampler = StackSampler(threading.get_ident(), args.interval)
     sampler.start()
     t0 = time.time()
-    result = target()
+    _run()
     elapsed = time.time() - t0
     sampler.stop()
     sampler.join(timeout=2.0)
-    if args.replay:
-        label, replay_sha = result
 
     per_sample = elapsed / max(sampler.samples, 1)
 
@@ -251,11 +273,12 @@ def main():
         return n * per_sample
 
     lines = []
-    what = "replay [5]+[6]" if args.replay else "build"
-    lines.append(f"{label} {what}: {elapsed:.1f} s wall, "
+    kind = "solve replay" if args.replay else "build"
+    lines.append(f"{label} {kind}: {elapsed:.1f} s wall, "
                  f"{sampler.samples} samples ({per_sample * 1000:.1f} ms/sample)")
-    if replay_sha is not None:
-        lines.append(f"  replayed body_sha256={replay_sha}")
+    if args.replay:
+        lines.append("  (phase table is one bucket on the replay path: a "
+                     "replay enters below pipeline.py's step boundaries)")
 
     if counters:
         lines.append("\n== Counted callables (inclusive) ==")

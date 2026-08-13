@@ -259,6 +259,13 @@ PROJECTION_STALL_REPORT_DEFAULT = "0"
 STALL_REL_IMPROVEMENT = 0.005
 STALL_PATIENCE_SWEEPS = 16
 
+# PERFORMANCE THRESHOLD, NOT A LAW NUMBER (perf 2026-08-13).  The sweep's
+# active-row compression trades ~8 extra numpy dispatches for elementwise
+# work it no longer does; below this row count the dispatches cost more
+# than the work saved, so the colour keeps the full-width form.  Moving it
+# changes WHICH of two bit-identical code paths runs, never a value.
+COMPRESSION_MIN_ROWS = 128
+
 
 def projection_stall_report_enabled() -> bool:
     """True when the chromatic sweep loop keeps the stall FORENSICS.
@@ -501,6 +508,58 @@ def _box_isect(box_a, box_b):
     if box_b is None:
         return box_a
     return (max(box_a[0], box_b[0]), min(box_a[1], box_b[1]))
+
+
+def _scatter_sub(z, index_column, weight_column, rows, se, win):
+    """``z[idx] -= se * w`` over the ACTIVE rows only, honouring which row
+    of a repeated index actually lands (see
+    :func:`_column_last_write_mask`)."""
+    delta = se * weight_column[rows]
+    if win is None:
+        z[index_column[rows]] -= delta
+    else:
+        lands = win[rows]
+        z[index_column[rows[lands]]] -= delta[lands]
+
+
+def _scatter_add(z, index_column, weight_column, rows, se, win):
+    """The ``+=`` twin of :func:`_scatter_sub`."""
+    delta = se * weight_column[rows]
+    if win is None:
+        z[index_column[rows]] += delta
+    else:
+        lands = win[rows]
+        z[index_column[rows[lands]]] += delta[lands]
+
+
+def _column_last_write_mask(np, index_column):
+    """Which rows of a colour's endpoint column actually LAND?
+
+    ``z[idx] += t`` is gather-add-scatter, so where ``idx`` repeats only
+    the LAST row's value survives — the earlier ones are computed and then
+    overwritten.  This returns the boolean mask of those surviving rows,
+    or ``None`` when the column has no repeats at all (every row lands,
+    the common case, and the sweep then skips the mask entirely).
+
+    The sweep needs it to DROP inactive rows safely: a row inside
+    tolerance contributes ``±0.0 * weight`` and so writes its endpoint
+    back unchanged, but if it is the SURVIVOR of a repeated index,
+    dropping it must not resurrect an earlier row's correction — which is
+    exactly what restricting the scatter to surviving rows guarantees.
+    Immovable endpoints carry weight 0 and are never separated by the
+    write-conflict coloring, which is where the repeats come from.
+    """
+    order = np.argsort(index_column, kind="stable")
+    grouped = index_column[order]
+    last = np.empty(index_column.size, dtype=bool)
+    last[-1] = True
+    if index_column.size > 1:
+        np.not_equal(grouped[:-1], grouped[1:], out=last[:-1])
+        if last.all():
+            return None
+    mask = np.zeros(index_column.size, dtype=bool)
+    mask[order[last]] = True
+    return mask
 
 
 def _node_box_arrays(node_box, np):
@@ -1812,6 +1871,26 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     if node_box:
         box_idx, box_lo, box_hi = _node_box_arrays(node_box, np)
         z[box_idx] = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
+    # ── THE NEGATIVE-ZERO GATE (perf 2026-08-13, byte-identity premise) ──
+    # The sweep below skips writes it can PROVE are value-preserving: an
+    # edge inside tolerance contributes ``se = sign(d) * 0.0``, i.e. ±0.0,
+    # and ``x - (±0.0)`` / ``x + (±0.0)`` is ``x`` for every double x —
+    # with ONE exception, ``x = -0.0``, where ``-0.0 - (-0.0)`` and
+    # ``-0.0 + (+0.0)`` are ``+0.0``.  So "skipping a no-op write is
+    # value-identical" holds exactly when no z entry is a NEGATIVE ZERO.
+    # That is an INVARIANT, not merely an entry condition: every write
+    # here is ``a ± b`` with ``a`` a current z value, and IEEE-754
+    # round-to-nearest yields -0.0 from ``a - b`` only when ``a`` is -0.0,
+    # and from ``a + b`` only when BOTH are -0.0 (equal finite operands
+    # cancel to +0.0) — so a z free of -0.0 STAYS free of it.
+    # ``np.minimum`` in the box clamp can hand back a -0.0 BOUND, so the
+    # bounds are gated with the field.  A field (or bound) that does carry
+    # a -0.0 takes the full-width writes below, verbatim.
+    _no_neg_zero = not bool(((z == 0.0) & np.signbit(z)).any())
+    if _no_neg_zero and box_idx is not None:
+        _no_neg_zero = not bool(
+            ((box_lo == 0.0) & np.signbit(box_lo)).any()
+            or ((box_hi == 0.0) & np.signbit(box_hi)).any())
     # ── feasibility pre-check (see docstring): certified without coloring ──
     if run_feasibility_precheck and max_iters >= 1:
         feasible = True
@@ -1888,22 +1967,28 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         if symmetric_members.size:
             si = endpoint_i[symmetric_members]
             sj = endpoint_j[symmetric_members]
+            s_wi = weight_i[symmetric_members]
+            s_wj = weight_j[symmetric_members]
+            s_disjoint = bool(np.unique(np.concatenate((si, sj))).size
+                              == si.size + sj.size)
             symmetric_block = (
-                si, sj, np.stack((si, sj)),
-                bool(np.unique(np.concatenate((si, sj))).size
-                     == si.size + sj.size),
-                budget_column[symmetric_members],
-                weight_i[symmetric_members], weight_j[symmetric_members])
+                si, sj, np.stack((si, sj)), s_disjoint,
+                budget_column[symmetric_members], s_wi, s_wj,
+                None if s_disjoint else _column_last_write_mask(np, si),
+                None if s_disjoint else _column_last_write_mask(np, sj))
         if interval_members.size:
             ii = endpoint_i[interval_members]
             ij = endpoint_j[interval_members]
+            i_wi = weight_i[interval_members]
+            i_wj = weight_j[interval_members]
+            i_disjoint = bool(np.unique(np.concatenate((ii, ij))).size
+                              == ii.size + ij.size)
             interval_block = (
-                ii, ij, np.stack((ii, ij)),
-                bool(np.unique(np.concatenate((ii, ij))).size
-                     == ii.size + ij.size),
+                ii, ij, np.stack((ii, ij)), i_disjoint,
                 slab_low_column[interval_members],
-                slab_high_column[interval_members],
-                weight_i[interval_members], weight_j[interval_members])
+                slab_high_column[interval_members], i_wi, i_wj,
+                None if i_disjoint else _column_last_write_mask(np, ii),
+                None if i_disjoint else _column_last_write_mask(np, ij))
         if symmetric_block is not None or interval_block is not None:
             blocks.append((symmetric_block, interval_block))
     sweeps = 0
@@ -1917,6 +2002,10 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     worst_is_residual_max = bool(tol >= 0.0)
     np_where = np.where
     np_sign = np.sign
+    np_flatnonzero = np.flatnonzero
+    # ACTIVE-ROW COMPRESSION gate (see the negative-zero gate above and
+    # the sweep body).
+    compress = _no_neg_zero
     # ── STALL REPORT state (see ``projection_stall_report_enabled``) ──
     # ``stall_min`` is the running minimum of the per-sweep active
     # violating-edge count; ``stall_ref`` is that minimum's value at the
@@ -1926,6 +2015,12 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     # sweep loop run on — there is no early exit here, by ruling.  Gate OFF
     # ⇒ none of this is touched and no count is taken.
     stall_on = projection_stall_report_enabled()
+    # The interval half additionally needs ``tol >= 0``: that is what makes
+    # every ACTIVE row's ``|se|`` strictly positive, hence the full-width
+    # ``argmax`` the stall report reads provably an active row (see the
+    # compressed branch).  With a negative tolerance an inactive 0.0 could
+    # win that argmax, so the compression stands down there.
+    compress_int = compress and (worst_is_residual_max or not stall_on)
     stall_min = None
     stall_ref = None
     stall_wait = 0
@@ -1962,42 +2057,91 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         stall_carrier = None
         for symmetric_block, interval_block in blocks:
             if symmetric_block is not None:
-                I, J, IJ, disjoint, B, WI, WJ = symmetric_block
+                I, J, IJ, disjoint, B, WI, WJ, win_i, win_j = \
+                    symmetric_block
                 # one gather for both endpoints; ``pair`` is a fresh copy, so
                 # ``pair[0]``/``pair[1]`` are the pre-write ``z[I]``/``z[J]``.
                 pair = z[IJ]
                 d = pair[0] - pair[1]
                 over = abs(d) - B
                 # ``over.max() > tol`` is exactly ``(over > tol).any()``.
-                residual_max = over.max()
+                # ``float()`` once: every test below then compares two
+                # PYTHON floats instead of re-entering numpy's scalar type
+                # (same value, ~2 M fewer scalar dispatches per call).
+                residual_max = float(over.max())
                 if residual_max > tol:
                     any_active = True
-                    ex = np_where(over > tol, over, 0.0)
-                    w = residual_max if worst_is_residual_max else ex.max()
+                    # ONE activity mask per visit: the places that used to
+                    # recompute ``over > tol`` read this (or ``rows``).
+                    active = over > tol
+                    ex = None
+                    if worst_is_residual_max:
+                        w = residual_max
+                    else:
+                        ex = np_where(active, over, 0.0)
+                        w = float(ex.max())
                     if w > worst:
-                        worst = float(w)
+                        worst = w
                         if stall_on:
                             _k = int(over.argmax() if worst_is_residual_max
                                      else ex.argmax())
                             stall_carrier = ("sym", int(I[_k]), int(J[_k]),
                                              float(B[_k]), float(d[_k]),
                                              float(WI[_k]), float(WJ[_k]))
-                    if stall_on:
-                        stall_active += int((over > tol).sum())
                     # ``se = sign(d) * ex`` once: ``(-s)*ex*WI`` is exactly
                     # ``-((s*ex)*WI)`` (negation is exact in IEEE 754).
-                    se = np_sign(d) * ex
-                    # disjoint writes within a color -> fancy-indexed add is a
-                    # valid simultaneous update (immovable slots carry weight 0).
-                    if disjoint:
-                        pair[0] -= se * WI
-                        pair[1] += se * WJ
-                        z[IJ] = pair
+                    # ── ACTIVE-ROW COMPRESSION (perf 2026-08-13) ──────
+                    # Only rows with ``over > tol`` carry a correction;
+                    # every other row contributes ``se = sign(d) * 0.0``
+                    # and so writes its endpoints back UNCHANGED (the
+                    # negative-zero gate above is exactly the condition
+                    # under which "unchanged" is bit-true).  At HECA 5-6 %
+                    # of a colour's rows are active, so the whole
+                    # sign / multiply / scatter tail runs on that slice
+                    # instead of the full width.  Restricted to DISJOINT
+                    # colours on purpose: where I|J repeat, numpy's
+                    # ``z[I] += t`` keeps the LAST duplicate's value, and
+                    # dropping an inactive duplicate would change WHICH
+                    # row wins — not a no-op.  Row values themselves are
+                    # untouched: ``over``/``d``/the weights are read at
+                    # the same indices, so each surviving correction is
+                    # the same double, applied in the same order.
+                    rows = (np_flatnonzero(active)
+                            if (compress
+                                and over.size >= COMPRESSION_MIN_ROWS)
+                            else None)
+                    if stall_on:
+                        # ``rows.size`` IS ``active.sum()`` where the rows
+                        # were materialised — one fewer full-width pass.
+                        stall_active += (rows.size if rows is not None
+                                         else int(active.sum()))
+                    if rows is not None and rows.size * 2 <= over.size:
+                        se = np_sign(d[rows]) * over[rows]
+                        _scatter_sub(z, I, WI, rows, se, win_i)
+                        _scatter_add(z, J, WJ, rows, se, win_j)
                     else:
-                        z[I] += -(se * WI)
-                        z[J] += se * WJ
+                        if ex is None:
+                            ex = np_where(active, over, 0.0)
+                        se = np_sign(d) * ex
+                        # disjoint writes within a color -> fancy-indexed add
+                        # is a valid simultaneous update (immovable slots
+                        # carry weight 0).
+                        if disjoint:
+                            pair[0] -= se * WI
+                            pair[1] += se * WJ
+                            z[IJ] = pair
+                        else:
+                            # ``z[I] += t`` re-gathers ``z[I]``, which is
+                            # still ``pair[0]`` (nothing wrote z since the
+                            # gather); ``a + (-t)`` is exactly ``a - t``.
+                            # Duplicate slots still resolve last-wins, on
+                            # the same values, so the scatter is unchanged.
+                            pair[0] -= se * WI
+                            z[I] = pair[0]
+                            z[J] += se * WJ
             if interval_block is not None:
-                Ii, Ji, IJi, disjoint_i, Lo, Hi, IWI, IWJ = interval_block
+                (Ii, Ji, IJi, disjoint_i, Lo, Hi,
+                 IWI, IWJ, win_ii, win_ij) = interval_block
                 pair = z[IJi]
                 di = pair[0] - pair[1]
                 above = di - Hi
@@ -2005,32 +2149,74 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                 # exactly ``(active_hi | active_lo).any()``
                 if above.max() > tol or below.max() > tol:
                     any_active = True
-                    se = np_where(above > tol, above,
-                                  np_where(below > tol, di - Lo, 0.0))
-                    aw = abs(se).max()
-                    if aw > worst:
-                        worst = float(aw)
+                    # ACTIVE-ROW COMPRESSION, interval half.  Same premise
+                    # as the symmetric one: an inactive slab row carries
+                    # ``se = 0.0`` and writes its endpoints back unchanged.
+                    # ``abs(se).max()`` over the full width equals the max
+                    # over the active rows (the rest are 0.0 and |se| >= 0),
+                    # so ``worst`` is untouched.  The stall report's
+                    # ``argmax`` is an index into the FULL row set, so the
+                    # compressed form stands down while that gate is on.
+                    rows = (np_flatnonzero((above > tol) | (below > tol))
+                            if (compress_int
+                                and above.size >= COMPRESSION_MIN_ROWS)
+                            else None)
+                    if rows is not None and rows.size * 2 <= above.size:
+                        ra = above[rows]
+                        se = np_where(ra > tol, ra, di[rows] - Lo[rows])
+                        ase = abs(se)
+                        aw = float(ase.max())
+                        if aw > worst:
+                            worst = aw
+                            if stall_on:
+                                # ``abs(se)`` is 0.0 on every inactive row
+                                # and STRICTLY positive on every active one
+                                # (``compress_int`` requires tol >= 0), so
+                                # the full-width argmax lands on an active
+                                # row — and ``rows`` is ascending, so this
+                                # is the same row the full array names.
+                                _k = int(rows[ase.argmax()])
+                                stall_carrier = ("int", int(Ii[_k]),
+                                                 int(Ji[_k]), float(Lo[_k]),
+                                                 float(Hi[_k]),
+                                                 float(di[_k]), 0.0)
                         if stall_on:
-                            _k = int(abs(se).argmax())
-                            stall_carrier = ("int", int(Ii[_k]), int(Ji[_k]),
-                                             float(Lo[_k]), float(Hi[_k]),
-                                             float(di[_k]), 0.0)
-                    if stall_on:
-                        stall_active += int(((above > tol)
-                                             | (below > tol)).sum())
-                    if disjoint_i:
-                        pair[0] -= se * IWI
-                        pair[1] += se * IWJ
-                        z[IJi] = pair
+                            stall_active += rows.size
+                        _scatter_sub(z, Ii, IWI, rows, se, win_ii)
+                        _scatter_add(z, Ji, IWJ, rows, se, win_ij)
                     else:
-                        z[Ii] += -(se * IWI)
-                        z[Ji] += se * IWJ
+                        se = np_where(above > tol, above,
+                                      np_where(below > tol, di - Lo, 0.0))
+                        aw = float(abs(se).max())
+                        if aw > worst:
+                            worst = aw
+                            if stall_on:
+                                _k = int(abs(se).argmax())
+                                stall_carrier = ("int", int(Ii[_k]),
+                                                 int(Ji[_k]), float(Lo[_k]),
+                                                 float(Hi[_k]),
+                                                 float(di[_k]), 0.0)
+                        if stall_on:
+                            stall_active += int(((above > tol)
+                                                 | (below > tol)).sum())
+                        if disjoint_i:
+                            pair[0] -= se * IWI
+                            pair[1] += se * IWJ
+                            z[IJi] = pair
+                        else:
+                            pair[0] -= se * IWI
+                            z[Ii] = pair[0]
+                            z[Ji] += se * IWJ
         if box_idx is not None:
             # BOUNDED YIELD: re-clamp after the sweep; movement beyond tol
             # means an edge pushed a node out of its box — stay active so
             # the incident edges re-relax against the clamped value.
-            clamped = np.minimum(np.maximum(z[box_idx], box_lo), box_hi)
-            clamp_move = np.abs(clamped - z[box_idx])
+            # ONE gather (perf 2026-08-13): ``z[box_idx]`` was fetched
+            # twice per sweep — for the clamp and again for the movement —
+            # and the same values feed both.
+            box_cur = z[box_idx]
+            clamped = np.minimum(np.maximum(box_cur, box_lo), box_hi)
+            clamp_move = np.abs(clamped - box_cur)
             if (clamp_move > tol).any():
                 any_active = True
                 w = float(clamp_move.max())
@@ -2041,7 +2227,15 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                         stall_carrier = ("box", int(box_idx[_k]), -1,
                                          float(box_lo[_k]), float(box_hi[_k]),
                                          float(clamp_move[_k]), 0.0)
-            z[box_idx] = clamped
+            # Write back only the entries the clamp actually MOVED: the
+            # rest would be scattered onto their own value (the
+            # negative-zero gate is what makes "own value" bit-true).
+            mv_rows = (np_flatnonzero(clamp_move != 0.0)
+                       if compress else None)
+            if mv_rows is not None and mv_rows.size * 2 <= clamp_move.size:
+                z[box_idx[mv_rows]] = clamped[mv_rows]
+            else:
+                z[box_idx] = clamped
         if not any_active:
             certified = True
             exit_reason = "certified"

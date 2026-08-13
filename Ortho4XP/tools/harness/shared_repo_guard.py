@@ -860,6 +860,26 @@ _DEGRADED_OPTIONS = (
     "a worse measurement and changing everyone's data are different acts.")
 
 
+def require_no_unauthorised_writes(offenders, *, entry: str) -> None:
+    """DETECTOR 2 — a write REACHED the corpus despite the armed guard.
+
+    :func:`report_unauthorised_writes` names them; this is the refusal
+    every non-``build_airport`` entry owes afterwards, spelled ONCE.  Two
+    entries used to carry their own copy of this sentence
+    (``run_tile_mesh_only.py`` inline, and the tile profiler not at all),
+    which is the census-wrapper shape: the inconsistency, not the text.
+
+    ``entry`` names the run in the message ("mesh-only", "tile profile")
+    so the refusal says which tool must be re-run under what.
+    """
+    if not offenders:
+        return
+    raise SystemExit(
+        f"REFUSING: this {entry} run mutated the shared data repo (paths "
+        f"above). Owner ruling e9daef5: warm the cache deliberately with "
+        f"tools/harness/build_airport.py --refresh-data <scope>.")
+
+
 def require_no_swallowed_write_block(blocked, *, allow_degraded: bool = False,
                                      prog=None) -> None:
     """DETECTOR 1 — the guard blocked a write and the build carried on.

@@ -104,3 +104,78 @@ changed.
   (d) `_column_last_write_mask` is built per colour per call (one stable argsort of each repeated endpoint column). Its cost is inside the measured arms but was never isolated; on a graph whose colours are almost all repeated it would be paid on every call.
   (e) The negative-zero gate's INVARIANT half (a field free of -0.0 stays free of it under `a ± b`) is argued from IEEE-754 round-to-nearest and twinned only by a fixture that SEEDS -0.0 and checks both paths agree; no test drives z to a -0.0 mid-sweep, because the argument says it cannot happen.
   (f) `tools/profile_airport_build.py --replay` has no twin: it is exercised by the three profile runs this lane took. Its INDEX row now carries the GIL-scheduling caveat this lane measured the hard way — the sampler priced the box-clamp gather at 6.0 s where `perf_counter` priced it at 0.31 s, a 20x mis-attribution that would have sent the lane at the wrong line. LANE D EDITED THE SAME TOOL ON ITS OWN BRANCH (a `--count` option): the lead resolves that conflict at merge.
+
+## perf P3 wave 2 lane E (lane/perfemit, 2026-08-13)
+
+Optimisation-only lane on the emit/finalize path: four
+semantics-identical transformations (`conformance._points_near_edge`
+band walk; `conformance._edge_linestrings` +
+`_crossing_candidate_pairs` bulk query; `pavement.vertices.
+_project_means_onto_runway_boundaries` batch; `adjacent_ground.
+_snap_ring_to_static` envelope query), each twinned against the scan it
+replaces in `tests/test_emit_finalize_prefilters.py` (9 twins).
+Acceptance is the perf phase's byte-identity gate: HECA and CYXY
+solve-stage replays REPRODUCE `baselines/1.0.245/MANIFEST.txt` exactly
+(`f562cbfeb8f9`, `61efa43c3aeb`).
+
+DEFERRED / UNPAID:
+(a) THE LANE MISSED ITS ≥30 s TARGET and stopped at the convergence
+guards. Measured ceiling: HECA replay phase [6] is 102.2 s sampled, of
+which 71.2 s sits at three call sites (`pipeline.py` 6183 / 6316 / 7039)
+whose FUNCTIONS the same wave assigns to lanes F
+(`groundside.groundside_route_band`, 22.0 s wrapper-timed) and H
+(`route_profile.solve.final_grade_projection`, 45.9 s over two calls).
+Lane E did not touch them; the lane-E-exclusive remainder is ~31 s
+spread over sinks of 2–7 s each, so the target was not reachable
+without editing another lane's functions. Reported for Fable review.
+(b) MEASURED PAYMENT IS THE CONFORMANCE FAMILY ONLY, from a matched
+back-to-back replay pair in one window (BEFORE = the same worktree with
+the three source files reverted to HEAD~1; both arms REPRODUCED):
+`planarize_airside` 4.5 → 3.3 s, `find_conformance_violations` 2.3 →
+1.9 s, `enforce_conformance` 2.0 → 1.8 s. Replay wall 421.4 → 389.6 s
+is NOT quoted as the claim — five lanes were building on the machine
+all session and the arms are single runs.
+(c) THE OTHER TWO CHANGES ARE TWINNED BUT NOT MEASURABLY PAID.
+`compute_elevations_and_repair_geometry` read 6.2 / 6.3 / 21.7 / 6.0 /
+6.7 s across five arms of the SAME code, and
+`emit_adjacent_ground_bands` 6.7–7.5 s: both swing further between arms
+than either change could move them. They are argued from mechanism
+(one GEOS distance per cluster-runway pair; one 32-gon per ring vertex)
+and kept because they are provably identical, not because a number
+showed them.
+(d) INSTRUMENT LIMIT, recorded so no later lane misreads it:
+`profile_airport_build.py --count MODULE:ATTR` patches the DEFINING
+module's attribute, so a callable another module bound at import time
+(`finalize.py` binds `_enforce_shared_vertices`, `_compute_elevations`,
+`_drop_overlap_against_fixed_shapes`) reports `0 call(s)` while running
+normally. A zero there is not evidence of no work.
+(e) No exclusive wall pair and no `check_build_time --runs N` (wave 2
+moves wall adjudication to P4, on the merged tree).
+(f) Only HECA and CYXY were replayed — no KCLT / OTHH / KSTJ arm, no
+`--tile` arm, and no census on any arm (byte-identity to the frozen
+baseline is the stronger gate and it passed).
+(g) BLAST RADIUS NOT SWEPT (PRE-SHIP): `blast.py` names 10 importers /
+6 test files for `conformance.py`, 10 / 2 for `pavement/vertices.py`
+and 40 / 30 for `adjacent_ground.py`. The 36-file union `--tests-for`
+names was run ONCE through the run ledger; nothing wider, and no full
+suite.
+(h) The band walk's superset property (every point within `tol` of the
+segment is still yielded) is argued from the cell-index bound and
+twinned against brute force on random fixtures — not proved for all
+inputs.
+(i) The bulk crossing-pair query returns its pairs in a DIFFERENT ORDER
+than the per-line loop. Argued safe because every consumer sorts what
+it collects per edge (`sorted(by_edge[i])`) before using it, and
+twinned as a SET equality only — no test pins the order.
+(j) TESTS, run ONCE through the ledger over the 36-file union above:
+867 passed, 2 failed — `test_pad_host_pavement_level.py::
+test_the_pad_law_re_asserts_after_the_late_projection` and
+`test_strip_heal_law_v4.py::test_the_pass_order_is_unchanged_by_the_law`.
+Both are SOURCE-INSPECTION tests reading
+`inspect.getsource(pipeline.build_airport_pavement)`, and phases [5]+[6]
+now live in `pipeline.solve_and_finalize`, so the names they look for
+are no longer in the function they read. PRE-EXISTING, proved with a
+matched control in this same worktree (the three source files reverted
+to HEAD~1: the identical two FAILED lines, 38 passed). Not repaired
+here — lane E's scope is optimisation only, and repairing them is a
+pipeline-refactor follow-up for the lead.

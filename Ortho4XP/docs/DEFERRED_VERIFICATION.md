@@ -189,3 +189,78 @@ DEFERRED / UNPAID:
   (j) UNRESOLVED, REPORTED NOT FIXED — the HECA acceptance build was flagged CONTAMINATED: it modified `Airport_mod_cache/c_EGY - 100_airport - HECA Cairo (Tai Models)/o4_object_footprints_+30+031.cache` (2 paths) in the SHARED repo despite `O4_AIRPORT_MOD_CACHE_DIR` being redirected lane-local, and the run's own Python write guard reported `blocked: []` — i.e. the write was invisible to it (the KCLT 2026-08-11 subprocess class). Attribution facts, not a diagnosis: the shared file and the lane-local one are SEPARATE inodes, link count 1 each, byte-identical content, written 10 s apart (shared 12:39:41, lane-local 12:39:51); the shared sidecar was STALE against the live pristine fingerprint before the run (stored `78a5f07d…` vs live `1bc2c3d5…`) and now carries the current one. The CYXY build in the same window was clean. Nothing in this lane touches the sidecar or cache-root machinery; the corpus effect is a footprint ring set proven byte-identical to a recompute (`rings_sha256 f375be99…`), so no geometry moved — but the shared repo is NOT UNCHANGED, which the lane's acceptance requires. FOR THE LEAD / the caching lanes (perfcache, perfsidecar) to rule on.
 - 2026-08-13 perfbake arm (lead-adjudicated): perfsidecar item (b) — the tile-frame bake-invariance arm — is PAID FOR THE CACHE MECHANISM with a carve-out. Three sequential HECA `--tile 30 31 --no-ledger` builds in worktree perfbake (branch point 020cdae, contains 967e097), all rc=0, guards clean in all three frame.json (shared_repo_writes empty, contaminated=false, only allowed .lock churn). PROVED: run 1 phase "Assembling pavement & runway shoulders" 83.67 s (the expected one-time re-key), runs 2/3 WARM at 2.15/3.16 s with ZERO STALE sidecar lines and three "read from the pack sidecar cache (fingerprint match)" lines each, despite run 1's y-bake rewriting 171 pack .obj files after the sidecars were written and run 2's rewriting 77 — the engine's own bake can no longer invalidate the caches, end-to-end. CARVE-OUT (the arm's byte-identity criterion FAILED for a reason OUTSIDE the fix under test): run 1's HECA patch body = the frozen consol3heca EXACTLY (f562cbfeb8f9), but runs 2/3 drift (2f1dcfde0320, b803326a5742) confined to object_pad ways 689→723→736 + the dependent untagged interior-ring family 336→346→347, every other role identical across all three. Attribution: `o4_object_foot_pads.json` is a PRODUCT written by post_mesh into lane-local Patches/ and READ BACK as an INPUT by the next tile build (config.py:4010, flat_site.py:587) — a ratchet with no fixed point (its sha changed again after run 3). TILE BUILDS ARE NOT IDEMPOTENT under the current pad-request sidecar semantics; this is a measured three-run instance of the standing open owner question (pad-request sidecar data-vs-product, RULINGS "LANE INPUTS ARE PROVISIONED" first-instances clause) and rides that docket, not this fix's. Artifacts: scratchpad run{1,2,3}.log, HECA_run{1,2}.patch.osm, pack_before/after listings, /tmp/harness/perfbake_run{1,2,3}.{frame,result}.json (worktree left up).
 - 2026-08-13 shared-corpus write, ATTRIBUTION OPEN (lead): `Airport_mod_cache/c_EGY - 100_airport - HECA Cairo (Tai Models)/o4_object_footprints_+30+031.cache` rewritten at 12:39:41 with NO refresh-ledger entry; observed as CONTAMINATED by lane G's HECA acceptance arm (blocked=[], the cross-attribution tell). Content is byte-identical to the correct current pristine-key state (stale live-stat digest → current pristine fingerprint), so no measurement was changed. Every session lane is exonerated by evidence: G's instrument arms guard+redirects (object_pad_evidence_report.py:133), perfbake's three frames are clean, H/E/F build through the harness redirects. Leading candidate per the standing cross-attribution class (memory: app builds write the shared corpus): the production app performing its own first post-merge re-key of the stale sidecar — lawful app behavior on its own data root, observed mid-run by a lane snapshot. Not blocking the phase; re-attribute if it recurs with a session-lane fingerprint.
+
+## perf P3 wave 2 lane E (lane/perfemit, 2026-08-13)
+
+Optimisation-only lane on the emit/finalize path: four
+semantics-identical transformations (`conformance._points_near_edge`
+band walk; `conformance._edge_linestrings` +
+`_crossing_candidate_pairs` bulk query; `pavement.vertices.
+_project_means_onto_runway_boundaries` batch; `adjacent_ground.
+_snap_ring_to_static` envelope query), each twinned against the scan it
+replaces in `tests/test_emit_finalize_prefilters.py` (9 twins).
+Acceptance is the perf phase's byte-identity gate: HECA and CYXY
+solve-stage replays REPRODUCE `baselines/1.0.245/MANIFEST.txt` exactly
+(`f562cbfeb8f9`, `61efa43c3aeb`).
+
+DEFERRED / UNPAID:
+(a) THE LANE MISSED ITS ≥30 s TARGET and stopped at the convergence
+guards. Measured ceiling: HECA replay phase [6] is 102.2 s sampled, of
+which 71.2 s sits at three call sites (`pipeline.py` 6183 / 6316 / 7039)
+whose FUNCTIONS the same wave assigns to lanes F
+(`groundside.groundside_route_band`, 22.0 s wrapper-timed) and H
+(`route_profile.solve.final_grade_projection`, 45.9 s over two calls).
+Lane E did not touch them; the lane-E-exclusive remainder is ~31 s
+spread over sinks of 2–7 s each, so the target was not reachable
+without editing another lane's functions. Reported for Fable review.
+(b) MEASURED PAYMENT IS THE CONFORMANCE FAMILY ONLY, from a matched
+back-to-back replay pair in one window (BEFORE = the same worktree with
+the three source files reverted to HEAD~1; both arms REPRODUCED):
+`planarize_airside` 4.5 → 3.3 s, `find_conformance_violations` 2.3 →
+1.9 s, `enforce_conformance` 2.0 → 1.8 s. Replay wall 421.4 → 389.6 s
+is NOT quoted as the claim — five lanes were building on the machine
+all session and the arms are single runs.
+(c) THE OTHER TWO CHANGES ARE TWINNED BUT NOT MEASURABLY PAID.
+`compute_elevations_and_repair_geometry` read 6.2 / 6.3 / 21.7 / 6.0 /
+6.7 s across five arms of the SAME code, and
+`emit_adjacent_ground_bands` 6.7–7.5 s: both swing further between arms
+than either change could move them. They are argued from mechanism
+(one GEOS distance per cluster-runway pair; one 32-gon per ring vertex)
+and kept because they are provably identical, not because a number
+showed them.
+(d) INSTRUMENT LIMIT, recorded so no later lane misreads it:
+`profile_airport_build.py --count MODULE:ATTR` patches the DEFINING
+module's attribute, so a callable another module bound at import time
+(`finalize.py` binds `_enforce_shared_vertices`, `_compute_elevations`,
+`_drop_overlap_against_fixed_shapes`) reports `0 call(s)` while running
+normally. A zero there is not evidence of no work.
+(e) No exclusive wall pair and no `check_build_time --runs N` (wave 2
+moves wall adjudication to P4, on the merged tree).
+(f) Only HECA and CYXY were replayed — no KCLT / OTHH / KSTJ arm, no
+`--tile` arm, and no census on any arm (byte-identity to the frozen
+baseline is the stronger gate and it passed).
+(g) BLAST RADIUS NOT SWEPT (PRE-SHIP): `blast.py` names 10 importers /
+6 test files for `conformance.py`, 10 / 2 for `pavement/vertices.py`
+and 40 / 30 for `adjacent_ground.py`. The 36-file union `--tests-for`
+names was run ONCE through the run ledger; nothing wider, and no full
+suite.
+(h) The band walk's superset property (every point within `tol` of the
+segment is still yielded) is argued from the cell-index bound and
+twinned against brute force on random fixtures — not proved for all
+inputs.
+(i) The bulk crossing-pair query returns its pairs in a DIFFERENT ORDER
+than the per-line loop. Argued safe because every consumer sorts what
+it collects per edge (`sorted(by_edge[i])`) before using it, and
+twinned as a SET equality only — no test pins the order.
+(j) TESTS, run ONCE through the ledger over the 36-file union above:
+867 passed, 2 failed — `test_pad_host_pavement_level.py::
+test_the_pad_law_re_asserts_after_the_late_projection` and
+`test_strip_heal_law_v4.py::test_the_pass_order_is_unchanged_by_the_law`.
+Both are SOURCE-INSPECTION tests reading
+`inspect.getsource(pipeline.build_airport_pavement)`, and phases [5]+[6]
+now live in `pipeline.solve_and_finalize`, so the names they look for
+are no longer in the function they read. PRE-EXISTING, proved with a
+matched control in this same worktree (the three source files reverted
+to HEAD~1: the identical two FAILED lines, 38 passed). Not repaired
+here — lane E's scope is optimisation only, and repairing them is a
+pipeline-refactor follow-up for the lead.

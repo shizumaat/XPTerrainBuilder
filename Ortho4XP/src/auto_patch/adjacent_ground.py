@@ -6718,12 +6718,22 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             ring = split_ring
         # 2. snap all vertices onto the nearest static exterior
         snapped = []
+        # THE QUERY BOX IS THE BUFFER'S OWN ENVELOPE (perf P3 wave 2).
+        # ``STRtree.query`` without a predicate tests ENVELOPES, and a
+        # point buffer's envelope is exactly (x±r, y±r) — verified
+        # bit-for-bit over 20k random points, and the resulting candidate
+        # arrays match element-for-element (order included, which the
+        # nearest-wins tie-break below depends on).  So the 32-gon this
+        # built per ring vertex was pure cost.
+        from shapely.geometry import box as _shapely_box
+        _snap_query_r = _SNAP_TO_STATIC_M + 0.01
         for x, y in ring:
             pt = Point(x, y)
             best_d, best_pt = None, None
             try:
                 cand = _static_ext_tree.query(
-                    pt.buffer(_SNAP_TO_STATIC_M + 0.01))
+                    _shapely_box(x - _snap_query_r, y - _snap_query_r,
+                                 x + _snap_query_r, y + _snap_query_r))
             except _GEOM_EXC:
                 snapped.append((x, y))
                 continue

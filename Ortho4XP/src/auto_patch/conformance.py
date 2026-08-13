@@ -25,7 +25,6 @@ import math
 from collections import defaultdict, namedtuple
 
 import O4_UI_Utils as UI
-from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
 from .layout import (
@@ -376,7 +375,22 @@ def _radius_index(points, tol):
 
 def _points_near_edge(grid, cell, ax, ay, bx, by, tol):
     """Yield distinct (x, y) grid vertices within ``tol`` of segment a-b's
-    bounding band (a cheap superset; precise test done by the caller)."""
+    bounding band (a cheap superset; precise test done by the caller).
+
+    THE BAND, NOT THE BOX (perf P3 wave 2).  The scan used to visit every
+    cell of the segment's bounding BOX, which is quadratic in the edge
+    length for a diagonal edge while the segment itself is linear: a 60 m
+    edge at 45° (the densifier's chord cap, so the common long edge here)
+    covers 144 cells of which ~36 can hold a point within ``tol``.  The
+    walk below visits, per column (or per row, whichever axis the segment
+    runs along), only the rows the segment can reach there, padded by one
+    cell so no index convention can clip it.  The yielded set stays a
+    SUPERSET of every point within ``tol`` of the segment — which is the
+    whole contract: all three callers filter exactly
+    (``_tjunctions_on_edge``) and sort the survivors, so a narrower
+    superset cannot change a single result.  Twin:
+    ``tests/test_emit_finalize_prefilters.py``.
+    """
     minx, maxx = (ax, bx) if ax <= bx else (bx, ax)
     miny, maxy = (ay, by) if ay <= by else (by, ay)
     i0 = int((minx - tol) / cell)
@@ -384,8 +398,68 @@ def _points_near_edge(grid, cell, ax, ay, bx, by, tol):
     j0 = int((miny - tol) / cell)
     j1 = int((maxy + tol) / cell)
     seen = set()
-    for i in range(i0, i1 + 1):
-        for j in range(j0, j1 + 1):
+    dx = bx - ax
+    dy = by - ay
+    # A box only a few cells across IS its own band — walking it costs
+    # more than scanning it.
+    if (i1 - i0) < 3 or (j1 - j0) < 3:
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                for pt in grid.get((i, j), ()):
+                    if pt not in seen:
+                        seen.add(pt)
+                        yield pt
+        return
+    if abs(dx) >= abs(dy):
+        for i in range(i0, i1 + 1):
+            # A cell with index ``i`` holds only x in
+            # [(i-1)*cell, (i+1)*cell] under either sign convention of
+            # int()'s truncation — a superset, which is all that is
+            # needed.  Clipped to the segment's own x-range.
+            xlo = (i - 1) * cell
+            xhi = (i + 1) * cell
+            if xlo < minx - tol:
+                xlo = minx - tol
+            if xhi > maxx + tol:
+                xhi = maxx + tol
+            if xlo > xhi:
+                continue
+            ylo = ay + dy * (xlo - ax) / dx
+            yhi = ay + dy * (xhi - ax) / dx
+            if ylo > yhi:
+                ylo, yhi = yhi, ylo
+            jj0 = int((ylo - tol) / cell) - 1
+            jj1 = int((yhi + tol) / cell) + 1
+            if jj0 < j0:
+                jj0 = j0
+            if jj1 > j1:
+                jj1 = j1
+            for j in range(jj0, jj1 + 1):
+                for pt in grid.get((i, j), ()):
+                    if pt not in seen:
+                        seen.add(pt)
+                        yield pt
+        return
+    for j in range(j0, j1 + 1):
+        ylo = (j - 1) * cell
+        yhi = (j + 1) * cell
+        if ylo < miny - tol:
+            ylo = miny - tol
+        if yhi > maxy + tol:
+            yhi = maxy + tol
+        if ylo > yhi:
+            continue
+        xlo = ax + dx * (ylo - ay) / dy
+        xhi = ax + dx * (yhi - ay) / dy
+        if xlo > xhi:
+            xlo, xhi = xhi, xlo
+        ii0 = int((xlo - tol) / cell) - 1
+        ii1 = int((xhi + tol) / cell) + 1
+        if ii0 < i0:
+            ii0 = i0
+        if ii1 > i1:
+            ii1 = i1
+        for i in range(ii0, ii1 + 1):
             for pt in grid.get((i, j), ()):
                 if pt not in seen:
                     seen.add(pt)
@@ -461,9 +535,9 @@ def find_conformance_violations(shapes, tol=CONFORMANCE_TOL_M):
             b = ring[(i + 1) % n]
             if a != b:
                 edges.append((a, b))
-    lines = [LineString([a, b]) for a, b in edges]
     crossings = []
-    if lines:
+    if edges:
+        lines = _edge_linestrings(edges)
         tree = STRtree(lines)
         for i, ln in enumerate(lines):
             for j in tree.query(ln):
@@ -956,6 +1030,56 @@ _CROSSING_DEDUPE_TOL_M = 1e-6
 _NODE_IDENTITY_TOL_M = SHARED_VERTEX_TOL_M
 
 
+def _edge_linestrings(edges):
+    """``[LineString(a, b), ...]`` for a list of ``(a, b)`` coordinate
+    pairs, built in ONE vectorised call (perf P3 wave 2).
+
+    ``shapely.linestrings`` on an ``(n, 2, 2)`` array constructs exactly
+    the geometries ``LineString([a, b])`` does — same coordinates, same
+    float64 — at a fraction of the per-object cost, and a big airport
+    builds one of these per conformance pass over ~10^5 ring edges.
+    """
+    import numpy as np
+    import shapely
+
+    return list(shapely.linestrings(
+        np.asarray(edges, dtype=float).reshape(len(edges), 2, 2)))
+
+
+def _crossing_candidate_pairs(tree, lines, edges):
+    """Yield ``(ei, ej)`` with ``ej > ei`` for every bbox-overlapping edge
+    pair that does not SHARE AN ENDPOINT — the crossing scan's own
+    prefilter, evaluated in bulk (perf P3 wave 2).
+
+    Identical pair SET to the per-line ``tree.query`` loop it replaces
+    (one bulk query over the same tree), with the endpoint-sharing test
+    spelled as exact coordinate equality exactly as ``{a0, a1} & {b0, b1}``
+    did.  The order within the set is the bulk query's; every consumer
+    sorts what it collects per edge, so order cannot reach an output.
+    """
+    import numpy as np
+
+    pairs = tree.query(lines)
+    if pairs.size == 0:
+        return
+    left, right = pairs[0], pairs[1]
+    keep = right > left
+    left = left[keep]
+    right = right[keep]
+    if left.size == 0:
+        return
+    ends = np.asarray(edges, dtype=float)          # (n, 2, 2)
+    a0 = ends[left, 0]
+    a1 = ends[left, 1]
+    b0 = ends[right, 0]
+    b1 = ends[right, 1]
+    shares = (
+        (a0 == b0).all(axis=1) | (a0 == b1).all(axis=1)
+        | (a1 == b0).all(axis=1) | (a1 == b1).all(axis=1))
+    for ei, ej in zip(left[~shares].tolist(), right[~shares].tolist()):
+        yield ei, ej
+
+
 def _resolve_edge_crossings(layout: "PavementLayout") -> int:
     """Insert each edge–edge intersection point as a shared vertex in BOTH
     crossing shapes.
@@ -984,35 +1108,30 @@ def _resolve_edge_crossings(layout: "PavementLayout") -> int:
                 meta.append((si, i))
     if not edges:
         return 0
-    lines = [LineString([a, b]) for a, b in edges]
+    lines = _edge_linestrings(edges)
     tree = STRtree(lines)
     # inserts[shape_idx][edge_idx] -> [(t, point)]
     inserts: dict = defaultdict(lambda: defaultdict(list))
-    for ei, ln in enumerate(lines):
-        for ej in tree.query(ln):
-            if ej <= ei:
-                continue
-            a0, a1 = edges[ei]
-            b0, b1 = edges[ej]
-            if {a0, a1} & {b0, b1}:
-                continue                       # share an endpoint: not a crossing
-            try:
-                inter = ln.intersection(lines[ej])
-            except Exception:
-                continue
-            if inter.geom_type != "Point":
-                continue
-            X = (inter.x, inter.y)
-            if X in (a0, a1, b0, b1):
-                continue
-            si, i = meta[ei]
-            sj, j = meta[ej]
-            ta = _param_on_edge(a0[0], a0[1], a1[0], a1[1], X[0], X[1])
-            tb = _param_on_edge(b0[0], b0[1], b1[0], b1[1], X[0], X[1])
-            if 0.0 < ta < 1.0:
-                inserts[si][i].append((ta, X))
-            if 0.0 < tb < 1.0:
-                inserts[sj][j].append((tb, X))
+    for ei, ej in _crossing_candidate_pairs(tree, lines, edges):
+        a0, a1 = edges[ei]
+        b0, b1 = edges[ej]
+        try:
+            inter = lines[ei].intersection(lines[ej])
+        except Exception:
+            continue
+        if inter.geom_type != "Point":
+            continue
+        X = (inter.x, inter.y)
+        if X in (a0, a1, b0, b1):
+            continue
+        si, i = meta[ei]
+        sj, j = meta[ej]
+        ta = _param_on_edge(a0[0], a0[1], a1[0], a1[1], X[0], X[1])
+        tb = _param_on_edge(b0[0], b0[1], b1[0], b1[1], X[0], X[1])
+        if 0.0 < ta < 1.0:
+            inserts[si][i].append((ta, X))
+        if 0.0 < tb < 1.0:
+            inserts[sj][j].append((tb, X))
     if not inserts:
         return 0
 

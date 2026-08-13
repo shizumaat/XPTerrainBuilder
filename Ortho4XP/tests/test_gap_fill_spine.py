@@ -631,3 +631,138 @@ def test_a_non_subdivider_blocker_keeps_the_veto():
         node_altitudes=[EDGE_ALT - 6.0] * len(ramp.exterior.coords)))
     assert emit_gap_fill_spines(layout, None, 0, 0) == 0
     assert _faces(layout) == []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# RULING 3 (Fable 2026-08-12b) — EXCAVATION-RIM POCKETS
+# ══════════════════════════════════════════════════════════════════════
+#
+# "A coverage hole whose boundary is >= 75 % graded features (apron /
+# roads / junctions / groundside pavement / pads) is ENCLOSED for
+# gap-fill purposes even with an open segment."
+#
+# The site: HECA's knoll at 30.1136676,31.4086362 — an apron excavated
+# ~13 m below natural grade, its rim pocket bounded by apron E/S,
+# groundside W and a service road/junction + building pad N, OPEN to the
+# SW.  Before this law it was not a candidate AT ALL (no `[gap-fill]
+# candidate` line within 40 m of it in either measured arm), because it
+# is not an interior ring of the airside union.
+#
+# The fixture is that shape at fixture scale: a U of graded features
+# around a pocket, open on ONE side.
+
+from auto_patch.layout import (                       # noqa: E402
+    ROLE_APRON, ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD,
+)
+
+
+def _rim_pocket_layout(open_side_m=40.0, pocket=140.0, with_west=True):
+    """A pocket of ``pocket`` m square with graded features on its N, E
+    and (optionally) W sides, open to the south.
+
+    ``open_side_m`` is how much of the south side is left open: the rest
+    is closed by an apron tongue, so the graded fraction is tunable.
+    ``with_west=False`` drops the west arm — the ~50 % rim control.
+    """
+    shapes = [
+        # NORTH — a service road along the whole top.
+        _rect(-40.0, pocket, pocket + 40.0, pocket + 30.0,
+              ROLE_SERVICE_ROAD),
+        # EAST — the excavated apron.
+        _rect(pocket, -40.0, pocket + 40.0, pocket + 30.0, ROLE_APRON),
+        # SOUTH — an apron tongue closing all but ``open_side_m``.
+        _rect(open_side_m, -40.0, pocket, 0.0, ROLE_APRON),
+    ]
+    if with_west:
+        shapes.append(_rect(-40.0, -40.0, 0.0, pocket + 30.0,
+                            ROLE_GROUNDSIDE_PAVEMENT))
+    return _FakeLayout(shapes), list(shapes)
+
+
+def test_an_excavation_rim_pocket_joins_the_graded_domain():
+    """>= 75 % graded rim with ONE open segment: the pocket is a gap-fill
+    candidate and grades, boundary verbatim + one drainage spine."""
+    layout, pav = _rim_pocket_layout()
+    n = emit_gap_fill_spines(layout, None, 0, 0)
+    faces = _faces(layout)
+    assert n == 1 and len(faces) == 1, (
+        "the rim pocket was not admitted — before ruling 3 it was never "
+        "even a candidate")
+    # CHAIN IDENTITY: every face vertex is either a VERBATIM bounding-
+    # feature ring vertex or an exact ON-EDGE point of one (the corner
+    # where two bounding features meet is a T-vertex of both — the
+    # survivable class; the enclosed path calls it a union-divergence
+    # point).  What must never appear is a free-floating minted vertex —
+    # the near-parallel lens Ruppert refinement explodes on.
+    pav_keys = _pavement_keys(pav)
+    exteriors = [s.polygon.exterior for s in pav]
+    for x, y in list(faces[0].polygon.exterior.coords)[:-1]:
+        if _key(x, y) in pav_keys:
+            continue
+        assert min(e.distance(_pt(x, y)) for e in exteriors) <= 1e-6, (
+            f"rim-pocket face vertex ({x:.2f},{y:.2f}) is neither a "
+            f"feature ring vertex nor on a feature edge")
+    assert len(faces[0].node_altitudes) == len(
+        faces[0].polygon.exterior.coords)
+    spines = getattr(layout, "gap_spines", None)
+    assert spines and len(spines) == 1
+
+
+def test_a_half_open_pocket_is_left_to_the_band_law():
+    """THE CONTROL the ruling names: drop the west arm and the rim falls
+    to ~50 % graded — open terrain the corridor-band / daylight law owns.
+    Nothing is emitted and the layout is untouched."""
+    layout, _ = _rim_pocket_layout(with_west=False)
+    before = list(layout.shapes)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _faces(layout) == []
+    assert layout.shapes == before
+
+
+def test_a_through_channel_is_not_a_rim_pocket():
+    """SCOPE, measured against the open-frontage pilot: two facing
+    pavements with a channel open at BOTH ends read >= 75 % graded rim
+    too, but they are the corridor law's subject and its gate
+    (``O4_OPEN_FRONTAGE_SPINE``) is default-OFF pending the owner's
+    in-sim review.  A rim pocket is a RECESS — exactly ONE open run — so
+    the corridor stays with its own law and this one cannot turn it on
+    through the back door."""
+    layout, _ = _corridor_layout(gap_width_m=60.0)
+    before = list(layout.shapes)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert _faces(layout) == []
+    assert layout.shapes == before
+
+
+def test_the_rim_pocket_gate_off_is_a_noop(monkeypatch):
+    """Gate OFF: byte-identical to the pre-ruling behaviour."""
+    monkeypatch.setenv("O4_GAP_FILL_RIM_POCKETS", "0")
+    import importlib
+    from auto_patch import config as _cfg
+    importlib.reload(_cfg)
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+    layout, _ = _rim_pocket_layout()
+    before = list(layout.shapes)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+    assert layout.shapes == before
+
+
+def test_every_gap_pass_sees_the_same_candidates():
+    """THREE-PASS PARITY (the requirement the lane identified and the
+    lead accepted as the work).  The pre-solve construction, the spine
+    emitter and the pit floor must all read ONE candidate list — a region
+    one pass grades and another does not know about is how a spine gets
+    built with no emitter, or an emitter with no pre-solve spine.
+
+    Asserted structurally, on the source: all three call the shared
+    ``_gap_candidate_polys``, and none reaches past it to the
+    enclosed-only detector."""
+    import inspect
+    for fn in (GF.construct_gap_fill_presolve, GF.emit_gap_fill_spines,
+               GF.emit_gap_interior_floor):
+        src = inspect.getsource(fn)
+        assert "_gap_candidate_polys(layout, airside)" in src, (
+            f"{fn.__name__} does not read the shared candidate list")
+        assert "_gap_detection_polys(layout, airside)" not in src, (
+            f"{fn.__name__} still reads the enclosed-only detector — the "
+            f"three passes would disagree about the rim pockets")

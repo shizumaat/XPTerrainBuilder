@@ -2959,6 +2959,20 @@ WITHIN_SHAPE_VIOLATION_RADIUS_M = 60.0   # spatial-pair edge radius for the
 SHARED_VERTEX_CLUSTER_TOL_M = 1.5
 
 
+def _envelopes_disjoint(a: tuple, b: tuple) -> bool:
+    """True when two ``(minx, miny, maxx, maxy)`` envelopes cannot touch.
+
+    The prefilter :func:`_drop_overlap_against_fixed_shapes` runs before its
+    pairwise ``intersects`` calls (perf P3 lane D).  Rejection uses strict
+    ``<`` so envelopes that merely TOUCH are not rejected — ``intersects``
+    is True for touching geometries and the filter must never be stricter
+    than the predicate it stands in front of.  Module level so a twin can
+    disable it and compare the two paths' output.
+    """
+    return (a[2] < b[0] or b[2] < a[0]
+            or a[3] < b[1] or b[3] < a[1])
+
+
 def _drop_overlap_against_fixed_shapes(
         layout: "PavementLayout",
         icao: str = "",
@@ -3009,6 +3023,33 @@ def _drop_overlap_against_fixed_shapes(
     # measurable area change, but removes the residual sliver
     # so shapely.intersection returns truly empty afterwards.
     NOISE_OVERLAP_M2 = 0.0
+
+    # BOUNDING-BOX PREFILTER (perf P3 lane D).  Both O(n²) sweeps below ask
+    # ``a.intersects(b)`` for every pair in a tier and ``continue`` on False;
+    # at HECA's residue tier that is millions of GEOS calls, ~all of them
+    # False.  A bbox overlap is a NECESSARY condition for
+    # ``intersects`` (an intersection point lies in both geometries, hence in
+    # both envelopes), so rejecting disjoint-envelope pairs cannot change any
+    # verdict — it only skips pairs the very next line would have skipped.
+    # The test is INCLUSIVE (rejection uses strict ``<``), so envelopes that
+    # merely touch still go to GEOS, exactly as ``intersects`` (True on
+    # touching) requires.
+    #
+    # THE ENVELOPES ARE SNAPSHOTTED ONCE PER SWEEP and both sweeps only ever
+    # SHRINK a polygon in place (``difference`` results, or drop-to-None), so
+    # a snapshotted envelope is always a SUPERSET of the live geometry's:
+    # the filter can only ever be too permissive, never too strict.  New
+    # fragments enter through ``_flush_extras`` between sweeps, never during
+    # one.
+    def _envelopes(indices: list[int]) -> list[tuple]:
+        out = []
+        for i in indices:
+            p = layout.shapes[i].polygon
+            out.append(p.bounds if p is not None
+                       else (1.0, 1.0, -1.0, -1.0))
+        return out
+
+    _bbox_disjoint = _envelopes_disjoint
 
     def _valid_poly(p: Polygon | None) -> Polygon | None:
         if p is None or p.is_empty:
@@ -3121,13 +3162,17 @@ def _drop_overlap_against_fixed_shapes(
             # and clip the SMALLER of the pair).
             candidates.sort(
                 key=lambda i: -layout.shapes[i].polygon.area)
+            envelopes = _envelopes(candidates)
             any_change = False
             for ai in range(len(candidates)):
                 i = candidates[ai]
                 if layout.shapes[i].polygon is None:
                     continue
                 pi = layout.shapes[i].polygon
+                env_i = envelopes[ai]
                 for bi in range(ai + 1, len(candidates)):
+                    if _bbox_disjoint(env_i, envelopes[bi]):
+                        continue
                     j = candidates[bi]
                     if layout.shapes[j].polygon is None:
                         continue
@@ -3234,6 +3279,7 @@ def _drop_overlap_against_fixed_shapes(
                 and _valid_poly(s.polygon) is not None]
             target_idx.sort(
                 key=lambda i: -layout.shapes[i].polygon.area)
+            target_env = _envelopes(target_idx)
             for k, i in enumerate(target_idx):
                 tp = layout.shapes[i].polygon
                 if tp is None:
@@ -3264,7 +3310,10 @@ def _drop_overlap_against_fixed_shapes(
                 if (new_p is not None
                         and ROLE_JUNCTION in tier_roles):
                     # Also clip against LARGER same-tier junctions/aprons.
+                    env_k = target_env[k]
                     for k2 in range(k):
+                        if _bbox_disjoint(env_k, target_env[k2]):
+                            continue
                         i2 = target_idx[k2]
                         tp2 = layout.shapes[i2].polygon
                         if tp2 is None:

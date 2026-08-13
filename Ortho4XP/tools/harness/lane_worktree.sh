@@ -44,6 +44,18 @@
 #                      finds no config, the DEM prep runs on constructor
 #                      defaults, and the lane grades against a surface
 #                      production never builds.  Silent: one log line.
+#   the PER-TILE cfg   NOT provisioned here, deliberately, and this is the
+#                      one input that is not: it is per BUILD DIR, and a
+#                      `--tile` run may be pointed at any directory
+#                      (`--build-dir`, else <out>/tile_<tag>), which no
+#                      lane-setup step can know.  `build_airport.py`
+#                      provisions it at the build instead — a BYTE COPY
+#                      from THIS SAME canonical tree
+#                      ($MAIN_ENGINE/Tiles/zOrtho4XP_+XX+YYY/), recorded
+#                      with its sha256 in <tag>.frame.json.  Do not add a
+#                      second copy of that rule here: one source, one
+#                      implementation (owner ruling 2026-08-12b, lane
+#                      inputs are provisioned, never hand-seeded).
 #   tools/INDEX.md     REACHABLE, always — see below.
 #
 # ── THE CONSULTATION SURFACE (owner ruling 7e90032) ──────────────────

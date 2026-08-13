@@ -582,6 +582,124 @@ def test_the_build_entry_sets_the_sidecar_verbosity(build_mod):
     assert "O4_LOG_VERBOSITY" in src
 
 
+# ── LANE INPUTS ARE PROVISIONED, NEVER HAND-SEEDED (owner 2026-08-12b) ──
+#
+# A fresh lane build dir has no per-tile cfg, ``Tile.read_from_config``
+# falls back to the GLOBAL config (which by construction carries no
+# ``default_website``: O4_Cfg_Vars excludes the per-tile vars from it), and
+# the tile build refuses at the provider check.  Two lanes improvised two
+# DIFFERENT cfg sources past that wall on 2026-08-12 — the inconsistency is
+# the defect, not the copy.
+
+def test_the_canonical_tile_cfg_is_the_RITUALS_OWN_source(build_mod):
+    """ONE source, and it is the one ``lane_worktree.sh`` already clones
+    ``Ortho4XP.cfg`` and ``Patches/`` from — not a second hierarchy
+    invented at the build entry, and not the shared data repo (whose
+    owner app config has no per-tile keys to give)."""
+    src = build_mod.canonical_tile_cfg(30, 31)
+    assert src == build_mod.MAIN_ENGINE_TREE / "Tiles" / \
+        "zOrtho4XP_+30+031" / "Ortho4XP_+30+031.cfg"
+    assert str(build_mod.MAIN_ENGINE_TREE).endswith("/Ortho4XP")
+    assert build_mod.DATA_REPO not in src.parents, (
+        "the per-tile cfg is a build INPUT from the main tree, not corpus "
+        "data — provisioning it out of the shared repo would make every "
+        "lane's tile frame depend on a directory the ritual keeps LOCAL")
+    ritual = (ROOT / "tools" / "harness" / "lane_worktree.sh").read_text()
+    assert 'O4_MAIN_REPO' in ritual and 'O4_MAIN_REPO' in \
+        inspect.getsource(build_mod)[:20000], (
+        "one environment override moves both, or the ritual and the build "
+        "entry provision from two different trees")
+
+
+def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
+    """Byte-equal to the canonical source, with the provenance recorded."""
+    source_root = tmp_path / "main"
+    canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
+        "Ortho4XP_+30+031.cfg"
+    canon.parent.mkdir(parents=True)
+    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
+
+    rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
+
+    dest = lane / "Ortho4XP_+30+031.cfg"
+    assert rec["action"] == "provisioned"
+    assert dest.read_bytes() == canon.read_bytes(), "a BYTE copy, not a render"
+    assert not dest.is_symlink(), (
+        "a real file: the lane may rewrite its own input, and a link would "
+        "write the main tree")
+    assert rec["cfg"] == str(dest) and rec["canonical_source"] == str(canon)
+    assert rec["sha256"] == hashlib.sha256(canon.read_bytes()).hexdigest(), (
+        "the frame records WHICH cfg the build ran on, hashed — two lanes "
+        "on two sources left nothing in either frame to compare")
+
+
+def test_a_MISSING_canonical_tile_cfg_REFUSES(build_mod, tmp_path):
+    """Never synthesize defaults: a made-up provider and ZL build a tile
+    nobody asked for and exit 0 — the silently-smaller-layout trap."""
+    lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
+    with pytest.raises(SystemExit) as exc:
+        build_mod.provision_tile_cfg(30, 31, lane,
+                                     source_root=tmp_path / "empty_main")
+    msg = str(exc.value)
+    assert "REFUSING" in msg and "Ortho4XP_+30+031.cfg" in msg
+    assert "2026-08-12b" in msg, "the refusal cites the ruling it enforces"
+    assert not (lane / "Ortho4XP_+30+031.cfg").exists(), (
+        "the refusal wrote NOTHING — a defaults file left behind would be "
+        "the next lane's canonical source")
+
+
+def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
+    """A lane deliberately building at another provider/ZL owns its input;
+    replacing it would be a frame change with no log line."""
+    source_root = tmp_path / "main"
+    canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
+        "Ortho4XP_+30+031.cfg"
+    canon.parent.mkdir(parents=True)
+    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
+    lane.mkdir(parents=True)
+    mine = lane / "Ortho4XP_+30+031.cfg"
+    mine.write_text("default_website=BI\ndefault_zl=17\n")
+
+    rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
+
+    assert rec["action"] == "present"
+    assert mine.read_text() == "default_website=BI\ndefault_zl=17\n"
+    assert rec["sha256"] == hashlib.sha256(mine.read_bytes()).hexdigest(), (
+        "the frame records the cfg the build ACTUALLY ran on, not the one "
+        "it would have provisioned")
+
+
+def test_provisioning_INTO_the_canonical_location_copies_nothing(build_mod,
+                                                                 tmp_path):
+    """A build in the main tree IS the canonical location — it must not
+    copy a file onto itself, and it still records what it ran on."""
+    source_root = tmp_path / "main"
+    canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
+        "Ortho4XP_+30+031.cfg"
+    canon.parent.mkdir(parents=True)
+    canon.write_text("default_website=Arc\ndefault_zl=16\n")
+    rec = build_mod.provision_tile_cfg(30, 31, canon.parent,
+                                       source_root=source_root)
+    assert rec["action"] == "is_canonical_source"
+    assert rec["sha256"] == hashlib.sha256(canon.read_bytes()).hexdigest()
+
+
+def test_the_tile_path_PROVISIONS_before_it_READS_the_config(build_mod):
+    """SOURCE twin on the ORDER, which is the whole mechanism:
+    ``read_from_config`` silently falls back to the global config, so a
+    provision AFTER it would record a source the build never used."""
+    src = inspect.getsource(build_mod.build_tile)
+    assert src.index("provision_tile_cfg(") < src.index("read_from_config()"), (
+        "provision the input BEFORE the engine reads it")
+    assert "tile_cfg_provenance" in src, "and hand it back for the frame"
+    whole = Path(inspect.getfile(build_mod)).read_text()
+    assert 'frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")' \
+        in whole, ("the provenance reaches frame.json — an unrecorded "
+                   "provisioned input is a hand-seed with extra steps")
+
+
 def test_warming_an_inset_without_the_dem_scope_refuses(build_mod):
     """``--warm-insets`` FETCHES into the shared data repo, so it is the
     act ``--refresh-data`` exists to authorise (ruling e9daef5).  The
@@ -3413,7 +3531,7 @@ def test_the_engine_cache_redirect_is_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
     text = INDEX.read_text()
     for token in ("O4_DSF_CACHE_DIR", "engine_cache_redirects",
-                  "O4_MASKS_DIR"):
+                  "O4_MASKS_DIR", "tile_cfg_provenance"):
         assert token in text, (
             f"{token} is not in tools/INDEX.md — a redirect absent from the "
             f"index is treated as absent, and the next lane hand-forks it")

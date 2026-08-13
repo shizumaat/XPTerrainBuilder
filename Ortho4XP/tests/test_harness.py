@@ -104,6 +104,18 @@ def guard_mod(build_mod):
     return importlib.import_module("shared_repo_guard")
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_lane_cache_root(tmp_path, monkeypatch):
+    """The DERIVED cache roots are LANE-PERSISTENT (perf P2, Lane A) —
+    ``<lane>/tmp/engine_caches/`` by default, which is the CHECKOUT when a
+    twin calls the redirect.  Persistence is the whole point of the
+    feature and hermetic tests are the whole point of a twin, so every
+    test in this file derives into ITS OWN ``tmp_path`` instead.  A twin
+    that asserts the DEFAULT location deletes the variable itself
+    (``monkeypatch.delenv``) and passes an explicit ``lane_root``."""
+    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(tmp_path / "lane_caches"))
+
+
 #: A real emitted patch that ships in the tree — enough to exercise every
 #: family reader without building anything.
 FIXTURE_PATCH = ROOT / "tests" / "fixtures" / "SPJC_target.osm"
@@ -2720,6 +2732,11 @@ def test_the_classify_build_path_ARMS_guard_AND_redirect(
         return _StubLayout()
 
     _patch_engine_build(monkeypatch, _fake_build)
+    # The DERIVED roots are LANE-PERSISTENT (perf P2): pin them into
+    # ``tmp_path`` so the twin stays hermetic instead of deriving into the
+    # checkout's own ``tmp/engine_caches``.
+    lane_cache = tmp_path / "lanecache"
+    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(lane_cache))
     entry = _cache_env_entry_values()
     try:
         report = classify_mod.build_report("KCLT", "/X-Plane",
@@ -2733,10 +2750,10 @@ def test_the_classify_build_path_ARMS_guard_AND_redirect(
         "the build ran OUTSIDE the write guard — the overlay alone does "
         "not save you: writers wrote THROUGH the seeded symlinks, and the "
         "guard is what catches whatever the seeding does not")
-    assert seen["dsf"] == str(base / "Default_DSF_cache"), (
+    assert seen["dsf"] == str(lane_cache / "Default_DSF_cache"), (
         "the DSFTool SUBPROCESS inherits the environment; that is the only "
         "handle on a write no Python-level guard can see")
-    overlay = base / "Airport_mod_cache"
+    overlay = lane_cache / "Airport_mod_cache"
     assert seen["mod"] == str(overlay)
     assert report["write_guard_armed"] is True
     assert report["write_guard_blocked"] == []
@@ -3159,6 +3176,130 @@ def _restore_cache_env(entry):
     FNAMES._apply_data_root()
 
 
+# ══════════════════════════════════════════════════════════════════════
+# §6e-bis THE LANE-PERSISTENT DERIVED-CACHE ROOT (perf P2, Lane A)
+#
+# THE MEASURED DEFECT (2026-08-13): the redirect was per-RUN, so everything
+# the engine derived inside a lane build was thrown away with the run.  At
+# HECA that is `_compute_dsf_object_buildings` — 66.6 s of OBJ8 parse and
+# O(n²) contact-graph partition, re-run by every lane build forever (OTHH
+# ~455 s).  Seeding from the shared corpus does not save it: the pack's own
+# `.obj` files are IN the footprint fingerprint and the Phase-2 y-bake
+# rewrites them AFTER that run's sidecar is written, so the shared sidecar
+# is stale for anyone who comes later (HECA: sidecar 07:03, 376 of 568
+# `.obj` rewritten 07:14).  What makes run 2 hit is run 1's OWN sidecar
+# still existing.
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_lane_cache_root_is_per_worktree_and_env_overridable(
+        tmp_path, monkeypatch, build_mod):
+    """KNOWN-ANSWER TWIN for the root itself — pure, no environment state
+    beyond the one variable it publishes."""
+    monkeypatch.delenv("O4_LANE_CACHE_ROOT", raising=False)
+    lane = tmp_path / "worktreeA" / "Ortho4XP"
+    other = tmp_path / "worktreeB" / "Ortho4XP"
+    assert build_mod.lane_cache_root(lane) == lane / "tmp" / "engine_caches"
+    assert build_mod.lane_cache_root(other) != build_mod.lane_cache_root(lane), (
+        "ONE ROOT PER WORKTREE: two lanes sharing a derived cache would be "
+        "two lanes on one private corpus, which is the ruling e9daef5 "
+        "forbids in the other direction")
+
+    monkeypatch.chdir(tmp_path)
+    assert build_mod.lane_cache_root() == (
+        tmp_path / "tmp" / "engine_caches"), (
+        "with no lane named the BUILD CWD is the lane — the build entry "
+        "has already refused any other cwd")
+
+    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(tmp_path / "elsewhere"))
+    assert build_mod.lane_cache_root(lane) == tmp_path / "elsewhere", (
+        "the override is the twins' seam and a lane's escape hatch")
+
+
+def test_the_persistent_derived_root_is_REUSED_across_runs(
+        tmp_path, monkeypatch, build_mod):
+    """THE INTERVENTION, in miniature: two runs, two DIFFERENT ``--out``
+    tags, ONE derived-cache root — and what run 1 derived is still there
+    for run 2, while the masks overlay stays per-run."""
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache" / "packA").mkdir(parents=True)
+    (repo / "Airport_mod_cache" / "packA" / "warm.cache").write_bytes(b"warm")
+    (repo / "Masks").mkdir(parents=True)
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    lane = tmp_path / "lane"
+    monkeypatch.setenv("O4_LANE_CACHE_ROOT", str(lane / "tmp"
+                                                 / "engine_caches"))
+
+    entry = _cache_env_entry_values()
+    try:
+        rec1 = build_mod.redirect_engine_caches(tmp_path / "out", "RUN1")
+        derived = Path(rec1["derived_base"])
+        # RUN 1 derives a sidecar the shared corpus does not have.
+        made = Path(rec1["airport_mod_cache"]) / "packA" / "derived.cache"
+        made.write_bytes(b"66.6 seconds of contact-graph partition")
+
+        rec2 = build_mod.redirect_engine_caches(tmp_path / "out", "RUN2")
+        assert rec2["derived_base"] == str(derived), (
+            "the derived root does not move with the run's tag")
+        assert rec2["dsf_dump_cache"] == rec1["dsf_dump_cache"]
+        assert rec2["airport_mod_cache"] == rec1["airport_mod_cache"]
+        assert made.read_bytes() == b"66.6 seconds of contact-graph partition", (
+            "RUN 2 SEES RUN 1's WORK — this is the entire feature; the "
+            "re-seed must not clobber a lane-derived entry")
+        assert rec2["mod_cache_seeded"]["files"] == 0, (
+            "an already-seeded overlay re-seeds nothing (mirror_tree_as_"
+            "overlay's lexists skip), so the warm corpus is not re-cloned "
+            "every run either")
+
+        # THE MASKS STAY PER-RUN: corpus data the engine rewrites per tile,
+        # not a fingerprinted derived cache.
+        assert rec1["masks"] == str(tmp_path / "out" / "RUN1.engine_caches"
+                                    / "Masks")
+        assert rec2["masks"] == str(tmp_path / "out" / "RUN2.engine_caches"
+                                    / "Masks")
+        assert rec1["masks"] != rec2["masks"]
+
+        # AND IT IS STILL LANE-LOCAL: nothing under the derived root
+        # resolves into the shared corpus, and the shared sidecar is
+        # byte-untouched.
+        assert repo not in derived.parents and derived.is_relative_to(lane)
+        assert (repo / "Airport_mod_cache" / "packA"
+                / "warm.cache").read_bytes() == b"warm"
+        assert not (repo / "Airport_mod_cache" / "packA"
+                    / "derived.cache").exists(), (
+            "a lane's derived cache NEVER lands in the shared repo — "
+            "owner ruling e9daef5, and the reason the overlay is "
+            "copy-on-write rather than symlinked")
+    finally:
+        _restore_cache_env(entry)
+
+
+def test_the_persistent_root_is_OFF_when_a_caller_asks_for_per_run(
+        tmp_path, monkeypatch, build_mod):
+    """``persistent=False`` restores the pre-P2 per-run root — the escape
+    a caller that needs run isolation takes, spelled once."""
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    (repo / "Airport_mod_cache").mkdir(parents=True)
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    entry = _cache_env_entry_values()
+    try:
+        rec = build_mod.redirect_engine_caches(tmp_path / "out", "T7",
+                                               persistent=False)
+        base = tmp_path / "out" / "T7.engine_caches"
+        assert rec["derived_base"] == str(base) == rec["base"]
+        assert rec["derived_persistent"] is False
+        assert rec["dsf_dump_cache"] == str(base / "Default_DSF_cache")
+        assert rec["airport_mod_cache"] == str(base / "Airport_mod_cache")
+    finally:
+        _restore_cache_env(entry)
+
+
 def test_the_harness_build_redirects_engine_caches_lane_local(
         tmp_path, monkeypatch, build_mod):
     """KNOWN-ANSWER TWIN for the build entry's engine-cache redirect.
@@ -3183,12 +3324,17 @@ def test_the_harness_build_redirects_engine_caches_lane_local(
                                                prog=None, authorised=())
         base = tmp_path / "out" / "T1.engine_caches"
         assert rec["base"] == str(base)
+        # The two FINGERPRINTED roots are LANE-PERSISTENT (perf P2); the
+        # per-run ``base`` still names the masks overlay.
+        derived = tmp_path / "lane_caches"
+        assert rec["derived_base"] == str(derived)
+        assert rec["derived_persistent"] is True
 
-        dump = base / "Default_DSF_cache"
+        dump = derived / "Default_DSF_cache"
         assert os.environ["O4_DSF_CACHE_DIR"] == str(dump)
         assert rec["dsf_dump_cache"] == str(dump) and dump.is_dir()
 
-        overlay = base / "Airport_mod_cache"
+        overlay = derived / "Airport_mod_cache"
         seeded = overlay / "packA" / "warm.cache"
         shared = repo / "Airport_mod_cache" / "packA" / "warm.cache"
         assert not seeded.is_symlink(), (
@@ -3240,7 +3386,7 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         # masks still redirect, the dump cache is left alone.
         rec2 = build_mod.redirect_engine_caches(
             tmp_path / "o2", "T3", authorised={"dsf_cache"})
-        overlay = tmp_path / "o2" / "T3.engine_caches" / "Airport_mod_cache"
+        overlay = tmp_path / "lane_caches" / "Airport_mod_cache"
         masks = tmp_path / "o2" / "T3.engine_caches" / "Masks"
         assert rec2["left_shared_for_refresh"] == ["dsf_cache"]
         assert rec2["dsf_dump_cache"] is None
@@ -3252,8 +3398,7 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         assert rec2["masks"] == str(masks)
         assert os.environ["O4_MASKS_DIR"] == str(masks)
         assert os.environ.get("O4_DSF_CACHE_DIR") == entry["O4_DSF_CACHE_DIR"]
-        assert not (tmp_path / "o2" / "T3.engine_caches"
-                    / "Default_DSF_cache").exists()
+        assert not (tmp_path / "lane_caches" / "Default_DSF_cache").exists()
     finally:
         _restore_cache_env(entry)
 

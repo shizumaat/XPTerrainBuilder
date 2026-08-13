@@ -679,9 +679,10 @@ def _rim_pocket_layout(open_side_m=40.0, pocket=140.0, with_west=True):
     return _FakeLayout(shapes), list(shapes)
 
 
-def test_an_excavation_rim_pocket_joins_the_graded_domain():
+def test_an_excavation_rim_pocket_joins_the_graded_domain(monkeypatch):
     """>= 75 % graded rim with ONE open segment: the pocket is a gap-fill
     candidate and grades, boundary verbatim + one drainage spine."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, pav = _rim_pocket_layout()
     n = emit_gap_fill_spines(layout, None, 0, 0)
     faces = _faces(layout)
@@ -708,10 +709,11 @@ def test_an_excavation_rim_pocket_joins_the_graded_domain():
     assert spines and len(spines) == 1
 
 
-def test_a_half_open_pocket_is_left_to_the_band_law():
+def test_a_half_open_pocket_is_left_to_the_band_law(monkeypatch):
     """THE CONTROL the ruling names: drop the west arm and the rim falls
     to ~50 % graded — open terrain the corridor-band / daylight law owns.
     Nothing is emitted and the layout is untouched."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, _ = _rim_pocket_layout(with_west=False)
     before = list(layout.shapes)
     assert emit_gap_fill_spines(layout, None, 0, 0) == 0
@@ -719,7 +721,7 @@ def test_a_half_open_pocket_is_left_to_the_band_law():
     assert layout.shapes == before
 
 
-def test_a_through_channel_is_not_a_rim_pocket():
+def test_a_through_channel_is_not_a_rim_pocket(monkeypatch):
     """SCOPE, measured against the open-frontage pilot: two facing
     pavements with a channel open at BOTH ends read >= 75 % graded rim
     too, but they are the corridor law's subject and its gate
@@ -727,6 +729,7 @@ def test_a_through_channel_is_not_a_rim_pocket():
     in-sim review.  A rim pocket is a RECESS — exactly ONE open run — so
     the corridor stays with its own law and this one cannot turn it on
     through the back door."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, _ = _corridor_layout(gap_width_m=60.0)
     before = list(layout.shapes)
     assert emit_gap_fill_spines(layout, None, 0, 0) == 0
@@ -734,20 +737,27 @@ def test_a_through_channel_is_not_a_rim_pocket():
     assert layout.shapes == before
 
 
-def test_the_rim_pocket_gate_off_is_a_noop(monkeypatch):
-    """Gate OFF: byte-identical to the pre-ruling behaviour."""
-    monkeypatch.setenv("O4_GAP_FILL_RIM_POCKETS", "0")
-    import importlib
-    from auto_patch import config as _cfg
-    importlib.reload(_cfg)
-    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", False)
+def test_the_rim_pocket_default_state_is_a_noop():
+    """THE DEFAULT STATE (ruling 2026-08-12b, after the HECA closing
+    read): the gate ships OFF, so a rim pocket is byte-identical to the
+    pre-ruling behaviour with no env set at all.
+
+    HECA is why: at the post-solve-only default the arm minted 1,330 new
+    airside within_shape rows of which 1,238 sit OFF-FACE (median 63 m,
+    worst 140-207 m out at up to 11.31 m apron|apron) -- a third channel
+    moving airside pavement, ~30x the OTHH absorption class the
+    post-solve-only posture closed.  The detector, the width law and that
+    posture stay landed and twinned; the staged-solve round owns the
+    attribution and the re-enable."""
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
+        "the rim-pocket gate must ship OFF")
     layout, _ = _rim_pocket_layout()
     before = list(layout.shapes)
     assert emit_gap_fill_spines(layout, None, 0, 0) == 0
     assert layout.shapes == before
 
 
-def test_every_gap_pass_sees_the_same_candidates():
+def test_every_gap_pass_sees_the_same_candidates(monkeypatch):
     """THREE-PASS PARITY (the requirement the lane identified and the
     lead accepted as the work).  The pre-solve construction, the spine
     emitter and the pit floor must all read ONE candidate list — a region
@@ -780,6 +790,7 @@ def test_rim_pockets_grade_post_solve_only(monkeypatch):
     rim-pockets-off baseline itself.  Groundside spine variables pulling
     airside is the violation this default closes.
     """
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, _ = _rim_pocket_layout()
     # PRE-SOLVE: the rim pocket contributes NO spine to the store.
     assert GF.construct_gap_fill_presolve(layout) == 0, (
@@ -795,6 +806,7 @@ def test_the_absorb_gate_restores_the_pre_solve_spine(monkeypatch):
     """The gate exists for the staged-solve design round: setting it
     restores the measured-worse behaviour deliberately, so the round can
     A/B its remedy against it."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     monkeypatch.setattr(GF, "RIM_PRESOLVE_ABSORB", True)
     layout, _ = _rim_pocket_layout()
     assert GF.construct_gap_fill_presolve(layout) == 1, (

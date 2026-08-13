@@ -5536,8 +5536,18 @@ OPEN_FRONTAGE_CLOSE_M = GAP_FILL_MAX_WIDTH_M / 2.0
 # corridor-band / daylight law owns; at or above it the ground is
 # surrounded by graded features that already fix its rim values.
 GAP_FILL_RIM_POCKET_GRADED_FRACTION = 0.75
+# DEFAULT OFF (owner/Fable ruling 2026-08-12b, after the HECA closing
+# read).  The detector, the width law and the post-solve-only posture all
+# stay landed and twinned, but the feature does not SHIP on: at HECA the
+# new default minted 1,330 new airside within_shape rows of which 1,238
+# are OFF-FACE (median 63 m, worst 140-207 m out at up to 11.31 m
+# apron|apron, +253 airside / +241 airside_for_acceptance) -- a THIRD
+# channel by which rim pockets move airside pavement, distinct from the
+# stage-B2 absorption the post-solve-only default closed at OTHH and ~30x
+# its scale.  Attributing that channel, and re-enabling this gate, belong
+# to the staged-solve design round.
 GAP_FILL_RIM_POCKETS_ENABLED = (
-    _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "1") == "1")
+    _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "0") == "1")
 
 # RIM POCKETS GRADE POST-SOLVE ONLY (owner/Fable ruling 2026-08-12b,
 # after the OTHH interventional pair).  A rim pocket's drainage spine is

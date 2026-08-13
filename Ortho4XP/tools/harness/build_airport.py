@@ -33,6 +33,19 @@ measurement in this repo, and every one of them exits 0 without the check:
    refused by name — so a lane's per-airport patch is measured in the same
    frame the shipped tile is built in.  (This closes the inset-coverage
    frame gap ``tools/full_airport_build.py`` carried unstated.)
+3b. **A hand-seeded lane input.**  A fresh lane build dir has no per-tile
+   ``Ortho4XP_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to the
+   GLOBAL config, which carries no ``default_website`` at all, and the build
+   refuses at the provider check.  Two lanes improvised two DIFFERENT cfg
+   sources to get past that on 2026-08-12 — the census-wrapper defect at one
+   remove.  ``--tile`` now PROVISIONS it: a byte copy from the ritual's own
+   canonical source (``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/``, where
+   ``lane_worktree.sh`` clones ``Ortho4XP.cfg`` and ``Patches/`` from),
+   recorded with its sha256 in ``<tag>.frame.json`` under
+   ``tile_cfg_provenance``.  An existing lane cfg is never overwritten, and a
+   MISSING canonical source refuses rather than synthesizing defaults — a
+   made-up provider and ZL build a tile nobody asked for and exit 0 (owner
+   ruling 2026-08-12b, lane inputs are provisioned, never hand-seeded).
 4. **A tile build with no CIFP.**  ``run_auto_patch_generation`` only calls
    the generator when it can resolve a CIFP directory; the dev config
    ships ``cifp_data_path`` EMPTY, so a whole-tile build there produces a
@@ -205,6 +218,20 @@ from shared_repo_guard import (                          # noqa: E402,F401
 #: It lives IN the shared data repo, which is the point: the config and the
 #: corpus it describes travel together.
 OWNER_APP_CFG = DATA_REPO / "Ortho4XP.cfg"
+
+#: THE MAIN ENGINE TREE — where a lane's build INPUTS are cloned FROM.
+#:
+#: This is not a new hierarchy: it is the ritual's own
+#: (``lane_worktree.sh``: ``MAIN_REPO="${O4_MAIN_REPO:-...}"``,
+#: ``MAIN_ENGINE="$MAIN_REPO/Ortho4XP"``, ``CLONE_FILES="Ortho4XP.cfg"``),
+#: spelled with the same environment override so one setting moves both.
+#: The division of labour is deliberate and already law: the SHARED DATA
+#: REPO holds the corpus and the owner's production app config
+#: (:data:`OWNER_APP_CFG`, the FRAME every lane's cfg is validated
+#: against); the MAIN TREE holds the build INPUTS a lane starts from
+#: (``Ortho4XP.cfg``, ``Patches/``, and now the per-tile cfg).
+MAIN_ENGINE_TREE = Path(os.environ.get(
+    "O4_MAIN_REPO", "/Users/noah/XPTerrainBuilder")) / "Ortho4XP"
 
 #: The X-Plane INSTALL paths a whole-tile build needs.
 XPLANE_PATH_KEYS = ("cifp_data_path", "custom_scenery_dir",
@@ -735,6 +762,116 @@ def apply_xplane_install_paths(owner_cfg=OWNER_APP_CFG) -> dict:
     return applied
 
 
+def tile_cfg_stem(lat: int, lon: int) -> str:
+    """``+30+031``, spelled by the engine's own ``O4_File_Names``.
+
+    Imported at CALL time (never at module import) so this entry keeps
+    working before the engine is on ``sys.path`` — and so the tile-cfg
+    NAME can never drift from the name the engine looks for, which is the
+    whole failure mode a hand-copied input has.
+    """
+    if str(ROOT / "src") not in sys.path:
+        sys.path.append(str(ROOT / "src"))
+    import O4_File_Names as FNAMES
+    return FNAMES.short_latlon(lat, lon)
+
+
+def canonical_tile_cfg(lat: int, lon: int, source_root=None) -> Path:
+    """THE per-tile cfg a lane's build dir is provisioned FROM.
+
+    ``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/Ortho4XP_+XX+YYY.cfg`` —
+    the ritual's own canonical source (:data:`MAIN_ENGINE_TREE`), the same
+    place ``lane_worktree.sh`` clones ``Ortho4XP.cfg`` and ``Patches/``
+    from.  Deliberately NOT the shared data repo and NOT the owner's app
+    config: ``default_website`` / ``default_zl`` / ``zone_list`` are
+    PER-TILE variables and ``O4_Cfg_Vars`` excludes them from the global
+    config by construction, so the owner's app cfg has no such keys to
+    give (and production supplies them per BUILD, from the app's job —
+    ``o4_driver``'s ``job["provider"]`` / ``job["zl"]``).
+    """
+    root = Path(source_root) if source_root is not None else MAIN_ENGINE_TREE
+    stem = tile_cfg_stem(lat, lon)
+    return root / "Tiles" / f"zOrtho4XP_{stem}" / f"Ortho4XP_{stem}.cfg"
+
+
+def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
+                       source_root=None) -> dict:
+    """Provision the lane build dir's per-tile cfg from the canonical
+    source, and RECORD where it came from.
+
+    OWNER RULING 2026-08-12b — "LANE INPUTS ARE PROVISIONED BY THE RITUAL,
+    NEVER HAND-SEEDED".  A fresh lane build dir has no
+    ``Ortho4XP_+XX+YYY.cfg``; ``Tile.read_from_config`` then falls back to
+    the GLOBAL config, which by construction carries no ``default_website``
+    — and the tile build refuses with "EMPTY default_website".  On
+    2026-08-12 two lanes each improvised a different cfg source to get
+    past it, which is the census-wrapper defect re-emerging: the
+    inconsistency, not the copy, is the harm.
+
+    Three outcomes, all recorded:
+
+    * ``provisioned`` — a byte copy of the canonical cfg, with its sha256;
+    * ``present`` — the build dir already has one; it is NEVER overwritten
+      (a lane deliberately building at another provider/ZL owns its own
+      input, and silently replacing it would be a second frame change no
+      log line mentions).  Its own sha256 is recorded, so the frame says
+      WHICH cfg the build ran on either way;
+    * ``is_canonical_source`` — the build dir IS the canonical location
+      (a build in the main tree); nothing to copy.
+
+    A MISSING canonical source REFUSES.  Synthesizing defaults here would
+    be the silently-smaller-layout trap in its purest form: a made-up
+    provider and ZL build a tile nobody asked for, and it exits 0.
+    """
+    stem = tile_cfg_stem(lat, lon)
+    dest = Path(build_dir) / f"Ortho4XP_{stem}.cfg"
+    src = canonical_tile_cfg(lat, lon, source_root)
+    rec = {"cfg": str(dest), "canonical_source": str(src),
+           "action": None, "sha256": None}
+
+    is_source = (dest.is_file() and src.is_file()
+                 and dest.resolve() == src.resolve())
+    if is_source:
+        rec["action"] = "is_canonical_source"
+        rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
+    elif dest.is_file():
+        rec["action"] = "present"
+        rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
+    else:
+        if not src.is_file():
+            raise SystemExit(
+                f"REFUSING: this build dir has no per-tile config "
+                f"({dest}) and the canonical source does not exist "
+                f"({src}).\n"
+                f"  Without one, Tile.read_from_config falls back to the "
+                f"GLOBAL config, which carries no default_website — the "
+                f"build refuses at step 4's provider check, and a "
+                f"SYNTHESIZED default would be worse: it would build a "
+                f"tile at a provider and ZL nobody chose, and exit 0.\n"
+                f"  Fix: build that tile once in the main tree (or copy "
+                f"the tile's cfg there from the app's own build) so every "
+                f"lane provisions from ONE source — owner ruling "
+                f"2026-08-12b, lane inputs are provisioned, never "
+                f"hand-seeded.")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(src.read_bytes())       # BYTE copy, never a render
+        rec["action"] = "provisioned"
+        rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
+
+    if prog is not None:
+        prog.note(
+            f"per-tile cfg {rec['action'].upper()}: {dest} "
+            f"(sha256 {rec['sha256'][:12]}, canonical source {src})"
+            + ("  — byte copy from the ritual's own canonical source; a "
+               "hand-seeded lane input is the defect owner ruling "
+               "2026-08-12b names."
+               if rec["action"] == "provisioned" else
+               "  — the lane's OWN cfg, left untouched."
+               if rec["action"] == "present" else
+               "  — this build dir IS the canonical location."))
+    return rec
+
+
 # ══════════════════════════════════════════════════════════════════════
 # RECORDING
 # ══════════════════════════════════════════════════════════════════════
@@ -1235,6 +1372,11 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
 
     custom_build_dir = FNAMES.normalize_custom_build_dir(lat, lon, build_dir)
     tile = CFG.Tile(lat, lon, custom_build_dir)
+    # THE INPUT, PROVISIONED (owner ruling 2026-08-12b) — before the read,
+    # because ``read_from_config`` silently falls back to the global config
+    # when the per-tile cfg is absent, and the global config carries no
+    # provider at all.  Recorded on the build, never hand-seeded.
+    cfg_provenance = provision_tile_cfg(lat, lon, tile.build_dir, prog)
     tile.read_from_config()
     prog.note(f"tile {lat:+d}{lon:+d} build_dir={tile.build_dir} "
               f"website={tile.default_website} zl={tile.default_zl} "
@@ -1243,7 +1385,13 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
     if not tile.default_website:
         raise SystemExit(
             "REFUSING: tile config resolves to an EMPTY default_website — "
-            "step 4 would produce provider-less texture names.")
+            "step 4 would produce provider-less texture names.  The "
+            f"per-tile cfg this build ran on was {cfg_provenance['action']} "
+            f"({cfg_provenance['cfg']}, canonical source "
+            f"{cfg_provenance['canonical_source']}): it carries no "
+            f"provider, so the canonical source needs fixing at ITS "
+            f"location — never patched lane-side (owner ruling "
+            f"2026-08-12b).")
 
     timings = {}
     for name, step in (("1 vector", VMAP.build_poly_file),
@@ -1258,7 +1406,8 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
         if UI.red_flag:
             raise SystemExit(f"step {name} raised the red flag — stopping")
     return {"tile": [lat, lon], "build_dir": tile.build_dir,
-            "step_seconds": timings, "xplane_paths": paths}
+            "step_seconds": timings, "xplane_paths": paths,
+            "tile_cfg_provenance": cfg_provenance}
 
 
 def resolve_tile_for(icao: str, root: Path):
@@ -1672,6 +1821,11 @@ def main(argv=None) -> int:
     frame["synthetic_dem"] = result.get("synthetic_dem")
     frame["dem_inset_provenance"] = result.get("dem_inset_provenance")
     frame["engine_cache_redirects"] = result.get("engine_cache_redirects")
+    # WHICH per-tile cfg this build ran on, and where it came from (owner
+    # ruling 2026-08-12b: lane inputs are provisioned and RECORDED — the
+    # two lanes that hand-seeded two different sources on 2026-08-12 left
+    # nothing in either frame to compare).
+    frame["tile_cfg_provenance"] = result.get("tile_cfg_provenance")
     frame["dem_cache_after"] = (dem_cache_state(root, lat, lon)
                                 if lat is not None else None)
     (out_dir / f"{tag}.frame.json").write_text(json.dumps(frame, indent=1))

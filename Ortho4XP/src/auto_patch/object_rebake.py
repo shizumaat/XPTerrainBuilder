@@ -403,6 +403,184 @@ def _file_matches(path: str, recorded: dict) -> bool:
     return _sha256_of_file(path) == recorded.get("sha256")
 
 
+# ---------------------------------------------------------------------------
+# PRISTINE pack inputs for derived-cache fingerprints
+# ---------------------------------------------------------------------------
+#
+# OWNER RULING 2026-08-13 ("AIRPORT DERIVED CACHES KEY ON PRISTINE
+# INPUTS"): every derived cache over an airport's pack fingerprints the
+# PRISTINE input state — the ``.anchor_bak`` backup where THIS engine's
+# own y-bake mutated a file, the live file otherwise — never the live
+# stat block of an engine-baked file.  The engine's own writes can then
+# never invalidate a cache; only an EXTERNAL edit misses.
+#
+# The measured defect (perf lane A, 2026-08-13): a build writes the pack
+# footprint sidecar (fingerprinted over the LIVE ``.obj`` stat blocks)
+# BEFORE its own Phase 2 y-bake rewrites those same files, so it
+# invalidates the sidecar it just wrote and the NEXT build pays a full
+# recompute of the O(n²) contact-graph partition (~66 s HECA, ~455 s
+# OTHH) once per bake cycle, in production app builds.  Keying on the
+# pristine input closes it — and is also the HONEST key: the readers
+# already load geometry from the ``.anchor_bak`` original when one
+# exists (ruling R1, ``dsf_reader._compute_dsf_object_buildings`` /
+# ``object_terrain_assembly._load_object_geometry_by_resource``), so the
+# live stat block was never the input in the first place.
+#
+# EXTERNAL-EDIT DETECTION IS NOT WEAKENED — it is exactly the detection
+# ``apply`` already performs (invariant I-14): a live file whose sha256
+# matches neither the recorded ``backup_sha256`` nor the recorded
+# ``written_sha256`` is a CHANGED PACK, so the fingerprint keys on that
+# live file, misses, and the next bake orphans the stale backup and
+# adopts the live file as the new original.  With a backup but no
+# recorded hashes the backup is authoritative (amendment A2) — the same
+# choice made there.  A file with no backup keys on itself, byte-for-
+# byte the pre-ruling entry, so an unbaked pack's warm sidecars stay
+# warm and no cache version needs bumping.
+
+_PRISTINE_ENTRY_MEMO: dict[tuple, str] = {}
+
+# The provenance sidecar is re-read by every fingerprint call (both
+# footprint sidecars, the classification sidecar, once per airport of a
+# tile) and is LARGE on a real pack — HECA's is 31 MB, 0.09 s to parse.
+# Memoized on its own (size, mtime_ns), so ``apply`` rewriting it is
+# picked up on the next call — but REDUCED to the two hashes per
+# resource this file needs, so the memo is kilobytes and the parsed
+# sidecar (runs records, skipped-structure lists) is released.
+_RECORDED_HASHES_MEMO: dict[tuple, dict[str, tuple[str, ...]]] = {}
+
+
+def _fingerprint_stat(path: str) -> os.stat_result | None:
+    """``os.stat`` or ``None`` — one syscall serving both the entry text
+    (size + ``st_mtime``) and the memo key (size + ``st_mtime_ns``)."""
+    try:
+        return os.stat(path)
+    except OSError:
+        return None
+
+
+def _fingerprint_entry(relative_path: str,
+                       stat_result: os.stat_result) -> str:
+    """One ``relpath:size:mtime`` fingerprint line, in the exact
+    spelling the sidecar fingerprints have always used — so an UNBAKED
+    pack's digest is unchanged by the pristine-input ruling and its warm
+    sidecars keep hitting (no cache-version bump, no corpus re-warm)."""
+    return (f"{relative_path}:{stat_result.st_size}"
+            f":{stat_result.st_mtime}")
+
+
+def _recorded_hashes_by_resource(
+        pack_root: str) -> dict[str, tuple[str, ...]]:
+    """``{resource path: (backup_sha256, written_sha256)}`` from the
+    pack's provenance sidecar — the only part of it a fingerprint
+    needs.  Memoized on the sidecar's own (size, mtime_ns)."""
+    provenance_stat = _fingerprint_stat(_provenance_path(pack_root))
+    memo_key = (
+        pack_root,
+        None if provenance_stat is None else provenance_stat.st_size,
+        None if provenance_stat is None else provenance_stat.st_mtime_ns,
+    )
+    recorded = _RECORDED_HASHES_MEMO.get(memo_key)
+    if recorded is None:
+        try:
+            provenance = _load_provenance(pack_root)
+        except Exception:
+            # A missing/garbled provenance sidecar must never break a
+            # build: with no recorded hashes every existing backup is
+            # authoritative (amendment A2), which is what an empty map
+            # says here.
+            provenance = _fresh_provenance()
+        recorded = {}
+        for resource_path, entry in (provenance.get("objects") or {}).items():
+            hashes = tuple(
+                value for value in (entry.get("backup_sha256"),
+                                    entry.get("written_sha256"))
+                if value
+            )
+            if hashes:
+                recorded[resource_path] = hashes
+        _RECORDED_HASHES_MEMO[memo_key] = recorded
+    return recorded
+
+
+def _live_file_is_engine_written(live_path: str,
+                                 recorded_hashes: tuple[str, ...]) -> bool:
+    """Is the live ``.obj`` this engine's own bake output (or the
+    untouched original it was baked from)?
+
+    The three-way hash test of invariant I-14, read-only: ``True`` when
+    the live sha256 matches the recorded backup or written hash, or when
+    no hashes were recorded at all (amendment A2 — the existing backup
+    is authoritative and is never orphaned).  ``False`` is the PACK
+    CHANGED verdict: an external edit ``apply`` will adopt."""
+    if not recorded_hashes:
+        return True
+    try:
+        return _sha256_of_file(live_path) in recorded_hashes
+    except OSError:
+        return False
+
+
+def pristine_object_fingerprint_entries(pack_root: str) -> list[str]:
+    """One fingerprint entry per pack-local ``.obj``, keyed on its
+    PRISTINE state (owner ruling 2026-08-13).
+
+    THE one implementation — every derived cache over a pack's objects
+    (``dsf_reader._object_footprint_sidecar``,
+    ``object_terrain_assembly._classification_sidecar``) calls this
+    instead of walking the pack itself, so backup resolution and
+    external-edit detection exist once, here, beside the backups they
+    describe.
+
+    Entries are unsorted (the caller sorts before digesting, as it
+    always did).  ``.anchor_bak`` files are not ``.obj`` files and never
+    appear as entries of their own; a live ``.obj`` that has vanished
+    drops out entirely, which is itself a fingerprint change.
+
+    The per-file verdict is memoized on the (live, backup) stat pair, so
+    the sha256 of a large baked object is read at most once per process
+    per state — the readers ask for this fingerprint several times per
+    build (buildings, pavements, once per airport of a tile).
+    """
+    recorded_hashes_by_resource = _recorded_hashes_by_resource(pack_root)
+    entries: list[str] = []
+    for directory, _subdirectories, file_names in os.walk(pack_root):
+        for file_name in file_names:
+            if not file_name.lower().endswith(".obj"):
+                continue
+            live_path = os.path.join(directory, file_name)
+            relative_path = os.path.relpath(live_path, pack_root)
+            live_stat = _fingerprint_stat(live_path)
+            if live_stat is None:
+                continue
+            backup_stat = _fingerprint_stat(live_path + BACKUP_SUFFIX)
+            if backup_stat is None:
+                # Never baked: the live file IS the pristine input.
+                entries.append(
+                    _fingerprint_entry(relative_path, live_stat))
+                continue
+            memo_key = (
+                live_path,
+                live_stat.st_size, live_stat.st_mtime_ns,
+                backup_stat.st_size, backup_stat.st_mtime_ns,
+            )
+            entry = _PRISTINE_ENTRY_MEMO.get(memo_key)
+            if entry is None:
+                # ``objects`` is keyed by DSF resource path (forward
+                # slashes); the walk yields OS-separated relatives.
+                entry = _fingerprint_entry(
+                    relative_path,
+                    backup_stat
+                    if _live_file_is_engine_written(
+                        live_path,
+                        recorded_hashes_by_resource.get(
+                            relative_path.replace(os.sep, "/"), ()))
+                    else live_stat,
+                )
+                _PRISTINE_ENTRY_MEMO[memo_key] = entry
+            entries.append(entry)
+    return entries
+
+
 def _gate_digest(epsilon_metres: float, measure_only: bool = False) -> str:
     """sha1 over every configuration input to the Phase 2 decision.
 

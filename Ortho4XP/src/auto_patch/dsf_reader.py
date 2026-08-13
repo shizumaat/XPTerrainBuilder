@@ -1232,11 +1232,20 @@ def _object_footprint_sidecar(
 
     * the overlay DSF (basename, size, mtime) — the placement list is
       read from it;
-    * every ``.obj`` under the pack root (relative path, size, mtime) —
-      the geometry that is parsed and partitioned; a Phase 2 y-bake that
-      rewrites a live ``.obj`` invalidates automatically.  ``.anchor_bak``
-      backups are not ``.obj`` files and stay out of it (same rule and
-      rationale as the classification fingerprint);
+    * every ``.obj`` under the pack root, keyed on its PRISTINE state
+      (relative path, size, mtime of the ``.anchor_bak`` original where
+      this engine's own y-bake mutated the file, of the live file
+      otherwise) — owner ruling 2026-08-13, "AIRPORT DERIVED CACHES KEY
+      ON PRISTINE INPUTS", one implementation in
+      :func:`object_rebake.pristine_object_fingerprint_entries`.  That
+      IS the geometry parsed and partitioned: this reader loads from the
+      backup when one exists (ruling R1 below), so the live stat block
+      of a baked file was never an input.  The engine's own bake can
+      therefore not invalidate this cache — it used to, every time, in
+      the same run that wrote the sidecar (the sidecar is written before
+      Phase 2 runs) — while an EXTERNAL edit still misses through
+      ``object_rebake``'s own I-14 detection (a live sha matching
+      neither the recorded backup nor the recorded written hash);
     * the two config constants that drive partitioning,
       ``DSF_OBJECT_CONTACT_EPSILON_M`` and ``DSF_OBJECT_MIN_REACH_M``
       (their float values enter the digest);
@@ -1282,21 +1291,9 @@ def _object_footprint_sidecar(
             f"{os.path.basename(dsf_path)}:{dsf_stat.st_size}"
             f":{dsf_stat.st_mtime}".encode()
         )
-        object_entries = []
-        for directory, _subdirectories, file_names in os.walk(pack_root):
-            for file_name in file_names:
-                if not file_name.lower().endswith(".obj"):
-                    continue
-                full_path = os.path.join(directory, file_name)
-                try:
-                    file_stat = os.stat(full_path)
-                except OSError:
-                    continue
-                object_entries.append(
-                    f"{os.path.relpath(full_path, pack_root)}"
-                    f":{file_stat.st_size}:{file_stat.st_mtime}"
-                )
-        for entry in sorted(object_entries):
+        from .object_rebake import pristine_object_fingerprint_entries
+        for entry in sorted(
+                pristine_object_fingerprint_entries(pack_root)):
             digest.update(entry.encode())
         digest.update(
             f"epsilon:{float(contact_epsilon_metres)!r}"

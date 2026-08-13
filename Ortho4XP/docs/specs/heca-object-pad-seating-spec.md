@@ -110,3 +110,45 @@ heartbeat; shared repo UNCHANGED; commit on lane branch; no merge.
 The knoll's DSM contamination upstream (elevation-source cleaning);
 relief-round groundside items; #11 band remedy; building-pad admission
 (R18-2 untouched).
+
+## AMENDMENT 1 (Fable lead, 2026-08-12b, after the lane's STOP)
+
+The lane's measurement is accepted; ruling 1's premise is RETIRED. The
+weld-prediction relation is VINDICATED (the cut-back pre-weld frame
+seeds the owner's pad and adopts 105.51→93.45); the systemic 343/347
+no-family is host-role scope and mostly LAWFUL (292/365 pads sit on
+open terrain and rightly follow DEM). Ruling 2 stands as measured
+(already satisfied; twins landed). The unexplained residue is why the
+owner's 14:57 build did NOT adopt a pad that seeds when replayed — and
+that cannot be answered while the pad's request is absent from every
+current corpus.
+
+Re-ruled plan, in order:
+
+1. **Pin the live corpus (tile frame).** ONE HECA tile arm at lane HEAD
+   (4-step, foreground, lane-local build dir, never the X-Plane
+   install) with `O4_PAD_FAMILY_DEBUG=*` capturing the relevel debug.
+   Outcomes: (a) the site's pad IS re-requested → capture its family
+   debug in the SAME build and attribute why adoption differs from the
+   replay; a fix then lands against that evidence (attempt cap 2 from
+   here). (b) The pad is NOT re-requested → the 105.51 defect is
+   corpus-history; record it, no pad-side fix lands, the finding goes
+   to the owner report.
+2. **Ruling 3 (pocket enclosure) proceeds regardless** — at HEAD the
+   knoll STILL stands ~13 m proud inside the coverage hole even with no
+   pad (the visible defect survives the pad's disappearance). The
+   three-pass parity requirement the lane identified is accepted as the
+   work; the tile arm from step 1 doubles as its acceptance frame:
+   mesh/patch at (30.1136676,31.4086362) graded toward the bounding
+   features (quote before ≈106.3 → after), lawful terraces only at the
+   pocket rim, census delta row-classed.
+3. **_PAD_HOST_ROLES widening is DEFERRED** (the counterfactual shows
+   ~0 adoption movement; the 11 uncorroborated families need their own
+   evidence). Goes to the owner report as a design option, not a lane
+   act.
+4. **Corpus hazard interim law (lead):** pad-seating acceptance runs
+   TILE-FRAME ONLY until the request-sidecar's data-vs-product status
+   is owner-ruled; the three-corpora finding (owner 851 / lane 842 /
+   artifact-emitted 365 with 91 owner-only) is recorded in
+   DEFERRED_VERIFICATION and the owner report. Patch-only pad numbers
+   may not be quoted as acceptance.

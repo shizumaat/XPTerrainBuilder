@@ -664,3 +664,235 @@ def test_run_memo_is_scoped_to_one_layout_and_to_the_solver_key_space():
     # the VALIDATOR space (bucket_to_idx None) never joins the memo
     validator = GG.build_context(a, None)
     assert getattr(validator, "_sc_run_memo", None) is None
+
+
+# ── centerline_specs: the input-keyed memo (perf P3 lane perfcenter) ────
+#
+# THE SINK.  ``centerline_specs`` is THE law's centerline enumeration and it
+# had no memo: ``build_context`` walks it twice per graph build and
+# ``verification``'s two sidecar exports walk it again, so a build reached it
+# 9-11 times and the dupcensus measured ONE distinct input fingerprint behind
+# all of them (HECA replay 11/1, full build 9/1).  The memo below serves the
+# answer for exactly as long as its INPUTS are unchanged; these twins are the
+# proof that "unchanged" means every input, not the ones that happened to
+# move at HECA.
+
+class _CLine:
+    """The ``apt_dat_reader.TaxiCenterline`` surface the law reads."""
+
+    def __init__(self, pts, is_service=False, seg_sizes=None, route_line=None):
+        from shapely.geometry import LineString
+        self.line = LineString(pts)
+        self.route_line = route_line
+        self.is_service = is_service
+        self.name = "svc" if is_service else "T"
+        self.seg_sizes = (list(seg_sizes) if seg_sizes is not None
+                          else [""] * (len(pts) - 1))
+
+
+def _cls_layout(*, sliced=None, corridors=None, shared_route=True):
+    """A layout carrying every branch of the enumeration: two bend-split taxi
+    pieces (sharing one ``route_line`` object, or not), an apt.dat service
+    route, and optionally a sliced road set and corridor courses."""
+    from shapely.geometry import LineString
+    route_pts = [(0.0, -100.0), (0.0, 260.0)]
+    r1 = LineString(route_pts)
+    r2 = r1 if shared_route else LineString(route_pts)
+
+    class _L:
+        pass
+
+    lay = _L()
+    lay.icao = "TEST"
+    lay.apt_taxi_centerlines = [
+        _CLine([(0.0, -100.0), (0.0, 100.0)], seg_sizes=["C"], route_line=r1),
+        _CLine([(0.0, 100.0), (0.0, 260.0)], seg_sizes=["A"], route_line=r2),
+        _CLine([(0.0, 0.0), (50.0, 0.0)], is_service=True),
+    ]
+    if sliced is not None:
+        lay._slice_service_subsegments = [LineString(p) for p in sliced]
+    if corridors is not None:
+        lay._service_corridor_lines = [LineString(p) for p in corridors]
+    return lay
+
+
+_SLICED = [[(12.0, 0.0), (50.0, 0.0)], [(50.0, 0.0), (110.0, 0.0)]]
+_CORRIDORS = [[(12.0, 0.0), (110.0, 0.0)]]
+
+
+def _computation_counter(monkeypatch):
+    """Count how many times the UNCACHED computation actually runs."""
+    calls = []
+    real = GG._centerline_specs_uncached
+
+    def _counted(layout):
+        calls.append(1)
+        return real(layout)
+
+    monkeypatch.setattr(GG, "_centerline_specs_uncached", _counted)
+    return calls
+
+
+def test_specs_memo_serves_exactly_what_it_would_have_computed(monkeypatch):
+    """Memo ON vs OFF on the same layout: equal answers, and the ON arm
+    proves it SERVED rather than recomputed."""
+    lay_off = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", False)
+    calls = _computation_counter(monkeypatch)
+    off = [GG.centerline_specs(lay_off) for _ in range(3)]
+    assert len(calls) == 3, "with the memo off every call must recompute"
+    assert off[0] == off[1] == off[2]
+
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", True)
+    lay_on = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    calls.clear()
+    on = [GG.centerline_specs(lay_on) for _ in range(3)]
+    assert len(calls) == 1, "the memo must SERVE calls 2 and 3, not recompute"
+    assert on[0] == on[1] == on[2]
+    # Route keys carry object ids, so compare everything else verbatim and
+    # the route GROUPING (which is all a route key ever means) structurally.
+    assert ([(p, c, s, r) for (p, c, s, _k, r) in on[0]]
+            == [(p, c, s, r) for (p, c, s, _k, r) in off[0]])
+    assert (_route_grouping(on[0]) == _route_grouping(off[0]))
+
+
+def _route_grouping(specs):
+    """Route keys as ORDINALS of first appearance — the only thing a caller
+    (``build_context``, ``taxi_axes_exact_ll``) ever does with them."""
+    seen: dict = {}
+    return [seen.setdefault(rkey, len(seen)) for (_p, _c, _s, rkey, _r) in specs]
+
+
+def test_specs_memo_hands_every_caller_its_own_lists(monkeypatch):
+    """``build_context`` stores ``pts``/``seg_caps`` straight onto its
+    ``Centerline``/``RouteChain`` objects, so a shared list would put one
+    graph build's answer inside another's.  The ``rpts is pts`` ALIASING the
+    uncached path produces is preserved exactly."""
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", True)
+    lay = _cls_layout(sliced=_SLICED)
+    a = GG.centerline_specs(lay)
+    b = GG.centerline_specs(lay)
+    assert a is not b
+    for (sa, sb) in zip(a, b):
+        assert sa[0] is not sb[0] and sa[1] is not sb[1]
+        assert sa[0] == sb[0] and sa[1] == sb[1]
+        # a sliced/corridor piece IS its own route: the alias must survive
+        assert (sa[4] is sa[0]) == (sb[4] is sb[0])
+    svc = [s for s in a if s[2]]
+    assert svc and all(s[4] is s[0] for s in svc)
+    a[0][0].append((999.0, 999.0))          # poison the caller's copy
+    assert GG.centerline_specs(lay)[0][0] == b[0][0]
+
+
+def test_specs_memo_sensitivity_every_read_set_component_misses(monkeypatch):
+    """THE SENSITIVITY ARM.  Poison each member of the read set one at a
+    time; each must change the key, i.e. MISS.  A key that cannot see an
+    input is a wrong-answer machine, and the census's identity duplicates
+    are evidence that HECA does not move these — never proof that no airport
+    does."""
+    from shapely.geometry import LineString
+    from auto_patch import config as CFG
+
+    def _key(lay):
+        return GG._cls_specs_key(lay)
+
+    base = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    k0 = _key(base)
+    assert k0 is not None and _key(_cls_layout(
+        sliced=_SLICED, corridors=_CORRIDORS)) == k0, (
+        "an equal layout must key EQUAL, or the memo never hits")
+
+    # 1. a centerline's own geometry
+    lay = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    lay.apt_taxi_centerlines[0].line = LineString([(0.0, -100.0), (1.0, 100.0)])
+    assert _key(lay) != k0
+    # 2. the is_service flag (it selects the whole service branch)
+    lay = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    lay.apt_taxi_centerlines[0].is_service = True
+    assert _key(lay) != k0
+    # 3. seg_sizes (the per-letter cap table)
+    lay = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS)
+    lay.apt_taxi_centerlines[0].seg_sizes = ["A"]
+    assert _key(lay) != k0
+    # 4. the route-line SHARING pattern — same coordinates, two objects, so
+    #    two routes instead of one.  A pure value digest cannot see this.
+    split = _cls_layout(sliced=_SLICED, corridors=_CORRIDORS,
+                        shared_route=False)
+    assert _key(split) != k0
+    assert (_route_grouping(GG._centerline_specs_uncached(split))
+            != _route_grouping(GG._centerline_specs_uncached(base))), (
+        "the split must really change the answer, or this arm proves nothing")
+    # 5. the sliced road set's content
+    lay = _cls_layout(sliced=[_SLICED[0]], corridors=_CORRIDORS)
+    assert _key(lay) != k0
+    # 6. PRESENCE, not truthiness: absent vs present-and-empty are different
+    #    service SOURCES ("presence of the attribute is the switch").
+    absent = _cls_layout(corridors=_CORRIDORS)
+    empty = _cls_layout(sliced=[], corridors=_CORRIDORS)
+    assert _key(absent) != _key(empty) != k0
+    # 7. the corridor courses
+    lay = _cls_layout(sliced=_SLICED, corridors=[[(12.0, 1.0), (110.0, 1.0)]])
+    assert _key(lay) != k0
+    # 8-13. the config / module values the computation reads
+    for (mod, name, value) in (
+            (CFG, "SERVICE_CORRIDOR_CHAINS", False),
+            (CFG, "SERVICE_ROAD_MAX_GRADE", 0.07),
+            (CFG, "SERVICE_ROAD_WIDTH_M", 9.0),
+            (CFG, "TAXI_GRADE_BY_WIDTH", not TAXI_GRADE_BY_WIDTH),
+            (CFG, "TAXI_MAX_GRADE", 0.02),
+            (CFG, "TAXI_MAX_GRADE_NARROW", 0.04),
+            (CFG, "NARROW_TAXI_CODE_LETTERS", frozenset({"A"})),
+            (GG, "_CORRIDOR_COVER_FRAC", 0.9)):
+        monkeypatch.setattr(mod, name, value)
+        assert _key(base) != k0, f"{name} is in the read set and must key"
+        monkeypatch.undo()
+
+
+def test_specs_memo_recomputes_when_the_layout_moves(monkeypatch):
+    """End to end: a write to the read set after a warm memo recomputes."""
+    from shapely.geometry import LineString
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", True)
+    calls = _computation_counter(monkeypatch)
+    lay = _cls_layout()
+    first = GG.centerline_specs(lay)
+    GG.centerline_specs(lay)
+    assert len(calls) == 1
+    lay._slice_service_subsegments = [LineString(p) for p in _SLICED]
+    second = GG.centerline_specs(lay)
+    assert len(calls) == 2, "the slice's write must MISS the warm memo"
+    assert second != first
+    assert second == GG._centerline_specs_uncached(lay)
+
+
+def test_specs_memo_declines_an_input_it_cannot_digest(monkeypatch):
+    """A geometry with no ``wkb`` is an input the key cannot see — the memo
+    must switch ITSELF off rather than key on what it can read."""
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", True)
+
+    class _Opaque:
+        is_empty = False
+        coords = [(0.0, 0.0), (10.0, 0.0)]
+
+    lay = _cls_layout()
+    lay.apt_taxi_centerlines[0].line = _Opaque()
+    assert GG._cls_specs_key(lay) is None
+    calls = _computation_counter(monkeypatch)
+    GG.centerline_specs(lay)
+    GG.centerline_specs(lay)
+    assert len(calls) == 2, "an undigestible layout must never be memoed"
+    assert getattr(lay, "_cls_specs_memo", None) is None
+
+
+def test_specs_memo_is_scoped_to_one_layout(monkeypatch):
+    """The store hangs off the LAYOUT, so a process that builds two airports
+    (a tile) never serves one's centerlines to the other."""
+    monkeypatch.setattr(GG, "CENTERLINE_SPECS_MEMO", True)
+    calls = _computation_counter(monkeypatch)
+    a = _cls_layout(sliced=_SLICED)
+    b = _cls_layout(sliced=[_SLICED[0]])
+    GG.centerline_specs(a)
+    GG.centerline_specs(b)
+    GG.centerline_specs(a)
+    GG.centerline_specs(b)
+    assert len(calls) == 2
+    assert a._cls_specs_memo[0] != b._cls_specs_memo[0]

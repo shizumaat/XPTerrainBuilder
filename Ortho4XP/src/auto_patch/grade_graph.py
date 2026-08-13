@@ -489,7 +489,174 @@ def centerline_specs(layout) -> list:
     family the road cap and the groundside-pavement cap are THE SAME constant
     (``config.GROUNDSIDE_PAVEMENT_MAX_GRADE`` is an alias of
     ``SERVICE_ROAD_MAX_GRADE``), so the composition loosens nothing.
+
+    INPUT-KEYED MEMO (perf P3 lane perfcenter).  Nine to eleven calls per
+    build reach this — ``build_context`` twice per graph build, plus the two
+    sidecar exports in ``verification`` — and the dupcensus measured EVERY
+    one of them after the first reproducing the first's inputs (HECA replay
+    11 calls / 1 distinct fingerprint, full build 9 / 1), so the whole set
+    of shapely halo buffers and cover intersections below ran ~10 times for
+    one answer.  :func:`_cls_specs_key` digests the WHOLE read set and the
+    answer is served only while that digest is unchanged; see it for the
+    read set and why identity is not the key.
     """
+    key = _cls_specs_key(layout) if CENTERLINE_SPECS_MEMO else None
+    if key is not None:
+        memo = getattr(layout, "_cls_specs_memo", None)
+        if memo is not None and memo[0] == key:
+            return _cls_specs_fresh(memo[1])
+    specs = _centerline_specs_uncached(layout)
+    if key is not None:
+        try:
+            # The memo holds a PRIVATE copy and this call returns the list it
+            # just built, so the miss path is byte-for-byte the pre-memo
+            # function and no caller ever holds the stored answer.
+            layout._cls_specs_memo = (key, _cls_specs_fresh(specs))
+        except Exception:                                 # pragma: no cover
+            pass
+    return specs
+
+
+#: MEMO KILL SWITCH (perf P3 lane perfcenter).  Module level so the twin can
+#: turn the memo OFF and compare the SAME layout's specs with it on — an
+#: equality, not an argument.  With it ``False`` this module is exactly what
+#: it was before the memo landed.  It is not an env flag and not a law
+#: constant: no law reads it and no build changes behaviour under it.
+CENTERLINE_SPECS_MEMO = True
+
+
+def _cls_geom_bytes(g):
+    """The EXACT coordinate identity of one geometry, BY VALUE.
+
+    Shapely geometries are immutable (2.x), so a WKB digest is the whole of
+    what :func:`centerline_specs` can read out of one — ``is_empty``,
+    ``coords`` and ``length`` are all functions of it.  Anything without a
+    ``wkb`` raises here and :func:`_cls_specs_key` then declines to memo,
+    rather than keying on an input it cannot see.
+    """
+    return b"\x00none\x00" if g is None else b"\x00g\x00" + g.wkb
+
+
+def _cls_specs_fresh(specs):
+    """A private copy of a spec list.
+
+    The memo must hand every caller the same FRESH ``pts`` / ``seg_caps``
+    lists an uncached computation would: ``build_context`` stores them
+    directly on its ``Centerline`` / ``RouteChain`` objects, so a shared list
+    would put one graph build's answer inside another's.  (No consumer
+    mutates them today — audited across ``src/`` and ``tools/`` — which is
+    why this is cheap insurance rather than a fix.)  The ``rpts is pts``
+    ALIASING is preserved exactly: the corridor and sliced branches, and any
+    piece with no ``route_line``, hand back the same object twice.
+    """
+    out = []
+    for (pts, caps, is_svc, rkey, rpts) in specs:
+        p = list(pts)
+        out.append((p, list(caps), is_svc, rkey,
+                    p if rpts is pts else list(rpts)))
+    return out
+
+
+def _cls_specs_key(layout):
+    """The memo key for :func:`centerline_specs` — a digest of EVERY input
+    that computation reads.  ``None`` ⇒ an input this cannot see, so the
+    answer is not memoed at all.
+
+    THE READ SET, walked rather than assumed, through ``centerline_specs``
+    and everything it calls (``taxi_grade_cap_for_letter``,
+    ``_corridor_cover``, ``_covered_by_corridor``) — it reads nothing else:
+
+      layout   ``apt_taxi_centerlines`` (per entry: ``line``, ``is_service``,
+               ``seg_sizes``, ``route_line``), ``_slice_service_subsegments``
+               and ``_service_corridor_lines``.  The first is last written in
+               phase 1 (``pipeline`` 2585 / 3233, ``centerline_recognition``
+               232, ``pavement/route_arcs`` 481), the other two by the global
+               slice (``pipeline`` 3489 / 3552) — all before the solve.  The
+               key does not RELY on that ordering, it MEASURES it: a write
+               after any call simply misses.
+      config   ``SERVICE_ROAD_MAX_GRADE`` (the cap written into every service
+               ``seg_caps``), ``SERVICE_CORRIDOR_CHAINS`` (the gate),
+               ``SERVICE_ROAD_WIDTH_M`` (``_corridor_cover``'s halo width),
+               and the four globals ``taxi_grade_cap_for_letter`` reads —
+               ``TAXI_GRADE_BY_WIDTH``, ``TAXI_MAX_GRADE``,
+               ``TAXI_MAX_GRADE_NARROW``, ``NARROW_TAXI_CODE_LETTERS``.  It
+               is called here with no ``ruleset``, so its ruleset branch is
+               unreachable from this function.  Read off the config MODULE,
+               never this module's import-time aliases: ``centerline_specs``
+               and ``_corridor_cover`` both re-import inside the call, so a
+               monkeypatched ``config`` value is live for them and must be
+               live for the key too.
+      module   ``_CORRIDOR_COVER_FRAC``.
+
+    PRESENCE, NOT TRUTHINESS, for ``_slice_service_subsegments``: an absent
+    attribute and an empty list select different sources (the docstring's
+    "presence of the attribute is the switch"), so they key differently.
+
+    GEOMETRY IS KEYED BY VALUE (WKB), NEVER BY ``id()``.  CPython reuses a
+    freed object's address, so an identity key can only be trusted while
+    something holds a reference to every object in it — the trap the
+    dupcensus had to close to quote its own identity column.  A value key
+    has no such precondition.  ROUTE SHARING is keyed structurally beside
+    the values, because ``route_line`` binds pieces into routes by OBJECT
+    IDENTITY (``rkey = id(rline)``): two equal-but-distinct route lines are
+    two routes, and a pure value digest could not tell them from one.  The
+    ordinal of first appearance is exactly that pattern expressed as a
+    value; each route's own WKB is digested once, when it first appears.
+    """
+    from . import config as _cfg
+    h = hashlib.sha256()
+    try:
+        h.update(repr((
+            float(_cfg.SERVICE_ROAD_MAX_GRADE),
+            bool(_cfg.SERVICE_CORRIDOR_CHAINS),
+            float(_cfg.SERVICE_ROAD_WIDTH_M),
+            float(_CORRIDOR_COVER_FRAC),
+            bool(_cfg.TAXI_GRADE_BY_WIDTH),
+            float(_cfg.TAXI_MAX_GRADE),
+            float(_cfg.TAXI_MAX_GRADE_NARROW),
+            tuple(sorted(str(x) for x in _cfg.NARROW_TAXI_CODE_LETTERS)),
+        )).encode())
+        route_ord: dict = {}
+        h.update(b"\x00apt\x00")
+        for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
+            h.update(_cls_geom_bytes(getattr(tcl, "line", tcl)))
+            h.update(repr((bool(getattr(tcl, "is_service", False)),
+                           tuple(getattr(tcl, "seg_sizes", []) or []))
+                          ).encode())
+            rline = getattr(tcl, "route_line", None)
+            if rline is None:
+                h.update(b"\x00r-\x00")
+                continue
+            # Every ``rline`` is reachable from the list being walked, so no
+            # address in ``route_ord`` can be recycled mid-walk; the ordinal
+            # that leaves this function is a position, not an address.
+            ordinal = route_ord.get(id(rline))
+            if ordinal is None:
+                ordinal = len(route_ord)
+                route_ord[id(rline)] = ordinal
+                h.update(b"\x00r%d\x00" % ordinal + _cls_geom_bytes(rline))
+            else:
+                h.update(b"\x00r%d\x00" % ordinal)
+        h.update(b"\x00sliced\x00")
+        sliced = getattr(layout, "_slice_service_subsegments", None)
+        if sliced is None:
+            h.update(b"absent")
+        else:
+            h.update(b"present")
+            for ln in sliced:
+                h.update(_cls_geom_bytes(ln))
+        h.update(b"\x00corridor\x00")
+        for ln in (getattr(layout, "_service_corridor_lines", None) or []):
+            h.update(_cls_geom_bytes(ln))
+    except Exception:
+        return None
+    return h.hexdigest()
+
+
+def _centerline_specs_uncached(layout) -> list:
+    """:func:`centerline_specs` with no memo — THE computation.  Split out so
+    the memo wrapper is the only thing between a caller and this, and so the
+    twin can run both paths on one layout."""
     from .config import (SERVICE_ROAD_MAX_GRADE as _SVC_CAP,
                          SERVICE_CORRIDOR_CHAINS as _CORRIDOR_CHAINS)
     specs: list = []

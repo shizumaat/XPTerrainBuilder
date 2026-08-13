@@ -377,3 +377,54 @@ Skipped, per PRE-SHIP mode:
   new twin of its own beyond a compile + the existing refusal twin;
   both are proven only by the three census runs completing with
   "shared repo UNCHANGED".
+
+## perf P3 wave 2 — lane perfcenter (centerline_specs input-keyed memo), 2026-08-13
+
+Landed: `grade_graph.centerline_specs` — THE law's centerline enumeration,
+called 9-11 times per build by `build_context` (twice per graph build),
+`service_chain_lines` and `verification`'s two sidecar exports — gains an
+INPUT-KEYED memo on the layout (`layout._cls_specs_memo`, keyed by
+`_cls_specs_key`). It is the dupcensus's single material duplicate row.
+Measured, matched SERIAL `--count` pair in one worktree via the
+`CENTERLINE_SPECS_MEMO` kill switch, `--count-clock cpu`:
+HECA replay `centerline_specs` 4.6 -> 0.5 s CPU over an unchanged 11 calls
+(the computation itself 11 -> 1 call, 4.6 -> 0.4 s; the key's own cost is
+0.1 s over 11 calls); CYXY 0.1 -> 0.0 s.
+
+Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
+- No exclusive `check_build_time.py --runs N` arm and NO WALL CLAIM. The
+  replay walls printed beside each arm (HECA 310.2 s before / 308.3 s
+  after; CYXY 33.9 / 33.7) are run context under the standing +-25 %
+  single-run caveat, never a claim; the quoted deltas are `--count`
+  process_time on the named callables only.
+- The before/after pair was taken by flipping the module-level
+  `CENTERLINE_SPECS_MEMO` kill switch rather than against a control
+  worktree. Same tree, same corpus, same captures, run serially — but the
+  two arms are two source states of one branch, not two branches.
+- No full pytest suite and no blast-radius sweep: the 25
+  `blast --tests-for` files, once, through the run ledger.
+- No census of the acceptance patches: acceptance is BODY-HASH IDENTITY to
+  the frozen 1.0.245 manifest (HECA `f562cbfeb8f9`, CYXY `61efa43c3aeb`),
+  strictly stronger than a census match.
+- Only HECA + CYXY were exercised. KCLT / OTHH / KSTJ identity is
+  unverified for this lane; so is any airport whose layout MUTATES its
+  centerline set between graph builds — the key would simply miss there
+  (correct, just unpaid), but that behaviour is proven only on the twins'
+  synthetic layouts, never on a real airport.
+- The duplicate CENSUS COLUMNS are unchanged by construction, and that is
+  not a defect: a duplicate CALL is still a call, so the row still reads
+  11 calls / 1 distinct / 10 identity duplicates. What moved is the
+  SECONDS those duplicates spend — HECA 4.21 -> 0.06 s, CYXY 0.07 ->
+  0.01 s. The brief's "duplicates 9-11 -> 0" is reachable only by DELETING
+  call sites, which this lane did not do.
+- `_cls_specs_fresh` copies the answer's `pts` / `seg_caps` lists on every
+  served call so no two callers ever share a list. No consumer mutates
+  them today (audited across `src/` and `tools/`), so the copy is unproven
+  insurance rather than a measured need; its cost is inside the 0.1 s the
+  key + copy arm shows.
+- Memory: the memo holds ONE spec list per layout (references to the same
+  coordinate tuples), released with the layout. No RSS pair was taken —
+  the perfgraph lane's +90 MB figure came from a per-shape store two
+  orders of magnitude larger than this one.
+- 0 new law constants and 0 new env flags. `CENTERLINE_SPECS_MEMO` is a
+  module-level kill switch for the twin; no law reads it.

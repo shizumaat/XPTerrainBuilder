@@ -52,6 +52,7 @@ import argparse
 import json
 import os
 import sys
+import time as _time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +77,17 @@ def _floats(text: str) -> list[float]:
     return [float(piece) for piece in text.split(",") if piece.strip()]
 
 
+def _digest(value) -> str:
+    """sha256 of a JSON-canonical rendering — the identity gate an
+    optimisation of the partition machinery must hold fixed.  ``repr``
+    would encode float text the same way, but JSON with sorted keys is
+    stable across dict-ordering churn as well."""
+    import hashlib
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, default=repr).encode()
+    ).hexdigest()
+
+
 def _osm_evidence_predicate(icao: str, xplane_root: str):
     """``(predicate, n_buildings)`` over the airport's OSM buildings —
     production's own extractor and predicate builder, not a second one."""
@@ -96,12 +108,25 @@ def _osm_evidence_predicate(icao: str, xplane_root: str):
 
 
 def collect(dsf_path: str, pack_root: str, xplane_root: str | None,
-            icao: str | None, out_dir: Path, prog=None) -> dict:
+            icao: str | None, out_dir: Path, prog=None,
+            count_specs: tuple[str, ...] = ()) -> dict:
     """Read the pack's structures and join the evidence sources.
 
     Returns the raw record: one row per structure, plus the run's guard
     and redirect frame (a population measured on a redirected corpus is
-    not comparable with one that wrote through)."""
+    not comparable with one that wrote through).
+
+    ``count_specs`` (``MODULE:ATTR``) additionally wraps named callables
+    with the call counter + inclusive timer ``profile_airport_build.py
+    --count`` installs — IMPORTED from it, never re-spelled, so a sink
+    number quoted here and one quoted from a profiled build mean the
+    same thing.  Installed AFTER the guard/redirect composition is
+    armed, because importing the engine before that composition is the
+    ordering it exists to prevent.  The reader this tool drives
+    (``read_dsf_object_building_evidence``) is deliberately UNCACHED, so
+    it is the object-partition sink's replay: the same production
+    pooling/weld/contact-graph a cold build runs, measurable in one
+    airport's worth of wall instead of a whole build's."""
     build_mod = _harness_build_module()
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = f"objevid_{os.path.basename(dsf_path).replace('.', '_')}"
@@ -112,9 +137,25 @@ def collect(dsf_path: str, pack_root: str, xplane_root: str | None,
     import auto_patch.pipeline  # noqa: F401  (cycle-safe entry point)
     from auto_patch import dsf_reader, object_footprints
 
+    counters = []
+    if count_specs:
+        _tools = _ROOT / "tools"
+        if str(_tools) not in sys.path:
+            sys.path.insert(0, str(_tools))
+        from profile_airport_build import _install_counters
+        # CPU seconds, not wall: this reader is a single-threaded
+        # CPU-bound sink, and the optimisation lanes share one machine —
+        # a wall total here reports the other lanes' load as this
+        # function's cost.
+        counters = _install_counters(list(count_specs), clock=_time.process_time)
+
+    reader_started = _time.perf_counter()
+    reader_cpu_started = _time.process_time()
     with guard:
         rings, evidence = dsf_reader.read_dsf_object_building_evidence(
             dsf_path, xplane_root=xplane_root)
+        reader_seconds = _time.perf_counter() - reader_started
+        reader_cpu_seconds = _time.process_time() - reader_cpu_started
         osm_predicate = None
         n_osm = None
         if icao:
@@ -178,6 +219,22 @@ def collect(dsf_path: str, pack_root: str, xplane_root: str | None,
         "icao": icao,
         "rings_emitted": len(rings),
         "structures": len(evidence),
+        # THE PARTITION PRODUCT, hashed.  An optimisation of the weld /
+        # contact-graph / narrow-phase machinery is semantics-identical
+        # exactly when these two do not move: the emitted ring set (what
+        # the build consumes) and the per-structure evidence rows (what
+        # the partition decided, refusals included).
+        "rings_sha256": _digest(rings),
+        "rows_sha256": _digest(rows),
+        "reader_seconds": reader_seconds,
+        "reader_cpu_seconds": reader_cpu_seconds,
+        "counted": [
+            {"label": counter.label,
+             "calls": counter.calls,
+             "seconds": counter.seconds,
+             "clock": counter.clock_name}
+            for counter in counters
+        ],
         "osm_building_footprints": n_osm,
         "rows": rows,
         "armed": {
@@ -218,6 +275,19 @@ def render(record: dict, heights: list[float], coverages: list[float],
     print(f"structures considered {record['structures']}   rings emitted "
           f"{record['rings_emitted']}")
     print(f"armed {json.dumps(record['armed'])}")
+    if record.get("rings_sha256"):
+        print(f"rings_sha256 {record['rings_sha256']}")
+        print(f"rows_sha256  {record['rows_sha256']}")
+    if record.get("reader_seconds") is not None:
+        print(f"reader {record['reader_seconds']:.1f} s wall / "
+              f"{record.get('reader_cpu_seconds') or 0:.1f} s CPU "
+              "(uncached partition replay)")
+    if record.get("counted"):
+        clock = (record["counted"][0].get("clock") or "perf_counter")
+        print(f"COUNTED CALLABLES (inclusive, {clock}):")
+        for entry in record["counted"]:
+            print(f"  {entry['seconds']:8.1f} s  {entry['calls']:9d} "
+                  f"call(s)  {entry['label']}")
     print()
 
     print("REFUSAL LEDGER (what each existing gate already catches)")
@@ -334,6 +404,14 @@ def main() -> int:
     parser.add_argument("--coverage-sweep", default="0.002,0.01,0.05,0.1,0.25")
     parser.add_argument("--span-sweep", default="300,500,750,1000")
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--count", action="append", default=[],
+                        metavar="MODULE:ATTR",
+                        help="also report call count + INCLUSIVE seconds "
+                             "for this callable (repeatable) — the counter "
+                             "profile_airport_build.py --count installs, "
+                             "imported from it; the uncached reader this "
+                             "tool drives is the object-partition sink's "
+                             "replay")
     parser.add_argument("--json", default=None)
     parser.add_argument("--from-json", default=None,
                         help="render a previous --json dump; reads no pack, "
@@ -351,7 +429,8 @@ def main() -> int:
             from conftest import xplane_root as _xplane_root
             xplane_root = _xplane_root()
         record = collect(arguments.dsf, arguments.pack_root, xplane_root,
-                         arguments.icao, ARTIFACT_DIR)
+                         arguments.icao, ARTIFACT_DIR,
+                         count_specs=tuple(arguments.count))
         if arguments.json:
             Path(arguments.json).write_text(json.dumps(record, indent=1))
 

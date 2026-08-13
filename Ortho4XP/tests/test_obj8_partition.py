@@ -376,3 +376,171 @@ def test_the_plain_split_wrapper_still_returns_two_values():
     with_edges = obj8_partition.split_oversized_components_with_edges(
         vertices, parts, groups, epsilon_metres=0.25)
     assert plain == with_edges[:2]
+
+
+# ---------------------------------------------------------------------------
+# perf P3 lane G — the prefilter and the shared-geometry layers, twinned
+# against the machinery they replace (a cache or a prefilter that cannot
+# be shown equal to the full scan is a second answer, not a speed-up)
+# ---------------------------------------------------------------------------
+
+def test_far_degenerate_triangle_still_claims_contact():
+    """THE PREFILTER'S EXEMPTION, twinned.
+
+    A triangle with a zero-length edge answers 0.0 — contact — for a
+    point ARBITRARILY far away: the edge branch divides 0/0 and the
+    kernel sanitises the not-a-number to 0.0 (invariant I-20, numerical
+    doubt merges).  That answer is not a function of distance, so the
+    per-pair box prefilter must never drop such a pair; the magnet
+    triangles bypass the filter and see every point.
+
+    The specimen is the 0/0 case exactly, in the only configuration
+    where it can still be reached: the candidate set is filtered against
+    the WHOLE point cloud's box, so the sliver survives that filter here
+    (the cloud straddles it in y) while NEITHER point is within epsilon
+    of the sliver's own box.  The per-pair prefilter would drop both —
+    and with them a contact the historical kernel reports.
+    """
+    from auto_patch.obj8_partition import (
+        _PartGeometry,
+        _point_triangle_minimum_distances,
+        _vertex_to_triangle_proof,
+    )
+    import numpy
+
+    vertex_array = numpy.array(
+        [(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        dtype=numpy.float64,
+    )
+    sliver = _PartGeometry(vertex_array, [(0, 1, 2)])
+    assert sliver.degenerate_triangles.all()
+
+    straddling_points = numpy.array([[0.5, 10.0, 0.0],
+                                     [0.5, -10.0, 0.0]])
+    # What the unfiltered kernel says — the behaviour being preserved.
+    with numpy.errstate(invalid="ignore", divide="ignore"):
+        historical = _point_triangle_minimum_distances(
+            straddling_points,
+            sliver.corner_a, sliver.corner_b, sliver.corner_c)
+    assert historical.min() == 0.0, (
+        "specimen no longer reaches the 0/0 edge branch")
+
+    contact, proved = _vertex_to_triangle_proof(
+        straddling_points, sliver, 0.25)
+    assert proved
+    assert contact, (
+        "a degenerate triangle's merge-on-doubt claim was prefiltered "
+        "away — the prefilter is only exact for proper triangles"
+    )
+
+
+def test_prefilter_agrees_with_the_full_grid_on_proper_triangles():
+    """The prefilter is a lossless restriction, not an approximation:
+    for a proper (non-degenerate) part its verdict must equal the one
+    the unfiltered kernel gives over the whole point x triangle grid, at
+    a separation either side of epsilon."""
+    from auto_patch.obj8_partition import (
+        _PartGeometry,
+        _point_triangle_minimum_distances,
+        _vertex_to_triangle_proof,
+    )
+    import numpy
+
+    vertices: list[tuple[float, float, float]] = []
+    triangles = box_geometry(0.0, 0.0, 0.0, 4.0, vertices)
+    vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    box = _PartGeometry(vertex_array, triangles)
+    assert not box.degenerate_triangles.any()
+
+    for offset in (0.1, 0.2, 0.24, 0.26, 1.0, 25.0):
+        points = numpy.array([[2.0, 4.0 + offset, 2.0],
+                              [50.0, 50.0, 50.0]])
+        contact, proved = _vertex_to_triangle_proof(points, box, 0.25)
+        assert proved
+        with numpy.errstate(invalid="ignore", divide="ignore"):
+            full = _point_triangle_minimum_distances(
+                points, box.corner_a, box.corner_b, box.corner_c)
+        assert contact == bool(full.min() <= 0.25), offset
+
+
+def test_shared_part_geometries_give_the_same_partition():
+    """THE SHARED-GEOMETRY LAYER, twinned.  ``contact_graph`` and
+    ``split_oversized_components_with_edges`` accept a caller's vertex
+    array and part geometries so a partition builds them once instead of
+    three times; they are pure derived data, so both spellings must
+    produce identical results."""
+    import numpy
+
+    vertices, triangles = _oversized_chain()
+    parts = weld_parts(vertices, triangles)
+    vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    geometries = [
+        obj8_partition._PartGeometry(vertex_array, part) for part in parts
+    ]
+
+    own_edges = contact_graph(vertices, parts, epsilon_metres=0.25)
+    shared_edges = contact_graph(
+        vertices, parts, epsilon_metres=0.25,
+        vertex_array=vertex_array, part_geometries=geometries)
+    assert own_edges == shared_edges
+
+    groups = connected_structures(len(parts), own_edges)
+    own_split = obj8_partition.split_oversized_components_with_edges(
+        vertices, parts, groups, epsilon_metres=0.25)
+    shared_split = obj8_partition.split_oversized_components_with_edges(
+        vertices, parts, groups, epsilon_metres=0.25,
+        vertex_array=vertex_array, part_geometries=geometries)
+    assert own_split == shared_split
+
+    # And a SECOND pass over the same geometry objects — whose lazy
+    # caches (k-d tree, cell indexes) are now warm — must still agree:
+    # a warmed cache that changed an answer would be the whole point of
+    # the twin.
+    assert contact_graph(
+        vertices, parts, epsilon_metres=0.25,
+        vertex_array=vertex_array, part_geometries=geometries) == own_edges
+
+
+def test_measured_plan_extents_are_the_measurement_they_replace():
+    """The connector split measures each part's plan extents once and
+    hands them to the glue and linear-connector tests; passing them in
+    must not change either verdict."""
+    import numpy
+
+    vertices, triangles = _oversized_chain()
+    parts = weld_parts(vertices, triangles)
+    vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    for part in parts:
+        extents = obj8_partition.part_plan_extents(vertex_array, part)
+        assert (
+            obj8_partition.part_is_chain_glue(vertex_array, part, extents)
+            == obj8_partition.part_is_chain_glue(vertex_array, part)
+        )
+        assert (
+            obj8_partition.part_is_linear_connector(
+                vertex_array, part, extents)
+            == obj8_partition.part_is_linear_connector(vertex_array, part)
+        )
+
+
+def test_weld_parts_ignores_repeat_sightings_of_one_vertex_index():
+    """The weld pass now visits each distinct vertex INDEX once.  A fan
+    of triangles sharing one apex — the index seen many times — must
+    weld exactly as it did when every sighting was re-rounded."""
+    vertices = [
+        (0.0, 0.0, 0.0),          # apex, shared by every triangle
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (-1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0),
+        # a duplicate POSITION of the apex under a different index
+        (0.0, 0.0, 0.0004),
+        (5.0, 5.0, 5.0),
+        (6.0, 5.0, 5.0),
+    ]
+    triangles = [(0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 1),
+                 (5, 6, 7)]
+    parts = weld_parts(vertices, triangles)
+    assert len(parts) == 1, (
+        "the fan and the position-duplicate apex are one welded part")
+    assert parts[0] == triangles

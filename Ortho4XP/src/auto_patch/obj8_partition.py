@@ -154,12 +154,20 @@ def part_plan_extents(
 
 
 def part_is_linear_connector(
-    vertex_array: "numpy.ndarray", part: list[Triangle]
+    vertex_array: "numpy.ndarray", part: list[Triangle],
+    plan_extents: tuple[float, float] | None = None,
 ) -> bool:
     """A part whose plan footprint is a long thin band — fence, barrier,
     blast wall, light row.  Such parts CHAIN unrelated buildings into
-    unseatable components; they are never themselves buildings."""
-    long_extent, short_extent = part_plan_extents(vertex_array, part)
+    unseatable components; they are never themselves buildings.
+
+    ``plan_extents`` passes in the part's already-measured
+    :func:`part_plan_extents` (the PCA is the same measurement three
+    call sites in the connector split each made for the same part)."""
+    long_extent, short_extent = (
+        plan_extents if plan_extents is not None
+        else part_plan_extents(vertex_array, part)
+    )
     if long_extent < LINEAR_CONNECTOR_MIN_LONG_EXTENT_M:
         return False
     if short_extent > LINEAR_CONNECTOR_MAX_SHORT_EXTENT_M:
@@ -188,17 +196,23 @@ def part_plan_area(
 
 
 def part_is_chain_glue(
-    vertex_array: "numpy.ndarray", part: list[Triangle]
+    vertex_array: "numpy.ndarray", part: list[Triangle],
+    plan_extents: tuple[float, float] | None = None,
 ) -> bool:
     """A part that may glue an oversized chain but is never a building:
     a SMALL part (fence panel, car, light fixture, barrier section), a
     PCA-thin band (straight fence/barrier run), or a SPARSE SNAKE (one
     welded perimeter-fence part ringing the airfield: huge oriented box,
-    negligible plan solidity)."""
-    long_extent, short_extent = part_plan_extents(vertex_array, part)
+    negligible plan solidity).
+
+    ``plan_extents`` passes in the part's already-measured
+    :func:`part_plan_extents`; see :func:`part_is_linear_connector`."""
+    if plan_extents is None:
+        plan_extents = part_plan_extents(vertex_array, part)
+    long_extent, short_extent = plan_extents
     if long_extent < CHAIN_GLUE_MAX_EXTENT_M:
         return True
-    if part_is_linear_connector(vertex_array, part):
+    if part_is_linear_connector(vertex_array, part, plan_extents):
         return True
     oriented_box_area = long_extent * short_extent
     if oriented_box_area > 1e-9:
@@ -231,6 +245,9 @@ def split_oversized_components_with_edges(
     parts: list[list[Triangle]],
     part_index_groups: list[list[int]],
     epsilon_metres: float,
+    *,
+    vertex_array: "numpy.ndarray | None" = None,
+    part_geometries: "list[_PartGeometry] | None" = None,
 ) -> tuple[list[list[int]], int, list[list[tuple[int, int]] | None]]:
     """Re-partition never-seatable oversized components at their linear
     connectors (see the CONNECTOR_SPLIT constants' comment).
@@ -261,7 +278,26 @@ def split_oversized_components_with_edges(
     phase in the seating pass is the budget breach section 7.5 designs
     out.
     """
-    vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    if vertex_array is None:
+        vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    # Plan extents are measured up to three times per part here (the
+    # glue test, the linear-connector test inside it, and the reattach
+    # length gate); the PCA is a pure function of the part, so it is
+    # measured once (perf P3 lane G).
+    plan_extents_by_part: dict[int, tuple[float, float]] = {}
+
+    def extents_of(part_index: int) -> tuple[float, float]:
+        measured = plan_extents_by_part.get(part_index)
+        if measured is None:
+            measured = part_plan_extents(vertex_array, parts[part_index])
+            plan_extents_by_part[part_index] = measured
+        return measured
+
+    def geometry_of(part_index: int) -> _PartGeometry:
+        if part_geometries is not None:
+            return part_geometries[part_index]
+        return _PartGeometry(vertex_array, parts[part_index])
+
     result: list[list[int]] = []
     result_edges: list[list[tuple[int, int]] | None] = []
     split_count = 0
@@ -278,7 +314,8 @@ def split_oversized_components_with_edges(
             continue
         thin_parts = [
             part_index for part_index in group
-            if part_is_chain_glue(vertex_array, parts[part_index])
+            if part_is_chain_glue(vertex_array, parts[part_index],
+                                  extents_of(part_index))
         ]
         if not thin_parts:
             result.append(group)
@@ -291,7 +328,12 @@ def split_oversized_components_with_edges(
             split_count += 1
             continue
         sub_edges = contact_graph(
-            vertices, [parts[index] for index in kept], epsilon_metres)
+            vertices, [parts[index] for index in kept], epsilon_metres,
+            vertex_array=vertex_array,
+            part_geometries=(
+                [part_geometries[index] for index in kept]
+                if part_geometries is not None else None
+            ))
         sub_component_of_kept: dict[int, int] = {}
         sub_groups: list[list[int]] = []
         for sub_index, sub_group in enumerate(
@@ -318,7 +360,7 @@ def split_oversized_components_with_edges(
         # Broad phase vectorised: a mega-chain holds hundreds of thin
         # panels and thousands of member parts.
         geometry_by_part = {
-            part_index: _PartGeometry(vertex_array, parts[part_index])
+            part_index: geometry_of(part_index)
             for part_index in group
         }
         members: list[int] = [
@@ -334,8 +376,7 @@ def split_oversized_components_with_edges(
         member_maximums = numpy.array(
             [geometry_by_part[member].box_maximum for member in members])
         for thin in thin_parts:
-            thin_long_extent, _thin_short = part_plan_extents(
-                vertex_array, parts[thin])
+            thin_long_extent, _thin_short = extents_of(thin)
             if thin_long_extent > CHAIN_GLUE_REATTACH_MAX_EXTENT_M:
                 sub_groups.append([thin])
                 edges_by_sub_group.append([])
@@ -412,14 +453,6 @@ def weld_parts(
     parent: list[int] = []
     local_index_by_vertex: dict[int, int] = {}
 
-    def local_of(index: int) -> int:
-        local = local_index_by_vertex.get(index)
-        if local is None:
-            local = len(parent)
-            local_index_by_vertex[index] = local
-            parent.append(local)
-        return local
-
     def find(node: int) -> int:
         while parent[node] != node:
             parent[node] = parent[parent[node]]
@@ -431,20 +464,31 @@ def weld_parts(
         if left_root != right_root:
             parent[left_root] = right_root
 
+    # Each distinct vertex INDEX is welded once (perf P3 lane G).  The
+    # historical loop rounded and re-welded a vertex once per corner it
+    # appeared at, so a position shared by k triangles paid k times —
+    # and every repeat was a no-op: the second sighting unions the same
+    # local with the same first-local-of-that-key it was already unioned
+    # to.  The keys, the union set and hence the parts are unchanged.
     position_to_vertex: dict[tuple[float, float, float], int] = {}
     for triangle in triangles:
         for index in triangle:
+            if index in local_index_by_vertex:
+                continue
+            local = len(parent)
+            local_index_by_vertex[index] = local
+            parent.append(local)
             vertex = vertices[index]
             key = (
                 round(vertex[0], VERTEX_WELD_DECIMALS),
                 round(vertex[1], VERTEX_WELD_DECIMALS),
                 round(vertex[2], VERTEX_WELD_DECIMALS),
             )
-            local = local_of(index)
-            if key in position_to_vertex:
-                union(local, position_to_vertex[key])
-            else:
+            first_local = position_to_vertex.get(key)
+            if first_local is None:
                 position_to_vertex[key] = local
+            else:
+                union(local, first_local)
 
     for first, second, third in triangles:
         union(local_index_by_vertex[first], local_index_by_vertex[second])
@@ -643,12 +687,59 @@ class _PartGeometry:
         self._triangle_cells: (
             dict[tuple[int, int], numpy.ndarray] | None
         ) = None
+        self._degenerate_triangles: numpy.ndarray | None = None
 
     @property
     def vertex_tree(self) -> cKDTree:
         if self._vertex_tree is None:
             self._vertex_tree = cKDTree(self.points)
         return self._vertex_tree
+
+    @property
+    def degenerate_triangles(self) -> numpy.ndarray:
+        """Per-triangle mask of the CONTACT MAGNETS — triangles for which
+        the distance kernel does not return a true distance.
+
+        The kernel's three edge branches divide by ``|edge_ab|²``,
+        ``|edge_ac|²`` and ``|edge_bc|²`` respectively (the algebra: e.g.
+        ``dot_1 − dot_3 = (b − a)·(b − a)``), so a zero-length edge makes
+        that branch 0/0 = not-a-number, which the kernel then SANITISES
+        to 0.0 — contact — however far the point is.  A zero-area
+        triangle takes the interior branch's ``usable`` guard to the same
+        0.0.  Both are deliberate (invariant I-20: numerical doubt
+        merges, never tears), and both mean the kernel's answer for such
+        a triangle is NOT a function of how near the point is.
+
+        A NON-FINITE corner joins them for the same reason: the kernel's
+        final ``~isfinite`` sweep sanitises whatever a not-a-number
+        coordinate produced to 0.0, while a box comparison against it is
+        simply False — the prefilter would read "far" where the kernel
+        reads "touching".
+
+        A prefilter that drops far pairs is therefore exact only for the
+        triangles this mask excludes; the ones it selects keep every
+        point, so their magnet behaviour is preserved bit-for-bit.
+        Computed once per part, on first use."""
+        if self._degenerate_triangles is None:
+            edge_ab = self.corner_b - self.corner_a
+            edge_ac = self.corner_c - self.corner_a
+            edge_bc = self.corner_c - self.corner_b
+            with numpy.errstate(invalid="ignore"):
+                self._degenerate_triangles = (
+                    (numpy.einsum("tk,tk->t", edge_ab, edge_ab) <= 0.0)
+                    | (numpy.einsum("tk,tk->t", edge_ac, edge_ac) <= 0.0)
+                    | (numpy.einsum("tk,tk->t", edge_bc, edge_bc) <= 0.0)
+                    | (
+                        numpy.linalg.norm(
+                            numpy.cross(edge_ab, edge_ac), axis=1
+                        )
+                        <= 1e-12
+                    )
+                    | ~numpy.isfinite(self.corner_a).all(axis=1)
+                    | ~numpy.isfinite(self.corner_b).all(axis=1)
+                    | ~numpy.isfinite(self.corner_c).all(axis=1)
+                )
+        return self._degenerate_triangles
 
     @staticmethod
     def _cell_range(
@@ -823,21 +914,74 @@ def _vertex_to_triangle_proof(
         NARROW_PHASE_POINT_TRIANGLE_BUDGET
     ):
         return False, False
-    # One batched call over every candidate triangle: the budget above
-    # caps the (point, triangle) broadcast at ~400k pairs, so the whole
-    # test runs in C instead of a Python loop per triangle (the loop was
-    # the cold-build hot spot, 2026-07-15 profile).
-    # errstate: a degenerate edge divides 0/0 inside; the function
-    # sanitises the resulting not-a-number to 0.0 (contact), so the
-    # warning is noise.
-    with numpy.errstate(invalid="ignore", divide="ignore"):
-        distances = _point_triangle_minimum_distances(
-            points,
-            other.corner_a[candidate_triangles],
-            other.corner_b[candidate_triangles],
-            other.corner_c[candidate_triangles],
-        )
-    return bool(distances.min() <= epsilon_metres), True
+    # PER-PAIR BOX PREFILTER (perf P3 lane G).  The candidate set above
+    # is filtered against the WHOLE point cloud's box, so a part sitting
+    # beside another still hands the kernel the full P x T grid even
+    # though epsilon is 0.25 m and almost every pair in it is metres
+    # apart.  A point within epsilon of a triangle necessarily lies
+    # inside that triangle's own box inflated by epsilon (box gap never
+    # exceeds surface gap), so a pair failing that test cannot lower the
+    # minimum below epsilon — and the minimum is the ONLY thing read
+    # here.  Dropping such pairs is therefore exact, not approximate:
+    # every retained pair's kernel value is unchanged (the kernel is
+    # elementwise over the grid, so a pair's result never depends on
+    # which other pairs share the batch).
+    #
+    # EXCEPT for the degenerate triangles, whose kernel answer is 0.0
+    # regardless of distance (see ``degenerate_triangles``): they keep
+    # every point and go to the kernel as a second, unfiltered batch, so
+    # the merge-on-doubt behaviour invariant I-20 relies on is preserved
+    # bit-for-bit.  The BUDGET decision above is deliberately made on the
+    # UNFILTERED sizes — a pair that used to exhaust the budget kept its
+    # edge, and prefiltering first could prove it apart instead.
+    degenerate = other.degenerate_triangles[candidate_triangles]
+    proper_triangles = candidate_triangles[~degenerate]
+    magnet_triangles = candidate_triangles[degenerate]
+
+    minimum_distance = numpy.inf
+    if len(proper_triangles):
+        near = (
+            (
+                points[:, None, :]
+                >= other.triangle_minimum[proper_triangles][None, :, :]
+                - epsilon_metres
+            )
+            & (
+                points[:, None, :]
+                <= other.triangle_maximum[proper_triangles][None, :, :]
+                + epsilon_metres
+            )
+        ).all(axis=2)
+        near_points = near.any(axis=1)
+        if near_points.any():
+            proper_triangles = proper_triangles[near.any(axis=0)]
+            near_point_positions = points[near_points]
+            # One batched call over every surviving candidate triangle:
+            # the budget above caps the (point, triangle) broadcast at
+            # ~400k pairs, so the whole test runs in C instead of a
+            # Python loop per triangle (the loop was the cold-build hot
+            # spot, 2026-07-15 profile).
+            # errstate: a degenerate edge divides 0/0 inside; the
+            # function sanitises the resulting not-a-number to 0.0
+            # (contact), so the warning is noise.
+            with numpy.errstate(invalid="ignore", divide="ignore"):
+                distances = _point_triangle_minimum_distances(
+                    near_point_positions,
+                    other.corner_a[proper_triangles],
+                    other.corner_b[proper_triangles],
+                    other.corner_c[proper_triangles],
+                )
+            minimum_distance = min(minimum_distance, distances.min())
+    if len(magnet_triangles):
+        with numpy.errstate(invalid="ignore", divide="ignore"):
+            distances = _point_triangle_minimum_distances(
+                points,
+                other.corner_a[magnet_triangles],
+                other.corner_b[magnet_triangles],
+                other.corner_c[magnet_triangles],
+            )
+        minimum_distance = min(minimum_distance, distances.min())
+    return bool(minimum_distance <= epsilon_metres), True
 
 
 def _surfaces_in_contact(
@@ -933,6 +1077,9 @@ def contact_graph(
     vertices: list[tuple[float, float, float]],
     parts: list[list[Triangle]],
     epsilon_metres: float,
+    *,
+    vertex_array: "numpy.ndarray | None" = None,
+    part_geometries: "list[_PartGeometry] | None" = None,
 ) -> set[tuple[int, int]]:
     """Return a CONNECTIVITY-EQUIVALENT set of in-contact part-index
     pairs: every returned edge is a true surface contact within
@@ -956,9 +1103,23 @@ def contact_graph(
 
     Uses the 3D box, not the prototype's 2D box: the 2D box merges a
     jetbridge at y = 6 m with the shed beneath it.
-    """
-    vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
-    part_geometries = [_PartGeometry(vertex_array, part) for part in parts]
+
+    ``vertex_array`` / ``part_geometries`` let a caller that already
+    holds them pass them in (perf P3 lane G).  A partition runs this
+    machinery over the SAME parts three times — here, again inside the
+    connector split's re-derivation, and again for the split's
+    reattachment broad phase — and each pass was rebuilding the pool
+    vertex array (a Python list of ~8 M tuples for the HECA pool) and
+    every part's cached corner arrays, boxes, k-d tree and cell indexes
+    from scratch.  They are pure derived data, so sharing them is
+    invisible in the result and only the LAZY caches survive between
+    passes.  Both default to None, so every existing caller is
+    unchanged."""
+    if vertex_array is None:
+        vertex_array = numpy.asarray(vertices, dtype=numpy.float64)
+    if part_geometries is None:
+        part_geometries = [_PartGeometry(vertex_array, part)
+                           for part in parts]
     edges: set[tuple[int, int]] = set()
 
     parent = list(range(len(part_geometries)))

@@ -146,10 +146,23 @@ class CallCounter:
     Reentrancy is tracked with a depth counter so a recursive or
     mutually-nested target is not double-counted into its own inclusive
     total (the outermost activation owns the interval).
+
+    ``clock`` selects what "seconds" means.  The default is
+    ``time.perf_counter`` — WALL time, which is what a build's own
+    numbers are and what the sampler's attribution is measured against.
+    A caller measuring a CPU-bound sink while other lanes hold the same
+    machine passes ``time.process_time`` instead: this process's own CPU
+    seconds, which do not move when someone else's build lands on the
+    other cores (measured 2026-08-13: load average 32 moved a
+    ``contact_graph`` wall total by 65 % between two identical arms).
+    The clock is recorded on the counter so a report can never present
+    one as the other.
     """
 
-    def __init__(self, label):
+    def __init__(self, label, clock=None):
         self.label = label
+        self.clock = clock or time.perf_counter
+        self.clock_name = getattr(self.clock, "__name__", "perf_counter")
         self.calls = 0
         self.seconds = 0.0
         self._depth = 0
@@ -160,18 +173,18 @@ class CallCounter:
             if self._depth:
                 return fn(*a, **kw)
             self._depth = 1
-            t0 = time.perf_counter()
+            t0 = self.clock()
             try:
                 return fn(*a, **kw)
             finally:
                 self._depth = 0
-                self.seconds += time.perf_counter() - t0
+                self.seconds += self.clock() - t0
         wrapper.__name__ = getattr(fn, "__name__", self.label)
         wrapper.__wrapped__ = fn
         return wrapper
 
 
-def _install_counters(specs):
+def _install_counters(specs, clock=None):
     """Wrap each ``MODULE:ATTR`` spec; return the counters (install order)."""
     import importlib
     counters = []
@@ -181,7 +194,7 @@ def _install_counters(specs):
             raise SystemExit(f"--count wants MODULE:ATTR, got {spec!r}")
         module = importlib.import_module(mod_name)
         target = getattr(module, attr)
-        counter = CallCounter(spec)
+        counter = CallCounter(spec, clock=clock)
         setattr(module, attr, counter.wrap(target))
         counters.append(counter)
     return counters

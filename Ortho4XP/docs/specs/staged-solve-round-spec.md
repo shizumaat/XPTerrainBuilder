@@ -90,7 +90,13 @@ groundside variables; stage B consumes stage-A output read-only.
 Step 1 is attribution: enumerate every coupling by which corridor/rim/
 absorption variables currently reach airside rows (the solver
 dependency register from the corridor round is the starting
-instrument). Acceptance arm (HECA replay): airside rows byte-equal to
+instrument). S1 also owns the REPETITION architecture question (owner
+2026-08-13, the single-pass principle made executable for the solve):
+the solve builds its unified graph SIX times and runs five seed
+passes per run — restaging must state which constructions are
+inherently per-stage and collapse the rest to build-once-read-many;
+the dupcensus instrument's per-build duplicate table is the measure
+that adjudicates it. Acceptance arm (HECA replay): airside rows byte-equal to
 the PRE-CORRIDOR airside state on unchanged rings — the +130 rows
 return, apron −11906 worst returns ≤0.86 m, the 1.21 m seam tear
 gone; every remaining delta row-attributed. CYXY control replay.

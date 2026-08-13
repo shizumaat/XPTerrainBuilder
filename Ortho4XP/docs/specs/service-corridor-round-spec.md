@@ -135,3 +135,37 @@ Relief-round items (mega-apron -10629's 15.89 m spread; groundside
 grade-to-DEM beyond corridor free ends); the #11 band remedy; taxiway
 rod-chain law changes; KCLT tunnel portal machinery (R14 claim law
 untouched — corridors mint plain road pavement per R20-2's clause).
+
+## AMENDMENT 1 (Fable lead, 2026-08-12b, after the +252 attribution)
+
+The attribution is accepted: carrier = `relevel_pads_to_host_pavement`'s
+LIP LIFT writing airside-role ring vertices (apron node value == pad
+seat, verified at the top site), amplified by the discontinuous
+`PAD_HOST_LEVEL_TRIGGER_M` jump (0.16 m upstream shift → +0.82 m seat
+move); reach-band channel minority (−65); scorer ruled out.
+
+RULED (under standing "airside is king" law, which outranks the
+2026-07-10 pad-host ruling's lip behavior):
+
+1. **An airside vertex never carries a pad-authored value.** The lip
+   reconciliation becomes pad-side-only: the pad adopts FROM the host;
+   no vertex of an airside-role ring is written by the pad pass. (When
+   the pad fully adopts the host level the lip is equal by construction
+   — nothing is lost at the #16 named sites; twin-assert building114's
+   class still lands.)
+2. **Adoption becomes continuous in the host-pad delta.** C0 at
+   `PAD_HOST_LEVEL_TRIGGER_M`, full adoption at 2× the trigger (reuse
+   the trigger as the ramp width — NO new constant). A sub-decimetre
+   upstream change may no longer teleport a seat.
+3. The band-population exclusion (the −65 channel) is NOT implemented
+   now — re-measure after 1+2; if the airside residue vs control
+   exceeds the churn a redistribution of already-over-cap chords
+   explains, the exclusion is attempt 2.
+
+Acceptance addendum: re-run the HECA single-tree pair (control vs full
+arm) — airside adjudicated delta returns to ≈0 (explained residue only,
+quoted row-by-row if nonzero); the KCLT/CYXY acceptance claims from the
+main spec must survive unchanged; the #16 pad twins
+(test_pad_host_pavement_level.py) stay green — building114's full
+adoption is the guard that rule 1 did not break lawful adoption.
+Attempt cap 2 from here.

@@ -1323,7 +1323,37 @@ def groundside_route_band(layout):
         if not nodes:
             return None
         ctx = _GG.build_context(layout, b2i)
-        G = _GG.build_unified_graph(layout, b2i, ctx=ctx)
+        # WITHIN-SHAPE EDGES ARE DEAD WORK FOR THIS PROBE, and the proof
+        # ``build_unified_graph`` demands for ``skip_edge_shape_ids``
+        # ("never as an optimisation on faith") is a READING one, not a
+        # numerical one — nothing downstream of this call ever looks at the
+        # set being skipped:
+        #   1. the graph's only consumers here are ``groundside_reach_band``
+        #      and ``_service_edge_counterfactual``, and neither reads
+        #      ``G.edges`` / ``G.edge_family``: the whole band path
+        #      (building_feasibility, raster_reach_band) reads ``G.pos``,
+        #      ``G.spine_adj``, ``G.runway_anchor`` and
+        #      ``G.service_spine_pairs`` and nothing else;
+        #   2. POSITIONS STAY REGISTERED — the skip is tested AFTER
+        #      ``G.pos[i] = ring[p]`` — so the global spine still strings
+        #      across every shape and the band keeps its connectivity, which
+        #      is the guarantee the parameter's own docstring makes;
+        #   3. the spine and runway-anchor stages (``_build_global_spine``,
+        #      ``_runway_anchors``) read ``G.pos`` only, so ``spine_adj``
+        #      and the anchors are the full graph's;
+        #   4. the one side effect skipped is the per-shape
+        #      ``layout._lockstep_shape_bake`` export, whose ONLY consumers
+        #      (``verification.lockstep_pair_caps_ll`` via solve.py, and
+        #      ``grade_graph_validate.within_violations`` via
+        #      ``elevation._report_within_shape_violations``, pipeline.py
+        #      step [5]'s last statement) have both run by the time this
+        #      phase-[6] probe is reached — so the store this probe used to
+        #      overwrite with post-solve bakes is never read again.
+        # Measured at HECA: the skipped pair generation is ~9 s of this
+        # probe's ~20 s, and the emitted patch is byte-identical.
+        G = _GG.build_unified_graph(
+            layout, b2i, ctx=ctx,
+            skip_edge_shape_ids={id(s) for s in layout.shapes})
         band = groundside_reach_band(layout, G)
         if band is not None:
             UI.vprint(1, f"  [groundside-band] route-graph band: "
@@ -1983,6 +2013,19 @@ def _regrade_merged_host(host, _dem_at) -> Optional[float]:
     return worst
 
 
+# MEASURED AND REJECTED (perf P3 lane F, HECA 2026-08-13).  A component
+# BBOX PREFILTER over ``pav_union`` — STRtree over its own disjoint
+# components, only the ones whose envelope meets the 120 m probe's handed
+# to ``intersection`` — was built, twinned output-inert and proved
+# byte-identical at HECA, and it bought **0.5 s of 26.2 s across 39,663
+# stations**.  It is not the union's COMPONENT COUNT that costs here, so
+# splitting the union by component buys nothing; the cost is one overlay
+# per station against a pavement body the probe mostly does not touch.
+# The next lever at this site is therefore a per-line (or per-run) CLIP
+# of the union to the band the probe can reach — which inserts vertices
+# on the clip boundary and so is NOT float-free, and must be gated on the
+# frozen body hash rather than argued.  Recorded rather than left for the
+# next lane to rediscover.
 def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
     """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
     service centerline — the ONE measurement both the narrow-strip carve

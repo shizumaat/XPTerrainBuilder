@@ -420,6 +420,25 @@ def build_global_slice_faces(
         _cl_union = unary_union(_live_cl) if _live_cl else None
     except Exception:
         _cl_union = None
+    # ``_piece.buffer(0.05)`` is INVARIANT per piece — it depends on nothing
+    # the hole walk changes — but the containment test below runs up to twice
+    # per TARGET per HOLE, so the un-hoisted form re-buffered the same
+    # (often thousand-vertex, many-holed) polygon once per candidate spur.
+    # Hoisted into a per-piece memo keyed on the piece's identity: the SAME
+    # geometry object reaches ``covers``, so every decision is bit-identical.
+    # The memo holds the PIECE as well as its buffer — ``pav.geoms`` mints a
+    # fresh Python wrapper per access, so a memo keyed on ``id()`` alone
+    # could hand a dead piece's buffer to a new one that reused its address.
+    _piece_buf_memo: dict[int, tuple] = {}
+
+    def _piece_cover_buf(_piece):
+        _key = id(_piece)
+        _hit = _piece_buf_memo.get(_key)
+        if _hit is None:
+            _hit = (_piece, _piece.buffer(0.05))
+            _piece_buf_memo[_key] = _hit
+        return _hit[1]
+
     def _hole_spur(_hole_ls, _from_pt, _piece):
         """Shortest in-pavement connection from ``_from_pt`` (on the hole
         ring) to the nearest spine line, else the piece exterior."""
@@ -434,7 +453,7 @@ def build_global_slice_faces(
                 return False                      # already touches/noded
             _cand = LineString([(_from_pt.x, _from_pt.y), (_b.x, _b.y)])
             try:
-                if _piece.buffer(0.05).covers(_cand):
+                if _piece_cover_buf(_piece).covers(_cand):
                     return _cand
             except Exception:
                 continue

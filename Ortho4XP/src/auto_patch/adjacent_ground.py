@@ -4965,6 +4965,23 @@ def _build_construct_reach_band(layout):
     solve performs after this point, so the construct deliberately keeps its
     own (pre-flex) band — a valid bound on the solved value regardless (flex
     only tightens the reachable interval).
+
+    MEASURED AND REJECTED (perf P3 lane F, 2026-08-13): sharing this band
+    with the OTHER pre-solve band —
+    ``route_profile.apron_terrace.presolve_anchor_envelope``, three
+    statements earlier — through a fingerprint-guarded memo.  The premise
+    was that the panelizer usually splits nothing (HECA declares ZERO
+    joints), so the second graph would be the first graph.  It is not:
+    ``gap_fill.construct_gap_fill_presolve`` runs BETWEEN the two slots and
+    its spine vertices ARE admitted to ``_build_node_list``, so the node
+    space, the building-key set and the gap-fill store all move and the two
+    builds are two DIFFERENT graphs.  A memo (built, twinned on 24 guard
+    inputs, byte-identical at HECA) missed 100 % of the time and was
+    reverted.  The duplication here is real work, not repeated work; the
+    lever on ``grade_graph.shape_constraints`` — 108.6 s over 14,465
+    computations in six graph builds per HECA solve, because its per-shape
+    memo lives on the CONTEXT and every build gets a fresh one — is inside
+    ``grade_graph`` itself, not in this caller.
     """
     try:
         from .elevation_per_surface.solver_primitives import _build_node_list

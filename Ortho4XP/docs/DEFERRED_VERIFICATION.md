@@ -270,3 +270,30 @@ pipeline-refactor follow-up for the lead.
   (c) THE P1 TILE PROFILE'S PREMISES WERE BOTH WRONG and are corrected in the report, not in code: it was taken on a NON-PRODUCTION per-tile cfg (`road_level=1`, `mask_zl=14` against the owner's `road_level=auto`, `mask_zl=16`; 26.5 MB `.node` against production's 42.8 MB) and with auto_patch absent. The canonical `+35-081` tile cfg now exists in the MAIN tree, byte-copied from the owner's own app build; it is an untracked product path and is NOT in this commit.
   (d) `tools/profile_tile_build.py` DID NOT ARM THE SHARED-REPO GUARD before this lane; it does now, and the whole-tile `--steps imagery` path is what the hole was for (the first `--tile` arm here had 765 `Orthophotos/+30-090/+35-081` writes blocked). The guard extension has NO twin of its own — it is exercised by this lane's eight measured runs, every one of which reported the repo UNCHANGED. One earlier probe run reported ONE `Airport_mod_cache/...HECA.../o4_object_terrain_classification_+30+031.cache` modification with `guard.blocked` EMPTY: a CONCURRENT lane's HECA build inside this run's snapshot window (+30+031 is not this tile), the documented cross-attribution, not a write by this run.
   (e) MEASURED AND REJECTED, recorded so nobody re-pays for them: a direct-ctypes `Index_InsertData`/`Index_DeleteData` override (interleaved microbench, medians: stock insert 16.42 us vs 16.48 us direct — libspatialindex's own tree work is the cost, the wrapper is noise) and any change to `are_encroached`'s LAPACK calls (`det`/`solve`) or to numpy-float64 node keys (`round(np.float64, 9)` uses numpy's multiply-rint-divide, `round(float, 9)` uses correct decimal rounding — a float-semantics change, STOPPED per the spec's pre-delegated rule). `write_node_file`, `write_poly_file` and `snap_to_grid` came in UNDER the 2 s materiality floor (-0.24 / -0.10 / -0.6 s) and are landed only because they were already written and twinned.
+
+## 2026-08-13 — perf P3 wave 2 lane F (presolve/groundside + global slice)
+
+Landed: `pavement/global_slice.py` per-piece `buffer(0.05)` hoist in the
+hole-keyhole walk; `groundside.groundside_route_band` builds its probe
+graph with `skip_edge_shape_ids` (within-shape pair generation is dead
+work there, proof in-code); `adjacent_ground._build_construct_reach_band`
+docstring records a measured-and-rejected band-sharing memo.
+
+Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
+- No exclusive `check_build_time.py --runs N` arm — the spec moves wall
+  adjudication to P4 on the merged tree. Lane quotes replay-to-replay and
+  `--count` deltas only.
+- Phase-4 `--count` arms were run as a MATCHED CONCURRENT PAIR (control
+  worktree at `020cdae` vs lane) rather than serially/exclusively; the
+  delta is quoted, never the absolute wall.
+- No full pytest suite, no blast-radius suite: only the test files
+  directly covering the change, once, through the run ledger
+  (`test_one_graph_groundside`, `test_service_band_instruments`,
+  `test_band_reports_instrument`, `test_free_road_scoping`,
+  `test_global_slice_hole_keyholes` — 63 passed).
+- No census of the acceptance patches: acceptance here is BODY-HASH
+  IDENTITY to the frozen 1.0.245 manifest (HECA `f562cbfeb8f9`, CYXY
+  `61efa43c3aeb`, on both a full build and a solve replay each), which is
+  strictly stronger than a census match.
+- Only HECA + CYXY were exercised; KCLT / OTHH / KSTJ identity is
+  unverified for this lane.

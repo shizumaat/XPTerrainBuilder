@@ -56,6 +56,21 @@ from auto_patch.grade_law import (
 # modes.  Programming errors propagate so they surface immediately.
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
+# ── nearest-hard backfill search bounds (perf P3 lane H) ─────────────
+# NONE OF THESE IS A LAW NUMBER.  They select which of two BIT-IDENTICAL
+# paths runs and how much memory the selection may use; no emitted value
+# depends on them (see :func:`nearest_hard_candidates`).
+#   * SLACK is a rounding envelope, not a distance tolerance: the
+#     candidate scan's ``a * a`` and the winner loop's ``a ** 2`` differ
+#     by under an ulp, and 1e-9 relative is ~4.5 million ulps of margin
+#     over that.  Larger only costs candidates; it can never lose one.
+#   * MIN_SCAN is the dispatch-cost floor — below it, building the numpy
+#     arrays costs more than the scan they would save.
+#   * BLOCK caps the (soft x hard) distance block at a few tens of MB.
+_NEAREST_HARD_ULP_SLACK = 1e-9
+_NEAREST_HARD_MIN_SCAN = 64
+_NEAREST_HARD_BLOCK = 512
+
 # Roles whose ring-node contact lets a spineless neighbour INHERIT a grade
 # cap (grade_graph cap inheritance: a junction sharing ring nodes with a
 # service road inherits the 4 % road cap).  This is the surviving slice of
@@ -2677,6 +2692,76 @@ def _build_tunnel_road_pins(layout, bucket_to_idx, elev, is_hard, intern):
     return pins
 
 
+def nearest_hard_candidates(nodes, soft_idx, hard_pts):
+    """Which hard points can win ``_seed_elevations``' nearest-hard backfill.
+
+    Returns one ASCENDING list of ``hard_pts`` indices per entry of
+    ``soft_idx``: a SUPERSET of the exact winners, so the caller's own
+    unchanged ``(hx - x) ** 2 + (hy - y) ** 2`` loop, run over the list
+    in index order, picks the same first strict minimum it picked over
+    the whole array.
+
+    WHY THE DISTANCE IS NOT COMPUTED HERE.  The obvious version of this
+    optimisation — do the whole argmin in numpy — is WRONG under this
+    phase's byte-identity gate, and quietly so.  Python's ``a ** 2`` is
+    ``libm``'s ``pow(a, 2.0)``; numpy's is ``a * a``.  Measured on this
+    machine: 2 744 of 2 000 000 random doubles in ±1e6 disagree in the
+    last ulp.  A 1-ulp move in ``d2`` can flip which hard point wins a
+    near-tie, which moves a seed elevation, which moves emitted bytes.
+    So numpy is used ONLY to bound the search, and every surviving
+    distance is still computed by the original expression.
+
+    THE BOUND.  ``dx`` and ``dy`` are the same subtractions in both
+    versions; only the squares and their sum may differ, each by well
+    under one ulp, so the exact ``d2`` of any point lies within a
+    relative ``_NEAREST_HARD_ULP_SLACK`` of the fast one.  Anything whose
+    fast distance exceeds ``min_fast * (1 + slack)`` therefore cannot be
+    the exact minimum and is dropped; ties and everything inside the
+    slack are kept.  Non-finite coordinates, an empty hard set, or no
+    numpy at all fall back to "every hard point is a candidate" — the
+    original scan, unchanged.
+    """
+    n_hard = len(hard_pts)
+    if not soft_idx:
+        return []
+    _all = tuple(range(n_hard))
+    if n_hard <= _NEAREST_HARD_MIN_SCAN:
+        return [_all] * len(soft_idx)
+    try:
+        import numpy as _np
+    except ImportError:                                  # pragma: no cover
+        return [_all] * len(soft_idx)
+
+    hx = _np.fromiter((p[0] for p in hard_pts), dtype=_np.float64,
+                      count=n_hard)
+    hy = _np.fromiter((p[1] for p in hard_pts), dtype=_np.float64,
+                      count=n_hard)
+    sx = _np.fromiter((nodes[i][0] for i in soft_idx), dtype=_np.float64,
+                      count=len(soft_idx))
+    sy = _np.fromiter((nodes[i][1] for i in soft_idx), dtype=_np.float64,
+                      count=len(soft_idx))
+    if not (_np.isfinite(hx).all() and _np.isfinite(hy).all()
+            and _np.isfinite(sx).all() and _np.isfinite(sy).all()):
+        return [_all] * len(soft_idx)
+
+    out: list = []
+    for start in range(0, len(soft_idx), _NEAREST_HARD_BLOCK):
+        stop = min(start + _NEAREST_HARD_BLOCK, len(soft_idx))
+        dx = hx[None, :] - sx[start:stop, None]
+        dy = hy[None, :] - sy[start:stop, None]
+        d2 = dx * dx + dy * dy
+        thresh = d2.min(axis=1) * (1.0 + _NEAREST_HARD_ULP_SLACK)
+        keep = d2 <= thresh[:, None]
+        rows, cols = _np.nonzero(keep)
+        # ``nonzero`` walks row-major, so each row's columns come out
+        # ascending — the caller needs exactly that order.
+        bounds = _np.searchsorted(rows, _np.arange(stop - start + 1))
+        cols_l = cols.tolist()
+        for r in range(stop - start):
+            out.append(tuple(cols_l[bounds[r]:bounds[r + 1]]) or _all)
+    return out
+
+
 def _seed_elevations(layout, nodes, bucket_to_idx,
                      dem=None, tile_lat: int = 0, tile_lon: int = 0,
                      *, readonly: bool = False):
@@ -3465,13 +3550,19 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     if any(not h for h in have_initial):
         hard_pts = [(nodes[i][0], nodes[i][1], elev[i])
                     for i in range(n) if is_hard[i]]
-        for i in range(n):
-            if have_initial[i]:
-                continue
+        soft_idx = [i for i in range(n) if not have_initial[i]]
+        # The full O(soft x hard) scan below is unchanged — it just runs
+        # over a PRE-SELECTED superset of the winners instead of every
+        # hard point (see :func:`nearest_hard_candidates` for why the
+        # selection cannot drop the winner, and why the distance itself
+        # is still computed by this loop and not by numpy).
+        cand = nearest_hard_candidates(nodes, soft_idx, hard_pts)
+        for _s, i in enumerate(soft_idx):
             x, y = nodes[i]
             best_d2 = float("inf")
             best_e = 0.0
-            for hx, hy, he in hard_pts:
+            for _h in cand[_s]:
+                hx, hy, he = hard_pts[_h]
                 d2 = (hx - x) ** 2 + (hy - y) ** 2
                 if d2 < best_d2:
                     best_d2 = d2

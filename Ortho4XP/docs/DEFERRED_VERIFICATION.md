@@ -104,3 +104,75 @@ changed.
   (d) `_column_last_write_mask` is built per colour per call (one stable argsort of each repeated endpoint column). Its cost is inside the measured arms but was never isolated; on a graph whose colours are almost all repeated it would be paid on every call.
   (e) The negative-zero gate's INVARIANT half (a field free of -0.0 stays free of it under `a ± b`) is argued from IEEE-754 round-to-nearest and twinned only by a fixture that SEEDS -0.0 and checks both paths agree; no test drives z to a -0.0 mid-sweep, because the argument says it cannot happen.
   (f) `tools/profile_airport_build.py --replay` has no twin: it is exercised by the three profile runs this lane took. Its INDEX row now carries the GIL-scheduling caveat this lane measured the hard way — the sampler priced the box-clamp gather at 6.0 s where `perf_counter` priced it at 0.31 s, a 20x mis-attribution that would have sent the lane at the wrong line. LANE D EDITED THE SAME TOOL ON ITS OWN BRANCH (a `--count` option): the lead resolves that conflict at merge.
+
+## perf P3 wave 2 lane H (lane/perfsolveH, 2026-08-13)
+
+Optimisation-only lane: `_apply_runway_flex_hook`'s value envelope,
+`one_profile_solve`'s Gauss-Seidel neighbour pass, and
+`_seed_elevations`' nearest-hard backfill.  Every change is a
+semantics-identical transformation; acceptance is the perf phase's
+byte-identity gate and it PASSED — HECA and CYXY solve-stage replays
+reproduce `baselines/1.0.245/MANIFEST.txt` exactly (`f562cbfeb8f9`
+3887 shapes, `61efa43c3aeb` 462 shapes), and a clean-tree control
+replay at the branch point (020cdae) reproduced the same HECA hash.
+
+`--count` wrapper timers, HECA replay (baseline = same tree pre-edit,
+except `one_profile_solve` whose baseline is the 020cdae control):
+`_apply_runway_flex_hook` 44.2 -> 14.7 s (1 call; the promoted
+`_flex_value_envelope` is 10.7 s of that over 72 calls),
+`one_profile_solve` 40.4 -> 29.6 s, `_seed_elevations` 13.2 -> 1.5 s
+(4 calls; `nearest_hard_candidates` 0.8 s of that).  Replay walls
+424.3 / 437.1 -> 340.2 s.
+
+DEFERRED / UNPAID:
+
+(a) EVERY NUMBER ABOVE WAS TAKEN UNDER CONCURRENT LANE LOAD (lanes E,
+    F, G and this lane's own capture build were on the machine; load
+    average 10-23 through the window).  The wall figures are therefore
+    NOT adjudicable: the control arm's `final_grade_projection` read
+    78.2 s against the same tree's 44.3 s an hour earlier, which is the
+    size of the distortion.  The defensible claim is the SUM OF THE
+    THREE ATTRIBUTED SINK DELTAS, -52 s; the replay-to-replay -84 to
+    -97 s is a contaminated read.  P4 owns the exclusive wall.
+(b) `final_grade_projection` (spec site, 44.9 s) is NOT separately
+    optimised.  Its own self time is below the sampler's floor — the
+    44.0-44.3 s is its callees: `_seed_elevations` (paid here),
+    `_build_shape_constraints` / `_grade_graph_edges` (24.1 / 22.5 s,
+    lane F's presolve neighbours), `build_unified_graph` and
+    `shape_constraints` (lane D, merged) and `_project_chromatic`
+    (lane C, merged).  Reported as a decomposition, not a saving.
+(c) `blast.py` names 67 test files across the three edited modules; all
+    67 plus the new twin file ran ONCE through the run ledger (1292
+    passed, 5 xfailed, 79 of them new twins).  Two failures —
+    `test_r17_band_clamp_last_author.py::...test_no_elevation_author_
+    runs_after_the_seal` and `test_single_graph_acceptance.py::
+    test_solver_validator_same_edge_budgets@CYXY` — were reproduced on
+    the CLEAN 020cdae control tree and are PRE-EXISTING.  No full
+    suite, no blast sweep of the 33/43/48 importers.
+(d) No KCLT / OTHH / KSTJ replay or build, no `--tile` arm, no census
+    on any arm (byte-identity to the frozen baseline is the stronger
+    gate and it passed at both captured airports).
+(e) The dominated-push suppression in `_flex_value_envelope` is argued
+    from heap ordering (`_tie` is monotone, so an equal-key push can
+    never win a node) and twinned against the unsuppressed Dijkstra on
+    random graphs incl. zero budgets and `-0.0` seeds.  It is NOT
+    twinned on HECA's real adjacency — no dump of that graph exists.
+(f) `nearest_hard_candidates` bounds the search with numpy `a * a` and
+    lets the caller's original `a ** 2` decide the winner, because the
+    two DISAGREE: measured on this machine, 2 744 of 2 000 000 random
+    doubles in +/-1e6 differ in the last ulp between Python's
+    `pow(a, 2.0)` and `a * a`.  The 1e-9 relative slack is argued
+    (~4.5 M ulps of margin), never swept — a pathological input where
+    the true winner sits outside it is unconstructed, and the fallback
+    for non-finite coordinates is exercised only by the twin.
+(g) CPython's `sum()` runs NEUMAIER COMPENSATED summation on floats.
+    The first cut of the merged neighbour pass replaced the plain-mean
+    `sum(...)` with a running accumulator and changed `pm` on 9 of 25
+    random neighbour lists; the twin caught it before any replay.  The
+    landed version gathers and still calls `sum`, so the compensation
+    is unchanged — but nothing outside this lane's twin pins that
+    property of the interpreter.
+(h) `canonical_points._find_nearest` (3.5 s leaf at HECA) has an exact
+    zero-distance early exit available and was NOT taken: the file is
+    outside this lane's scope and other wave-2 lanes are editing it.
+    Recorded as an opportunity, unmeasured.

@@ -4851,38 +4851,85 @@ def one_profile_solve(
         if len(members) > 1:
             groups.append(members)
 
+    # ── THE SWEEP PLAN (perf P3 lane H) ───────────────────────────────
+    # The Gauss-Seidel body below is the solve's hottest pure-Python loop
+    # (P1 HECA: ~25 s of ``one_profile_solve`` SELF time on four lines).
+    # Everything it re-derived per node PER SWEEP is loop-invariant:
+    # ``wspine.get(i)`` / ``wadj[i]`` select the SAME neighbour list every
+    # sweep, ``sum(w)`` over that list is the same sum in the same order,
+    # ``len(lst)`` is the same length, and ``floor``/``ceil`` are not
+    # written anywhere inside the sweep.  Derive them ONCE, in ``free``
+    # order, so the Gauss-Seidel visit order — which IS part of the
+    # answer — is byte-for-byte the order it was.
+    #
+    # BIT-EXACTNESS, the only thing that matters here:
+    #   * ``sw`` accumulates the same ``w`` values in the same list order,
+    #     just earlier, so it is the same double.
+    #   * the three passes over ``lst`` (weighted mean, plain mean,
+    #     neighbour cap slab) MERGE into one.  Nothing in the loop body
+    #     writes ``elev[j]`` for a neighbour ``j`` — only ``elev[i]``,
+    #     after all three passes — so each pass read exactly the values
+    #     the merged pass reads, and ``acc`` still adds its own terms
+    #     left-to-right in list order.
+    #   * the plain mean's ``sum(...)`` IS KEPT (see the note at ``pm``):
+    #     it is compensated, and a running ``+=`` is a different number.
+    #   * ``1.0 - curvature`` is hoisted: one subtraction, same value.
+    _plan = []
+    for i in free:
+        spine = wspine.get(i)
+        _is_spine = spine is not None
+        lst = spine if _is_spine else wadj[i]
+        _sw = 0.0
+        for (_pj, _pl, _pw) in lst:
+            _sw += _pw
+        _plan.append((i, lst, _sw, len(lst),
+                      floor.get(i, -_INF), ceil.get(i, _INF), _is_spine,
+                      (not _is_spine) and i in apron_body
+                      and not _apron_smooth))
+    _one_minus_curv = 1.0 - curvature
+
     moved = _INF
     for _it in range(max_sweeps):
         moved = 0.0
-        for i in free:
-            spine = wspine.get(i)
-            if spine is not None:
-                lst = spine                          # spine: centerline only
-            else:
-                lst = wadj[i]                         # body / rect: all neighbours
-            if spine is None and i in apron_body and not _apron_smooth:
+        for (i, lst, sw, n_lst, f_i, c_i, _is_spine, _dem_body) in _plan:
+            # neighbour cap slab (spine: centerline chain only; else all edges)
+            n_lo, n_hi = -_INF, _INF
+            if _dem_body:
                 tgt = _dem_target(i)                 # apron body → closest-DEM
+                for (j, lim, _w) in lst:
+                    ej = elev[j]
+                    if ej - lim > n_lo:
+                        n_lo = ej - lim
+                    if ej + lim < n_hi:
+                        n_hi = ej + lim
             else:
                 # spine + rect ends → smoothest (min curvature): inverse-budget²
                 # harmonic mean blended with the plain mean.
-                sw = acc = 0.0
-                for (j, _l, w) in lst:
-                    sw += w
-                    acc += elev[j] * w
+                acc = 0.0
+                vals = []
+                _app = vals.append
+                for (j, lim, w) in lst:
+                    ej = elev[j]
+                    acc += ej * w
+                    _app(ej)
+                    if ej - lim > n_lo:
+                        n_lo = ej - lim
+                    if ej + lim < n_hi:
+                        n_hi = ej + lim
                 harm = acc / sw if sw > 0 else elev[i]
-                pm = sum(elev[j] for (j, _l, _w) in lst) / len(lst)
-                tgt = (1.0 - curvature) * harm + curvature * pm
-            # neighbour cap slab (spine: centerline chain only; else all edges)
-            n_lo, n_hi = -_INF, _INF
-            for (j, lim, _w) in lst:
-                ej = elev[j]
-                if ej - lim > n_lo:
-                    n_lo = ej - lim
-                if ej + lim < n_hi:
-                    n_hi = ej + lim
-            lo_e = max(n_lo, floor.get(i, -_INF))
-            hi_e = min(n_hi, ceil.get(i, _INF))
-            if lo_e > hi_e and spine is not None:
+                # ``sum`` STAYS ``sum`` — CPython's builtin runs Neumaier
+                # COMPENSATED summation on an all-float sequence, so a
+                # hand-rolled ``pacc += ej`` is a DIFFERENT number (the
+                # lane's twin caught it on 9 of 25 random neighbour
+                # lists).  The gather is what the merge buys: the values
+                # are read once, here, instead of a second generator pass
+                # re-indexing ``elev``; ``sum`` then sees the same floats
+                # in the same order and compensates them identically.
+                pm = sum(vals) / n_lst
+                tgt = _one_minus_curv * harm + curvature * pm
+            lo_e = max(n_lo, f_i)
+            hi_e = min(n_hi, c_i)
+            if lo_e > hi_e and _is_spine:
                 # the 1-D spine chain is paramount: where the DEM-reach envelope
                 # conflicts with the centerline within-grade, the envelope YIELDS
                 # (the apron/building frontage takes the step, not the spine).

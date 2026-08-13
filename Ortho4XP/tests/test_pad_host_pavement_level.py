@@ -721,3 +721,158 @@ def test_the_pad_law_re_asserts_after_the_late_projection():
     # complement: nothing after the seal).
     before_seal = source.split("_seal_band(layout, icao)", 1)[0]
     assert "_relevel_late(layout)" in before_seal
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 1 (Fable lead 2026-08-12b, after the HECA airside +252
+# attribution) — rules 1 and 2.
+#
+# THE MEASURED DEFECT.  At HECA a 0.16 m upstream shift at building211
+# crossed ``PAD_HOST_LEVEL_TRIGGER_M`` and teleported the seat +0.82 m
+# (76.61 -> 77.43); the lip carried it into apron -10634 — the apron node
+# 0.02 m from the pad reads EXACTLY the pad seat in both arms — and the
+# apron's 425 m chords took +203 within-shape rows, 81 % of an airside
+# +252 that "airside is king" forbids.
+#
+# RULE 1: an airside vertex never carries a pad-authored value, so on an
+#         airside host the pad moves only when it adopts the host level in
+#         FULL (then the only value the lip lift can write is the host's
+#         own body level).
+# RULE 2: adoption is continuous in the host-pad delta — zero at the
+#         trigger, full at 2x the trigger, the trigger reused as the ramp
+#         width (no new constant).
+# ═════════════════════════════════════════════════════════════════════
+
+from auto_patch.layout import ROLE_SERVICE_JUNCTION      # noqa: E402
+
+TRIG = PAD_HOST_LEVEL_TRIGGER_M
+
+
+def _host_with_lip(role, body, pit):
+    """``_apron_with_lip`` at a chosen role and chosen body/pit values."""
+    ring = [
+        (0.0, 0.0), (40.0, 0.0), (40.0, 10.0),
+        (32.0, 10.0), (30.0, 10.0), (28.0, 10.0),
+        (22.0, 10.0), (20.0, 10.0), (18.0, 10.0), (0.0, 10.0),
+    ]
+    alt = [body, body, body, body, pit, body, body, pit, body, body]
+    return BuiltShape(polygon=Polygon(ring), role=role,
+                      node_altitudes=alt + [alt[0]])
+
+
+def _run(monkeypatch, host, pad):
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    return relevel_pads_to_host_pavement(_FakeLayout([host, pad]))
+
+
+def _lips(host):
+    return [host.node_altitudes[4], host.node_altitudes[7]]
+
+
+class TestAirsideVertexNeverCarriesAPadValue:
+    """Rule 1."""
+
+    def test_a_ramp_region_pad_on_an_airside_host_does_not_move(
+            self, monkeypatch):
+        """The building211 case in miniature: the host-pad delta sits
+        INSIDE the ramp, so a partial adoption would be a pad-authored
+        number — the pad stays put and the airside lip is untouched."""
+        body, pit = 100.0, 100.0 - 1.5 * TRIG          # delta 0.75 m
+        host = _host_with_lip(ROLE_APRON, body, pit)
+        pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+        assert _run(monkeypatch, host, pad) == 0
+        assert pad.altitude == pytest.approx(pit, abs=1e-9)
+        assert all(v == pytest.approx(pit, abs=1e-9) for v in _lips(host)), (
+            "an airside lip was written for a pad that did not fully adopt")
+
+    def test_full_adoption_on_an_airside_host_still_lifts_the_lip(
+            self, monkeypatch):
+        """The #16 / building114 class: at 2x the trigger and beyond the
+        pad adopts IN FULL, so the value the lift writes onto the airside
+        ring is the HOST's own body level — lawful, and the lip stays
+        equal by construction."""
+        body, pit = 100.0, 100.0 - 2.0 * TRIG          # delta exactly 2x
+        host = _host_with_lip(ROLE_APRON, body, pit)
+        pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+        assert _run(monkeypatch, host, pad) == 1
+        assert pad.altitude == pytest.approx(body, abs=0.01)
+        assert all(v == pytest.approx(body, abs=0.01) for v in _lips(host))
+
+    def test_every_airside_vertex_holds_its_own_or_the_body_value(
+            self, monkeypatch):
+        """The rule stated as a whole-ring invariant, at three deltas
+        spanning the ramp: no airside vertex ever ends at a value that is
+        neither its own nor the host body's."""
+        for mult in (1.2, 1.8, 2.5):
+            body, pit = 100.0, 100.0 - mult * TRIG
+            host = _host_with_lip(ROLE_APRON, body, pit)
+            pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+            _run(monkeypatch, host, pad)
+            for v in host.node_altitudes:
+                assert (v == pytest.approx(body, abs=0.01)
+                        or v == pytest.approx(pit, abs=0.01)), (
+                    f"airside vertex {v} at delta {mult}x is neither the "
+                    f"host body {body} nor its own {pit}")
+
+
+class TestAdoptionIsContinuous:
+    """Rule 2 — the amplifier is gone."""
+
+    def test_no_move_at_the_trigger(self, monkeypatch):
+        """C0: the ramp starts at zero exactly where the old all-or-
+        nothing gate opened, so nothing jumps."""
+        body = 100.0
+        for mult in (1.0, 1.001):
+            pit = body - mult * TRIG
+            host = _host_with_lip(ROLE_SERVICE_JUNCTION, body, pit)
+            pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+            _run(monkeypatch, host, pad)
+            assert abs(_pad_level(pad) - pit) < 0.02, (
+                "a seat jumped at the trigger — the amplifier is back")
+
+    def test_half_way_up_the_ramp_the_pad_moves_half(self, monkeypatch):
+        body = 100.0
+        pit = body - 1.5 * TRIG                        # w = 0.5
+        host = _host_with_lip(ROLE_SERVICE_JUNCTION, body, pit)
+        pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+        assert _run(monkeypatch, host, pad) == 1
+        assert _pad_level(pad) == pytest.approx(pit + 0.5 * (body - pit),
+                                                abs=0.02)
+
+    def test_full_adoption_from_twice_the_trigger(self, monkeypatch):
+        body = 100.0
+        for mult in (2.0, 3.0, 7.0):
+            pit = body - mult * TRIG
+            host = _host_with_lip(ROLE_SERVICE_JUNCTION, body, pit)
+            pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+            assert _run(monkeypatch, host, pad) == 1
+            assert _pad_level(pad) == pytest.approx(body, abs=0.02)
+
+    def test_the_seat_move_is_monotone_and_bounded_by_the_delta(
+            self, monkeypatch):
+        """A sub-decimetre change in the input may no longer teleport a
+        seat: sampling the ramp, each step of the OUTPUT is at most the
+        step of the INPUT."""
+        body = 100.0
+        seats = []
+        mults = [1.0 + 0.1 * k for k in range(11)]     # 1.0 … 2.0
+        for mult in mults:
+            pit = body - mult * TRIG
+            host = _host_with_lip(ROLE_SERVICE_JUNCTION, body, pit)
+            pad = _pad(20.0, 10.0, 30.0, 18.0, pit)
+            _run(monkeypatch, host, pad)
+            seats.append(_pad_level(pad) - pit)        # the move, not the level
+        assert seats[0] == pytest.approx(0.0, abs=0.02)
+        assert seats[-1] == pytest.approx(2.0 * TRIG, abs=0.02)
+        assert all(b >= a - 0.02 for a, b in zip(seats, seats[1:])), seats
+
+    def test_an_object_pad_keeps_its_own_relief_budget_law(self, monkeypatch):
+        """R19-3 is a different law with a different meaning ('within the
+        budget the pad keeps its own target') and the amendment does not
+        reach it: the object path stays all-or-nothing at its budget."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import anchors
+        src = inspect.getsource(anchors.relevel_pads_to_host_pavement)
+        ramp = src.split("AMENDMENT 1", 1)[1]
+        assert "if not object_pads:" in ramp, (
+            "the continuous ramp must be scoped to BUILDING pads")

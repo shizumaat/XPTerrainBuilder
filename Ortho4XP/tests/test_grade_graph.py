@@ -521,3 +521,146 @@ def test_overlap_clip_bbox_prefilter_twins_the_unfiltered_pass():
 
     assert _sig(filtered) == _sig(unfiltered)
     assert len(filtered.shapes) >= 3
+
+
+# ── the RUN-SCOPED law memo (perf P3 lane perfgraph) ─────────────────────
+
+class _RunLayout:
+    """The minimum a run memo needs: something to hang it off."""
+
+
+def _two_builds_ctx(layout, *, buildings=frozenset()):
+    """A GradeContext as a second graph build would construct it — same
+    law inputs, a fresh object, sharing ``layout``'s run memo."""
+    cls = [GG.Centerline(pts=[(0.0, 30.0), (60.0, 30.0)],
+                         seg_caps=[TAXI_MAX_GRADE])]
+    ctx = GG.GradeContext(centerlines=cls, building_keys=frozenset(buildings))
+    ctx._sc_run_memo = layout._sc_run_memo
+    return ctx
+
+
+def _run_shape():
+    ring = [(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0),
+            (0.0, 30.0), (60.0, 30.0)]
+    return GG.GradeShape(role="apron", ring=ring, keys=list(range(len(ring))))
+
+
+def _sig(sc):
+    return ([(a, b, cap.cL, cap.cT, cap.budget) for (a, b, cap) in sc.edges],
+            sc.spine_chains)
+
+
+def test_run_memo_off_and_on_agree_across_two_graph_builds():
+    """THE TWIN: two graph builds of the same shape, run memo ON (the
+    second is served from the first) and OFF (both computed).  The
+    constraint sets must be identical — the memo is a saving, never a
+    different answer."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    shape = _run_shape()
+
+    real = GG.SC_RUN_MEMO
+    try:
+        GG.SC_RUN_MEMO = False
+        a1 = GG.shape_constraints_cached(1, shape, _two_builds_ctx(lay))
+        a2 = GG.shape_constraints_cached(1, shape, _two_builds_ctx(lay))
+        assert not lay._sc_run_memo, "kill switch still populated the memo"
+
+        GG.SC_RUN_MEMO = True
+        b1 = GG.shape_constraints_cached(1, shape, _two_builds_ctx(lay))
+        b2 = GG.shape_constraints_cached(1, shape, _two_builds_ctx(lay))
+    finally:
+        GG.SC_RUN_MEMO = real
+
+    assert _sig(a1) == _sig(a2) == _sig(b1) == _sig(b2)
+    assert a1.edges, "fixture produced no edges at all"
+    # and the memo really served the second build rather than recomputing
+    assert b2 is b1
+    assert a2 is not a1
+
+
+def test_run_memo_key_is_sensitive_to_every_input_it_covers():
+    """THE SENSITIVITY ARM: poison ONE key component at a time and the
+    second build must MISS.  A key that cannot see an input is a
+    wrong-answer machine, so each of these is a rail, not a nicety."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    shape = _run_shape()
+    base = GG.shape_constraints_cached(1, shape, _two_builds_ctx(lay))
+
+    def _misses(ctx=None, sh=None, ring_only=False):
+        before = len(lay._sc_run_memo)
+        got = GG.shape_constraints_cached(
+            2, sh or shape, ctx or _two_builds_ctx(lay), ring_only=ring_only)
+        return got is not base and len(lay._sc_run_memo) == before + 1
+
+    # 1. building_keys — the mover that makes the whole tier worth having
+    assert _misses(ctx=_two_builds_ctx(lay, buildings={0, 1}))
+    # 2. seam_keys
+    ctx = _two_builds_ctx(lay)
+    ctx.seam_keys = frozenset({0})
+    assert _misses(ctx=ctx)
+    # 3. inherited_junction_cap's VALUE for this shape
+    ctx = _two_builds_ctx(lay)
+    ctx.centerlines = []
+    ctx.inherited_junction_cap = lambda s: 0.0123
+    assert _misses(ctx=ctx, sh=GG.GradeShape(
+        role="junction", ring=shape.ring, keys=list(shape.keys)))
+    # 4. centerlines (inside the ctx law digest)
+    ctx = _two_builds_ctx(lay)
+    ctx.centerlines = [GG.Centerline(pts=[(0.0, 10.0), (60.0, 10.0)],
+                                     seg_caps=[TAXI_MAX_GRADE])]
+    assert _misses(ctx=ctx)
+    # 5. road_zone (also inside the digest, via its prepared geometry's wkb)
+    from shapely.geometry import box as _box
+    from shapely.prepared import prep as _prep
+    ctx = _two_builds_ctx(lay)
+    ctx.road_zone = _prep(_box(-5.0, -5.0, 65.0, 5.0))
+    assert _misses(ctx=ctx)
+    # 6. the ring itself
+    moved = GG.GradeShape(role=shape.role, keys=list(shape.keys),
+                          ring=[(x, y + 0.5) for (x, y) in shape.ring])
+    assert _misses(sh=moved)
+    # 7. the node keys
+    rekeyed = GG.GradeShape(role=shape.role, ring=list(shape.ring),
+                            keys=[k + 100 for k in shape.keys])
+    assert _misses(sh=rekeyed)
+    # 8. ring_only
+    assert _misses(ring_only=True)
+
+
+def test_run_memo_refuses_a_ctx_it_cannot_digest():
+    """``mesh_edges_exact`` is the validator's structure and is not
+    digestible here — the memo must switch ITSELF off rather than key an
+    input it cannot see."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    shape = _run_shape()
+    ctx = _two_builds_ctx(lay)
+    ctx.mesh_edges_exact = GG.MeshEdgesExact([])
+    assert GG._sc_run_key(shape, ctx, False) is None
+    GG.shape_constraints_cached(1, shape, ctx)
+    assert not lay._sc_run_memo
+
+
+def test_run_memo_is_scoped_to_one_layout_and_to_the_solver_key_space():
+    """``build_context`` hangs the memo off the LAYOUT, so a process that
+    builds two airports never serves one's answers to the other — and it
+    attaches ONLY in the solver key space, because the validator's
+    ring-index keys are collidable with small solver node indices."""
+    class _L:
+        anchor = (0.0, 0.0)
+        shapes = []
+        canonical_points = None
+
+    a, b = _L(), _L()
+    ctx_a = GG.build_context(a, {})
+    ctx_b = GG.build_context(b, {})
+    assert ctx_a._sc_run_memo is a._sc_run_memo
+    assert ctx_b._sc_run_memo is b._sc_run_memo
+    assert ctx_a._sc_run_memo is not ctx_b._sc_run_memo
+    # a second ctx on the SAME layout shares the one store
+    assert GG.build_context(a, {})._sc_run_memo is ctx_a._sc_run_memo
+    # the VALIDATOR space (bucket_to_idx None) never joins the memo
+    validator = GG.build_context(a, None)
+    assert getattr(validator, "_sc_run_memo", None) is None

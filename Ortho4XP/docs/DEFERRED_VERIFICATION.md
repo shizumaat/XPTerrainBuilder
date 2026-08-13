@@ -297,3 +297,36 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   strictly stronger than a census match.
 - Only HECA + CYXY were exercised; KCLT / OTHH / KSTJ identity is
   unverified for this lane.
+
+## perf P3 wave 2 — lane perfgraph (grade_graph run-scoped law memo), 2026-08-13
+
+Landed: `grade_graph.shape_constraints_cached` gains a SECOND memo tier,
+scoped to one solve RUN (stored on the layout) and keyed on every input
+`shape_constraints` reads (`_sc_run_key` + `_ctx_law_digest`). HECA
+`shape_constraints` 12,078 -> 10,813 calls, 55.6 -> 49.5 s; CYXY 1,522 ->
+1,223 calls, 4.8 -> 3.8 s. Both matched CONCURRENT `--count` pairs against
+a control worktree at `fa68843`.
+
+Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
+- No exclusive `check_build_time.py --runs N` arm and no wall claim: the
+  spec moves wall adjudication to P4 on the merged tree. Replay wall
+  numbers appear only as run context, never as a claim.
+- `--count` arms were MATCHED CONCURRENT PAIRS (control worktree at
+  `fa68843` vs lane), not exclusive serial runs; only the delta is quoted.
+- No full pytest suite, no blast-radius suite: the 25 `blast --tests-for`
+  files were run once through the run ledger (412 passed, 2 failed —
+  `test_r17_band_clamp_last_author::test_no_elevation_author_runs_after_the_seal`
+  and `test_single_graph_acceptance::test_solver_validator_same_edge_budgets@CYXY`,
+  BOTH reproduced identically on a matched control arm at `fa68843`, so
+  pre-existing and untouched by this lane).
+- No census of the acceptance patches: acceptance is BODY-HASH IDENTITY to
+  the frozen 1.0.245 manifest (HECA `f562cbfeb8f9`, CYXY `61efa43c3aeb`,
+  solve replays), strictly stronger than a census match.
+- Acceptance is REPLAY-only for this lane (no fresh full builds of the
+  changed tree); the captures themselves came from full builds at
+  `fa68843` whose bodies were byte-identical to the frozen manifest.
+- Only HECA + CYXY were exercised; KCLT / OTHH / KSTJ identity is
+  unverified for this lane.
+- Peak RSS measured once (not a pair-averaged figure): HECA replay
+  4.437 GB with the memo vs 4.346 GB without (+90 MB, +2.1 %). Memory is
+  bounded by the layout's lifetime; no cap constant was added.

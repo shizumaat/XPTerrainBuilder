@@ -203,10 +203,11 @@ class TestServiceAdjacencyFeature:
 
     @staticmethod
     def _score(monkeypatch, on, road_poly, neighbours):
-        if on:
-            monkeypatch.setenv("O4_SCORER_SERVICE_ADJ", "1")
-        else:
-            monkeypatch.delenv("O4_SCORER_SERVICE_ADJ", raising=False)
+        # The gate ships ON since 2026-08-12b (owner ruling: service roads
+        # enabled and built; the RULINGS:128 classification corollary goes
+        # live), so "off" must be SPELLED — deleting the variable now falls
+        # back to the shipped default, which is the on arm.
+        monkeypatch.setenv("O4_SCORER_SERVICE_ADJ", "1" if on else "0")
         import auto_patch.config as cfg
         importlib.reload(cfg)
         import auto_patch.pavement_scoring as PS

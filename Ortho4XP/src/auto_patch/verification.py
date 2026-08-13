@@ -3771,7 +3771,12 @@ def taxi_axes_ll(layout):
 
     from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
     from .grade_graph import centerline_specs, service_spine_source
-    _svc_from_slice = service_spine_source(layout) == "sliced"
+    # "sliced" AND "corridor" both mean: the LAW's own service set is
+    # ``centerline_specs`` (the slice's scoped pieces, or the corridor
+    # courses that replace them under the 2026-08-12b one-law-object
+    # ruling) — this legacy export must defer to it either way, or it
+    # describes a different airport than the law does.
+    _svc_from_slice = service_spine_source(layout) in ("sliced", "corridor")
     # Route ordinals in taxi_routes_ll's exact iteration/dedup order.
     route_ord: dict = {}
     for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):

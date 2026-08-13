@@ -1,18 +1,31 @@
 """Ground-vehicle ``service_road`` network builder (session 47).
 
-Builds a 4 %-grade rect + junction network for ground-vehicle routes —
-apt.dat 1206 truck routes and OSM small roads — but ONLY where a route is
-a dedicated strip OUTSIDE aircraft pavement.  Where a route instead
-crosses an aircraft movement area (apron / taxiway / runway), nothing is
-emitted: that surface's stricter aircraft grade rules already apply (per
-user 2026-05-24).
+Builds a rect + junction network for ground-vehicle routes — apt.dat 1206
+truck routes and OSM small roads — but ONLY where a route is a dedicated
+strip OUTSIDE aircraft pavement.  Where a route instead crosses an
+aircraft movement area (apron / taxiway / runway), nothing is emitted:
+that surface's stricter aircraft grade rules already apply (per user
+2026-05-24), and pavement is minted only where none exists, so existing
+ribbons and aprons are never double-paved.
+
+THE GRADE NUMBER IS ``config.SERVICE_ROAD_MAX_GRADE`` and nothing else
+(``ROLE_GRADE_LIMITS`` maps both road roles to it).  This module states no
+second number: the percentage this docstring used to quote, and the
+different one grade_graph quoted, were both stale copies of a constant that
+had since moved.
 
 Most service roads have no apt.dat / DSF pavement polygon, so a standard
 corridor width is synthesised (``config.SERVICE_ROAD_WIDTH_M``).  The
 network mirrors the taxiway model: ``service_road`` rects along straight
-runs (graded along their axis at 4 %) + ``service_junction`` fill polygons
-at bends / intersections (all-direction 4 %).  Cars handle steeper terrain
-than aircraft, so these also double as apron↔DEM transition ramps.
+runs (graded along their axis at the road cap) + ``service_junction`` fill
+polygons at bends / intersections (all-direction, same cap).  Cars handle
+steeper terrain than aircraft, so these also double as apron↔DEM
+transition ramps.
+
+SOURCE PRECEDENCE (owner ruling 2026-08-12b): apt.dat 1206 routes are
+AUTHORITATIVE where present and OSM small roads complement them —
+:func:`dedupe_service_sources` suppresses an OSM line that merely
+re-spells a 1206 route, at CENTERLINE level, before anything is minted.
 """
 from __future__ import annotations
 
@@ -110,8 +123,94 @@ def _rect_from_endpoints(ax: float, ay: float, bx: float, by: float,
     return poly, axis
 
 
+def _line_of(entry):
+    """The LineString of a centerline entry.
+
+    Entries are ``apt_dat_reader.TaxiCenterline`` in a built layout and
+    ``(LineString, name)`` tuples in fixtures / the OSM small-road path —
+    both dialects have always reached this module, so the reader is
+    stated once here instead of at each loop head.
+    """
+    if hasattr(entry, "line"):
+        return entry.line
+    return entry[0]
+
+
+def _name_of(entry) -> str:
+    if hasattr(entry, "line"):
+        return getattr(entry, "name", "") or ""
+    return entry[1]
+
+
+def dedupe_service_sources(
+        apt_centerlines: list,
+        osm_centerlines: list,
+        *,
+        width: float,
+        min_frac: float = 0.5,
+) -> tuple[list, int]:
+    """Suppress OSM small-road lines that merely RE-SPELL a 1206 route.
+
+    Owner ruling 2026-08-12b: apt.dat 1206 truck routes are an
+    AUTHORITATIVE service-corridor source; OSM small roads COMPLEMENT
+    them.  Two spellings of one physical corridor must not both mint —
+    the downstream rect-overlap skip catches only the rects that
+    actually collide, leaving two centerlines (and therefore two spines)
+    for one road.
+
+    The test is at CENTERLINE level, before minting: an OSM line whose
+    own length lies more than ``min_frac`` inside the ``width``-wide
+    corridor of the 1206 set is dropped.  Returns
+    ``(kept_osm_entries, n_suppressed)``; entry objects are returned
+    UNCHANGED (identity preserved — the caller's names/refs travel with
+    them).
+    """
+    if not apt_centerlines or not osm_centerlines:
+        return list(osm_centerlines), 0
+    half = width / 2.0
+    apt_bufs = []
+    for entry in apt_centerlines:
+        line = _line_of(entry)
+        if line is None or line.is_empty:
+            continue
+        try:
+            apt_bufs.append(line.buffer(half, cap_style=2, join_style=2))
+        except _GEOM_EXC:
+            continue
+    if not apt_bufs:
+        return list(osm_centerlines), 0
+    try:
+        apt_corridor = unary_union(apt_bufs)
+    except _GEOM_EXC:
+        return list(osm_centerlines), 0
+    try:
+        from shapely.prepared import prep
+        apt_prep = prep(apt_corridor)
+    except _GEOM_EXC:                                    # pragma: no cover
+        apt_prep = None
+    kept, dropped = [], 0
+    for entry in osm_centerlines:
+        line = _line_of(entry)
+        if line is None or line.is_empty or line.length <= 0.0:
+            kept.append(entry)
+            continue
+        if apt_prep is not None and not apt_prep.intersects(line):
+            kept.append(entry)
+            continue
+        try:
+            inside = line.intersection(apt_corridor).length
+        except _GEOM_EXC:
+            kept.append(entry)
+            continue
+        if inside / line.length > min_frac:
+            dropped += 1
+            continue
+        kept.append(entry)
+    return kept, dropped
+
+
 def build_service_road_network(
-        centerlines: list[tuple[LineString, str]],
+        centerlines: list,
         pav_union: Polygon | None,
         *,
         width: float,
@@ -119,7 +218,7 @@ def build_service_road_network(
 ) -> tuple[list[tuple[Polygon, LineString, str, str]],
            list[tuple[Polygon, str, str]]]:
     """Build the ground-vehicle network from ``centerlines``
-    (``[(LineString_m, name)]``).
+    (``TaxiCenterline`` objects, or ``(LineString_m, name)`` tuples).
 
     Returns ``(rects, junctions)``:
       * ``rects``     = ``[(rect, axis, ROLE_SERVICE_ROAD, name)]``
@@ -152,8 +251,7 @@ def build_service_road_network(
     # already entirely off aircraft pavement — skip the expensive
     # difference() unless the road actually touches it (prepared check).
     ext: list[tuple[LineString, str]] = []
-    for line, name in ((c.line, c.name) if hasattr(c, "line") else c
-                       for c in centerlines):
+    for line, name in ((_line_of(c), _name_of(c)) for c in centerlines):
         if line is None or line.is_empty:
             continue
         if pav_buf is not None and pav_prep.intersects(line):

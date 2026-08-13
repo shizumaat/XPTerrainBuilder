@@ -222,3 +222,130 @@ def test_the_service_half_of_the_spine_census_is_reported():
     assert G.spine_service_centerlines == 1        # walked
     assert len(G.centerline_service) == 1          # strung
     assert G.spine_service_attachments >= 1        # mouth candidates
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 2 (Fable lead 2026-08-12b) — THE AIRSIDE EXCLUSION AT THE
+# POPULATION SOURCE.
+#
+# THE MEASURED DEFECT.  Once a corridor is registered END-TO-END (the
+# 2026-08-12b "one corridor = ONE continuous law object" ruling) its walk
+# crosses APRON pavement, so it strings MANY airside nodes rather than the
+# one mouth this module's docstring admits — and it linked consecutive
+# PAIRS OF THEM into ``spine_adj`` at the road cap.  Every consumer of the
+# one graph then saw a groundside object in an airside input: the reach
+# band as pairs to exclude (HECA, measured: −65 airside adjudicated rows
+# when the exclusion was lifted) and the profile solve as an 8 % law edge
+# between two apron nodes.
+#
+# THE FIX UNDER TEST.  A service centerline links only pairs with at least
+# one ROAD-FAMILY endpoint.  The MOUTH survives by construction (one end of
+# a mouth pair IS a road node); an airside-to-airside pair is never woven.
+# One place, one law — every consumer inherits it.
+#
+# THE CROSSING FIXTURE: a second taxi centerline T2 at x = 40 puts a
+# SECOND airside node (40) within the service tolerance of the corridor,
+# with node 20 the first.  With no road geometry between them the two are
+# CONSECUTIVE on the corridor's walk — the apron crossing, in miniature.
+# ══════════════════════════════════════════════════════════════════════
+
+import pytest                                                 # noqa: E402
+
+from auto_patch.grade_graph import (                          # noqa: E402
+    Centerline as _CL, GradeContext as _Ctx, UnifiedGraph as _UG,
+)
+
+CROSS_POS = {
+    20: (0.0, 2.0),        # on T,  2.0 m from the corridor  → airside
+    22: (0.0, 12.0),       # on T   (a chain needs two nodes)
+    40: (40.0, 2.0),       # on T2, 2.0 m from the corridor  → airside
+    42: (40.0, 12.0),      # on T2
+    10: (20.0, 3.0),       # the corridor's OWN sliced edge node
+}
+
+
+def _crossing(road_nodes):
+    G = _UG()
+    G.pos = dict(CROSS_POS)
+    t1 = _CL(pts=[(0.0, -100.0), (0.0, 100.0)], seg_caps=[0.015])
+    t2 = _CL(pts=[(40.0, -100.0), (40.0, 100.0)], seg_caps=[0.015])
+    svc = _CL(pts=[(0.0, 0.0), (60.0, 0.0)], seg_caps=[0.08], is_service=True)
+    ctx = _Ctx(centerlines=[t1, t2, svc])
+    _build_global_spine(G, ctx, icao="TEST", road_nodes=road_nodes)
+    return G
+
+
+def _linked(G, a, b):
+    return any(j == b for (j, _bud) in G.spine_adj.get(a, ()))
+
+
+class TestAirsideExclusionAtThePopulationSource:
+
+    def test_a_corridor_never_links_two_airside_nodes(self, monkeypatch):
+        """The apron crossing: nodes 20 and 40 are both airside and both
+        within the corridor's tolerance, and NOTHING may weave them."""
+        G = _crossing(road_nodes=set())
+        assert not _linked(G, 20, 40) and not _linked(G, 40, 20)
+        assert not any({20, 40} == set(p) for p in G.service_spine_pairs)
+
+    def test_the_gate_off_reproduces_the_defect(self, monkeypatch):
+        """The knife's other arm — proof this twin measures the clause and
+        not an accident of the fixture."""
+        import auto_patch.config as cfg
+        monkeypatch.setattr(cfg, "SERVICE_BAND_AIRSIDE_EXCLUSION", False)
+        G = _crossing(road_nodes=set())
+        assert _linked(G, 20, 40), (
+            "with the exclusion off the corridor must weave the airside "
+            "pair — otherwise this fixture proves nothing")
+
+    def test_the_mouth_still_links(self):
+        """One end of a mouth pair is a ROAD node, so the mouth is kept by
+        construction — the 2026-08-06 ruling is untouched."""
+        G = _crossing(road_nodes={10})
+        assert _linked(G, 10, 20) or _linked(G, 20, 10)
+        assert _linked(G, 10, 40) or _linked(G, 40, 10)
+        assert any(set(p) == {10, 20} for p in G.service_spine_pairs)
+
+    def test_the_airside_pair_is_still_refused_with_road_nodes_present(self):
+        """Even when the corridor has its own geometry, the two airside
+        nodes are never linked TO EACH OTHER."""
+        G = _crossing(road_nodes={10})
+        assert not _linked(G, 20, 40) and not _linked(G, 40, 20)
+
+    def test_no_airside_node_gains_a_band_input_from_a_corridor(self):
+        """The ruling stated as the band's own question: for every airside
+        node, the set of spine neighbours a CORRIDOR contributed is either
+        empty or a road-family node (the mouth).  A groundside corridor may
+        not alter airside feasibility inputs."""
+        road = {10}
+        G = _crossing(road_nodes=road)
+        airside = {20, 22, 40, 42}
+        for pair in G.service_spine_pairs:
+            a, b = pair
+            assert not (a in airside and b in airside), (
+                f"corridor pair {pair} is airside-to-airside")
+        for i in airside:
+            for (j, _b) in G.spine_adj.get(i, ()):
+                if any(set(p) == {i, j} for p in G.service_spine_pairs):
+                    assert j in road, (
+                        f"airside node {i} took a corridor edge to {j}, "
+                        f"which is not a road-family node")
+
+    def test_the_aircraft_spine_is_byte_untouched_by_the_clause(self):
+        """The aircraft pass runs first and the clause only reads
+        ``cl.is_service`` — the taxi chains are identical either way."""
+        import auto_patch.config as cfg
+        on = _crossing(road_nodes={10})
+        setattr(cfg, "SERVICE_BAND_AIRSIDE_EXCLUSION", False)
+        try:
+            off = _crossing(road_nodes={10})
+        finally:
+            setattr(cfg, "SERVICE_BAND_AIRSIDE_EXCLUSION", True)
+        for i in (20, 22, 40, 42):
+            taxi_on = {j for (j, _b) in on.spine_adj.get(i, ())
+                       if not any(set(p) == {i, j}
+                                  for p in on.service_spine_pairs)}
+            taxi_off = {j for (j, _b) in off.spine_adj.get(i, ())
+                        if not any(set(p) == {i, j}
+                                   for p in off.service_spine_pairs)}
+            assert taxi_on == taxi_off

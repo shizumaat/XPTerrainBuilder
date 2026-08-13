@@ -3783,6 +3783,41 @@ _PAD_HOST_ROLES = frozenset({
 })
 
 
+def _is_airside_role(role) -> bool:
+    """Is ``role`` an AIRSIDE pavement role?
+
+    ONE partition, the law's own: ``layout.GROUNDSIDE_ROLES`` (the same set
+    ``grade_graph._reads_service_spines`` asks).  Everything a pad may host
+    on that is not groundside is airside — apron, junction, the parallels,
+    stub, cross_connector.
+    """
+    from auto_patch.layout import GROUNDSIDE_ROLES
+    return role not in GROUNDSIDE_ROLES
+
+
+def _pad_has_airside_host(pad, host_shapes, pad_ring, lift_r2) -> bool:
+    """Does an AIRSIDE-role host ring come within the lip radius of this pad?
+
+    The same proximity test the lip lift itself uses, asked before the
+    adoption decision so rule 1 of AMENDMENT 1 can be enforced where the
+    decision is made rather than after the value is written.
+    """
+    for h in host_shapes:
+        if not _is_airside_role(h.role):
+            continue
+        try:
+            hcoords = list(h.polygon.exterior.coords)
+        except (ValueError, TypeError):
+            continue
+        for (hx, hy) in hcoords:
+            for (px, py) in pad_ring:
+                ddx = hx - px
+                ddy = hy - py
+                if ddx * ddx + ddy * ddy <= lift_r2:
+                    return True
+    return False
+
+
 def _shape_vertex_alt(s, idx, n_open):
     """Solved altitude at ring-vertex ``idx`` of a pavement shape, or None.
 
@@ -4489,6 +4524,44 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         med = (body_vals[m // 2] if m % 2
                else 0.5 * (body_vals[m // 2 - 1] + body_vals[m // 2]))
         new_level = round(float(med), 2)
+        # ── AMENDMENT 1 (Fable lead 2026-08-12b), rules 1 + 2 ──────────
+        # Measured defect: a 0.16 m upstream shift at HECA building211
+        # crossed ``PAD_HOST_LEVEL_TRIGGER_M`` and TELEPORTED the seat
+        # +0.82 m; the lip carried it into apron -10634 (the apron node at
+        # the pad reads exactly the pad seat), and the apron's 425 m
+        # chords took +203 within-shape rows — a groundside object moving
+        # airside, which "airside is king" forbids.
+        #
+        # (2) ADOPTION IS CONTINUOUS in the host-pad delta: zero at the
+        #     trigger, full at 2x the trigger.  The trigger is reused as
+        #     the ramp width — no second constant.  Building pads only:
+        #     an OBJECT pad's threshold is its RELIEF BUDGET under R19-3
+        #     ("within the budget the pad keeps its own target"), a
+        #     different law with a different meaning, left untouched.
+        # (1) AN AIRSIDE VERTEX NEVER CARRIES A PAD-AUTHORED VALUE.  In
+        #     the ramp region the pad would land BETWEEN its own value and
+        #     the host's, so the lip could only be reconciled by writing a
+        #     pad-authored number onto an airside ring — forbidden.  On an
+        #     airside host the pad therefore moves only when it can adopt
+        #     the host level IN FULL, which is what makes the amendment's
+        #     "the lip is equal by construction" true: the only value the
+        #     lip lift can then write is the host's OWN body level.  Below
+        #     that the pad stays put (strictly less airside movement than
+        #     before, never more).  A groundside host (service_junction)
+        #     keeps the ramp and its lip lift — nothing airside is written
+        #     either way.
+        if not object_pads:
+            _delta = new_level - cur
+            _mag = abs(_delta)
+            _w = (1.0 if _mag >= 2.0 * trigger
+                  else max(0.0, (_mag - trigger) / trigger))
+            if _pad_has_airside_host(s, host_shapes, ring, lift_r2):
+                if _w < 1.0:
+                    continue          # rule 1: no partial adoption airside
+            elif _w < 1.0:
+                new_level = round(float(cur + _w * _delta), 2)
+                if abs(new_level - cur) <= 1e-9:
+                    continue
         if object_pads:
             # THE OBJECT-PAD ADOPTION (R19-3): the whole request moves by
             # ONE delta — the flat core to the host level, every blend
@@ -4538,6 +4611,16 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         # shared lat/lon (a vertical wall at the pad edge).  Lifting the lip to
         # the body level welds pad and host at one flat level — the step goes.
         for h in host_shapes:
+            # AMENDMENT 1 rule 1, enforced at the write itself as well as at
+            # the decision: an airside lip is only ever written when the pad
+            # adopted the host level IN FULL, so the value going onto the
+            # airside ring is the HOST's own body level — never a
+            # pad-authored one.  (``_w`` is 1.0 on every airside path by the
+            # decision above; the guard is the structural statement of it,
+            # so a future edit there cannot silently re-open the channel.)
+            if (not object_pads and _is_airside_role(h.role)
+                    and abs(new_level - level) > 1e-9):
+                continue
             try:
                 hcoords = list(h.polygon.exterior.coords)
             except (ValueError, TypeError):

@@ -263,7 +263,8 @@ class Airport:
     taxi_edges: list[TaxiEdge] = field(default_factory=list)
     # Ground-vehicle (service-road) route edges (row 1206).  Reuse the
     # ``TaxiEdge`` shape with ``kind == "truck"``; share the 1201 nodes
-    # in ``taxi_nodes``.  Drive the 4 %-grade ``service_road`` rects.
+    # in ``taxi_nodes``.  Drive the ``service_road`` rects (cap
+    # ``config.SERVICE_ROAD_MAX_GRADE`` — the ONE grade number).
     truck_edges: list[TaxiEdge] = field(default_factory=list)
     # Ramp-start (startup location, row 1300) positions ``(lat, lon)`` —
     # used to TRIM the last dead-end taxi-route piece leading onto a
@@ -2093,13 +2094,14 @@ def snap_parallel_service_runs(
 def service_road_centerlines(
         airport: Airport,
         to_m: Callable[[float, float], tuple[float, float]],
-) -> list[tuple[LineString, str]]:
+) -> list["TaxiCenterline"]:
     """Build ground-vehicle (service-road) centerlines from apt.dat
     1206 truck-route edges + the shared 1201 nodes.
 
-    Returns ``[(LineString_in_meter_space, route_name)]`` — the same
-    shape as :func:`taxi_centerlines`, so the rect builder can consume
-    it when emitting 4 %-grade ``service_road`` rects (Phase 3).
+    Returns ``[TaxiCenterline]`` with ``is_service=True`` (meter space) —
+    the same type as :func:`taxi_centerlines`, so the rect builder can consume
+    it when emitting ``service_road`` rects (Phase 3; the cap is
+    ``config.SERVICE_ROAD_MAX_GRADE`` — there is no second number).
 
     Construction is a simple per-name ``linemerge`` (service roads
     have no chart-level junction structure to pre-split at, unlike the

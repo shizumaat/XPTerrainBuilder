@@ -98,6 +98,8 @@ from .config import (
     MIN_SERVICE_STRIP_LEN_M,
     SERVICE_ROAD_PAVEMENT_NEAR_M,
     ENABLE_SERVICE_ROADS,
+    SERVICE_SOURCE_DEDUPE,
+    SERVICE_SOURCE_DEDUPE_FRAC,
     AIRPORT_ROAD_FEED,
     SERVICE_ROAD_CARVE,
 )
@@ -2648,7 +2650,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
                   f"skipped (error).")
 
     # apt.dat ramp starts (stands) + ground-vehicle service roads.
-    # 1206 service roads become 4 %-grade ``service_road`` rects when the
+    # 1206 service roads become ``service_road`` rects (cap
+    # SERVICE_ROAD_MAX_GRADE) when the
     # feature is enabled.  Parsing the apt.dat 1206 centerlines is skipped
     # while service roads are disabled (don't derive routes we won't use).
     # SERVICE_ROAD_CARVE (s79, docs/service_road_carve.md) needs the same
@@ -3340,7 +3343,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # SERVICE ROADS (user 2026-07-02): narrow truck routes are
         # sliced too — the road centerline cuts its strip out of the
         # surrounding pavement and the resulting narrow faces emit as
-        # ROLE_SERVICE_JUNCTION at the road grade cap (4 %), which also
+        # ROLE_SERVICE_JUNCTION at the road grade cap, which also
         # feeds the law's road_zone carve relaxation.  Kept in a
         # SEPARATE list so face classification can tell taxi spine
         # from truck path (a face touching both is taxi territory).
@@ -3445,6 +3448,51 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     f"  [pav-builder] {icao}: road-feed service "
                     f"centerlines joined the slice: {_n_feed_svc} "
                     f"way(s) touching pavement.")
+    # ── CORRIDOR COURSES (owner ruling 2026-08-12b, "one corridor = ONE
+    # continuous law object end-to-end").  Stashed BEFORE free-road
+    # scoping, because scoping is exactly what fragments a corridor into
+    # the per-junction pieces the ruling names as the defect: the scoped
+    # pieces stay the SLICE's input (the free-road ruling is untouched —
+    # nothing new is carved), while the grade graph registers ONE chain
+    # per corridor course so the corridor's axis coverage has no
+    # axis-free gap.  apt.dat 1206 routes are whole courses already
+    # (name-grouped linemerge); the feed ways are linemerged into maximal
+    # chains and the ones a 1206 route already spells are dropped by the
+    # same centerline-level dedupe the minter uses.
+    if _cn_svc:
+        _corridors = list(_cn_svc)
+        _apt_courses = [
+            cl.line for cl in (getattr(layout, "apt_service_centerlines",
+                                       None) or [])
+            if getattr(cl, "line", None) is not None
+            and not cl.line.is_empty]
+        if _apt_courses:
+            from .pavement.service_roads import dedupe_service_sources
+            _feed_only, _n_cd = dedupe_service_sources(
+                [(ln, "") for ln in _apt_courses],
+                [(ln, "") for ln in _corridors],
+                width=SERVICE_ROAD_WIDTH_M,
+                min_frac=SERVICE_SOURCE_DEDUPE_FRAC)
+            _corridors = [e[0] for e in _feed_only]
+        try:
+            from shapely.ops import linemerge as _lm
+            from shapely.geometry import MultiLineString as _MLS
+            if _corridors:
+                _merged = _lm(_MLS(
+                    [ln for ln in _corridors if ln.geom_type == "LineString"])
+                    if len(_corridors) > 1 else _corridors[0])
+                _corridors = ([_merged] if _merged.geom_type == "LineString"
+                              else [g for g in getattr(_merged, "geoms", ())
+                                    if not g.is_empty])
+        except Exception:
+            pass
+        layout._service_corridor_lines = _apt_courses + _corridors
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: "
+            f"{len(layout._service_corridor_lines)} service corridor "
+            f"course(s) registered end-to-end "
+            f"({len(_apt_courses)} apt.dat 1206 + {len(_corridors)} feed "
+            f"chain(s)).")
     # ── FREE-ROAD scoping of the service slice set (owner ruling
     # 2026-07-27, canonical text in ``groundside.
     # free_road_subsegments``): a road inside or edge-sharing an
@@ -3597,15 +3645,43 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # last production call site.  Default OFF ⇒ production output is
     # unchanged (CYXY body sha identity, verified).
 
-    # ── Ground-vehicle service_road rects (4 %) ──────────────────
+    # ── Ground-vehicle service_road rects ────────────────────────
     # Combine apt.dat 1206 truck routes with OSM small roads inside the
-    # boundary (+ a small outside buffer), and emit 4 %-grade rects ONLY
-    # where a route is a dedicated strip OUTSIDE aircraft pavement (the
-    # builder drops the on-apron portions; aircraft rules apply there).
-    # These also act as apron↔DEM transition ramps.
-    _service_lines: List[Tuple[LineString, str]] = (
+    # boundary (+ a small outside buffer), and mint SERVICE_ROAD_MAX_GRADE
+    # rects ONLY where a route is a dedicated strip OUTSIDE aircraft
+    # pavement (the builder drops the on-apron portions; aircraft rules
+    # apply there, and pavement-clear minting means nothing existing is
+    # double-paved).  These also act as apron↔DEM transition ramps.
+    # SOURCE PRECEDENCE (owner 2026-08-12b): the 1206 set is authoritative,
+    # the OSM small roads complement it, and an OSM line that merely
+    # re-spells a 1206 route is deduped at CENTERLINE level below.
+    # THE MINTER'S SOURCE IS THE CORRIDOR SET (owner 2026-08-12b, measured
+    # at KCLT).  It used to be ``apt_service_centerlines`` + the tile's OSM
+    # small-road cache, and at KCLT that cache is EMPTY
+    # (``_load_osm_small_roads(35, -81)`` → 0 ways): the airport's service
+    # roads reach this build through the per-airport ROAD FEED, which
+    # nothing offered the minter.  So the ruled ramp corridor
+    # (35.2136167,-80.9422409 → 35.213515,-80.9403524) had no source here
+    # at all and its ~30 m pavement gap stayed unpaved with the feature ON.
+    # The corridor COURSES stashed above are exactly the set the ruling
+    # names — 1206 routes + the feed ways that TOUCH pavement, already
+    # deduped between the two sources — so the minter now reads them, and
+    # the small-road cache still complements where it has anything.
+    _apt_service_lines: List = (
         list(getattr(layout, "apt_service_centerlines", []) or [])
         if ENABLE_SERVICE_ROADS else [])
+    _corridor_lines: List[Tuple[LineString, str]] = (
+        [(ln, "road") for ln in
+         (getattr(layout, "_service_corridor_lines", None) or [])
+         if ln is not None and not ln.is_empty]
+        if ENABLE_SERVICE_ROADS else [])
+    _osm_service_lines: List[Tuple[LineString, str]] = []
+    # The corridor set ALREADY carries the 1206 courses (they are its first
+    # half), so it REPLACES them here rather than joining them — one
+    # physical corridor, one source, exactly as the grade graph does with
+    # the same set.  Without a slice (unit fixtures) the 1206 set stands.
+    _service_lines: List = (_corridor_lines if _corridor_lines
+                            else list(_apt_service_lines))
     if ENABLE_SERVICE_ROADS and pav_union is not None and not pav_union.is_empty:
         # Keep-region = within SERVICE_ROAD_PAVEMENT_NEAR_M (25 m) of any
         # apt.dat/DSF pavement.  Keeps only the apron-access / crossing
@@ -3653,11 +3729,28 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     continue
                 _nm = _tags.get("name", "") or _tags.get("highway", "road")
                 if _clip.geom_type == "LineString":
-                    _service_lines.append((_clip, _nm))
+                    _osm_service_lines.append((_clip, _nm))
                 elif _clip.geom_type == "MultiLineString":
                     for _g in _clip.geoms:
                         if not _g.is_empty:
-                            _service_lines.append((_g, _nm))
+                            _osm_service_lines.append((_g, _nm))
+    if _osm_service_lines:
+        # CENTERLINE-LEVEL SOURCE DEDUPE (owner 2026-08-12b, ruling 1):
+        # the 1206 spelling wins wherever an OSM small road covers the
+        # same corridor — two spellings of one road would otherwise mint
+        # twice and give one physical corridor two spines.
+        if SERVICE_SOURCE_DEDUPE and _service_lines:
+            from .pavement.service_roads import dedupe_service_sources
+            _osm_service_lines, _n_dedup = dedupe_service_sources(
+                _service_lines, _osm_service_lines,
+                width=SERVICE_ROAD_WIDTH_M,
+                min_frac=SERVICE_SOURCE_DEDUPE_FRAC)
+            if _n_dedup:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: service-source dedupe "
+                    f"suppressed {_n_dedup} OSM small-road line(s) already "
+                    f"spelled by an apt.dat 1206 route.")
+        _service_lines.extend(_osm_service_lines)
     if _service_lines:
         _svc_rects, _svc_junctions = build_service_road_network(
             _service_lines, pav_union,
@@ -3672,7 +3765,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
             UI.vprint(1,
                 f"  [pav-builder] {icao}: {len(_svc_rects)} service_road "
                 f"rect(s) + {len(_svc_junctions)} service_junction(s) "
-                f"(4% ground-vehicle network off aircraft pavement).")
+                f"(ground-vehicle network minted off aircraft pavement, "
+                f"cap SERVICE_ROAD_MAX_GRADE).")
 
 
     # ── Phase-2 elevations + feature emit ────────────────────────
@@ -4052,7 +4146,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # ``service_road`` rects (the #198 U-turn bulge between the two
         # road legs; the HECA SVC29↔SVC30 connector #336; the HECA
         # SVC29/35/36 plaza #290 that reads as an apron) is road
-        # territory — 4 % ``service_junction``, not a 1.5 % aircraft
+        # territory — road-cap ``service_junction``, not a 1.5 % aircraft
         # junction/apron.  A shape shared with any aircraft pavement (the
         # road's mouth at taxiway S) stays its original role.
         #
@@ -4104,7 +4198,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 # road-only residue (a parking lot carved beside the road — CYXY
                 # the 31×61 m piece @(-473,403)) is NOT road, it stays apron/
                 # junction (→ groundside if runway-disconnected) so the lot is one
-                # surface, not split into a 4 % road plaza + DEM groundside (cliff).
+                # surface, not split into a road-cap plaza + DEM groundside (cliff).
                 _narrow = True
                 if os.environ.get("O4_SVC_REROLE_NARROW_ONLY", "1") == "1":
                     try:
@@ -4127,7 +4221,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
             if _n_svc_j or _n_svc_r:
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: re-roled road-only junction/apron(s) "
-                    f"→ {_n_svc_r} service_road + {_n_svc_j} service_junction (4 %).")
+                    f"→ {_n_svc_r} service_road + {_n_svc_j} service_junction.")
 
         # ── FULL-WIDTH SERVICE CORRIDOR consolidation, pass 1 ────────
         # (user 2026-07-05 full-width corridor): a service road is ONE
@@ -4858,7 +4952,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # STATUS part 29 item 4): like the apron-edge rule, the PORTION of
         # a service road that is INSIDE, or SHARES A LONG EDGE with, a
         # TAXIWAY follows the more limiting (taxiway) grade law — 1.5 %
-        # (letter-aware) instead of the road's 5 %.  Only isolated narrow-
+        # (letter-aware) instead of the road's own cap.  Only isolated narrow-
         # road stretches (nothing along their long edge) keep the full road
         # cap.  PORTION-based, split at the band exactly like the apron
         # rule.  The taxiway band = union of the taxi family (ROLE_JUNCTION

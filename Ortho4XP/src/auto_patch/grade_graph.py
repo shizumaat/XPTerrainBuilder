@@ -22,7 +22,9 @@ Model (user, authoritative 2026-06-23) — a soft airside shape is **spine + bod
     - junction → the taxiway per-letter cap of its spine (so a junction is uniform
       at the taxiway cap; a junction with NO spine inherits the cap from the
       nearest connected taxiway-sized shape),
-    - service_junction → ``SERVICE_ROAD_MAX_GRADE`` (5 %).
+    - service_junction → ``SERVICE_ROAD_MAX_GRADE`` (config's ONE road
+      number; do not restate it here — the "4 %"/"5 %" copies this file and
+      pavement/service_roads.py used to carry were both stale).
 
 Rects (4-corner sloping planes), terminals (flat pads), runways (FAA profile) and
 groundside (DEM) are NOT handled here — the solver keeps their plane/flat/profile
@@ -176,7 +178,7 @@ PAIR_BUDGET_PRUNE_M = float(os.environ.get("O4_PAIR_BUDGET_PRUNE_M", "150"))
 # rotation of the pair separation — see ds_decompose — so this grants
 # no arc credit; a far interior chord with no route keeps isotropic
 # 1 %), and (2) the LONGITUDINAL cap upgrades to the route's per-letter
-# taxi cap (never a service road's 5 % — the free-road ruling makes
+# taxi cap (never a service road's own cap — the free-road ruling makes
 # in-apron road pavement apron) while the TRANSVERSE cap stays the
 # pair's own (apron 1 % across).  Without this the apron's isotropic
 # 1 % all-pair web overrides the spine's 1.5 % — the composed
@@ -404,12 +406,19 @@ def service_spine_source(layout) -> str:
     stamp for the spine census (RULINGS 2026-08-06, "Instrument truth is
     law": every reported number carries its frame).
 
+    ``"corridor"`` — the CORRIDOR COURSES (owner 2026-08-12b, one law object
+    per corridor): ``layout._service_corridor_lines``, registered whole, with
+    the scoped pieces they cover replaced rather than duplicated.
     ``"sliced"`` — the global slice's own scoped road set
     (``layout._slice_service_subsegments``), i.e. every road the slice
     actually cut: apt.dat row-1206 routes AND the per-airport ROAD FEED,
     after free-road scoping.  ``"apt1206"`` — no slice ran (unit fixtures),
     so the row-1206 entries of ``apt_taxi_centerlines`` are the source.
     """
+    from .config import SERVICE_CORRIDOR_CHAINS
+    if SERVICE_CORRIDOR_CHAINS and (
+            getattr(layout, "_service_corridor_lines", None) or []):
+        return "corridor"
     return ("sliced"
             if getattr(layout, "_slice_service_subsegments", None) is not None
             else "apt1206")
@@ -457,11 +466,39 @@ def centerline_specs(layout) -> list:
     attribute and keep the pre-cycle-9 source — presence of the attribute is
     the switch, not its truthiness, so a slice that legitimately scoped every
     road away is not silently re-fed from apt.dat.
+
+    ONE LAW OBJECT PER CORRIDOR (owner ruling 2026-08-12b; gate
+    ``config.SERVICE_CORRIDOR_CHAINS``).  The scoped subsegments are the
+    SLICE's frame, not the corridor's: free-road scoping cuts a corridor
+    wherever it runs along wide pavement, so registering the pieces gives one
+    physical corridor several disjoint 2-node axes with axis-free gaps
+    between them (measured at HECA: corridor A as FOUR axes, gaps s97-254 and
+    s269-593; corridor B with no axis at all).  With the gate on, the
+    corridor COURSES stashed by the pipeline
+    (``layout._service_corridor_lines`` — apt.dat 1206 routes whole, feed
+    ways linemerged, deduped between the two sources) are registered as ONE
+    chain each and REPLACE the scoped pieces they cover: never both, so no
+    road gets two spines (the invariant the cycle-9 note above states).  A
+    scoped piece no corridor covers still registers on its own — a piece is
+    never silently dropped.
+
+    This does not touch airside law: a service centerline is a spine only for
+    a GROUNDSIDE-family shape (:func:`_reads_service_spines`), so a corridor
+    crossing an apron is not that apron's spine, and inside the groundside
+    family the road cap and the groundside-pavement cap are THE SAME constant
+    (``config.GROUNDSIDE_PAVEMENT_MAX_GRADE`` is an alias of
+    ``SERVICE_ROAD_MAX_GRADE``), so the composition loosens nothing.
     """
-    from .config import SERVICE_ROAD_MAX_GRADE as _SVC_CAP
+    from .config import (SERVICE_ROAD_MAX_GRADE as _SVC_CAP,
+                         SERVICE_CORRIDOR_CHAINS as _CORRIDOR_CHAINS)
     specs: list = []
     sliced = getattr(layout, "_slice_service_subsegments", None)
     use_sliced = sliced is not None
+    corridors = [ln for ln in (getattr(layout, "_service_corridor_lines",
+                                       None) or [])
+                 if ln is not None and not getattr(ln, "is_empty", True)
+                 and len(getattr(ln, "coords", ())) >= 2]
+    use_corridors = bool(_CORRIDOR_CHAINS and corridors)
     for tcl in (getattr(layout, "apt_taxi_centerlines", []) or []):
         ln = getattr(tcl, "line", tcl)
         if ln is None or getattr(ln, "is_empty", True):
@@ -497,6 +534,19 @@ def centerline_specs(layout) -> list:
         except Exception:                                 # pragma: no cover
             rpts = pts
         specs.append((pts, seg_caps, is_svc, rkey, rpts))
+    covered = None
+    if use_corridors:
+        # ONE chain per corridor course, registered whole.
+        for ln in corridors:
+            try:
+                pts = list(ln.coords)
+            except Exception:                             # pragma: no cover
+                continue
+            if len(pts) < 2:
+                continue
+            specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
+                          ("corridor", id(ln)), pts))
+        covered = _corridor_cover(corridors)
     if use_sliced:
         for ln in sliced:
             if ln is None or getattr(ln, "is_empty", True):
@@ -507,12 +557,46 @@ def centerline_specs(layout) -> list:
                 continue
             if len(pts) < 2:
                 continue
+            if covered is not None and _covered_by_corridor(ln, covered):
+                continue    # its corridor chain carries it — never both
             # A sliced subsegment IS its own route: free-road scoping cut it
             # at the stations where the road stops being a free road, and the
             # law downstream of that cut is the apron's, not this road's.
             specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
                           ("svc", id(ln)), pts))
     return specs
+
+
+# A corridor chain REPLACES a scoped subsegment when the subsegment lies
+# inside the corridor's own road-width halo over more than this fraction of
+# its length — the same "is this the same physical road" question the
+# centerline-level source dedupe asks, at the same width.
+_CORRIDOR_COVER_FRAC = 0.5
+
+
+def _corridor_cover(corridors):
+    """Road-width halo of the corridor courses (or ``None``)."""
+    from .config import SERVICE_ROAD_WIDTH_M
+    try:
+        from shapely.geometry import LineString  # noqa: F401
+        from shapely.ops import unary_union
+        return unary_union([
+            ln.buffer(SERVICE_ROAD_WIDTH_M / 2.0, cap_style=2, join_style=2)
+            for ln in corridors])
+    except Exception:                                     # pragma: no cover
+        return None
+
+
+def _covered_by_corridor(line, cover) -> bool:
+    if cover is None or cover.is_empty:
+        return False
+    try:
+        if line.length <= 0.0:
+            return False
+        return (line.intersection(cover).length / line.length
+                > _CORRIDOR_COVER_FRAC)
+    except Exception:                                     # pragma: no cover
+        return False
 
 
 def build_context(layout, bucket_to_idx=None) -> "GradeContext":
@@ -565,7 +649,7 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
 
     # Adjacent-cap node coords -> cap: a shape with NO spine inherits the
     # cap of an ADJACENT_CAP_ROLES shape it shares a ring node with (live
-    # via service roads — a junction sharing ring nodes with a 4 % road
+    # via service roads — a junction sharing ring nodes with a road
     # inherits the 4 % cap; the surviving slice of the rect-era
     # inheritance, owner 2026-07-29).
     rect_cap_at: dict = {}
@@ -1810,7 +1894,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     near = None
     if (APRON_TAXI_BLEND and shape.role == APRON_ROLE
             and ctx.centerlines and body_cap < TAXI_MAX_GRADE):
-        # SERVICE roads never blend an apron: a truck route's 5 % cap
+        # SERVICE roads never blend an apron: a truck route's road cap
         # belongs to its own strip faces, not to the apron around it
         # (service lines entered ctx.centerlines as road-cap spines with
         # the global slice, 2026-07-02).
@@ -2564,6 +2648,12 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
     except Exception:                                  # pragma: no cover
         node_tree = None
     _taxi_woven_pairs: set = set()
+    # AMENDMENT 2: the road-family node set as a SET (the walk asks it per
+    # pair), and the counter the census line reports.
+    from .config import (
+        SERVICE_BAND_AIRSIDE_EXCLUSION as _BAND_AIRSIDE_EXCLUSION)
+    _road_node_set = set(road_nodes or ())
+    _n_svc_airside_skipped = [0]
     _n_no_node = 0            # centerlines with NO node within the tolerance
     _n_one_node = 0           # ... with exactly one (a thinned region)
     _taxi_strung: set = set()  # every node the AIRCRAFT pass strung
@@ -2674,6 +2764,30 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
         for (a0, i0), (a1, i1) in zip(on_line, on_line[1:]):
             if i0 == i1:
                 continue
+            if (cl.is_service and _BAND_AIRSIDE_EXCLUSION
+                    and i0 not in _road_node_set and i1 not in _road_node_set):
+                # AIRSIDE EXCLUSION AT THE POPULATION SOURCE (AMENDMENT 2,
+                # Fable lead 2026-08-12b; the law this docstring already
+                # states: "a road may never sweep an unrelated apron vertex
+                # into a spine chain at its 8 % cap — but it MAY adopt the
+                # one airside node it genuinely meets, and that node is the
+                # MOUTH").
+                #
+                # A corridor registered END-TO-END (the 2026-08-12b
+                # one-law-object ruling) runs across apron pavement, so its
+                # walk strings MANY airside nodes, not one, and linked
+                # CONSECUTIVE PAIRS OF THEM into ``spine_adj`` at the road
+                # cap.  Every consumer of the one graph then saw them: the
+                # reach band as pairs to exclude (measured −65 airside rows
+                # when the exclusion was lifted) and the profile solve as
+                # law edges priced at 8 % between two apron nodes.  A
+                # groundside corridor may not alter airside feasibility
+                # inputs, so the pair is never woven — once, here, at the
+                # single population source, rather than in each consumer.
+                # The MOUTH survives by construction: one end of a mouth
+                # pair is a road-family node.
+                _n_svc_airside_skipped[0] += 1
+                continue
             gap = abs(a1 - a0)
             d = _dist(G.pos.get(i0), G.pos.get(i1))
             # Per-segment cap at the midpoint between the two on-line nodes (a
@@ -2749,7 +2863,10 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
             f"attachment(s) to the aircraft spine — the MOUTH candidates "
             f"(eligible nodes: {len(_svc_eligible)}; source "
             f"{getattr(ctx, 'service_source', '?')}, "
-            f"{getattr(ctx, 'service_length_m', 0.0):,.0f} m of road)")
+            f"{getattr(ctx, 'service_length_m', 0.0):,.0f} m of road; "
+            f"{_n_svc_airside_skipped[0]} airside-to-airside service pair(s) "
+            f"NOT woven — a groundside corridor may not alter airside "
+            f"feasibility inputs)")
 
 
 def _dist(pa, pb):

@@ -64,6 +64,8 @@ from .config import (
     PAVEMENT_SCORE_WEIGHTS,
     PAVEMENT_SCORE_WIDE_HALF_M,
     SCORER_SERVICE_ADJ,
+    SCORER_CORRIDOR_WIDTH,
+    SCORER_CORRIDOR_WIDTH_MIN_FRAC,
 )
 from .enclaves import publish_airside_enclaves, shape_in_enclave
 from .layout import (
@@ -1677,6 +1679,27 @@ def shape_features(polygon, layout, *, adjacency=None, owner=None,
     road_corridor = (False if wide else
                      _is_tail(polygon,
                               0.5 * PAVEMENT_CLASS_TAIL_MAX_WIDTH_M))
+    if not road_corridor and not wide and SCORER_CORRIDOR_WIDTH:
+        # CORRIDOR-AWARE WIDTH READ (owner ruling 2026-08-12b, spec ruling
+        # 5): ``_is_tail`` is a WHOLE-SHAPE erosion, so ONE contiguous
+        # widening vetoes the entire ribbon — measured at KCLT, where a
+        # single ≥25 m lot entrance denied a 263 m / 11.6 m mean-width road
+        # (way -11671) its road class.  A widening never vetoes the ribbon:
+        # decompose first, and judge the CORRIDOR-WIDTH PART.  The
+        # decomposition is the production opening predicate
+        # (``object_footprints.is_vehicle_pavement_patch`` — erode by half
+        # the road width, dilate back, compare areas), which is the same
+        # law the narrow-only feature below already uses, at the road
+        # width instead of the aircraft one: no second width semantics.
+        # It is a READ, never a re-cut — the widening keeps its own class,
+        # and the emitted geometry is untouched either way.
+        try:
+            from .object_footprints import is_vehicle_pavement_patch
+            road_corridor = is_vehicle_pavement_patch(
+                polygon, PAVEMENT_CLASS_TAIL_MAX_WIDTH_M,
+                1.0 - SCORER_CORRIDOR_WIDTH_MIN_FRAC)
+        except _GEOM_EXC:                                 # pragma: no cover
+            road_corridor = False
     x["road_corridor"] = 1.0 if road_corridor else 0.0   # no weight; gate
     # G-APRON-WIDTH (owner ruling 2026-08-10): "the entire shape narrower
     # than a taxiway cannot be apron".  Same cascade: a shape that

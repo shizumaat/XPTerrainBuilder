@@ -96,7 +96,29 @@ the solve builds its unified graph SIX times and runs five seed
 passes per run — restaging must state which constructions are
 inherently per-stage and collapse the rest to build-once-read-many;
 the dupcensus instrument's per-build duplicate table is the measure
-that adjudicates it. Acceptance arm (HECA replay): airside rows byte-equal to
+that adjudicates it.
+
+THE GEOMETRY FREEZE (owner direction 2026-08-13): all plan geometry
+the solve consumes is COMPLETED before any elevation solving — a
+named freeze point after which no construction may add, move, or
+split solve-consumed geometry. The apron-terrace panel split, the
+gap-fill spine admission and the adjacent-ground construct geometry
+move BEFORE the freeze (S1 step-1 hypothesis, verified not assumed:
+none of them reads a solved value — any that does is a STOP with the
+read site named); then ONE node list + ONE unified graph serves the
+presolve envelopes, the bands, the groundside probe and the solve.
+Elevation-DEPENDENT geometry (conflict walls, terraces, feathers,
+blends) stays post-solve and ADDITIVE-ONLY — emitted conforming to
+the solved field, never feeding back into it. Post-solve refinement
+(tile cuts, conformance welds, densify) becomes VALUE-PRESERVING
+(values carried through cuts/welds by interpolation, not
+re-projection), which is what lets the mid/late double projection
+(owner ruling 2026-07-18, mid-off measured OTHH −64 s under the old
+law) collapse to one projection BY CONSTRUCTION rather than by
+re-ruling. Not byte-preservable — one graph instead of five is a
+different float path by design; the gate is the round's row-by-row
+census adjudication, and the dupcensus + solve_cut instruments are
+the before/after measures. Acceptance arm (HECA replay): airside rows byte-equal to
 the PRE-CORRIDOR airside state on unchanged rings — the +130 rows
 return, apron −11906 worst returns ≤0.86 m, the 1.21 m seam tear
 gone; every remaining delta row-attributed. CYXY control replay.

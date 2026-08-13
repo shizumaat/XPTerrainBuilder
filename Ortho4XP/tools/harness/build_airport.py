@@ -138,7 +138,9 @@ WHAT IT RECORDS, always, next to the patch:
   convention) so a lead can audit liveness without touching the run.
 * ``engine_cache_redirects`` (in ``<tag>.result.json`` and
   ``<tag>.frame.json``) — every build re-points the engine's two WRITABLE
-  derived-cache roots lane-local, under ``<out>/<tag>.engine_caches/``:
+  derived-cache roots lane-local, under the LANE-PERSISTENT
+  ``<lane>/tmp/engine_caches/`` (:func:`lane_cache_root`; the masks
+  overlay stays per-run under ``<out>/<tag>.engine_caches/``):
   the DSFTool dump cache (``O4_DSF_CACHE_DIR``) and the per-pack
   ``Airport_mod_cache`` root (``O4_AIRPORT_MOD_CACHE_DIR``, a
   COPY-ON-WRITE read-through overlay: APFS ``clonefile`` seeding, so a
@@ -951,7 +953,58 @@ def mask_overlay_subtrees(tiles=()):
     return [FNAMES.long_latlon(int(lat), int(lon)) for lat, lon in tiles]
 
 
-def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
+#: THE LANE-PERSISTENT DERIVED-CACHE ROOT's subdirectory inside a lane.
+#: ``tmp/`` is already the lane's own product area (root CLAUDE.md: "Lane
+#: products (``Patches``, ``Tiles``, ``Previews``, ``tmp``) stay
+#: lane-local"), so nothing new about the corpus law is being claimed here.
+LANE_CACHE_SUBDIR = ("tmp", "engine_caches")
+
+
+def lane_cache_root(lane_root=None) -> Path:
+    """WHERE A LANE'S DERIVED CACHES LIVE ACROSS RUNS (perf P2, Lane A).
+
+    THE MEASURED DEFECT (2026-08-13, P1's cost table).  The redirect below
+    is per-RUN — ``<out>/<tag>.engine_caches/`` — so everything the engine
+    DERIVES inside a lane build is thrown away when the run ends.  At HECA
+    that is ``_compute_dsf_object_buildings``: 66.6 s of OBJ8 parse +
+    O(n²) contact-graph partition, re-run by every lane build forever
+    (OTHH ~455 s, KCLT ~18 s).  The COW seeding does not save it, because
+    the SHARED sidecar is stale for the lane: the pack's own ``.obj``
+    files enter the footprint fingerprint, and the Phase-2 y-bake rewrites
+    them AFTER the sidecar for that same run was written — so a run
+    invalidates the sidecar it just wrote (measured at HECA: sidecar
+    07:03, 376 of 568 ``.obj`` rewritten 07:14, fingerprint
+    ``d6b89fe7`` vs the lane's ``78a5f07d``).  The next run at the SAME
+    tree bakes byte-identically (``object_rebake._rewrite_y_tokens``
+    keeps the mtime on an identical rewrite), so run 2 hits — but only if
+    run 1's sidecar still EXISTS.  A persistent root is what makes it
+    exist.
+
+    STILL LANE-LOCAL, so the corpus law (owner ruling e9daef5) is
+    untouched: this is the lane's own ``tmp/`` product area, one root per
+    WORKTREE, never the shared repo and never another lane's.
+    ``O4_LANE_CACHE_ROOT`` overrides the location (the twins' seam, and
+    the escape for a lane that wants a per-run root back).
+
+    STALENESS IS SAFE BY CONSTRUCTION, which is why a persistent clone may
+    shadow a later shared refresh: every artifact under these two roots is
+    CONTENT-KEYED — the object/pavement/classification sidecars carry the
+    input fingerprint they were computed under (``dsf_reader
+    ._object_footprint_sidecar``) and the DSFTool dump carries the DSF's
+    own hash in its file name.  A stale clone therefore never answers
+    WRONG; at worst it fails to match and the reader recomputes.  The
+    MASKS root is deliberately NOT persisted: masks are corpus DATA the
+    engine rewrites per tile, not a fingerprinted derived cache, so they
+    keep their per-run overlay.
+    """
+    override = os.environ.get("O4_LANE_CACHE_ROOT")
+    if override:
+        return Path(override)
+    return Path(lane_root or Path.cwd()).joinpath(*LANE_CACHE_SUBDIR)
+
+
+def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
+                           lane_root=None, persistent=True):
     """Point the engine's THREE WRITABLE data roots lane-local.
 
     THE MEASURED DEFECT (2026-08-11, the round-9 KCLT acceptance build).
@@ -995,11 +1048,23 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
     must land in the SHARED repo, so redirecting it would turn the refresh
     into a silent no-op.  The skip is recorded instead.
 
+    THE DERIVED CACHES PERSIST ACROSS RUNS (perf P2, 2026-08-13).  The two
+    FINGERPRINTED roots — the DSFTool dump cache and the per-pack mod cache
+    — land under :func:`lane_cache_root` (``<lane>/tmp/engine_caches/``,
+    one per WORKTREE) instead of ``<out>/<tag>.engine_caches/``, so what a
+    run derives is still there for the next one; ``persistent=False``
+    restores the per-run root.  The MASKS root stays per-run: masks are
+    corpus data the engine rewrites per tile, not a fingerprinted cache.
+    Everything else about the law is unchanged — still lane-local, still
+    COW-seeded from the shared corpus, an authorised refresh scope still
+    left SHARED.
+
     Owner ruling e9daef5 (one shared data repo; a build never mutates it
     as a side effect).
     """
     authorised = set(authorised or ())
     base = Path(out_dir) / f"{tag}.engine_caches"
+    derived_base = lane_cache_root(lane_root) if persistent else base
     skipped = []
     dsf_dir = mod_dir = masks_dir = None
     seeded = masks_seeded = None
@@ -1007,14 +1072,14 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
     if "dsf_cache" in authorised:
         skipped.append("dsf_cache")
     else:
-        dsf_dir = base / "Default_DSF_cache"
+        dsf_dir = derived_base / "Default_DSF_cache"
         dsf_dir.mkdir(parents=True, exist_ok=True)
         os.environ["O4_DSF_CACHE_DIR"] = str(dsf_dir)
 
     if "airport_mod_cache" in authorised:
         skipped.append("airport_mod_cache")
     else:
-        mod_dir = base / "Airport_mod_cache"
+        mod_dir = derived_base / "Airport_mod_cache"
         # ``DATA_REPO`` bare on purpose: the module global is what a twin
         # monkeypatches to point the seed at a fake corpus.
         seeded = mirror_tree_as_overlay(str(DATA_REPO / "Airport_mod_cache"),
@@ -1054,7 +1119,14 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
 
     if prog is not None:
         prog.note(
-            f"engine derived-cache roots redirected LANE-LOCAL under {base}: "
+            f"engine derived-cache roots redirected LANE-LOCAL under "
+            f"{derived_base}"
+            + (" (LANE-PERSISTENT: reused across runs, so what this build "
+               "derives is still there for the next one — the P1 finding "
+               "that HECA re-ran _compute_dsf_object_buildings, 66.6 s, "
+               "every lane build; masks stay per-run under "
+               f"{base})" if persistent else " (per-run)")
+            + ": "
             f"dump cache={dsf_dir or 'SHARED (authorised refresh)'}, "
             f"mod cache={mod_dir or 'SHARED (authorised refresh)'}"
             + (f" (overlay seeded copy-on-write: {seeded['files']} file(s) "
@@ -1076,6 +1148,8 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
 
     return {
         "base": str(base),
+        "derived_base": str(derived_base),
+        "derived_persistent": bool(persistent),
         "dsf_dump_cache": (str(dsf_dir) if dsf_dir is not None else None),
         "airport_mod_cache": (str(mod_dir) if mod_dir is not None else None),
         "mod_cache_seeded": seeded,
@@ -1122,7 +1196,7 @@ def arm_shared_repo_protection(root, out_dir, tag, prog=None,
     """
     redirects = redirect_engine_caches(
         out_dir, tag, prog, authorised=getattr(write_guard, "requested", None),
-        tiles=tiles)
+        tiles=tiles, lane_root=root)
     guard = (write_guard if write_guard is not None
              else SharedRepoWriteGuard(set(), root))
     return guard, redirects
@@ -1768,7 +1842,8 @@ def main(argv=None) -> int:
             # the tile path never goes through it, so it does it here.
             redirects = redirect_engine_caches(out_dir, tag, prog,
                                                authorised=requested,
-                                               tiles=[(lat, lon)])
+                                               tiles=[(lat, lon)],
+                                               lane_root=root)
             with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,

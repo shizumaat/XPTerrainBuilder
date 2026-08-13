@@ -426,12 +426,36 @@ def delete_old_masks_in_tile(tile, dest_dir):
 
     for til_x in range(til_x_min, til_x_max + 1, 16):
         for til_y in range(til_y_min, til_y_max + 1, 16):
+            old_mask = os.path.join(
+                dest_dir, FNAMES.legacy_mask(til_x, til_y))
             try:
-                os.remove(
-                    os.path.join(dest_dir, FNAMES.legacy_mask(til_x, til_y))
-                )
-            except:
+                os.remove(old_mask)
+            except FileNotFoundError:
+                # The overwhelmingly common case: this tile square had no
+                # mask from a previous run.  Expected, silent.
                 pass
+            except Exception as e:
+                # ANYTHING else surfaces — deliberately ``Exception`` and
+                # not ``OSError``: the shared-repo guard refuses with
+                # ``SharedRepoWriteBlocked(RuntimeError)``, which an
+                # OSError-only arm would turn into a hard crash of the
+                # masks step instead of an attributed line (the harness's
+                # own ``require_no_swallowed_write_block`` still rc=2s the
+                # run — this makes the refusal VISIBLE, it does not hide
+                # it).  This used to be a bare
+                # ``except: pass``, and on 2026-08-12 it swallowed 16
+                # shared-repo write refusals in a row (the guard blocking
+                # deletes of everyone's ``Masks/+30+030/+30+031/*.png``):
+                # the step read as a clean "-> Deleting existing masks"
+                # and the build only failed later, unattributably.  A
+                # swallowed refusal must never again look like a clean
+                # stage — with O4_MASKS_DIR armed (FNAMES.masks_root) the
+                # deletes land on lane-local clones and this never fires.
+                UI.lvprint(
+                    0,
+                    "WARNING: could not delete the existing mask",
+                    old_mask, ":", str(e),
+                )
 ################################################################################
     
 ################################################################################

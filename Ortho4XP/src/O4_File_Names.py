@@ -141,6 +141,43 @@ def airport_mod_cache_root():
     return data_path("Airport_mod_cache")
 
 
+def masks_root():
+    """Root of the water/coastline mask rasters (``Masks/<tile>/*.png``).
+
+    THE ONE mask-path resolution point: every mask read, write and delete
+    reaches the filesystem through :func:`mask_dir` (and through the
+    ``Mask_dir`` alias below), and both come from here.  A call site that
+    joins its own path onto the data root instead is the defect class this
+    accessor exists to remove.
+
+    ``O4_MASKS_DIR`` overrides it, resolved AT CALL TIME, exactly as
+    ``O4_AIRPORT_MOD_CACHE_DIR`` and ``O4_DSF_CACHE_DIR`` override the two
+    derived caches: a lane's tile build must not mutate everyone's masks.
+    THE MEASURED DEFECT (2026-08-12): a HECA lane tile arm refused rc=1
+    because ``O4_Mask_Utils.delete_old_masks_in_tile`` ``os.remove``d 16
+    SHARED ``Masks/+30+030/+30+031/*.png`` — the shared-repo write guard
+    blocked all 16 and the engine swallowed every refusal under a bare
+    ``except: pass``.  Every lane tile build on a warm tile refused that
+    way.  Owner ruling 2026-08-12b: lane mask writes land lane-local; the
+    harness seeds the override copy-on-write from the shared corpus
+    (``build_airport.redirect_engine_caches``), so warm reads stay warm
+    and the legacy cleanup deletes lane-local clones.
+
+    Read at call time, never captured at import, for the reason the mod
+    cache is: a module reload or a ``set_data_root`` recompute must not be
+    able to un-redirect a lane.  And as there, an EXPLICITLY chosen data
+    root (``set_data_root``, ``ORTHO4XP_DATA_ROOT``) is the more specific
+    instruction about where all writable data lives — the packaged app's
+    production builds legitimately write the corpus they were pointed at,
+    and lifting one family out of a named root would split it.
+    """
+    override = os.environ.get("O4_MASKS_DIR")
+    if override and _data_root_override is None and not os.environ.get(
+            "ORTHO4XP_DATA_ROOT"):
+        return override
+    return data_path("Masks")
+
+
 # Read-only, shipped with the app.
 Provider_dir = resource_path("Providers")
 Extent_dir = resource_path("Extents")
@@ -153,7 +190,9 @@ Utils_dir = resource_path("Utils")
 Auto_extent_dir = ""
 Preview_dir = ""
 OSM_dir = ""
-Mask_dir = ""
+# ``Mask_dir`` is deliberately ABSENT from this block: it is served by the
+# module ``__getattr__`` below, straight from :func:`masks_root`, so the
+# name cannot go stale relative to ``O4_MASKS_DIR``.
 Imagery_dir = ""
 Elevation_dir = ""
 Geotiff_dir = ""
@@ -168,14 +207,31 @@ Overlay_dir = ""
 Default_dsf_cache_dir = ""
 
 
+def __getattr__(name):
+    """Serve ``Mask_dir`` from :func:`masks_root` at ATTRIBUTE-ACCESS time.
+
+    PEP 562 module ``__getattr__``: it fires only for names normal lookup
+    does not find, and ``Mask_dir`` is no longer assigned anywhere.  So
+    every existing reader — the two entry points' working-directory
+    bootstrap and the app driver's ``getattr(FNAMES, name)`` loop —
+    resolves through the one accessor, with no second spelling of the path
+    to keep in sync and no window in which the module global says one
+    thing and :func:`mask_dir` another.  Assigning the attribute (a test
+    monkeypatching it) still shadows this, which is the intended
+    monkeypatch semantics.
+    """
+    if name == "Mask_dir":
+        return masks_root()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _apply_data_root():
-    global Auto_extent_dir, Preview_dir, OSM_dir, Mask_dir, Imagery_dir
+    global Auto_extent_dir, Preview_dir, OSM_dir, Imagery_dir
     global Elevation_dir, Geotiff_dir, Patch_dir, Tile_dir, Tmp_dir
     global Overlay_dir, Default_dsf_cache_dir
     Auto_extent_dir = data_path(os.path.join("Extents", "Auto"))
     Preview_dir = data_path("Previews")
     OSM_dir = data_path("OSM_data")
-    Mask_dir = data_path("Masks")
     Imagery_dir = data_path("Orthophotos")
     Elevation_dir = data_path("Elevation_data")
     Geotiff_dir = data_path("Geotiffs")
@@ -317,7 +373,7 @@ def osm_dir(lat, lon):
 
 
 def mask_dir(lat, lon):
-    return os.path.join(Mask_dir, long_latlon(lat, lon))
+    return os.path.join(masks_root(), long_latlon(lat, lon))
 
 
 def patch_dir(lat, lon):

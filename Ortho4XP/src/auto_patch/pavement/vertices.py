@@ -1219,6 +1219,54 @@ def _record_airside_drop(layout, shape, poly, area_m2: float,
         f"@{lat:.6f},{lon:.6f} — pavement hole risk.")
 
 
+def _project_means_onto_runway_boundaries(means, runway_boundaries, tol):
+    """The rule-2 projection for MANY cluster means at once.
+
+    Returns ``[(x, y) | None, ...]``, one entry per mean: the nearest
+    point on the nearest runway boundary within ``tol``, or None.
+
+    THE SCAN'S RULE, KEPT EXACTLY (perf P3 wave 2, byte-identity gate):
+    runway boundaries are visited in list order and a later one wins only
+    on a STRICTLY smaller distance, so the FIRST minimum wins here just
+    as it did in the per-cluster loop; the bounding-box test is the same
+    (and can only ever exclude a runway farther than ``tol``, since each
+    box is already grown by ``tol``); and only the winner's projection is
+    computed — the scan's last improvement was the only one that
+    survived.  ``shapely.distance`` over a point array is the same GEOS
+    call as ``exterior.distance(Point(...))``, bit-for-bit.  Twin:
+    ``tests/test_emit_finalize_prefilters.py``.
+    """
+    out: list = [None] * len(means)
+    if not runway_boundaries or not means:
+        return out
+    import numpy as np
+    import shapely
+
+    arr = np.asarray(means, dtype=float)
+    points = shapely.points(arr)
+    best_distance = np.full(len(means), np.inf)
+    best_runway = np.full(len(means), -1, dtype=np.intp)
+    for runway_index, (bounds, exterior) in enumerate(runway_boundaries):
+        min_x, min_y, max_x, max_y = bounds
+        candidates = np.flatnonzero(
+            (arr[:, 0] >= min_x) & (arr[:, 0] <= max_x)
+            & (arr[:, 1] >= min_y) & (arr[:, 1] <= max_y))
+        if candidates.size == 0:
+            continue
+        distances = shapely.distance(points[candidates], exterior)
+        improves = ((distances <= tol)
+                    & (distances < best_distance[candidates]))
+        winners = candidates[improves]
+        best_distance[winners] = distances[improves]
+        best_runway[winners] = runway_index
+    for k in np.flatnonzero(best_runway >= 0):
+        exterior = runway_boundaries[best_runway[k]][1]
+        point = Point(arr[k, 0], arr[k, 1])
+        projected = exterior.interpolate(exterior.project(point))
+        out[int(k)] = (projected.x, projected.y)
+    return out
+
+
 def _enforce_shared_vertices(layout: "PavementLayout",
                              tol: float = 1.5) -> None:
     """Collapse all emitted-shape vertices that lie within ``tol``
@@ -1336,25 +1384,20 @@ def _enforce_shared_vertices(layout: "PavementLayout",
             ((min_x - tol, min_y - tol, max_x + tol, max_y + tol),
              exterior))
 
-    def _project_onto_runway_boundary(px: float, py: float):
-        """Nearest point on any runway boundary within ``tol`` of
-        (px, py), or None."""
-        best = None
-        for (min_x, min_y, max_x, max_y), exterior in runway_boundaries:
-            if not (min_x <= px <= max_x and min_y <= py <= max_y):
-                continue
-            point = Point(px, py)
-            distance = exterior.distance(point)
-            if distance <= tol and (best is None or distance < best[0]):
-                projected = exterior.interpolate(exterior.project(point))
-                best = (distance, (projected.x, projected.y))
-        return None if best is None else best[1]
-
     cluster_members: dict[int, list[int]] = defaultdict(list)
     for i in range(len(handles)):
         cluster_members[_find(i)].append(i)
     canonical: dict[int, tuple[float, float] | None] = {}
     n_mixed_authority_clusters = 0
+    # Rule-3 means, collected in cluster order and projected in ONE batch
+    # below (perf P3 wave 2): the scan this replaces paid a Python
+    # ``Point`` plus a GEOS ``distance`` per (cluster, runway) pair, and
+    # a big airport has ~10^5 clusters inside the runway bounding boxes.
+    # The batch is the same GEOS distance over an array, with the scan's
+    # own selection rule preserved exactly (see
+    # ``_project_means_onto_runway_boundaries``).
+    pending_roots: list[int] = []
+    pending_means: list[tuple[float, float]] = []
     for root, members in cluster_members.items():
         runway_positions = [
             handles[m][4] for m in members
@@ -1373,8 +1416,15 @@ def _enforce_shared_vertices(layout: "PavementLayout",
             continue
         sx = sum(handles[m][4][0] for m in members) / len(members)
         sy = sum(handles[m][4][1] for m in members) / len(members)
-        projected = _project_onto_runway_boundary(sx, sy)
-        canonical[root] = projected if projected is not None else (sx, sy)
+        canonical[root] = (sx, sy)          # rule 3; rule 2 overrides below
+        pending_roots.append(root)
+        pending_means.append((sx, sy))
+    for root, projected in zip(
+            pending_roots,
+            _project_means_onto_runway_boundaries(
+                pending_means, runway_boundaries, tol)):
+        if projected is not None:
+            canonical[root] = projected
     if n_mixed_authority_clusters:
         import O4_UI_Utils as UI
         UI.vprint(2,

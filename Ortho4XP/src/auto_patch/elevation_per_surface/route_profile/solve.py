@@ -13,6 +13,7 @@ Wiring (``solver.solve`` dispatches here unconditionally):
 """
 from __future__ import annotations
 
+import heapq as _heapq
 import math as _math
 import os as _os
 import time as _time
@@ -34,6 +35,76 @@ from .one_solve import (envelope_from_band_enabled, one_profile_solve,
                         price_slab_against_law,
                         route_metric_envelope_enabled,
                         _CATCH_ALL_FAMILY_TAGS as _CATCH_ALL_FAMILIES)
+
+
+def _flex_value_envelope(adjacency, node_owner_ref, seeds, sign):
+    """ceil (sign=+1): min over seeds of value + path budget;
+    floor (sign=−1): max of value − path budget.  Strict pop guard
+    (no epsilon) — the lazy-Dijkstra re-expansion lesson.
+
+    Returns ``{node: (value, origin_ref)}`` where ``origin_ref`` is
+    the runway owning the BINDING seed (None = a non-runway anchor:
+    seam pin / building seat / other immovable).  The origin decides
+    whether a demand may be SPLIT with the pulling runway (user
+    2026-07-06: the deficit divides across the runways pulling on
+    it) or must be absorbed in full.
+
+    DOMINATED-PUSH SUPPRESSION (perf P3 lane H).  The lazy heap used
+    to take EVERY relaxation, so one node accumulated one entry per
+    incident edge and the heap carried mostly entries that pop into
+    the ``k in best`` guard and are thrown away.  ``pushed`` records
+    the smallest heap key ever pushed for a node and a relaxation
+    that is not strictly smaller is dropped.  That is not a heuristic
+    — it is exactly the entry the original discarded:
+
+      * a STRICTLY LARGER key can only pop after some smaller key for
+        the same node, and that smaller pop puts the node in ``best``,
+        so the larger one always hit ``if k in best: continue``;
+      * an EQUAL key would pop after the earlier equal one, because
+        ``_tie`` increases monotonically at every push and the heap
+        orders ``(key, _tie)`` — so the earlier push wins the node's
+        ``origin`` in both versions.
+
+    ``best`` values, the origins they carry, and the pop ORDER of
+    everything that survives are therefore identical; only pops that
+    did nothing are gone.  The relaxation ARITHMETIC is left spelled
+    exactly as it was (``kv + sign * budget``, negated back for the
+    floor pass) — the algebraically equal ``key + budget`` differs on
+    one input, a ``-0.0`` key with a ``0.0`` budget, and the
+    negative-zero gate lane C had to build is the reason that is not
+    worth the two saved flops."""
+    best: dict = {}
+    pushed: dict = {}           # node -> smallest key ever pushed
+    _tie = 0                    # heap tiebreaker: origin is not orderable
+    pq = []
+    for i, v in seeds.items():
+        _k0 = v if sign > 0 else -v
+        pq.append((_k0, _tie, i, node_owner_ref.get(i)))
+        pushed[i] = _k0
+        _tie += 1
+    _heapq.heapify(pq)
+    _pop = _heapq.heappop
+    _push = _heapq.heappush
+    _adj_get = adjacency.get
+    _positive = sign > 0
+    while pq:
+        key, _t, k, origin = _pop(pq)
+        if k in best:
+            continue
+        kv = key if _positive else -key
+        best[k] = (kv, origin)
+        for (j, budget) in _adj_get(k, ()):
+            if j in best:
+                continue
+            nt = kv + sign * budget
+            nk = nt if _positive else -nt
+            _prev = pushed.get(j)
+            if _prev is not None and nk >= _prev:
+                continue
+            pushed[j] = nk
+            _tie += 1
+            _push(pq, (nk, _tie, j, origin))
+    return best
 
 
 def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
@@ -183,37 +254,11 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             node_owner_ref[_i] = _ref
 
     def _value_envelope(seeds, sign):
-        """ceil (sign=+1): min over seeds of value + path budget;
-        floor (sign=−1): max of value − path budget.  Strict pop guard
-        (no epsilon) — the lazy-Dijkstra re-expansion lesson.
-
-        Returns ``{node: (value, origin_ref)}`` where ``origin_ref`` is
-        the runway owning the BINDING seed (None = a non-runway anchor:
-        seam pin / building seat / other immovable).  The origin decides
-        whether a demand may be SPLIT with the pulling runway (user
-        2026-07-06: the deficit divides across the runways pulling on
-        it) or must be absorbed in full."""
-        best: dict = {}
-        _tie = 0                    # heap tiebreaker: origin is not orderable
-        pq = []
-        for i, v in seeds.items():
-            pq.append(((v if sign > 0 else -v), _tie, i,
-                       node_owner_ref.get(i)))
-            _tie += 1
-        _heapq.heapify(pq)
-        while pq:
-            key, _t, k, origin = _heapq.heappop(pq)
-            if k in best:
-                continue
-            best[k] = ((key if sign > 0 else -key), origin)
-            for (j, budget) in adjacency.get(k, ()):
-                if j in best:
-                    continue
-                nt = best[k][0] + sign * budget
-                _tie += 1
-                _heapq.heappush(
-                    pq, ((nt if sign > 0 else -nt), _tie, j, origin))
-        return best
+        """The hook's binding of :func:`_flex_value_envelope` — module
+        level so the equivalence twin can drive it against the naive
+        lazy Dijkstra it replaced (lane D's ``_envelopes_disjoint``
+        pattern)."""
+        return _flex_value_envelope(adjacency, node_owner_ref, seeds, sign)
 
     _BIN_M = 80.0
     # ── THE DEAD ZONE (spec ``docs/specs/demfollow-joint-spec.md``;
@@ -352,6 +397,13 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
     _max_rounds = RUNWAY_FLEX_MAX_ROUNDS
     _rounds_run = 0
     _stop_reason = "no further demand"
+    # The base-hard membership the seed comprehension below filters on is
+    # fixed for the whole hook (``base_hard`` is never written here), so
+    # the O(n) scan it did per runway per round is hoisted.  The list is
+    # in ascending index order, which is the order ``range(n)`` produced,
+    # so the seed dict's INSERTION order — and therefore the initial heap
+    # tiebreakers inside ``_value_envelope`` — is unchanged.
+    _base_hard_idx = [i for i in range(n) if base_hard[i]]
     for _round in range(_max_rounds):
         _round_drain = 0.0          # ACHIEVED drain, booked after apply
         _round_requested = 0.0
@@ -381,8 +433,8 @@ def _apply_runway_flex_hook(layout, icao, nodes, bucket_to_idx, elev,
             # off the 23C end).
             _eat_pin_idx = getattr(layout, "_eat_anchor_pin_idx",
                                    None) or ()
-            seeds = {i: elev[i] for i in range(n)
-                     if base_hard[i] and i not in own_nodes
+            seeds = {i: elev[i] for i in _base_hard_idx
+                     if i not in own_nodes
                      and i not in _eat_pin_idx}
             if not seeds:
                 continue

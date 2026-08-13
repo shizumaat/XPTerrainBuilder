@@ -3655,11 +3655,33 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # SOURCE PRECEDENCE (owner 2026-08-12b): the 1206 set is authoritative,
     # the OSM small roads complement it, and an OSM line that merely
     # re-spells a 1206 route is deduped at CENTERLINE level below.
+    # THE MINTER'S SOURCE IS THE CORRIDOR SET (owner 2026-08-12b, measured
+    # at KCLT).  It used to be ``apt_service_centerlines`` + the tile's OSM
+    # small-road cache, and at KCLT that cache is EMPTY
+    # (``_load_osm_small_roads(35, -81)`` → 0 ways): the airport's service
+    # roads reach this build through the per-airport ROAD FEED, which
+    # nothing offered the minter.  So the ruled ramp corridor
+    # (35.2136167,-80.9422409 → 35.213515,-80.9403524) had no source here
+    # at all and its ~30 m pavement gap stayed unpaved with the feature ON.
+    # The corridor COURSES stashed above are exactly the set the ruling
+    # names — 1206 routes + the feed ways that TOUCH pavement, already
+    # deduped between the two sources — so the minter now reads them, and
+    # the small-road cache still complements where it has anything.
     _apt_service_lines: List = (
         list(getattr(layout, "apt_service_centerlines", []) or [])
         if ENABLE_SERVICE_ROADS else [])
+    _corridor_lines: List[Tuple[LineString, str]] = (
+        [(ln, "road") for ln in
+         (getattr(layout, "_service_corridor_lines", None) or [])
+         if ln is not None and not ln.is_empty]
+        if ENABLE_SERVICE_ROADS else [])
     _osm_service_lines: List[Tuple[LineString, str]] = []
-    _service_lines: List = list(_apt_service_lines)
+    # The corridor set ALREADY carries the 1206 courses (they are its first
+    # half), so it REPLACES them here rather than joining them — one
+    # physical corridor, one source, exactly as the grade graph does with
+    # the same set.  Without a slice (unit fixtures) the 1206 set stands.
+    _service_lines: List = (_corridor_lines if _corridor_lines
+                            else list(_apt_service_lines))
     if ENABLE_SERVICE_ROADS and pav_union is not None and not pav_union.is_empty:
         # Keep-region = within SERVICE_ROAD_PAVEMENT_NEAR_M (25 m) of any
         # apt.dat/DSF pavement.  Keeps only the apron-access / crossing
@@ -3717,10 +3739,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
         # the 1206 spelling wins wherever an OSM small road covers the
         # same corridor — two spellings of one road would otherwise mint
         # twice and give one physical corridor two spines.
-        if SERVICE_SOURCE_DEDUPE and _apt_service_lines:
+        if SERVICE_SOURCE_DEDUPE and _service_lines:
             from .pavement.service_roads import dedupe_service_sources
             _osm_service_lines, _n_dedup = dedupe_service_sources(
-                _apt_service_lines, _osm_service_lines,
+                _service_lines, _osm_service_lines,
                 width=SERVICE_ROAD_WIDTH_M,
                 min_frac=SERVICE_SOURCE_DEDUPE_FRAC)
             if _n_dedup:

@@ -393,15 +393,32 @@ class TestFreeEnd:
         assert wall_across.intersects(keepout)
         assert not wall_beside.intersects(keepout)
 
-    def test_the_emitted_road_shapes_are_part_of_the_course(self):
-        """A corridor exists in the patch as a course, as road shapes, or
-        as both — the keep-out reads both spellings."""
+    def test_the_emitted_road_axes_are_part_of_the_course(self):
+        """A corridor exists in the patch as a stashed course, as minted
+        rects, or as both — the keep-out reads a minted rect's own AXIS."""
         from auto_patch import adjacent_ground as AG
         road = BuiltShape(polygon=_rect(40.0, 0.0, 46.0, 100.0),
-                          role="service_road")
-        layout = _WallLayout([road])
-        keepout = AG.service_corridor_wall_keepout(layout)
-        assert keepout is not None and keepout.area == pytest.approx(600.0)
+                          role="service_road",
+                          source_axis=LineString([(43.0, 0.0),
+                                                  (43.0, 100.0)]))
+        keepout = AG.service_corridor_wall_keepout(_WallLayout([road]))
+        assert keepout is not None
+        assert keepout.intersects(_rect(35.0, 40.0, 55.0, 42.0))   # across
+        assert not keepout.intersects(_rect(20.0, 40.0, 39.0, 42.0))
+
+    def test_a_kerbside_terrace_beside_the_road_is_lawful(self):
+        """The ruling forbids a wall CUTTING ACROSS the run — not the
+        ordinary terrace standing alongside it.  A kerbside wall 2 m from
+        the carriageway is inside a road-POLYGON keep-out and outside this
+        one; refusing it would leave its lot carrying the level change."""
+        from auto_patch import adjacent_ground as AG
+        road = BuiltShape(polygon=_rect(40.0, 0.0, 46.0, 100.0),
+                          role="service_road",
+                          source_axis=LineString([(43.0, 0.0),
+                                                  (43.0, 100.0)]))
+        keepout = AG.service_corridor_wall_keepout(_WallLayout([road]))
+        kerb = _rect(46.0, 10.0, 48.0, 90.0)          # along the far edge
+        assert not kerb.intersects(keepout)
 
     def test_the_gate_off_removes_the_keepout(self, monkeypatch):
         from auto_patch import adjacent_ground as AG

@@ -463,6 +463,12 @@ _WALL_SCOPE_PAVEMENT_ROLES = frozenset(
     })
 
 
+# How far either side of a corridor's CENTERLINE counts as "on the course"
+# for the wall law: enough that a wall lying along the course is caught,
+# small enough that a kerbside terrace beside the carriageway is not.
+_COURSE_HALO_M = 0.5
+
+
 def service_corridor_wall_keepout(layout, *, require_gate: bool = True):
     """The union of every SERVICE CORRIDOR's own COURSE — the ground on
     which a terrace / retaining wall is INADMISSIBLE (owner ruling
@@ -470,36 +476,47 @@ def service_corridor_wall_keepout(layout, *, require_gate: bool = True):
     course"; "terrace freedom applies to the ground BETWEEN graded
     features, never to the feature's own run").
 
-    The course is taken from BOTH spellings of the same thing, because a
-    corridor exists in the patch as either or both: the corridor COURSES the
-    pipeline stashed (``layout._service_corridor_lines`` — apt.dat 1206
-    routes + linemerged feed chains), widened to the road corridor width,
-    and the EMITTED road-family shapes (``service_road`` /
-    ``service_junction``).  A wall polygon intersecting that union is not
-    emitted; the level change then falls back to the emit-consensus merge,
-    exactly as the runway-strip wall law does with its own keep-out.
+    THE COURSE IS THE CENTERLINE, NOT THE CARRIAGEWAY.  The ruling forbids
+    a wall CUTTING ACROSS the road's run; a terrace standing ALONGSIDE a
+    road's edge is the ordinary ground-between-features terrace the
+    standing groundside terrace law allows, and a wall crossing the road
+    necessarily crosses its centerline.  So the keep-out is the corridor
+    COURSES the pipeline stashed (``layout._service_corridor_lines`` —
+    apt.dat 1206 routes + linemerged feed chains) plus the emitted
+    ``service_road`` rects' own axes, each widened by a hair
+    (``_COURSE_HALO_M``) so a wall lying ON the course is caught too.
+
+    The narrower predicate was chosen on the ruling's own words, not on a
+    measurement: CYXY builds BYTE-IDENTICALLY under either spelling
+    (body_sha 539b6c838531 with the polygon keep-out and with this one),
+    so nothing there distinguishes them — but a kerbside terrace 2 m from
+    a service junction is inside the road POLYGON's keep-out and outside
+    the course's, and refusing it would leave its lot to carry the level
+    change itself.
 
     ``None`` with the gate off or when the layout carries no corridor.
     """
-    from .config import (SERVICE_CORRIDOR_FREE_END, SERVICE_ROAD_WIDTH_M)
-    from .layout import ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD
+    from .config import SERVICE_CORRIDOR_FREE_END
+    from .layout import ROLE_SERVICE_ROAD
     if require_gate and not SERVICE_CORRIDOR_FREE_END:
         return None
-    parts: list = []
-    for ln in (getattr(layout, "_service_corridor_lines", None) or []):
-        if ln is None or getattr(ln, "is_empty", True):
+    courses: list = []
+    courses.extend(ln for ln in
+                   (getattr(layout, "_service_corridor_lines", None) or [])
+                   if ln is not None and not getattr(ln, "is_empty", True))
+    for s in layout.shapes:
+        if s.role != ROLE_SERVICE_ROAD:
             continue
+        axis = getattr(s, "source_axis", None)
+        if axis is not None and not getattr(axis, "is_empty", True):
+            courses.append(axis)
+    parts: list = []
+    for ln in courses:
         try:
-            parts.append(ln.buffer(SERVICE_ROAD_WIDTH_M / 2.0,
-                                   cap_style=2, join_style=2))
+            parts.append(ln.buffer(_COURSE_HALO_M, cap_style=2,
+                                   join_style=2))
         except _GEOM_EXC:
             continue
-    for s in layout.shapes:
-        if s.role not in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
-            continue
-        if s.polygon is None or s.polygon.is_empty:
-            continue
-        parts.append(s.polygon)
     if not parts:
         return None
     try:

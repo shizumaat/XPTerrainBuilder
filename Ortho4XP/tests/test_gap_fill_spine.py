@@ -766,3 +766,37 @@ def test_every_gap_pass_sees_the_same_candidates():
         assert "_gap_detection_polys(layout, airside)" not in src, (
             f"{fn.__name__} still reads the enclosed-only detector — the "
             f"three passes would disagree about the rim pockets")
+
+
+def test_rim_pockets_grade_post_solve_only(monkeypatch):
+    """THE RATIFIED DEFAULT (ruling 2026-08-12b, after the OTHH
+    interventional pair): a rim pocket's spine is EMITTED, but its
+    vertices are NOT admitted to the one solve.
+
+    Measured at OTHH on one tree with this as the only variable —
+    absorbing them moved AIRSIDE apron values on rings byte-identical
+    between arms, 98.90-135.68 m from any pocket (within_shape airside
+    29 -> 47); withheld, the same build reads 9, better than the
+    rim-pockets-off baseline itself.  Groundside spine variables pulling
+    airside is the violation this default closes.
+    """
+    layout, _ = _rim_pocket_layout()
+    # PRE-SOLVE: the rim pocket contributes NO spine to the store.
+    assert GF.construct_gap_fill_presolve(layout) == 0, (
+        "a rim pocket entered the pre-solve store — groundside spine "
+        "variables are back in the one solve")
+    assert not getattr(layout, "gap_fill_presolve", None)
+    # EMISSION is unchanged: the pocket still grades.
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 1
+    assert len(_faces(layout)) == 1
+
+
+def test_the_absorb_gate_restores_the_pre_solve_spine(monkeypatch):
+    """The gate exists for the staged-solve design round: setting it
+    restores the measured-worse behaviour deliberately, so the round can
+    A/B its remedy against it."""
+    monkeypatch.setattr(GF, "RIM_PRESOLVE_ABSORB", True)
+    layout, _ = _rim_pocket_layout()
+    assert GF.construct_gap_fill_presolve(layout) == 1, (
+        "O4_RIM_PRESOLVE_ABSORB=1 must put the rim pocket's spine back "
+        "in the pre-solve store")

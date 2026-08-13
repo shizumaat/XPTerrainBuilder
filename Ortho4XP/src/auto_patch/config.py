@@ -278,6 +278,7 @@ __all__ = [
     "OPEN_FRONTAGE_CLOSE_M",
     "GAP_FILL_RIM_POCKETS_ENABLED",
     "GAP_FILL_RIM_POCKET_GRADED_FRACTION",
+    "RIM_PRESOLVE_ABSORB",
     "ONE_SOLVE_TERRAIN",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA",
@@ -5537,6 +5538,24 @@ OPEN_FRONTAGE_CLOSE_M = GAP_FILL_MAX_WIDTH_M / 2.0
 GAP_FILL_RIM_POCKET_GRADED_FRACTION = 0.75
 GAP_FILL_RIM_POCKETS_ENABLED = (
     _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "1") == "1")
+
+# RIM POCKETS GRADE POST-SOLVE ONLY (owner/Fable ruling 2026-08-12b,
+# after the OTHH interventional pair).  A rim pocket's drainage spine is
+# EMITTED like any other, but its vertices are NOT admitted to the one
+# solve as free variables: measured at OTHH, absorbing them moved AIRSIDE
+# apron values on rings byte-identical between arms, 98.90-135.68 m from
+# the nearest pocket — groundside geometry pulling airside, against
+# "airside solves first, groundside conforms".
+#
+# THE MEASUREMENT (OTHH --patch-only, one tree, single variable):
+#   rim off .................. within_shape 148, airside 29, cluster 23
+#   rim on, absorption ON .... within_shape 167, airside 47, cluster 41
+#   rim on, absorption OFF ... within_shape 129, airside  9, cluster  6
+# Post-solve-only is better than BOTH — it is the default, and the gate
+# exists so the staged-solve design round can restore absorption
+# deliberately.
+RIM_PRESOLVE_ABSORB = (
+    _os.environ.get("O4_RIM_PRESOLVE_ABSORB", "0") == "1")
 
 # ── SLICE B — solver absorption of terrain roles (staged) ──────────────
 # docs/slice_b_solver_absorption_design.md, Stage B0.  The absorption moves

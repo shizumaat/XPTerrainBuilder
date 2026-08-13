@@ -69,6 +69,7 @@ from .config import (
     GAP_FILL_MIN_AREA_M2,
     GAP_FILL_RIM_POCKET_GRADED_FRACTION,
     GAP_FILL_RIM_POCKETS_ENABLED,
+    RIM_PRESOLVE_ABSORB,
     GAP_FILL_SPINE_ENABLED,
     GAP_FILL_SPINE_STEP_M,
     OPEN_FRONTAGE_CLOSE_M,
@@ -2826,23 +2827,23 @@ def construct_gap_fill_presolve(layout) -> int:
     if len(airside) < 2:
         return 0
     gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
-    # ── ATTRIBUTION INSTRUMENT (lead-authorized 2026-08-12b) ───────────
-    # ATTRIBUTION ONLY — revert or ratify before any merge.  Withholds
-    # ruling 3's rim pockets from the PRE-SOLVE construction while the
-    # emitter still grades them, isolating the stage-B2 absorption half:
-    # if the OTHH apron churn (41 airside within_shape rows on aprons
-    # -10270/-10271/-10273, ~100-136 m from any rim face) vanishes with
-    # this set, the author is groundside spine VARIABLES entering the one
-    # solve and pulling airside — the gate-only knife cannot isolate it
-    # (``O4_ONE_SOLVE_TERRAIN_GRADED_STRIP`` hard-requires
-    # ``O4_ONE_SOLVE_TERRAIN_GAP_FILL_SPINE``, measured 2026-08-12b).
-    # Default OFF ⇒ byte-identical; the three-pass parity twin still
-    # reads the shared candidate call above.
-    if rim_ids and os.environ.get("O4_ATTR_RIM_NO_PRESOLVE") == "1":
+    # ── RIM POCKETS GRADE POST-SOLVE ONLY (ruling 2026-08-12b) ─────────
+    # Their spines are EMITTED like any other gap's; their vertices are
+    # not admitted to the one solve.  Measured at OTHH on one tree with
+    # this as the only variable: absorbing them moved AIRSIDE apron
+    # values (within_shape airside 29 → 47, the 41-row cluster on aprons
+    # -10270/-10271/-10273 at 98.90-135.68 m from any rim face) on rings
+    # byte-identical between arms; withheld, the same build reads airside
+    # 9 and cluster 6 — better than the rim-pockets-off baseline itself
+    # (29/23).  Groundside spine variables pulling airside is the
+    # "airside solves first, groundside conforms" violation, and the
+    # staged-solve design round owns the general fix.
+    # ``O4_RIM_PRESOLVE_ABSORB=1`` restores absorption for that round.
+    if rim_ids and not RIM_PRESOLVE_ABSORB:
         gap_candidates = [g for g in gap_candidates if id(g) not in rim_ids]
-        UI.vprint(1, f"  [rim-pocket] ATTRIBUTION: {len(rim_ids)} rim "
-                     f"pocket(s) withheld from the pre-solve construction "
-                     f"(O4_ATTR_RIM_NO_PRESOLVE=1) — emission unchanged.")
+        UI.vprint(1, f"  [rim-pocket] {len(rim_ids)} rim pocket(s) graded "
+                     f"POST-SOLVE only (not admitted to the one solve) — "
+                     f"emission unchanged.")
         rim_ids = set()
     if not gap_candidates:
         return 0

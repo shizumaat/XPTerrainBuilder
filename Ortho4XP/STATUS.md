@@ -1,4 +1,45 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260813b (PERF PHASE CLOSED — WAVE 2 + P4; STAGED-SOLVE RE-CHARTERED)
+# WAVE 2 MERGED, byte-identical x5 (consolidated-5 = frozen 1.0.245
+# manifest exactly, zero contamination): lane H −52 s solve (flex
+# Dijkstra dominated-push, sweep plan, numpy-bounded backfill); lane F
+# −34.7 s (global-slice buffer memo, route-band graph skip); lane G
+# ~32 CPU-s partition (floor refuted: whole sink 52.2 s); lane E
+# conformance (~3 s; charter overlap acknowledged); lane T tile vector
+# 127.4->103.4 s (P1 tile premises corrected); perfgraph −5.9 s
+# (redundancy measured 10.6%, ULP counterexample recorded); perfcenter
+# −4.1 s (centerline_specs memo, walked read-set).
+# P4 CLOSED: baselines RE-RECORDED (owner-approved) at d787464 —
+# CYXY 34.88 / OTHH 262.91 / SPJC 210.33 / HECA 347.19 / SPLP 8.43 /
+# HEAZ 41.00 / KCLT 334.20 (2-run exclusive medians, nice 0; OTHH's
+# first block hit the one-time pack re-key 755.5 s and was re-recorded
+# clean). Approvals refreshed for the four over-budget airports.
+# check_build_time RESULT: PASS. Report: docs/perf-phase-report-
+# 2026-08-13.md. DUP CENSUS: 1 material duplicate existed (paid); six
+# graph builds + fgp x2 = real work on mutating layout; 7 memos
+# scoped short (inventory in lane/dupcensus).
+# BAKE-INVARIANCE ARM PAID w/ carve-out: caches survive the bake
+# (2.15/3.16 s warm across 171/77 baked .obj); tile builds NOT
+# idempotent via o4_object_foot_pads.json ratchet (689->723->736).
+# OWNER RULINGS TODAY (all in RULINGS.md): (1) OBJECT PADS ONE SOLVE,
+# convergence retired — pre-solve deviation-vs-DEM, in-band seat
+# adjustment, faster-than-object-edits gate (S5); (2) GEOMETRY FREEZE
+# — all solve-consumed geometry completes before solving, one node
+# list + one graph, value-preserving refinement collapses the double
+# projection (S1); (3) WELD OR GAP — walls/terraces/feathers/blends
+# retire, seawalls sole exception (S6); interior shared-edge
+# disagreement is ALWAYS a defect.
+# QUEUE: dispatch STAGED-SOLVE round (spec staged-solve-round-spec.md,
+# S1 freeze+boundary || S3 OTHH attribution || S5 pads-one-solve
+# first; S2 corridor profile + KCLT transitions next; S4 rim pockets
+# and S6 retirement sequenced after) on the solve_cut fast loop; then
+# owner in-sim judges HECA per ship ruling. Mid-projection 2026-07-18
+# ruling stands through the round (collapse expected by construction).
+# GOTCHA: a pack's FIRST post-merge build pays a one-time pristine
+# re-key (OTHH 227 s assembling) — never let it into a baseline or an
+# A/B side; the second run is the steady state.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260813a (PERF PHASE WAVE 1 — ALL MERGED, BYTE-IDENTICAL)
 # Merged to main: lane/perfcache (lane-persistent derived caches,
 # OTHH −423.5 s/HECA −63.2 s per lane rebuild), lane/perfinstr

@@ -2,108 +2,102 @@
  "_doc": "Committed build-time baselines for the hard-law checker tools/check_build_time.py (canonical law: CLAUDE.md working-style item 6). Cold-equivalent measurements excluding downloads; tile records qualify only when features.textures_missing == 0 AND features.insets_fetched == 0 (a run that fetched airport elevation insets books that download time into step-1 seconds). Update via 'venv/bin/python tools/check_build_time.py --run --update-baselines <ICAO ...>' and commit alongside the change that paid for any new numbers.",
  "airports": {
   "CYXY": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "4d20c7c",
-   "git_dirty_file_count": 30,
-   "total_seconds": 35.56,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 34.88,
    "phase_seconds": {
     "Loading apt.dat & runway geometry": 0.03,
     "Assembling pavement & runway shoulders": 0.41,
-    "Building taxiways & terminals": 0.1,
-    "Building taxi rects, junctions & service roads": 0.68,
-    "Solving elevations (FAA grade compliance)": 26.98,
-    "Emitting terrain features & finalizing": 7.39
-   },
-   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+    "Building taxiways & terminals": 0.21,
+    "Building taxi rects, junctions & service roads": 0.57,
+    "Solving elevations (FAA grade compliance)": 27.04,
+    "Emitting terrain features & finalizing": 6.65
+   }
   },
   "OTHH": {
-   "recorded_at": "2026-07-18",
-   "git_commit": "4e7564a",
-   "git_dirty_file_count": 2,
-   "total_seconds": 339.52,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 1,
+   "total_seconds": 262.91,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 1.04,
-    "Assembling pavement & runway shoulders": 1.0,
-    "Building taxiways & terminals": 17.62,
-    "Building taxi rects, junctions & service roads": 20.91,
-    "Solving elevations (FAA grade compliance)": 213.66,
-    "Emitting terrain features & finalizing": 86.33
+    "Loading apt.dat & runway geometry": 0.18,
+    "Assembling pavement & runway shoulders": 1.48,
+    "Building taxiways & terminals": 0.32,
+    "Building taxi rects, junctions & service roads": 42.88,
+    "Solving elevations (FAA grade compliance)": 141.45,
+    "Emitting terrain features & finalizing": 76.78
    }
   },
   "SPJC": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "4d20c7c",
-   "git_dirty_file_count": 31,
-   "total_seconds": 174.99,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 210.33,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.06,
-    "Assembling pavement & runway shoulders": 0.47,
-    "Building taxiways & terminals": 0.34,
-    "Building taxi rects, junctions & service roads": 1.94,
-    "Solving elevations (FAA grade compliance)": 119.38,
-    "Emitting terrain features & finalizing": 52.86
-   },
-   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+    "Loading apt.dat & runway geometry": 0.07,
+    "Assembling pavement & runway shoulders": 4.21,
+    "Building taxiways & terminals": 0.41,
+    "Building taxi rects, junctions & service roads": 1.83,
+    "Solving elevations (FAA grade compliance)": 153.56,
+    "Emitting terrain features & finalizing": 50.31
+   }
   },
   "HECA": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "4d20c7c",
-   "git_dirty_file_count": 31,
-   "total_seconds": 351.93,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 347.19,
    "phase_seconds": {
     "Loading apt.dat & runway geometry": 0.08,
-    "Assembling pavement & runway shoulders": 1.39,
-    "Building taxiways & terminals": 1.47,
-    "Building taxi rects, junctions & service roads": 54.19,
-    "Solving elevations (FAA grade compliance)": 205.12,
-    "Emitting terrain features & finalizing": 89.76
-   },
-   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+    "Assembling pavement & runway shoulders": 1.89,
+    "Building taxiways & terminals": 2.9,
+    "Building taxi rects, junctions & service roads": 39.46,
+    "Solving elevations (FAA grade compliance)": 230.23,
+    "Emitting terrain features & finalizing": 72.73
+   }
   },
   "SPLP": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "4d20c7c",
-   "git_dirty_file_count": 30,
-   "total_seconds": 12.25,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 8.43,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.02,
-    "Assembling pavement & runway shoulders": 0.41,
-    "Building taxiways & terminals": 0.03,
-    "Building taxi rects, junctions & service roads": 0.46,
-    "Solving elevations (FAA grade compliance)": 9.46,
-    "Emitting terrain features & finalizing": 1.89
-   },
-   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+    "Loading apt.dat & runway geometry": 0.03,
+    "Assembling pavement & runway shoulders": 0.39,
+    "Building taxiways & terminals": 0.1,
+    "Building taxi rects, junctions & service roads": 0.23,
+    "Solving elevations (FAA grade compliance)": 6.04,
+    "Emitting terrain features & finalizing": 1.68
+   }
   },
   "HEAZ": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "4d20c7c",
-   "git_dirty_file_count": 31,
-   "total_seconds": 54.73,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 41.0,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.48,
-    "Assembling pavement & runway shoulders": 0.5,
-    "Building taxiways & terminals": 0.06,
-    "Building taxi rects, junctions & service roads": 0.58,
-    "Solving elevations (FAA grade compliance)": 45.91,
-    "Emitting terrain features & finalizing": 7.69
-   },
-   "note": "DEFAULT-ARM baseline (no O4_* gates set) recorded for the kill-half round (docs/specs/kill-half-spec.md \u00a75), 2 cold-equivalent runs, foreground + exclusive, median.  MEASUREMENT CONDITION: the machine was measurably slower this session than during the 2026-08-04 overnight approval battery \u2014 phases this round cannot touch drifted with it (HECA emit 79.7-80.1 s overnight vs 81.2-90.2 s in every arm measured here) \u2014 so these numbers are CONSERVATIVE.  A same-session pre-kill control (worktree at 4d20c7c, CAND arm, warm caches) measured CYXY 35.8 / SPJC 177.15 / HECA 336.5 s, i.e. the kill round itself is not resolvable above the noise."
+    "Loading apt.dat & runway geometry": 0.46,
+    "Assembling pavement & runway shoulders": 0.46,
+    "Building taxiways & terminals": 0.05,
+    "Building taxi rects, junctions & service roads": 0.44,
+    "Solving elevations (FAA grade compliance)": 31.66,
+    "Emitting terrain features & finalizing": 8.39
+   }
   },
   "KCLT": {
-   "recorded_at": "2026-08-04",
-   "git_commit": "2079b84",
-   "git_dirty_file_count": 8,
-   "total_seconds": 307.26,
+   "recorded_at": "2026-08-13",
+   "git_commit": "d787464",
+   "git_dirty_file_count": 0,
+   "total_seconds": 334.2,
    "phase_seconds": {
-    "Loading apt.dat & runway geometry": 0.09,
-    "Assembling pavement & runway shoulders": 0.92,
-    "Building taxiways & terminals": 1.16,
-    "Building taxi rects, junctions & service roads": 19.34,
-    "Solving elevations (FAA grade compliance)": 220.72,
-    "Emitting terrain features & finalizing": 65.12
-   },
-   "note": "KCLT joins the battery as the FAA fixture (docs/RULINGS.md campaign goal). DEFAULT-ARM baseline (no O4_* gates set), WITH the +35-081 regional road clip (clip_+035-0081_3537cb8d9a74) so the road feed is live -- a no-road-clip build is a different airport (1943 vs 2290 shapes). tools/check_build_time.py --run --runs 2, foreground+exclusive, median of 308.0/306.6 s (0.5% apart). OVER the 60 s per-airport budget by 5.1x -- standing fact for the owner's budget ruling, not an approval."
+    "Loading apt.dat & runway geometry": 0.1,
+    "Assembling pavement & runway shoulders": 7.6,
+    "Building taxiways & terminals": 2.5,
+    "Building taxi rects, junctions & service roads": 9.44,
+    "Solving elevations (FAA grade compliance)": 246.93,
+    "Emitting terrain features & finalizing": 67.72
+   }
   }
  },
  "tiles": {}

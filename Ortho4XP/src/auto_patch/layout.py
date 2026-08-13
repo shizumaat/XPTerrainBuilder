@@ -3443,6 +3443,19 @@ class PavementLayout:
             # validator so emit-time ring repairs cannot mint a
             # different Delaunay than the one the solver graded to.
             "mesh_edges": junction_mesh_edges_ll(self),
+            # SERVICE-CORRIDOR FREE-END DEM TIES (corridor-joins round,
+            # ruling 3 + ruling 4's acceptance instrument): one record
+            # per anchored corridor terminus — its lat/lon, the AMBIENT
+            # DEM the build read there, the target it was anchored at
+            # (clamped into the road cap's reach where terrain is out of
+            # reach) and the node count of its cross-section.  EVIDENCE,
+            # never law input: the acceptance question "does the road
+            # reach ground?" is `emitted altitude − this DEM`, and it has
+            # to be answered IN THE BUILD'S OWN DEM FRAME — an offline
+            # DEM read is a different frame (warm-vs-cold has moved
+            # terrain 12 m).  Empty list on a build with no free end;
+            # ``None`` when no elevations were solved at all.
+            "svc_free_ends": getattr(self, "_svc_free_end_records", None),
             # SPINE CROWN drop field (user 2026-07-07, part 30): the
             # per-node designed crown drops the solve's writeback
             # applied.  The validator re-centres each pair's budget

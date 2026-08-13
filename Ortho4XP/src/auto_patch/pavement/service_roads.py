@@ -33,7 +33,8 @@ import math
 import os as _os
 
 from shapely.errors import GEOSException, TopologicalError
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+from shapely.geometry import (LineString, MultiLineString, MultiPolygon,
+                              Point, Polygon)
 from shapely.ops import unary_union
 
 from ..layout import ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION
@@ -43,6 +44,15 @@ _GEOM_EXC = (ValueError, TypeError, GEOSException, TopologicalError, IndexError)
 # A route vertex within this distance of aircraft pavement counts as
 # "on the movement area" and is excluded from the service-road network.
 _PAV_CLEAR_TOL_M = 1.0
+# MOUTH REACH — how far along its own axis a mouth fill may run from the
+# corridor body's cut end toward the pavement it joins.  The gap it closes is
+# ``_PAV_CLEAR_TOL_M`` measured along the buffer NORMAL, so a route meeting
+# the edge obliquely needs more than the clearance itself; three times it
+# spans an approach as shallow as ~20°.  The fill is additionally INTERSECTED
+# with the buffered union, so this number can only ever shorten a fill that
+# is already confined to the annulus — it can never reach pavement or open
+# ground beyond it.
+_MOUTH_REACH_M = 3.0 * _PAV_CLEAR_TOL_M
 # Turn angle (deg) above which a polyline is split into a new straight run.
 _BEND_ANGLE_DEG = 25.0
 # Minimum service_junction fill-polygon area to keep (drop slivers).
@@ -209,12 +219,117 @@ def dedupe_service_sources(
     return kept, dropped
 
 
+def mouth_fills(centerlines: list, pav_union, pav_buf, *,
+                width: float) -> list[Polygon]:
+    """The MOUTH fills: corridor pavement reaching the aircraft-pavement
+    EDGE ITSELF, at every axis crossing / terminus into that pavement.
+
+    A MOUTH IS A CROSSING OR A TERMINUS INTO PAVEMENT — nothing else.  It
+    is located by the route's own CONTACT with ``pav_union``: only the
+    stretch within ``_MOUTH_REACH_M`` (along the route) of where the axis
+    actually meets aircraft pavement is filled.  A road running ALONGSIDE
+    an edge inside the 1 m clearance never contacts the union, so it gets
+    no fill and keeps its clearance for its whole run — the alternative
+    (filling the annulus wherever the corridor is near pavement) would
+    spray metre-wide slivers down every edge-parallel road.
+
+    RULING 1 (corridor-joins round, Fable spec 2026-08-12c, on the owner's
+    in-sim refutation at KCLT).  The minter cuts the corridor back from all
+    aircraft pavement by ``_PAV_CLEAR_TOL_M`` = 1.0 m, while
+    ``conformance`` welds only within ``SHARED_VERTEX_TOL_M`` = 0.5 m — so
+    every road↔taxiway seam was UNWELDABLE BY CONSTRUCTION (measured 0.999 m
+    at both KCLT sites), the annulus was filled by a graded_strip carrying
+    both claims, and no node anywhere was shared between the road family and
+    the taxiway family.
+
+    So at the mouths — and ONLY there — the corridor is carried across that
+    annulus: for each piece of a route that lies inside ``pav_buf``, the
+    stretch of it within ``_MOUTH_REACH_M`` of the buffer's own boundary is
+    buffered to the corridor width and clipped to ``pav_buf − pav_union``.
+    The result's boundary follows the PAVEMENT EDGE (the difference is taken
+    against ``pav_union``, not the buffered union), so the corridor's own
+    boundary nodes land ON the airside edge inside weld reach and
+    ``enforce_conformance`` splices them into the airside ring: shared nodes,
+    ONE altitude at the seam.
+
+    CONFINED TO THE ANNULUS BY CONSTRUCTION.  Every fill is intersected with
+    ``pav_buf`` and differenced against ``pav_union``, so a fill can neither
+    overlay aircraft pavement (the double-paving ruling) nor escape into the
+    open ground the corridor BODY already covers at its 1.0 m clearance —
+    which is why the body's mid-run clearance is untouched by this pass.
+
+    Returns the fill polygons (possibly empty); the caller unions them into
+    the corridor before the rect/junction split, so they emit as ordinary
+    ``service_junction`` fill under the road cap.
+    """
+    if pav_union is None or pav_buf is None:
+        return []
+    from shapely.ops import substring
+    try:
+        from shapely.prepared import prep
+        pav_prep = prep(pav_union)
+    except _GEOM_EXC:                                    # pragma: no cover
+        pav_prep = None
+    half = width / 2.0
+    out: list[Polygon] = []
+    for entry in centerlines:
+        line = _line_of(entry)
+        if line is None or line.is_empty or line.length <= 0.0:
+            continue
+        if pav_prep is not None and not pav_prep.intersects(line):
+            continue                     # never reaches pavement → no mouth
+        try:
+            contact = line.intersection(pav_union)
+        except _GEOM_EXC:
+            continue
+        stubs: list = []
+        for piece in _as_linestrings(contact):
+            if piece.is_empty:
+                continue
+            try:
+                ss = sorted(line.project(Point(c))
+                            for c in (piece.coords[0], piece.coords[-1]))
+            except _GEOM_EXC:                            # pragma: no cover
+                continue
+            # …the run of route on EACH side of the contact, out to the
+            # mouth reach: the stretch that actually spans the clearance.
+            for (a, b) in ((ss[0] - _MOUTH_REACH_M, ss[0]),
+                           (ss[1], ss[1] + _MOUTH_REACH_M)):
+                a, b = max(0.0, a), min(line.length, b)
+                if b - a <= 1e-9:
+                    continue
+                try:
+                    stub = substring(line, a, b)
+                except _GEOM_EXC:                        # pragma: no cover
+                    continue
+                if (stub is not None and not stub.is_empty
+                        and stub.geom_type == "LineString"):
+                    stubs.append(stub)
+        for stub in stubs:
+            try:
+                fill = (stub.buffer(half, cap_style=2, join_style=2)
+                        .intersection(pav_buf)
+                        .difference(pav_union))
+            except _GEOM_EXC:                            # pragma: no cover
+                continue
+            for poly in _as_polygons(fill):
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                if (poly is None or poly.is_empty
+                        or poly.geom_type != "Polygon"
+                        or poly.area < _MIN_JUNCTION_AREA_M2):
+                    continue
+                out.append(poly)
+    return out
+
+
 def build_service_road_network(
         centerlines: list,
         pav_union: Polygon | None,
         *,
         width: float,
         min_len: float,
+        mouth_join: bool | None = None,
 ) -> tuple[list[tuple[Polygon, LineString, str, str]],
            list[tuple[Polygon, str, str]]]:
     """Build the ground-vehicle network from ``centerlines``
@@ -230,7 +345,15 @@ def build_service_road_network(
     residue (``corridor − rects``) at bends and intersections.  Width is
     the synthesised ``config.SERVICE_ROAD_WIDTH_M`` (most service roads
     have no pavement polygon).
+
+    ``mouth_join`` (default ``config.SERVICE_CORRIDOR_MOUTH_JOIN``) adds the
+    MOUTH fills of :func:`mouth_fills` to the corridor before the split, so
+    the corridor JOINS aircraft pavement at its mouths (ruling 1) while its
+    body keeps the 1.0 m clearance.  ``False`` restores the unweldable gap.
     """
+    if mouth_join is None:
+        from ..config import SERVICE_CORRIDOR_MOUTH_JOIN
+        mouth_join = SERVICE_CORRIDOR_MOUTH_JOIN
     rects: list[tuple[Polygon, LineString, str, str]] = []
     junctions: list[tuple[Polygon, str, str]] = []
     if not centerlines:
@@ -278,6 +401,19 @@ def build_service_road_network(
             corridor = corridor.buffer(0)
     except _GEOM_EXC:
         return rects, junctions
+    # MOUTH JOIN (ruling 1): carry the corridor across the clearance annulus
+    # at its mouths only, so its boundary nodes land ON the airside edge.
+    # The fills are confined to ``pav_buf − pav_union`` by construction, so
+    # this can neither double-pave nor widen the body's clearance.
+    if mouth_join and pav_buf is not None:
+        fills = mouth_fills(centerlines, pav_union, pav_buf, width=width)
+        if fills:
+            try:
+                corridor = unary_union([corridor] + fills)
+                if not corridor.is_valid:
+                    corridor = corridor.buffer(0)
+            except _GEOM_EXC:                            # pragma: no cover
+                pass
     if corridor.is_empty:
         return rects, junctions
 

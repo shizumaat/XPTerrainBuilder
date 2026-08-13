@@ -3,7 +3,7 @@
 
     venv/bin/python tools/arm_site_read.py CTL.osm ARM.osm \\
         [--site NAME=LAT,LON ...] [--radius M] \\
-        [--rows CTL.rows.json ARM.rows.json] [--seats] [--json OUT]
+        [--rows CTL.rows.json ARM.rows.json] [--seats] [--welds] [--json OUT]
 
 Run it from ``Ortho4XP/``.
 
@@ -25,6 +25,17 @@ and geometry/altitudes are read through the harness library's own parser
 (`check_grade._parse_osm`), so this tool and the census read one file the
 same way.  A missing input is reported as SKIPPED, never as zero.
 
+``--welds`` answers the OTHER acceptance question a place can be asked —
+IS THIS SEAM JOINED?  (corridor-joins round, spec ruling 4(a): "count of
+shared node refs between road-family and airside ways per mouth, with the
+max |Δalt| across each seam".)  Row absence cannot answer it: a census row
+exists only BETWEEN PAIRED GEOMETRY, so an UNWELDED road↔taxiway seam is
+SILENT in every census — which is exactly how two acceptance claims passed
+on a 0.999 m gap that no node could bridge.  Per site, per arm, this reports
+the node ids shared between the two families, the worst altitude difference
+carried at a shared node, the nearest unwelded approach when there are none,
+and the retaining walls standing at the site.
+
 THE FRAMES, both stated on the report:
 * rows are located by the census's own row lat/lon, which for a within-shape
   pair is the PAIR's position — a long chord's row can therefore sit far from
@@ -43,7 +54,17 @@ import math
 import sys
 from pathlib import Path
 
-__all__ = ["rows_near", "seat_moves", "load_rows", "SiteReadRefusal"]
+__all__ = ["rows_near", "seat_moves", "seam_welds", "load_rows",
+           "SiteReadRefusal", "ROAD_FAMILY_ROLES", "AIRSIDE_SEAM_ROLES"]
+
+#: The two families a corridor MOUTH joins.  Road side: the census's own
+#: ``check_grade._ROAD_FAMILY_ROLES``, read from it at call time (never a
+#: second literal).  Airside: every role the census treats as airside that a
+#: road can physically meet — the aircraft movement area.
+ROAD_FAMILY_ROLES = ("service_road", "service_junction")
+AIRSIDE_SEAM_ROLES = ("apron", "junction", "primary_parallel",
+                      "secondary_parallel", "stub", "cross_connector",
+                      "runway", "runway_crossing")
 
 _ROOT = Path(__file__).resolve().parents[1]
 _M_PER_DEG = 111320.0
@@ -149,6 +170,132 @@ def seat_moves(cg, ctl_patch, arm_patch, *, floor_m: float = 0.01) -> dict:
     }
 
 
+#: Two shared nodes belong to the same MOUTH when they lie within this of
+#: each other — one corridor width (``config.SERVICE_ROAD_WIDTH_M`` = 6 m)
+#: with margin, i.e. "the same crossing", not "the same airport".  A
+#: reporting choice, printed with every table: two runs at two windows are
+#: two populations.
+MOUTH_CLUSTER_M = 12.0
+
+
+def seam_welds(cg, patch, lat=None, lon=None, radius_m=None) -> dict:
+    """The SEAM-WELD table at one site: is the road↔airside seam JOINED?
+
+    Reads the patch through the harness library's own parser, so this tool
+    and the census read one file one way.  Reported, all within
+    ``radius_m`` of the site:
+
+    * ``shared_nodes`` — node ids carried by BOTH a road-family way and an
+      airside way.  A shared node IS the weld: one node, one position, and
+      (with per-way altitudes) one value per way at it.
+    * ``max_seam_dalt_m`` — the worst altitude difference two ways carry at
+      a SHARED node.  0.00 is the construction the ruling demands (the
+      solver grades one node); anything else is a torn weld.
+    * ``nearest_unwelded_m`` — when nothing is shared, the closest approach
+      between the two families' nodes.  This is the number that says
+      "unweldable" (0.999 m at the KCLT sites, against a 0.5 m weld
+      tolerance) where a census reports silence.
+    * ``walls`` — ``retaining_wall`` ways at the site, with their refs: the
+      "wall gone both sides" half of the same acceptance claim.
+    * ``mouths`` — the shared nodes clustered at ``MOUTH_CLUSTER_M``, so
+      "≥2 shared nodes PER MOUTH" is answerable rather than a patch total.
+
+    ``lat``/``lon``/``radius_m`` omitted ⇒ the WHOLE PATCH (the reading for
+    an airport with no owner-named site).
+
+    Pure read: no law, no defect counts (those are the census's alone).
+    """
+    nodes, ways = cg._parse_osm(Path(patch))
+    road_roles = set(getattr(cg, "_ROAD_FAMILY_ROLES", ROAD_FAMILY_ROLES))
+    air_roles = set(AIRSIDE_SEAM_ROLES)
+    whole = lat is None or lon is None or radius_m is None
+
+    def _near(w):
+        if whole:
+            return True
+        for nid in w.nids:
+            p = nodes.get(nid)
+            if p is not None and _dist_m(p[0], p[1], lat, lon) <= radius_m:
+                return True
+        return False
+
+    road_ways = [w for w in ways if w.role in road_roles and _near(w)]
+    air_ways = [w for w in ways if w.role in air_roles and _near(w)]
+    walls = [w for w in ways if w.role == "retaining_wall" and _near(w)]
+
+    def _alts(group):
+        out: dict = {}
+        for w in group:
+            for nid, a in zip(w.nids, (w.elevs or [])):
+                if a is not None:
+                    out.setdefault(nid, []).append((w.wid, float(a)))
+        return out
+
+    road_alt, air_alt = _alts(road_ways), _alts(air_ways)
+    road_nids = {nid for w in road_ways for nid in w.nids}
+    air_nids = {nid for w in air_ways for nid in w.nids}
+    shared = sorted(nid for nid in (road_nids & air_nids)
+                    if nid in nodes
+                    and (whole or _dist_m(nodes[nid][0], nodes[nid][1],
+                                          lat, lon) <= radius_m))
+    worst = 0.0
+    worst_nid = None
+    for nid in shared:
+        vals = [v for (_w, v) in road_alt.get(nid, [])
+                + air_alt.get(nid, [])]
+        if len(vals) >= 2 and (max(vals) - min(vals)) > worst:
+            worst, worst_nid = max(vals) - min(vals), nid
+    nearest = None
+    if not shared and road_nids and air_nids:
+        nearest = min(
+            (_dist_m(nodes[a][0], nodes[a][1], nodes[b][0], nodes[b][1])
+             for a in road_nids if a in nodes
+             for b in air_nids if b in nodes),
+            default=None)
+    # MOUTH CLUSTERS: shared nodes within ``MOUTH_CLUSTER_M`` of one another
+    # are one crossing (single-link, the same connected-components rule the
+    # census's site clustering uses, at this tool's own stated window).
+    pts = [(nid, nodes[nid][0], nodes[nid][1]) for nid in shared]
+    parent = {nid: nid for (nid, _la, _lo) in pts}
+
+    def _find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i, (na, la, lo) in enumerate(pts):
+        for (nb, lb, ob) in pts[i + 1:]:
+            if _dist_m(la, lo, lb, ob) <= MOUTH_CLUSTER_M:
+                ra, rb = _find(na), _find(nb)
+                if ra != rb:
+                    parent[rb] = ra
+    groups: dict = {}
+    for (nid, la, lo) in pts:
+        groups.setdefault(_find(nid), []).append((la, lo))
+    mouths = sorted(
+        ({"lat": round(sum(p[0] for p in g) / len(g), 7),
+          "lon": round(sum(p[1] for p in g) / len(g), 7),
+          "shared_nodes": len(g)} for g in groups.values()),
+        key=lambda d: -d["shared_nodes"])
+    return {
+        "road_ways": len(road_ways), "airside_ways": len(air_ways),
+        "shared_nodes": len(shared),
+        "shared_nids": shared[:20],
+        "mouths": len(mouths),
+        "mouths_ge2_nodes": sum(1 for m in mouths if m["shared_nodes"] >= 2),
+        "mouth_cluster_m": MOUTH_CLUSTER_M,
+        "mouth_list": mouths[:12],
+        "max_seam_dalt_m": round(worst, 4),
+        "max_seam_dalt_nid": worst_nid,
+        "nearest_unwelded_m": (round(nearest, 4)
+                               if nearest is not None else None),
+        "walls": len(walls),
+        "wall_refs": sorted({w.ref for w in walls if w.ref})[:8],
+        "wall_wids": sorted(w.wid for w in walls)[:8],
+    }
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("control", help="control arm patch .osm")
@@ -159,6 +306,9 @@ def main(argv=None) -> int:
     ap.add_argument("--rows", nargs=2, metavar=("CTL.rows.json",
                                                 "ARM.rows.json"))
     ap.add_argument("--seats", action="store_true")
+    ap.add_argument("--welds", action="store_true",
+                    help="per site, the road↔airside seam-weld table "
+                         "(shared nodes, max seam |Δalt|, walls)")
     ap.add_argument("--json", dest="json_out")
     args = ap.parse_args(argv)
 
@@ -198,6 +348,29 @@ def main(argv=None) -> int:
     elif sites:
         print("  SKIPPED site rows: no --rows dumps given (a census "
               "--rows-json dump per arm is this read's only row source)")
+    if args.welds:
+        cg = _check_grade()
+        out["welds"] = {}
+        scope = (sites if sites
+                 else {"WHOLE PATCH": (None, None)})
+        print(f"  SEAM WELDS (road family {'/'.join(ROAD_FAMILY_ROLES)} ↔ "
+              f"airside; a shared NODE is the weld, row absence is not "
+              f"evidence; mouth cluster {MOUTH_CLUSTER_M:g} m"
+              + (f", r={args.radius:g} m" if sites else ", whole patch")
+              + ")")
+        for name, (lat, lon) in scope.items():
+            rad = args.radius if sites else None
+            c = seam_welds(cg, args.control, lat, lon, rad)
+            a = seam_welds(cg, args.arm, lat, lon, rad)
+            out["welds"][name] = {"control": c, "arm": a}
+            for label, r in (("ctl", c), ("arm", a)):
+                gap = ("—" if r["nearest_unwelded_m"] is None
+                       else f"{r['nearest_unwelded_m']:.3f} m")
+                print(f"    {name:22s} {label}  shared "
+                      f"{r['shared_nodes']:4d}  mouths {r['mouths']:3d} "
+                      f"({r['mouths_ge2_nodes']} with ≥2)  max seam |Δalt| "
+                      f"{r['max_seam_dalt_m']:6.3f} m  nearest unwelded "
+                      f"{gap:>9s}  walls {r['walls']:3d}")
     if args.seats:
         cg = _check_grade()
         out["seats"] = seat_moves(cg, args.control, args.arm)

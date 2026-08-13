@@ -297,3 +297,50 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   strictly stronger than a census match.
 - Only HECA + CYXY were exercised; KCLT / OTHH / KSTJ identity is
   unverified for this lane.
+
+## 2026-08-13 — lane/dupcensus (perf P3): the duplicate-work census
+
+The instrument (`profile_airport_build.py --count-inputs*`) is
+observation-only and its twin (`tests/test_profile_input_fingerprint.py`,
+24 tests with `test_profile_tile_build_refusal.py`) proves the three
+load-bearing properties: duplicate detection fires, outputs/arguments are
+untouched, an UNFINGERPRINTABLE input still counts its call.
+
+Skipped, per PRE-SHIP mode:
+- No full pytest suite and no blast-radius sweep: only the two test files
+  directly covering the two edited tools, once.
+- No `check_build_time.py` arm. The census ADDS wall time by construction
+  (the fingerprint tax, which the report prices separately and excludes
+  from the seconds columns); it is a measurement mode, never on in a
+  production build, so the build-time budgets do not apply to it. The
+  unfingerprinted `--count` path is byte-for-byte the code it was.
+- The census's own SECONDS columns were taken on a machine shared with
+  four other perf lanes. Duplicate FRACTIONS (dup s / total s) and call
+  COUNTS are the quotable products; absolute seconds carry the standing
+  +-25 % single-run caveat and are never quoted as a wall claim.
+- Census coverage is HECA (solve replay + full build) and KCLT (tile
+  vector step) only — OTHH, CYXY and KSTJ are uncensused.
+- `groundside._svc_contiguous_width` and `O4_Vector_Utils`'
+  `insert_way`/`insert_edge`/`encode_MultiPolygon`/`snap_to_grid` are hot
+  leaves taking large geometry arguments; they are counted (`--count`)
+  but NOT fingerprinted, because digesting a pavement union per call
+  would cost more wall than the census is worth. Their duplicate status
+  is therefore UNMEASURED, not LAWFUL.
+- `global_slice._hole_spur` and `solve._value_envelope` are NESTED
+  functions and are not reachable by `MODULE:ATTR`; unmeasured.
+- Census (b), the full HECA build, has NO body-hash proof of its own:
+  `profile_airport_build.py ICAO` calls `build_airport_pavement` and
+  never writes an `.osm`, so there is nothing to hash. The
+  observation-only claim rests on (i) the twin, and (ii) census (a),
+  which ran the SAME instrument with 23 counters armed across the whole
+  solve and reproduced the frozen `consol3heca` body hash
+  `f562cbfeb8f9` byte-for-byte. The phase 0-4 targets armed only in (b)
+  are therefore twin-proven but not hash-proven.
+- `profile_airport_build.py`'s BUILD path had neither half of the
+  arming composition; this lane armed it (imported from
+  `harness/build_airport.arm_shared_repo_protection`, the
+  classify_report precedent). `profile_tile_build.py` gained the
+  harness's own `provision_tile_cfg`. Neither change is covered by a
+  new twin of its own beyond a compile + the existing refusal twin;
+  both are proven only by the three census runs completing with
+  "shared repo UNCHANGED".

@@ -92,6 +92,7 @@ _HARNESS_DIR = os.path.join(ROOT, "tools", "harness")
 if _HARNESS_DIR not in sys.path:
     sys.path.insert(0, _HARNESS_DIR)
 from build_airport import (apply_xplane_install_paths,  # noqa: E402
+                           provision_tile_cfg,
                            redirect_engine_caches)
 
 # THE REDIRECT MUST PRECEDE THE ENGINE IMPORT (run_tile_mesh_only.py's
@@ -112,7 +113,8 @@ from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
 _TOOLS_DIR = os.path.join(ROOT, "tools")
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
-from profile_airport_build import _install_counters  # noqa: E402
+from profile_airport_build import (census_report_lines,  # noqa: E402
+                                   install_census_counters)
 
 STEP_ORDER = ("vector", "mesh", "masks", "imagery")
 
@@ -204,6 +206,24 @@ def main():
                              "for this callable (repeatable; ATTR may be "
                              "dotted to reach a method).  THE number a "
                              "claim quotes — the sampler over-attributes.")
+    parser.add_argument("--count-inputs", action="append", default=[],
+                        metavar="MODULE:ATTR",
+                        help="DUPLICATE-WORK CENSUS on this callable: calls, "
+                             "DISTINCT input fingerprints, duplicate calls "
+                             "and their seconds (inputs priced BY VALUE; an "
+                             "input with no value rule makes the call "
+                             "UNFINGERPRINTABLE — counted, never guessed).  "
+                             "Repeatable")
+    parser.add_argument("--count-inputs-identity", action="append", default=[],
+                        metavar="MODULE:ATTR",
+                        help="the same census with a type:id() fallback for "
+                             "objects with no value rule; those duplicates "
+                             "are reported in their OWN column and mean only "
+                             "'the same object again'.  Repeatable")
+    parser.add_argument("--count-clock", choices=("wall", "cpu"), default="wall",
+                        help="counters' clock: wall = time.perf_counter "
+                             "(default); cpu = time.process_time (use when "
+                             "other lanes hold the machine)")
     parser.add_argument("--no-sample", action="store_true",
                         help="do not run the stack sampler.  The sampler "
                              "roughly DOUBLES this tile's vector step "
@@ -232,7 +252,10 @@ def main():
 
     # Installed before ``step_fn`` binds anything: a counter on a step
     # function itself must be the object the loop calls.
-    counters = _install_counters(args.count) if args.count else []
+    _clock = time.process_time if args.count_clock == "cpu" else time.perf_counter
+    counters = install_census_counters(
+        count=args.count, count_inputs=args.count_inputs,
+        count_inputs_identity=args.count_inputs_identity, clock=_clock)
 
     out_path = args.out or "/tmp/tile_%s_profile.txt" % FNAMES.short_latlon(
         args.lat, args.lon)
@@ -253,6 +276,18 @@ def main():
         FNAMES.normalize_custom_build_dir(args.lat, args.lon,
                                           args.build_dir),
     )
+    # LANE INPUTS ARE PROVISIONED, NEVER HAND-SEEDED (owner ruling
+    # 2026-08-12b), and the destination is the TILE'S OWN ``build_dir``,
+    # not the ``--build-dir`` argument: with no argument the argument is
+    # empty and the tile derives its own path, so provisioning against
+    # the argument writes the cfg into the CWD and the run still dies on
+    # 'EMPTY default_website'.  Without this a fresh lane worktree has no
+    # per-tile cfg at all, ``read_from_config`` falls back to the global
+    # config, and a synthesized default would be worse — a tile profiled
+    # at a provider and ZL nobody chose, exiting 0.  Same function, same
+    # byte copy, same canonical source as ``build_airport.py --tile``; a
+    # second copy of that rule here would be the census-wrapper defect.
+    _cfg_record = provision_tile_cfg(args.lat, args.lon, tile.build_dir)
     tile.read_from_config()
     if args.provider:
         tile.default_website = args.provider
@@ -339,6 +374,11 @@ def main():
         "X-Plane install paths: %s" % (
             ", ".join("%s=%s" % kv for kv in sorted(xplane_paths.items()))
             or "(none)"),
+        # WHICH per-tile cfg this profile read, and where it came from —
+        # two runs on two cfg sources are two populations.
+        "tile cfg: %s (%s, sha256 %s)" % (
+            _cfg_record.get("cfg"), _cfg_record.get("action"),
+            (_cfg_record.get("sha256") or "-")[:12]),
         "",
         "== Wall seconds per step (exact) ==",
     ]
@@ -348,13 +388,11 @@ def main():
 
     if counters:
         lines.append("")
-        lines.append("== --count: calls + INCLUSIVE perf_counter seconds ==")
         lines.append("   (sampler %s — these are THE quotable numbers)"
                      % ("OFF" if args.no_sample else "ON, so they carry its "
                         "overhead"))
-        for counter in counters:
-            lines.append("  %8.2f s  %11d call(s)  %s" % (
-                counter.seconds, counter.calls, counter.label))
+        # ONE report block for both profilers — imported, never re-spelled.
+        lines.extend(census_report_lines(counters))
 
     for step in STEP_ORDER:
         if step not in step_wall:

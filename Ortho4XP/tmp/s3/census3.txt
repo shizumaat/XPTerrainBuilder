@@ -1,0 +1,468 @@
+
+=== CENSUS /tmp/harness/padseat_othh_off.osm ===
+  frame: sha=d155c85a dirty=false built=2026-08-12T18:20:52 icao=OTHH gates_nondefault=2/217 dem_raw=False
+  law-true knobs: max_grade_pct=1.5 proximity_m=0.5 edge_search_m=5 edge_step_m=0.5
+  ruleset: declared='icao' active='icao' source=SIDECAR
+  LAW-TRUE TOTAL 7928   within=2312 cross=0 steps=5616 (raw 5616, registered step exemptions: none)
+  sides: airside=5648 groundside=2280 mixed=0 unknown=0   airside_for_acceptance=5648 (=airside+mixed, RULINGS 'airside is king')
+
+  === ADJUDICATION (RULINGS d48bc0a) ===
+    ADJUDICATED 5801   airside=5648 groundside=153 mixed=0   airside_for_acceptance=5648   verdict: FAIL
+    VERSION-DEFERRED (reported, NOT adjudicated) 2127:
+      drainage_minimum           2127  interior pavement drainage-minimum shaping — VERSION-DEFERRED by RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); reported always, never adjudicated, never silently dropped
+    OUT OF SCOPE (reported, NOT adjudicated) 0  [no class fired]
+  sidecar evidence: seam_pins=0 terrace_joints=0 terrace_certificates=0 triangle_plane_unresolved=0
+  band membership (the BUILD's own report, evidence — route_band lives in-memory and is not a census family): 0 of 13863 EXAMINED vertex(es) outside their band by > 0.01 m (ceil=0 floor=0 pinned=0, worst 0.0 m)
+    sub-materiality split is STRUCTURALLY ZERO at these constants (noise floor 0.03 m >= materiality 0.01 m) — not evidence about the surface
+
+  FAMILY                        n  airside    gs  mixed   worst m  title
+  ------------------------------------------------------------------------------------------------
+ *within_shape                148       29   119      0     3.880  WITHIN-SHAPE vertex-pair grade
+  plane_gradient                0        0     0      0         -  PLANE GRADIENT (triangle surface)
+  runway_end_skirt              0        0     0      0         -  RUNWAY-END SKIRT edge grade
+  terrace_joint_route           0        0     0      0         -  APRON TERRACE JOINT crossing a taxi ROUT
+  terrace_joint_strip           0        0     0      0         -  APRON TERRACE JOINT inside a RUNWAY STRI
+  terrace_actual_step           0        0     0      0         -  APRON TERRACE ACTUAL step past its DECLA
+  adjacent_ground_tear          0        0     0      0         -  ADJACENT-GROUND graded-strip TEAR
+  strip_seam_tear               0        0     0      0         -  ADJACENT-GROUND strip SEAM tear
+ *transverse                   33        0    33      0     1.007  TRANSVERSE (cross-corridor) grade
+ *drainage_spine                2        2     0      0     0.000  DRAINAGE SPINE at or above its LOWER pav
+ *lateral_contiguity            1        0     1      0     0.070  LATERAL CONTIGUITY (road vs strictest cl
+  strip_longitudinal            0        0     0      0         -  STRIP ABEAM-LONGITUDINAL grade
+ *strip_arc                     1        1     0      0     0.050  STRIP LONGITUDINAL grade-CHANGE rate
+  resa_transverse               0        0     0      0         -  RESA / END-CORRIDOR TRANSVERSE grade
+  raoa                          0        0     0      0         -  RAOA grade-change rate (ICAO only)
+ *drainage_minimum           2127        0  2127      0     0.270  SURFACE FLATTER than its drainage minimu
+  wall_in_runway_strip          0        0     0      0         -  RETAINING WALL inside a RUNWAY STRIP
+  stacked_nodes                 0        0     0      0         -  STACKED NODES (one coordinate, values di
+  cross_shape                   0        0     0      0         -  CROSS-SHAPE proximity grade
+  frontage_near_miss            0        0     0      0         -  NEAR-MISS BUILDING FRONTAGE (pad ↔ soft 
+ *vertex_to_edge_step        1065     1065     0      0    14.700  VERTEX-TO-EDGE step
+ *mid_edge_step              4551     4551     0      0    14.700  MID-EDGE step
+  (all 22 law families listed, empty ones included — an absent line means the tool did not run)
+
+  === worst 20 rows (by |de| / step height) ===
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+
+  === DEFECT SITES (--sites) ===
+    rule: two law-true rows belong to ONE defect site iff they are in the SAME LAW FAMILY and they share a way id, or share a canonical node — where a canonical node is the census's own weld tolerance (LAW_TRUE_KNOBS['proximity_m'] = check_grade.SHARED_VERTEX_TOL_M) applied to the rows' endpoints in layout-local metres.  Sites are the connected components of that relation (union-find); no new proximity semantic and no magnitude, role or geometry test takes part in the clustering
+    adjacency tolerance 0.5 m [LAW_TRUE_KNOBS['proximity_m'] (check_grade.SHARED_VERTEX_TOL_M, the solver's weld tolerance)]
+    SITES 107 (law-true) / 29 carrying >=1 ADJUDICATED row, over 7928 row(s)
+    AMPLIFICATION 74.09 rows/site mean; median 7, p90 186, max 1204
+    SIM-VISIBLE 30 site(s) (26 of them adjudicated) at >= 0.05 m relief; 77 below it
+      [a site is a SILHOUETTE-VISIBLE CANDIDATE when its worst |de| / step reaches 0.05 m of relief; below that it is reported as invisible.  A REPORTING threshold and an ASSUMPTION — nothing has measured it in the sim — never a law: the law adjudicates every row regardless]
+    ACTIONABLE 27 site(s) (25 of them sim-visible) — the headline: distinct places that owe work
+      floor 0.5 m accumulated; sharp guard step >= 0.15 m OR grade >= 2x cap; runway/runway_crossing ALWAYS actionable [2026-08-07 (owner) — Materiality floor: 0.5 m accumulated, guarded, runways exempt]
+      why actionable: accumulation=22, sharp_grade=15, sharp_step=10, unmeasured=1, runway_family=1  (a site may trip several)
+      accumulation: a site's ACCUMULATION is the sum of row_excess_m over its ADJUDICATED rows only (a version-deferred or out-of-scope row is not a defect and may not fund a defect's materiality).  row_excess_m is derived from the fields the row already carries, never re-measured: for a STEP row the step height; for a graded pair the metres its elevation difference exceeds its own cap over its own span (excess_pct/100 x distance_m), floored at 0 and capped at |de| because a row can never be more unlawful than its whole elevation difference; and for a row the law priced as a PURE VERTICAL quantity (distance_m == 0, or a cap-0 law that reports grade_pct == 0 such as the drainage-spine dam) the magnitude itself.  A row from an UNMEASURED family (MATERIALITY_UNMEASURED_FAMILIES: the cap-not-metres shapes) contributes 0 and makes its site actionable outright
+    SUB_FLOOR 2 site(s), 2 adjudicated row(s), worst |de| 0.43 m — REPORTED, never dropped; the floor is PROVISIONAL
+    FAMILY                    sites   adj   act   sub   vis    rows  med/site   worst m
+    -----------------------------------------------------------------------------------
+    drainage_minimum             78     0     0     0     4    2127         7     0.270
+    drainage_spine                2     2     1     1     0       2         1     0.000
+    lateral_contiguity            1     1     1     0     1       1         1     0.070
+    mid_edge_step                 5     5     5     0     5    4551       939    14.700
+    strip_arc                     1     1     1     0     0       1         1     0.050
+    transverse                    5     5     4     1     5      33         4     1.007
+    vertex_to_edge_step           5     5     5     0     5    1065       247    14.700
+    within_shape                 10    10    10     0    10     148       5.5     3.880
+    worst 20 site(s) (by |de| / step, then rows):
+      mid_edge_step         rows=939   |de|= 14.700 m  ways=15 extent=166.59 m  VISIBLE @(25.25216,51.62457)
+        shapes -11354,-11355,-11356,-11357,-11358,-11359 …   roles ['tunnel_trench|tunnel_trench']   adj=939 defer=0 oos=0
+        ACTIONABLE  accum=13803.300 m  sharp(step=939,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.700 m  ways=15 extent=166.75 m  VISIBLE @(25.25220,51.62455)
+        shapes -11354,-11355,-11356,-11357,-11358,-11359 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3630.900 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=964   |de|= 14.640 m  ways=14 extent=157.9 m  VISIBLE @(25.29580,51.60328)
+        shapes -11372,-11373,-11374,-11375,-11376,-11377 …   roles ['tunnel_trench|tunnel_trench']   adj=964 defer=0 oos=0
+        ACTIONABLE  accum=14112.960 m  sharp(step=964,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.640 m  ways=14 extent=158.02 m  VISIBLE @(25.29580,51.60329)
+        shapes -11372,-11373,-11374,-11375,-11376,-11377 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3616.080 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=927   |de|=  5.700 m  ways=18 extent=208.12 m  VISIBLE @(25.25305,51.62606)
+        shapes -11334,-11335,-11336,-11337,-11338,-11339 …   roles ['tunnel_trench|tunnel_trench']   adj=927 defer=0 oos=0
+        ACTIONABLE  accum=5283.900 m  sharp(step=927,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=175   |de|=  5.700 m  ways=18 extent=208.14 m  VISIBLE @(25.25306,51.62605)
+        shapes -11334,-11335,-11336,-11337,-11338,-11339 …   roles ['tunnel_trench|tunnel_trench']   adj=175 defer=0 oos=0
+        ACTIONABLE  accum=997.500 m  sharp(step=175,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=1204  |de|=  5.310 m  ways=23 extent=241.83 m  VISIBLE @(25.29197,51.60586)
+        shapes -11310,-11311,-11312,-11313,-11314,-11315 …   roles ['tunnel_trench|tunnel_trench']   adj=1204 defer=0 oos=0
+        ACTIONABLE  accum=6393.240 m  sharp(step=1204,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=517   |de|=  5.310 m  ways=5 extent=158.31 m  VISIBLE @(25.25388,51.62274)
+        shapes -10175,-10176,-10177,-11333,-11369   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=517 defer=0 oos=0
+        ACTIONABLE  accum=2745.270 m  sharp(step=517,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=256   |de|=  5.310 m  ways=23 extent=242.32 m  VISIBLE @(25.29198,51.60586)
+        shapes -11310,-11311,-11312,-11313,-11314,-11315 …   roles ['tunnel_trench|tunnel_trench']   adj=256 defer=0 oos=0
+        ACTIONABLE  accum=1359.360 m  sharp(step=256,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=140   |de|=  5.310 m  ways=5 extent=159.0 m  VISIBLE @(25.25401,51.62267)
+        shapes -10175,-10176,-10177,-11333,-11369   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=140 defer=0 oos=0
+        ACTIONABLE  accum=743.400 m  sharp(step=140,grade=0)  [accumulation, sharp_step]
+      within_shape          rows=3     |de|=  3.880 m excess=24.64pp  ways=1 extent=31.86 m  VISIBLE @(25.25572,51.60802)
+        shapes -10085   roles ['service_road|service_road']   adj=3 defer=0 oos=0
+        ACTIONABLE  accum=5.341 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      within_shape          rows=17    |de|=  1.870 m excess=34.80pp  ways=4 extent=182.8 m  VISIBLE @(25.27183,51.60300)
+        shapes -10519,-10520,-10525,-11486   roles ['groundside_pavement|groundside_pavement', 'service_junction|service_junction']   adj=17 defer=0 oos=0
+        ACTIONABLE  accum=8.417 m  sharp(step=0,grade=6)  [accumulation, sharp_grade]
+      within_shape          rows=4     |de|=  1.500 m excess=4.56pp  ways=2 extent=16.56 m  VISIBLE @(25.25399,51.60319)
+        shapes -10082,-14658   roles ['service_road|service_road', 'groundside_pavement|groundside_pavement']   adj=4 defer=0 oos=0
+        ACTIONABLE  accum=1.102 m  sharp(step=0,grade=0)  [accumulation]
+      within_shape          rows=7     |de|=  1.410 m excess=19.67pp  ways=2 extent=13.97 m  VISIBLE @(25.27626,51.61344)
+        shapes -10663,-11401   roles ['service_junction|service_junction']   adj=7 defer=0 oos=0
+        ACTIONABLE  accum=4.219 m  sharp(step=0,grade=3)  [accumulation, sharp_grade]
+      within_shape          rows=2     |de|=  1.300 m excess=5.12pp  ways=1 extent=20.21 m  VISIBLE @(25.25422,51.60354)
+        shapes -10083   roles ['junction|junction']   adj=2 defer=0 oos=0
+        ACTIONABLE  accum=1.178 m  sharp(step=0,grade=2)  [accumulation, sharp_grade]
+      transverse            rows=1     |de|=  1.007 m excess=16.48pp  ways=1 extent=4.54 m  VISIBLE @(25.27156,51.60305)
+        shapes -10519   roles ['service_junction|service_junction']   adj=1 defer=0 oos=0
+        ACTIONABLE  accum=0.809 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      transverse            rows=15    |de|=  0.897 m excess=23.47pp  ways=2 extent=65.28 m  VISIBLE @(25.27268,51.60219)
+        shapes -10530,-10531   roles ['service_junction|service_junction']   adj=15 defer=0 oos=0
+        ACTIONABLE  accum=5.334 m  sharp(step=0,grade=10)  [accumulation, sharp_grade]
+      transverse            rows=12    |de|=  0.771 m excess=8.68pp  ways=2 extent=45.65 m  VISIBLE @(25.27623,51.61330)
+        shapes -10663,-11401   roles ['service_junction|service_junction']   adj=12 defer=0 oos=0
+        ACTIONABLE  accum=1.914 m  sharp(step=0,grade=4)  [accumulation, sharp_grade]
+      within_shape          rows=26    |de|=  0.660 m excess=10.89pp  ways=2 extent=97.2 m  VISIBLE @(25.27568,51.61367)
+        shapes -10270,-10271   roles ['apron|apron']   adj=26 defer=0 oos=0
+        ACTIONABLE  accum=5.083 m  sharp(step=0,grade=10)  [accumulation, sharp_grade]
+      transverse            rows=4     |de|=  0.485 m excess=8.39pp  ways=2 extent=14.21 m  VISIBLE @(25.27173,51.60320)
+        shapes -10544,-10563   roles ['service_junction|service_junction']   adj=4 defer=0 oos=0
+        ACTIONABLE  accum=0.516 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+
+=== CENSUS /tmp/harness/consol2othh.osm ===
+  frame: sha=fe3e3a4b dirty=false built=2026-08-12T19:47:15 icao=OTHH gates_nondefault=1/226 dem_raw=False
+  law-true knobs: max_grade_pct=1.5 proximity_m=0.5 edge_search_m=5 edge_step_m=0.5
+  ruleset: declared='icao' active='icao' source=SIDECAR
+  LAW-TRUE TOTAL 7300   within=1673 cross=0 steps=5627 (raw 5627, registered step exemptions: none)
+  sides: airside=5671 groundside=1629 mixed=0 unknown=0   airside_for_acceptance=5671 (=airside+mixed, RULINGS 'airside is king')
+
+  === ADJUDICATION (RULINGS d48bc0a) ===
+    ADJUDICATED 5893   airside=5671 groundside=222 mixed=0   airside_for_acceptance=5671   verdict: FAIL
+    VERSION-DEFERRED (reported, NOT adjudicated) 1407:
+      drainage_minimum           1407  interior pavement drainage-minimum shaping — VERSION-DEFERRED by RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); reported always, never adjudicated, never silently dropped
+    OUT OF SCOPE (reported, NOT adjudicated) 0  [no class fired]
+  sidecar evidence: seam_pins=0 terrace_joints=0 terrace_certificates=0 triangle_plane_unresolved=0
+  band membership (the BUILD's own report, evidence — route_band lives in-memory and is not a census family): 0 of 13902 EXAMINED vertex(es) outside their band by > 0.01 m (ceil=0 floor=0 pinned=0, worst 0.0 m)
+    sub-materiality split is STRUCTURALLY ZERO at these constants (noise floor 0.03 m >= materiality 0.01 m) — not evidence about the surface
+
+  FAMILY                        n  airside    gs  mixed   worst m  title
+  ------------------------------------------------------------------------------------------------
+ *within_shape                166       52   114      0     3.880  WITHIN-SHAPE vertex-pair grade
+  plane_gradient                0        0     0      0         -  PLANE GRADIENT (triangle surface)
+  runway_end_skirt              0        0     0      0         -  RUNWAY-END SKIRT edge grade
+  terrace_joint_route           0        0     0      0         -  APRON TERRACE JOINT crossing a taxi ROUT
+  terrace_joint_strip           0        0     0      0         -  APRON TERRACE JOINT inside a RUNWAY STRI
+  terrace_actual_step           0        0     0      0         -  APRON TERRACE ACTUAL step past its DECLA
+  adjacent_ground_tear          0        0     0      0         -  ADJACENT-GROUND graded-strip TEAR
+  strip_seam_tear               0        0     0      0         -  ADJACENT-GROUND strip SEAM tear
+ *transverse                   94        0    94      0     1.571  TRANSVERSE (cross-corridor) grade
+ *drainage_spine                2        2     0      0     0.000  DRAINAGE SPINE at or above its LOWER pav
+ *lateral_contiguity            3        0     3      0     0.070  LATERAL CONTIGUITY (road vs strictest cl
+  strip_longitudinal            0        0     0      0         -  STRIP ABEAM-LONGITUDINAL grade
+ *strip_arc                     1        1     0      0     0.050  STRIP LONGITUDINAL grade-CHANGE rate
+  resa_transverse               0        0     0      0         -  RESA / END-CORRIDOR TRANSVERSE grade
+  raoa                          0        0     0      0         -  RAOA grade-change rate (ICAO only)
+ *drainage_minimum           1407        0  1407      0     0.850  SURFACE FLATTER than its drainage minimu
+  wall_in_runway_strip          0        0     0      0         -  RETAINING WALL inside a RUNWAY STRIP
+  stacked_nodes                 0        0     0      0         -  STACKED NODES (one coordinate, values di
+  cross_shape                   0        0     0      0         -  CROSS-SHAPE proximity grade
+  frontage_near_miss            0        0     0      0         -  NEAR-MISS BUILDING FRONTAGE (pad ↔ soft 
+ *vertex_to_edge_step        1068     1065     3      0    14.700  VERTEX-TO-EDGE step
+ *mid_edge_step              4559     4551     8      0    14.700  MID-EDGE step
+  (all 22 law families listed, empty ones included — an absent line means the tool did not run)
+
+  === worst 20 rows (by |de| / step height) ===
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+
+  === DEFECT SITES (--sites) ===
+    rule: two law-true rows belong to ONE defect site iff they are in the SAME LAW FAMILY and they share a way id, or share a canonical node — where a canonical node is the census's own weld tolerance (LAW_TRUE_KNOBS['proximity_m'] = check_grade.SHARED_VERTEX_TOL_M) applied to the rows' endpoints in layout-local metres.  Sites are the connected components of that relation (union-find); no new proximity semantic and no magnitude, role or geometry test takes part in the clustering
+    adjacency tolerance 0.5 m [LAW_TRUE_KNOBS['proximity_m'] (check_grade.SHARED_VERTEX_TOL_M, the solver's weld tolerance)]
+    SITES 132 (law-true) / 42 carrying >=1 ADJUDICATED row, over 7300 row(s)
+    AMPLIFICATION 55.3 rows/site mean; median 6, p90 104, max 1204
+    SIM-VISIBLE 44 site(s) (39 of them adjudicated) at >= 0.05 m relief; 88 below it
+      [a site is a SILHOUETTE-VISIBLE CANDIDATE when its worst |de| / step reaches 0.05 m of relief; below that it is reported as invisible.  A REPORTING threshold and an ASSUMPTION — nothing has measured it in the sim — never a law: the law adjudicates every row regardless]
+    ACTIONABLE 38 site(s) (36 of them sim-visible) — the headline: distinct places that owe work
+      floor 0.5 m accumulated; sharp guard step >= 0.15 m OR grade >= 2x cap; runway/runway_crossing ALWAYS actionable [2026-08-07 (owner) — Materiality floor: 0.5 m accumulated, guarded, runways exempt]
+      why actionable: accumulation=30, sharp_grade=19, sharp_step=14, unmeasured=3, runway_family=1  (a site may trip several)
+      accumulation: a site's ACCUMULATION is the sum of row_excess_m over its ADJUDICATED rows only (a version-deferred or out-of-scope row is not a defect and may not fund a defect's materiality).  row_excess_m is derived from the fields the row already carries, never re-measured: for a STEP row the step height; for a graded pair the metres its elevation difference exceeds its own cap over its own span (excess_pct/100 x distance_m), floored at 0 and capped at |de| because a row can never be more unlawful than its whole elevation difference; and for a row the law priced as a PURE VERTICAL quantity (distance_m == 0, or a cap-0 law that reports grade_pct == 0 such as the drainage-spine dam) the magnitude itself.  A row from an UNMEASURED family (MATERIALITY_UNMEASURED_FAMILIES: the cap-not-metres shapes) contributes 0 and makes its site actionable outright
+    SUB_FLOOR 4 site(s), 5 adjudicated row(s), worst |de| 0.7764 m — REPORTED, never dropped; the floor is PROVISIONAL
+    FAMILY                    sites   adj   act   sub   vis    rows  med/site   worst m
+    -----------------------------------------------------------------------------------
+    drainage_minimum             90     0     0     0     5    1407         6     0.850
+    drainage_spine                2     2     1     1     0       2         1     0.000
+    lateral_contiguity            3     3     3     0     3       3         1     0.070
+    mid_edge_step                 7     7     7     0     7    4559       927    14.700
+    strip_arc                     1     1     1     0     0       1         1     0.050
+    transverse                    9     9     6     3     9      94         9     1.571
+    vertex_to_edge_step           7     7     7     0     7    1068       175    14.700
+    within_shape                 13    13    13     0    13     166         4     3.880
+    worst 20 site(s) (by |de| / step, then rows):
+      mid_edge_step         rows=939   |de|= 14.700 m  ways=15 extent=166.59 m  VISIBLE @(25.25216,51.62457)
+        shapes -11683,-11684,-11685,-11686,-11687,-11688 …   roles ['tunnel_trench|tunnel_trench']   adj=939 defer=0 oos=0
+        ACTIONABLE  accum=13803.300 m  sharp(step=939,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.700 m  ways=15 extent=166.75 m  VISIBLE @(25.25220,51.62455)
+        shapes -11683,-11684,-11685,-11686,-11687,-11688 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3630.900 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=964   |de|= 14.640 m  ways=14 extent=157.9 m  VISIBLE @(25.29580,51.60328)
+        shapes -11701,-11702,-11703,-11704,-11705,-11706 …   roles ['tunnel_trench|tunnel_trench']   adj=964 defer=0 oos=0
+        ACTIONABLE  accum=14112.960 m  sharp(step=964,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.640 m  ways=14 extent=158.02 m  VISIBLE @(25.29580,51.60329)
+        shapes -11701,-11702,-11703,-11704,-11705,-11706 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3616.080 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=927   |de|=  5.700 m  ways=18 extent=208.12 m  VISIBLE @(25.25305,51.62606)
+        shapes -11663,-11664,-11665,-11666,-11667,-11668 …   roles ['tunnel_trench|tunnel_trench']   adj=927 defer=0 oos=0
+        ACTIONABLE  accum=5283.900 m  sharp(step=927,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=175   |de|=  5.700 m  ways=18 extent=208.14 m  VISIBLE @(25.25306,51.62605)
+        shapes -11663,-11664,-11665,-11666,-11667,-11668 …   roles ['tunnel_trench|tunnel_trench']   adj=175 defer=0 oos=0
+        ACTIONABLE  accum=997.500 m  sharp(step=175,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=140   |de|=  5.380 m  ways=5 extent=159.0 m  VISIBLE @(25.25401,51.62267)
+        shapes -10197,-10198,-10199,-11662,-11698   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=140 defer=0 oos=0
+        ACTIONABLE  accum=744.553 m  sharp(step=140,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=517   |de|=  5.378 m  ways=5 extent=158.31 m  VISIBLE @(25.25388,51.62274)
+        shapes -10197,-10198,-10199,-11662,-11698   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=517 defer=0 oos=0
+        ACTIONABLE  accum=2749.581 m  sharp(step=517,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=1204  |de|=  5.310 m  ways=23 extent=241.83 m  VISIBLE @(25.29197,51.60586)
+        shapes -11639,-11640,-11641,-11642,-11643,-11644 …   roles ['tunnel_trench|tunnel_trench']   adj=1204 defer=0 oos=0
+        ACTIONABLE  accum=6393.240 m  sharp(step=1204,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=256   |de|=  5.310 m  ways=23 extent=242.32 m  VISIBLE @(25.29198,51.60586)
+        shapes -11639,-11640,-11641,-11642,-11643,-11644 …   roles ['tunnel_trench|tunnel_trench']   adj=256 defer=0 oos=0
+        ACTIONABLE  accum=1359.360 m  sharp(step=256,grade=0)  [accumulation, sharp_step]
+      within_shape          rows=1     |de|=  3.880 m excess=24.64pp  ways=1 extent=11.04 m  VISIBLE @(25.25575,51.60796)
+        shapes -10090   roles ['service_road|service_road']   adj=1 defer=0 oos=0
+        ACTIONABLE  accum=2.929 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      within_shape          rows=4     |de|=  2.000 m excess=4.33pp  ways=2 extent=59.57 m  VISIBLE @(25.25398,51.60328)
+        shapes -10087,-15038   roles ['service_road|service_road', 'groundside_pavement|groundside_pavement']   adj=4 defer=0 oos=0
+        ACTIONABLE  accum=0.975 m  sharp(step=0,grade=0)  [accumulation]
+      transverse            rows=9     |de|=  1.571 m excess=7.91pp  ways=1 extent=34.07 m  VISIBLE @(25.27170,51.60300)
+        shapes -10702   roles ['service_junction|service_junction']   adj=9 defer=0 oos=0
+        ACTIONABLE  accum=5.164 m  sharp(step=0,grade=7)  [accumulation, sharp_grade]
+      within_shape          rows=7     |de|=  1.410 m excess=19.67pp  ways=2 extent=13.97 m  VISIBLE @(25.27626,51.61344)
+        shapes -10808,-11741   roles ['service_junction|service_junction']   adj=7 defer=0 oos=0
+        ACTIONABLE  accum=4.219 m  sharp(step=0,grade=3)  [accumulation, sharp_grade]
+      vertex_to_edge_step   rows=1     |de|=  1.301 m  ways=2 extent=0.57 m  VISIBLE @(25.27234,51.60209)
+        shapes -10666,-10931   roles ['service_junction|service_junction']   adj=1 defer=0 oos=0
+        ACTIONABLE  accum=1.301 m  sharp(step=1,grade=0)  [accumulation, sharp_step]
+      within_shape          rows=2     |de|=  1.270 m excess=25.79pp  ways=1 extent=8.77 m  VISIBLE @(25.27157,51.60282)
+        shapes -10661   roles ['service_junction|service_junction']   adj=2 defer=0 oos=0
+        ACTIONABLE  accum=1.443 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      mid_edge_step         rows=5     |de|=  1.084 m  ways=2 extent=14.18 m  VISIBLE @(25.27248,51.60214)
+        shapes -10666,-10931   roles ['service_junction|service_junction']   adj=5 defer=0 oos=0
+        ACTIONABLE  accum=4.199 m  sharp(step=5,grade=0)  [accumulation, sharp_step]
+      transverse            rows=20    |de|=  1.027 m excess=23.47pp  ways=2 extent=74.61 m  VISIBLE @(25.27268,51.60220)
+        shapes -10666,-10667   roles ['service_junction|service_junction']   adj=20 defer=0 oos=0
+        ACTIONABLE  accum=8.043 m  sharp(step=0,grade=15)  [accumulation, sharp_grade]
+      within_shape          rows=2     |de|=  0.990 m excess=6.41pp  ways=2 extent=6.36 m  VISIBLE @(25.27152,51.60296)
+        shapes -10654,-10655   roles ['service_junction|service_junction']   adj=2 defer=0 oos=0
+        ACTIONABLE  accum=0.881 m  sharp(step=0,grade=0)  [accumulation]
+      within_shape          rows=6     |de|=  0.970 m excess=7.91pp  ways=1 extent=17.03 m  VISIBLE @(25.25419,51.60408)
+        shapes -10843   roles ['groundside_pavement|groundside_pavement']   adj=6 defer=0 oos=0
+        ACTIONABLE  accum=1.966 m  sharp(step=0,grade=0)  [accumulation]
+
+=== CENSUS /tmp/harness/consol3othh.osm ===
+  frame: sha=ce85971c dirty=false built=2026-08-12T22:26:38 icao=OTHH gates_nondefault=1/228 dem_raw=False
+  law-true knobs: max_grade_pct=1.5 proximity_m=0.5 edge_search_m=5 edge_step_m=0.5
+  ruleset: declared='icao' active='icao' source=SIDECAR
+  LAW-TRUE TOTAL 7283   within=1657 cross=0 steps=5626 (raw 5626, registered step exemptions: none)
+  sides: airside=5670 groundside=1613 mixed=0 unknown=0   airside_for_acceptance=5670 (=airside+mixed, RULINGS 'airside is king')
+
+  === ADJUDICATION (RULINGS d48bc0a) ===
+    ADJUDICATED 5906   airside=5670 groundside=236 mixed=0   airside_for_acceptance=5670   verdict: FAIL
+    VERSION-DEFERRED (reported, NOT adjudicated) 1377:
+      drainage_minimum           1377  interior pavement drainage-minimum shaping — VERSION-DEFERRED by RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); reported always, never adjudicated, never silently dropped
+    OUT OF SCOPE (reported, NOT adjudicated) 0  [no class fired]
+  sidecar evidence: seam_pins=0 terrace_joints=0 terrace_certificates=0 triangle_plane_unresolved=0
+  band membership (the BUILD's own report, evidence — route_band lives in-memory and is not a census family): 0 of 13939 EXAMINED vertex(es) outside their band by > 0.01 m (ceil=0 floor=0 pinned=0, worst 0.0 m)
+    sub-materiality split is STRUCTURALLY ZERO at these constants (noise floor 0.03 m >= materiality 0.01 m) — not evidence about the surface
+
+  FAMILY                        n  airside    gs  mixed   worst m  title
+  ------------------------------------------------------------------------------------------------
+ *within_shape                189       51   138      0     3.880  WITHIN-SHAPE vertex-pair grade
+  plane_gradient                0        0     0      0         -  PLANE GRADIENT (triangle surface)
+  runway_end_skirt              0        0     0      0         -  RUNWAY-END SKIRT edge grade
+  terrace_joint_route           0        0     0      0         -  APRON TERRACE JOINT crossing a taxi ROUT
+  terrace_joint_strip           0        0     0      0         -  APRON TERRACE JOINT inside a RUNWAY STRI
+  terrace_actual_step           0        0     0      0         -  APRON TERRACE ACTUAL step past its DECLA
+  adjacent_ground_tear          0        0     0      0         -  ADJACENT-GROUND graded-strip TEAR
+  strip_seam_tear               0        0     0      0         -  ADJACENT-GROUND strip SEAM tear
+ *transverse                   85        0    85      0     1.571  TRANSVERSE (cross-corridor) grade
+ *drainage_spine                2        2     0      0     0.000  DRAINAGE SPINE at or above its LOWER pav
+ *lateral_contiguity            3        0     3      0     0.070  LATERAL CONTIGUITY (road vs strictest cl
+  strip_longitudinal            0        0     0      0         -  STRIP ABEAM-LONGITUDINAL grade
+ *strip_arc                     1        1     0      0     0.050  STRIP LONGITUDINAL grade-CHANGE rate
+  resa_transverse               0        0     0      0         -  RESA / END-CORRIDOR TRANSVERSE grade
+  raoa                          0        0     0      0         -  RAOA grade-change rate (ICAO only)
+ *drainage_minimum           1377        0  1377      0     0.280  SURFACE FLATTER than its drainage minimu
+  wall_in_runway_strip          0        0     0      0         -  RETAINING WALL inside a RUNWAY STRIP
+  stacked_nodes                 0        0     0      0         -  STACKED NODES (one coordinate, values di
+  cross_shape                   0        0     0      0         -  CROSS-SHAPE proximity grade
+  frontage_near_miss            0        0     0      0         -  NEAR-MISS BUILDING FRONTAGE (pad ↔ soft 
+ *vertex_to_edge_step        1068     1065     3      0    14.700  VERTEX-TO-EDGE step
+ *mid_edge_step              4558     4551     7      0    14.700  MID-EDGE step
+  (all 22 law families listed, empty ones included — an absent line means the tool did not run)
+
+  === worst 20 rows (by |de| / step height) ===
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+    vertex_to_edge_step   tunnel_trench|tunnel_trench       airside    |de|= 14.700 m @(25.25220,51.62455)
+
+  === DEFECT SITES (--sites) ===
+    rule: two law-true rows belong to ONE defect site iff they are in the SAME LAW FAMILY and they share a way id, or share a canonical node — where a canonical node is the census's own weld tolerance (LAW_TRUE_KNOBS['proximity_m'] = check_grade.SHARED_VERTEX_TOL_M) applied to the rows' endpoints in layout-local metres.  Sites are the connected components of that relation (union-find); no new proximity semantic and no magnitude, role or geometry test takes part in the clustering
+    adjacency tolerance 0.5 m [LAW_TRUE_KNOBS['proximity_m'] (check_grade.SHARED_VERTEX_TOL_M, the solver's weld tolerance)]
+    SITES 129 (law-true) / 48 carrying >=1 ADJUDICATED row, over 7283 row(s)
+    AMPLIFICATION 56.46 rows/site mean; median 6, p90 104, max 1204
+    SIM-VISIBLE 50 site(s) (45 of them adjudicated) at >= 0.05 m relief; 79 below it
+      [a site is a SILHOUETTE-VISIBLE CANDIDATE when its worst |de| / step reaches 0.05 m of relief; below that it is reported as invisible.  A REPORTING threshold and an ASSUMPTION — nothing has measured it in the sim — never a law: the law adjudicates every row regardless]
+    ACTIONABLE 40 site(s) (38 of them sim-visible) — the headline: distinct places that owe work
+      floor 0.5 m accumulated; sharp guard step >= 0.15 m OR grade >= 2x cap; runway/runway_crossing ALWAYS actionable [2026-08-07 (owner) — Materiality floor: 0.5 m accumulated, guarded, runways exempt]
+      why actionable: accumulation=30, sharp_grade=23, sharp_step=14, unmeasured=3, runway_family=1  (a site may trip several)
+      accumulation: a site's ACCUMULATION is the sum of row_excess_m over its ADJUDICATED rows only (a version-deferred or out-of-scope row is not a defect and may not fund a defect's materiality).  row_excess_m is derived from the fields the row already carries, never re-measured: for a STEP row the step height; for a graded pair the metres its elevation difference exceeds its own cap over its own span (excess_pct/100 x distance_m), floored at 0 and capped at |de| because a row can never be more unlawful than its whole elevation difference; and for a row the law priced as a PURE VERTICAL quantity (distance_m == 0, or a cap-0 law that reports grade_pct == 0 such as the drainage-spine dam) the magnitude itself.  A row from an UNMEASURED family (MATERIALITY_UNMEASURED_FAMILIES: the cap-not-metres shapes) contributes 0 and makes its site actionable outright
+    SUB_FLOOR 8 site(s), 11 adjudicated row(s), worst |de| 0.7765 m — REPORTED, never dropped; the floor is PROVISIONAL
+    FAMILY                    sites   adj   act   sub   vis    rows  med/site   worst m
+    -----------------------------------------------------------------------------------
+    drainage_minimum             81     0     0     0     5    1377         6     0.280
+    drainage_spine                2     2     1     1     0       2         1     0.000
+    lateral_contiguity            3     3     3     0     3       3         1     0.070
+    mid_edge_step                 7     7     7     0     7    4558       927    14.700
+    strip_arc                     1     1     1     0     0       1         1     0.050
+    transverse                   12    12     6     6    12      85         2     1.571
+    vertex_to_edge_step           7     7     7     0     7    1068       175    14.700
+    within_shape                 16    16    15     1    16     189       3.5     3.880
+    worst 20 site(s) (by |de| / step, then rows):
+      mid_edge_step         rows=939   |de|= 14.700 m  ways=15 extent=166.59 m  VISIBLE @(25.25216,51.62457)
+        shapes -11679,-11680,-11681,-11682,-11683,-11684 …   roles ['tunnel_trench|tunnel_trench']   adj=939 defer=0 oos=0
+        ACTIONABLE  accum=13803.300 m  sharp(step=939,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.700 m  ways=15 extent=166.75 m  VISIBLE @(25.25220,51.62455)
+        shapes -11679,-11680,-11681,-11682,-11683,-11684 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3630.900 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=964   |de|= 14.640 m  ways=14 extent=157.9 m  VISIBLE @(25.29580,51.60328)
+        shapes -11697,-11698,-11699,-11700,-11701,-11702 …   roles ['tunnel_trench|tunnel_trench']   adj=964 defer=0 oos=0
+        ACTIONABLE  accum=14112.960 m  sharp(step=964,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=247   |de|= 14.640 m  ways=14 extent=158.02 m  VISIBLE @(25.29580,51.60329)
+        shapes -11697,-11698,-11699,-11700,-11701,-11702 …   roles ['tunnel_trench|tunnel_trench']   adj=247 defer=0 oos=0
+        ACTIONABLE  accum=3616.080 m  sharp(step=247,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=927   |de|=  5.700 m  ways=18 extent=208.12 m  VISIBLE @(25.25305,51.62606)
+        shapes -11659,-11660,-11661,-11662,-11663,-11664 …   roles ['tunnel_trench|tunnel_trench']   adj=927 defer=0 oos=0
+        ACTIONABLE  accum=5283.900 m  sharp(step=927,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=175   |de|=  5.700 m  ways=18 extent=208.14 m  VISIBLE @(25.25306,51.62605)
+        shapes -11659,-11660,-11661,-11662,-11663,-11664 …   roles ['tunnel_trench|tunnel_trench']   adj=175 defer=0 oos=0
+        ACTIONABLE  accum=997.500 m  sharp(step=175,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=140   |de|=  5.450 m  ways=5 extent=159.0 m  VISIBLE @(25.25401,51.62267)
+        shapes -10198,-10199,-10200,-11658,-11694   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=140 defer=0 oos=0
+        ACTIONABLE  accum=746.033 m  sharp(step=140,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=517   |de|=  5.445 m  ways=5 extent=158.31 m  VISIBLE @(25.25388,51.62274)
+        shapes -10198,-10199,-10200,-11658,-11694   roles ['apron|tunnel_trench', 'junction|tunnel_trench']   adj=517 defer=0 oos=0
+        ACTIONABLE  accum=2754.504 m  sharp(step=517,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=1204  |de|=  5.310 m  ways=23 extent=241.83 m  VISIBLE @(25.29197,51.60586)
+        shapes -11635,-11636,-11637,-11638,-11639,-11640 …   roles ['tunnel_trench|tunnel_trench']   adj=1204 defer=0 oos=0
+        ACTIONABLE  accum=6393.240 m  sharp(step=1204,grade=0)  [accumulation, sharp_step]
+      vertex_to_edge_step   rows=256   |de|=  5.310 m  ways=23 extent=242.32 m  VISIBLE @(25.29198,51.60586)
+        shapes -11635,-11636,-11637,-11638,-11639,-11640 …   roles ['tunnel_trench|tunnel_trench']   adj=256 defer=0 oos=0
+        ACTIONABLE  accum=1359.360 m  sharp(step=256,grade=0)  [accumulation, sharp_step]
+      within_shape          rows=1     |de|=  3.880 m excess=24.64pp  ways=1 extent=11.04 m  VISIBLE @(25.25575,51.60796)
+        shapes -10090   roles ['service_road|service_road']   adj=1 defer=0 oos=0
+        ACTIONABLE  accum=2.929 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      within_shape          rows=3     |de|=  3.450 m excess=13.51pp  ways=1 extent=16.88 m  VISIBLE @(25.27154,51.60257)
+        shapes -10942   roles ['service_junction|service_junction']   adj=3 defer=0 oos=0
+        ACTIONABLE  accum=5.780 m  sharp(step=0,grade=3)  [accumulation, sharp_grade]
+      within_shape          rows=4     |de|=  2.000 m excess=4.33pp  ways=2 extent=59.57 m  VISIBLE @(25.25398,51.60328)
+        shapes -10087,-15033   roles ['service_road|service_road', 'groundside_pavement|groundside_pavement']   adj=4 defer=0 oos=0
+        ACTIONABLE  accum=0.975 m  sharp(step=0,grade=0)  [accumulation]
+      within_shape          rows=10    |de|=  1.610 m excess=35.36pp  ways=3 extent=176.47 m  VISIBLE @(25.27217,51.60303)
+        shapes -10661,-11852,-15034   roles ['groundside_pavement|groundside_pavement', 'service_junction|service_junction']   adj=10 defer=0 oos=0
+        ACTIONABLE  accum=3.721 m  sharp(step=0,grade=4)  [accumulation, sharp_grade]
+      transverse            rows=12    |de|=  1.571 m excess=5.41pp  ways=2 extent=45.47 m  VISIBLE @(25.27168,51.60301)
+        shapes -10654,-10702   roles ['service_junction|service_junction']   adj=12 defer=0 oos=0
+        ACTIONABLE  accum=5.441 m  sharp(step=0,grade=6)  [accumulation, sharp_grade]
+      within_shape          rows=7     |de|=  1.410 m excess=19.67pp  ways=2 extent=13.97 m  VISIBLE @(25.27626,51.61344)
+        shapes -10808,-11738   roles ['service_junction|service_junction']   adj=7 defer=0 oos=0
+        ACTIONABLE  accum=4.219 m  sharp(step=0,grade=3)  [accumulation, sharp_grade]
+      vertex_to_edge_step   rows=1     |de|=  1.301 m  ways=2 extent=0.57 m  VISIBLE @(25.27238,51.60208)
+        shapes -10666,-10918   roles ['service_junction|service_junction']   adj=1 defer=0 oos=0
+        ACTIONABLE  accum=1.301 m  sharp(step=1,grade=0)  [accumulation, sharp_step]
+      mid_edge_step         rows=5     |de|=  1.084 m  ways=2 extent=14.18 m  VISIBLE @(25.27250,51.60213)
+        shapes -10666,-10918   roles ['service_junction|service_junction']   adj=5 defer=0 oos=0
+        ACTIONABLE  accum=4.199 m  sharp(step=5,grade=0)  [accumulation, sharp_step]
+      within_shape          rows=14    |de|=  1.030 m excess=20.03pp  ways=1 extent=18.3 m  VISIBLE @(25.25419,51.60408)
+        shapes -11867   roles ['groundside_pavement|groundside_pavement']   adj=14 defer=0 oos=0
+        ACTIONABLE  accum=4.141 m  sharp(step=0,grade=1)  [accumulation, sharp_grade]
+      transverse            rows=22    |de|=  1.027 m excess=24.26pp  ways=2 extent=74.51 m  VISIBLE @(25.27268,51.60219)
+        shapes -10666,-10667   roles ['service_junction|service_junction']   adj=22 defer=0 oos=0
+        ACTIONABLE  accum=9.398 m  sharp(step=0,grade=17)  [accumulation, sharp_grade]
+
+=== A/B: 3 patches ===
+  FAMILY                    padseat_othh_off       consol2othh       consol3othh   Δ last-first
+  ---------------------------------------------------------------------------------------------
+  within_shape                           148               166               189            +41
+  transverse                              33                94                85            +52
+  drainage_spine                           2                 2                 2             +0
+  lateral_contiguity                       1                 3                 3             +2
+  strip_arc                                1                 1                 1             +0
+  drainage_minimum                      2127              1407              1377           -750
+  vertex_to_edge_step                   1065              1068              1068             +3
+  mid_edge_step                         4551              4559              4558             +7
+  TOTAL                                 7928              7300              7283           -645
+  ADJUDICATED                           5801              5893              5906           +105
+  (version-deferred)                    2127              1407              1377           -750
+  (out of scope)                           0                 0                 0             +0
+  SITES                                  107               132               129            +22
+  (sim-visible sites)                     30                44                50            +20
+  (adjudicated sites)                     29                42                48            +19
+  ACTIONABLE SITES                        27                38                40            +13
+  (visible actionable)                    25                36                38            +13
+  (sub-floor sites)                        2                 4                 8             +6
+
+JSON -> tmp/s3/census3.json

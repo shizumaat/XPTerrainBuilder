@@ -1,0 +1,103 @@
+
+=== CENSUS /tmp/harness/padseat_othh_on.osm ===
+  frame: sha=d155c85a dirty=false built=2026-08-12T18:21:10 icao=OTHH gates_nondefault=1/217 dem_raw=False
+  law-true knobs: max_grade_pct=1.5 proximity_m=0.5 edge_search_m=5 edge_step_m=0.5
+  ruleset: declared='icao' active='icao' source=SIDECAR
+  LAW-TRUE TOTAL 7945   within=2329 cross=0 steps=5616 (raw 5616, registered step exemptions: none)
+  sides: airside=5666 groundside=2279 mixed=0 unknown=0   airside_for_acceptance=5666 (=airside+mixed, RULINGS 'airside is king')
+
+  === ADJUDICATION (RULINGS d48bc0a) ===
+    ADJUDICATED 5823   airside=5666 groundside=157 mixed=0   airside_for_acceptance=5666   verdict: FAIL
+    VERSION-DEFERRED (reported, NOT adjudicated) 2122:
+      drainage_minimum           2122  interior pavement drainage-minimum shaping — VERSION-DEFERRED by RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); reported always, never adjudicated, never silently dropped
+    OUT OF SCOPE (reported, NOT adjudicated) 0  [no class fired]
+  sidecar evidence: seam_pins=0 terrace_joints=0 terrace_certificates=0 triangle_plane_unresolved=0
+  band membership (the BUILD's own report, evidence — route_band lives in-memory and is not a census family): 0 of 13826 EXAMINED vertex(es) outside their band by > 0.01 m (ceil=0 floor=0 pinned=0, worst 0.0 m)
+    sub-materiality split is STRUCTURALLY ZERO at these constants (noise floor 0.03 m >= materiality 0.01 m) — not evidence about the surface
+
+  FAMILY                        n  airside    gs  mixed   worst m  title
+  ------------------------------------------------------------------------------------------------
+ *within_shape                167       47   120      0     3.880  WITHIN-SHAPE vertex-pair grade
+ *plane_gradient                2        0     2      0     0.140  PLANE GRADIENT (triangle surface)
+  runway_end_skirt              0        0     0      0         -  RUNWAY-END SKIRT edge grade
+  terrace_joint_route           0        0     0      0         -  APRON TERRACE JOINT crossing a taxi ROUT
+  terrace_joint_strip           0        0     0      0         -  APRON TERRACE JOINT inside a RUNWAY STRI
+  terrace_actual_step           0        0     0      0         -  APRON TERRACE ACTUAL step past its DECLA
+  adjacent_ground_tear          0        0     0      0         -  ADJACENT-GROUND graded-strip TEAR
+  strip_seam_tear               0        0     0      0         -  ADJACENT-GROUND strip SEAM tear
+ *transverse                   34        0    34      0     1.007  TRANSVERSE (cross-corridor) grade
+ *drainage_spine                2        2     0      0     0.000  DRAINAGE SPINE at or above its LOWER pav
+ *lateral_contiguity            1        0     1      0     0.070  LATERAL CONTIGUITY (road vs strictest cl
+  strip_longitudinal            0        0     0      0         -  STRIP ABEAM-LONGITUDINAL grade
+ *strip_arc                     1        1     0      0     0.050  STRIP LONGITUDINAL grade-CHANGE rate
+  resa_transverse               0        0     0      0         -  RESA / END-CORRIDOR TRANSVERSE grade
+  raoa                          0        0     0      0         -  RAOA grade-change rate (ICAO only)
+ *drainage_minimum           2122        0  2122      0     0.270  SURFACE FLATTER than its drainage minimu
+  wall_in_runway_strip          0        0     0      0         -  RETAINING WALL inside a RUNWAY STRIP
+  stacked_nodes                 0        0     0      0         -  STACKED NODES (one coordinate, values di
+  cross_shape                   0        0     0      0         -  CROSS-SHAPE proximity grade
+  frontage_near_miss            0        0     0      0         -  NEAR-MISS BUILDING FRONTAGE (pad ↔ soft 
+ *vertex_to_edge_step        1065     1065     0      0    14.700  VERTEX-TO-EDGE step
+ *mid_edge_step              4551     4551     0      0    14.700  MID-EDGE step
+  (all 22 law families listed, empty ones included — an absent line means the tool did not run)
+
+=== CENSUS /tmp/harness/padseat_othh_nopresolve.osm ===
+  frame: sha=9fe7c87c dirty=false built=2026-08-12T19:05:56 icao=OTHH gates_nondefault=1/217 dem_raw=False
+  law-true knobs: max_grade_pct=1.5 proximity_m=0.5 edge_search_m=5 edge_step_m=0.5
+  ruleset: declared='icao' active='icao' source=SIDECAR
+  LAW-TRUE TOTAL 7906   within=2290 cross=0 steps=5616 (raw 5616, registered step exemptions: none)
+  sides: airside=5628 groundside=2278 mixed=0 unknown=0   airside_for_acceptance=5628 (=airside+mixed, RULINGS 'airside is king')
+
+  === ADJUDICATION (RULINGS d48bc0a) ===
+    ADJUDICATED 5782   airside=5628 groundside=154 mixed=0   airside_for_acceptance=5628   verdict: FAIL
+    VERSION-DEFERRED (reported, NOT adjudicated) 2124:
+      drainage_minimum           2124  interior pavement drainage-minimum shaping — VERSION-DEFERRED by RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); reported always, never adjudicated, never silently dropped
+    OUT OF SCOPE (reported, NOT adjudicated) 0  [no class fired]
+  sidecar evidence: seam_pins=0 terrace_joints=0 terrace_certificates=0 triangle_plane_unresolved=0
+  band membership (the BUILD's own report, evidence — route_band lives in-memory and is not a census family): 0 of 13777 EXAMINED vertex(es) outside their band by > 0.01 m (ceil=0 floor=0 pinned=0, worst 0.0 m)
+    sub-materiality split is STRUCTURALLY ZERO at these constants (noise floor 0.03 m >= materiality 0.01 m) — not evidence about the surface
+
+  FAMILY                        n  airside    gs  mixed   worst m  title
+  ------------------------------------------------------------------------------------------------
+ *within_shape                129        9   120      0     3.880  WITHIN-SHAPE vertex-pair grade
+  plane_gradient                0        0     0      0         -  PLANE GRADIENT (triangle surface)
+  runway_end_skirt              0        0     0      0         -  RUNWAY-END SKIRT edge grade
+  terrace_joint_route           0        0     0      0         -  APRON TERRACE JOINT crossing a taxi ROUT
+  terrace_joint_strip           0        0     0      0         -  APRON TERRACE JOINT inside a RUNWAY STRI
+  terrace_actual_step           0        0     0      0         -  APRON TERRACE ACTUAL step past its DECLA
+  adjacent_ground_tear          0        0     0      0         -  ADJACENT-GROUND graded-strip TEAR
+  strip_seam_tear               0        0     0      0         -  ADJACENT-GROUND strip SEAM tear
+ *transverse                   33        0    33      0     1.007  TRANSVERSE (cross-corridor) grade
+ *drainage_spine                2        2     0      0     0.000  DRAINAGE SPINE at or above its LOWER pav
+ *lateral_contiguity            1        0     1      0     0.070  LATERAL CONTIGUITY (road vs strictest cl
+  strip_longitudinal            0        0     0      0         -  STRIP ABEAM-LONGITUDINAL grade
+ *strip_arc                     1        1     0      0     0.050  STRIP LONGITUDINAL grade-CHANGE rate
+  resa_transverse               0        0     0      0         -  RESA / END-CORRIDOR TRANSVERSE grade
+  raoa                          0        0     0      0         -  RAOA grade-change rate (ICAO only)
+ *drainage_minimum           2124        0  2124      0     0.270  SURFACE FLATTER than its drainage minimu
+  wall_in_runway_strip          0        0     0      0         -  RETAINING WALL inside a RUNWAY STRIP
+  stacked_nodes                 0        0     0      0         -  STACKED NODES (one coordinate, values di
+  cross_shape                   0        0     0      0         -  CROSS-SHAPE proximity grade
+  frontage_near_miss            0        0     0      0         -  NEAR-MISS BUILDING FRONTAGE (pad ↔ soft 
+ *vertex_to_edge_step        1065     1065     0      0    14.700  VERTEX-TO-EDGE step
+ *mid_edge_step              4551     4551     0      0    14.700  MID-EDGE step
+  (all 22 law families listed, empty ones included — an absent line means the tool did not run)
+
+=== A/B: 2 patches ===
+  FAMILY                     padseat_othh_on  _othh_nopresolve   Δ last-first
+  ---------------------------------------------------------------------------
+  within_shape                           167               129            -38
+  plane_gradient                           2                 0             -2
+  transverse                              34                33             -1
+  drainage_spine                           2                 2             +0
+  lateral_contiguity                       1                 1             +0
+  strip_arc                                1                 1             +0
+  drainage_minimum                      2122              2124             +2
+  vertex_to_edge_step                   1065              1065             +0
+  mid_edge_step                         4551              4551             +0
+  TOTAL                                 7945              7906            -39
+  ADJUDICATED                           5823              5782            -41
+  (version-deferred)                    2122              2124             +2
+  (out of scope)                           0                 0             +0
+
+JSON -> tmp/s3/census_padseat.json

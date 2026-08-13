@@ -1,0 +1,9 @@
+===  /tmp/harness/padseat_othh_off.osm
+        2192 drainage pair(s)                         over     85 surface(s
+         174 strip station(s)                         over      1 band(s
+===  /tmp/harness/consol2othh.osm
+        1462 drainage pair(s)                         over     96 surface(s
+         170 strip station(s)                         over      1 band(s
+===  /tmp/harness/consol3othh.osm
+        1447 drainage pair(s)                         over     86 surface(s
+         170 strip station(s)                         over      1 band(s

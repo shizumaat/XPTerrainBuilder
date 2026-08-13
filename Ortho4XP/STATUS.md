@@ -1,4 +1,31 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260812c ADDENDUM (CORRIDOR-JOINS ROUND + APP 1.0.245)
+# App 1.0.245 (engine 1.50.1688) BUILT after the owner's 1.0.244 in-sim
+# refuted two corridor claims. lane/joins merged (41bbd61): corridor
+# MOUTHS weld to airside pavement (airside value wins, byte-identity
+# twinned), stacked-conflict wall pass consults the corridor keepout,
+# free ends get HARD anchored DEM ties (seeder now single-source over
+# corridor chains incl. feed). Owner sites: seam wall GONE + welded
+# mouth; free end 6.31 m proud -> -0.01 m, no cliff. Censuses
+# adjudicated: KCLT 1403->1080, HECA 8219->7416, CYXY 324->245.
+# BUILDS FASTER (KCLT 550->478 s, HECA 671->562 s recorded-phase).
+# Consolidated-3 (5 arms rc=0, repo clean): KCLT 7bf9038e93f7,
+# HECA f562cbfeb8f9 (=lane state), OTHH 75594bc8773a (airside flat),
+# CYXY 61efa43c3aeb, KSTJ 65844a63b397.
+# DISCLOSED: HECA residue worst 11.31->11.36 (+0.05, mouth-join
+# knifed); KCLT strip_seam_tear +22 (worst 7.18 m, refused-wall steps)
+# — both on the STAGED-SOLVE/relief docket. ACCEPTANCE LAW LEARNED:
+# row-absence is never evidence — claims now quote seam-weld tables +
+# free-end DEM offsets (arm_site_read --welds / corridor_axis_coverage
+# --free-ends, INDEX'd).
+# ALSO: orthophoto loss attributed to the app's permission-broken
+# window (TCC dialog killed unanswered -> engine ran denied; KCLT
+# group deleted by engine-side handling; unstick_tcc.sh --reset run,
+# owner re-grants on next launch). QUEUE ADD: engine imagery hardening
+# (never delete on EPERM, only real corruption) + orthophoto delete-
+# path attribution.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260812c (SESSION CLOSE 2 — SERVICE CORRIDORS + INFRA + APP 1.0.244)
 # App 1.0.244 BUILT (engine 1.50.1687), smoke-tested. Owner in-sim on
 # it PENDING; that build FREEZES the correctness baseline the profiling

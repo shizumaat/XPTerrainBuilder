@@ -2826,6 +2826,24 @@ def construct_gap_fill_presolve(layout) -> int:
     if len(airside) < 2:
         return 0
     gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
+    # ── ATTRIBUTION INSTRUMENT (lead-authorized 2026-08-12b) ───────────
+    # ATTRIBUTION ONLY — revert or ratify before any merge.  Withholds
+    # ruling 3's rim pockets from the PRE-SOLVE construction while the
+    # emitter still grades them, isolating the stage-B2 absorption half:
+    # if the OTHH apron churn (41 airside within_shape rows on aprons
+    # -10270/-10271/-10273, ~100-136 m from any rim face) vanishes with
+    # this set, the author is groundside spine VARIABLES entering the one
+    # solve and pulling airside — the gate-only knife cannot isolate it
+    # (``O4_ONE_SOLVE_TERRAIN_GRADED_STRIP`` hard-requires
+    # ``O4_ONE_SOLVE_TERRAIN_GAP_FILL_SPINE``, measured 2026-08-12b).
+    # Default OFF ⇒ byte-identical; the three-pass parity twin still
+    # reads the shared candidate call above.
+    if rim_ids and os.environ.get("O4_ATTR_RIM_NO_PRESOLVE") == "1":
+        gap_candidates = [g for g in gap_candidates if id(g) not in rim_ids]
+        UI.vprint(1, f"  [rim-pocket] ATTRIBUTION: {len(rim_ids)} rim "
+                     f"pocket(s) withheld from the pre-solve construction "
+                     f"(O4_ATTR_RIM_NO_PRESOLVE=1) — emission unchanged.")
+        rim_ids = set()
     if not gap_candidates:
         return 0
     pads, skirts = _gap_parents(layout)

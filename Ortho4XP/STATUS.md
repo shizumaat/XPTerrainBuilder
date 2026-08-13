@@ -1,4 +1,67 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260812c (SESSION CLOSE 2 — SERVICE CORRIDORS + INFRA + APP 1.0.244)
+# App 1.0.244 BUILT (engine 1.50.1687), smoke-tested. Owner in-sim on
+# it PENDING; that build FREEZES the correctness baseline the profiling
+# round optimizes against (owner ruling: baseline before optimization).
+#
+# ── SHIPPED (owner ship ruling, RULINGS tail) ───────────────────────
+#  SERVICE CORRIDORS ON (lane/corridor, merge 7e33b34): 1206+OSM
+#    sources w/ dedupe, corridor chains (HECA A gapless 618.2 m, B
+#    chained), free-end DEM tie, wall-course exclusion (KCLT wall
+#    GONE), corridor-aware width read + SCORER_SERVICE_ADJ ON, pad-
+#    side-only lip + continuous adoption (teleport dead). KCLT ramp
+#    corridor SURFACED (R20-2 paid). DISCLOSED: HECA airside +130
+#    (solve-stage values on unchanged rings; apron -11906 0.86→5.69)
+#    + one new 1.21 m seam tear — owner accepted for in-sim now,
+#    STAGED-SOLVE ROUND owns the fix.
+#  RIM POCKETS DEFAULT-OFF (lane/padseat, merge 11468ed): knoll fix
+#    works (mesh 106.3→93.72) but HECA third channel (1,238/1,330
+#    airside rows off-face) parks it; OTTH absorption closed by
+#    post-solve-only posture (airside 29→9, kept, gated).
+#  INFRA: #15-class mask routing lane-local (O4_MASKS_DIR + COW,
+#    merge 688f6d0 — pre-fix cleanup would have DELETED shared
+#    rasters); per-tile cfg auto-provisioning (merge 2fab864, ruling
+#    'lane inputs provisioned by the ritual'); owner pad at knoll =
+#    corpus-history (not re-requested; no fix needed).
+#
+# ── CONSOLIDATED-2 (merged tree, 5 parallel arms, rc=0, repo clean) ─
+#  KCLT ef4c51b860b6 = corridor arm EXACT (all 3 owner fixes);
+#  CYXY 3860ec271c6a = arm exact; HECA 1ffc2fffd887 = disclosed state
+#  (airside 1781); KSTJ cdc8c2652313 +22 corridor shapes, worst
+#  cluster PRE-EXISTING (coords+alts byte-identical); OTHH
+#  444f769141b8 +378 shapes, airside 5648→5671 (+23, disclosed
+#  class), within 2312→1673 (−639 UNATTRIBUTED — improvement-
+#  direction but census-blindness suspicion; staged-solve round).
+#
+# ── QUEUE ──────────────────────────────────────────────────────────
+#  1. Owner in-sim on 1.0.244: VERIFY KCLT (ramp corridor, wall/
+#     grade-to-DEM, road classification). Do NOT judge HECA knoll/
+#     spines (parked/disclosed) — design round first.
+#  2. STAGED-SOLVE DESIGN ROUND (Fable spec): groundside spine
+#     variables vs airside solve (corridor +130 residue, HECA rim
+#     off-face channel, OTHH absorption architecture, corridor
+#     profile law hump/pockets/±8%, new seam tear, OTHH −639 within
+#     attribution). Then rim pockets re-enable, knoll ships.
+#  3. PROFILING ROUND after in-sim pass freezes the baseline
+#     (HECA solve 326 s target #1; +0.76 s weld enum, +2.2 s rim
+#     detector, corridor solve growth all flagged; SOLVE-STAGE REPRO
+#     CUTTER in its charter — turns 20-min knives into seconds).
+#  4. Owner question open: pad-request sidecar data-vs-product
+#     (3 corpora measured); #11 band remedy round; 20260812a
+#     ratifications still pending.
+#
+# ── GOTCHAS (second half) ───────────────────────────────────────────
+#  * Session cwd resets to repo root after fg cd — five background
+#    builds silently died on venv path (rc=0 with 1-line output!);
+#    check output size before trusting a fast background exit.
+#  * Per-airport tags for parallel harness builds (same-tag arms
+#    overwrite /tmp/harness/<tag>.osm).
+#  * Fan-out knives > serial frugality (owner speed ruling); pre-
+#    register reads before arms so verdicts cannot drift.
+#  * A gate-only knife can be structurally impossible (solver gate
+#    dependency register) — code-level withholds are the fallback.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260812b (SESSION CLOSE — TASKS #10/#11/#15/#16 + APP 1.0.243)
 # App 1.0.243 BUILT (engine 1.50.1686, dist.nosync/), launch smoke-
 # tested. Owner in-sim PENDING — that pass gates the PROFILING ROUND.

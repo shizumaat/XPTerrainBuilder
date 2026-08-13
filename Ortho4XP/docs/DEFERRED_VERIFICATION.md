@@ -104,3 +104,30 @@ changed.
   (d) `_column_last_write_mask` is built per colour per call (one stable argsort of each repeated endpoint column). Its cost is inside the measured arms but was never isolated; on a graph whose colours are almost all repeated it would be paid on every call.
   (e) The negative-zero gate's INVARIANT half (a field free of -0.0 stays free of it under `a ± b`) is argued from IEEE-754 round-to-nearest and twinned only by a fixture that SEEDS -0.0 and checks both paths agree; no test drives z to a -0.0 mid-sweep, because the argument says it cannot happen.
   (f) `tools/profile_airport_build.py --replay` has no twin: it is exercised by the three profile runs this lane took. Its INDEX row now carries the GIL-scheduling caveat this lane measured the hard way — the sampler priced the box-clamp gather at 6.0 s where `perf_counter` priced it at 0.31 s, a 20x mis-attribution that would have sent the lane at the wrong line. LANE D EDITED THE SAME TOOL ON ITS OWN BRANCH (a `--count` option): the lead resolves that conflict at merge.
+
+## 2026-08-13 — perf P3 wave 2 lane F (presolve/groundside + global slice)
+
+Landed: `pavement/global_slice.py` per-piece `buffer(0.05)` hoist in the
+hole-keyhole walk; `groundside.groundside_route_band` builds its probe
+graph with `skip_edge_shape_ids` (within-shape pair generation is dead
+work there, proof in-code); `adjacent_ground._build_construct_reach_band`
+docstring records a measured-and-rejected band-sharing memo.
+
+Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
+- No exclusive `check_build_time.py --runs N` arm — the spec moves wall
+  adjudication to P4 on the merged tree. Lane quotes replay-to-replay and
+  `--count` deltas only.
+- Phase-4 `--count` arms were run as a MATCHED CONCURRENT PAIR (control
+  worktree at `020cdae` vs lane) rather than serially/exclusively; the
+  delta is quoted, never the absolute wall.
+- No full pytest suite, no blast-radius suite: only the test files
+  directly covering the change, once, through the run ledger
+  (`test_one_graph_groundside`, `test_service_band_instruments`,
+  `test_band_reports_instrument`, `test_free_road_scoping`,
+  `test_global_slice_hole_keyholes` — 63 passed).
+- No census of the acceptance patches: acceptance here is BODY-HASH
+  IDENTITY to the frozen 1.0.245 manifest (HECA `f562cbfeb8f9`, CYXY
+  `61efa43c3aeb`, on both a full build and a solve replay each), which is
+  strictly stronger than a census match.
+- Only HECA + CYXY were exercised; KCLT / OTHH / KSTJ identity is
+  unverified for this lane.

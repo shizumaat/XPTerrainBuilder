@@ -34,6 +34,7 @@ them.  This module owns the apron/junction visibility graph only.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -820,13 +821,38 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     # sidecar's ``seam_pins`` export.
     seam_pin_idx = getattr(layout, "_seam_pin_idx", None) or ()
 
-    return GradeContext(centerlines=cls, routes=routes,
-                        inherited_junction_cap=_inherited,
-                        building_keys=frozenset(bld_keys), road_zone=road_zone,
-                        route_zone=route_zone,
-                        seam_keys=frozenset(seam_pin_idx),
-                        service_source=service_spine_source(layout),
-                        service_length_m=_svc_len_m)
+    ctx = GradeContext(centerlines=cls, routes=routes,
+                       inherited_junction_cap=_inherited,
+                       building_keys=frozenset(bld_keys), road_zone=road_zone,
+                       route_zone=route_zone,
+                       seam_keys=frozenset(seam_pin_idx),
+                       service_source=service_spine_source(layout),
+                       service_length_m=_svc_len_m)
+    # RUN-SCOPED LAW MEMO (perf P3 lane perfgraph) — see
+    # :func:`shape_constraints_cached`.  It hangs off the LAYOUT, not this
+    # module: one solve run is one layout, so the memo cannot outlive the
+    # geometry it was derived from, and a process that builds several
+    # airports (a tile) never carries one airport's answers into the next.
+    #
+    # SOLVER KEY SPACE ONLY (``bucket_to_idx is not None``).  The other
+    # space is the VALIDATOR's, and it is not merely different, it is
+    # COLLIDABLE: its shapes are keyed by RING INDEX (0, 1, 2, …) and its
+    # building membership by rounded coordinate, so a validator shape and
+    # a solver shape whose node indices happen to be 0..n-1 can present
+    # the same ring, the same keys and the same all-False membership
+    # vector — one key, two different laws.  The validator builds its
+    # graph once per run, so excluding it costs nothing measurable and
+    # removes the whole class.
+    if SC_RUN_MEMO and bucket_to_idx is not None:
+        try:
+            run = getattr(layout, "_sc_run_memo", None)
+            if run is None:
+                run = {}
+                layout._sc_run_memo = run
+            ctx._sc_run_memo = run
+        except Exception:                                 # pragma: no cover
+            pass
+    return ctx
 
 
 # ── visibility ──────────────────────────────────────────────────────────────
@@ -2441,6 +2467,114 @@ class UnifiedGraph:
         return s
 
 
+#: RUN-SCOPED MEMO KILL SWITCH (perf P3 lane perfgraph).  Module level so
+#: the twin can turn the second memo OFF and compare the SAME solve's
+#: constraint sets with it on — an equality, not an argument.  Never read
+#: as law and never a gate: with it False the code is exactly what it was
+#: before the memo landed (the per-ctx memo still runs).
+SC_RUN_MEMO = True
+
+
+def _ctx_law_digest(ctx: GradeContext):
+    """Digest of the ctx inputs :func:`shape_constraints` reads GLOBALLY —
+    the ones whose influence on a shape cannot be projected onto that shape
+    in O(n).  Cached on the ctx (computed once per graph build).
+
+    The transitive read set of ``shape_constraints`` is exactly eight
+    ``GradeContext`` fields (verified by walking every function reachable
+    from it: ``centerlines`` via ``_spine_membership`` / ``_spine_cap`` /
+    ``_spine_crossing_predicate`` / ``_nearest_centerline`` / ``_edge_route``
+    / ``_polyline_tree`` / ``_route_oracle`` / ``_route_taxi_cap``,
+    ``routes`` via ``_edge_route`` / ``_polyline_tree``, and ``seam_keys``,
+    ``building_keys``, ``road_zone``, ``route_zone``, ``mesh_edges_exact``,
+    ``inherited_junction_cap`` read in ``shape_constraints`` /
+    ``_body_cap_unbounded`` themselves).  ``_route_metric_oracle`` and
+    ``_route_taxi_cap_memo`` are memos the ctx derives from ``centerlines``
+    / ``routes``, not inputs.
+
+    THIS digest covers five of them — ``centerlines``, ``routes``,
+    ``road_zone``, ``route_zone``, ``mesh_edges_exact``.  The other three
+    are projected per shape by :func:`_sc_run_key`, which is what makes a
+    cross-build hit possible at all: at HECA ``building_keys`` moves
+    between EVERY pair of graph builds (measured), so a whole-ctx digest
+    keyed 0 hits out of 12,078 computations while the per-shape projection
+    keyed 1,275.
+
+    ``None`` ⇒ this ctx carries an input this function cannot digest, and
+    the run memo stays OFF for it (a key that cannot see an input is a
+    wrong-answer machine — the ruling's spirit: key on inputs, never on
+    live mutable state).  ``mesh_edges_exact`` is that case: it is the
+    validator's sidecar structure, never set on a solve ctx.
+    """
+    d = getattr(ctx, "_law_digest", "?")
+    if d != "?":
+        return d
+    d = None
+    try:
+        if ctx.mesh_edges_exact is not None:
+            raise ValueError("mesh_edges_exact is not digestible")
+        h = hashlib.sha256()
+        for c in ctx.centerlines:
+            h.update(repr((tuple(c.pts), tuple(c.seg_caps), c.route_idx,
+                           bool(c.is_service))).encode())
+        h.update(b"\x00routes\x00")
+        for r in (ctx.routes or []):
+            h.update(repr(tuple(r.pts)).encode())
+        for name in ("road_zone", "route_zone"):
+            z = getattr(ctx, name)
+            h.update(b"\x00" + name.encode() + b"\x00")
+            if z is not None:
+                # A prepared geometry's own geometry is what the predicate
+                # answers from; WKB is its exact coordinate identity.
+                h.update(getattr(z, "context", z).wkb)
+        d = h.hexdigest()
+    except Exception:                                     # pragma: no cover
+        d = None
+    ctx._law_digest = d
+    return d
+
+
+def _sc_run_key(gs: GradeShape, ctx: GradeContext, ring_only: bool):
+    """The RUN-scoped memo key: every input the computation reads.
+
+    Shape side — the whole ``GradeShape`` the law consults: ``role``, the
+    exact ring coordinates (never rounded: a rounded ring is an under-keyed
+    ring), the node ``keys`` (they label the answer AND gate it, via the
+    ``ki == kj`` skip), and the five per-shape law flags.
+
+    Ctx side — :func:`_ctx_law_digest` for the global five, plus the three
+    that are projected onto THIS shape in O(n), which is what a cross-build
+    hit needs:
+
+      * ``building_keys`` / ``seam_keys`` are read ONLY as ``key in set``
+        for this shape's own keys, so the membership vector IS their whole
+        influence;
+      * ``inherited_junction_cap`` is read ONLY as
+        ``ctx.inherited_junction_cap(shape)`` (``_body_cap_unbounded``'s
+        last line), so its RETURN VALUE for this shape is its whole
+        influence.  ``build_context``'s closure is pure — it reads a
+        rounded-coordinate dict built before the ctx was returned — so
+        calling it here is a read, never a side effect.
+
+    ``None`` ⇒ do not memo (undigestible ctx)."""
+    d = _ctx_law_digest(ctx)
+    if d is None:
+        return None
+    keys = tuple(gs.keys)
+    bld = ctx.building_keys
+    seam = ctx.seam_keys
+    return (d, gs.role, bool(ring_only),
+            tuple(gs.ring), keys,
+            tuple(k in bld for k in keys),
+            tuple(k in seam for k in keys),
+            float(ctx.inherited_junction_cap(gs)),
+            bool(getattr(gs, "fan_ramp_zone", False)),
+            bool(getattr(gs, "adopts_apron_grade", False)),
+            bool(getattr(gs, "adopts_taxi_grade", False)),
+            getattr(gs, "adopted_taxi_letter", None),
+            getattr(gs, "lateral_cap", None))
+
+
 def shape_constraints_cached(polygon_key, gs: GradeShape,
                              ctx: GradeContext,
                              ring_only: bool = False) -> "ShapeConstraints":
@@ -2456,16 +2590,64 @@ def shape_constraints_cached(polygon_key, gs: GradeShape,
     certified-lazy branch's ring-only result and ``build_unified_graph``'s
     FULL result (which feeds the validator-parity ``u_edges`` projection and
     the reach fields, so it must never be thinned) coexist without either
-    consumer seeing the other's set."""
+    consumer seeing the other's set.
+
+    ── SECOND TIER: THE RUN-SCOPED MEMO (perf P3 lane perfgraph) ──────────
+    One solve builds the unified graph SIX times at HECA (apron-terrace
+    presolve, adjacent-ground presolve, the solve itself, two final
+    projections, the validator), each from a fresh ctx and therefore a
+    fresh per-ctx memo, and re-derives every shape.  The measured
+    cross-build redundancy is real but partial: at HECA 1,275 of 12,078
+    computations (10.6 %) reproduce an earlier build's answer EXACTLY, at
+    CYXY 310 of 1,522 (20.4 %), and in both cases the whole set is the
+    second presolve repeating the first.  A hit is served from
+    ``layout._sc_run_memo``, which lives for exactly one solve run.
+
+    The key (:func:`_sc_run_key`) covers every input the computation reads
+    — that is the whole design, not a precaution: the OBVIOUS key
+    (geometry + node keys) hits the same 1,275 at HECA and has never
+    produced a different answer in 13,600 measured computations, and it is
+    still forbidden, because nothing in it would NOTICE a moved
+    ``building_keys``.  The soundness is in the key, never in the
+    coincidence.  ``sc`` objects are shared, exactly as the per-ctx memo
+    already shares them between its two consumers, and no consumer mutates
+    one (both only read ``sc.edges`` / ``sc.spine_chains``).
+
+    MEASURED AND REJECTED — a FLOAT-ORDER win, so out of scope by the perf
+    charter, and recorded here so the next lane does not rebuild it.  Keying
+    in RING-INDEX space (cache the pair set by ring index, RELABEL to node
+    keys on a hit) has a measured ceiling of 58.5 % at HECA / 54.6 % at CYXY:
+    the node numbering moves between builds far more often than the law does
+    (3,266 of HECA's 4,857 distinct shape-states appear under more than one
+    key spelling).  It is unreachable.  In 114 of those HECA computations
+    (7 at CYXY) two builds agree on the ring, the key-equality pattern and
+    EVERY projected ctx input, produce the SAME pair set with the same caps,
+    and still differ — in the last ULP of the route-metric BAKED budget
+    (measured at CYXY: pair (7,8) of an 18-vertex junction,
+    0.021270521763298956 vs ...52, identical ``_spine_membership`` and
+    ``body_cap``).  The route decomposition is not bit-stable across graph
+    builds, so serving one build's answer to another would move emitted
+    bytes.  This tier therefore keys in NODE-KEY space, where those pairs
+    never collide, and takes the 10.6 %."""
     memo = getattr(ctx, "_sc_memo", None)
     if memo is None:
         memo = {}
         ctx._sc_memo = memo
     key = (polygon_key, gs.role, ring_only)
     sc = memo.get(key)
+    if sc is not None:
+        return sc
+    run = getattr(ctx, "_sc_run_memo", None) if SC_RUN_MEMO else None
+    run_key = None
+    if run is not None:
+        run_key = _sc_run_key(gs, ctx, ring_only)
+        if run_key is not None:
+            sc = run.get(run_key)
     if sc is None:
         sc = shape_constraints(gs, ctx, ring_only=ring_only)
-        memo[key] = sc
+        if run is not None and run_key is not None:
+            run[run_key] = sc
+    memo[key] = sc
     return sc
 
 

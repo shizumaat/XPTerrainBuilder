@@ -39,6 +39,7 @@ import pytest
 
 from auto_patch import config
 from auto_patch.object_anchor import RebakeDecision, Structure
+from auto_patch import object_rebake
 from auto_patch.object_rebake import (
     BACKUP_SUFFIX,
     PROVENANCE_FILENAME,
@@ -46,6 +47,7 @@ from auto_patch.object_rebake import (
     check,
     modified_packs,
     pack_status,
+    pristine_object_fingerprint_entries,
     restore,
 )
 
@@ -1127,3 +1129,175 @@ def test_modified_packs_filters_by_tile(tmp_path):
 
 def test_modified_packs_missing_directory_is_empty(tmp_path):
     assert modified_packs(str(tmp_path / "nope")) == []
+
+
+# ---------------------------------------------------------------------------
+# PRISTINE derived-cache fingerprint entries (owner ruling 2026-08-13)
+# ---------------------------------------------------------------------------
+#
+# ``pristine_object_fingerprint_entries`` is what every derived cache
+# over a pack's objects keys on (footprint sidecars, the object-terrain
+# classification sidecar).  The law: THIS engine's own y-bake can never
+# invalidate such a cache; an EXTERNAL edit always must.
+
+
+def _pristine_entries(pack_root: str) -> list[str]:
+    """Sorted entries with the per-file memo cleared — the memo is a
+    same-process optimization, never the thing under test."""
+    object_rebake._PRISTINE_ENTRY_MEMO.clear()
+    return sorted(pristine_object_fingerprint_entries(pack_root))
+
+
+def test_pristine_entries_of_an_unbaked_pack_keep_the_legacy_spelling(
+        tmp_path):
+    """No backup anywhere ⇒ byte-for-byte the pre-ruling
+    ``relpath:size:mtime`` entry, so every warm sidecar of an unbaked
+    pack keeps hitting (no cache-version bump, no corpus re-warm)."""
+    pack_root, _mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    file_stat = os.stat(_live_path(pack_root))
+    assert _pristine_entries(pack_root) == [
+        f"{BOX_RESOURCE}:{file_stat.st_size}:{file_stat.st_mtime}"
+    ]
+
+
+def test_pristine_entries_survive_the_engines_own_bake(tmp_path):
+    """THE defect (perf lane A, 2026-08-13): the fingerprint used to
+    read the LIVE stat block, so the bake that runs after the sidecar
+    write invalidated the sidecar the same run had just written."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    before = _pristine_entries(pack_root)
+    live_bytes_before = _read_bytes(_live_path(pack_root))
+
+    report = apply(_two_box_decision(), pack_root, mesh_path)
+    # The bake really did rewrite the live file …
+    assert report.vertices_offset_total == 8
+    assert _read_bytes(_live_path(pack_root)) != live_bytes_before
+    # … and the pristine fingerprint did not move.
+    assert _pristine_entries(pack_root) == before
+
+    # A second bake (byte-idempotent) is equally invisible.
+    apply(_two_box_decision(), pack_root, mesh_path)
+    assert _pristine_entries(pack_root) == before
+
+
+def test_touching_a_baked_live_file_is_not_an_external_edit(tmp_path):
+    """Deliberate difference from ``_file_matches``' "a touch means
+    reconsider": the ruling names the SHA test as the detection, and the
+    live file of a baked object is not an input to any derived cache."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    apply(_two_box_decision(), pack_root, mesh_path)
+    before = _pristine_entries(pack_root)
+
+    live_path = _live_path(pack_root)
+    file_stat = os.stat(live_path)
+    os.utime(live_path,
+             (file_stat.st_atime + 100, file_stat.st_mtime + 100))
+    assert _pristine_entries(pack_root) == before
+
+
+def test_pristine_entries_miss_on_an_external_edit_of_a_baked_object(
+        tmp_path):
+    """Invariant I-14's PACK CHANGED verdict, reused verbatim: a live
+    file matching neither recorded hash keys on ITSELF, so every derived
+    cache misses."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    apply(_two_box_decision(), pack_root, mesh_path)
+    before = _pristine_entries(pack_root)
+
+    with open(_live_path(pack_root), "w") as handle:
+        handle.write(_two_box_object_text(
+            trailing_lines=["# new pack version"]))
+    after = _pristine_entries(pack_root)
+    assert after != before
+    external_stat = os.stat(_live_path(pack_root))
+    assert after == [
+        f"{BOX_RESOURCE}:{external_stat.st_size}"
+        f":{external_stat.st_mtime}"
+    ]
+
+
+def test_pristine_entries_miss_when_the_authored_original_changes(tmp_path):
+    """The backup IS the geometry every reader parses — editing it is a
+    real input change."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    apply(_two_box_decision(), pack_root, mesh_path)
+    before = _pristine_entries(pack_root)
+
+    with open(_backup_path(pack_root), "a") as handle:
+        handle.write("# authored geometry edited\n")
+    assert _pristine_entries(pack_root) != before
+
+
+def test_pristine_entries_refingerprint_cleanly_across_an_orphaned_backup(
+        tmp_path):
+    """External change mid-history: the edit misses, the next bake
+    orphans the stale backup and adopts the live file as the new
+    original (branch C), and the fingerprint then SETTLES on that
+    adopted original — no permanent miss, no oscillation."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    apply(_two_box_decision(), pack_root, mesh_path)
+    before_edit = _pristine_entries(pack_root)
+
+    with open(_live_path(pack_root), "w") as handle:
+        handle.write(_two_box_object_text(
+            trailing_lines=["# new pack version"]))
+    at_edit = _pristine_entries(pack_root)
+    assert at_edit != before_edit
+
+    report = apply(_two_box_decision(), pack_root, mesh_path)
+    assert report.orphaned_backups == [
+        _backup_path(pack_root) + ".orphaned"]
+    # The adopted original is the edited file, copied with copy2 — so the
+    # entry the miss re-fingerprinted on is exactly the entry that now
+    # stays put across every further bake.
+    assert _pristine_entries(pack_root) == at_edit
+    apply(_two_box_decision(), pack_root, mesh_path)
+    assert _pristine_entries(pack_root) == at_edit
+    # The orphaned backup is not an ``.obj`` and never becomes an entry.
+    assert len(_pristine_entries(pack_root)) == 1
+
+
+def test_pristine_entries_drop_a_deleted_live_object(tmp_path):
+    """A live ``.obj`` removed from the pack (backup still there) is a
+    resource that no longer resolves — the entry disappears, which is
+    itself a fingerprint change."""
+    pack_root, mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: _two_box_object_text()}
+    )
+    apply(_two_box_decision(), pack_root, mesh_path)
+    before = _pristine_entries(pack_root)
+    os.remove(_live_path(pack_root))
+    assert _pristine_entries(pack_root) == []
+    assert before != []
+
+
+def test_pristine_entries_adopt_the_backup_without_recorded_hashes(
+        tmp_path):
+    """Amendment A2 (the real KCLT prototype state): a backup with no
+    recorded hashes is authoritative — never orphaned there, so never
+    keyed away from here either."""
+    pristine_text = _two_box_object_text()
+    pack_root, _mesh_path = _make_pack(
+        tmp_path, {BOX_RESOURCE: pristine_text})
+    shutil.copy2(_live_path(pack_root), _backup_path(pack_root))
+    backup_stat = os.stat(_backup_path(pack_root))
+    with open(_live_path(pack_root), "w") as handle:
+        handle.write(pristine_text.replace(
+            "VT 0.000000 0.000000 0.000000",
+            "VT 0.000000 1.190000 0.000000"))
+
+    assert _pristine_entries(pack_root) == [
+        f"{BOX_RESOURCE}:{backup_stat.st_size}:{backup_stat.st_mtime}"
+    ]

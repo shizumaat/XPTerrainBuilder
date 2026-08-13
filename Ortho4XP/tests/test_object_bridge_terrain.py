@@ -2810,14 +2810,42 @@ class TestClassificationSidecar:
             str(dsf), str(pack), None)
         assert before != after
 
-    def test_backup_files_do_not_count(self, tmp_path):
+    def test_the_engines_own_y_bake_does_not_invalidate(self, tmp_path):
+        """A ``.anchor_bak`` is not a ``.obj`` and never becomes an
+        entry of its own.  Since the OWNER RULING 2026-08-13 ("airport
+        derived caches key on PRISTINE inputs") it does something
+        stronger: it REPLACES its live file's entry, because the backup
+        is the geometry this classifier actually parses (ruling R1
+        parity in ``_load_object_geometry_by_resource``).  So the
+        engine's own y-bake — copy2 to the backup, rewrite the live
+        file — leaves the fingerprint exactly where it was, instead of
+        invalidating the sidecar the same build wrote.
+
+        The pre-ruling form of this test asserted that merely CREATING a
+        backup file changed nothing; it now asserts the whole bake
+        changes nothing, which is the stronger property and the one the
+        cost was paid on.
+        """
+        import os as _os
+        import shutil
         pack, dsf = self._pack(tmp_path)
         _path, before = assembly._classification_sidecar(
             str(dsf), str(pack), None)
-        (pack / "Objects" / "a.obj.anchor_bak").write_text("backup")
+
+        live = pack / "Objects" / "a.obj"
+        shutil.copy2(str(live), str(live) + ".anchor_bak")
+        live.write_text("VT 0 -9.4 0\n")        # the Phase 2 y-bake
+        _os.utime(str(live), (1e9, 1e9))
         _path, after = assembly._classification_sidecar(
             str(dsf), str(pack), None)
-        assert before == after
+        assert after == before
+
+        # A stray backup whose live file does not exist is not an input
+        # to anything, and still adds no entry.
+        (pack / "Objects" / "ghost.obj.anchor_bak").write_text("backup")
+        _path, with_stray = assembly._classification_sidecar(
+            str(dsf), str(pack), None)
+        assert with_stray == before
 
     def test_pavement_evidence_changes_fingerprint(self, tmp_path):
         pack, dsf = self._pack(tmp_path)

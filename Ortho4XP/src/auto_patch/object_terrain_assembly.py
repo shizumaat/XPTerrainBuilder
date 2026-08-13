@@ -507,10 +507,18 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
       necessarily rewrites it (user ruling 2026-07-10);
     * the airport's ``apt.dat`` (size, mtime) when known — layout edits
       usually rewrite it too, and the pavement evidence derives from it;
-    * every ``.obj`` under the pack root (relative path, size, mtime) —
-      needed BESIDE the DSF check because object-geometry edits (our own
-      Phase 2 y-bake rewrites included) change no DSF byte;
-      ``.anchor_bak`` backups are not ``.obj`` files and stay out of it;
+    * every ``.obj`` under the pack root, keyed on its PRISTINE state —
+      the ``.anchor_bak`` original where the engine's own y-bake mutated
+      the file, the live file otherwise (owner ruling 2026-08-13,
+      "AIRPORT DERIVED CACHES KEY ON PRISTINE INPUTS"; one
+      implementation in
+      ``object_rebake.pristine_object_fingerprint_entries``).  It is
+      needed BESIDE the DSF check because an external object-geometry
+      edit changes no DSF byte — but OUR OWN y-bake rewrites must NOT
+      invalidate it: the classifier reads the ``.anchor_bak`` original
+      too (ruling R1 parity in
+      ``_load_object_geometry_by_resource``), so a baked live file was
+      never an input to this result;
     * the pavement-coverage evidence (well-known-binary hash of the
       rings — contract selection depends on it);
     * :data:`_CLASSIFICATION_CACHE_VERSION`.
@@ -575,21 +583,9 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
                 )
             except OSError:
                 digest.update(b"apt:unreadable")
-        object_entries = []
-        for directory, _subdirectories, file_names in os.walk(pack_root):
-            for file_name in file_names:
-                if not file_name.lower().endswith(".obj"):
-                    continue
-                full_path = os.path.join(directory, file_name)
-                try:
-                    file_stat = os.stat(full_path)
-                except OSError:
-                    continue
-                object_entries.append(
-                    f"{os.path.relpath(full_path, pack_root)}"
-                    f":{file_stat.st_size}:{file_stat.st_mtime}"
-                )
-        for entry in sorted(object_entries):
+        from .object_rebake import pristine_object_fingerprint_entries
+        for entry in sorted(
+                pristine_object_fingerprint_entries(pack_root)):
             digest.update(entry.encode())
         if pavement_polygons:
             for polygon in pavement_polygons:

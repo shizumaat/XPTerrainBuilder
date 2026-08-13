@@ -611,6 +611,10 @@ def object_building_harness(tmp_path, monkeypatch, fake_projection):
     harness = Harness()
     harness.dsf_path = dsf_path
     harness.pack_root = pack_root
+    # The fake parser's path -> geometry map, exposed so a test can
+    # register a ``.anchor_bak`` original (the reader loads geometry
+    # from the backup when one exists — ruling R1).
+    harness.geometry_by_physical = geometry_by_physical
     harness.resolve_calls = resolve_calls
     harness.load_calls = load_calls
     harness.pool_calls = pool_calls
@@ -856,6 +860,87 @@ class TestObjectFootprintCache:
         self._bump_obj_mtime(harness, "Terminals/Hangar/big_bake.obj")
         D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
         # Stale fingerprint forces a full recompute (partition ran again).
+        assert len(harness.partition_calls) > partitions_before
+
+    def _bake_in_place(self, harness, resource_relative_path):
+        """Simulate the Phase 2 y-bake of one object exactly as
+        ``object_rebake.apply`` performs it: ``copy2`` the original to
+        ``.anchor_bak``, then rewrite the LIVE file (different bytes,
+        new mtime).  No provenance sidecar is written — a backup with no
+        recorded hashes is authoritative (amendment A2)."""
+        import shutil
+        obj_path = os.path.join(harness.pack_root,
+                                *resource_relative_path.split("/"))
+        backup_path = obj_path + ".anchor_bak"
+        shutil.copy2(obj_path, backup_path)
+        # The backup is what the reader parses from now on (ruling R1).
+        harness.geometry_by_physical[os.path.abspath(backup_path)] = (
+            harness.geometry_by_physical[os.path.abspath(obj_path)])
+        with open(obj_path, "w") as handle:
+            handle.write("placeholder\nVT 0 -9.4 0\n")
+        file_stat = os.stat(obj_path)
+        os.utime(obj_path,
+                 (file_stat.st_atime + 200, file_stat.st_mtime + 200))
+
+    def test_the_engines_own_y_bake_does_not_invalidate(
+            self, object_building_harness):
+        """OWNER RULING 2026-08-13 (pristine inputs).  The sidecar is
+        written BEFORE Phase 2 bakes the very ``.obj`` files it was
+        fingerprinted over, so keying on the live stat block made a
+        build invalidate the sidecar it had just written and the NEXT
+        build pay the whole O(n²) partition again — once per bake cycle,
+        in production app builds (~66 s HECA, ~455 s OTHH; perf lane A).
+        The bake changes no INPUT: the reader parses the ``.anchor_bak``
+        original (ruling R1)."""
+        harness = object_building_harness
+        first = D.read_dsf_object_buildings(harness.dsf_path,
+                                            xplane_root=None)
+        partitions_after_first = len(harness.partition_calls)
+        assert partitions_after_first > 0
+
+        self._bake_in_place(harness, "Terminals/Hangar/big_bake.obj")
+
+        D._OBJECT_READER_MEMO.clear()
+        second = D.read_dsf_object_buildings(harness.dsf_path,
+                                             xplane_root=None)
+        assert second == first
+        assert len(harness.partition_calls) == partitions_after_first
+
+    def test_an_external_edit_after_a_bake_still_invalidates(
+            self, object_building_harness):
+        """The other half of the ruling: a GENUINE pack change must
+        still miss.  With recorded hashes present, a live file matching
+        neither is invariant I-14's PACK CHANGED verdict."""
+        harness = object_building_harness
+        import json
+
+        from auto_patch import object_rebake as REBAKE
+
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        self._bake_in_place(harness, "Terminals/Hangar/big_bake.obj")
+        resource = "Terminals/Hangar/big_bake.obj"
+        obj_path = os.path.join(harness.pack_root, *resource.split("/"))
+        # Provenance as ``apply`` writes it (this bake's two hashes).
+        with open(os.path.join(harness.pack_root,
+                               REBAKE.PROVENANCE_FILENAME), "w") as handle:
+            json.dump({
+                "version": REBAKE.PROVENANCE_VERSION,
+                "meshes": {}, "runs": {},
+                "objects": {resource: {
+                    "backup_sha256": REBAKE._sha256_of_file(
+                        obj_path + ".anchor_bak"),
+                    "written_sha256": REBAKE._sha256_of_file(obj_path),
+                }},
+            }, handle)
+        D._OBJECT_READER_MEMO.clear()
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
+        partitions_before = len(harness.partition_calls)
+
+        # A new pack version lands on the live file.
+        with open(obj_path, "w") as handle:
+            handle.write("placeholder\n# new pack version\n")
+        D._OBJECT_READER_MEMO.clear()
+        D.read_dsf_object_buildings(harness.dsf_path, xplane_root=None)
         assert len(harness.partition_calls) > partitions_before
 
     def test_gate_zero_disables_read_and_write(

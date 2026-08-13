@@ -3733,7 +3733,17 @@ def solve_route_profile(layout, icao: str,
     # ceiling; see the groundside-reach block above and the box below.
     yield_hard = (truth_hard
                   | {i for i in runway_nodes if i < n}
-                  | {i for i in building_seats if i < n})
+                  | {i for i in building_seats if i < n}
+                  # …and the corridor FREE-END DEM ties (corridor-joins
+                  # ruling 3): a road's walk to ground is law, and the
+                  # measured failure of the soft spelling was this very
+                  # pass writing 6.31 m back over the seed.  Stated again
+                  # after the pad relaxations below ("never leave the
+                  # hard set"), which is where a set subtraction could
+                  # otherwise drop it.
+                  | {i for i in
+                     (getattr(layout, "_svc_free_end_idx", None) or ())
+                     if i < n})
     # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
     # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
     # string may be overruled only by LAW; the measured 4.87 m at
@@ -4038,6 +4048,20 @@ def solve_route_profile(layout, icao: str,
     # freed pin lets the final GS park the boundary off the
     # terrain it must meet (SPLP: 0.7 m float at the band edge).
     yield_hard |= {i for i in _seam_pin_idx if i < n}
+    # ── FREE-END DEM TIES NEVER LEAVE THE HARD SET EITHER ─────
+    # (corridor-joins round, ruling 3, gate
+    # ``SERVICE_CORRIDOR_FREE_END_ANCHOR``.)  A corridor terminus over
+    # open terrain is a LAW TARGET — the road grades to ambient DEM
+    # under its own cap (RULINGS 2026-08-12b) — and the measured
+    # failure of the SOFT spelling is exactly this pass: the seed
+    # wrote DEM at the KCLT free end and the projections wrote 6.31 m
+    # back over it.  Membership only, no value write, exactly like a
+    # seam pin: the road's own descent law is what the hold protects,
+    # and everything downstream of the terminus still yields.
+    _svc_free_ends = {i for i in
+                      (getattr(layout, "_svc_free_end_idx", None) or ())
+                      if i < n}
+    yield_hard |= _svc_free_ends
     # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely
     # needs to stay within the feasibility box").  Everything the
     # yield above released keeps its seat-time reach-band box as a
@@ -6493,6 +6517,16 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 
     hard = {i for i in range(n) if base_hard[i]}
     hard |= {i for i in runway_idx if i < n}
+    # ── CORRIDOR FREE-END DEM TIES, CARRIED BY CANONICAL KEY ──────────
+    # (corridor-joins round ruling 3.)  This pass REBUILDS the node list,
+    # so the solve's own indices mean nothing here — the tie crosses as a
+    # ``keyset`` artifact through the one resolver, exactly like
+    # ``gs_witness`` and the seat boxes (node_space's law: an artifact
+    # that must survive a node-list rebuild is minted by canonical key
+    # and resolved by ``view_*``, never re-derived).  Membership only.
+    _fp_free_ends = _store_of(layout).view_keyset("svc_free_end", b2i, n)
+    if _fp_free_ends:
+        hard |= _fp_free_ends
     # ── W3 · THE SEEDER RECORD (flag ``O4_FABRIC_W3_FGP_HARD_CAT``,
     # default ON; fabric-phase-b-spec.md W3) ──────────────────────────
     # "9,838 unattributed hard nodes is itself a defect."  This pass

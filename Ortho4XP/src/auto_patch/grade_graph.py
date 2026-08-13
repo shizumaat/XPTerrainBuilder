@@ -599,6 +599,35 @@ def _covered_by_corridor(line, cover) -> bool:
         return False
 
 
+def service_chain_lines(layout) -> list:
+    """THE service centerline set, as ``LineString``s — one source.
+
+    Exactly the SERVICE half of :func:`centerline_specs` (corridor chains
+    where the corridor gate registers them, the free-road-scoped
+    subsegments elsewhere, the row-1206 originals in unit fixtures), for
+    consumers that need the GEOMETRY rather than the specs.
+
+    Added by the corridor-joins round (ruling 3): the DEM-follow spine
+    seeder used to walk ``apt_taxi_centerlines`` filtered on ``is_service``
+    — the row-1206 set alone — so a FEED-sourced corridor chain was
+    invisible to it and its road fell through to the per-vertex fallback
+    (measured at KCLT 35.2077054,-80.9290667: 2.9 % descent against an 8 %
+    cap, ending 6.31 m proud of DEM).  A second enumeration of "which roads
+    are roads" is exactly the drift this module's ``centerline_specs``
+    docstring exists to prevent, so the seeder reads this and nothing else.
+    """
+    from shapely.geometry import LineString
+    out: list = []
+    for (pts, _caps, is_svc, _rkey, _rpts) in centerline_specs(layout):
+        if not is_svc or len(pts) < 2:
+            continue
+        try:
+            out.append(LineString(pts))
+        except Exception:                                 # pragma: no cover
+            continue
+    return out
+
+
 def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     """THE single shared grade-graph context (solver + spine + validator).
 

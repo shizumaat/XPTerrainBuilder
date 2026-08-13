@@ -5241,6 +5241,18 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # basin cut is a plate population the grade law already judges
     # through its emitted geometry, so nothing here is law input.
     "basin_facilities",
+    # SERVICE-CORRIDOR FREE-END DEM TIES (corridor-joins round, spec
+    # ``docs/specs/corridor-joins-round-spec.md`` rulings 3 + 4(b)).  One
+    # record per anchored corridor terminus: its lat/lon, the AMBIENT DEM
+    # the build read there, the target it was anchored at (clamped into the
+    # road cap's reach where terrain is out of reach) and the terminal
+    # cross-section's node count.  EVIDENCE, never law input — the census
+    # judges the emitted road by the ordinary grade families; this exists so
+    # "did the road reach GROUND?" is answerable from the artifacts, in the
+    # BUILD's own DEM frame, which an offline DEM read cannot reproduce
+    # (warm-vs-cold has moved terrain 12 m).  Read by
+    # ``tools/corridor_axis_coverage.py --free-ends``.
+    "svc_free_ends",
     # THE FLAT-SITE EVIDENCE RECORD (spec docs/specs/
     # flat-site-detector-spec.md section 2).  The detector's four
     # signals + verdict, measured at the build's DEM-in-hand point:

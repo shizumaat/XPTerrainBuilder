@@ -4275,6 +4275,44 @@ SERVICE_CORRIDOR_CHAINS = _os.environ.get(
 # pre-ruling behaviour (walls free to cross, ends unseeded).
 SERVICE_CORRIDOR_FREE_END = _os.environ.get(
     "O4_SERVICE_CORRIDOR_FREE_END", "1") == "1"
+# CORRIDOR MOUTHS JOIN AIRCRAFT PAVEMENT (corridor-joins round, Fable spec
+# 2026-08-12c ruling 1, on the owner's in-sim refutation at KCLT
+# 35.213852,-80.9406291).  The minter cuts the whole corridor back from
+# aircraft pavement by ``_PAV_CLEAR_TOL_M`` = 1.0 m, but conformance welds
+# only within ``SHARED_VERTEX_TOL_M`` = 0.5 m — so EVERY road↔taxiway seam
+# was unweldable BY CONSTRUCTION (measured gaps 0.999 m at both KCLT sites)
+# and the 1 m annulus was filled by a graded_strip carrying both claims.
+# ON, the minter additionally fills the annulus AT THE MOUTHS ONLY — where
+# the route's own axis crosses into aircraft pavement — with fill whose
+# boundary is the PAVEMENT EDGE ITSELF (difference against ``pav_union``,
+# not the buffered union), so the corridor's boundary nodes land ON the
+# airside edge and ``enforce_conformance`` welds them into one node.  The
+# corridor BODY keeps its 1.0 m clearance everywhere else: roads still never
+# overlay pavement mid-run.  THE SEAM VALUE IS THE AIRSIDE VALUE — a welded
+# mouth node is a service-DEM-follow ANCHOR (it is a corner of a non-service
+# pavement shape), so the road grades away from it under its own cap and the
+# airside ring's solved value is never moved.
+# ``O4_SERVICE_CORRIDOR_MOUTH_JOIN=0`` restores the unweldable 1 m gap.
+SERVICE_CORRIDOR_MOUTH_JOIN = _os.environ.get(
+    "O4_SERVICE_CORRIDOR_MOUTH_JOIN", "1") == "1"
+# HARD FREE-END DEM TIE (corridor-joins round ruling 3, on the KCLT free end
+# at 35.2077054,-80.9290667: the road descended 2.9 % against an 8 % cap and
+# ended 6.31 m proud of DEM).  Two halves, one gate:
+#   (a) the spine-first DEM-follow seeder consumes the SAME service
+#       centerline set the grade graph registers (``centerline_specs`` —
+#       corridor chains, feed chains included), instead of only row-1206
+#       ``is_service`` entries, which feed-sourced corridors are invisible to;
+#   (b) a corridor chain TERMINUS that does not land on pavement gets an
+#       ANCHORED end target at ambient DEM — an anchor of the service reach
+#       band (so the profile descends to it within the road cap) that is then
+#       held HARD through the projections that follow, because a soft seed is
+#       exactly what the measured 6.31 m residue was.
+# This is R20-2's walk-to-ground law made general (RULINGS 2026-08-12b, "a
+# road's own course is never terraced"): where the wall-course exclusion
+# suppresses a wall, the road's own descending surface owns the level change.
+# ``O4_SERVICE_CORRIDOR_FREE_END_ANCHOR=0`` restores the soft per-vertex seed.
+SERVICE_CORRIDOR_FREE_END_ANCHOR = _os.environ.get(
+    "O4_SERVICE_CORRIDOR_FREE_END_ANCHOR", "1") == "1"
 # AIRSIDE BAND EXCLUSION AT THE POPULATION SOURCE (AMENDMENT 2, Fable lead
 # 2026-08-12b, on this lane's HECA airside attribution): a SERVICE / corridor
 # centerline may not weave a spine edge between two AIRSIDE nodes.  It links

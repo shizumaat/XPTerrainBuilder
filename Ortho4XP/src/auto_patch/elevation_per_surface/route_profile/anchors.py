@@ -3087,6 +3087,125 @@ def _parallel_station_merge_pairs(st_xy, station_line, tangent_at,
     return pairs
 
 
+def service_seed_lines(layout) -> list:
+    """THE service centerline set this module seeds and ties against.
+
+    RULING 3 (corridor-joins round, Fable spec 2026-08-12c): the seeder
+    consumes the SAME chain set the grade graph registers —
+    ``grade_graph.service_chain_lines``, i.e. the service half of
+    ``centerline_specs``, corridor chains and feed chains included — never
+    a second enumeration of its own.  The measured defect it closes: this
+    function used to read ``apt_taxi_centerlines`` filtered on
+    ``is_service`` (the row-1206 routes ONLY), so KCLT's feed-sourced lot
+    road had no spine here at all, fell through to the per-vertex fallback,
+    and ended 6.31 m proud of DEM at the owner's acceptance coordinate.
+
+    ``config.SERVICE_CORRIDOR_FREE_END_ANCHOR`` off ⇒ the row-1206 walk,
+    byte-identically.
+    """
+    from auto_patch.config import SERVICE_CORRIDOR_FREE_END_ANCHOR
+    from shapely.geometry import LineString
+    if SERVICE_CORRIDOR_FREE_END_ANCHOR:
+        try:
+            from auto_patch.grade_graph import service_chain_lines
+            return service_chain_lines(layout)
+        except Exception:                                # pragma: no cover
+            pass
+    lines = []
+    for cl in (getattr(layout, "apt_taxi_centerlines", None) or []):
+        if not getattr(cl, "is_service", False):
+            continue
+        ln = getattr(cl, "line", None)
+        if ln is None or getattr(ln, "is_empty", True):
+            continue
+        try:
+            cs = list(ln.coords)
+        except Exception:                                # pragma: no cover
+            continue
+        if len(cs) >= 2:
+            lines.append(LineString(cs))
+    return lines
+
+
+def free_end_targets(layout, svc_nodes, node_pos, anchors, dem_elev,
+                     ceil, floor, *, radius_m: float):
+    """The HARD free-end DEM ties: ``({node: target}, [record, …])``.
+
+    RULING 3 (corridor-joins round).  A corridor chain TERMINUS that does
+    not land on pavement ties to AMBIENT DEM — R20-2's walk-to-ground law
+    made general (RULINGS 2026-08-12b: "where a road reaches its free end
+    at ambient terrain it GRADES to DEM under the road cap"; walls may not
+    cut across its course, so the road's own descending surface owns the
+    level change).
+
+    * A terminus is FREE when no service node within ``radius_m`` of it is
+      already an anchor — i.e. it welds to neither aircraft pavement nor a
+      groundside piece.  Anchored ends keep their weld: this pass never
+      competes with an existing authority.
+    * The whole terminal cross-section takes ONE value (the mean DEM of its
+      member nodes), so the tie cannot seat a tear across the road.
+    * The value is CLAMPED INTO the existing reach band (``ceil``/``floor``
+      from the mouth anchors at the road cap) before it is anchored, so the
+      end descends AS FAR AS THE CAP ALLOWS and never mints an
+      infeasibility: on terrain the cap can reach — the KCLT case, 6.31 m
+      over a long road — the clamp is inert and the end lands ON DEM.
+
+    Pure: reads the graph, writes nothing.  The caller anchors the targets
+    (which is what makes them survive, unlike the soft per-vertex seed).
+    """
+    import math as _m
+    lines = service_seed_lines(layout)
+    if not lines:
+        return {}, []
+    ends: list = []
+    for ln in lines:
+        try:
+            cs = list(ln.coords)
+        except Exception:                                # pragma: no cover
+            continue
+        if len(cs) >= 2:
+            ends.append(cs[0])
+            ends.append(cs[-1])
+    targets: dict = {}
+    records: list = []
+    claimed: set = set()
+    for (tx, ty) in ends:
+        members = [i for i in svc_nodes
+                   if i in node_pos
+                   and _m.hypot(node_pos[i][0] - tx,
+                                node_pos[i][1] - ty) <= radius_m]
+        if not members or any(i in anchors for i in members):
+            continue                     # welded end — not a free end
+        if all(i in claimed for i in members):
+            continue                     # two chains sharing one terminus
+        dems = [dem_elev[i] for i in members
+                if i < len(dem_elev) and dem_elev[i] is not None]
+        if not dems:
+            continue
+        de = sum(dems) / len(dems)
+        # Descend AT MOST at the cap: the band the mouth anchors already
+        # define is the road's own law, so the tie is clamped into it.
+        c = min((ceil[i] for i in members if i in ceil), default=None)
+        f = max((floor[i] for i in members if i in floor), default=None)
+        tgt = de
+        if c is not None and f is not None and f > c + 1e-9:
+            continue                     # contradicted end — leave the
+            #                              existing break machinery to it
+        if c is not None:
+            tgt = min(tgt, c)
+        if f is not None:
+            tgt = max(tgt, f)
+        for i in members:
+            targets[i] = tgt
+            claimed.add(i)
+        records.append({"x": float(tx), "y": float(ty),
+                        "dem_m": round(float(de), 3),
+                        "target_m": round(float(tgt), 3),
+                        "clamped": bool(abs(tgt - de) > 1e-6),
+                        "nodes": len(members)})
+    return targets, records
+
+
 def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                              dem_elev, cap, node_ceil, node_floor,
                              node_ceil_dist, node_floor_dist,
@@ -3141,19 +3260,7 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     except Exception:                                   # pragma: no cover
         return {}, set()
 
-    lines = []
-    for cl in (getattr(layout, "apt_taxi_centerlines", None) or []):
-        if not getattr(cl, "is_service", False):
-            continue
-        ln = getattr(cl, "line", None)
-        if ln is None or getattr(ln, "is_empty", True):
-            continue
-        try:
-            cs = list(ln.coords)
-        except Exception:
-            continue
-        if len(cs) >= 2:
-            lines.append(LineString(cs))
+    lines = service_seed_lines(layout)
     if not lines:
         return {}, set()
 
@@ -3545,6 +3652,67 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
 
     ceil, ceil_dist = _reach(+1) if anchors else ({}, {})
     floor, floor_dist = _reach(-1) if anchors else ({}, {})
+
+    # ── HARD FREE-END DEM TIE (corridor-joins round, ruling 3) ─────────
+    # A corridor terminus over open terrain is a LAW TARGET, not a soft
+    # seed: the per-vertex seed below already wrote DEM there and the
+    # projections downstream simply wrote over it (measured at KCLT
+    # 35.2077054,-80.9290667 — 6.31 m proud of DEM, the wall that used to
+    # hold the bench removed by the wall-course exclusion with nothing
+    # grading the transition).  Anchoring the end does three things the
+    # seed could not: the reach band DESCENDS to it at the cap (every
+    # interior node inherits the descent), the value is not reseeded here,
+    # and the caller carries the node set into the projections that follow.
+    # Gate off ⇒ no ties ⇒ this block costs one config read.
+    from auto_patch.config import (
+        SERVICE_CORRIDOR_FREE_END_ANCHOR as _FREE_END_ANCHOR,
+        SERVICE_ROAD_WIDTH_M as _SVC_W)
+    free_end_nodes: set = set()
+    _fe_moved: set = set()
+    layout._svc_free_end_idx = free_end_nodes
+    if _FREE_END_ANCHOR and anchors:
+        _fe_targets, _fe_records = free_end_targets(
+            layout, svc_nodes, node_pos, anchors, dem_elev, ceil, floor,
+            radius_m=max(_SVC_W, 8.0))
+        if _fe_targets:
+            for i, tgt in _fe_targets.items():
+                if i < len(elev) and abs(tgt - elev[i]) > 1e-9:
+                    elev[i] = tgt
+                    _fe_moved.add(i)
+                anchors[i] = tgt
+                free_end_nodes.add(i)
+            # The band must reflect the new anchors — the interior nodes
+            # between mouth and free end descend against BOTH ends now.
+            ceil, ceil_dist = _reach(+1)
+            floor, floor_dist = _reach(-1)
+            # Publish: the keyset the projections hold hard (canonical
+            # keys, so it survives every node-list rebuild — node_space's
+            # law), and the lat/lon records the acceptance instrument
+            # reads back off the patch's sidecar.
+            try:
+                _store_of(layout).mint(
+                    "svc_free_end", "keyset",
+                    {_key(*node_pos[i]) for i in free_end_nodes
+                     if i in node_pos},
+                    replace=True)
+            except Exception:                            # pragma: no cover
+                pass
+            _m_to_ll = getattr(layout, "m_to_ll", None)
+            if _m_to_ll is not None:
+                for _r in _fe_records:
+                    try:
+                        _la, _lo = _m_to_ll(_r["x"], _r["y"])
+                        _r["lat"], _r["lon"] = round(_la, 11), round(_lo, 11)
+                    except Exception:                    # pragma: no cover
+                        pass
+            layout._svc_free_end_records = _fe_records
+            import O4_UI_Utils as _UI_fe
+            _UI_fe.vprint(1,
+                f"  [pav-builder] service free-end DEM tie: "
+                f"{len(_fe_records)} corridor terminus/termini anchored to "
+                f"ambient DEM ({len(free_end_nodes)} node(s); "
+                f"{sum(1 for _r in _fe_records if _r['clamped'])} clamped "
+                f"into the road cap's reach).")
     _dbg_spec = _os.environ.get("O4_SVC_DEBUG_LL")
     if _dbg_spec:
         try:
@@ -3563,7 +3731,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                       f" ceil={ceil.get(_i)} floor={floor.get(_i)}")
         except Exception as _e:
             print(f"    [svc-dbg] error {_e!r}")
-    changed: set = set()
+    changed: set = set(_fe_moved)       # the free-end ties moved these
     # BREAK-BLEND EXPORT (user 2026-07-06, handover fix (b)): nodes whose
     # welded anchors contradict (floor > ceil) render the designed blend
     # below — persist them so the caller can quarantine their over-cap

@@ -2712,6 +2712,16 @@ def emit_stacked_conflict_walls(layout) -> int:
     # consensus merge — the emitter's own documented fallback, not a new
     # path.
     _strip_keepout = runway_strip_wall_keepout(layout)
+    # ROAD-COURSE WALL LAW (owner 2026-08-12b; wired here by the
+    # corridor-joins round's ruling 2).  ``service_corridor_wall_keepout``
+    # was consulted by the TERRACE pass alone, so this emitter walled the
+    # road↔taxiway mouth conflict the terrace pass would have refused —
+    # measured at KCLT 35.213852,-80.9406291 (way -13314, a 2.3 m face
+    # standing across the corridor's own course).  With ruling 1's mouth
+    # join the conflict should not arise at a mouth at all; this is the
+    # belt, and it still stops an edge-parallel conflict wall along the
+    # corridor's run.  Same drop test as the terrace pass, same geometry.
+    _corridor_keepout = service_corridor_wall_keepout(layout)
 
     # ONE derivation of "the ring and its aligned values", shared with
     # the wall-site index (module-level ``_ring_values_for_walls``).
@@ -2877,7 +2887,8 @@ def emit_stacked_conflict_walls(layout) -> int:
             spread[i] = sp
         clipped_walls = _retreat_run_walls(shape, coords, alts,
                                            coincident_top, spread,
-                                           _strip_keepout)
+                                           _strip_keepout,
+                                           corridor_keepout=_corridor_keepout)
         new_walls.extend(clipped_walls)
         emitted += len(clipped_walls)
     layout.shapes.extend(new_walls)
@@ -2886,7 +2897,8 @@ def emit_stacked_conflict_walls(layout) -> int:
 
 
 def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
-                       keepout, retreat_m=None, face_spec=None):
+                       keepout, retreat_m=None, face_spec=None,
+                       corridor_keepout=None):
     """THE RETREAT MACHINE — one derivation, two callers.
 
     Given a shape's open ring (``coords``/``alts``), the value a HIGHER
@@ -2910,6 +2922,14 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
     are how the WALLS RULING is executed without a second copy of the
     retreat machine: a FEATHER is the same vacated band, made wide enough
     to grade and emitted under the loser's own role.
+
+    ``corridor_keepout`` (corridor-joins round ruling 2) is the SERVICE
+    CORRIDOR course keep-out (``service_corridor_wall_keepout``), applied
+    with exactly the drop test the terrace pass already applies to it and
+    the runway strip: a face intersecting it is not built, so the conflict
+    falls back to the emit consensus.  The terrace emitter consulted it and
+    this one did not, which is how the KCLT mouth conflict (way -13314) was
+    walled — measured 2026-08-12c.  ``None`` ⇒ untouched.
     """
     n = len(coords)
     _dbg = (os.environ.get("O4_RETREAT_DIAG")
@@ -3052,6 +3072,10 @@ def _retreat_run_walls(shape, coords, alts, coincident_top, spread,
                 and wall_poly.intersects(_strip_keepout)):
             _d(f"run={run} FACE DROPPED: runway-strip keepout")
             continue            # runway-strip wall law (see above)
+        if (corridor_keepout is not None
+                and wall_poly.intersects(corridor_keepout)):
+            _d(f"run={run} FACE DROPPED: service-corridor course keepout")
+            continue            # road-course wall law (owner 2026-08-12b)
         _role, _ref = ((ROLE_RETAINING_WALL, "stacked_conflict_wall")
                        if face_spec is None else face_spec(run))
         shape_walls.append(BuiltShape(

@@ -1153,8 +1153,26 @@ def partition_structures(
         return []
 
     parts = obj8_partition.weld_parts(frame.shared_vertices, shared_triangles)
+    # ONE vertex array and ONE set of part geometries for the whole
+    # partition (perf P3 lane G).  The contact graph, the connector
+    # split's re-derivation and the split's reattachment broad phase
+    # each used to rebuild both from the raw Python vertex list — the
+    # HECA pool's list is ~8 M tuples, and the parts' cached corner
+    # arrays, boxes, k-d trees and cell indexes were rebuilt with it.
+    # Pure derived data: sharing it changes nothing but who pays.
+    import numpy as _numpy
+
+    shared_vertex_array = _numpy.asarray(
+        frame.shared_vertices, dtype=_numpy.float64
+    )
+    part_geometries = [
+        obj8_partition._PartGeometry(shared_vertex_array, part)
+        for part in parts
+    ]
     contact_edges = obj8_partition.contact_graph(
-        frame.shared_vertices, parts, epsilon_metres
+        frame.shared_vertices, parts, epsilon_metres,
+        vertex_array=shared_vertex_array,
+        part_geometries=part_geometries,
     )
     part_index_groups = obj8_partition.connected_structures(
         len(parts), contact_edges
@@ -1171,7 +1189,9 @@ def partition_structures(
     # whole spec is about).
     part_index_groups, connector_splits, split_edges_by_group = (
         obj8_partition.split_oversized_components_with_edges(
-            frame.shared_vertices, parts, part_index_groups, epsilon_metres
+            frame.shared_vertices, parts, part_index_groups, epsilon_metres,
+            vertex_array=shared_vertex_array,
+            part_geometries=part_geometries,
         )
     )
     if connector_splits:

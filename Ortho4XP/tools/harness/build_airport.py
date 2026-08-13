@@ -791,8 +791,31 @@ def body_sha256(osm: Path) -> str:
     return hashlib.sha256(b"\n".join(lines[2:])).hexdigest()
 
 
-def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
-    """Point the engine's two WRITABLE derived-cache roots lane-local.
+def mask_overlay_subtrees(tiles=()):
+    """The ``Masks/`` subtree(s) to seed, as paths relative to the masks
+    root: ONE per tile in scope, or ``[""]`` (the whole root) when the
+    caller names no tile.
+
+    The relative spelling is ``O4_File_Names.long_latlon`` ITSELF, never a
+    second copy of it — the mask corpus is laid out ``Masks/+30+030/
+    +30+031/``, and a harness that spelled that rule again would seed an
+    overlay the engine then reads past (a cold masks stage that looks like
+    a warm one).  The whole-root default is the conservative superset for
+    the entries that do not know their tile (``repro_cut``,
+    ``classify_report``); the corpus is small enough (~32 MB, ~170 files,
+    all clonefile-seeded) that the difference is noise.
+    """
+    tiles = list(tiles or ())
+    if not tiles:
+        return [""]
+    if str(ROOT / "src") not in sys.path:
+        sys.path.append(str(ROOT / "src"))
+    import O4_File_Names as FNAMES
+    return [FNAMES.long_latlon(int(lat), int(lon)) for lat, lon in tiles]
+
+
+def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=()):
+    """Point the engine's THREE WRITABLE data roots lane-local.
 
     THE MEASURED DEFECT (2026-08-11, the round-9 KCLT acceptance build).
     The shared-repo write guard was armed and the build still wrote
@@ -814,11 +837,26 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
     subprocess inherits the environment, which is precisely why the
     redirect rides env variables and not an assignment.
 
+    THE MASKS ROOT joined them 2026-08-12b (owner ruling: lane mask writes
+    land lane-local).  Masks are corpus DATA rather than a derived cache,
+    which is why they were not here before — but the engine treats the
+    masks directory as a per-tile scratch it rewrites: a lane tile build
+    on a warm tile refused rc=1 because
+    ``O4_Mask_Utils.delete_old_masks_in_tile`` tried to ``os.remove`` 16
+    SHARED ``Masks/+30+030/+30+031/*.png`` and the guard blocked all 16
+    (which the engine then swallowed under a bare ``except: pass``).  Same
+    two halves as the mod cache: ``O4_MASKS_DIR`` (read at call time in
+    ``O4_File_Names.masks_root``) plus a copy-on-write overlay seeded from
+    the shared subtree of the TILE(S) IN SCOPE (``tiles`` — an iterable of
+    ``(lat, lon)``; the whole root when the caller names none), so the
+    masks step's reads stay warm and its deletes and rewrites land on
+    lane-local clones.
+
     THE AUTHORISED-REFRESH SKIP.  A scope this run may refresh
-    (``--refresh-data airport_mod_cache`` / ``dsf_cache``) is NOT
-    redirected, and its half creates nothing: an authorised refresh must
-    land in the SHARED repo, so redirecting it would turn the refresh into
-    a silent no-op.  The skip is recorded instead.
+    (``--refresh-data airport_mod_cache`` / ``dsf_cache`` / ``masks``) is
+    NOT redirected, and its half creates nothing: an authorised refresh
+    must land in the SHARED repo, so redirecting it would turn the refresh
+    into a silent no-op.  The skip is recorded instead.
 
     Owner ruling e9daef5 (one shared data repo; a build never mutates it
     as a side effect).
@@ -826,8 +864,8 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
     authorised = set(authorised or ())
     base = Path(out_dir) / f"{tag}.engine_caches"
     skipped = []
-    dsf_dir = mod_dir = None
-    seeded = None
+    dsf_dir = mod_dir = masks_dir = None
+    seeded = masks_seeded = None
 
     if "dsf_cache" in authorised:
         skipped.append("dsf_cache")
@@ -846,6 +884,20 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
                                         str(mod_dir))
         os.environ["O4_AIRPORT_MOD_CACHE_DIR"] = str(mod_dir)
 
+    if "masks" in authorised:
+        skipped.append("masks")
+    else:
+        masks_dir = base / "Masks"
+        masks_seeded = {"dirs": 0, "files": 0, "cloned": 0, "copied": 0}
+        for rel in mask_overlay_subtrees(tiles):
+            part = mirror_tree_as_overlay(
+                str(DATA_REPO / "Masks" / rel) if rel
+                else str(DATA_REPO / "Masks"),
+                str(masks_dir / rel) if rel else str(masks_dir))
+            for key in masks_seeded:
+                masks_seeded[key] += part[key]
+        os.environ["O4_MASKS_DIR"] = str(masks_dir)
+
     # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
     # may already have imported the engine, and ``Default_dsf_cache_dir``
     # is computed at import; ``_apply_data_root`` recomputes it from the
@@ -857,10 +909,11 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
 
     if os.environ.get("ORTHO4XP_DATA_ROOT") and prog is not None:
         prog.note("WARNING: ORTHO4XP_DATA_ROOT is set, so the "
-                  "O4_AIRPORT_MOD_CACHE_DIR override is INERT "
-                  "(O4_File_Names.airport_mod_cache_root: an explicitly "
-                  "chosen data root is the more specific instruction) — "
-                  "the per-pack sidecar cache stays under that root.")
+                  "O4_AIRPORT_MOD_CACHE_DIR and O4_MASKS_DIR overrides are "
+                  "INERT (O4_File_Names.airport_mod_cache_root / "
+                  "masks_root: an explicitly chosen data root is the more "
+                  "specific instruction) — the per-pack sidecar cache and "
+                  "the masks stay under that root.")
 
     if prog is not None:
         prog.note(
@@ -870,8 +923,16 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
             + (f" (overlay seeded copy-on-write: {seeded['files']} file(s) "
                f"— {seeded['cloned']} cloned, {seeded['copied']} copied — "
                f"{seeded['dirs']} dir(s))" if seeded is not None else "")
+            + f", masks={masks_dir or 'SHARED (authorised refresh)'}"
+            + (f" (overlay seeded copy-on-write: {masks_seeded['files']} "
+               f"file(s) — {masks_seeded['cloned']} cloned, "
+               f"{masks_seeded['copied']} copied — {masks_seeded['dirs']} "
+               f"dir(s); subtrees={mask_overlay_subtrees(tiles)})"
+               if masks_seeded is not None else "")
             + ".  This closes the DSFTool SUBPROCESS dump hole the write "
-              "guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED)."
+              "guard cannot see (KCLT 2026-08-11, run flagged CONTAMINATED) "
+              "and the masks step's rewrite of the SHARED mask rasters "
+              "(HECA tile arm 2026-08-12, 16 blocked removes)."
             + (f"  Left SHARED for the authorised refresh: {sorted(skipped)} "
                f"— a redirect there would make the refresh a silent no-op."
                if skipped else ""))
@@ -881,12 +942,15 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=()):
         "dsf_dump_cache": (str(dsf_dir) if dsf_dir is not None else None),
         "airport_mod_cache": (str(mod_dir) if mod_dir is not None else None),
         "mod_cache_seeded": seeded,
+        "masks": (str(masks_dir) if masks_dir is not None else None),
+        "masks_seeded": masks_seeded,
+        "masks_subtrees": mask_overlay_subtrees(tiles),
         "left_shared_for_refresh": sorted(skipped),
     }
 
 
 def arm_shared_repo_protection(root, out_dir, tag, prog=None,
-                               write_guard=None):
+                               write_guard=None, tiles=()):
     """THE ARMING COMPOSITION, in ONE place: ``(guard, redirects)``.
 
     Every entry that calls the engine IN PROCESS needs both halves, in this
@@ -920,7 +984,8 @@ def arm_shared_repo_protection(root, out_dir, tag, prog=None,
     as a side effect).
     """
     redirects = redirect_engine_caches(
-        out_dir, tag, prog, authorised=getattr(write_guard, "requested", None))
+        out_dir, tag, prog, authorised=getattr(write_guard, "requested", None),
+        tiles=tiles)
     guard = (write_guard if write_guard is not None
              else SharedRepoWriteGuard(set(), root))
     return guard, redirects
@@ -1553,7 +1618,8 @@ def main(argv=None) -> int:
             # ``build_patch`` redirects the engine's cache roots itself;
             # the tile path never goes through it, so it does it here.
             redirects = redirect_engine_caches(out_dir, tag, prog,
-                                               authorised=requested)
+                                               authorised=requested,
+                                               tiles=[(lat, lon)])
             with guard:                    # build_patch arms its own
                 result = build_tile(
                     lat, lon,

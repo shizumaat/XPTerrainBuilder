@@ -2565,7 +2565,8 @@ def test_the_classify_entry_ARMS_the_composition_and_defines_none_of_it():
                        "def mirror_tree_as_overlay",
                        "def mirror_tree_as_symlinks",
                        "os.environ[\"O4_DSF_CACHE_DIR\"]",
-                       "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]"):
+                       "os.environ[\"O4_AIRPORT_MOD_CACHE_DIR\"]",
+                       "os.environ[\"O4_MASKS_DIR\"]"):
         assert definition not in src, (
             f"{definition} is a SECOND copy of the write law / the redirect")
     assert "e9daef5" in src, "the guarded path must cite its ruling"
@@ -3019,7 +3020,8 @@ def test_the_overlay_seeding_offers_NO_symlink_mode(build_mod):
 
 def _cache_env_entry_values():
     return {k: os.environ.get(k) for k in ("O4_DSF_CACHE_DIR",
-                                           "O4_AIRPORT_MOD_CACHE_DIR")}
+                                           "O4_AIRPORT_MOD_CACHE_DIR",
+                                           "O4_MASKS_DIR")}
 
 
 def _restore_cache_env(entry):
@@ -3103,24 +3105,25 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
 
     entry = _cache_env_entry_values()
     try:
-        # ARM 1: both scopes authorised — nothing is redirected at all.
+        # ARM 1: every scope authorised — nothing is redirected at all.
         rec = build_mod.redirect_engine_caches(
             tmp_path / "o1", "T2",
-            authorised={"dsf_cache", "airport_mod_cache"})
+            authorised={"dsf_cache", "airport_mod_cache", "masks"})
         assert rec["left_shared_for_refresh"] == ["airport_mod_cache",
-                                                  "dsf_cache"]
+                                                  "dsf_cache", "masks"]
         assert rec["dsf_dump_cache"] is None and \
-            rec["airport_mod_cache"] is None
+            rec["airport_mod_cache"] is None and rec["masks"] is None
         assert not (tmp_path / "o1" / "T2.engine_caches").exists(), (
             "a skipped half creates NOTHING")
         assert _cache_env_entry_values() == entry, (
-            "neither env variable moved: the refresh writes the SHARED repo")
+            "no env variable moved: the refresh writes the SHARED repo")
 
-        # ARM 2: only the dump cache is authorised — the mod cache still
-        # redirects, the dump cache is left alone.
+        # ARM 2: only the dump cache is authorised — the mod cache and the
+        # masks still redirect, the dump cache is left alone.
         rec2 = build_mod.redirect_engine_caches(
             tmp_path / "o2", "T3", authorised={"dsf_cache"})
         overlay = tmp_path / "o2" / "T3.engine_caches" / "Airport_mod_cache"
+        masks = tmp_path / "o2" / "T3.engine_caches" / "Masks"
         assert rec2["left_shared_for_refresh"] == ["dsf_cache"]
         assert rec2["dsf_dump_cache"] is None
         assert rec2["airport_mod_cache"] == str(overlay)
@@ -3128,6 +3131,8 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         assert rec2["mod_cache_seeded"] == {"dirs": 1, "files": 1,
                                             "cloned": 1, "copied": 0}
         assert not (overlay / "packA" / "warm.cache").is_symlink()
+        assert rec2["masks"] == str(masks)
+        assert os.environ["O4_MASKS_DIR"] == str(masks)
         assert os.environ.get("O4_DSF_CACHE_DIR") == entry["O4_DSF_CACHE_DIR"]
         assert not (tmp_path / "o2" / "T3.engine_caches"
                     / "Default_DSF_cache").exists()
@@ -3135,10 +3140,280 @@ def test_the_redirect_leaves_an_authorised_refresh_scope_shared(
         _restore_cache_env(entry)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# §6f THE MASKS ROOT IS LANE-LOCAL (owner ruling 2026-08-12b)
+#
+# THE MEASURED DEFECT: a HECA lane tile arm refused rc=1 — the masks step's
+# legacy cleanup (``O4_Mask_Utils.delete_old_masks_in_tile``) tried to
+# ``os.remove`` 16 SHARED ``Masks/+30+030/+30+031/*.png``, the write guard
+# blocked all 16, and a bare ``except: pass`` swallowed every refusal so
+# the stage read clean.  Every lane tile build on a warm tile refused that
+# way.  Same two halves as the mod cache — an env-overridable root read at
+# CALL TIME, and a copy-on-write overlay seeded from the shared subtree —
+# plus the swallow site narrowed to the class it meant.
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_masks_root_honours_its_env_override(tmp_path, monkeypatch):
+    """KNOWN-ANSWER TWIN for the accessor, all four states.
+
+    The same shape as the mod cache's twin, because it is the same law:
+    the override is the IMPLICIT root's, and an explicitly chosen data
+    root (the packaged app's) stays the more specific instruction.
+    """
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    overlay = str(tmp_path / "lane_masks")
+    monkeypatch.setenv("O4_MASKS_DIR", overlay)
+    assert FNAMES.masks_root() == overlay
+    assert FNAMES.mask_dir(30, 31) == os.path.join(
+        overlay, FNAMES.long_latlon(30, 31)), (
+        "every mask path is the accessor plus the tile's own subtree")
+
+    monkeypatch.delenv("O4_MASKS_DIR")
+    assert FNAMES.masks_root() == FNAMES.data_path("Masks")
+    monkeypatch.chdir(tmp_path)
+    assert FNAMES.masks_root() == str(tmp_path / "Masks"), (
+        "resolved at CALL time, per cwd — never captured at import")
+
+    monkeypatch.setenv("O4_MASKS_DIR", overlay)
+    monkeypatch.setenv("ORTHO4XP_DATA_ROOT", str(tmp_path / "chosen"))
+    assert FNAMES.masks_root() == str(tmp_path / "chosen" / "Masks")
+
+
+def test_the_masks_redirect_SURVIVES_a_module_RELOAD(tmp_path, monkeypatch):
+    """THE ENV-AT-CALL-TIME PROPERTY, on the path that broke the DSF dump
+    cache before it: a reload recomputed the module globals and silently
+    re-pointed the cache at the shared repo.  Nothing here is computed at
+    import, so there is nothing for a reload to undo."""
+    import importlib
+    import O4_File_Names as FNAMES
+    entry = _cache_env_entry_values()
+    try:
+        monkeypatch.setattr(FNAMES, "_data_root_override", None)
+        monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+        overlay = str(tmp_path / "lane_masks")
+        monkeypatch.setenv("O4_MASKS_DIR", overlay)
+        assert FNAMES.masks_root() == overlay
+        importlib.reload(FNAMES)
+        assert FNAMES.masks_root() == overlay, (
+            "a module reload must not be able to un-redirect a lane")
+        assert FNAMES.Mask_dir == overlay
+    finally:
+        _restore_cache_env(entry)
+
+
+def test_the_Mask_dir_NAME_is_served_by_the_one_accessor(tmp_path,
+                                                         monkeypatch):
+    """The back-compat alias is not a SECOND spelling of the path.
+
+    ``Mask_dir`` is read by the two entry points' working-directory
+    bootstrap and by the app driver's ``getattr(FNAMES, name)`` loop.  Were
+    it still a module global assigned in ``_apply_data_root``, it would be
+    a call site that BYPASSES the accessor — the defect class the ruling
+    names — live for exactly as long as nobody recomputed it.  PEP 562
+    ``__getattr__`` serves it from :func:`masks_root` instead.
+    """
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    monkeypatch.setenv("O4_MASKS_DIR", str(tmp_path / "lane_masks"))
+    assert FNAMES.Mask_dir == str(tmp_path / "lane_masks")
+    assert getattr(FNAMES, "Mask_dir", None) == str(tmp_path / "lane_masks")
+    monkeypatch.setenv("O4_MASKS_DIR", str(tmp_path / "other"))
+    assert FNAMES.Mask_dir == str(tmp_path / "other"), (
+        "served at ATTRIBUTE-ACCESS time; a captured global would be stale")
+    assert "Mask_dir" not in vars(FNAMES), (
+        "no module global to go stale beside the accessor")
+    with pytest.raises(AttributeError):
+        FNAMES.Mask_dir_typo_that_does_not_exist
+
+
+def test_NO_engine_module_spells_the_masks_path_itself():
+    """SOURCE twin: one resolution point, threaded everywhere.
+
+    A module that joined ``data_path("Masks")`` — or the ``Mask_dir``
+    alias — onto its own path would read and delete the SHARED rasters
+    while the lane thinks it is redirected, and nothing in a log line
+    would say so.
+    """
+    offenders = []
+    for path in sorted((ROOT / "src").rglob("*.py")):
+        if path.name == "O4_File_Names.py":
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for pattern in (r'data_path\(\s*["\']Masks["\']',
+                        r'\bMask_dir\b'):
+            if re.search(pattern, text):
+                offenders.append(f"{path.name} ({pattern})")
+    assert offenders == [], (
+        f"{offenders} build a masks path outside O4_File_Names.masks_root — "
+        f"every mask read/write/delete goes through FNAMES.mask_dir()")
+
+
+def test_the_masks_overlay_is_seeded_by_the_ONE_implementation(build_mod):
+    """SOURCE twin, the same idiom as
+    ``test_the_overlay_seeding_offers_NO_symlink_mode``: there is no
+    masks-only seeding mode.  A symlinked mask entry is the truncate-
+    through defect (#15) with a PNG on the end of it — and the guard is
+    structurally blind to it, because the opened path is lane-local."""
+    src = inspect.getsource(build_mod.redirect_engine_caches)
+    assert "mirror_tree_as_overlay" in src and 'O4_MASKS_DIR' in src, (
+        "the masks half seeds through the ONE overlay implementation")
+    assert "os.symlink" not in src and "os.link" not in src, (
+        "no symlink/hardlink seeding for masks either — the mask rasters "
+        "are rewritten in place by the masks step")
+
+
+def test_the_masks_overlay_is_seeded_PER_TILE_IN_SCOPE(tmp_path, monkeypatch,
+                                                       build_mod):
+    """KNOWN-ANSWER TWIN for the redirect's masks half: warm reads, real
+    lane-local files, clone/copy counts reported, and the seed scoped to
+    the tile the build was asked for (the whole root when none is named)."""
+    import O4_File_Names as FNAMES
+    repo = tmp_path / "repo"
+    wanted = repo / "Masks" / FNAMES.long_latlon(30, 31)
+    other = repo / "Masks" / FNAMES.long_latlon(22, 113)
+    wanted.mkdir(parents=True)
+    other.mkdir(parents=True)
+    (wanted / "3000_5000.png").write_bytes(b"warm mask")
+    (other / "9999_1111.png").write_bytes(b"another tile")
+    monkeypatch.setattr(build_mod, "DATA_REPO", repo)
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+
+    entry = _cache_env_entry_values()
+    try:
+        rec = build_mod.redirect_engine_caches(tmp_path / "out", "T4",
+                                               tiles=[(30, 31)])
+        masks = tmp_path / "out" / "T4.engine_caches" / "Masks"
+        assert rec["masks"] == str(masks)
+        assert os.environ["O4_MASKS_DIR"] == str(masks)
+        assert rec["masks_subtrees"] == [FNAMES.long_latlon(30, 31)]
+        assert rec["masks_seeded"] == {"dirs": 0, "files": 1,
+                                       "cloned": 1, "copied": 0}, (
+            "the counts are reported like the mod cache's — a corpus that "
+            "fell back to real copies is a number in the build record")
+
+        seeded = masks / FNAMES.long_latlon(30, 31) / "3000_5000.png"
+        assert seeded.read_bytes() == b"warm mask", "reads stay WARM"
+        assert not seeded.is_symlink() and seeded.stat().st_ino != (
+            wanted / "3000_5000.png").stat().st_ino
+        assert not (masks / FNAMES.long_latlon(22, 113)).exists(), (
+            "only the tile IN SCOPE is seeded")
+
+        # THE ACCESSOR AGREES with the redirect — the engine reads the
+        # overlay, not the corpus.
+        assert FNAMES.mask_dir(30, 31) == str(
+            masks / FNAMES.long_latlon(30, 31))
+
+        # No tile named: the conservative superset, the whole root.
+        rec2 = build_mod.redirect_engine_caches(tmp_path / "out2", "T5")
+        assert rec2["masks_subtrees"] == [""]
+        assert rec2["masks_seeded"]["files"] == 2
+    finally:
+        _restore_cache_env(entry)
+
+
+def _mask_squares(tile):
+    """The exact squares ``delete_old_masks_in_tile`` walks."""
+    import O4_Geo_Utils as GEO
+    import O4_File_Names as FNAMES
+    (x_min, y_min) = GEO.wgs84_to_orthogrid(tile.lat + 1, tile.lon,
+                                            tile.mask_zl)
+    (x_max, y_max) = GEO.wgs84_to_orthogrid(tile.lat, tile.lon + 1,
+                                            tile.mask_zl)
+    return [FNAMES.legacy_mask(x, y)
+            for x in range(x_min, x_max + 1, 16)
+            for y in range(y_min, y_max + 1, 16)]
+
+
+def test_the_legacy_cleanup_deletes_ONLY_the_lane_local_clones(
+        tmp_path, monkeypatch, build_mod):
+    """THE REFUSED HECA ARM, in miniature and offline.
+
+    Shared masks in one tree, the lane's copy-on-write overlay seeded from
+    it, the redirect armed: the cleanup must empty the OVERLAY and leave
+    every shared raster byte-identical.  Before the ruling this loop was
+    16 ``os.remove`` calls against everyone's corpus.
+    """
+    import O4_File_Names as FNAMES
+    import O4_Mask_Utils as MASK
+    tile = types.SimpleNamespace(lat=30, lon=31, mask_zl=14)
+    shared = tmp_path / "repo" / "Masks" / FNAMES.long_latlon(30, 31)
+    shared.mkdir(parents=True)
+    squares = _mask_squares(tile)
+    assert squares, "the fixture must exercise a non-empty square walk"
+    for name in squares:
+        (shared / name).write_bytes(b"shared raster " + name.encode())
+
+    monkeypatch.setattr(FNAMES, "_data_root_override", None)
+    monkeypatch.delenv("ORTHO4XP_DATA_ROOT", raising=False)
+    entry = _cache_env_entry_values()
+    try:
+        monkeypatch.setattr(build_mod, "DATA_REPO", tmp_path / "repo")
+        build_mod.redirect_engine_caches(tmp_path / "out", "T6",
+                                         tiles=[(30, 31)])
+        dest_dir = FNAMES.mask_dir(tile.lat, tile.lon)
+        assert all(os.path.isfile(os.path.join(dest_dir, n))
+                   for n in squares), "the overlay seeded the whole square"
+
+        MASK.delete_old_masks_in_tile(tile, dest_dir)
+
+        assert not any(os.path.isfile(os.path.join(dest_dir, n))
+                       for n in squares), (
+            "the cleanup ran for real on the lane-local clones")
+        for name in squares:
+            assert (shared / name).read_bytes() == (
+                b"shared raster " + name.encode()), (
+                "the SHARED raster is byte-untouched — this is the whole "
+                "ruling")
+    finally:
+        _restore_cache_env(entry)
+
+
+def test_the_narrowed_cleanup_SURFACES_anything_but_a_missing_file(
+        tmp_path, monkeypatch):
+    """The swallow site: a missing mask stays silent, ANY other failure is
+    logged.  The bare ``except: pass`` turned 16 guard refusals into a
+    clean-looking stage; a swallowed refusal must never read as one."""
+    import O4_Mask_Utils as MASK
+    tile = types.SimpleNamespace(lat=30, lon=31, mask_zl=14)
+    logged = []
+    monkeypatch.setattr(MASK.UI, "lvprint",
+                        lambda level, *args: logged.append(
+                            " ".join(str(a) for a in args)))
+
+    # ARM 1: nothing to delete — expected, and silent.
+    MASK.delete_old_masks_in_tile(tile, str(tmp_path / "empty"))
+    assert logged == [], "a missing mask is the normal case"
+
+    # ARM 2: the guard's own refusal class (a RuntimeError, NOT an
+    # OSError) — the class the bare except swallowed.
+    class SharedRepoWriteBlocked(RuntimeError):
+        pass
+
+    def refuse(path):
+        raise SharedRepoWriteBlocked(f"REFUSED os.remove {path}")
+
+    # The module's OWN ``os`` reference, never the global module: a
+    # process-wide ``os.remove`` patch is a booby trap for whatever else
+    # runs in this worker.
+    monkeypatch.setattr(MASK, "os",
+                        types.SimpleNamespace(remove=refuse, path=os.path))
+    MASK.delete_old_masks_in_tile(tile, str(tmp_path / "shared"))
+    assert len(logged) == len(_mask_squares(tile)) and logged, (
+        "every refusal surfaces, one line each")
+    assert all("could not delete the existing mask" in line
+               and "REFUSED os.remove" in line for line in logged)
+
+
 def test_the_engine_cache_redirect_is_in_the_tool_index():
     """Every promotion lands WITH its index row, in the same commit."""
     text = INDEX.read_text()
-    for token in ("O4_DSF_CACHE_DIR", "engine_cache_redirects"):
+    for token in ("O4_DSF_CACHE_DIR", "engine_cache_redirects",
+                  "O4_MASKS_DIR"):
         assert token in text, (
             f"{token} is not in tools/INDEX.md — a redirect absent from the "
             f"index is treated as absent, and the next lane hand-forks it")

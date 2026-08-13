@@ -1,4 +1,33 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260813a (PERF PHASE WAVE 1 — ALL MERGED, BYTE-IDENTICAL)
+# Merged to main: lane/perfcache (lane-persistent derived caches,
+# OTHH −423.5 s/HECA −63.2 s per lane rebuild), lane/perfinstr
+# (solve-stage repro cutter tools/solve_cut.py — HECA replay
+# byte-identical, skips 129 s/iter; census-by-hash cache; O4_ROUND_TAG;
+# tile-profiler refusal), lane/perfsidecar (PRISTINE-KEY fingerprints
+# per owner ruling — the app's ~455 s OTHH/~66 s HECA per-bake
+# recompute ELIMINATED in production; detection sensitivity-armed),
+# lane/perfsolveD (graph constraints −58 s replay: bbox prefilter,
+# vectorised _vis, STRtree intersects; rejected approaches recorded
+# in-code), lane/perfsolveC (_project_chromatic active-row compression
+# −25.1 s exclusive pair; negative-zero gate + last-write mask).
+# profile_airport_build.py --replay UNIONED (C's solve_cut import +
+# D's --count) at merge.
+# CONSOLIDATED-4: all five airports MATCH baselines/1.0.245/MANIFEST
+# byte-for-byte, guard clean. Exclusive-pair standing: HECA ~581→~443-
+# 495 s band, CYXY ~42→~38.7 s.
+# P1 cost table + top-20 sinks: lane/perf1 report (lane worktree).
+# QUEUE: next production sinks (emit/finalize 98-216 s, shapely leaf
+# ceiling ~226 s named sites, object partitioning ~145 s, fgp×2 halves
+# remaining, tile rtree insert); P4 budget adjudication + baseline
+# re-record (OWNER APPROVAL needed); deferred tile-frame bake-
+# invariance arm; then the STAGED-SOLVE correctness round on the
+# fast iteration loop.
+# GOTCHA: sampling profiler mis-attributes inside numpy loops (GIL
+# scheduling — box clamp read 6.0 s sampled vs 0.31 s perf_counter);
+# perf claims want the wrapper timers (--count) or perf_counter.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260812c ADDENDUM (CORRIDOR-JOINS ROUND + APP 1.0.245)
 # App 1.0.245 (engine 1.50.1688) BUILT after the owner's 1.0.244 in-sim
 # refuted two corridor claims. lane/joins merged (41bbd61): corridor

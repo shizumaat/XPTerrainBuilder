@@ -2648,6 +2648,12 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
     except Exception:                                  # pragma: no cover
         node_tree = None
     _taxi_woven_pairs: set = set()
+    # AMENDMENT 2: the road-family node set as a SET (the walk asks it per
+    # pair), and the counter the census line reports.
+    from .config import (
+        SERVICE_BAND_AIRSIDE_EXCLUSION as _BAND_AIRSIDE_EXCLUSION)
+    _road_node_set = set(road_nodes or ())
+    _n_svc_airside_skipped = [0]
     _n_no_node = 0            # centerlines with NO node within the tolerance
     _n_one_node = 0           # ... with exactly one (a thinned region)
     _taxi_strung: set = set()  # every node the AIRCRAFT pass strung
@@ -2758,6 +2764,30 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
         for (a0, i0), (a1, i1) in zip(on_line, on_line[1:]):
             if i0 == i1:
                 continue
+            if (cl.is_service and _BAND_AIRSIDE_EXCLUSION
+                    and i0 not in _road_node_set and i1 not in _road_node_set):
+                # AIRSIDE EXCLUSION AT THE POPULATION SOURCE (AMENDMENT 2,
+                # Fable lead 2026-08-12b; the law this docstring already
+                # states: "a road may never sweep an unrelated apron vertex
+                # into a spine chain at its 8 % cap — but it MAY adopt the
+                # one airside node it genuinely meets, and that node is the
+                # MOUTH").
+                #
+                # A corridor registered END-TO-END (the 2026-08-12b
+                # one-law-object ruling) runs across apron pavement, so its
+                # walk strings MANY airside nodes, not one, and linked
+                # CONSECUTIVE PAIRS OF THEM into ``spine_adj`` at the road
+                # cap.  Every consumer of the one graph then saw them: the
+                # reach band as pairs to exclude (measured −65 airside rows
+                # when the exclusion was lifted) and the profile solve as
+                # law edges priced at 8 % between two apron nodes.  A
+                # groundside corridor may not alter airside feasibility
+                # inputs, so the pair is never woven — once, here, at the
+                # single population source, rather than in each consumer.
+                # The MOUTH survives by construction: one end of a mouth
+                # pair is a road-family node.
+                _n_svc_airside_skipped[0] += 1
+                continue
             gap = abs(a1 - a0)
             d = _dist(G.pos.get(i0), G.pos.get(i1))
             # Per-segment cap at the midpoint between the two on-line nodes (a
@@ -2833,7 +2863,10 @@ def _build_global_spine(G, ctx, icao: str = "", road_nodes=None,
             f"attachment(s) to the aircraft spine — the MOUTH candidates "
             f"(eligible nodes: {len(_svc_eligible)}; source "
             f"{getattr(ctx, 'service_source', '?')}, "
-            f"{getattr(ctx, 'service_length_m', 0.0):,.0f} m of road)")
+            f"{getattr(ctx, 'service_length_m', 0.0):,.0f} m of road; "
+            f"{_n_svc_airside_skipped[0]} airside-to-airside service pair(s) "
+            f"NOT woven — a groundside corridor may not alter airside "
+            f"feasibility inputs)")
 
 
 def _dist(pa, pb):

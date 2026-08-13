@@ -4272,6 +4272,20 @@ SERVICE_CORRIDOR_CHAINS = _os.environ.get(
 # pre-ruling behaviour (walls free to cross, ends unseeded).
 SERVICE_CORRIDOR_FREE_END = _os.environ.get(
     "O4_SERVICE_CORRIDOR_FREE_END", "1") == "1"
+# AIRSIDE BAND EXCLUSION AT THE POPULATION SOURCE (AMENDMENT 2, Fable lead
+# 2026-08-12b, on this lane's HECA airside attribution): a SERVICE / corridor
+# centerline may not weave a spine edge between two AIRSIDE nodes.  It links
+# only pairs with at least one ROAD-FAMILY endpoint — which is exactly the
+# MOUTH the 2026-08-06 ruling admits ("the one airside node it genuinely
+# meets"), and exactly what ``_build_global_spine``'s own docstring already
+# claimed the restriction did before corridors were registered end-to-end.
+# ONE band law: the exclusion lives at the single population source
+# (``_build_global_spine``), so ``reach_band_unified``, the raster field and
+# the profile solve inherit it instead of each re-deciding.  Groundside
+# corridors keep their own grading law on their own nodes.
+# ``O4_SERVICE_BAND_AIRSIDE_EXCLUSION=0`` restores the pre-amendment weave.
+SERVICE_BAND_AIRSIDE_EXCLUSION = _os.environ.get(
+    "O4_SERVICE_BAND_AIRSIDE_EXCLUSION", "1") == "1"
 # SPINE-FIRST service-road grading (USER RULING 2026-07-07, part 30m): the
 # truck-route SPINE is graded at the road cap with DEM-follow as a SOFT seed
 # sampled at spine stations; the EDGES follow the spine (cross-section

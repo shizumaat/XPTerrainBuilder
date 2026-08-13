@@ -1211,7 +1211,8 @@ def diagnose_missing_sidecar(layout) -> str:
 def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                 prog: Progress, const_dem=None,
                 allow_no_sidecar: bool = False,
-                write_guard=None, allow_degraded: bool = False) -> dict:
+                write_guard=None, allow_degraded: bool = False,
+                solve_capture=None) -> dict:
     """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
 
     ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
@@ -1247,6 +1248,19 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     from conftest import xplane_root                      # noqa: E402
     from auto_patch.pipeline import build_airport_pavement  # noqa: E402
     from auto_patch import config as ap_cfg               # noqa: E402
+    # SOLVE-STAGE CAPTURE (perf P2 instrument 1), armed HERE and not in
+    # ``main``: the env key is the engine module's own constant, and
+    # importing the engine before ``arm_shared_repo_protection`` has run
+    # is the very ordering the composition above exists to prevent.  The
+    # capture is a pure reader at the solve boundary — the patch this
+    # build writes is unaffected (the byte-identity acceptance is the
+    # proof), so no build number is conditional on it.
+    if solve_capture is not None:
+        from auto_patch.solve_capture import CAPTURE_ENV  # noqa: E402
+        os.environ[CAPTURE_ENV] = str(Path(solve_capture).resolve())
+        prog.note(f"SOLVE-STAGE CAPTURE armed -> {solve_capture} "
+                  f"(per-airport subdirectory); replay with "
+                  f"tools/solve_cut.py --replay")
     # The sidecar is gated on this: without it every census silently
     # degrades to the context-free frame.
     ap_cfg.LOG_VERBOSITY = max(1, getattr(ap_cfg, "LOG_VERBOSITY", 0))
@@ -1526,7 +1540,24 @@ def main(argv=None) -> int:
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
                          "numbers are not comparable with any other lane's")
+    ap.add_argument("--solve-capture", type=Path, default=None,
+                    metavar="DIR",
+                    help="also write a SOLVE-STAGE CAPTURE per airport into "
+                         "DIR/<ICAO>/ (perf P2 instrument 1) — the phases 1-4 "
+                         "product at the solve boundary, replayable with "
+                         "tools/solve_cut.py --replay without rebuilding "
+                         "phases 1-4.  The build itself is unchanged")
     args = ap.parse_args(argv)
+    if args.solve_capture is not None and args.tile:
+        # A flag that quietly does nothing is how a lane ends up believing
+        # it captured something: ``build_tile`` runs the engine through a
+        # different entry, so the airport-path arming above never fires.
+        raise SystemExit(
+            "REFUSING: --solve-capture with --tile is not wired in v1.  "
+            "Capture the airport directly (build_airport.py ICAO "
+            "--solve-capture DIR), or arm O4_SOLVE_CAPTURE in the "
+            "environment of the tile build knowingly — every airport the "
+            "tile builds then writes its own DIR/<ICAO>/ capture.")
     all_scopes = {sc for sc, _p, _w in REFRESH_SCOPES}
     requested = set()
     if args.refresh_data:
@@ -1779,7 +1810,8 @@ def main(argv=None) -> int:
                                  const_dem=args.dem,
                                  allow_no_sidecar=args.allow_no_sidecar,
                                  write_guard=guard,
-                                 allow_degraded=args.allow_degraded_dem)
+                                 allow_degraded=args.allow_degraded_dem,
+                                 solve_capture=args.solve_capture)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died

@@ -19,6 +19,11 @@ Options:
                        instead of rebuilding the reference side
     --history N        show the last N ledger records for this command
                        (any tree state) and exit without running
+    --round TAG        readout: restrict --history to the records carrying
+                       this O4_ROUND_TAG (implies a readout when given
+                       alone).  Every readout also prints per-round run
+                       counts and total wall, so a phase report can sum
+                       what a round cost.
     --label TEXT       free-text note stored with the record
 
 What keys a run (any difference ⇒ cache miss):
@@ -27,7 +32,19 @@ What keys a run (any difference ⇒ cache miss):
       uncommitted changes — computed with a TEMPORARY git index, never the
       shared one (parallel sessions share the real index);
     * the full argv;
-    * every O4_* environment variable plus PYTEST_ADDOPTS.
+    * every O4_* environment variable plus PYTEST_ADDOPTS, EXCEPT the
+      variables in :data:`KEY_EXCLUDED_ENV`.
+
+What is RECORDED but never KEYS a run: ``O4_ROUND_TAG``, the session/round
+label (:data:`ROUND_TAG_ENV`).  This distinction is the whole instrument:
+the tag is an O4_* variable, so keying on it would make every new round
+invalidate the ENTIRE ledger and re-run every already-passing verification
+— the exact opposite of what the ledger exists for.  It is therefore
+filtered out in :func:`relevant_env` (the one place the key's env component
+is built, and the same place ``O4_RUN_LEDGER_PATH`` has always been
+filtered) and stored as its own record field instead.  Corollary: a run
+that HITS costs the round nothing and appends no record; only real
+executions carry wall time, which is what a per-round total should sum.
 
 Only PASSING (exit 0) runs are ever reused; failures always re-run.
 
@@ -61,6 +78,23 @@ CODE_PATHS = ("src", "tests", "tools", "conftest.py", "pytest.ini",
 #: (it lives under tools/ and grows on every run).
 LEDGER_BASENAME = "run_ledger.jsonl"
 
+#: The session/round label.  RECORDED on every executed run, never part of
+#: the key (see :data:`KEY_EXCLUDED_ENV`).
+ROUND_TAG_ENV = "O4_ROUND_TAG"
+
+#: O4_* variables that are deliberately NOT part of the run key.
+#:
+#: * ``O4_RUN_LEDGER_PATH`` — WHERE the ledger lives cannot change WHAT a
+#:   run produces.
+#: * ``O4_ROUND_TAG`` — a bookkeeping label.  Keyed, it would invalidate
+#:   every recorded run the moment a new round starts: the ledger would
+#:   re-execute all of it and the instrument meant to price rounds would
+#:   become the largest cost in one.
+#:
+#: ``harness/artifact_ledger.py`` builds its own key through
+#: :func:`relevant_env`, so both ledgers inherit this list from one place.
+KEY_EXCLUDED_ENV = ("O4_RUN_LEDGER_PATH", ROUND_TAG_ENV)
+
 
 def default_ledger_path() -> str:
     return os.environ.get(
@@ -92,10 +126,22 @@ def code_tree_hash(repo_root: str | None = None) -> str:
 
 
 def relevant_env() -> dict:
+    """The environment component of the run key.
+
+    THE one place that decides what environment changes a result — so the
+    exclusion of :data:`KEY_EXCLUDED_ENV` (notably ``O4_ROUND_TAG``) is
+    made once and inherited by every consumer, including the artifact
+    ledger's key.
+    """
     keys = sorted(k for k in os.environ
                   if k.startswith("O4_") or k == "PYTEST_ADDOPTS")
     return {k: os.environ[k] for k in keys
-            if k != "O4_RUN_LEDGER_PATH"}
+            if k not in KEY_EXCLUDED_ENV}
+
+
+def round_tag() -> str:
+    """The current session/round label, or ``""`` when untagged."""
+    return os.environ.get(ROUND_TAG_ENV, "").strip()
 
 
 def run_key(tree: str, argv: list, env: dict) -> str:
@@ -148,7 +194,9 @@ def describe(record: dict) -> str:
     dur = record.get("duration_s", 0.0)
     exit_code = record.get("exit_code")
     label = record.get("label") or ""
+    tag = record.get("round_tag") or ""
     lines = [f"  ran {when}, exit {exit_code}, {dur:.1f}s"
+             + (f"  round={tag}" if tag else "")
              + (f"  [{label}]" if label else "")]
     for art in record.get("artifacts", ()):
         body = art.get("body_sha256")
@@ -161,6 +209,21 @@ def describe(record: dict) -> str:
     return "\n".join(lines)
 
 
+def round_totals(records) -> dict:
+    """``{round tag: (run count, total wall seconds)}`` over ``records``.
+
+    Untagged records are collected under ``""`` rather than dropped — a
+    round total that silently omitted the untagged runs would understate
+    the phase's real cost.
+    """
+    out: dict = {}
+    for record in records:
+        tag = record.get("round_tag") or ""
+        count, wall = out.get(tag, (0, 0.0))
+        out[tag] = (count + 1, wall + float(record.get("duration_s") or 0.0))
+    return out
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
@@ -168,6 +231,9 @@ def main(argv=None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--artifact", action="append", default=[])
     parser.add_argument("--history", type=int, default=0)
+    parser.add_argument("--round", default=None, metavar="TAG",
+                        help="readout: only records whose recorded "
+                             "O4_ROUND_TAG is TAG (implies --history)")
     parser.add_argument("--label", default="")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -175,20 +241,32 @@ def main(argv=None) -> int:
     command = args.command
     if command and command[0] == "--":
         command = command[1:]
-    if not command and not args.history:
+    readout = bool(args.history) or args.round is not None
+    if not command and not readout:
         parser.error("no command given (separate with --)")
 
     ledger_path = default_ledger_path()
     records = load_records(ledger_path)
 
-    if args.history:
+    if readout:
         matches = [r for r in records if r.get("argv") == command] \
             if command else records
-        for record in matches[-args.history:]:
+        if args.round is not None:
+            matches = [r for r in matches
+                       if (r.get("round_tag") or "") == args.round]
+        shown = matches[-args.history:] if args.history else matches
+        for record in shown:
             print(f"[ledger] tree={record.get('tree', '?')[:12]}")
             print(describe(record))
         if not matches:
-            print("[ledger] no prior records for this command")
+            print("[ledger] no prior records for this command"
+                  + (f" and round {args.round}" if args.round else ""))
+            return 0
+        # Per-round cost, over EVERY match (not just the shown tail) — the
+        # readout a phase report sums.
+        for tag, (count, wall) in sorted(round_totals(matches).items()):
+            print(f"[ledger] round {tag or '(untagged)'}: "
+                  f"{count} run(s), {wall:.1f}s wall")
         return 0
 
     tree = code_tree_hash()
@@ -206,7 +284,9 @@ def main(argv=None) -> int:
             print(describe(latest))
             return 0
 
-    print(f"[ledger] MISS (tree {tree[:12]}) — running: "
+    tag = round_tag()
+    print(f"[ledger] MISS (tree {tree[:12]}"
+          + (f", round {tag}" if tag else "") + ") — running: "
           + " ".join(command))
     started = time.time()
     proc = subprocess.Popen(command, cwd=REPO_ROOT,
@@ -228,6 +308,9 @@ def main(argv=None) -> int:
         "argv": command,
         "env": env,
         "label": args.label,
+        # RECORDED, never keyed (see KEY_EXCLUDED_ENV): the round a run was
+        # paid for, so phase reports can sum wall per round.
+        "round_tag": round_tag(),
         "exit_code": exit_code,
         "duration_s": round(finished - started, 2),
         "started_at": started,

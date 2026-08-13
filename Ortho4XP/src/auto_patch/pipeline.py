@@ -3769,6 +3769,66 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"cap SERVICE_ROAD_MAX_GRADE).")
 
 
+    # ── THE SOLVE-STAGE BOUNDARY (perf P2 instrument 1) ──────────────
+    # Everything from here on is phases [5] + [6] — the solve and the
+    # feature emit.  It lives in :func:`solve_and_finalize` so a capture
+    # taken HERE can be REPLAYED into it without re-running phases 1-4
+    # (``tools/solve_cut.py``).  ``_tail`` is built ONCE and both the
+    # capture and the call consume it, so the two can never drift.
+    #
+    # The extracted body is the pre-existing text VERBATIM at its
+    # original indentation — the byte-identity gate (RULINGS 2026-08-13,
+    # frozen 1.0.245 baseline) is what an "improved" re-indent would
+    # break.  Its parameter names keep their leading underscores for the
+    # same reason.  The parameter set is the READ-BEFORE-BOUND set of
+    # the tail, verified by AST against phases 1-4's bindings; ``_covp``
+    # and the two ROLE constants are re-imported inside instead (same
+    # objects, no parameter).
+    _tail = dict(
+        layout=layout, icao=icao, xplane_root=xplane_root, apt=apt,
+        nodes=nodes, ways=ways, to_m=to_m,
+        apron_candidates=apron_candidates, tile_dem=tile_dem,
+        current_tile_lat=current_tile_lat,
+        current_tile_lon=current_tile_lon,
+        compute_elevations=compute_elevations,
+        _n_strip=_n_strip, _progress=_progress,
+        _build_features=_build_features,
+        _build_started_at=_build_started_at,
+    )
+    from . import solve_capture as _solve_capture
+    _solve_capture.maybe_capture(_tail)          # no-op unless armed
+    return solve_and_finalize(**_tail)
+
+
+def solve_and_finalize(*, layout: PavementLayout, icao: str,
+                       xplane_root: str, apt,
+                       nodes: dict, ways: list, to_m,
+                       apron_candidates: list,
+                       tile_dem=None,
+                       current_tile_lat=None, current_tile_lon=None,
+                       compute_elevations: bool = True,
+                       _n_strip: int = 0,
+                       _progress=None,
+                       _build_features=None,
+                       _build_started_at: float = 0.0,
+                       ) -> PavementLayout:
+    """Phases [5] + [6]: solve the elevation field, emit the features.
+
+    Split out of :func:`build_airport_pavement` (2026-08-13) so the
+    solve stage is REPLAYABLE from a capture taken at its boundary —
+    the perf phase's repro cutter, ``tools/solve_cut.py``.  Called
+    exactly once, from the end of ``build_airport_pavement``; the
+    replay entry is the only other caller.
+
+    Every parameter is a live phase-1-4 product.  ``_progress`` is the
+    build's progress reporter (steps [5] and [6] are reported here),
+    ``_n_strip`` the narrow-service-strip carve count phase 4 recorded,
+    and ``_build_features`` / ``_build_started_at`` the build-time
+    model's inputs, recorded as the very last act before the return.
+    """
+    from .layout import ROLE_APRON, ROLE_JUNCTION
+    from .geom_guard import coverage_probe as _covp
+
     # ── Phase-2 elevations + feature emit ────────────────────────
     # Pre-solve geometry guard snapshot handle (assigned right before the
     # solve inside the block below; default None so the post-solve report

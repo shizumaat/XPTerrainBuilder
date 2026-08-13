@@ -22,6 +22,22 @@ Report sections, written to ``--out``
   2. Per step: top functions by inclusive and by leaf (self-time)
      thread-seconds, main thread and worker threads listed separately.
 
+WHAT IT REFUSES: a tile build with NO CIFP.  ``run_auto_patch_generation``
+only calls the generator when it can resolve a CIFP directory, and the dev
+tree and every lane worktree ship ``cifp_data_path`` EMPTY — so a profile
+run here produced a tile with NO auto_patch surfaces at all, exited 0, and
+was profiled as if it were a release tile (the P1 caveat).  The refusal is
+``tools/harness/build_airport.py``'s own
+:func:`~build_airport.apply_xplane_install_paths`, IMPORTED, not copied:
+it loads the owner's three X-Plane install paths into the live
+``O4_Config_Utils`` globals and aborts before any work if neither a CIFP
+directory nor a Custom Scenery directory resolves.  A second, slightly
+different copy of a harness refusal is the census-wrapper defect (root
+CLAUDE.md).
+
+This profiler measures wall time, so it is never run through the run
+ledger; the refusal is the only harness law it needs.
+
 Usage:
     venv/bin/python tools/profile_tile_build.py <lat> <lon>
         [--build-dir DIR] [--provider CODE] [--zl N]
@@ -41,6 +57,15 @@ os.environ.setdefault("O4_LOG_VERBOSITY", "1")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.path.join(ROOT, "src") not in sys.path:
     sys.path.insert(0, os.path.join(ROOT, "src"))
+
+# THE EMPTY-CIFP REFUSAL, imported from THE build entry (one
+# implementation — see the module docstring).  Importing build_airport
+# pulls in no engine module; ``apply_xplane_install_paths`` imports
+# ``O4_Config_Utils`` itself, at call time.
+_HARNESS_DIR = os.path.join(ROOT, "tools", "harness")
+if _HARNESS_DIR not in sys.path:
+    sys.path.insert(0, _HARNESS_DIR)
+from build_airport import apply_xplane_install_paths  # noqa: E402
 
 STEP_ORDER = ("vector", "mesh", "masks", "imagery")
 
@@ -153,6 +178,12 @@ def main():
     IMG.initialize_providers_dict()
     IMG.initialize_combined_providers_dict()
 
+    # Before ANY step: the owner's X-Plane install paths, or the refusal.
+    # Same call, same order as harness/build_airport.py's build_tile —
+    # without it the profiled tile silently carries no auto_patch surfaces.
+    xplane_paths = apply_xplane_install_paths()
+    print("X-Plane install paths applied:", sorted(xplane_paths))
+
     tile = CFG.Tile(
         args.lat, args.lon,
         FNAMES.normalize_custom_build_dir(args.lat, args.lon,
@@ -215,6 +246,12 @@ def main():
             sampler.ticks, per_tick * 1000.0),
         "provider %s ZL%s, build dir %s" % (
             tile.default_website, tile.default_zl, tile.build_dir),
+        # The auto_patch frame this profile was taken in — a report that
+        # does not say which install paths resolved cannot be told apart
+        # from one taken on an auto_patch-less tile.
+        "X-Plane install paths: %s" % (
+            ", ".join("%s=%s" % kv for kv in sorted(xplane_paths.items()))
+            or "(none)"),
         "",
         "== Wall seconds per step (exact) ==",
     ]

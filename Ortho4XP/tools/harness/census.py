@@ -111,19 +111,103 @@ Consolidated from (and replacing): ``scratchpad/*/census_lockstep.py``,
 ``scratchpad/integrate/worst.py``, ``scratchpad/integrate/side.py``,
 ``scratchpad/fix2a/zone_split.py``, and the magnitude-band bucketing two
 lanes wrote by hand (c6attr / c6tip — promote-on-reuse, RULINGS 7e90032).
+
+THE CENSUS CACHE (``--no-cache`` / ``--clear-cache``)
+=====================================================
+
+Censusing the SAME patch with the SAME law twice costs the same minutes
+twice, and a lane re-censuses constantly (a report, a review, a second
+agent).  So the full report is memoised, keyed by IDENTITY — never by a
+file mtime, never by a patch name.  A cache that could serve a stale or
+foreign number would be worse than no cache at all, so every input that
+can move a row (or a printed character) is in the key:
+
+* ``patch_body_sha256`` — the patch BODY, ``tail -n +3``, computed by the
+  harness's ONE body-hash helper (``build_airport.body_sha256``), so
+  "same body" here means exactly what ``baselines/*/MANIFEST.txt`` means;
+* ``patch_file_sha256`` — the WHOLE file, because the census PRINTS the
+  provenance stamp (sha / dirty / built / gates / dem) that lives on the
+  two header lines the body hash deliberately excludes.  Keyed on the body
+  alone, a rebuilt-but-identical patch would be served ANOTHER build's
+  frame stamp — the frame-stamp law (RULINGS 2026-08-06) inverted;
+* ``sidecar_sha256`` — the ``.axes.json`` BYTES.  Not an enumeration of
+  its law keys: enumerating law keys by hand is the census-wrapper defect
+  this file exists to prevent (one wrapper forgot ``terrace_joints_ll``,
+  another ``ruleset``).  The bytes cover the ruleset, the axes/routes, the
+  seam pins, the terrace joints and every key not invented yet;
+* ``law_code_tree`` — the CODE VERSION of the law: the run ledger's own
+  tree hash (``run_with_ledger.code_tree_hash``, reused, not forked), so
+  an edit to ``check_grade.py`` or to this file MISSES.  It is a superset
+  (any tracked code change misses) — deliberately, over-invalidation is
+  the safe direction;
+* ``law_true_knobs`` — ``check_grade.LAW_TRUE_KNOBS``, read from the
+  module, so a knob moved in-process misses too;
+* ``env`` — every ``O4_*`` variable plus ``PYTEST_ADDOPTS``, through the
+  ledger's own ``relevant_env()`` (the repo's existing answer to "what
+  environment can change a run");
+* ``options`` — every flag that changes the report or what is printed
+  (``--top``, ``--bare``, ``--frame``, ``--magnitude-bands``, ``--sites``,
+  ``--site-visibility``, ``--zone-split``, and whether ``--rows-json`` /
+  ``--sites-json`` dumps were asked for, whose text is cached with it);
+* ``patch`` — the resolved patch PATH, because the report prints it.
+
+A HIT re-prints the stored report through ``print_report`` (a pure
+function of the report dict) and re-writes the stored ``--json`` /
+``--rows-json`` / ``--sites-json`` bytes, so **the served output is
+byte-for-byte the fresh output plus exactly ONE added line**: the
+``[CENSUS CACHE HIT] …`` marker, printed to stdout IMMEDIATELY BEFORE the
+``=== CENSUS <patch> ===`` header of the report it serves (and printed
+even under ``--quiet`` — a number served from a cache that did not say so
+is the instrument-truth defect).  A MISS prints nothing and leaves the
+output exactly as it has always been.  Nothing about a family, a count or
+a law changes here: this is memoisation, not measurement.
+
+WHERE IT LIVES.  ``Ortho4XP/tmp/census_cache`` (lane-local, gitignored —
+``tmp/`` already is), or ``$O4_CENSUS_CACHE_DIR``.  It REFUSES to sit
+inside the shared data repo: a cache is a lane product, and lane products
+stay lane-local (root CLAUDE.md, RULINGS ``e9daef5``).
+
+ESCAPE HATCHES.  ``--no-cache`` neither reads nor writes.  ``--clear-cache``
+deletes every stored entry (``*.json`` in the cache root only, never a
+recursive delete of a directory someone's ``$O4_CENSUS_CACHE_DIR`` typo
+pointed at) and then censuses normally; ``rm -rf Ortho4XP/tmp/census_cache``
+does the same thing by hand.  A cache that cannot be keyed (no git, so no
+law-code hash) silently disables itself rather than serving an
+under-specified key, and it is OFF inside a pytest session that did not
+name a cache root — a suite must not warm lane state, and a test that hit
+another test's entry would be asserting on a serve rather than a census.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import math
+import os
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_by_path(name: str, path: Path):
+    """Execute the module at ``path`` under ``name`` and return it.
+
+    ONE spelling of the by-path import this file needs three times (the
+    law, the body-hash helper, the run ledger's tree hash): by path rather
+    than by name so the harness always uses THIS tree's copy, whatever a
+    parallel lane may already have put in ``sys.modules`` under the plain
+    module name.
+    """
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def load_check_grade():
@@ -136,12 +220,253 @@ def load_check_grade():
     for p in (ROOT / "src", ROOT, ROOT / "tests", ROOT / "tools"):
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
-    spec = importlib.util.spec_from_file_location(
-        "harness_check_grade", ROOT / "tools" / "check_grade.py")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    return load_by_path("harness_check_grade", ROOT / "tools" / "check_grade.py")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE CENSUS CACHE — memoisation keyed by IDENTITY (see the header)
+# ══════════════════════════════════════════════════════════════════════
+
+#: Bump when the STORED SHAPE changes (a new field in the entry, a new key
+#: component, a different dump layout).  It is IN the key, so a bump is a
+#: clean global miss rather than a stale entry read with new eyes.
+CENSUS_CACHE_FORMAT = 1
+
+#: Lane-local override for the cache root.  The default lives under
+#: ``Ortho4XP/tmp/`` — already gitignored, and a lane PRODUCT, which is why
+#: it may never be the shared data repo (root CLAUDE.md, RULINGS e9daef5).
+CENSUS_CACHE_DIR_ENV = "O4_CENSUS_CACHE_DIR"
+DEFAULT_CENSUS_CACHE_DIR = ROOT / "tmp" / "census_cache"
+
+#: THE MARKER.  One line, printed to stdout immediately BEFORE the
+#: ``=== CENSUS <patch> ===`` header of the report it serves — so a diff of
+#: a cached run against a fresh one shows exactly this line added and
+#: nothing else.  Printed even under ``--quiet``.
+CACHE_HIT_MARKER = "[CENSUS CACHE HIT]"
+
+#: Store failures are reported on STDERR under this prefix: stdout is the
+#: instrument's output and must read identically whether a cache exists or
+#: not, but a store that silently did not happen is a lie of omission.
+CACHE_STORE_SKIPPED = "[CENSUS CACHE STORE SKIPPED]"
+
+_MODULE_CACHE: dict = {}
+
+
+def _harness_module(name: str, path: Path):
+    """Memoised :func:`load_by_path` — one execution per process."""
+    if name not in _MODULE_CACHE:
+        _MODULE_CACHE[name] = load_by_path(name, path)
+    return _MODULE_CACHE[name]
+
+
+def patch_body_sha256(osm: Path) -> str:
+    """The patch BODY hash — ``build_airport.body_sha256``, THE helper.
+
+    ``tail -n +3``: the provenance stamp on the first two lines makes the
+    raw file hash differ on every build.  This is the hash
+    ``baselines/*/MANIFEST.txt`` speaks and the one every byte-identity A/B
+    quotes, so the cache's notion of "the same patch body" is that one
+    notion and not a second implementation of it.
+    """
+    ba = _harness_module("census_cache_build_airport",
+                         ROOT / "tools" / "harness" / "build_airport.py")
+    return ba.body_sha256(Path(osm))
+
+
+def _ledger_module():
+    return _harness_module("census_cache_run_ledger",
+                           ROOT / "tools" / "run_with_ledger.py")
+
+
+def law_code_hash():
+    """The LAW's CODE VERSION, or ``None`` if it cannot be taken.
+
+    Reuses the run ledger's own tree hash (``run_with_ledger.code_tree_hash``
+    over ``src/``, ``tests/``, ``tools/``, …, uncommitted changes included,
+    computed with a temporary git index so parallel lanes' shared index is
+    never touched).  An edit to ``check_grade.py`` or to this file therefore
+    MISSES.  It over-invalidates — an unrelated tracked edit misses too —
+    which is the safe direction for a cache of law numbers.
+
+    ``None`` (no git, exported tree, git failure) DISABLES the cache rather
+    than keying an entry on an unknown law version.
+    """
+    try:
+        return _ledger_module().code_tree_hash(str(ROOT))
+    except Exception:                                      # pragma: no cover
+        return None
+
+
+def cache_root() -> Path:
+    """The cache directory — lane-local, never the shared data repo."""
+    root = Path(os.environ.get(CENSUS_CACHE_DIR_ENV)
+                or DEFAULT_CENSUS_CACHE_DIR).expanduser()
+    resolved = root.resolve()
+    guard = _harness_module("census_cache_shared_repo_guard",
+                            ROOT / "tools" / "harness" / "shared_repo_guard.py")
+    repo = Path(guard.DATA_REPO).resolve()
+    if resolved == repo or repo in resolved.parents:
+        raise SystemExit(
+            f"REFUSING: the census cache would live inside the SHARED DATA "
+            f"REPO ({repo}) at {resolved}.  A cache is a lane PRODUCT and "
+            f"lane products stay lane-local (root CLAUDE.md, RULINGS "
+            f"e9daef5); writing the shared corpus is refused by law.  Unset "
+            f"{CENSUS_CACHE_DIR_ENV} or point it somewhere lane-local.")
+    return resolved
+
+
+def cache_enabled() -> bool:
+    """Whether the cache may be used at all.
+
+    OFF inside a pytest session that did not name a cache root
+    (``$O4_CENSUS_CACHE_DIR``).  Two reasons, both about the suite:
+
+    * a suite must not silently warm lane state — ``tests/test_harness.py``
+      calls ``main()`` a dozen times and would leave entries behind for
+      every later run in the tree;
+    * worse, a test that HIT another test's entry would be asserting on a
+      SERVE and not on a census — an instrument suite testing its own
+      memo.  ``tests/test_census_cache.py`` is the one suite that means to
+      exercise the cache, and it points the root at ``tmp_path``.
+    """
+    return not (os.environ.get("PYTEST_CURRENT_TEST")
+                and not os.environ.get(CENSUS_CACHE_DIR_ENV))
+
+
+def cache_key_payload(osm: Path, cg, options: dict) -> Optional[dict]:
+    """Every input that can move a row — or a printed character — in one
+    dict, or ``None`` when the cache must stay off.  See the file header
+    for what each component is for and why it is not optional."""
+    law = law_code_hash()
+    if law is None:                                        # pragma: no cover
+        return None
+    osm = Path(osm)
+    side = Path(str(osm) + ".axes.json")
+    ledger = _ledger_module()
+    try:
+        side_sha = hashlib.sha256(side.read_bytes()).hexdigest()
+    except OSError:
+        # No sidecar: the census itself refuses a moment later.  Keyed as
+        # absent rather than skipped, so an entry can never be shared
+        # between a patch with a sidecar and the same patch without one.
+        side_sha = None
+    return {
+        "census_cache_format": CENSUS_CACHE_FORMAT,
+        "patch": str(osm.resolve()),
+        "patch_body_sha256": patch_body_sha256(osm),
+        "patch_file_sha256": hashlib.sha256(osm.read_bytes()).hexdigest(),
+        "sidecar_sha256": side_sha,
+        "law_code_tree": law,
+        "law_true_knobs": {k: float(v) for k, v in cg.LAW_TRUE_KNOBS.items()},
+        "env": ledger.relevant_env(),
+        "options": dict(options),
+    }
+
+
+def cache_key(payload: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def cache_entry_path(key: str) -> Path:
+    return cache_root() / f"{key}.json"
+
+
+def cache_load(key: str) -> Optional[dict]:
+    """The stored entry for ``key``, or ``None``.
+
+    Any unreadable, truncated or foreign-format entry is a MISS, never a
+    crash and never a partial serve: a census that died on its own cache
+    would be worse than one that never had it.
+    """
+    path = cache_entry_path(key)
+    try:
+        entry = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("census_cache_format") != CENSUS_CACHE_FORMAT:
+        return None
+    if entry.get("key") != key or "report" not in entry:
+        return None
+    return entry
+
+
+def cache_store(key: str, payload: dict, report: dict,
+                dumps: dict) -> Optional[Path]:
+    """Store one census.  Returns the entry path, or ``None`` if it could
+    not be stored (reported on stderr — stdout is the instrument's output
+    and must stay byte-identical whether or not a cache exists).
+
+    ``dumps`` maps ``"rows_json"`` / ``"sites_json"`` to the TEXT
+    ``census_one`` just wrote, so a hit can re-write those files too.
+
+    THE ROUND-TRIP IS VERIFIED BEFORE IT IS STORED: the report is re-parsed
+    from the bytes about to be written and compared with the report in
+    hand.  A report that does not survive JSON unchanged (a tuple, a set, a
+    non-finite float) would print differently on a hit than it did fresh —
+    the one thing this cache promises it cannot do — so it is refused
+    rather than stored.
+    """
+    entry = {
+        "census_cache_format": CENSUS_CACHE_FORMAT,
+        "key": key,
+        "key_payload": payload,
+        "stored_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "report": report,
+        "rows_json": dumps.get("rows_json"),
+        "sites_json": dumps.get("sites_json"),
+    }
+    try:
+        text = json.dumps(entry)
+    except (TypeError, ValueError) as exc:
+        print(f"{CACHE_STORE_SKIPPED} not JSON-serialisable ({exc}) — this "
+              f"census was NOT cached", file=sys.stderr)
+        return None
+    if json.loads(text)["report"] != report:               # pragma: no cover
+        print(f"{CACHE_STORE_SKIPPED} the report does not survive a JSON "
+              f"round trip, so a cached serve could not be byte-identical "
+              f"— this census was NOT cached", file=sys.stderr)
+        return None
+    path = cache_entry_path(key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(text)
+        os.replace(tmp, path)                    # atomic: never a torn read
+    except OSError as exc:
+        print(f"{CACHE_STORE_SKIPPED} {exc} — this census was NOT cached",
+              file=sys.stderr)
+        return None
+    return path
+
+
+def cache_clear() -> tuple:
+    """``(n_entries_removed, root)``.  Removes the cache's own ``*.json``
+    entries only — never a recursive delete of whatever directory an
+    ``$O4_CENSUS_CACHE_DIR`` typo happens to name."""
+    root = cache_root()
+    removed = 0
+    for p in sorted(root.glob("*.json")):
+        try:
+            p.unlink()
+            removed += 1
+        except OSError:                                    # pragma: no cover
+            pass
+    return removed, root
+
+
+def cache_hit_line(entry: dict) -> str:
+    """THE marker — one line, the only difference between a served census
+    and a fresh one."""
+    key = entry.get("key") or ""
+    return (f"{CACHE_HIT_MARKER} {entry['report'].get('patch')}  "
+            f"key={key[:16]}  stored={entry.get('stored_at')}  "
+            f"entry={cache_entry_path(key)}  — identical patch bytes, "
+            f"sidecar, law code tree, knobs, O4_* env and options; this "
+            f"report was NOT recomputed (--no-cache recomputes, "
+            f"--clear-cache empties the store)")
 
 
 #: DEFAULT MAGNITUDE BAND EDGES, metres.  The first edge is the campaign's
@@ -1697,12 +2022,46 @@ def main(argv=None) -> int:
                          "inside a zone / crossing one / unrelated) — the "
                          "reading that says whether the ramp law is "
                          "granting relief where the defects actually are")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="neither read nor write the census cache.  The "
+                         "cache serves a byte-identical report (plus one "
+                         "marker line) when the patch bytes, the sidecar, "
+                         "the law code tree, the law-true knobs, the O4_* "
+                         "environment and the options are all identical; "
+                         "this recomputes regardless")
+    ap.add_argument("--clear-cache", action="store_true",
+                    help=f"delete every stored cache entry (the *.json in "
+                         f"{DEFAULT_CENSUS_CACHE_DIR} or ${CENSUS_CACHE_DIR_ENV}) "
+                         f"and then census normally")
     args = ap.parse_args(argv)
 
     band_edges = (parse_band_edges(args.magnitude_bands)
                   if args.magnitude_bands is not None else None)
 
+    if args.clear_cache:
+        removed, root = cache_clear()
+        print(f"[CENSUS CACHE] cleared {removed} entr"
+              f"{'y' if removed == 1 else 'ies'} from {root}")
+
     cg = load_check_grade()
+    # THE OPTION FRAME the cache keys on: every flag that changes the report
+    # or what gets printed from it.  ``--json`` and ``--quiet`` are absent on
+    # purpose — they move where the same report goes, not what it says —
+    # while the two DUMP flags are present as booleans because their text is
+    # stored with the entry and re-written on a hit.
+    cache_options = {
+        "bare": bool(args.bare),
+        "top": int(args.top),
+        "zone_split": bool(args.zone_split),
+        "band_edges": (list(band_edges) if band_edges is not None else None),
+        "frame": args.frame,
+        "sites": bool(args.sites),
+        "site_visibility": (None if args.site_visibility is None
+                            else float(args.site_visibility)),
+        "rows_json": args.rows_json is not None,
+        "sites_json": args.sites_json is not None,
+    }
+    use_cache = not args.no_cache and cache_enabled()
     reports = []
     multi = len(args.patches) > 1
     for osm in args.patches:
@@ -1717,21 +2076,55 @@ def main(argv=None) -> int:
             return p.with_name(f"{p.stem}.{_osm.stem}{p.suffix}")
         rows_out = _per_patch(args.rows_json)
         sites_out = _per_patch(args.sites_json)
-        try:
-            rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
-                             want_zone_split=args.zone_split,
-                             band_edges=band_edges, frame=args.frame,
-                             rows_out=rows_out, want_sites=args.sites,
-                             site_visibility_m=args.site_visibility,
-                             sites_out=sites_out)
-        except FileNotFoundError as exc:
-            raise SystemExit(
-                f"REFUSING: {exc}\n"
-                f"  A census without the sidecar is the CONTEXT-FREE frame, "
-                f"which overcounts by construction (588 rows vs 0 actionable "
-                f"at KCLT).  If you only want that number for the record, "
-                f"run tools/check_grade.py directly — it says so in its own "
-                f"output.") from None
+
+        # ── THE CACHE (see the file header) ───────────────────────────
+        # A HIT re-prints the stored report and re-writes the stored dump
+        # bytes; the ONLY difference from a fresh run is the marker line
+        # below it.  A MISS does exactly what this tool has always done.
+        key = payload = entry = None
+        if use_cache:
+            payload = cache_key_payload(osm, cg, cache_options)
+            if payload is not None:
+                key = cache_key(payload)
+                entry = cache_load(key)
+        if entry is not None:
+            rep = entry["report"]
+            for out, stored in ((rows_out, entry.get("rows_json")),
+                                (sites_out, entry.get("sites_json"))):
+                if out is not None and stored is not None:
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_text(stored)
+            print(cache_hit_line(entry))
+        else:
+            try:
+                rep = census_one(osm, cg, want_bare=args.bare, top=args.top,
+                                 want_zone_split=args.zone_split,
+                                 band_edges=band_edges, frame=args.frame,
+                                 rows_out=rows_out, want_sites=args.sites,
+                                 site_visibility_m=args.site_visibility,
+                                 sites_out=sites_out)
+            except FileNotFoundError as exc:
+                raise SystemExit(
+                    f"REFUSING: {exc}\n"
+                    f"  A census without the sidecar is the CONTEXT-FREE "
+                    f"frame, which overcounts by construction (588 rows vs 0 "
+                    f"actionable at KCLT).  If you only want that number for "
+                    f"the record, run tools/check_grade.py directly — it says "
+                    f"so in its own output.") from None
+            if key is not None:
+                # The dump TEXT is read back from what ``census_one`` just
+                # wrote rather than re-serialised here: a second serialiser
+                # is a second answer, and the file on disk is the one a hit
+                # has to reproduce.
+                dumps = {}
+                for name, out in (("rows_json", rows_out),
+                                  ("sites_json", sites_out)):
+                    if out is not None:
+                        try:
+                            dumps[name] = out.read_text()
+                        except OSError:            # pragma: no cover
+                            dumps[name] = None
+                cache_store(key, payload, rep, dumps)
         reports.append(rep)
         if not args.quiet:
             print_report(rep, args.top)

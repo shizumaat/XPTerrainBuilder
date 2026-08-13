@@ -124,6 +124,42 @@ retained (mesh 106.3→93.72 class) AND zero airside off-face rows (the
 under staging, the construct itself is the writer — park it again and
 name the write site.
 
+**S5 — object pads in the one solve (owner ruling 2026-08-13, RULINGS
+"OBJECT PADS: ONE SOLVE, NO CONVERGENCE").** The next-build convergence
+design is RETIRED: the perfbake arm measured its §5.2 fixed-point
+promise false (object_pad 689→723→736, sidecar sha still moving after
+run 3), and the owner rules no convergence and no multi-build anything.
+The replacement: per structure, compute the deviation of the object
+base from DEM PRE-SOLVE — the footprint evidence read already runs
+before step 1 and the base elevations are pristine pack data
+(`.anchor_bak` law) — and where the pad seat can reach the object base
+WITHIN THE FEASIBILITY BAND, that adjusted elevation enters the one
+solve as the seat's target (the existing building-seat family; seats
+consume reach_band_unified per the ONE-band law; no new role, no new
+constant — the band itself is the within-reach criterion, which
+subsumes the owner's ~1 m motivating class). An object the band cannot
+reach keeps the existing rigid-reseat (y-bake) path. RETIRES: the
+`o4_object_foot_pads.json` READ-BACK (`config.py` consumer gate region
+~4010, `flat_site.py:587`, `object_pads`' request consumption and
+`emitted`-record persistence); the sidecar may remain a write-only
+audit product of its own build (its pre-consumer posture, which was
+byte-identical builds by construction). Acceptance arms: (a)
+DETERMINISM — a build→build HECA tile pair byte-identical (the
+perfbake arm's criterion 3, now required to PASS; worktree and
+artifacts are still up); (b) PACK PRISTINE — zero `.obj` rewrites for
+every within-band object (run 1 baked 171 today; quote the count
+before/after); (c) THE OWNER'S BUILD-TIME GATE — the in-solve pad path
+must cost no more than the y-bake work it eliminates (`--count` +
+recorded phases, exclusive pair at close; if it costs MORE, the
+feature is not useful — STOP and report, do not land); (d) pads meet
+bases under the unchanged `check_object_pads` law (one-solve
+doctrine); (e) every census delta row-attributed vs frozen. Premise
+with a pre-registered test: the retired design measured seats
+POST-MESH — if attribution shows a mesh-vs-patch residual above
+materiality at real sites (something pre-solve genuinely cannot see),
+quantify it and STOP for the owner; the expectation is it lives under
+`DSF_OBJECT_FOOT_PAD_RESIDUAL_M`.
+
 ## Pre-delegated decisions
 
 - S1 finds a coupling that is emitted GEOMETRY, not a solver variable
@@ -142,9 +178,10 @@ name the write site.
 
 ## Order and acceptance
 
-S1 ∥ S3 first (S2 may start on the profile solve against captures but
-its acceptance arms re-run on S1's merged boundary); S4 strictly after
-S1. Lead-owned consolidated acceptance: one build per baseline airport
+S1 ∥ S3 ∥ S5 first (S2 may start on the profile solve against captures
+but its acceptance arms re-run on S1's merged boundary; S5's seat
+family rides wherever S1's partition puts building seats, so the two
+lanes coordinate on that one interface); S4 strictly after S1. Lead-owned consolidated acceptance: one build per baseline airport
 on the merged tree; every census delta vs frozen 1.0.245 attributed
 row-by-row; disclosed-regression rows (HECA +130 family) must CLOSE,
 not persist. Then the owner in-sim pass judges HECA per the ship

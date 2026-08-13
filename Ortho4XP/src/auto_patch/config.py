@@ -276,6 +276,9 @@ __all__ = [
     "GAP_FILL_INTERIOR_FLOOR_ENABLED",
     "GAP_FILL_INTERIOR_RINGS_ENABLED",
     "OPEN_FRONTAGE_CLOSE_M",
+    "GAP_FILL_RIM_POCKETS_ENABLED",
+    "GAP_FILL_RIM_POCKET_GRADED_FRACTION",
+    "RIM_PRESOLVE_ABSORB",
     "ONE_SOLVE_TERRAIN",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA",
@@ -5512,6 +5515,57 @@ ADJACENT_GROUND_CUT_HALF_CORRIDOR_ENABLED = (
 # GAP_FILL_MAX_WIDTH_M across is detected; wider regions are legitimately
 # ungoverned terrain and stay with the corridor-band / daylight law.
 OPEN_FRONTAGE_CLOSE_M = GAP_FILL_MAX_WIDTH_M / 2.0
+
+# ── EXCAVATION-RIM POCKETS (owner/Fable ruling 2026-08-12b, ruling 3) ──
+# "A coverage hole whose boundary is >= 75 % graded features (apron /
+# roads / junctions / groundside pavement / pads) is ENCLOSED for
+# gap-fill purposes even with an open segment."
+#
+# The measured site: HECA's knoll at 30.1136676,31.4086362 — a ~1,000 m2
+# coverage hole at the rim of an apron excavated ~13 m below natural
+# grade, bounded by apron E/S, groundside W, service road/junction +
+# building pad N and OPEN to the SW.  It is inside both gap-fill floors
+# (min 100 m2, max width 175 m) and was refused by ONE test: it is not an
+# interior ring of the airside union, so it was never a candidate at all
+# (measured: no `[gap-fill] candidate` line within 40 m of it in either
+# arm).  R19-2 closed the ENCLOSED-hole case; this is the open-boundary
+# one, and a pocket whose rim is graded on three sides drains to those
+# features exactly as an enclosed one does.
+#
+# THE FRACTION IS THE LAW.  Below it the region is open terrain that the
+# corridor-band / daylight law owns; at or above it the ground is
+# surrounded by graded features that already fix its rim values.
+GAP_FILL_RIM_POCKET_GRADED_FRACTION = 0.75
+# DEFAULT OFF (owner/Fable ruling 2026-08-12b, after the HECA closing
+# read).  The detector, the width law and the post-solve-only posture all
+# stay landed and twinned, but the feature does not SHIP on: at HECA the
+# new default minted 1,330 new airside within_shape rows of which 1,238
+# are OFF-FACE (median 63 m, worst 140-207 m out at up to 11.31 m
+# apron|apron, +253 airside / +241 airside_for_acceptance) -- a THIRD
+# channel by which rim pockets move airside pavement, distinct from the
+# stage-B2 absorption the post-solve-only default closed at OTHH and ~30x
+# its scale.  Attributing that channel, and re-enabling this gate, belong
+# to the staged-solve design round.
+GAP_FILL_RIM_POCKETS_ENABLED = (
+    _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "0") == "1")
+
+# RIM POCKETS GRADE POST-SOLVE ONLY (owner/Fable ruling 2026-08-12b,
+# after the OTHH interventional pair).  A rim pocket's drainage spine is
+# EMITTED like any other, but its vertices are NOT admitted to the one
+# solve as free variables: measured at OTHH, absorbing them moved AIRSIDE
+# apron values on rings byte-identical between arms, 98.90-135.68 m from
+# the nearest pocket — groundside geometry pulling airside, against
+# "airside solves first, groundside conforms".
+#
+# THE MEASUREMENT (OTHH --patch-only, one tree, single variable):
+#   rim off .................. within_shape 148, airside 29, cluster 23
+#   rim on, absorption ON .... within_shape 167, airside 47, cluster 41
+#   rim on, absorption OFF ... within_shape 129, airside  9, cluster  6
+# Post-solve-only is better than BOTH — it is the default, and the gate
+# exists so the staged-solve design round can restore absorption
+# deliberately.
+RIM_PRESOLVE_ABSORB = (
+    _os.environ.get("O4_RIM_PRESOLVE_ABSORB", "0") == "1")
 
 # ── SLICE B — solver absorption of terrain roles (staged) ──────────────
 # docs/slice_b_solver_absorption_design.md, Stage B0.  The absorption moves

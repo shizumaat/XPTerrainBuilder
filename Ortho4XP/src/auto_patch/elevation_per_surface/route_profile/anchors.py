@@ -4311,8 +4311,11 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     # family forms and building114 DOES adopt 85.59 here, and the LATE
     # final grade projection (``pipeline.py``, ``O4_FINAL_PROJECTION_LATE``)
     # re-stamps 88.5 over it afterwards.  Off ⇒ zero cost.
+    # ``*`` reports EVERY group (the attribution reading: which door the
+    # groups that did not adopt left by), a ref list reports those refs.
     _dbg = {r for r in _os.environ.get("O4_PAD_FAMILY_DEBUG", "").split(",")
             if r}
+    _dbg_all = "*" in _dbg
 
     def _dbg_line(msg):
         try:
@@ -4363,11 +4366,22 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         adopt_delta = trigger
 
     n_relevelled = 0
+    # THE PASS'S OWN CENSUS (2026-08-12).  Every group leaves this loop
+    # through exactly one of these counters, so "0 pads adopted" is
+    # ATTRIBUTED by the build that produced it instead of being inferred
+    # from the emitted patch afterwards — the reading that cost this law
+    # a whole round when 0 of 139 HECA object pads adopted and nothing in
+    # the log said which door they left by.
+    _cen = {"groups": len(groups), "no_level": 0, "no_seeds": 0,
+            "refused": 0, "within": 0, "adopted": 0}
+    _worst = 0.0
     for (s, group) in groups:
         if s.polygon is None or s.polygon.is_empty:
+            _cen["no_level"] += 1
             continue
         cur = _building_flat_level(s)
         if cur is None:
+            _cen["no_level"] += 1
             continue
         ring = []
         for g in group:
@@ -4382,6 +4396,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             except (ValueError, TypeError):
                 continue
         if not ring:
+            _cen["no_level"] += 1
             continue
         # Host pavement nodes within reach of the pad ring.  The pad ring and
         # the host share a boundary, and after the post-solve welds/decimation
@@ -4436,7 +4451,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         members = _level_family_members(
             group, pad_by_id, host_rings, host_areas, host_lip,
             pad_lips_by_ring, trigger, lift_r2)
-        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+        if _dbg_all or (_dbg and (getattr(s, "ref", None) or "") in _dbg):
             _own = {id(g) for g in group}
             _seeds = [(rid, i)
                       for rid, verts in pad_lips_by_ring.items()
@@ -4447,6 +4462,7 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             _dbg_line(f"[padfam] {s.ref} cur={cur:.2f} seeds={_seeds[:8]} "
                       f"n_seeds={len(_seeds)} members={_mm}")
         if members is None:
+            _cen["no_seeds"] += 1
             continue
         coalition, _outliers, refusal = _AGREEING_COALITION(
             members, _COALITION_WINDOW_M,
@@ -4456,15 +4472,17 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
             # the side carrying the host's own ground wins.
             tiebreak_of=lambda entry: (entry["weight"]
                                        if entry["kind"] == "host" else 0.0))
-        if _dbg and (getattr(s, "ref", None) or "") in _dbg:
+        if _dbg_all or (_dbg and (getattr(s, "ref", None) or "") in _dbg):
             _dbg_line(f"[padfam] {s.ref} coalition="
                       f"{[round(e['delta_m'], 2) for e in coalition][:8]} "
                       f"refusal={refusal} adopt_delta={adopt_delta}")
         if refusal is not None or not coalition:
+            _cen["refused"] += 1
             continue      # genuine ambiguity — the pad stays put
         level = _median_of([e["delta_m"] for e in coalition])
         body_vals = [level] if abs(level - cur) > adopt_delta else []
         if not body_vals:                     # agrees with host / not adjacent
+            _cen["within"] += 1
             continue
         body_vals.sort()
         m = len(body_vals)
@@ -4495,6 +4513,8 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
                 if g.altitude_low is not None:
                     g.altitude_low = round(float(g.altitude_low) + delta, 2)
             n_relevelled += 1
+            _cen["adopted"] += 1
+            _worst = max(_worst, abs(delta))
             continue
         # (1) The pad seats FLAT at the host body level.
         s.altitude = new_level
@@ -4507,6 +4527,8 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
         s.altitude_high = None
         s.altitude_low = None
         n_relevelled += 1
+        _cen["adopted"] += 1
+        _worst = max(_worst, abs(new_level - cur))
         # (2) Un-contaminate the host's SHARED boundary lip: every host ring
         # vertex within reach of the pad ring that still carries the pad's old
         # pit value is a shared-boundary node dragged down by the old DEM seat.
@@ -4549,4 +4571,13 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
                     h.node_altitudes = base + [base[0]]
                     hna = h.node_altitudes
                     h.altitude = None
+    if _cen["groups"]:
+        _dbg_line(
+            f"[pav-builder] pad-host level census "
+            f"({'object_pad' if object_pads else 'building'}): "
+            f"{_cen['groups']} group(s) — {_cen['adopted']} adopted "
+            f"(worst |delta| {_worst:.2f} m), {_cen['within']} within "
+            f"{adopt_delta:.2f} m of the host, {_cen['refused']} no "
+            f"agreeing coalition, {_cen['no_seeds']} no family (the pad "
+            f"welds to no host ring), {_cen['no_level']} no level.")
     return n_relevelled

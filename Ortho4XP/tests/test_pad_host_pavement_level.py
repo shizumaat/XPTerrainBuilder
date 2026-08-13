@@ -694,6 +694,146 @@ def test_rings_further_apart_than_the_weld_tolerance_never_family(
     assert small.altitude == pytest.approx(WELD_PAD, abs=0.01)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE OBJECT-PAD PRODUCTION CLASS — THE BLEND CARRIES THE WELD
+# ══════════════════════════════════════════════════════════════════════
+#
+# THE REPRO (heca-object-pad-seating-spec, ruling 1).  An object pad is a
+# REQUEST — a flat core plus the blend plates that ramp it out — and it is
+# the BLEND, never the core, that reaches the host apron: at HECA
+# object_pad:80 the core's nearest apron vertex is 15 m away while two
+# BLEND vertices sit ON an apron edge (measured 0.000001 m perpendicular
+# on the owner's artifact, welded into apron -10629 between its 93.67 and
+# 93.45 body nodes as 106.05 / 106.12).  So the family's seeds must come
+# through the blend plate's ring, at the weld's own tolerance, with the
+# apron carrying NO vertex of the pad's anywhere.
+#
+# Numbers are the site's: core 105.51 (its sidecar target to the
+# centibyte), host body 93.45/93.67, an 11.95 m disagreement — five times
+# ``DSF_OBJECT_PAD_MAX_RELIEF_M``.
+
+BLEND_HOST = 93.45                 # apron -10629's solved body level
+BLEND_TARGET = 105.51              # object_pad:80's emitted target
+
+
+def _blend_carried_group(y0=0.0, target=BLEND_TARGET):
+    """The HECA object_pad:80 shape: a core held OFF the host edge by its
+    blend ring, and a blend plate whose bottom edge lies ON that edge
+    while sharing no vertex with it.
+
+    The core is 4 m up from the host edge (its own nearest host vertex is
+    hundreds of metres away on the coarse ring), so nothing of the CORE
+    can seed the family — only the blend's two bottom corners, which the
+    final weld will insert into the host's long edge."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    core = BuiltShape(
+        polygon=Polygon([(20.0, y0 + 4.0), (28.0, y0 + 4.0),
+                         (28.0, y0 + 12.0), (20.0, y0 + 12.0)]),
+        role=ROLE_OBJECT_PAD, ref="object_pad:80",
+        node_altitudes=[target] * 5)
+    # The blend ramps the core out to DEM and reaches the pavement: its
+    # bottom edge runs ALONG the host's top edge (y = y0).
+    blend = BuiltShape(
+        polygon=Polygon([(18.0, y0), (30.0, y0), (30.0, y0 + 14.0),
+                         (18.0, y0 + 14.0)]),
+        role=ROLE_OBJECT_PAD, ref="object_pad_blend:80",
+        node_altitudes=[target + 0.54, target + 0.61,
+                        target + 0.49, target + 0.51,
+                        target + 0.54])
+    return core, blend
+
+
+def _pad_group_premises(core, blend, apron):
+    """The premises that keep the repro from going vacuous: no shared
+    vertex anywhere, and the CORE out of reach of every host vertex."""
+    from auto_patch.config import PAD_HOST_LEVEL_CONTACT_M
+    hset = {(round(x, 9), round(y, 9))
+            for (x, y) in apron.polygon.exterior.coords}
+    for p in (core, blend):
+        assert not hset & {(round(x, 9), round(y, 9))
+                           for (x, y) in p.polygon.exterior.coords}, (
+            "the fixture shares a vertex with the host — the pre-weld "
+            "frame it reproduces has none")
+    assert (_nearest_host_vertex_m(core, apron)
+            > float(PAD_HOST_LEVEL_CONTACT_M)), (
+        "the CORE must be out of contact reach — the blend carries the "
+        "weld at this site")
+
+
+def test_a_blend_carried_weld_seeds_the_object_pad_family(monkeypatch):
+    """THE REPRO/TWIN (ruling 1).  The pad↔host weld exists only on the
+    BLEND plate's ring; the family must see it and the whole request must
+    adopt the host level — core and blend by ONE delta."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _coarse_host(level=BLEND_HOST)
+    core, blend = _blend_carried_group()
+    layout = _FakeLayout([apron, core, blend])
+    _pad_group_premises(core, blend, apron)
+
+    n = relevel_pads_to_host_pavement(layout, pad_role=ROLE_OBJECT_PAD)
+    assert n == 1, (
+        "the blend's bottom corners weld into the host edge — the family "
+        "is there to be read, and 0-of-139 at HECA is what missing it "
+        "costs")
+    assert core.node_altitudes[0] == pytest.approx(BLEND_HOST, abs=0.01)
+    # PAD + BLEND move by ONE delta (the ramp the blend was built with).
+    delta = BLEND_HOST - BLEND_TARGET
+    assert blend.node_altitudes[0] == pytest.approx(
+        BLEND_TARGET + 0.54 + delta, abs=0.01)
+    # The host BODY is untouched.
+    assert all(v == pytest.approx(BLEND_HOST, abs=0.001)
+               for v in apron.node_altitudes)
+
+
+def test_the_object_pad_adoption_is_not_relief_capped(monkeypatch):
+    """RULING 2: agreeing-host adoption is NOT relief-capped.  The move
+    here is 11.95 m — five times ``DSF_OBJECT_PAD_MAX_RELIEF_M`` (3.0),
+    which governs DEM-relief-derived moves — and the pad adopts the host
+    level FULLY, because a coalition of agreeing HOST members is the
+    safety rather than a magnitude cap."""
+    from auto_patch.config import DSF_OBJECT_PAD_MAX_RELIEF_M
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _coarse_host(level=BLEND_HOST)
+    core, blend = _blend_carried_group()
+    layout = _FakeLayout([apron, core, blend])
+    move = abs(BLEND_TARGET - BLEND_HOST)
+    assert move > 3.0 * float(DSF_OBJECT_PAD_MAX_RELIEF_M), (
+        "premise: the site's disagreement must be far past the relief cap")
+
+    assert relevel_pads_to_host_pavement(
+        layout, pad_role=ROLE_OBJECT_PAD) == 1
+    assert core.node_altitudes[0] == pytest.approx(BLEND_HOST, abs=0.01), (
+        f"the pad landed short of its host by "
+        f"{abs(core.node_altitudes[0] - BLEND_HOST):.2f} m — the relief "
+        f"cap is scoped to DEM moves, it never clips an agreeing-host "
+        f"adoption")
+
+
+def test_a_lone_non_agreeing_host_member_still_refuses(monkeypatch):
+    """RULING 2's other half: the safety that REPLACES the magnitude cap
+    is the AGREEING coalition, and it still refuses.  Here the host
+    carries a solved value at ONE vertex of the family's span, so the
+    family is {core 105.51, blend 106.05, host 93.45} — three members, no
+    two within the coalition window.  Nothing is corroborated and the pad
+    keeps its own target, at any size of disagreement."""
+    from auto_patch.layout import ROLE_OBJECT_PAD
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _coarse_host(level=BLEND_HOST)
+    # One valued vertex on the ring (the closing repeat carries the same
+    # value); the rest of the host's own body has no solved value here.
+    apron.node_altitudes = [BLEND_HOST, None, None, None, BLEND_HOST]
+    core, blend = _blend_carried_group()
+    layout = _FakeLayout([apron, core, blend])
+
+    assert relevel_pads_to_host_pavement(
+        layout, pad_role=ROLE_OBJECT_PAD) == 0, (
+        "one uncorroborated host member seated a 12 m move — the "
+        "coalition refusal is the safety the relief cap no longer is")
+    assert core.node_altitudes[0] == pytest.approx(BLEND_TARGET, abs=0.01)
+
+
 def test_the_pad_law_re_asserts_after_the_late_projection():
     """AUTHORSHIP ORDER, structural (task #16 amendment 1).
 

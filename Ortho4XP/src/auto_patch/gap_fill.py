@@ -67,6 +67,9 @@ from .config import (
     GAP_FILL_INTERIOR_RINGS_ENABLED,
     GAP_FILL_MAX_WIDTH_M,
     GAP_FILL_MIN_AREA_M2,
+    GAP_FILL_RIM_POCKET_GRADED_FRACTION,
+    GAP_FILL_RIM_POCKETS_ENABLED,
+    RIM_PRESOLVE_ABSORB,
     GAP_FILL_SPINE_ENABLED,
     GAP_FILL_SPINE_STEP_M,
     OPEN_FRONTAGE_CLOSE_M,
@@ -519,9 +522,28 @@ def _subdivide_enclosed_face(layout, face_poly, chain_keys):
     return faces
 
 
+def _region_is_everywhere_narrower(poly, width_m) -> bool:
+    """TRUE WIDTH: no point of ``poly`` is more than ``width_m`` / 2 from
+    its boundary (an erosion by the half-width leaves nothing).
+
+    The MRR short side — the enclosed law's gate — measures the smallest
+    ENCLOSING rectangle, which over-reports a CURVED region badly: HECA's
+    excavation-rim pocket at the owner's knoll is nowhere wider than
+    ~60 m (it erodes to nothing at 30 m) and yet its min-rotated-rect
+    short side reads 399 m, because the sliver wraps the apron rim.  The
+    ruling-3 pockets are rim-following by construction, so they are gated
+    on this instead — and ONLY they are: the enclosed holes keep the MRR
+    gate they were measured under.
+    """
+    try:
+        return poly.buffer(-0.5 * float(width_m)).is_empty
+    except _GEOM_EXC:                                  # pragma: no cover
+        return False
+
+
 def _grade_face(layout, airside, face_poly, step, registry,
                 dem=None, tile_lat=None, tile_lon=None,
-                rw_axes=None) -> int:
+                rw_axes=None, width_rule=None) -> int:
     """Area/width-gate ONE gradeable face (a whole enclosed gap, or a
     pad-residual part) and emit its drainage spine.  Logs the candidate
     and any lawful width/area skip.  Returns the emitted face count.
@@ -546,6 +568,20 @@ def _grade_face(layout, airside, face_poly, step, registry,
                  f"{face_poly.area:.0f} m2 short="
                  f"{short_side:.0f} centroid=({_c.x:.0f},{_c.y:.0f})")
     if short_side > GAP_FILL_MAX_WIDTH_M:
+        # A caller with its own width law (ruling 3's rim pockets, whose
+        # curved slivers the MRR over-reports) is consulted before the
+        # skip. It never reaches the collar branch either way: the collar
+        # is the ENCLOSED width-skip class, selected structurally.
+        if width_rule is not None:
+            if width_rule(face_poly):
+                return _emit_one_gap(layout, airside, face_poly, long_dir,
+                                     long_len, step, registry, dem=dem,
+                                     tile_lat=tile_lat, tile_lon=tile_lon,
+                                     rw_axes=rw_axes)
+            UI.vprint(1, f"  [rim-pocket] skipped pocket (wider than "
+                         f"{GAP_FILL_MAX_WIDTH_M:.0f} m by its own width "
+                         f"law) area={face_poly.area:.0f} m2")
+            return 0
         UI.vprint(1, f"  [gap-fill] skipped gap (width "
                      f"{short_side:.0f} > {GAP_FILL_MAX_WIDTH_M:.0f})"
                      f" area={face_poly.area:.0f} m2")
@@ -1883,20 +1919,47 @@ def _corridor_verbatim_face(corridor_poly, airside, registry, air_ext,
         flanking kept vertices is the straight mouth closure.
 
     Returns ``(face_poly, ring_coords, ring_alts)`` or None."""
-    ring = _open_coords(corridor_poly)
+    return _verbatim_boundary_face(
+        corridor_poly, air_ext, ring_verts, registry,
+        foot_value=lambda vx, vy: _nearest_pav_alt(airside, vx, vy,
+                                                   max_distance_m=5.0))
+
+
+def _verbatim_boundary_face(region_poly, exteriors, ring_verts, registry,
+                            foot_value=None):
+    """THE VERBATIM-FACE CORE — one implementation, two callers.
+
+    Rebuilds ``region_poly``'s ring so its FEATURE-facing boundary is a
+    verbatim subsequence of the bounding features' own ring vertices and
+    its open segments become straight closures between two real vertices
+    (the classification the open-corridor law rules, above).  The caller
+    supplies WHICH features bound the region: ``exteriors`` (their ring
+    exteriors), ``ring_verts`` (their ring vertices) and ``registry``
+    (vertex key → value; membership is the verbatim test).
+
+    ``registry`` may be a bare KEY SET when the caller wants geometry
+    only.  ``foot_value`` values an on-edge FOOT the snap could not pull
+    onto a ring vertex; ``None`` (the value-free caller — the ruling-3
+    pocket detector, which must run identically pre- and post-solve)
+    keeps the foot with no value.  Returns ``(face_poly, ring, alts)``;
+    ``alts`` is ``None`` when no value source was given.
+    """
+    _value_at = (registry.get if hasattr(registry, "get")
+                 else (lambda _k: None))
+    ring = _open_coords(region_poly)
     if len(ring) < 3:
         return None
     new_ring: list[tuple[float, float]] = []
-    alts: list[float] = []
+    alts: list = []
     for vx, vy in ring:
         k = _key(vx, vy)
         if k in registry:
             new_ring.append((vx, vy))
-            alts.append(registry[k])        # boundary vertex, verbatim
+            alts.append(_value_at(k))       # boundary vertex, verbatim
             continue
         pt = Point(vx, vy)
         d_pav = None
-        for ext in air_ext:
+        for ext in exteriors:
             try:
                 d = ext.distance(pt)
             except _GEOM_EXC:
@@ -1916,14 +1979,14 @@ def _corridor_verbatim_face(corridor_poly, airside, registry, air_ext,
                 rk = _key(best_v[0], best_v[1])
                 if rk in registry:
                     new_ring.append((best_v[0], best_v[1]))
-                    alts.append(registry[rk])
+                    alts.append(_value_at(rk))
                     continue
             # Fallback: keep the colinear on-edge foot (an exact T-vertex,
             # the survivable class — never a near-parallel lens).
-            e = _nearest_pav_alt(airside, vx, vy, max_distance_m=5.0)
-            if e is not None:
+            e = foot_value(vx, vy) if foot_value is not None else None
+            if e is not None or foot_value is None:
                 new_ring.append((vx, vy))
-                alts.append(float(e))
+                alts.append(None if e is None else float(e))
                 continue
         # FAR non-verbatim: an end-closure / true-outer-edge vertex — drop
         # it (the flanking kept vertices close the mouth with a straight
@@ -1932,7 +1995,7 @@ def _corridor_verbatim_face(corridor_poly, airside, registry, air_ext,
     # De-duplicate consecutive coincident kept vertices (the extension can
     # pull two adjacent transition points onto the same ring vertex).
     dr: list[tuple[float, float]] = []
-    da: list[float] = []
+    da: list = []
     for (x, y), a in zip(new_ring, alts):
         if not dr or math.hypot(x - dr[-1][0], y - dr[-1][1]) > 1e-6:
             dr.append((x, y))
@@ -1945,7 +2008,7 @@ def _corridor_verbatim_face(corridor_poly, airside, registry, air_ext,
         return None
     if face_poly.is_empty or not face_poly.is_valid:
         return None
-    return face_poly, dr, da
+    return face_poly, dr, (None if foot_value is None else da)
 
 
 def _emit_open_corridor(layout, airside, face_poly, ring, alts,
@@ -2357,6 +2420,242 @@ def _gap_detection_polys(layout, airside):
     return gaps
 
 
+# ══════════════════════════════════════════════════════════════════════
+# RULING 3 (Fable 2026-08-12b) — EXCAVATION-RIM POCKETS
+# ══════════════════════════════════════════════════════════════════════
+#
+# "A coverage hole whose boundary is >= 75 % graded features (apron /
+# roads / junctions / groundside pavement / pads) is ENCLOSED for
+# gap-fill purposes even with an open segment — extend R19-2's
+# subdivision to this case."
+#
+# WHY IT IS A SEPARATE DETECTOR AND NOT A WIDER ``_gap_detection_polys``.
+# That function's holes are also the ENCLAVE law's regions
+# (``enclaves.compute_gap_law_regions``), where "interior ring of the
+# airside union" is the published meaning and widening it would stand
+# adjacent-ground bands down over ground the enclave law never claimed
+# (its own docstring measures that regression at 152,734 m2).  So the
+# rim pockets are their own list, and the THREE GAP PASSES — pre-solve
+# construction, the spine emitter and the pit floor — each append it to
+# their candidates through this one function.  Parity is by construction:
+# same code, same inputs, at every pass.
+
+#: The roles whose boundary counts as GRADED for the rim test — the
+#: ruling's own list.  Airside comes from ``_airside_shapes``; these are
+#: the rest.  Object pads are NOT here: a pad is terrain the pad law
+#: itself values (and at the measured site it is what the pocket is being
+#: graded FOR), so it bounds nothing.
+_RIM_POCKET_EXTRA_ROLES = None       # bound lazily (import cycle-free)
+
+
+def _rim_pocket_extra_roles():
+    global _RIM_POCKET_EXTRA_ROLES
+    if _RIM_POCKET_EXTRA_ROLES is None:
+        from .layout import (ROLE_BUILDING, ROLE_GROUNDSIDE_PAVEMENT,
+                             ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD)
+        _RIM_POCKET_EXTRA_ROLES = frozenset({
+            ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD,
+            ROLE_SERVICE_JUNCTION, ROLE_BUILDING})
+    return _RIM_POCKET_EXTRA_ROLES
+
+
+#: A pocket-boundary segment this close to the graded union's boundary IS
+#: that boundary.  The difference against the union is coordinate-exact on
+#: every feature-facing side (GEOS does not perturb the union there), so
+#: this only has to survive the closing's own rounding.
+_RIM_POCKET_BOUNDARY_TOL_M = 0.05
+
+
+def _rim_pocket_bounding_shapes(layout, airside):
+    """The graded features a rim pocket may be bounded by: the airside
+    union plus the ruling's groundside/road/junction/pad classes."""
+    extra = _rim_pocket_extra_roles()
+    out = list(airside)
+    seen = {id(s) for s in airside}
+    for s in layout.shapes:
+        if id(s) in seen or s.role not in extra:
+            continue
+        p = getattr(s, "polygon", None)
+        if p is None or p.is_empty or p.geom_type != "Polygon":
+            continue
+        out.append(s)
+    return out
+
+
+def _graded_rim(poly, graded_union) -> tuple:
+    """``(graded_fraction, open_runs)`` for ``poly``'s exterior against
+    ``graded_union``'s boundary.
+
+    ``graded_fraction`` is the ruling's own measure: the share of the
+    exterior LENGTH that runs along a graded feature.  A segment counts by
+    its midpoint — the closing mints no partial segments, since a side is
+    either the union's own boundary (kept coordinate-exact by the
+    difference) or a buffered end cap well clear of it.
+
+    ``open_runs`` counts the CONTIGUOUS non-graded arcs, circularly.  A
+    RECESS — the excavation-rim pocket this law is for — has exactly one:
+    the owner's knoll is "OPEN to the SW" and graded on every other side.
+    Two or more open runs is a through CHANNEL between facing pavements,
+    which is the open-frontage corridor pilot's subject
+    (``O4_OPEN_FRONTAGE_SPINE``, default OFF pending the owner's in-sim
+    review) — this law does not admit those through the back door.
+    """
+    try:
+        boundary = graded_union.boundary
+        ring = list(poly.exterior.coords)
+    except _GEOM_EXC:
+        return 0.0, 0
+    total = 0.0
+    graded = 0.0
+    flags: list[bool] = []
+    for (ax, ay), (bx, by) in zip(ring, ring[1:]):
+        seg = math.hypot(bx - ax, by - ay)
+        if seg <= 0.0:
+            continue
+        total += seg
+        on_rim = False
+        try:
+            on_rim = boundary.distance(
+                Point(0.5 * (ax + bx), 0.5 * (ay + by))
+            ) <= _RIM_POCKET_BOUNDARY_TOL_M
+        except _GEOM_EXC:
+            on_rim = False
+        if on_rim:
+            graded += seg
+        flags.append(on_rim)
+    if total <= 0.0 or not flags:
+        return 0.0, 0
+    runs = sum(1 for i, f in enumerate(flags)
+               if not f and flags[i - 1])       # circular: i-1 wraps
+    if runs == 0 and not any(flags):
+        runs = 1                                # wholly open
+    return graded / total, runs
+
+
+def _rim_pocket_polys(layout, airside, enclosed=()):
+    """RULING 3's candidate regions: the open-boundary pockets whose rim
+    is >= ``GAP_FILL_RIM_POCKET_GRADED_FRACTION`` graded feature.
+
+    PURE (no mutation, no values), so the pre-solve construction, the
+    spine emitter and the pit floor all call it and see the same regions
+    at their own stage.  ``enclosed`` is the interior-ring candidate list
+    from ``_gap_detection_polys``: those holes belong to that path and are
+    subtracted here, exactly as the open-corridor detector subtracts them.
+
+    Each admitted pocket is returned as a VERBATIM face — feature-facing
+    boundary is the features' own ring vertices, the open segment a
+    straight closure between two of them (``_verbatim_boundary_face``, the
+    open-corridor law's own classification) — so nothing downstream mints
+    a node on a graded edge.
+    """
+    if not GAP_FILL_RIM_POCKETS_ENABLED:
+        return []
+    bounds = _rim_pocket_bounding_shapes(layout, airside)
+    if len(bounds) < 2:
+        return []
+    try:
+        union = unary_union([s.polygon for s in bounds])
+    except _GEOM_EXC:
+        return []
+    if union.is_empty:
+        return []
+    subtract = None
+    if enclosed:
+        try:
+            subtract = unary_union(list(enclosed))
+        except _GEOM_EXC:
+            subtract = None
+    pockets = _detect_open_corridors(union, OPEN_FRONTAGE_CLOSE_M, subtract)
+    if not pockets:
+        return []
+    exteriors = []
+    ring_verts: list[tuple[float, float]] = []
+    keys: set[tuple[int, int]] = set()
+    for s in bounds:
+        try:
+            ext = s.polygon.exterior
+        except _GEOM_EXC:
+            continue
+        exteriors.append(ext)
+        for vx, vy in ext.coords[:-1]:
+            ring_verts.append((float(vx), float(vy)))
+            keys.add(_key(vx, vy))
+    out: list = []
+    for pocket in pockets:
+        if pocket.is_empty or pocket.area < GAP_FILL_MIN_AREA_M2:
+            continue
+        _c = pocket.centroid
+        frac, open_runs = _graded_rim(pocket, union)
+        if frac < GAP_FILL_RIM_POCKET_GRADED_FRACTION:
+            UI.vprint(1, f"  [rim-pocket] skipped region (rim "
+                         f"{frac * 100:.0f} % graded < "
+                         f"{GAP_FILL_RIM_POCKET_GRADED_FRACTION * 100:.0f} "
+                         f"%) area={pocket.area:.0f} m2 "
+                         f"centroid=({_c.x:.0f},{_c.y:.0f})")
+            continue
+        if open_runs > 1:
+            # A through channel between facing pavements, not a recess —
+            # the open-frontage corridor pilot's subject, and its gate is
+            # the owner's to flip.
+            UI.vprint(1, f"  [rim-pocket] skipped region ({open_runs} open "
+                         f"runs — a through channel, not an excavation "
+                         f"rim; the open-frontage corridor law owns it) "
+                         f"area={pocket.area:.0f} m2 "
+                         f"centroid=({_c.x:.0f},{_c.y:.0f})")
+            continue
+        built = _verbatim_boundary_face(pocket, exteriors, ring_verts, keys)
+        if built is None:
+            UI.vprint(1, f"  [rim-pocket] skipped region (non-verbatim / "
+                         f"degenerate face) area={pocket.area:.0f} m2 "
+                         f"centroid=({_c.x:.0f},{_c.y:.0f})")
+            continue
+        # TRIM BACK TO THE POCKET.  The verbatim rebuild extends a mouth
+        # vertex to the nearest bounding RING VERTEX (the pavement-node
+        # rule, up to the closing radius), and on a recess that extension
+        # can reach around a corner and lap the very feature it followed
+        # — which the enclosed loop then reads as a foreign shape INSIDE
+        # the region and vetoes (measured on the fixture: a 25,400 m²
+        # face over its own 4,200 m² service road).  Differencing against
+        # the graded union restores the features' own boundary
+        # coordinate-exactly and leaves the straight mouth chord, so the
+        # face is chain-identical AND cannot overlap its own rim.
+        try:
+            trimmed = built[0].difference(union)
+        except _GEOM_EXC:
+            continue
+        parts = _poly_parts(trimmed)
+        if not parts:
+            continue
+        face = max(parts, key=lambda g: g.area)
+        if face.area < GAP_FILL_MIN_AREA_M2:
+            continue
+        UI.vprint(1, f"  [rim-pocket] excavation-rim pocket admitted (rim "
+                     f"{frac * 100:.0f} % graded) area={face.area:.0f} m2 "
+                     f"centroid=({face.centroid.x:.0f},"
+                     f"{face.centroid.y:.0f})")
+        out.append(face)
+    return out
+
+
+def _rim_pocket_width_rule(poly) -> bool:
+    """Ruling 3's own width law — see
+    ``_region_is_everywhere_narrower``."""
+    return _region_is_everywhere_narrower(poly, GAP_FILL_MAX_WIDTH_M)
+
+
+def _gap_candidate_polys(layout, airside):
+    """THE GAP LAW'S CANDIDATE REGIONS — enclosed holes (R19-2's own
+    detector) PLUS ruling 3's excavation-rim pockets.  The three gap
+    passes call THIS, so a region is seen by all of them or by none.
+
+    Returns ``(candidates, rim_ids)``: ``rim_ids`` are the ``id()``s of
+    the rim-pocket entries, which carry their own width law downstream
+    (and never the enclosed width-skip's collar treatment)."""
+    enclosed = _gap_detection_polys(layout, airside)
+    rim = _rim_pocket_polys(layout, airside, enclosed)
+    return enclosed + rim, {id(p) for p in rim}
+
+
 def _enclave_treatable(layout, poly):
     """The published enclave whose interior ``poly`` is AND whose ground
     the ruled treatment can actually take, or ``None`` — the gate on the
@@ -2527,7 +2826,25 @@ def construct_gap_fill_presolve(layout) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    gap_candidates = _gap_detection_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
+    # ── RIM POCKETS GRADE POST-SOLVE ONLY (ruling 2026-08-12b) ─────────
+    # Their spines are EMITTED like any other gap's; their vertices are
+    # not admitted to the one solve.  Measured at OTHH on one tree with
+    # this as the only variable: absorbing them moved AIRSIDE apron
+    # values (within_shape airside 29 → 47, the 41-row cluster on aprons
+    # -10270/-10271/-10273 at 98.90-135.68 m from any rim face) on rings
+    # byte-identical between arms; withheld, the same build reads airside
+    # 9 and cluster 6 — better than the rim-pockets-off baseline itself
+    # (29/23).  Groundside spine variables pulling airside is the
+    # "airside solves first, groundside conforms" violation, and the
+    # staged-solve design round owns the general fix.
+    # ``O4_RIM_PRESOLVE_ABSORB=1`` restores absorption for that round.
+    if rim_ids and not RIM_PRESOLVE_ABSORB:
+        gap_candidates = [g for g in gap_candidates if id(g) not in rim_ids]
+        UI.vprint(1, f"  [rim-pocket] {len(rim_ids)} rim pocket(s) graded "
+                     f"POST-SOLVE only (not admitted to the one solve) — "
+                     f"emission unchanged.")
+        rim_ids = set()
     if not gap_candidates:
         return 0
     pads, skirts = _gap_parents(layout)
@@ -2613,7 +2930,13 @@ def construct_gap_fill_presolve(layout) -> int:
                 if axes is None or axes[1] is None:
                     continue
                 short_side, long_dir, long_len = axes
-                if short_side > GAP_FILL_MAX_WIDTH_M:
+                if short_side > GAP_FILL_MAX_WIDTH_M and not (
+                        id(gap_poly) in rim_ids
+                        and _rim_pocket_width_rule(face_poly)):
+                    # Ruling 3: a rim pocket is gated on its own width
+                    # law here too, so the pre-solve spine EXISTS for the
+                    # regions the emitter will grade (parity — otherwise
+                    # every rim pocket emits on the analytic fallback).
                     continue
                 spine = _build_spine(face_poly, long_dir, long_len, step)
                 if spine is None:
@@ -2688,7 +3011,7 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
         return 0
     # NO early return on an empty candidate list: the open-frontage
     # pilot below runs on corridor geometry, not holes.
-    gap_candidates = _gap_detection_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
 
     # WELD-VALUE registry (mm key): every airside ring vertex → its solved
     # value, so a gap-ring vertex (which IS a pavement ring vertex) emits
@@ -2989,11 +3312,15 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                     _parent_residual_faces(_body, parents, chain_keys)
                     if parents else [_body])
             n_faces = 0
+            # RULING 3: a rim pocket carries its own width law (the MRR
+            # over-reports a rim-following sliver) and never the collar.
+            _wrule = (_rim_pocket_width_rule
+                      if id(gap_poly) in rim_ids else None)
             for face_poly in faces:
                 n_faces += _grade_face(
                     layout, airside, face_poly, step, registry,
                     dem=dem, tile_lat=tile_lat, tile_lon=tile_lon,
-                    rw_axes=_ring_axes)
+                    rw_axes=_ring_axes, width_rule=_wrule)
             if n_faces and superseded:
                 _sup_ids = {id(s) for s in superseded}
                 layout.shapes[:] = [s for s in layout.shapes
@@ -3361,7 +3688,7 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    gap_candidates = _gap_detection_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
     if not gap_candidates:
         return 0
 

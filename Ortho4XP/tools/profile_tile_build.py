@@ -35,6 +35,32 @@ directory nor a Custom Scenery directory resolves.  A second, slightly
 different copy of a harness refusal is the census-wrapper defect (root
 CLAUDE.md).
 
+IT ARMS THE SHARED-REPO WRITE GUARD, like every other build entry
+(``tools/harness/shared_repo_guard.py``, the single implementation).  It
+did NOT until 2026-08-13 (perf P3 lane T), which was a real hole and not
+a documentation slip: this profiler runs the SAME four steps as
+``harness/build_airport.py --tile``, including the auto_patch driver's
+ProcessPool — the exact writer that put eight
+``Airport_mod_cache/*/o4_object_footprints_*`` sidecars into the shared
+corpus from ``run_tile_mesh_only.py`` on 2026-08-12 with
+``guard.blocked`` EMPTY.  Both halves are armed here for the same reason
+they are armed there: ``redirect_engine_caches`` at module scope (BEFORE
+the engine import — ``O4_File_Names`` computes its cache dirs at import,
+and subprocesses inherit only the environment), then the guard, the
+before/after snapshot audit, the bathymetry-prefetch join, and the
+swallowed-refusal detector.  A profile taken on a corpus the profile
+itself changed measures a frame no other lane can be compared with.
+
+``--count MODULE:ATTR`` (repeatable) wraps a named callable with a call
+counter and an INCLUSIVE ``perf_counter`` timer, exactly as
+``tools/profile_airport_build.py`` does — the counter class is IMPORTED
+from it, never re-spelled.  ``ATTR`` may be dotted
+(``O4_Vector_Utils:Vector_Map.insert_edge``) to reach a method.  This is
+the only number a claim may quote: the sampler over-attributes inside
+GIL-heavy loops, and on this tile's vector step it roughly DOUBLES the
+step (measured, lane T) — pass ``--no-sample`` for a measurement run and
+keep the sampler for distribution reads.
+
 This profiler measures wall time, so it is never run through the run
 ledger; the refusal is the only harness law it needs.
 
@@ -42,7 +68,7 @@ Usage:
     venv/bin/python tools/profile_tile_build.py <lat> <lon>
         [--build-dir DIR] [--provider CODE] [--zl N]
         [--steps vector,mesh,masks,imagery] [--interval 0.05]
-        [--out PATH]
+        [--count MODULE:ATTR ...] [--no-sample] [--out PATH]
 """
 
 import argparse
@@ -65,7 +91,28 @@ if os.path.join(ROOT, "src") not in sys.path:
 _HARNESS_DIR = os.path.join(ROOT, "tools", "harness")
 if _HARNESS_DIR not in sys.path:
     sys.path.insert(0, _HARNESS_DIR)
-from build_airport import apply_xplane_install_paths  # noqa: E402
+from build_airport import (apply_xplane_install_paths,  # noqa: E402
+                           redirect_engine_caches)
+
+# THE REDIRECT MUST PRECEDE THE ENGINE IMPORT (run_tile_mesh_only.py's
+# header carries the measurement).  The engine modules are imported inside
+# main(), so module scope is early enough — and it must not be later:
+# O4_File_Names computes Default_dsf_cache_dir AT IMPORT, and the
+# auto_patch driver's pool workers inherit only the environment.
+_CACHE_REDIRECTS = redirect_engine_caches(
+    os.path.join(os.getcwd(), "tmp", "profile_tile_build"), "tile_profile")
+
+from shared_repo_guard import (SharedRepoWriteGuard,  # noqa: E402
+                               shared_repo_snapshot, snapshot_diff,
+                               report_unauthorised_writes,
+                               require_no_swallowed_write_block,
+                               require_no_unauthorised_writes)
+# The call counter, IMPORTED from the airport profiler — one
+# implementation of "--count MODULE:ATTR" for both profilers.
+_TOOLS_DIR = os.path.join(ROOT, "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
+from profile_airport_build import _install_counters  # noqa: E402
 
 STEP_ORDER = ("vector", "mesh", "masks", "imagery")
 
@@ -151,6 +198,18 @@ def main():
     parser.add_argument("--steps", default="vector,mesh,masks,imagery",
                         help="comma list, subset of vector,mesh,masks,imagery")
     parser.add_argument("--interval", type=float, default=0.05)
+    parser.add_argument("--count", action="append", default=[],
+                        metavar="MODULE:ATTR",
+                        help="call count + INCLUSIVE perf_counter seconds "
+                             "for this callable (repeatable; ATTR may be "
+                             "dotted to reach a method).  THE number a "
+                             "claim quotes — the sampler over-attributes.")
+    parser.add_argument("--no-sample", action="store_true",
+                        help="do not run the stack sampler.  The sampler "
+                             "roughly DOUBLES this tile's vector step "
+                             "(pure-Python hot loop, measured lane T "
+                             "2026-08-13), so a --count measurement run "
+                             "must not carry it.")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -169,6 +228,11 @@ def main():
     import O4_Mask_Utils as MASK
     import O4_Tile_Utils as TILE
     import O4_Config_Utils as CFG
+    import O4_Bathymetry_Band as BATHYBAND
+
+    # Installed before ``step_fn`` binds anything: a counter on a step
+    # function itself must be the object the loop calls.
+    counters = _install_counters(args.count) if args.count else []
 
     out_path = args.out or "/tmp/tile_%s_profile.txt" % FNAMES.short_latlon(
         args.lat, args.lon)
@@ -210,27 +274,50 @@ def main():
     current_step = [None]
     sampler = AllThreadSampler(
         threading.get_ident(), current_step, args.interval)
-    sampler.start()
+    if not args.no_sample:
+        sampler.start()
+
+    print("engine cache redirects:", _CACHE_REDIRECTS)
+    # Nothing is authorised: this entry has no --refresh-data of its own.
+    before = shared_repo_snapshot()
+    guard = SharedRepoWriteGuard(set(), os.getcwd())
 
     step_wall = {}
     t_run = time.time()
-    for step in STEP_ORDER:
-        if step not in steps:
-            continue
-        print(f"=== step {step} ===", flush=True)
-        current_step[0] = step
-        t0 = time.time()
-        result = step_fn[step](tile)
-        step_wall[step] = time.time() - t0
-        current_step[0] = None
-        print(f"=== step {step} done in {step_wall[step]:.1f} s "
-              f"(result {result}) ===", flush=True)
-        if result == 0:
-            print("step failed — stopping here")
-            break
+    try:
+        with guard:
+            for step in STEP_ORDER:
+                if step not in steps:
+                    continue
+                print(f"=== step {step} ===", flush=True)
+                current_step[0] = step
+                t0 = time.time()
+                result = step_fn[step](tile)
+                step_wall[step] = time.time() - t0
+                current_step[0] = None
+                print(f"=== step {step} done in {step_wall[step]:.1f} s "
+                      f"(result {result}) ===", flush=True)
+                if result == 0:
+                    print("step failed — stopping here")
+                    break
+            # The band prefetch starts inside step 1 and is joined by the
+            # masks step; a vector-only profile never reaches it, and the
+            # thread would otherwise write the corpus after the guard came
+            # down (measured 2026-08-08, the S13W078 band index.json).
+            BATHYBAND.join_prefetches()
+    finally:
+        # The audit runs even when a step raised: a run that died halfway
+        # has still changed the corpus every other lane reads.
+        changes = snapshot_diff(before, shared_repo_snapshot())
+        offenders = report_unauthorised_writes(changes, set(), None)
+    # The two detectors fire at the END of main(), AFTER the report is on
+    # disk: a profile that refuses before writing its report throws away
+    # the measurement it just paid minutes for, and the refusal is about
+    # the CORPUS, not about the numbers.
     total_wall = time.time() - t_run
-    sampler.stop()
-    sampler.join(timeout=2.0)
+    if sampler.is_alive():
+        sampler.stop()
+        sampler.join(timeout=2.0)
 
     # One sampler tick observed every live thread once; convert counts to
     # thread-seconds through the measured tick duration.
@@ -258,6 +345,16 @@ def main():
     for step in STEP_ORDER:
         if step in step_wall:
             lines.append("  %8.1f s  %s" % (step_wall[step], step))
+
+    if counters:
+        lines.append("")
+        lines.append("== --count: calls + INCLUSIVE perf_counter seconds ==")
+        lines.append("   (sampler %s — these are THE quotable numbers)"
+                     % ("OFF" if args.no_sample else "ON, so they carry its "
+                        "overhead"))
+        for counter in counters:
+            lines.append("  %8.2f s  %11d call(s)  %s" % (
+                counter.seconds, counter.calls, counter.label))
 
     for step in STEP_ORDER:
         if step not in step_wall:
@@ -289,6 +386,9 @@ def main():
         handle.write(report)
     print(report)
     print("report written to", out_path)
+
+    require_no_swallowed_write_block(guard.blocked)
+    require_no_unauthorised_writes(offenders, entry="tile profile")
 
 
 if __name__ == "__main__":

@@ -74,7 +74,8 @@ if __name__ == "__main__":
     # it BEFORE the engine import)
     from shared_repo_guard import (SharedRepoWriteGuard, shared_repo_snapshot,
                                    snapshot_diff, report_unauthorised_writes,
-                                   require_no_swallowed_write_block)
+                                   require_no_swallowed_write_block,
+                                   require_no_unauthorised_writes)
     from build_airport import apply_xplane_install_paths
 
     IMG.initialize_extents_dict()
@@ -134,9 +135,5 @@ if __name__ == "__main__":
         changes = snapshot_diff(before, shared_repo_snapshot())
         offenders = report_unauthorised_writes(changes, set(), None)
     require_no_swallowed_write_block(guard.blocked)
-    if offenders:
-        raise SystemExit(
-            "REFUSING: this mesh-only run mutated the shared data repo (paths "
-            "above). Owner ruling e9daef5: warm the cache deliberately with "
-            "tools/harness/build_airport.py --refresh-data <scope>.")
+    require_no_unauthorised_writes(offenders, entry="mesh-only")
     print("mesh build complete", flush=True)

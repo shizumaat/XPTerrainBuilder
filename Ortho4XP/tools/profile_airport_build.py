@@ -185,17 +185,27 @@ class CallCounter:
 
 
 def _install_counters(specs, clock=None):
-    """Wrap each ``MODULE:ATTR`` spec; return the counters (install order)."""
+    """Wrap each ``MODULE:ATTR`` spec; return the counters (install order).
+
+    ``ATTR`` may be DOTTED (``O4_Vector_Utils:Vector_Map.insert_edge``) to
+    reach a method: the owner of the last component is walked to, and the
+    wrapper is a plain function, so the descriptor protocol re-binds it as
+    a method exactly as the original was.  Added for the tile lane, whose
+    sinks are all methods of one class.
+    """
     import importlib
     counters = []
     for spec in specs:
         mod_name, _, attr = spec.partition(":")
         if not attr:
             raise SystemExit(f"--count wants MODULE:ATTR, got {spec!r}")
-        module = importlib.import_module(mod_name)
-        target = getattr(module, attr)
+        owner = importlib.import_module(mod_name)
+        parts = attr.split(".")
+        for part in parts[:-1]:
+            owner = getattr(owner, part)
+        target = getattr(owner, parts[-1])
         counter = CallCounter(spec, clock=clock)
-        setattr(module, attr, counter.wrap(target))
+        setattr(owner, parts[-1], counter.wrap(target))
         counters.append(counter)
     return counters
 

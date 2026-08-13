@@ -1,0 +1,8 @@
+# Frozen performance-phase baseline — 1.0.245 / engine 1.50.1688 / tree 1612d48 (owner ruling 2026-08-13)
+# Optimizations must reproduce these body hashes byte-for-byte or explain deltas row-by-row.
+
+consol3cyxy: body_sha256=61efa43c3aeb5fe2a20b9224367af0ba6e62c1645d73a929ecbb82f2dccb39ba shapes=462
+consol3heca: body_sha256=f562cbfeb8f990461072587bc31ef60e86aa5759c4b46b17a1aa3661dee91369 shapes=3887
+consol3kclt: body_sha256=7bf9038e93f7b85d3175de6404054afe70831adfe6ec84d44a96d8dbe7320f65 shapes=3038
+consol3kstj: body_sha256=65844a63b39747f86d3c4afe858ca25435f9237758d2a91a16a660a9c154ee14 shapes=171
+consol3othh: body_sha256=75594bc8773abe97b37a93bf421d9bb377df1ded2852ee19d4487003c7d66bfc shapes=5052

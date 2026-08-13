@@ -1,0 +1,151 @@
+{
+ "icao": "KCLT",
+ "tag": "consol3kclt",
+ "patch": "/tmp/harness/consol3kclt.osm",
+ "sidecar": "/tmp/harness/consol3kclt.osm.axes.json",
+ "synthetic_dem": null,
+ "build_seconds": 499.3,
+ "shapes": 3038,
+ "body_sha256": "7bf9038e93f7b85d3175de6404054afe70831adfe6ec84d44a96d8dbe7320f65",
+ "sidecar_present": true,
+ "write_guard_armed": true,
+ "write_guard_blocked": [],
+ "write_guard_lock_churn": [
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N35W081.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N35W081.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N35W082.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N35W082.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N35W080.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N35W080.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N34W081.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N34W081.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N34W082.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N34W082.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N34W080.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N34W080.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N36W081.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N36W081.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N36W082.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-090/.lock_VIEWFINDER3_N36W082.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N36W080.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+30-080/.lock_VIEWFINDER3_N36W080.lock",
+   "op": "remove"
+  }
+ ],
+ "write_guard_library_index_churn": [],
+ "dem_frame_effective": {
+  "elevation_level": "auto",
+  "elevation_coastline_band_km": "5.0",
+  "base_elevation_source": "auto",
+  "custom_dem": "",
+  "fill_nodata": "True",
+  "working_grid_arc_seconds": "auto",
+  "apt_smoothing_pix": "8",
+  "apt_smoothing_auto": "True",
+  "airport_elevation_insets": "True",
+  "airport_elevation_level": "auto",
+  "airport_elevation_providers": "auto",
+  "airport_elevation_inset_margin_m": "2000.0",
+  "airport_elevation_inset_feather_m": "60.0",
+  "airport_inset_water": "True",
+  "cifp_data_path": "/Users/noah/X-Plane 12/Custom Data/CIFP",
+  "custom_scenery_dir": "/Users/noah/X-Plane 12/Custom Scenery"
+ },
+ "dem_inset_provenance": {
+  "insets": [
+   {
+    "icao": "KCLT",
+    "path": "/Users/noah/XPTerrainBuilder/Ortho4XP/Elevation_data/+30-090/N35W081_airport_insets/KCLT_usgs3dep.tif",
+    "provider": "USGS3DEP",
+    "source_ids": [
+     "66692c3cd34e9bcc607bd5ad",
+     "66692c3ad34e9bcc607bd5ab"
+    ],
+    "fetch_date": "2026-07-24",
+    "native_resolution_m": null,
+    "nodata_fraction": 0.0
+   }
+  ],
+  "raw": false,
+  "synthetic_flat_site": null
+ },
+ "engine_cache_redirects": {
+  "base": "/tmp/harness/consol3kclt.engine_caches",
+  "dsf_dump_cache": "/tmp/harness/consol3kclt.engine_caches/Default_DSF_cache",
+  "airport_mod_cache": "/tmp/harness/consol3kclt.engine_caches/Airport_mod_cache",
+  "mod_cache_seeded": {
+   "dirs": 149,
+   "files": 1132,
+   "cloned": 1132,
+   "copied": 0
+  },
+  "masks": "/tmp/harness/consol3kclt.engine_caches/Masks",
+  "masks_seeded": {
+   "dirs": 22,
+   "files": 182,
+   "cloned": 182,
+   "copied": 0
+  },
+  "masks_subtrees": [
+   ""
+  ],
+  "left_shared_for_refresh": []
+ },
+ "anchor": [
+  35.21284612,
+  -80.93514569499999
+ ],
+ "wall_seconds": 502.8
+}

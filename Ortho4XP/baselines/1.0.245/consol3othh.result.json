@@ -1,0 +1,198 @@
+{
+ "icao": "OTHH",
+ "tag": "consol3othh",
+ "patch": "/tmp/harness/consol3othh.osm",
+ "sidecar": "/tmp/harness/consol3othh.osm.axes.json",
+ "synthetic_dem": null,
+ "build_seconds": 998.5,
+ "shapes": 5052,
+ "body_sha256": "75594bc8773abe97b37a93bf421d9bb377df1ded2852ee19d4487003c7d66bfc",
+ "sidecar_present": true,
+ "write_guard_armed": true,
+ "write_guard_blocked": [],
+ "write_guard_lock_churn": [
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E051.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E051.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E050.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E050.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E052.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N25E052.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E051.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E051.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E050.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E050.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E052.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N24E052.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N26E051.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N26E051.lock",
+   "op": "remove"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N26E050.lock",
+   "op": "os_open"
+  },
+  {
+   "path": "Elevation_data/+20+050/.lock_VIEWFINDER3_N26E050.lock",
+   "op": "remove"
+  }
+ ],
+ "write_guard_library_index_churn": [],
+ "dem_frame_effective": {
+  "elevation_level": "auto",
+  "elevation_coastline_band_km": "5.0",
+  "base_elevation_source": "auto",
+  "custom_dem": "",
+  "fill_nodata": "True",
+  "working_grid_arc_seconds": "auto",
+  "apt_smoothing_pix": "8",
+  "apt_smoothing_auto": "True",
+  "airport_elevation_insets": "True",
+  "airport_elevation_level": "auto",
+  "airport_elevation_providers": "auto",
+  "airport_elevation_inset_margin_m": "2000.0",
+  "airport_elevation_inset_feather_m": "60.0",
+  "airport_inset_water": "True",
+  "cifp_data_path": "/Users/noah/X-Plane 12/Custom Data/CIFP",
+  "custom_scenery_dir": "/Users/noah/X-Plane 12/Custom Scenery"
+ },
+ "dem_inset_provenance": {
+  "insets": [
+   {
+    "icao": "OTHH",
+    "path": "/Users/noah/XPTerrainBuilder/Ortho4XP/Elevation_data/+20+050/N25E051_airport_insets/OTHH_copernicusglo30.tif",
+    "provider": "COPERNICUSGLO30",
+    "source_ids": [],
+    "fetch_date": "2026-07-24",
+    "native_resolution_m": 30.0,
+    "nodata_fraction": 0.0
+   }
+  ],
+  "raw": false,
+  "synthetic_flat_site": {
+   "icao": "OTHH",
+   "kind": "synthetic_flat_site",
+   "verdict": "flat_candidate",
+   "z0_m": 3.962,
+   "extent_tile_degrees": [
+    0.5774650409960742,
+    0.24618047248200625,
+    0.6328226420449212,
+    0.3039173019014676
+   ],
+   "extent_wgs84": [
+    51.577465040996074,
+    25.246180472482006,
+    51.63282264204492,
+    25.303917301901468
+   ],
+   "extent_area_km2": 20.9863,
+   "feather_m": 60.0,
+   "record": {
+    "icao": "OTHH",
+    "verdict": "flat_candidate",
+    "declared": false,
+    "auto_verdict": "flat_candidate",
+    "declared_elevation_m": null,
+    "z0_m": 3.962,
+    "s1_spread_m": 0.0,
+    "s1_threshold_count": 4,
+    "s1_pass": true,
+    "s2_slope_pct": 0.0352,
+    "s2_relief_m": 3.712,
+    "s2_source_class": "1arcsec",
+    "s2_source_resolution_m": 30.0,
+    "s2_source_whence": "inset",
+    "s2_relief_floor_m": 8.0,
+    "s2_residual_std_m": 0.962,
+    "s2_dem_median_m": 3.019,
+    "s2_dem_samples": 192907,
+    "s2_sea_excluded_frac": 0.1098,
+    "s2_dsm_trimmed_frac": 0.008,
+    "s2_dsm_cutoff_m": 7.021,
+    "s2_ring_samples": 0,
+    "s2_ring_median_m": null,
+    "s2_ring_relief_m": null,
+    "s2_ring_slope_pct": null,
+    "s2_ring_sea_excluded_frac": null,
+    "s2_ring_dsm_trimmed_frac": null,
+    "s2_pass": true,
+    "s3_offset_m": 0.943,
+    "s4": {
+     "n": 0,
+     "median_m": null,
+     "spread_m": null,
+     "offset_m": null,
+     "pass": null
+    }
+   },
+   "cluster_findings": []
+  }
+ },
+ "engine_cache_redirects": {
+  "base": "/tmp/harness/consol3othh.engine_caches",
+  "dsf_dump_cache": "/tmp/harness/consol3othh.engine_caches/Default_DSF_cache",
+  "airport_mod_cache": "/tmp/harness/consol3othh.engine_caches/Airport_mod_cache",
+  "mod_cache_seeded": {
+   "dirs": 149,
+   "files": 1132,
+   "cloned": 1132,
+   "copied": 0
+  },
+  "masks": "/tmp/harness/consol3othh.engine_caches/Masks",
+  "masks_seeded": {
+   "dirs": 22,
+   "files": 182,
+   "cloned": 182,
+   "copied": 0
+  },
+  "masks_subtrees": [
+   ""
+  ],
+  "left_shared_for_refresh": []
+ },
+ "anchor": [
+  25.27577459,
+  51.617808335
+ ],
+ "wall_seconds": 1003.6
+}

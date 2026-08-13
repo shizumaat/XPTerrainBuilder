@@ -521,9 +521,28 @@ def _subdivide_enclosed_face(layout, face_poly, chain_keys):
     return faces
 
 
+def _region_is_everywhere_narrower(poly, width_m) -> bool:
+    """TRUE WIDTH: no point of ``poly`` is more than ``width_m`` / 2 from
+    its boundary (an erosion by the half-width leaves nothing).
+
+    The MRR short side — the enclosed law's gate — measures the smallest
+    ENCLOSING rectangle, which over-reports a CURVED region badly: HECA's
+    excavation-rim pocket at the owner's knoll is nowhere wider than
+    ~60 m (it erodes to nothing at 30 m) and yet its min-rotated-rect
+    short side reads 399 m, because the sliver wraps the apron rim.  The
+    ruling-3 pockets are rim-following by construction, so they are gated
+    on this instead — and ONLY they are: the enclosed holes keep the MRR
+    gate they were measured under.
+    """
+    try:
+        return poly.buffer(-0.5 * float(width_m)).is_empty
+    except _GEOM_EXC:                                  # pragma: no cover
+        return False
+
+
 def _grade_face(layout, airside, face_poly, step, registry,
                 dem=None, tile_lat=None, tile_lon=None,
-                rw_axes=None) -> int:
+                rw_axes=None, width_rule=None) -> int:
     """Area/width-gate ONE gradeable face (a whole enclosed gap, or a
     pad-residual part) and emit its drainage spine.  Logs the candidate
     and any lawful width/area skip.  Returns the emitted face count.
@@ -548,6 +567,20 @@ def _grade_face(layout, airside, face_poly, step, registry,
                  f"{face_poly.area:.0f} m2 short="
                  f"{short_side:.0f} centroid=({_c.x:.0f},{_c.y:.0f})")
     if short_side > GAP_FILL_MAX_WIDTH_M:
+        # A caller with its own width law (ruling 3's rim pockets, whose
+        # curved slivers the MRR over-reports) is consulted before the
+        # skip. It never reaches the collar branch either way: the collar
+        # is the ENCLOSED width-skip class, selected structurally.
+        if width_rule is not None:
+            if width_rule(face_poly):
+                return _emit_one_gap(layout, airside, face_poly, long_dir,
+                                     long_len, step, registry, dem=dem,
+                                     tile_lat=tile_lat, tile_lon=tile_lon,
+                                     rw_axes=rw_axes)
+            UI.vprint(1, f"  [rim-pocket] skipped pocket (wider than "
+                         f"{GAP_FILL_MAX_WIDTH_M:.0f} m by its own width "
+                         f"law) area={face_poly.area:.0f} m2")
+            return 0
         UI.vprint(1, f"  [gap-fill] skipped gap (width "
                      f"{short_side:.0f} > {GAP_FILL_MAX_WIDTH_M:.0f})"
                      f" area={face_poly.area:.0f} m2")
@@ -2603,12 +2636,23 @@ def _rim_pocket_polys(layout, airside, enclosed=()):
     return out
 
 
+def _rim_pocket_width_rule(poly) -> bool:
+    """Ruling 3's own width law — see
+    ``_region_is_everywhere_narrower``."""
+    return _region_is_everywhere_narrower(poly, GAP_FILL_MAX_WIDTH_M)
+
+
 def _gap_candidate_polys(layout, airside):
     """THE GAP LAW'S CANDIDATE REGIONS — enclosed holes (R19-2's own
     detector) PLUS ruling 3's excavation-rim pockets.  The three gap
-    passes call THIS, so a region is seen by all of them or by none."""
+    passes call THIS, so a region is seen by all of them or by none.
+
+    Returns ``(candidates, rim_ids)``: ``rim_ids`` are the ``id()``s of
+    the rim-pocket entries, which carry their own width law downstream
+    (and never the enclosed width-skip's collar treatment)."""
     enclosed = _gap_detection_polys(layout, airside)
-    return enclosed + _rim_pocket_polys(layout, airside, enclosed)
+    rim = _rim_pocket_polys(layout, airside, enclosed)
+    return enclosed + rim, {id(p) for p in rim}
 
 
 def _enclave_treatable(layout, poly):
@@ -2781,7 +2825,7 @@ def construct_gap_fill_presolve(layout) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    gap_candidates = _gap_candidate_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
     if not gap_candidates:
         return 0
     pads, skirts = _gap_parents(layout)
@@ -2867,7 +2911,13 @@ def construct_gap_fill_presolve(layout) -> int:
                 if axes is None or axes[1] is None:
                     continue
                 short_side, long_dir, long_len = axes
-                if short_side > GAP_FILL_MAX_WIDTH_M:
+                if short_side > GAP_FILL_MAX_WIDTH_M and not (
+                        id(gap_poly) in rim_ids
+                        and _rim_pocket_width_rule(face_poly)):
+                    # Ruling 3: a rim pocket is gated on its own width
+                    # law here too, so the pre-solve spine EXISTS for the
+                    # regions the emitter will grade (parity — otherwise
+                    # every rim pocket emits on the analytic fallback).
                     continue
                 spine = _build_spine(face_poly, long_dir, long_len, step)
                 if spine is None:
@@ -2942,7 +2992,7 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
         return 0
     # NO early return on an empty candidate list: the open-frontage
     # pilot below runs on corridor geometry, not holes.
-    gap_candidates = _gap_candidate_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
 
     # WELD-VALUE registry (mm key): every airside ring vertex → its solved
     # value, so a gap-ring vertex (which IS a pavement ring vertex) emits
@@ -3243,11 +3293,15 @@ def emit_gap_fill_spines(layout, dem, tile_lat, tile_lon,
                     _parent_residual_faces(_body, parents, chain_keys)
                     if parents else [_body])
             n_faces = 0
+            # RULING 3: a rim pocket carries its own width law (the MRR
+            # over-reports a rim-following sliver) and never the collar.
+            _wrule = (_rim_pocket_width_rule
+                      if id(gap_poly) in rim_ids else None)
             for face_poly in faces:
                 n_faces += _grade_face(
                     layout, airside, face_poly, step, registry,
                     dem=dem, tile_lat=tile_lat, tile_lon=tile_lon,
-                    rw_axes=_ring_axes)
+                    rw_axes=_ring_axes, width_rule=_wrule)
             if n_faces and superseded:
                 _sup_ids = {id(s) for s in superseded}
                 layout.shapes[:] = [s for s in layout.shapes
@@ -3615,7 +3669,7 @@ def emit_gap_interior_floor(layout, dem, tile_lat, tile_lon) -> int:
     airside = _airside_shapes(layout)
     if len(airside) < 2:
         return 0
-    gap_candidates = _gap_candidate_polys(layout, airside)
+    gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
     if not gap_candidates:
         return 0
 

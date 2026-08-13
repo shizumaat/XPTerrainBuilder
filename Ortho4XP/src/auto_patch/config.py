@@ -66,6 +66,8 @@ __all__ = [
     "TERMINAL_SIMPLIFY_TOL_M",
     "SLOPING_EDGE_SNAP_M",
     "ENABLE_SERVICE_ROADS",
+    "SERVICE_SOURCE_DEDUPE",
+    "SERVICE_SOURCE_DEDUPE_FRAC",
     "AIRPORT_ROAD_FEED",
     "AIRPORT_ROAD_FEED_CACHE",
     "AIRPORT_ROAD_FEED_PAD_M",
@@ -94,6 +96,8 @@ __all__ = [
     "PAVEMENT_SCORE_V2",
     "PAVEMENT_SCORE_PURE",
     "SCORER_SERVICE_ADJ",
+    "SCORER_CORRIDOR_WIDTH",
+    "SCORER_CORRIDOR_WIDTH_MIN_FRAC",
     "LATERAL_CONTIGUITY_LAW_ENABLED",
     "PAVEMENT_SCORE_WEIGHTS",
     "PAVEMENT_SCORE_RELIABILITY",
@@ -2129,11 +2133,28 @@ def near_miss_frontage_budget(distance_m: float) -> float:
     the emitted patch with it."""
     return APRON_MAX_GRADE * float(distance_m)
 
-# Ground-vehicle service-road network — gated OFF (deferred feature).  The
-# service_roads.py machinery stays in place, but the OSM small-road lookup
-# and the apt.dat 1206 truck-edge parse are skipped while disabled so we
-# don't waste cycles loading roads we won't use.  Flip to re-enable.
-ENABLE_SERVICE_ROADS = False
+# Ground-vehicle service-road network — DEFAULT ON (owner ruling
+# 2026-08-12b, "SERVICE ROADS ENABLED AND BUILT": linear service corridors
+# — apt.dat ground-truck routes + OSM small roads — become real road
+# pavement end-to-end).  The minter (``pavement/service_roads.
+# build_service_road_network``) only ever mints where NO pavement exists
+# (pavement-clear), so existing ribbons/aprons are never double-paved.
+# ``O4_ENABLE_SERVICE_ROADS=0`` is the kill switch and restores the
+# road-less build; the gate is recorded in the patch provenance
+# (``o4_provenance_gates_on``) by config introspection.
+ENABLE_SERVICE_ROADS = _os_early.environ.get(
+    "O4_ENABLE_SERVICE_ROADS", "1") == "1"   # ``_os`` enters scope below
+# CENTERLINE-LEVEL SOURCE DEDUPE (service-corridor round ruling 1): apt.dat
+# 1206 routes are AUTHORITATIVE where present, OSM small roads complement
+# them.  An OSM small-road line whose road-width corridor overlaps a 1206
+# route's corridor over more than this fraction of its OWN length is
+# suppressed before minting — the 1206 spelling wins.  The downstream
+# rect-overlap skip stays as belt.  ``O4_SERVICE_SOURCE_DEDUPE=0`` restores
+# the un-deduped union.
+SERVICE_SOURCE_DEDUPE = _os_early.environ.get(
+    "O4_SERVICE_SOURCE_DEDUPE", "1") == "1"
+SERVICE_SOURCE_DEDUPE_FRAC = float(
+    _os_early.environ.get("O4_SERVICE_SOURCE_DEDUPE_FRAC", "0.5"))
 
 # (2026-07-31) ENABLE_DISCOVERED_TAXIWAYS lived here.  It gated the
 # medial-axis discovery of unreferenced taxiway centerlines, whose only two
@@ -2410,7 +2431,22 @@ PAVEMENT_SCORE_PURE = _os.environ.get("O4_PAVEMENT_SCORE_PURE", "1") == "1"
 # service-road spine is SERVICE ROAD, never groundside").  Gate OFF ⇒ the
 # ``service_adj`` feature is never computed and never scored, so the
 # emitted patch is byte-identical.
-SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "0") == "1"
+# DEFAULT FLIPPED TO "1" 2026-08-12b (service-corridor round ruling 5 — the
+# RULINGS:128 corollary goes live now that service corridors are built).
+SCORER_SERVICE_ADJ = _os.environ.get("O4_SCORER_SERVICE_ADJ", "1") == "1"
+# CORRIDOR-AWARE ROAD-WIDTH READ (service-corridor round ruling 5): the
+# ``road_corridor`` width predicate decomposes a shape at its mouths before
+# judging it, so ONE contiguous widening (a lot entrance) can no longer veto
+# a road ribbon — the corridor-width part still reads as a corridor.  The
+# widening itself keeps its own (groundside) class: the decomposition is a
+# READ, it never re-cuts emitted geometry.  ``O4_SCORER_CORRIDOR_WIDTH=0``
+# restores the whole-shape erosion.
+SCORER_CORRIDOR_WIDTH = _os.environ.get("O4_SCORER_CORRIDOR_WIDTH", "1") == "1"
+# The corridor-width part must carry at least this fraction of the shape's
+# area for the ribbon to read as a corridor (a lot with a driveway stub is
+# not a road).
+SCORER_CORRIDOR_WIDTH_MIN_FRAC = float(
+    _os.environ.get("O4_SCORER_CORRIDOR_WIDTH_MIN_FRAC", "0.5"))
 # LATERAL-CONTIGUITY GRADE LAW (owner-confirmed FINAL 2026-08-02, clauses
 # (2)-(5); the law lives in ``grade_law.lateral_contiguity_cap`` /
 # ``…_segments`` and the emitter in
@@ -4209,12 +4245,33 @@ W2_CLEAN_BANDS = _os.environ.get("O4_W2_BANDS", "1") == "1"
 # cap is classified; nothing near a terminal; roads WORK LIKE TAXIWAYS
 # — qualifying runs join the centerline set as ``SVC*`` refs and ride
 # the single rect → junction → absorption decomposition with role
-# ``service_road`` (5 %).  Independent of ``ENABLE_SERVICE_ROADS`` (the
-# deferred OSM small-road / off-pavement builder).  DEFAULT ON for the
+# ``service_road`` (SERVICE_ROAD_MAX_GRADE).  Independent of
+# ``ENABLE_SERVICE_ROADS`` (the OSM small-road / off-pavement
+# builder).  DEFAULT ON for the
 # user's in-sim evaluation (2026-06-12; Steps C/D landed @b391e27 —
 # CYXY roads-on 0/0/0, HECA 57/0/0 invariants held);
 # ``O4_SERVICE_ROAD_CARVE=0`` restores the road-less build.
 SERVICE_ROAD_CARVE = _os.environ.get("O4_SERVICE_ROAD_CARVE", "1") == "1"
+# ONE LAW OBJECT PER CORRIDOR (owner ruling 2026-08-12b, "APT.DAT TRUCK
+# ROUTES ARE A SERVICE-CORRIDOR SOURCE": one corridor = ONE continuous law
+# object end-to-end, never fragmented per-junction axes).  ON, the grade
+# graph's service half registers ONE chain per corridor course — the
+# free-road-scoped subsegments are REPLACED by (never duplicated beside)
+# their parent corridor, so the corridor's axis coverage has no axis-free
+# gap and its profile solves as one chain.  Service centerlines are read
+# only by groundside-family shapes (``grade_graph._reads_service_spines``),
+# so a corridor crossing an apron never becomes that apron's spine and
+# airside law is untouched.  ``O4_SERVICE_CORRIDOR_CHAINS=0`` restores the
+# per-subsegment registration.
+SERVICE_CORRIDOR_CHAINS = _os.environ.get(
+    "O4_SERVICE_CORRIDOR_CHAINS", "1") == "1"
+# FREE-END DEM TIE (owner ruling 2026-08-12b, "A ROAD'S OWN COURSE IS NEVER
+# TERRACED"): a corridor end that does not terminate on pavement ties to
+# ambient DEM under the road cap, and no terrace/retaining wall may cross a
+# corridor's course.  ``O4_SERVICE_CORRIDOR_FREE_END=0`` restores the
+# pre-ruling behaviour (walls free to cross, ends unseeded).
+SERVICE_CORRIDOR_FREE_END = _os.environ.get(
+    "O4_SERVICE_CORRIDOR_FREE_END", "1") == "1"
 # SPINE-FIRST service-road grading (USER RULING 2026-07-07, part 30m): the
 # truck-route SPINE is graded at the road cap with DEM-follow as a SOFT seed
 # sampled at spine stations; the EDGES follow the spine (cross-section

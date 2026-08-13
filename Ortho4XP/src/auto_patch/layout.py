@@ -760,10 +760,16 @@ class PavementLayout:
     # per-segment ICAO size + ``is_service``; name is a label only).
     apt_taxi_centerlines: list = field(
         default_factory=list)
-    # Ground-vehicle (service-road) centerlines from apt.dat row 1206,
-    # as ``(LineString, route_name)`` in meter space — drive the 4 %-grade
-    # ``service_road`` rects.  Empty when the block has no 1206 network.
-    apt_service_centerlines: list[tuple[LineString, str]] = field(
+    # Ground-vehicle (service-road) centerlines from apt.dat row 1206, as
+    # ``apt_dat_reader.TaxiCenterline`` (``is_service=True``) in meter
+    # space — they drive the ``service_road`` rects (cap
+    # ``config.SERVICE_ROAD_MAX_GRADE``) and are the AUTHORITATIVE
+    # service-corridor source (owner 2026-08-12b).  Empty when the block
+    # has no 1206 network.  (The annotation said ``(LineString, str)``
+    # until 2026-08-12b; the reader has produced ``TaxiCenterline`` since
+    # the ``is_service`` flag replaced the ``SVC*`` name prefix, and every
+    # consumer already went through ``.line``.)
+    apt_service_centerlines: list = field(
         default_factory=list)
     # apt.dat row-110 pavement polygon vertices, in meter space.
     # Junction polygons are built as

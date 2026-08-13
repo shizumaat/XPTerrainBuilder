@@ -463,6 +463,54 @@ _WALL_SCOPE_PAVEMENT_ROLES = frozenset(
     })
 
 
+def service_corridor_wall_keepout(layout, *, require_gate: bool = True):
+    """The union of every SERVICE CORRIDOR's own COURSE — the ground on
+    which a terrace / retaining wall is INADMISSIBLE (owner ruling
+    2026-08-12b, verbatim: "walls/terraces may not cut across a road's
+    course"; "terrace freedom applies to the ground BETWEEN graded
+    features, never to the feature's own run").
+
+    The course is taken from BOTH spellings of the same thing, because a
+    corridor exists in the patch as either or both: the corridor COURSES the
+    pipeline stashed (``layout._service_corridor_lines`` — apt.dat 1206
+    routes + linemerged feed chains), widened to the road corridor width,
+    and the EMITTED road-family shapes (``service_road`` /
+    ``service_junction``).  A wall polygon intersecting that union is not
+    emitted; the level change then falls back to the emit-consensus merge,
+    exactly as the runway-strip wall law does with its own keep-out.
+
+    ``None`` with the gate off or when the layout carries no corridor.
+    """
+    from .config import (SERVICE_CORRIDOR_FREE_END, SERVICE_ROAD_WIDTH_M)
+    from .layout import ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD
+    if require_gate and not SERVICE_CORRIDOR_FREE_END:
+        return None
+    parts: list = []
+    for ln in (getattr(layout, "_service_corridor_lines", None) or []):
+        if ln is None or getattr(ln, "is_empty", True):
+            continue
+        try:
+            parts.append(ln.buffer(SERVICE_ROAD_WIDTH_M / 2.0,
+                                   cap_style=2, join_style=2))
+        except _GEOM_EXC:
+            continue
+    for s in layout.shapes:
+        if s.role not in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        parts.append(s.polygon)
+    if not parts:
+        return None
+    try:
+        block = unary_union(parts)
+    except _GEOM_EXC:
+        return None
+    if block.is_empty:
+        return None
+    return block
+
+
 def runway_strip_wall_keepout(layout, *, require_gate: bool = True):
     """The prepared union of every runway's STRIP FOOTPRINT — the ground on
     which ``ROLE_RETAINING_WALL`` is INADMISSIBLE (owner ruling 2026-08-01;
@@ -3513,6 +3561,10 @@ def emit_groundside_terrace_walls(layout) -> int:
     # inadmissible; skipping the run cancels its retreat and the level
     # change falls back to the emit consensus merge.
     _strip_keepout = runway_strip_wall_keepout(layout)
+    # ROAD-COURSE WALL LAW (owner ruling 2026-08-12b): a wall may never cut
+    # across a service corridor's own course.  Same mechanism as the strip
+    # keep-out above — the ruled KCLT lot-road wall dies by construction.
+    _corridor_keepout = service_corridor_wall_keepout(layout)
 
     # GRADED RIBBONS: the objects the law keeps graded inside groundside —
     # the pavement surfaces (apron / taxi / runway families, terminals,
@@ -3749,6 +3801,9 @@ def emit_groundside_terrace_walls(layout) -> int:
             if (_strip_keepout is not None
                     and wall_poly.intersects(_strip_keepout)):
                 continue            # runway-strip wall law (see above)
+            if (_corridor_keepout is not None
+                    and wall_poly.intersects(_corridor_keepout)):
+                continue            # road-course wall law (owner 2026-08-12b)
             shape_walls.append(BuiltShape(
                 polygon=wall_poly, role=ROLE_RETAINING_WALL,
                 ref="groundside_terrace_wall",

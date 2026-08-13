@@ -2004,6 +2004,33 @@ def solve_route_profile(layout, icao: str,
     # shared ctx the law's pair generation memoises across the two consumers
     # (grade_graph.shape_constraints_cached) instead of running twice.
     from auto_patch import grade_graph as _GG
+    # THE ONE GRAPH IS *NOT* REUSED HERE — MEASURED AND REJECTED, S1
+    # attempt 1 (staged-solve round, 2026-08-13).  The premise was sound
+    # on indices: ``_build_node_list`` interns every SHAPE-RING vertex
+    # first, in ``layout.shapes`` order, and only then appends the
+    # vertices that lie on no ring (gap-fill spines, RESA cut rows,
+    # adjacent-ground zone rows — see the ``_adjacent_ground_first_zone_
+    # index`` block), so this call's node list is an APPEND-ONLY
+    # extension of the frozen one and every ring-vertex index agrees.
+    #
+    # WHAT KILLS IT is the CONTEXT, not the indices.  ``build_context``
+    # carries the ``shape_constraints_cached`` memo, and that memo is
+    # keyed by ``id(s.polygon)``.  A context is safe WITHIN one build
+    # because every keyed polygon is alive for its whole lifetime; a
+    # context carried ACROSS the freeze→solve gap is not, because
+    # ``construct_adjacent_ground_presolve`` mints and drops thousands of
+    # temporary polygons in between and CPython reuses ``id()`` freely.
+    # A recycled id serves one shape another shape's constraint pairs.
+    # Measured at HECA (replay of the s1ctl capture, arm 1): within_shape
+    # 3764 -> 5629, transverse 3289 -> 3674, worst rows 431 % grades on
+    # ``service_junction`` — the shape of a mis-keyed pair set, not of a
+    # geometry change.
+    #
+    # The freeze still publishes the graph; the consumer that can safely
+    # take it is one that reads it IMMEDIATELY (the adjacent-ground
+    # construct band does).  Making this call safe needs the memo re-keyed
+    # off object identity — recorded as the next increment, not bodged
+    # here behind a liveness assumption.
     _gg_ctx = _GG.build_context(layout, bucket_to_idx)
     # FLATNESS-CERTIFIED LAZY TIER (user 2026-07-05): pass the DEM (the
     # certificate source) and the currently-hard nodes (runway/seam seeds +
@@ -2157,6 +2184,9 @@ def solve_route_profile(layout, icao: str,
     # that shape of claim — it still registers every node's POSITION, so the
     # global spine still strings across them and the reach band keeps its
     # connectivity; only their (satisfied-by-construction) pairs are absent.
+    # (See the rejected-reuse note above the context build: this build
+    # stays local because the context it needs cannot cross the
+    # freeze→solve gap while its memo is keyed by ``id(s.polygon)``.)
     G = _GG.build_unified_graph(layout, bucket_to_idx, ctx=_gg_ctx,
                                 skip_edge_shape_ids=_fp_skip or None)
     u_spine_adj = G.spine_adj

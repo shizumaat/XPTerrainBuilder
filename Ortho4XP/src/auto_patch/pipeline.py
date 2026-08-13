@@ -5677,47 +5677,20 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         from .enclaves import republish_airside_enclaves_settled
         republish_airside_enclaves_settled(layout)
 
-        # ── Gap-fill spine PRE-SOLVE construction (Slice B stage B2,
-        # gate O4_ONE_SOLVE_TERRAIN + O4_ONE_SOLVE_TERRAIN_GAP_FILL_
-        # SPINE, both default OFF; ratified mechanism 2026-07-10,
-        # docs/slice_b_solver_absorption_design.md §B2) ────────────────
-        # The gap-fill drainage spines are the FIRST FREE terrain
-        # variables in the one-solve graph.  Their GEOMETRY is built
-        # here — after the pre-solve skirts (gap parents) and before
-        # ``per_surface_solve`` — and staged on
-        # ``layout.gap_fill_presolve``; the solver admits every spine
-        # vertex (``_build_node_list``), constrains it with envelope
-        # INTERVAL edges to its frozen-nearest pavement stations plus a
-        # second-difference fairing, and writes the solved values back
-        # into the store.  Face EMISSION stays at the post-solve slot
-        # (blocker subjects only exist there); the emitter swaps its
-        # retired analytic valuation for the store's solved values.
-        # A construction failure degrades loudly to the analytic path
-        # (the emitter warns per unmatched gap).
-        if _gap_presolve:
-            try:
-                from .gap_fill import construct_gap_fill_presolve
-                construct_gap_fill_presolve(layout)
-            except _GEOM_EXC as _gappre_exc:
-                UI.vprint(1, f"  [pav-builder] {icao}: pre-solve gap-fill "
-                             f"spine construction FAILED: {_gappre_exc!r}")
-
-        # ── Adjacent-ground band PRE-SOLVE construction (Slice B stage B3
-        # ORDER 1, gate O4_ONE_SOLVE_TERRAIN +
-        # O4_ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT, both default OFF;
-        # docs/slice_b_solver_absorption_design.md §B3) ──────────────────
-        # The band FOOTPRINT march moves here — before ``per_surface_solve``,
-        # after the pre-solve skirts (their rings enter the terrain-facing
-        # probe union) — from a DEM-seeded pavement-edge estimate, and the
-        # raw band rings are staged on ``layout.adjacent_ground_presolve``.
-        # The post-solve emitter CONSUMES those frozen footprints instead of
-        # re-marching, but still clips them against the (post-solve) static
-        # block and VALUES every vertex off the solved altitudes — so this is
-        # a construction move only (values stay analytic; gate-ON is
-        # value-equivalent to gate-OFF up to the enumerated seed/late-feature
-        # footprint deltas).  It admits NO band vertex to the solver (that is
-        # order 2 under the separate admission gate).  Requires the
-        # adjacent-ground law itself (the emitter runs only under it).
+        # ── THE TWO PRE-SOLVE STORE CONSTRUCTIONS MOVED BELOW THE FABRIC
+        # THINNING (staged-solve S1, THE GEOMETRY FREEZE) ────────────────
+        # The gap-fill spine construction and the adjacent-ground band
+        # construction USED TO RUN HERE, three and six statements before
+        # ``fabric_sparse.thin_rings`` + the restation passes — i.e. before
+        # the LAST passes that add, move and remove solve-consumed ring
+        # vertices.  Both froze references onto rings that were then
+        # decimated and re-stationed underneath them:
+        # ``gap_fill._freeze_spine_parent_specs`` promises "the station
+        # identity and ``d`` never re-derive as the solve moves
+        # elevations", and it was freezing onto the PRE-THINNING ring.
+        # Under the freeze both run after the last ring mutation, against
+        # the geometry the solver actually consumes.  See the freeze block
+        # below and ``tmp/s1_attribution.md`` §1(c) sites 51/52/54-57.
         from .config import (
             ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT,
             ADJACENT_GROUND_LAW_ENABLED as _AGL_ENABLED)
@@ -5725,17 +5698,6 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                            and ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT
                            and _AGL_ENABLED
                            and layout.anchor is not None)
-        if _band_construct:
-            try:
-                from .adjacent_ground import \
-                    construct_adjacent_ground_presolve
-                construct_adjacent_ground_presolve(
-                    layout, dem, tile_lat, tile_lon,
-                    source_runways=apt.runways)
-            except _GEOM_EXC as _agpre_exc:
-                UI.vprint(1, f"  [pav-builder] {icao}: pre-solve "
-                             f"adjacent-ground band construction FAILED: "
-                             f"{_agpre_exc!r}")
 
         # LATERAL-CONTIGUITY LAW, late re-bind (owner FINAL 2026-08-02).
         # The geometric half ran before the conformance passes so its cuts
@@ -5850,6 +5812,110 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             UI.vprint(1, f"  [pav-builder] {icao}: fabric-sparse thinning "
                          f"FAILED: {_fab_exc!r} — dense emission this build.")
 
+        # ════════════════════════════════════════════════════════════════
+        # THE GEOMETRY FREEZE (owner direction 2026-08-13; staged-solve
+        # round S1).  Above this line is the LAST pass that may add, move
+        # or split solve-consumed plan geometry.  Below it nothing may —
+        # ``geometry_freeze.assert_frozen`` is the rail, and every
+        # consumer of the one graph goes through it.
+        #
+        # Three constructions run INSIDE the freeze block, in this order,
+        # and the order is the whole point:
+        #
+        #   1. GAP-FILL SPINES — pure plan geometry (S1 phase-1 verified:
+        #      zero elevation reads of any kind), so they are built first
+        #      and their frozen-nearest parent stations reference the
+        #      FINAL rings.  Their vertices lie on no ring, so they enter
+        #      the node list but contribute nothing to the graph.
+        #   2. THE FREEZE ITSELF — one node list, one grade context, one
+        #      unified graph, one reach band, published on the layout.
+        #      This is the build that used to happen a second time inside
+        #      ``adjacent_ground._build_construct_reach_band``.
+        #   3. THE ADJACENT-GROUND BAND CONSTRUCTION — consumes the
+        #      published band instead of building its own graph.
+        #
+        # Elevation-DEPENDENT geometry (conflict walls, terraces,
+        # feathers, blends, the bands' own faces) stays post-solve and
+        # ADDITIVE-ONLY; ``geometry_freeze.clear`` lifts the rail once the
+        # solve has run, because phase [6] emission is lawful mutation.
+        # ════════════════════════════════════════════════════════════════
+        from . import geometry_freeze as _gfreeze
+
+        # (1) Gap-fill drainage spines (Slice B stage B2; gates
+        # O4_ONE_SOLVE_TERRAIN + O4_ONE_SOLVE_TERRAIN_GAP_FILL_SPINE).
+        # The FIRST FREE terrain variables in the one-solve graph: the
+        # solver admits every spine vertex (``_build_node_list``),
+        # constrains it with envelope INTERVAL edges to its frozen-nearest
+        # pavement stations plus a second-difference fairing, and writes
+        # the solved values back into the store.  Face EMISSION stays at
+        # the post-solve slot (blocker subjects only exist there).  A
+        # construction failure degrades loudly to the analytic path.
+        if _gap_presolve:
+            try:
+                from .gap_fill import construct_gap_fill_presolve
+                construct_gap_fill_presolve(layout)
+            except _GEOM_EXC as _gappre_exc:
+                UI.vprint(1, f"  [pav-builder] {icao}: pre-solve gap-fill "
+                             f"spine construction FAILED: {_gappre_exc!r}")
+
+        # (2) THE FREEZE POINT.
+        _gfreeze.freeze(layout, icao=icao)
+        if layout.anchor is not None:
+            try:
+                from . import grade_graph as _GG_frz
+                from .elevation_per_surface.solver_primitives import (
+                    _build_node_list as _bnl_frz)
+                from .elevation_per_surface.building_feasibility import (
+                    reach_band_unified as _rbu_frz)
+                _frz_nodes, _frz_b2i = _bnl_frz(layout)
+                _frz_ctx = _GG_frz.build_context(layout, _frz_b2i)
+                _frz_G = _GG_frz.build_unified_graph(
+                    layout, _frz_b2i, ctx=_frz_ctx)
+                _frz_band = _rbu_frz(layout, _frz_G)
+                _gfreeze.publish(layout, nodes=_frz_nodes,
+                                 bucket_to_idx=_frz_b2i, ctx=_frz_ctx,
+                                 graph=_frz_G, band=_frz_band)
+                UI.vprint(1,
+                    f"  [geometry-freeze] {icao}: plan geometry FROZEN "
+                    f"({len(layout.shapes)} shape(s)); ONE node list "
+                    f"({len(_frz_nodes)} node(s)), ONE grade graph "
+                    f"({len(_frz_G.edges)} edge(s)), ONE reach band "
+                    f"({'built' if _frz_band is not None else 'none'}) "
+                    f"published for the pre-solve band, the solve and the "
+                    f"validator.")
+            except Exception as _frz_exc:              # pragma: no cover
+                # LOUD DEGRADE, never a crash: without the published graph
+                # every consumer builds its own, exactly as before the
+                # freeze.  The rail stays armed — the failure is in the
+                # BUILD, not in the geometry.
+                UI.vprint(1,
+                    f"  [geometry-freeze] {icao}: WARN the one graph/band "
+                    f"could not be built ({_frz_exc!r}) — each consumer "
+                    f"builds its own this build (pre-freeze behaviour); "
+                    f"the freeze RAIL stays armed.")
+
+        # (3) Adjacent-ground band FOOTPRINT march (Slice B stage B3 order
+        # 1; gates O4_ONE_SOLVE_TERRAIN +
+        # O4_ONE_SOLVE_TERRAIN_GRADED_STRIP_CONSTRUCT +
+        # ADJACENT_GROUND_LAW_ENABLED).  Stages the raw band rings on
+        # ``layout.adjacent_ground_presolve``; the post-solve emitter
+        # consumes those frozen footprints instead of re-marching, clips
+        # them against the post-solve static block and VALUES every vertex
+        # off the solved altitudes.  It writes NO shape, so it is lawful
+        # after the freeze point (the rail proves it).
+        if _band_construct:
+            try:
+                from .adjacent_ground import \
+                    construct_adjacent_ground_presolve
+                construct_adjacent_ground_presolve(
+                    layout, dem, tile_lat, tile_lon,
+                    source_runways=apt.runways)
+            except _GEOM_EXC as _agpre_exc:
+                UI.vprint(1, f"  [pav-builder] {icao}: pre-solve "
+                             f"adjacent-ground band construction FAILED: "
+                             f"{_agpre_exc!r}")
+            _gfreeze.assert_frozen(layout, "adjacent-ground construction")
+
         if layout.anchor is not None:
             # Runway CIFP thresholds are LOCKED — the solver never moves them.
             # The old runway-threshold-relief passes (step 3
@@ -5863,6 +5929,13 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             per_surface_solve(layout, icao,
                                dem=dem,
                                tile_lat=tile_lat, tile_lon=tile_lon)
+            # THE FREEZE IS LIFTED HERE, and only here: phase [6] emission
+            # (bands, spines, walls, cuts, the two final projections) is
+            # ADDITIVE and conforms to the solved field, so it legitimately
+            # mutates geometry.  Dropping the published graph with the rail
+            # is deliberate — a stale one-graph must never survive into a
+            # phase that rebuilds on mutated rings.
+            _gfreeze.clear(layout)
             _rod_ckpt(layout, "00_post_solve")
             # (Legacy junction ring-curvature smoothing removed: it was a no-op
             # under the single-grade-graph connecting solve, which produces a

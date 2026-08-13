@@ -428,3 +428,21 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   orders of magnitude larger than this one.
 - 0 new law constants and 0 new env flags. `CENTERLINE_SPECS_MEMO` is a
   module-level kill switch for the twin; no law reads it.
+
+## Staged-solve S1 (geometry freeze) — lane/s1freeze, 2026-08-13
+
+- OTHH / KCLT / KSTJ / SPJC / SPLP censuses NOT run for the freeze
+  increment (only HECA replay + CYXY control-airport arm). Pre-ship mode
+  allows one acceptance arm per lane; the consolidated five-airport
+  adjudication is lead-owned and still owed for this change.
+- The full pytest suite was NOT run; the `blast --tests-for` selection
+  over the four edited files (89 files, 2323 passed) plus the new freeze
+  twins was, once, through `run_with_ledger`.
+- Build-time impact of the freeze block NOT measured exclusively: the
+  freeze adds one node-list+context+graph+band build and REMOVES the one
+  `adjacent_ground._build_construct_reach_band` used to do, so the
+  intended net is ~zero. Replay walls (315.6 s arm 1 / 293.7 s arm 2 vs a
+  383.7 s whole build) are not timing arms and must not be quoted.
+- The solve-side one-graph reuse is NOT landed (measured and rejected,
+  see solve.py's rejected-reuse note); the `id(s.polygon)` re-keying that
+  would make it safe is unbuilt.

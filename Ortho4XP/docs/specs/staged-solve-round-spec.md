@@ -80,7 +80,33 @@ as an interior constraint, not emitted as a bare step. If the
 available run cannot lawfully absorb the rise, that is a REPORTED law
 conflict with numbers (feasibility-is-guaranteed: a real airport +
 real thresholds has a lawful surface; find what mints the conflict) —
-never a quarantine, never a silent step.
+never a quarantine, never a silent step. There is NO wall fallback
+behind this mechanism (weld-or-gap ruling): the whole-run profile IS
+the resolution.
+
+**WELD OR GAP (owner ruling 2026-08-13, RULINGS "TRANSITION MACHINERY
+RETIRES").** The interior adjacency law: touching patch surfaces
+AGREE at shared nodes; surfaces that must not couple are separated by
+an ambient-DEM gap the mesh drapes; an interior shared-edge
+disagreement is ALWAYS a defect. Patch↔DEM transitions belong to
+Ortho4XP's own drape. Stacked-conflict walls, groundside terrace
+walls, feathers and blend shapes retire AS the conflict classes that
+demanded them close; SEAWALLS are the sole survivor (VHHH +
+connected-island rulings stand). S5's pad emission simplifies under
+the same law: the pad CORE welds to touching pavement and meets the
+building base; the blend annulus retires — the gap to ambient DEM is
+the mesh's.
+
+**S6 — transition-machinery retirement (sequenced AFTER S1+S2
+acceptance).** Retire the interior wall/terrace/feather/blend
+emitters (emit_stacked_conflict_walls, emit_groundside_terrace_walls,
+the feather and blend paths — enumerate by sweep, seawall paths
+exempted by their gate, never by geometry guesswork), measure the
+five-airport censuses under weld-or-gap, and route every site whose
+step SURVIVES retirement back to its minting mechanism (a surviving
+step is a solve defect by definition now, never a re-wall candidate).
+Acceptance: censuses adjudicated row-by-row; the owner's in-sim pass
+judges the visual result, VHHH's coast explicitly on the list.
 
 ## Lanes
 

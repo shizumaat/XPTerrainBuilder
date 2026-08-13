@@ -836,6 +836,7 @@ def _visibility_predicate(ring: list[tuple[float, float]]):
     ring grown by ``_VIS_BUF``.  ``None`` if shapely is unavailable / the polygon
     is degenerate (caller falls back to plain all-pair)."""
     try:
+        import shapely as _shapely
         from shapely.geometry import LineString, Polygon
         from shapely.prepared import prep
     except ImportError:  # pragma: no cover
@@ -857,6 +858,16 @@ def _visibility_predicate(ring: list[tuple[float, float]]):
         except Exception:
             return True
 
+    # ROW BATCH (perf P3 lane D).  ``pg`` is a prepared wrapper around
+    # ``poly``, and ``prep()`` prepares ``poly`` ITSELF, so the vectorized
+    # ``shapely.contains(poly, chords)`` runs the SAME prepared GEOS
+    # predicate on the SAME chord coordinates — one Python-level dispatch
+    # for a whole row of chords instead of one per chord.  Same predicate,
+    # same inputs, same verdicts; only the dispatch count changes.
+    def _vis_batch(chords):
+        return _shapely.contains(poly, chords)
+
+    _vis.batch = _vis_batch
     return _vis
 
 
@@ -1023,22 +1034,83 @@ def _spine_membership(shape: GradeShape, ctx: GradeContext
     tree, idxs, _geoms = _polyline_tree(ctx, "cl")
     if tree is None:
         return out
+    ring = shape.ring
+    if not ring:
+        return out
     svc_ok = _reads_service_spines(shape)
-    from shapely.geometry import Point as _Pt
-    for ri, (x, y) in enumerate(shape.ring):
-        hits = []
-        # bbox candidates within the tolerance, exact test via _project
-        for k in tree.query(_Pt(x, y).buffer(SPINE_PERP_TOL_M)):
-            ci = idxs[int(k)]
-            if not svc_ok and ctx.centerlines[ci].is_service:
-                continue
-            a, d, _ = _project(ctx.centerlines[ci], x, y)
-            if d <= SPINE_PERP_TOL_M:
-                hits.append((ci, a))
-        if hits:
-            hits.sort()
-            out[ri] = hits
-    return out
+    # CANDIDATE QUERY, ONE CALL FOR THE WHOLE RING (perf P3 lane D).  This
+    # used to build a 33-vertex ``Point(x, y).buffer(TOL)`` per ring vertex
+    # and query the tree with it, one Python-level shapely round trip per
+    # vertex.  The tree query is an ENVELOPE test, and the buffer's envelope
+    # is exactly ``box(x-TOL, y-TOL, x+TOL, y+TOL)`` — every point within
+    # TOL of (x, y) lies in that box — so the box returns the same candidate
+    # set (a superset in general, which is equally safe: EVERY candidate is
+    # then put through the unchanged exact ``_project`` distance test, and
+    # ``hits.sort()`` makes the result order-independent, so extra
+    # candidates that fail the test change nothing).  Building the boxes and
+    # querying them are both vectorized, so the whole ring costs two calls
+    # instead of 2n.
+    import numpy as _np
+    import shapely as _shapely
+    xy = _np.asarray(ring, dtype=float)
+    tol = SPINE_PERP_TOL_M
+    boxes = _shapely.box(xy[:, 0] - tol, xy[:, 1] - tol,
+                         xy[:, 0] + tol, xy[:, 1] + tol)
+    q_ri, q_k = tree.query(boxes)
+    for ri, k in zip(q_ri.tolist(), q_k.tolist()):
+        ci = idxs[k]
+        if not svc_ok and ctx.centerlines[ci].is_service:
+            continue
+        x, y = ring[ri]
+        a, d, _ = _project(ctx.centerlines[ci], x, y)
+        if d <= SPINE_PERP_TOL_M:
+            out.setdefault(ri, []).append((ci, a))
+    for hits in out.values():
+        hits.sort()
+    # Ring-ascending KEY order, as the per-vertex loop produced: downstream
+    # (``_build_spine_chains``) iterates this mapping and the chain list it
+    # builds inherits its order.
+    return {ri: out[ri] for ri in sorted(out)}
+
+
+# How many chords one vectorised predicate call covers (perf P3 lane D).
+# A BUFFER SIZE, not a law value: it changes only how many chords share one
+# shapely dispatch and how many geometries exist at once, never a verdict —
+# the same predicate runs on the same chords whatever it is set to.
+_PRED_BLOCK_CHORDS = 65536
+
+
+def _predicate_true():
+    """Constant thunk for a predicate already decided True (see the
+    batched visibility table in :func:`shape_constraints`)."""
+    return True
+
+
+def _predicate_false():
+    """Constant thunk for a predicate already decided False."""
+    return False
+
+
+def _crossing_hit_points(inter):
+    """The intersection points a crossing verdict is measured at.
+
+    Hoisted UNCHANGED out of ``_spine_crossing_predicate._crosses`` (perf
+    P3 lane D): it was a nested generator function, so a fresh function
+    object was built on every chord the predicate was asked about."""
+    stack = [inter]
+    while stack:
+        q = stack.pop()
+        if q.is_empty:
+            continue
+        gt = q.geom_type
+        if gt == "Point":
+            yield (q.x, q.y)
+        elif gt in ("LineString", "LinearRing"):
+            # collinear overlap: its midpoint stands in for the run
+            m = q.interpolate(0.5, normalized=True)
+            yield (m.x, m.y)
+        elif hasattr(q, "geoms"):
+            stack.extend(q.geoms)
 
 
 # An intersection point within this distance of a chord endpoint is
@@ -1142,24 +1214,10 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
         #     — split-agnostic (``crosses`` needed an interior hit on the
         #     line side too, so a chord passing exactly through a sidecar
         #     split node was invisible to one reader).
-        def _hit_points(inter):
-            stack = [inter]
-            while stack:
-                q = stack.pop()
-                if q.is_empty:
-                    continue
-                gt = q.geom_type
-                if gt == "Point":
-                    yield (q.x, q.y)
-                elif gt in ("LineString", "LinearRing"):
-                    # collinear overlap: its midpoint stands in for the run
-                    m = q.interpolate(0.5, normalized=True)
-                    yield (m.x, m.y)
-                elif hasattr(q, "geoms"):
-                    stack.extend(q.geoms)
+        _hit_points = _crossing_hit_points
 
-        def _crosses_one(g):
-            if not ch.intersects(g):
+        def _crosses_one(g, known_intersecting=False):
+            if not (known_intersecting or ch.intersects(g)):
                 return False
             try:
                 inter = ch.intersection(g)
@@ -1174,8 +1232,16 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
 
         if tree is not None:
             try:
-                for k in tree.query(ch):
-                    if _crosses_one(geoms[int(k)]):
+                # PREDICATE PUSHED INTO THE QUERY (perf P3 lane D): the tree
+                # runs ``intersects`` against each candidate in C and returns
+                # only the hits, instead of returning bbox candidates for a
+                # Python-level ``ch.intersects(g)`` each.  Same predicate,
+                # same pairs — ``query(g, predicate=...)`` is defined as the
+                # bbox candidates filtered by exactly that predicate — so
+                # this only removes per-candidate dispatch.  The verdict is
+                # an OR over the hits, so evaluation order is immaterial.
+                for k in tree.query(ch, predicate="intersects"):
+                    if _crosses_one(geoms[int(k)], known_intersecting=True):
                         return True
                 return False
             except Exception:               # pragma: no cover
@@ -1185,6 +1251,24 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
                 return True
         return False
 
+    # NOT VECTORISED, AND THAT IS A MEASUREMENT, NOT AN OVERSIGHT (perf P3
+    # lane D).  TWO vectorised forms of this predicate were built and
+    # measured, both byte-identical to the baseline, both SLOWER:
+    #   * a full whole-shape batch (verdict for every pair at once) —
+    #     ``shape_constraints`` 83.3 s -> 100.3 s at HECA, 7.4 -> 8.6 s at
+    #     CYXY;
+    #   * a cheap "does this chord meet ANY spine" prefilter in front of the
+    #     per-chord path, leaving the intersection and endpoint-clearance
+    #     walk where it was — CYXY 5.6 s -> 6.4 s.
+    # The cause is the same for both, and it is the law's own precedence:
+    # ``classify_pair`` reaches the crossing rule only AFTER the visibility
+    # skip, so anything computed for EVERY pair (which a reader must do — it
+    # may not re-spell the law's order to predict which pairs will be asked)
+    # pays for pairs the law never asks about, and here that overhead
+    # cancels the dispatch it saves.  Visibility, which the law reaches
+    # FIRST for nearly every body pair, vectorises profitably and does (see
+    # ``_visibility_predicate``).  Do not "finish the job" here without
+    # re-measuring both airports.
     return _crosses
 
 
@@ -1967,12 +2051,73 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # the legacy scalar ``(key_a, key_b, cap)`` edge exactly.  The per-edge spine
     # cap (a taxi route keeps its own per-letter cap inside a junction) and the
     # per-letter blend are encoded as the ``spine_caps`` / ``blend_cap_fn`` inputs.
+    # ── BATCHED VISIBILITY (perf P3 lane D) ───────────────────────────────
+    # ``vis`` is a pure predicate of the CHORD.  Asked one chord at a time
+    # it pays shapely's Python-level dispatch per pair — measured at HECA,
+    # 27.0 s inside this function.  Asked in BLOCKS it pays it once per
+    # block (measured 10.4 s), and the verdicts are identical: the same
+    # prepared GEOS predicate on the same chord coordinates (see
+    # ``_visibility_predicate``'s batch comment).
+    #
+    # The table covers a SUPERSET of the pairs the law asks about, because
+    # the law short-circuits on its cheap skips first.  That is sound and
+    # not merely convenient: the predicate is pure and side-effect free, so
+    # a verdict computed for a pair the law never consults is discarded, and
+    # a discarded verdict cannot change an outcome.  (It is also what makes
+    # the CROSSING predicate a bad batch candidate — see
+    # ``_spine_crossing_predicate``, where the same superset was measured
+    # and rejected.)
+    #
+    # The law's own call sequence is untouched: it still receives a thunk
+    # and still decides WHEN to consult it — the thunk just answers from the
+    # table instead of calling into shapely.  Any failure in the batch (a
+    # degenerate chord, an older shapely) drops the whole shape back to the
+    # original per-pair thunk, which is still here.
+    #
+    # Blocks are sized in CHORDS, not shapes: batching a whole small ring at
+    # once is what makes the amortisation work there (measured: per-ROW
+    # batching was a LOSS at CYXY, whose rings are short — the vectorised
+    # call's own setup outweighed the handful of chords in a row), while the
+    # cap keeps a large ring's peak geometry count bounded.  Pairs are
+    # generated in the loop's own order, so the k-th table entry is the
+    # k-th pair the loop visits.
+    vis_all = None
+    if not ring_only and vis is not None:
+        try:
+            import numpy as _np
+            import shapely as _shapely
+            xy = _np.asarray(ring, dtype=float)
+            iu, ju = _np.triu_indices(n, 1)      # row-major = loop order
+            n_pairs = len(iu)
+            vis_all = _np.zeros(n_pairs, dtype=bool)
+            for start in range(0, n_pairs, _PRED_BLOCK_CHORDS):
+                stop = min(start + _PRED_BLOCK_CHORDS, n_pairs)
+                m = stop - start
+                pts = _np.empty((2 * m, 2), dtype=float)
+                pts[0::2] = xy[iu[start:stop]]
+                pts[1::2] = xy[ju[start:stop]]
+                chords = _shapely.linestrings(
+                    pts, indices=_np.repeat(_np.arange(m), 2))
+                vis_all[start:stop] = vis.batch(chords)
+        except Exception:                   # pragma: no cover
+            vis_all = None
+
+    # Per-vertex spine-centerline sets, built ONCE (perf P3 lane D).  The
+    # pair loop used to rebuild BOTH endpoints' sets inside the O(n²) body,
+    # so a vertex on a spine had its set rebuilt n times.  Same sets, same
+    # intersection.
+    mem_sets = {ri: {c for (c, _a) in hits}
+                for ri, hits in membership.items()}
+
+    pair_ord = -1
     for i in range(n):
         xi, yi = ring[i]
         ki = keys[i]
         mi = membership.get(i)
+        mset_i = mem_sets.get(i)
         ki_bld = ki in bld
         for j in range(i + 1, n):
+            pair_ord += 1
             ring_adjacent = (j == i + 1) or (i == 0 and j == n - 1)
             if ring_only and not ring_adjacent:
                 continue
@@ -1982,7 +2127,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             xj, yj = ring[j]
             d = math.hypot(xi - xj, yi - yj)
             mj = membership.get(j)
-            shared = (({c for (c, _a) in mi} & {c for (c, _a) in mj})
+            shared = ((mset_i & mem_sets[j])
                       if (mi is not None and mj is not None) else set())
             spine_caps = tuple(ctx.centerlines[c].cap for c in shared)
             kj_bld = kj in bld
@@ -1996,9 +2141,14 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 mesh_fn = (lambda _k=frozenset((ki, kj)), _m=mesh_keys:
                            _k in _m)
 
-            visible_fn = (None if vis is None
-                          else (lambda _a=xi, _b=yi, _c=xj, _d=yj:
-                                vis(_a, _b, _c, _d)))
+            if vis is None:
+                visible_fn = None
+            elif vis_all is not None:
+                visible_fn = (_predicate_true if vis_all[pair_ord]
+                              else _predicate_false)
+            else:
+                visible_fn = (lambda _a=xi, _b=yi, _c=xj, _d=yj:
+                              vis(_a, _b, _c, _d))
             crosses_fn = None
             if (crosses_spine is not None and not spine_caps
                     and not ring_adjacent):

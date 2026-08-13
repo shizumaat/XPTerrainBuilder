@@ -331,3 +331,193 @@ def test_global_spine_census_is_zero_when_every_centerline_strings(capsys):
     assert (G.spine_centerlines, G.spine_no_string, G.spine_no_string_zero) \
         == (1, 0, 0)
     assert "0 of 1 centerline(s) contributed no string" in capsys.readouterr().out
+
+
+# ── perf P3 lane D: the batched / prefiltered paths are TWINS of the
+# per-item paths they stand in for.  Each optimisation below replaces a
+# per-item shapely call with a vectorised one, or skips a call whose
+# answer is already known; none of them may change a verdict, and none of
+# them may be trusted on the comment alone.  Each test runs BOTH paths on
+# the same input and asserts equality.
+
+def _notched_ring(side=60.0):
+    """A NON-CONVEX ring, so the visibility predicate actually says False
+    for some chords (a convex ring would twin trivially)."""
+    h = side / 2.0
+    return [(0.0, 0.0), (side, 0.0), (side, side), (h + 5.0, side),
+            (h + 5.0, h), (h - 5.0, h), (h - 5.0, side), (0.0, side)]
+
+
+def _all_chords(ring):
+    """Every (i, j) chord of the ring, in ``shape_constraints`` order."""
+    import numpy as np
+    import shapely
+    n = len(ring)
+    xy = np.asarray(ring, dtype=float)
+    iu, ju = np.triu_indices(n, 1)
+    pts = np.empty((2 * len(iu), 2), dtype=float)
+    pts[0::2] = xy[iu]
+    pts[1::2] = xy[ju]
+    chords = shapely.linestrings(
+        pts, indices=np.repeat(np.arange(len(iu)), 2))
+    return xy, iu, ju, chords
+
+
+def test_visibility_batch_twins_the_per_chord_predicate():
+    ring = _notched_ring()
+    vis = GG._visibility_predicate(ring)
+    assert vis is not None
+    xy, iu, ju, chords = _all_chords(ring)
+    batched = list(vis.batch(chords))
+    one_at_a_time = [vis(xy[a, 0], xy[a, 1], xy[b, 0], xy[b, 1])
+                     for a, b in zip(iu, ju)]
+    assert batched == one_at_a_time
+    # and the fixture is discriminating, not all-True
+    assert not all(one_at_a_time)
+
+
+def _crossing_ctx_and_shape():
+    """An apron with two taxi centerlines through it, so chords cross a
+    spine, touch one at an endpoint, and miss entirely."""
+    ring = [(0.0, 0.0), (60.0, 0.0), (60.0, 60.0), (0.0, 60.0),
+            (0.0, 30.0), (60.0, 30.0)]
+    cls = [GG.Centerline(pts=[(0.0, 30.0), (60.0, 30.0)],
+                         seg_caps=[TAXI_MAX_GRADE]),
+           GG.Centerline(pts=[(30.0, 0.0), (30.0, 60.0)],
+                         seg_caps=[TAXI_MAX_GRADE])]
+    ctx = GG.GradeContext(centerlines=cls)
+    shape = GG.GradeShape(role="apron", ring=ring,
+                          keys=list(range(len(ring))))
+    return ctx, shape, ring
+
+
+def test_crossing_tree_predicate_twins_the_linear_scan():
+    """The crossing predicate now pushes ``intersects`` INTO the tree query
+    instead of filtering bbox candidates in Python.  Its own fallback — the
+    linear scan over every spine, reached when there is no tree — is the
+    reference: both must give the same verdict for every chord."""
+    ctx, shape, ring = _crossing_ctx_and_shape()
+    mem = GG._spine_membership(shape, ctx)
+    with_tree = GG._spine_crossing_predicate(shape, ctx, mem)
+    assert with_tree is not None
+    attr = ("_crossing_tree" if GG._reads_service_spines(shape)
+            else "_crossing_tree_nosvc")
+    geoms, tree = getattr(ctx, attr)
+    assert tree is not None, "fixture did not build a tree at all"
+    setattr(ctx, attr, (geoms, None))              # force the linear scan
+    linear = GG._spine_crossing_predicate(shape, ctx, mem)
+
+    xy, iu, ju, _chords = _all_chords(ring)
+    a = [with_tree(xy[p, 0], xy[p, 1], xy[q, 0], xy[q, 1])
+         for p, q in zip(iu, ju)]
+    b = [linear(xy[p, 0], xy[p, 1], xy[q, 0], xy[q, 1])
+         for p, q in zip(iu, ju)]
+    assert a == b
+    # discriminating both ways
+    assert any(a) and not all(a)
+
+
+def test_spine_membership_box_query_twins_the_buffer_query():
+    """The candidate query dropped a per-vertex ``Point(...).buffer(TOL)``
+    for a box.  This is the retired spelling, run side by side."""
+    from shapely.geometry import Point
+    ctx, shape, _ring = _crossing_ctx_and_shape()
+
+    def _reference(shape, ctx):
+        out = {}
+        tree, idxs, _g = GG._polyline_tree(ctx, "cl")
+        assert tree is not None
+        svc_ok = GG._reads_service_spines(shape)
+        for ri, (x, y) in enumerate(shape.ring):
+            hits = []
+            for k in tree.query(Point(x, y).buffer(GG.SPINE_PERP_TOL_M)):
+                ci = idxs[int(k)]
+                if not svc_ok and ctx.centerlines[ci].is_service:
+                    continue
+                a, d, _f = GG._project(ctx.centerlines[ci], x, y)
+                if d <= GG.SPINE_PERP_TOL_M:
+                    hits.append((ci, a))
+            if hits:
+                hits.sort()
+                out[ri] = hits
+        return out
+
+    got = GG._spine_membership(shape, ctx)
+    ref = _reference(shape, ctx)
+    assert got == ref
+    # key ORDER travels too: _build_spine_chains iterates this mapping
+    assert list(got) == list(ref)
+    assert got, "fixture produced no membership at all"
+
+
+def test_shape_constraints_batched_and_unbatched_agree():
+    """The whole function, both ways: with the vectorised predicate table
+    and with it forced off (the per-pair thunks that are still there)."""
+    ctx, shape, _ring = _crossing_ctx_and_shape()
+    batched = GG.shape_constraints(shape, ctx)
+
+    class _NoBatch:
+        """The predicate factory's product minus its ``batch`` attribute,
+        so ``shape_constraints`` takes the per-pair path."""
+        def __init__(self, fn):
+            self._fn = fn
+
+        def __call__(self, *a):
+            return self._fn(*a)
+
+    real_vis, real_cross = (GG._visibility_predicate,
+                            GG._spine_crossing_predicate)
+    try:
+        GG._visibility_predicate = lambda ring: (
+            _NoBatch(real_vis(ring)) if real_vis(ring) is not None else None)
+        GG._spine_crossing_predicate = lambda sh, c, m: (
+            _NoBatch(real_cross(sh, c, m))
+            if real_cross(sh, c, m) is not None else None)
+        plain = GG.shape_constraints(shape, ctx)
+    finally:
+        GG._visibility_predicate = real_vis
+        GG._spine_crossing_predicate = real_cross
+
+    assert [(a, b, cap.flat_cap()) for (a, b, cap) in batched.edges] == \
+           [(a, b, cap.flat_cap()) for (a, b, cap) in plain.edges]
+    assert batched.spine_chains == plain.spine_chains
+    assert batched.edges, "fixture produced no edges at all"
+
+
+def test_overlap_clip_bbox_prefilter_twins_the_unfiltered_pass():
+    """``_drop_overlap_against_fixed_shapes`` gained a bounding-box
+    prefilter in front of its pairwise ``intersects``.  With the filter
+    disabled the pass must reach the SAME shapes."""
+    from shapely.geometry import box
+    from auto_patch import elevation as EL
+    from auto_patch.layout import BuiltShape, ROLE_APRON, ROLE_JUNCTION
+
+    def _layout():
+        class _L:
+            pass
+        lay = _L()
+        lay.shapes = [
+            BuiltShape(polygon=box(0, 0, 100, 100), role=ROLE_APRON),
+            BuiltShape(polygon=box(90, 0, 200, 100), role=ROLE_APRON),
+            BuiltShape(polygon=box(300, 300, 400, 400), role=ROLE_APRON),
+            BuiltShape(polygon=box(95, 50, 120, 150), role=ROLE_JUNCTION),
+            BuiltShape(polygon=box(1000, 0, 1100, 100), role=ROLE_JUNCTION),
+        ]
+        return lay
+
+    filtered = _layout()
+    EL._drop_overlap_against_fixed_shapes(filtered, include_aprons=True)
+
+    unfiltered = _layout()
+    real = EL._envelopes_disjoint
+    try:
+        EL._envelopes_disjoint = lambda a, b: False      # never prefilter
+        EL._drop_overlap_against_fixed_shapes(unfiltered, include_aprons=True)
+    finally:
+        EL._envelopes_disjoint = real
+
+    def _sig(lay):
+        return [(s.role, s.polygon.wkt) for s in lay.shapes]
+
+    assert _sig(filtered) == _sig(unfiltered)
+    assert len(filtered.shapes) >= 3

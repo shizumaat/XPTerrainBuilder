@@ -205,13 +205,22 @@ class TestTheSealIsTheLastCallInThePipeline:
         import inspect
         from auto_patch import pipeline as PIPE
 
-        source = inspect.getsource(PIPE.build_airport_pavement)
+        # The seal lives in ``solve_and_finalize``; the entry point's own
+        # last statement must be the delegation, so the seal's tail IS the
+        # pipeline's tail.
+        entry = inspect.getsource(PIPE.build_airport_pavement)
+        assert "solve_and_finalize(**" in entry
+        entry_tail = entry.split("solve_and_finalize(**", 1)[1]
+
+        source = inspect.getsource(PIPE.solve_and_finalize)
         assert "seal_pavement_to_band as _seal_band" in source
         tail = source.split("_seal_band(layout, icao)", 1)[1]
         # The tail is reports and bookkeeping only.  These are the
-        # pipeline's own elevation authors; none may appear after it.
+        # pipeline's own elevation authors; none may appear after the seal
+        # in ``solve_and_finalize``, nor after the delegation in the entry.
         for author in ("_late_fgp(", "_reclamp_spines(", "_writeback(",
                        "final_grade_projection(", "_strip_reconcile_passes(",
                        "emit_adjacent_ground_bands(", "emit_gap_fill_spines(",
                        "relevel_pads_to_host_pavement("):
             assert author not in tail, author
+            assert author not in entry_tail, author

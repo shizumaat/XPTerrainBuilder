@@ -281,6 +281,15 @@ new-violation rows, all in corridor-changed rings — owned by S2's
 frozen onto later-decimated rings) and the assert_frozen rail ride
 in with it.
 
+**S1d docket (accumulating; dispatches after the S1/S2 stack merge
+decision):** the open couplings 9/10/12/21; the 1,631 recorded
+inverted-tube conflicts S2b attributed to two reach regimes
+contradicting (an S1-boundary condition, not a profile defect); the
+free-end over-floor outlier (3.256 m at 30.1119707,31.3731240,
+second mechanism un-isolated at S2b's cap); the legacy per-vertex
+station path S2b's audit shows carrying the airport-wide over-cap
+residual the profile never reaches.
+
 **S7 — census domain restoration + drainage retirement (instrument
 lane, dispatchable immediately).** Per the S3 blindness verdict and
 the 2026-08-13b drainage ruling: service_road/service_junction return

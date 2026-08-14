@@ -178,8 +178,24 @@ retained (mesh 106.3→93.72 class) AND zero airside off-face rows (the
 under staging, the construct itself is the writer — park it again and
 name the write site.
 
-**S5 — object pads in the one solve (owner ruling 2026-08-13, RULINGS
-"OBJECT PADS: ONE SOLVE, NO CONVERGENCE").** The next-build convergence
+**S5 — object pads in the one solve, RELATIVE COUPLING (owner rulings
+2026-08-13 + 2026-08-13b).** MECHANISM SUPERSEDED by the premise test
+(lane/s5pads 3065e51): objects render at MESH-under-anchor + AGL +
+authored base_y — zero absolute placements exist in either battery
+pack, and mesh−DEM at anchors (p50 0.82 m / p90 7.26 m, HECA) is
+dominated by our own solved surface, so a pre-solve absolute seat is
+infeasible. THE RULED DESIGN: the pad enters the one solve as a
+RELATIVE coupling — pad_level − ground_level(anchor) = base_y, a
+rigid constraint between two in-solve nodes — terrain meets the base
+exactly wherever the solve lawfully puts the anchor's ground.
+Grade-law-infeasible couplings fall back to the y-bake path. All
+other clauses of the original S5 stand verbatim: the convergence
+read-back retires, the sidecar becomes write-only audit at most,
+core-only emission under weld-or-gap, and the acceptance arms (a)
+determinism tile pair PASSING, (b) pack pristine for coupled objects,
+(c) the faster-than-y-bake gate, (d) unchanged check_object_pads law,
+(e) row-attributed census deltas. Original charter follows for
+context: The next-build convergence
 design is RETIRED: the perfbake arm measured its §5.2 fixed-point
 promise false (object_pad 689→723→736, sidecar sha still moving after
 run 3), and the owner rules no convergence and no multi-build anything.
@@ -213,6 +229,45 @@ POST-MESH — if attribution shows a mesh-vs-patch residual above
 materiality at real sites (something pre-solve genuinely cannot see),
 quantify it and STOP for the owner; the expectation is it lives under
 `DSF_OBJECT_FOOT_PAD_RESIDUAL_M`.
+
+**S1b — the stage partition (Fable design ruling 2026-08-13b, on top
+of lane/s1freeze, which stays UNMERGED until this lands).** S1's
+phase-1 findings bind: 21 couplings inventoried
+(tmp/s1_attribution.md in the s1freeze worktree); the §7 premise was
+STALE — the live §10 rod interval reaches final projection as
+family="rod_interval" with NO role key, so a partition keyed on
+sc["role"] is structurally blind to it. THE KEY DESIGN: stage
+membership is a FIRST-CLASS TAG stamped where each constraint entry
+is MINTED — shapes from the lawful-airside partition of their role
+(the vouching fixpoint, not the raw role literal), rod intervals
+inheriting the stage of the rod's owning chain, seats from their
+host surface, the S5 pad coupling from its anchor's surface — and
+every entry reaching the solve or any projection MUST carry the tag
+(an untagged entry is a constructor defect and a twin failure, the
+same never-silent posture as the axes sidecar). Stage A solves with
+only airside-tagged entries and variables; stage B fixes stage-A
+values read-only. The freeze increment's +34 adjudicated rows
+(airside apron churn 93/103) are NOT accepted as an interim — the
+merge criterion is the spec's original acceptance: corridor +130
+returns, apron −11906 worst ≤0.86 m, seam tear gone, every remaining
+delta row-attributed. S1's independent law-defect fix (stations
+frozen onto later-decimated rings) and the assert_frozen rail ride
+in with it.
+
+**S7 — census domain restoration + drainage retirement (instrument
+lane, dispatchable immediately).** Per the S3 blindness verdict and
+the 2026-08-13b drainage ruling: service_road/service_junction return
+to every family walk the role migration removed them from
+(grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES and any sibling domain
+list — sweep for the class, including the three never-emitted role
+literals S3 flagged); the drainage_minimum family RETIRES for
+non-runway surfaces (only runways crown — remove the family or gate
+it to runway surfaces per its existing structure; twins prove the
+restored roles are READ by the surviving families and that
+drainage_minimum reports zero BY LAW). Re-census OTHH + the four
+battery airports; the domain-invariant deltas become the round's
+comparison frame. S3's absorption finding executes here or in S4:
+O4_RIM_PRESOLVE_ABSORB retires (measured inert in production).
 
 ## Pre-delegated decisions
 

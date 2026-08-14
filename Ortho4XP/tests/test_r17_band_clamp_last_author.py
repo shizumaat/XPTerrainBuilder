@@ -22,6 +22,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from shapely.geometry import Polygon
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -224,3 +226,50 @@ class TestTheSealIsTheLastCallInThePipeline:
                        "relevel_pads_to_host_pavement("):
             assert author not in tail, author
             assert author not in entry_tail, author
+
+
+class TestSealFollowingGrade:
+    """finalarch item 1b: the seal's clamp is authorship NOTHING follows
+    (it is the last author), so a material clamp used to leave an
+    interior step of the whole clamp height beside its untouched ring
+    neighbours (HECA seam 26: 9.382 m).  The seal now grades its own
+    authorship: ring relaxed to the clamped vertices under the role cap,
+    then re-clamped once — the band stays the last authority."""
+
+    def _band_at_origin_only(self, ceiling):
+        def band(x, y):
+            if abs(x) < 1e-6 and abs(y) < 1e-6:
+                return (None, ceiling)
+            return None
+        return band
+
+    def test_a_material_clamp_is_followed_by_a_ring_grade(self):
+        import math as _m
+        from auto_patch.config import ROLE_GRADE_LIMITS
+        # A NON-flat junction ring (flat rings level as one surface and
+        # carry no interior step by construction).
+        s = _shape(alts=(20.0, 20.2, 20.4, 20.2))
+        layout = _Layout([s])
+        BF.publish_band_of_record(
+            layout, self._band_at_origin_only(12.0))
+        assert SP.seal_pavement_to_band(layout, "TEST") == 1
+        alts = list(s.node_altitudes)
+        assert alts[0] == pytest.approx(12.0, abs=0.02), (
+            "the clamped vertex must sit AT the band — the band is the "
+            "last authority")
+        cap = float(ROLE_GRADE_LIMITS[s.role])
+        ring = list(s.polygon.exterior.coords)[:-1]
+        for k in range(len(ring)):
+            j = (k + 1) % len(ring)
+            d = _m.hypot(ring[j][0] - ring[k][0], ring[j][1] - ring[k][1])
+            g = abs(alts[j] - alts[k]) / d
+            assert g <= cap + 1e-3, (
+                f"the seal shipped an ungraded {g:.1%} interior step "
+                f"(cap {cap:.1%}) — its authorship has no following grade")
+
+    def test_a_flat_ring_still_levels_as_one_surface(self):
+        s = _shape(alts=(20.0, 20.0, 20.0, 20.0))
+        layout = _Layout([s])
+        BF.publish_band_of_record(layout, _band())
+        assert SP.seal_pavement_to_band(layout, "TEST") == 1
+        assert s.node_altitudes == [9.4] * 4

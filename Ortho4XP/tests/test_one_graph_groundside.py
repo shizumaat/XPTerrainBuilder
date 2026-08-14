@@ -318,3 +318,71 @@ def test_the_band_never_widens_an_airside_node_beyond_its_own_law(
         lo, hi = band(x, y)
         assert lo == pytest.approx(floor[i])
         assert hi == pytest.approx(ceiling[i])
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FAMILY 4 — THE BETWEEN-RING WELD (finalarch item 1; weld-or-gap)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_two_seated_rings_agree_at_their_shared_nodes():
+    """S1f dossier item 2: each seat pass closed its ring WITHIN itself
+    (``_grade_limit_ring``) but seated rings in ISOLATION — 894
+    service_junction seatings at HECA seam 14, worst BETWEEN-ring step
+    3.260 m.  Under weld-or-gap a shared-node disagreement is always a
+    defect: a later ring must PIN its shared vertices to the value the
+    earlier ring shipped and absorb the level change over its own run.
+
+    Here junction B touches NO higher authority at all — only junction A
+    does.  Before the weld book, B left the pass unseated (a law island
+    beside a seated ring); with it, B welds to A's shipped values."""
+    from shapely.geometry import Polygon
+    from auto_patch.groundside import seat_service_pavement_on_law
+    from auto_patch.layout import ROLE_APRON, ROLE_SERVICE_JUNCTION
+
+    def _shape(role, x0, alts=None):
+        class _S:
+            pass
+        s = _S()
+        s.role = role
+        ring = [(x0, 0.0), (x0 + 20.0, 0.0), (x0 + 20.0, 20.0),
+                (x0, 20.0)]
+        s.polygon = Polygon(ring + [ring[0]])
+        s.node_altitudes = alts
+        s.altitude = None
+        s.ref = role
+        return s
+
+    apron = _shape(ROLE_APRON, 0.0, alts=[100.0] * 4)
+    jct_a = _shape(ROLE_SERVICE_JUNCTION, 20.0)
+    jct_b = _shape(ROLE_SERVICE_JUNCTION, 40.0)
+
+    class _L:
+        anchor = (0.0, 0.0)
+        shapes = [apron, jct_a, jct_b]
+        canonical_points = None
+
+    class _DEM:
+        def alt(self, *a, **k):
+            return -500.0
+        alt_strict = alt
+
+    layout = _L()
+    n = seat_service_pavement_on_law(layout, _DEM(), 0, 0)
+    assert n == 2, (
+        f"expected BOTH junctions seated (A from the apron weld, B from "
+        f"the between-ring weld book); got {n}")
+    a_alts = jct_a.node_altitudes
+    b_alts = jct_b.node_altitudes
+    assert a_alts is not None and b_alts is not None
+    # The shared edge x=40: A's vertices 1,2 are B's vertices 0,3 (both
+    # rings are CCW squares starting at their own x0).
+    a_ring = list(jct_a.polygon.exterior.coords)[:-1]
+    b_ring = list(jct_b.polygon.exterior.coords)[:-1]
+    shared = {(40.0, 0.0), (40.0, 20.0)}
+    a_at = {p: a_alts[i] for i, p in enumerate(a_ring) if p in shared}
+    b_at = {p: b_alts[i] for i, p in enumerate(b_ring) if p in shared}
+    assert a_at == b_at, (
+        f"seated rings disagree at their shared nodes: {a_at} vs {b_at} "
+        f"— the between-ring debt again")
+    book = layout._gs_law_seat["post_solve_service_law_seat"]
+    assert book.get("between_ring_weld_pins", 0) >= 2

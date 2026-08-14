@@ -3708,7 +3708,14 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # profiled (a line with a single usable station, or no peg and no DEM
     # to tie an end to).  Unchanged behaviour, including its break blend
     # and its quarantine export — those stations are not corridors the
-    # whole-run law can reach.
+    # whole-run law can reach.  Each non-broken fallback STATION is
+    # recorded as one cross-section GROUP for the caller's neighbour-term
+    # pass (finalarch item 4): the clamp below is a per-station band
+    # clamp with no neighbour term, so DEM-follow noise between ADJACENT
+    # stations is unbounded by cap exactly where the whole-run law never
+    # reached.
+    _fb_groups: list = []
+    layout._svc_station_fallback_groups = _fb_groups
     for sid, st in enumerate(stations):
         if not st["members"] or sid in profiled:
             continue
@@ -3742,6 +3749,8 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             node_target[i] = tgt
             if broken:
                 broken_nodes.add(i)
+        if not broken:
+            _fb_groups.append(frozenset(st["members"]))
         if _dbg_xy is not None:
             sx, sy = st_xy[sid]
             if _m.hypot(sx - _dbg_xy[0], sy - _dbg_xy[1]) < 12.0:
@@ -3877,20 +3886,39 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     # Anchors = service nodes that are ALSO a corner of a NON-service pavement shape
     # (the road welds to the airside there), held at their solved elevation; plus
     # any groundside-welded nodes passed in.
+    #
+    # ── STAGE-AWARE (finalarch item 5; S1f dossier item 5b) ──────────
+    # Every anchor carries the STAGE of the ring(s) that minted it — the
+    # first-class tag, never a role literal (``solve_stage``).  The two
+    # reach regimes (``_reach(+1)`` / ``_reach(-1)``) used to run over
+    # one stage-blind anchor set, so a stage-A weld and a stage-B weld
+    # whose values are incompatible under the cap metric met inside the
+    # tube as ``floor > ceil`` — 1,631 recorded inverted-tube conflicts
+    # at HECA that could not be partitioned into real-vs-cross-stage.
+    # Airside is king: a node ANY airside ring claims is stage A
+    # (``stage_of_roles``' own rule).
+    from auto_patch.solve_stage import STAGE_A, STAGE_B, stage_of_shape
     anchors: dict = {}
+    anchor_stage: dict = {}
     for s in layout.shapes:
         if (s.role in SVC or s.role == ROLE_GROUNDSIDE_PAVEMENT
                 or s.polygon is None or s.polygon.is_empty):
             continue
+        _s_stage = stage_of_shape(s)
         for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
             i = bucket_to_idx.get(_key(x, y))
             if i in svc_nodes:
                 anchors[i] = elev[i]
+                if anchor_stage.get(i) != STAGE_A:
+                    anchor_stage[i] = _s_stage
     for i in anchor_extra:
         if i in svc_nodes and i < len(elev):
             anchors[i] = elev[i]
+            # A groundside-welded node an airside ring also claims keeps
+            # its stage-A tag; otherwise it is a stage-B authority.
+            anchor_stage.setdefault(i, STAGE_B)
 
-    def _reach(sign):                       # +1 → ceil, −1 → floor
+    def _reach(sign, src=None):             # +1 → ceil, −1 → floor
         # Lazy Dijkstra over the (positive) cap·distance metric: the heap
         # pops each node first at its OPTIMAL value, so every later pop
         # is skipped (>= / <=, NO epsilon — an epsilon-tolerant skip lets
@@ -3900,8 +3928,9 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         # once and pushes are bounded by the edge count.
         best: dict = {}
         dist: dict = {}                     # graph distance to the
+        src = anchors if src is None else src
         pq = [((av if sign > 0 else -av), 0.0, a)   # value-optimal anchor
-              for a, av in anchors.items()]
+              for a, av in src.items()]
         heapq.heapify(pq)
         while pq:
             v, dk, k = heapq.heappop(pq)
@@ -3925,8 +3954,55 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                                     dk + dd, j))
         return best, dist
 
-    ceil, ceil_dist = _reach(+1) if anchors else ({}, {})
-    floor, floor_dist = _reach(-1) if anchors else ({}, {})
+    # ── STAGE COMPOSITION AT THE BOUNDARY (finalarch item 5) ─────────
+    # Stage A's envelope is computed FIRST, from stage-A anchors alone —
+    # the frozen airside reach.  Stage B then reads those values as
+    # IMMUTABLE boundary data (the corridor-mouth weld posture, RULINGS
+    # 2026-08-14 rim-pocket ruling): a stage-B anchor whose value lies
+    # OUTSIDE the stage-A envelope at its own node is two stages
+    # disagreeing — it is RECORDED (attribution, ``layout._svc_cross_
+    # stage_conform``) and its PROPAGATED value conforms to the
+    # envelope, so the contradiction can no longer meet a stage-A wall
+    # inside the tube as an uninterpretable ``floor > ceil``.  Residual
+    # inversions after this composition are WITHIN-regime conflicts —
+    # real, and now attributable as such.  The anchor node's own held
+    # elevation is untouched: the disagreement's mint (solve/seat side)
+    # stays visible to the census; only the band construction stops
+    # propagating it into airside territory.
+    from .corridor_profile import MATERIALITY_M as _STAGE_MAT_M
+    _stage_a_env = (None, None)
+    _cross_stage_records: list = []
+
+    def _composed_anchor_values():
+        a_src = {i: v for i, v in anchors.items()
+                 if anchor_stage.get(i, STAGE_A) == STAGE_A}
+        b_src = {i: v for i, v in anchors.items() if i not in a_src}
+        if not a_src or not b_src:
+            return dict(anchors)
+        nonlocal _stage_a_env
+        if _stage_a_env == (None, None):
+            _stage_a_env = (_reach(+1, a_src), _reach(-1, a_src))
+        (cA, _cAd), (fA, _fAd) = _stage_a_env
+        out = dict(a_src)
+        for i, v in b_src.items():
+            hi = cA.get(i)
+            lo = fA.get(i)
+            w = float(v)
+            if hi is not None and w > hi:
+                w = float(hi)
+            if lo is not None and w < lo:
+                w = float(lo)
+            if abs(w - float(v)) > _STAGE_MAT_M:
+                _cross_stage_records.append(
+                    {"i": i, "value": round(float(v), 3),
+                     "conformed": round(w, 3),
+                     "xy": node_pos.get(i)})
+            out[i] = w
+        return out
+
+    _anchor_field = _composed_anchor_values() if anchors else {}
+    ceil, ceil_dist = _reach(+1, _anchor_field) if anchors else ({}, {})
+    floor, floor_dist = _reach(-1, _anchor_field) if anchors else ({}, {})
 
     # ── HARD FREE-END DEM TIE (corridor-joins round, ruling 3) ─────────
     # A corridor terminus over open terrain is a LAW TARGET, not a soft
@@ -3955,11 +4031,18 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                     elev[i] = tgt
                     _fe_moved.add(i)
                 anchors[i] = tgt
+                # A free-end DEM tie is a groundside-corridor authority:
+                # stage B unless an airside ring claims the node.
+                anchor_stage.setdefault(i, STAGE_B)
                 free_end_nodes.add(i)
             # The band must reflect the new anchors — the interior nodes
             # between mouth and free end descend against BOTH ends now.
-            ceil, ceil_dist = _reach(+1)
-            floor, floor_dist = _reach(-1)
+            # Recomposed through the stage boundary (the A envelope is
+            # cached; free ends are stage-B and conform like any other
+            # stage-B authority).
+            _anchor_field = _composed_anchor_values()
+            ceil, ceil_dist = _reach(+1, _anchor_field)
+            floor, floor_dist = _reach(-1, _anchor_field)
             # Publish: the keyset the projections hold hard (canonical
             # keys, so it survives every node-list rebuild — node_space's
             # law), and the lat/lon records the acceptance instrument
@@ -4027,6 +4110,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             layout, svc_nodes, node_pos, anchors, dem_elev, cap,
             ceil, floor, ceil_dist, floor_dist, prox_pairs)
     _lat_bound_breaks = 0
+    _fallback_legacy: set = set()
     for i in svc_nodes:
         if i in anchors:
             continue
@@ -4053,6 +4137,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         f = floor.get(i)
         if c is None:                       # unreachable from any anchor → DEM
             tgt = de
+            _fallback_legacy.add(i)
         elif f is not None and f > c + 1e-9:
             # GENUINE break: the road's welded anchors (airside mouth vs
             # groundside/other weld) contradict through this node — no
@@ -4077,6 +4162,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         else:
             lo = f if f is not None else -float("inf")
             tgt = min(max(de, lo), c)
+            _fallback_legacy.add(i)
         if abs(tgt - elev[i]) > 1e-3:
             elev[i] = tgt
             changed.add(i)
@@ -4158,6 +4244,130 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             f"contradiction(s) at laterally-bound node(s) NOT quarantined "
             f"— the contiguous surface's law owns them (of "
             f"{len(lat_cap)} node(s) carrying a lateral cap).")
+
+    # ── THE FALLBACK NEIGHBOUR TERM (finalarch item 4) ────────────────
+    # The two fallback writers — the pointwise station clamp and the
+    # legacy per-vertex path — clamp into the BAND only: ``tgt =
+    # min(max(de, lo), c)`` bounds each node against the ANCHORS but
+    # says nothing about its neighbour, so DEM-follow noise between
+    # adjacent fallback nodes is unbounded by cap on exactly the nodes
+    # the whole-run law never reaches (S1f dossier item 5a).  The
+    # neighbour term the profile's own law implies is the cap metric
+    # ``_reach`` already prices (``e_cap·dd`` — the lateral-contiguity
+    # cap where present, the road cap otherwise; NO new constant): the
+    # largest cap-Lipschitz minorant of the seeded field,
+    #
+    #     D(i) = min_j ( z_j + e_cap·d_graph(i, j) ),
+    #
+    # computed EXACTLY by one multi-source Dijkstra over the same
+    # adjacency.  D is fully Lipschitz under the metric (inf-convolution
+    # triangle inequality), never moves a node that has no over-cap
+    # descent toward a neighbour, and only lowers the UPPER side of an
+    # over-cap pair — grading the step along the run, which is what the
+    # whole-run profile does where it reaches.  Held/profiled nodes,
+    # anchors, free-end ties, released yard nodes and break-blend nodes
+    # are SOURCES but never move; fallback STATIONS move as one
+    # cross-section (the spine-first law: a per-node update would seed
+    # the cross-road tear the station machinery exists to prevent).
+    # Deviation from DEM is not a reported consideration (owner
+    # 2026-08-14, DEM-NOT-REPORTED).
+    _pinned = (set(anchors) | free_end_nodes | set(_prof_idx)
+               | set(_prof_released) | set(service_break)
+               | set(spine_broken))
+    _node_gid: dict = {}
+    _free_groups: dict = {}
+    for _gn, _grp in enumerate(
+            getattr(layout, "_svc_station_fallback_groups", ()) or ()):
+        _members = {i for i in _grp
+                    if i in svc_nodes and i not in _pinned
+                    and i < len(elev)}
+        if not _members:
+            continue
+        _gid = ("st", _gn)
+        for i in _members:
+            _node_gid[i] = _gid
+        _free_groups[_gid] = _members
+    for i in _fallback_legacy:
+        if i in _pinned or i in _node_gid or i >= len(elev):
+            continue
+        _gid = ("n", i)
+        _node_gid[i] = _gid
+        _free_groups[_gid] = {i}
+    if _free_groups:
+        _gval: dict = {}
+        _gadj: dict = {}
+        for i in svc_nodes:
+            if i >= len(elev):
+                continue
+            _gi = _node_gid.get(i, ("p", i))
+            if _gi not in _gval:
+                _gval[_gi] = float(elev[i])
+            for (j, dd) in adj.get(i, ()):
+                if j >= len(elev):
+                    continue
+                _gj = _node_gid.get(j, ("p", j))
+                if _gj == _gi:
+                    continue
+                _e_cap = cap
+                if lat_cap:
+                    _e_cap = min(lat_cap.get(i, cap), lat_cap.get(j, cap))
+                _gadj.setdefault(_gi, []).append((_gj, _e_cap * dd))
+        _best: dict = {}
+        _pq = [(v, g) for g, v in _gval.items()]
+        heapq.heapify(_pq)
+        while _pq:
+            v, g = heapq.heappop(_pq)
+            if g in _best:
+                continue
+            _best[g] = v
+            for (h, w) in _gadj.get(g, ()):
+                if h not in _best:
+                    heapq.heappush(_pq, (v + w, h))
+        _n_lip_moved = 0
+        _worst_lip = 0.0
+        for _gid, _members in _free_groups.items():
+            nv = _best.get(_gid)
+            if nv is None:
+                continue
+            for i in _members:
+                drop = float(elev[i]) - nv
+                if drop > 1e-3:
+                    elev[i] = nv
+                    changed.add(i)
+                    _n_lip_moved += 1
+                    _worst_lip = max(_worst_lip, drop)
+        layout._svc_fallback_lipschitz = {
+            "free_groups": len(_free_groups), "moved": _n_lip_moved,
+            "worst_drop_m": round(_worst_lip, 3)}
+        if _n_lip_moved:
+            import O4_UI_Utils as _UI_lip
+            _UI_lip.vprint(1,
+                f"  [pav-builder] service fallback neighbour term: "
+                f"{_n_lip_moved} node(s) graded to the cap metric across "
+                f"{len(_free_groups)} fallback group(s) (worst descent "
+                f"{_worst_lip:.3f} m; e_cap·d Lipschitz envelope, no new "
+                f"constant).")
+
+    # ── CROSS-STAGE CONFORMANCE REPORT (finalarch item 5) ────────────
+    if _cross_stage_records:
+        _m_to_ll_cs = getattr(layout, "m_to_ll", None)
+        for _r in _cross_stage_records:
+            _p = _r.pop("xy", None)
+            if _p is not None and _m_to_ll_cs is not None:
+                try:
+                    _la, _lo = _m_to_ll_cs(_p[0], _p[1])
+                    _r["lat"], _r["lon"] = round(_la, 11), round(_lo, 11)
+                except Exception:                        # pragma: no cover
+                    pass
+    layout._svc_cross_stage_conform = _cross_stage_records
+    _n_a = sum(1 for i in anchors
+               if anchor_stage.get(i, STAGE_A) == STAGE_A)
+    import O4_UI_Utils as _UI_stage
+    _UI_stage.vprint(1,
+        f"  [pav-builder] service reach anchors are STAGE-AWARE: "
+        f"{_n_a} stage-A / {len(anchors) - _n_a} stage-B anchor(s); "
+        f"{len(_cross_stage_records)} stage-B authorit(y/ies) conformed "
+        f"to the frozen stage-A envelope (recorded, values held).")
     return changed
 
 

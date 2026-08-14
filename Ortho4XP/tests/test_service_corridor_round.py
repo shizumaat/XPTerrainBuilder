@@ -523,3 +523,105 @@ class TestOneGradeNumber:
                           line, re.I)
         ]
         assert offenders == []
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 7 — FINALARCH items 4/5: stage-aware anchors and the fallback
+#     neighbour term (S1f dossier item 5; RULINGS 2026-08-14)
+# ══════════════════════════════════════════════════════════════════════
+
+class TestStageAwareAnchors:
+    def test_a_groundside_authority_conforms_to_the_stage_a_envelope(self):
+        """Item 5: the two reach regimes ran over one stage-blind anchor
+        set, so an airside weld and a groundside weld whose values are
+        incompatible under the cap metric met inside the tube as
+        ``floor > ceil`` — a recorded inverted-tube conflict that could
+        not be partitioned.  Stage B now reads the stage-A envelope as
+        IMMUTABLE: the contradiction is RECORDED and its propagation
+        conforms, so the interior takes a lawful band instead of a
+        break blend."""
+        from auto_patch.elevation_per_surface.route_profile import anchors
+        layout, b2i, elev, dem, far = _free_end_fixture(96.0)
+        # The far end is a GROUNDSIDE-welded authority 100 m from a
+        # 100 m airside weld, at a value the 8 % cap metric cannot
+        # reconcile (200 vs 100+8).
+        elev[far] = 200.0
+        anchors.apply_service_road_dem_follow(
+            layout, b2i, elev, dem, CFG.SERVICE_ROAD_MAX_GRADE,
+            anchor_extra=(far,))
+        recs = getattr(layout, "_svc_cross_stage_conform", None)
+        assert recs, "the cross-stage contradiction was not recorded"
+        assert any(r["value"] == 200.0 for r in recs)
+        # The conformed propagation: no interior node quarantined as a
+        # break blend by the A-vs-B contradiction.
+        interior = [i for i, (x, y) in enumerate(
+            (p for s in layout.shapes if s.role == "service_road"
+             for p in list(s.polygon.exterior.coords)[:-1]))
+            ]
+        assert not getattr(layout, "_service_break_idx", set()), (
+            "the cross-stage contradiction still rendered a break blend")
+        # The anchor's own held value is untouched (the mint stays
+        # visible to the census; only the propagation conforms).
+        assert elev[far] == 200.0
+
+    def test_all_airside_anchors_stay_byte_identical(self):
+        """With no stage-B authority the composition is the identity —
+        the free-end law's own numbers reproduce exactly."""
+        from auto_patch.elevation_per_surface.route_profile import anchors
+        layout, b2i, elev, dem, far = _free_end_fixture(96.0)
+        anchors.apply_service_road_dem_follow(
+            layout, b2i, elev, dem, CFG.SERVICE_ROAD_MAX_GRADE)
+        assert elev[far] == pytest.approx(96.0, abs=1e-6)
+
+
+class TestFallbackNeighbourTerm:
+    def test_dem_noise_between_fallback_nodes_is_capped(self):
+        """Item 4: the per-vertex fallback is ``min(max(de, lo), c)`` —
+        a band clamp with NO neighbour term.  The band floor/ceiling are
+        each cap-Lipschitz, but a WIDE band lets one node clamp to its
+        CEILING and its neighbour to its FLOOR: far from the anchors the
+        pair ships at whatever grade the band width allows (here 128 %
+        against the 8 % cap).  The Lipschitz envelope over the
+        ``e_cap·d`` metric (the metric ``_reach`` already prices; no new
+        constant) bounds every adjacent pair at the cap."""
+        import math as _m
+        from auto_patch.elevation_per_surface.route_profile import anchors
+        cap = CFG.SERVICE_ROAD_MAX_GRADE
+        xs = [0.0, 50.0, 100.0, 110.0, 150.0, 200.0]
+        ring = [(x, 0.0) for x in xs] + [(x, 6.0) for x in reversed(xs)]
+        road = BuiltShape(polygon=Polygon(ring), role="service_road")
+        road.lateral_cap = None
+        apron = BuiltShape(polygon=_rect(-20.0, 0.0, 0.0, 6.0),
+                           role="apron")
+        layout = _DemLayout([road, apron])
+        b2i, nodes = {}, []
+        for s in layout.shapes:
+            for (x, y) in list(s.polygon.exterior.coords)[:-1]:
+                key = layout.canonical_points.get_or_add(float(x), float(y))
+                if key not in b2i:
+                    b2i[key] = len(nodes)
+                    nodes.append((x, y))
+        cps = layout.canonical_points
+        elev = [0.0] * len(nodes)
+        dem = [96.0] * len(nodes)
+        for (x, y) in ((0.0, 0.0), (0.0, 6.0)):
+            elev[b2i[cps.get_or_add(x, y)]] = 100.0
+        # Terrain noise 100 m from the weld: a crest against a pit, ten
+        # metres apart — the crest clamps to its ceiling, the pit to its
+        # floor, both bands satisfied, the PAIR at ~128 %.
+        for y in (0.0, 6.0):
+            dem[b2i[cps.get_or_add(100.0, y)]] = 110.0
+            dem[b2i[cps.get_or_add(110.0, y)]] = 90.0
+        anchors.apply_service_road_dem_follow(layout, b2i, elev, dem, cap)
+        ring_open = list(road.polygon.exterior.coords)[:-1]
+        idx = [b2i[cps.get_or_add(x, y)] for (x, y) in ring_open]
+        for k in range(len(ring_open)):
+            j = (k + 1) % len(ring_open)
+            d = _m.hypot(ring_open[j][0] - ring_open[k][0],
+                         ring_open[j][1] - ring_open[k][1])
+            if d < 1e-6:
+                continue
+            g = abs(elev[idx[j]] - elev[idx[k]]) / d
+            assert g <= cap + 1e-6, (
+                f"fallback pair {ring_open[k]}–{ring_open[j]} ships "
+                f"{g:.3%} against the {cap:.1%} cap — no neighbour term")

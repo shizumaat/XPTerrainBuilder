@@ -1316,3 +1316,32 @@ provisioning that tile's cfg (unchanged since step 1); and the R19-3
 weld to reconcile — it adopted 3 of 55 groups in both arms and is a
 candidate for the same retirement, but retiring it is a design decision
 this lane did not take.
+
+---
+
+## S6 — transition-machinery retirement (weld or gap), lane `lane/s6weld`
+
+**PRE-EXISTING TEST FAILURE, carried not caused.**
+`tests/test_strip_heal_law_v4.py::test_the_pass_order_is_unchanged_by_the_law`
+fails on the CLEAN tree at `1faf907` as well as in this lane — proved by
+running the identical 30-file `blast --tests-for` selection in a control
+worktree (`lane/s6ctl`): control **1 failed / 792 passed**, lane at close
+**1 failed / 792 passed**, the same test both times. It asserts that
+`inspect.getsource(pipeline.build_airport_pavement)` contains
+`blend_cross_strip_seam_steps`, `_heal_emitted_band_tears` and
+`emit_stacked_conflict_walls` in order; the three now live in a nested
+`_strip_reconcile_passes` that the assertion no longer sees, so `order`
+comes back empty. The ORDERING LAW it guards is still real — the test
+needs re-pointing at the nested function, which is a test fix this lane
+did not take because it is not S6's mechanism.
+
+**NOT RUN (pre-ship mode).** Full battery / full suite; per-change timing
+(the retirement removes emitter work, so it cannot regress the budget in
+the direction the law polices, but no `--runs N` pair was measured).
+
+**STILL OWED.** The owner's in-sim pass, with VHHH's coast explicitly on
+the list — this lane's seawall evidence is the read-only admission
+instrument (47 wall lines / 54 734.3 m, byte-identical across the arms),
+not a rendered tile. The routed items in `tmp/s6_retirement_results.md`
+§7 (groundside absorption cost, the airside `strip_seam_tear` exposure,
+KCLT site (c)) are ROUTED, not verified closed.

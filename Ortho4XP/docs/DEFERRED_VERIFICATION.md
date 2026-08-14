@@ -878,3 +878,173 @@ at step (1) — `test_contracts::test_obj8_partition_signature
 [contact_graph]` and `test_object_anchor::
 test_kclt_eight_bake_pool_end_to_end`.  `test_contracts`' own
 `structure_deltas` signature row grew `pad_frame` with its reason.
+
+### R3 steps (3)-(5) LANDED — the RATCHET IS DEAD; the coupling serves 55 of ~3,910
+
+Steps 3, 4 and 5 of Fable's ruled order landed at `121924a`.  Pad
+emission consumes the frame (`post_mesh.pad_frames_for_airport` →
+`object_frame.pad_requests_from_frame` → `object_pads.specs_from_frames`),
+the read-back is deleted, and a self-covering request routes to the
+y-bake.
+
+TWO GROUND AUTHORITIES, the one design decision inside the ruled
+mechanism.  The RENDER DATUM's ground is the PATCH and only the patch —
+the ruling's own clause, and the premise test measured it exact
+(1e-6 m) at every request-carrying hosted datum; an unhosted datum keeps
+the y-bake, never a DEM approximation.  The ground UNDER A PART is
+patch-where-authored, ambient DEM otherwise — the MESH'S OWN RULE, and
+the in-run stand-in for `MeshElevationSampler.elevation_at_or_none`,
+which is what the rebake sampled.  Requiring a host under the PART would
+have deleted the population outright: a pad exists precisely where
+terrain is not already graded.
+
+**ACCEPTANCE, measured at `121924a`.**  Two SEQUENTIAL HECA
+`--tile 30 31 --no-ledger` builds, foreground-class, tags
+`s5step3a` / `s5step3b`, shared repo UNCHANGED in both (the harness's own
+full-surface before/after snapshot).
+
+| arm | wall | vector | mesh | tile | HECA patch body sha256 | object_pad shapes |
+|---|---|---|---|---|---|---|
+| A | 612.7 s | 384.5 | 54.7 | 172.2 | `eb83e3c672109cf783aeae6ed1ff8b62f81e981f42c07ab7276f6e0b219c8b0c` | **59** (55 groups) |
+| B | 715.9 s | 445.3 | 64.9 | 204.1 | `eb83e3c672109cf783aeae6ed1ff8b62f81e981f42c07ab7276f6e0b219c8b0c` | **59** (55 groups) |
+
+(a) **DETERMINISM: PASSES.  THE RATCHET IS DEAD.**  The two bodies are
+BYTE-IDENTICAL, and every pad number is equal arm to arm: 59 shapes /
+55 groups, 484 law disagreements, 3,855 refusals, 7,565 structures /
+372 `.obj` files / 6,856,707 vertices from the y-bake.  This is the
+INTERVENTIONAL verdict on the step-2 attribution read.  Step (2)'s
+control pair — the same tree, the same machine, the read-back still in
+place — reproduced the perfbake sequence exactly (689 → 723 object_pad
+refs, two different bodies `f562cbfe…` / `2f1dcfde…`).  The only thing
+that changed between that pair and this one is the retirement of the
+sidecar read-back and the emitted-record persistence.  **The ratchet
+lived in the read-back, where the ruling said it did, and it is gone.**
+
+(b) **PACK PRISTINE: NOT MET, and the number barely moved.**  372 `.obj`
+files rewritten in BOTH arms (step-2 control: 373, both arms); 7,565
+structures (7,589 / 7,595); 6,856,707 vertices (6,900,267 / 6,900,570).
+The direction is right and the magnitude is ~0.3 %.  The coupling serves
+55 groups; the y-bake still answers for everything else, so "zero
+rewrites for objects whose pads the coupling serves" is met only for a
+population too small to move the count.  WHY is (e)'s finding below.
+
+(c) **THE OWNER'S FASTER-THAN-Y-BAKE GATE: mechanism only; the
+EXCLUSIVE TIMED PAIR IS NOT THIS LANE'S.**  Two lanes cannot hold the
+machine, so the timed pair joins the round's close-out timing block
+under the lead.  The mechanism numbers this lane can state: `weld_parts`
+calls per pool 1 → **0** (step 2, measured in its twin); the object
+frame built **once** per build and read **twice** inside it (flat-site
+S4 pre-solve, pad emission post-solve) through one in-process memo plus
+the pristine-key disk sidecar, so the walk to it — DSF text, geometry
+resolution, pool discovery — is paid once, not twice; and the retired
+recompute is the whole `foot_pad_rings`/request derivation that used to
+run post-mesh and be replayed from disk next build.  The wall times
+above are NOT an A/B: both arms run the same code and the spread
+(612.7 vs 715.9 s) is this machine's ordinary noise on a 3-airport tile.
+
+(d) **`check_object_pads` UNDER THE UNCHANGED LAW.**  Identical in both
+arms.  HECA: **484 law disagreements** (worst `pad_pull_shortfall`
+8.22 m at 30.11588,31.40871 — `Airport/Hangar_Tower/asphalt_3.obj`) and
+**3,855 pad requests REFUSED, worst 38.57 m against the 3.00 m relief
+cap**.  HEAZ: 9,322 disagreements, all `pad_datum_unhosted`.  Pad-host
+level census (`object_pad`): 55 groups — 3 adopted (worst |delta|
+3.40 m), 5 within 3.00 m of the host, 5 no agreeing coalition, 42 no
+family; after the relevel, 0 adopted.  The verifier needed NO change:
+it compares each core vertex to the target the EMITTER recorded, which
+is now the patch-relative rendered base, so it reads the base the same
+relative way the coupling defines it.  No `pad_core_off_target`, no
+`pad_weld_mismatch` (there is nothing left to weld), no
+`pad_deformed_pavement`.
+
+**THE FINDING THAT MATTERS, and it is a LAW-REFERENCE MISMATCH.**  The
+in-run derivation raises ~3,910 requests at HECA where the rebake's
+sidecar recorded 1,893 — expected, because the emission-time frame can
+only measure `seated=False` (the bake decision is post-mesh), so it sees
+each part's FULL residual rather than the post-seat residue.  Of those,
+**3,855 are refused by `DSF_OBJECT_PAD_MAX_RELIEF_M` measured against
+RAW DEM**, worst 38.57 m.  That is the instrument disagreeing with
+itself: the ruling moved the pad TARGET onto the patch's own evaluated
+ground, and the admissibility cap still measures that target against the
+ambient DEM — at HECA our own solved surface stands tens of metres off
+it (RULINGS "OBJECT PADS: RELATIVE COUPLING": mesh−DEM at anchors p50
+0.82 m / p90 7.26 m, "DOMINATED BY OUR OWN SOLVED SURFACE").  So an
+object correctly standing on a solved apron asks for a pad at the
+apron's elevation and is refused for being far from raw DEM.  This lane
+did NOT change it — the brief holds the law unchanged and `grade_law`
+owns the scalar — and it is the two-instruments class: the fix is a
+ruling about what the relief cap is relative to, not a tuning knob.
+**Owed: an owner/Fable ruling on the cap's reference frame.**  Until it
+moves, acceptance (b) cannot be met at HECA by construction.
+
+(e) **CENSUS — row-attributed, FRAME NAMED.**  This branch forked before
+S7/S8 and before the S1/S2 stack, so every census below runs through a
+**MAIN-TREE harness checkout at `1388b9b`** (S7 + S8 + S1/S2 merged),
+`tools/harness/census.py --no-cache` only.  CONTROL: that reader
+censuses the frozen 1.0.245 HECA artifact
+(`baselines/1.0.245/consol3heca.osm.gz`, body `f562cbfe…`) at **8038**
+law-true — the S8 frame's own number, reproduced, so the reader is
+pinned.  (Main's 7036 is the S1/S2 STACK's own build, a different code
+tree; comparing this lane's patch to it would be the cross-tree
+comparison the standing ruling forbids.)
+
+| family / role pair | frozen 1.0.245 | this lane | Δ | attribution |
+|---|---:|---:|---:|---|
+| LAW-TRUE TOTAL | 8038 | **8033** | **−5** | |
+| adjudicated airside | 1720 | **1700** | −20 | |
+| `within_shape::building|building` | 52 | **31** | **−21** | site `-10187` CLOSES (below) |
+| `within_shape::groundside_pavement` | 1459 | 1487 | +28 | blend-annulus retirement ripple |
+| `within_shape::service_junction` | 646 | 634 | −12 | ditto |
+| `transverse::service_junction` | 3196 | 3186 | −10 | ditto |
+| `transverse::service_road` | 622 | 621 | −1 | ditto |
+| `mid_edge_step::service_junction` | 164 | 173 | +9 | ditto |
+| `within_shape::apron` | 1401 | 1402 | +1 | ditto |
+| `within_shape::service_road` | 101 | 100 | −1 | ditto |
+| `vertex_to_edge_step::service_junction` | 35 | 36 | +1 | ditto |
+| `frontage_near_miss::building\|service_junction` | 67 | 68 | +1 | ditto |
+
+`object_pad` rows: **0 in both** — the pads themselves carry no law row
+in either frame, so every delta above is in a NEIGHBOUR.  The ±tens are
+the ruled RETIREMENT working through the layout: 690 pad shapes became
+59, so 631 blend plates stopped clipping, welding and decimating against
+groundside and service pavement.  Named as such, per the brief: these
+are blend-annulus removal rows, not a regression.
+
+**THE TWO NAMED SITES (lead's merge-gate dossier, 43-row pad class).**
+Matched by COORDINATE, because way ids are per-build:
+
+* **Site 1 — pad `-10187` at 30.116449,31.386559 (21 rows, 2.76 m
+  internal step): CLOSED.**  It is the whole of the −21.  No
+  `building|building` row survives anywhere near that coordinate in
+  either arm.  This is the site the dossier attributed to the pad
+  mechanism, and the emission-time target closes it.
+* **Site 2 — pad `-10189` at 30.121367,31.407621 (14 rows, 2.92 m) with
+  ring `-13852`/`-13851` at 30.121422,31.408131 (8 rows, 2.92 m):
+  UNCHANGED, both halves, row for row.**  Renumbered to `-13222` in this
+  lane's build at the identical coordinate and magnitude.  Both are
+  `building|building` — role `building`, which no part of the
+  object-pad emission path authors — so this site is NOT the pad
+  coupling's to close.  **Named for S6** (the shared-vertex /
+  weld-or-gap half) per the lead's own framing.
+* Also moved and not named by the dossier: `-10202` (5 rows, 0.42 m at
+  30.12069,31.419369) is gone; a different building carries 5 rows at
+  0.94 m at 30.121531,31.418811.  Reported, not attributed — it is a
+  ripple of the same class as the table above.
+
+**TEST SURFACE**, once, through `run_with_ledger` over `blast
+--tests-for` for object_pads + post_mesh + flat_site plus the frame and
+anchor twins (15 files): **809 passed**.  EIGHT failures, ALL
+pre-existing and MATCHED-CONTROLLED in a clean worktree at this lane's
+base `9270c8d`: `test_contracts::test_obj8_partition_signature
+[contact_graph]`, `test_object_anchor::
+test_kclt_eight_bake_pool_end_to_end` (both already controlled at step
+1) and six in `test_flat_site_mode.py`, which this lane's wider
+selection SURFACED rather than caused.
+
+**STILL OWED.**  (c)'s exclusive `check_build_time --runs N` pair (the
+round's close-out block, under the lead); the relief-cap reference
+ruling above; OTHH's `--tile 25 51` arm, still blocked on the owner
+provisioning that tile's cfg (unchanged since step 1); and the R19-3
+`relevel_pads_to_host_pavement` pass, which under weld-or-gap now has no
+weld to reconcile — it adopted 3 of 55 groups in both arms and is a
+candidate for the same retirement, but retiring it is a design decision
+this lane did not take.

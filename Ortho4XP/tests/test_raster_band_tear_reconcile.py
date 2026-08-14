@@ -202,12 +202,21 @@ def test_cross_strip_seam_hard_merge_no_stacked_nodes():
             seen.setdefault(key, []).append(e)
 
 
-def test_stacked_conflict_walls_resolve_two_strip_step():
-    """The ruling's resolution for an all-anchored strip-vs-strip level
-    change: the LOWER strip retreats and a ``retaining_wall`` face
-    spans the vacated band (top row on the upper chain, bottom row on
-    the retreated edge) — the level change survives as deliberate,
-    horizontally-extended geometry and neither strip tears."""
+def test_stacked_conflict_walls_are_retired_and_the_strips_weld():
+    """S6 · WELD OR GAP (owner 2026-08-13, RULINGS "TRANSITION MACHINERY
+    RETIRES") — THE RETIRED-EMITTER TWIN.
+
+    This scene used to prove the ruling's OLD resolution for an
+    all-anchored strip-vs-strip level change: the lower strip retreats
+    and a ``retaining_wall`` face spans the vacated band.  That whole
+    mechanism is retired.  The emitter must now mint NOTHING and leave
+    BOTH strips on the shared seam line, so the two touching surfaces
+    agree at their shared nodes and ``to_osm``'s single-authority law
+    emits the precedence winner's value there.
+
+    A step that survives this is a SOLVE defect to route back to its
+    minting mechanism — explicitly never a re-wall candidate.
+    """
     from auto_patch.adjacent_ground import emit_stacked_conflict_walls
     from auto_patch.canonical_points import CanonicalPointRegistry
     from auto_patch.layout import ROLE_RETAINING_WALL, SHARED_VERTEX_TOL_M
@@ -234,31 +243,17 @@ def test_stacked_conflict_walls_resolve_two_strip_step():
     layout.canonical_points = registry
 
     emitted = emit_stacked_conflict_walls(layout)
-    assert emitted >= 1, "expected a retaining_wall face for the 3 m step"
+    assert emitted == 0, (
+        "the retired stacked-conflict emitter minted a face — there is "
+        "no wall fallback behind the staged solve any more")
     walls = [s for s in layout.shapes if s.role == ROLE_RETAINING_WALL]
-    assert walls and all(
-        s.ref == "stacked_conflict_wall" for s in walls)
-    # The LOWER strip (A, 100 m) retreated: its seam-row vertices moved
-    # off y=0; the upper strip (B, 103 m) keeps its chain.
-    strip_a = layout.shapes[0]
-    a_seam_ys = [y for (x, y) in
-                 list(strip_a.polygon.exterior.coords)[:-1]
-                 if abs(y) < 1e-6]
-    assert not a_seam_ys, "lower strip still touches the seam line"
-    strip_b = layout.shapes[1]
-    assert any(abs(y) < 1e-6 for (x, y) in
-               list(strip_b.polygon.exterior.coords)[:-1])
-    # Wall spans: top row on y=0 at 103, bottom row retreated at 100.
-    wall = walls[0]
-    wall_ring = list(wall.polygon.exterior.coords)[:-1]
-    wall_alts = wall.node_altitudes[:len(wall_ring)]
-    assert any(abs(y) < 1e-6 and abs(a - 103.0) < 0.6
-               for (x, y), a in zip(wall_ring, wall_alts))
-    assert any(abs(y) > 1e-6 and abs(a - 100.0) < 0.6
-               for (x, y), a in zip(wall_ring, wall_alts))
-    # Neither strip carries a sub-metre near-vertical edge afterwards.
-    for s in (strip_a, strip_b):
-        ring = list(s.polygon.exterior.coords)[:-1]
-        alts = s.node_altitudes[:len(ring)]
-        assert not _way_has_tear(
-            [(x, y, a) for (x, y), a in zip(ring, alts)])
+    assert not walls, f"unexpected retaining_wall shapes: {walls}"
+    # NEITHER strip retreated: both keep their seam-row vertices on y=0,
+    # which is the weld — one coordinate, and the emit-time single
+    # authority decides its one value.
+    strip_a, strip_b = layout.shapes[0], layout.shapes[1]
+    for name, s in (("lower", strip_a), ("upper", strip_b)):
+        assert any(abs(y) < 1e-6 for (x, y) in
+                   list(s.polygon.exterior.coords)[:-1]), (
+            f"the {name} strip left the shared seam line — retirement "
+            f"must not move geometry, only stop minting faces")

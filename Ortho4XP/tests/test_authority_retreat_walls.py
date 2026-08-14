@@ -90,35 +90,32 @@ def _feathers(layout):
             if (s.ref or "") == "authority_retreat_feather"]
 
 
-def test_a_loser_beyond_tolerance_retreats_and_feathers():
-    """4 m below the apron at a shared edge, no carve structure in sight:
-    the lot retreats and the step ships as a GRADED FEATHER instead of a
-    wall — and instead of being dragged up 4 m."""
-    from auto_patch.config import ROLE_GRADE_LIMITS
+def test_a_loser_beyond_tolerance_welds_and_emits_nothing():
+    """S6 · WELD OR GAP (owner 2026-08-13, RULINGS "TRANSITION MACHINERY
+    RETIRES") — THE RETIRED-EMITTER TWIN.
+
+    4 m below the apron at a shared edge, no carve structure in sight.
+    The feather is RETIRED: the loser is left exactly where it is, no
+    face of any kind is minted, and the shared node is resolved by the
+    single-authority §1 law at ``to_osm`` (the precedence winner's value
+    is emitted) — which is the WELD the ruling requires of two surfaces
+    that touch.  What used to be the "dragged up 4 m" failure mode is
+    now the LAW: touching surfaces agree at shared nodes.
+    """
     layout = _layout(APRON_Z - 4.0)
     lot = layout.shapes[1]
     before = list(lot.polygon.exterior.coords)
     n = AG.emit_authority_retreat_walls(layout)
-    assert n > 0, "the losing claimant was not resolved at all"
-    assert not _walls(layout), (
-        "a retaining wall was emitted away from any carve structure — "
-        "the owner's 2026-08-07 ruling retires exactly this face")
-    feathers = _feathers(layout)
-    assert feathers, "no feather face was emitted"
-    assert list(lot.polygon.exterior.coords) != before, (
-        "the loser kept its vertices — it will be dragged at emit")
-    # The feather carries the LOSER'S OWN role, so the census judges it
-    # under that role's law...
-    cap = ROLE_GRADE_LIMITS[ROLE_GROUNDSIDE_PAVEMENT]
-    assert all(f.role == ROLE_GROUNDSIDE_PAVEMENT for f in feathers)
-    # ...and it is wide enough to be lawful under it.
-    for f in feathers:
-        alts = [a for a in (f.node_altitudes or []) if a is not None]
-        rise = max(alts) - min(alts)
-        run = f.polygon.bounds[3] - f.polygon.bounds[1]   # across the band
-        assert rise / run <= cap + 1e-6, (
-            f"the feather grades at {rise / run:.3%}, over the "
-            f"{cap:.1%} cap it is supposed to satisfy")
+    assert n == 0, (
+        "the retired feather path still emitted a face — weld-or-gap "
+        "leaves NO transition geometry away from a carve structure")
+    assert not _walls(layout), "no wall away from a carve structure"
+    assert not _feathers(layout), (
+        "a feather survived the retirement — the 2026-08-13 ruling names "
+        "feathers explicitly")
+    assert list(lot.polygon.exterior.coords) == before, (
+        "the loser was MOVED — under weld-or-gap it must keep its "
+        "vertices and agree with the winner at the shared node")
 
 
 def test_a_carve_structure_keeps_its_wall():
@@ -131,18 +128,23 @@ def test_a_carve_structure_keeps_its_wall():
         "the portal's wall was retired too — the ruling's own exception")
 
 
-def test_a_tight_spot_gets_a_steep_feather_never_a_wall():
-    """The ruling, verbatim: "tight spots get steep slopes, never walls
-    (no tight-spot exception)".  A lot with no room for ``spread / cap``
-    takes the widest band that FITS — a steep graded face the census
-    reads under the lot's own law — and still no wall."""
+def test_a_tight_spot_welds_too_and_never_smuggles_a_wall_back():
+    """S6 · WELD OR GAP — the tight-spot twin.
+
+    The 2026-08-07 ruling said "tight spots get steep slopes, never walls
+    (no tight-spot exception)"; the 2026-08-13 ruling retires the slope
+    (feather) as well.  A lot with no room for ``spread / cap`` therefore
+    gets NOTHING here — it welds at the shared node like any other loser.
+    The point the test still guards is unchanged and is the reason it
+    stays: a tight spot must never be the back door through which the
+    wall role returns.
+    """
     layout = _layout(APRON_Z - 4.0, lot_depth=6.0)
-    assert AG.emit_authority_retreat_walls(layout) > 0
-    assert not _walls(layout)
-    feathers = _feathers(layout)
-    assert feathers
-    assert all(f.role == ROLE_GROUNDSIDE_PAVEMENT for f in feathers), (
-        "a tight spot must not smuggle the wall role back in")
+    assert AG.emit_authority_retreat_walls(layout) == 0
+    assert not _walls(layout), (
+        "a tight spot smuggled the wall role back in")
+    assert not _feathers(layout), (
+        "a tight spot smuggled the retired feather back in")
 
 
 def test_the_winner_never_moves():

@@ -1798,11 +1798,12 @@ EQUALITY where a census A/B can only answer it as a count.
   single runs with other builds on the machine: the projection cost 17.4 s
   at HECA before the reverted patience change and 23.8 s after; the arms
   ran 380–404 s (HECA) and 33–35 s (CYXY).  Not quotable.
-- **OTHH arm on the REFUTED tree only.**  No OTHH arm was built on the
-  final (reverted) tree, because that tree is source-identical to
-  `lane/s1e` except a report-time instrument dump proven byte-inert — the
-  S1e OTHH arm (`271f5e2df731`, −11 vs reference) still stands unchanged.
-  A fresh OTHH arm is owed at the consolidated acceptance.
+- **OTHH arm: PAID, and it paid the CYXY one too.**  The OTHH arm built
+  on the refuted convergence tree emits `271f5e2df731` — S1e's own
+  mid-only OTHH body, byte for byte — and CYXY emits `5dd542654f0c` on
+  both the convergence and the committed tree.  The reverted change is
+  therefore byte-inert at both airports, so the committed tree's CYXY and
+  OTHH bodies are S1e's by measurement.  Only HECA ever moved.
 - **HECA determinism pair NOT run** (still owed from S1e; one HECA build
   ≈ 6.5 min).  Identity was proven instead by REPRODUCTION: this lane's
   HECA build with the seam audit armed emits `3ab5a8dfae80`, S1e's own

@@ -886,15 +886,59 @@ def test_a_wholly_groundside_rim_pocket_is_hosted_by_stage_b(monkeypatch):
     assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B
 
 
-def test_one_airside_arm_makes_the_rim_pocket_stage_a(monkeypatch):
-    """T2, the AIRSIDE-IS-KING control: the shipped ``_rim_pocket_layout``
-    fixture has an apron on the E and S rim, so the airside system claims
-    the enclosure and the verdict is stage A.  Same detector, same
-    pocket, one role difference from T1."""
+def test_an_airside_rim_arm_is_read_not_written_still_stage_b(monkeypatch):
+    """T2, THE ASSERTION THIS TWIN NOW MAKES BY RULING.
+
+    RULINGS 2026-08-14 "RIM-POCKET SPINES ARE UNCONDITIONALLY STAGE B"
+    (Fable, resolving S1d's stop) REVERSES this test's predecessor,
+    ``test_one_airside_arm_makes_the_rim_pocket_stage_a``, which asserted
+    that an apron on the rim hands the enclosure to stage A.  The ruling:
+    that branch repeated the false-enclosure premise one level up —
+    airside-is-king means airside is never PULLED, not that everything
+    touching airside becomes an airside VARIABLE.  A rim-pocket spine
+    RECEIVES; an airside rim arm is an IMMUTABLE BOUNDARY it READS (the
+    corridor-mouth weld posture).  The intent changed by ruling, so the
+    assertion changed with it; the fixture did not move.
+
+    The shipped ``_rim_pocket_layout`` has an apron on the E and S rim —
+    the exact geometry the predecessor called stage A — and it is stage
+    B here.  T1 (wholly groundside rim) asserts the same verdict, so the
+    pair also proves what the ruling claims structurally: rim composition
+    can no longer reach the verdict at all."""
     monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, _ = _rim_pocket_layout()
     assert GF.construct_gap_fill_presolve(layout) == 1
-    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_A
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B
+
+
+def test_an_all_airside_rim_pocket_is_stage_b_too(monkeypatch):
+    """T2b, THE RULING'S LETTER AT ITS LIMIT CASE: a pocket every one of
+    whose rim arms is lawful airside is STILL a rim pocket, so it is
+    still stage B — the ruling admits no "genuinely airside-enclosed"
+    exception, because such a region is not an interior ring of the
+    airside union (``_gap_detection_polys`` would have found it and it
+    would never have reached the rim-pocket path).  Its spine reads four
+    immutable airside boundaries and writes none of them.
+
+    The reporting helper is asserted beside the verdict, on the SAME
+    candidate polygon the construction stages, so the census line a build
+    prints cannot drift from the geometry it describes.  It also records
+    why this class is near-empty by construction: the pocket is admitted
+    at all only because it is NOT closed (the open south segment lies on
+    no shape's exterior), so ``n_air < n_mid`` even here — a rim that
+    really did close all the way round would have been an interior ring
+    of the airside union and never have reached the rim-pocket path."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
+    layout, _ = _rim_pocket_layout_roles(
+        ROLE_APRON, ROLE_APRON, ROLE_APRON, ROLE_APRON, far_airside=False)
+    airside = GF._airside_shapes(layout)
+    cands, rim_ids = GF._gap_candidate_polys(layout, airside)
+    pockets = [p for p in cands if id(p) in rim_ids]
+    assert len(pockets) == 1, "the all-airside rim is still a POCKET"
+    n_mid, n_air = GF._rim_airside_arm_mids(airside, pockets[0])
+    assert n_mid > 0 and 0 < n_air < n_mid
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B
 
 
 def test_a_pad_on_the_rim_does_not_make_the_host_airside(monkeypatch):

@@ -1900,11 +1900,13 @@ def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
         # airside — ``gap_fill._freeze_spine_parent_specs`` ranks
         # ``_airside_index`` and nothing else — so "the stations are
         # airside" is a fact about the entry's DATA, true of every entry,
-        # and can distinguish nothing.  The rim-pocket law
-        # (``_rim_pocket_bounding_shapes``) admits enclosures whose rim
-        # is wholly groundside; such a spine is a stage-B variable, and
-        # tagging it A is exactly the airside WRITE lane S4 measured
-        # under ``O4_GAP_FILL_RIM_POCKETS=1``.
+        # and can distinguish nothing.  It also states the posture the
+        # 2026-08-14 ruling made unconditional: EVERY rim-pocket spine is
+        # stage B, and its airside parent stations are values it READS —
+        # frozen for the whole groundside pass by
+        # ``feasibility_project_partitioned`` — never values it writes.
+        # Tagging such a spine A is exactly the airside WRITE lane S4
+        # measured under ``O4_GAP_FILL_RIM_POCKETS=1``.
         _host_stage = entry.get("host_stage")
         if _host_stage not in (_STAGE_A, _STAGE_B):
             raise _UntaggedConstraintError(

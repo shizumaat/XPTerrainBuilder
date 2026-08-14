@@ -2660,79 +2660,99 @@ def _gap_candidate_polys(layout, airside):
     return enclosed + rim, {id(p) for p in rim}
 
 
-def _gap_host_stage(layout, airside, gap_poly, rim_pocket):
-    """THE SOLVE STAGE of the gap face's ENCLOSURE HOST (staged-solve
-    lane S1d; S4's measurement that a rim-pocket drainage spine WRITES
-    AIRSIDE elevations when ``O4_GAP_FILL_RIM_POCKETS=1``).
+def _rim_airside_arm_mids(airside, gap_poly):
+    """REPORTING ONLY — ``(n_mid, n_airside_mid)`` for a rim pocket:
+    how many of the pocket's rim segment MIDPOINTS lie within
+    ``_RIM_POCKET_BOUNDARY_TOL_M`` of an airside shape's exterior.
 
-    A gap-fill drainage spine is a CONSTRUCT over a host surface, and
-    ``solve_stage``'s own rule for such a construct is "the stage of its
-    HOST, never its own construct role" (``graded_strip`` is not a
-    stage).  This function answers WHO THE HOST IS:
+    THE STAGE VERDICT NEVER CONSULTS THIS (see ``_gap_host_stage``): a
+    rim pocket is stage B whatever its rim is made of.  What the count
+    still answers is HOW MUCH IMMUTABLE AIRSIDE BOUNDARY the stage-B
+    spine reads — including the limit case the ruling's letter moves,
+    a pocket whose rim is airside all the way round (``n_airside_mid ==
+    n_mid``) — so the build says it in one census line instead of a
+    later lane re-deriving it.
 
-    * an ENCLOSED gap is, by construction of ``_gap_detection_polys``, an
-      interior ring of the AIRSIDE union — airside-hosted with no
-      geometry test at all, so ``rim_pocket=False`` returns ``STAGE_A``
-      immediately.
-    * a RIM POCKET is admitted precisely BECAUSE it is not such a ring:
-      ``_rim_pocket_bounding_shapes`` widens the rim to airside PLUS the
-      ruling-3 groundside/road/junction/pad classes.  So the question is
-      whether any AIRSIDE member actually bounds this pocket.  AIRSIDE IS
-      KING: one airside arm on the rim and the airside system claims the
-      enclosure (``STAGE_A``); a rim with no airside arm at all is a
-      groundside enclosure and its spine is a stage-B variable.
-
-    THE TEST IS BY SEGMENT MIDPOINT, not exterior-to-exterior distance,
-    so a corner-only touch does not count — the identical measure
-    ``_graded_rim`` uses for the graded fraction, and the reason the two
-    cannot disagree about what "on the rim" means.
-
-    NO ROLE LITERAL IS SPELLED HERE, deliberately.  Membership is by
-    IDENTITY against the ``airside`` list, which ``_airside_shapes``
-    built from ``_AIRSIDE_PAVEMENT_ROLES`` — so a building, a service
-    road or a groundside lot falls to ``STAGE_B`` simply by not being in
-    it, and this function never has to name ``ROLE_BUILDING`` (which
-    would also be a blast.py role-literal hazard).
-
-    AND NOT ``solve_stage.stage_of_roles`` OVER THE RIM ROLES.  That fold
-    returns ``STAGE_A`` for ``{service_road, building}``, because
-    ``ROLE_BUILDING`` is not in ``layout.GROUNDSIDE_ROLES``.  For a NODE
-    that is the conservative side (airside wins a shared seat).  For an
-    ENCLOSURE HOST it is the WRONG side: it would hand a wholly
-    groundside pocket's spine to stage A, which is the exact write S4
-    measured.  A pad bounds ground; it does not make the ground airside.
-
-    Degenerate geometry returns ``STAGE_A`` — the conservative side, per
-    ``stage_of_role``'s own argument (a wrong stage-A tag only
-    over-constrains stage A with its own kind).
-    """
-    if not rim_pocket:
-        return _STAGE_A
+    Midpoints, not exterior-to-exterior distance, so a corner-only touch
+    does not count — the identical measure ``_graded_rim`` uses for the
+    graded fraction, and the reason the two cannot disagree about what
+    "on the rim" means.  Membership is by IDENTITY against the
+    ``airside`` list (``_airside_shapes`` built it from
+    ``_AIRSIDE_PAVEMENT_ROLES``), so no role literal is spelled here."""
     try:
         ring = list(gap_poly.exterior.coords)
     except _GEOM_EXC:
-        return _STAGE_A
-    if len(ring) < 2:
-        return _STAGE_A
+        return (0, 0)
     mids = []
     for (ax, ay), (bx, by) in zip(ring, ring[1:]):
         if math.hypot(bx - ax, by - ay) <= 0.0:
             continue
         mids.append(Point(0.5 * (ax + bx), 0.5 * (ay + by)))
     if not mids:
-        return _STAGE_A
+        return (0, 0)
+    exts = []
     for s in airside:
         try:
-            ext = s.polygon.exterior
+            exts.append(s.polygon.exterior)
         except _GEOM_EXC:
             continue
-        for m in mids:
+    n_air = 0
+    for m in mids:
+        for ext in exts:
             try:
                 if ext.distance(m) <= _RIM_POCKET_BOUNDARY_TOL_M:
-                    return _STAGE_A
+                    n_air += 1
+                    break
             except _GEOM_EXC:
                 continue
-    return _STAGE_B
+    return (len(mids), n_air)
+
+
+def _gap_host_stage(rim_pocket):
+    """THE SOLVE STAGE of the gap face's ENCLOSURE HOST (staged-solve
+    lanes S1d/S4; S4's measurement that a rim-pocket drainage spine
+    WRITES AIRSIDE elevations when ``O4_GAP_FILL_RIM_POCKETS=1``).
+
+    A gap-fill drainage spine is a CONSTRUCT over a host surface, and
+    ``solve_stage``'s own rule for such a construct is "the stage of its
+    HOST, never its own construct role" (``graded_strip`` is not a
+    stage).  This function answers WHO THE HOST IS, and after the
+    2026-08-14 ruling it is a two-line answer:
+
+    * an ENCLOSED gap is, by construction of ``_gap_detection_polys``, an
+      interior ring of the AIRSIDE union — airside-hosted with no
+      geometry test at all: ``STAGE_A``.
+    * a RIM POCKET is admitted precisely BECAUSE it is not such a ring
+      (``_rim_pocket_bounding_shapes`` widens the rim to airside PLUS the
+      ruling-3 groundside/road/junction/pad classes): ``STAGE_B``,
+      UNCONDITIONALLY.
+
+    RULINGS 2026-08-14, "RIM-POCKET SPINES ARE UNCONDITIONALLY STAGE B"
+    (Fable, resolving S1d's stop) — the predecessor's conditional "one
+    airside arm on the rim ⇒ ``STAGE_A``" branch REPEATED THE FALSE-
+    ENCLOSURE PREMISE ONE LEVEL UP.  Airside-is-king means airside is
+    never PULLED; it does not mean everything TOUCHING airside becomes an
+    airside VARIABLE.  A rim-pocket spine RECEIVES: where a rim arm is
+    airside, the spine reads that arm's settled stage-A value as an
+    IMMUTABLE BOUNDARY — the corridor-mouth weld posture, and reading
+    airside is the implementation of airside-is-king, not a violation of
+    it.  The read is structural, not a promise: the spine's constraint
+    entry carries ``STAGE_B`` into ``_partition_by_stage``, and its
+    airside parent stations carry airside ring roles, so
+    ``_receiver_nodes_from_roles`` never admits them as receivers and
+    ``feasibility_project_partitioned`` freezes every non-receiver node
+    for the whole groundside pass.  A write attempt is not possible to
+    express; the rails would have to be removed first.
+
+    NO ROLE LITERAL, NO GEOMETRY TEST, and in particular NOT
+    ``solve_stage.stage_of_roles`` over the rim roles — that fold returns
+    ``STAGE_A`` for ``{service_road, building}`` (``ROLE_BUILDING`` is not
+    in ``layout.GROUNDSIDE_ROLES``), which is the conservative side for a
+    NODE and the wrong side for an ENCLOSURE HOST.  A pad bounds ground;
+    it does not make the ground airside.  Nothing about the rim's
+    composition can reach this verdict any more, which is the ruling.
+    """
+    return _STAGE_B if rim_pocket else _STAGE_A
 
 
 def _enclave_treatable(layout, poly):
@@ -2974,6 +2994,7 @@ def construct_gap_fill_presolve(layout) -> int:
                   else [])
     step = GAP_FILL_SPINE_STEP_M
     entries: list[dict] = []
+    _rim_seen = _rim_with_airside = _rim_all_airside = 0
     for gap_poly in gap_candidates:
             if gap_poly.area < GAP_FILL_MIN_AREA_M2:
                 continue
@@ -2996,9 +3017,11 @@ def construct_gap_fill_presolve(layout) -> int:
             # face and every station of this gap shares one enclosure, so
             # the question is asked of the CANDIDATE, not of each face.
             # ``id(gap_poly) in rim_ids`` is the rim-pocket membership
-            # test the width rule below already uses.
-            host_stage = _gap_host_stage(layout, airside, gap_poly,
-                                         id(gap_poly) in rim_ids)
+            # test the width rule below already uses, and after the
+            # 2026-08-14 ruling it is the WHOLE question.
+            _is_rim = id(gap_poly) in rim_ids
+            host_stage = _gap_host_stage(_is_rim)
+            _n_before = len(entries)
             faces = (_parent_residual_faces(gap_poly, parents, chain_keys)
                      if parents else [gap_poly])
             for face_poly in faces:
@@ -3031,12 +3054,30 @@ def construct_gap_fill_presolve(layout) -> int:
                                 "specs": specs,
                                 "host_stage": host_stage,
                                 "values": None})
+            # ONE CENSUS LINE PER BUILD, rim pockets only (below).  The
+            # stage is already decided; this measures the BOUNDARY the
+            # stage-B spine will read — and names the limit case the
+            # ruling's letter moves, a pocket whose rim is airside all
+            # the way round.  Only candidates that actually minted a
+            # spine are counted, so the line describes what solved.
+            if _is_rim and len(entries) > _n_before:
+                _n_mid, _n_air = _rim_airside_arm_mids(airside, gap_poly)
+                _rim_seen += 1
+                if _n_air:
+                    _rim_with_airside += 1
+                if _n_mid and _n_air == _n_mid:
+                    _rim_all_airside += 1
     layout.gap_fill_presolve = entries
     if entries:
         n_pts = sum(len(e["spine"]) for e in entries)
         UI.vprint(1, f"  [gap-fill] PRE-SOLVE constructed {len(entries)} "
                      f"drainage spine(s), {n_pts} solver node(s) "
                      f"(one-solve terrain absorption, stage B2).")
+    if _rim_seen:
+        UI.vprint(1, f"  [gap-fill] rim-pocket stage census: {_rim_seen} "
+                     f"pocket(s), ALL stage B (RULINGS 2026-08-14); "
+                     f"{_rim_with_airside} read >=1 immutable airside rim "
+                     f"arm, {_rim_all_airside} airside-enclosed all round.")
     return len(entries)
 
 

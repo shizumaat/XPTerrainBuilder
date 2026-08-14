@@ -1680,3 +1680,79 @@ docket line, since it will make every future arm's airside delta noisy.
 **OWED AT CLOSE.** OTHH and CYXY censuses on the final tree (only HECA
 was censused both ways here); the determinism spot-check (sequential
 HECA tile pair) was not run; item 3.
+
+## S4rim2 (staged-solve round, lane/s4rim2, base c0d7ca6)
+
+THE CHANGE (RULINGS 2026-08-14 "RIM-POCKET SPINES ARE UNCONDITIONALLY
+STAGE B"): `gap_fill._gap_host_stage`'s conditional "one airside arm on
+the rim ⇒ STAGE_A" branch is RETIRED — the function is now
+`_gap_host_stage(rim_pocket)`, `STAGE_B if rim_pocket else STAGE_A`, with
+no geometry test and nothing about the rim's composition able to reach
+the verdict. The retired midpoint scan survives as REPORTING ONLY
+(`_rim_airside_arm_mids`) behind one build census line. Twin
+`test_one_airside_arm_makes_the_rim_pocket_stage_a` is replaced by
+`test_an_airside_rim_arm_is_read_not_written_still_stage_b` (assertion
+intent changed BY the ruling, cited in its docstring) plus a new limit
+case `test_an_all_airside_rim_pocket_is_stage_b_too`.
+
+BYTE-INERT AT THE SHIPPED DEFAULT, proved not claimed: HECA control on
+the changed tree is `5d12d1ce4b5a` (3211 shapes), byte-identical to
+S1d's control artifact. Guard clean, shared repo UNCHANGED on all three
+arms.
+
+RE-FLIP ARM STILL FAILS ACCEPTANCE (b) — POCKETS STAY PARKED.
+`O4_GAP_FILL_RIM_POCKETS=1` at HECA (`3c084a212d0f`, 3286 shapes):
+law-true 7221 → 7139, airside_for_acceptance 1711 → 1704. Off-face
+signature REDUCED but not gone: 73 of 106 NEW airside rows lie >50 m
+from every emitted spine (S1d: 259 of 317), median 82.6 m. The decisive
+read is the value equality, not the row count: 5,066 of 17,677 SHARED
+airside vertices (canonical 11-decimal join) carry a different elevation
+— apron 1,436, junction 2,206, graded_strip 937, building 441 — worst
+0.33 m, median 75 m from the nearest pocket spine and up to 734 m away.
+Runway and runway_clearance: ZERO moved.
+
+WRITER NAMED (S1's pre-delegated "emitted GEOMETRY, not a solver
+variable" branch): the stage tag is not the leak. With pockets ON
+`graded_strip` gains 8,198 vertices and loses 824 and `object_pad` loses
+409, and `graded_strip` is AIRSIDE-HOSTED (not in `GROUNDSIDE_ROLES`),
+so the gap faces and the adjacent-ground bands rebuilt over the pocket
+regions enter STAGE A's OWN constraint system by the stage rule "a
+construct takes its HOST's stage". The tag decides which stage a
+constraint belongs to; it cannot stop the feature changing what stage A
+solves. Corroborating channel, same magnitude order: 36 of 214 building
+pad seats move (median 0.06 m, max 0.28 m) — the known pad→apron weld
+channel. Family to cut at the stage boundary: `graded_strip`
+(gap-fill faces + adjacent-ground bands over pocket regions) and
+`object_pad`.
+
+ANSWERED IN ONE LINE (charter question): NO genuinely airside-enclosed
+gap reaches the rim-pocket path at either battery airport — the new
+census line reads HECA 210 pockets / 54 with ≥1 airside rim arm / **0**
+airside-enclosed all round, OTHH 99 / 41 / **0**. Structural, not
+incidental: a rim closed all the way round by airside IS an interior
+ring of the airside union and `_gap_detection_polys` claims it as an
+ENCLOSED gap (stage A) before the rim-pocket detector ever sees it.
+So the ruling's letter moves no rows at the battery airports.
+
+OTHH ARM CLEAN (`a1a2e8f024fb`, 2238 shapes, vs control `3850b8a43867`):
+airside_for_acceptance 5668 → 5668 UNCHANGED; groundside 195 → 206,
+adjudicated 5863 → 5869 (+6).
+
+SKIPPED / OWED. (1) The knoll is read at PATCH level only — control has
+no patch surface within 15.8 m of 30.1136676,31.4086362; the arm emits a
+`gap_interior_ring` 1.72 m away at 93.58–95.48 m, a spine at 92.62 m and
+a `gap_fill_spine` graded_strip face at 92.76–103.52 m (the 93.72-class
+read), and the law rows within 120 m are unchanged (114 → 114, worst
+grade 403.39 %, worst |de| 9.15 m). S4's MESH number (106.3 → 93.72) is
+mesh-side and NO tile was built. (2) Only HECA was censused both ways;
+OTHH has an A/B census but no `--rows-json` row join; CYXY/KCLT/SPJC/
+SPLP were not built. (3) Tests: the blast-selected 9 files +
+test_projection_partition + test_solve_capture, once, ledgered (195
+passed / 0 failed) — no full suite, no blast sweep. (4) No timing arm;
+the pockets-ON HECA build cost 421.8 s vs the control's 376.9 s but the
+three arms shared the machine, so that is not a timing claim. (5) The
+two lane measurements (off-face distance; airside value join by
+canonical key) are scratchpad one-offs on FIRST use — a second use
+promotes them into `tools/` with index entries, and the airside value
+join is the stronger candidate: it answers "did airside move" as an
+EQUALITY where a census A/B can only answer it as a count.

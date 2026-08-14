@@ -428,3 +428,86 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   orders of magnitude larger than this one.
 - 0 new law constants and 0 new env flags. `CENTERLINE_SPECS_MEMO` is a
   module-level kill switch for the twin; no law reads it.
+
+## staged-solve S5v2 — object pads as a RELATIVE COUPLING (lane/s5pads2, 2026-08-13)
+
+**STOPPED AT A PREMISE OF THE RULED MECHANISM. NOTHING IMPLEMENTED, NO
+`src/` CHANGE.** The ruled design (RULINGS "OBJECT PADS: RELATIVE
+COUPLING", spec S5) mints, per in-reach structure, a rigid constraint
+`pad_level(part nodes) − ground_level(anchor node) = base_y` **between
+two IN-SOLVE nodes**, the anchor node being "the solve node at the
+placement point". Measured at both battery packs against the FROZEN
+1.0.245 patches, there is no such node for the objects that need one.
+
+MECHANISM. `object_anchor.py:2411-2432` samples the render datum at ONE
+point per resource — `mesh(placement.lat, placement.lon) + AGL` — so a
+coupling can only bind to whatever governs the mesh THERE. Two facts
+about that point decide the design, and both are pack-specific:
+
+1. **The datum is SHARED.** Packs author around one datum for hundreds of
+   resources. HECA: 385 `.anchor_bak` BAKED resources hang off **4**
+   anchor datums, 191 of them (and 1840 of 1883 pad requests) off ONE
+   point (30.1121180, 31.4120260). OTHH: 1229 baked resources off 93
+   datums, one carrying 466 resources / 2302 requests. A coupling minted
+   there is ONE solve variable governing thousands of pads spread across
+   the airport — and, where those pads are groundside and the host node
+   airside, exactly the cross-stage pull S1/S1b is chartered to retire.
+2. **The datum's host is not a SOLVE member.** HECA's dominant datum
+   stands ON emitted patch geometry — role `graded_strip` — but
+   `graded_strip` is a SOFT RECEIVER (`layout.SOFT_RECEIVER_ROLES`),
+   emitted post-solve and ABSENT from
+   `solver_primitives.PAVEMENT_ROLES`. It carries the mesh value the
+   renderer reads and no solve variable at all.
+
+MEASURED (`tools/object_pad_anchor_report.py`, promoted this lane with
+its INDEX row and twins; patches = the frozen baselines
+`/tmp/harness/consol3heca.osm` `f562cbfeb8f9` and
+`/tmp/harness/consol3othh.osm` `75594bc8773a`; meshes = the three
+perfbake HECA `--tile 30 31` runs; shared repo UNCHANGED — guard armed
+refuse-mode, `blocked=0`, 18 allowed `.lock` churn entries):
+
+| | HECA | OTHH |
+|---|---|---|
+| placements / resources / anchor datums | 3201 / 519 / 2700 | 11902 / 1366 / 8537 |
+| baked resources / pad requests | 385 / 1883 | 1229 / 9187 |
+| datums hosted on any emitted shape | 2112 / 2700 | 7023 / 8537 |
+| **pad requests on a SOLVE-role datum** | **0 / 1883** | 4732 / 9187 |
+| **baked resources on a SOLVE-role datum** | **0 / 385** | 747 / 1229 |
+
+- HECA's dominant datum: DEM 108.441 m, mesh **101.180 m** — the patch
+  cut 7.26 m there — and IDENTICAL across all three perfbake builds, so
+  the render datum is build-stable and the ratchet lives entirely in the
+  per-part `ground_metres`, not the anchor (confirms the s5pads dossier).
+- A PRE-SOLVE DEM read stands 7.261 m from that datum's render ground,
+  which is the s5pads premise test's `|.|p90 7.261 m` — that percentile
+  was this ONE point carrying 1840 requests, not a distribution.
+
+CONSEQUENCE. At HECA — the round's named acceptance and in-sim airport —
+the coupling cannot be minted for a single pad request or a single baked
+`.obj`. Acceptance (b) (pack pristine; baseline 171 of 568 rewritten in
+perfbake run 1, 77 in run 2) and (c) (cheaper than the y-bake work it
+eliminates) are unreachable there BY CONSTRUCTION: nothing is
+eliminated. At OTHH about half the population is reachable, dominated by
+shared datums. Making HECA reachable means admitting `graded_strip` /
+`groundside_pavement` as solve members — the Slice-B terrain-role
+admission seam (`solver_primitives._build_node_list`,
+`admitted_terrain_refs`) — which is S1/S1b geometry-freeze and stage-
+partition work, not S5's, and is a spec change, so it STOPS here for
+Fable per the deviation law.
+
+FRAME WARNING, recorded because it nearly produced a false finding: the
+same measurement run against the lane's inherited `Patches/` copy
+(HECA body `746517957a58`, NOT the frozen `f562cbfeb8f9`) read **0 of
+842** requests hosted and the dominant datum 50.8 m off any shape — that
+patch carries 3491 shapes against the baseline's 4071 and no
+`graded_strip` over the datum. Always check the body hash of a patch
+before quoting a population from it (identity-mismatch law).
+
+NOT RUN, and owed if the owner re-charters this lane: every S5 acceptance
+arm (a)-(e) — no HECA `--tile 30 31` determinism pair, no `.obj`-rewrite
+before/after count beyond the perfbake baseline, no `--count` build-time
+pair, no census, no coupling twins, no sensitivity arm. `tools/blast.py`
+was run for the promoted tool; `tests/test_object_pad_anchor_report.py`
+(12 twins) and `tests/test_harness.py` ran green through
+`run_with_ledger` (233 passed), which is the whole test surface this
+lane's diff touches — no `src/` file was edited.

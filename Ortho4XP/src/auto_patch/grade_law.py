@@ -3233,8 +3233,33 @@ def transverse_surface_bounds(role, code_letter, offset_m, ruleset=None):
 
 # ── §B3 — DRAINAGE MINIMUM (apron + groundside) ──────────────────────
 
+# DOMAIN RESTORATION (S7, the S3 blindness verdict — RULINGS 2026-08-13b
+# "OTHH −639 ADJUDICATED: CENSUS BLINDNESS").  This set is THE groundside
+# domain of §B3 and ``check_grade._DRAINAGE_MIN_ROLES`` derives from it, so
+# a role missing here is a surface the census silently stops reading.
+#
+# WHAT WAS MISSING, AND WHAT IT COST.  The corridor round re-roled ~15.5 km
+# of landside pavement perimeter out of ``groundside_pavement`` and into
+# ``service_junction`` / ``service_road`` — roles that ARE groundside in the
+# law's own partition (``layout.GROUNDSIDE_ROLES``, and their rows report
+# ``side=groundside`` in every other family) but were never named here.  The
+# walk stopped reading them, OTHH's drainage-minimum count fell 2127 → 1377,
+# and that −750 was quoted as an improvement.  Judged over a domain-invariant
+# population the same change reads +1718 (S3 dossier §4), and the restore
+# also exposed a 2 997-row PRE-EXISTING blind spot: the 523 service_junction
+# ways that were never read before the corridor round either.  This is the
+# R19 class recurring by ROLE MIGRATION instead of by typo — the same defect
+# the comment at ``check_grade._DRAINAGE_MIN_ROLES`` already describes.
+#
+# DEAD LITERALS REMOVED (S7 audit).  ``groundside``, ``parking``, ``lot`` and
+# ``curbside`` appear in no ``layout.ROLE_*`` constant — this engine has
+# never emitted any of them.  They are the law's PROSE categories (the civil
+# sources speak of lots and curbside), not role values; the emitted landside
+# role is ``groundside_pavement``.  Keeping unreachable literals in a walk
+# set is what made the original §B3 defect unreadable, so they are gone
+# rather than left to look like coverage.
 _DRAINAGE_MIN_GROUNDSIDE_ROLES = frozenset({
-    "groundside", "groundside_pavement", "parking", "lot", "curbside",
+    "groundside_pavement", "service_road", "service_junction",
 })
 
 

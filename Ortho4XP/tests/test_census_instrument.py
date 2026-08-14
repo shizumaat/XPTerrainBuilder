@@ -202,16 +202,20 @@ def _fam(report: dict, key: str) -> dict:
 def test_the_per_family_counts_are_the_hand_computed_ones(report):
     """Every non-empty family, derived pair by pair.
 
-    WITHIN_SHAPE = 15.  Allowance is ``cap·d + 0.03``: apron at 1 % allows
+    WITHIN_SHAPE = 14.  Allowance is ``cap·d + 0.03``: apron at 1 % allows
     0.23 m over a 20 m edge and 0.313 m over the 28.284 m diagonal;
-    groundside at 5 % allows 1.03 m / 1.444 m; a declared fan-ramp piece
-    and a pair wholly inside a declared 5 % zone allow the same 1.03 m /
-    1.457 m.
+    groundside pavement at the ROAD limit 8 % (owner ruling 2026-08-12,
+    "GROUNDSIDE PAVEMENT GRADES AT THE ROAD LIMIT" — it carries the same
+    vehicles the service road does) allows 1.63 m / 2.293 m; a declared
+    fan-ramp piece and a pair wholly inside a declared 5 % zone allow
+    1.03 m / 1.457 m.
 
       A1 (apron, one corner at 1.2): the three pairs touching that corner
          carry |de|=1.2 > 0.23 / 0.313      -> 3
-      G1 (groundside, 0.1 / 0 / 2.0 / 0): b-c and c-d carry 2.0 > 1.03,
-         a-c carries 1.9 > 1.444; a-b, a-d (0.1) and b-d (0) pass  -> 3
+      G1 (groundside, 0.1 / 0 / 2.0 / 0): b-c and c-d carry 2.0 > 1.63;
+         the a-c diagonal's 1.9 is now UNDER the 2.293 allowance the
+         road limit grants, so it is lawful; a-b, a-d (0.1) and b-d
+         (0) pass                                                   -> 2
       A4 (declared ramp piece, corner 2.0, judged at the 5 % ramp cap):
          2.0 > 1.03 twice and 2.0 > 1.457 on the diagonal          -> 3
       A5 (corner 0.5, wholly inside zone Z1 -> 5 %): 0.5 < 1.03    -> 0
@@ -237,7 +241,7 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     MID_EDGE_STEP = 20 raw.  Five samples per edge, on both facing edges
     of both pairs: 2 x 5 x 2 = 20.
     """
-    assert _fam(report, "within_shape")["n"] == 15
+    assert _fam(report, "within_shape")["n"] == 14
     assert _fam(report, "drainage_minimum")["n"] == 1
     assert _fam(report, "stacked_nodes")["n"] == 2
     # steps are reported AFTER the registered exemption (below)
@@ -249,23 +253,23 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
 
 
 def test_the_law_true_total_and_the_within_cross_steps_split(report):
-    """15 + 1 + 2 within-bucket rows = 18; no cross-bucket row (the two
+    """14 + 1 + 2 within-bucket rows = 17; no cross-bucket row (the two
     abutting shapes share no vertex inside the 0.5 m proximity window that
     the law does not already exempt as a wall-separated pair); 28 raw step
     rows of which 14 hold a registered exemption, so 14 are counted.
-    TOTAL = 18 + 0 + 14 = 32."""
+    TOTAL = 17 + 0 + 14 = 31."""
     lt = report["lawtrue"]
-    assert lt["within"] == 18
+    assert lt["within"] == 17
     assert lt["cross"] == 0
     assert lt["steps_raw"] == 28
     assert lt["steps"] == 14
-    assert lt["total"] == 32
+    assert lt["total"] == 31
 
 
 def test_the_side_split_and_the_airside_is_king_accounting(report):
     """AIRSIDE 26 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
     + 4 vertex-to-edge + 10 mid-edge apron steps.
-    GROUNDSIDE 4 = G1's 3 within-shape rows + its 1 drainage-minimum row.
+    GROUNDSIDE 3 = G1's 2 within-shape rows + its 1 drainage-minimum row.
     MIXED 2 = the two stacked-node rows, apron against groundside.
 
     ``airside_for_acceptance`` APPLIES the owner ruling the old report
@@ -273,7 +277,7 @@ def test_the_side_split_and_the_airside_is_king_accounting(report):
     """
     lt = report["lawtrue"]
     assert (lt["airside"], lt["groundside"], lt["mixed"], lt["unknown"]) == (
-        26, 4, 2, 0)
+        26, 3, 2, 0)
     assert lt["airside"] + lt["groundside"] + lt["mixed"] == lt["total"]
     assert lt["airside_for_acceptance"] == 28
 
@@ -302,16 +306,16 @@ def test_the_worst_row_is_the_largest_magnitude_row(report):
 def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
     """RULINGS d48bc0a: instruments report, the law adjudicates.  The one
     version-deferred family present is ``drainage_minimum`` with its single
-    row, so ADJUDICATED = 32 - 1 = 31 and the verdict is FAIL (a PASS
+    row, so ADJUDICATED = 31 - 1 = 30 and the verdict is FAIL (a PASS
     requires zero adjudicated rows).  Its groundside row is the one that
-    leaves the adjudicated groundside count at 3."""
+    leaves the adjudicated groundside count at 2."""
     adj = report["adjudication"]
     assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
     assert adj["deferred_total"] == 1
     assert adj["deferred_families"]["drainage_minimum"]["n"] == 1
-    assert adj["adjudicated_total"] == 31
+    assert adj["adjudicated_total"] == 30
     assert adj["adjudicated_by_side"] == {
-        "airside": 26, "groundside": 3, "mixed": 2, "unknown": 0}
+        "airside": 26, "groundside": 2, "mixed": 2, "unknown": 0}
     assert adj["pass"] is False
     assert report["adjudicated_airside_for_acceptance"] == 28
     # the deferred rows are REPORTED, never dropped
@@ -349,14 +353,14 @@ def test_the_bare_minus_law_true_difference_is_the_two_frame_effects(
            them at the apron's 1 % (0.5 m > 0.23 / 0.313).
       +14  the building-to-building step rows the exemption removes.
 
-    bare 49 - law-true 32 = +17.  (A4 keeps its relief in both frames: the
+    bare 48 - law-true 31 = +17.  (A4 keeps its relief in both frames: the
     ramp cap comes from the WAY's own ``o4_grade_law`` tag, which is on the
     patch, not in the sidecar.)
     """
-    assert report["bare"]["within"] == 21     # 18 + A5's 3
+    assert report["bare"]["within"] == 20     # 17 + A5's 3
     assert report["bare"]["cross"] == 0
     assert report["bare"]["steps"] == 28      # raw, no exemption
-    assert report["bare"]["total"] == 49
+    assert report["bare"]["total"] == 48
     assert report["bare"]["total"] - report["lawtrue"]["total"] == 17
 
 
@@ -400,7 +404,7 @@ def test_a_stamped_patch_carries_the_build_frame_into_the_report(
     assert prov["built"] == "2026-08-06T12:00:00"
     assert prov["icao"] == "TEST"
     # ...and the counts are untouched by the stamp
-    assert rep["lawtrue"]["total"] == 32
+    assert rep["lawtrue"]["total"] == 31
 
 
 def test_the_reported_knobs_are_the_knobs_the_law_true_run_binds(
@@ -586,9 +590,9 @@ def test_zone_split_buckets_the_within_shape_rows(report):
                     which is 10 m clear of Z2.
     """
     zs = report["zone_split"]
-    assert zs["within_rows"] == 15
+    assert zs["within_rows"] == 14
     assert zs["buckets"] == {"ramp_piece": 3, "in_zone": 3,
-                             "crosses": 2, "outside": 7}
+                             "crosses": 2, "outside": 6}
     assert sum(zs["buckets"].values()) == zs["within_rows"]
 
 
@@ -629,9 +633,9 @@ def test_zone_split_reports_the_cap_bound_its_count_was_taken_at(report):
     zs = report["zone_split"]
     assert zs["caps"] == [0.05]
     assert zs["steeper_than_zone_cap_bound"] == 0.05
-    assert zs["steeper_than_zone_cap"] == 14
+    assert zs["steeper_than_zone_cap"] == 13
     assert zs["top_role_pairs"] == {
-        "apron|apron": 12, "groundside_pavement|groundside_pavement": 3}
+        "apron|apron": 12, "groundside_pavement|groundside_pavement": 2}
 
 
 def test_zone_split_prints_its_frame_and_bound(report, census, capsys):
@@ -909,3 +913,73 @@ def test_the_band_error_case_still_names_the_error(report, census, capsys):
     out = capsys.readouterr().out
     assert "band membership: NOT MEASURED this build" in out
     assert "band reader blew up" in out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §7 THE ROAD FAMILY IS IN THE CENSUS'S DOMAIN (S7, the S3 verdict)
+# ══════════════════════════════════════════════════════════════════════
+# RULINGS 2026-08-13b, "OTHH −639 ADJUDICATED: CENSUS BLINDNESS": the
+# corridor round re-roled ~15.5 km of landside pavement perimeter out of
+# ``groundside_pavement`` and into ``service_junction`` / ``service_road``,
+# and the drainage-minimum walk named only the old role — so 15.5 km of
+# emitted surface left the census without a line of output saying so.  The
+# structural sweep lives in ``tests/test_harness.py`` (no role set may read
+# ``groundside_pavement`` without the roles it is re-roled into); this is
+# the MEASURED half: a patch made only of road-family surfaces, censused,
+# with every reported row derived.
+#
+# THE ROAD FIXTURE (metres, same anchor and 20 m squares as §1):
+#
+#   R1  service_junction  [0, 20]²          corner alts (0.1, 0, 2.0, 0)
+#   R2  service_road      [100,120]×[0,20]  flat 5.0
+#   R3  service_junction  [120.6,140.6]×[0,20]  flat 7.0
+#
+# ``config.ROLE_GRADE_LIMITS`` gives both road roles the SAME cap
+# (``SERVICE_ROAD_MAX_GRADE``), so every allowance below is that cap.
+
+
+@pytest.fixture(scope="module")
+def road_report(cg, census, tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("census_twin_roads")
+    b = _PatchBuilder(cg)
+    b.square(0, 0, 20, [0.1, 0.0, 2.0, 0.0],
+             {"role": "service_junction", "shapeID": "R1"})
+    b.square_flat(100, 0, 20, 5.0, {"role": "service_road", "shapeID": "R2"})
+    b.square_flat(120.6, 0, 20, 7.0,
+                  {"role": "service_junction", "shapeID": "R3"})
+    osm = b.write(tmp / "ROADS_auto.patch.osm",
+                  {"anchor": list(ANCHOR), "ruleset": "icao"})
+    return census.census_one(osm, cg, want_bare=True, top=3)
+
+
+def test_the_road_family_is_SEEN_by_the_within_shape_law(road_report):
+    """WITHIN_SHAPE = 2.  R1's cap is the service-road limit (8 %), so a
+    20 m edge allows 8 %·20 + 0.03 = 1.63 m and the 28.284 m diagonal
+    allows 2.29 m.  Its 2.0 m corner breaches both edges that touch it
+    (b-c, c-d) and neither diagonal (a-c carries 1.9 m, b-d carries 0).
+    R2 and R3 lie flat.
+
+    Not a new law — the point is the DOMAIN: these are the roles the
+    corridor round created, and they are read."""
+    assert _fam(road_report, "within_shape")["n"] == 2
+
+
+def test_the_road_family_is_SEEN_by_the_step_laws(road_report):
+    """R2|R3 sit 0.6 m apart (inside the 1.0 m contact tolerance) with a
+    2.0 m height difference, and neither holds a registered exemption
+    (``building_to_building`` is the only one).  VERTEX_TO_EDGE = 4 (two
+    facing corners each way); MID_EDGE = 10 (five samples on each of the
+    two facing edges)."""
+    assert _fam(road_report, "vertex_to_edge_step")["n"] == 4
+    assert _fam(road_report, "mid_edge_step")["n"] == 10
+    assert road_report["lawtrue"]["steps_exempt_by_rule"] == {}
+
+
+def test_every_road_row_is_reported_GROUNDSIDE(road_report):
+    """``layout.GROUNDSIDE_ROLES`` is the one partition — the same set the
+    solve's receiver split reads.  A road row that came back airside would
+    mean the census and the solver disagree about which side the corridor
+    round's new surfaces are on."""
+    lt = road_report["lawtrue"]
+    assert (lt["airside"], lt["mixed"], lt["unknown"]) == (0, 0, 0)
+    assert lt["groundside"] == lt["total"]

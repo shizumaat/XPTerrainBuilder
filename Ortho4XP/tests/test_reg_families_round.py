@@ -456,8 +456,20 @@ def test_b3_apron_minimum_is_faa_only():
 
 def test_b3_groundside_minimum_is_region_invariant_and_provisional():
     for key in ("faa", "icao"):
-        assert GL.drainage_minimum_grade("groundside", key) == 0.010
+        assert GL.drainage_minimum_grade("groundside_pavement", key) == 0.010
     assert CFG.GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL is True
+
+
+def test_b3_the_ROAD_FAMILY_carries_the_groundside_minimum():
+    """DOMAIN RESTORATION (S7; RULINGS 2026-08-13b, the OTHH −639
+    verdict).  ``service_road`` and ``service_junction`` are groundside in
+    the law's own partition (``layout.GROUNDSIDE_ROLES``) and the corridor
+    round re-roled ~15.5 km of landside pavement perimeter INTO them.  The
+    §B3 walk named only ``groundside_pavement``, so those surfaces left
+    the census silently — 750 rows at OTHH, read as an improvement."""
+    for role in ("service_road", "service_junction"):
+        for key in ("faa", "icao"):
+            assert GL.drainage_minimum_grade(role, key) == 0.010
 
 
 def test_b3_named_exclusions():
@@ -467,7 +479,7 @@ def test_b3_named_exclusions():
     assert CFG.TERMINAL_PADS_SLOPE is False
     assert GL.drainage_minimum_grade("apron", "faa", building_pad=True) is None
     assert GL.drainage_minimum_grade("apron", "faa", terrace_panel=True) is None
-    assert GL.drainage_minimum_grade("groundside", "faa",
+    assert GL.drainage_minimum_grade("groundside_pavement", "faa",
                                      building_pad=True) is None
 
 
@@ -525,6 +537,12 @@ def test_b3_the_walk_set_names_only_roles_the_ENGINE_EMITS():
     and the groundside half of §B3 never ran — while ``grade_law`` carried
     a live 1.0 % minimum for it.
 
+    The SECOND time (S7): the fix admitted ``groundside_pavement`` and
+    stopped there, so when the corridor round re-roled that pavement into
+    ``service_junction`` / ``service_road`` the walk went blind again.  A
+    walk set must admit every EMITTED role of the family it reads —
+    asserted below over the law's own groundside partition.
+
     The failure was SILENT by construction: an unreachable role filter and
     a fully compliant airport both report zero rows.  Only the emitted-role
     join can tell them apart, so that join is the test.
@@ -539,6 +557,11 @@ def test_b3_the_walk_set_names_only_roles_the_ENGINE_EMITS():
         f"walk set {sorted(CG._DRAINAGE_MIN_ROLES)} does not admit the "
         f"emitted landside role 'groundside_pavement'")
     assert "apron" in reachable, "the apron half is unreachable"
+    for road in ("service_road", "service_junction"):
+        assert road in reachable, (
+            f"{road!r} is emitted, is groundside in layout.GROUNDSIDE_ROLES, "
+            f"and is not walked: walk set {sorted(CG._DRAINAGE_MIN_ROLES)} "
+            f"(RULINGS 2026-08-13b, the OTHH −639 census-blindness verdict)")
 
 
 def test_b3_the_walk_set_is_DERIVED_from_the_law_not_typed():

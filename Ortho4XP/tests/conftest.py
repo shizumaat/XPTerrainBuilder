@@ -95,6 +95,93 @@ def xplane_root() -> str:
     return os.environ.get("XPLANE_ROOT", "/Users/noah/X-Plane 12")
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE SYNTHETIC EMITTED PATCH — one writer, every law-reader twin
+# ══════════════════════════════════════════════════════════════════════
+# A census twin needs an emitted patch AND its axes sidecar: without the
+# sidecar ``run_checks_law_true`` refuses, and with a hand-built one that
+# drops a key the twin judges a different law than the build ran (both
+# frame errors this repo has had were exactly that).  Writing that pair
+# by hand in each test file is the census-wrapper defect at fixture
+# scale, so it is written HERE, once.
+#
+# Coordinates are METRES about ``(lat0, lon0)``, which is the frame
+# ``check_grade._ll_to_m_factory`` reconstructs from the sidecar anchor.
+SYNTHETIC_PATCH_M_PER_DEG = 111320.0
+
+
+def write_synthetic_patch(tmp_path, ways, *, sidecar=None,
+                          name: str = "patch.osm",
+                          lat0: float = 0.0, lon0: float = 0.0):
+    """Write a minimal emitted patch + ``.axes.json`` sidecar; return the
+    ``.osm`` path.
+
+    ``ways`` — an iterable of dicts::
+
+        {"role": "service_road",       # the ``role`` tag the law reads
+         "ring": [(x_m, y_m, z_m), …], # per-node, in metres/altitude
+         "ref": "SVC1",                # optional
+         "closed": True,               # rings close, breaklines do not
+         "o4_feature": "crown_spine",  # optional OPEN feature way
+         "tags": {...}}                # optional extra way tags
+
+    Elevations are emitted as per-node ``alt_abs``, the form production
+    writes and ``check_grade._derive_per_vertex_elevations`` reads.
+
+    ``sidecar`` — extra law keys (``axes_exact``, ``crown_drops``,
+    ``ruleset``, …) merged over ``{"anchor": [lat0, lon0], "ruleset":
+    "icao"}``.  Every key travels through
+    ``check_grade.law_context_from_sidecar``; nothing here parses it.
+    """
+    node_lines, way_lines = [], []
+    nid, wid = 0, -1
+    for spec in ways:
+        ring = list(spec["ring"])
+        nids = []
+        for (x, y, z) in ring:
+            nid -= 1
+            lat = lat0 + y / SYNTHETIC_PATCH_M_PER_DEG
+            lon = lon0 + x / SYNTHETIC_PATCH_M_PER_DEG
+            node_lines.append(
+                f"  <node id='{nid}' action='modify' visible='true' "
+                f"lat='{lat:.11f}' lon='{lon:.11f}'>\n"
+                f"    <tag k='alt_abs' v='{float(z):.2f}' />\n"
+                f"  </node>")
+            nids.append(nid)
+        seq = nids + ([nids[0]] if spec.get("closed", True) else [])
+        body = "".join(f"    <nd ref='{n}' />\n" for n in seq)
+        tags = {"role": spec.get("role", ""),
+                "aeroway": spec.get("aeroway", spec.get("role", "")),
+                "ref": spec.get("ref", "")}
+        if spec.get("o4_feature"):
+            tags["o4_feature"] = spec["o4_feature"]
+        tags.update(spec.get("tags") or {})
+        tag_lines = "".join(f"    <tag k='{k}' v='{v}' />\n"
+                            for k, v in tags.items() if v != "")
+        way_lines.append(
+            f"  <way id='{wid}' action='modify' visible='true'>\n"
+            f"{body}{tag_lines}  </way>")
+        wid -= 1
+    osm = tmp_path / name
+    osm.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"
+                   "<osm version='0.6'>\n"
+                   + "\n".join(node_lines) + "\n"
+                   + "\n".join(way_lines) + "\n</osm>\n")
+    side = {"anchor": [lat0, lon0], "ruleset": "icao"}
+    side.update(sidecar or {})
+    (tmp_path / (name + ".axes.json")).write_text(json.dumps(side))
+    return osm
+
+
+def synthetic_patch_ll(x_m: float, y_m: float, *,
+                       lat0: float = 0.0, lon0: float = 0.0):
+    """The ``(lat, lon)`` of a synthetic-patch metre coordinate — used to
+    spell sidecar geometry (axes, crown drops) in the SAME frame the
+    ways were written in."""
+    return (lat0 + y_m / SYNTHETIC_PATCH_M_PER_DEG,
+            lon0 + x_m / SYNTHETIC_PATCH_M_PER_DEG)
+
+
 def xplane_available() -> bool:
     root = xplane_root()
     return (os.path.isdir(root)

@@ -46,7 +46,8 @@ import O4_UI_Utils as UI
 
 from . import config as _CFG
 from . import fabric_flags as _FF
-from .layout import ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION
+from .layout import (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION,
+                     ROLE_SERVICE_ROAD)
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
@@ -58,7 +59,8 @@ __all__ = ["insert_lateral_spine_nodes", "insert_service_lateral_nodes",
            "densify_junction_edges", "record_lateral_feet",
            "lateral_foot_predicate", "lateral_feet",
            "record_lateral_xsection_pairs", "lateral_xsection_pairs",
-           "lateral_xsection_law_edges"]
+           "lateral_xsection_law_edges",
+           "TAXI_AXIS_PRICED_ROLES", "SERVICE_AXIS_PRICED_ROLES"]
 
 # Body shapes that should sample the lateral corridor grade.
 _LATERAL_BODY_ROLES = frozenset({ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION})
@@ -66,11 +68,29 @@ _LATERAL_BODY_ROLES = frozenset({ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTIO
 # (``check_grade._check_transverse_grade``: an axis whose sidecar
 # ``is_service`` flag is set may only censure the ROAD FAMILY's shapes,
 # because "a truck route is not an aircraft spine").  Read here for the
-# PAIR RECORD only: a pair the census does not price must not be bound.
-# Expressed over the lateral pass's own target roles, which are exactly
-# ``check_grade._TRANSVERSE_ROLES``.
-_TAXI_AXIS_PRICED_ROLES = _LATERAL_BODY_ROLES
-_SERVICE_AXIS_PRICED_ROLES = frozenset({ROLE_SERVICE_JUNCTION})
+# PAIR RECORD; ``check_grade`` IMPORTS these two sets as its own
+# per-axis-kind transverse scope, so the shapes the generator plants
+# cross-sections on and the shapes the census prices are ONE list.
+#
+# THE LOCKSTEP USED TO BE A CLAIM, NOT A FACT (S7 escalation, ruled
+# 2026-08-14).  The service set said ``{service_junction}`` while
+# :func:`insert_service_lateral_nodes` plants feet on ``service_road``
+# AND ``service_junction`` from the truck-route spine, and
+# ``grade_graph`` binds those road bodies across the route at
+# ``SERVICE_ROAD_MAX_TRANSVERSE`` (``SOFT_VISIBILITY_ROLES``, default-ON
+# under ``config.SVC_SPINE_FIRST``).  So the generator bound a
+# constraint whose validator read nothing: a cross-road tear on a
+# service_road censused ZERO.  The set now names the service pass's OWN
+# targets, which is what makes the comment above true again.
+#
+# The TAXI set is unchanged — the taxi pass targets ``_LATERAL_BODY_ROLES``
+# and never plants on ``service_road`` (an SVC line must not couple aprons
+# to the road law), so the two scopes are deliberately different sets.
+TAXI_AXIS_PRICED_ROLES = _LATERAL_BODY_ROLES
+SERVICE_AXIS_PRICED_ROLES = frozenset({ROLE_SERVICE_ROAD,
+                                       ROLE_SERVICE_JUNCTION})
+_TAXI_AXIS_PRICED_ROLES = TAXI_AXIS_PRICED_ROLES
+_SERVICE_AXIS_PRICED_ROLES = SERVICE_AXIS_PRICED_ROLES
 _DEFAULT_HALF_W_M = 12.0          # fallback taxi half-width (≈ code C/D)
 _CORNER_TOL_M = 0.5              # don't insert within this of an existing corner
 _MERGE_TOL_M = 0.5              # merge feet closer than this on one edge
@@ -1017,10 +1037,9 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
     conformance welds the new vertices into neighbouring shapes.  Returns the
     number of vertices inserted."""
     from .config import ROAD_CARVE_MAX_WIDTH_M, SPINE_STEP_M
-    from .layout import ROLE_SERVICE_ROAD
     centerlines = getattr(layout, "apt_taxi_centerlines", None) or []
     targets = [s for s in layout.shapes
-               if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION)
+               if s.role in SERVICE_AXIS_PRICED_ROLES
                and s.polygon is not None and not s.polygon.is_empty
                and s.polygon.geom_type == "Polygon"]
     svc_lines = [cl for cl in centerlines

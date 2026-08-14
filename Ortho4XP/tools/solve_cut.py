@@ -87,6 +87,43 @@ def _baseline_from_manifest(manifest: Path, key: str) -> str:
         f"verdict against a baseline nobody wrote down is not a verdict.")
 
 
+# THE FORM A BASELINE IS QUOTED IN.  Every report line and STATUS block
+# writes the body sha as its 12-char PREFIX (``body_sha={body[:12]}``), so
+# that is the form a hand typing a baseline back in will use.  Shorter than
+# this is not a verdict — 2^48 of collision room is not an equality.
+_BASELINE_MIN_PREFIX = 12
+
+
+def _check_baseline(arg: str) -> str:
+    """Normalize a ``--baseline`` argument, or refuse it loudly."""
+    val = arg.strip().lower()
+    if not val or any(c not in "0123456789abcdef" for c in val) \
+            or len(val) > 64:
+        raise SystemExit(
+            f"REFUSING: --baseline {arg!r} is not a body hash.  It must be a "
+            f"full 64-hex body sha256 or a hex PREFIX of one, at least "
+            f"{_BASELINE_MIN_PREFIX} characters — the form every report line "
+            f"and STATUS block quotes.  A verdict against something that is "
+            f"not a hash is not a verdict.")
+    if len(val) < _BASELINE_MIN_PREFIX:
+        raise SystemExit(
+            f"REFUSING: --baseline {arg!r} is {len(val)} hex character(s); a "
+            f"prefix under {_BASELINE_MIN_PREFIX} is too ambiguous to be a "
+            f"verdict.  Quote at least the {_BASELINE_MIN_PREFIX}-char prefix "
+            f"the reports print, or the full body sha256.")
+    return val
+
+
+def _matches_baseline(body: str, baseline: str) -> bool:
+    """Does ``body`` satisfy ``baseline``?  ONE comparison path.
+
+    A full 64-char baseline makes ``startswith`` exactly equality, so the
+    prefix form and the full form are not two rules — the prefix is simply
+    the shorter statement of the same one.
+    """
+    return body.startswith(baseline)
+
+
 def show(src: Path) -> int:
     from auto_patch.solve_capture import read_manifest, env_drift
     m = read_manifest(src)
@@ -144,6 +181,10 @@ def restore_env(manifest: dict) -> dict:
 def replay(src: Path, out: Path | None, *, baseline: str | None,
            allow_env_drift: bool, want_census: bool,
            restore: bool, json_out: Path | None) -> int:
+    # ONE validation site, and it lives where EVERY caller passes — main()
+    # and profile_airport_build.py's imported replay() call alike — so a
+    # malformed baseline refuses before the capture is touched at all.
+    baseline = _check_baseline(baseline) if baseline else None
     from auto_patch.solve_capture import (
         read_manifest, env_drift, load_capture, CAPTURE_ENV)
     from shared_repo_guard import SharedRepoWriteGuard   # noqa: E402
@@ -209,7 +250,8 @@ def replay(src: Path, out: Path | None, *, baseline: str | None,
             "replayed patch with the harness entry itself: "
             f"venv/bin/python tools/harness/census.py {out}")
     if baseline:
-        report["verdict"] = "REPRODUCED" if body == baseline else "DIVERGED"
+        report["verdict"] = ("REPRODUCED" if _matches_baseline(body, baseline)
+                             else "DIVERGED")
 
     print(f"      loaded capture in {load_s:.1f}s   "
           f"replayed [5]+[6] in {solve_s:.1f}s")
@@ -237,7 +279,9 @@ def main(argv=None) -> int:
                     help="where to write the replayed patch "
                          "(default CAPTURE_DIR/replay/<ICAO>.osm)")
     ap.add_argument("--baseline", default=None, metavar="SHA",
-                    help="the body sha256 this replay must reproduce")
+                    help="the body sha256 this replay must reproduce — the "
+                         "full 64-hex hash, or an unambiguous hex PREFIX of "
+                         "it (>= 12 characters, the form the reports print)")
     ap.add_argument("--baseline-manifest", type=Path, default=None,
                     help="a frozen baselines MANIFEST.txt to read --baseline "
                          "from (with --baseline-key)")

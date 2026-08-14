@@ -182,17 +182,23 @@ def test_a_missing_state_file_refuses(tmp_path):
         sc.load_capture(d)
 
 
+def _load_solve_cut():
+    """Load ``tools/solve_cut.py`` as a module (one spelling, reused)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_solve_cut", ROOT / "tools" / "solve_cut.py")
+    solve_cut = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(solve_cut)
+    return solve_cut
+
+
 def test_the_frozen_baseline_manifest_parses_into_a_verdict():
     """``--baseline-manifest`` reads the real 1.0.245 MANIFEST.
 
     The acceptance is stated against that file, so the parse is part of
     the instrument, not a convenience.
     """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_solve_cut", ROOT / "tools" / "solve_cut.py")
-    solve_cut = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(solve_cut)
+    solve_cut = _load_solve_cut()
 
     manifest = ROOT / "baselines" / "1.0.245" / "MANIFEST.txt"
     assert solve_cut._baseline_from_manifest(manifest, "consol3heca") == (
@@ -201,6 +207,68 @@ def test_the_frozen_baseline_manifest_parses_into_a_verdict():
         "61efa43c3aeb5fe2a20b9224367af0ba6e62c1645d73a929ecbb82f2dccb39ba")
     with pytest.raises(SystemExit, match="no body_sha256 for"):
         solve_cut._baseline_from_manifest(manifest, "consol3nowhere")
+
+
+# ── the baseline FORM: the prefix every report quotes is a verdict ────
+#
+# Measured need (S1c lane, 2026-08-14): the verdict was full-sha equality,
+# so the 12-char prefix the reports and STATUS blocks print always read
+# DIVERGED — on replays that were byte-identical.
+
+HECA_BODY_SHA = "f562cbfeb8f990461072587bc31ef60e86aa5759c4b46b17a1aa3661dee91369"
+
+
+def test_the_prefix_the_reports_quote_is_a_verdict():
+    """``body_sha=f562cbfeb8f9`` pasted back in must REPRODUCE."""
+    solve_cut = _load_solve_cut()
+    prefix = HECA_BODY_SHA[:12]
+
+    assert solve_cut._check_baseline(prefix) == prefix
+    assert solve_cut._matches_baseline(HECA_BODY_SHA, prefix) is True
+    # The full hash is the same rule stated at full length — one path.
+    assert solve_cut._check_baseline(HECA_BODY_SHA) == HECA_BODY_SHA
+    assert solve_cut._matches_baseline(HECA_BODY_SHA, HECA_BODY_SHA) is True
+    # …and a prefix is still an assertion, not a wildcard.
+    assert solve_cut._matches_baseline(HECA_BODY_SHA, "0" * 12) is False
+
+
+def test_a_baseline_that_is_not_a_body_hash_refuses():
+    solve_cut = _load_solve_cut()
+    with pytest.raises(SystemExit, match="REFUSING"):      # too short
+        solve_cut._check_baseline(HECA_BODY_SHA[:11])
+    with pytest.raises(SystemExit, match="REFUSING"):      # not hex
+        solve_cut._check_baseline("zzzzzzzzzzzz")
+    with pytest.raises(SystemExit, match="REFUSING"):      # too long
+        solve_cut._check_baseline("a" * 65)
+
+
+def test_a_baseline_is_normalized_before_it_is_compared():
+    solve_cut = _load_solve_cut()
+    assert solve_cut._check_baseline("F562CBFEB8F9") == "f562cbfeb8f9"
+
+
+def test_a_malformed_baseline_refuses_before_any_capture_is_read(tmp_path):
+    """The validation is replay()'s FIRST act, before the capture is read.
+
+    Living at the top of replay() rather than in main() means every caller
+    is covered — including profile_airport_build.py --replay, which imports
+    and calls replay(baseline=...) directly and never goes through main().
+
+    ``tmp_path`` is not a capture — reaching the capture read at all would
+    raise something else entirely.
+    """
+    solve_cut = _load_solve_cut()
+    with pytest.raises(SystemExit) as exc:
+        solve_cut.main(["--replay", str(tmp_path), "--baseline", "abc"])
+    assert "REFUSING" in str(exc.value)
+
+
+def test_the_manifest_derived_baseline_takes_the_same_path():
+    """One code path: what the MANIFEST yields must itself validate."""
+    solve_cut = _load_solve_cut()
+    manifest = ROOT / "baselines" / "1.0.245" / "MANIFEST.txt"
+    from_manifest = solve_cut._baseline_from_manifest(manifest, "consol3heca")
+    assert solve_cut._check_baseline(from_manifest) == from_manifest
 
 
 def test_the_build_entry_refuses_solve_capture_with_tile():

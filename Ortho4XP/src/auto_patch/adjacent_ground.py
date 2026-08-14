@@ -2676,6 +2676,49 @@ _CARVE_STRUCTURE_REFS = frozenset((
 # on it (emit quantisation would otherwise flag the law's own remedy).
 _FEATHER_RUN_MARGIN = 1.1
 
+# ══════════════════════════════════════════════════════════════════════
+# S6 · WELD OR GAP — THE TRANSITION-MACHINERY RETIREMENT SWITCH
+# ══════════════════════════════════════════════════════════════════════
+# Owner ruling 2026-08-13 (docs/RULINGS.md, "TRANSITION MACHINERY RETIRES
+# — WELD OR GAP"), executed as staged-solve lane S6.  The interior
+# adjacency law is now: two patch surfaces that TOUCH agree at their
+# shared nodes; surfaces that must not couple are separated by an
+# ambient-DEM gap the mesh drapes; an interior shared-edge disagreement
+# is ALWAYS a defect and NEVER a wall candidate.  Patch<->DEM transitions
+# belong to Ortho4XP's own drape (the accept-the-drape ruling
+# generalized).
+#
+# WHAT THIS SWITCH RETIRES, in this module:
+#   * ``emit_stacked_conflict_walls``   (strip vs designed-split levels)
+#   * ``emit_groundside_terrace_walls`` (lot vs graded ribbon, lot vs lot)
+#   * THE FEATHER — the non-carve arm of ``emit_authority_retreat_walls``
+#     (``authority_retreat_feather``)
+#
+# WHAT IT DOES NOT TOUCH, each by an owner ruling of its own:
+#   * SEAWALLS — the sole survivor named by the 08-13 ruling.  They are
+#     not reachable from here at all: the seawall family lives in
+#     ``src/O4_Vector_Map.py`` and emits vector-map BREAKLINES tagged
+#     with the ``SEAWALL_MARKER`` attribute bit, never a ``BuiltShape``
+#     on ``layout.shapes``.  This module contains no occurrence of
+#     sea/water/coast; the exemption is a MODULE BOUNDARY, not a
+#     geometry test.
+#   * CARVE-STRUCTURE walls — owner ruling 2026-08-07 ("walls exist only
+#     at carve structures"): tunnel/bridge cuts and their portal
+#     furniture are real physical structure, the same class the 08-13
+#     ruling preserves for seawalls.  Gated by ``_carve_structure_zone``.
+#   * ADJACENT-GROUND DRAINAGE SLOPES beside runways and taxiways —
+#     RULINGS 2026-08-14 "DRAINAGE RULING SCOPE CLARIFIED" keeps them;
+#     they are bands from ``emit_adjacent_ground_bands``, not walls.
+#   * ``blend_cross_strip_seam_steps`` / ``_heal_emitted_band_tears`` —
+#     these emit NO shape; they re-level shared vertices, which IS the
+#     weld half of the ruling.
+#
+# Kept as a named module constant rather than an env flag: the fabric
+# ``O4_FABRIC_*`` registry is Phase-B's, and its twin enforces that
+# prefix, so an S6 flag there would be misfiled.  One line to flip for a
+# bisect, exactly like ``_GROUNDSIDE_TERRACE`` below it.
+_WELD_OR_GAP = True
+
 
 def emit_stacked_conflict_walls(layout) -> int:
     """Resolve strip-vs-authority coincident level conflicts as offset
@@ -2699,7 +2742,20 @@ def emit_stacked_conflict_walls(layout) -> int:
     only the derivation is single-pass.  The STRIP half is still read
     here, because the healer moved strip values after the index was
     built — that is the point of running after it.
+
+    S6 · WELD OR GAP — THIS EMITTER IS RETIRED (owner 2026-08-13,
+    RULINGS "TRANSITION MACHINERY RETIRES").  Stacked-conflict walls were
+    symptom management for strip-vs-authority level conflicts; the staged
+    solve (S1 stage partition + S2 corridor profile) is chartered to
+    close those classes at their source, and HECA's contradiction count
+    fell 613 -> 52 before this retirement.  With no wall the two touching
+    surfaces WELD: no vertex retreats, and ``to_osm`` emits the
+    precedence winner's value at the shared node.  A surviving step is a
+    SOLVE defect to route back to its minting mechanism — there is no
+    wall fallback behind this any more.
     """
+    if _WELD_OR_GAP:
+        return 0
     from .crown import _point_in_seam_band
 
     registry = getattr(layout, "canonical_points", None)
@@ -3400,6 +3456,25 @@ def emit_authority_retreat_walls(layout) -> int:
                         Point(coords[i][0], coords[i][1]))
                 except _GEOM_EXC:
                     _is_carve[i] = False
+        # ── S6 · WELD OR GAP (owner 2026-08-13, RULINGS "TRANSITION
+        # MACHINERY RETIRES") ──────────────────────────────────────────
+        # THE FEATHER RETIRES.  The non-carve arm of ``_face_spec`` below
+        # shipped the vacated band as the loser's own surface — a
+        # transition shape, and the ruling retires the whole family: two
+        # patch surfaces that TOUCH must AGREE at their shared nodes.
+        # Dropping the vertex from the retreat table is exactly that
+        # weld: no run forms, so the loser is not moved and ``to_osm``
+        # emits the precedence WINNER's value at the shared node (the
+        # single-authority §1 law, already standing).  A step that
+        # SURVIVES this is a solve defect to route, never a re-wall.
+        # CARVE sites are untouched — owner ruling 2026-08-07 leaves
+        # retaining walls at carve structures, the same physical-structure
+        # class the 08-13 ruling keeps for seawalls.
+        if _WELD_OR_GAP:
+            for i in range(n):
+                if coincident_top[i] is not None and not _is_carve[i]:
+                    coincident_top[i] = None
+                    spread[i] = 0.0
 
         def _retreat_m(i, _c=_cap, _carve=_is_carve, _sp=spread):
             if _carve[i]:
@@ -3585,7 +3660,20 @@ def _ring_point_value(coords_a, alts_a, vx, vy, tol):
 def emit_groundside_terrace_walls(layout) -> int:
     """Emit the designated groundside TERRACE FACES (owner ruling
     2026-07-30 — see the block comment above for the law, the measurement
-    and the mechanism).  Returns the number of wall faces emitted."""
+    and the mechanism).  Returns the number of wall faces emitted.
+
+    S6 · WELD OR GAP — THIS EMITTER IS RETIRED (owner 2026-08-13,
+    RULINGS "TRANSITION MACHINERY RETIRES", which names groundside
+    terrace walls explicitly).  A lot that touches a graded ribbon now
+    AGREES with it at the shared node instead of retreating behind a
+    face; a lot that must not couple is separated by ambient DEM the
+    mesh drapes.  NOT retired by this: the ADJACENT-GROUND drainage
+    slopes beside runways and taxiways (RULINGS 2026-08-14 "DRAINAGE
+    RULING SCOPE CLARIFIED" — strip/RSA-side slopes stay law), which
+    are emitted by ``emit_adjacent_ground_bands``, not here.
+    """
+    if _WELD_OR_GAP:
+        return 0
     if not _GROUNDSIDE_TERRACE:
         return 0
     from .crown import _point_in_seam_band

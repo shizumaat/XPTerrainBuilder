@@ -327,6 +327,31 @@ battery airports; the domain-invariant deltas become the round's
 comparison frame. S3's absorption finding executes here or in S4:
 O4_RIM_PRESOLVE_ABSORB retires (measured inert in production).
 
+**S1e — value-preserving refinement + THE SINGLE PROJECTION (owner
+ruling 2026-08-14: the round does not close without it).** The
+geometry-freeze law's third clause, now executable: post-solve
+refinement (band/gap emission, tile cuts, conformance welds, densify)
+carries solved values THROUGH geometry operations — a cut vertex
+interpolates along its edge, a weld adopts the precedence winner's
+value, a densified vertex interpolates its span — and NEVER triggers
+re-projection. The geom-guard's post-solve mutation count (HECA: 914
+airside shapes, mutated 897 / new 9 / removed 8) is the work's
+measured size and its acceptance metric: every post-solve geometry
+change either carries values by interpolation or is attributed as
+lawful additive emission. With refinement value-preserving, the
+mid/late projection pair COLLAPSES to one projection at the natural
+point (the mid projection's 2026-07-18 keep-ruling is superseded;
+its retirement was measured worth OTHH −64 s / CYXY −22 / SPJC −13
+under the old law). Also in this lane: the remaining stage couplings
+9/10/12/21 (S1d item 3, never started — the dossier specifies them).
+Acceptance: ONE `final_grade_projection` call per build (count it);
+the geom-guard's post-solve re-projection class reads zero (additive
+emission and value-carried refinement remain, quantified); HECA +
+CYXY + OTHH arms censused vs the 2026-08-14 round-close reference
+bodies (round_close_* tags), every delta row-attributed; stage rails
+green; determinism spot-check. The timing block and round report run
+only after this merges.
+
 ## Pre-delegated decisions
 
 - S1 finds a coupling that is emitted GEOMETRY, not a solver variable

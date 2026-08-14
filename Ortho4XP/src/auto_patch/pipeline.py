@@ -6388,38 +6388,53 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             except _GEOM_EXC:
                 _projection_dem = None
         # ════════════════════════════════════════════════════════════════
-        # THE MID PROJECTION IS RETIRED (owner ruling 2026-08-14, "THE
-        # DOUBLE PROJECTION RETIRES", superseding the 2026-07-18 keep-both
-        # ruling).  The pipeline runs ONE grade projection, at the LATE
-        # position, and this is where the second one used to be.
+        # THE GRADE PROJECTION — the pipeline's ONLY one (owner ruling
+        # 2026-08-14, "THE DOUBLE PROJECTION RETIRES", superseding the
+        # 2026-07-18 keep-both ruling).  The LATE call is retired; this
+        # one survives.
         #
-        # WHY THIS ONE AND NOT THE OTHER.  A projection is only worth
-        # running on geometry nothing will reshape again, and the passes
-        # BELOW this line reshape rings: band/gap/skirt/OLS/pad emission,
-        # their tile cuts, the epsilon-wedge weld, the crown completion and
-        # two densify passes.  That is exactly why the late projection was
-        # added in 2026-07-17 — so the late one is the projection at the
-        # natural point, and this one is the duplicate.
+        # THE SPEC GUESSED THE OTHER WAY, AND THE MEASUREMENT INVERTED IT.
+        # S1e's charter expected the LATE position to be the natural point
+        # ("likely the current late position, with the mid call
+        # retiring") and told the lane to re-measure rather than assume.
+        # Both arms were built.  The late-only arm costs law:
         #
-        # WHY IT IS SAFE TO DROP RATHER THAN MERELY MOVE.  S1e phase 1
-        # measured the post-solve refinement between the solve and here to
-        # be VALUE-PRESERVING (Ortho4XP/tmp/s1e_stage_map.md): every
-        # geometry operation carries its solved values by interpolation or
-        # by weld adoption — CYXY re-projection class 2 vertices, both
-        # below the 0.01 m materiality floor.  The emitters below
-        # therefore read the SOLVE's own lawful values instead of a
-        # re-projected copy of them, which is the architecture's promise,
-        # not a degradation.  The strip reconcile unit already runs LAST
-        # (spec reference-honesty-and-terracing §2b) precisely so strips
-        # settle against the pavement that ships.
+        #   projection exit, over-cap edges     HECA        CYXY
+        #     control (mid, then late)          7107 → 7861   55 → 80
+        #     late-only (one call)                     8933         85
+        #     mid-only  (one call)                        —         55
+        #   census vs the round-close reference
+        #     late-only                              +263          +4
+        #     mid-only                                  —   +0 (EXACT)
         #
-        # The 2026-07-18 mid-off A/B measured OTHH −64 s / CYXY −22 /
-        # SPJC −13 with real law classes identical; its one adverse
-        # reading, growing break-region pairs, is void — break regions
-        # were retired (RULINGS, kill-half).  The saving is re-measured on
-        # this tree, never assumed.
+        # THE MECHANISM, read off the projection's own exit line: the mid
+        # call runs with 9,791 hard nodes at HECA, the late call with
+        # 20,213.  The post-solve FEATURE emission is what doubles the
+        # hard set — "nodes welded to already-emitted FEATURE shapes are
+        # HARD" (``final_grade_projection``'s own contract) — so by the
+        # late position half of airside is frozen and the projection can
+        # only nudge what is left.  The two calls were never a duplicate
+        # pair: the mid call is the only one that runs while airside
+        # pavement is still FREE, and that freedom is law-solving power no
+        # value-carry can hand back.
+        #
+        # WHY THE LATE CALL IS THE ONE THAT GOES.  It was added in
+        # 2026-07-17 because band/gap emission, tile cuts, conformance
+        # welds, crown completion and the densify passes reshape rings
+        # after this point — i.e. because that refinement was NOT
+        # value-preserving.  S1e phase 1 measured that it now is
+        # (Ortho4XP/tmp/s1e_stage_map.md): those stages carry their solved
+        # values by interpolation or weld adoption, with a RE-PROJECTION
+        # CLASS of 2 vertices at CYXY and 8 at HECA, all at or below the
+        # 0.01 m materiality floor or inside a named law pass.  The
+        # premise the late call was built on has been closed by the
+        # freeze-and-carry work, so the call itself is what retires.
         # ════════════════════════════════════════════════════════════════
-        _rod_ckpt(layout, "19_mid_projection_retired")
+        final_grade_projection(layout, icao, dem=_projection_dem,
+                               tile_lat=_projection_tile_lat,
+                               tile_lon=_projection_tile_lon,
+                               recapture_snapshot=False)
+        _rod_ckpt(layout, "19_final_projection")
 
         def _post_projection_conformance_passes():
             # PAD-IN-SOLVED-PAVEMENT HOST LEVEL (user 2026-07-10, round 6
@@ -6485,21 +6500,13 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             except _GEOM_EXC:
                 pass
 
-        # T1b reorder (board): these passes must read PROJECTED values —
-        # running them against unprojected solver values seats pads and
-        # re-adopts ribbon values that the projection then moves again.
-        # With the mid projection retired the only projection is the late
-        # one, so the unit MOVES to just after it (see the call site below,
-        # "THE POST-PROJECTION CONFORMANCE UNIT").  The requirement is
-        # unchanged; only which projection satisfies it changed.
-        #
-        # MEASURED, not assumed: an arm that ALSO called the unit here (on
-        # the hypothesis that the feature emitters below weld to the
-        # apron lip ``relevel_pads_to_host_pavement`` lifts) came out
-        # BYTE-IDENTICAL at CYXY — at this point the solve has already
-        # left pads at their host level, so the early call is a pure
-        # no-op.  It is not kept: a second sweep that changes nothing is
-        # the single-pass principle's own counter-example.
+        # T1b reorder (board): these passes run HERE, reading projected
+        # values.  Running them before a projection would seat pads /
+        # re-adopt ribbon values against unprojected solver values, which a
+        # projection then moves again.  With the LATE call retired this is
+        # the point immediately after the pipeline's only projection, so
+        # the requirement is met by the same ordering it always was.
+        _post_projection_conformance_passes()
         _rod_ckpt(layout, "20_post_projection_conformance")
 
         # SPINE CROWN v2 (user ruling 2026-07-07, part 30): the crown is
@@ -7128,62 +7135,32 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
     if not _strip_resolve_last:
         _strip_reconcile_passes()
 
-    # ── THE GRADE PROJECTION (owner ruling 2026-08-14: ONE per build) ──
-    # This is the pipeline's ONLY ``final_grade_projection`` call, and it
-    # sits at the natural point: every pass that reshapes a ring has run —
-    # band/gap/skirt/OLS/pad emission, their tile cuts, the epsilon-wedge
-    # weld, the crown completion and both densify passes — so the law
-    # pairs it enforces are the pairs of the rings X-Plane renders.  A
-    # projection run before them measured the wrong pairs (SPJC 2 apron
-    # pairs 0.05/0.13 m over; HECA 5,822 projection-exit over-cap edges
-    # whose worst survivors emitted as the within-shape building class),
-    # which is what made the second call necessary in the first place.
-    # Post-band pavement moves are SAFE: at ``to_osm`` the authority
-    # consensus welds shared nodes at the PAVEMENT value (soft strips bend
-    # to it — the A2 doctrine), and band-interior values stay within the
-    # mid-edge/tear envelopes.  This call also freezes the lockstep
-    # ``pair_caps`` export at the last law build.
+    # ── THE LATE PROJECTION IS RETIRED (owner ruling 2026-08-14) ────────
+    # It was added 2026-07-17 for a reason that has since been closed: the
+    # passes above (band/gap emission, tile cuts, conformance welds, crown
+    # completion, the densify passes) reshaped rings after the projection
+    # WITHOUT carrying their values, so the law pairs of the truly final
+    # rings drifted over budget.  S1e phase 1 measured that refinement to
+    # be VALUE-PRESERVING now (Ortho4XP/tmp/s1e_stage_map.md): those exact
+    # stages carry their solved values by interpolation or weld adoption —
+    # 17,514 HECA vertices decimated without moving a survivor, 1,148
+    # inserts all lerp-or-weld — leaving a RE-PROJECTION CLASS of 8 at
+    # HECA and 2 at CYXY, at or below the 0.01 m materiality floor.
     #
-    # It carries the DEM + tile frame the retired mid call used to carry:
-    # ``dem`` drives the FLATNESS-CERTIFICATE lazy tier
-    # (``_build_shape_constraints``), so running the one projection
-    # without it would silently expand every certified-flat shape — the
-    # collapse must not cost the certificate.  The frame is the SAME
-    # dem/tile pairing rule the elevation solve uses, so certificate seeds
-    # stay bit-identical to the solve's node seeds.
+    # And running it INSTEAD of the earlier call is strictly worse, because
+    # by this point the feature emission has frozen half of airside: the
+    # projection sees 20,213 hard nodes at HECA where the earlier call sees
+    # 9,791, so it can only nudge what is left.  Measured, both arms built:
+    # late-only exits with 8,933 over-cap edges vs the pair's 7,861 and
+    # censuses +263 rows against the round-close reference, while mid-only
+    # reproduces the reference census EXACTLY at CYXY (328, every family).
     #
-    # NO GATE (owner 2026-08-05, no gates).  ``O4_FINAL_PROJECTION_LATE``
-    # is deleted: with one projection, turning it off would leave a build
-    # with NO grade projection at all — a law-breaking configuration, not
-    # an experiment.
+    # The pad-host law below still re-asserts: it is the R17-1(b)
+    # last-author chain's own step, and it now runs on a surface no
+    # projection follows.
     if compute_elevations:
-        try:
-            from .elevation_per_surface.route_profile.solve import (
-                final_grade_projection as _late_fgp)
-            # No projection ever runs after this call, so the exit-time
-            # scoped-snapshot recapture would have no reader — skip its
-            # ~4-5 s (OTHH-class) of pure cost.
-            _late_fgp(layout, icao, dem=_projection_dem,
-                      tile_lat=_projection_tile_lat,
-                      tile_lon=_projection_tile_lon,
-                      recapture_snapshot=False)
-        except _GEOM_EXC as _late_fgp_exc:
-            UI.vprint(1, f"  [pav-builder] WARN {icao}: the final grade "
-                         f"projection failed ({_late_fgp_exc!r}) — the "
-                         f"solve's own carried values ship unprojected.")
 
-        # ── THE POST-PROJECTION CONFORMANCE UNIT ────────────────────────
-        # Pads re-level to their host, the ribbon re-adopts the pavement
-        # seam and the groundside chord limiter re-closes: all three read
-        # values a projection has just written, which is why they were
-        # never allowed to run before one.  Under the single projection
-        # this is that point.  Every pass in it is altitude-only and
-        # idempotent, so the pad-host re-assertion immediately below —
-        # kept because it is the R17-1(b) last-author chain's own step —
-        # is a no-op on the surface this leaves.
-        _post_projection_conformance_passes()
-
-        # ★ THE PAD-HOST LAW RE-ASSERTS ON TOP OF THE LATE PROJECTION
+        # ★ THE PAD-HOST LAW RE-ASSERTS AFTER THE TERRAIN EMITTERS
         # (task #16 amendment 1, Fable lead 2026-08-12).  The earlier
         # invocation's own docstring claimed "nothing re-seats the pad
         # afterwards" — measured FALSE: the late projection above re-runs

@@ -1756,3 +1756,33 @@ canonical key) are scratchpad one-offs on FIRST use — a second use
 promotes them into `tools/` with index entries, and the airside value
 join is the stronger candidate: it answers "did airside move" as an
 EQUALITY where a census A/B can only answer it as a count.
+
+## S1e (lane/s1e, 2026-08-14) — value-preserving refinement + the single projection
+
+- **Timing re-measurement DEFERRED to the round's timing block.** The
+  ruling itself schedules the timing block after this lands.  Arm wall
+  times were taken with other builds running and are single runs, so they
+  are NOT quotable (standing law: `check_build_time --runs N`, exclusive,
+  foreground).  Indicative only: HECA control 397/440 s, late-only 384 s,
+  mid-only 365 s; OTHH control 692 s (three-way parallel), late-only 308,
+  mid-only 300; CYXY 41 / 35 / 33.  The 2026-07-18 mid-off figures
+  (OTHH −64 s) were measured under the OTHER collapse direction and do
+  not transfer.
+- **HECA determinism pair NOT run** (one HECA build ≈ 6 min; the lane's
+  budget went to the two collapse directions × three airports).
+  Determinism was proven at CYXY instead: three sequential builds of the
+  late-only tree — two with `O4_GEOM_SEAM_AUDIT=1`, one without — all
+  emit `58cc46ab7bf9`.  A HECA sequential pair is owed at the round's
+  consolidated arm.
+- **Tile arms NOT run.** All arms are `--patch-only`.
+- **Full suite NOT run** (PRE-SHIP mode).  Run once through the ledger:
+  the S1e twins plus the projection/partition/pad/harness files directly
+  covering the change (335 passed, 1 PRE-EXISTING failure — see below) and
+  the coupling rail twins (82 passed).
+- **PRE-EXISTING failure, matched control taken:**
+  `test_r17_band_clamp_last_author.py::test_no_elevation_author_runs_after_the_seal`
+  fails identically on clean `main` at `0802aac`.  It inspects
+  `build_airport_pavement` (pipeline.py 869-3802) for a string that lives
+  in `solve_and_finalize` (from 3803), so the R17-1(b) last-author
+  invariant it claims to guard structurally is unguarded.  Filed
+  separately; not caused by this lane.

@@ -89,8 +89,78 @@ genuine law question about the geometry X-Plane renders, and it is
 answerable ONCE, after all geometry settles — which is exactly the
 collapse the ruling orders.
 
-### Stages that genuinely REQUIRE a re-projection
+## The map — HECA (`s1e_p1c_heca`, 397 s, body `3c084a212d0f`)
 
-None found at CYXY.  No stage's mutation forces a law re-derivation that
-interpolation or weld adoption cannot carry; the residual 2 vertices are
-sub-materiality float noise on one runway node.
+| seam (stage) | airside geometry | carried | RE-PROJECTION CLASS |
+|---|---|---|---|
+| `01_terrain_transition_emit` | 9 new / 9 removed shapes | — | 0 |
+| `09_planarize_airside` | 363 shapes (359 ins, 4 move) | 284 lerp + 864 weld | **5** (all `service_junction`, worst 0.114 m) |
+| `11_building_pad_reclip` | 1 shape, 1 insert | 1 lerp | 0 |
+| `16_repair_sliver_corners` | 71 shapes, 240 dropped | survivors held | 0 |
+| `18_emit_decimate` | 1,176 shapes, **17,514 dropped** | survivors held | **0** |
+| `19_final_projection_mid` | — | — | PROJECTION AUTHORED 11,256 |
+| `20_post_projection_conformance` | — | — | **8** (the named pad-host relevel LAW: building+apron at (−2500,1407) 88.500 → 85.550) |
+| `22_weld_crown_densify` | 98 shapes, 6 new | 79 lerp + 36 weld | **3** (2 `service_junction`, 1 junction 0.019 m) |
+
+**TOTAL RE-PROJECTION CLASS 13** — 5 + 3 on `service_junction` (a
+stage-B role) and 8 that are a named law pass.  17,514 decimated vertices
+and 1,148 inserts carry perfectly.  The guard's headline 914 decomposes
+as apron 83 / building 6 / junction 570 / runway 3 / **service_junction
+235 + 9 new + 8 removed** — 252 of the 914 are the stage-B role.
+
+## PHASE 2 — the collapse, both directions, measured
+
+The spec's parenthetical expected the LATE position to survive and told
+the lane to re-measure.  Both arms were built at all three airports.
+
+| | projection exit, over-cap edges | census vs reference |
+|---|---|---|
+| control (mid **and** late) | HECA 7107 → 7861; CYXY 55 → 80 | HECA 7139, CYXY 328, OTHH 5874 |
+| **late-only** | HECA **8933**; CYXY **85** | HECA **+263**, CYXY **+4**, OTHH −9 |
+| **mid-only** | HECA **7107**; CYXY **55** | HECA **+116**, CYXY **+0 (EXACT)**, OTHH **−11** |
+
+**THE MECHANISM (read off the projection's own exit line).** The mid call
+runs with 9,791 hard nodes at HECA; the late call with 20,213.  Post-solve
+FEATURE emission is what doubles the hard set — "nodes welded to
+already-emitted FEATURE shapes are HARD" is the projection's own contract
+— so by the late position half of airside is frozen and the projection can
+only nudge what remains.  The two calls were never a duplicate pair: the
+mid call is the only one that runs while airside pavement is still FREE,
+and that freedom is law-solving power no value-carry hands back.
+**Mid-only is therefore the collapse direction**, inverting the spec's
+guess.
+
+### THE STOP — HECA's residual +116
+
+Mid-only is exact at CYXY and an improvement at OTHH, but costs +116 rows
+at HECA, row-attributed:
+
+| family | Δ | new sites, by role |
+|---|---|---|
+| `within_shape` | +89 | 134 `apron|apron`, 17 `service_junction`, 13 `junction`, 7 groundside (worst 5.85 m) |
+| `mid_edge_step` | +21 | **42 of 45 `service_junction`** (worst 2.96 m) |
+| `vertex_to_edge_step` | +3 | **9 of 9 `service_junction`** |
+| `transverse` | +2 | **41 of 49 `service_junction`** |
+| `frontage_near_miss` | +1 | 1 `building|service_junction`, 1 `building|junction` |
+
+Two distinct causes, and they are not the same finding:
+
+1. **STAGE-B SEATING RELIES ON A LATER PROJECTION.**  The step families
+   and most of `transverse` are dominated by `service_junction` — the
+   role the post-solve law seating (`seat_service_pavement_on_law`,
+   `seat_groundside_on_law`) authors, 1,857 vertices at HECA in this arm.
+   The late projection was closing that seating's own steps.  Under the
+   staged solve, stage B is supposed to produce a lawful groundside
+   surface itself; that it does not is a stage-B defect this lane
+   surfaces but does not own.
+
+2. **AIRSIDE `apron|apron` +134 sites, worst 5.85 m.**  This is an
+   airside delta attributed to the late call's retirement but NOT
+   explained by any un-carried refinement — the carry ledger for the
+   stages between is 0/0/3.  Whether these rows should be closed by
+   making stage B lawful, by a third mechanism, or accepted, is an
+   adjudication above this lane's charter.
+
+**Neither collapse direction reproduces HECA's reference census.**  The
+lane leaves mid-only committed as the best-measured state and STOPS here
+rather than merging a +116 airside regression.

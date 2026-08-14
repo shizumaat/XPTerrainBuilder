@@ -1085,24 +1085,30 @@ def test_the_road_fixtures_drainage_rows_are_GONE_by_LAW(road_report, cg):
 
 
 def test_the_laws_the_clarification_KEPT_are_still_census_families(cg):
-    """The 2026-08-14 clarification names three laws that do NOT retire.
-    Two of them are census families and must still be registered; the
-    third — the runway crown — is generation-bound with no census reader
-    at all, which this asserts rather than hides.
+    """The 2026-08-14 clarification names three laws that do NOT retire,
+    and ALL THREE are now census families.
 
-    HONEST SCOPE.  A runway emitted dead flat against a declared 0.30 m
-    crown drop censuses ZERO rows: the within-shape crown check judges
-    deviation from the DESIGNED crown against the runway's own transverse
-    cap allowance, and a 1 % crown sits inside a 1.5 % cap by
-    construction.  The crown minimum is bound where it is generated
-    (``tests/test_crown_minimum_bound.py``).  Reported to the round as an
-    open item — it is not this lane's to build.
+    THE OPEN ITEM THIS TWIN CARRIED IS CLOSED (S8, ruled 2026-08-14).
+    S7 wrote it as an honest gap: a runway emitted dead flat against a
+    declared 0.30 m crown drop censused ZERO rows, because the
+    within-shape crown check re-centres each pair on the DESIGNED crown
+    and then judges the residue against the runway's own transverse CAP
+    — and a 1 % crown sits inside a 1.5 % cap by construction — so the
+    minimum was bound only where it is GENERATED
+    (``tests/test_crown_minimum_bound.py``).  That file now carries the
+    validator half too: ``check_grade._check_runway_crown`` reads the
+    per-node DECLARED drop from the axes sidecar (``crown_drops``, the
+    same field the solver built to) against the realised fall from the
+    ``crown_spine`` ridge breakline.
     """
     registered = {k for k, _t, _b in cg.LAW_FAMILIES}
     assert "drainage_spine" in registered      # enclosed-area water escape
     assert "adjacent_ground_tear" in registered   # adjacent-ground slope
     assert "strip_seam_tear" in registered
-    assert not any("crown" in k for k in registered), (
-        "a runway-crown census family appeared — if a reader was built, "
-        "this twin's honest-scope docstring is now wrong and the frame "
-        "report's open item must be closed")
+    assert "runway_crown" in registered, (
+        "the runway crown is one of the three laws the clarification KEPT "
+        "— a kept law with no census family is a law we cannot see")
+    # …and it is a READER, not a registration: the reader exists and the
+    # cited intersection exception is registered with it.
+    assert callable(getattr(cg, "_check_runway_crown", None))
+    assert cg._CROWN_OUT_OF_SCOPE in cg.OUT_OF_SCOPE_CLASSES

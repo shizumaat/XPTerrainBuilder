@@ -474,3 +474,56 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
 - NOTED: `tunnel_ramp` is groundside in layout.GROUNDSIDE_ROLES and was
   never in the §B3 walk either. With the landside half retired the
   question is moot; recorded in case landside drainage is re-opened.
+
+## 2026-08-14 — S8 (lane/s8valid): the two validator gaps S7 escalated
+
+Both S7 OPEN items above are CLOSED. Neither reader moves geometry;
+both make pre-existing conditions visible for the first time.
+
+- DONE, not deferred: the five-airport census delta is MEASURED, over the
+  FROZEN 1.0.245 artifacts in the S7 `retired` frame
+  (`tools/harness/census.py --no-cache`, `tmp/s8/*.json`). Item 1 adds
+  `transverse::service_road|service_road` — CYXY +62, HECA +622,
+  KCLT +114, KSTJ +11, OTHH +27 (+836, every row GROUNDSIDE, AIRSIDE
+  invariant at all five). Item 2 adds `runway_crown` — CYXY 10, the other
+  four ZERO; all ten are AIRSIDE and all ten carry the cited
+  intersection exception, so no ADJUDICATED number moves either.
+- DONE, not deferred: BYTE IDENTITY. The diff touches one emitter file
+  (`lateral_spine_nodes`, a public alias + one selector), so it was
+  measured rather than argued: capture-armed `build_airport.py` arms in
+  this lane reproduced the frozen 1.0.245 bodies exactly — CYXY
+  `61efa43c3aeb` (462 shapes), HECA `f562cbfeb8f9` (3887 shapes, 506 s) —
+  shared repo UNCHANGED on both, and the `solve_cut.py --replay` of the
+  HECA capture on the FINAL tree reports REPRODUCED against the same
+  manifest key.
+- DONE, and it PAYS an S7 line: S7 deferred "nothing verifies that a
+  FRESHLY BUILT patch censuses the same way". The freshly built HECA
+  patch above censuses 8038 / transverse 3911 / runway_crown 0 / airside
+  1720 — identical to the frozen artifact under the same readers.
+- BUILD-TIME IMPACT (per-change timing gates SUSPENDED, owner 2026-08-04;
+  stated anyway): both readers are census-side, and the build touches
+  them once through `verification.run_grade_checks` AFTER `to_osm`. The
+  five-airport census wall is 34.8 s before and 33.2/36.3 s after — inside
+  the run-to-run spread, no measurable regression, and the HECA build
+  itself came in at 506 s against the frozen baseline's 571 s.
+- SKIPPED: no in-sim pass. Census readers move no bytes, and the byte
+  identity above is the proof.
+- SKIPPED: full suite / blast-radius sweep (PRE-SHIP MODE). Run once:
+  the blast selection (`test_lateral_cross_section`,
+  `test_crown_minimum_bound`, `test_route_transparent_laterals`) plus
+  every file that reads the census contract (`test_harness`,
+  `test_census_instrument`, `test_region_rulesets`,
+  `test_reg_families_round`, `test_road_feed_in_graph`) — 509 passed
+  through `run_with_ledger`.
+- OPEN, reported to the round, NOT this lane's to rule: the runway
+  transverse CAP has no transect reader either. `_check_runway_crown`
+  reads the MINIMUM half of `grade_law.transverse_surface_bounds`
+  (the crown that was declared and not realised); a crown STEEPER than
+  `runway_transverse_max` is still read only by the within-shape pair
+  law, which is the same cap-allowance blindness in the other
+  direction. Building it is a scope decision, not an implementation one.
+- OPEN, reported: the 10 CYXY crown rows are all at runway INTERSECTIONS
+  and all adjudicated out of scope by the cited exception — but the
+  underlying geometry (a declared 0.114 m crown realised at 0.005 m
+  where two runways cross) is a real surface fact the round may want to
+  look at even though no law requires the crown there.

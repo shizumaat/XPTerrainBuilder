@@ -5787,8 +5787,13 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                 # ``fabric_sparse._THIN_ROLES`` is {apron, junction,
                 # service_junction, groundside_pavement} and the
                 # transverse law prices {apron, junction,
-                # service_junction} (check_grade ``_TRANSVERSE_ROLES``),
-                # so all three of those need their stations back — from
+                # service_junction} from an AIRCRAFT axis and
+                # {service_road, service_junction} from a SERVICE one
+                # (check_grade ``_TRANSVERSE_TAXI_ROLES`` /
+                # ``_TRANSVERSE_SERVICE_ROLES``, imported from this
+                # module's own ``TAXI_AXIS_PRICED_ROLES`` /
+                # ``SERVICE_AXIS_PRICED_ROLES``), so all three of the
+                # thinned priced roles need their stations back — from
                 # the AIRCRAFT axes (the taxi pass) AND from the SERVICE
                 # axes (``insert_service_lateral_nodes``, which the
                 # first restoration attempt omitted).  Measured at CYXY,

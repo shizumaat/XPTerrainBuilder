@@ -170,6 +170,8 @@ try:
         shoulder_transverse_envelope as _shoulder_transverse_envelope,
         shoulder_edge_dropoff_exempt as _shoulder_dropoff_exempt,
         transverse_surface_bounds as _transverse_surface_bounds,
+        transverse_minimum_for_role as _transverse_minimum_for_role,
+        transverse_minimum_binds as _transverse_minimum_binds,
         drainage_minimum_grade as _drainage_minimum_grade,
         drainage_minimum_shortfall as _drainage_minimum_shortfall,
         _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
@@ -205,6 +207,8 @@ except Exception:
     _shoulder_transverse_envelope = None
     _shoulder_dropoff_exempt = None
     _transverse_surface_bounds = None
+    _transverse_minimum_for_role = None
+    _transverse_minimum_binds = None
     _drainage_minimum_grade = None
     _drainage_minimum_shortfall = None
     _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
@@ -2702,6 +2706,233 @@ def _check_drainage_minimum(ways: List[Way], nodes, ll_to_m
 _DRAINAGE_MIN_RUN_M = 5.0
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE RUNWAY CROWN — the KEPT drainage law's census reader
+# ══════════════════════════════════════════════════════════════════════
+# WHY THIS FAMILY EXISTS (S7 escalation, ruled 2026-08-14).  RULINGS
+# 2026-08-13b retired the drainage minimum with the owner's rationale
+# "only runways get a crown, the rest can be flat for the sim", and the
+# 2026-08-14 scope clarification KEEPS the runway crown as law.  It had
+# NO census reader: a runway emitted dead flat against a declared 0.30 m
+# crown drop censused ZERO rows, because the only crown-aware reader is
+# the within-shape pair law, which re-centres each pair's budget on the
+# DESIGNED crown (``grade_law.crown_pair_offset``) and then judges the
+# residue against the runway's own transverse CAP — and a 1 % crown sits
+# inside a 1.5 % cap by construction.  The minimum was bound only where
+# it is GENERATED (``tests/test_crown_minimum_bound.py``), which is
+# exactly the half of "every reg generation-binding with twins" this
+# campaign does not accept alone.
+#
+# WHAT THE LAW SOURCE IS, and it is NOT a global constant.  The rate
+# comes from the ruleset (``grade_law.runway_crown_rate`` — at least
+# ``runway_transverse_min``, never above ``runway_transverse_max``), but
+# the number that governs a NODE is the per-node DECLARED DROP the build
+# resolved from it and exported in the axes sidecar (``crown_drops``,
+# ``crown.runway_crown_drop_m`` → ``_rail_continuous_drops`` → the
+# tile-seam taper).  Two lawful mechanisms REDUCE a node's drop below
+# ``rate × half_width``: rail continuity (the crown may not spend budget
+# the runway's own longitudinal profile needs) and the seam ramp (a
+# crowned edge at a tile cut is a cliff).  A reader that re-derived
+# ``rate × offset`` would therefore report the law's own relaxations as
+# defects.  SO THE READER HONOURS THE DECLARATION — the same field the
+# solver built to and the within-shape law already re-centres on.
+#
+# HOW THE CROWN IS EMITTED, which is what makes it readable at all: the
+# runway RING carries the crowned surface (``z' − drop``) and the ridge
+# is a separate ``o4_feature=crown_spine`` breakline at ``z'`` (the
+# pre-crown spine profile).  ``crown_centerline`` is empty on every
+# battery patch — the ring holds no ridge vertex — so the REALISED crown
+# is the fall from the spine breakline to the ring node, and nothing but
+# this reader looks at that pair.
+#
+# A MISSING DECLARATION IS ITS OWN CONDITION, never a silent zero (the
+# S3 blindness verdict, applied before the family can acquire the
+# defect): a runway shape NO node of which appears in the crown field
+# has no relaxation record to honour, so its nodes are judged against
+# the ruleset's own floor (``grade_law.transverse_minimum_for_role``),
+# and only where that floor BINDS (``transverse_minimum_binds`` —
+# ``CROWN_MINIMUM_BOUND_RUNWAYS``, owner d48bc0a).  Counted separately
+# and printed.
+
+#: The runway family — the roles the crown law governs.  Same two values
+#: as ``MATERIALITY_RUNWAY_FAMILY_ROLES`` and ``flex_audit.RUNWAY_ROLES``.
+_CROWN_RUNWAY_ROLES = frozenset({"runway", "runway_crossing"})
+
+#: THE INTERSECTION EXEMPTION, cited not invented.  ICAO Annex 14
+#: §3.1.19: the runway transverse "should not exceed 1.5 per cent or 2
+#: per cent, as applicable, nor be less than 1 per cent EXCEPT AT RUNWAY
+#: OR TAXIWAY INTERSECTIONS" (FAA Table 3-6 S-1 carries the same
+#: exception).  ``runway_crossing`` IS the intersection surface in this
+#: engine, so a node on one — or welded to one — is where the crown
+#: minimum is expressly not required.  Such rows are still MEASURED and
+#: still counted in the family; they are stamped ``out_of_scope`` so the
+#: acceptance verdict does not adjudicate a row the law exempts.
+_CROWN_INTERSECTION_ROLES = frozenset({"runway_crossing"})
+_CROWN_OUT_OF_SCOPE = "runway_intersection"
+
+
+def _nearest_ridge(px: float, py: float, spines):
+    """``(distance_m, ridge_elev, foot_xy)`` — the nearest point on any crown-spine
+    breakline, elevation interpolated ALONG the polyline (X-Plane renders
+    a breakline linearly, so the interpolated value is the ridge height at
+    that station, not an approximation of one).
+
+    No search radius: the crown-spine ways ARE this airport's runway
+    ridges, and a runway node's own ridge is the nearest one by
+    construction.  An arbitrary cutoff would turn "the ridge is far
+    away" into "no row", which is the silent-zero this family exists to
+    remove — the distance is REPORTED on the row instead."""
+    best_d, best_z, best_pt = float("inf"), None, None
+    for pts in spines:
+        for i in range(len(pts) - 1):
+            ax, ay, az = pts[i]
+            bx, by, bz = pts[i + 1]
+            vx, vy = bx - ax, by - ay
+            l2 = vx * vx + vy * vy
+            t = 0.0 if l2 < 1e-12 else max(0.0, min(
+                1.0, ((px - ax) * vx + (py - ay) * vy) / l2))
+            qx, qy = ax + t * vx, ay + t * vy
+            d = math.hypot(px - qx, py - qy)
+            if d < best_d:
+                best_d, best_z, best_pt = d, az + t * (bz - az), (qx, qy)
+    return best_d, best_z, best_pt
+
+
+def _check_runway_crown(ways: List[Way], nodes, ll_to_m,
+                        crown_by_nid: Dict[str, float],
+                        spine_ways: List[Way]
+                        ) -> Tuple[List[Violation], int, int, int]:
+    """``(violations, n_nodes, n_no_ridge, n_undeclared_shapes)`` — every
+    runway cross-section that does NOT carry the crown its build declared
+    (or, where nothing was declared, the ruleset's own floor).
+
+    Reported as a SHORTFALL, the same shape ``_check_drainage_minimum``
+    uses: ``grade_pct`` is the REALISED transverse grade from the ridge to
+    the node, ``excess_pct`` how much of the required grade is missing,
+    ``de_m`` the realised fall.  The allowance is ``_pair_quant_noise_m``
+    on the runway — ridge and ring are both emitted per-node at the 0.01 m
+    grid and the drop is quantised UP onto it, so a cm of round is not a
+    flat runway."""
+    if not ways:
+        return [], 0, 0, 0
+    spines = []
+    for sw in spine_ways or []:
+        pts = []
+        for k, nid in enumerate(sw.nids):
+            if nid not in nodes or k >= len(sw.elevs) or sw.elevs[k] is None:
+                continue
+            x, y = ll_to_m(*nodes[nid])
+            pts.append((x, y, float(sw.elevs[k])))
+        if len(pts) >= 2:
+            spines.append(pts)
+    # Nodes at a runway/taxiway INTERSECTION — the cited exception.
+    xing_nids: set = set()
+    for w in ways:
+        if w.role in _CROWN_INTERSECTION_ROLES:
+            xing_nids.update(w.nids)
+    # THE FALLBACK RIDGE, for a patch that emitted no crown spine at all.
+    # Absence of the breakline IS the finding — the crown was not emitted —
+    # but a row still needs the node's lateral OFFSET to price a grade, and
+    # that comes from the LAW's own runway axis (``runway_axis_and_width``,
+    # the principal axis of the runway's emitted ring cloud, joined across
+    # the fragments a tile cut or a crossing leaves), never a second idea
+    # of where a runway's centreline is.
+    axis_pts: Dict[str, list] = defaultdict(list)
+    for w in ways:
+        if w.role not in _CROWN_RUNWAY_ROLES:
+            continue
+        # OPEN vertex list: the closing repeat would weight one corner
+        # twice and tilt the principal axis off the centreline.
+        for nid in (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+                    else w.nids):
+            if nid in nodes:
+                axis_pts[w.ref].append(ll_to_m(*nodes[nid]))
+    axis_by_ref: Dict[str, tuple] = {}
+    if _runway_axis_and_width is not None:
+        for ref, pts in axis_pts.items():
+            try:
+                ax = _runway_axis_and_width(pts)
+            except Exception:                          # pragma: no cover
+                ax = None
+            if ax:
+                axis_by_ref[ref] = ax
+
+    def _axis_offset(ref: str, px: float, py: float):
+        """``(distance_m, foot_xy)`` to the law's own runway axis."""
+        ax = axis_by_ref.get(ref)
+        if not ax:
+            return 0.0, (px, py)
+        (ax0, ay0), (ax1, ay1) = ax[0], ax[1]
+        vx, vy = ax1 - ax0, ay1 - ay0
+        l2 = vx * vx + vy * vy
+        if l2 < 1e-12:
+            return 0.0, (px, py)
+        t = ((px - ax0) * vx + (py - ay0) * vy) / l2
+        foot = (ax0 + t * vx, ay0 + t * vy)
+        return math.hypot(px - foot[0], py - foot[1]), foot
+
+    # The ruleset's own floor, for shapes that declared nothing.
+    floor = None
+    if (_transverse_minimum_for_role is not None
+            and _transverse_minimum_binds is not None
+            and _transverse_minimum_binds("runway")):
+        floor = _transverse_minimum_for_role("runway", _ACTIVE_RULESET)
+
+    out: List[Violation] = []
+    n_nodes = n_no_ridge = n_undeclared = 0
+    for w in ways:
+        if w.role not in _CROWN_RUNWAY_ROLES:
+            continue
+        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+              else w.nids)
+        declared = any(nid in crown_by_nid for nid in nn)
+        if not declared:
+            if floor is None:
+                continue          # the crown minimum does not bind here
+            n_undeclared += 1
+        noise = _pair_quant_noise_m(w)
+        for k, nid in enumerate(nn):
+            if (nid not in nodes or k >= len(w.elevs)
+                    or w.elevs[k] is None):
+                continue
+            x, y = ll_to_m(*nodes[nid])
+            z = float(w.elevs[k])
+            dist, ridge_z, foot = _nearest_ridge(x, y, spines)
+            if ridge_z is None:
+                # NO ridge geometry at all: the crown cannot have been
+                # emitted, and the ABSENCE is the finding.  The offset
+                # comes from the law's runway axis so the row still
+                # carries a real cross-section; the realised fall is 0
+                # because there is nothing above the node to fall from.
+                dist, foot = _axis_offset(w.ref, x, y)
+                ridge_z, realised = z, 0.0
+                n_no_ridge += 1
+            else:
+                realised = ridge_z - z
+            if declared:
+                required = float(crown_by_nid.get(nid, 0.0))
+            else:
+                required = float(floor) * dist
+            if required <= 0.0:
+                continue          # uncrowned by declaration (or on the ridge)
+            n_nodes += 1
+            short = required - realised - noise
+            if short <= 0.0:
+                continue
+            span = max(dist, SHARED_VERTEX_TOL_M)
+            v = Violation(
+                grade_pct=100.0 * realised / span,
+                excess_pct=100.0 * short / span,
+                distance_m=dist, de_m=abs(realised),
+                way_a=w, way_b=w, pt_a=(x, y), pt_b=foot,
+                elev_a=z, elev_b=float(ridge_z))
+            if w.role in _CROWN_INTERSECTION_ROLES or nid in xing_nids:
+                v.out_of_scope = _CROWN_OUT_OF_SCOPE
+            out.append(v)
+    out.sort(key=lambda r: -r.excess_pct)
+    return out, n_nodes, n_no_ridge, n_undeclared
+
+
 # ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ──────────
 # "The drainage spine must be below the lower adjacent pavement."  The
 # emitter half is ``grade_law.drainage_spine_envelope`` (consumed by
@@ -2902,7 +3133,48 @@ _TRANSVERSE_MIN_WIDTH_M = 3.0
 #: the census-wrapper defect class (twin:
 #: ``tests/test_lateral_cross_section.py``).
 _TRANSVERSE_MAX_GAP_M = 1.0
-_TRANSVERSE_ROLES = frozenset({"junction", "service_junction", "apron"})
+
+# ── THE AXIS-KIND SCOPE — THE GENERATOR'S OWN TARGET ROLES ────────────
+# WHICH shapes an axis prices, imported from the pass that plants the
+# cross-sections (``auto_patch.lateral_spine_nodes``) rather than typed
+# here: one list, two readers, no drift.  A TAXI axis prices the taxi
+# lateral pass's targets; a SERVICE axis prices the SERVICE pass's
+# targets — "a truck route is not an aircraft spine" (the rule below),
+# and its mirror, an aircraft spine does not price a service road.
+#
+# WHY THIS IS NOT COSMETIC (S7 escalation, ruled 2026-08-14).  The set
+# used to be one flat ``{junction, service_junction, apron}`` with a
+# service-axis filter through ``_GROUNDSIDE_ROLES`` — which intersects
+# to ``{service_junction}``, i.e. ``service_road`` was priced by NOBODY.
+# Meanwhile ``lateral_spine_nodes.insert_service_lateral_nodes`` plants
+# aligned cross-section vertices on service_road edges from the
+# truck-route spine and ``grade_graph`` binds them across the route at
+# ``SERVICE_ROAD_MAX_TRANSVERSE`` (``service_road`` joins
+# ``SOFT_VISIBILITY_ROLES`` under ``config.SVC_SPINE_FIRST``, default
+# ON).  A GENERATION-BINDING CONSTRAINT WHOSE VALIDATOR READ NOTHING:
+# the CYXY cross-road tear the emitter was built to make unrepresentable
+# censused zero.  The cap itself never needed changing — it already
+# resolves through ``_transverse_cap_for_seg_cap`` →
+# ``config.transverse_cap_for_longitudinal_cap``, the one law source
+# ``grade_graph._bake_edge`` binds with.
+try:
+    from auto_patch.lateral_spine_nodes import (
+        TAXI_AXIS_PRICED_ROLES as _LAT_TAXI_PRICED_ROLES,
+        SERVICE_AXIS_PRICED_ROLES as _LAT_SERVICE_PRICED_ROLES,
+    )
+except Exception:                                      # pragma: no cover
+    # The standalone (no-``auto_patch``) path this module keeps for every
+    # constant it imports.  Kept in sync by
+    # ``tests/test_lateral_cross_section.py``.
+    _LAT_TAXI_PRICED_ROLES = frozenset({"junction", "service_junction",
+                                        "apron"})
+    _LAT_SERVICE_PRICED_ROLES = frozenset({"service_road",
+                                           "service_junction"})
+_TRANSVERSE_TAXI_ROLES = frozenset(_LAT_TAXI_PRICED_ROLES)
+_TRANSVERSE_SERVICE_ROLES = frozenset(_LAT_SERVICE_PRICED_ROLES)
+#: The union — WHICH shapes are gathered at all.  The per-axis scope
+#: above decides which of them a given axis may censure.
+_TRANSVERSE_ROLES = _TRANSVERSE_TAXI_ROLES | _TRANSVERSE_SERVICE_ROLES
 
 
 # ── LATERAL CONTIGUITY (owner-confirmed FINAL 2026-08-02) ──────────────
@@ -3132,8 +3404,15 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
         # may only censure the road family's own shapes — otherwise a road
         # passing an apron stamps the apron with a cross-section it has no
         # spine for (measured: ``transverse::apron|apron`` +176 at HECA
-        # 10 000 when the road feed joined the graph).
+        # 10 000 when the road feed joined the graph).  The scope is the
+        # LATERAL PASS'S OWN target roles (see ``_TRANSVERSE_TAXI_ROLES`` /
+        # ``_TRANSVERSE_SERVICE_ROLES``), so priced ⟺ planted in BOTH
+        # directions: a service axis now prices ``service_road`` — the
+        # surface the service pass plants feet on and the solve binds at
+        # ``SERVICE_ROAD_MAX_TRANSVERSE`` — and a taxi axis still does not.
         _axis_is_svc = bool(entry[4]) if len(entry) > 4 else False
+        _axis_priced_roles = (_TRANSVERSE_SERVICE_ROLES if _axis_is_svc
+                              else _TRANSVERSE_TAXI_ROLES)
         for k in range(len(poly) - 1):
             (x1, y1), (x2, y2) = poly[k], poly[k + 1]
             seg_len = math.hypot(x2 - x1, y2 - y1)
@@ -3157,8 +3436,7 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                             cand.update(grid.get((gx + dx, gy + dy), ()))
                 hits: Dict[int, List[Tuple[float, float]]] = {}
                 for (si, i) in cand:
-                    if (_axis_is_svc
-                            and shapes[si][0].role not in _GROUNDSIDE_ROLES):
+                    if shapes[si][0].role not in _axis_priced_roles:
                         continue
                     ring = shapes[si][1]
                     a, b = ring[i], ring[(i + 1) % len(ring)]
@@ -4776,6 +5054,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("raoa", "RAOA grade-change rate (ICAO only)", "within"),
     ("drainage_minimum", "SURFACE FLATTER than its drainage minimum",
      "within"),
+    ("runway_crown", "RUNWAY CROWN below its DECLARED drop", "within"),
     ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
      "within"),
@@ -4926,6 +5205,17 @@ OUT_OF_SCOPE_CLASSES: Dict[str, str] = {
         "set\".  The host's own rows are that row set; this one is the "
         "duplicate.  REPORTED under its own heading and never dropped, the "
         "same treatment the version-deferred family gets",
+    _CROWN_OUT_OF_SCOPE:
+        "the crown-shortfall row sits at a RUNWAY OR TAXIWAY "
+        "INTERSECTION, where the transverse MINIMUM is expressly not "
+        "required: ICAO Annex 14 §3.1.19 — the runway transverse "
+        "\"should not exceed 1.5 per cent or 2 per cent, as applicable, "
+        "nor be less than 1 per cent EXCEPT AT RUNWAY OR TAXIWAY "
+        "INTERSECTIONS\" (FAA Table 3-6 S-1 carries the same exception).  "
+        "``runway_crossing`` IS that surface in this engine, and a node "
+        "welded to one is on its boundary.  MEASURED and counted in the "
+        "family like every other out-of-scope class; only the acceptance "
+        "verdict skips it",
     "disconnected_ring":
         "the row lies wholly inside a groundside ring the ONE route graph "
         "does not reach — no route, frontage or weld coupling to the "
@@ -5927,6 +6217,28 @@ def run_checks(
         print(f"  ({n_dm_pairs} drainage pair(s) censused over "
               f"{n_dm_ways} surface(s))")
     within = within + drain_min
+
+    # ── THE RUNWAY CROWN — the drainage law the 2026-08-14 scope KEPT ──
+    crown_short, n_cr_nodes, n_cr_no_ridge, n_cr_undeclared = (
+        _check_runway_crown(ways, nodes, ll_to_m, crown_by_nid,
+                            open_features.get("crown_spine", [])))
+    _fam("runway_crown", crown_short)
+    _pv("RUNWAY CROWN below its DECLARED drop (ICAO Annex 14 §3.1.19 / "
+        "FAA Table 3-6 S-1 1% transverse minimum, BOUND on runways by "
+        "owner d48bc0a; the per-node declared field is the sidecar's "
+        "crown_drops — rows at a runway/taxiway INTERSECTION carry the "
+        "cited exception and are adjudicated out of scope)",
+        crown_short, top_n)
+    if (n_cr_nodes or n_cr_no_ridge or n_cr_undeclared) and not quiet:
+        print(f"  ({n_cr_nodes} crowned runway node(s) censused against "
+              f"the ridge breakline"
+              + (f"; {n_cr_undeclared} runway shape(s) declared NO crown "
+                 f"and were judged against the ruleset floor"
+                 if n_cr_undeclared else "")
+              + (f"; {n_cr_no_ridge} node(s) had NO crown-spine ridge in "
+                 f"the patch at all" if n_cr_no_ridge else "")
+              + ")")
+    within = within + crown_short
 
     wall_in_strip = _fam(
         "wall_in_runway_strip",

@@ -224,3 +224,34 @@ def test_float_noise_inversion_is_levelled_but_not_reported():
     out = solve_run_profile(s, f, c, {0: 95.1879063681469, n - 1: 95.0}, CAP)
     assert out is not None
     assert out.conflicts == []
+
+
+# ── RUN / YARD SCOPING (Fable ruling 2026-08-14, S2's STOP 1) ───────
+# "The 1-D profile HOLDS on the corridor's LINEAR RUNS only; a 2-D
+# service surface is never held to a line."  The discriminator is the
+# shape's own geometry — mean width ``2*area/perimeter`` against
+# ``config.ROAD_CARVE_MAX_WIDTH_M`` — never the role literal, because a
+# service_junction is a narrow connector in one place and a 40 m yard in
+# another, and it was the YARDS that made within-shape pairs
+# unsatisfiable (KCLT +157 rows, measured).
+
+def _mean_width(poly):
+    return 2.0 * poly.area / poly.length
+
+
+def test_mean_width_separates_a_road_run_from_a_yard():
+    from shapely.geometry import Polygon
+    from auto_patch.config import ROAD_CARVE_MAX_WIDTH_M as W
+    road = Polygon([(0, 0), (120, 0), (120, 6), (0, 6)])       # 6 m x 120 m
+    yard = Polygon([(0, 0), (40, 0), (40, 40), (0, 40)])       # 40 m square
+    assert _mean_width(road) <= W, _mean_width(road)
+    assert _mean_width(yard) > W, _mean_width(yard)
+
+
+def test_the_widest_thing_the_carve_calls_a_road_is_still_linear():
+    """The threshold is the existing carve constant, so a road at the
+    carve's own maximum width is on the LINEAR side of it."""
+    from shapely.geometry import Polygon
+    from auto_patch.config import ROAD_CARVE_MAX_WIDTH_M as W
+    wide_road = Polygon([(0, 0), (2000, 0), (2000, W), (0, W)])
+    assert _mean_width(wide_road) <= W

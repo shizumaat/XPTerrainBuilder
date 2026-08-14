@@ -3516,6 +3516,7 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # cross-section there, no pavement, no run.
     from auto_patch.config import SPINE_STEP_M as _STEP
     _RUN_BREAK_M = 2.0 * _STEP
+    _free_end_idx = getattr(layout, "_svc_free_end_idx", None) or set()
     _by_line: dict = {}
     for sid, st in enumerate(stations):
         if not st["members"]:
@@ -3561,8 +3562,19 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             run_sid.append(sid)
             if av:
                 # A station's welds are ONE cross-section value (the
-                # spine-first law); their mean is that value.
-                run_pegs[k] = sum(av) / len(av)
+                # spine-first law); their mean is that value.  EXCEPT at
+                # a FREE END: that tie is a LAW TARGET (the corridor
+                # terminus grades to ambient DEM under its own cap,
+                # RULINGS 2026-08-12b), so it is the station's value
+                # outright — averaging it against a neighbouring weld
+                # left the cross-section partners off the tie and the
+                # acceptance instrument read the partner, not the tie
+                # (measured: HECA free ends over the floor 36 -> 40,
+                # worst 3.256 m at 30.1119707,31.3731240).
+                _fe = [anchors[i] for i in st["members"] if i in anchors
+                       and i in _free_end_idx]
+                run_pegs[k] = (sum(_fe) / len(_fe) if _fe
+                               else sum(av) / len(av))
         if len(run_s) < 2:
             continue
         prof = _solve_run(run_s, run_f, run_c, run_pegs, cap,
@@ -3609,8 +3621,73 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # SOFT seed the whole-run profile is written and then written over
     # (measured at HECA, arm 86903a2b43f3: 37 cap-riding runs and a
     # 16.1 m hump still emitted from a profile that had neither).
+    # ── THE 1-D VALIDITY TEST (Fable ruling 2026-08-14: the profile
+    # holds only where the corridor is GENUINELY one-dimensional) ─────
+    # A profile is 1-D in ARCLENGTH; the within-shape law is 2-D in
+    # PLAN.  Where a run doubles back — a loop road's return leg, a ramp
+    # switchback, a junction ribbon that wraps — two stations far apart
+    # in arclength sit within a road width of each other in plan, and
+    # their arclength-lawful values are a within-shape violation the
+    # HOLD would freeze in.  Measured at KCLT: +187 new
+    # ``within_shape::service_junction`` rows on shapes of mean width
+    # 3.8-9.3 m — LINEAR ribbons, not yards, so the run/yard scoping
+    # cannot see them.  (The existing station merge cannot either: its
+    # XY window skips pairs of the SAME line by construction.)
+    #
+    # The test is the law itself: a plan pair whose profile values
+    # exceed the cap over their plan distance is not one-dimensional
+    # there.  Both stations are RELEASED from the hold — they keep the
+    # profile as their seed and solve as a surface — and the pair is
+    # recorded.  Nothing is quarantined.
+    _not_1d: set = set()
+    if profiled:
+        _CELL = ROAD_CARVE_MAX_WIDTH_M
+        _grid2: dict = {}
+        for sid in profiled:
+            x, y = st_xy[sid]
+            _grid2.setdefault((int(x // _CELL), int(y // _CELL)),
+                              []).append(sid)
+        _seen: set = set()
+        for (cx, cy), cell in _grid2.items():
+            neigh = []
+            for ox in (-1, 0, 1):
+                for oy in (-1, 0, 1):
+                    neigh.extend(_grid2.get((cx + ox, cy + oy), ()))
+            for a in cell:
+                ax, ay = st_xy[a]
+                za = node_target.get(next(iter(stations[a]["members"]), None))
+                if za is None:
+                    continue
+                for b in neigh:
+                    if b <= a or (a, b) in _seen:
+                        continue
+                    _seen.add((a, b))
+                    bx, by = st_xy[b]
+                    d = _m.hypot(ax - bx, ay - by)
+                    if d > _CELL or d < 1e-6:
+                        continue
+                    zb = node_target.get(
+                        next(iter(stations[b]["members"]), None))
+                    if zb is None:
+                        continue
+                    if abs(za - zb) > cap * d + 0.01:
+                        _not_1d.add(a)
+                        _not_1d.add(b)
+                        conflicts_out.append({
+                            "line": stations[a]["line"], "part": None,
+                            "kind": "not_one_dimensional",
+                            "s_m": stations[a]["s"], "cap": cap,
+                            "rise_m": abs(za - zb), "run_m": d,
+                            "required_grade": abs(za - zb) / d,
+                            "text": (f"plan pair {d:.1f} m apart carries "
+                                     f"{abs(za - zb):.2f} m — the run is "
+                                     f"not 1-D here; released from the "
+                                     f"hold")})
+        layout._svc_profile_conflicts = conflicts_out
+    layout._svc_profile_not_1d_stations = len(_not_1d)
     layout._svc_profile_members = {
-        i for sid in profiled for i in stations[sid]["members"]}
+        i for sid in profiled if sid not in _not_1d
+        for i in stations[sid]["members"]}
     if audits_out:
         import O4_UI_Utils as _UI_cp
         _n_over = sum(x["over_cap_segments"] for x in audits_out)
@@ -4012,9 +4089,50 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     # CANONICAL KEY so it survives the final pass's node-list rebuild
     # (node_space's law).  Anchors are excluded: they are stage-A weld
     # values and are already hard by their own law.
+    # ── RUN / YARD SCOPING (Fable ruling 2026-08-14, S2's STOP 1) ─────
+    # "The 1-D profile HOLDS on the corridor's LINEAR RUNS only.  A 2-D
+    # service surface (junction yard, service apron) is never held to a
+    # line: it solves as a surface with the profile's values as BOUNDARY
+    # SEEDS at its mouths."  This is a scoping of the ONE band, not a
+    # second band.
+    #
+    # THE TEST IS THE SHAPE'S OWN GEOMETRY, not its role literal — a
+    # service_junction can be a narrow connector or a 40 m yard, and it
+    # was the YARDS that made within-shape pairs unsatisfiable (measured
+    # at KCLT: +157 within_shape::service_junction rows from holding a
+    # line over a surface).  Mean width ``2·area/perimeter`` is the
+    # width of a long thin polygon (w·L/(w+L) → w for L ≫ w); a shape
+    # wider than ``ROAD_CARVE_MAX_WIDTH_M`` — the widest thing the road
+    # carve itself treats as a road — is a SURFACE.  Existing constant,
+    # no new number.
+    #
+    # A node any LINEAR shape claims is held: that is the run, and where
+    # a run meets a yard it is the yard's MOUTH — held exactly as a
+    # corridor mouth is held at airside.  A node only surfaces claim is
+    # released to the surface solve.
+    from auto_patch.config import ROAD_CARVE_MAX_WIDTH_M as _CARVE_W
+    _linear_nodes: set = set()
+    _n_linear = _n_surface = 0
+    for _s in layout.shapes:
+        _poly = getattr(_s, "polygon", None)
+        if _poly is None or _poly.is_empty or _poly.length <= 0.0:
+            continue
+        if (2.0 * _poly.area / _poly.length) > _CARVE_W:
+            _n_surface += 1
+            continue                    # a 2-D surface — never held
+        _n_linear += 1
+        for (_x, _y) in _open_ring(list(_poly.exterior.coords)):
+            _i = bucket_to_idx.get(_key(_x, _y))
+            if _i is not None:
+                _linear_nodes.add(_i)
     _prof_members = getattr(layout, "_svc_profile_members", None) or set()
+    _prof_released = {i for i in _prof_members
+                      if i in svc_nodes and i not in anchors
+                      and i not in _linear_nodes}
     _prof_idx = {i for i in _prof_members
-                 if i in svc_nodes and i not in anchors}
+                 if i in svc_nodes and i not in anchors
+                 and i in _linear_nodes}
+    layout._svc_profile_released_idx = _prof_released
     layout._svc_profile_idx = _prof_idx
     if _prof_idx:
         try:
@@ -4026,9 +4144,13 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             pass
         import O4_UI_Utils as _UI_ph
         _UI_ph.vprint(1,
-            f"  [pav-builder] whole-run corridor profile HELD: "
-            f"{len(_prof_idx)} node(s) enter stage B as the corridor's "
-            f"own band (membership only, the free-end tie's spelling).")
+            f"  [pav-builder] whole-run corridor profile HELD on LINEAR "
+            f"RUNS: {len(_prof_idx)} node(s) enter stage B as the "
+            f"corridor's own band (membership only, the free-end tie's "
+            f"spelling); {len(_prof_released)} node(s) RELEASED to the "
+            f"2-D surface solve with the profile as their boundary seed "
+            f"({_n_linear} linear shape(s), {_n_surface} surface(s) at "
+            f"mean width > {_CARVE_W} m).")
     if _lat_bound_breaks:
         import O4_UI_Utils as _UI
         _UI.vprint(1,

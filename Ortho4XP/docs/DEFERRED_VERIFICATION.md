@@ -583,3 +583,17 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
 - The HELD posture (`svc_profile` keyset in both projections) has no
   twin proving the hold survives a node-list rebuild at a real airport;
   only the census delta evidences it.
+
+## Staged-solve S2b — run/yard scoping increment (lane/s2profile)
+
+- Same battery scope as S2: HECA + KCLT only. CYXY, OTHH, KSTJ, SPJC,
+  SPLP still not censused under the whole-run profile.
+- The `not_one_dimensional` release is measured only by its census
+  effect (KCLT within_shape service_junction +187 -> +131, seam 28 ->
+  27). No twin drives a real doubling-back run end to end.
+- The run/yard mean-width discriminator was measured to release only
+  75 (HECA) / 122 (KCLT) nodes — the KCLT offenders are LINEAR ribbons,
+  so the scoping is not what closed the regression; it is retained
+  because the ruling requires it, not because it is load-bearing here.
+- Timing still not measured; free-end residual (40 over floor) is
+  attributed but NOT fixed.

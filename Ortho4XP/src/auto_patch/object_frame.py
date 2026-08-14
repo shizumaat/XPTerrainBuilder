@@ -283,6 +283,203 @@ def rendered_base_metres(part: PadPart, anchor_ground_metres) -> float | None:
     return float(anchor_ground_metres) + float(part.base_y)
 
 
+def _median(values):
+    ordered = sorted(values)
+    count = len(ordered)
+    middle = count // 2
+    if count % 2:
+        return float(ordered[middle])
+    return float(ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
+                            surface_ground_at, *,
+                            residual_floor_m: float,
+                            margin_metres: float,
+                            maximum_relief_metres: float):
+    """THE PAD REQUESTS a frame raises against its GROUND AUTHORITIES.
+
+    TWO authorities, because the two points a request measures are not
+    the same kind of point:
+
+    * ``datum_ground_at(latitude, longitude)`` — the RENDER DATUM's
+      ground.  This is the ruling's own clause ("pad target = the
+      patch's own evaluated ground at the datum + base_y"), and it is
+      the PATCH, exactly: the premise test that authorised this design
+      measured patch-evaluated against built-mesh at HOSTED datums only
+      (p90 0.60 m, under the 0.75 m cap, and 0.0000 at every
+      request-carrying datum).  ``None`` — an unhosted datum, where the
+      mesh drapes ambient DEM and the patch authors nothing — means the
+      relative coupling has no node to read, and the object keeps the
+      y-bake path.  Never approximated: that population is 588 of 2700
+      datums at HECA and 1514 of 8537 at OTHH, and guessing at it is how
+      a coupling turns into a DEM approximation the ruling rejected.
+
+    * ``surface_ground_at(latitude, longitude)`` — the ground UNDER A
+      PART, which is what the residual is measured against.  That point
+      is almost never on the patch (a pad exists precisely where terrain
+      is not already graded — where it were, the pad would be clipped
+      away by pavement), so this authority is the MESH'S OWN RULE:
+      the patch where the patch authors, ambient DEM where it does not.
+      It replaces ``MeshElevationSampler.elevation_at_or_none``, which is
+      the same rule evaluated on a mesh that does not exist yet.
+
+    THE ARITHMETIC IS ``object_anchor._raise_cluster_pad_requests``'
+    ``seated=False`` branch, moved and not rewritten — which is the only
+    branch available before the mesh exists, and the right one: the
+    emission-time design is "the object stays where its author put it and
+    the terrain comes to it" (reseat-threshold spec §2.2).  Per part,
+
+        rendered base = ground(render datum) + AGL + base_y
+        residual      = rendered base − ground(under the part)
+
+    and a part is a pad candidate when ``|residual| > residual_floor_m``.
+    A group's target is the MEDIAN of its parts' rendered bases, exactly
+    as the rebake's, so the pad still asks terrain for the least it can.
+
+    THE GROUPING IS THE RING LAW'S (``object_footprints.foot_pad_rings``):
+    the candidate parts' contact hulls are dilated and unioned and each
+    connected component comes back as one ring, which is the same
+    connectivity ``object_clusters.residual_part_groups`` expressed
+    geometrically — see :meth:`ObjectPadFrame.parts_by_structure`.  A part
+    is assigned to the ring covering its first contact triangle's
+    centroid; that point is inside its own hull and therefore inside the
+    dilated component that swallowed it, so the assignment is exact by
+    construction rather than by proximity.
+
+    Returns ``(requests, findings)``.  ``requests`` are plain dicts in the
+    shape the emitter consumes (one per RING, carrying the group's
+    identity); ``findings`` are ``(kind, key, measured, tolerance, "")``
+    tuples for everything that did NOT become a request, because a
+    request that quietly disappears is the blindness the pad specs exist
+    to remove.
+    """
+    from . import object_footprints
+
+    requests: list[dict] = []
+    findings: list[tuple] = []
+    anchor_ground_cache: dict[str, float | None] = {}
+
+    def _anchor_ground(resource_path):
+        """``ground(datum) + AGL`` — the object's rendered ``y = 0``
+        plane (``object_anchor`` amendment A18).  Memoized because HECA's
+        pack shares ONE datum across 199 resources (the LSGG authoring
+        class) and the field query is a point location."""
+        if resource_path in anchor_ground_cache:
+            return anchor_ground_cache[resource_path]
+        anchor = frame.anchor_by_resource.get(resource_path)
+        value = None
+        if anchor is not None:
+            ground = datum_ground_at(anchor.latitude, anchor.longitude)
+            if ground is not None:
+                value = float(ground) + float(
+                    anchor.above_ground_level_metres)
+        anchor_ground_cache[resource_path] = value
+        return value
+
+    for structure_index, parts in sorted(
+            frame.parts_by_structure().items()):
+        candidates: list[tuple] = []
+        for part in parts:
+            anchor_ground = _anchor_ground(part.base_resource)
+            base = rendered_base_metres(part, anchor_ground)
+            if base is None:
+                # The render datum stands on ground the patch does not
+                # author (or the resource has no anchor at all): the
+                # relative coupling has nothing to read, so the object
+                # keeps the y-bake path.  Invariant I-13, restated at
+                # emission time.
+                findings.append(("pad_datum_unhosted", part.base_resource,
+                                 0.0, 0.0, ""))
+                continue
+            part_ground = surface_ground_at(part.latitude, part.longitude)
+            if part_ground is None:
+                findings.append(("pad_part_unhosted", part.base_resource,
+                                 0.0, 0.0, ""))
+                continue
+            residual = base - float(part_ground)
+            if abs(residual) > residual_floor_m:
+                candidates.append((part, base, residual))
+        if not candidates:
+            continue
+
+        hulls = [list(hull) for part, _base, _residual in candidates
+                 for hull in part.contact_parts_lonlat if hull]
+        rings = object_footprints.foot_pad_rings(hulls, margin_metres)
+        if not rings:
+            findings.append(("pad_no_ring", str(structure_index),
+                             float(len(candidates)), 0.0, ""))
+            continue
+
+        from shapely.geometry import Point, Polygon
+
+        polygons = []
+        for ring in rings:
+            try:
+                polygon = Polygon(ring)
+                if not polygon.is_valid:
+                    polygon = polygon.buffer(0)
+            except Exception:                     # pragma: no cover
+                polygon = None
+            polygons.append(polygon)
+
+        members: dict[int, list] = {}
+        for part, base, residual in candidates:
+            hull = next((h for h in part.contact_parts_lonlat if h), None)
+            if not hull:                          # pragma: no cover
+                continue
+            point = Point(sum(x for x, _y in hull) / len(hull),
+                          sum(y for _x, y in hull) / len(hull))
+            for ring_index, polygon in enumerate(polygons):
+                if polygon is not None and polygon.covers(point):
+                    members.setdefault(ring_index, []).append(
+                        (part, base, residual))
+                    break
+
+        for ring_index, ring in enumerate(rings):
+            group = members.get(ring_index)
+            if not group:
+                # A component none of the candidates centres in — it can
+                # only be a sliver of a hull whose own centroid landed in
+                # a neighbour.  Reported, never emitted at a guessed
+                # target (§5.5: no silent pad, and no invented one).
+                findings.append(("pad_ring_unclaimed", str(structure_index),
+                                 0.0, 0.0, ""))
+                continue
+            worst_part, _worst_base, worst_residual = max(
+                group, key=lambda row: (abs(row[2]), row[0].part_key))
+            anchor = frame.anchor_by_resource.get(worst_part.base_resource)
+            if anchor is not None and ring_covers_its_own_datum(
+                    [ring], anchor):
+                # THE CIRCULARITY (step 5).  Raising this ground raises
+                # the object with it: the residual is AGL + base_y under
+                # every target, so no pad can close it.  Routed to the
+                # y-bake, which moves the OBJECT instead.
+                findings.append((
+                    "pad_self_covering_datum",
+                    worst_part.base_resource, abs(worst_residual), 0.0,
+                    f"{anchor.latitude:.5f},{anchor.longitude:.5f}"))
+                continue
+            requests.append({
+                "kind": "cluster",
+                "structure_index": structure_index,
+                "cluster_id": None,
+                "resource_path": worst_part.base_resource,
+                "latitude": worst_part.latitude,
+                "longitude": worst_part.longitude,
+                "base_y": worst_part.base_y,
+                "residual_metres": worst_residual,
+                "target_ground_metres": _median(
+                    [base for _part, base, _residual in group]),
+                "part_count": len(group),
+                "over_relief_cap": (
+                    abs(worst_residual) > maximum_relief_metres),
+                "ring_index": ring_index,
+                "ring_lonlat": ring,
+            })
+    return requests, findings
+
+
 def ring_covers_its_own_datum(rings_lonlat, anchor: PadAnchor) -> bool:
     """Is this pad's own RENDER DATUM inside the pad?
 

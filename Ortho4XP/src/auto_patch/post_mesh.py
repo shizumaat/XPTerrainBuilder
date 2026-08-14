@@ -647,6 +647,193 @@ def cached_pad_frame(pool, geometry_by_resource, structures, pack_root):
     return frame
 
 
+def pad_frames_for_airport(
+    dsf_path: str,
+    pack_root: str | None,
+    xplane_root: str | None,
+    *,
+    epsilon_metres: float | None = None,
+    claims_placement=None,
+    skipped: list | None = None,
+) -> list:
+    """Every :class:`object_frame.ObjectPadFrame` one airport's DSF yields
+    — the SAME decomposition Phase 2 uses, with the mesh removed.
+
+    THE BINDING CONSTRAINT (R3 step 3, and the R1 failure Fable rejected).
+    The pools this walks must be the POST-MESH ones: ``_resolve_pack
+    _geometry`` → ``object_anchor.discover_object_pools`` →
+    ``_cached_partition_structures`` → :func:`cached_pad_frame`, in that
+    order and through those functions.  ``dsf_reader.
+    _compute_dsf_object_buildings``' Phase-1 decomposition admits a
+    DIFFERENT resource set (amendment A15's outside-the-pack refusal and
+    invariant I-4's multi-placement refusal are Phase-2 only; the
+    connector prefilter and the terrain classification are Phase-1 only),
+    so a frame built on Phase-1 pools would miss the pristine cache key
+    and the build would pay for the frame TWICE — the whole reason R3
+    exists.  Everything the two paths share is therefore CALLED here, not
+    re-spelled: this function is discovery order, nothing else.
+
+    MESH-FREE by construction: no ``mesh_path``, no ``MeshElevationSampler``,
+    no run-record short circuit (that record is about a BAKE), and no
+    basin / bridge-abutment pass (both are seating laws that read the
+    built mesh).  It is therefore callable in-run, pre-solve, which is
+    where the pad emitter needs it.
+
+    ``claims_placement(latitude, longitude) -> bool`` is round-4 spec R2's
+    containment, identical in meaning to
+    :func:`discover_and_rebake_airport`'s: a DSF cell carrying two
+    airports' objects yields each airport only its own placements.
+
+    Frames come back in pool order.  A pack that is base/global scenery,
+    a DSF with no ``.obj`` placements, or a claim that empties the subset
+    all yield ``[]`` — never an exception, because a build must not fail
+    over an object pack it could not read.
+    """
+    from .config import DSF_OBJECT_CONTACT_EPSILON_M
+
+    if epsilon_metres is None:
+        epsilon_metres = DSF_OBJECT_CONTACT_EPSILON_M
+    if skipped is None:
+        skipped = []
+
+    lines = dsf_reader._load_dsf_text(dsf_path)
+    if not lines:
+        skipped.append(
+            (dsf_path, "DSF text unavailable (missing file or DSFTool)"))
+        return []
+    placements = obj8_reader.read_dsf_object_placements(
+        lines,
+        accept_resource=lambda resource: resource.lower().endswith(".obj"),
+    )
+    if not placements:
+        return []
+    if pack_root is None:
+        pack_root = dsf_reader._pack_root_for_dsf(dsf_path)
+    # Amendment A15 guard 1, verbatim from the rebake: base and global
+    # scenery are never rebaked, so no pad ever answers for one either.
+    if pack_root is None or _is_protected_scenery_root(pack_root):
+        skipped.append(
+            (dsf_path,
+             "pack is base or global scenery — never rebaked "
+             "(amendment A15)"))
+        return []
+
+    # Invariant I-4's census counts over the WHOLE cell (round-4 spec R2),
+    # the claim then narrows to this airport — the same order the rebake
+    # uses, so a resource placed at two airports is excluded at both.
+    placement_count_over_whole_dsf: dict[str, int] = {}
+    for placement in placements:
+        placement_count_over_whole_dsf[placement.resource_path] = (
+            placement_count_over_whole_dsf.get(placement.resource_path, 0) + 1
+        )
+    if claims_placement is not None:
+        placements = [
+            placement
+            for placement in placements
+            if claims_placement(placement.latitude, placement.longitude)
+        ]
+        if not placements:
+            return []
+
+    (
+        resolved_paths,
+        geometry_by_resource,
+        geometry_source_by_resource,
+    ) = _resolve_pack_geometry(
+        placements,
+        placement_count_over_whole_dsf,
+        pack_root,
+        xplane_root,
+        skipped,
+    )
+    if not resolved_paths:
+        return []
+
+    pools = object_anchor.discover_object_pools(
+        [placement for placement in placements
+         if placement.resource_path in resolved_paths],
+        resolved_paths,
+        geometry_by_resource,
+        epsilon_metres=epsilon_metres,
+    )
+    frames = []
+    for pool in pools:
+        pool_geometry_by_resource = {
+            resource_path: geometry_by_resource[resource_path]
+            for resource_path in pool.resolved_paths
+        }
+        structures = _cached_partition_structures(
+            pool,
+            pool_geometry_by_resource,
+            geometry_source_by_resource,
+            pack_root,
+            epsilon_metres,
+        )
+        frames.append(cached_pad_frame(
+            pool, pool_geometry_by_resource, structures, pack_root))
+    return frames
+
+
+#: In-PROCESS memo for :func:`pad_frames_from_worklist`.  One airport is
+#: built once per worker, but its frames are read TWICE inside that build
+#: — by the flat-site detector's S4 signal (pre-solve) and by the pad
+#: emitter (post-solve).  The partition and the frame are disk-cached,
+#: but the walk to them (DSF text, geometry resolution, pool discovery)
+#: is not, and doing it twice is the duplicated-frame cost R3 exists to
+#: remove.  Keyed by the inputs that select the frames; never persisted.
+_PAD_FRAME_MEMO: dict = {}
+
+
+def pad_frames_from_worklist(patch_dir: str, icao: str, *,
+                             claims_placement=None) -> list:
+    """The airport's pad frames, resolved through the tile's Phase 2
+    worklist sidecar — the in-run entry point.
+
+    The worklist is written by the driver in the MAIN process BEFORE any
+    airport build starts (``driver._write_object_anchor_worklist``,
+    amendment A5), so a build worker can read it; and it is the SAME file
+    ``rebake_dsf_objects`` reads, so the emitter and the y-bake can never
+    disagree about which packs an airport has.  No worklist — the
+    standalone patch build, a tile with no object packs — means no pads,
+    which is exactly what the sidecar-reading consumer did before it.
+    """
+    path = os.path.join(patch_dir or "", OBJECT_ANCHOR_WORKLIST_FILENAME)
+    try:
+        with open(path) as handle:
+            worklist = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    memo_key = (os.path.realpath(path), str(icao or "").upper(),
+                claims_placement is not None)
+    hit = _PAD_FRAME_MEMO.get(memo_key)
+    if hit is not None:
+        return list(hit)
+    frames: list = []
+    for entry in worklist.get("airports") or ():
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("icao") or "").upper() != str(icao or "").upper():
+            continue
+        dsf_path = entry.get("dsf_path")
+        if not dsf_path or not os.path.isfile(dsf_path):
+            continue
+        try:
+            frames.extend(pad_frames_for_airport(
+                dsf_path,
+                entry.get("pack_root"),
+                entry.get("xplane_root") or worklist.get("xplane_root"),
+                claims_placement=claims_placement,
+            ))
+        except Exception as exception:            # pragma: no cover
+            # Per-pack containment, the rebake's own posture: one broken
+            # pack never fails an airport's terrain.
+            UI.vprint(2, f"  [object-pads] {icao}: pad frame for "
+                         f"{os.path.basename(str(dsf_path))} failed "
+                         f"({exception}); continuing")
+    _PAD_FRAME_MEMO[memo_key] = list(frames)
+    return frames
+
+
 def _merge_cluster_counts(decisions: list) -> dict:
     """Sum the per-pool per-cluster seating counts for the run record
     (spec section 3.5: reporting only)."""

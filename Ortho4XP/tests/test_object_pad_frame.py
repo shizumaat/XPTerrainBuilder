@@ -396,3 +396,256 @@ class TestTheFrameIsRefusedRatherThanMisread:
             pool, geometry, structures, pit_sampler, pad_frame=truncated,
         ) == object_anchor.structure_deltas(
             pool, geometry, structures, pit_sampler)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# R3 STEP 3 — THE REQUESTS THE FRAME RAISES
+#
+# The emission-time derivation (``pad_requests_from_frame``) replaces the
+# sidecar read-back.  What is pinned here is that it is the REBAKE'S OWN
+# ARITHMETIC moved, not a new law: the ``seated=False`` formula, the
+# median target over a group, the worst-residual identity — and the two
+# ground authorities the design turns on.
+# ══════════════════════════════════════════════════════════════════════
+
+def _synthetic_frame(base_ys, *, agl=0.0, spacing=0.0, resource="shed.obj",
+                     latitude=30.0, longitude=31.0,
+                     datum_offset_degrees=0.01):
+    """One structure whose parts sit at the given ``base_y`` values, each
+    with a small square contact hull ``spacing`` degrees apart.
+
+    The RENDER DATUM sits ``datum_offset_degrees`` west of them, because
+    that is the ordinary case (HECA: 1882 of 1883 requests have their
+    datum outside their own ring).  ``0.0`` puts the datum ON the parts,
+    which is the circularity case step (5) routes to the y-bake."""
+    parts = []
+    for ordinal, base_y in enumerate(base_ys):
+        centre_longitude = longitude + ordinal * spacing
+        half = 0.00002                              # ~2 m
+        hull = ((centre_longitude - half, latitude - half),
+                (centre_longitude + half, latitude - half),
+                (centre_longitude + half, latitude + half),
+                (centre_longitude - half, latitude + half))
+        parts.append(object_frame.PadPart(
+            structure_index=0, part_key=ordinal, base_resource=resource,
+            base_y=float(base_y), latitude=latitude,
+            longitude=centre_longitude, contact_parts_lonlat=(hull,)))
+    return object_frame.ObjectPadFrame(
+        parts=tuple(parts),
+        anchor_by_resource={resource: object_frame.PadAnchor(
+            latitude=latitude,
+            longitude=longitude - float(datum_offset_degrees),
+            above_ground_level_metres=float(agl))})
+
+
+def _requests(frame, datum, surface, *, floor=0.15, margin=2.0, cap=3.0):
+    return object_frame.pad_requests_from_frame(
+        frame,
+        lambda latitude, longitude: datum,
+        lambda latitude, longitude: surface,
+        residual_floor_m=floor, margin_metres=margin,
+        maximum_relief_metres=cap)
+
+
+def test_the_request_target_is_the_median_rendered_base_of_its_group():
+    """``_raise_cluster_pad_requests``' own statistic: the target under a
+    residual group is the MEDIAN of its parts' rendered bases, so the pad
+    asks terrain for the least it can.  Here three parts at base_y 0.5 /
+    1.0 / 3.0 on a datum of 100.0 render at 100.5 / 101.0 / 103.0."""
+    frame = _synthetic_frame([0.5, 1.0, 3.0])
+    requests, findings = _requests(frame, 100.0, 99.0)
+    assert len(requests) == 1, requests
+    assert requests[0]["target_ground_metres"] == pytest.approx(101.0)
+    assert requests[0]["part_count"] == 3
+    # The identity is the WORST residual's part (base_y 3.0 ⇒ 4.0 m off
+    # the 99.0 ground), and the flagged cap is measured on it.
+    assert requests[0]["residual_metres"] == pytest.approx(4.0)
+    assert requests[0]["over_relief_cap"] is True
+    assert findings == []
+
+
+def test_only_parts_over_the_residual_floor_raise_anything():
+    """The floor is the law's materiality: a part already on the ground
+    contributes neither a request nor a pull on the median."""
+    frame = _synthetic_frame([0.0, 0.05, 2.0])
+    requests, _findings = _requests(frame, 100.0, 100.0)
+    assert len(requests) == 1
+    assert requests[0]["part_count"] == 1
+    assert requests[0]["target_ground_metres"] == pytest.approx(102.0)
+
+    # Every part under the floor ⇒ nothing at all, not an empty pad.
+    assert _requests(_synthetic_frame([0.0, 0.1]), 100.0, 100.0)[0] == []
+
+
+def test_the_two_ground_authorities_are_not_the_same_point():
+    """THE DESIGN, in one assertion.  The DATUM's ground is the patch
+    (the ruling's clause); the ground under a PART is the mesh's own rule
+    (patch where it authors, ambient DEM where it does not).  Feeding the
+    two different values must move the target and the residual in the
+    ways the formula says — target from the datum, residual from both."""
+    frame = _synthetic_frame([1.0])
+    requests, _ = _requests(frame, datum=100.0, surface=98.0)
+    assert requests[0]["target_ground_metres"] == pytest.approx(101.0)
+    assert requests[0]["residual_metres"] == pytest.approx(3.0)
+    # Same datum, different surface: the target is UNMOVED.
+    requests, _ = _requests(frame, datum=100.0, surface=99.5)
+    assert requests[0]["target_ground_metres"] == pytest.approx(101.0)
+    assert requests[0]["residual_metres"] == pytest.approx(1.5)
+
+
+def test_an_unhosted_datum_raises_a_finding_and_no_request():
+    """Invariant I-13 at emission time: no patch under the render datum
+    means no node to couple to, so the object keeps the y-bake.  Never
+    approximated from the DEM — that is the design the premise test
+    rejected."""
+    frame = _synthetic_frame([2.0])
+    requests, findings = object_frame.pad_requests_from_frame(
+        frame,
+        lambda latitude, longitude: None,           # unhosted datum
+        lambda latitude, longitude: 99.0,
+        residual_floor_m=0.15, margin_metres=2.0,
+        maximum_relief_metres=3.0)
+    assert requests == []
+    assert [f[0] for f in findings] == ["pad_datum_unhosted"]
+
+
+def test_an_unreadable_part_ground_raises_a_finding_and_no_request():
+    frame = _synthetic_frame([2.0])
+    requests, findings = object_frame.pad_requests_from_frame(
+        frame,
+        lambda latitude, longitude: 100.0,
+        lambda latitude, longitude: None,
+        residual_floor_m=0.15, margin_metres=2.0,
+        maximum_relief_metres=3.0)
+    assert requests == []
+    assert [f[0] for f in findings] == ["pad_part_unhosted"]
+
+
+def test_spread_parts_become_one_request_per_connected_component():
+    """The ring law supplies the grouping (§2.5): parts whose dilated
+    contact hulls do not meet are different components, and each gets its
+    own request with its own target — never one hull over the ground
+    between them (the retired law, OTHH 1.0.226, 162,219 m²)."""
+    frame = _synthetic_frame([1.0, 4.0], spacing=0.002)   # ~190 m apart
+    requests, _findings = _requests(frame, 100.0, 99.0, cap=10.0)
+    assert len(requests) == 2
+    assert sorted(r["ring_index"] for r in requests) == [0, 1]
+    assert sorted(r["target_ground_metres"] for r in requests) == \
+        pytest.approx([101.0, 104.0])
+    assert all(r["part_count"] == 1 for r in requests)
+
+
+def test_a_self_covering_request_is_routed_out_not_emitted():
+    """Step (5): the pad's own ring covers its render datum, so the
+    residual ``AGL + base_y`` is invariant under every target and no pad
+    can close it.  Reported, and left to the y-bake."""
+    frame = _synthetic_frame([2.0], datum_offset_degrees=0.0)
+    requests, findings = _requests(frame, 100.0, 99.0)
+    assert requests == []
+    assert [f[0] for f in findings] == ["pad_self_covering_datum"]
+    assert findings[0][2] == pytest.approx(3.0)     # the measured residual
+
+
+def test_the_derivation_never_asks_for_a_mesh():
+    """The whole point of the frame: everything above ran with two plain
+    callables and no sampler, no mesh path and no sidecar in sight."""
+    import inspect
+
+    source = inspect.getsource(object_frame)
+    for forbidden in ("MeshElevationSampler(", "load_sidecar",
+                      "sidecar_path", "elevation_at_or_none("):
+        assert forbidden not in source, forbidden
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE BINDING CONSTRAINT — the in-run frames use the POST-MESH pools
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_in_run_frames_walk_the_phase_2_decomposition(monkeypatch):
+    """R3's whole point, and the R1 failure it replaces.  The in-run
+    resolver must reach the frame through Phase 2's OWN chain —
+    ``_resolve_pack_geometry`` → ``discover_object_pools`` →
+    ``_cached_partition_structures`` → ``cached_pad_frame`` — because
+    ``dsf_reader._compute_dsf_object_buildings``' Phase-1 decomposition
+    admits a different resource set (A15's outside-the-pack refusal and
+    I-4's multi-placement refusal are Phase-2 only; the connector
+    prefilter and the terrain classification are Phase-1 only).  A frame
+    on Phase-1 pools would miss the pristine cache key, and the build
+    would pay for the frame twice."""
+    from auto_patch import dsf_reader, obj8_reader, post_mesh
+
+    seen = []
+    sentinel_pool = object()
+    sentinel_frame = object()
+
+    monkeypatch.setattr(dsf_reader, "_load_dsf_text",
+                        lambda path: ["OBJECT 0 31 30 0"])
+    monkeypatch.setattr(
+        obj8_reader, "read_dsf_object_placements",
+        lambda lines, accept_resource=None: [
+            make_placement("shed.obj", 30.0, 31.0)])
+    monkeypatch.setattr(post_mesh, "_is_protected_scenery_root",
+                        lambda root: False)
+
+    def _geometry(placements, counts, pack_root, xplane_root, skipped,
+                  **kwargs):
+        seen.append("resolve_pack_geometry")
+        return ({"shed.obj": "/nowhere/shed.obj"}, {"shed.obj": object()},
+                {"shed.obj": "/nowhere/shed.obj"})
+
+    monkeypatch.setattr(post_mesh, "_resolve_pack_geometry", _geometry)
+
+    def _pools(placements, resolved, geometry, epsilon_metres=None):
+        seen.append("discover_object_pools")
+        pool = object_anchor.ObjectPool(
+            placements=list(placements), resolved_paths=dict(resolved))
+        return [pool]
+
+    monkeypatch.setattr(object_anchor, "discover_object_pools", _pools)
+
+    def _structures(pool, geometry, sources, pack_root, epsilon):
+        seen.append("cached_partition_structures")
+        return [sentinel_pool]
+
+    monkeypatch.setattr(post_mesh, "_cached_partition_structures",
+                        _structures)
+
+    def _frame(pool, geometry, structures, pack_root):
+        seen.append("cached_pad_frame")
+        assert structures == [sentinel_pool]
+        return sentinel_frame
+
+    monkeypatch.setattr(post_mesh, "cached_pad_frame", _frame)
+
+    def _phase_1(*args, **kwargs):                  # pragma: no cover
+        raise AssertionError(
+            "the pad frame must never be built on the Phase-1 pools")
+
+    monkeypatch.setattr(dsf_reader, "_compute_dsf_object_buildings",
+                        _phase_1)
+
+    frames = post_mesh.pad_frames_for_airport(
+        "/nowhere/tile.dsf", "/nowhere/pack", "/nowhere/xp")
+    assert frames == [sentinel_frame]
+    assert seen == ["resolve_pack_geometry", "discover_object_pools",
+                    "cached_partition_structures", "cached_pad_frame"]
+
+
+def test_a_claim_narrows_the_placements_the_frames_are_built_from():
+    """Round-4 spec R2 containment, unchanged in meaning: a DSF cell
+    carrying two airports' objects yields each airport only its own."""
+    from auto_patch import post_mesh
+
+    assert post_mesh.pad_frames_for_airport(
+        "/nowhere/missing.dsf", "/nowhere/pack", "/nowhere/xp",
+        claims_placement=lambda latitude, longitude: False) == []
+
+
+def test_no_worklist_means_no_frames(tmp_path):
+    """The standalone patch build (and a tile with no object packs) has
+    no worklist, which is exactly the "no pads" the sidecar-reading
+    consumer produced before it — never an exception."""
+    from auto_patch import post_mesh
+
+    assert post_mesh.pad_frames_from_worklist(str(tmp_path), "TEST") == []
+    assert post_mesh.pad_frames_from_worklist("", "TEST") == []

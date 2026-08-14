@@ -295,8 +295,26 @@ guessed.**
 | HECA airside deltas row-attributed | **GREEN** | 134/134 joined; verdict (a) with the branch-(b) refutation arm |
 | re-projection class ≤ S1e's 13/2 | **AMBER — 18 at HECA** | 09 planarize 5, 20 pad-host relevel 8, 22 weld/crown/densify 3, **26 band seal 2**. S1e's own HECA table sums to 16, not the 13 its headline states; the extra 2 are the band seal, which on this tree acts on a surface no later projection settles. Reported, not reconciled by this lane. |
 | couplings 21/21 railed | **NOT MET** | 9/10/12/21 are untouched — this lane spent its budget on the adjudication that gates the merge |
-| OTHH arm on the final tree | **NOT RUN** | the tree is source-identical to `lane/s1e` bar a byte-inert instrument, so S1e's `271f5e2df731` stands; a fresh arm is owed at consolidation |
+| OTHH arm | **GREEN** | `s1f_conv_othh` emits **`271f5e2df731`** — S1e's own mid-only OTHH body, byte for byte — even on the REFUTED convergence tree; shared repo unchanged, `CALL #1`, projection exit 229 over-cap edges |
 | sequential HECA tile pair | **NOT RUN** | DEFERRED line recorded |
 
 The lane's product is the ADJUDICATION and its refutation arm, not a value
 change: the committed tree emits S1e's own bodies.
+
+### Postscript — the refuted change was inert everywhere but HECA
+
+The reverted patience arm emits `5dd542654f0c` at CYXY and
+**`271f5e2df731` at OTHH** — both S1e's own mid-only bodies, byte for
+byte.  Only HECA moved at all (`c2ae6a556821`), and there it moved the
+wrong rows.  That is a second, independent reason the branch-(b) story is
+wrong: extra sweeps of the SAME system change nothing at two of the three
+airports, whereas the retired call's effect was measured at all three.
+What differs between the two calls is the hard set, and the hard set is
+airport-shaped — which is exactly what a shield looks like and exactly
+what "more of the same law" does not.
+
+It also settles the arms the acceptance table wanted: since the only
+source delta between the convergence tree and the committed tree is the
+reverted patience, and that delta is byte-inert at CYXY and OTHH, the
+committed tree's CYXY and OTHH bodies are S1e's, established by
+measurement rather than by assertion.

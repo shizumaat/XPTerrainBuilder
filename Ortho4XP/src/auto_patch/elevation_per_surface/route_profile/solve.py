@@ -2056,39 +2056,38 @@ def solve_route_profile(layout, icao: str,
     # shared ctx the law's pair generation memoises across the two consumers
     # (grade_graph.shape_constraints_cached) instead of running twice.
     from auto_patch import grade_graph as _GG
-    # THE ONE GRAPH IS REUSED HERE (finalarch item 2 — the last
-    # repeated-construction item of the repetition charter).  The S1
-    # attempt-1 rejection stands as history: reuse was killed by the
-    # ``shape_constraints_cached`` per-ctx memo keying on
-    # ``id(s.polygon)`` — ``construct_adjacent_ground_presolve`` mints
-    # and drops thousands of temporary polygons between the freeze and
-    # this call, CPython recycles ``id()`` freely, and a recycled id
-    # served one shape another shape's constraint pairs (measured at
-    # HECA: within_shape 3764 -> 5629, worst 431 % on service_junction).
-    # That memo is now keyed BY CONTENT (``grade_graph._sc_ctx_key`` —
-    # value keys, the perfgraph/perfcenter discipline), so a recycled id
-    # cannot collide and the published context's populated memo is
-    # exactly the build-once product the freeze exists to publish.
+    # THE FROZEN CTX OBJECT IS *NOT* REUSED HERE — MEASURED AND REJECTED
+    # TWICE, each time for a different mechanism, both recorded so the
+    # next lane rebuilds neither:
     #
-    # WHAT IS REUSED, AND WHAT IS NOT.  The published CTX rides in
-    # (rail-checked: ``frozen_graph`` runs ``assert_frozen``, so a
-    # geometry mutation since the freeze raises rather than serving a
-    # stale law).  The ctx is elevation-neutral and every input it reads
-    # is frozen plan geometry, so its law state at the freeze IS its law
-    # state here.  The GRAPH OBJECT is deliberately rebuilt below from
-    # that ctx: this call's node list is an APPEND-ONLY extension of the
-    # frozen one (ring-vertex indices agree; gap-fill spines, RESA cut
-    # rows and zone rows append after), and assembling edges from the
-    # memoised per-shape constraints is the cheap half — swapping the
-    # graph object across node spaces is the float-path change measured
-    # and rejected (last-ULP route-budget divergence).
-    from auto_patch import geometry_freeze as _gfreeze_ctx
-    _frozen_pub = _gfreeze_ctx.frozen_graph(
-        layout, "route_profile.solve grade context reuse")
-    if _frozen_pub is not None:
-        _gg_ctx = _frozen_pub[2]
-    else:
-        _gg_ctx = _GG.build_context(layout, bucket_to_idx)
+    # (1) S1 attempt 1 (2026-08-13): the ``shape_constraints_cached``
+    #     per-ctx memo keyed on ``id(s.polygon)``; a recycled id across
+    #     the freeze→solve gap served one shape another shape's pairs
+    #     (HECA within_shape 3764 -> 5629, worst 431 %).  CLOSED: the
+    #     memo is now keyed BY CONTENT (``grade_graph._sc_ctx_key``),
+    #     so this failure class is structurally gone.
+    # (2) finalarch item 2 (2026-08-14, fa_0_heca 3ab5a8dfae80 vs
+    #     fa_A_heca ed040ecb0e65): with the memo fixed, reusing the
+    #     published ctx STILL moved HECA bytes — 72,418 changed lines,
+    #     +20 emitted nodes, a node-id renumbering cascade — because
+    #     ``build_context`` INTERNS (``canonical_points.get_or_add``)
+    #     while it builds its building-key set, and that solve-time
+    #     interning side effect is part of the canonical node space the
+    #     emitted patch is spelled in.  Skipping the call changes which
+    #     later points intern together (the ``law_anchor_key`` warning,
+    #     measured), which is the node-space identity change the roster
+    #     comment already rejects.  CYXY/OTHH reproduce byte-identically
+    #     either way (nothing new to intern there); HECA does not.
+    #
+    # THE COLLAPSE THAT SURVIVES is the value layer: the freeze's
+    # pair-generation work is served to this build through the
+    # layout-scoped run memo (``_sc_run_key`` — full value key, node-key
+    # space, digest + per-shape law projections), which spans the gap by
+    # construction and cannot alter identity.  ``build_context`` itself
+    # is the cheap half (its ``centerline_specs`` walk is memoised;
+    # dupcensus: 8 calls, 0.0 s CPU) and its rebuild is REQUIRED — the
+    # interning it performs is part of the build, not overhead.
+    _gg_ctx = _GG.build_context(layout, bucket_to_idx)
     # FLATNESS-CERTIFIED LAZY TIER (user 2026-07-05): pass the DEM (the
     # certificate source) and the currently-hard nodes (runway/seam seeds +
     # runway nodes — a shape touching one sits at profile values, never the

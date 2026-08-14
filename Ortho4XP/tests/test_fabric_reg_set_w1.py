@@ -449,16 +449,13 @@ def test_F_the_taxiway_minimum_stays_RECORDED_NOT_BOUND():
     """W1 is constants only.  ``CROWN_MINIMUM_BOUND_TAXIWAYS`` is still
     False, so giving the ICAO field a value moves no emitted geometry
     and no census row: the taxiway transect band stays symmetric under
-    BOTH rulesets.
-
-    The old third assertion — that the drainage-minimum family never read
-    a taxiway either — went with the family (RULINGS 2026-08-13b,
-    "DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN")."""
+    BOTH rulesets, and the drainage-minimum family never reads it."""
     assert CFG.CROWN_MINIMUM_BOUND_TAXIWAYS is False
     assert GL.transverse_minimum_binds("taxiway") is False
     for key in _RULESETS:
         lo, hi = GL.transverse_surface_bounds("taxiway", "C", 11.0, key)
         assert lo == pytest.approx(-hi) and hi > 0.0
+        assert GL.drainage_minimum_grade("taxiway", key) is None
 
 
 def test_F_lockstep_one_reader_for_the_taxiway_minimum():

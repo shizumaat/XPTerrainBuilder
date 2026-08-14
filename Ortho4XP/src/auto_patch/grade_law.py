@@ -76,18 +76,14 @@ from .config import (
 from .config import (                                          # noqa: E402
     CROWN_MINIMUM_BOUND_RUNWAYS, CROWN_MINIMUM_BOUND_TAXIWAYS,
     DEFAULT_RULESET, FAA_RULESET,
-    get_ruleset, resolve_ruleset,
-    # NOT imported since the §B3 retirement (owner 2026-08-13b, see the
-    # tombstone below): GROUNDSIDE_MIN_DRAINAGE_GRADE and
-    # ruleset_apron_min_drainage_grade.  Both constants are KEPT in
-    # config with their citations; nothing reads them.
-    ruleset_apron_max_grade_change,
+    GROUNDSIDE_MIN_DRAINAGE_GRADE, get_ruleset, resolve_ruleset,
+    ruleset_apron_max_grade_change, ruleset_apron_min_drainage_grade,
     ruleset_runway_end_grade, ruleset_runway_end_zone_length_m,
     ruleset_runway_max_grade, ruleset_runway_max_grade_change,
     ruleset_runway_max_grade_change_per_m,
     ruleset_runway_vertical_curve_min_change,
     ruleset_shoulder_edge_dropoff, ruleset_shoulder_transverse_band,
-    ruleset_strip_arc_rate_per_m,
+    ruleset_stand_max_grade, ruleset_strip_arc_rate_per_m,
     ruleset_strip_band_max_down_slope, ruleset_strip_half_width_m,
     ruleset_strip_max_longitudinal_slope, ruleset_taxi_max_grade,
     ruleset_taxi_transverse_max)
@@ -3194,8 +3190,8 @@ def runway_crown_rate(ruleset=None, code_letter=None) -> float:
 
     Raises ``ValueError`` when a ruleset's own minimum exceeds its own
     maximum — a genuine contradiction, LOUD, never silently softened
-    (``feasibility-is-guaranteed``).  With §B3 retired (owner 2026-08-13b)
-    this is the only min-vs-max band the drainage law still carries."""
+    (``feasibility-is-guaranteed``; the same discipline
+    :func:`drainage_minimum_band` applies)."""
     from auto_patch.config import RUNWAY_CROWN_TRANSVERSE
     rate = float(RUNWAY_CROWN_TRANSVERSE)
     low = transverse_minimum_for_role("runway", ruleset)
@@ -3235,32 +3231,130 @@ def transverse_surface_bounds(role, code_letter, offset_m, ruleset=None):
     return (-float(cap) * t, -float(low) * t)
 
 
-# ── §B3 — DRAINAGE MINIMUM — RETIRED (owner 2026-08-13b) ─────────────
-# GONE, and this tombstone is the record: RULINGS 2026-08-13b, "DRAINAGE
-# MINIMUM RETIRES — ONLY RUNWAYS CROWN" — "only runways get a crown, the
-# rest can be flat for the sim".  §B3 bound APRONS (FAA §5.9.1.1's 0.5 %;
-# ICAO states no number) and LANDSIDE pavement (the PROVISIONAL 1.0 %,
-# ``config.GROUNDSIDE_MIN_DRAINAGE_GRADE``, never adjudicated) — no runway
-# role was ever in it.  With the family withdrawn the RUNWAY CROWN law is
-# the only drainage law this engine carries: ``transverse_surface_bounds``
-# above, bound by ``config.CROWN_MINIMUM_BOUND_RUNWAYS`` (owner d48bc0a).
+# ── §B3 — DRAINAGE MINIMUM (apron + groundside) ──────────────────────
+
+# ── §B3's GROUNDSIDE HALF — RETIRED (owner 2026-08-14) ───────────────
+# RULINGS 2026-08-14, "DRAINAGE RULING SCOPE CLARIFIED": what retires is
+# "ADDING drainage curvature (crown / minimum-slope requirements) to
+# TAXIWAY and ROAD pavement surfaces; those may be flat for the sim …
+# the drainage_minimum census family retires only where it demanded
+# curvature ON taxiway/road/groundside pavement surfaces."
 #
-# WHAT WAS HERE: ``_DRAINAGE_MIN_GROUNDSIDE_ROLES``,
-# ``drainage_minimum_grade``, ``drainage_minimum_band`` and
-# ``drainage_minimum_shortfall``.  Their only consumer in the whole tree
-# was ``tools/check_grade``'s §B3 walk (no emitter ever bound them), so
-# the retirement moves NO vertex — the GEOMETRY FREEZE is untouched.  The
-# census family retires with them (``check_grade.RETIRED_FAMILIES``).
+# So this set — the LANDSIDE PAVEMENT domain of §B3 — is EMPTY, by law.
+# ``groundside_pavement``, ``service_road`` and ``service_junction`` are
+# exactly the road-family surfaces the ruling exempts (the first grades at
+# the ROAD limit by owner ruling 2026-08-12, "it carries the same vehicles
+# the service road does"), and no taxiway role was ever in it.  The
+# PROVISIONAL 1.0 % ``config.GROUNDSIDE_MIN_DRAINAGE_GRADE`` — owner
+# question 3, version-deferred, never adjudicated — is the number that
+# stops binding; it stays in ``config`` with its research trail.
 #
-# THE RESEARCHED CONSTANTS STAY in ``config`` with their citations
-# (``GROUNDSIDE_MIN_DRAINAGE_GRADE``, its ``_PROVISIONAL`` flag and the
-# rulesets' apron minima): the owner withdrew the LAW, not the research
-# trail, and a later version that re-opens landside drainage should find
-# the numbers where the constants round left them rather than re-derive
-# them.
+# WHAT DID NOT RETIRE, and is untouched here (same ruling): the APRON half
+# below (FAA §5.9.1.1's cited 0.5 %), the DRAINAGE SPINE in enclosed areas
+# (``drainage_spine_envelope`` / ``DRAINAGE_SPINE_PARENT_ROLES``), the
+# DRAINAGE SLOPE on ADJACENT GROUND beside runways and taxiways
+# (``adjacent_ground_envelope`` and the strip/RSA bands), and the RUNWAY
+# CROWN (``transverse_surface_bounds`` under CROWN_MINIMUM_BOUND_RUNWAYS).
+#
+# THE SET IS KEPT, EMPTY, RATHER THAN DELETED — deliberately.  It is what
+# ``check_grade._DRAINAGE_MIN_ROLES`` derives from, and an empty set the
+# census still derives from states "the law grants this family no landside
+# surface" in the one place both halves read.  Deleting it would put the
+# apron-only walk back to naming its own roles — the hand-typed-tuple
+# shape that produced the original §B3 defect.
+#
+# HOW IT GOT HERE, because the difference is the whole point (S3 dossier;
+# RULINGS 2026-08-13b, "OTHH −639 ADJUDICATED: CENSUS BLINDNESS"): these
+# three roles were ALREADY absent from this walk — not by law, but because
+# the corridor round re-roled ~15.5 km of landside pavement perimeter out
+# of ``groundside_pavement`` into ``service_junction`` / ``service_road``
+# and the set named only the old role.  11,932 rows across the five
+# baseline airports went unread, and OTHH's −750 was quoted as an
+# improvement.  S7 half 1 restored them (aba74b7) so the count could be
+# READ; the owner then ruled the law away.  Zero-because-exempt and
+# zero-because-unread print the same number, and only one of them comes
+# from an instrument that works.
+#
+# DEAD LITERALS REMOVED (S7 audit, retained through the retirement).
+# ``groundside``, ``parking``, ``lot`` and ``curbside`` appear in no
+# ``layout.ROLE_*`` constant — this engine has never emitted any of them.
+# They were the civil sources' PROSE categories, not role values.
+_DRAINAGE_MIN_GROUNDSIDE_ROLES: frozenset = frozenset()
+
+
+def drainage_minimum_grade(role: str, ruleset=None,
+                           terrace_panel: bool = False,
+                           building_pad: bool = False):
+    """The MINIMUM fall a surface must carry toward its drainage edge, or
+    ``None`` where none binds.
+
+    * APRON family — FAA §5.9.1.1 Standards: "Provide a minimum 0.5
+      percent apron gradient".  ICAO §3.13.4 is qualitative and states NO
+      number, so the ICAO-side constant is ``None`` and this law is a
+      no-op at every ICAO airport (jurisdictional fidelity; a numeric
+      ICAO minimum would be MINTED, not cited).
+    * GROUNDSIDE / ROAD pavement — RETIRED (owner 2026-08-14, see the
+      block above).  The landside minimum was region-invariant and
+      PROVISIONAL (owner question 3, never adjudicated); the owner
+      answered it by withdrawing it, so
+      :data:`_DRAINAGE_MIN_GROUNDSIDE_ROLES` is empty and this function
+      returns ``None`` for every road-family surface.
+
+    EXCLUSIONS, named and twin-tested:
+    * ``building_pad`` — building-pad seats stay FLAT
+      (``TERMINAL_PADS_SLOPE=False`` is owner law).
+    * ``terrace_panel`` — the apron terrace law (owner 2026-08-04) makes
+      "level panels" lawful; whether a level panel must nevertheless
+      carry the 0.5 % drainage fall is OWNER QUESTION 4.  Until it is
+      answered the minimum does NOT bind inside a declared terrace panel.
+    """
+    if building_pad or terrace_panel:
+        return None
+    if role in _ADJACENT_APRON_ROLES:
+        return ruleset_apron_min_drainage_grade(ruleset)
+    if role in _DRAINAGE_MIN_GROUNDSIDE_ROLES:      # empty since 2026-08-14
+        return GROUNDSIDE_MIN_DRAINAGE_GRADE
+    return None
+
+
+def drainage_minimum_band(role: str, ruleset=None, **kw):
+    """``(min_grade, max_grade)`` — the full drainage BAND of a surface.
+
+    The upper bound is the surface's own within-shape cap
+    (``ROLE_GRADE_LIMITS``), so a stand under the FAA ruleset reads
+    ``[0.005, 0.010]`` — the §B3 pre-registration's "no stand exceeds
+    1.0 %" upper twin and the 0.5 % lower twin are ONE band, never two
+    laws that could disagree.
+    """
+    low = drainage_minimum_grade(role, ruleset, **kw)
+    high = ROLE_GRADE_LIMITS.get(role)
+    if high is None and role == "stand":
+        # ``stand`` is an apron sub-role with no ROLE_GRADE_LIMITS row of
+        # its own; its cap is the aircraft-stand maximum (ICAO §3.13.5 /
+        # FAA §5.9.2.1.1, both 1 %).
+        high = ruleset_stand_max_grade(ruleset)
+    if low is not None and high is not None and low > high:
+        # A minimum above the surface's own cap is a genuine
+        # contradiction — LOUD, never silently softened (feasibility is
+        # guaranteed; a real airport admits a lawful surface).
+        raise ValueError(
+            f"drainage minimum {low} exceeds the {role!r} cap {high} "
+            f"under ruleset {get_ruleset(ruleset).key!r}")
+    return (low, high)
 
 
 def apron_max_grade_change(ruleset=None):
     """FAA §5.9.1.3: maximum apron grade change 2 %.  ``None`` under
     ICAO, which states no number."""
     return ruleset_apron_max_grade_change(ruleset)
+
+
+def drainage_minimum_shortfall(grade: float, role: str, ruleset=None, **kw):
+    """How far below its drainage minimum a measured ``grade`` sits (0.0
+    when compliant or when no minimum binds) — the validator twin's one
+    reading, so emitter and census cannot disagree about what "too flat"
+    means."""
+    low = drainage_minimum_grade(role, ruleset, **kw)
+    if low is None:
+        return 0.0
+    return max(0.0, float(low) - abs(float(grade)))

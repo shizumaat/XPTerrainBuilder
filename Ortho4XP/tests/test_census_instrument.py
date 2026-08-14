@@ -224,13 +224,16 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
          wholly covered and the strict 1 % apron cap stands)       -> 3
       A2/A3/B1/B2 lie flat                                         -> 0
 
-    DRAINAGE_MINIMUM = ABSENT.  G1's a-b edge falls 0.1 m over 20 m =
-    0.5 %, which the retired §B3 family read as a shortfall against its
-    1 % groundside minimum.  The family is GONE (RULINGS 2026-08-13b,
-    "DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN"), so the row is not
-    reported as zero — the family does not appear in the census at all,
-    which is the point: a retired law must be distinguishable from a law
-    that found nothing.
+    DRAINAGE_MINIMUM = 0, and the family is PRESENT-and-zero.  G1's a-b
+    edge falls 0.1 m over 20 m = 0.5 %, which §B3's landside half read as
+    a shortfall against its 1 % minimum until that half RETIRED (RULINGS
+    2026-08-14: the family "retires only where it demanded curvature ON
+    taxiway/road/groundside pavement surfaces").  The APRON half survives
+    and is a no-op under this fixture's ICAO ruleset, so the family runs,
+    walks the aprons, and reports nothing.  ``tests/test_harness.py``
+    asserts the retired roles are absent from its walk — the difference
+    between this zero and the 2026-08-13b blindness zero is a register
+    entry, not a number.
 
     STACKED_NODES = 2.  A1 and G1 abut at x=20 with DISTINCT node ids at
     both shared corners: (20,0) holds 0.0 and 0.1, (20,20) holds 1.2 and
@@ -245,8 +248,7 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     of both pairs: 2 x 5 x 2 = 20.
     """
     assert _fam(report, "within_shape")["n"] == 14
-    assert not [f for f in report["families"]
-                if f["family"] == "drainage_minimum"]
+    assert _fam(report, "drainage_minimum")["n"] == 0
     assert _fam(report, "stacked_nodes")["n"] == 2
     # steps are reported AFTER the registered exemption (below)
     assert _fam(report, "vertex_to_edge_step")["n"] == 4
@@ -274,7 +276,7 @@ def test_the_side_split_and_the_airside_is_king_accounting(report):
     """AIRSIDE 26 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
     + 4 vertex-to-edge + 10 mid-edge apron steps.
     GROUNDSIDE 2 = G1's 2 within-shape rows (its drainage-minimum row
-    left with the retired family).
+    left with the retired landside half of §B3).
     MIXED 2 = the two stacked-node rows, apron against groundside.
 
     ``airside_for_acceptance`` APPLIES the owner ruling the old report
@@ -309,16 +311,20 @@ def test_the_worst_row_is_the_largest_magnitude_row(report):
 # ══════════════════════════════════════════════════════════════════════
 
 def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
-    """RULINGS d48bc0a: instruments report, the law adjudicates.  With
-    ``drainage_minimum`` RETIRED (RULINGS 2026-08-13b) the deferral
-    register is empty, so every row of this fixture is adjudicated:
-    ADJUDICATED = 30, verdict FAIL (a PASS requires zero adjudicated
-    rows).  The retired family contributes no row to EITHER number — the
-    split still partitions."""
+    """RULINGS d48bc0a: instruments report, the law adjudicates.  The one
+    version-deferred family is ``drainage_minimum``, still REGISTERED and
+    still reported under its own heading — but it now carries no row on
+    this fixture (its landside half retired 2026-08-14, and its apron half
+    is an ICAO no-op).  So ADJUDICATED = 30 - 0 = 30 and the verdict is
+    FAIL (a PASS requires zero adjudicated rows).
+
+    The deferral heading is printed with n=0 rather than dropped: a
+    deferred family that vanishes from the report when it happens to find
+    nothing is the census-wrapper defect in miniature."""
     adj = report["adjudication"]
     assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
     assert adj["deferred_total"] == 0
-    assert adj["deferred_families"] == {}
+    assert adj["deferred_families"]["drainage_minimum"]["n"] == 0
     assert adj["adjudicated_total"] == 30
     assert adj["adjudicated_by_side"] == {
         "airside": 26, "groundside": 2, "mixed": 2, "unknown": 0}
@@ -922,7 +928,7 @@ def test_the_band_error_case_still_names_the_error(report, census, capsys):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §7 THE ROAD FAMILY IS IN THE CENSUS'S DOMAIN (S7, the S3 verdict)
+# §10 THE ROAD FAMILY IS IN THE CENSUS'S DOMAIN (S7, the S3 verdict)
 # ══════════════════════════════════════════════════════════════════════
 # RULINGS 2026-08-13b, "OTHH −639 ADJUDICATED: CENSUS BLINDNESS": the
 # corridor round re-roled ~15.5 km of landside pavement perimeter out of
@@ -992,26 +998,33 @@ def test_every_road_row_is_reported_GROUNDSIDE(road_report):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# §8 THE DRAINAGE MINIMUM IS RETIRED — ZERO BY LAW, NOT BY BLINDNESS
+# §11 §B3's LANDSIDE HALF IS RETIRED — ZERO BY LAW, NOT BY BLINDNESS
 # ══════════════════════════════════════════════════════════════════════
-# RULINGS 2026-08-13b, "DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN":
-# "only runways get a crown, the rest can be flat for the sim".  The §B3
-# family covered aprons and landside pavement and no runway role, so it
-# retires whole and the runway crown law stands alone.
+# RULINGS 2026-08-14, "DRAINAGE RULING SCOPE CLARIFIED": what retires is
+# "ADDING drainage curvature (crown / minimum-slope requirements) to
+# TAXIWAY and ROAD pavement surfaces; those may be flat for the sim …
+# the drainage_minimum census family retires only where it demanded
+# curvature ON taxiway/road/groundside pavement surfaces."
 #
-# The distinction these twins exist to keep visible: a retired family
-# reports nothing because the LAW is gone, and a blind family reports
-# nothing because its WALK is empty.  The 2026-08-13b census-blindness
-# verdict is what the second one costs, so the first must be structural.
+# NOT retired, and measured here as well as in the law twins: the APRON
+# half (FAA §5.9.1.1), the drainage SPINE in enclosed areas, the drainage
+# slope on ADJACENT GROUND, and the runway crown.
+#
+# These twins exist because the two zeros are indistinguishable in the
+# output.  One week ago this family read zero on landside pavement
+# because its walk had gone blind (the 2026-08-13b verdict, 11,932 rows
+# across the five baseline airports); it reads zero there now because the
+# owner withdrew the law.  Only a test that pins WHICH surfaces are
+# walked can tell the round which zero it is holding.
 
 
-def test_a_FLAT_groundside_patch_censuses_no_drainage_row(cg, census,
-                                                          tmp_path):
-    """Three dead-flat landside surfaces — one per emitted groundside
-    pavement role.  Under §B3 this patch carried nine drainage-minimum
-    rows (three consecutive ring pairs per 20 m square, every one of them
-    0 % against a 1 % minimum).  It now carries none, and the family is
-    absent from the report rather than present-and-zero."""
+def test_a_FLAT_landside_patch_censuses_no_drainage_row(cg, census,
+                                                        tmp_path):
+    """Three dead-flat landside surfaces, one per emitted groundside
+    pavement role, under the FAA ruleset — the strictest frame, since the
+    landside minimum was region-invariant and would have bound under
+    both.  §B3 read nine rows here (three consecutive ring pairs per 20 m
+    square, every one 0 % against a 1 % minimum).  Zero now."""
     b = _PatchBuilder(cg)
     b.square_flat(0, 0, 20, 3.0, {"role": "groundside_pavement",
                                   "shapeID": "F1"})
@@ -1019,65 +1032,77 @@ def test_a_FLAT_groundside_patch_censuses_no_drainage_row(cg, census,
     b.square_flat(120, 0, 20, 3.0, {"role": "service_junction",
                                     "shapeID": "F3"})
     osm = b.write(tmp_path / "flat.patch.osm",
-                  {"anchor": list(ANCHOR), "ruleset": "icao"})
+                  {"anchor": list(ANCHOR), "ruleset": "faa"})
     rep = census.census_one(osm, cg, top=5)
+    assert _fam(rep, "drainage_minimum")["n"] == 0
     assert rep["lawtrue"]["total"] == 0
-    assert not [f for f in rep["families"]
-                if f["family"] == "drainage_minimum"]
     assert rep["adjudication"]["pass"] is True
 
 
-def test_a_FLAT_apron_censuses_no_drainage_row_under_the_FAA_ruleset(
-        cg, census, tmp_path):
-    """The apron half retires too.  FAA §5.9.1.1's 0.5 % apron gradient
-    was the one half of §B3 that bound under a real authority's number
-    (ICAO states none), so a flat apron under the FAA ruleset is the
-    strictest case the retirement has to answer for."""
+def test_a_FLAT_APRON_still_FAILS_under_the_FAA_ruleset(cg, census,
+                                                        tmp_path):
+    """The half that did NOT retire, and the twin that keeps the
+    retirement honest: if this ever reads zero, the census has lost the
+    apron half too and the "flat landside" zero above stops meaning
+    anything.
+
+    FAA §5.9.1.1 mandates a minimum 0.5 % apron gradient; the walk reads
+    three consecutive ring pairs on a 20 m square, so a dead-flat apron
+    is 3 rows, each a 0.5 % shortfall.  ICAO states no number, so the same
+    apron is lawful there — jurisdictional fidelity, unchanged."""
     b = _PatchBuilder(cg)
     b.square_flat(0, 0, 20, 3.0, {"role": "apron", "shapeID": "P1"})
-    osm = b.write(tmp_path / "flatapron.patch.osm",
+    faa = b.write(tmp_path / "apron_faa.patch.osm",
                   {"anchor": list(ANCHOR), "ruleset": "faa"})
-    rep = census.census_one(osm, cg, top=5)
-    assert rep["lawtrue"]["total"] == 0
+    rep = census.census_one(faa, cg, top=5)
+    assert _fam(rep, "drainage_minimum")["n"] == 3
+    assert rep["lawtrue"]["groundside"] == 0      # an apron is airside
+    assert rep["adjudication"]["deferred_total"] == 3, (
+        "the apron rows must stay VERSION-DEFERRED (RULINGS d48bc0a) — "
+        "the 2026-08-14 retirement withdrew a law, it did not adjudicate "
+        "the half that survived")
+
+    b2 = _PatchBuilder(cg)
+    b2.square_flat(0, 0, 20, 3.0, {"role": "apron", "shapeID": "P1"})
+    icao = b2.write(tmp_path / "apron_icao.patch.osm",
+                    {"anchor": list(ANCHOR), "ruleset": "icao"})
+    assert _fam(census.census_one(icao, cg, top=5),
+                "drainage_minimum")["n"] == 0
 
 
-def test_the_road_fixtures_drainage_rows_are_GONE_not_hidden(road_report):
-    """The §7 road fixture's four drainage rows — the ones the domain
+def test_the_road_fixtures_drainage_rows_are_GONE_by_LAW(road_report, cg):
+    """The §10 road fixture's four drainage rows — the ones the domain
     restoration made visible one commit earlier — are gone with the
-    family.  Its WITHIN-SHAPE rows are untouched: the restored domain
-    still stands, and what changed is which laws judge it."""
-    assert not [f for f in road_report["families"]
-                if f["family"] == "drainage_minimum"]
+    landside half.  Its WITHIN-SHAPE rows are untouched: the restored
+    domain still stands in every other family, and what changed is which
+    laws judge it.
+
+    The register is the record of which zero this is."""
+    assert _fam(road_report, "drainage_minimum")["n"] == 0
     assert _fam(road_report, "within_shape")["n"] == 2
+    entry = cg.RETIRED_LAWS["drainage_minimum::groundside"]
+    assert not (set(entry["roles"]) & set(cg._DRAINAGE_MIN_ROLES))
 
 
-def test_the_RUNWAY_CROWN_law_is_untouched_and_still_BINDS(cg):
-    """The surviving drainage law.  The retirement withdrew §B3 and
-    nothing else: runways still carry a MANDATORY-DOWN transverse band
-    (``grade_law.transverse_surface_bounds`` under
-    ``config.CROWN_MINIMUM_BOUND_RUNWAYS``, owner d48bc0a) and generation
-    may not emit a crown below the ruleset minimum.
+def test_the_laws_the_clarification_KEPT_are_still_census_families(cg):
+    """The 2026-08-14 clarification names three laws that do NOT retire.
+    Two of them are census families and must still be registered; the
+    third — the runway crown — is generation-bound with no census reader
+    at all, which this asserts rather than hides.
 
-    HONEST SCOPE, and the reason this twin reads the LAW rather than a
-    census: the crown minimum is GENERATION-bound (twins in
-    ``tests/test_crown_minimum_bound.py``) and has NO census reader.  A
-    runway emitted dead flat against a declared 0.30 m crown drop
-    censuses ZERO rows — the within-shape crown check judges deviation
-    from the designed crown against the runway's own transverse cap
-    allowance, and the designed crown always sits inside it by
-    construction (1 % crown vs a 1.5 % cap).  Reported to the round:
-    with §B3 retired the crown law is the only drainage law, and the
-    census cannot see it.
+    HONEST SCOPE.  A runway emitted dead flat against a declared 0.30 m
+    crown drop censuses ZERO rows: the within-shape crown check judges
+    deviation from the DESIGNED crown against the runway's own transverse
+    cap allowance, and a 1 % crown sits inside a 1.5 % cap by
+    construction.  The crown minimum is bound where it is generated
+    (``tests/test_crown_minimum_bound.py``).  Reported to the round as an
+    open item — it is not this lane's to build.
     """
-    import auto_patch.grade_law as GL
-
-    assert GL.transverse_minimum_binds("runway") is True
-    for ruleset in ("faa", "icao"):
-        low = GL.transverse_minimum_for_role("runway", ruleset)
-        assert low == 0.010
-        lo, hi = GL.transverse_surface_bounds("runway", "F", 30.0, ruleset)
-        assert hi == pytest.approx(-float(low) * 30.0)   # mandatory DOWN
-        assert GL.runway_crown_rate(ruleset) >= float(low)
-    assert not hasattr(GL, "drainage_minimum_grade"), (
-        "the retired §B3 law functions are still importable — a retired "
-        "law with live functions invites a reader to re-arm it")
+    registered = {k for k, _t, _b in cg.LAW_FAMILIES}
+    assert "drainage_spine" in registered      # enclosed-area water escape
+    assert "adjacent_ground_tear" in registered   # adjacent-ground slope
+    assert "strip_seam_tear" in registered
+    assert not any("crown" in k for k in registered), (
+        "a runway-crown census family appeared — if a reader was built, "
+        "this twin's honest-scope docstring is now wrong and the frame "
+        "report's open item must be closed")

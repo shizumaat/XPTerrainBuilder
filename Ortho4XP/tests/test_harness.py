@@ -180,99 +180,27 @@ def test_every_version_deferred_family_is_a_registered_family(cg):
     verdict would look adjudicated-clean while the rows kept counting — and a
     deferred key that was silently DROPPED instead of reported is the
     census-wrapper defect.  Both halves are pinned here.
-
-    The register is EMPTY today and that is lawful — see the retirement
-    twins below, which is the ONLY way a key may leave it.
     """
     registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
     assert set(cg.VERSION_DEFERRED_FAMILIES) <= registered, (
         f"version-deferred key(s) "
         f"{sorted(set(cg.VERSION_DEFERRED_FAMILIES) - registered)} name no "
         f"law family — the deferral would exclude nothing")
+    assert cg.VERSION_DEFERRED_FAMILIES, (
+        "the deferral register is empty; RULINGS d48bc0a defers the interior "
+        "drainage-minimum family — an empty register silently re-adjudicates "
+        "it")
     for why in cg.VERSION_DEFERRED_FAMILIES.values():
         assert cg.DEFERRED_ADJUDICATION_RULING in why, (
             "every deferral must carry its owner-ruling citation in the "
             "text the reports print")
 
 
-def test_a_family_leaves_the_deferral_register_only_by_ADJUDICATION_or_RETIREMENT(
-        cg):
-    """The empty deferral register is a RULING, not an oversight.
-
-    ``drainage_minimum`` was the register's one member (RULINGS d48bc0a,
-    "Drainage scope for this version").  It did not become adjudicated: it
-    RETIRED — RULINGS 2026-08-13b, "DRAINAGE MINIMUM RETIRES — ONLY
-    RUNWAYS CROWN" ("only runways get a crown, the rest can be flat for
-    the sim").  Those are the only two exits, and both leave a record: an
-    adjudicated family stays in ``LAW_FAMILIES`` and its rows start
-    counting; a retired one leaves ``LAW_FAMILIES`` and lands in
-    ``RETIRED_FAMILIES`` with its ruling.  A key that vanished from both
-    registers would silently re-adjudicate a deferred family — the exact
-    accounting the deferral register was built to prevent.
-    """
-    registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
-    assert "drainage_minimum" in cg.RETIRED_FAMILIES, (
-        "the version-deferred drainage-minimum family left the deferral "
-        "register with no retirement record")
-    for key, why in cg.RETIRED_FAMILIES.items():
-        assert key not in registered, (
-            f"{key!r} is RETIRED but still registered in LAW_FAMILIES — a "
-            f"retired family that still runs reports zero out of an EMPTY "
-            f"WALK, which is indistinguishable from a compliant surface")
-        assert key not in cg.VERSION_DEFERRED_FAMILIES, (
-            f"{key!r} is both deferred and retired")
-        assert cg.RETIRED_FAMILY_RULING in why, (
-            "every retirement must carry the owner ruling that withdrew it")
-
-
-def test_a_retired_family_is_in_no_walk_no_register_and_no_report(cg):
-    """RETIREMENT IS STRUCTURAL, not a zero.
-
-    The §B3 history is why: "an empty walk and a compliant walk report the
-    same zero".  A family the owner withdrew must therefore be UNABLE to
-    report — no check function, no walk set, no emission position — rather
-    than running over an empty domain and printing 0.
-    """
-    src = inspect.getsource(cg)
-    for key in cg.RETIRED_FAMILIES:
-        assert f"def _check_{key}(" not in src, (
-            f"the retired family {key!r} still has a check function")
-        assert f'_fam("{key}"' not in src, (
-            f"the retired family {key!r} is still emitted by run_checks")
-    family_out: dict = {}
-    cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True, family_out=family_out)
-    assert not (set(cg.RETIRED_FAMILIES) & set(family_out)), (
-        "a retired family reported into family_out")
-    rows = [(k, object()) for k in cg.RETIRED_FAMILIES]
-    adj = cg.adjudication(rows)
-    assert not adj["deferred_families"], (
-        "a retired family must not reappear through the deferral register")
-
-
-@pytest.fixture
-def deferred_key(cg, monkeypatch):
-    """A SYNTHETIC deferral for the twins below.
-
-    ``VERSION_DEFERRED_FAMILIES`` is empty since the drainage minimum
-    retired, but the deferral MACHINERY has to keep working for the next
-    deferral the owner grants — so these twins run against an injected
-    entry instead of being deleted along with the family they happened to
-    be written against.
-    """
-    # NOT ``within_shape``: the twins below use that as their
-    # deliberately-not-deferred control family.
-    key = next(k for k, _t, _b in cg.LAW_FAMILIES if k != "within_shape")
-    monkeypatch.setattr(cg, "VERSION_DEFERRED_FAMILIES", {
-        key: f"SYNTHETIC deferral, twin fixture only "
-             f"(RULINGS {cg.DEFERRED_ADJUDICATION_RULING})"})
-    return key
-
-
-def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(
-        cg, deferred_key):
+def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(cg):
     """The split must PARTITION: adjudicated + deferred = every row.  A
     deferral that quietly removed rows from BOTH numbers would be the
     'quarantine' the owner outlawed wearing an accounting hat."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     other = next(k for k, _t, _b in cg.LAW_FAMILIES
                  if k not in cg.VERSION_DEFERRED_FAMILIES)
 
@@ -712,6 +640,79 @@ def test_every_role_a_census_WALK_names_is_a_role_the_engine_EMITS(cg):
         f"census walks name role literals the engine never emits: "
         f"{unreachable}.  An unreachable literal is not coverage — it is "
         f"the fix-cycle-2 item-5 defect (verdict (d), BROKEN INSTRUMENT)")
+
+
+def test_every_retired_law_really_left_its_familys_walk(cg):
+    """RETIREMENT IS RECORDED, AND THE RECORD IS CHECKED.
+
+    A law the owner withdraws stops producing rows — and so does a walk
+    that goes blind.  The output is the same zero, which is how §B3's
+    landside half lost 11,932 rows across the five baseline airports
+    without anyone noticing (RULINGS 2026-08-13b).  Days later the owner
+    withdrew that same half (RULINGS 2026-08-14, "DRAINAGE RULING SCOPE
+    CLARIFIED").  ``check_grade.RETIRED_LAWS`` is the difference between
+    those two zeros, and this asserts the register is TRUE rather than
+    decorative: the surfaces it says were withdrawn are really absent
+    from the family's walk, and the family it names is really a family.
+
+    Note the key shape: a retired law may be one HALF of a family's
+    domain (the apron half of ``drainage_minimum`` did NOT retire), so
+    these keys are deliberately not family keys.
+    """
+    registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
+    assert cg.RETIRED_LAWS, (
+        "the retirement register is empty; RULINGS 2026-08-14 withdrew "
+        "the landside half of the drainage minimum — an empty register "
+        "makes that zero indistinguishable from a blind walk")
+    for key, entry in cg.RETIRED_LAWS.items():
+        fam = entry["family"]
+        assert fam in registered or fam is None, (
+            f"{key!r} names {fam!r}, which is no law family")
+        assert cg.RETIRED_LAW_RULING in entry["why"], (
+            f"{key!r} carries no owner ruling")
+        assert entry["roles"], f"{key!r} withdraws no surface"
+        # THE FAMILY'S OWN WALK, found from ITS OWN SOURCE — never a
+        # hand-written pointer in the register, which would be one more
+        # copy to drift.  Scoped to that walk on purpose: these roles are
+        # retired from ONE law, and they must stay in every other
+        # family's domain (asserted by the twin below).
+        fn = getattr(cg, f"_check_{fam}", None)
+        assert fn is not None, (
+            f"{key!r} names family {fam!r} but there is no _check_{fam} to "
+            f"read a walk set out of — the register cannot be checked")
+        src = inspect.getsource(fn)
+        names = set(re.findall(
+            r"\.role\s+(?:not\s+)?in\s+([A-Za-z_][A-Za-z_0-9]*)", src))
+        assert names, f"_check_{fam} walks no role set"
+        for name in sorted(names):
+            roles = getattr(cg, name, None)
+            if not isinstance(roles, (set, frozenset)):
+                continue
+            still = sorted(set(entry["roles"]) & set(roles))
+            assert not still, (
+                f"{key!r} calls {still} RETIRED, but its own walk "
+                f"check_grade.{name} still reads them — a withdrawn law "
+                f"that keeps firing")
+
+
+def test_the_retired_landside_roles_are_still_READ_by_the_other_families(cg):
+    """The retirement must not be allowed to re-import the blindness.
+
+    ``service_road`` / ``service_junction`` / ``groundside_pavement``
+    leave the DRAINAGE walk by law.  They must stay in every other
+    family's domain — that is the S7 half-1 restoration, and it is what
+    makes the drainage zero readable as a law and not as a symptom.
+    """
+    import auto_patch.layout as LAY
+
+    retired = set(cg.RETIRED_LAWS["drainage_minimum::groundside"]["roles"])
+    assert retired <= set(LAY.GROUNDSIDE_ROLES)
+    assert retired <= set(cg._GROUNDSIDE_ROLES), (
+        "a retired-from-drainage role fell out of the SIDE partition too")
+    assert retired <= set(cg._STRIP_PAVEMENT_ROLES), (
+        "a retired-from-drainage role fell out of the strip weld domain")
+    assert set(cg._ROAD_FAMILY_ROLES) <= retired | {"service_road",
+                                                    "service_junction"}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -3145,11 +3146,11 @@ def test_the_band_edges_are_configurable_and_validated(census_mod, cg):
             census_mod.parse_band_edges(bad)
 
 
-def test_the_bands_carry_the_laws_own_deferred_split(
-        census_mod, cg, deferred_key):
+def test_the_bands_carry_the_laws_own_deferred_split(census_mod, cg):
     """Instruments report, the law adjudicates (RULINGS d48bc0a).  A band
     table that folded the version-deferred rows into its counts would
     re-adjudicate them in a footnote."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     other = next(k for k, _t, _b in cg.LAW_FAMILIES
                  if k not in cg.VERSION_DEFERRED_FAMILIES)
     rows = [(deferred_key, _BandRow(0.5)), (other, _BandRow(0.5)),
@@ -4755,11 +4756,11 @@ def test_the_per_site_splits_agree_with_the_reports_own(census_mod, cg,
             f"site family {key!r} is not a registered law family")
 
 
-def test_the_adjudication_split_per_site_is_the_laws_own(
-        census_mod, cg, deferred_key):
+def test_the_adjudication_split_per_site_is_the_laws_own(census_mod, cg):
     """A site's adjudicated / deferred / out-of-scope counts come from
     ``check_grade.adjudication`` applied to that site's own rows — never a
     second copy of the deferred register (RULINGS d48bc0a)."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     rows = [(deferred_key, _SiteRow(0.5, "-9", "-9", (0.0, 0.0), (5.0, 0.0))),
             ("within_shape", _SiteRow(0.5, "-8", "-8", (99.0, 0.0),
                                       (105.0, 0.0)))]
@@ -5032,12 +5033,12 @@ def test_a_site_under_the_floor_is_sub_floor_and_over_it_is_actionable(
     assert (sec2["sites_actionable"], sec2["sites_sub_floor"]) == (1, 0)
 
 
-def test_the_accumulation_is_funded_by_adjudicated_rows_only(
-        census_mod, cg, deferred_key):
+def test_the_accumulation_is_funded_by_adjudicated_rows_only(census_mod, cg):
     """A version-deferred or out-of-scope row is NOT a defect (RULINGS
     d48bc0a, and the 2026-08-06 ONE-graph classes).  It may not push a site
     over the floor — that would let a deferred family mint actionability
     for a family that has none."""
+    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     rows = _graded(3, grade=1.5, excess=0.5, dist=20.0)
     padding = [(deferred_key,
                 _FloorRow(de=9.0, grade=1.5, excess=0.5, dist=1000.0,

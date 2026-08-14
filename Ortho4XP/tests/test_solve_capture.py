@@ -319,3 +319,90 @@ def test_a_synthetic_airport_replays_byte_identically(tmp_path):
     assert body_sha256(replayed) == body_sha256(built), (
         "the replayed body differs from the built body — the solve stage "
         "is not fully captured at its boundary")
+
+
+# ── capture v2: the DEM-derived boundary state (finalarch item 3) ────
+
+def test_v1_dem_leak_class_refuses_missing_dem_cache(tmp_path):
+    """A state blob with every v1 key but no ``dem_cache`` refuses —
+    the RULINGS 2026-08-14 boundary-leak class: a replay that
+    default-fills DEM state is a different solve wearing the capture's
+    name."""
+    import gzip
+    import hashlib
+    import pickle
+    from auto_patch import solve_capture as sc
+
+    d = tmp_path / "cap"
+    d.mkdir()
+    state = {k: None for k in sc.PICKLED_KEYS + sc.SCALAR_KEYS}
+    blob = d / sc.STATE_NAME
+    with gzip.open(blob, "wb") as fh:
+        pickle.dump(state, fh)
+    sha = hashlib.sha256(blob.read_bytes()).hexdigest()
+    (d / sc.MANIFEST_NAME).write_text(json.dumps({
+        "capture_version": sc.CAPTURE_VERSION, "icao": "ZZZZ",
+        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}))
+    with pytest.raises(sc.CaptureError, match="dem_cache"):
+        sc.load_capture(d)
+
+
+def test_the_capture_version_is_2_or_later():
+    """v1 captures pre-date the DEM-state fix; the version constant is
+    the refusal that keeps every one of them out."""
+    from auto_patch import solve_capture as sc
+    assert sc.CAPTURE_VERSION >= 2
+    assert "dem_cache" in sc.STATE_KEYS
+
+
+def test_load_capture_installs_the_captured_dem_and_the_build_root(tmp_path):
+    """THE LEAK, closed: the replay's ``_load_airport_dem`` must return
+    the BUILD's composed DEM, and flat-site pack reads must resolve
+    against the BUILD's X-Plane root — never whatever the shared caches
+    and module state hold at replay time."""
+    import gzip
+    import hashlib
+    import pickle
+    from auto_patch import solve_capture as sc
+    from auto_patch import elevation as EL
+    from auto_patch import flat_site_mode as FSM
+    from auto_patch.constant_dem import ConstantDEM
+    from auto_patch.layout import PavementLayout
+
+    lay = PavementLayout("ZZZZ", (-12.5, -77.5))
+    sentinel = ConstantDEM(123.0)
+    state = {k: None for k in sc.PICKLED_KEYS + sc.SCALAR_KEYS}
+    state.update(layout=lay, icao="ZZZZ", xplane_root=str(tmp_path / "xp"),
+                 compute_elevations=True, nodes={}, ways=[],
+                 apron_candidates=[], tile_dem=None,
+                 current_tile_lat=-13, current_tile_lon=-78,
+                 _n_strip=0, _build_started_at=0.0,
+                 dem_cache={(-13, -78): sentinel})
+    d = tmp_path / "cap"
+    d.mkdir()
+    blob = d / sc.STATE_NAME
+    with gzip.open(blob, "wb") as fh:
+        pickle.dump(state, fh)
+    sha = hashlib.sha256(blob.read_bytes()).hexdigest()
+    (d / sc.MANIFEST_NAME).write_text(json.dumps({
+        "capture_version": sc.CAPTURE_VERSION, "icao": "ZZZZ",
+        "state_file": sc.STATE_NAME, "state_sha256": sha, "env": {}}))
+
+    old_cache = dict(EL._DEM_CACHE)
+    old_root = FSM.build_xplane_root()
+    try:
+        EL._DEM_CACHE.pop((-13, -78), None)
+        tail, _manifest = sc.load_capture(d)
+        # The tail is exactly the boundary kwargs — no state key leaks in.
+        assert set(tail) == set(sc.PICKLED_KEYS + sc.SCALAR_KEYS
+                                + sc.DERIVED_KEYS)
+        # The captured DEM is what the memoised loader now returns.
+        got = EL._load_airport_dem(-12.5, -77.5)
+        assert got is EL._DEM_CACHE[(-13, -78)]
+        assert float(got.alt((-12.5, -77.5))) == 123.0
+        # And the build's root is recorded for the flat-site pack reads.
+        assert FSM.build_xplane_root() == str(tmp_path / "xp")
+    finally:
+        EL._DEM_CACHE.clear()
+        EL._DEM_CACHE.update(old_cache)
+        FSM.set_build_xplane_root(old_root)

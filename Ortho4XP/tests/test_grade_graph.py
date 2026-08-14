@@ -896,3 +896,53 @@ def test_specs_memo_is_scoped_to_one_layout(monkeypatch):
     GG.centerline_specs(b)
     assert len(calls) == 2
     assert a._cls_specs_memo[0] != b._cls_specs_memo[0]
+
+
+# ── the per-ctx CONTENT key (finalarch item 2, RULINGS 2026-08-14) ───
+
+def test_per_ctx_memo_cannot_collide_on_a_recycled_polygon_id():
+    """THE DEFECT CLASS, as a twin.  The historical per-ctx key was
+    ``(id(s.polygon), role, ring_only)``; a ctx carried across the
+    freeze→solve gap let a RECYCLED id serve one shape another shape's
+    pairs (measured at HECA: within_shape 3,764 → 5,629, worst 431 %).
+    Same ``polygon_key``, different ring ⇒ two distinct answers."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    ctx = _two_builds_ctx(lay)
+    a = GG.shape_constraints_cached(123, _run_shape(), ctx)
+    base = _run_shape()
+    moved = GG.GradeShape(role=base.role, keys=list(base.keys),
+                          ring=[(x, y + 7.0) for (x, y) in base.ring])
+    b = GG.shape_constraints_cached(123, moved, ctx)
+    assert b is not a, (
+        "a recycled polygon id served one shape another shape's "
+        "constraint pairs — the per-ctx memo is keyed by identity again")
+
+
+def test_per_ctx_memo_hits_by_content_never_by_object_identity():
+    """The freeze→solve collapse's enabling property: the SAME shape
+    presented under two different polygon ids (two graph builds of one
+    frozen layout) is ONE computation."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    ctx = _two_builds_ctx(lay)
+    a = GG.shape_constraints_cached(111, _run_shape(), ctx)
+    b = GG.shape_constraints_cached(222, _run_shape(), ctx)
+    assert b is a, (
+        "two spellings of one shape recomputed — the published frozen "
+        "ctx cannot be build-once-read-many under this key")
+
+
+def test_per_ctx_memo_key_is_sensitive_to_the_gradeshape_flags():
+    """The gate-off ``adopts_*`` flags are IN the key: two GradeShapes
+    that differ only there must not share an answer (the old id key let
+    whichever consumer ran first fix the answer for both)."""
+    lay = _RunLayout()
+    lay._sc_run_memo = {}
+    ctx = _two_builds_ctx(lay)
+    base = _run_shape()
+    a = GG.shape_constraints_cached(1, base, ctx)
+    flagged = GG.GradeShape(role=base.role, ring=list(base.ring),
+                            keys=list(base.keys), adopts_apron_grade=True)
+    b = GG.shape_constraints_cached(1, flagged, ctx)
+    assert b is not a

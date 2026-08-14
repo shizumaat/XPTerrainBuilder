@@ -336,6 +336,10 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
     and a part is a pad candidate when ``|residual| > residual_floor_m``.
     A group's target is the MEDIAN of its parts' rendered bases, exactly
     as the rebake's, so the pad still asks terrain for the least it can.
+    Beside it the group carries ``ground_reference_metres`` — the median
+    of the SAME parts' ``surface_ground_at`` values — which is THE ONE
+    reference ``maximum_relief_metres`` is measured against, here and in
+    every downstream reader.
 
     THE GROUPING IS THE RING LAW'S (``object_footprints.foot_pad_rings``):
     the candidate parts' contact hulls are dilated and unioned and each
@@ -399,11 +403,12 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                 continue
             residual = base - float(part_ground)
             if abs(residual) > residual_floor_m:
-                candidates.append((part, base, residual))
+                candidates.append((part, base, residual,
+                                   float(part_ground)))
         if not candidates:
             continue
 
-        hulls = [list(hull) for part, _base, _residual in candidates
+        hulls = [list(hull) for part, _base, _residual, _ground in candidates
                  for hull in part.contact_parts_lonlat if hull]
         rings = object_footprints.foot_pad_rings(hulls, margin_metres)
         if not rings:
@@ -424,7 +429,7 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
             polygons.append(polygon)
 
         members: dict[int, list] = {}
-        for part, base, residual in candidates:
+        for part, base, residual, ground in candidates:
             hull = next((h for h in part.contact_parts_lonlat if h), None)
             if not hull:                          # pragma: no cover
                 continue
@@ -433,7 +438,7 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
             for ring_index, polygon in enumerate(polygons):
                 if polygon is not None and polygon.covers(point):
                     members.setdefault(ring_index, []).append(
-                        (part, base, residual))
+                        (part, base, residual, ground))
                     break
 
         for ring_index, ring in enumerate(rings):
@@ -446,7 +451,7 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                 findings.append(("pad_ring_unclaimed", str(structure_index),
                                  0.0, 0.0, ""))
                 continue
-            worst_part, _worst_base, worst_residual = max(
+            worst_part, _worst_base, worst_residual, _worst_ground = max(
                 group, key=lambda row: (abs(row[2]), row[0].part_key))
             anchor = frame.anchor_by_resource.get(worst_part.base_resource)
             if anchor is not None and ring_covers_its_own_datum(
@@ -460,6 +465,26 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                     worst_part.base_resource, abs(worst_residual), 0.0,
                     f"{anchor.latitude:.5f},{anchor.longitude:.5f}"))
                 continue
+            target = _median(
+                [base for _part, base, _residual, _ground in group])
+            # THE PAD'S OWN GROUND (RULINGS "PAD RELIEF CAP MEASURES
+            # AGAINST THE PAD'S OWN GROUND, NEVER RAW DEM", Fable
+            # 2026-08-14).  The cap asks "how far above the ground it
+            # ADJOINS may this pad stand", and the ground it adjoins is
+            # the one the emission path already evaluated under this
+            # group's parts — ``surface_ground_at``, the same two-
+            # authority rule (patch where the patch authors, ambient DEM
+            # where it does not) that produced the residual.  It is the
+            # MEDIAN, paired with the median target, so the two numbers
+            # the cap compares are the same statistic over the same
+            # parts; a single-part group's relief is then exactly its
+            # residual.  Nothing here re-evaluates a field: the value is
+            # carried on the request and every downstream reader — the
+            # emitter's admissibility test and the verifier's — consumes
+            # THIS number (the one-solve doctrine; a raw-DEM reference
+            # anywhere is the two-instruments defect this closes).
+            ground_reference = _median(
+                [ground for _part, _base, _residual, ground in group])
             requests.append({
                 "kind": "cluster",
                 "structure_index": structure_index,
@@ -469,9 +494,17 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                 "longitude": worst_part.longitude,
                 "base_y": worst_part.base_y,
                 "residual_metres": worst_residual,
-                "target_ground_metres": _median(
-                    [base for _part, base, _residual in group]),
+                "target_ground_metres": target,
+                "ground_reference_metres": ground_reference,
                 "part_count": len(group),
+                # UNCHANGED, and deliberately NOT folded into the cap's
+                # re-frame: this flag is the WORST PART's own residual
+                # against the ground under IT — already an in-run,
+                # local-ground measurement, and a different question from
+                # "how far does the pad stand over its own ground" (a
+                # group can have a within-cap median target and one part
+                # still floating far above it).  Re-framing the reference
+                # is this lane's charter; widening admissibility is not.
                 "over_relief_cap": (
                     abs(worst_residual) > maximum_relief_metres),
                 "ring_index": ring_index,

@@ -710,15 +710,11 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
 
     margin = float(DSF_OBJECT_FOOT_PAD_MARGIN_M)
     ll_to_m = layout.ll_to_m
-    m_to_ll = layout.m_to_ll
 
-    def dem_at(x: float, y: float):
-        try:
-            lat, lon = m_to_ll(x, y)
-            return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
-        except _PAD_EXC:                          # pragma: no cover
-            return None
-
+    # (The metre-frame DEM sampler that used to live here — the relief
+    # cap's raw-DEM reference — is GONE with the re-frame: the ambient DEM
+    # is now reached only through ``surface_at`` below, as the second half
+    # of the pad's own two-authority ground.)
     ground_field = field_from_layout(layout)
 
     def patch_at(latitude: float, longitude: float):
@@ -795,18 +791,31 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
 
         target = float(spec.get("target_ground_metres") or 0.0)
         cx, cy = outer.centroid.x, outer.centroid.y
-        ground = dem_at(cx, cy)
         at = _ll(layout, cx, cy)
+        # THE PAD'S OWN GROUND, NEVER RAW DEM (RULINGS, Fable 2026-08-14).
+        # The request carries the ground the emission path evaluated under
+        # this pad's own parts — the patch where the patch authors, ambient
+        # DEM where it does not.  It is READ here, never re-evaluated: a
+        # second sampler (this was ``dem_at`` at the ring centroid) is a
+        # second instrument, and at HECA our own solved apron stands tens
+        # of metres off raw DEM, so that instrument refused 3,855 of ~3,910
+        # requests for standing where the objects correctly stand.
+        ground = spec.get("ground_reference_metres")
         if ground is None:
-            findings.append(("pad_off_dem", key, 0.0, 0.0, at))
+            findings.append(("pad_ground_unhosted", key, 0.0, 0.0, at))
             continue
+        ground = float(ground)
         relief = object_pad_relief_m(target, ground)
 
-        # §5.1 clause 1 — THE RELIEF CAP.  An over-cap pad is REFUSED with
-        # its measured numbers; the requesting cluster keeps its residual.
-        # The producer's own over-cap flag (measured against the MESH at
-        # rebake time) refuses here too: two independent measurements, and
-        # either one condemning the pad is enough.
+        # §5.1 clause 1 — THE RELIEF CAP, re-framed.  An over-cap pad is
+        # REFUSED with its measured numbers; the requesting cluster keeps
+        # its residual and takes the y-bake path.  The frame's own
+        # ``over_relief_cap`` still refuses beside it, unchanged: that one
+        # is the WORST PART's residual against the ground under IT — also
+        # an in-run local measurement, and a different question from this
+        # one (a pad whose median target sits within the cap can still
+        # carry a part floating far above it).  Neither reads raw DEM any
+        # more, which is the whole of the re-frame.
         if (not object_pad_admissible(target, ground,
                                       DSF_OBJECT_PAD_MAX_RELIEF_M)
                 or bool(spec.get("over_relief_cap"))):
@@ -959,6 +968,11 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
             "longitude": spec.get("longitude"),
             "base_y": spec.get("base_y"),
             "target_ground_metres": target,
+            # THE CAP'S REFERENCE, recorded with the pad it governed, so
+            # the verifier holds the cap on the EMITTED target against the
+            # same ground the emitter used instead of re-sampling a raster
+            # (lockstep, ruling R5).
+            "ground_reference_metres": round(ground, 3),
             "emitted_target_metres": round(pulled_target, 3),
             "blend_width_m": round(blend_width, 4),
             "relief_metres": round(relief, 3),

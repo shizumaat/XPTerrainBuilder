@@ -1316,3 +1316,110 @@ provisioning that tile's cfg (unchanged since step 1); and the R19-3
 weld to reconcile — it adopted 3 of 55 groups in both arms and is a
 candidate for the same retirement, but retiring it is a design decision
 this lane did not take.
+
+---
+
+## S5c — PAD RELIEF CAP RE-FRAME (lane/s5cap, 2026-08-14): **STOPPED at the ruling's own pre-registered gate**
+
+RULINGS "PAD RELIEF CAP MEASURES AGAINST THE PAD'S OWN GROUND, NEVER RAW
+DEM" (Fable 2026-08-14) moved `DSF_OBJECT_PAD_MAX_RELIEF_M`'s reference
+off raw DEM and pre-registered a STOP: *if the re-framed population shows
+pads standing far above their LOCAL ground at real sites (tower-class
+artifacts), stop with the sites.*  **It fires.**  The mechanism is built,
+twinned and green; it is NOT merged.
+
+**WHAT LANDED (lane/s5cap, not merged).**  The reference is the value the
+emission path already computed: `object_frame.pad_requests_from_frame`
+carries `ground_reference_metres` (the MEDIAN of the group's parts'
+`surface_ground_at` — patch where the patch authors, ambient DEM where it
+does not, the same two-authority rule the requests use), the emitter
+READS it instead of sampling the DEM at the ring centroid (`dem_at` is
+gone), records it beside the pad, and `verification.check_object_pads`
+holds the cap on the emitted target against that same recorded number.
+`grade_law.object_pad_relief_m` / `_admissible` keep their signature and
+VALUE; only their reference is re-worded.  The frame's own
+`over_relief_cap` flag (the WORST PART's residual against the ground under
+IT) is deliberately UNCHANGED and still refuses beside the re-framed cap:
+it is already an in-run local measurement, and folding it in would widen
+admissibility, which is not this lane's charter.  **That choice is owed a
+Fable ruling** — it is why the population moved by 10 and not by 3,846.
+
+**THE MEASUREMENT (HECA `--tile 30 31`, control `s5capctl` at `1faf907`
+body `934b939c12b4`, arm `armtile1/2` body `d119f84cf8db`).**
+
+| | control | arm |
+|---|---:|---:|
+| pads SERVED (records / shapes) | 55 / 59 | **65 / 69** |
+| pad requests REFUSED (verify) | 3856 (worst 38.61 m) | **3846** (worst 37.76 m) |
+| pad law disagreements | 485 | 484 |
+| `.obj` files re-baked (acceptance (b)) | 372 | **372** |
+
+**PREMISE REFUTED.**  The S5v3-c2 entry attributed the 3,855 refusals to
+the raw-DEM reference.  With that reference GONE, **3,846 are still
+refused** — by the frame's residual test against the pad's OWN in-run
+ground.  The binding constraint was never the DEM; it is that HECA's
+shared-datum objects render tens of metres above the ground under their
+parts.  Acceptance (b) is therefore UNMOVED (372 → 372): the 10 newly
+served objects are still y-baked, so pack-pristine is not approached by
+this change either.
+
+**THE STOP, with its sites.**  Local relief of every SERVED pad shape
+(|emitted altitude − its own ground at the plate|, read with production's
+`patch_ground` + `_sample_dem`; approximation stated: evaluated at the
+plate's representative point, where the emitter evaluated it under the
+request's PARTS):
+
+| | control | arm |
+|---|---:|---:|
+| p50 / p90 / max (m) | 1.090 / 2.737 / 9.373 | 1.407 / **7.283** / 9.373 |
+| shapes over the 3.00 m cap against their own local ground | 1 of 59 | **11 of 69** |
+
+All EIGHT new pads sit in ONE cluster on HECA's western apron —
+30.10883,31.38706 · 30.10918,31.38772 · 30.10951,31.38906 ·
+30.10953,31.38915 · 30.10953,31.38917 · 30.10955,31.38926 ·
+30.10955,31.38928 · 30.10957,31.38937 · 30.10958,31.38939 ·
+30.10960,31.38948 — emitted at 99.4–100.6 m over ambient ground of
+92.3–93.6 m, i.e. **+5.6 to +8.0 m plates with a gap (no blend annulus
+survives weld-or-gap) at their edge**.  The mechanism is exact: the
+objects' parts stand on our SOLVED pavement, so the cap's reference is
+the pavement's value, while the plate itself is CLIPPED out of that
+pavement and lands on the ambient ground beside it.  Pedestals, not
+towers, but the same class the STOP names.  The control's single
+over-cap shape (−9.373 m at 30.11591,31.40881) is pre-existing and
+present in both arms.
+
+**OTHH** (airport arm only — `--tile 25 51` is still blocked on the
+owner provisioning that tile's cfg): 145 → **146** pads (182 → 184
+shapes); local relief p50 0.545 → 0.547, p90 3.139 → 3.127, max 4.368
+unchanged, 20 over-cap shapes in BOTH arms.  No new class.
+
+**DETERMINISM.**  Two SEQUENTIAL HECA tile arms produced a
+**byte-identical** DSF (`90f00b8a53f4…`) — the ratchet stays dead under
+the bigger population.
+
+**CENSUS** (harness `census.py`, same reader both sides, control body
+`934b939c12b4`): LAW-TRUE **7067 → 7070 (+3)**, airside_for_acceptance
+1734 → 1737.  Row-level (`census_rows_diff.py`): 7067 EXACT, 0 GONE, 3
+NEW, all `within_shape::apron|apron` AIRSIDE — |de| 1.690/1.690/0.080 m,
+grades 1.535 %/1.535 %/2.405 % — at 30.130482,31.410557 (ways
+-10250, -12682) and 30.133333,31.409827.  Those sites are ~2 km from
+every new pad, so they are NOT the pad plates themselves; they are the
+pad group's ripple through the shared emit-decimation / on-edge weld
+passes.  **Unattributed beyond the class — a STOP in its own right under
+the brief's airside clause.**
+
+**TESTS**, once, through `run_with_ledger` (`s5cap-pad-tests`) over
+`blast --tests-for` for object_pads / object_frame / verification /
+grade_law's pad readers (6 files): **182 passed, 1 failed** —
+`test_pad_host_pavement_level::test_the_pad_law_re_asserts_after_the_late_projection`,
+a source-inspection test, **pre-existing and matched-controlled** in the
+clean `s5capctl` worktree at `1faf907`.  New twins: the cap reads the
+emission reference (a pad 36 m off raw DEM and 1 m off its own ground is
+SERVED), the refusal boundary at the cap value on that same ground, the
+two-authority split, and the validator reading the recorded reference
+rather than the raster.
+
+**OWED before this can land:** the owner's verdict on the pedestal class
+above; a Fable ruling on whether the frame's worst-part `over_relief_cap`
+belongs in the re-framed cap; attribution of the +3 airside apron rows;
+and OTHH's tile arm, still blocked on that tile's cfg.

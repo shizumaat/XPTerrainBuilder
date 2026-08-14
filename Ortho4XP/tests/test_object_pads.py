@@ -334,11 +334,13 @@ def test_an_over_cap_request_is_refused_and_emits_nothing(gate_on, dem):
 
 
 def test_the_frames_own_over_cap_flag_also_refuses(gate_on, dem):
-    """Two independent measurements condemn a pad: the RESIDUAL the frame
-    measured (rendered base vs the ground under the part) and the RELIEF
-    the emitter measures (target vs raw DEM).  Here the part stands on a
-    low graded shape, so its residual busts the cap while the DEM relief
-    does not — and the pad is still refused."""
+    """ONE measurement condemns this pad, and it is the pad's OWN GROUND
+    (RULINGS, Fable 2026-08-14): the part stands on a low graded shape at
+    2.0 m and asks for 6.5 m, so it would stand 4.5 m over the ground it
+    adjoins — refused, even though raw DEM (5.0 m) is only 1.5 m away.
+    The frame's ``over_relief_cap`` flag and the emitter's admissibility
+    test are the same comparison over the same pair, so they cannot
+    disagree."""
     from auto_patch.layout import ROLE_GRADED_STRIP
 
     layout = make_layout()
@@ -349,6 +351,116 @@ def test_the_frames_own_over_cap_flag_also_refuses(gate_on, dem):
     frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
     assert emit(layout, dem, frames) == 0
     assert "pad_over_relief_cap" in kinds(layout.object_pad_findings)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE CAP'S REFERENCE FRAME (RULINGS "PAD RELIEF CAP MEASURES AGAINST THE
+# PAD'S OWN GROUND, NEVER RAW DEM", Fable 2026-08-14)
+# ══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def patch_authors_everything(monkeypatch):
+    """The PATCH is the ground authority everywhere, at 40 m — the HECA
+    class in miniature: an object standing correctly on a solved surface
+    that sits tens of metres off raw DEM (5 m here).
+
+    One production seam is stubbed, ``patch_ground.field_from_layout``,
+    so the emitter's own two-authority closure is the thing under test."""
+    from auto_patch import patch_ground
+
+    class _Field:
+        def value_at(self, x, y):
+            return 40.0, "apron"
+
+    monkeypatch.setattr(patch_ground, "field_from_layout",
+                        lambda layout: _Field())
+    return 40.0
+
+
+def test_the_relief_cap_measures_the_pads_own_ground_not_raw_dem(
+        gate_on, dem, patch_authors_everything):
+    """THE RULING.  The pad's own ground is 40 m (the patch's own solved
+    value); the object renders 1 m above it, which is inside the 3 m cap,
+    so the pad is SERVED — and the record carries the reference the cap
+    used.  Against raw DEM the same pad reads 36 m of relief and was
+    refused, which is what condemned 3,855 of ~3,910 HECA requests for
+    standing exactly where their objects correctly stand."""
+    ground = patch_authors_everything
+    layout = make_layout()
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)],
+                        base_y=1.0, agl=0.0)]
+    assert emit(layout, dem, frames) == 1
+    record = layout.object_pad_records[0]
+    assert record["ground_reference_metres"] == pytest.approx(ground)
+    assert record["relief_metres"] == pytest.approx(1.0)
+    assert record["emitted_target_metres"] == pytest.approx(ground + 1.0)
+    assert all(abs(a - (ground + 1.0)) <= 0.01
+               for a in cores(layout)[0].node_altitudes)
+    # The retired reference, stated so the flip is on the record.
+    assert not object_pad_admissible(ground + 1.0, BASE_TERRAIN_M,
+                                     apc.DSF_OBJECT_PAD_MAX_RELIEF_M)
+
+
+def test_the_cap_boundary_stands_at_the_cap_value_on_that_same_ground(
+        gate_on, dem, patch_authors_everything):
+    """The cap VALUE is unchanged, only what it is measured against: a
+    pad exactly at the cap over its own ground is admissible, and one a
+    centimetre beyond is refused with its measured numbers."""
+    assert patch_authors_everything == 40.0
+    cap = float(apc.DSF_OBJECT_PAD_MAX_RELIEF_M)
+
+    layout = make_layout()
+    assert emit(layout, dem, [pad_frame(
+        layout, [square_ring(0.0, 0.0, 8.0)], base_y=cap, agl=0.0)]) == 1
+    assert layout.object_pad_records[0]["relief_metres"] == \
+        pytest.approx(cap)
+
+    layout = make_layout()
+    assert emit(layout, dem, [pad_frame(
+        layout, [square_ring(0.0, 0.0, 8.0)], base_y=cap + 0.01,
+        agl=0.0)]) == 0
+    over = [f for f in layout.object_pad_findings
+            if f[0] == "pad_over_relief_cap"]
+    assert len(over) == 1
+    assert over[0][2] == pytest.approx(cap + 0.01)
+    assert over[0][3] == pytest.approx(cap)
+    assert not layout.object_pad_records
+
+
+def test_the_two_authorities_split_patch_where_authored_ambient_beyond(
+        gate_on, dem):
+    """THE SAME two-authority rule the emission path uses (patch where the
+    patch authors, ambient DEM where it does not) — measured on the other
+    side of the split: this pad's parts stand off every emitted shape, so
+    the reference IS the ambient DEM under them, and nothing about the
+    re-frame moved a pad that was already sitting on raw terrain."""
+    layout = make_layout()
+    emit(layout, dem,
+         [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)])
+    record = layout.object_pad_records[0]
+    assert record["ground_reference_metres"] == \
+        pytest.approx(BASE_TERRAIN_M)
+    assert record["relief_metres"] == pytest.approx(1.5)
+
+
+def test_the_validator_reads_the_emitters_reference_not_the_raster(
+        gate_on, dem, patch_authors_everything):
+    """THE TWO-INSTRUMENTS GUARD (ruling R5, one solve).  A validator that
+    re-sampled raw DEM here would refuse — 36 m over the raster — exactly
+    what the emitter lawfully served.  It reads the recorded reference
+    instead, and still fires when the emitted surface really does stand
+    over the cap above that ground."""
+    layout = make_layout()
+    assert emit(layout, dem, [pad_frame(
+        layout, [square_ring(0.0, 0.0, 8.0)], base_y=1.0, agl=0.0)]) == 1
+    assert verification.check_object_pads(
+        layout, dem, TILE_LAT, TILE_LON) == []
+
+    layout.object_pad_records[0]["ground_reference_metres"] = 20.0
+    findings = verification.check_object_pads(
+        layout, dem, TILE_LAT, TILE_LON)
+    assert [f[0] for f in findings] == ["pad_over_cap_emitted"]
+    assert findings[0][2] == pytest.approx(21.0)
 
 
 def test_a_part_below_the_residual_floor_raises_no_pad(gate_on, dem):

@@ -269,13 +269,15 @@ persisting violation row is NOT a defect metric, per the standing
 band-lawful-displacement ruling — and metre-scale wiggles are
 imperceptible in-sim): the S1 chain merges when every airside row
 that FLIPS INTO VIOLATION vs the pre-corridor reference (ledger
-9713491f, body 7bf9038e93f7-class join per S1c) is either gone or
+9713491f, body 7fbe7c26d7e3 — sha corrected per the merge-gate
+dossier; the earlier spelling was the frozen KCLT hash) is either gone or
 row-attributed to a named lawful mechanism. Magnitude changes at
 sites whose violation state is unchanged (the 11.33→11.49 mega-apron
 residue class) are recorded as context, never blockers. The original
 "apron −11906 worst ≤0.86 m" clause is RETIRED — S1c measured that
 site closed by corridor-joins before the freeze; no such site exists.
-Seam tear: gone (paid by the freeze). Open at S1c close: net +23
+Seam tear: ONE SURVIVES at 30.110467,31.409006 (dossier correction —
+"gone" was false), routed to S6 under weld-or-gap. Open at S1c close: net +23
 new-violation rows, all in corridor-changed rings — owned by S2's
 +152-class work. S1's independent law-defect fix (stations
 frozen onto later-decimated rings) and the assert_frozen rail ride

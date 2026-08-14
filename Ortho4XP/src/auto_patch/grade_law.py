@@ -3233,9 +3233,53 @@ def transverse_surface_bounds(role, code_letter, offset_m, ruleset=None):
 
 # ── §B3 — DRAINAGE MINIMUM (apron + groundside) ──────────────────────
 
-_DRAINAGE_MIN_GROUNDSIDE_ROLES = frozenset({
-    "groundside", "groundside_pavement", "parking", "lot", "curbside",
-})
+# ── §B3's GROUNDSIDE HALF — RETIRED (owner 2026-08-14) ───────────────
+# RULINGS 2026-08-14, "DRAINAGE RULING SCOPE CLARIFIED": what retires is
+# "ADDING drainage curvature (crown / minimum-slope requirements) to
+# TAXIWAY and ROAD pavement surfaces; those may be flat for the sim …
+# the drainage_minimum census family retires only where it demanded
+# curvature ON taxiway/road/groundside pavement surfaces."
+#
+# So this set — the LANDSIDE PAVEMENT domain of §B3 — is EMPTY, by law.
+# ``groundside_pavement``, ``service_road`` and ``service_junction`` are
+# exactly the road-family surfaces the ruling exempts (the first grades at
+# the ROAD limit by owner ruling 2026-08-12, "it carries the same vehicles
+# the service road does"), and no taxiway role was ever in it.  The
+# PROVISIONAL 1.0 % ``config.GROUNDSIDE_MIN_DRAINAGE_GRADE`` — owner
+# question 3, version-deferred, never adjudicated — is the number that
+# stops binding; it stays in ``config`` with its research trail.
+#
+# WHAT DID NOT RETIRE, and is untouched here (same ruling): the APRON half
+# below (FAA §5.9.1.1's cited 0.5 %), the DRAINAGE SPINE in enclosed areas
+# (``drainage_spine_envelope`` / ``DRAINAGE_SPINE_PARENT_ROLES``), the
+# DRAINAGE SLOPE on ADJACENT GROUND beside runways and taxiways
+# (``adjacent_ground_envelope`` and the strip/RSA bands), and the RUNWAY
+# CROWN (``transverse_surface_bounds`` under CROWN_MINIMUM_BOUND_RUNWAYS).
+#
+# THE SET IS KEPT, EMPTY, RATHER THAN DELETED — deliberately.  It is what
+# ``check_grade._DRAINAGE_MIN_ROLES`` derives from, and an empty set the
+# census still derives from states "the law grants this family no landside
+# surface" in the one place both halves read.  Deleting it would put the
+# apron-only walk back to naming its own roles — the hand-typed-tuple
+# shape that produced the original §B3 defect.
+#
+# HOW IT GOT HERE, because the difference is the whole point (S3 dossier;
+# RULINGS 2026-08-13b, "OTHH −639 ADJUDICATED: CENSUS BLINDNESS"): these
+# three roles were ALREADY absent from this walk — not by law, but because
+# the corridor round re-roled ~15.5 km of landside pavement perimeter out
+# of ``groundside_pavement`` into ``service_junction`` / ``service_road``
+# and the set named only the old role.  11,932 rows across the five
+# baseline airports went unread, and OTHH's −750 was quoted as an
+# improvement.  S7 half 1 restored them (aba74b7) so the count could be
+# READ; the owner then ruled the law away.  Zero-because-exempt and
+# zero-because-unread print the same number, and only one of them comes
+# from an instrument that works.
+#
+# DEAD LITERALS REMOVED (S7 audit, retained through the retirement).
+# ``groundside``, ``parking``, ``lot`` and ``curbside`` appear in no
+# ``layout.ROLE_*`` constant — this engine has never emitted any of them.
+# They were the civil sources' PROSE categories, not role values.
+_DRAINAGE_MIN_GROUNDSIDE_ROLES: frozenset = frozenset()
 
 
 def drainage_minimum_grade(role: str, ruleset=None,
@@ -3249,13 +3293,12 @@ def drainage_minimum_grade(role: str, ruleset=None,
       number, so the ICAO-side constant is ``None`` and this law is a
       no-op at every ICAO airport (jurisdictional fidelity; a numeric
       ICAO minimum would be MINTED, not cited).
-    * GROUNDSIDE (lots, curbside) — region-invariant: no aviation
-      authority regulates a landside grade (the lot 5 % / service 8 %
-      precedent, docs/RULINGS.md 2026-08-03).  Every civil source carries
-      a minimum in the 0.6-2 % range;
-      ``config.GROUNDSIDE_MIN_DRAINAGE_GRADE`` is the PROVISIONAL 1.0 %
-      awaiting the owner's approval exactly as lot/service were approved
-      (owner question 3).
+    * GROUNDSIDE / ROAD pavement — RETIRED (owner 2026-08-14, see the
+      block above).  The landside minimum was region-invariant and
+      PROVISIONAL (owner question 3, never adjudicated); the owner
+      answered it by withdrawing it, so
+      :data:`_DRAINAGE_MIN_GROUNDSIDE_ROLES` is empty and this function
+      returns ``None`` for every road-family surface.
 
     EXCLUSIONS, named and twin-tested:
     * ``building_pad`` — building-pad seats stay FLAT
@@ -3269,7 +3312,7 @@ def drainage_minimum_grade(role: str, ruleset=None,
         return None
     if role in _ADJACENT_APRON_ROLES:
         return ruleset_apron_min_drainage_grade(ruleset)
-    if role in _DRAINAGE_MIN_GROUNDSIDE_ROLES:
+    if role in _DRAINAGE_MIN_GROUNDSIDE_ROLES:      # empty since 2026-08-14
         return GROUNDSIDE_MIN_DRAINAGE_GRADE
     return None
 

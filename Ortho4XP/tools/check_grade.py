@@ -2615,12 +2615,24 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
 #: that could not match it.  Structurally silent: an empty walk and a
 #: compliant walk report the same zero.
 #:
-#: The law already owns the answer in two frozensets, and
-#: ``_DRAINAGE_MIN_GROUNDSIDE_ROLES`` names ``groundside_pavement``
-#: correctly.  Deriving from them is the single-source fix: emitter and
-#: validator now cannot disagree about WHICH surfaces the minimum is read
-#: on, the same way ``drainage_minimum_shortfall`` already makes them agree
-#: about HOW FLAT is too flat.
+#: The law already owns the answer in two frozensets.  Deriving from them
+#: is the single-source fix: emitter and validator cannot disagree about
+#: WHICH surfaces the minimum is read on, the same way
+#: ``drainage_minimum_shortfall`` already makes them agree about HOW FLAT
+#: is too flat.
+#:
+#: THE GROUNDSIDE HALF IS NOW EMPTY BY LAW, not by drift (owner 2026-08-14,
+#: RULINGS "DRAINAGE RULING SCOPE CLARIFIED": the family "retires only
+#: where it demanded curvature ON taxiway/road/groundside pavement
+#: surfaces").  ``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES`` is the empty
+#: set, so this walk is the APRON half alone — which did NOT retire: FAA
+#: §5.9.1.1's 0.5 % is a cited authority number, and it still binds at
+#: every FAA airport (a no-op under ICAO, which states none).
+#:
+#: Read ``RETIRED_LAWS`` before concluding anything from a zero here: the
+#: two ways this family can print zero on landside pavement — the law
+#: exempts it, or the walk lost it — are indistinguishable in the output,
+#: and this repo has now seen both.
 _DRAINAGE_MIN_ROLES = frozenset(
     _LAW_DRAIN_MIN_APRON_ROLES) | frozenset(_LAW_DRAIN_MIN_GS_ROLES)
 
@@ -4862,6 +4874,43 @@ VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
 }
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE RETIRED LAWS — a rule the owner WITHDREW, recorded not deleted
+# ══════════════════════════════════════════════════════════════════════
+#: A law that retires stops producing rows, and so does a walk that goes
+#: blind — the output is the same zero either way.  This repo has now had
+#: both inside ONE family within a week: §B3's groundside half lost 11,932
+#: rows across the five baseline airports to a role migration (RULINGS
+#: 2026-08-13b, the OTHH −639 census-blindness verdict) and then, once
+#: restored and readable, was withdrawn by the owner (RULINGS 2026-08-14).
+#: The register is the difference between those two zeros.
+#:
+#: Key -> what was withdrawn, by which ruling.  Unlike
+#: ``VERSION_DEFERRED_FAMILIES`` these keys are NOT family keys: a retired
+#: law may be one HALF of a family's domain, which is exactly the case
+#: here — the family still runs, on aprons.  ``tests/test_harness.py``
+#: asserts each entry's surfaces really are absent from the family's walk,
+#: so a "retired" law that quietly kept firing fails.
+RETIRED_LAW_RULING = "2026-08-14"
+RETIRED_LAWS: Dict[str, dict] = {
+    "drainage_minimum::groundside": {
+        "family": "drainage_minimum",
+        "roles": ("groundside_pavement", "service_road", "service_junction"),
+        "why":
+            "the PROVISIONAL 1.0 % landside drainage minimum (owner "
+            "question 3, version-deferred by RULINGS d48bc0a, never "
+            "adjudicated) — RETIRED by RULINGS 2026-08-14, \"DRAINAGE "
+            "RULING SCOPE CLARIFIED\": what retires is \"ADDING drainage "
+            "curvature (crown / minimum-slope requirements) to TAXIWAY and "
+            "ROAD pavement surfaces; those may be flat for the sim\".  The "
+            "APRON half of the family did NOT retire (FAA §5.9.1.1, a "
+            "cited number), nor did the drainage SPINE in enclosed areas, "
+            "the drainage slope on ADJACENT GROUND beside runways and "
+            "taxiways, or the runway crown",
+    },
+}
+
+
 #: OUT-OF-SCOPE ADJUDICATION CLASSES — rows the law never governed, as
 #: opposed to rows a later version will govern (the version-deferred
 #: register above).  Keyed by the ``out_of_scope`` stamp ``run_checks``
@@ -5871,8 +5920,8 @@ def run_checks(
         ways, nodes, ll_to_m)
     _fam("drainage_minimum", drain_min)
     _pv("SURFACE FLATTER than its drainage minimum (FAA AC §5.9.1.1 "
-        "0.5% apron; groundside 1.0% PROVISIONAL, owner question 3 — "
-        "ICAO states no apron minimum, so that half is a no-op there)",
+        "0.5% apron — ICAO states no apron minimum, so this family is a "
+        "no-op there; the groundside/road half RETIRED, owner 2026-08-14)",
         drain_min, top_n)
     if n_dm_pairs and not quiet:
         print(f"  ({n_dm_pairs} drainage pair(s) censused over "

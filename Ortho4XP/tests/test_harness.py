@@ -502,6 +502,220 @@ def test_the_law_role_is_read_through_one_accessor(cg):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §1b NO FAMILY WALK LOSES A SURFACE TO A ROLE MIGRATION
+# ══════════════════════════════════════════════════════════════════════
+# THE DEFECT (S3 dossier, RULINGS 2026-08-13b "OTHH −639 ADJUDICATED:
+# CENSUS BLINDNESS").  A law family's domain is a role set.  The corridor
+# round re-roled ~15.5 km of landside pavement perimeter out of
+# ``groundside_pavement`` and into ``service_junction`` / ``service_road``
+# — and one domain set (``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES``,
+# feeding ``check_grade._DRAINAGE_MIN_ROLES``) named only the old role.
+# The walk stopped reading 15.5 km of surface, the count fell by 750 rows,
+# and the fall was quoted as an improvement.  Structurally silent, exactly
+# as the R19 typo was: an empty walk and a compliant walk report the same
+# zero.
+#
+# WHY A SWEEP AND NOT A LIST.  A hand-listed set of "the sets that matter"
+# is the census-wrapper defect in miniature — it covers what its author
+# remembered.  This walks EVERY module-level role set in the law and the
+# census and applies one rule that has no exceptions today:
+#
+#     a role set that admits ``groundside_pavement`` admits the whole
+#     landside PAVEMENT family it can be re-roled into — ``service_road``
+#     and ``service_junction``.
+#
+# The rule is directional on purpose.  A road-family set (``ROAD_ROLES``,
+# ``_WELD_HUB_ROLES``, ``NEAR_MISS_FRONTAGE_SOFT_ROLES``) that names the
+# service roles WITHOUT ``groundside_pavement`` is a deliberate scope, not
+# a migration casualty: nothing re-roles pavement INTO
+# ``groundside_pavement``.  Only the migration direction is asserted.
+_MIGRATION_SOURCE_ROLE = "groundside_pavement"
+_MIGRATION_TARGET_ROLES = frozenset({"service_road", "service_junction"})
+
+
+def _role_sets_of(mod) -> dict:
+    """``{name: frozenset}`` for every module-level set/frozenset/tuple of
+    strings that names at least one EMITTED role literal."""
+    import auto_patch.layout as LAY
+    emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")
+               and isinstance(getattr(LAY, n), str)}
+    out = {}
+    for name in dir(mod):
+        val = getattr(mod, name, None)
+        if not isinstance(val, (set, frozenset, tuple, list)):
+            continue
+        if not val or not all(isinstance(v, str) for v in val):
+            continue
+        if not (set(val) & emitted):
+            continue
+        out[name] = frozenset(val)
+    return out
+
+
+def test_no_role_set_admits_groundside_pavement_without_the_road_family(cg):
+    """The S3 blindness class, swept.
+
+    Every law/census role set that reads landside pavement must read the
+    roles that pavement is re-roled INTO.  A new set that names
+    ``groundside_pavement`` alone fails here in the commit that adds it,
+    instead of silently halving a census three rounds later.
+    """
+    import auto_patch.grade_law as GL
+
+    offenders = []
+    for mod, label in ((GL, "grade_law"), (cg, "check_grade")):
+        for name, roles in _role_sets_of(mod).items():
+            if _MIGRATION_SOURCE_ROLE not in roles:
+                continue
+            missing = _MIGRATION_TARGET_ROLES - roles
+            if missing:
+                offenders.append(f"{label}.{name} misses {sorted(missing)}")
+    assert not offenders, (
+        "role-migration blindness: these domain sets read "
+        f"{_MIGRATION_SOURCE_ROLE!r} but not the roles it is re-roled into "
+        f"— {offenders}.  A surface that changes role must not leave a "
+        f"family's walk (RULINGS 2026-08-13b, the OTHH −639 verdict)")
+
+
+#: Role literals a census WALK may name that are not ``layout.ROLE_*``
+#: constants — each reachable on an emitted patch, each with its source.
+#: A literal that is NOT here and NOT a ROLE_* value cannot match any way,
+#: so a walk naming it reads nothing while looking like coverage.
+_READABLE_NON_ROLE_LITERALS = {
+    # ROLE_TERMINAL was renamed to ROLE_BUILDING (user 2026-06-12);
+    # ``layout`` keeps the alias on READ paths for pre-rename patches on
+    # disk, and a census reads patches from disk.
+    "terminal",
+    # Apron sub-role: aeroway=parking_position/stand/gate pavement
+    # (``pavement_classification._STAND_AEROWAY``, ``terminals.py``).
+    "stand",
+    # Hangar pad seats (``config`` s81 / ``strip_seam_law``).
+    "hangar_pad",
+}
+
+
+def _census_walk_set_names(cg) -> set:
+    """The names ``check_grade`` uses as a WALK DOMAIN — every identifier
+    on the right of a ``<way>.role in`` / ``not in`` test.  Detected from
+    the source, so a new walk cannot opt out of the sweep by not being
+    listed anywhere."""
+    src = inspect.getsource(cg)
+    pat = re.compile(
+        r"(?:\.role|law_role\([^)]*\)|effective_role\([^)]*\))\s+"
+        r"(?:not\s+)?in\s+([A-Za-z_][A-Za-z_0-9]*)")
+    return set(pat.findall(src))
+
+
+def test_every_role_a_census_WALK_names_is_a_role_the_engine_EMITS(cg):
+    """The R19 twin, generalised past the one set it was written for.
+
+    ``_DRAINAGE_MIN_ROLES`` used to read ``("apron", "stand", "groundside",
+    "parking")`` — literals this engine has never emitted, so the
+    groundside half of §B3 could not fire.  An unreachable literal in a
+    walk set LOOKS like coverage and is worth nothing; the emitted-role
+    join is the only thing that tells the two apart.
+
+    Scoped to WALK sets (``_census_walk_set_names``), which is where an
+    unreachable literal costs rows.  The law's role→rule DISPATCH sets are
+    deliberately wider: ``grade_law._ADJACENT_TAXIWAY_ROLES`` names the
+    family alias ``"taxiway"`` so a caller may ask the law about the
+    taxiway family without naming four role values, and nothing walks it.
+    """
+    import auto_patch.layout as LAY
+
+    emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")
+               and isinstance(getattr(LAY, n), str)}
+    emitted |= _READABLE_NON_ROLE_LITERALS
+    unreachable = {}
+    for name in sorted(_census_walk_set_names(cg)):
+        roles = getattr(cg, name, None)
+        if not isinstance(roles, (set, frozenset, tuple, list)):
+            continue
+        if not roles or not all(isinstance(r, str) for r in roles):
+            continue
+        dead = sorted(set(roles) - emitted)
+        if dead:
+            unreachable[f"check_grade.{name}"] = dead
+    assert not unreachable, (
+        f"census walks name role literals the engine never emits: "
+        f"{unreachable}.  An unreachable literal is not coverage — it is "
+        f"the fix-cycle-2 item-5 defect (verdict (d), BROKEN INSTRUMENT)")
+
+
+def test_every_retired_law_really_left_its_familys_walk(cg):
+    """RETIREMENT IS RECORDED, AND THE RECORD IS CHECKED.
+
+    A law the owner withdraws stops producing rows — and so does a walk
+    that goes blind.  The output is the same zero, which is how §B3's
+    landside half lost 11,932 rows across the five baseline airports
+    without anyone noticing (RULINGS 2026-08-13b).  Days later the owner
+    withdrew that same half (RULINGS 2026-08-14, "DRAINAGE RULING SCOPE
+    CLARIFIED").  ``check_grade.RETIRED_LAWS`` is the difference between
+    those two zeros, and this asserts the register is TRUE rather than
+    decorative: the surfaces it says were withdrawn are really absent
+    from the family's walk, and the family it names is really a family.
+
+    Note the key shape: a retired law may be one HALF of a family's
+    domain (the apron half of ``drainage_minimum`` did NOT retire), so
+    these keys are deliberately not family keys.
+    """
+    registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
+    assert cg.RETIRED_LAWS, (
+        "the retirement register is empty; RULINGS 2026-08-14 withdrew "
+        "the landside half of the drainage minimum — an empty register "
+        "makes that zero indistinguishable from a blind walk")
+    for key, entry in cg.RETIRED_LAWS.items():
+        fam = entry["family"]
+        assert fam in registered or fam is None, (
+            f"{key!r} names {fam!r}, which is no law family")
+        assert cg.RETIRED_LAW_RULING in entry["why"], (
+            f"{key!r} carries no owner ruling")
+        assert entry["roles"], f"{key!r} withdraws no surface"
+        # THE FAMILY'S OWN WALK, found from ITS OWN SOURCE — never a
+        # hand-written pointer in the register, which would be one more
+        # copy to drift.  Scoped to that walk on purpose: these roles are
+        # retired from ONE law, and they must stay in every other
+        # family's domain (asserted by the twin below).
+        fn = getattr(cg, f"_check_{fam}", None)
+        assert fn is not None, (
+            f"{key!r} names family {fam!r} but there is no _check_{fam} to "
+            f"read a walk set out of — the register cannot be checked")
+        src = inspect.getsource(fn)
+        names = set(re.findall(
+            r"\.role\s+(?:not\s+)?in\s+([A-Za-z_][A-Za-z_0-9]*)", src))
+        assert names, f"_check_{fam} walks no role set"
+        for name in sorted(names):
+            roles = getattr(cg, name, None)
+            if not isinstance(roles, (set, frozenset)):
+                continue
+            still = sorted(set(entry["roles"]) & set(roles))
+            assert not still, (
+                f"{key!r} calls {still} RETIRED, but its own walk "
+                f"check_grade.{name} still reads them — a withdrawn law "
+                f"that keeps firing")
+
+
+def test_the_retired_landside_roles_are_still_READ_by_the_other_families(cg):
+    """The retirement must not be allowed to re-import the blindness.
+
+    ``service_road`` / ``service_junction`` / ``groundside_pavement``
+    leave the DRAINAGE walk by law.  They must stay in every other
+    family's domain — that is the S7 half-1 restoration, and it is what
+    makes the drainage zero readable as a law and not as a symptom.
+    """
+    import auto_patch.layout as LAY
+
+    retired = set(cg.RETIRED_LAWS["drainage_minimum::groundside"]["roles"])
+    assert retired <= set(LAY.GROUNDSIDE_ROLES)
+    assert retired <= set(cg._GROUNDSIDE_ROLES), (
+        "a retired-from-drainage role fell out of the SIDE partition too")
+    assert retired <= set(cg._STRIP_PAVEMENT_ROLES), (
+        "a retired-from-drainage role fell out of the strip weld domain")
+    assert set(cg._ROAD_FAMILY_ROLES) <= retired | {"service_road",
+                                                    "service_junction"}
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §2 THE SIDECAR CONTRACT
 # ══════════════════════════════════════════════════════════════════════
 

@@ -8460,6 +8460,22 @@ def reg_entry(field: str, ruleset: str = "both"):
 # round's research trail cites Iowa SUDAS §8B-1 among others); 1.0 % is
 # the PROVISIONAL mid-range value.  OWNER QUESTION 3 — the owner
 # approves the number exactly as he approved lot 5 % / service 8 %.
+#
+# OWNER QUESTION 3 IS ANSWERED, AND THE ANSWER IS NO LAW (RULINGS
+# 2026-08-13b, amended by the 2026-08-14 scope clarification: what
+# retires is "ADDING drainage curvature (crown / minimum-slope
+# requirements) to TAXIWAY and ROAD pavement surfaces; those may be flat
+# for the sim").  This constant IS that landside requirement, so nothing
+# reads it any more — ``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES`` is the
+# empty set.  The APRON minimum (the rulesets' own
+# ``apron_min_drainage_grade``, FAA §5.9.1.1) did NOT retire and binds as
+# before.
+#
+# KEPT, not deleted: the owner withdrew the LAW, not the constants
+# round's research trail, and a later version that re-opens landside
+# drainage should find the number and its citations here rather than
+# re-derive them.  Reading it again re-instates a retired law and needs
+# its own ruling.
 GROUNDSIDE_MIN_DRAINAGE_GRADE = 0.010
 GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL = True
 

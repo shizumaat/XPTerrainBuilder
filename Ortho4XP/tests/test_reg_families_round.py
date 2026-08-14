@@ -454,10 +454,88 @@ def test_b3_apron_minimum_is_faa_only():
     assert GL.drainage_minimum_grade("stand", "faa") == 0.005
 
 
-def test_b3_groundside_minimum_is_region_invariant_and_provisional():
-    for key in ("faa", "icao"):
-        assert GL.drainage_minimum_grade("groundside", key) == 0.010
+def test_b3_the_GROUNDSIDE_HALF_is_RETIRED():
+    """RULINGS 2026-08-14, "DRAINAGE RULING SCOPE CLARIFIED": what retires
+    is "ADDING drainage curvature (crown / minimum-slope requirements) to
+    TAXIWAY and ROAD pavement surfaces; those may be flat for the sim …
+    the drainage_minimum census family retires only where it demanded
+    curvature ON taxiway/road/groundside pavement surfaces."
+
+    All three EMITTED landside pavement roles — and every taxiway role,
+    which this family never read anyway — take no minimum.  The
+    PROVISIONAL constant stays in ``config`` with its research trail and
+    its provisional flag; nothing reads it.
+    """
+    for role in ("groundside_pavement", "service_road", "service_junction",
+                 "primary_parallel", "secondary_parallel", "stub",
+                 "cross_connector", "junction", "taxiway"):
+        for key in ("faa", "icao"):
+            assert GL.drainage_minimum_grade(role, key) is None, role
+    assert GL._DRAINAGE_MIN_GROUNDSIDE_ROLES == frozenset()
+    assert CFG.GROUNDSIDE_MIN_DRAINAGE_GRADE == 0.010
     assert CFG.GROUNDSIDE_MIN_DRAINAGE_GRADE_PROVISIONAL is True
+
+
+def test_b3_the_APRON_HALF_did_NOT_retire():
+    """The narrow scope, other side.  FAA §5.9.1.1's "minimum 0.5 percent
+    apron gradient" is a CITED authority number on a surface the ruling
+    does not name (an apron is neither taxiway nor road), so it binds
+    exactly as before — and stays a no-op under ICAO, which states none.
+    """
+    assert GL.drainage_minimum_grade("apron", "faa") == 0.005
+    assert GL.drainage_minimum_grade("stand", "faa") == 0.005
+    assert GL.drainage_minimum_grade("apron", "icao") is None
+    assert GL.drainage_minimum_shortfall(0.0, "apron", "faa") == \
+        pytest.approx(0.005)
+
+
+def test_b3_what_ELSE_the_clarification_KEPT_is_untouched():
+    """The three laws the 2026-08-14 clarification explicitly did NOT
+    retire.  S7 touched none of them, and this is the twin that says so in
+    one place rather than leaving it to a diff read.
+
+    * the DRAINAGE SPINE in enclosed areas — law surface and parent role
+      set unchanged, census family still registered;
+    * the DRAINAGE SLOPE on ADJACENT GROUND beside runways and taxiways —
+      the adjacent-ground envelope and its census family unchanged;
+    * the RUNWAY CROWN — still bound, still mandatory-DOWN.
+    """
+    import tools.check_grade as CG
+
+    assert GL.DRAINAGE_SPINE_PARENT_ROLES >= frozenset(
+        {"runway", "primary_parallel", "apron", "junction"})
+    assert callable(GL.drainage_spine_envelope)
+    assert "drainage_spine" in {k for k, _t, _b in CG.LAW_FAMILIES}
+
+    assert callable(GL.adjacent_ground_envelope)
+    assert "adjacent_ground_tear" in {k for k, _t, _b in CG.LAW_FAMILIES}
+
+    assert GL.transverse_minimum_binds("runway") is True
+    for key in ("faa", "icao"):
+        lo, hi = GL.transverse_surface_bounds("runway", "F", 30.0, key)
+        assert hi == pytest.approx(-0.010 * 30.0)
+        assert GL.runway_crown_rate(key) >= 0.010
+
+
+def test_b3_the_retirement_is_REGISTERED_not_just_absent():
+    """A retired law and a blind walk print the same zero — and this
+    family has had both within a week (RULINGS 2026-08-13b, the
+    census-blindness verdict; RULINGS 2026-08-14, the retirement).  The
+    register is what tells a reader which zero they are looking at, and it
+    must name the roles that actually left the walk.
+    """
+    import tools.check_grade as CG
+
+    entry = CG.RETIRED_LAWS["drainage_minimum::groundside"]
+    assert entry["family"] == "drainage_minimum"
+    assert CG.RETIRED_LAW_RULING in entry["why"]
+    assert set(entry["roles"]) == {"groundside_pavement", "service_road",
+                                   "service_junction"}
+    assert not (set(entry["roles"]) & set(CG._DRAINAGE_MIN_ROLES)), (
+        "a role the register calls RETIRED is still in the family's walk")
+    # ...and the family itself is still a family, on aprons.
+    assert "drainage_minimum" in {k for k, _t, _b in CG.LAW_FAMILIES}
+    assert "apron" in CG._DRAINAGE_MIN_ROLES
 
 
 def test_b3_named_exclusions():
@@ -467,7 +545,7 @@ def test_b3_named_exclusions():
     assert CFG.TERMINAL_PADS_SLOPE is False
     assert GL.drainage_minimum_grade("apron", "faa", building_pad=True) is None
     assert GL.drainage_minimum_grade("apron", "faa", terrace_panel=True) is None
-    assert GL.drainage_minimum_grade("groundside", "faa",
+    assert GL.drainage_minimum_grade("stand", "faa",
                                      building_pad=True) is None
 
 
@@ -525,6 +603,18 @@ def test_b3_the_walk_set_names_only_roles_the_ENGINE_EMITS():
     and the groundside half of §B3 never ran — while ``grade_law`` carried
     a live 1.0 % minimum for it.
 
+    The SECOND time (S7): the fix admitted ``groundside_pavement`` and
+    stopped there, so when the corridor round re-roled that pavement into
+    ``service_junction`` / ``service_road`` the walk went blind again
+    (RULINGS 2026-08-13b).  The landside half was then RETIRED outright
+    (RULINGS 2026-08-14), so what this twin now pins is the half that
+    survives: every role the walk names is a role the engine emits, and
+    the walk still reaches the apron surfaces the law grants a minimum
+    to.  The generalised sweep — no role set may read
+    ``groundside_pavement`` without the roles it is re-roled into — is in
+    ``tests/test_harness.py``, and it outlived the family half it was
+    written for.
+
     The failure was SILENT by construction: an unreachable role filter and
     a fully compliant airport both report zero rows.  Only the emitted-role
     join can tell them apart, so that join is the test.
@@ -534,11 +624,13 @@ def test_b3_the_walk_set_names_only_roles_the_ENGINE_EMITS():
 
     emitted = {getattr(LAY, n) for n in dir(LAY) if n.startswith("ROLE_")}
     reachable = set(CG._DRAINAGE_MIN_ROLES) & emitted
-    assert "groundside_pavement" in reachable, (
-        "the groundside half of the drainage minimum is unreachable: "
-        f"walk set {sorted(CG._DRAINAGE_MIN_ROLES)} does not admit the "
-        f"emitted landside role 'groundside_pavement'")
-    assert "apron" in reachable, "the apron half is unreachable"
+    assert "apron" in reachable, (
+        "the apron half of the drainage minimum is unreachable: walk set "
+        f"{sorted(CG._DRAINAGE_MIN_ROLES)} does not admit 'apron'")
+    for role in sorted(CG._DRAINAGE_MIN_ROLES):
+        assert GL.drainage_minimum_grade(role, "faa") is not None, (
+            f"{role!r} is walked but the law grants it no minimum — the "
+            f"walk set drifted above the law")
 
 
 def test_b3_the_walk_set_is_DERIVED_from_the_law_not_typed():
@@ -560,17 +652,23 @@ def test_b3_the_walk_set_is_DERIVED_from_the_law_not_typed():
             f"— the walk set drifted above the law")
 
 
-def test_b3_groundside_pavement_carries_the_groundside_minimum():
-    """The EMITTED role literal, not the abstract family name.
+def test_b3_the_landside_minimum_is_UNREACHABLE_by_construction():
+    """The retired half cannot come back through a role literal.
 
-    ``grade_law._DRAINAGE_MIN_GROUNDSIDE_ROLES`` already listed
-    ``groundside_pavement`` — the law was right and the instrument was
-    wrong, which is why the census read zero for months.
+    ``_DRAINAGE_MIN_ROLES`` DERIVES from the law's two frozensets and the
+    landside one is empty, so no emitted groundside role can enter the
+    walk unless the LAW grants it a minimum first.  That ordering is the
+    point: both previous §B3 defects were a walk set and a law disagreeing
+    about which surfaces were in scope.
     """
-    for key in ("faa", "icao"):
-        assert GL.drainage_minimum_grade("groundside_pavement", key) == 0.010
-        assert GL.drainage_minimum_shortfall(
-            0.0, "groundside_pavement", key) == pytest.approx(0.010)
+    import tools.check_grade as CG
+    import auto_patch.layout as LAY
+
+    assert set(CG._DRAINAGE_MIN_ROLES) == (
+        set(GL._ADJACENT_APRON_ROLES) | set(GL._DRAINAGE_MIN_GROUNDSIDE_ROLES))
+    assert not (set(LAY.GROUNDSIDE_ROLES) & set(CG._DRAINAGE_MIN_ROLES)), (
+        "a groundside role re-entered the drainage walk after the "
+        "2026-08-14 retirement")
 
 
 # ══════════════════════════════════════════════════════════════════════

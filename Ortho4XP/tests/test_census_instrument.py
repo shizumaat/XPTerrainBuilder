@@ -224,10 +224,13 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
          wholly covered and the strict 1 % apron cap stands)       -> 3
       A2/A3/B1/B2 lie flat                                         -> 0
 
-    DRAINAGE_MINIMUM = 1.  Read along CONSECUTIVE ring edges only, and
-    only on runs >= 5 m.  G1's a-b edge falls 0.1 m over 20 m = 0.5 %,
-    under the 1 % groundside minimum; its other two edges fall 10 %.  The
-    apron half of the law is a no-op under ICAO.
+    DRAINAGE_MINIMUM = ABSENT.  G1's a-b edge falls 0.1 m over 20 m =
+    0.5 %, which the retired §B3 family read as a shortfall against its
+    1 % groundside minimum.  The family is GONE (RULINGS 2026-08-13b,
+    "DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN"), so the row is not
+    reported as zero — the family does not appear in the census at all,
+    which is the point: a retired law must be distinguishable from a law
+    that found nothing.
 
     STACKED_NODES = 2.  A1 and G1 abut at x=20 with DISTINCT node ids at
     both shared corners: (20,0) holds 0.0 and 0.1, (20,20) holds 1.2 and
@@ -242,34 +245,36 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     of both pairs: 2 x 5 x 2 = 20.
     """
     assert _fam(report, "within_shape")["n"] == 14
-    assert _fam(report, "drainage_minimum")["n"] == 1
+    assert not [f for f in report["families"]
+                if f["family"] == "drainage_minimum"]
     assert _fam(report, "stacked_nodes")["n"] == 2
     # steps are reported AFTER the registered exemption (below)
     assert _fam(report, "vertex_to_edge_step")["n"] == 4
     assert _fam(report, "mid_edge_step")["n"] == 10
     assert [f["family"] for f in report["families"] if f["n"]] == [
-        "within_shape", "drainage_minimum", "stacked_nodes",
+        "within_shape", "stacked_nodes",
         "vertex_to_edge_step", "mid_edge_step"]
 
 
 def test_the_law_true_total_and_the_within_cross_steps_split(report):
-    """14 + 1 + 2 within-bucket rows = 17; no cross-bucket row (the two
+    """14 + 2 within-bucket rows = 16; no cross-bucket row (the two
     abutting shapes share no vertex inside the 0.5 m proximity window that
     the law does not already exempt as a wall-separated pair); 28 raw step
     rows of which 14 hold a registered exemption, so 14 are counted.
-    TOTAL = 17 + 0 + 14 = 31."""
+    TOTAL = 16 + 0 + 14 = 30."""
     lt = report["lawtrue"]
-    assert lt["within"] == 17
+    assert lt["within"] == 16
     assert lt["cross"] == 0
     assert lt["steps_raw"] == 28
     assert lt["steps"] == 14
-    assert lt["total"] == 31
+    assert lt["total"] == 30
 
 
 def test_the_side_split_and_the_airside_is_king_accounting(report):
     """AIRSIDE 26 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
     + 4 vertex-to-edge + 10 mid-edge apron steps.
-    GROUNDSIDE 3 = G1's 2 within-shape rows + its 1 drainage-minimum row.
+    GROUNDSIDE 2 = G1's 2 within-shape rows (its drainage-minimum row
+    left with the retired family).
     MIXED 2 = the two stacked-node rows, apron against groundside.
 
     ``airside_for_acceptance`` APPLIES the owner ruling the old report
@@ -277,7 +282,7 @@ def test_the_side_split_and_the_airside_is_king_accounting(report):
     """
     lt = report["lawtrue"]
     assert (lt["airside"], lt["groundside"], lt["mixed"], lt["unknown"]) == (
-        26, 3, 2, 0)
+        26, 2, 2, 0)
     assert lt["airside"] + lt["groundside"] + lt["mixed"] == lt["total"]
     assert lt["airside_for_acceptance"] == 28
 
@@ -304,15 +309,16 @@ def test_the_worst_row_is_the_largest_magnitude_row(report):
 # ══════════════════════════════════════════════════════════════════════
 
 def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
-    """RULINGS d48bc0a: instruments report, the law adjudicates.  The one
-    version-deferred family present is ``drainage_minimum`` with its single
-    row, so ADJUDICATED = 31 - 1 = 30 and the verdict is FAIL (a PASS
-    requires zero adjudicated rows).  Its groundside row is the one that
-    leaves the adjudicated groundside count at 2."""
+    """RULINGS d48bc0a: instruments report, the law adjudicates.  With
+    ``drainage_minimum`` RETIRED (RULINGS 2026-08-13b) the deferral
+    register is empty, so every row of this fixture is adjudicated:
+    ADJUDICATED = 30, verdict FAIL (a PASS requires zero adjudicated
+    rows).  The retired family contributes no row to EITHER number — the
+    split still partitions."""
     adj = report["adjudication"]
     assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
-    assert adj["deferred_total"] == 1
-    assert adj["deferred_families"]["drainage_minimum"]["n"] == 1
+    assert adj["deferred_total"] == 0
+    assert adj["deferred_families"] == {}
     assert adj["adjudicated_total"] == 30
     assert adj["adjudicated_by_side"] == {
         "airside": 26, "groundside": 2, "mixed": 2, "unknown": 0}
@@ -353,14 +359,14 @@ def test_the_bare_minus_law_true_difference_is_the_two_frame_effects(
            them at the apron's 1 % (0.5 m > 0.23 / 0.313).
       +14  the building-to-building step rows the exemption removes.
 
-    bare 48 - law-true 31 = +17.  (A4 keeps its relief in both frames: the
+    bare 47 - law-true 30 = +17.  (A4 keeps its relief in both frames: the
     ramp cap comes from the WAY's own ``o4_grade_law`` tag, which is on the
     patch, not in the sidecar.)
     """
-    assert report["bare"]["within"] == 20     # 17 + A5's 3
+    assert report["bare"]["within"] == 19     # 16 + A5's 3
     assert report["bare"]["cross"] == 0
     assert report["bare"]["steps"] == 28      # raw, no exemption
-    assert report["bare"]["total"] == 48
+    assert report["bare"]["total"] == 47
     assert report["bare"]["total"] - report["lawtrue"]["total"] == 17
 
 
@@ -404,7 +410,7 @@ def test_a_stamped_patch_carries_the_build_frame_into_the_report(
     assert prov["built"] == "2026-08-06T12:00:00"
     assert prov["icao"] == "TEST"
     # ...and the counts are untouched by the stamp
-    assert rep["lawtrue"]["total"] == 31
+    assert rep["lawtrue"]["total"] == 30
 
 
 def test_the_reported_knobs_are_the_knobs_the_law_true_run_binds(
@@ -983,3 +989,95 @@ def test_every_road_row_is_reported_GROUNDSIDE(road_report):
     lt = road_report["lawtrue"]
     assert (lt["airside"], lt["mixed"], lt["unknown"]) == (0, 0, 0)
     assert lt["groundside"] == lt["total"]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §8 THE DRAINAGE MINIMUM IS RETIRED — ZERO BY LAW, NOT BY BLINDNESS
+# ══════════════════════════════════════════════════════════════════════
+# RULINGS 2026-08-13b, "DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN":
+# "only runways get a crown, the rest can be flat for the sim".  The §B3
+# family covered aprons and landside pavement and no runway role, so it
+# retires whole and the runway crown law stands alone.
+#
+# The distinction these twins exist to keep visible: a retired family
+# reports nothing because the LAW is gone, and a blind family reports
+# nothing because its WALK is empty.  The 2026-08-13b census-blindness
+# verdict is what the second one costs, so the first must be structural.
+
+
+def test_a_FLAT_groundside_patch_censuses_no_drainage_row(cg, census,
+                                                          tmp_path):
+    """Three dead-flat landside surfaces — one per emitted groundside
+    pavement role.  Under §B3 this patch carried nine drainage-minimum
+    rows (three consecutive ring pairs per 20 m square, every one of them
+    0 % against a 1 % minimum).  It now carries none, and the family is
+    absent from the report rather than present-and-zero."""
+    b = _PatchBuilder(cg)
+    b.square_flat(0, 0, 20, 3.0, {"role": "groundside_pavement",
+                                  "shapeID": "F1"})
+    b.square_flat(60, 0, 20, 3.0, {"role": "service_road", "shapeID": "F2"})
+    b.square_flat(120, 0, 20, 3.0, {"role": "service_junction",
+                                    "shapeID": "F3"})
+    osm = b.write(tmp_path / "flat.patch.osm",
+                  {"anchor": list(ANCHOR), "ruleset": "icao"})
+    rep = census.census_one(osm, cg, top=5)
+    assert rep["lawtrue"]["total"] == 0
+    assert not [f for f in rep["families"]
+                if f["family"] == "drainage_minimum"]
+    assert rep["adjudication"]["pass"] is True
+
+
+def test_a_FLAT_apron_censuses_no_drainage_row_under_the_FAA_ruleset(
+        cg, census, tmp_path):
+    """The apron half retires too.  FAA §5.9.1.1's 0.5 % apron gradient
+    was the one half of §B3 that bound under a real authority's number
+    (ICAO states none), so a flat apron under the FAA ruleset is the
+    strictest case the retirement has to answer for."""
+    b = _PatchBuilder(cg)
+    b.square_flat(0, 0, 20, 3.0, {"role": "apron", "shapeID": "P1"})
+    osm = b.write(tmp_path / "flatapron.patch.osm",
+                  {"anchor": list(ANCHOR), "ruleset": "faa"})
+    rep = census.census_one(osm, cg, top=5)
+    assert rep["lawtrue"]["total"] == 0
+
+
+def test_the_road_fixtures_drainage_rows_are_GONE_not_hidden(road_report):
+    """The §7 road fixture's four drainage rows — the ones the domain
+    restoration made visible one commit earlier — are gone with the
+    family.  Its WITHIN-SHAPE rows are untouched: the restored domain
+    still stands, and what changed is which laws judge it."""
+    assert not [f for f in road_report["families"]
+                if f["family"] == "drainage_minimum"]
+    assert _fam(road_report, "within_shape")["n"] == 2
+
+
+def test_the_RUNWAY_CROWN_law_is_untouched_and_still_BINDS(cg):
+    """The surviving drainage law.  The retirement withdrew §B3 and
+    nothing else: runways still carry a MANDATORY-DOWN transverse band
+    (``grade_law.transverse_surface_bounds`` under
+    ``config.CROWN_MINIMUM_BOUND_RUNWAYS``, owner d48bc0a) and generation
+    may not emit a crown below the ruleset minimum.
+
+    HONEST SCOPE, and the reason this twin reads the LAW rather than a
+    census: the crown minimum is GENERATION-bound (twins in
+    ``tests/test_crown_minimum_bound.py``) and has NO census reader.  A
+    runway emitted dead flat against a declared 0.30 m crown drop
+    censuses ZERO rows — the within-shape crown check judges deviation
+    from the designed crown against the runway's own transverse cap
+    allowance, and the designed crown always sits inside it by
+    construction (1 % crown vs a 1.5 % cap).  Reported to the round:
+    with §B3 retired the crown law is the only drainage law, and the
+    census cannot see it.
+    """
+    import auto_patch.grade_law as GL
+
+    assert GL.transverse_minimum_binds("runway") is True
+    for ruleset in ("faa", "icao"):
+        low = GL.transverse_minimum_for_role("runway", ruleset)
+        assert low == 0.010
+        lo, hi = GL.transverse_surface_bounds("runway", "F", 30.0, ruleset)
+        assert hi == pytest.approx(-float(low) * 30.0)   # mandatory DOWN
+        assert GL.runway_crown_rate(ruleset) >= float(low)
+    assert not hasattr(GL, "drainage_minimum_grade"), (
+        "the retired §B3 law functions are still importable — a retired "
+        "law with live functions invites a reader to re-arm it")

@@ -93,8 +93,19 @@ def _census(cg, *, adjudicated=0, deferred=0):
     ones — built through ``check_grade.adjudication`` itself, so this
     fixture cannot drift from the register the oracle reads."""
     import types
+    # The deferral register is EMPTY since the drainage minimum retired
+    # (RULINGS 2026-08-13b), so the deferred half is built against an
+    # INJECTED register entry: the oracle must keep reporting a deferred
+    # family under its own heading for the next deferral the owner grants,
+    # and that behaviour cannot be tested through an empty register.
+    _deferred_key = "_synthetic_deferred_family"
+    if deferred:
+        cg.VERSION_DEFERRED_FAMILIES.setdefault(
+            _deferred_key,
+            f"SYNTHETIC deferral, twin fixture only "
+            f"(RULINGS {cg.DEFERRED_ADJUDICATION_RULING})")
     pairs = ([("within_shape", types.SimpleNamespace())] * adjudicated
-             + [("drainage_minimum", types.SimpleNamespace())] * deferred)
+             + [(_deferred_key, types.SimpleNamespace())] * deferred)
     adj = cg.adjudication(pairs)
     total = adjudicated + deferred
     return {"adjudication": adj,
@@ -520,7 +531,7 @@ def test_adjudicated_rows_fail_compliance_and_the_note_carries_the_worlds(
     assert c["adjudicated_by_world"] == {"-500": 3, "10000": 3}
     assert c["rows_by_world"] == {"-500": 5, "10000": 5}
     assert (c["version_deferred_by_world"]["-500"]["families"]
-            ["drainage_minimum"] == 2)
+            ["_synthetic_deferred_family"] == 2)
     assert c["worlds_m"] == WORLDS
     assert c["worlds_are_the_ruled_pair"] is True
     assert "-500 m" in c["note"] and "10000 m" in c["note"], (

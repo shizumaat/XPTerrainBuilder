@@ -170,10 +170,6 @@ try:
         shoulder_transverse_envelope as _shoulder_transverse_envelope,
         shoulder_edge_dropoff_exempt as _shoulder_dropoff_exempt,
         transverse_surface_bounds as _transverse_surface_bounds,
-        drainage_minimum_grade as _drainage_minimum_grade,
-        drainage_minimum_shortfall as _drainage_minimum_shortfall,
-        _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
-        _DRAINAGE_MIN_GROUNDSIDE_ROLES as _LAW_DRAIN_MIN_GS_ROLES,
     )
     from auto_patch.config import (
         runway_code_number as _runway_code_number,
@@ -205,10 +201,6 @@ except Exception:
     _shoulder_transverse_envelope = None
     _shoulder_dropoff_exempt = None
     _transverse_surface_bounds = None
-    _drainage_minimum_grade = None
-    _drainage_minimum_shortfall = None
-    _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
-    _LAW_DRAIN_MIN_GS_ROLES = frozenset()
     _STRIP_PRECEDENCE = False
     _BUILDING_FRONTAGE_NEAR_MISS_M = 0.0
     _NEAR_MISS_FRONTAGE_SOFT_ROLES = ()
@@ -1011,8 +1003,9 @@ _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
 # the road-family test in ``_airside_groundside_pair``.  The ``role`` tag
 # itself is still NOT written, and that is the difference between JUDGING a
 # ring at its host's cap and ADMITTING it into its host's laws: a stamped
-# ``role`` also selects a way into ``_DRAINAGE_MIN_ROLES`` /
-# ``_STRIP_PAVEMENT_ROLES``, which on the frame of record MINTED a phantom
+# ``role`` also selects a way into the SURFACE walks
+# (``_STRIP_PAVEMENT_ROLES`` and, until its 2026-08-13b retirement,
+# ``_DRAINAGE_MIN_ROLES``) — which on the frame of record MINTED a phantom
 # drainage-minimum row by treating an articulation ring as a surface that
 # must drain.  ``law_role`` moves the CAP and the SIDE — what the spec
 # names — and moves no way into a law it is not a surface of.
@@ -1101,10 +1094,11 @@ def resolve_feature_hosts(ways: List["Way"],
 
     THE ``role`` TAG ITSELF IS STILL NOT WRITTEN.  A role tag is LAW
     INPUT twice over: it resolves a cap and a side, AND it selects a way
-    into ``_DRAINAGE_MIN_ROLES`` / ``_STRIP_PAVEMENT_ROLES``.  Stamping it
-    MEASURABLY moves the population — on the frame of record it removed two
-    within-shape rows and MINTED one phantom drainage-minimum row by
-    admitting an articulation ring into that law's surface set.  So L-1
+    into the surface walks (``_STRIP_PAVEMENT_ROLES``, and the drainage
+    minimum before it retired).  Stamping it MEASURABLY moves the
+    population — on the frame of record it removed two within-shape rows
+    and MINTED one phantom drainage-minimum row by admitting an
+    articulation ring into that law's surface set.  So L-1
     (spec ``tunnel-ramp-cut-boundaries-spec.md`` §3) takes the first half
     only: an INTERIOR RING (:data:`HOST_CAP_FEATURE_CLASSES`) is JUDGED at
     its host's cap and side through :func:`law_role`, and joins no law it
@@ -1181,7 +1175,7 @@ def law_role(way: "Way") -> Optional[str]:
     that no reader of the raw tag reappears beside them).
 
     It deliberately does NOT stamp ``role``: membership of the surface
-    laws (``_DRAINAGE_MIN_ROLES``, ``_STRIP_PAVEMENT_ROLES``, …) still
+    laws (``_STRIP_PAVEMENT_ROLES``, ``_TRANSVERSE_ROLES``, …) still
     reads the raw tag, so an articulation ring is judged at its host's cap
     without being admitted to laws it is not a surface of.  A way whose
     host did not resolve reads exactly as parsed."""
@@ -2598,96 +2592,31 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(hit_ways)
 
 
-#: Roles the §B3 drainage MINIMUM is read on — DERIVED FROM THE LAW, never
-#: typed here.  Building pads are excluded by owner law
-#: (``TERMINAL_PADS_SLOPE=False``) and terrace panels by the open owner
-#: question 4; both exclusions live in ``grade_law.drainage_minimum_grade``,
-#: so this set only chooses WHICH emitted ways to walk.
-#:
-#: IT USED TO BE A HAND-TYPED TUPLE, and it was wrong (fix cycle 2 item 5,
-#: verdict (d) BROKEN INSTRUMENT): ``("apron", "stand", "groundside",
-#: "parking")``.  Of those four literals exactly ONE — ``apron`` — is a role
-#: this engine ever emits.  ``stand``, ``groundside`` and ``parking`` are not
-#: in ``layout.ROLE_*`` at all; the emitted landside role is
-#: ``groundside_pavement``.  So the walk skipped every groundside way and the
-#: GROUNDSIDE HALF OF §B3 NEVER FIRED — the law had a 1.0 % minimum
-#: (``GROUNDSIDE_MIN_DRAINAGE_GRADE``) and its twin was reading a role set
-#: that could not match it.  Structurally silent: an empty walk and a
-#: compliant walk report the same zero.
-#:
-#: The law already owns the answer in two frozensets, and
-#: ``_DRAINAGE_MIN_GROUNDSIDE_ROLES`` names ``groundside_pavement``
-#: correctly.  Deriving from them is the single-source fix: emitter and
-#: validator now cannot disagree about WHICH surfaces the minimum is read
-#: on, the same way ``drainage_minimum_shortfall`` already makes them agree
-#: about HOW FLAT is too flat.
-_DRAINAGE_MIN_ROLES = frozenset(
-    _LAW_DRAIN_MIN_APRON_ROLES) | frozenset(_LAW_DRAIN_MIN_GS_ROLES)
+# ── §B3 — THE DRAINAGE MINIMUM — RETIRED ─────────────────────────────
+# GONE, by owner ruling (RULINGS 2026-08-13b, "DRAINAGE MINIMUM RETIRES —
+# ONLY RUNWAYS CROWN"): "only runways get a crown, the rest can be flat
+# for the sim".  The family covered aprons (FAA §5.9.1.1's 0.5 %) and
+# landside pavement (the PROVISIONAL 1.0 %) — no runway role was ever in
+# it — so the runway crown law (``grade_law.transverse_surface_bounds``
+# under ``config.CROWN_MINIMUM_BOUND_RUNWAYS``) now stands alone as the
+# drainage law and this reader has no surfaces left to read.
+#
+# REMOVED rather than GATED to the runway family, deliberately.  Gating it
+# would leave a registered family walking a role set the law grants no
+# minimum to: a permanently empty walk reporting zero, which is exactly
+# the shape of the defect this file's own §B3 history is made of ("an
+# empty walk and a compliant walk report the same zero", the fix-cycle-2
+# item-5 verdict, and again the 2026-08-13b census-blindness verdict).
+# The retirement is recorded in ``RETIRED_FAMILIES`` with its ruling, and
+# ``tests/test_harness.py`` asserts a retired key is in no walk, no
+# register and no report.
+#
+# NOTHING IN GENERATION CHANGES.  The §B3 law had no emitter consumer —
+# ``grade_law.drainage_minimum_*`` was read by this census and by nothing
+# else in ``src/`` — so retiring it moves no vertex (GEOMETRY FREEZE,
+# owner 2026-08-13b, is untouched).  What changes is that the census
+# stops reporting rows against a law the owner has withdrawn.
 
-
-def _check_drainage_minimum(ways: List[Way], nodes, ll_to_m
-                            ) -> Tuple[List[Violation], int, int]:
-    """§B3 twin — surfaces FLATTER than their drainage minimum.
-
-    FAA §5.9.1.1 mandates a minimum 0.5 % apron gradient; ICAO §3.13.4 is
-    qualitative and states no number, so the apron half is a no-op at
-    every ICAO airport.  The groundside minimum is region-invariant and
-    PROVISIONAL (owner question 3).
-
-    Reported as a SHORTFALL: ``grade_pct`` is the measured grade,
-    ``excess_pct`` how far below the minimum it sits.  Runs shorter than
-    the materiality floor are not read — a 1 m puddle is not a drainage
-    defect."""
-    if _drainage_minimum_grade is None:
-        return [], 0, 0
-    out: List[Violation] = []
-    n_pairs = 0
-    hit_ways: set = set()
-    for w in ways:
-        if w.role not in _DRAINAGE_MIN_ROLES:
-            continue
-        low = _drainage_minimum_grade(w.role, _ACTIVE_RULESET)
-        if not low:
-            continue
-        nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
-              else w.nids)
-        pts, zs = [], []
-        ok = True
-        for k, nid in enumerate(nn):
-            if nid not in nodes:
-                ok = False
-                break
-            pts.append(ll_to_m(*nodes[nid]))
-            zs.append(w.elevs[k] if k < len(w.elevs) else None)
-        if not ok or len(pts) < 2:
-            continue
-        for a in range(len(pts) - 1):
-            b = a + 1
-            if zs[a] is None or zs[b] is None:
-                continue
-            dist = math.hypot(pts[b][0] - pts[a][0], pts[b][1] - pts[a][1])
-            if dist < _DRAINAGE_MIN_RUN_M:
-                continue
-            n_pairs += 1
-            grade = abs(float(zs[b]) - float(zs[a])) / dist
-            short = _drainage_minimum_shortfall(grade, w.role, _ACTIVE_RULESET)
-            if short <= 0.0:
-                continue
-            hit_ways.add(w.wid)
-            out.append(Violation(
-                grade_pct=100.0 * grade, excess_pct=100.0 * short,
-                distance_m=dist, de_m=abs(float(zs[b]) - float(zs[a])),
-                way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[b],
-                elev_a=float(zs[a]), elev_b=float(zs[b])))
-    out.sort(key=lambda v: -v.excess_pct)
-    return out, n_pairs, len(hit_ways)
-
-
-#: Minimum run (m) over which the drainage minimum is read.  Below it the
-#: 0.01 m emit quantum dominates the measured grade (0.01/2 m = 0.5 %,
-#: exactly the FAA minimum), so a shorter pair says nothing about
-#: drainage.
-_DRAINAGE_MIN_RUN_M = 5.0
 
 
 # ── DRAINAGE-SPINE LAW (owner field report 2026-08-02) ──────────
@@ -4762,8 +4691,6 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("strip_arc", "STRIP LONGITUDINAL grade-CHANGE rate", "within"),
     ("resa_transverse", "RESA / END-CORRIDOR TRANSVERSE grade", "within"),
     ("raoa", "RAOA grade-change rate (ICAO only)", "within"),
-    ("drainage_minimum", "SURFACE FLATTER than its drainage minimum",
-     "within"),
     ("wall_in_runway_strip", "RETAINING WALL inside a RUNWAY STRIP", "within"),
     ("stacked_nodes", "STACKED NODES (one coordinate, values disagree)",
      "within"),
@@ -4854,11 +4781,41 @@ def step_exempt(row) -> Optional[str]:
 # ``harness/oracle.py`` read it, and ``tests/test_harness.py`` asserts
 # every key here is a registered family.
 DEFERRED_ADJUDICATION_RULING = "d48bc0a"
-VERSION_DEFERRED_FAMILIES: Dict[str, str] = {
+#: EMPTY, and that is a RULING, not an oversight: its one member —
+#: ``drainage_minimum`` — did not become adjudicated, it RETIRED (see
+#: ``RETIRED_FAMILIES`` below).  A family may leave this register in
+#: exactly two ways, and both are visible: the owner adjudicates it (it
+#: stays in ``LAW_FAMILIES`` and its rows start counting) or the owner
+#: retires it (it leaves ``LAW_FAMILIES`` and is recorded below).  A key
+#: that simply vanished from both would silently re-adjudicate a deferred
+#: family, which is what ``tests/test_harness.py`` pins.
+VERSION_DEFERRED_FAMILIES: Dict[str, str] = {}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE RETIRED FAMILIES — a law the owner WITHDREW, recorded not deleted
+# ══════════════════════════════════════════════════════════════════════
+#: A retired family reports ZERO because the LAW no longer binds, not
+#: because a walk went blind — and the two are indistinguishable in the
+#: output, which is exactly how the §B3 blindness survived for months.  So
+#: a retirement is recorded here with its ruling: the register is the
+#: difference between "this law found nothing" and "this law is gone".
+#:
+#: Family key -> the owner ruling that withdrew it.  A key here must NOT
+#: be in ``LAW_FAMILIES`` (twin: ``tests/test_harness.py``) — a retired
+#: family that still ran would report zero rows out of an empty walk,
+#: which is the defect this register exists to make unspeakable.
+RETIRED_FAMILY_RULING = "2026-08-13b"
+RETIRED_FAMILIES: Dict[str, str] = {
     "drainage_minimum":
-        "interior pavement drainage-minimum shaping — VERSION-DEFERRED by "
-        "RULINGS d48bc0a (2026-08-05, 'Drainage scope for this version'); "
-        "reported always, never adjudicated, never silently dropped",
+        "SURFACE FLATTER than its drainage minimum (FAA AC §5.9.1.1 0.5 % "
+        "apron; groundside 1.0 % PROVISIONAL) — RETIRED by RULINGS "
+        "2026-08-13b, 'DRAINAGE MINIMUM RETIRES — ONLY RUNWAYS CROWN': "
+        "\"only runways get a crown, the rest can be flat for the sim\".  "
+        "The family never covered a runway role, so the runway crown law "
+        "(grade_law.transverse_surface_bounds, bound by "
+        "config.CROWN_MINIMUM_BOUND_RUNWAYS) stands alone as the drainage "
+        "law and the census carries no drainage-minimum walk at all",
 }
 
 
@@ -5865,19 +5822,6 @@ def run_checks(
         print(f"  ({n_ra_st} pre-threshold station(s) censused over "
               f"{n_ra_ways} band(s))")
     within = within + raoa
-
-    # ── §B3 — the DRAINAGE MINIMUM ───────────────────────────────────
-    drain_min, n_dm_pairs, n_dm_ways = _check_drainage_minimum(
-        ways, nodes, ll_to_m)
-    _fam("drainage_minimum", drain_min)
-    _pv("SURFACE FLATTER than its drainage minimum (FAA AC §5.9.1.1 "
-        "0.5% apron; groundside 1.0% PROVISIONAL, owner question 3 — "
-        "ICAO states no apron minimum, so that half is a no-op there)",
-        drain_min, top_n)
-    if n_dm_pairs and not quiet:
-        print(f"  ({n_dm_pairs} drainage pair(s) censused over "
-              f"{n_dm_ways} surface(s))")
-    within = within + drain_min
 
     wall_in_strip = _fam(
         "wall_in_runway_strip",

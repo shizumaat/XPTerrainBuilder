@@ -180,27 +180,99 @@ def test_every_version_deferred_family_is_a_registered_family(cg):
     verdict would look adjudicated-clean while the rows kept counting — and a
     deferred key that was silently DROPPED instead of reported is the
     census-wrapper defect.  Both halves are pinned here.
+
+    The register is EMPTY today and that is lawful — see the retirement
+    twins below, which is the ONLY way a key may leave it.
     """
     registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
     assert set(cg.VERSION_DEFERRED_FAMILIES) <= registered, (
         f"version-deferred key(s) "
         f"{sorted(set(cg.VERSION_DEFERRED_FAMILIES) - registered)} name no "
         f"law family — the deferral would exclude nothing")
-    assert cg.VERSION_DEFERRED_FAMILIES, (
-        "the deferral register is empty; RULINGS d48bc0a defers the interior "
-        "drainage-minimum family — an empty register silently re-adjudicates "
-        "it")
     for why in cg.VERSION_DEFERRED_FAMILIES.values():
         assert cg.DEFERRED_ADJUDICATION_RULING in why, (
             "every deferral must carry its owner-ruling citation in the "
             "text the reports print")
 
 
-def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(cg):
+def test_a_family_leaves_the_deferral_register_only_by_ADJUDICATION_or_RETIREMENT(
+        cg):
+    """The empty deferral register is a RULING, not an oversight.
+
+    ``drainage_minimum`` was the register's one member (RULINGS d48bc0a,
+    "Drainage scope for this version").  It did not become adjudicated: it
+    RETIRED — RULINGS 2026-08-13b, "DRAINAGE MINIMUM RETIRES — ONLY
+    RUNWAYS CROWN" ("only runways get a crown, the rest can be flat for
+    the sim").  Those are the only two exits, and both leave a record: an
+    adjudicated family stays in ``LAW_FAMILIES`` and its rows start
+    counting; a retired one leaves ``LAW_FAMILIES`` and lands in
+    ``RETIRED_FAMILIES`` with its ruling.  A key that vanished from both
+    registers would silently re-adjudicate a deferred family — the exact
+    accounting the deferral register was built to prevent.
+    """
+    registered = {key for key, _title, _bucket in cg.LAW_FAMILIES}
+    assert "drainage_minimum" in cg.RETIRED_FAMILIES, (
+        "the version-deferred drainage-minimum family left the deferral "
+        "register with no retirement record")
+    for key, why in cg.RETIRED_FAMILIES.items():
+        assert key not in registered, (
+            f"{key!r} is RETIRED but still registered in LAW_FAMILIES — a "
+            f"retired family that still runs reports zero out of an EMPTY "
+            f"WALK, which is indistinguishable from a compliant surface")
+        assert key not in cg.VERSION_DEFERRED_FAMILIES, (
+            f"{key!r} is both deferred and retired")
+        assert cg.RETIRED_FAMILY_RULING in why, (
+            "every retirement must carry the owner ruling that withdrew it")
+
+
+def test_a_retired_family_is_in_no_walk_no_register_and_no_report(cg):
+    """RETIREMENT IS STRUCTURAL, not a zero.
+
+    The §B3 history is why: "an empty walk and a compliant walk report the
+    same zero".  A family the owner withdrew must therefore be UNABLE to
+    report — no check function, no walk set, no emission position — rather
+    than running over an empty domain and printing 0.
+    """
+    src = inspect.getsource(cg)
+    for key in cg.RETIRED_FAMILIES:
+        assert f"def _check_{key}(" not in src, (
+            f"the retired family {key!r} still has a check function")
+        assert f'_fam("{key}"' not in src, (
+            f"the retired family {key!r} is still emitted by run_checks")
+    family_out: dict = {}
+    cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True, family_out=family_out)
+    assert not (set(cg.RETIRED_FAMILIES) & set(family_out)), (
+        "a retired family reported into family_out")
+    rows = [(k, object()) for k in cg.RETIRED_FAMILIES]
+    adj = cg.adjudication(rows)
+    assert not adj["deferred_families"], (
+        "a retired family must not reappear through the deferral register")
+
+
+@pytest.fixture
+def deferred_key(cg, monkeypatch):
+    """A SYNTHETIC deferral for the twins below.
+
+    ``VERSION_DEFERRED_FAMILIES`` is empty since the drainage minimum
+    retired, but the deferral MACHINERY has to keep working for the next
+    deferral the owner grants — so these twins run against an injected
+    entry instead of being deleted along with the family they happened to
+    be written against.
+    """
+    # NOT ``within_shape``: the twins below use that as their
+    # deliberately-not-deferred control family.
+    key = next(k for k, _t, _b in cg.LAW_FAMILIES if k != "within_shape")
+    monkeypatch.setattr(cg, "VERSION_DEFERRED_FAMILIES", {
+        key: f"SYNTHETIC deferral, twin fixture only "
+             f"(RULINGS {cg.DEFERRED_ADJUDICATION_RULING})"})
+    return key
+
+
+def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(
+        cg, deferred_key):
     """The split must PARTITION: adjudicated + deferred = every row.  A
     deferral that quietly removed rows from BOTH numbers would be the
     'quarantine' the owner outlawed wearing an accounting hat."""
-    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     other = next(k for k, _t, _b in cg.LAW_FAMILIES
                  if k not in cg.VERSION_DEFERRED_FAMILIES)
 
@@ -3073,11 +3145,11 @@ def test_the_band_edges_are_configurable_and_validated(census_mod, cg):
             census_mod.parse_band_edges(bad)
 
 
-def test_the_bands_carry_the_laws_own_deferred_split(census_mod, cg):
+def test_the_bands_carry_the_laws_own_deferred_split(
+        census_mod, cg, deferred_key):
     """Instruments report, the law adjudicates (RULINGS d48bc0a).  A band
     table that folded the version-deferred rows into its counts would
     re-adjudicate them in a footnote."""
-    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     other = next(k for k, _t, _b in cg.LAW_FAMILIES
                  if k not in cg.VERSION_DEFERRED_FAMILIES)
     rows = [(deferred_key, _BandRow(0.5)), (other, _BandRow(0.5)),
@@ -4683,11 +4755,11 @@ def test_the_per_site_splits_agree_with_the_reports_own(census_mod, cg,
             f"site family {key!r} is not a registered law family")
 
 
-def test_the_adjudication_split_per_site_is_the_laws_own(census_mod, cg):
+def test_the_adjudication_split_per_site_is_the_laws_own(
+        census_mod, cg, deferred_key):
     """A site's adjudicated / deferred / out-of-scope counts come from
     ``check_grade.adjudication`` applied to that site's own rows — never a
     second copy of the deferred register (RULINGS d48bc0a)."""
-    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     rows = [(deferred_key, _SiteRow(0.5, "-9", "-9", (0.0, 0.0), (5.0, 0.0))),
             ("within_shape", _SiteRow(0.5, "-8", "-8", (99.0, 0.0),
                                       (105.0, 0.0)))]
@@ -4960,12 +5032,12 @@ def test_a_site_under_the_floor_is_sub_floor_and_over_it_is_actionable(
     assert (sec2["sites_actionable"], sec2["sites_sub_floor"]) == (1, 0)
 
 
-def test_the_accumulation_is_funded_by_adjudicated_rows_only(census_mod, cg):
+def test_the_accumulation_is_funded_by_adjudicated_rows_only(
+        census_mod, cg, deferred_key):
     """A version-deferred or out-of-scope row is NOT a defect (RULINGS
     d48bc0a, and the 2026-08-06 ONE-graph classes).  It may not push a site
     over the floor — that would let a deferred family mint actionability
     for a family that has none."""
-    deferred_key = sorted(cg.VERSION_DEFERRED_FAMILIES)[0]
     rows = _graded(3, grade=1.5, excess=0.5, dist=20.0)
     padding = [(deferred_key,
                 _FloorRow(de=9.0, grade=1.5, excess=0.5, dist=1000.0,

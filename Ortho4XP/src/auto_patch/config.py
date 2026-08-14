@@ -282,7 +282,6 @@ __all__ = [
     "OPEN_FRONTAGE_CLOSE_M",
     "GAP_FILL_RIM_POCKETS_ENABLED",
     "GAP_FILL_RIM_POCKET_GRADED_FRACTION",
-    "RIM_PRESOLVE_ABSORB",
     "ONE_SOLVE_TERRAIN",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_SKIRT",
     "ONE_SOLVE_TERRAIN_RUNWAY_END_RESA",
@@ -5658,23 +5657,17 @@ GAP_FILL_RIM_POCKET_GRADED_FRACTION = 0.75
 GAP_FILL_RIM_POCKETS_ENABLED = (
     _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "0") == "1")
 
-# RIM POCKETS GRADE POST-SOLVE ONLY (owner/Fable ruling 2026-08-12b,
-# after the OTHH interventional pair).  A rim pocket's drainage spine is
-# EMITTED like any other, but its vertices are NOT admitted to the one
-# solve as free variables: measured at OTHH, absorbing them moved AIRSIDE
-# apron values on rings byte-identical between arms, 98.90-135.68 m from
-# the nearest pocket — groundside geometry pulling airside, against
-# "airside solves first, groundside conforms".
-#
-# THE MEASUREMENT (OTHH --patch-only, one tree, single variable):
-#   rim off .................. within_shape 148, airside 29, cluster 23
-#   rim on, absorption ON .... within_shape 167, airside 47, cluster 41
-#   rim on, absorption OFF ... within_shape 129, airside  9, cluster  6
-# Post-solve-only is better than BOTH — it is the default, and the gate
-# exists so the staged-solve design round can restore absorption
-# deliberately.
-RIM_PRESOLVE_ABSORB = (
-    _os.environ.get("O4_RIM_PRESOLVE_ABSORB", "0") == "1")
+# RIM-POCKET ABSORPTION GATE — RETIRED (owner ruling 2026-08-13, RULINGS
+# "OTHH -639 ADJUDICATED"; S3 dossier §6, lane S4).  `O4_RIM_PRESOLVE_ABSORB`
+# used to withhold rim-pocket spine vertices from the one solve.  It was
+# measured INERT IN PRODUCTION: `gap_fill._rim_pocket_polys` returns []
+# when GAP_FILL_RIM_POCKETS_ENABLED is false (the shipped default), so
+# `rim_ids` is empty and the branch never ran — the 29→9 OTHH airside
+# claim behind it was never shipped.  It is also the wrong SHAPE of
+# boundary: a per-construct opt-out of one groundside family from the one
+# solve is exactly the ad-hoc form the staged partition
+# (`solve_stage.py`) replaces.  Under staging, a construct's admission is
+# decided by its STAGE TAG, not by a flag.
 
 # ── SLICE B — solver absorption of terrain roles (staged) ──────────────
 # docs/slice_b_solver_absorption_design.md, Stage B0.  The absorption moves

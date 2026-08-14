@@ -1389,6 +1389,17 @@ def _measure_structure_parts(
     inline loop always did: the seating gate must not be paid for by
     builds that have it switched off (build-time HARD LAW, repo-root
     CLAUDE.md).
+
+    ``sampler=None`` is the MESH-FREE reading (S5v3, RULINGS "OBJECT
+    PADS: EMISSION-TIME RELATIVE" + the R3 single-pass ruling): the
+    parts, their base ``y``, plan boxes, areas, centroids and world
+    positions are all PACK data and none of them consults the mesh —
+    only ``ground_metres`` does.  With no sampler the ground columns come
+    back ``None``/``ground_measured=False`` and everything else is
+    byte-identical to the sampled call, which is what lets the frame be
+    built once IN-RUN, pre-solve, and cached on pristine inputs.  No
+    "outside the built mesh" warning is printed, because nothing was
+    asked of a mesh.
     """
     measurements: list[_PartMeasurement] = []
     for part_triangles in obj8_partition.weld_parts(
@@ -1435,6 +1446,21 @@ def _measure_structure_parts(
         part_latitude, part_longitude = _pool_frame_to_world_point(
             frame.origin_latitude, frame.origin_longitude, part_x, part_z
         )
+        if sampler is None:
+            measurements.append(
+                _PartMeasurement(
+                    is_ground=True,
+                    area_square_metres=part_area,
+                    centroid_x=part_x,
+                    centroid_z=part_z,
+                    latitude=part_latitude,
+                    longitude=part_longitude,
+                    ground_metres=None,
+                    ground_measured=False,
+                    **common,
+                )
+            )
+            continue
         part_ground = sampler.elevation_at_or_none(part_latitude, part_longitude)
         ground_measured = part_ground is not None
         if part_ground is None:

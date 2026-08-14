@@ -703,3 +703,65 @@ only — BUILD-TIME IMPACT ZERO, confirmed by `tools/blast.py`
 (12) + `test_harness.py` — 245 passed.  Shared repo UNCHANGED in both
 measurement arms (guard armed refuse-mode, `blocked=0`, 18 and 16
 allowed `.lock` churn entries).
+
+### R3 landed, step (1) of 5 — THE OBJECT PAD FRAME (Fable ruling 2026-08-14)
+
+Fable ruled R3, "one frame, single pass", with the refinement that the
+frame's inputs are PACK data and so belong in-run pre-solve behind the
+pristine-key sidecar family.  Step (1) of the ruled order is landed:
+
+* `object_anchor._measure_structure_parts` gains a MESH-FREE reading
+  (`sampler=None`).  It was already one line from being mesh-free — the
+  sampler appears exactly once, for `ground_metres` — so the split is a
+  guarded branch, not a rewrite.  Twin
+  (`test_the_mesh_free_reading_asks_no_mesh_and_matches_the_pack_columns`)
+  asserts the sampled and unsampled readings agree on EVERY pack column
+  (key, base_y, base_resource, is_ground, plan_box, area, centroid,
+  lat/lon) and differ only in the two ground columns.
+* `src/auto_patch/object_frame.py` — `build_pad_frame(pool, geometry,
+  structures)` returns `PadPart`s (contact-band triangle groups,
+  `base_y`, base resource, part centroid) and `PadAnchor`s (the render
+  datum + AGL).  It reuses `object_anchor`'s own builders rather than
+  re-deriving them; `rendered_base_metres` is
+  `_raise_cluster_pad_requests`' `seated=False` formula verbatim.
+* `post_mesh.cached_pad_frame` / `pad_frame_cache_key` — the disk half,
+  beside `_cached_partition_structures`, keyed on
+  `object_rebake.pristine_object_fingerprint_entries` plus the law
+  scalars that shape the frame.  `O4_OBJECT_PAD_FRAME_CACHE=0` disables
+  the DISK half only, so the flag can never change an answer.
+* `ring_covers_its_own_datum` — the circularity fallback's test, with
+  its twins (step (5)'s law, landed early because it is frame-side).
+
+Twins: `tests/test_object_pad_frame.py`, 12, including the ruled
+acceptance for this step — FRAME-FROM-CACHE == FRAME-FRESH, proved by
+making a fresh build raise on the second read so anything returned can
+only have come off the disk — plus a re-key twin on a law scalar and a
+"cache off changes nothing but cost" twin.
+
+BUILD-TIME IMPACT: ZERO so far.  Nothing in `src/` calls
+`build_pad_frame` or `cached_pad_frame` yet — they are reachable only
+from the twins.  The frame becomes a build cost when step (2) wires it
+in, and that is the same step that removes the rebake's own frame
+construction, which is the whole basis of acceptance (c).
+
+TEST CONTROL: `test_contracts.py::test_obj8_partition_signature
+[contact_graph]` and `test_object_anchor.py::
+test_kclt_eight_bake_pool_end_to_end` FAIL — and fail IDENTICALLY with
+this lane's two `src/` edits reverted in the same tree (matched control,
+per the standing law).  Both are pre-existing; 281 other tests pass.
+
+OWED — steps (2)-(5) and the acceptance arms, in Fable's ruled order:
+(2) `post_mesh.rebake_dsf_objects` consumes the frame instead of
+rebuilding it (twin: rebake output unchanged on an identical mesh);
+(3) pad emission consumes the frame with the landed `patch_ground`
+targets, CORE-only under weld-or-gap (the blend annulus retires);
+(4) retire the read-back — the `config.py` consumer gate, `flat_site.py`
+:587, and the request/`emitted` persistence — leaving the sidecar a
+write-only audit; (5) route a self-covering request to the y-bake
+(the law and its twins are landed; the ROUTING is step (3)'s call
+site).  Then (a) the HECA `--tile 30 31` determinism pair — which is
+also the interventional test of this lane's attribution read, so it must
+state explicitly whether object_pad 689 -> 723 -> 736 stabilises —
+(b) the `.obj`-rewrite count, (c) the `--count` + recorded-phase pair,
+(d) `check_object_pads`, (e) the row-attributed census.  Not started:
+this session reached its budget at step (1), not a new blocker.

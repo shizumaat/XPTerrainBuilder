@@ -554,6 +554,99 @@ def _cached_partition_structures(
     return structures
 
 
+def pad_frame_cache_key(pool, pack_root: str) -> str:
+    """The PAD FRAME's cache key, on PRISTINE pack inputs.
+
+    Owner ruling 2026-08-13, "AIRPORT DERIVED CACHES KEY ON PRISTINE
+    INPUTS": the y-bake rewrites pack ``.obj`` files every run, so a key
+    over the files ON DISK churns while the frame's real inputs — the
+    AUTHORED geometry — never moved.  The pristine entries come from the
+    one implementation
+    (``object_rebake.pristine_object_fingerprint_entries``), never
+    re-spelled here, so this cache and the footprint / classification
+    sidecars cannot disagree about what "unchanged pack" means.
+
+    The law scalars that SHAPE the frame ride in the key too: change the
+    elevated-base cut or the contact band and the parts change, which a
+    key over inputs alone would not see.
+    """
+    from .config import (
+        DSF_OBJECT_ELEVATED_BASE_M,
+        DSF_OBJECT_FOOT_BAND_M,
+        DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2,
+    )
+    from .object_frame import PAD_FRAME_VERSION
+    from .object_rebake import pristine_object_fingerprint_entries
+
+    digest = hashlib.sha1()
+    digest.update(repr((
+        PAD_FRAME_VERSION,
+        DSF_OBJECT_ELEVATED_BASE_M,
+        DSF_OBJECT_FOOT_BAND_M,
+        DSF_OBJECT_PAD_PLAN_BOX_FALLBACK_MAX_M2,
+    )).encode())
+    for placement in pool.placements:
+        digest.update(repr(placement).encode())
+    for entry in pristine_object_fingerprint_entries(pack_root):
+        digest.update(entry.encode())
+    return digest.hexdigest()[:16]
+
+
+def cached_pad_frame(pool, geometry_by_resource, structures, pack_root):
+    """``object_frame.build_pad_frame`` behind the pristine-key sidecar.
+
+    The frame is PACK data and mesh-free, so it is built ONCE per build —
+    in-run, pre-solve — and both consumers read this one product: the pad
+    emitter (through the emitted patch's own ground) and the y-bake
+    fallback (through the built mesh).  That is Fable's R3, "one frame,
+    single pass"; the alternative costed at 66.6 s per HECA build was
+    building it twice.
+
+    ``O4_OBJECT_PAD_FRAME_CACHE=0`` disables the disk half only — the
+    frame is still built, so the flag can never change a result, just
+    what it costs.  A corrupt or version-skewed file recomputes
+    silently, like every other sidecar here.
+    """
+    from . import object_frame
+
+    fresh = lambda: object_frame.build_pad_frame(   # noqa: E731
+        pool, geometry_by_resource, structures)
+
+    cache_directory = dsf_reader.airport_mod_cache_dir(pack_root)
+    if (
+        cache_directory is None
+        or os.environ.get("O4_OBJECT_PAD_FRAME_CACHE", "1") != "1"
+    ):
+        return fresh()
+
+    cache_path = os.path.join(
+        cache_directory,
+        "o4_object_pad_frame_%s.cache" % pad_frame_cache_key(pool, pack_root),
+    )
+    if os.path.isfile(cache_path):
+        try:
+            with open(cache_path, "rb") as handle:
+                payload = pickle.load(handle)
+            if payload.get("version") == object_frame.PAD_FRAME_VERSION:
+                return payload["frame"]
+        except Exception:
+            pass  # corrupt/unreadable cache — recompute below
+
+    frame = fresh()
+    try:
+        os.makedirs(cache_directory, exist_ok=True)
+        temporary_path = cache_path + ".tmp"
+        with open(temporary_path, "wb") as handle:
+            pickle.dump(
+                {"version": object_frame.PAD_FRAME_VERSION, "frame": frame},
+                handle,
+            )
+        os.replace(temporary_path, cache_path)
+    except OSError:
+        pass  # caching is best-effort; the result is already computed
+    return frame
+
+
 def _merge_cluster_counts(decisions: list) -> dict:
     """Sum the per-pool per-cluster seating counts for the run record
     (spec section 3.5: reporting only)."""

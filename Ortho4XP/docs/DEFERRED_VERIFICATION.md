@@ -562,3 +562,24 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
 - `solve_cut --baseline` compares FULL sha256; a 12-char prefix always
   reads DIVERGED. Every identity claim in this lane was made on the
   printed/recorded `body_sha256`, never on that verdict line.
+
+## Staged-solve S2 — whole-run corridor profile (lane/s2profile)
+
+- Battery scope: only HECA and KCLT were replayed and censused. CYXY,
+  OTHH, KSTJ, SPJC, SPLP NOT censused under the whole-run profile.
+- Timing: NOT measured. The profile adds one taut string per corridor
+  run (HECA 707 runs / 6,491 stations, KCLT 308 / 2,831) on top of the
+  reach Dijkstra it does not replace. No `--runs N` A/B was taken; the
+  per-change build-time gate stays suspended per the campaign ruling.
+- `tests/test_pad_host_pavement_level.py::
+  test_the_pad_law_re_asserts_after_the_late_projection` fails in this
+  lane AND in a clean b2040d1 control worktree with the identical
+  `IndexError` — pre-existing, not attributed to this change.
+- The 15 blast `--tests-for` files + the two new twin files were run
+  ONCE through `run_with_ledger`; no full suite, no blast sweep.
+- Whole-tile / in-sim verification not run; the emitted profile is
+  judged only through `harness/census.py` and
+  `corridor_axis_coverage.py --profile`.
+- The HELD posture (`svc_profile` keyset in both projections) has no
+  twin proving the hold survives a node-list rebuild at a real airport;
+  only the census delta evidences it.

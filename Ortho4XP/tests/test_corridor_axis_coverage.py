@@ -522,3 +522,100 @@ def test_both_tools_carry_an_index_row():
     index = (ROOT.parent / "tools" / "INDEX.md").read_text()
     assert "Ortho4XP/tools/corridor_axis_coverage.py" in index
     assert "Ortho4XP/tools/arm_site_read.py" in index
+
+
+# ══════════════════════════════════════════════════════════════════════
+# --profile — THE VERTICAL end-to-end read (staged-solve round, S2)
+# ══════════════════════════════════════════════════════════════════════
+
+def _profile_sidecar(tmp_path, n_pts=41, step_m=5.0, service=True):
+    """A sidecar whose single ``axes_exact`` entry is a straight service
+    axis marching east from the site."""
+    pts = [[LAT0, _east(k * step_m)] for k in range(n_pts)]
+    p = tmp_path / "prof.osm.axes.json"
+    p.write_text(json.dumps({"axes_exact": [[pts, [], 0, service]]}))
+    return p
+
+
+class TestVerticalProfile:
+    """``--profile``: the hump, the cap-riding runs and the pockets."""
+
+    def test_prominence_finds_a_hump_and_ignores_a_monotone_ramp(self):
+        assert CAC.prominence([0.0, 1.0, 2.0, 3.0]) == []
+        hump = CAC.prominence([0.0, 0.0, 6.18, 0.0, 0.0])
+        assert len(hump) == 1
+        assert hump[0]["kind"] == "peak"
+        assert hump[0]["prominence_m"] == pytest.approx(6.18)
+
+    def test_prominence_reads_a_pocket_as_a_pocket(self):
+        rows = CAC.prominence([10.0, 10.0, 4.0, 10.0, 10.0])
+        assert [r["kind"] for r in rows] == ["pocket"]
+        assert rows[0]["prominence_m"] == pytest.approx(6.0)
+
+    def test_a_flat_run_has_no_hump_and_no_cap_ride(self, tmp_path):
+        sidecar = _profile_sidecar(tmp_path, n_pts=21)
+        patch = _road_patch(tmp_path,
+                            [(k * 5.0, 100.0) for k in range(21)])
+        axes = CAC.load_axes(sidecar)
+        rows = CAC.service_axis_profiles(
+            axes, CAC._road_nodes(patch), halo_m=12.0, cap=0.08)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["worst_grade"] == pytest.approx(0.0)
+        assert r["over_cap_segments"] == 0
+        assert r["cap_ride_runs"] == 0
+        assert r["worst_peak_prominence_m"] == pytest.approx(0.0)
+
+    def test_a_cap_ridden_hump_is_measured_as_one(self, tmp_path):
+        """The named HECA shape: up at the cap, over, back down at the
+        cap.  Prominence reads the hump; the audit reads the ride."""
+        alts = []
+        for k in range(41):
+            d = k * 5.0
+            z = 100.0 + 0.08 * min(d, 200.0 - d)
+            alts.append((d, round(z, 3)))
+        sidecar = _profile_sidecar(tmp_path, n_pts=41)
+        patch = _road_patch(tmp_path, alts)
+        rows = CAC.service_axis_profiles(
+            CAC.load_axes(sidecar), CAC._road_nodes(patch),
+            halo_m=12.0, cap=0.08)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["worst_peak_prominence_m"] == pytest.approx(8.0, abs=0.2)
+        assert r["cap_ride_runs"] >= 1
+        assert r["over_cap_segments"] == 0
+
+    def test_an_over_cap_pocket_is_counted(self, tmp_path):
+        alts = [(k * 5.0, 100.0) for k in range(21)]
+        alts[10] = (50.0, 94.0)          # a 6 m drop over 5 m = 120 %
+        sidecar = _profile_sidecar(tmp_path, n_pts=21)
+        patch = _road_patch(tmp_path, alts)
+        r = CAC.service_axis_profiles(
+            CAC.load_axes(sidecar), CAC._road_nodes(patch),
+            halo_m=12.0, cap=0.08)[0]
+        assert r["over_cap_segments"] == 2
+        assert r["worst_pocket_prominence_m"] == pytest.approx(6.0)
+
+    def test_non_service_axes_are_not_profiled(self, tmp_path):
+        sidecar = _profile_sidecar(tmp_path, n_pts=21, service=False)
+        patch = _road_patch(tmp_path,
+                            [(k * 5.0, 100.0) for k in range(21)])
+        assert CAC.service_axis_profiles(
+            CAC.load_axes(sidecar), CAC._road_nodes(patch),
+            halo_m=12.0, cap=0.08) == []
+
+    def test_cli_writes_json_matching_the_library(self, tmp_path, capsys):
+        sidecar = _profile_sidecar(tmp_path, n_pts=21)
+        patch = _road_patch(tmp_path,
+                            [(k * 5.0, 100.0 + 0.01 * k)
+                             for k in range(21)])
+        out = tmp_path / "prof.json"
+        assert CAC.main([str(sidecar), "--profile", str(patch),
+                         "--json", str(out)]) == 0
+        got = json.loads(out.read_text())
+        assert got["cap"] == pytest.approx(CAC._road_cap())
+        assert got["axes"] == json.loads(json.dumps(
+            CAC.service_axis_profiles(
+                CAC.load_axes(sidecar), CAC._road_nodes(patch),
+                halo_m=CAC.DEFAULT_HALO_M, cap=CAC._road_cap())))
+        assert "VERTICAL PROFILE" in capsys.readouterr().out

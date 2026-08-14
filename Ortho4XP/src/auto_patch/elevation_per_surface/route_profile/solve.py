@@ -4270,6 +4270,16 @@ def solve_route_profile(layout, icao: str,
                       (getattr(layout, "_svc_free_end_idx", None) or ())
                       if i < n}
     yield_hard |= _svc_free_ends
+    # ── THE WHOLE-RUN CORRIDOR PROFILE NEVER LEAVES THE HARD SET ──
+    # (staged-solve round, S2, "WHOLE-RUN CORRIDOR PROFILE".)  A
+    # corridor is ONE law object and its profile was solved over the
+    # WHOLE run against its own cap and band; a pointwise yield here
+    # re-humps it, which is the defect the round closes.  Membership
+    # only, exactly like the free-end tie beside it.
+    _svc_profile = {i for i in
+                    (getattr(layout, "_svc_profile_idx", None) or ())
+                    if i < n}
+    yield_hard |= _svc_profile
     # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely
     # needs to stay within the feasibility box").  Everything the
     # yield above released keeps its seat-time reach-band box as a
@@ -6764,6 +6774,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _fp_free_ends = _store_of(layout).view_keyset("svc_free_end", b2i, n)
     if _fp_free_ends:
         hard |= _fp_free_ends
+    # ── THE CORRIDOR PROFILE, CARRIED BY CANONICAL KEY ────────────────
+    # (staged-solve round, S2.)  Same channel and same reason as the
+    # free-end tie above: the whole-run profile is the corridor's band
+    # entering stage B, and this pass rebuilds the node list, so it
+    # crosses as a keyset artifact through the one resolver.
+    _fp_profile = _store_of(layout).view_keyset("svc_profile", b2i, n)
+    if _fp_profile:
+        hard |= _fp_profile
     # ── W3 · THE SEEDER RECORD (flag ``O4_FABRIC_W3_FGP_HARD_CAT``,
     # default ON; fabric-phase-b-spec.md W3) ──────────────────────────
     # "9,838 unattributed hard nodes is itself a defect."  This pass

@@ -3475,7 +3475,166 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
 
     node_target: dict = {}
     broken_nodes: set = set()
+
+    # ── THE WHOLE-RUN CORRIDOR PROFILE (staged-solve round, lane S2) ──
+    # ONE corridor is ONE law object end to end, and its VERTICAL half is
+    # solved as one 1-D constrained problem over the whole run: pegs at
+    # the mouth welds (stage-A airside values, read-only) and at the
+    # free-end DEM ties, tube = the station reach band, cap = the road
+    # cap — drawn by the SAME taut string the airside spine profile uses
+    # (``corridor_profile.solve_run_profile`` -> ``string_with_pegs``;
+    # one construction, never a second solver).
+    #
+    # What it replaces is the POINTWISE rule kept below as the fallback:
+    # ``tgt = min(max(de, lo), c)`` clamps each station's own DEM sample
+    # into its own band, independently of the run it belongs to.  Against
+    # a cap-Lipschitz envelope that is a bang-bang operator by
+    # construction, and it is what HECA's spines measured — a 6.18 m
+    # cap-ridden hump at 30.11268,31.40684 with no anchor within 60 m,
+    # +/-8 % cap-riding flank runs, and -25 %/-19 % discharge pockets
+    # (the ``floor > ceiling`` distance-weighted blend, which was a
+    # quarantine export, not a profile).
+    #
+    # Band-lawful displacement TRUMPS DEM in the interior, so DEM enters
+    # only as an end tie on an under-pegged run and as a reported
+    # displacement.  FLAT IS LAWFUL (owner 2026-08-14, drainage scope):
+    # no minimum slope is minted here.  Conflicts — an inverted tube, a
+    # peg pair whose rise the run cannot absorb at the cap — are RECORDED
+    # with their numbers on ``layout._svc_profile_conflicts`` and never
+    # blended away (feasibility-is-guaranteed: report, never quarantine).
+    from .corridor_profile import solve_run_profile as _solve_run
+
+    # A LINE IS NOT A RUN.  A service seed line is an OSM/apt course that
+    # may run kilometres past the airport; stations exist only where the
+    # build actually emitted road pavement.  Two station groups separated
+    # by a hole in the pavement are two law objects, not one corridor
+    # with a very long span — stringing across the hole would make the
+    # solve draw a chord over ground it paves nothing on.  The split is
+    # STRUCTURAL, not tuned: stations are laid at ``SPINE_STEP_M`` (the
+    # step ``insert_lateral_spine_nodes`` densifies to), so a gap wider
+    # than two steps means at least one station is MISSING — no
+    # cross-section there, no pavement, no run.
+    from auto_patch.config import SPINE_STEP_M as _STEP
+    _RUN_BREAK_M = 2.0 * _STEP
+    _by_line: dict = {}
     for sid, st in enumerate(stations):
+        if not st["members"]:
+            continue                    # merged away — its root carries it
+        _by_line.setdefault(st["line"], []).append(sid)
+    runs: dict = {}
+    for _ln, _all in _by_line.items():
+        _all.sort(key=lambda k: stations[k]["s"])
+        _part = 0
+        for _n, sid in enumerate(_all):
+            if _n and (stations[sid]["s"] - stations[_all[_n - 1]]["s"]
+                       > _RUN_BREAK_M):
+                _part += 1
+            runs.setdefault((_ln, _part), []).append(sid)
+
+    conflicts_out = list(getattr(layout, "_svc_profile_conflicts", None) or ())
+    audits_out = list(getattr(layout, "_svc_profile_audits", None) or ())
+    _m_to_ll = getattr(layout, "m_to_ll", None)
+    profiled: set = set()
+
+    for _li, _sids in runs.items():
+        run_s: list = []
+        run_f: list = []
+        run_c: list = []
+        run_de: list = []
+        run_xy: list = []
+        run_sid: list = []
+        run_pegs: dict = {}
+        for sid in _sids:
+            st = stations[sid]
+            s_val = float(st["s"])
+            if run_s and s_val <= run_s[-1] + 1e-9:
+                continue                # coincident station — one entry
+            m_ceil = [node_ceil[i] for i in st["members"] if i in node_ceil]
+            m_floor = [node_floor[i] for i in st["members"] if i in node_floor]
+            av = [anchors[i] for i in st["members"] if i in anchors]
+            k = len(run_s)
+            run_s.append(s_val)
+            run_c.append(min(m_ceil) if m_ceil else float("inf"))
+            run_f.append(max(m_floor) if m_floor else float("-inf"))
+            run_de.append(smooth_de.get(sid))
+            run_xy.append(st_xy[sid])
+            run_sid.append(sid)
+            if av:
+                # A station's welds are ONE cross-section value (the
+                # spine-first law); their mean is that value.
+                run_pegs[k] = sum(av) / len(av)
+        if len(run_s) < 2:
+            continue
+        prof = _solve_run(run_s, run_f, run_c, run_pegs, cap,
+                          dem=run_de, xy=run_xy)
+        if prof is None:
+            continue                    # under-determined run → fallback
+        for k, sid in enumerate(run_sid):
+            tgt = float(prof.z[k])
+            for i in stations[sid]["members"]:
+                node_target[i] = tgt
+            profiled.add(sid)
+        for cf in prof.conflicts:
+            rec = {
+                "line": _li[0], "part": _li[1], "kind": cf.kind, "s_m": cf.station_s_m,
+                "cap": cf.cap, "floor": cf.floor, "ceiling": cf.ceiling,
+                "deficit_m": cf.deficit_m, "rise_m": cf.rise_m,
+                "run_m": cf.run_m, "required_grade": cf.required_grade,
+                "text": cf.describe()}
+            if cf.xy is not None and _m_to_ll is not None:
+                try:
+                    _la, _lo = _m_to_ll(cf.xy[0], cf.xy[1])
+                    rec["lat"], rec["lon"] = round(_la, 11), round(_lo, 11)
+                except Exception:                        # pragma: no cover
+                    pass
+            conflicts_out.append(rec)
+        a = prof.audit
+        audits_out.append({
+            "line": _li[0], "part": _li[1], "stations": len(run_s), "segments": a.segments,
+            "length_m": run_s[-1] - run_s[0], "pegs": len(prof.pegs),
+            "synthetic_end_ties": prof.synthetic_end_ties,
+            "worst_grade": a.worst_grade,
+            "over_cap_segments": a.over_cap_segments,
+            "cap_ride_runs": a.cap_ride_runs,
+            "cap_ride_segments": a.cap_ride_segments,
+            "cap_ride_length_m": a.cap_ride_length_m})
+
+    layout._svc_profile_conflicts = conflicts_out
+    layout._svc_profile_audits = audits_out
+    # THE PROFILE IS THE CORRIDOR'S BAND (round spec: "the corridor
+    # profile then enters stage B as ONE band consumed by seats/
+    # endpoints").  Membership is published here; the caller mints it as
+    # a canonical keyset and the projections hold it, exactly as the
+    # free-end DEM tie is held — and for the same measured reason: as a
+    # SOFT seed the whole-run profile is written and then written over
+    # (measured at HECA, arm 86903a2b43f3: 37 cap-riding runs and a
+    # 16.1 m hump still emitted from a profile that had neither).
+    layout._svc_profile_members = {
+        i for sid in profiled for i in stations[sid]["members"]}
+    if audits_out:
+        import O4_UI_Utils as _UI_cp
+        _n_over = sum(x["over_cap_segments"] for x in audits_out)
+        _n_ride = sum(x["cap_ride_runs"] for x in audits_out)
+        _worst = max((x["worst_grade"] for x in audits_out), default=0.0)
+        _UI_cp.vprint(1,
+            f"  [pav-builder] whole-run corridor profile: "
+            f"{len(audits_out)} run(s), {len(profiled)} station(s); "
+            f"worst grade {_worst * 100:.2f} % (cap {cap * 100:.2f} %), "
+            f"{_n_over} over-cap segment(s), {_n_ride} cap-riding run(s), "
+            f"{len(conflicts_out)} reported conflict(s).")
+        for _c in conflicts_out[:8]:
+            _UI_cp.vprint(2,
+                f"      [corridor-profile] line {_c['line']}: {_c['text']}"
+                + (f" at {_c['lat']},{_c['lon']}" if "lat" in _c else ""))
+
+    # ── FALLBACK: the pointwise station clamp, for stations no run
+    # profiled (a line with a single usable station, or no peg and no DEM
+    # to tie an end to).  Unchanged behaviour, including its break blend
+    # and its quarantine export — those stations are not corridors the
+    # whole-run law can reach.
+    for sid, st in enumerate(stations):
+        if not st["members"] or sid in profiled:
+            continue
         de = smooth_de.get(sid)
         if de is None:
             continue                    # no DEM sample → legacy per-vertex
@@ -3512,7 +3671,17 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                 print(f"    [svc-spine-dbg] sid={sid} line={st['line']} "
                       f"s={st['s']:.1f} n={st['n']} de_raw={raw_de.get(sid)} "
                       f"de={de:.2f} ceil={c} floor={f} "
-                      f"tgt={tgt:.2f} broken={broken} "
+                      f"tgt={tgt:.2f} broken={broken} FALLBACK "
+                      f"members={sorted(st['members'])}")
+    if _dbg_xy is not None:
+        for sid in sorted(profiled):
+            sx, sy = st_xy[sid]
+            if _m.hypot(sx - _dbg_xy[0], sy - _dbg_xy[1]) < 12.0:
+                st = stations[sid]
+                any_m = st["members"][0] if st["members"] else None
+                print(f"    [svc-spine-dbg] sid={sid} line={st['line']} "
+                      f"s={st['s']:.1f} n={st['n']} de={smooth_de.get(sid)} "
+                      f"tgt={node_target.get(any_m)} WHOLE-RUN "
                       f"members={sorted(st['members'])}")
     return node_target, broken_nodes
 
@@ -3834,6 +4003,32 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         if abs(tgt - elev[i]) > 1e-3:
             elev[i] = tgt
             changed.add(i)
+    # ── THE WHOLE-RUN CORRIDOR PROFILE IS HELD, NOT SEEDED ────────────
+    # Membership only, no value write — the same spelling as the
+    # free-end tie (``svc_free_end``) and for the same measured reason.
+    # A corridor is ONE law object whose profile was solved over its
+    # whole run; a downstream pointwise projection re-humping it is the
+    # defect this round closes, not a refinement of it.  Minted by
+    # CANONICAL KEY so it survives the final pass's node-list rebuild
+    # (node_space's law).  Anchors are excluded: they are stage-A weld
+    # values and are already hard by their own law.
+    _prof_members = getattr(layout, "_svc_profile_members", None) or set()
+    _prof_idx = {i for i in _prof_members
+                 if i in svc_nodes and i not in anchors}
+    layout._svc_profile_idx = _prof_idx
+    if _prof_idx:
+        try:
+            _store_of(layout).mint(
+                "svc_profile", "keyset",
+                {_key(*node_pos[i]) for i in _prof_idx if i in node_pos},
+                replace=True)
+        except Exception:                                # pragma: no cover
+            pass
+        import O4_UI_Utils as _UI_ph
+        _UI_ph.vprint(1,
+            f"  [pav-builder] whole-run corridor profile HELD: "
+            f"{len(_prof_idx)} node(s) enter stage B as the corridor's "
+            f"own band (membership only, the free-end tie's spelling).")
     if _lat_bound_breaks:
         import O4_UI_Utils as _UI
         _UI.vprint(1,

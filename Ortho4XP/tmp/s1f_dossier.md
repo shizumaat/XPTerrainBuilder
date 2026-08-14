@@ -282,3 +282,21 @@ the near-miss law — needs the solve-side `_fp_law_counts` edge list for
 building22 (`solve.py:6764`) dumped, which is an instrumented run this lane
 did not spend.  **Named precisely; the residual question is stated, not
 guessed.**
+
+## ACCEPTANCE, AS MEASURED (this lane's own reading, no gloss)
+
+| item | state | evidence |
+|---|---|---|
+| ONE `final_grade_projection` per build | **GREEN** | the AST twin, plus `CALL #1` in every arm's log |
+| shared repo UNCHANGED | **GREEN** | full-surface before/after snapshot on all 5 arms |
+| control identity | **GREEN** | HECA `3ab5a8dfae80`, CYXY `5dd542654f0c` — S1e's own mid-only bodies |
+| CYXY vs `round_close_cyxy` | **GREEN** | 328 rows, EXACT 328, NET +0 |
+| stage rails | **GREEN** | `test_solve_stage.py` in the 30-file selection, 788 passed / 5 pre-existing xfails |
+| HECA airside deltas row-attributed | **GREEN** | 134/134 joined; verdict (a) with the branch-(b) refutation arm |
+| re-projection class ≤ S1e's 13/2 | **AMBER — 18 at HECA** | 09 planarize 5, 20 pad-host relevel 8, 22 weld/crown/densify 3, **26 band seal 2**. S1e's own HECA table sums to 16, not the 13 its headline states; the extra 2 are the band seal, which on this tree acts on a surface no later projection settles. Reported, not reconciled by this lane. |
+| couplings 21/21 railed | **NOT MET** | 9/10/12/21 are untouched — this lane spent its budget on the adjudication that gates the merge |
+| OTHH arm on the final tree | **NOT RUN** | the tree is source-identical to `lane/s1e` bar a byte-inert instrument, so S1e's `271f5e2df731` stands; a fresh arm is owed at consolidation |
+| sequential HECA tile pair | **NOT RUN** | DEFERRED line recorded |
+
+The lane's product is the ADJUDICATION and its refutation arm, not a value
+change: the committed tree emits S1e's own bodies.

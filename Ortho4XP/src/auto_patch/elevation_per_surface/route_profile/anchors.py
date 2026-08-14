@@ -1952,7 +1952,7 @@ def near_miss_building_frontage_floors(layout, bucket_to_idx, band,
     floors: dict = {}
     for contact in _near_miss_frontage_contacts(layout, bucket_to_idx,
                                                 building_seats):
-        (i, _pad_node, d, seat, x, y) = contact
+        (i, _pad_node, d, seat, x, y, _soft) = contact
         floor_level = seat - APRON_MAX_GRADE * d    # ≤ seat by construction
         bnd = band(x, y)
         if bnd is not None:                         # stay runway-reachable
@@ -1963,7 +1963,7 @@ def near_miss_building_frontage_floors(layout, bucket_to_idx, band,
 
 
 def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
-                                      weld_refs_out=None):
+                                      weld_refs_out=None, stage_out=None):
     """``[(apron_node_idx, pad_node_idx, budget_m)]`` — the near-miss frontage
     relationship as LAW EDGES for the joint feasibility projections.
 
@@ -2007,7 +2007,7 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
     for contact in _near_miss_frontage_contacts(layout, bucket_to_idx,
                                                 building_seats,
                                                 log_firings=True):
-        (i, pad_node, d, seat, _x, _y) = contact
+        (i, pad_node, d, seat, _x, _y, _soft) = contact
         if weld_refs_out is not None:
             prev = nearest.get(i)
             if prev is None or d < prev[0]:
@@ -2017,6 +2017,17 @@ def near_miss_building_frontage_edges(layout, bucket_to_idx, building_seats,
         # THE BUDGET, from the law's one authority (config) — the same
         # function ``check_grade._check_frontage_near_miss`` judges with.
         edges.append((i, pad_node, float(_near_miss_frontage_budget(d))))
+        # STAGE AT MINT (staged-solve S1b).  These pairs are APPENDED to
+        # the unified edge set, which reaches every projection as one
+        # untagged entry — so the pair's stage is registered HERE, by the
+        # constructor that knows the SOFT SHAPE the frontage belongs to.
+        # ``NEAR_MISS_FRONTAGE_SOFT_ROLES`` includes ``service_junction``:
+        # a pad↔service-junction frontage is GROUNDSIDE law and must not
+        # bind the airside pad in stage A.
+        if stage_out is not None:
+            from auto_patch.solve_stage import pair_key as _pk
+            from auto_patch.solve_stage import stage_of_shape as _sos
+            stage_out[_pk(i, pad_node)] = _sos(_soft)
     if weld_refs_out is not None:
         for i, (_d, seat, pad_node) in nearest.items():
             weld_refs_out[i] = (seat, pad_node)
@@ -2110,7 +2121,7 @@ def _near_miss_frontage_contacts(layout, bucket_to_idx, building_seats,
                               f" d={d:.2f} seat={seat:.3f}"
                               f" pad_node={pad_node}")
                     fired.append(d)
-                    yield (i, pad_node, d, seat, x, y)
+                    yield (i, pad_node, d, seat, x, y, s)
             if fired and log_firings:
                 try:
                     import O4_UI_Utils as _UI

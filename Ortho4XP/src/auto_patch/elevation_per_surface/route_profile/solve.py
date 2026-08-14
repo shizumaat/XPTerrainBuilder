@@ -25,6 +25,9 @@ from auto_patch.config import (
     FAIRING_MAX_SWEEPS_APRON, FAIRING_MAX_SWEEPS_CHAIN,
     FAIRING_MAX_SWEEPS_GAP_SPINE, FAIRING_MAX_SWEEPS_SPINE)
 from ..node_space import store_of as _store_of
+# THE STAGE TAG (staged-solve round S1b) — see auto_patch/solve_stage.py.
+from auto_patch.solve_stage import (
+    STAGE_A as _STAGE_A, STAGE_B as _STAGE_B, STAGE_KEY as _STAGE_KEY)
 from .anchors import (
     apron_body_nodes,
     build_building_seats, detached_pad_nodes, seat_detached_pads_by_law,
@@ -1498,6 +1501,35 @@ def adj_without_pairs(adj, pairs):
     return out
 
 
+def _unified_entries(u_edges, pair_stage, where, family=None):
+    """The unified graph as STAGE-TAGGED constraint entries (S1b).
+
+    ONE bare ``{"edges": u_edges}`` entry used to carry EVERY shape's
+    within-shape law pairs into EVERY projection with no role and no
+    family — which is why ``_withhold_road_pair_law`` (keyed on
+    ``sc["role"]``) could never move a service_road pair out of the
+    airside pass, and why a groundside lot's pairs on airside-claimed
+    nodes were enforced against airside rows (tmp/s1_attribution.md
+    couplings 3 and 6).  The split is by MINT-TIME stage: the shape that
+    minted each edge, recorded in ``grade_graph.UnifiedGraph.edge_stage``
+    and in the appending constructors' own ``stage_out`` maps.  An edge
+    missing from the map RAISES — a partition that guessed would be the
+    same blindness in a new spelling.
+    """
+    from auto_patch.solve_stage import (split_edges_by_stage, STAGE_A,
+                                        STAGE_B, STAGE_KEY)
+    a_edges, b_edges = split_edges_by_stage(u_edges, pair_stage, where)
+    out = []
+    for edges, stage in ((a_edges, STAGE_A), (b_edges, STAGE_B)):
+        if not edges:
+            continue
+        entry = {"edges": edges, STAGE_KEY: stage}
+        if family is not None:
+            entry["family"] = family
+        out.append(entry)
+    return out
+
+
 def _receiver_nodes_from_roles(roles):
     """THE RECEIVER SET of the projection partition — nodes whose EVERY
     role is groundside (``layout.GROUNDSIDE_ROLES``).
@@ -2851,7 +2883,12 @@ def solve_route_profile(layout, icao: str,
     # firing twice.
     from .anchors import near_miss_building_frontage_edges as _nmfe
     from .anchors import detached_pad_frontage_coupling as _dpfc
-    _near_miss_edges = _nmfe(layout, bucket_to_idx, building_seats)
+    # STAGE MAP for every pair APPENDED to the unified edge set
+    # (staged-solve S1b).  Filled by each pair's own constructor;
+    # ``split_edges_by_stage`` REFUSES an edge missing from it.
+    _u_pair_stage: dict = {}
+    _near_miss_edges = _nmfe(layout, bucket_to_idx, building_seats,
+                             stage_out=_u_pair_stage)
     _pad_frontage = _dpfc(_detached_pads, G, _near_miss_edges)
     _detached_pad_node_idx, _n_frontage_pads = (
         withhold_airside_band_from_detached_pads(
@@ -3358,6 +3395,16 @@ def solve_route_profile(layout, icao: str,
     # and take their own map).  Taken here, beside the edge list it is
     # derived from, and handed to both consumers in this scope.
     _u_family_of = G.family_by_pair()
+    # THE UNIFIED GRAPH'S OWN MINT-TIME STAGES (staged-solve S1b).  Taken
+    # beside the family axis it parallels, once, and handed to every
+    # projection below through ``_u_entries``.  Before S1b the whole
+    # graph reached each projection as ONE bare ``{"edges": u_edges}``
+    # entry with no role key, so every service_road / service_junction /
+    # groundside_pavement within-shape law pair was enforced in the
+    # AIRSIDE pass (tmp/s1_attribution.md couplings 3 and 6 — with
+    # coupling 6 measured as a channel of HECA's corridor +130).
+    for _pk_, _st_ in G.stage_by_pair().items():
+        _u_pair_stage.setdefault(_pk_, _st_)
     # NEAR-MISS BUILDING-FRONTAGE LAW EDGES (2026-07-08): pad ↔ apron
     # near-miss edge endpoints, budget = APRON_MAX_GRADE·d — the value-
     # agreement law across a sub-metre unpaved source-offset sliver (SPJC
@@ -3393,7 +3440,7 @@ def solve_route_profile(layout, icao: str,
     # cross-section constrains elevation and mints no route edge.
     from auto_patch.lateral_spine_nodes import (
         lateral_xsection_law_edges as _xsec_edges)
-    _xsec = _xsec_edges(layout, bucket_to_idx)
+    _xsec = _xsec_edges(layout, bucket_to_idx, stage_out=_u_pair_stage)
     if _xsec:
         u_edges.extend(_xsec)
         import O4_UI_Utils as _UI_XS
@@ -3423,7 +3470,9 @@ def solve_route_profile(layout, icao: str,
         print(f"    [fan-ramp] {_n_u_fan} unified-graph edge(s) at the "
               f"zone cap")
     rem, bh = feasibility_project_partitioned(
-                                  elev, [{"edges": u_edges}], hard,
+                                  elev,
+                                  _unified_entries(u_edges, _u_pair_stage,
+                                                   "solve/unified"), hard,
                                   receiver_nodes=_solve_receivers, n_nodes=n,
                                   witness_excluded=_route_excluded,
                                   env_band=_env_band)
@@ -3549,7 +3598,9 @@ def solve_route_profile(layout, icao: str,
                             witness_excluded=_route_excluded,
                             env_band=_env_band)
         feasibility_project_partitioned(
-                            elev, [{"edges": u_edges}], _ghard,
+                            elev,
+                            _unified_entries(u_edges, _u_pair_stage,
+                                             "solve/groundside"), _ghard,
                             receiver_nodes=_solve_receivers, n_nodes=n,
                             witness_limited=_gs_witness,
                             witness_excluded=_route_excluded,
@@ -3704,8 +3755,25 @@ def solve_route_profile(layout, icao: str,
         # needs (consecutive entries within one span share a node, so
         # a run of removed vertices is a contiguous sub-span).
         _rod_piece_spans: list = []
+        # ROD STAGE, INHERITED FROM THE OWNING CHAIN (staged-solve S1b,
+        # Fable ruling 2026-08-13b).  The rod interval is the live
+        # successor of the retired §7 memory and it reaches the final
+        # projection as ``family="rod_interval"`` with NO role key — so
+        # ``_withhold_road_pair_law`` is structurally blind to it and a
+        # SERVICE corridor's rod bound ``z_a - z_b`` against an airside
+        # endpoint in the airside pass (coupling 4, and coupling 5 for
+        # the ``apply_service_road_dem_follow`` re-shape the snapshot
+        # deliberately includes).  A chain is groundside when ANY of its
+        # nodes is a stage-B node: a rod is a QUASI-RIGID object, so a
+        # chain running through groundside is a groundside corridor and
+        # binding it in stage A imports exactly the variable staging
+        # removes.  Mouth vertices are stage A (airside is king), so a
+        # taxi corridor stays airside.
+        _rod_edge_stage: list = []
         for _rp in _rod_pieces:
             _p0 = len(_rod_edges)
+            _piece_stage = (_STAGE_B if any(v in _solve_receivers for v in _rp)
+                            else _STAGE_A)
             for _ra, _rb in zip(_rp, _rp[1:]):
                 _rd = elev[_ra] - elev[_rb]
                 _pb = _rod_pair_budget.get(
@@ -3719,15 +3787,47 @@ def solve_route_profile(layout, icao: str,
                 if _rcl:
                     _rod_clamped += 1
                 _rod_edges.append((_ra, _rb, _rlo, _rhi))
+                _rod_edge_stage.append(_piece_stage)
             if len(_rod_edges) > _p0:
                 _rod_piece_spans.append((_p0, len(_rod_edges)))
         if _rod_edges:
-            shape_constraints.append({"edges": _rod_edges,
-                                      "envelope_skip": True})
+            # ONE ENTRY PER STAGE.  ``_taut_rod_key_edges`` below still
+            # exports the WHOLE rod (both stages) in canonical-key space
+            # — the final projection re-derives each interval's stage in
+            # its own node space, so the export stays stage-free.
+            _rod_a = [e for e, st in zip(_rod_edges, _rod_edge_stage)
+                      if st == _STAGE_A]
+            _rod_b = [e for e, st in zip(_rod_edges, _rod_edge_stage)
+                      if st == _STAGE_B]
+            _n_rod_gs = len(_rod_b)
+            for _re_, _rs_ in ((_rod_a, _STAGE_A), (_rod_b, _STAGE_B)):
+                if _re_:
+                    shape_constraints.append({"edges": _re_,
+                                              "envelope_skip": True,
+                                              "family": "rod_interval",
+                                              _STAGE_KEY: _rs_})
+            if _n_rod_gs:
+                import O4_UI_Utils as _UI_rod_st
+                _UI_rod_st.vprint(
+                    1, f"  [stage] rod intervals: {_n_rod_gs} of "
+                       f"{len(_rod_edges)} interval(s) belong to a "
+                       f"GROUNDSIDE chain and are enforced in stage B "
+                       f"(airside is king)")
+            # Canonical-key export of the rod's own stage, so the final
+            # projection inherits the SAME chain verdict instead of
+            # re-deriving it from a node space the solve does not share.
+            layout._taut_rod_edge_stage = list(_rod_edge_stage)
             _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
             layout._taut_rod_key_edges = [
                 (_rod_key_of[a], _rod_key_of[b], lo, hi)
                 for (a, b, lo, hi) in _rod_edges
+                if a in _rod_key_of and b in _rod_key_of]
+            # STAGE RIDES WITH THE EXPORT (S1b).  The final projection
+            # rebuilds the node space, so it cannot re-derive the chain
+            # verdict; the solve is the rod store's only writer and the
+            # stage is part of the store.
+            layout._taut_rod_key_edge_stage = [
+                st for (a, b, lo, hi), st in zip(_rod_edges, _rod_edge_stage)
                 if a in _rod_key_of and b in _rod_key_of]
             # ROD COMPOSITION EXPORT (owner-approved design 2026-07-29,
             # docs/specs/rod-compose-and-band-single-source-spec.md §A).
@@ -3750,7 +3850,10 @@ def solve_route_profile(layout, icao: str,
             # through); the union of chains is exactly
             # ``_taut_rod_key_edges``.
             _rod_chains: list = []
+            _rod_chain_stage: list = []
             for (_p0, _p1) in _rod_piece_spans:
+                _span_stage = (_rod_edge_stage[_p0]
+                               if _p0 < len(_rod_edge_stage) else _STAGE_A)
                 _cur: list = []
                 for (_a, _b, _lo, _hi) in _rod_edges[_p0:_p1]:
                     _ka = _rod_key_of.get(_a)
@@ -3758,15 +3861,19 @@ def solve_route_profile(layout, icao: str,
                     if _ka is None or _kb is None:
                         if _cur:
                             _rod_chains.append(_cur)
+                            _rod_chain_stage.append(_span_stage)
                             _cur = []
                         continue
                     if _cur and _cur[-1][1] != _ka:
                         _rod_chains.append(_cur)
+                        _rod_chain_stage.append(_span_stage)
                         _cur = []
                     _cur.append((_ka, _kb, _lo, _hi))
                 if _cur:
                     _rod_chains.append(_cur)
+                    _rod_chain_stage.append(_span_stage)
             layout._taut_rod_key_chains = _rod_chains
+            layout._taut_rod_key_chain_stage = _rod_chain_stage
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [taut-string] rod edges="
                       f"{len(_rod_edges)} ({_rod_floored} law-FLOORED "
@@ -4005,7 +4112,9 @@ def solve_route_profile(layout, icao: str,
     if _hnb_on:
         _hnb_take(_hnb_a, "proj_shape")
     rem, bh = feasibility_project_partitioned(
-                                  elev, [{"edges": u_edges}],
+                                  elev,
+                                  _unified_entries(u_edges, _u_pair_stage,
+                                                   "solve/yield"),
                                   yield_hard, broken_out=_bo,
                                   receiver_nodes=_solve_receivers, n_nodes=n,
                                   witness_limited=_gs_witness,
@@ -4282,7 +4391,8 @@ def solve_route_profile(layout, icao: str,
     # consumed it.  A movable node is plain free here: it settles
     # wherever the caps, the bounded-yield boxes and the reach
     # band admit, under ONE authority (the law edges).
-    joint = list(shape_constraints) + [{"edges": u_edges}]
+    joint = list(shape_constraints) + _unified_entries(
+        u_edges, _u_pair_stage, "solve/joint")
     # DEBUG snapshot (O4_DUMP_SOLVE_STATE=<path>): pickle the final-
     # projection inputs so projection variants iterate OFFLINE (~1 s)
     # instead of via full rebuilds (~115 s).  Node lat/lon included so
@@ -4921,7 +5031,8 @@ def solve_route_profile(layout, icao: str,
     if _spine_phase_a:
         _spine_yield_movement_report(
             icao, _spine_phase_a, elev, n,
-            list(shape_constraints) + [{"edges": u_edges}],
+            list(shape_constraints) + _unified_entries(
+                u_edges, _u_pair_stage, "solve/spine_report"),
             _spine_preserved, _spine_yield_idx,
             latlon_of=lambda i: layout.m_to_ll(*nodes[i]))
     # ── THE SOLVE'S OWN EXIT CERTIFICATE (cycle-5 spec fix 4) ─────────
@@ -4942,7 +5053,8 @@ def solve_route_profile(layout, icao: str,
     # contradictions.  Pure measurement, no gate: certify-or-fail-loud is
     # kept explicitly by RULINGS 2026-08-05 (BUILD-COMPLETE-THEN-DEBUG
     # item 1) while byte-identity ceremony is retired.
-    _solve_exit_joint = list(shape_constraints) + [{"edges": u_edges}]
+    _solve_exit_joint = list(shape_constraints) + _unified_entries(
+        u_edges, _u_pair_stage, "solve/exit_certificate")
     _report_law_certificate(
         icao, "SOLVE EXIT",
         projection_law_certificate(_solve_exit_joint, elev, n, yield_hard,
@@ -6536,6 +6648,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
                for (a, b, cap, _sp) in G.edges
                if a in G.pos and b in G.pos]
+    # THE STAGE MAP, in THIS pass's node space (staged-solve S1b): the
+    # graph's own mint-time stages plus each appending constructor's.
+    _fp_pair_stage: dict = dict(G.stage_by_pair())
     # ── NEAR-MISS BUILDING-FRONTAGE LAW EDGES, INGESTED (spec
     # requirement 1) ───────────────────────────────────────────────────
     # The solve extends ``u_edges`` with the pad ↔ apron near-miss law
@@ -6555,7 +6670,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         from .anchors import (
             near_miss_building_frontage_edges as _near_miss_fp)
         try:
-            _nm_edges = list(_near_miss_fp(layout, b2i, _carried_seats))
+            _nm_edges = list(_near_miss_fp(layout, b2i, _carried_seats,
+                                           stage_out=_fp_pair_stage))
             u_edges.extend(_nm_edges)
             _fp_law_counts["frontage_near_miss"] = len(_nm_edges)
         except Exception as _nm_exc:
@@ -6571,7 +6687,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     try:
         from auto_patch.lateral_spine_nodes import (
             lateral_xsection_law_edges as _xsec_edges_fp)
-        _xsec_fp = list(_xsec_edges_fp(layout, b2i))
+        _xsec_fp = list(_xsec_edges_fp(layout, b2i,
+                                       stage_out=_fp_pair_stage))
         u_edges.extend(_xsec_fp)
         _fp_law_counts["lateral_xsection"] = len(_xsec_fp)
     except Exception as _xsec_exc:
@@ -6593,8 +6710,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             _fp_law_counts["fan_u"] = _n_fan_u
         except Exception as _fan_u_exc:
             _fp_law_counts["fan_u"] = f"FAILED {_fan_u_exc!r}"
-    joint = list(shape_constraints) + [{"edges": u_edges,
-                                        "family": "unified_graph"}]
+    joint = list(shape_constraints) + _unified_entries(
+        u_edges, _fp_pair_stage, "final_projection/unified",
+        family="unified_graph")
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
@@ -6927,6 +7045,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         # ``O4_ROD_COMPOSE`` gate is gone; the per-pair carry below is the
         # no-chains fallback, not an arm.
         _rod_chains = getattr(layout, "_taut_rod_key_chains", None) or ()
+        # STAGE OF EACH CARRIED ROD (S1b), read from the solve's export.
+        # ``_rod_stage_of`` maps a chain / flat-pair index to its stage;
+        # the carry below tags every composed interval with it, so the
+        # §10 rod — which reaches this projection with NO role key and is
+        # therefore invisible to the road-pair withholding (coupling 4) —
+        # cannot bind an airside endpoint from a groundside chain.
+        _rod_chain_stage = list(
+            getattr(layout, "_taut_rod_key_chain_stage", None) or ())
+        _rod_key_edge_stage = list(
+            getattr(layout, "_taut_rod_key_edge_stage", None) or ())
+        _rod_fp_stage: list = []
         _rod_composed = 0          # composed links (each spans >1 minted)
         _rod_absorbed = 0          # minted links absorbed into those
         _rod_span_max = 0          # longest composed run, in minted links
@@ -6934,11 +7063,30 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             def _rod_resolve(_k):
                 _i = b2i.get(_k)
                 return None if (_i is None or _i >= n) else _i
-            (_rod_fp_edges, _rod_dropped, _rod_drop_rec, _rod_composed,
-             _rod_absorbed, _rod_span_max) = compose_rod_chains(
-                _rod_chains, _rod_resolve, want_drop_records=_rod_audit_on)
+            # COMPOSE PER STAGE.  Composition is per-chain, so running
+            # the two stage groups separately composes exactly the same
+            # links; only the entry they land in differs.
+            _rod_fp_edges = []
+            _rod_groups = {}
+            for _ci_, _ch_ in enumerate(_rod_chains):
+                _st_ = (_rod_chain_stage[_ci_]
+                        if _ci_ < len(_rod_chain_stage) else _STAGE_A)
+                _rod_groups.setdefault(_st_, []).append(_ch_)
+            for _st_ in (_STAGE_A, _STAGE_B):
+                _grp = _rod_groups.get(_st_)
+                if not _grp:
+                    continue
+                (_ge, _gd, _gr, _gc, _ga, _gs) = compose_rod_chains(
+                    _grp, _rod_resolve, want_drop_records=_rod_audit_on)
+                _rod_fp_edges.extend(_ge)
+                _rod_fp_stage.extend([_st_] * len(_ge))
+                _rod_dropped += _gd
+                _rod_drop_rec.extend(_gr)
+                _rod_composed += _gc
+                _rod_absorbed += _ga
+                _rod_span_max = max(_rod_span_max, _gs)
         else:
-            for (_ka, _kb, _rlo, _rhi) in _rod_key_edges:
+            for _kk_, (_ka, _kb, _rlo, _rhi) in enumerate(_rod_key_edges):
                 _ia = b2i.get(_ka)
                 _ib = b2i.get(_kb)
                 if (_ia is None or _ib is None or _ia >= n or _ib >= n
@@ -6957,9 +7105,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                               _why))
                     continue
                 _rod_fp_edges.append((_ia, _ib, _rlo, _rhi))
+                _rod_fp_stage.append(
+                    _rod_key_edge_stage[_kk_]
+                    if _kk_ < len(_rod_key_edge_stage) else _STAGE_A)
         if _rod_fp_edges:
-            joint.append({"edges": _rod_fp_edges, "envelope_skip": True,
-                          "family": "rod_interval"})
+            for _st_ in (_STAGE_A, _STAGE_B):
+                _sel = [e for e, st in zip(_rod_fp_edges, _rod_fp_stage)
+                        if st == _st_]
+                if _sel:
+                    joint.append({"edges": _sel, "envelope_skip": True,
+                                  "family": "rod_interval",
+                                  _STAGE_KEY: _st_})
         if _rod_key_edges and _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"    [taut-string] rod carried={len(_rod_fp_edges)} "
                   f"(composed={_rod_composed} absorbing={_rod_absorbed}, "

@@ -446,3 +446,56 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
 - The solve-side one-graph reuse is NOT landed (measured and rejected,
   see solve.py's rejected-reuse note); the `id(s.polygon)` re-keying that
   would make it safe is unbuilt.
+
+## Staged-solve S1b (the stage partition) — lane/s1stage, 2026-08-13
+
+- ACCEPTANCE NOT MET, and this is the lane's headline, not a footnote:
+  HECA airside adjudicated rows fall 1720 -> 1676 (**-44** of the ruled
+  **-130**). Attempt cap 2 reached; the remainder is a STOP for Fable,
+  not a third attempt. The lane commits its architecture, its twins and
+  its measured position; it does NOT merge.
+- The "apron -11906 worst <= 0.86 m" criterion could NOT BE JOINED. No
+  pre-corridor HECA artifact exists in this lane or the frozen 1.0.245
+  baseline set, and way ids are per-build: `-11906` names no way in
+  either the frozen census or any arm here. The apron worst that IS
+  joinable moved the wrong way (shape `-10577`, 11.36 -> 11.49 m,
+  +0.13 m). Whether that is the named site is UNVERIFIED.
+- "Airside rows byte-equal to the pre-corridor airside state on
+  unchanged rings" is UNVERIFIABLE for the same reason: there is no
+  pre-corridor row dump to be equal TO. What was measured instead is the
+  row-level A/B against the frozen 1.0.245 census, reported in full.
+- The freeze increment's airside apron churn did NOT resolve; it GREW.
+  vs frozen: 93 gone / 103 new (freeze) -> 246 gone / 202 new (this
+  lane). vs the freeze arm itself: 184 gone / 140 new. The mechanism is
+  named (stage A no longer sees groundside entries OR groundside
+  variables, so every airside value a groundside constraint used to
+  shape has moved) but the resulting state is not shown to be the
+  pre-corridor one.
+- 6 of 21 couplings closed (1, 2, 3, 4, 5, 6) + 17 and 18 wired and
+  MEASURED INERT at HECA (1 groundside row between arm 1 and arm 2).
+  Couplings 7-16 and 19-21 are OPEN and unmeasured by this lane.
+- ONE airport replayed (HECA solve_cut) + CYXY control BUILD. OTHH /
+  KCLT / KSTJ / SPJC / SPLP censuses NOT run. Consolidated five-airport
+  adjudication is lead-owned and owed.
+- Tests: the directly-covering selection (24 files, 602 passed) once
+  through `run_with_ledger`, NOT the full `blast --tests-for` union
+  (96 files) and NOT the full suite.
+- `tests/test_single_graph_acceptance.py::test_solver_validator_same_edge_budgets@CYXY`
+  fails (2 of 12,013 shared edges, ~1e-3 budget delta) and is
+  PRE-EXISTING: the same test fails identically in the clean
+  `s1freeze` worktree at this lane's base commit (matched control run
+  2026-08-13). Not attributable to this change.
+- TWO TWINS UPDATED FOR A SUPERSEDED MECHANISM, needing Fable
+  ratification: `test_probe_gates.py` (its default-arm sentinel now
+  watches `_partition_by_stage` instead of `_withhold_road_pair_law`,
+  which is no longer called) and the hand-built entries in
+  `test_probe_gates` / `test_projection_partition` now carry the stage
+  tag their minters would stamp. No assertion's INTENT was changed.
+- `_withhold_road_pair_law` is KEPT but no longer called on the default
+  path (the `O4_PROBE_ROAD_PAIR_LAW_AIRSIDE=1` arm still reaches it).
+  Deleting it is S6's kind of work, not this lane's.
+- NO build-time measurement. Replay walls (289.2 s arm 1 / 299.5 s
+  arm 2 vs the 288.1 s control) are not timing arms and must not be
+  quoted as any.
+- 0 new law constants and 0 new env flags. The stage tag has no gate by
+  design: a gated partition is a partition that can be silently off.

@@ -214,12 +214,21 @@ def test_the_mouth_gate_withholds_every_mouth(monkeypatch):
 # read off a solver; both outcomes are decidable on paper.
 
 def _pair_law_case():
-    apron = {"role": "apron", "nodes": [0, 1], "flat": False,
-             "edges": [(0, 1, 2.0)]}                    # slack
-    road = {"role": "service_junction", "nodes": [0, 1], "flat": False,
-            "edges": [(0, 1, 0.1)]}                     # the binding law
-    lot = {"role": "groundside_pavement", "nodes": [2, 3], "flat": False,
-           "edges": [(2, 3, 5.0)]}
+    # STAGE TAGS (staged-solve S1b): every constraint entry carries the
+    # stage its MINTER stamped, so these hand-built entries spell what
+    # ``solver_primitives._build_shape_constraints`` would stamp from the
+    # same roles.  The tag is what the partition reads now — the role
+    # test it replaced was blind to the rod interval and to the whole
+    # unified-graph entry (tmp/s1_attribution.md couplings 3, 4, 6).
+    from auto_patch.solve_stage import stage_of_role, STAGE_KEY
+    def _e(role, **kw):
+        return dict(role=role, **kw, **{STAGE_KEY: stage_of_role(role)})
+    apron = _e("apron", nodes=[0, 1], flat=False,
+               edges=[(0, 1, 2.0)])                     # slack
+    road = _e("service_junction", nodes=[0, 1], flat=False,
+              edges=[(0, 1, 0.1)])                      # the binding law
+    lot = _e("groundside_pavement", nodes=[2, 3], flat=False,
+             edges=[(2, 3, 5.0)])
     return [apron, road, lot]
 
 
@@ -277,15 +286,22 @@ def test_the_old_form_is_never_reached_by_default(monkeypatch):
     """INERTNESS BY SENTINEL, inverted with the gate: by default the
     partition MUST route through the withholding — 'it ran and changed
     nothing' is the cycle-9 confound in miniature, and here it would be
-    the pull-back surviving unseen."""
+    the pull-back surviving unseen.
+
+    S1b: the withholding is now the STAGE PARTITION
+    (``_partition_by_stage``), which supersedes ``_withhold_road_pair_law``
+    and moves a strict SUPERSET of the entries it moved (every ROAD_ROLES
+    entry is groundside-tagged at mint, and so are the families the role
+    key could not see at all).  The sentinel moves with it; the claim is
+    unchanged."""
     calls = []
-    real = OS._withhold_road_pair_law
+    real = OS._partition_by_stage
     monkeypatch.setattr(
-        OS, "_withhold_road_pair_law",
-        lambda g, r: (calls.append(1), real(g, r))[1])
+        OS, "_partition_by_stage",
+        lambda g, r, w: (calls.append(1), real(g, r, w))[1])
     _run_partitioned()
-    assert calls == [1], ("the default did not withhold the road pair law "
-                          "from the airside pass")
+    assert calls == [1], ("the default did not withhold the groundside "
+                          "law from the airside pass")
 
 
 def test_the_knife_is_never_reached_with_the_gate_set(monkeypatch):

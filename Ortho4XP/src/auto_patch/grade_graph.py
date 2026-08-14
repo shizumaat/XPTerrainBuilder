@@ -45,6 +45,9 @@ from shapely.errors import GEOSException, TopologicalError
 
 from . import fabric_flags as _FF
 from . import grade_law as GL
+# THE STAGE TAG (staged-solve S1b) — stamped per unified-graph edge from
+# the minting shape's lawful role.
+from .solve_stage import stage_of_shape as _stage_of_shape
 
 # Shapely-domain failures a triangulation / geometry op may raise (never catch
 # built-ins broadly — a KeyError etc. is a real bug, not a bad polygon).
@@ -2599,6 +2602,33 @@ class UnifiedGraph:
     # unchanged, and the edge ORDER is untouched — the certificate splits
     # the bucket by LOOKUP, never by regrouping the constraint set.
     edge_family: list = field(default_factory=list)
+    #: MINT-TIME STAGE per edge (staged-solve S1b), index-parallel to
+    #: :attr:`edges`: the lawful-airside partition of the SHAPE that
+    #: minted the edge.  See :mod:`auto_patch.solve_stage`.
+    edge_stage: list = field(default_factory=list)
+    #: MINT-TIME STAGE per NODE (staged-solve S1b): ``{node_idx: stage}``,
+    #: stamped as each shape registers its ring positions.  AIRSIDE WINS a
+    #: shared node — a service-road mouth vertex on an apron ring is
+    #: airside data (RULINGS 2026-08-06, the mouth seat).
+    node_stage: dict = field(default_factory=dict)
+
+    def stage_by_pair(self) -> dict:
+        """``{(min(a,b), max(a,b)): stage}`` from :attr:`edge_stage`.
+
+        Keyed by NODE PAIR, never by list position, so it survives the
+        budget rewrites the callers apply to their ``u_edges`` copy —
+        the same reason :meth:`family_by_pair` is.  A pair two shapes
+        both mint keeps the AIRSIDE stage when either claimant is
+        airside: airside is king, and a shared law pair the apron also
+        owns is the apron's to enforce in its own pass.
+        """
+        out: dict = {}
+        for (a, b, _c, _sp), st in zip(self.edges, self.edge_stage):
+            key = (a, b) if a <= b else (b, a)
+            prev = out.get(key)
+            if prev is None or (prev != "A" and st == "A"):
+                out[key] = st
+        return out
 
     def spine_edge_set(self):
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
@@ -2624,6 +2654,20 @@ class UnifiedGraph:
             if key not in out:
                 out[key] = fam
         return out
+
+    def airside_spine_nodes(self):
+        """The stage-A subset of ``spine_adj``'s node set (S1b).
+
+        The three airside authorities that iterate ``spine_adj`` whole —
+        the apron-terrace anchor resolver, the building hard-truth seeds
+        and the runway-contact anchor membership test (couplings 17-19 of
+        ``tmp/s1_attribution.md``) — predate the standing
+        ``REACH_NO_SERVICE_SPINES`` law that the reach band and phase A
+        already obey.  A node with no minted stage is airside: the
+        conservative side under airside-is-king.
+        """
+        return {i for i in (self.spine_adj or {})
+                if self.node_stage.get(i, "A") == "A"}
 
     def spine_nodes(self):
         s = set()
@@ -2867,9 +2911,13 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             continue
         idx = [_idx(x, y) for (x, y) in ring]
         keys = [i if i is not None else ("_n", p) for p, i in enumerate(idx)]
+        _s_stage = _stage_of_shape(s)
         for p, i in enumerate(idx):
             if i is not None:
                 G.pos[i] = ring[p]
+                # MINT-TIME NODE STAGE (S1b).  Airside wins a shared node.
+                if G.node_stage.get(i) != "A":
+                    G.node_stage[i] = _s_stage
         if skip_edge_shape_ids is not None and id(s) in skip_edge_shape_ids:
             continue    # scoped projection: pairs live in the caller's lazy entry
         gs = GradeShape(role=s.role, ring=list(ring), keys=keys,
@@ -2896,6 +2944,16 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             G.edge_family.append(
                 f"unified:{s.role}:spine" if is_spine
                 else f"unified:{s.role}")
+            # MINT-TIME STAGE (staged-solve S1b).  The unified graph
+            # reaches every projection as ONE bare ``{"edges": u_edges}``
+            # entry with no role key, so a service_road / groundside lot
+            # law pair inside it was enforced in the AIRSIDE pass
+            # (couplings 3 and 6 of tmp/s1_attribution.md).  The shape
+            # that mints the edge is the only place its stage is known;
+            # ``edge_stage`` is index-parallel to ``edges`` and
+            # ``edge_family``, and ``stage_by_pair()`` is the readers'
+            # pair-keyed view.
+            G.edge_stage.append(_stage_of_shape(s))
         # LOCKSTEP BAKE EXPORT (2026-07-17): persist THIS shape's baked
         # decomposition in RING-POSITION space so the validator
         # (``grade_graph_validate._iter_checked_pairs``) consumes the

@@ -304,7 +304,13 @@ byte-for-byte — suspicion: S5's in-run pad-frame reads added solve-
 boundary state the captured key set does not cover and the capture
 version was not bumped; a replay that default-fills a missing key is
 a different solve, which is exactly what capture_version exists to
-refuse.
+refuse. S6 ROUTINGS (post-merge additions): the KCLT strip
+disagreement (way -12583 vs three neighbours, ~7.2 m, censused
+identically before/after retirement — a solve outcome, deliberately
+not silently welded) and the weld's groundside conform cost
+(within_shape +273 HECA / +56 KCLT — a losing lot adopting the
+winner's value must absorb the level change over its own run) both
+ride the stage-B groundside solve docket.
 
 **S7 — census domain restoration + drainage retirement (instrument
 lane, dispatchable immediately).** Per the S3 blindness verdict and

@@ -42,10 +42,19 @@ measurement in this repo, and every one of them exits 0 without the check:
    canonical source (``<main engine tree>/Tiles/zOrtho4XP_+XX+YYY/``, where
    ``lane_worktree.sh`` clones ``Ortho4XP.cfg`` and ``Patches/`` from),
    recorded with its sha256 in ``<tag>.frame.json`` under
-   ``tile_cfg_provenance``.  An existing lane cfg is never overwritten, and a
-   MISSING canonical source refuses rather than synthesizing defaults — a
-   made-up provider and ZL build a tile nobody asked for and exit 0 (owner
-   ruling 2026-08-12b, lane inputs are provisioned, never hand-seeded).
+   ``tile_cfg_provenance``.  An existing lane cfg is never overwritten.  A
+   MISSING canonical source no longer refuses: it DERIVES the per-tile cfg
+   from the canonical GLOBAL ``Ortho4XP.cfg`` — a file with zero override
+   lines, which is what "the global defaults" IS in the engine's own reader
+   — recorded as ``derived-from-global-defaults`` with the global source's
+   sha256 and printed loudly (owner ruling 2026-08-14, a tile without a
+   per-tile cfg uses global defaults; 2026-08-12b's substance kept: one
+   canonical source, ritual-provisioned, never hand-seeded, recorded).
+   Nothing is SYNTHESIZED either way — a made-up provider and ZL build a
+   tile nobody asked for and exit 0, so where the globals have nothing to
+   give (``default_website`` is excluded from the global config by
+   construction) the provider check below still refuses, naming the
+   derivation.
 4. **A tile build with no CIFP.**  ``run_auto_patch_generation`` only calls
    the generator when it can resolve a CIFP directory; the dev config
    ships ``cifp_data_path`` EMPTY, so a whole-tile build there produces a
@@ -796,6 +805,86 @@ def canonical_tile_cfg(lat: int, lon: int, source_root=None) -> Path:
     return root / "Tiles" / f"zOrtho4XP_{stem}" / f"Ortho4XP_{stem}.cfg"
 
 
+def canonical_global_cfg(source_root=None) -> Path:
+    """THE global ``Ortho4XP.cfg`` a DERIVED per-tile cfg comes from.
+
+    Same tree as :func:`canonical_tile_cfg` — the one ``lane_worktree.sh``
+    clones into every lane — so "the global defaults" names ONE file for
+    every lane, not whatever each lane's cwd happens to resolve
+    (``FNAMES.data_path("Ortho4XP.cfg")``) at import time.
+    """
+    root = Path(source_root) if source_root is not None else MAIN_ENGINE_TREE
+    return root / "Ortho4XP.cfg"
+
+
+def engine_global_cfg() -> Path:
+    """The global cfg THIS PROCESS's engine actually reads.
+
+    ``O4_Config_Utils.global_cfg_file`` is ``FNAMES.data_path(
+    "Ortho4XP.cfg")``, which in a source checkout resolves against the
+    CWD — so it is the LANE's clone, not the canonical main-tree file the
+    derivation is recorded against.  The ritual clones one from the other,
+    so they normally agree; when they do not, a derived cfg would be
+    RECORDED against one set of defaults and RUN on another, which is the
+    two-instruments-one-population defect in a single line of provenance.
+    Both are recorded, and a divergence is said out loud.
+    """
+    if str(ROOT / "src") not in sys.path:
+        sys.path.append(str(ROOT / "src"))
+    import O4_File_Names as FNAMES
+    return Path(FNAMES.data_path("Ortho4XP.cfg"))
+
+
+#: What a DERIVED per-tile cfg contains: NOTHING but a comment header.
+#:
+#: Chosen from the engine's own cfg semantics, not from taste
+#: (``O4_Config_Utils``):
+#:
+#: * module import sets every tile var to its registry default and then
+#:   applies the GLOBAL ``Ortho4XP.cfg`` over it;
+#: * ``Tile.__init__`` seeds ``self.<var>`` for every ``list_tile_vars``
+#:   entry FROM those module globals;
+#: * ``read_from_config`` then applies only the keys the per-tile file
+#:   actually CONTAINS — it is an OVERRIDE layer, exactly as the owner's
+#:   ruling says.
+#:
+#: So a per-tile cfg with ZERO override lines is, key for key, the global
+#: defaults — provably, with no snapshot to go stale.  Writing the global
+#: values out instead would FREEZE them into a lane input: a later change
+#: to the canonical global cfg would stop reaching this tile, which is the
+#: hand-seeded-input defect wearing the ritual's clothes.  Comment lines
+#: are skipped by both readers (``line[0] == "#"``), so the header is
+#: engine-invisible by construction and says, at the file, what it is.
+#:
+#: NOT a zero-byte file, deliberately: an empty file is indistinguishable
+#: from a truncated write, and the next human to open it learns nothing.
+#: The line that identifies a DERIVED cfg on a LATER run, when it reads
+#: as an ordinary ``present`` lane input.
+DERIVED_CFG_MARKER = "# DERIVED PER-TILE CONFIG"
+
+DERIVED_CFG_HEADER = """\
+# DERIVED PER-TILE CONFIG — owner ruling 2026-08-14, "A TILE WITHOUT A
+# PER-TILE CFG USES GLOBAL DEFAULTS".  No canonical per-tile cfg existed
+# for this tile, so the ritual provisioned this one instead of refusing.
+#
+# It carries ZERO override lines ON PURPOSE.  The engine reads a per-tile
+# cfg as an OVERRIDE of the globals (Tile.__init__ seeds every tile var
+# from the global config; read_from_config applies only the keys present
+# here), so "no keys" IS "the global defaults" — and nothing is frozen
+# here to drift from them later.
+#
+#   global source : {src}
+#   sha256        : {sha}
+#   provisioned   : {when} by tools/harness/build_airport.py
+#
+# Written by the ritual, never hand-seeded (ruling 2026-08-12b).  The
+# engine's own step 4 (O4_Tile_Utils.build_tile -> tile.write_to_config)
+# materialises the full tile-var set over this file once a build gets
+# that far; from then on this cfg is the lane's OWN input and is never
+# overwritten by provisioning again.
+"""
+
+
 def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
                        source_root=None) -> dict:
     """Provision the lane build dir's per-tile cfg from the canonical
@@ -810,9 +899,21 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     past it, which is the census-wrapper defect re-emerging: the
     inconsistency, not the copy, is the harm.
 
-    Three outcomes, all recorded:
+    Four outcomes, all recorded:
 
     * ``provisioned`` — a byte copy of the canonical cfg, with its sha256;
+    * ``derived-from-global-defaults`` — there is NO canonical per-tile
+      cfg for this tile, so one is derived from the canonical GLOBAL
+      ``Ortho4XP.cfg`` (OWNER RULING 2026-08-14, "A TILE WITHOUT A
+      PER-TILE CFG USES GLOBAL DEFAULTS", amending the refusal this
+      function used to raise).  The derived file carries zero override
+      lines — see :data:`DERIVED_CFG_HEADER` for why that IS the global
+      defaults under the engine's own cfg semantics.  Recorded with the
+      global source's path and sha256 AND the derived file's own sha256,
+      and printed loudly: a tile built on defaults nobody chose per-tile
+      must be visible in the log and in ``frame.json``, which is what
+      keeps the 2026-08-12b substance (one canonical source, ritual-
+      provisioned, recorded) intact under the amendment;
     * ``present`` — the build dir already has one; it is NEVER overwritten
       (a lane deliberately building at another provider/ZL owns its own
       input, and silently replacing it would be a second frame change no
@@ -821,9 +922,19 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     * ``is_canonical_source`` — the build dir IS the canonical location
       (a build in the main tree); nothing to copy.
 
-    A MISSING canonical source REFUSES.  Synthesizing defaults here would
-    be the silently-smaller-layout trap in its purest form: a made-up
-    provider and ZL build a tile nobody asked for, and it exits 0.
+    A missing canonical per-tile cfg used to REFUSE.  It no longer does
+    (2026-08-14) — but the reason it did still holds and shapes the
+    derivation: nothing here may SYNTHESIZE a value.  A made-up provider
+    or ZL would build a tile nobody asked for and exit 0.  The derived
+    cfg therefore invents nothing: it overrides nothing, and the tile
+    runs on exactly what the global config says.  Where the globals
+    genuinely have nothing to give — ``default_website`` / ``default_zl``
+    / ``zone_list`` are excluded from the global config BY CONSTRUCTION
+    (``O4_Cfg_Vars.cfg_global_tile_vars``) because production supplies
+    them per BUILD from the app's job — the downstream provider check
+    still refuses, and says so naming this derivation.  A missing GLOBAL
+    config refuses: with neither file there is no "defaults" to derive
+    from, only invention.
     """
     stem = tile_cfg_stem(lat, lon)
     dest = Path(build_dir) / f"Ortho4XP_{stem}.cfg"
@@ -839,38 +950,100 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
     elif dest.is_file():
         rec["action"] = "present"
         rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
-    else:
-        if not src.is_file():
+        # A cfg an EARLIER run of this build dir DERIVED reads as
+        # "present" on every later run — true, but it would quietly
+        # downgrade "this tile is on global defaults" to "the lane's own
+        # cfg" in the frame.  The marker travels in the file, so say so.
+        try:
+            rec["was_derived"] = DERIVED_CFG_MARKER in dest.read_text(
+                errors="ignore")
+        except OSError:                                # pragma: no cover
+            rec["was_derived"] = None
+    elif not src.is_file():
+        # OWNER RULING 2026-08-14 — the refusal that stood here amends
+        # into a DERIVATION.  Per-tile cfg is an OVERRIDE of globals in
+        # the engine's own reader, so "no per-tile cfg" is a legitimate
+        # state with a defined meaning: the global defaults.
+        gsrc = canonical_global_cfg(source_root)
+        if not gsrc.is_file():
             raise SystemExit(
                 f"REFUSING: this build dir has no per-tile config "
-                f"({dest}) and the canonical source does not exist "
-                f"({src}).\n"
-                f"  Without one, Tile.read_from_config falls back to the "
-                f"GLOBAL config, which carries no default_website — the "
-                f"build refuses at step 4's provider check, and a "
-                f"SYNTHESIZED default would be worse: it would build a "
-                f"tile at a provider and ZL nobody chose, and exit 0.\n"
-                f"  Fix: build that tile once in the main tree (or copy "
-                f"the tile's cfg there from the app's own build) so every "
-                f"lane provisions from ONE source — owner ruling "
-                f"2026-08-12b, lane inputs are provisioned, never "
-                f"hand-seeded.")
+                f"({dest}), the canonical per-tile source does not exist "
+                f"({src}), and neither does the canonical GLOBAL config "
+                f"({gsrc}).\n"
+                f"  With no globals there are no DEFAULTS to derive from "
+                f"— only invention, and a synthesized provider and ZL "
+                f"build a tile nobody asked for and exit 0.\n"
+                f"  Fix: restore the main tree's Ortho4XP.cfg (the ritual "
+                f"clones it into every lane: tools/harness/"
+                f"lane_worktree.sh up NAME) — owner rulings 2026-08-12b "
+                f"(inputs are provisioned, never hand-seeded) and "
+                f"2026-08-14 (a tile without a per-tile cfg uses global "
+                f"defaults).")
+        gsha = hashlib.sha256(gsrc.read_bytes()).hexdigest()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(DERIVED_CFG_HEADER.format(
+            src=gsrc, sha=gsha,
+            when=time.strftime("%Y-%m-%dT%H:%M:%S")))
+        rec["action"] = "derived-from-global-defaults"
+        rec["global_source"] = str(gsrc)
+        rec["global_sha256"] = gsha
+        rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
+        # WHICH globals the engine will actually read (see
+        # engine_global_cfg): recorded beside the canonical one, never
+        # instead of it.
+        try:
+            eff = engine_global_cfg()
+            rec["engine_global_source"] = str(eff)
+            rec["engine_global_sha256"] = (
+                hashlib.sha256(eff.read_bytes()).hexdigest()
+                if eff.is_file() else None)
+        except Exception as exc:                       # pragma: no cover
+            rec["engine_global_source"] = None
+            rec["engine_global_sha256"] = f"unresolved: {exc!r}"
+    else:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(src.read_bytes())       # BYTE copy, never a render
         rec["action"] = "provisioned"
         rec["sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
 
     if prog is not None:
-        prog.note(
-            f"per-tile cfg {rec['action'].upper()}: {dest} "
-            f"(sha256 {rec['sha256'][:12]}, canonical source {src})"
-            + ("  — byte copy from the ritual's own canonical source; a "
-               "hand-seeded lane input is the defect owner ruling "
-               "2026-08-12b names."
-               if rec["action"] == "provisioned" else
-               "  — the lane's OWN cfg, left untouched."
-               if rec["action"] == "present" else
-               "  — this build dir IS the canonical location."))
+        if rec["action"] == "derived-from-global-defaults":
+            # LOUD, by ruling: this tile is running on defaults nobody
+            # chose FOR IT, and the log is where that has to be visible.
+            prog.note(
+                f"per-tile cfg DERIVED-FROM-GLOBAL-DEFAULTS: {dest} "
+                f"(sha256 {rec['sha256'][:12]}) — no canonical per-tile "
+                f"cfg exists ({src}), so this tile runs on the GLOBAL "
+                f"config {rec['global_source']} (sha256 "
+                f"{rec['global_sha256'][:12]}) with ZERO per-tile "
+                f"overrides.  Owner ruling 2026-08-14: a tile without a "
+                f"per-tile cfg uses global defaults.")
+            if (rec.get("engine_global_sha256")
+                    and rec["engine_global_sha256"] != gsha):
+                prog.note(
+                    f"per-tile cfg DERIVATION FRAME DIVERGES: this process's "
+                    f"engine reads {rec['engine_global_source']} (sha256 "
+                    f"{rec['engine_global_sha256'][:12]}), NOT the canonical "
+                    f"{gsrc} the derivation is recorded against — the tile "
+                    f"would run on defaults the frame does not name.  "
+                    f"Re-run tools/harness/lane_worktree.sh up on this lane "
+                    f"to re-clone the canonical global cfg.")
+        else:
+            prog.note(
+                f"per-tile cfg {rec['action'].upper()}: {dest} "
+                f"(sha256 {rec['sha256'][:12]}, canonical source {src})"
+                + ("  — byte copy from the ritual's own canonical source; "
+                   "a hand-seeded lane input is the defect owner ruling "
+                   "2026-08-12b names."
+                   if rec["action"] == "provisioned" else
+                   ("  — the lane's OWN cfg, left untouched"
+                    + ("; it was DERIVED from global defaults by an "
+                       "earlier run (ruling 2026-08-14), not chosen for "
+                       "this tile."
+                       if rec.get("was_derived") else "."))
+                   if rec["action"] == "present" else
+                   "  — this build dir IS the canonical location."))
     return rec
 
 
@@ -1489,6 +1662,35 @@ def build_tile(lat: int, lon: int, build_dir: str, prog: Progress) -> dict:
               f"auto_patch={tile.auto_patch} "
               f"modify_custom_airports={tile.modify_custom_airports}")
     if not tile.default_website:
+        if cfg_provenance["action"] == "derived-from-global-defaults":
+            # The 2026-08-14 amendment removed the missing-cfg refusal, and
+            # this is where its LIMIT shows: default_website / default_zl /
+            # zone_list are excluded from the global config BY CONSTRUCTION
+            # (O4_Cfg_Vars.cfg_global_tile_vars), because production
+            # supplies them per BUILD from the app's job.  "Global
+            # defaults" therefore has no provider to give, and picking one
+            # here would be the synthesized input both rulings forbid.
+            raise SystemExit(
+                "REFUSING: tile config resolves to an EMPTY "
+                "default_website — step 4 would produce provider-less "
+                "texture names.\n"
+                f"  This tile has NO canonical per-tile cfg, so its cfg "
+                f"was DERIVED from the global defaults "
+                f"({cfg_provenance['global_source']}, sha256 "
+                f"{cfg_provenance['global_sha256'][:12]}) per owner ruling "
+                f"2026-08-14 — and the global config carries no "
+                f"default_website / default_zl / zone_list AT ALL: "
+                f"O4_Cfg_Vars.cfg_global_tile_vars excludes those three by "
+                f"construction, because production supplies them per BUILD "
+                f"from the app's job (o4_driver job['provider'] / "
+                f"job['zl']).\n"
+                "  So the derivation got the tile past the missing-cfg "
+                "refusal and stopped HERE, at the one setting global "
+                "defaults cannot supply.  Fix, at the canonical source and "
+                "never lane-side: build the tile once in the main tree (or "
+                "copy its cfg there from the app's own build), so every "
+                "lane provisions the SAME provider and ZL — owner ruling "
+                "2026-08-12b.")
         raise SystemExit(
             "REFUSING: tile config resolves to an EMPTY default_website — "
             "step 4 would produce provider-less texture names.  The "

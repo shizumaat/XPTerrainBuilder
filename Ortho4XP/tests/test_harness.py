@@ -860,19 +860,125 @@ def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
         "on two sources left nothing in either frame to compare")
 
 
-def test_a_MISSING_canonical_tile_cfg_REFUSES(build_mod, tmp_path):
-    """Never synthesize defaults: a made-up provider and ZL build a tile
-    nobody asked for and exit 0 — the silently-smaller-layout trap."""
+def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
+        build_mod, tmp_path):
+    """OWNER RULING 2026-08-14 — "A TILE WITHOUT A PER-TILE CFG USES
+    GLOBAL DEFAULTS".  The refusal this twin used to assert AMENDS into a
+    derivation: per-tile cfg is an OVERRIDE of globals in the engine's own
+    reader, so "no per-tile cfg" is a defined state, not an error.
+
+    What the twin still enforces is the 2026-08-12b substance the ruling
+    keeps: ONE canonical source, provisioned by the ritual, RECORDED — and
+    nothing SYNTHESIZED (the derived file overrides nothing at all).
+    """
+    source_root = tmp_path / "main"
+    source_root.mkdir()
+    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg.write_text("mesh_zl=19\nroad_level=1\n")
+    lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
+
+    said = []
+
+    class _Prog:
+        def note(self, m):
+            said.append(m)
+
+    rec = build_mod.provision_tile_cfg(30, 31, lane, _Prog(),
+                                       source_root=source_root)
+
+    dest = lane / "Ortho4XP_+30+031.cfg"
+    assert rec["action"] == "derived-from-global-defaults"
+    assert dest.is_file(), "the ritual PROVISIONS one instead of refusing"
+    assert rec["global_source"] == str(gcfg)
+    assert rec["global_sha256"] == \
+        hashlib.sha256(gcfg.read_bytes()).hexdigest(), (
+        "the frame records WHICH globals this tile inherited, hashed")
+    assert rec["sha256"] == hashlib.sha256(dest.read_bytes()).hexdigest(), (
+        "and the derived file's own sha — a derived input nobody can hash "
+        "afterwards is a hand-seed with extra steps")
+    # NOTHING synthesized: every non-comment line would be an override,
+    # and an override nobody chose is the made-up-provider trap.
+    body = [ln for ln in dest.read_text().splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+    assert body == [], (
+        "a DERIVED cfg carries zero override lines: that IS the global "
+        "defaults under the engine's reader, and writing the global values "
+        "out would FREEZE a snapshot that stops tracking them")
+    assert str(gcfg) in dest.read_text() and rec["global_sha256"] in \
+        dest.read_text(), "the file itself says what it was derived from"
+    # LOUD, by ruling.
+    said = "\n".join(said)
+    assert "DERIVED-FROM-GLOBAL-DEFAULTS" in said and "2026-08-14" in said, (
+        "a tile running on defaults nobody chose for it must be visible in "
+        "the log, not only in the frame")
+    # WHICH globals the engine will actually read is recorded too: the
+    # derivation defers to them, so a frame naming only the canonical file
+    # would describe a different population than the build ran on.  Here
+    # they differ by construction (a tmp canonical vs this tree's own), so
+    # the divergence must be SAID, not merely recorded.
+    assert rec["engine_global_source"] == \
+        str(build_mod.engine_global_cfg())
+    assert rec["engine_global_sha256"] != rec["global_sha256"]
+    assert "DERIVATION FRAME DIVERGES" in said
+    # A SECOND run over the same build dir sees an ordinary lane input —
+    # and must still report that it was derived, not chosen.
+    again = build_mod.provision_tile_cfg(30, 31, lane,
+                                         source_root=source_root)
+    assert again["action"] == "present" and again["was_derived"] is True
+
+
+def test_a_MISSING_global_cfg_TOO_still_REFUSES(build_mod, tmp_path):
+    """The derivation's floor: with no globals either there are no
+    DEFAULTS to derive from, only invention — and a made-up provider and
+    ZL build a tile nobody asked for and exit 0."""
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     with pytest.raises(SystemExit) as exc:
         build_mod.provision_tile_cfg(30, 31, lane,
                                      source_root=tmp_path / "empty_main")
     msg = str(exc.value)
     assert "REFUSING" in msg and "Ortho4XP_+30+031.cfg" in msg
-    assert "2026-08-12b" in msg, "the refusal cites the ruling it enforces"
+    assert "2026-08-12b" in msg and "2026-08-14" in msg, (
+        "the refusal cites both the ruling it enforces and the one that "
+        "amended it")
     assert not (lane / "Ortho4XP_+30+031.cfg").exists(), (
         "the refusal wrote NOTHING — a defaults file left behind would be "
         "the next lane's canonical source")
+
+
+def test_a_DERIVED_cfg_reads_IDENTICALLY_to_the_global_config(build_mod,
+                                                              tmp_path):
+    """THE derivation's whole claim, through the ENGINE'S OWN reader:
+    a tile that reads the derived per-tile cfg and a tile that falls back
+    to the global config end up with the SAME value for every tile var.
+
+    Asserted against ``O4_Config_Utils`` itself, never a re-implementation
+    of its semantics — the census-wrapper defect is what a second copy of
+    a reader costs.
+    """
+    import O4_Config_Utils as CFG
+    from O4_Cfg_Vars import list_tile_vars
+
+    source_root = tmp_path / "main"
+    source_root.mkdir()
+    # The REAL global config this tree runs on — same file the engine
+    # loaded at import, so "global defaults" means one thing here.
+    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg.write_bytes(Path(CFG.global_cfg_file).read_bytes())
+    lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
+    rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
+    assert rec["action"] == "derived-from-global-defaults"
+
+    derived = CFG.Tile(30, 31, str(tmp_path / "unused_a") + "/")
+    derived.read_from_config(config_file=rec["cfg"])
+    globals_only = CFG.Tile(30, 31, str(tmp_path / "unused_b") + "/")
+    globals_only.read_from_config(use_global=True)
+
+    differs = {v for v in list_tile_vars
+               if getattr(derived, v) != getattr(globals_only, v)}
+    assert not differs, (
+        f"the derived per-tile cfg changed {sorted(differs)} — it must "
+        f"OVERRIDE nothing: the ruling says a tile without a per-tile cfg "
+        f"uses the global defaults, not defaults plus a surprise")
 
 
 def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
@@ -891,6 +997,10 @@ def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
 
     assert rec["action"] == "present"
+    assert rec["was_derived"] is False, (
+        "a cfg an earlier run DERIVED still reads as 'present' later — the "
+        "frame must not downgrade 'this tile is on global defaults' to "
+        "'the lane's own cfg' without saying so")
     assert mine.read_text() == "default_website=BI\ndefault_zl=17\n"
     assert rec["sha256"] == hashlib.sha256(mine.read_bytes()).hexdigest(), (
         "the frame records the cfg the build ACTUALLY ran on, not the one "

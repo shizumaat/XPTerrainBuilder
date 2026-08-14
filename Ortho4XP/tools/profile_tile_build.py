@@ -287,6 +287,10 @@ def main():
     # at a provider and ZL nobody chose, exiting 0.  Same function, same
     # byte copy, same canonical source as ``build_airport.py --tile``; a
     # second copy of that rule here would be the census-wrapper defect.
+    # A tile with NO canonical per-tile cfg no longer refuses: the same
+    # helper DERIVES one from the global defaults (owner ruling
+    # 2026-08-14) — zero overrides, recorded — and ``--provider`` below is
+    # then the explicit build intent the globals cannot supply.
     _cfg_record = provision_tile_cfg(args.lat, args.lon, tile.build_dir)
     tile.read_from_config()
     if args.provider:

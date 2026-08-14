@@ -1756,3 +1756,17 @@ canonical key) are scratchpad one-offs on FIRST use — a second use
 promotes them into `tools/` with index entries, and the airside value
 join is the stronger candidate: it answers "did airside move" as an
 EQUALITY where a census A/B can only answer it as a count.
+
+- 2026-08-14 lane/cfgdefaults (per-tile cfg DERIVED from global defaults,
+  ruling 2026-08-14 "A TILE WITHOUT A PER-TILE CFG USES GLOBAL DEFAULTS"):
+  tests were `tests/test_harness.py` once through the run ledger (227
+  passed) — `blast --tests-for` selects 0 files for
+  `tools/harness/build_airport.py` (it has no direct importers; the twins
+  load it dynamically), so the covering file was chosen from the index's
+  co-change signal (75%). UNPAID: (1) NO completed tile arm — the OTHH
+  `--tile 25 51` run gets past the missing-cfg refusal and stops at the
+  EMPTY `default_website` gate, so steps 1-4 were never exercised on a
+  derived cfg and no tile product exists to census; (2) the
+  `derived → present → was_derived` path is twin-covered but never seen
+  across two REAL builds of one build dir; (3) `tools/profile_tile_build.py`
+  shares the amended helper and was not run (comment-only edit there).

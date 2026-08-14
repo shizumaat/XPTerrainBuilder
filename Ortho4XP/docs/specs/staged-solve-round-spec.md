@@ -70,6 +70,17 @@ never a cap-riding bang-bang trace (the hump/pockets are exactly what
 pointwise capping without a whole-run objective produces). Band-lawful
 displacement trumps DEM in the interior. The corridor profile then
 enters stage B as ONE band consumed by seats/endpoints (ONE-band law).
+SCOPING (Fable ruling 2026-08-14, resolving S2's STOP 1): the 1-D
+profile HOLDS on the corridor's LINEAR RUNS only — the station
+domains where the corridor is genuinely one-dimensional. A 2-D
+service surface (junction yard, service apron) is never held to a
+line: it solves as a surface with the profile's values as BOUNDARY
+SEEDS at its mouths — the same weld posture corridor mouths take at
+airside. This is a scoping of the one band, not a second band: the
+band carries the held profile along runs and the yard's solved
+surface through yards. S2 measured why (KCLT: holding the line over
+2-D yards made within-shape pairs unsatisfiable, +157 rows;
+releasing them is the fix, not a relaxation).
 
 **GRADED TRANSITION REPLACES A REFUSED WALL.** At a wall face dropped
 by the corridor-course keepout, the elevation delta the wall would
@@ -156,11 +167,17 @@ site). Acceptance arms: HECA replay — hump ≤ materiality over the
 smoothed lawful path, zero cap-riding flank runs, zero discharge
 pockets beyond cap, corridor_axis_coverage --free-ends clean, seam-weld
 tables quoted (row-absence is never evidence); KCLT replay —
-strip_seam_tear returns to frozen-baseline count (the +22 gone or
-each survivor row-attributed), the two refused-wall sites show graded
-transitions (quote the transition profiles), worst tear at those
-sites under the existing seam-law threshold (read it from seam
-law code; no new constant).
+strip_seam_tear — CLAUSE SUPERSEDED (Fable 2026-08-14, on S2's
+measured refutation): the "+22 refused-wall tears" premise does not
+reproduce in the restored frame (control 27 vs frozen 26), and the
+worst tear (7.18 m, 35.2201431,-80.9635580) is PRE-EXISTING in the
+frozen baseline — a STRIP↔STRIP shared-edge disagreement, not a
+corridor defect. Under weld-or-gap an interior shared-edge
+disagreement is always a defect: the site routes to S6, resolved by
+weld or attributed to its minting mechanism. S2's KCLT acceptance
+reduces to: no NEW seam tears attributable to the profile (the
+arm's 27→28 resolves in S2b), and the +23 new-violation class
+continuing to shrink or attribute.
 
 **S3 — OTHH attribution (measure-first, no fix).** Attribute the −639
 within delta row-by-row (frozen census vs corridor census, canonical

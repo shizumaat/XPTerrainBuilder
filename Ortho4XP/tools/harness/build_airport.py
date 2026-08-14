@@ -1392,8 +1392,15 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     # record and one from the layout itself.
     require_no_swallowed_write_block(guard.blocked,
                                      allow_degraded=allow_degraded, prog=prog)
-    require_dem_prep_succeeded(getattr(layout, "dem_inset_provenance", None),
-                               allow_degraded=allow_degraded, prog=prog)
+    if not geometry_only:
+        # A geometry-only build NEVER solves against terrain, so absent DEM
+        # provenance is its lawful state, not a swallowed degradation — the
+        # rail's own message ("every elevation was solved without terrain")
+        # cannot occur when nothing is solved.  The swallowed-write check
+        # above still runs: a blocked corpus write is unlawful either way.
+        require_dem_prep_succeeded(
+            getattr(layout, "dem_inset_provenance", None),
+            allow_degraded=allow_degraded, prog=prog)
     report_guard_churn(guard, prog)
     out_dir.mkdir(parents=True, exist_ok=True)
     osm = out_dir / f"{tag}.osm"

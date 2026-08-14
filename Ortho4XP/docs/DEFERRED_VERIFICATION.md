@@ -765,3 +765,116 @@ state explicitly whether object_pad 689 -> 723 -> 736 stabilises —
 (b) the `.obj`-rewrite count, (c) the `--count` + recorded-phase pair,
 (d) `check_object_pads`, (e) the row-attributed census.  Not started:
 this session reached its budget at step (1), not a new blocker.
+
+### R3 step (2) LANDED — the y-bake consumes the frame; the RATCHET reproduces
+
+Step (2) of Fable's ruled order is landed (`7ac6a58`):
+`post_mesh.rebake_dsf_objects` now reads the object pad frame instead of
+rebuilding it.  What moved is THE WELDING (`obj8_partition.weld_parts`),
+which is pure pack data and this pass's dominant cost — `weld_parts`'
+own docstring records the 2026-07-26 profile: called from
+`structure_deltas` it measured **783.6 s, 57.8 % of a +30+031 build**.
+`structure_deltas` gains keyword-only `pad_frame=None`; with a frame in
+hand it welds NOTHING (measured directly in the twin: **1 `weld_parts`
+call without the frame, 0 with it, identical `RebakeDecision`**).
+
+The frame carries the welding as PART LABELS — one small int per
+triangle — not as triangle groups: the record goes to a sidecar, and a
+group is a second copy of the pack's geometry.
+`object_frame.regroup_welded_parts` is exact by construction (weld_parts
+appends in input order into a dict keyed by union-find root, so parts
+come back in first-appearance order with their triangles in input
+order), and a twin asserts regroup == weld_parts group for group.
+
+Two REFUSALS, because a welded part is a list of pool-frame vertex
+INDICES and reading one against the wrong frame gives a plausible wrong
+answer silently: `object_anchor.pool_frame_signature` (resource set +
+slice starts + vertex count) must match, and the label array must cover
+exactly that structure's triangle count.  Either mismatch re-welds and
+says so.  Twins cover both.
+
+**ACCEPTANCE, measured on this lane's tree at `7ac6a58`.**  Two
+SEQUENTIAL HECA `--tile 30 31 --no-ledger` builds, foreground-class,
+shared repo UNCHANGED in both (full-surface before/after snapshot, the
+harness's own line), tags `s5step2a` / `s5step2b`:
+
+| arm | wall | vector | mesh | tile | HECA patch body sha256 | object_pad refs |
+|---|---|---|---|---|---|---|
+| A | 741.0 s | 467.1 | 75.7 | 196.7 | `f562cbfeb8f990461072587bc31ef60e86aa5759c4b46b17a1aa3661dee91369` | 339 core + 350 blend = **689** |
+| B | 630.8 s | 408.3 | 55.0 | 166.2 | `2f1dcfde0320f4f2158793bb34f1a878b8d5ef2c6ced52f7aaf5d8813f903a9f` | 354 core + 369 blend = **723** |
+
+(a) **DETERMINISM: FAILS, and the RATCHET DOES NOT STABILISE.**  689 →
+723 is the perfbake arm's sequence reproduced EXACTLY (689 → 723 → 736).
+Arm A's patch body is **byte-identical to the frozen 1.0.245 baseline**
+(`baselines/1.0.245/MANIFEST.txt`, `consol3heca`), which is what pins
+the frame: arm A is the same build run 1 was.  The reading is the
+pre-registered CONTROL for steps (3)-(5): step (2) is post-mesh only and
+changes nothing the emitter reads, so the ratchet is confirmed to live
+where the ruling says it does — in the sidecar READ-BACK that steps (3)
+and (4) retire — and NOT in anything the frame-consuming rebake touches.
+It does not adjudicate the circularity attribution (HECA 1 of 1883):
+that still wants its own interventional arm, which is step (5)'s routing.
+
+(b) **PACK PRISTINE: 373 `.obj` files rewritten in BOTH arms** (7589 /
+7595 structures re-baked, 6 900 267 / 6 900 570 vertices offset; 1904 /
+1894 cluster pad requests).  The count is STABLE across the pair.  The
+charter's "171/77" is a DIFFERENT frame (the per-airport perfbake arm,
+one pack); this is the +30+031 TILE arm over HEAZ+HECA+HECP and the two
+numbers must not be subtracted.  The gate itself — zero rewrites for
+within-band objects — is not yet meetable: it is step (3)'s emission
+that removes the bake, and step (3) is not landed.
+
+(c) **THE OWNER'S BUILD-TIME GATE: mechanism shown, exclusive pair
+OWED.**  Step (2) REMOVES a construction rather than adding one, and the
+removal is proved mechanically (1 weld call → 0) rather than by a wall
+time.  The recorded phases above are NOT an A/B: both arms run the same
+code, arm A on a COLD lane-local `Airport_mod_cache` (`mod_cache_seeded`
+0 files) and arm B warm, and the standing law forbids one run per side.
+An exclusive `check_build_time --runs N` pair against a `pad_frame=None`
+arm is owed and belongs with steps (3)-(5), when the pad path's whole
+cost is on the table.
+
+(d) `check_object_pads` — arm B emitted 729 object-pad polygons for 354
+building pads; the pad-host level census reports 354 groups (0 adopted,
+13 within 3.00 m of the host, 9 no agreeing coalition, 332 no family, 0
+no level).  Under the UNCHANGED law: step (2) does not touch emission,
+so this is a baseline reading, not the step's acceptance.
+
+(e) **CENSUS: zero delta, and stronger than a census.**  Arm A's HECA
+patch body is byte-identical to frozen 1.0.245, so there is no row to
+attribute.  Arm B's difference is the ratchet above (a pre-existing
+behaviour reproduced exactly), not this step.  NOTE THE FRAME: this lane
+branches at `3b21ed6`, BEFORE S7 merged to main (`8d08b41`); any census
+run for steps (3)-(5) must be rebased onto — or run through a checkout
+of — the S7 MERGED harness, and say which.  No census was run this
+session; none was needed for a byte-identical patch.
+
+**OWED — steps (3), (4), (5), unstarted.**  (3) pad emission consumes
+the frame with `patch_ground` targets, CORE-only under weld-or-gap;
+(4) retire the read-back (`config.py` ~4010 `DSF_OBJECT_OBJECT_PADS`
+gate region, `flat_site.pack_seat_targets` at :587 → `object_pads`
+`sidecar_path`/`load_sidecar`, `object_pads.pads_for_airport` +
+`merge_emitted_records` at `driver.py:938`, and the `emitted`
+persistence); (5) route `ring_covers_its_own_datum` requests to the
+y-bake.  THE SITE INVENTORY for (3), measured this session so the next
+lane does not re-derive it: `emit_object_pads`
+(`object_pads.py:757`, called once from `pipeline.py:6635`) takes its
+specs from `pads_for_airport(sidecar, icao, claim)` — replacing that
+source is the whole of step (3), and it needs an IN-RUN pool
+decomposition.  That decomposition must be the POST-MESH one
+(`post_mesh._resolve_pack_geometry` → `discover_object_pools` →
+`_cached_partition_structures`), NOT `dsf_reader.
+_compute_dsf_object_buildings`': the two admit different resources
+(A15's outside-the-pack refusal and I-4's multi-placement refusal are
+Phase-2 only; the connector prefilter and the terrain classification are
+Phase-1 only), so a frame built on the Phase-1 pools would miss the pad
+frame cache key and silently cost a second frame — exactly the R1
+failure Fable rejected.
+
+Test surface run once through `run_with_ledger` over `blast --tests-for`
+(post_mesh + object_anchor + object_frame, 17 files): **702 passed**,
+with the two known pre-existing failures unchanged and matched-controlled
+at step (1) — `test_contracts::test_obj8_partition_signature
+[contact_graph]` and `test_object_anchor::
+test_kclt_eight_bake_pool_end_to_end`.  `test_contracts`' own
+`structure_deltas` signature row grew `pad_frame` with its reason.

@@ -3022,8 +3022,25 @@ def solve_route_profile(layout, icao: str,
             node_band=node_band,
             hard=(truth_hard | {i for i in runway_nodes if i < n}
                   | {i for i in building_seats if i < n}),
-            corridor_pieces=_build_spine_corridors(u_spine_adj, nodes),
-            junction_adj=u_spine_adj, cap_of_segment=_taut_cap_of,
+            # ── STAGE A'S ROUTE GRAPH HAS NO SERVICE CENTERLINES
+            # (S1c, couplings 7/8/16) ──────────────────────────────
+            # The strings built here become DIRICHLET PINS into phase A,
+            # so this is an AIRSIDE authority that WRITES values — the
+            # same standing that made ``_solve_spine_profile`` apply the
+            # ``service_spine_pairs`` exclusion internally (cycle 8) and
+            # that ``reach_band_unified`` has obeyed since
+            # REACH_NO_SERVICE_SPINES.  These two consumers simply
+            # predate it: ``_build_spine_corridors`` cut its pieces from
+            # the RAW graph, and ``taut_string.walk_spine_runs`` builds
+            # its walk adjacency from whatever it is handed — it skips
+            # service CHAINS but service EDGES stayed walkable, so an
+            # airside chain's segmentation (its turns, its gaps) was
+            # decided partly by the road network.  Service corridors are
+            # stage-B objects entirely and are strung, solved and
+            # emitted there.
+            corridor_pieces=_build_spine_corridors(u_spine_adj_airside,
+                                                   nodes),
+            junction_adj=u_spine_adj_airside, cap_of_segment=_taut_cap_of,
             # ── PROBE B (spec §2): pure passengers for the hook-entry
             # state dump.  ``_hard_cat`` is passed as a COPY so the
             # callee cannot alias a set the solver iterates.
@@ -4663,6 +4680,26 @@ def solve_route_profile(layout, icao: str,
                                   expand_mouth_cluster)
             _freed = expand_mouth_cluster(
                 layout, bucket_to_idx, _conflicted, _gs_hard)
+            # ── STAGE B MAY NOT WRITE STAGE A (S1c, coupling 11) ──────
+            # This scan frees a mouth CLUSTER from the hard set because a
+            # GROUNDSIDE weld violates a law edge — and the cluster
+            # expansion walks rings, so it can free AIRSIDE nodes too.
+            # Freeing an airside node is a write to stage A authored by a
+            # groundside conflict, which the staged law forbids outright
+            # ("nothing in stage B may write, re-project or re-blend a
+            # stage-A row").  The groundside half of the cluster still
+            # frees and still re-projects; the airside half stays hard and
+            # the lot adopts the profile it finds, which is the mouth
+            # ruling (RULINGS 2026-08-06) unchanged.
+            _freed_air = _freed - _solve_receivers
+            if _freed_air:
+                import O4_UI_Utils as _UI_f
+                _UI_f.vprint(
+                    1, f"    [stage] mouth-cluster conflict: "
+                       f"{len(_freed_air)} of {len(_freed)} freed node(s) "
+                       f"are AIRSIDE and stay hard (a groundside weld "
+                       f"violation never frees an airside variable)")
+                _freed = _freed & _solve_receivers
             yield_hard = yield_hard - _freed
             # GROUNDSIDE PIN LAW BOUND (spec §C.2 ★, datum replaced by
             # item 3(a)): the freed mouth cluster is re-projected and
@@ -7407,6 +7444,24 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     _k = b2i.get(_cps_ec.get_or_add(float(_x), float(_y)))
                     if _k is not None and _k < n:
                         _svc_couple_nodes.add(_k)
+    if _svc_couple_nodes:
+        # ── STAGE B MAY NOT WRITE STAGE A (S1c, coupling 13) ──────────
+        # The selection above is by SHAPE ROLE, so a service ring's MOUTH
+        # vertex — shared with an apron and therefore AIRSIDE (airside
+        # wins the seat) — was handed in for re-clamping into the
+        # interval its welded neighbours admit.  That is a groundside
+        # coupling authoring an airside value.  The graph's mint-time
+        # node stage is the exact filter, in this pass's own node space.
+        _ec_stage = getattr(G, "node_stage", None) or {}
+        _ec_air = {_k for _k in _svc_couple_nodes
+                   if _ec_stage.get(_k, _STAGE_A) == _STAGE_A}
+        if _ec_air:
+            import O4_UI_Utils as _UI_ec
+            _UI_ec.vprint(
+                1, f"    [stage] svc edge-couple: {len(_ec_air)} of "
+                   f"{len(_svc_couple_nodes)} service ring node(s) are "
+                   f"AIRSIDE (shared mouths) and are NOT re-clamped")
+            _svc_couple_nodes -= _ec_air
     # THE REPORT SET of this projection: nodes whose envelope interval this
     # pass found inverted, plus the unresolved triangle planes.  Since §2
     # deleted both of its sinks (the sidecar export and the freeze carry)

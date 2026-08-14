@@ -499,3 +499,66 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   quoted as any.
 - 0 new law constants and 0 new env flags. The stage tag has no gate by
   design: a gated partition is a partition that can be silently off.
+
+## Staged-solve S1c (route graph + boundary writes) — lane/s1stage, 2026-08-14
+
+- ACCEPTANCE STILL NOT MET on criterion (a): HECA airside **1676** against
+  the pre-corridor reference's **1653** — **+23 open**. Attempt cap 2
+  reached for the S1c coupling group; STOP, not a third attempt.
+- THE REFERENCE IS NOW REAL AND SERVED: artifact-ledger entry
+  `9713491f...`, tag `corrHECAoff`, body `7fbe7c26d7e3`, 3316 shapes,
+  censused in THIS lane's frame (current main-tree census; lane S7's
+  domain revision is NOT in it — every number here is pre-S7 frame).
+- S1c IS BYTE-INERT AT HECA. Couplings 7/8/16/20 (arm 3) and 11/13
+  (arm 4) both replay to `5e64cbc3b629`, byte-identical to the S1b arm.
+  11 and 13 demonstrably FIRE (1 airside node kept hard in the
+  mouth-cluster scan; 335-336 of ~12,300 service ring nodes withheld
+  from the edge-couple re-clamp) and still change no emitted byte. The
+  couplings were real; their effect on this airport is not.
+- Therefore the +23 is NOT in couplings 7, 8, 11, 13, 16 or 20, and 17/18
+  were already measured inert. It must be in 9, 10, 12 or 21 (the
+  remaining boundary couplings) or outside the inventory. That is the
+  next increment's attribution, not this one's guess.
+- CRITERION (c) TARGETS A SITE THAT NO LONGER EXISTS. Joining apron
+  worsts by COORDINATE (not way id) across reference / frozen / arms:
+  **no apron site anywhere at HECA went <=0.90 m pre-corridor to >=4.0 m
+  in the frozen 1.0.245 state.** The corridor round's disclosed
+  "-11906 0.86->5.69" was measured at 1.0.244; the corridor-joins round
+  (HECA census 8219->7416) closed it before the baseline froze. The
+  criterion cannot be met because its regression is already gone.
+- The site this lane could join (30.118136,31.410569) reads 11.33 m
+  pre-corridor, 11.36 frozen, 11.33 freeze, **11.49 S1c** — +0.16 m
+  worse than the reference, UNATTRIBUTED and owed. Apron sites vs the
+  reference overall: 25 better, 36 worse, 11 equal; worst worsening
+  +1.58 m at 30.1335,31.4115 (0.00 -> 1.58).
+- CRITERION (d), churn: on rings the reference also carries (canonical
+  node join, 30,786 shared 11-decimal spellings of 35,569/40,008),
+  320 airside rows GONE and 191 NEW — net **-129 better than the
+  reference on unchanged rings**, but 511 rows differ, so "byte-equal on
+  unchanged rings" is NOT met. On rings corridors changed: 28 gone,
+  180 new (+152). The two together are the +23.
+- JOIN INSTRUMENT, deviation stated: the ruled 11-decimal lat/lon join
+  was applied at NODE level (where the canonical spelling lives and
+  where 30,786 rows matched across trees). At ROW level the census dump
+  carries only ONE representative lat/lon per row, so a row-level
+  lat/lon join would be strictly WEAKER than `census_rows_diff`'s
+  existing two-endpoint join — which is an IDENTITY test, not proximity,
+  and is transported through a projection whose anchor is byte-equal in
+  both sidecars ([30.1089375, 31.434664815]). Every row diff here ran at
+  `--tol 0.0`, so the MOVED inference tier is empty by construction.
+  Carrying canonical endpoint lat/lon into `--rows-json` would remove
+  the deviation and is unbuilt.
+- Twins: 3 new S1c rails (stage-A pricing positive + control, the
+  untagged-law-graph refusal, and the coupling-16 premise that the walk
+  adjacency really does change segmentation). 611 passed / 1 failed
+  through `run_with_ledger`, once. The failure is
+  `test_solver_validator_same_edge_budgets@CYXY`, PRE-EXISTING (matched
+  control in the clean s1freeze worktree at this lane's base).
+- 8 hand-built fixtures in `test_route_metric_seat_coupling.py` now
+  carry the stage tag their minter would stamp — same ratified pattern
+  as the S1b twin updates, no assertion intent changed.
+- CYXY control re-run at the S1c tip: `985d880f9e7f`, unchanged. Shared
+  repo UNCHANGED. OTHH / KCLT / KSTJ / SPJC / SPLP still not censused.
+- `solve_cut --baseline` compares FULL sha256; a 12-char prefix always
+  reads DIVERGED. Every identity claim in this lane was made on the
+  printed/recorded `body_sha256`, never on that verdict line.

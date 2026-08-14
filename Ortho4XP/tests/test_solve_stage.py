@@ -205,3 +205,77 @@ def test_unified_entries_drop_an_empty_side():
     assert "family" not in out[0], (
         "the solve-side entries carried no family before S1b; adding one "
         "would move every certificate row into a new bucket")
+
+
+# ── S1c: the stage-A ROUTE GRAPH and the stage-A PRICING ──────────────
+#
+# The ruled direction (Fable 2026-08-14): extend the standing
+# REACH_NO_SERVICE_SPINES posture — airside authorities may not ride
+# service edges, already law for reach and for ``_solve_spine_profile``
+# — to the WHOLE airside stage.  Stage A's route graph contains no
+# service centerlines, and the seat coupler prices stage-A paths through
+# airside surfaces only.
+
+def test_the_seat_coupler_prices_on_stage_a_entries_only():
+    """COUPLING 20.  Under ``SVC_SPINE_FIRST`` the within-shape law graph
+    carries service_road edges at SERVICE_ROAD_MAX_GRADE, so a pad pair
+    could be priced THROUGH a groundside surface — a groundside cap
+    authoring an airside seat coupling."""
+    from auto_patch.elevation_per_surface.route_profile import anchors
+    # Two pads 0/1 and 2/3.  The ONLY path between them runs through
+    # node 9, which belongs to a groundside entry.  Stage-A pricing must
+    # therefore find NO route, not a road-priced one.
+    apron_a = {"edges": [(0, 1, 1.0)], "role": ROLE_APRON,
+               ST.STAGE_KEY: ST.STAGE_A}
+    apron_b = {"edges": [(2, 3, 1.0)], "role": ROLE_APRON,
+               ST.STAGE_KEY: ST.STAGE_A}
+    road = {"edges": [(1, 9, 0.5), (9, 2, 0.5)],
+            "role": ROLE_SERVICE_ROAD, ST.STAGE_KEY: ST.STAGE_B}
+    budgets, _diag = anchors._pad_route_budgets(
+        [apron_a, apron_b, road], [{0, 1}, {2, 3}], n_nodes=10)
+    assert not budgets.get((0, 1)) and not budgets.get((1, 0)), (
+        "a pad pair was priced through a GROUNDSIDE surface — the "
+        "service road's cap authored an airside seat coupling")
+    # CONTROL: retag the connector airside and the same pair prices.
+    road_air = dict(road, **{ST.STAGE_KEY: ST.STAGE_A})
+    budgets2, _ = anchors._pad_route_budgets(
+        [apron_a, apron_b, road_air], [{0, 1}, {2, 3}], n_nodes=10)
+    assert budgets2, (
+        "the restriction is not inert-by-construction: with the SAME "
+        "graph tagged airside the pair must price")
+
+
+def test_the_seat_coupler_refuses_an_untagged_law_graph():
+    """The pricing reads the SOLVE'S OWN entries; an untagged one is a
+    constructor defect there exactly as it is at the projection."""
+    from auto_patch.elevation_per_surface.route_profile import anchors
+    with pytest.raises(ST.UntaggedConstraintError):
+        anchors._pad_route_budgets(
+            [{"edges": [(0, 1, 1.0)], "role": ROLE_APRON}],
+            [{0}, {1}], n_nodes=4)
+
+
+def test_walk_spine_runs_segments_differently_on_a_service_edge():
+    """COUPLING 16, the premise this lane's S1c change rests on: the walk
+    adjacency decides where a chain's segments END, and a service edge in
+    it is a groundside object deciding an airside chain's segmentation.
+
+    Not a claim about magnitude — a claim that the input MATTERS, which
+    is what makes handing the airside view a real change rather than a
+    cosmetic one."""
+    from auto_patch.elevation_per_surface.route_profile import taut_string
+    pos = {k: (float(k) * 50.0, 0.0) for k in range(6)}
+    chain = list(range(6))
+    full = {i: {j for j in (i - 1, i + 1) if 0 <= j < 6} for i in range(6)}
+    # the airside view drops the 2-3 hop (a service edge)
+    airside = {i: {j for j in v if not {i, j} == {2, 3}}
+               for i, v in full.items()}
+    airside = {i: v for i, v in airside.items() if v}
+    got_full, _ = taut_string.walk_spine_runs(
+        {0: chain}, pos, full, bound_m=1.0, min_len_m=1.0)
+    got_air, _ = taut_string.walk_spine_runs(
+        {0: chain}, pos, airside, bound_m=1.0, min_len_m=1.0)
+    assert got_full, "premise: the full graph strings this chain"
+    assert [len(s[2]) for s in got_full] != [len(s[2]) for s in got_air], (
+        "the walk adjacency does not affect segmentation — then handing "
+        "it the airside view would be inert and coupling 16 is not real")

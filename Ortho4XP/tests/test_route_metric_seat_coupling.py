@@ -36,6 +36,17 @@ from auto_patch.elevation_per_surface import building_feasibility as BF
 from auto_patch.elevation_per_surface.route_profile import anchors as AN
 from auto_patch.elevation_per_surface.route_profile import one_solve as OS
 
+# ── STAGE TAG (staged-solve S1b/S1c) ─────────────────────────────────
+# Every constraint entry reaching a projection — or the seat coupler's
+# pricing, which reads the SOLVE'S OWN entries — carries the stage its
+# minter stamped, and an untagged one raises rather than being priced
+# (a groundside surface must not price an airside seat coupling).
+# These fixtures each stand for ONE AIRSIDE pavement shape, so they
+# spell what ``solver_primitives._build_shape_constraints`` would.
+from auto_patch.solve_stage import STAGE_A as _S_A, STAGE_KEY as _S_K
+_AIRSIDE = {_S_K: _S_A}
+
+
 # RAW LAW SWEEPS ARE STANDING LAW (docs/RULINGS.md 2026-08-05,
 # build-complete-then-debug: "NO GATES … O4_ law gates and their env
 # overrides are DELETED as their territory is touched").  The solver's
@@ -91,7 +102,7 @@ def _law_graph(layout, b2i, edges):
     out = [(_idx(layout, b2i, *a), _idx(layout, b2i, *b), float(w))
            for (a, b, w) in edges]
     nodes = sorted({i for e in out for i in e[:2]})
-    return [{"nodes": nodes, "edges": out, "flat": False}]
+    return [{"nodes": nodes, "edges": out, "flat": False, **_AIRSIDE}]
 
 
 def _seats(layout, b2i, band, dem, levels, monkeypatch, law_graph=None):
@@ -216,7 +227,7 @@ def test_the_coupler_budget_is_the_projections_binding_budget():
                            force_scalar=True, max_iters=20000, tol=1e-6)
     achieved = elev[2] - elev[0]
     budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
         [{0}, {2}], n_nodes=3)
     assert budgets[(0, 1)] == pytest.approx(achieved, rel=0.01), (
         "coupler and projection must price the same path in the same frame "
@@ -257,7 +268,7 @@ def test_the_tightening_attribution_is_reported_in_one_law_frame(monkeypatch,
 def test_raw_budgets_ride_the_diagnostics_only():
     edges = [(0, 1, 0.05), (1, 2, 0.07)]
     budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
         [{0}, {2}], n_nodes=3)
     assert budgets[(0, 1)] == pytest.approx(0.05 + 0.07, abs=1e-9)
     # ONE FRAME: the reported raw budget IS the priced route budget.
@@ -269,7 +280,7 @@ def test_budget_identity_is_symmetric_on_every_pair():
     endpoint must agree.  Asymmetry means a truncated or one-sided walk."""
     edges = [(0, 1, 0.05), (1, 2, 0.07), (2, 3, 0.02), (0, 3, 0.5)]
     budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2, 3], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1, 2, 3], "flat": False, **_AIRSIDE}],
         [{0}, {2}, {3}], n_nodes=4)
     assert diag["ident_worst"] == pytest.approx(0.0, abs=1e-9)
     # min-budget path 0→2 is 0.05+0.07 (RAW law), NOT the direct-ish 0.5
@@ -282,7 +293,7 @@ def test_tightest_budget_wins_on_duplicate_pairs():
     several constraints on one index pair ⇒ the binding one is the minimum."""
     edges = [(0, 1, 0.90), (0, 1, 0.20)]
     budgets, _diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1], "flat": False, **_AIRSIDE}],
         [{0}, {1}], n_nodes=2)
     assert budgets[(0, 1)] == pytest.approx(0.20, abs=1e-9)
 
@@ -292,7 +303,7 @@ def test_interval_edges_are_not_routed_through():
     route price and must never become a coupling path."""
     edges = [(0, 1, None, 2.0), (1, 2, -3.0, None)]
     budgets, diag = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
         [{0}, {2}], n_nodes=3)
     assert budgets == {}
     assert diag["interval_edges"] == 2
@@ -301,7 +312,7 @@ def test_interval_edges_are_not_routed_through():
 def test_unregulated_and_out_of_range_edges_are_dropped():
     edges = [(0, 1, None), (1, 2, -1.0), (0, 2, 0.4), (0, 9, 0.1)]
     budgets, _d = AN._pad_route_budgets(
-        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False}],
+        [{"edges": list(edges), "nodes": [0, 1, 2], "flat": False, **_AIRSIDE}],
         [{0}, {2}], n_nodes=3)
     assert budgets[(0, 1)] == pytest.approx(0.4, abs=1e-9)
 
@@ -310,7 +321,7 @@ def test_touching_pads_merge_into_one_rigid_unit():
     """Two pads sharing a ring node act as ONE flat group in the projection;
     their coupling budget is 0 by law, not by proximity."""
     budgets, _d = AN._pad_route_budgets(
-        [{"edges": [(0, 5, 0.4)], "nodes": [0, 5], "flat": False}],
+        [{"edges": [(0, 5, 0.4)], "nodes": [0, 5], "flat": False, **_AIRSIDE}],
         [{0, 1}, {1, 2}], n_nodes=8)
     assert budgets[(0, 1)] == 0.0
 

@@ -356,6 +356,24 @@ def _pad_route_budgets(law_graph, pad_nodes, n_nodes=None):
     disagreement reported; >1 % is the spec's STOP."""
     from .law_graph_budget import build_anchor_envelope
 
+    # ── STAGE A PRICES THROUGH AIRSIDE SURFACES ONLY (S1c, coupling 20)
+    # Building pads are airside.  Under ``SVC_SPINE_FIRST`` the
+    # within-shape law graph carries SERVICE_ROAD edges at
+    # ``SERVICE_ROAD_MAX_GRADE``, so a pad↔pad pair could be priced
+    # THROUGH a groundside surface — a groundside cap authoring an
+    # airside seat coupling, which "airside is king" forbids and which
+    # the chord-era coupler could not even express.  The stage tag every
+    # entry now carries (S1b) makes the restriction exact: stage-A
+    # entries only, which is the same law graph minus the groundside
+    # surfaces.  Entries are the SOLVE'S OWN objects, still never
+    # re-derived; an untagged one raises rather than being priced.
+    from auto_patch.solve_stage import (STAGE_A as _ST_A,
+                                        STAGE_KEY as _ST_K,
+                                        assert_tagged as _assert_tagged)
+    if law_graph:
+        _assert_tagged(law_graph, "_pad_route_budgets")
+        law_graph = [sc for sc in law_graph if sc[_ST_K] == _ST_A]
+
     horizon, dial = route_coupling_horizon_m()
     # ── flat-group contraction (mirrors one_solve's merge exactly) ──────
     merged: list = []

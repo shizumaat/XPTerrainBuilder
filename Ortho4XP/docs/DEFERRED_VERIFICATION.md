@@ -1423,3 +1423,108 @@ rather than the raster.
 above; a Fable ruling on whether the frame's worst-part `over_relief_cap`
 belongs in the re-framed cap; attribution of the +3 airside apron rows;
 and OTHH's tile arm, still blocked on that tile's cfg.
+
+### S5c FINAL INCREMENT — the reference is THE PLATE'S LANDING GROUND (owner 2026-08-14)
+
+RULINGS "PAD CAP REFERENCE IS THE PLATE'S LANDING GROUND": refuse the
+towers, keep the feature.  `ground_reference_metres` is now the
+two-authority read (`surface_at` — patch where authored, ambient DEM
+otherwise) evaluated WHERE THE PLATE LANDS: at the representative point
+of each surviving CLIPPED core, taken at the WORST piece, compared
+against the value actually written (`pulled`).  It can only be taken
+there, after the pavement clip and the erosion, so the admissibility test
+moved to that point in `emit_object_pads`.  The frame's
+`over_relief_cap` stays exactly as it was and refuses first: parts-vs-host
+and plate-vs-landing are different questions and they COMPOSE — the code
+agrees with that composition, and `object_frame` no longer carries a
+reference field at all.  Emitter and verifier read the one recorded
+number.
+
+**HECA `--tile 30 31`** (control `934b939c12b4` → arm `6b09b21c5420`):
+
+| | control | parts-median (STOPPED) | **landing (this)** |
+|---|---:|---:|---:|
+| pads served (records / shapes) | 55 / 59 | 65 / 69 | **53 / 53** |
+| requests refused | 3856 | 3846 | **3858** |
+| local relief p50 / p90 / **max** (m) | 1.090 / 2.737 / 9.373 | 1.407 / 7.283 / 9.373 | 1.084 / 2.700 / **3.000** |
+| shapes over the cap vs own landing ground | 1 of 59 | 11 of 69 | **0 of 53** |
+| `.obj` files re-baked | 372 | 372 | **372** |
+
+**Zero tower-class shapes, max EXACTLY the 3.00 m cap — by construction.**
+The eight western-apron pedestals are refused, and so is the control's
+own pre-existing −9.373 m outlier at 30.11591,31.40881: served is 53, not
+the ~57 expected, because the landing test also condemns two pads the
+raw-DEM test had passed.  Determinism: two SEQUENTIAL tile arms,
+byte-identical DSF `bf43a91719c0…`.  Acceptance (b) is UNMOVED at 372 —
+the y-bake is decided post-mesh on its own threshold and does not consult
+the pad outcome; closing (b) is a separate mechanism, not a cap question.
+The two dossier sites are unchanged-closed (site `-10187` still carries no
+`building|building` row; site 2 still row-for-row present).
+
+**OTHH** (airport arm): **byte-identical to the control**, body
+`ac15b9595d0d` both sides, 145 pads / 182 shapes — the landing reference
+changes nothing at a flat airport.
+
+**STOP-2 (the airside apron rows) PERSISTS — named, not chased** (owner
+instruction: do not chase past cap).  Census LAW-TRUE **7067 → 7081
+(+14)**, airside_for_acceptance 1734 → 1748; 7058 EXACT, 2 MOVED
+(0.020 m, Δ|de| 0.000), **7 GONE, 21 NEW**, every one
+`within_shape::apron|apron` but two `junction|junction`, all AIRSIDE and
+all in ONE apron area away from the pads: NEW worst
+3.030 m ×2 @30.135128,31.409179 (ways -11908/-12165), 1.690 m ×2
+@30.130482,31.410557, then 0.900 @30.134018,31.409578, 0.800
+@30.131287,31.410662, 0.760/0.700/0.650/0.610/0.550/0.490
+@30.13190-30.13196,31.41035-31.41043, 0.710/0.500/0.230
+@30.133109-30.133336,31.409822-31.409914, 0.360 @30.121384,31.414790,
+0.230/0.170 (junction) @30.133653,31.409990 and 30.133652,31.409969,
+0.100 @30.131373,31.410588, 0.050 @30.133651,31.410066; GONE worst
+3.560 @30.129778,31.411799, 2.560 @30.119585,31.409529, then 0.450, 0.280,
+0.220, 0.170, 0.070.  Grades are marginal (1.12-8.23 %).  Left for the
+round's close-out row adjudication.
+
+**THE OWNER'S INTENT METRIC — NO-MODIFICATION RATE** (production's own
+frame derivation over the built patch; the y-bake decides post-mesh on
+its own minimum delta, so this attributes "modified" one step earlier
+than the bake and the build's `[object-anchor]` line is quoted beside
+it):
+
+| | OTHH (flat) | HECA (relief × shared datum) |
+|---|---:|---:|
+| ground-touching parts | 33,749 | 9,322 |
+| parts with NO in-run ground (y-bake path) | 9,639 | 14 |
+| parts NEEDING NOTHING (≤ 0.15 m) | **15,984 of 24,110 = 66.3 %** | **12 of 9,308 = 0.1 %** |
+| parts over the floor | 8,126 = 33.7 % | 9,296 = 99.9 % |
+| STRUCTURES with any over-floor part | **723 of 5,362 = 13.5 %** | 2,412 of 2,426 = 99.4 % |
+| `.obj` resources with any over-floor part | 205 of 529 | 237 of 240 |
+| \|rendered base − own ground\| p50 / p90 / max | 0.053 / 0.311 / 14.470 m | **11.507 / 28.686 / 37.764 m** |
+| y-bake (build log) | not measurable — no tile arm | 7,642 structures / 372 `.obj` |
+
+**The expectation HOLDS at OTHH**: 86.5 % of its structures need nothing
+at all, and the median object sits 5 cm off its own ground.  HECA is the
+contrast and it is not marginal — the median object renders **11.5 m**
+off the ground under it, which is why 3,858 requests are refused by a
+3 m cap and 372 `.obj` files are rewritten: no pad mechanism reaches that
+class, and the number to question there is the pack's shared-datum
+arithmetic, not this cap.  **VHHH is OWED to the round close-out** (no
+existing arm, and its tile cfg is not provisioned here — not fought, per
+the instruction).
+
+**TESTS**, once, through `run_with_ledger` (`s5cap-pad-tests-landing`):
+**183 passed, 1 failed** — the same pre-existing, matched-controlled
+`test_the_pad_law_re_asserts_after_the_late_projection`.  New twin:
+`test_a_plate_landing_off_its_objects_pavement_is_refused` builds HECA's
+western apron in miniature with real geometry (parts on a solved apron at
+40 m, ring clipped out of it, plate landing on 5 m DEM) and asserts the
+refusal at >30 m.
+
+**OWED / NOTED.**  (1) `pad_core_off_target 3.51 m` is now the worst law
+disagreement (477, down from 485): the R19-3 `relevel_pads_to_host_pavement`
+pass adopts a host level (2 groups here) WITHOUT updating
+`emitted_target_metres`, so the verifier reads the pad it moved as off
+target — pre-existing, previously ranked under the 8.27 m pull-shortfall
+that is now refused away, and another argument for that pass's retirement.
+(2) The scratchpad instruments used twice each here
+(`pad_relief_read.py`, `pad_modification_census.py`) are OWED promotion
+into `tools/` with index entries and twins if this mechanism lands —
+promote-on-reuse, RULINGS `7e90032`.  (3) OTHH's tile arm and VHHH remain
+blocked on tile-cfg provisioning.

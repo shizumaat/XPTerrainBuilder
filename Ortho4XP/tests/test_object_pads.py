@@ -362,7 +362,8 @@ def test_the_frames_own_over_cap_flag_also_refuses(gate_on, dem):
 def patch_authors_everything(monkeypatch):
     """The PATCH is the ground authority everywhere, at 40 m — the HECA
     class in miniature: an object standing correctly on a solved surface
-    that sits tens of metres off raw DEM (5 m here).
+    that sits tens of metres off raw DEM (5 m here), and whose PLATE lands
+    on that same solved surface.
 
     One production seam is stubbed, ``patch_ground.field_from_layout``,
     so the emitter's own two-authority closure is the thing under test."""
@@ -425,6 +426,34 @@ def test_the_cap_boundary_stands_at_the_cap_value_on_that_same_ground(
     assert over[0][2] == pytest.approx(cap + 0.01)
     assert over[0][3] == pytest.approx(cap)
     assert not layout.object_pad_records
+
+
+def test_a_plate_landing_off_its_objects_pavement_is_refused(gate_on, dem):
+    """THE PEDESTAL, refused by construction (RULINGS "PAD CAP REFERENCE
+    IS THE PLATE'S LANDING GROUND", owner 2026-08-14).
+
+    HECA's western apron in miniature, with the real geometry and no stub:
+    the object's parts stand on a SOLVED apron at 40 m, so the request's
+    target is 41 m — but the pad ring is clipped OUT of that apron
+    (pavement wins absolutely) and what survives lands on ambient DEM at
+    5 m.  Measured against the parts' host the pad reads 1 m and was
+    served: eight such plates, 5.6-8.0 m proud, are what stopped the
+    first re-frame.  Measured where the plate LANDS it reads 36 m and is
+    refused, and the cluster keeps the y-bake."""
+    layout = make_layout(apron_ring=[(-10.0, -10.0), (200.0, -10.0),
+                                     (200.0, 10.0), (-10.0, 10.0)],
+                         apron_alt=40.0)
+    # Parts on the apron, ring straddling its edge; datum far along the
+    # same apron so it is hosted and outside the pad's own ring.
+    frames = [pad_frame(layout, [square_ring(0.0, 6.0, 8.0)],
+                        base_y=1.0, agl=0.0, anchor_m=(150.0, 0.0))]
+    assert emit(layout, dem, frames) == 0
+    assert not pads(layout)
+    over = [f for f in layout.object_pad_findings
+            if f[0] == "pad_over_relief_cap"]
+    assert len(over) == 1
+    assert over[0][2] > 30.0                       # plate vs its landing
+    assert over[0][3] == pytest.approx(apc.DSF_OBJECT_PAD_MAX_RELIEF_M)
 
 
 def test_the_two_authorities_split_patch_where_authored_ambient_beyond(

@@ -792,33 +792,20 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         target = float(spec.get("target_ground_metres") or 0.0)
         cx, cy = outer.centroid.x, outer.centroid.y
         at = _ll(layout, cx, cy)
-        # THE PAD'S OWN GROUND, NEVER RAW DEM (RULINGS, Fable 2026-08-14).
-        # The request carries the ground the emission path evaluated under
-        # this pad's own parts — the patch where the patch authors, ambient
-        # DEM where it does not.  It is READ here, never re-evaluated: a
-        # second sampler (this was ``dem_at`` at the ring centroid) is a
-        # second instrument, and at HECA our own solved apron stands tens
-        # of metres off raw DEM, so that instrument refused 3,855 of ~3,910
-        # requests for standing where the objects correctly stand.
-        ground = spec.get("ground_reference_metres")
-        if ground is None:
-            findings.append(("pad_ground_unhosted", key, 0.0, 0.0, at))
-            continue
-        ground = float(ground)
-        relief = object_pad_relief_m(target, ground)
+        # The magnitude the PRE-LANDING refusals below report: the request's
+        # own residual.  The pad's real relief is not knowable yet — it is
+        # measured against the ground the PLATE lands on, and the plate does
+        # not exist until the pavement clip and the erosion have run.
+        relief = float(spec.get("residual_metres") or 0.0)
 
-        # §5.1 clause 1 — THE RELIEF CAP, re-framed.  An over-cap pad is
-        # REFUSED with its measured numbers; the requesting cluster keeps
-        # its residual and takes the y-bake path.  The frame's own
-        # ``over_relief_cap`` still refuses beside it, unchanged: that one
-        # is the WORST PART's residual against the ground under IT — also
-        # an in-run local measurement, and a different question from this
-        # one (a pad whose median target sits within the cap can still
-        # carry a part floating far above it).  Neither reads raw DEM any
-        # more, which is the whole of the re-frame.
-        if (not object_pad_admissible(target, ground,
-                                      DSF_OBJECT_PAD_MAX_RELIEF_M)
-                or bool(spec.get("over_relief_cap"))):
+        # §5.1 clause 1, FIRST HALF — the frame's own ``over_relief_cap``,
+        # unchanged and still first: the WORST PART's residual against the
+        # ground under IT.  That is a different question from the one the
+        # cap now asks (parts-vs-host, not plate-vs-landing), and the two
+        # compose — a part floating far above its host is not padable
+        # however lawfully the plate would land (RULINGS "PAD CAP REFERENCE
+        # IS THE PLATE'S LANDING GROUND", owner 2026-08-14).
+        if bool(spec.get("over_relief_cap")):
             findings.append(("pad_over_relief_cap", key, abs(relief),
                              float(DSF_OBJECT_PAD_MAX_RELIEF_M), at))
             continue
@@ -944,6 +931,48 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         if not pad_shapes:
             findings.append(("pad_clipped_away", key, abs(relief), 0.0, at))
             continue
+
+        # §5.1 clause 1, SECOND HALF — THE RELIEF CAP AGAINST THE PLATE'S
+        # LANDING GROUND (RULINGS "PAD CAP REFERENCE IS THE PLATE'S LANDING
+        # GROUND", owner 2026-08-14, completing the 2026-08-14 re-frame).
+        # The reference is the two-authority read — patch where the patch
+        # authors, ambient DEM where it does not, ``surface_at``, the same
+        # closure the requests use — evaluated WHERE THE PLATE LANDS, which
+        # is why it can only be taken here: the plate is what survived the
+        # pavement clip and the erosion, and it is precisely NOT where the
+        # request's parts stand.  The parts' host surface median refused
+        # nothing at HECA's western apron: the objects stand on solved
+        # pavement at ~100.6 m, the plate is clipped OUT of that pavement
+        # and lands on ambient ground at ~92.6 m, and 8 pedestals 5.6-8.0 m
+        # proud were served.  Measured at the WORST piece, so a pad whose
+        # one small piece lands in a hole is refused whole rather than
+        # emitted with a tower attached, and compared against ``pulled`` —
+        # the value actually written — so the validator reads the identical
+        # pair off the record.
+        ground = None
+        for shape in pad_shapes:
+            point = shape.polygon.representative_point()
+            latitude, longitude = layout.m_to_ll(point.x, point.y)
+            landing = surface_at(latitude, longitude)
+            if landing is None:                   # pragma: no cover
+                continue
+            if ground is None or abs(pulled - float(landing)) > abs(
+                    pulled - ground):
+                ground = float(landing)
+        if ground is None:
+            # No authority anywhere under the plate: neither the patch nor
+            # the DEM answers, so the cap cannot be held and the pad is not
+            # emitted on an unmeasured surface (§5.5: never a silent pad).
+            findings.append(("pad_ground_unhosted", key, abs(relief),
+                             0.0, at))
+            continue
+        relief = object_pad_relief_m(pulled, ground)
+        if not object_pad_admissible(pulled, ground,
+                                     DSF_OBJECT_PAD_MAX_RELIEF_M):
+            findings.append(("pad_over_relief_cap", key, abs(relief),
+                             float(DSF_OBJECT_PAD_MAX_RELIEF_M), at))
+            continue
+
         for shape in pad_shapes:
             layout.shapes.append(shape)
             emitted_shapes.append(shape)
@@ -968,10 +997,10 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
             "longitude": spec.get("longitude"),
             "base_y": spec.get("base_y"),
             "target_ground_metres": target,
-            # THE CAP'S REFERENCE, recorded with the pad it governed, so
-            # the verifier holds the cap on the EMITTED target against the
-            # same ground the emitter used instead of re-sampling a raster
-            # (lockstep, ruling R5).
+            # THE CAP'S REFERENCE — the ground THIS PLATE LANDS ON, at its
+            # worst piece — recorded with the pad it governed, so the
+            # verifier holds the cap on the emitted target against the same
+            # number instead of re-sampling a raster (lockstep, ruling R5).
             "ground_reference_metres": round(ground, 3),
             "emitted_target_metres": round(pulled_target, 3),
             "blend_width_m": round(blend_width, 4),

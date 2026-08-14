@@ -53,6 +53,9 @@ from .rod_carry_audit import checkpoint as _rod_carry_checkpoint
 # Post-solve mutation seam audit (round 17 §R17-1(a)); returns immediately
 # unless O4_MUTATION_SEAM_AUDIT=1, so every seam below is inert by default.
 from .mutation_seam_audit import checkpoint as _mutation_seam_checkpoint
+# Post-solve AIRSIDE GEOMETRY seam audit (S1e phase 1); returns immediately
+# unless O4_GEOM_SEAM_AUDIT=1, so every seam below is inert by default.
+from .geom_guard import seam_checkpoint as _geom_seam_checkpoint
 
 
 def _rod_ckpt(layout, name: str) -> None:
@@ -79,6 +82,7 @@ def _rod_ckpt(layout, name: str) -> None:
             mover_stage_boundary as _mover_stage_boundary)
         _mover_stage_boundary(layout, name)
     _mutation_seam_checkpoint(layout, name)
+    _geom_seam_checkpoint(layout, name)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -7306,6 +7310,17 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         try:
             from .mutation_seam_audit import report as _seam_report
             _seam_report(layout, icao)
+        except Exception:                                  # pragma: no cover
+            pass
+
+        # THE AIRSIDE GEOMETRY SEAM LEDGER (S1e phase 1) — which post-solve
+        # pass mutated airside PLAN GEOMETRY, and whether it carried the
+        # solved values through the mutation (the RE-PROJECTION CLASS the
+        # double-projection retirement drives to zero).  Same seams, same
+        # gate-off cost.
+        try:
+            from .geom_guard import seam_report as _geom_seam_report
+            _geom_seam_report(layout, icao)
         except Exception:                                  # pragma: no cover
             pass
 

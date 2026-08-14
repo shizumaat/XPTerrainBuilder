@@ -2525,6 +2525,47 @@ def partition_constraints_by_receiver(shape_constraints, receiver_nodes):
     return givers, receivers
 
 
+def _partition_by_stage(givers, receivers, where):
+    """THE STAGE PARTITION (staged-solve round S1b, Fable ruling
+    2026-08-13b) — supersedes :func:`_withhold_road_pair_law`.
+
+    Stage A's constraint system contains ONLY airside-tagged entries.
+    Every entry carries a FIRST-CLASS STAGE TAG stamped where it was
+    minted (:mod:`auto_patch.solve_stage`); an untagged entry RAISES,
+    because a partition that defaults an unknown entry to a side is the
+    exact blindness this replaces:
+
+    * the predecessor keyed on ``sc["role"] in ROAD_ROLES``, which is
+      structurally blind to the live §10 ROD INTERVAL (no role key at
+      all — coupling 4 of ``tmp/s1_attribution.md``) and to the whole
+      unified graph, which arrived as ONE bare ``{"edges": u_edges}``
+      entry carrying every service_road / service_junction /
+      groundside_pavement law pair into the airside pass (couplings 3
+      and 6);
+    * ``ROAD_ROLES`` also omits ``groundside_pavement`` entirely, so a
+      groundside lot's pairs on AIRSIDE-CLAIMED (shared) nodes — which
+      the receiver partition cannot catch, since neither endpoint is a
+      receiver — were enforced against airside rows.
+
+    The entries are MOVED, never deleted: groundside law stays fully
+    enforced in the receiver pass, with airside frozen.  That is the
+    service-road mouth ruling (RULINGS 2026-08-06) and "airside is king"
+    (2026-07-30) in constraint form, now covering every family instead
+    of the two road roles.
+    """
+    from auto_patch.solve_stage import STAGE_A, STAGE_B, assert_tagged
+    assert_tagged(givers, where)
+    assert_tagged(receivers, where)
+    keep = [sc for sc in givers if sc["stage"] == STAGE_A]
+    moved = [sc for sc in givers if sc["stage"] == STAGE_B]
+    if not moved:
+        return givers, receivers
+    print(f"  [stage] {len(moved)} of {len(givers)} giver entr(y/ies) are "
+          f"GROUNDSIDE-minted and move to the stage-B pass "
+          f"(airside is king) at {where}")
+    return keep, list(receivers) + moved
+
+
 def _withhold_road_pair_law(givers, receivers):
     """ROAD PAIR LAW IS RECEIVER-PASS LAW (production default): every
     ROAD-role constraint entry moves from the airside (giver) pass to the
@@ -2628,7 +2669,13 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     givers, receivers = partition_constraints_by_receiver(
         shape_constraints, receiver_nodes)
     if _os.environ.get("O4_PROBE_ROAD_PAIR_LAW_AIRSIDE") != "1":
-        givers, receivers = _withhold_road_pair_law(givers, receivers)
+        # THE STAGE PARTITION (S1b) subsumes the road-pair withholding:
+        # every ROAD_ROLES entry is groundside-tagged at mint, so the
+        # entries the predecessor moved are a strict SUBSET of the ones
+        # moved here.  The probe gate still restores the pre-partition
+        # form for the M1 comparison arm.
+        givers, receivers = _partition_by_stage(
+            givers, receivers, "feasibility_project_partitioned")
     # ── THE PARTITION COVERS BOUNDS, NOT ONLY PAIRS (c9air) ───────────
     # A groundside PIN CEILING (``gs_pin_nodes``: weld datum + one throat
     # of reach, authored by the lot) reaches airside through a SHARED
@@ -2661,8 +2708,21 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                    f"{len(_nb)} node bound(s) (airside is king — a "
                    f"non-receiver node never carries a lot-authored "
                    f"box); {len(_nb) - len(_drop)} kept")
+    # ── STAGE A HAS NO GROUNDSIDE VARIABLES (S1b) ─────────────────────
+    # Withholding groundside ENTRIES is only half the law: the reach-band
+    # clamp inside ``feasibility_project`` runs over EVERY MOVABLE NODE,
+    # so a groundside node with no pair in this pass was still an airside
+    # variable being written by the airside pass — the mirror image of
+    # the freeze the groundside pass already applies to airside
+    # (``hard_recv`` below), and the same reason that freeze is built
+    # explicitly rather than inferred from "it has no edges here".
+    # Every receiver node is a stage-B node by construction
+    # (``solve._receiver_nodes_from_roles``), and stage B re-frees them
+    # against frozen airside values, so nothing loses its author.
+    hard_air = set(hard)
+    hard_air.update(receiver_nodes)
     rem_a, bh_a = feasibility_project(
-        elev, givers, hard, flat_groups=flat_groups,
+        elev, givers, hard_air, flat_groups=flat_groups,
         group_bounds=group_bounds, forensics=forensics,
         probe_out=probe_out, **_kw_air)
     if not receivers:

@@ -1332,6 +1332,19 @@ def _hard_truth_spine_seeds(layout, G):
     spine = getattr(G, "spine_adj", None) or {}
     if not truth or not spine:
         return {}
+    # STAGE A HAS NO GROUNDSIDE VARIABLES (staged-solve S1b, coupling 18
+    # of tmp/s1_attribution.md).  These seeds are AIRSIDE hard truth
+    # placed by iterating the WHOLE spine adjacency — which since the
+    # road feed joined the graph includes service spines, so a groundside
+    # node became an airside seed.  The airside view of the one graph is
+    # the standing REACH_NO_SERVICE_SPINES law that reach and phase A
+    # already obey; this consumer simply predates it.
+    _air = G.airside_spine_nodes() if hasattr(G, "airside_spine_nodes") \
+        else None
+    if _air is not None:
+        spine = {i: v for i, v in spine.items() if i in _air}
+        if not spine:
+            return {}
     cps = getattr(layout, "canonical_points", None)
     pos = getattr(G, "pos", None) or {}
     out: dict = {}

@@ -527,3 +527,172 @@ both make pre-existing conditions visible for the first time.
   underlying geometry (a declared 0.114 m crown realised at 0.005 m
   where two runways cross) is a real surface fact the round may want to
   look at even though no law requires the crown there.
+
+## Staged-solve S1 (geometry freeze) — lane/s1freeze, 2026-08-13
+
+- OTHH / KCLT / KSTJ / SPJC / SPLP censuses NOT run for the freeze
+  increment (only HECA replay + CYXY control-airport arm). Pre-ship mode
+  allows one acceptance arm per lane; the consolidated five-airport
+  adjudication is lead-owned and still owed for this change.
+- The full pytest suite was NOT run; the `blast --tests-for` selection
+  over the four edited files (89 files, 2323 passed) plus the new freeze
+  twins was, once, through `run_with_ledger`.
+- Build-time impact of the freeze block NOT measured exclusively: the
+  freeze adds one node-list+context+graph+band build and REMOVES the one
+  `adjacent_ground._build_construct_reach_band` used to do, so the
+  intended net is ~zero. Replay walls (315.6 s arm 1 / 293.7 s arm 2 vs a
+  383.7 s whole build) are not timing arms and must not be quoted.
+- The solve-side one-graph reuse is NOT landed (measured and rejected,
+  see solve.py's rejected-reuse note); the `id(s.polygon)` re-keying that
+  would make it safe is unbuilt.
+
+## Staged-solve S1b (the stage partition) — lane/s1stage, 2026-08-13
+
+- ACCEPTANCE NOT MET, and this is the lane's headline, not a footnote:
+  HECA airside adjudicated rows fall 1720 -> 1676 (**-44** of the ruled
+  **-130**). Attempt cap 2 reached; the remainder is a STOP for Fable,
+  not a third attempt. The lane commits its architecture, its twins and
+  its measured position; it does NOT merge.
+- The "apron -11906 worst <= 0.86 m" criterion could NOT BE JOINED. No
+  pre-corridor HECA artifact exists in this lane or the frozen 1.0.245
+  baseline set, and way ids are per-build: `-11906` names no way in
+  either the frozen census or any arm here. The apron worst that IS
+  joinable moved the wrong way (shape `-10577`, 11.36 -> 11.49 m,
+  +0.13 m). Whether that is the named site is UNVERIFIED.
+- "Airside rows byte-equal to the pre-corridor airside state on
+  unchanged rings" is UNVERIFIABLE for the same reason: there is no
+  pre-corridor row dump to be equal TO. What was measured instead is the
+  row-level A/B against the frozen 1.0.245 census, reported in full.
+- The freeze increment's airside apron churn did NOT resolve; it GREW.
+  vs frozen: 93 gone / 103 new (freeze) -> 246 gone / 202 new (this
+  lane). vs the freeze arm itself: 184 gone / 140 new. The mechanism is
+  named (stage A no longer sees groundside entries OR groundside
+  variables, so every airside value a groundside constraint used to
+  shape has moved) but the resulting state is not shown to be the
+  pre-corridor one.
+- 6 of 21 couplings closed (1, 2, 3, 4, 5, 6) + 17 and 18 wired and
+  MEASURED INERT at HECA (1 groundside row between arm 1 and arm 2).
+  Couplings 7-16 and 19-21 are OPEN and unmeasured by this lane.
+- ONE airport replayed (HECA solve_cut) + CYXY control BUILD. OTHH /
+  KCLT / KSTJ / SPJC / SPLP censuses NOT run. Consolidated five-airport
+  adjudication is lead-owned and owed.
+- Tests: the directly-covering selection (24 files, 602 passed) once
+  through `run_with_ledger`, NOT the full `blast --tests-for` union
+  (96 files) and NOT the full suite.
+- `tests/test_single_graph_acceptance.py::test_solver_validator_same_edge_budgets@CYXY`
+  fails (2 of 12,013 shared edges, ~1e-3 budget delta) and is
+  PRE-EXISTING: the same test fails identically in the clean
+  `s1freeze` worktree at this lane's base commit (matched control run
+  2026-08-13). Not attributable to this change.
+- TWO TWINS UPDATED FOR A SUPERSEDED MECHANISM, needing Fable
+  ratification: `test_probe_gates.py` (its default-arm sentinel now
+  watches `_partition_by_stage` instead of `_withhold_road_pair_law`,
+  which is no longer called) and the hand-built entries in
+  `test_probe_gates` / `test_projection_partition` now carry the stage
+  tag their minters would stamp. No assertion's INTENT was changed.
+- `_withhold_road_pair_law` is KEPT but no longer called on the default
+  path (the `O4_PROBE_ROAD_PAIR_LAW_AIRSIDE=1` arm still reaches it).
+  Deleting it is S6's kind of work, not this lane's.
+- NO build-time measurement. Replay walls (289.2 s arm 1 / 299.5 s
+  arm 2 vs the 288.1 s control) are not timing arms and must not be
+  quoted as any.
+- 0 new law constants and 0 new env flags. The stage tag has no gate by
+  design: a gated partition is a partition that can be silently off.
+
+## Staged-solve S1c (route graph + boundary writes) — lane/s1stage, 2026-08-14
+
+- ACCEPTANCE STILL NOT MET on criterion (a): HECA airside **1676** against
+  the pre-corridor reference's **1653** — **+23 open**. Attempt cap 2
+  reached for the S1c coupling group; STOP, not a third attempt.
+- THE REFERENCE IS NOW REAL AND SERVED: artifact-ledger entry
+  `9713491f...`, tag `corrHECAoff`, body `7fbe7c26d7e3`, 3316 shapes,
+  censused in THIS lane's frame (current main-tree census; lane S7's
+  domain revision is NOT in it — every number here is pre-S7 frame).
+- S1c IS BYTE-INERT AT HECA. Couplings 7/8/16/20 (arm 3) and 11/13
+  (arm 4) both replay to `5e64cbc3b629`, byte-identical to the S1b arm.
+  11 and 13 demonstrably FIRE (1 airside node kept hard in the
+  mouth-cluster scan; 335-336 of ~12,300 service ring nodes withheld
+  from the edge-couple re-clamp) and still change no emitted byte. The
+  couplings were real; their effect on this airport is not.
+- Therefore the +23 is NOT in couplings 7, 8, 11, 13, 16 or 20, and 17/18
+  were already measured inert. It must be in 9, 10, 12 or 21 (the
+  remaining boundary couplings) or outside the inventory. That is the
+  next increment's attribution, not this one's guess.
+- CRITERION (c) TARGETS A SITE THAT NO LONGER EXISTS. Joining apron
+  worsts by COORDINATE (not way id) across reference / frozen / arms:
+  **no apron site anywhere at HECA went <=0.90 m pre-corridor to >=4.0 m
+  in the frozen 1.0.245 state.** The corridor round's disclosed
+  "-11906 0.86->5.69" was measured at 1.0.244; the corridor-joins round
+  (HECA census 8219->7416) closed it before the baseline froze. The
+  criterion cannot be met because its regression is already gone.
+- The site this lane could join (30.118136,31.410569) reads 11.33 m
+  pre-corridor, 11.36 frozen, 11.33 freeze, **11.49 S1c** — +0.16 m
+  worse than the reference, UNATTRIBUTED and owed. Apron sites vs the
+  reference overall: 25 better, 36 worse, 11 equal; worst worsening
+  +1.58 m at 30.1335,31.4115 (0.00 -> 1.58).
+- CRITERION (d), churn: on rings the reference also carries (canonical
+  node join, 30,786 shared 11-decimal spellings of 35,569/40,008),
+  320 airside rows GONE and 191 NEW — net **-129 better than the
+  reference on unchanged rings**, but 511 rows differ, so "byte-equal on
+  unchanged rings" is NOT met. On rings corridors changed: 28 gone,
+  180 new (+152). The two together are the +23.
+- JOIN INSTRUMENT, deviation stated: the ruled 11-decimal lat/lon join
+  was applied at NODE level (where the canonical spelling lives and
+  where 30,786 rows matched across trees). At ROW level the census dump
+  carries only ONE representative lat/lon per row, so a row-level
+  lat/lon join would be strictly WEAKER than `census_rows_diff`'s
+  existing two-endpoint join — which is an IDENTITY test, not proximity,
+  and is transported through a projection whose anchor is byte-equal in
+  both sidecars ([30.1089375, 31.434664815]). Every row diff here ran at
+  `--tol 0.0`, so the MOVED inference tier is empty by construction.
+  Carrying canonical endpoint lat/lon into `--rows-json` would remove
+  the deviation and is unbuilt.
+- Twins: 3 new S1c rails (stage-A pricing positive + control, the
+  untagged-law-graph refusal, and the coupling-16 premise that the walk
+  adjacency really does change segmentation). 611 passed / 1 failed
+  through `run_with_ledger`, once. The failure is
+  `test_solver_validator_same_edge_budgets@CYXY`, PRE-EXISTING (matched
+  control in the clean s1freeze worktree at this lane's base).
+- 8 hand-built fixtures in `test_route_metric_seat_coupling.py` now
+  carry the stage tag their minter would stamp — same ratified pattern
+  as the S1b twin updates, no assertion intent changed.
+- CYXY control re-run at the S1c tip: `985d880f9e7f`, unchanged. Shared
+  repo UNCHANGED. OTHH / KCLT / KSTJ / SPJC / SPLP still not censused.
+- `solve_cut --baseline` compares FULL sha256; a 12-char prefix always
+  reads DIVERGED. Every identity claim in this lane was made on the
+  printed/recorded `body_sha256`, never on that verdict line.
+
+## Staged-solve S2 — whole-run corridor profile (lane/s2profile)
+
+- Battery scope: only HECA and KCLT were replayed and censused. CYXY,
+  OTHH, KSTJ, SPJC, SPLP NOT censused under the whole-run profile.
+- Timing: NOT measured. The profile adds one taut string per corridor
+  run (HECA 707 runs / 6,491 stations, KCLT 308 / 2,831) on top of the
+  reach Dijkstra it does not replace. No `--runs N` A/B was taken; the
+  per-change build-time gate stays suspended per the campaign ruling.
+- `tests/test_pad_host_pavement_level.py::
+  test_the_pad_law_re_asserts_after_the_late_projection` fails in this
+  lane AND in a clean b2040d1 control worktree with the identical
+  `IndexError` — pre-existing, not attributed to this change.
+- The 15 blast `--tests-for` files + the two new twin files were run
+  ONCE through `run_with_ledger`; no full suite, no blast sweep.
+- Whole-tile / in-sim verification not run; the emitted profile is
+  judged only through `harness/census.py` and
+  `corridor_axis_coverage.py --profile`.
+- The HELD posture (`svc_profile` keyset in both projections) has no
+  twin proving the hold survives a node-list rebuild at a real airport;
+  only the census delta evidences it.
+
+## Staged-solve S2b — run/yard scoping increment (lane/s2profile)
+
+- Same battery scope as S2: HECA + KCLT only. CYXY, OTHH, KSTJ, SPJC,
+  SPLP still not censused under the whole-run profile.
+- The `not_one_dimensional` release is measured only by its census
+  effect (KCLT within_shape service_junction +187 -> +131, seam 28 ->
+  27). No twin drives a real doubling-back run end to end.
+- The run/yard mean-width discriminator was measured to release only
+  75 (HECA) / 122 (KCLT) nodes — the KCLT offenders are LINEAR ribbons,
+  so the scoping is not what closed the regression; it is retained
+  because the ruling requires it, not because it is load-bearing here.
+- Timing still not measured; free-end residual (40 over floor) is
+  attributed but NOT fixed.

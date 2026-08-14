@@ -51,6 +51,11 @@ from auto_patch.layout import (
 # lazy).  ``grade_law`` imports only ``config`` — no cycle.
 from auto_patch.grade_law import (
     eat_pavement_ceiling as _eat_pavement_ceiling)
+# THE STAGE TAG (staged-solve round S1b).  Stamped where each constraint
+# entry is minted; every entry reaching a projection must carry it.
+from auto_patch.solve_stage import (
+    STAGE_A as _STAGE_A, STAGE_KEY as _STAGE_KEY,
+    stage_of_shape as _stage_of_shape)
 
 # Narrow exception tuple for shapely / numeric-geometry failure
 # modes.  Programming errors propagate so they surface immediately.
@@ -1437,6 +1442,12 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                  "flat_pairs": flat_pairs,
                  "area": float(s.polygon.area),
                  "role": s.role,
+                 # STAGE TAG, STAMPED AT MINT (staged-solve S1b).  The
+                 # shape's role here is the LAWFUL (vouched) role — the
+                 # scorer's lawful-airside fixpoint enacted long before
+                 # the solve — so this is the ruled partition, not the
+                 # raw literal.  See auto_patch/solve_stage.py.
+                 _STAGE_KEY: _stage_of_shape(s),
                  # SHAPE IDENTITY (apron terrace law, 2026-08-04).  The
                  # SAME identity ``_scoped_projection_defer_ids`` already
                  # carries across the solve → final-projection boundary:
@@ -1882,6 +1893,13 @@ def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
         sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
                        "flat_pairs": (), "area": 0.0,
                        "role": ROLE_GRADED_STRIP,
+                       # STAGE FROM THE HOST, NOT THE CONSTRUCT ROLE
+                       # (S1b): ``graded_strip`` is not a stage.  A
+                       # gap-fill drainage spine grades an ENCLOSED GAP
+                       # OF THE AIRSIDE PAVEMENT UNION and its frozen
+                       # parents come from ``gap_fill._airside_index``,
+                       # so every station it couples to is airside.
+                       _STAGE_KEY: _STAGE_A,
                        "ref": "gap_fill_spine"})
         chains.append({"idx": idx, "xy": list(entry["spine"]),
                        "specs": node_specs})
@@ -2068,6 +2086,10 @@ def _build_resa_cut_constraints(layout, bucket_to_idx):
         sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
                        "flat_pairs": (), "area": 0.0,
                        "role": ROLE_RUNWAY_CLEARANCE,
+                       # STAGE FROM THE HOST (S1b): a runway-end RESA cut
+                       # is anchored to the runway's own pavement EXIT
+                       # node — airside by construction.
+                       _STAGE_KEY: _STAGE_A,
                        "ref": REF_RUNWAY_END_RESA})
     if _os.environ.get("O4_STEP_DEBUG") == "1" and (
             n_adopted or n_cross or n_no_anchor):
@@ -2490,6 +2512,14 @@ def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
         sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
                        "flat_pairs": (), "area": 0.0,
                        "role": ROLE_GRADED_STRIP,
+                       # STAGE FROM THE HOST, NOT THE CONSTRUCT ROLE
+                       # (S1b).  Every edge in this entry couples a zone
+                       # node to a ring vertex of ``entry["shape"]`` —
+                       # the host pavement surface — so the host's
+                       # lawful role IS this band's stage.  A band
+                       # hosted by a service road or a groundside lot is
+                       # groundside law and never binds stage A.
+                       _STAGE_KEY: _stage_of_shape(entry.get("shape")),
                        "ref": "adjacent_ground"})
     if _os.environ.get("O4_STEP_DEBUG") == "1" and (
             n_pavement_adopted or n_cross_claimed):

@@ -4966,23 +4966,40 @@ def _build_construct_reach_band(layout):
     own (pre-flex) band — a valid bound on the solved value regardless (flex
     only tightens the reachable interval).
 
-    MEASURED AND REJECTED (perf P3 lane F, 2026-08-13): sharing this band
-    with the OTHER pre-solve band —
-    ``route_profile.apron_terrace.presolve_anchor_envelope``, three
-    statements earlier — through a fingerprint-guarded memo.  The premise
-    was that the panelizer usually splits nothing (HECA declares ZERO
-    joints), so the second graph would be the first graph.  It is not:
-    ``gap_fill.construct_gap_fill_presolve`` runs BETWEEN the two slots and
-    its spine vertices ARE admitted to ``_build_node_list``, so the node
-    space, the building-key set and the gap-fill store all move and the two
-    builds are two DIFFERENT graphs.  A memo (built, twinned on 24 guard
-    inputs, byte-identical at HECA) missed 100 % of the time and was
-    reverted.  The duplication here is real work, not repeated work; the
-    lever on ``grade_graph.shape_constraints`` — 108.6 s over 14,465
-    computations in six graph builds per HECA solve, because its per-shape
-    memo lives on the CONTEXT and every build gets a fresh one — is inside
-    ``grade_graph`` itself, not in this caller.
+    SUPERSEDED BY THE GEOMETRY FREEZE (staged-solve S1, 2026-08-13).  The
+    band this function builds is now normally the one
+    ``geometry_freeze`` published at the freeze point, and the local build
+    below is the DEGRADE path (no freeze, or its graph build failed).
+
+    MEASURED AND REJECTED, and why the freeze is not the same thing (perf
+    P3 lane F, 2026-08-13): sharing this band with the OTHER pre-solve
+    band — ``route_profile.apron_terrace.presolve_anchor_envelope`` —
+    through a fingerprint-guarded MEMO.  The premise was that the
+    panelizer usually splits nothing (HECA declares ZERO joints), so the
+    second graph would be the first graph.  The memo missed 100 % of the
+    time and was reverted, and the recorded reason was that
+    ``gap_fill.construct_gap_fill_presolve`` ran BETWEEN the two slots and
+    "the node space, the building-key set and the gap-fill store all
+    move".  S1 phase-1 attribution corrects that reading:
+    ``grade_graph.build_unified_graph`` iterates ``layout.shapes`` ONLY,
+    and gap-fill spine vertices lie on no ring, so they contribute nothing
+    to ``G.pos`` / ``G.edges`` / ``G.spine_adj`` / ``G.runway_anchor`` —
+    they move only the INTEGER LABELS in ``bucket_to_idx``, and the band
+    is a spatial closure (index-independent, as this module's own note
+    below already asserted).  The memo missed because it was keyed on a
+    node-space fingerprint, not because the two bands disagreed.  THE
+    LEVER IS ORDER, NOT MEMOISATION: with the gap-fill construction moved
+    below the last ring mutation and the band built once at the freeze
+    point, there is one build to share rather than two to reconcile.
     """
+    frozen = None
+    try:
+        from . import geometry_freeze as _gfreeze
+        frozen = _gfreeze.frozen_band(layout, "adjacent-ground construct band")
+    except _GEOM_EXC:                                         # pragma: no cover
+        frozen = None
+    if frozen is not None:
+        return frozen
     try:
         from .elevation_per_surface.solver_primitives import _build_node_list
         from . import grade_graph as _GG

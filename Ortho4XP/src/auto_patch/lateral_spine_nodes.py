@@ -214,9 +214,12 @@ def lateral_feet(layout):
 #: welding, conformance and re-interning, and the solve resolves it back
 #: through the canonical registry the node list was built from.
 _PAIRS_ATTR = "_lateral_xsection_pairs"
+#: Index-parallel STAGE record for the pairs above (S1b).
+_PAIR_STAGES_ATTR = "_lateral_xsection_pair_stages"
+from .solve_stage import STAGE_A as _STAGE_A
 
 
-def record_lateral_xsection_pairs(layout, pairs) -> int:
+def record_lateral_xsection_pairs(layout, pairs, stages=None) -> int:
     """Record priced CROSS-SECTION PAIRS (lead ruling 2026-08-08, LEAD
     RULINGS 2 ruling 1: *cross-section pairs enter the solve's law
     context — priced ⟺ bound*).
@@ -238,11 +241,23 @@ def record_lateral_xsection_pairs(layout, pairs) -> int:
     if rec is None:
         rec = []
         setattr(layout, _PAIRS_ATTR, rec)
+    # STAGE RECORD (staged-solve S1b), index-parallel to the pair record
+    # and appended in the SAME act: a cross-section pair is APPENDED to
+    # the unified edge set, which reaches every projection as one
+    # untagged entry, so its stage must be stamped where it is minted.
+    # ``_LATERAL_BODY_ROLES`` includes ``service_junction`` — a service
+    # cross-section is groundside law and never binds stage A.
+    st_rec = getattr(layout, _PAIR_STAGES_ATTR, None)
+    if st_rec is None:
+        st_rec = []
+        setattr(layout, _PAIR_STAGES_ATTR, st_rec)
     n = 0
-    for (a, b, width_m, cap_t) in pairs:
+    stages = list(stages or ())
+    for k, (a, b, width_m, cap_t) in enumerate(pairs):
         rec.append(((float(a[0]), float(a[1])),
                     (float(b[0]), float(b[1])),
                     float(width_m), float(cap_t)))
+        st_rec.append(stages[k] if k < len(stages) else None)
         n += 1
     return n
 
@@ -253,7 +268,7 @@ def lateral_xsection_pairs(layout):
     return getattr(layout, _PAIRS_ATTR, None) or []
 
 
-def lateral_xsection_law_edges(layout, bucket_to_idx):
+def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
     """``[(node_i, node_j, budget_m)]`` — the recorded cross-section
     pairs as LAW EDGES for the solve's joint feasibility projections.
 
@@ -292,6 +307,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx):
     pairs = lateral_xsection_pairs(layout)
     if not pairs:
         return []
+    pair_stages = getattr(layout, _PAIR_STAGES_ATTR, None) or []
     from . import fabric_flags as _ff
     if not _ff.on("O4_FABRIC_RB_XSECTION_SOLVE_BIND"):
         return []
@@ -300,7 +316,8 @@ def lateral_xsection_law_edges(layout, bucket_to_idx):
         return []
     best: dict = {}
     sites: dict = {}
-    for (a, b, width_m, cap_t) in pairs:
+    stage_of: dict = {}
+    for _k, (a, b, width_m, cap_t) in enumerate(pairs):
         if width_m <= 0.0 or cap_t <= 0.0:
             continue
         try:
@@ -322,7 +339,20 @@ def lateral_xsection_law_edges(layout, bucket_to_idx):
         if prev is None or budget < prev:
             best[key] = budget
             sites[key] = (a, b, width_m, cap_t)
+        # STAGE OF A PAIR TWO STATIONS FOLDED TOGETHER: AIRSIDE WINS.
+        # The budget rule above takes the STRICTER law; the stage rule
+        # takes the AIRSIDE one, because a pair an airside shape also
+        # owns is airside law and must be enforced in stage A (airside
+        # is king — the mirror of ``UnifiedGraph.stage_by_pair``).
+        _st = (pair_stages[_k] if _k < len(pair_stages) else None)
+        if _st is not None and stage_of.get(key) != _STAGE_A:
+            stage_of[key] = _st
     edges = [(i, j, budget) for (i, j), budget in best.items()]
+    if stage_out is not None:
+        for key in best:
+            st = stage_of.get(key)
+            if st is not None:
+                stage_out[key] = st
     _dump = os.environ.get("O4_XSECTION_DUMP")
     if _dump:                                              # pragma: no cover
         # DIAGNOSTIC ONLY (default absent ⇒ byte-inert).  Every bound
@@ -408,7 +438,7 @@ def _axis_segment_caps(entry, n_seg: int, is_service: bool) -> list:
             for i in range(n_seg)]
 
 
-def _landed_pairs(spans, landed_by_shape):
+def _landed_pairs(spans, landed_by_shape, si_out=None):
     """Yield ``(foot_lo, foot_hi, width_m, cap_t)`` for every selected
     span BOTH of whose feet are NODES of the shape's final ring —
     reported at the position that actually landed.
@@ -457,6 +487,12 @@ def _landed_pairs(spans, landed_by_shape):
         qa, qb = _snap(grid, a), _snap(grid, b)
         if qa is None or qb is None or qa == qb:
             continue
+        # ``si_out`` (staged-solve S1b) collects the OWNING SHAPE INDEX of
+        # every pair that actually landed, in the SAME act and the same
+        # order as the pair itself — so the stage record cannot drift
+        # from the pair record.  Absent ⇒ byte-identical.
+        if si_out is not None:
+            si_out.append(si)
         yield (qa, qb, width_m, cap_t)
 
 
@@ -977,8 +1013,17 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
     # something else.
     n_pairs = 0
     if xsec_spans:
+        # STAGE AT MINT (S1b): the owning shape's LAWFUL role decides the
+        # pair's stage, collected by the landing filter itself so the two
+        # records are one act.
+        from .solve_stage import stage_of_role as _sor
+        _landed_si: list = []
+        _pairs = list(_landed_pairs(xsec_spans, landed_by_shape,
+                                    si_out=_landed_si))
         n_pairs = record_lateral_xsection_pairs(
-            layout, _landed_pairs(xsec_spans, landed_by_shape))
+            layout, _pairs,
+            stages=[_sor(target_roles[si]) if si < len(target_roles) else None
+                    for si in _landed_si])
     _dump = os.environ.get("O4_XSECTION_DUMP")
     if _dump:                                              # pragma: no cover
         import json as _json

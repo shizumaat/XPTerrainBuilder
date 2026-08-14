@@ -5,6 +5,8 @@
         --corridor NAME=LAT,LON:LAT,LON [--corridor ...] [--halo M] [--json OUT]
     venv/bin/python tools/corridor_axis_coverage.py PATCH.osm.axes.json \\
         --free-ends PATCH.osm [--transect M] [--json OUT]
+    venv/bin/python tools/corridor_axis_coverage.py PATCH.osm.axes.json \\
+        --profile PATCH.osm [--profile-halo M] [--json OUT]
 
 Run it from ``Ortho4XP/``.
 
@@ -50,6 +52,23 @@ nodes around each terminus is printed with it: the profile that must stay
 inside the road cap, which is where "no cliff on the old wall's footprint" is
 read off.
 
+``--profile`` answers the corridor's VERTICAL end-to-end question (the
+staged-solve round, lane S2, "WHOLE-RUN CORRIDOR PROFILE"): a corridor is
+ONE law object, so its profile is judged over the WHOLE run, not per
+vertex.  Per service axis it reports what the build emitted — worst grade
+against ``config.SERVICE_ROAD_MAX_GRADE`` (read from production, never a
+second spelling), how many segments are OVER the cap (the discharge-pocket
+class), how many CAP-RIDING RUNS the profile contains (the bang-bang
+signature a pointwise clamp leaves and a whole-run solve does not), and
+the HUMP table as topographic PROMINENCE: how far an interior local
+maximum stands above the higher of its two bounding saddles.  Prominence
+is the right frame because the corridor law owes nothing to DEM in its
+interior (band-lawful displacement trumps DEM) — an absolute-altitude or
+DEM-deviation reading would measure a different, unowed thing.  The
+cap-riding measurement is IMPORTED from the solver's own
+``corridor_profile.audit_run``, so the instrument and the law cannot
+disagree about what riding the cap is.
+
 REFUSALS (never a silent wrong answer): a sidecar with no ``axes_exact`` key
 is REFUSED (the legacy ``axes`` spelling is a different, per-size-split
 export and would under-report chains); a corridor whose two endpoints are
@@ -76,6 +95,12 @@ FREE_END_FLOOR_M = 0.01
 #: Default half-width of the chord corridor, metres.  Exceeds the measured
 #: HECA spine-road lateral deviation (9.0 m) with margin.
 DEFAULT_HALO_M = 12.0
+
+#: The patch emits altitudes to 2 decimals.  Over a short station spacing
+#: that quantum alone can read as an over-cap grade, so the profile audit
+#: allows it — the same allowance ``check_grade._check_spine_curvature``
+#: makes.  It is a property of the FILE FORMAT, not a law number.
+EMIT_ALT_QUANTUM_M = 0.01
 
 #: Metres per degree of latitude, the flat-earth constant this repo's
 #: patch readers already use for local metre work.
@@ -339,6 +364,170 @@ def _road_cap() -> float:
     return float(SERVICE_ROAD_MAX_GRADE)
 
 
+def _audit_run():
+    """``corridor_profile.audit_run`` — the SOLVER's own measurement of a
+    run (worst grade, over-cap segments, cap-riding runs).  Imported, never
+    re-implemented: the acceptance instrument and the law must not be able
+    to disagree about what "riding the cap" is."""
+    root = Path(__file__).resolve().parents[1]
+    if str(root / "src") not in sys.path:
+        sys.path.insert(0, str(root / "src"))
+    from auto_patch.elevation_per_surface.route_profile.corridor_profile \
+        import audit_run
+    return audit_run
+
+
+def prominence(z) -> list:
+    """Topographic PROMINENCE of every interior local maximum, and the
+    matching DEPTH of every interior local minimum, along a 1-D profile.
+
+    THE HUMP METRIC.  "A 6.18 m cap-ridden hump with no anchor within
+    60 m" is a statement about PROMINENCE — how far a local maximum
+    stands above the higher of the two saddles that bound it — not about
+    an absolute altitude, and not about the deviation from a DEM the
+    corridor law does not owe.  A profile that is the smoothest lawful
+    path between its pegs has NO interior prominence at all; a pointwise
+    clamp tracing terrain has one per terrain feature.
+
+    Returns ``[{"index", "kind", "value", "prominence_m"}, …]`` sorted by
+    prominence, descending.  ``kind`` is ``"peak"`` or ``"pocket"``.
+    Entries below the standing 0.01 m elevation materiality floor are
+    dropped — a shoulder of a real hump is not a second hump.
+    """
+    n = len(z)
+    out = []
+    if n < 3:
+        return out
+    floor_m = FREE_END_FLOOR_M
+    for i in range(1, n - 1):
+        v = float(z[i])
+        # peak: strictly above both immediate neighbours
+        if v > z[i - 1] and v >= z[i + 1]:
+            left = min(float(x) for x in z[:i])
+            right = min(float(x) for x in z[i + 1:])
+            out.append({"index": i, "kind": "peak", "value": v,
+                        "prominence_m": v - max(left, right)})
+        elif v < z[i - 1] and v <= z[i + 1]:
+            left = max(float(x) for x in z[:i])
+            right = max(float(x) for x in z[i + 1:])
+            out.append({"index": i, "kind": "pocket", "value": v,
+                        "prominence_m": min(left, right) - v})
+    out = [d for d in out if d["prominence_m"] > floor_m]
+    out.sort(key=lambda d: -d["prominence_m"])
+    return out
+
+
+def axis_profile(axis_pts, road_nodes, *, halo_m: float,
+                 cap: float, station_m: float = 2.0) -> dict | None:
+    """The EMITTED vertical profile of one service axis, read off a patch.
+
+    Road-family nodes within ``halo_m`` of the axis polyline are projected
+    onto it, binned to ``station_m`` stations (a cross-section's two edges
+    share one station — the spine-first law), and the per-station mean of
+    the emitted altitudes is the profile.  Returns ``None`` when fewer
+    than three stations carry a node (no run to judge).
+
+    Every number is read from the patch and the sidecar; this function
+    measures no law and counts no defects — it reports what the build
+    emitted, judged against the production road cap.
+    """
+    pts = [(float(la), float(lo)) for (la, lo) in axis_pts]
+    if len(pts) < 2 or not road_nodes:
+        return None
+    to_m = _projector(pts[0][0], pts[0][1])
+    poly = [to_m(la, lo) for (la, lo) in pts]
+    arcs = [0.0]
+    for i in range(1, len(poly)):
+        arcs.append(arcs[-1] + math.hypot(poly[i][0] - poly[i - 1][0],
+                                          poly[i][1] - poly[i - 1][1]))
+    if arcs[-1] < 1e-6:
+        return None
+
+    bins: dict = {}
+    for (la, lo, alt) in road_nodes:
+        x, y = to_m(la, lo)
+        best_d, best_s = halo_m, None
+        for i in range(len(poly) - 1):
+            x1, y1 = poly[i]
+            x2, y2 = poly[i + 1]
+            dx, dy = x2 - x1, y2 - y1
+            seg2 = dx * dx + dy * dy
+            if seg2 < 1e-12:
+                continue
+            t = ((x - x1) * dx + (y - y1) * dy) / seg2
+            t = min(1.0, max(0.0, t))
+            px, py = x1 + t * dx, y1 + t * dy
+            d = math.hypot(x - px, y - py)
+            if d < best_d:
+                best_d = d
+                best_s = arcs[i] + t * math.sqrt(seg2)
+        if best_s is not None:
+            bins.setdefault(int(round(best_s / station_m)),
+                            []).append((best_s, alt))
+    if len(bins) < 3:
+        return None
+
+    # The bin GROUPS a cross-section; the station coordinate is the mean
+    # ARCLENGTH of its members, never the bin's nominal centre — snapping
+    # to the grid would distort every grade this tool then reports.
+    keys = sorted(bins)
+    stations = [sum(s for s, _ in bins[k]) / len(bins[k]) for k in keys]
+    z = [sum(a for _, a in bins[k]) / len(bins[k]) for k in keys]
+    keep = [0]
+    for i in range(1, len(stations)):
+        if stations[i] > stations[keep[-1]] + 1e-9:
+            keep.append(i)
+    stations = [stations[i] for i in keep]
+    z = [z[i] for i in keep]
+    if len(stations) < 3:
+        return None
+    audit = _audit_run()(stations, z, cap, emit_noise_m=EMIT_ALT_QUANTUM_M)
+    prom = prominence(z)
+    return {
+        "length_m": round(arcs[-1], 1),
+        "stations": len(stations),
+        "span_m": round(stations[-1] - stations[0], 1),
+        "worst_grade": audit.worst_grade,
+        "over_cap_segments": audit.over_cap_segments,
+        "cap_ride_runs": audit.cap_ride_runs,
+        "cap_ride_segments": audit.cap_ride_segments,
+        "cap_ride_length_m": round(audit.cap_ride_length_m, 1),
+        "worst_peak_prominence_m": round(
+            max((p["prominence_m"] for p in prom
+                 if p["kind"] == "peak"), default=0.0), 3),
+        "worst_pocket_prominence_m": round(
+            max((p["prominence_m"] for p in prom
+                 if p["kind"] == "pocket"), default=0.0), 3),
+        "top_prominences": [
+            {"kind": p["kind"], "s_m": round(stations[p["index"]], 1),
+             "value_m": round(p["value"], 3),
+             "prominence_m": round(p["prominence_m"], 3)}
+            for p in prom[:5]],
+        "profile": [[round(s, 1), round(v, 3)]
+                    for s, v in zip(stations, z)],
+    }
+
+
+def service_axis_profiles(axes, road_nodes, *, halo_m: float, cap: float,
+                          min_length_m: float = 30.0) -> list:
+    """:func:`axis_profile` over every SERVICE axis in ``axes_exact``."""
+    out = []
+    for ordinal, entry in enumerate(axes):
+        pts = entry[0]
+        is_service = bool(entry[3]) if len(entry) > 3 else False
+        if not is_service or not pts or len(pts) < 2:
+            continue
+        res = axis_profile(pts, road_nodes, halo_m=halo_m, cap=cap)
+        if res is None or res["length_m"] < min_length_m:
+            continue
+        res["axis_ordinal"] = ordinal
+        res["end_a"] = [round(pts[0][0], 7), round(pts[0][1], 7)]
+        res["end_b"] = [round(pts[-1][0], 7), round(pts[-1][1], 7)]
+        out.append(res)
+    out.sort(key=lambda d: -d["length_m"])
+    return out
+
+
 def _report(name: str, res: dict) -> str:
     head = (f"  {name}: chord {res['chord_len_m']} m, "
             f"{res['axes_touching']} axis/axes touching, "
@@ -369,12 +558,67 @@ def main(argv=None) -> int:
                          "build, read against this patch's emitted values")
     ap.add_argument("--transect", type=float, default=40.0,
                     help="transect radius around each free end, metres")
+    ap.add_argument("--profile", dest="profile", metavar="PATCH.osm",
+                    help="report the EMITTED VERTICAL PROFILE of every "
+                         "service axis in the sidecar, read off this patch: "
+                         "worst grade, over-cap segments, cap-riding runs "
+                         "and the hump/pocket PROMINENCE table")
+    ap.add_argument("--profile-halo", type=float, default=None,
+                    help="half-width for the profile projection, metres "
+                         "(default: --halo)")
     ap.add_argument("--json", dest="json_out")
     args = ap.parse_args(argv)
-    if not args.corridor and not args.free_ends:
-        print("REFUSED: nothing asked — pass --corridor and/or --free-ends",
-              file=sys.stderr)
+    if not args.corridor and not args.free_ends and not args.profile:
+        print("REFUSED: nothing asked — pass --corridor, --free-ends "
+              "and/or --profile", file=sys.stderr)
         return 2
+    if args.profile:
+        try:
+            axes = load_axes(args.sidecar)
+            cap = _road_cap()
+            rows = service_axis_profiles(
+                axes, _road_nodes(args.profile),
+                halo_m=(args.profile_halo if args.profile_halo is not None
+                        else args.halo),
+                cap=cap)
+        except CoverageRefusal as exc:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+            return 2
+        print(f"=== corridor VERTICAL PROFILE: {args.profile}")
+        print(f"  frame: every SERVICE axis of {args.sidecar}'s axes_exact; "
+              f"road-family nodes within "
+              f"{args.profile_halo if args.profile_halo is not None else args.halo}"
+              f" m projected onto the axis and binned to 2 m stations "
+              f"(cross-section partners share one station); cap "
+              f"{cap * 100:.1f}% read from config.SERVICE_ROAD_MAX_GRADE; "
+              f"HUMP = topographic PROMINENCE of an interior local maximum "
+              f"(a smoothest-lawful-path profile has none)")
+        tot_over = tot_ride = 0
+        for r in rows:
+            tot_over += r["over_cap_segments"]
+            tot_ride += r["cap_ride_runs"]
+            print(f"    axis #{r['axis_ordinal']:4d}  {r['length_m']:8.1f} m  "
+                  f"{r['stations']:4d} stn  worst "
+                  f"{r['worst_grade'] * 100:6.2f}%  over-cap "
+                  f"{r['over_cap_segments']:3d}  cap-ride runs "
+                  f"{r['cap_ride_runs']:3d} ({r['cap_ride_length_m']:.0f} m)  "
+                  f"peak {r['worst_peak_prominence_m']:6.3f} m  pocket "
+                  f"{r['worst_pocket_prominence_m']:6.3f} m")
+            for p in r["top_prominences"][:2]:
+                print(f"        {p['kind']:6s} s={p['s_m']:8.1f} m  "
+                      f"z={p['value_m']:9.3f}  prominence "
+                      f"{p['prominence_m']:.3f} m")
+        print(f"  {len(rows)} service axis/axes; {tot_over} over-cap "
+              f"segment(s); {tot_ride} cap-riding run(s); worst peak "
+              f"prominence "
+              f"{max((r['worst_peak_prominence_m'] for r in rows), default=0.0):.3f} m")
+        if args.json_out:
+            Path(args.json_out).write_text(json.dumps(
+                {"sidecar": str(args.sidecar), "patch": args.profile,
+                 "cap": cap, "axes": rows}, indent=2))
+            print(f"  -> {args.json_out}")
+        if not args.corridor and not args.free_ends:
+            return 0
     if args.free_ends:
         try:
             recs = load_free_ends(args.sidecar)

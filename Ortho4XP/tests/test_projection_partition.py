@@ -53,9 +53,18 @@ RECEIVERS = {3, 4}
 
 
 def _constraints():
-    """A fresh constraint list (the projection may mutate entries)."""
+    """A fresh constraint list (the projection may mutate entries).
+
+    ``stage`` (staged-solve S1b): every entry reaching a projection
+    carries the stage its minter stamped.  This fixture stands for ONE
+    airside shape's law, so it is stage A and the RECEIVER-NODE partition
+    under test is what splits its edges — which is exactly the separation
+    S1b makes explicit: the node partition decides which VARIABLES a pass
+    may move, the stage tag decides which LAW a pass enforces.
+    """
+    from auto_patch.solve_stage import STAGE_A, STAGE_KEY
     return [{"edges": list(AIRSIDE_EDGES) + list(MIXED_AND_GROUNDSIDE_EDGES),
-             "family": "fixture"}]
+             "family": "fixture", STAGE_KEY: STAGE_A}]
 
 
 def _run(seed, *, partitioned):
@@ -92,10 +101,13 @@ def test_a_lazy_entry_is_never_split_and_is_handed_over_by_identity():
     """``feasibility_project`` expands a flatness-certified entry IN
     PLACE so later passes see the expansion; a copy would silently lose
     that.  The entry goes whole to the side its shape belongs to."""
+    from auto_patch.solve_stage import STAGE_A, STAGE_B, STAGE_KEY
     lazy_gs = {"edges": [(3, 4, 0.5)], "lazy_expand": lambda: [],
-               "lazy_nodes": [3, 4], "lazy_seed": [0.0, 0.0]}
+               "lazy_nodes": [3, 4], "lazy_seed": [0.0, 0.0],
+               STAGE_KEY: STAGE_B}
     lazy_air = {"edges": [(0, 1, 1.0)], "lazy_expand": lambda: [],
-                "lazy_nodes": [0, 1], "lazy_seed": [0.0, 0.0]}
+                "lazy_nodes": [0, 1], "lazy_seed": [0.0, 0.0],
+                STAGE_KEY: STAGE_A}
     givers, receivers = partition_constraints_by_receiver(
         [lazy_gs, lazy_air], RECEIVERS)
     assert receivers == [lazy_gs] and receivers[0] is lazy_gs

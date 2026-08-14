@@ -1537,7 +1537,14 @@ def _anchor_resolver(layout, G):
         return None
     pos = getattr(G, "pos", None) or {}
     spine = getattr(G, "spine_adj", None) or {}
-    keys = [i for i in spine if i in pos]
+    # STAGE A HAS NO GROUNDSIDE VARIABLES (staged-solve S1b, coupling 17).
+    # The apron terrace is AIRSIDE law; resolving its band anchor to the
+    # NEAREST spine node over the full adjacency let a service-road spine
+    # node author an apron panel's anchor value.  Airside view only.
+    _air = (G.airside_spine_nodes() if hasattr(G, "airside_spine_nodes")
+            else None)
+    keys = [i for i in spine
+            if i in pos and (_air is None or i in _air)]
     if not keys:
         return None
     try:
@@ -3603,10 +3610,17 @@ def apply_terrace_budgets(plan: Optional[TerracePlan], shape_constraints,
     # every projection that reads ``shape_constraints`` enforces it.
     st_edges = terrace_station_edges(plan)
     if st_edges and isinstance(shape_constraints, list):
+        from auto_patch.solve_stage import (STAGE_A as _ST_A,
+                                            STAGE_KEY as _ST_KEY)
         shape_constraints.append({
             "role": ROLE_APRON,
             "ref": "apron_terrace_joint",
             "shape_id": -1,
+            # STAGE TAG AT MINT (S1b).  An apron-terrace joint binds two
+            # panels of ONE split APRON — airside on both sides of every
+            # pair by construction (``_panelize_apron`` only splits
+            # apron shapes), so the whole-airport entry is stage A.
+            _ST_KEY: _ST_A,
             "nodes": sorted({i for e in st_edges for i in e[:2]}),
             "edges": st_edges,
         })

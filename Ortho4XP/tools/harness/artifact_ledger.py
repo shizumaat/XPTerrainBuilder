@@ -170,16 +170,21 @@ def artifact_key(tree: str, icao: str, env: dict, corpus: dict,
 
 
 def build_variant(*, const_dem=None, allow_degraded_dem=False,
-                  allow_no_sidecar=False) -> dict:
+                  allow_no_sidecar=False, geometry_only=False) -> dict:
     """The request shape that changes the ARTIFACT rather than the corpus.
 
     ``--dem`` is here because a −500 m oracle patch and a real-DEM patch are
     different objects; the two knowing-override flags are here because a
     patch kept in spite of a swallowed degradation or a missing sidecar is
     not the same artifact as one that passed both refusals.
+    ``geometry_only`` is here because a patch built with
+    ``compute_elevations=False`` (a visual-inspection artifact) is a
+    different object from a solved patch — serving one for the other
+    would hand a census a patch with no solved surface.
     """
     return {"dem": const_dem, "allow_degraded_dem": bool(allow_degraded_dem),
-            "allow_no_sidecar": bool(allow_no_sidecar)}
+            "allow_no_sidecar": bool(allow_no_sidecar),
+            "geometry_only": bool(geometry_only)}
 
 
 # ══════════════════════════════════════════════════════════════════════

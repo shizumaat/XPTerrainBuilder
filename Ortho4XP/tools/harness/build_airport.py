@@ -1286,7 +1286,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                 prog: Progress, const_dem=None,
                 allow_no_sidecar: bool = False,
                 write_guard=None, allow_degraded: bool = False,
-                solve_capture=None) -> dict:
+                solve_capture=None, geometry_only: bool = False) -> dict:
     """One airport → ``<out>/<tag>.osm`` + its ``.axes.json`` sidecar.
 
     ``write_guard`` — a :class:`SharedRepoWriteGuard` (or ``None`` for the
@@ -1339,7 +1339,17 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
     # degrades to the context-free frame.
     ap_cfg.LOG_VERBOSITY = max(1, getattr(ap_cfg, "LOG_VERBOSITY", 0))
 
-    kw = {"compute_elevations": True}
+    kw = {"compute_elevations": not geometry_only}
+    if geometry_only:
+        # GEOMETRY-ONLY (owner request 2026-08-14): the pipeline's own
+        # documented ``compute_elevations=False`` mode — plan geometry
+        # emitted for VISUAL INSPECTION, no solved surface.  Never a
+        # measurement: a census of this patch would count a surface that
+        # was never built.  The artifact-ledger variant key carries the
+        # flag, so a solved arm can never be served from this one.
+        prog.note("GEOMETRY-ONLY build (compute_elevations=False): "
+                  "visual-inspection artifact — NOT a measurement; "
+                  "never census this patch for grade defects")
     synthetic = None
     if const_dem is not None:
         # THE SYNTHETIC PATH, EXPLICIT (owner ruling 2026-08-05 §3: the
@@ -1422,6 +1432,7 @@ def build_patch(icao: str, root: Path, out_dir: Path, tag: str,
                            "world": synthetic.world_label,
                            "is_synthetic": True,
                            "source": synthetic.source_path}),
+        "geometry_only": bool(geometry_only),
         "build_seconds": round(dt, 1), "shapes": len(layout.shapes),
         "body_sha256": body_sha256(osm),
         "sidecar_present": side.exists(),
@@ -1614,6 +1625,12 @@ def main(argv=None) -> int:
                     help="build against a PRIVATE data corpus instead of "
                          "the shared repo, KNOWINGLY (recorded); its "
                          "numbers are not comparable with any other lane's")
+    ap.add_argument("--geometry-only", action="store_true",
+                    help="build the plan geometry only "
+                         "(compute_elevations=False, the pipeline's own "
+                         "documented mode) for VISUAL INSPECTION — never "
+                         "a measurement, never censused; the artifact-"
+                         "ledger variant key records it")
     ap.add_argument("--solve-capture", type=Path, default=None,
                     metavar="DIR",
                     help="also write a SOLVE-STAGE CAPTURE per airport into "
@@ -1622,6 +1639,15 @@ def main(argv=None) -> int:
                          "tools/solve_cut.py --replay without rebuilding "
                          "phases 1-4.  The build itself is unchanged")
     args = ap.parse_args(argv)
+    if args.geometry_only and args.tile:
+        raise SystemExit(
+            "REFUSING: --geometry-only with --tile is not wired — "
+            "build_tile runs the engine through another entry and the "
+            "flag would silently do nothing.  Build the airport directly.")
+    if args.geometry_only and args.solve_capture is not None:
+        raise SystemExit(
+            "REFUSING: --geometry-only never reaches the solve boundary, "
+            "so --solve-capture would silently capture nothing.")
     if args.solve_capture is not None and args.tile:
         # A flag that quietly does nothing is how a lane ends up believing
         # it captured something: ``build_tile`` runs the engine through a
@@ -1785,7 +1811,8 @@ def main(argv=None) -> int:
             "variant": AL.build_variant(
                 const_dem=args.dem,
                 allow_degraded_dem=args.allow_degraded_dem,
-                allow_no_sidecar=args.allow_no_sidecar)}
+                allow_no_sidecar=args.allow_no_sidecar,
+                geometry_only=args.geometry_only)}
         ledger_key = AL.artifact_key(
             ledger_parts["tree"], args.icao, ledger_parts["env"],
             ledger_parts["corpus"], ledger_parts["variant"])
@@ -1886,7 +1913,8 @@ def main(argv=None) -> int:
                                  allow_no_sidecar=args.allow_no_sidecar,
                                  write_guard=guard,
                                  allow_degraded=args.allow_degraded_dem,
-                                 solve_capture=args.solve_capture)
+                                 solve_capture=args.solve_capture,
+                                 geometry_only=args.geometry_only)
         result["wall_seconds"] = round(time.time() - t0, 1)
     finally:
         # The audit runs even when the build raised: a build that died

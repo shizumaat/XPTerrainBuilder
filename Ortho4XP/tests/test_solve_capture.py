@@ -203,6 +203,29 @@ def test_the_frozen_baseline_manifest_parses_into_a_verdict():
         solve_cut._baseline_from_manifest(manifest, "consol3nowhere")
 
 
+def test_a_replay_from_the_wrong_cwd_refuses(tmp_path, monkeypatch):
+    """The BUILD-CWD LAW binds a replay too (S1d 2026-08-14).
+
+    ``O4_File_Names.resource_path`` is ``os.path.abspath(".")``, so a
+    replay launched from elsewhere loses the engine's read-only
+    resources and DEGRADES instead of failing: measured at OTHH, the
+    production-parity DEM prep raised FileNotFoundError, the run fell
+    back to the standalone DEM with no cached airports layer, and the
+    replay emitted 2,027 shapes against the build's 2,186 — reported as
+    a DIVERGED body hash, i.e. an operator error wearing an engine
+    defect's clothes.  The refusal must come BEFORE any of that work.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_solve_cut_cwd", ROOT / "tools" / "solve_cut.py")
+    solve_cut = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(solve_cut)
+
+    monkeypatch.chdir(tmp_path)               # lacks venv/ and OSM_data/
+    with pytest.raises(SystemExit, match="REFUSING"):
+        solve_cut.main(["--replay", str(tmp_path / "nowhere")])
+
+
 def test_the_build_entry_refuses_solve_capture_with_tile():
     """A flag that quietly does nothing is worse than one that refuses."""
     import build_airport

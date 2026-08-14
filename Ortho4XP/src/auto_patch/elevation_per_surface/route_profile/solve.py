@@ -1530,9 +1530,10 @@ def _unified_entries(u_edges, pair_stage, where, family=None):
     return out
 
 
-def _receiver_nodes_from_roles(roles):
+def _receiver_nodes_from_roles(roles, stage_b_nodes=()):
     """THE RECEIVER SET of the projection partition — nodes whose EVERY
-    role is groundside (``layout.GROUNDSIDE_ROLES``).
+    role is groundside (``layout.GROUNDSIDE_ROLES``), plus the
+    ROLE-LESS stage-B construct nodes named in ``stage_b_nodes``.
 
     Same role scan every projection already pays for
     (:func:`_route_witness_admission`), read a second way: the witness
@@ -1545,9 +1546,28 @@ def _receiver_nodes_from_roles(roles):
     rather than one of its variables.  A role-unmatched node (no ring
     vertex resolved to it) is likewise not a receiver: the conservative
     side, since a wrong receiver would FREEZE an airside node out of its
-    own pass."""
+    own pass.
+
+    ``stage_b_nodes`` (S1d) is the exception that proves that last rule:
+    a gap-fill drainage spine tagged stage B by its ENCLOSURE HOST
+    (``solver_primitives.gap_spine_stage_b_nodes``) is a groundside
+    VARIABLE with no ring role at all — role-unmatched by construction,
+    since a spine vertex is an interior point on nobody's ring.  Without
+    it a correctly stage-B-tagged spine would be frozen on both sides
+    (out of the airside pass by its tag, out of this pass by the role
+    scan) and its law silently deleted.  Default empty ⇒ every existing
+    one-argument call is unchanged."""
     from auto_patch.layout import GROUNDSIDE_ROLES
-    return {i for i, rs in roles.items() if rs and rs <= GROUNDSIDE_ROLES}
+    recv = {i for i, rs in roles.items() if rs and rs <= GROUNDSIDE_ROLES}
+    # THE GUARD IS LOAD-BEARING, not defensive.  A node that DID resolve
+    # to a ring role is adjudicated by the role scan ALONE — airside wins
+    # a shared seat — so a spine index that collides with a roled node
+    # (a rebuilt node space, a spine vertex welded onto a ring by a later
+    # conformance pass) is never admitted here.  A wrong receiver would
+    # FREEZE AN AIRSIDE NODE OUT OF ITS OWN PASS, which is the failure
+    # this whole partition exists to prevent.
+    recv.update(i for i in stage_b_nodes if not roles.get(i))
+    return recv
 
 
 def _non_route_witness_nodes(roles, route_roles, hard, n, provenance=None):
@@ -2095,13 +2115,22 @@ def solve_route_profile(layout, icao: str,
     # sets, byte-inert.  The longitudinal law is the second-difference
     # fairing pass further down (``_fair_gap_spine_chains``).
     _gap_spine_idx: set = set()
+    # The STAGE-B subset (S1d): host-groundside spines are role-less
+    # groundside variables, so the projection partition has to be told
+    # about them explicitly — see ``_receiver_nodes_from_roles``.
+    _gap_spine_b_idx: set = set()
     _gap_spine_chains: list = []
     if getattr(layout, "gap_fill_presolve", None):
         from auto_patch.elevation_per_surface.solver_primitives import (
-            _build_gap_spine_constraints)
+            _build_gap_spine_constraints, gap_spine_stage_b_nodes)
         _gap_scs, _gap_spine_idx, _gap_spine_chains = (
             _build_gap_spine_constraints(layout, bucket_to_idx,
                                          seed_elev=elev))
+        # ``n`` (the field length) is not bound until further down; the
+        # field IS ``elev`` and it is never resized between here and
+        # ``n = len(elev)``, so this is the same bound.
+        _gap_spine_b_idx = gap_spine_stage_b_nodes(
+            layout, bucket_to_idx, len(elev))
         shape_constraints.extend(_gap_scs)
         if _os.environ.get("O4_STEP_DEBUG") == "1":
             _n_int_edges = sum(len(_sc["edges"]) for _sc in _gap_scs)
@@ -3390,7 +3419,8 @@ def solve_route_profile(layout, icao: str,
     # groundside pair already moved — measured as a 1-2 row canyon
     # flutter (HEAZ 10 000 +2, KCLT 10 000 +1) that survived partitioning
     # the last three sites alone.
-    _solve_receivers = _receiver_nodes_from_roles(_rm_roles)
+    _solve_receivers = _receiver_nodes_from_roles(_rm_roles,
+                                                  _gap_spine_b_idx)
     rem, bh = feasibility_project_partitioned(
                                   elev, shape_constraints, hard,
                                   receiver_nodes=_solve_receivers, n_nodes=n,
@@ -6509,7 +6539,8 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # the final grade projection.
     from auto_patch.elevation_per_surface.solver_primitives import (
         PAVEMENT_ROLES, _build_node_list, _build_shape_constraints,
-        _runway_node_set, _seed_elevations, _writeback)
+        _runway_node_set, _seed_elevations, _writeback,
+        gap_spine_stage_b_nodes)
     from auto_patch import grade_graph as _GG
     from auto_patch.config import (
         POST_SOLVE_IDEMPOTENCE_TOL_M as _IDEMPOTENCE_TOL_M)
@@ -7786,7 +7817,14 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # has to hold here above all: airside projects with no groundside pair
     # in its constraint set, groundside projects after against the frozen
     # airside values.  See ``one_solve.feasibility_project_partitioned``.
-    _fp_receivers = _receiver_nodes_from_roles(_fp_roles)
+    # REQUIRED, not an optional mirror of the solve (S1d): this pass
+    # REBUILDS the node list and never rebuilds the gap-spine
+    # constraints, so a stage-B spine node that is not admitted here is a
+    # FREE AIRSIDE VARIABLE — the reach-band clamp moves it inside the
+    # airside pass, which is the write the stage tag exists to stop.
+    # Resolved by canonical key, so ``b2i``'s rebuilt space is fine.
+    _fp_receivers = _receiver_nodes_from_roles(
+        _fp_roles, gap_spine_stage_b_nodes(layout, b2i, n))
     # ── THE ENVELOPE, IN THIS PASS'S NODE SPACE AND z′ FRAME (spec
     # ``envelope-uses-the-centerline-graph``, gate
     # ``O4_ENVELOPE_FROM_BAND``) ─────────────────────────────────────────

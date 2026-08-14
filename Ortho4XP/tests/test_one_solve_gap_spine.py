@@ -20,6 +20,7 @@ apron slabs enclosing one rectangular gap.  Verify:
 """
 import math
 
+import pytest
 from shapely.geometry import Point, Polygon
 
 import auto_patch.config as cfg
@@ -264,3 +265,111 @@ def test_fairing_respects_envelope_floor():
         elev, chains, cfg.TAXIWAY_MAX_GRADE_CHANGE_PER_M)
     assert elev[1] >= 101.0 - 1e-9             # floor held
     assert n_over >= 1                         # honest residual kink
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE STAGE OF A GAP SPINE IS ITS ENCLOSURE HOST'S (lane S1d)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Both halves of the fix, twinned together because either alone is a
+# defect: (a) the constraint takes the entry's ``host_stage`` instead of
+# a hard-coded STAGE_A, and (b) the role-less spine vertices of a
+# stage-B entry are admitted as projection RECEIVERS.  Without (b) a
+# correctly stage-B-tagged spine is frozen on BOTH sides and its law is
+# silently deleted.
+
+from auto_patch import gap_fill as _GF                        # noqa: E402
+from auto_patch import solve_stage as ST                      # noqa: E402
+from auto_patch.elevation_per_surface.route_profile.solve import (  # noqa: E402
+    _receiver_nodes_from_roles)
+from auto_patch.layout import (                               # noqa: E402
+    ROLE_GROUNDSIDE_PAVEMENT, ROLE_SERVICE_ROAD)
+
+
+def _rect_shape(x0, y0, x1, y1, role):
+    return _FakeShape(role, Polygon([(x0, y0), (x1, y0), (x1, y1),
+                                     (x0, y1)]), altitude=100.0)
+
+
+def _groundside_rim_pocket_layout():
+    """RULING 3's excavation-rim pocket with a WHOLLY GROUNDSIDE rim: a
+    U of service road / groundside pavement around a 140 m pocket, open
+    to the south.  Two far-away aprons (820 m clear, and 400 m apart, so
+    they bound nothing and close into no corridor) satisfy the
+    construction's ``len(airside) >= 2`` precondition."""
+    pocket = 140.0
+    shapes = [
+        _rect_shape(-40.0, pocket, pocket + 40.0, pocket + 30.0,
+                    ROLE_SERVICE_ROAD),                       # north
+        _rect_shape(pocket, -40.0, pocket + 40.0, pocket + 30.0,
+                    ROLE_GROUNDSIDE_PAVEMENT),                # east
+        _rect_shape(40.0, -40.0, pocket, 0.0, ROLE_SERVICE_ROAD),
+        _rect_shape(-40.0, -40.0, 0.0, pocket + 30.0,
+                    ROLE_GROUNDSIDE_PAVEMENT),                # west
+        _rect_shape(1000.0, 0.0, 1100.0, 100.0, ROLE_APRON),
+        _rect_shape(1500.0, 0.0, 1600.0, 100.0, ROLE_APRON),
+    ]
+    return _FakeLayout(shapes)
+
+
+def test_a_groundside_hosted_spine_is_a_stage_b_constraint(monkeypatch):
+    """T1 (solver half) + the receiver admission that must land with it.
+
+    The rim carries no airside arm, so the enclosure is groundside: the
+    entry is stamped STAGE_B at mint, the built constraint reads that
+    stamp, and every spine vertex — role-less, on nobody's ring — is
+    admitted as a projection receiver so the groundside pass can still
+    move its own variables."""
+    _gate_on(monkeypatch)
+    monkeypatch.setattr(_GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
+    layout = _groundside_rim_pocket_layout()
+    assert construct_gap_fill_presolve(layout) == 1
+    entry = layout.gap_fill_presolve[0]
+    assert entry["host_stage"] == ST.STAGE_B
+    nodes, b2i = SP._build_node_list(layout)
+    sc_out, spine_idx, _chains = SP._build_gap_spine_constraints(layout, b2i)
+    assert len(sc_out) == 1
+    assert sc_out[0][ST.STAGE_KEY] == ST.STAGE_B, (
+        "the spine constraint still carries the hard-coded airside stamp "
+        "— this is the S4 airside write")
+    # HALF (b): the same nodes, resolved by CANONICAL KEY.
+    b_idx = SP.gap_spine_stage_b_nodes(layout, b2i, len(nodes))
+    assert b_idx and b_idx == spine_idx
+    # And they survive the receiver scan, which sees no ring role for
+    # them at all (a spine vertex is an interior point).
+    assert _receiver_nodes_from_roles({}, b_idx) == b_idx
+
+
+def test_the_default_gap_spine_is_airside_hosted_and_no_stage_b_node(
+        monkeypatch):
+    """T4, INERTNESS at the shipped default: an enclosed gap of the
+    airside union is airside-hosted, the constraint reads STAGE_A exactly
+    as before S1d, and the stage-B node set is empty — so half (b) adds
+    nothing to any production projection."""
+    _gate_on(monkeypatch)
+    layout = _annulus_layout()
+    assert construct_gap_fill_presolve(layout) == 1
+    assert [e["host_stage"] for e in layout.gap_fill_presolve] == [ST.STAGE_A]
+    nodes, b2i = SP._build_node_list(layout)
+    assert SP.gap_spine_stage_b_nodes(layout, b2i, len(nodes)) == set()
+    sc_out, _idx, _chains = SP._build_gap_spine_constraints(layout, b2i)
+    assert [sc[ST.STAGE_KEY] for sc in sc_out] == [ST.STAGE_A]
+
+
+def test_an_entry_with_no_host_stage_raises_and_never_defaults(monkeypatch):
+    """T5, NEVER-SILENT.  An entry reaching the builder without a valid
+    ``host_stage`` is a CONSTRUCTOR defect in
+    ``gap_fill.construct_gap_fill_presolve``; guessing STAGE_A is the
+    exact blindness ``solve_stage`` exists to end, so it raises."""
+    _gate_on(monkeypatch)
+    layout = _annulus_layout()
+    construct_gap_fill_presolve(layout)
+    nodes, b2i = SP._build_node_list(layout)
+    del layout.gap_fill_presolve[0]["host_stage"]
+    with pytest.raises(ST.UntaggedConstraintError) as exc:
+        SP._build_gap_spine_constraints(layout, b2i)
+    assert "construct_gap_fill_presolve" in str(exc.value)
+    # A bogus value is not a tag either.
+    layout.gap_fill_presolve[0]["host_stage"] = "airside"
+    with pytest.raises(ST.UntaggedConstraintError):
+        SP._build_gap_spine_constraints(layout, b2i)

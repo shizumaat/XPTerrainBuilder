@@ -190,6 +190,33 @@ def test_a_shared_mouth_vertex_is_airside_not_a_receiver():
     assert _receiver_nodes_from_roles(roles) == {2, 3, 4}
 
 
+def test_a_role_less_stage_b_construct_node_is_a_receiver():
+    """T6 (staged-solve lane S1d): a construct the STAGE TAG says is
+    groundside — a gap-fill drainage spine whose ENCLOSURE HOST is
+    groundside — has NO ring role at all (a spine vertex is an interior
+    point on nobody's ring), so the role scan alone can never admit it.
+    Tagging such an entry stage B without admitting its nodes here would
+    freeze it on both sides and delete its law silently, so the two
+    halves land together.
+
+    THE GUARD IS THE SECOND HALF OF THE TWIN: a stage-B index that
+    COLLIDES with a roled node is not admitted.  Node 1 is the mouth
+    ({apron, service_road}) — airside wins its seat, and a wrong receiver
+    would freeze an airside node out of its own pass."""
+    roles = {
+        0: frozenset({ROLE_APRON}),
+        1: frozenset({ROLE_APRON, ROLE_SERVICE_ROAD}),    # THE MOUTH
+        2: frozenset({ROLE_SERVICE_ROAD}),
+        3: frozenset({ROLE_GROUNDSIDE_PAVEMENT}),
+        4: frozenset({ROLE_SERVICE_JUNCTION, ROLE_TUNNEL_RAMP}),
+        5: frozenset({ROLE_BUILDING}),
+        6: frozenset(),                                   # role-unmatched
+    }
+    assert _receiver_nodes_from_roles(roles) == {2, 3, 4}    # unchanged
+    assert _receiver_nodes_from_roles(roles, stage_b_nodes={7}) == {2, 3, 4, 7}
+    assert _receiver_nodes_from_roles(roles, stage_b_nodes={1}) == {2, 3, 4}
+
+
 def test_the_census_and_the_solver_share_one_groundside_partition():
     """LOCKSTEP.  ``row_side`` decides the campaign matrix's airside /
     groundside / mixed columns; the projection partition decides who may

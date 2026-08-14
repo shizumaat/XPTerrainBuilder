@@ -246,11 +246,21 @@ every entry reaching the solve or any projection MUST carry the tag
 (an untagged entry is a constructor defect and a twin failure, the
 same never-silent posture as the axes sidecar). Stage A solves with
 only airside-tagged entries and variables; stage B fixes stage-A
-values read-only. The freeze increment's +34 adjudicated rows
-(airside apron churn 93/103) are NOT accepted as an interim — the
-merge criterion is the spec's original acceptance: corridor +130
-returns, apron −11906 worst ≤0.86 m, seam tear gone, every remaining
-delta row-attributed. S1's independent law-defect fix (stations
+values read-only. MERGE CRITERION, RESTATED IN LAW TERMS (owner 2026-08-14: the law is
+BINARY — a row is within grade or it is not; magnitude drift inside a
+persisting violation row is NOT a defect metric, per the standing
+band-lawful-displacement ruling — and metre-scale wiggles are
+imperceptible in-sim): the S1 chain merges when every airside row
+that FLIPS INTO VIOLATION vs the pre-corridor reference (ledger
+9713491f, body 7bf9038e93f7-class join per S1c) is either gone or
+row-attributed to a named lawful mechanism. Magnitude changes at
+sites whose violation state is unchanged (the 11.33→11.49 mega-apron
+residue class) are recorded as context, never blockers. The original
+"apron −11906 worst ≤0.86 m" clause is RETIRED — S1c measured that
+site closed by corridor-joins before the freeze; no such site exists.
+Seam tear: gone (paid by the freeze). Open at S1c close: net +23
+new-violation rows, all in corridor-changed rings — owned by S2's
++152-class work. S1's independent law-defect fix (stations
 frozen onto later-decimated rings) and the assert_frozen rail ride
 in with it.
 

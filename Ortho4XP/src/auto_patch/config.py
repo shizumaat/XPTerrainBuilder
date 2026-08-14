@@ -5651,18 +5651,21 @@ OPEN_FRONTAGE_CLOSE_M = GAP_FILL_MAX_WIDTH_M / 2.0
 # corridor-band / daylight law owns; at or above it the ground is
 # surrounded by graded features that already fix its rim values.
 GAP_FILL_RIM_POCKET_GRADED_FRACTION = 0.75
-# DEFAULT OFF (owner/Fable ruling 2026-08-12b, after the HECA closing
-# read).  The detector, the width law and the post-solve-only posture all
-# stay landed and twinned, but the feature does not SHIP on: at HECA the
-# new default minted 1,330 new airside within_shape rows of which 1,238
-# are OFF-FACE (median 63 m, worst 140-207 m out at up to 11.31 m
-# apron|apron, +253 airside / +241 airside_for_acceptance) -- a THIRD
-# channel by which rim pockets move airside pavement, distinct from the
-# stage-B2 absorption the post-solve-only default closed at OTHH and ~30x
-# its scale.  Attributing that channel, and re-enabling this gate, belong
-# to the staged-solve design round.
+# DEFAULT ON (owner ruling 2026-08-14, closing the staged-solve round's
+# S4/s4rim2 arc; supersedes the 2026-08-12b park).  The 2026-08-12b
+# off-face channel (1,238/1,330 airside rows, median 63 m) was
+# attributed and closed in two increments: the stage partition made
+# rim-pocket spines UNCONDITIONALLY stage B (RULINGS 2026-08-14 —
+# an airside rim arm is READ as immutable boundary, never written),
+# and the enclosure-host stamp replaced the false "enclosed gap of the
+# airside union" premise.  Measured at the flip (lane/s4rim2): the
+# knoll grades (93.7-class), HECA law-true 7221->7139, OTHH airside
+# unchanged, and the remaining airside churn is the lawful near-cap
+# membership band (82<->82 rows at 1.006-1.015% vs the 1.0% cap),
+# vertex moves <=0.33 m.  The owner ruled the flip with the in-sim
+# pass at the knoll site as the final judge.
 GAP_FILL_RIM_POCKETS_ENABLED = (
-    _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "0") == "1")
+    _os.environ.get("O4_GAP_FILL_RIM_POCKETS", "1") == "1")
 
 # RIM-POCKET ABSORPTION GATE — RETIRED (owner ruling 2026-08-13, RULINGS
 # "OTHH -639 ADJUDICATED"; S3 dossier §6, lane S4).  `O4_RIM_PRESOLVE_ABSORB`

@@ -924,26 +924,16 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                                    status="done")
         UI.lvprint(0, "   Auto-patch:", icao,
                    f"took {r['build_s']:.1f}s (verify {r['verify_s']:.1f}s)")
-        # Fold this airport's emitted-pad records into the tile's pad
-        # sidecar (MAIN process only — see ``_build_write_verify_one``).
-        # An airport that emitted NO pads still writes: the merge REPLACES
-        # its previous records, so a pad that stopped being lawful stops
-        # being remembered instead of re-emitting forever.
-        _pad_records = r.get("object_pad_records")
-        if _pad_records is not None:
-            try:
-                from . import object_pads as _object_pads
-                import O4_File_Names as _PAD_FNAMES
-
-                _pad_sidecar = _object_pads.sidecar_path(
-                    _PAD_FNAMES.patch_dir(t["tile_lat"], t["tile_lon"]))
-                if _pad_records or os.path.isfile(_pad_sidecar):
-                    _object_pads.merge_emitted_records(
-                        _pad_sidecar, icao, list(_pad_records))
-            except Exception:                      # pragma: no cover
-                # Losing the convergence memory degrades to "re-derive
-                # from requests next build"; it must never fail a tile.
-                pass
+        # THE `emitted` PERSISTENCE IS RETIRED (R3 step 4; RULINGS
+        # "OBJECT PADS: EMISSION-TIME RELATIVE").  This is where an
+        # airport's emitted pads used to be folded back into the tile's
+        # pad sidecar so the NEXT build could re-emit them after their
+        # requests converged away — the cross-build memory the owner
+        # retired, and the mechanism that made a pad population depend on
+        # how many times the tile had been built.  Pads are now derived
+        # in-run from the pad frame and this build's own solved patch, so
+        # there is nothing to remember: ``object_pad_records`` travel back
+        # on the result for the log and the verifier and stop there.
 
 
 # ──────────────────────────────────────────────────────────────────────────────

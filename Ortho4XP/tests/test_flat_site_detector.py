@@ -634,32 +634,44 @@ def test_pack_consensus_is_confirmatory_and_absent_data_is_no_data():
     assert disagreeing["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
 
 
-def test_below_grade_pad_requests_are_excluded(tmp_path):
-    """An open-pit drainage basin asks for a TRENCH FLOOR, not a seat."""
-    import json
+def test_below_grade_pack_parts_are_excluded(tmp_path):
+    """An open-pit drainage basin asks for a TRENCH FLOOR, not a seat.
 
-    from auto_patch import object_pads
+    S4's evidence is now the IN-RUN object pad frame, not a prior build's
+    pad sidecar (RULINGS "OBJECT PADS: EMISSION-TIME RELATIVE" — that
+    read-back made a report-only detector depend on how often the tile
+    had been built).  The target is each part's RENDERED BASE against the
+    caller's ground authority, through ``object_frame``'s own formula."""
+    from auto_patch.object_frame import ObjectPadFrame, PadAnchor, PadPart
 
-    sidecar = {
-        "version": 4,
-        "airports": [{"icao": "TEST", "requests": [
-            {"target_ground_metres": 4.0, "base_y": -0.2},
-            {"target_ground_metres": 4.1, "base_y": 0.0},
-            {"target_ground_metres": 0.2, "base_y": -3.8},   # a basin
-        ]}],
-    }
-    path = object_pads.sidecar_path(str(tmp_path))
-    with open(path, "w") as handle:
-        json.dump(sidecar, handle)
+    def part(key, base_y, resource):
+        return PadPart(structure_index=0, part_key=key,
+                       base_resource=resource, base_y=base_y,
+                       latitude=25.25, longitude=51.6,
+                       contact_parts_lonlat=((),))
 
-    got = flat_site.pack_seat_targets(str(tmp_path), "TEST")
+    frame = ObjectPadFrame(
+        parts=(part(1, -0.2, "a.obj"), part(2, 0.0, "a.obj"),
+               part(3, -3.8, "a.obj")),          # the basin
+        anchor_by_resource={"a.obj": PadAnchor(
+            latitude=25.25, longitude=51.6,
+            above_ground_level_metres=0.0)})
+
+    got = flat_site.pack_seat_targets(
+        str(tmp_path), "TEST", pad_frames=[frame],
+        ground_at=lambda latitude, longitude: 4.2)
     assert got["n_total"] == 3
     assert got["n_below_grade"] == 1
-    assert sorted(got["targets"]) == [4.0, 4.1]
-    assert flat_site.pack_seat_targets(str(tmp_path), "OTHER")["targets"] == []
-    # No sidecar at all is absent data, not an error.
-    assert flat_site.pack_seat_targets(str(tmp_path / "nope"),
-                                       "TEST")["targets"] == []
+    assert sorted(got["targets"]) == [4.0, 4.2]
+    # No frames, or no ground authority, is ABSENT DATA — not an error,
+    # and never a fail (the spec's ``no_data``).
+    assert flat_site.pack_seat_targets(str(tmp_path), "TEST")["targets"] == []
+    assert flat_site.pack_seat_targets(
+        str(tmp_path), "TEST", pad_frames=[frame])["targets"] == []
+    # Nothing on disk is consulted at all any more.
+    assert flat_site.pack_seat_targets(
+        str(tmp_path / "nope"), "TEST", pad_frames=[frame],
+        ground_at=lambda latitude, longitude: 4.2)["n_total"] == 3
 
 
 # ──────────────────────────────────────────────────────────────────────

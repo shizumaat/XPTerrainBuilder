@@ -6677,9 +6677,11 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                              f"FAILED: {exc!r}")
 
         # ── TERRAIN-SIDE BUILDING PADS (gate DSF_OBJECT_OBJECT_PADS) ────
-        # docs/specs/per-cluster-object-seating-spec.md section 5.4, the
-        # consumer of the post-mesh pad REQUEST sidecar.  LAST of the
-        # terrain emitters by design and by the spec's ordering clause:
+        # docs/specs/per-cluster-object-seating-spec.md section 5.4.  The
+        # pads are derived IN-RUN from the object pad frame and THIS
+        # build's own solved patch (RULINGS "OBJECT PADS: EMISSION-TIME
+        # RELATIVE"); no request sidecar is read.  LAST of the terrain
+        # emitters by design and by the spec's ordering clause:
         # "Pads emit AFTER adjacent-ground bands and OLS (they must weld
         # to final feature values), i.e. last in the terrain block,
         # before tile cut."  A pad is clipped by pavement and by every
@@ -6687,8 +6689,9 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # module is imported INSIDE the gate so it is byte-inert when off.
         from .config import DSF_OBJECT_OBJECT_PADS as _pads_enabled
         if _pads_enabled and _projection_dem is not None:
-            # The sidecar lives in the patch directory of the tile whose
-            # post-mesh pass wrote it.  In a tile build that is
+            # The Phase 2 WORKLIST lives in the patch directory of the
+            # tile the driver wrote it for, and it is what names this
+            # airport's object packs.  In a tile build that is
             # ``current_tile_*``; in the standalone patch build (no
             # ``tile_dem``, ``current_tile_lat`` None) it is the anchor
             # tile — which is exactly what ``_projection_tile_*`` already

@@ -4005,13 +4005,20 @@ assert (
 DSF_OBJECT_PAD_MAX_RELIEF_M = float(
     _os.environ.get("O4_DSF_OBJECT_PAD_MAX_RELIEF_M", "3.0"))
 
-# THE PAD CONSUMER GATE (per-cluster-object-seating-spec section 5.4 +
+# THE PAD EMISSION GATE (per-cluster-object-seating-spec section 5.4 +
 # object-reseat-threshold-spec section 2.3).  With this on, the auto-patch
-# phase READS the tile's ``o4_object_foot_pads.json`` request sidecar and
-# emits ``object_pad`` terrain under the requesting clusters/feet; with it
-# off the sidecar stays what it has always been — a durable audit trail
-# nothing consumes — and the emitted patch is byte-identical to a
-# pre-consumer build.
+# phase derives building pads IN-RUN from the object pad frame
+# (``object_frame`` / ``post_mesh.pad_frames_from_worklist``) and this
+# build's own solved patch (``patch_ground``), and emits ``object_pad``
+# terrain under them; with it off nothing is derived or emitted and the
+# patch is byte-identical to a pre-feature build.
+#
+# THE CONSUMER FRAMING IS RETIRED (RULINGS "OBJECT PADS: EMISSION-TIME
+# RELATIVE", owner 2026-08-14).  This used to be the gate on READING the
+# tile's ``o4_object_foot_pads.json`` request sidecar — the cross-build
+# read-back that made a pad the product of the PREVIOUS build's mesh.  No
+# terrain path reads that file any more; it is the y-bake's write-only
+# audit trail.  What the flag gates is emission, and only emission.
 #
 # DEFAULT ON (object-reseat-threshold-spec section 2.3): the parent spec
 # held it off pending an owner in-sim verdict, and the owner's 2026-08-09

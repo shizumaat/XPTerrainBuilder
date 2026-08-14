@@ -210,6 +210,12 @@ def sweep_one(icao: str, xplane_root: str, *, elevation_level: str,
                        + "no CIFP file")
     if patch_dir is None:
         patch_dir = FNAMES.patch_dir(tile_lat, tile_lon)
+    # S4's pack evidence is now IN-RUN (the pad-sidecar read-back retired
+    # with RULINGS "OBJECT PADS: EMISSION-TIME RELATIVE").  The sweep is
+    # an offline raster instrument with no worklist and no pack in hand,
+    # so its S4 is NO DATA — which the spec already treats as no_data and
+    # never as a fail.  It was never the sweep's signal: every arm this
+    # tool reports is S1/S2/S3.
     pack = flat_site.pack_seat_targets(patch_dir, icao)
 
     row["record"] = flat_site.classify_site(

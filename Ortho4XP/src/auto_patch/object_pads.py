@@ -1,16 +1,26 @@
-"""Terrain-side BUILDING PADS — the consumer of the object foot/cluster
-pad request sidecar (docs/specs/per-cluster-object-seating-spec.md §5.2,
-§5.4, §5.5; chartered by docs/specs/object-reseat-threshold-spec.md §2.3).
+"""Terrain-side BUILDING PADS — emitted IN-RUN from the object pad frame
+(docs/specs/per-cluster-object-seating-spec.md §5.1, §5.4, §5.5;
+chartered by docs/specs/object-reseat-threshold-spec.md §2.3; mechanism
+per RULINGS "OBJECT PADS: EMISSION-TIME RELATIVE", owner 2026-08-14).
 
-WHAT THIS IS.  The post-mesh y-bake (``post_mesh.rebake_dsf_objects`` →
-``object_anchor.structure_deltas``) seats DSF object clusters rigidly and
-records what a rigid offset could NOT close as pad REQUESTS in
-``Patches/<tile>/o4_object_foot_pads.json``.  Until this module the
-requests were a durable audit trail nothing consumed — the engine could
-record that terrain should come to a building and never build it.  This
-module is that consumer: it reads the sidecar during the auto-patch phase
-and emits ``object_pad`` terrain that meets the seated building base,
-welds to graded pavement, and blends to raw DEM.
+WHAT THIS IS.  A DSF object renders its ``y = 0`` plane at the ground
+under its placement anchor plus its authored offsets, so terrain that is
+supposed to MEET a building base has to know what elevation the surface
+will carry there.  This module answers that from THE SAME BUILD: the
+mesh-free pad frame (``object_frame``, built once per build behind the
+pristine-input cache) supplies the pack evidence — parts, contact bands,
+``base_y``, render datums — and the emitted patch's own evaluated ground
+(``patch_ground.PatchGroundField``, read post-solve) supplies the
+elevation.  Pads are then emitted as ``object_pad`` terrain at the
+resulting target.
+
+WHAT THIS IS NOT, ANY MORE.  It does not read
+``Patches/<tile>/o4_object_foot_pads.json``.  That read-back made a pad
+the product of the PREVIOUS build's mesh — the cross-build convergence
+the owner retired ("no convergence and no multi-build anything"), and
+the measured ratchet (object_pad 689 → 723 → 736 over three identical
+builds).  The sidecar survives as the y-bake's WRITE-ONLY audit trail;
+nothing in the terrain path consumes it.
 
 THE PAD LAW is NOT here.  Every scalar — target admissibility, the
 pull-toward-pavement, the open-side blend — lives in ``grade_law`` and is
@@ -38,56 +48,34 @@ of its contact parts' hulls, each dilated by
 ``DSF_OBJECT_FOOT_PAD_MARGIN_M`` (``object_footprints.foot_pad_rings``,
 object-reseat-threshold-spec §2.5 — the single group hull it replaced
 spanned the water and parking lots between spread-out parts).  Each ring
-is resolved into its own spec here and emitted on its own; that dilation
-IS §5.1 clause 4's "margin ring grown from the contact hull", so one ring
-emits TWO welded shapes:
+is resolved into its own spec here and emitted on its own.
 
-  * the CORE — the eroded ring (the contact hull), flat at the pad target
-    ``b``: terrain meets the building base exactly, no float, no sink;
-  * the BLEND — the annulus between the core and the outer ring, a
-    polygon WITH THE CORE AS ITS HOLE.  Its exterior carries the law's
-    blend value (raw DEM on an open side, the pavement's own solved value
-    on a welded side); its interior ring is deliberately UNVALUED, because
-    the shape standing in the hole — the core — is that ring's authority
-    (``layout.to_osm``: "an interior vertex is shared with whatever shape
-    stands in the hole, and THAT shape's claim is the value").
+CORE ONLY — WELD OR GAP (owner 2026-08-13, "TRANSITION MACHINERY
+RETIRES").  A pad used to emit two shapes: the eroded CORE at the target,
+and a BLEND annulus ramping from it to raw DEM (or welding to pavement).
+The annulus is a feather, and feathers retire as a class — the patch↔DEM
+transition is Ortho4XP's own mesh drape.  So one ring now emits ONE
+shape, the core, and the annulus it used to fill becomes exactly what the
+ruling calls for: an ambient-DEM GAP the mesh drapes.  The erosion width
+is unchanged (``grade_law.object_pad_blend_width_m`` on the ORIGINAL
+ring), because it is what makes the core the contact hull; only the
+filling of it is gone.  Nothing the pad emits touches another patch
+surface, so the weld half of the law has nothing to weld: the clip
+against pavement and features runs first and the erosion pulls the core
+off every remaining edge.
 
-Both shapes carry role ``object_pad``; they are told apart by ``ref``
-(``object_pad:<n>`` / ``object_pad_blend:<n>``), the same ref-tagging
-``ols.py`` uses for its road half-shapes.  ONE new role literal is what
-the spec authorises, and one is what this emits.
+``REF_PAD_CORE`` still tags the shape (``object_pad:<n>``), one role
+literal, as the spec authorises.
 
-NEXT-BUILD CONVERGENCE (§5.2).  Requests are computed POST-mesh; terrain
-is consumed PRE-mesh.  So build N's rebake writes requests, build N+1
-emits pads for them, and build N+1's rebake re-measures against terrain
-that now meets the feet — the residuals fall under
-``DSF_OBJECT_FOOT_PAD_RESIDUAL_M`` and the requests VANISH.  To keep the
-pads that caused the convergence from vanishing with their requests, this
-module persists what it emitted into the sidecar's ``emitted`` section
-(version 5), each record carrying its ring, its target and the FINGERPRINT
-of the seat that produced it.  A record is re-emitted until it goes stale
-(§5.2), and staleness has exactly four causes, all measured, none
-guessed:
+DETERMINISM (the ruling's own acceptance).  Every input is this build's:
+the frame is pack data, the ground is this build's solved patch.  No
+sidecar is read, no record is persisted for the next build to re-emit,
+and there is nothing left for a pad to converge to.
 
-  0. the SIDECAR is older than the current ring law — the whole file is
-     refused, requests and records alike (§2.5's version gate);
-
-  1. the LAW moved — the pad-law digest (gate + caps + margin) differs
-     from the digest stamped on the record;
-  2. the SEAT moved — a live request with the same seat KEY carries a
-     different fingerprint, so the fresh request supersedes the record;
-  3. the sidecar is gone — the pack was restored or no longer produces
-     requests at all, and with it every record.
-
-Everything else re-emits byte-stably, which is what makes build N+2 a
-fixed point.  (An in-run re-mesh is REJECTED by the spec; nothing here
-re-meshes.)
-
-WHO WRITES THE SIDECAR.  Airports build in a ProcessPool, so this module
-never writes the tile-level sidecar from a worker: ``emit_object_pads``
-stashes its records on the layout, the worker returns them, and
-``driver`` merges them in the MAIN process — the same discipline the
-object-anchor worklist already follows.
+RECORDS.  ``emit_object_pads`` still stashes what it emitted on the
+layout — ``object_pad_records`` — as the audit ``verification.
+check_object_pads`` reads and the build log counts.  They are a report of
+one build, never an input to the next; nothing merges them to disk.
 """
 
 from __future__ import annotations
@@ -105,7 +93,6 @@ from .clearance import _GEOM_EXC, _open_coords
 from .emit_decimate import Z_TOL_BOUNDARY_M, decimate_shape_group
 from .grade_law import (
     object_pad_admissible,
-    object_pad_blend_elevation,
     object_pad_blend_width_m,
     object_pad_pull_shortfall_m,
     object_pad_pull_toward_pavement,
@@ -165,7 +152,12 @@ PAVEMENT_DIGEST_FINDING = "pad_deformed_pavement"
 
 def sidecar_path(patch_dir: str) -> str:
     """The tile's pad sidecar path inside ``patch_dir``.  The filename
-    comes from ``post_mesh`` (one source; the name is wire-adjacent)."""
+    comes from ``post_mesh`` (one source; the name is wire-adjacent).
+
+    NOTHING IN THE BUILD PATH READS THIS FILE any more (R3 step 4): the
+    sidecar is the y-bake's write-only audit trail, and these readers
+    exist for the offline instruments (``tools/object_pad_anchor_report``)
+    and their twins."""
     from .post_mesh import OBJECT_FOOT_PAD_SIDECAR_FILENAME
 
     return os.path.join(patch_dir, OBJECT_FOOT_PAD_SIDECAR_FILENAME)
@@ -283,186 +275,83 @@ def seat_fingerprint(entry: dict, digest: str | None = None) -> str:
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
 
 
-def _airport_entry(sidecar: dict, icao: str):
-    """The sidecar's request block for ``icao``, or ``None``."""
-    for entry in sidecar.get("airports") or ():
-        if str(entry.get("icao") or "").upper() == str(icao or "").upper():
-            return entry
-    return None
+def specs_from_frames(frames, datum_ground_at, surface_ground_at, *,
+                      icao: str = "", claim=None):
+    """ONE airport's pad specs, derived IN-RUN from the pad frames.
 
+    This replaces ``pads_for_airport`` — the sidecar read-back — with the
+    ruling's emission-time derivation.  ``frames`` are the airport's
+    ``object_frame.ObjectPadFrame``s (``post_mesh.pad_frames_from_worklist``
+    in production); ``datum_ground_at`` is the emitted patch's own ground
+    (the render datum's authority, per the ruling) and
+    ``surface_ground_at`` is patch-or-DEM — the mesh's own rule, for the
+    ground under a part.  See ``object_frame.pad_requests_from_frame``
+    for why they are two.
 
-def pads_for_airport(sidecar: dict, icao: str, claim=None):
-    """Resolve ONE airport's pad population for THIS build.
+    THE ARITHMETIC LIVES IN ``object_frame.pad_requests_from_frame``, not
+    here: that function is the one place the rebake's ``seated=False``
+    formula is spelled, so the emitter and the y-bake fallback cannot
+    drift about what a request IS.  This function adds only what the
+    request needs to be EMITTED and AUDITED — the seat identity, the
+    fingerprint, the law digest — and the airport claim.
 
-    ``claim(latitude, longitude) -> bool`` decides which of the TILE's
-    pads are THIS airport's ground.  It has to, because the sidecar's
-    per-airport blocks are keyed by the airport the tile's DSF was
-    ATTRIBUTED to, which is not always the airport whose ground the pad
-    stands on: measured on +25+051 (2026-08-09), all 823 cluster requests
-    — resources named ``Buildings/Terminal/OTHH_*``, sitting at OTHH's
-    coordinates — are recorded under **OTBD**, because ONE Global Airports
-    DSF cell carries both airports and the worklist attributes the cell to
-    one of them.  A pad must land in the patch of the airport it
-    physically stands at (patches are per-airport and airports do not
-    share ground), so GEOMETRY claims and the recorded ICAO is provenance.
-    ``None`` — the pure default the unit tests use — falls back to the
-    recorded ICAO.
+    THE CLAIM, unchanged in doctrine from the sidecar reader it replaces:
+    a DSF cell can carry two airports' objects (measured on +25+051: all
+    823 OTHH cluster requests recorded under OTBD), patches are
+    per-airport, and airports do not share ground — so GEOMETRY decides
+    which pads are this airport's.  ``claim(latitude, longitude) -> bool``;
+    ``None`` claims everything, which is the unit tests' pure default.
 
-    A sidecar older than the current ring law (§2.5) is refused whole:
-    no spec comes out of it and every stored record expires
-    ``sidecar_version_stale``, so a corpus of hull rings can never be
-    emitted by a build that implements the hugging rings.
-
-    THE FAN-OUT.  A request carries ``rings_lonlat`` — one ring per
-    connected component of its parts' dilated contact hulls — and each
-    ring becomes its OWN spec, carrying the group's seat identity plus
-    its ``ring_index``.  Everything downstream (emission, refusal
-    accounting, the stored record) is per RING, which is what keeps a
-    component that lands wholly inside pavement from condemning its
-    siblings.  Residual accounting is unchanged: the group is still one
-    request record with one residual.
-
-    Returns ``(specs, expired)``.  ``specs`` are the pads to emit, each a
-    dict carrying the ring, the target, the seat key/fingerprint and its
-    ``source`` (``"request"`` — a live request from the last rebake — or
-    ``"emitted"`` — a stored record standing in after its request
-    converged away).  ``expired`` are ``(key, reason)`` pairs for records
-    dropped as stale, which §5.5 requires be reported rather than lost
-    silently.
-
-    The resolution IS the convergence law of §5.2, in one place:
-
-      * a live request always wins over a stored record of the same seat
-        (the rebake just measured it);
-      * a record whose law digest no longer matches is dropped;
-      * every other record is re-emitted verbatim, which is what makes a
-        converged build byte-stable.
+    Returns ``(specs, findings)``.  ``findings`` are the frame's own —
+    unhosted datums, unclaimed rings, and the self-covering requests step
+    (5) routes to the y-bake — carried through so the pad verifier
+    surfaces them beside the emitter's refusals.
     """
+    from .config import (
+        DSF_OBJECT_FOOT_PAD_MARGIN_M,
+        DSF_OBJECT_NOBAKE_PAD_FLOOR_M,
+        DSF_OBJECT_PAD_MAX_RELIEF_M,
+    )
+    from .object_frame import pad_requests_from_frame
+
     digest = law_digest()
     specs: list[dict] = []
-    expired: list[tuple[str, str]] = []
+    findings: list[tuple] = []
     seen: set[str] = set()
-
-    if not sidecar_is_current(sidecar):
-        # §2.5's version gate.  Nothing in this file describes geometry
-        # this build may emit; report every record it held so the loss is
-        # measured, and let the next rebake write a current corpus.
-        for record in (sidecar or {}).get(EMITTED_SECTION_KEY) or ():
-            if isinstance(record, dict):
-                expired.append((str(record.get("seat_key")
-                                    or seat_key(record)),
-                                "sidecar_version_stale"))
-        if not expired:
-            expired.append((f"<sidecar v{sidecar_version(sidecar)}>",
-                            "sidecar_version_stale"))
-        return specs, expired
-
-    def _mine(entry: dict, block_icao: str) -> bool:
-        if claim is None:
-            return str(block_icao or "").upper() == str(icao or "").upper()
-        try:
-            return bool(claim(float(entry.get("latitude")),
-                              float(entry.get("longitude"))))
-        except (TypeError, ValueError):
-            return False
-
-    if claim is None:
-        blocks = [(_airport_entry(sidecar, icao) or {}, icao)]
-    else:
-        blocks = [(block, block.get("icao"))
-                  for block in (sidecar.get("airports") or ())
-                  if isinstance(block, dict)]
-    for entry, block_icao in blocks:
-        for request in entry.get("requests") or ():
-            if not isinstance(request, dict):
-                continue
-            if not _mine(request, block_icao):
-                continue
-            for ring_index, ring in enumerate(
-                    request.get("rings_lonlat") or ()):
-                if not ring or len(ring) < 3:
+    for frame in frames or ():
+        requests, frame_findings = pad_requests_from_frame(
+            frame,
+            datum_ground_at,
+            surface_ground_at,
+            residual_floor_m=float(DSF_OBJECT_NOBAKE_PAD_FLOOR_M),
+            margin_metres=float(DSF_OBJECT_FOOT_PAD_MARGIN_M),
+            maximum_relief_metres=float(DSF_OBJECT_PAD_MAX_RELIEF_M),
+        )
+        findings.extend(frame_findings)
+        for request in requests:
+            if claim is not None:
+                try:
+                    if not claim(float(request["latitude"]),
+                                 float(request["longitude"])):
+                        continue
+                except (TypeError, ValueError):    # pragma: no cover
                     continue
-                spec = dict(request)
-                spec.pop("rings_lonlat", None)
-                spec["ring_index"] = ring_index
-                spec["ring_lonlat"] = ring
-                key = seat_key(spec)
-                if key in seen:
-                    continue
-                seen.add(key)
-                spec["seat_key"] = key
-                spec["fingerprint"] = seat_fingerprint(spec, digest)
-                spec["law_digest"] = digest
-                spec["source"] = "request"
-                specs.append(spec)
-
-    for record in sidecar.get(EMITTED_SECTION_KEY) or ():
-        if not isinstance(record, dict):
-            continue
-        if not _mine(record, record.get("icao")):
-            continue
-        key = str(record.get("seat_key") or seat_key(record))
-        if key in seen:
-            # Superseded by a live request for the same seat: the fresh
-            # measurement is the authority (§5.2 staleness cause 2).  Not
-            # an expiry — the pad is still emitted, from newer numbers.
-            continue
-        if str(record.get("law_digest") or "") != digest:
-            expired.append((key, "law_digest_changed"))
-            continue
-        ring = record.get("ring_lonlat")
-        if not ring or len(ring) < 3:
-            expired.append((key, "ring_lost"))
-            continue
-        spec = dict(record)
-        spec["seat_key"] = key
-        spec.setdefault("fingerprint", seat_fingerprint(record, digest))
-        spec["source"] = "emitted"
-        specs.append(spec)
-        seen.add(key)
-
-    specs.sort(key=lambda s: s["seat_key"])       # deterministic emission
-    return specs, expired
-
-
-def merge_emitted_records(path: str, icao: str, records: list) -> bool:
-    """MAIN-PROCESS ONLY: fold one airport's emitted-pad records into the
-    tile sidecar's ``emitted`` section, replacing that airport's previous
-    records and leaving every other airport's alone.
-
-    Returns True when the file was written.  Never raises: losing the
-    convergence memory must degrade to "the pads re-derive from requests
-    next build", never to a failed tile."""
-    try:
-        payload = load_sidecar(path)
-        if payload is None:
-            if not records:
-                return False
-            payload = {"airports": []}
-        if not sidecar_is_current(payload):
-            # Stamping the current version onto a stale corpus would
-            # LAUNDER it: the next build would read hull-law requests and
-            # records as if this law had produced them.  With nothing to
-            # add, leave the file exactly as it is — the rebake rewrites
-            # it under the current law, and destroying an audit trail we
-            # merely refuse to CONSUME is not this function's business.
-            if not records:
-                return False
-            payload = {"airports": []}
-        kept = [r for r in (payload.get(EMITTED_SECTION_KEY) or ())
-                if isinstance(r, dict)
-                and str(r.get("icao") or "").upper() != str(icao).upper()]
-        kept.extend(records)
-        payload[EMITTED_SECTION_KEY] = kept
-        payload["version"] = _current_sidecar_version()
-        directory = os.path.dirname(path)
-        if directory and not os.path.isdir(directory):
-            os.makedirs(directory, exist_ok=True)
-        with open(path, "w") as handle:
-            json.dump(payload, handle, indent=1)
-        return True
-    except (OSError, ValueError, TypeError):       # pragma: no cover
-        return False
+            key = seat_key(request)
+            if key in seen:
+                # Two pools of one airport reaching the same seat is not
+                # expected (pools partition the placements), so this is a
+                # guard rather than a law — first spec wins, silently, the
+                # way the sidecar reader's own dedup did.
+                continue
+            seen.add(key)
+            spec = dict(request)
+            spec["seat_key"] = key
+            spec["fingerprint"] = seat_fingerprint(spec, digest)
+            spec["law_digest"] = digest
+            spec["source"] = "frame"
+            specs.append(spec)
+    specs.sort(key=lambda spec: spec["seat_key"])   # deterministic emission
+    return specs, findings
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -470,8 +359,8 @@ def merge_emitted_records(path: str, icao: str, records: list) -> bool:
 # ──────────────────────────────────────────────────────────────────────
 
 #: How far off its own built surfaces an airport still claims a pad.  The
-#: sidecar is per TILE and its blocks are keyed by DSF attribution, so
-#: geometry decides ownership (see ``pads_for_airport``); this is the
+#: worklist is per TILE and its entries are keyed by DSF attribution, so
+#: geometry decides ownership (see ``specs_from_frames``); this is the
 #: reach of that claim.  Generous against the airport's own extent (a
 #: hangar apron outside the pavement hull is still the airport's) and an
 #: order of magnitude under the separation between two airports that
@@ -756,26 +645,39 @@ def _nearby(tree, polys, poly):
 
 def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
                      tile_lon: int, *, icao: str = "",
-                     sidecar: dict | None = None,
+                     pad_frames=None,
                      patch_dir: str | None = None) -> int:
     """Emit the airport's building pads.  Mutates ``layout.shapes``;
     returns the number of shapes emitted.
 
     No-op returning 0 when ``config.DSF_OBJECT_OBJECT_PADS`` is off, when
-    there is no DEM, or when the tile has no pad sidecar — the gate is
+    there is no DEM, or when the airport has no object pack — the gate is
     read at CALL time, so a gate-off build is byte-identical to a
-    pre-consumer build even once this module is imported.
+    pre-feature build even once this module is imported.
+
+    ``pad_frames`` are the airport's ``object_frame.ObjectPadFrame``s.
+    Passed in by the unit tests; resolved from the tile's Phase 2
+    worklist (``post_mesh.pad_frames_from_worklist``) when only
+    ``patch_dir`` is given, which is the production call.  The frame is
+    built once per build behind the pristine-input cache, so resolving it
+    here is a disk read on every build after the pack's first.
+
+    THE GROUND IS THIS BUILD'S PATCH (RULINGS "OBJECT PADS: EMISSION-TIME
+    RELATIVE").  ``patch_ground.field_from_layout`` reads the surface the
+    solve just produced — which is why the ordering contract below is not
+    merely about welds any more: the field must see the FINAL terrain.
 
     Ordering contract for the caller (§5.4): run this AFTER the
-    adjacent-ground bands and the OLS cuts — pads weld to FINAL feature
-    values — i.e. last in the terrain block, before the tile cut.
+    adjacent-ground bands and the OLS cuts, i.e. last in the terrain
+    block, before the tile cut.
 
     Records for the caller, all stashed on ``layout``:
 
-      * ``object_pad_records`` — the ``emitted`` section to persist
-        (MAIN process; see ``merge_emitted_records``);
-      * ``object_pad_findings`` — refusals and expiries, the input to
-        ``verification.check_object_pads``.
+      * ``object_pad_records`` — what this build emitted, for the log line
+        and ``verification.check_object_pads``.  A report, never an input
+        to another build: nothing persists them.
+      * ``object_pad_findings`` — refusals, unhosted datums and the
+        self-covering requests routed to the y-bake.
     """
     layout.object_pad_records = []
     layout.object_pad_findings = []
@@ -783,20 +685,19 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         return 0
     if layout is None or getattr(layout, "anchor", None) is None:
         return 0
-    if sidecar is None:
+    claim = _footprint_claim(layout)
+    if pad_frames is None:
         if patch_dir is None:
             return 0
-        sidecar = load_sidecar(sidecar_path(patch_dir))
-    if not sidecar:
-        return 0
+        from .post_mesh import pad_frames_from_worklist
 
-    specs, expired = pads_for_airport(sidecar, icao,
-                                      claim=_footprint_claim(layout))
-    findings: list[tuple] = [
-        ("pad_record_expired", key, 0.0, 0.0, reason)
-        for key, reason in expired]
-    if not specs:
-        layout.object_pad_findings = findings
+        # NO placement-level claim here, deliberately: round-4 spec R2's
+        # containment is applied to the REQUEST below (``specs_from_frames``
+        # → ``claim``), which is where the retired sidecar reader applied
+        # it too, and which lets the frames themselves be memoized once
+        # per airport and shared with the flat-site detector's S4 read.
+        pad_frames = pad_frames_from_worklist(patch_dir, icao)
+    if not pad_frames:
         return 0
 
     from .config import (
@@ -805,6 +706,7 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         GROUNDSIDE_MAX_GRADE,
     )
     from .elevation import _sample_dem
+    from .patch_ground import field_from_layout
 
     margin = float(DSF_OBJECT_FOOT_PAD_MARGIN_M)
     ll_to_m = layout.ll_to_m
@@ -816,6 +718,38 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
             return _sample_dem(dem, tile_lat, tile_lon, lat, lon)
         except _PAD_EXC:                          # pragma: no cover
             return None
+
+    ground_field = field_from_layout(layout)
+
+    def patch_at(latitude: float, longitude: float):
+        """The emitted patch's own ground at a world point, or ``None``
+        where the patch authors nothing."""
+        try:
+            x, y = ll_to_m(float(latitude), float(longitude))
+        except _PAD_EXC:                          # pragma: no cover
+            return None
+        value, _role = ground_field.value_at(x, y)
+        return value
+
+    def surface_at(latitude: float, longitude: float):
+        """THE MESH'S OWN RULE: the patch where the patch authors, the
+        ambient DEM where it does not — which is what the mesher will
+        drape and therefore the ground a part will actually stand on."""
+        value = patch_at(latitude, longitude)
+        if value is not None:
+            return value
+        try:
+            return _sample_dem(dem, tile_lat, tile_lon,
+                               float(latitude), float(longitude))
+        except _PAD_EXC:                          # pragma: no cover
+            return None
+
+    specs, findings = specs_from_frames(
+        pad_frames, patch_at, surface_at, icao=icao, claim=claim)
+    findings = list(findings)
+    if not specs:
+        layout.object_pad_findings = findings
+        return 0
 
     pavement = _pavement_shapes(layout)
     pavement_polys = [s.polygon for s in pavement]
@@ -896,14 +830,20 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
                              abs(relief), 0.0, at))
             continue
 
-        # §5.1 clause 4 — THE MARGIN RING, per request.  The recorded ring
+        # §5.1 clause 4 — THE MARGIN RING, per request.  The derived ring
         # is the contact hull DILATED by the margin, so eroding it back
         # recovers the hull; a ring too tight to afford the full margin
-        # keeps a real interior at a proportionally shorter ramp
+        # keeps a real interior at a proportionally shorter erosion
         # (``grade_law.object_pad_blend_width_m``), which is what "a
         # ``DSF_OBJECT_FOOT_PAD_MARGIN_M``-class margin, per-request"
         # licenses.  Derived from the ORIGINAL ring, never from a clipped
         # piece, so the clip cannot move the law.
+        #
+        # WELD OR GAP: what the erosion leaves is no longer FILLED by a
+        # blend annulus (that emitter retires, owner 2026-08-13) — it is
+        # the ambient-DEM gap the mesh drapes, and it is also what keeps
+        # the emitted core clear of every pavement and feature edge the
+        # clip left, so the pad touches no other patch surface at all.
         blend_width = object_pad_blend_width_m(outer.area, outer.length,
                                                margin)
         core_full = None
@@ -973,49 +913,24 @@ def emit_object_pads(layout: PavementLayout, dem, tile_lat: int,
         pulled_target = pulled
         shortfall = object_pad_pull_shortfall_m(target, pulled)
 
+        # CORE ONLY (weld or gap).  A piece with no core contributes
+        # NOTHING now: it used to become a blend plate, and a blend plate
+        # with no core is a pure feather over ground the pad does not
+        # hold — precisely the class the ruling retires.  What is left is
+        # the pad itself, flat at its target, surrounded by gap.
         pad_shapes: list = []
         pad_area = 0.0
-        for part, core in parts:
-            if core is not None:
-                coords = _open_coords(core)
-                if len(coords) >= 3:
-                    pad_shapes.append(BuiltShape(
-                        polygon=core, role=ROLE_OBJECT_PAD,
-                        ref=f"{REF_PAD_CORE}:{index}",
-                        node_altitudes=[round(pulled, 2)]
-                        * (len(coords) + 1)))
-                    pad_area += core.area
-                try:
-                    blend = part.difference(core)
-                except _PAD_EXC:                  # pragma: no cover
-                    blend = None
-            else:
-                blend = part
-            if blend is None or blend.is_empty:
+        for _part, core in parts:
+            if core is None:
                 continue
-            blend_parts = ([blend] if blend.geom_type == "Polygon"
-                           else [g for g in getattr(blend, "geoms", [])
-                                 if g.geom_type == "Polygon"])
-            for bp in blend_parts:
-                if bp.area < _MIN_PIECE_AREA_M2:
-                    continue
-                coords = _open_coords(bp)
-                if len(coords) < 3:
-                    continue
-                vals, material = _blend_values(
-                    coords, core, pulled, blend_width, dem_at, welds)
-                if vals is None:
-                    continue
-                if core is None and not material:
-                    # A blend plate with no core that reproduces the DEM
-                    # everywhere governs nothing; emitting it would buy
-                    # triangles and no terrain.
-                    continue
-                pad_shapes.append(BuiltShape(
-                    polygon=bp, role=ROLE_OBJECT_PAD,
-                    ref=f"{REF_PAD_BLEND}:{index}",
-                    node_altitudes=vals + [vals[0]]))
-                pad_area += bp.area
+            coords = _open_coords(core)
+            if len(coords) < 3:
+                continue
+            pad_shapes.append(BuiltShape(
+                polygon=core, role=ROLE_OBJECT_PAD,
+                ref=f"{REF_PAD_CORE}:{index}",
+                node_altitudes=[round(pulled, 2)] * (len(coords) + 1)))
+            pad_area += core.area
 
         if not pad_shapes:
             findings.append(("pad_clipped_away", key, abs(relief), 0.0, at))
@@ -1146,46 +1061,6 @@ def _pavement_run(part, core, near_pavement, welds: "_WeldIndex"):
     except _PAD_EXC:                               # pragma: no cover
         run = 0.0
     return max(0.0, run), float(value)
-
-
-def _blend_values(coords, core, target: float, blend_width_m: float, dem_at,
-                  welds: "_WeldIndex"):
-    """Per-vertex altitudes of one blend piece, and whether the piece is
-    MATERIAL (any vertex more than the materiality floor off raw DEM).
-
-    Three cases per vertex, in the precedence order of §5.4:
-
-      * ON a weld donor's ring → the donor's own solved value, verbatim
-        (§5.1 clause 3, ruling R4: the pavement value always wins);
-      * otherwise the law's blend from the target to raw DEM at the
-        vertex's distance out from the pad core (§5.1 clause 4);
-      * DEM unavailable → the target, so a pad never emits a hole.
-    """
-    out: list[float] = []
-    material = False
-    for (x, y) in coords:
-        weld = welds.value_at(x, y)
-        if weld is not None:
-            out.append(round(float(weld), 2))
-            continue
-        ground = dem_at(x, y)
-        if ground is None:
-            out.append(round(float(target), 2))
-            material = True
-            continue
-        if core is None or core.is_empty:
-            distance = blend_width_m
-        else:
-            try:
-                distance = float(core.distance(Point(x, y)))
-            except _PAD_EXC:                      # pragma: no cover
-                distance = blend_width_m
-        value = object_pad_blend_elevation(target, float(ground), distance,
-                                           blend_width_m)
-        if abs(value - float(ground)) > _MATERIALITY_M:
-            material = True
-        out.append(round(value, 2))
-    return (out or None), material
 
 
 def _decimate_pad_group(layout: PavementLayout, emitted_shapes: list) -> int:

@@ -696,3 +696,623 @@ both make pre-existing conditions visible for the first time.
   because the ruling requires it, not because it is load-bearing here.
 - Timing still not measured; free-end residual (40 over floor) is
   attributed but NOT fixed.
+
+## staged-solve S5v2 — object pads as a RELATIVE COUPLING (lane/s5pads2, 2026-08-13)
+
+**STOPPED AT A PREMISE OF THE RULED MECHANISM. NOTHING IMPLEMENTED, NO
+`src/` CHANGE.** The ruled design (RULINGS "OBJECT PADS: RELATIVE
+COUPLING", spec S5) mints, per in-reach structure, a rigid constraint
+`pad_level(part nodes) − ground_level(anchor node) = base_y` **between
+two IN-SOLVE nodes**, the anchor node being "the solve node at the
+placement point". Measured at both battery packs against the FROZEN
+1.0.245 patches, there is no such node for the objects that need one.
+
+MECHANISM. `object_anchor.py:2411-2432` samples the render datum at ONE
+point per resource — `mesh(placement.lat, placement.lon) + AGL` — so a
+coupling can only bind to whatever governs the mesh THERE. Two facts
+about that point decide the design, and both are pack-specific:
+
+1. **The datum is SHARED.** Packs author around one datum for hundreds of
+   resources. HECA: 385 `.anchor_bak` BAKED resources hang off **4**
+   anchor datums, 191 of them (and 1840 of 1883 pad requests) off ONE
+   point (30.1121180, 31.4120260). OTHH: 1229 baked resources off 93
+   datums, one carrying 466 resources / 2302 requests. A coupling minted
+   there is ONE solve variable governing thousands of pads spread across
+   the airport — and, where those pads are groundside and the host node
+   airside, exactly the cross-stage pull S1/S1b is chartered to retire.
+2. **The datum's host is not a SOLVE member.** HECA's dominant datum
+   stands ON emitted patch geometry — role `graded_strip` — but
+   `graded_strip` is a SOFT RECEIVER (`layout.SOFT_RECEIVER_ROLES`),
+   emitted post-solve and ABSENT from
+   `solver_primitives.PAVEMENT_ROLES`. It carries the mesh value the
+   renderer reads and no solve variable at all.
+
+MEASURED (`tools/object_pad_anchor_report.py`, promoted this lane with
+its INDEX row and twins; patches = the frozen baselines
+`/tmp/harness/consol3heca.osm` `f562cbfeb8f9` and
+`/tmp/harness/consol3othh.osm` `75594bc8773a`; meshes = the three
+perfbake HECA `--tile 30 31` runs; shared repo UNCHANGED — guard armed
+refuse-mode, `blocked=0`, 18 allowed `.lock` churn entries):
+
+| | HECA | OTHH |
+|---|---|---|
+| placements / resources / anchor datums | 3201 / 519 / 2700 | 11902 / 1366 / 8537 |
+| baked resources / pad requests | 385 / 1883 | 1229 / 9187 |
+| datums hosted on any emitted shape | 2112 / 2700 | 7023 / 8537 |
+| **pad requests on a SOLVE-role datum** | **0 / 1883** | 4732 / 9187 |
+| **baked resources on a SOLVE-role datum** | **0 / 385** | 747 / 1229 |
+
+- HECA's dominant datum: DEM 108.441 m, mesh **101.180 m** — the patch
+  cut 7.26 m there — and IDENTICAL across all three perfbake builds, so
+  the render datum is build-stable and the ratchet lives entirely in the
+  per-part `ground_metres`, not the anchor (confirms the s5pads dossier).
+- A PRE-SOLVE DEM read stands 7.261 m from that datum's render ground,
+  which is the s5pads premise test's `|.|p90 7.261 m` — that percentile
+  was this ONE point carrying 1840 requests, not a distribution.
+
+CONSEQUENCE. At HECA — the round's named acceptance and in-sim airport —
+the coupling cannot be minted for a single pad request or a single baked
+`.obj`. Acceptance (b) (pack pristine; baseline 171 of 568 rewritten in
+perfbake run 1, 77 in run 2) and (c) (cheaper than the y-bake work it
+eliminates) are unreachable there BY CONSTRUCTION: nothing is
+eliminated. At OTHH about half the population is reachable, dominated by
+shared datums. Making HECA reachable means admitting `graded_strip` /
+`groundside_pavement` as solve members — the Slice-B terrain-role
+admission seam (`solver_primitives._build_node_list`,
+`admitted_terrain_refs`) — which is S1/S1b geometry-freeze and stage-
+partition work, not S5's, and is a spec change, so it STOPS here for
+Fable per the deviation law.
+
+FRAME WARNING, recorded because it nearly produced a false finding: the
+same measurement run against the lane's inherited `Patches/` copy
+(HECA body `746517957a58`, NOT the frozen `f562cbfeb8f9`) read **0 of
+842** requests hosted and the dominant datum 50.8 m off any shape — that
+patch carries 3491 shapes against the baseline's 4071 and no
+`graded_strip` over the datum. Always check the body hash of a patch
+before quoting a population from it (identity-mismatch law).
+
+NOT RUN, and owed if the owner re-charters this lane: every S5 acceptance
+arm (a)-(e) — no HECA `--tile 30 31` determinism pair, no `.obj`-rewrite
+before/after count beyond the perfbake baseline, no `--count` build-time
+pair, no census, no coupling twins, no sensitivity arm. `tools/blast.py`
+was run for the promoted tool; `tests/test_object_pad_anchor_report.py`
+(12 twins) and `tests/test_harness.py` ran green through
+`run_with_ledger` (233 passed), which is the whole test surface this
+lane's diff touches — no `src/` file was edited.
+
+## staged-solve S5v3 — object pads, EMISSION-TIME RELATIVE (lane/s5pads3, 2026-08-14)
+
+**STEP 1, the ruling's PRE-REGISTERED PREMISE TEST: PASSES at HECA.**
+The ruled mechanism (RULINGS "OBJECT PADS: EMISSION-TIME RELATIVE") reads
+the pad target from the patch's OWN evaluated ground at the render datum,
+in-run, downstream of the one solve.  Its premise: at a HOSTED datum
+(one standing on an emitted patch shape) that evaluation must match the
+BUILT mesh within the existing residual class,
+`DSF_OBJECT_FOOT_PAD_RESIDUAL_M` = 0.75 m.
+
+THE EVALUATION, spelled out (`src/auto_patch/patch_ground.py`, twins
+`tests/test_patch_ground.py`).  The mesher makes a patch ring a
+constrained edge loop whose nodes carry the patched altitude; every
+patch-valued mesh vertex keeps its own value and every FREE INTERIOR
+vertex is harmonically extended from that face's patch-valued vertices
+(`O4_Mesh_Utils.interpolate_free_interior_altitudes`, R18-1b), and
+Triangle4XP suppresses refinement inside a patch face
+(`Triangle4XP.c:7234`, "Refinement in INTERP_ALT tris is useless").  So
+the surface inside a face is an interpolation of that face's own ring
+values and NEVER the DEM.  `PatchGroundField` reproduces it as: the
+INNERMOST non-pad shape covering the point, its ring's own vertex
+altitudes, Delaunay-triangulated, barycentric at the query.  ASSUMPTIONS,
+each one measured rather than asserted: (i) the frame is layout LOCAL
+METRES, which is `O4_Mesh_Utils`' `(lon * cos(lat0), lat)` up to a
+uniform scale, and Delaunay is invariant under uniform scaling; (ii)
+where the mesher's face corners are ring nodes the rule is EXACT; (iii)
+where other input nodes (orthogrid, gluing network, road ribbons) intrude
+into a face the two triangulations differ, and that difference is the
+measured residual below; (iv) pad roles never host, so the read is never
+self-referential.
+
+MEASURED, matched frame — patch `HECA_auto.patch.osm` body sha256
+`b803326a5742` (perfbake run 3, 12:48) against the mesh that same run
+built (`/tmp/harness/tile_perfbake_run3/Data+30+031.mesh`, 12:49); pack
+`c_EGY - 100_airport - HECA Cairo (Tai Models)`; shared repo UNCHANGED
+(guard armed refuse-mode, `blocked=0`, 18 allowed `.lock` churn):
+
+| HECA, |patch-evaluated − mesh| at the datum | datums | p50 | p90 | max |
+|---|---|---|---|---|
+| HOSTED (the patch authors it) | 2112 / 2700 | 0.0293 | **0.6021** | 4.4933 |
+| ... weighted by the 1874 hosted pad REQUESTS | 1874 reqs | 0.0000 | **0.0000** | 0.0000 |
+| UNHOSTED (DEM read vs mesh — the y-bake population) | 588 / 2700 | 0.3238 | 1.5921 | 13.6767 |
+| ... weighted by the 9 unhosted requests | 9 reqs | 0.0039 | 3.3052 | 3.3052 |
+
+p90 0.6021 m is UNDER the 0.75 m cap, and every request-carrying datum
+evaluates EXACTLY (1e-6 m).  The unhosted p50 0.3238 m reproduces the
+s5pads dossier's off-patch 0.328 m, which cross-checks the instrument.
+
+THE TAIL, attributed rather than waved at: 152 of the 2112 hosted datums
+exceed the cap, and they carry **0** pad requests — 113
+`groundside_pavement`, 30 `apron`, 7 `service_junction`, 1
+`graded_strip`, 1 `service_road`.  They are large NON-PLANAR rings, which
+is exactly where assumption (iii) bites.  The design's accuracy is
+therefore bounded by the HOST RING'S PLANARITY, and a request landing on
+a big non-planar apron could carry a target several metres off; no such
+request exists in either battery pack today.
+
+SENSITIVITY ARMS (`--eval-sensitivity`), |arm − the ruled evaluation|
+over the same 2112 hosted datums:
+
+| arm | p50 | p90 | max | request-weighted p90 |
+|---|---|---|---|---|
+| outermost host instead of innermost | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| raw `(lon, lat)` frame instead of metres | 0.0000 | 0.3117 | 2.4793 | 0.0000 |
+
+The host choice is not load-bearing at any datum in this pack; the FRAME
+is, in the tail — which is why the frame is fixed by the mesher's own
+`scalx` and not by convenience.
+
+BUILD-TO-BUILD DRIFT of the datum's mesh value across the three perfbake
+runs: max over datums 0.5958 m, and 0.0000 at the dominant datum (which
+reads 101.180 in all three).  That confirms the s5pads2 finding and
+identifies the ratchet as downstream of the anchor.
+
+CIRCULARITY, measured because the design turns on it: a pad whose own
+ring COVERS its render datum cannot close its residual by any target —
+raising the ground raises the object with it, and the residual `AGL +
+base_y` is invariant.  At HECA that is **1 of 1883** requests; the other
+1882 have their datum outside their own ring.  Such a request is not
+padable and belongs to the y-bake fallback.
+
+**NOT RUN — OTHH's mesh arm, and why.**  The premise test needs a BUILT
+mesh matched to the patch that produced it.  There is no
+`Data+25+051.mesh` anywhere, and `build_airport.py OTHH --tile 25 51`
+REFUSES: the main tree has no `Tiles/zOrtho4XP_+25+051/
+Ortho4XP_+25+051.cfg`, and provisioning one is an owner act (ruling
+2026-08-12b, lane inputs are provisioned, never hand-seeded).  The lane
+did NOT hand-seed one.  What WAS measured at OTHH, against the frozen
+1.0.245 baseline `/tmp/harness/consol3othh.osm` (body sha256
+`75594bc8773a`), guard `blocked=0`, 16 `.lock` churn: 11902 placements /
+1366 resources / 8537 anchor datums; 1229 baked resources; 9187 pad
+requests; **hosted 7023 / 8537 datums carrying 5410 / 9187 requests and
+935 / 1229 baked resources**, so 3777 requests stand on unhosted ground
+and stay y-bake.  The tile's DEM reads 3.962 m at every top datum (the
+flat-site synthetic constant inset) against patch-evaluated 3.960-3.991,
+so at OTHH the patch and the DEM very nearly agree and the premise arm is
+expected to be as tight as HECA's — EXPECTED, not measured.  Owed: one
+`--tile 25 51` build once the owner provisions that tile's cfg, then the
+same `--eval-patch --mesh` arm.
+
+### STEP 2 — STOPPED at an UNSTATED PREMISE of the ruling's request clause
+
+The ruling's mechanism clause reads: "the relative resolution moves to
+EMISSION, same build — pad target = the patch's own evaluated ground at
+the datum + base_y", and the charter's implementation clause: "The
+request MEASUREMENT moves in-run: derive requests from the pack evidence
++ datum evaluation at emission (no post-mesh rebake dependency for
+pads)".  The TARGET half is now built and measured (above).  The REQUEST
+half rests on a premise that is FALSE as stated: **the pack evidence a
+pad request is made of does not exist in-run, and never has.**
+
+MEASURED, by grep and by call-graph, not inferred:
+
+1. `object_footprints.foot_pad_rings` — THE pad-ring law
+   (object-reseat-threshold-spec §2.5) — has exactly ONE caller in the
+   whole tree: `post_mesh.py:3110`, inside the rebake's `_rings(request)`
+   closure.  It has never been called during a build.
+2. The in-run building reader
+   (`dsf_reader.read_dsf_object_buildings`, `pipeline.py:1596`, which
+   DOES run pre-solve and IS sidecar-cached) returns
+   `(outer_ring, hole_rings, role)` and nothing else — no `base_y`, no
+   placement anchor, no AGL, no `resource_path`.  Its ring is
+   `object_footprints.structure_ring`'s CONVEX HULL of one structure.
+3. That hull is not merely a different ring, it is the RETIRED ring law:
+   §2.5 replaced exactly this single-group hull because it "bridged the
+   non-object ground between spread-out parts and flattened it (OTHH
+   in-sim, build 1.0.226: a 162,219 m² pad spanning water and parking
+   lots)".  `foot_pad_rings` instead hulls each CONTACT PART on its own,
+   dilates, unions, and returns one ring per connected component.
+4. Per-part contact geometry and `base_y` (the authored y of a cluster's
+   lowest solid vertex, `object_anchor.py:183`/`:1406`) exist only inside
+   `object_anchor`'s frame, which `post_mesh.rebake_dsf_objects` builds
+   AFTER the mesh.  `flat_site.pack_seat_targets` (`flat_site.py:584`)
+   and `object_pads` both reach that evidence only by REPLAYING the
+   previous build's sidecar — which is the read-back the ruling retires.
+
+So clause (D) is not an emission-site edit; it requires a new in-run
+per-structure evidence surface (pool → partition → per-part contact
+points → `base_y` → anchor/AGL → `foot_pad_rings`).  Three resolutions
+exist and the choice is a DESIGN decision, so per the deviation law this
+STOPS for Fable rather than being decided here:
+
+* **R1 — widen the in-run reader.**  Extend `structure_ring` /
+  `read_dsf_object_buildings` to also emit per-part contact points,
+  `base_y`, anchor + AGL and resource identity, and call
+  `foot_pad_rings` in-run.  The heavy work (pooling, partition, geometry
+  load) already runs and is cached, so the marginal read cost is small —
+  but the post-mesh rebake still builds its OWN frame for the y-bake
+  fallback the ruling keeps, so the frame is built TWICE per build.
+  `_compute_dsf_object_buildings` alone is a recorded 66.6 s per HECA
+  lane build (harness P1 finding, quoted by the build entry itself), so
+  a duplicated frame is a straight fail of acceptance (c), "the pad path
+  must cost no more than the y-bake work it eliminates".
+* **R2 — move only the TARGET.**  Keep the rebake as the request
+  MEASUREMENT (rings, `base_y`, identity) and replace only
+  `target_ground_metres` with the in-run `patch_ground` evaluation at
+  emission.  This kills the target's dependence on the previous build's
+  MESH — the ratchet — and is a small, low-risk change; but the sidecar
+  READ-BACK survives as the ring/identity carrier, so the ruling's
+  retirement clause is not met.
+* **R3 — one frame, single pass.**  Build the object frame ONCE, in-run,
+  and refactor `post_mesh.rebake_dsf_objects` to CONSUME it rather than
+  rebuild it.  The only resolution that satisfies the ruling AND
+  acceptance (c), and the largest: it moves `object_anchor`'s frame
+  construction across the mesh boundary.
+
+CIRCULARITY, which any of the three must handle and which the
+emission-time frame is what made visible: when a pad's own ring covers
+its render datum, raising the ground raises the object with it and the
+residual `AGL + base_y` is INVARIANT under every target — no pad can
+close it, and such a request must fall back to the y-bake.  Measured at
+HECA: 1 of 1883 requests.  This is also a candidate mechanism for the
+perfbake arm's REFUTED fixed point (object_pad 689 → 723 → 736, sidecar
+sha still moving after run 3) and for the measured datum drift (max
+0.5958 m over datums between the three runs) — an ATTRIBUTION READ, not
+a causal claim, and it wants an interventional arm before anyone acts on
+it.
+
+NOT RUN this lane, and owed when the request clause is re-chartered:
+acceptance (a) determinism `--tile 30 31` pair, (b) `.obj`-rewrite
+before/after count, (c) the `--count` + recorded-phase build-time pair,
+(d) `check_object_pads` under the new target, (e) the row-attributed
+census vs frozen 1.0.245.  None is measurable yet: **no build path
+changed this lane.**  `src/auto_patch/patch_ground.py` is imported by
+`tests/test_patch_ground.py` and `tools/object_pad_anchor_report.py`
+only — BUILD-TIME IMPACT ZERO, confirmed by `tools/blast.py`
+(0 src importers).  Test surface run once through `run_with_ledger`:
+`test_patch_ground.py` (12 new twins) + `test_object_pad_anchor_report.py`
+(12) + `test_harness.py` — 245 passed.  Shared repo UNCHANGED in both
+measurement arms (guard armed refuse-mode, `blocked=0`, 18 and 16
+allowed `.lock` churn entries).
+
+### R3 landed, step (1) of 5 — THE OBJECT PAD FRAME (Fable ruling 2026-08-14)
+
+Fable ruled R3, "one frame, single pass", with the refinement that the
+frame's inputs are PACK data and so belong in-run pre-solve behind the
+pristine-key sidecar family.  Step (1) of the ruled order is landed:
+
+* `object_anchor._measure_structure_parts` gains a MESH-FREE reading
+  (`sampler=None`).  It was already one line from being mesh-free — the
+  sampler appears exactly once, for `ground_metres` — so the split is a
+  guarded branch, not a rewrite.  Twin
+  (`test_the_mesh_free_reading_asks_no_mesh_and_matches_the_pack_columns`)
+  asserts the sampled and unsampled readings agree on EVERY pack column
+  (key, base_y, base_resource, is_ground, plan_box, area, centroid,
+  lat/lon) and differ only in the two ground columns.
+* `src/auto_patch/object_frame.py` — `build_pad_frame(pool, geometry,
+  structures)` returns `PadPart`s (contact-band triangle groups,
+  `base_y`, base resource, part centroid) and `PadAnchor`s (the render
+  datum + AGL).  It reuses `object_anchor`'s own builders rather than
+  re-deriving them; `rendered_base_metres` is
+  `_raise_cluster_pad_requests`' `seated=False` formula verbatim.
+* `post_mesh.cached_pad_frame` / `pad_frame_cache_key` — the disk half,
+  beside `_cached_partition_structures`, keyed on
+  `object_rebake.pristine_object_fingerprint_entries` plus the law
+  scalars that shape the frame.  `O4_OBJECT_PAD_FRAME_CACHE=0` disables
+  the DISK half only, so the flag can never change an answer.
+* `ring_covers_its_own_datum` — the circularity fallback's test, with
+  its twins (step (5)'s law, landed early because it is frame-side).
+
+Twins: `tests/test_object_pad_frame.py`, 12, including the ruled
+acceptance for this step — FRAME-FROM-CACHE == FRAME-FRESH, proved by
+making a fresh build raise on the second read so anything returned can
+only have come off the disk — plus a re-key twin on a law scalar and a
+"cache off changes nothing but cost" twin.
+
+BUILD-TIME IMPACT: ZERO so far.  Nothing in `src/` calls
+`build_pad_frame` or `cached_pad_frame` yet — they are reachable only
+from the twins.  The frame becomes a build cost when step (2) wires it
+in, and that is the same step that removes the rebake's own frame
+construction, which is the whole basis of acceptance (c).
+
+TEST CONTROL: `test_contracts.py::test_obj8_partition_signature
+[contact_graph]` and `test_object_anchor.py::
+test_kclt_eight_bake_pool_end_to_end` FAIL — and fail IDENTICALLY with
+this lane's two `src/` edits reverted in the same tree (matched control,
+per the standing law).  Both are pre-existing; 281 other tests pass.
+
+OWED — steps (2)-(5) and the acceptance arms, in Fable's ruled order:
+(2) `post_mesh.rebake_dsf_objects` consumes the frame instead of
+rebuilding it (twin: rebake output unchanged on an identical mesh);
+(3) pad emission consumes the frame with the landed `patch_ground`
+targets, CORE-only under weld-or-gap (the blend annulus retires);
+(4) retire the read-back — the `config.py` consumer gate, `flat_site.py`
+:587, and the request/`emitted` persistence — leaving the sidecar a
+write-only audit; (5) route a self-covering request to the y-bake
+(the law and its twins are landed; the ROUTING is step (3)'s call
+site).  Then (a) the HECA `--tile 30 31` determinism pair — which is
+also the interventional test of this lane's attribution read, so it must
+state explicitly whether object_pad 689 -> 723 -> 736 stabilises —
+(b) the `.obj`-rewrite count, (c) the `--count` + recorded-phase pair,
+(d) `check_object_pads`, (e) the row-attributed census.  Not started:
+this session reached its budget at step (1), not a new blocker.
+
+### R3 step (2) LANDED — the y-bake consumes the frame; the RATCHET reproduces
+
+Step (2) of Fable's ruled order is landed (`7ac6a58`):
+`post_mesh.rebake_dsf_objects` now reads the object pad frame instead of
+rebuilding it.  What moved is THE WELDING (`obj8_partition.weld_parts`),
+which is pure pack data and this pass's dominant cost — `weld_parts`'
+own docstring records the 2026-07-26 profile: called from
+`structure_deltas` it measured **783.6 s, 57.8 % of a +30+031 build**.
+`structure_deltas` gains keyword-only `pad_frame=None`; with a frame in
+hand it welds NOTHING (measured directly in the twin: **1 `weld_parts`
+call without the frame, 0 with it, identical `RebakeDecision`**).
+
+The frame carries the welding as PART LABELS — one small int per
+triangle — not as triangle groups: the record goes to a sidecar, and a
+group is a second copy of the pack's geometry.
+`object_frame.regroup_welded_parts` is exact by construction (weld_parts
+appends in input order into a dict keyed by union-find root, so parts
+come back in first-appearance order with their triangles in input
+order), and a twin asserts regroup == weld_parts group for group.
+
+Two REFUSALS, because a welded part is a list of pool-frame vertex
+INDICES and reading one against the wrong frame gives a plausible wrong
+answer silently: `object_anchor.pool_frame_signature` (resource set +
+slice starts + vertex count) must match, and the label array must cover
+exactly that structure's triangle count.  Either mismatch re-welds and
+says so.  Twins cover both.
+
+**ACCEPTANCE, measured on this lane's tree at `7ac6a58`.**  Two
+SEQUENTIAL HECA `--tile 30 31 --no-ledger` builds, foreground-class,
+shared repo UNCHANGED in both (full-surface before/after snapshot, the
+harness's own line), tags `s5step2a` / `s5step2b`:
+
+| arm | wall | vector | mesh | tile | HECA patch body sha256 | object_pad refs |
+|---|---|---|---|---|---|---|
+| A | 741.0 s | 467.1 | 75.7 | 196.7 | `f562cbfeb8f990461072587bc31ef60e86aa5759c4b46b17a1aa3661dee91369` | 339 core + 350 blend = **689** |
+| B | 630.8 s | 408.3 | 55.0 | 166.2 | `2f1dcfde0320f4f2158793bb34f1a878b8d5ef2c6ced52f7aaf5d8813f903a9f` | 354 core + 369 blend = **723** |
+
+(a) **DETERMINISM: FAILS, and the RATCHET DOES NOT STABILISE.**  689 →
+723 is the perfbake arm's sequence reproduced EXACTLY (689 → 723 → 736).
+Arm A's patch body is **byte-identical to the frozen 1.0.245 baseline**
+(`baselines/1.0.245/MANIFEST.txt`, `consol3heca`), which is what pins
+the frame: arm A is the same build run 1 was.  The reading is the
+pre-registered CONTROL for steps (3)-(5): step (2) is post-mesh only and
+changes nothing the emitter reads, so the ratchet is confirmed to live
+where the ruling says it does — in the sidecar READ-BACK that steps (3)
+and (4) retire — and NOT in anything the frame-consuming rebake touches.
+It does not adjudicate the circularity attribution (HECA 1 of 1883):
+that still wants its own interventional arm, which is step (5)'s routing.
+
+(b) **PACK PRISTINE: 373 `.obj` files rewritten in BOTH arms** (7589 /
+7595 structures re-baked, 6 900 267 / 6 900 570 vertices offset; 1904 /
+1894 cluster pad requests).  The count is STABLE across the pair.  The
+charter's "171/77" is a DIFFERENT frame (the per-airport perfbake arm,
+one pack); this is the +30+031 TILE arm over HEAZ+HECA+HECP and the two
+numbers must not be subtracted.  The gate itself — zero rewrites for
+within-band objects — is not yet meetable: it is step (3)'s emission
+that removes the bake, and step (3) is not landed.
+
+(c) **THE OWNER'S BUILD-TIME GATE: mechanism shown, exclusive pair
+OWED.**  Step (2) REMOVES a construction rather than adding one, and the
+removal is proved mechanically (1 weld call → 0) rather than by a wall
+time.  The recorded phases above are NOT an A/B: both arms run the same
+code, arm A on a COLD lane-local `Airport_mod_cache` (`mod_cache_seeded`
+0 files) and arm B warm, and the standing law forbids one run per side.
+An exclusive `check_build_time --runs N` pair against a `pad_frame=None`
+arm is owed and belongs with steps (3)-(5), when the pad path's whole
+cost is on the table.
+
+(d) `check_object_pads` — arm B emitted 729 object-pad polygons for 354
+building pads; the pad-host level census reports 354 groups (0 adopted,
+13 within 3.00 m of the host, 9 no agreeing coalition, 332 no family, 0
+no level).  Under the UNCHANGED law: step (2) does not touch emission,
+so this is a baseline reading, not the step's acceptance.
+
+(e) **CENSUS: zero delta, and stronger than a census.**  Arm A's HECA
+patch body is byte-identical to frozen 1.0.245, so there is no row to
+attribute.  Arm B's difference is the ratchet above (a pre-existing
+behaviour reproduced exactly), not this step.  NOTE THE FRAME: this lane
+branches at `3b21ed6`, BEFORE S7 merged to main (`8d08b41`); any census
+run for steps (3)-(5) must be rebased onto — or run through a checkout
+of — the S7 MERGED harness, and say which.  No census was run this
+session; none was needed for a byte-identical patch.
+
+**OWED — steps (3), (4), (5), unstarted.**  (3) pad emission consumes
+the frame with `patch_ground` targets, CORE-only under weld-or-gap;
+(4) retire the read-back (`config.py` ~4010 `DSF_OBJECT_OBJECT_PADS`
+gate region, `flat_site.pack_seat_targets` at :587 → `object_pads`
+`sidecar_path`/`load_sidecar`, `object_pads.pads_for_airport` +
+`merge_emitted_records` at `driver.py:938`, and the `emitted`
+persistence); (5) route `ring_covers_its_own_datum` requests to the
+y-bake.  THE SITE INVENTORY for (3), measured this session so the next
+lane does not re-derive it: `emit_object_pads`
+(`object_pads.py:757`, called once from `pipeline.py:6635`) takes its
+specs from `pads_for_airport(sidecar, icao, claim)` — replacing that
+source is the whole of step (3), and it needs an IN-RUN pool
+decomposition.  That decomposition must be the POST-MESH one
+(`post_mesh._resolve_pack_geometry` → `discover_object_pools` →
+`_cached_partition_structures`), NOT `dsf_reader.
+_compute_dsf_object_buildings`': the two admit different resources
+(A15's outside-the-pack refusal and I-4's multi-placement refusal are
+Phase-2 only; the connector prefilter and the terrain classification are
+Phase-1 only), so a frame built on the Phase-1 pools would miss the pad
+frame cache key and silently cost a second frame — exactly the R1
+failure Fable rejected.
+
+Test surface run once through `run_with_ledger` over `blast --tests-for`
+(post_mesh + object_anchor + object_frame, 17 files): **702 passed**,
+with the two known pre-existing failures unchanged and matched-controlled
+at step (1) — `test_contracts::test_obj8_partition_signature
+[contact_graph]` and `test_object_anchor::
+test_kclt_eight_bake_pool_end_to_end`.  `test_contracts`' own
+`structure_deltas` signature row grew `pad_frame` with its reason.
+
+### R3 steps (3)-(5) LANDED — the RATCHET IS DEAD; the coupling serves 55 of ~3,910
+
+Steps 3, 4 and 5 of Fable's ruled order landed at `121924a`.  Pad
+emission consumes the frame (`post_mesh.pad_frames_for_airport` →
+`object_frame.pad_requests_from_frame` → `object_pads.specs_from_frames`),
+the read-back is deleted, and a self-covering request routes to the
+y-bake.
+
+TWO GROUND AUTHORITIES, the one design decision inside the ruled
+mechanism.  The RENDER DATUM's ground is the PATCH and only the patch —
+the ruling's own clause, and the premise test measured it exact
+(1e-6 m) at every request-carrying hosted datum; an unhosted datum keeps
+the y-bake, never a DEM approximation.  The ground UNDER A PART is
+patch-where-authored, ambient DEM otherwise — the MESH'S OWN RULE, and
+the in-run stand-in for `MeshElevationSampler.elevation_at_or_none`,
+which is what the rebake sampled.  Requiring a host under the PART would
+have deleted the population outright: a pad exists precisely where
+terrain is not already graded.
+
+**ACCEPTANCE, measured at `121924a`.**  Two SEQUENTIAL HECA
+`--tile 30 31 --no-ledger` builds, foreground-class, tags
+`s5step3a` / `s5step3b`, shared repo UNCHANGED in both (the harness's own
+full-surface before/after snapshot).
+
+| arm | wall | vector | mesh | tile | HECA patch body sha256 | object_pad shapes |
+|---|---|---|---|---|---|---|
+| A | 612.7 s | 384.5 | 54.7 | 172.2 | `eb83e3c672109cf783aeae6ed1ff8b62f81e981f42c07ab7276f6e0b219c8b0c` | **59** (55 groups) |
+| B | 715.9 s | 445.3 | 64.9 | 204.1 | `eb83e3c672109cf783aeae6ed1ff8b62f81e981f42c07ab7276f6e0b219c8b0c` | **59** (55 groups) |
+
+(a) **DETERMINISM: PASSES.  THE RATCHET IS DEAD.**  The two bodies are
+BYTE-IDENTICAL, and every pad number is equal arm to arm: 59 shapes /
+55 groups, 484 law disagreements, 3,855 refusals, 7,565 structures /
+372 `.obj` files / 6,856,707 vertices from the y-bake.  This is the
+INTERVENTIONAL verdict on the step-2 attribution read.  Step (2)'s
+control pair — the same tree, the same machine, the read-back still in
+place — reproduced the perfbake sequence exactly (689 → 723 object_pad
+refs, two different bodies `f562cbfe…` / `2f1dcfde…`).  The only thing
+that changed between that pair and this one is the retirement of the
+sidecar read-back and the emitted-record persistence.  **The ratchet
+lived in the read-back, where the ruling said it did, and it is gone.**
+
+(b) **PACK PRISTINE: NOT MET, and the number barely moved.**  372 `.obj`
+files rewritten in BOTH arms (step-2 control: 373, both arms); 7,565
+structures (7,589 / 7,595); 6,856,707 vertices (6,900,267 / 6,900,570).
+The direction is right and the magnitude is ~0.3 %.  The coupling serves
+55 groups; the y-bake still answers for everything else, so "zero
+rewrites for objects whose pads the coupling serves" is met only for a
+population too small to move the count.  WHY is (e)'s finding below.
+
+(c) **THE OWNER'S FASTER-THAN-Y-BAKE GATE: mechanism only; the
+EXCLUSIVE TIMED PAIR IS NOT THIS LANE'S.**  Two lanes cannot hold the
+machine, so the timed pair joins the round's close-out timing block
+under the lead.  The mechanism numbers this lane can state: `weld_parts`
+calls per pool 1 → **0** (step 2, measured in its twin); the object
+frame built **once** per build and read **twice** inside it (flat-site
+S4 pre-solve, pad emission post-solve) through one in-process memo plus
+the pristine-key disk sidecar, so the walk to it — DSF text, geometry
+resolution, pool discovery — is paid once, not twice; and the retired
+recompute is the whole `foot_pad_rings`/request derivation that used to
+run post-mesh and be replayed from disk next build.  The wall times
+above are NOT an A/B: both arms run the same code and the spread
+(612.7 vs 715.9 s) is this machine's ordinary noise on a 3-airport tile.
+
+(d) **`check_object_pads` UNDER THE UNCHANGED LAW.**  Identical in both
+arms.  HECA: **484 law disagreements** (worst `pad_pull_shortfall`
+8.22 m at 30.11588,31.40871 — `Airport/Hangar_Tower/asphalt_3.obj`) and
+**3,855 pad requests REFUSED, worst 38.57 m against the 3.00 m relief
+cap**.  HEAZ: 9,322 disagreements, all `pad_datum_unhosted`.  Pad-host
+level census (`object_pad`): 55 groups — 3 adopted (worst |delta|
+3.40 m), 5 within 3.00 m of the host, 5 no agreeing coalition, 42 no
+family; after the relevel, 0 adopted.  The verifier needed NO change:
+it compares each core vertex to the target the EMITTER recorded, which
+is now the patch-relative rendered base, so it reads the base the same
+relative way the coupling defines it.  No `pad_core_off_target`, no
+`pad_weld_mismatch` (there is nothing left to weld), no
+`pad_deformed_pavement`.
+
+**THE FINDING THAT MATTERS, and it is a LAW-REFERENCE MISMATCH.**  The
+in-run derivation raises ~3,910 requests at HECA where the rebake's
+sidecar recorded 1,893 — expected, because the emission-time frame can
+only measure `seated=False` (the bake decision is post-mesh), so it sees
+each part's FULL residual rather than the post-seat residue.  Of those,
+**3,855 are refused by `DSF_OBJECT_PAD_MAX_RELIEF_M` measured against
+RAW DEM**, worst 38.57 m.  That is the instrument disagreeing with
+itself: the ruling moved the pad TARGET onto the patch's own evaluated
+ground, and the admissibility cap still measures that target against the
+ambient DEM — at HECA our own solved surface stands tens of metres off
+it (RULINGS "OBJECT PADS: RELATIVE COUPLING": mesh−DEM at anchors p50
+0.82 m / p90 7.26 m, "DOMINATED BY OUR OWN SOLVED SURFACE").  So an
+object correctly standing on a solved apron asks for a pad at the
+apron's elevation and is refused for being far from raw DEM.  This lane
+did NOT change it — the brief holds the law unchanged and `grade_law`
+owns the scalar — and it is the two-instruments class: the fix is a
+ruling about what the relief cap is relative to, not a tuning knob.
+**Owed: an owner/Fable ruling on the cap's reference frame.**  Until it
+moves, acceptance (b) cannot be met at HECA by construction.
+
+(e) **CENSUS — row-attributed, FRAME NAMED.**  This branch forked before
+S7/S8 and before the S1/S2 stack, so every census below runs through a
+**MAIN-TREE harness checkout at `1388b9b`** (S7 + S8 + S1/S2 merged),
+`tools/harness/census.py --no-cache` only.  CONTROL: that reader
+censuses the frozen 1.0.245 HECA artifact
+(`baselines/1.0.245/consol3heca.osm.gz`, body `f562cbfe…`) at **8038**
+law-true — the S8 frame's own number, reproduced, so the reader is
+pinned.  (Main's 7036 is the S1/S2 STACK's own build, a different code
+tree; comparing this lane's patch to it would be the cross-tree
+comparison the standing ruling forbids.)
+
+| family / role pair | frozen 1.0.245 | this lane | Δ | attribution |
+|---|---:|---:|---:|---|
+| LAW-TRUE TOTAL | 8038 | **8033** | **−5** | |
+| adjudicated airside | 1720 | **1700** | −20 | |
+| `within_shape::building|building` | 52 | **31** | **−21** | site `-10187` CLOSES (below) |
+| `within_shape::groundside_pavement` | 1459 | 1487 | +28 | blend-annulus retirement ripple |
+| `within_shape::service_junction` | 646 | 634 | −12 | ditto |
+| `transverse::service_junction` | 3196 | 3186 | −10 | ditto |
+| `transverse::service_road` | 622 | 621 | −1 | ditto |
+| `mid_edge_step::service_junction` | 164 | 173 | +9 | ditto |
+| `within_shape::apron` | 1401 | 1402 | +1 | ditto |
+| `within_shape::service_road` | 101 | 100 | −1 | ditto |
+| `vertex_to_edge_step::service_junction` | 35 | 36 | +1 | ditto |
+| `frontage_near_miss::building\|service_junction` | 67 | 68 | +1 | ditto |
+
+`object_pad` rows: **0 in both** — the pads themselves carry no law row
+in either frame, so every delta above is in a NEIGHBOUR.  The ±tens are
+the ruled RETIREMENT working through the layout: 690 pad shapes became
+59, so 631 blend plates stopped clipping, welding and decimating against
+groundside and service pavement.  Named as such, per the brief: these
+are blend-annulus removal rows, not a regression.
+
+**THE TWO NAMED SITES (lead's merge-gate dossier, 43-row pad class).**
+Matched by COORDINATE, because way ids are per-build:
+
+* **Site 1 — pad `-10187` at 30.116449,31.386559 (21 rows, 2.76 m
+  internal step): CLOSED.**  It is the whole of the −21.  No
+  `building|building` row survives anywhere near that coordinate in
+  either arm.  This is the site the dossier attributed to the pad
+  mechanism, and the emission-time target closes it.
+* **Site 2 — pad `-10189` at 30.121367,31.407621 (14 rows, 2.92 m) with
+  ring `-13852`/`-13851` at 30.121422,31.408131 (8 rows, 2.92 m):
+  UNCHANGED, both halves, row for row.**  Renumbered to `-13222` in this
+  lane's build at the identical coordinate and magnitude.  Both are
+  `building|building` — role `building`, which no part of the
+  object-pad emission path authors — so this site is NOT the pad
+  coupling's to close.  **Named for S6** (the shared-vertex /
+  weld-or-gap half) per the lead's own framing.
+* Also moved and not named by the dossier: `-10202` (5 rows, 0.42 m at
+  30.12069,31.419369) is gone; a different building carries 5 rows at
+  0.94 m at 30.121531,31.418811.  Reported, not attributed — it is a
+  ripple of the same class as the table above.
+
+**TEST SURFACE**, once, through `run_with_ledger` over `blast
+--tests-for` for object_pads + post_mesh + flat_site plus the frame and
+anchor twins (15 files): **809 passed**.  EIGHT failures, ALL
+pre-existing and MATCHED-CONTROLLED in a clean worktree at this lane's
+base `9270c8d`: `test_contracts::test_obj8_partition_signature
+[contact_graph]`, `test_object_anchor::
+test_kclt_eight_bake_pool_end_to_end` (both already controlled at step
+1) and six in `test_flat_site_mode.py`, which this lane's wider
+selection SURFACED rather than caused.
+
+**STILL OWED.**  (c)'s exclusive `check_build_time --runs N` pair (the
+round's close-out block, under the lead); the relief-cap reference
+ruling above; OTHH's `--tile 25 51` arm, still blocked on the owner
+provisioning that tile's cfg (unchanged since step 1); and the R19-3
+`relevel_pads_to_host_pavement` pass, which under weld-or-gap now has no
+weld to reconcile — it adopted 3 of 55 groups in both arms and is a
+candidate for the same retirement, but retiring it is a design decision
+this lane did not take.

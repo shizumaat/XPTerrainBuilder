@@ -581,54 +581,71 @@ def dem_relief(dem, tile_lat: int, tile_lon: int, anchor, extent_m,
 # ──────────────────────────────────────────────────────────────────────
 # S4 — pack-object consensus (confirmatory)
 # ──────────────────────────────────────────────────────────────────────
-def pack_seat_targets(patch_dir: str, icao: str) -> dict:
-    """Non-below-grade seat targets from a prior post-mesh pad sidecar.
+def pack_seat_targets(patch_dir: str, icao: str, *,
+                      pad_frames=None, ground_at=None) -> dict:
+    """Non-below-grade pack seat targets, derived IN-RUN from the object
+    pad frame.
 
-    Reads ``o4_object_foot_pads.json`` through ``object_pads``' OWN
-    reader (one sidecar reader, never a second parser) and keeps each
-    request's ``target_ground_metres`` — the elevation the pack asks the
-    ground to be at.  BELOW-GRADE requests are excluded: an open-pit
-    drainage basin's request is a trench floor, not a ground-level seat,
-    and its object base sits ``FLAT_SITE_PACK_BELOW_GRADE_M`` or more
-    under its own anchor datum.
+    S4 asks one question: where does the PACK think the ground is?  It
+    used to answer it by reading the PREVIOUS build's
+    ``o4_object_foot_pads.json`` — a read-back, and therefore a detector
+    whose verdict depended on how often the tile had been built.  RULINGS
+    "OBJECT PADS: EMISSION-TIME RELATIVE" retires that: the same evidence
+    is now available in-run from ``object_frame.ObjectPadFrame`` (parts,
+    ``base_y``, render datums), and the elevation the pack asks for is
+    the part's RENDERED BASE against whatever ground authority the caller
+    supplies —
 
-    Returns ``{targets, n_total, n_below_grade, sidecar_version, path}``;
-    ``targets`` is empty when no sidecar exists.
+        ground(render datum) + AGL + base_y
+
+    the ``rendered_base_metres`` formula, once, from the frame module.
+    The detector runs PRE-solve, so its authority is the DEM (the same
+    raster every other S-signal here reads); the pad EMITTER runs
+    post-solve and reads the patch instead.  Both call the one formula.
+
+    BELOW-GRADE parts are excluded, unchanged: an open-pit drainage
+    basin's base is a trench floor, not a ground-level seat, and it sits
+    ``FLAT_SITE_PACK_BELOW_GRADE_M`` or more under its own anchor datum.
+
+    ``pad_frames`` / ``ground_at(latitude, longitude) -> float | None``
+    are the in-run inputs; with either missing the signal is NO DATA
+    (empty ``targets``), which the spec already treats as ``no_data`` and
+    never as a fail.  ``patch_dir`` and ``icao`` survive as provenance
+    for the record.
+
+    Returns ``{targets, n_total, n_below_grade, sidecar_version, path}``.
+    ``sidecar_version`` is 0 and ``path`` ``None`` now that no file is
+    read; the keys stay so the record's shape does not move under
+    ``tools/flat_site_sweep.py`` and the detector's own report.
     """
-    from . import object_pads as _object_pads
+    from .object_frame import rendered_base_metres
 
     out = {"targets": [], "n_total": 0, "n_below_grade": 0,
            "sidecar_version": 0, "path": None}
-    if not patch_dir:
+    if not pad_frames or ground_at is None:
         return out
-    path = _object_pads.sidecar_path(patch_dir)
-    out["path"] = path
-    payload = _object_pads.load_sidecar(path)
-    if not payload:
-        return out
-    out["sidecar_version"] = _object_pads.sidecar_version(payload)
     floor = float(_config.FLAT_SITE_PACK_BELOW_GRADE_M)
-    for block in (payload.get("airports") or ()):
-        if not isinstance(block, dict):
-            continue
-        if str(block.get("icao") or "").upper() != str(icao or "").upper():
-            continue
-        for request in (block.get("requests") or ()):
-            if not isinstance(request, dict):
-                continue
-            try:
-                target = float(request["target_ground_metres"])
-            except (KeyError, TypeError, ValueError):
+    for frame in pad_frames:
+        anchor_ground: dict = {}
+        for part in frame.parts:
+            if part.base_resource not in anchor_ground:
+                anchor = frame.anchor_by_resource.get(part.base_resource)
+                value = None
+                if anchor is not None:
+                    ground = ground_at(anchor.latitude, anchor.longitude)
+                    if ground is not None:
+                        value = (float(ground)
+                                 + float(anchor.above_ground_level_metres))
+                anchor_ground[part.base_resource] = value
+            base = rendered_base_metres(
+                part, anchor_ground[part.base_resource])
+            if base is None:
                 continue
             out["n_total"] += 1
-            try:
-                base_y = float(request.get("base_y"))
-            except (TypeError, ValueError):
-                base_y = 0.0
-            if base_y <= -floor:
+            if float(part.base_y) <= -floor:
                 out["n_below_grade"] += 1
                 continue
-            out["targets"].append(target)
+            out["targets"].append(float(base))
     return out
 
 
@@ -800,9 +817,29 @@ def detect_for_layout(layout, *, icao: str, apt, to_m, dem,
     extent_m, ring_m = extents_from_apt(apt, to_m)
     elevations = (cifp_threshold_elevations(xplane_root, icao)
                   if xplane_root else [])
-    pack = ({"targets": [], "n_total": 0, "n_below_grade": 0,
-             "sidecar_version": 0, "path": None} if not patch_dir
-            else pack_seat_targets(patch_dir, icao))
+    # S4's pack evidence, IN-RUN (R3 step 4): the airport's object pad
+    # frames — pack data, mesh-free, built once per build behind the
+    # pristine-input cache, so the detector's read is the same product
+    # the pad emitter consumes later and costs a disk hit, not a second
+    # frame.  Ground authority here is the DEM: the detector runs before
+    # the solve, so there is no patch to evaluate yet.
+    pack = {"targets": [], "n_total": 0, "n_below_grade": 0,
+            "sidecar_version": 0, "path": None}
+    if patch_dir:
+        try:
+            from .elevation import _sample_dem
+            from .post_mesh import pad_frames_from_worklist
+
+            frames = pad_frames_from_worklist(patch_dir, icao)
+            if frames:
+                pack = pack_seat_targets(
+                    patch_dir, icao, pad_frames=frames,
+                    ground_at=lambda latitude, longitude: _sample_dem(
+                        dem, tile_lat, tile_lon, latitude, longitude))
+        except Exception:                            # pragma: no cover
+            # Report-only signal: a pack it cannot read is NO DATA, never
+            # a failed detector and never a failed build.
+            pass
     record = classify_site(
         icao=icao, cifp_elevations_m=elevations, dem=dem,
         tile_lat=tile_lat, tile_lon=tile_lon, anchor=layout.anchor,

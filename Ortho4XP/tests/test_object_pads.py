@@ -32,9 +32,8 @@ What is pinned here:
 * the validator is finding-clean on a lawful emission and fires on a
   tampered one (lockstep, ruling R5).
 """
-import copy
-import json
 import math
+import pathlib
 
 import numpy as np
 import pytest
@@ -102,61 +101,62 @@ def make_layout(apron_ring=None, apron_alt: float = APRON_ALT_M):
         node_altitudes=[apron_alt] * (len(apron_ring) + 1)))
     return layout
 
-
 def square_ring(cx: float, cy: float, half: float):
     return [(cx - half, cy - half), (cx + half, cy - half),
             (cx + half, cy + half), (cx - half, cy + half)]
 
 
-def request(layout, ring_m, target_m: float, *, cluster_id: int = 1,
-            base_y: float = 0.0, over_cap: bool = False,
-            extra_rings_m=()) -> dict:
-    """One ``ClusterPadRequest`` in the sidecar's own shape (post_mesh
-    writes exactly these keys; rings are ``(lon, lat)``, unclosed).
+def pad_frame(layout, hulls_m, *, target_m=None, base_y=None, agl=0.0,
+              key: int = 1, structure_index: int = 0, resource=None,
+              anchor_m=None):
+    """One ``object_frame.ObjectPadFrame`` — the emitter's real input.
 
-    Since the footprint-hugging law (object-reseat-threshold-spec §2.5) a
-    request carries ``rings_lonlat`` — one ring per connected component
-    of its contact parts — so ``extra_rings_m`` adds the further
-    components of a spread-out group."""
-    def _ll(ring):
-        out = []
-        for x, y in ring:
-            lat, lon = layout.m_to_ll(x, y)
-            out.append([lon, lat])
-        return out
+    ``hulls_m`` are CONTACT HULLS in local metres (one per ground part);
+    the ring law dilates each by ``DSF_OBJECT_FOOT_PAD_MARGIN_M`` and
+    unions them, so a hull of half-size H yields a ring of half-size
+    H + 2 m and, after the erosion, a core back at H.
 
-    rings_ll = [_ll(ring) for ring in (ring_m, *extra_rings_m)]
-    cx = sum(p[0] for p in ring_m) / len(ring_m)
-    cy = sum(p[1] for p in ring_m) / len(ring_m)
-    lat, lon = layout.m_to_ll(cx, cy)
-    return {
-        "kind": "cluster",
-        "cluster_id": cluster_id,
-        "structure_index": 0,
-        "resource_path": f"Buildings/pad{cluster_id}.obj",
-        "latitude": lat,
-        "longitude": lon,
-        "base_y": base_y,
-        "residual_metres": target_m - BASE_TERRAIN_M,
-        "target_ground_metres": target_m,
-        "part_count": 1,
-        "over_relief_cap": over_cap,
-        "pavement_clipped": False,
-        "rings_lonlat": rings_ll,
-    }
+    THE RENDER DATUM defaults to a point inside the layout's first shape
+    — the apron — because the ruling's coupling reads the PATCH there and
+    an unhosted datum is by design not padable (its own twin below).  Its
+    ground is therefore the apron's own solved value, and ``base_y`` is
+    derived from ``target_m`` against it: ``target = apron + AGL +
+    base_y`` is the whole arithmetic, spelled here so a test can state
+    either end of it.
+    """
+    from auto_patch.object_frame import ObjectPadFrame, PadAnchor, PadPart
 
+    resource = resource or f"Buildings/pad{key}.obj"
+    if anchor_m is None:
+        point = layout.shapes[0].polygon.representative_point()
+        anchor_m = (point.x, point.y)
+    anchor_latitude, anchor_longitude = layout.m_to_ll(*anchor_m)
+    host_alt = float(layout.shapes[0].node_altitudes[0])
+    if base_y is None:
+        base_y = float(target_m) - host_alt - float(agl)
 
-def sidecar(requests, emitted=None, icao: str = "TEST",
-            version: int | None = None) -> dict:
-    payload = {
-        "version": (post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION
-                    if version is None else version),
-        "tile": "+25+051",
-        "airports": [{"icao": icao, "pack_root": "", "requests": requests}],
-    }
-    if emitted is not None:
-        payload["emitted"] = emitted
-    return payload
+    parts = []
+    for ordinal, hull in enumerate(hulls_m):
+        hull_ll = tuple(
+            (lon, lat) for lat, lon in
+            (layout.m_to_ll(x, y) for x, y in hull))
+        cx = sum(x for x, _y in hull) / len(hull)
+        cy = sum(y for _x, y in hull) / len(hull)
+        latitude, longitude = layout.m_to_ll(cx, cy)
+        parts.append(PadPart(
+            structure_index=structure_index,
+            part_key=key * 100 + ordinal,
+            base_resource=resource,
+            base_y=float(base_y),
+            latitude=latitude,
+            longitude=longitude,
+            contact_parts_lonlat=(hull_ll,)))
+    return ObjectPadFrame(
+        parts=tuple(parts),
+        anchor_by_resource={resource: PadAnchor(
+            latitude=anchor_latitude,
+            longitude=anchor_longitude,
+            above_ground_level_metres=float(agl))})
 
 
 def pads(layout):
@@ -169,13 +169,17 @@ def cores(layout):
 
 
 def blends(layout):
+    """The RETIRED shape family (weld or gap, owner 2026-08-13).  Kept as
+    an assertion surface: every test that used to expect a blend now
+    asserts there is none."""
     return [s for s in pads(layout)
             if (s.ref or "").startswith(object_pads.REF_PAD_BLEND + ":")]
 
 
-def emit(layout, dem, side):
+def emit(layout, dem, frames):
     return object_pads.emit_object_pads(
-        layout, dem, TILE_LAT, TILE_LON, icao="TEST", sidecar=side)
+        layout, dem, TILE_LAT, TILE_LON, icao="TEST",
+        pad_frames=list(frames))
 
 
 def kinds(findings):
@@ -261,42 +265,55 @@ def test_the_open_side_blend_reaches_raw_dem_at_the_margin_edge():
         pytest.approx(5.0)
 
 
+
+
 # ══════════════════════════════════════════════════════════════════════
-# EMISSION
+# EMISSION FROM THE FRAME (RULINGS "OBJECT PADS: EMISSION-TIME RELATIVE")
 # ══════════════════════════════════════════════════════════════════════
 
 def test_the_gate_is_byte_inert_off(dem, monkeypatch):
     monkeypatch.setattr(apc, "DSF_OBJECT_OBJECT_PADS", False)
     layout = make_layout()
     before = len(layout.shapes)
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) == 0
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) == 0
     assert len(layout.shapes) == before
     assert not layout.object_pad_records
 
 
-def test_a_request_emits_a_core_at_target_and_a_blend_to_dem(gate_on, dem):
-    """§5.1 clauses 1 + 4 end to end: terrain meets the building base
-    exactly under the contact hull, and reaches raw DEM at the margin."""
+def test_the_target_is_the_patch_at_the_datum_plus_base_y(gate_on, dem):
+    """THE RULING'S OWN CLAUSE, end to end: the pad's core holds
+    ``patch(render datum) + AGL + base_y`` — nothing here consults a
+    previous build, a sidecar or a mesh.  Moving the HOST's solved value
+    moves the pad by exactly the same amount, which is what "relative"
+    means."""
+    for host_alt in (6.0, 7.0):
+        layout = make_layout(apron_alt=host_alt)
+        frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)],
+                            base_y=0.5, agl=0.25)]
+        assert emit(layout, dem, frames) >= 1
+        core = cores(layout)[0]
+        assert all(abs(a - (host_alt + 0.25 + 0.5)) <= 0.01
+                   for a in core.node_altitudes)
+        assert layout.object_pad_records[0]["target_ground_metres"] == \
+            pytest.approx(host_alt + 0.75)
+
+
+def test_a_request_emits_a_core_and_no_blend(gate_on, dem):
+    """§5.1 clause 1 under WELD OR GAP: terrain meets the building base
+    exactly under the contact hull, and the margin annulus is now a GAP
+    the mesh drapes — the blend emitter is retired, so exactly one shape
+    comes out of one ring."""
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) >= 2
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) == 1
     core = cores(layout)
-    blend = blends(layout)
-    assert len(core) == 1 and len(blend) == 1
+    assert len(core) == 1
+    assert blends(layout) == []
     assert all(abs(a - 6.5) <= 0.01 for a in core[0].node_altitudes)
-    assert all(abs(a - BASE_TERRAIN_M) <= 0.01
-               for a in blend[0].node_altitudes)
-    # The blend is an ANNULUS: the core is its hole, so the two shapes
-    # share a chain instead of stacking (the hole's authority is the
-    # shape standing in it — layout.to_osm).
-    assert len(blend[0].polygon.interiors) == 1
-    assert blend[0].polygon.intersection(core[0].polygon).area == \
-        pytest.approx(0.0, abs=1e-6)
-    # The core IS the contact hull: the recorded ring dilated by the
-    # margin, eroded back.
-    assert math.sqrt(core[0].polygon.area) == pytest.approx(
-        2 * (10.0 - MARGIN_M), rel=0.02)
+    # The core IS the contact hull: the derived ring is that hull dilated
+    # by the margin, and the core is it eroded back.
+    assert math.sqrt(core[0].polygon.area) == pytest.approx(16.0, rel=0.05)
 
 
 def test_an_over_cap_request_is_refused_and_emits_nothing(gate_on, dem):
@@ -305,8 +322,8 @@ def test_an_over_cap_request_is_refused_and_emits_nothing(gate_on, dem):
     carrying the measured numbers (§5.5).  Never a truncated pad, which
     would promise a seat the terrain does not deliver."""
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 12.0)])
-    assert emit(layout, dem, side) == 0
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=12.0)]
+    assert emit(layout, dem, frames) == 0
     assert not pads(layout)
     assert not layout.object_pad_records
     over = [f for f in layout.object_pad_findings
@@ -316,16 +333,68 @@ def test_an_over_cap_request_is_refused_and_emits_nothing(gate_on, dem):
     assert over[0][3] == pytest.approx(apc.DSF_OBJECT_PAD_MAX_RELIEF_M)
 
 
-def test_the_producers_own_over_cap_flag_also_refuses(gate_on, dem):
-    """The rebake measured the residual against the MESH; this build
-    measures against the DEM.  Either measurement condemning the pad is
-    enough — a pad the producer already called inadmissible is not
-    resurrected by a friendlier raster."""
+def test_the_frames_own_over_cap_flag_also_refuses(gate_on, dem):
+    """Two independent measurements condemn a pad: the RESIDUAL the frame
+    measured (rendered base vs the ground under the part) and the RELIEF
+    the emitter measures (target vs raw DEM).  Here the part stands on a
+    low graded shape, so its residual busts the cap while the DEM relief
+    does not — and the pad is still refused."""
+    from auto_patch.layout import ROLE_GRADED_STRIP
+
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5,
-                            over_cap=True)])
-    assert emit(layout, dem, side) == 0
+    low = square_ring(0.0, 0.0, 30.0)
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon(low + [low[0]]), role=ROLE_GRADED_STRIP,
+        ref="low", node_altitudes=[2.0] * 5))
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) == 0
     assert "pad_over_relief_cap" in kinds(layout.object_pad_findings)
+
+
+def test_a_part_below_the_residual_floor_raises_no_pad(gate_on, dem):
+    """The materiality floor is the law's, not a tuning knob: a part
+    already sitting on the ground within
+    ``DSF_OBJECT_NOBAKE_PAD_FLOOR_M`` raises nothing at all — which is
+    the owner's whole intent ("an object already close to terrain must
+    not need moving")."""
+    layout = make_layout()
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)],
+                        target_m=BASE_TERRAIN_M + 0.05)]
+    assert emit(layout, dem, frames) == 0
+    assert not layout.object_pad_records
+
+
+def test_an_unhosted_datum_is_left_to_the_y_bake(gate_on, dem):
+    """The ruling is exact only where the PATCH authors the datum's
+    ground.  A render datum standing off every emitted shape has no node
+    to read, so the request is reported and the object keeps the y-bake —
+    never approximated from the DEM (that is the design the premise test
+    rejected)."""
+    layout = make_layout()
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], base_y=1.5,
+                        anchor_m=(4000.0, 4000.0))]
+    assert emit(layout, dem, frames) == 0
+    assert "pad_datum_unhosted" in kinds(layout.object_pad_findings)
+
+
+def test_a_self_covering_request_routes_to_the_y_bake(gate_on, dem):
+    """STEP 5, THE CIRCULARITY.  When the pad's own ring covers its
+    render datum, raising the ground raises the object with it: the
+    residual is ``AGL + base_y`` under EVERY target, so no pad can close
+    it.  Measured at HECA: 1 of 1883 requests.  Such a request is routed
+    to the y-bake — which moves the OBJECT — and never emitted."""
+    layout = make_layout(apron_ring=square_ring(0.0, 0.0, 200.0))
+    # Datum at the origin, inside the pad's own ring (and hosted by the
+    # big apron, so the datum itself resolves).
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], base_y=1.5,
+                        anchor_m=(0.0, 0.0))]
+    assert emit(layout, dem, frames) == 0
+    assert "pad_self_covering_datum" in kinds(layout.object_pad_findings)
+    # …and the SAME request with its datum outside its ring emits.
+    layout = make_layout(apron_ring=square_ring(150.0, 150.0, 40.0))
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], base_y=1.5,
+                        anchor_m=(150.0, 150.0))]
+    assert emit(layout, dem, frames) >= 1
 
 
 def test_pavement_wins_absolutely_the_pad_is_clipped(gate_on, dem):
@@ -336,8 +405,9 @@ def test_pavement_wins_absolutely_the_pad_is_clipped(gate_on, dem):
     layout = make_layout(apron_ring=apron)
     apron_shape = layout.shapes[0]
     before = (apron_shape.polygon.wkb, list(apron_shape.node_altitudes))
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) >= 1
+    frames = [pad_frame(layout, [square_ring(0.0, -8.0, 8.0)],
+                        target_m=6.5)]
+    assert emit(layout, dem, frames) >= 1
     assert (apron_shape.polygon.wkb,
             list(apron_shape.node_altitudes)) == before
     for s in pads(layout):
@@ -351,109 +421,113 @@ def test_a_pad_wholly_inside_pavement_is_inadmissible(gate_on, dem):
     shrunken stand-in.  (At HECA the Private Hall's north face is inside
     an apron polygon — a pad that ignored the apron would grade it.)"""
     layout = make_layout(apron_ring=square_ring(0.0, 0.0, 60.0))
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) == 0
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], base_y=1.5,
+                        anchor_m=(50.0, 50.0))]
+    assert emit(layout, dem, frames) == 0
     assert "pad_wholly_inside_pavement" in kinds(layout.object_pad_findings)
 
 
-def test_a_welded_boundary_carries_the_pavements_own_value(gate_on, dem):
-    """§5.1 clause 3 + ruling R4: where the pad boundary runs along a
-    pavement edge it lies ON the pavement ring and ADOPTS its solved
-    value — a weld, no cliff, no standoff groove — and the short run
-    pulls the pad target toward the pavement with the shortfall
-    reported."""
-    # Apron edge at y = 10, the pad's outer ring touching it exactly.
-    layout = make_layout(apron_ring=[(-20.0, 10.0), (20.0, 10.0),
+def test_the_pad_is_pulled_toward_pavement_and_never_touches_it(gate_on,
+                                                                dem):
+    """§5.1 clause 3 under WELD OR GAP.  The pull is UNCHANGED law: a
+    short run to pavement governs the whole pad, and the shortfall is
+    reported.  What changed is the transition — there is no blend annulus
+    to weld, so the emitted core stands clear of the apron and the mesh
+    drapes the gap.  A pad that shared an edge with pavement at a
+    different value would now be an interior disagreement, which the
+    ruling calls always a defect."""
+    # Apron edge at y = 10, the pad's derived ring touching it exactly.
+    layout = make_layout(apron_ring=[(-20.0, 9.99), (20.0, 9.99),
                                      (20.0, 50.0), (-20.0, 50.0)])
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) >= 2
-    welded = [(x, y, a)
-              for s in blends(layout)
-              for (x, y), a in zip(list(s.polygon.exterior.coords)[:-1],
-                                   s.node_altitudes)
-              if abs(y - 10.0) <= 0.02]
-    assert welded, "the pad's boundary row on the apron edge is missing"
-    assert all(abs(a - APRON_ALT_M) <= 0.01 for _x, _y, a in welded), \
-        "a welded vertex must carry the PAVEMENT value, not the pad's"
-    # run = margin (2 m) at the 5 % groundside cap ⇒ 0.1 m of authority.
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) >= 1
+    # run ~= margin (2 m) at the 5 % groundside cap => 0.1 m of authority.
     core = cores(layout)[0]
-    assert all(abs(a - (APRON_ALT_M + 0.1)) <= 0.01
+    assert all(abs(a - (APRON_ALT_M + 0.1)) <= 0.02
                for a in core.node_altitudes)
     shortfall = [f for f in layout.object_pad_findings
                  if f[0] == "pad_pull_shortfall"]
     assert len(shortfall) == 1
     assert shortfall[0][2] == pytest.approx(0.4, abs=0.02)
+    # THE GAP: no emitted pad vertex is on the apron ring.
+    apron = layout.shapes[0].polygon
+    assert core.polygon.distance(apron) > 1.0
 
 
-def test_a_tight_ring_still_holds_the_base_on_a_shorter_ramp(gate_on, dem):
-    """The OTHH corpus class: a request whose contact hull is about a
-    metre across.  Eroding by the full 2 m margin would leave NO interior
-    and the building base would be held nowhere — so the ramp shortens
-    and a real core survives, still meeting raw DEM at the rim."""
+def test_a_tight_hull_still_holds_the_base_on_a_shorter_erosion(gate_on,
+                                                                dem):
+    """The OTHH corpus class: a contact hull about a metre across.
+    Eroding by the full 2 m margin would leave NO interior and the
+    building base would be held nowhere — so the erosion shortens and a
+    real core survives."""
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 2.5), 6.5)])
-    assert emit(layout, dem, side) >= 2
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 0.5)], target_m=6.5)]
+    assert emit(layout, dem, frames) >= 1
     core = cores(layout)[0]
     assert all(abs(a - 6.5) <= 0.01 for a in core.node_altitudes)
-    assert core.polygon.area == pytest.approx(6.25, rel=0.05)
-    blend = blends(layout)[0]
-    assert all(abs(a - BASE_TERRAIN_M) <= 0.01
-               for a in blend.node_altitudes), \
-        "the rim must still land on raw DEM — a shorter ramp, not a cliff"
-    assert layout.object_pad_records[0]["blend_width_m"] == \
-        pytest.approx(1.25)
+    assert core.polygon.area > 0.5
+    assert layout.object_pad_records[0]["blend_width_m"] < MARGIN_M
 
 
-def test_a_ring_with_no_usable_interior_is_refused_with_its_area(gate_on,
-                                                                dem):
+def test_a_ring_with_no_usable_interior_is_refused_with_its_area(
+        gate_on, dem, monkeypatch):
     """§5.4/§5.5: an inadmissible pad is REPORTED with its measured
-    numbers, never emitted as a stand-in.  A sub-metre ring has nowhere
-    to hold the base and would be a bare step onto raw DEM."""
+    numbers, never emitted as a stand-in.  A ring the erosion consumes
+    whole has nowhere to hold the base and would be a bare step onto raw
+    DEM.  The erosion width is the LAW's
+    (``grade_law.object_pad_blend_width_m``, capped at half the ring's
+    own inradius so an interior always survives a real hull), so the
+    degenerate case is driven through the law function rather than
+    fabricated as geometry."""
+    monkeypatch.setattr(object_pads, "object_pad_blend_width_m",
+                        lambda area, perimeter, margin: 0.0)
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 0.4), 6.5)])
-    assert emit(layout, dem, side) == 0
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) == 0
     refused = [f for f in layout.object_pad_findings
                if f[0] == "pad_no_contact_hull"]
     assert len(refused) == 1
-    assert refused[0][2] == pytest.approx(0.64, rel=0.05)   # ring area
+    assert refused[0][2] > 0.0                     # the measured ring area
 
 
 def test_a_pad_is_claimed_by_the_airport_whose_ground_it_stands_on(gate_on,
                                                                    dem):
-    """The tile sidecar's per-airport blocks are keyed by DSF
-    ATTRIBUTION, not by whose ground the pad is on: measured on +25+051,
+    """A DSF cell can carry two airports' objects: measured on +25+051,
     all 823 OTHH terminal requests are recorded under OTBD because one
     Global Airports DSF cell carries both.  A patch is per airport, so
     GEOMETRY has to claim — otherwise the airport that needs the pads
     emits none and the one that does not emits them 5 km from its own
     ground."""
     layout = make_layout()
-    mine = request(layout, square_ring(0.0, 0.0, 10.0), 6.5, cluster_id=1)
+    mine = pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5,
+                     key=1)
     # 5 km east — inside the tile, outside this airport entirely.
-    far_ring = [(x + 5000.0, y) for x, y in square_ring(0.0, 0.0, 10.0)]
-    theirs = request(layout, far_ring, 6.5, cluster_id=2)
-    side = sidecar([mine, theirs], icao="OTHER")
-    assert emit(layout, dem, side) >= 2
+    far = pad_frame(layout,
+                    [[(x + 5000.0, y) for x, y in square_ring(0.0, 0.0, 8.0)]],
+                    target_m=6.5, key=2, structure_index=1)
+    assert emit(layout, dem, [mine, far]) >= 1
     assert len(layout.object_pad_records) == 1, \
         "exactly the pad standing on this airport's ground"
-    assert layout.object_pad_records[0]["cluster_id"] == 1
+    assert layout.object_pad_records[0]["resource_path"] == \
+        "Buildings/pad1.obj"
     assert layout.object_pad_records[0]["icao"] == "TEST", \
-        "the record is owned by the EMITTING airport, not the block's"
+        "the record is owned by the EMITTING airport"
 
 
 def test_a_pad_is_clipped_by_earlier_terrain_features(gate_on, dem):
     """§5.4 precedence: pavement > existing terrain features > pads > raw
     DEM.  A band/skirt/OLS shape already in the layout takes the ground
     it covers; the pad keeps only the remainder."""
-    from auto_patch.layout import ROLE_GRADED_STRIP
+    from auto_patch.layout import ROLE_BOUNDARY
 
     layout = make_layout()
     strip = square_ring(0.0, 20.0, 20.0)
     layout.shapes.append(BuiltShape(
-        polygon=Polygon(strip + [strip[0]]), role=ROLE_GRADED_STRIP,
+        polygon=Polygon(strip + [strip[0]]), role=ROLE_BOUNDARY,
         ref="band", node_altitudes=[5.2] * 5))
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    assert emit(layout, dem, side) >= 1
+    frames = [pad_frame(layout, [square_ring(0.0, -6.0, 8.0)],
+                        target_m=6.5)]
+    assert emit(layout, dem, frames) >= 1
     band = layout.shapes[1].polygon
     for s in pads(layout):
         assert s.polygon.intersection(band).area == pytest.approx(
@@ -490,8 +564,9 @@ def test_a_pad_touching_pavement_at_points_only_does_not_abort(gate_on,
     assert math.isfinite(run)
 
     # …and the whole emitter stays total over the same geometry.
-    side = sidecar([request(layout, square_ring(0.0, 17.0, 10.0), 6.5)])
-    emit(layout, dem, side)                        # must not raise
+    frames = [pad_frame(layout, [square_ring(0.0, 17.0, 8.0)],
+                        target_m=6.5)]
+    emit(layout, dem, frames)                      # must not raise
     assert "pad_deformed_pavement" not in kinds(layout.object_pad_findings)
 
 
@@ -499,11 +574,13 @@ def test_two_pads_never_overlap_each_other(gate_on, dem):
     """Pad↔pad exclusivity: the second pad is clipped against the first,
     so no ground is claimed twice (the ``ols`` emitted-pieces rule)."""
     layout = make_layout()
-    side = sidecar([
-        request(layout, square_ring(0.0, 0.0, 10.0), 6.5, cluster_id=1),
-        request(layout, square_ring(8.0, 0.0, 10.0), 6.2, cluster_id=2),
-    ])
-    assert emit(layout, dem, side) >= 2
+    frames = [
+        pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5,
+                  key=1, structure_index=0),
+        pad_frame(layout, [square_ring(8.0, 0.0, 8.0)], target_m=6.2,
+                  key=2, structure_index=1),
+    ]
+    assert emit(layout, dem, frames) >= 2
     shapes = [s.polygon for s in pads(layout)]
     for i, a in enumerate(shapes):
         for b in shapes[i + 1:]:
@@ -511,198 +588,133 @@ def test_two_pads_never_overlap_each_other(gate_on, dem):
 
 
 def test_emission_is_deterministic(gate_on, dem):
-    """Same inputs, same pads — the requests are emitted in a stable seat
-    order, never in dict/hash order."""
-    side = sidecar([
-        request(make_layout(), square_ring(40.0, 0.0, 10.0), 6.4,
-                cluster_id=7),
-        request(make_layout(), square_ring(0.0, 0.0, 10.0), 6.5,
-                cluster_id=3),
-    ])
+    """Same inputs, same pads — emitted in a stable seat order, never in
+    dict/hash order.  This is the unit-scale statement of the ruling's
+    own acceptance (a): with the read-back gone, a second run of the same
+    build has nothing left to ratchet on."""
     runs = []
     for _ in range(2):
         layout = make_layout()
-        emit(layout, dem, copy.deepcopy(side))
+        frames = [
+            pad_frame(layout, [square_ring(40.0, 0.0, 8.0)], target_m=6.4,
+                      key=7, structure_index=1),
+            pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5,
+                      key=3, structure_index=0),
+        ]
+        emit(layout, dem, frames)
         runs.append([(s.ref, s.polygon.wkb, tuple(s.node_altitudes))
                      for s in pads(layout)])
     assert runs[0] == runs[1]
 
 
+def test_re_emission_over_the_same_layout_is_byte_stable(gate_on, dem):
+    """THE RATCHET'S UNIT TWIN.  The old consumer read its own previous
+    ``emitted`` records back, so the population could only grow.  Now a
+    second emission over a layout that already carries a build's pads
+    reproduces exactly the same pads: the derivation reads the FRAME and
+    the patch, and ``patch_ground`` drops pad roles at construction, so
+    the pads it just emitted cannot become their own input."""
+    layout = make_layout()
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
+    assert emit(layout, dem, frames) >= 1
+    first = [(s.ref, s.polygon.wkb, tuple(s.node_altitudes))
+             for s in pads(layout)]
+    # Emit AGAIN into the same layout — the pathological case the
+    # read-back turned into a ratchet.
+    emit(layout, dem, frames)
+    second = [(s.ref, s.polygon.wkb, tuple(s.node_altitudes))
+              for s in pads(layout)]
+    assert len(second) == 2 * len(first), "the fixture must re-emit"
+    assert second[len(first):] == first
+
+
 # ══════════════════════════════════════════════════════════════════════
-# CONVERGENCE (§5.2) — the ``emitted`` records
+# THE READ-BACK IS RETIRED (R3 step 4) — the rails, loud
 # ══════════════════════════════════════════════════════════════════════
 
-def test_a_record_is_written_for_every_emitted_pad(gate_on, dem):
+def test_the_sidecar_reader_is_gone_from_the_emission_path():
+    """The consumer functions are REMOVED, not merely unreferenced: a
+    reader left in place is a reader something calls again."""
+    for name in ("pads_for_airport", "merge_emitted_records",
+                 "_airport_entry", "_blend_values"):
+        assert not hasattr(object_pads, name), name
+
+
+def test_no_terrain_module_reads_the_pad_sidecar():
+    """The sidecar is the y-bake's WRITE-ONLY audit trail.  Grepping the
+    build path is the assertion, because the failure this guards against
+    is a future call site, not a stale one."""
+    import pathlib
+
+    root = pathlib.Path(object_pads.__file__).parent
+    offenders = []
+    for path in sorted(root.glob("*.py")):
+        if path.name in ("object_pads.py", "post_mesh.py"):
+            continue                              # the writer and the reader
+        text = path.read_text()
+        if "load_sidecar" in text or "OBJECT_FOOT_PAD_SIDECAR" in text:
+            offenders.append(path.name)
+    assert offenders == [], offenders
+
+
+def test_the_driver_no_longer_persists_emitted_records():
+    from auto_patch import driver
+
+    source = pathlib.Path(driver.__file__).read_text()
+    assert "merge_emitted_records" not in source
+
+
+def test_emission_needs_no_patch_dir_when_frames_are_supplied(gate_on, dem):
+    """Nothing on disk is consulted for a pad any more: hand the emitter
+    frames and it emits, with no patch directory at all."""
     layout = make_layout()
-    side = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    emit(layout, dem, side)
-    assert len(layout.object_pad_records) == 1
-    record = layout.object_pad_records[0]
-    assert record["icao"] == "TEST"
-    assert record["target_ground_metres"] == pytest.approx(6.5)
-    assert record["emitted_target_metres"] == pytest.approx(6.5)
-    assert record["law_digest"] == object_pads.law_digest()
-    assert record["ring_lonlat"]
-
-
-def test_the_pad_survives_its_request_converging_away(gate_on, dem):
-    """§5.2, the whole point of the loop: build N emits pads, build N's
-    rebake re-measures against terrain that now meets the feet, the
-    residuals fall under the tolerance and the REQUESTS VANISH.  The pads
-    must not vanish with them, or the next rebake re-raises the same
-    requests forever."""
-    first = make_layout()
-    side1 = sidecar([request(first, square_ring(0.0, 0.0, 10.0), 6.5)])
-    emit(first, dem, side1)
-    records = first.object_pad_records
-    assert records
-
-    # What post_mesh now writes at the fixed point: requests emptied,
-    # the consumer's section carried across.
-    side2 = sidecar([], emitted=records)
-    second = make_layout()
-    assert emit(second, dem, side2) == len(pads(first))
-    assert [(s.ref, s.polygon.wkb, tuple(s.node_altitudes))
-            for s in pads(second)] == \
-        [(s.ref, s.polygon.wkb, tuple(s.node_altitudes)) for s in pads(first)]
-    assert "pad_record_expired" not in kinds(second.object_pad_findings)
-
-    # ...and build N+2 is a FIXED POINT: re-emitting from the records the
-    # re-emission wrote changes nothing at all.
-    third = make_layout()
-    emit(third, dem, sidecar([], emitted=second.object_pad_records))
-    assert [(s.ref, s.polygon.wkb, tuple(s.node_altitudes))
-            for s in pads(third)] == \
-        [(s.ref, s.polygon.wkb, tuple(s.node_altitudes)) for s in pads(first)]
-
-
-def test_a_live_request_supersedes_its_own_stored_record(gate_on, dem):
-    """§5.2 staleness cause 2: the rebake just measured this seat, so the
-    fresh request wins over the record — the pad re-emits at the NEW
-    target instead of standing at a stale height."""
-    layout = make_layout()
-    ring = square_ring(0.0, 0.0, 10.0)
-    emit(layout, dem, sidecar([request(layout, ring, 6.5)]))
-    stale = layout.object_pad_records
-    moved = make_layout()
-    emit(moved, dem, sidecar([request(moved, ring, 7.25)], emitted=stale))
-    assert len(cores(moved)) == 1, "the seat must emit once, not twice"
-    assert all(abs(a - 7.25) <= 0.01
-               for a in cores(moved)[0].node_altitudes)
-
-
-def test_a_law_change_expires_the_record_with_a_reason(gate_on, dem,
-                                                       monkeypatch):
-    """§5.2 staleness cause 1 + §5.5 ("no silent pad loss"): when the law
-    moves, a stored record is DROPPED and the drop is reported."""
-    layout = make_layout()
-    emit(layout, dem, sidecar([request(layout, square_ring(0.0, 0.0, 10.0),
-                                       6.5)]))
-    records = layout.object_pad_records
-    monkeypatch.setattr(apc, "DSF_OBJECT_PAD_MAX_RELIEF_M", 2.5)
-    after = make_layout()
-    assert emit(after, dem, sidecar([], emitted=records)) == 0
-    expired = [f for f in after.object_pad_findings
-               if f[0] == "pad_record_expired"]
-    assert len(expired) == 1 and expired[0][4] == "law_digest_changed"
-
-
-def test_the_pure_resolver_falls_back_to_the_recorded_icao():
-    """``pads_for_airport`` without a geometric claim is the PURE form:
-    it resolves by the sidecar's own ICAO blocks, so the convergence law
-    (request wins over record; a stale law digest expires a record) can be
-    read and tested without a layout in the room."""
-    layout = make_layout()
-    live = request(layout, square_ring(0.0, 0.0, 10.0), 6.5, cluster_id=1)
-    side = sidecar([live], emitted=[
-        {"icao": "TEST", "seat_key": object_pads.seat_key(live),
-         "law_digest": object_pads.law_digest(), "index": 0,
-         "ring_lonlat": live["rings_lonlat"][0]},
-        {"icao": "TEST", "seat_key": "gone", "law_digest": "stale",
-         "index": 1, "ring_lonlat": live["rings_lonlat"][0]},
-        {"icao": "OTHER", "seat_key": "elsewhere",
-         "law_digest": object_pads.law_digest(), "index": 2,
-         "ring_lonlat": live["rings_lonlat"][0]},
-    ])
-    specs, expired = object_pads.pads_for_airport(side, "TEST")
-    assert [s["source"] for s in specs] == ["request"], \
-        "the live request supersedes its own record; the other airport's " \
-        "record is not ours"
-    assert expired == [("gone", "law_digest_changed")]
-
-
-def test_records_merge_into_the_sidecar_per_airport(tmp_path):
-    """The tile sidecar is shared by every airport in the tile and
-    airports build in a ProcessPool, so the merge must REPLACE one
-    airport's records and leave the others alone."""
-    path = tmp_path / "o4_object_foot_pads.json"
-    path.write_text(json.dumps(sidecar([], emitted=[
-        {"icao": "AAAA", "seat_key": "a", "index": 0},
-        {"icao": "TEST", "seat_key": "old", "index": 0},
-    ])))
-    assert object_pads.merge_emitted_records(
-        str(path), "TEST", [{"icao": "TEST", "seat_key": "new", "index": 0}])
-    payload = json.loads(path.read_text())
-    keys = {(r["icao"], r["seat_key"]) for r in payload["emitted"]}
-    assert keys == {("AAAA", "a"), ("TEST", "new")}
-    # An airport that emitted nothing FORGETS its records rather than
-    # re-emitting them forever.
-    assert object_pads.merge_emitted_records(str(path), "TEST", [])
-    payload = json.loads(path.read_text())
-    assert {(r["icao"], r["seat_key"]) for r in payload["emitted"]} == \
-        {("AAAA", "a")}
-
-
-def test_the_sidecar_version_carries_the_emitted_section():
-    """§5.2: the ``emitted`` section is a sidecar version bump, and
-    ``post_mesh`` — which refreshes the REQUESTS every rebake — is the
-    module that must carry it across.  Version 4 was the
-    footprint-hugging ring law (object-reseat-threshold-spec §2.5);
-    version 5 retires the plan-box fallback (round-4 spec R1), which is
-    a GEOMETRY change and therefore a bump."""
-    from auto_patch import post_mesh
-
-    assert post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION == 5
-
-
-def test_the_consumer_reads_the_sidecar_from_the_patch_dir(gate_on, dem,
-                                                           tmp_path):
-    """Production path: no ``sidecar=`` argument, just the tile's patch
-    directory — which is where post_mesh writes it and where auto-patch
-    features already load from."""
-    layout = make_layout()
-    payload = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    (tmp_path / "o4_object_foot_pads.json").write_text(json.dumps(payload))
-    n = object_pads.emit_object_pads(
-        layout, dem, TILE_LAT, TILE_LON, icao="TEST",
-        patch_dir=str(tmp_path))
-    assert n >= 2 and cores(layout)
-    # A tile with no sidecar is simply a tile with no pads.
-    bare = make_layout()
+    frames = [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)]
     assert object_pads.emit_object_pads(
-        bare, dem, TILE_LAT, TILE_LON, icao="TEST",
-        patch_dir=str(tmp_path / "empty")) == 0
+        layout, dem, TILE_LAT, TILE_LON, icao="TEST",
+        pad_frames=frames, patch_dir=None) >= 1
+
+
+def test_no_frames_means_no_pads_and_no_findings(gate_on, dem):
+    layout = make_layout()
+    assert object_pads.emit_object_pads(
+        layout, dem, TILE_LAT, TILE_LON, icao="TEST", pad_frames=[]) == 0
+    assert layout.object_pad_records == []
 
 
 # ══════════════════════════════════════════════════════════════════════
-# THE VALIDATOR (§5.5) — lockstep with the emitter
+# THE VALIDATOR (§5.5) — lockstep with the emitter, law unchanged
 # ══════════════════════════════════════════════════════════════════════
 
 def test_a_lawful_emission_is_finding_clean(gate_on, dem):
     layout = make_layout()
-    emit(layout, dem, sidecar([request(layout, square_ring(0.0, 0.0, 10.0),
-                                       6.5)]))
+    emit(layout, dem,
+         [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)])
     findings = verification.check_object_pads(
         layout, dem, TILE_LAT, TILE_LON)
     assert findings == [], findings
+
+
+def test_the_validator_reads_the_rendered_base_the_same_relative_way(
+        gate_on, dem):
+    """LOCKSTEP (R5) across the mechanism change: the verifier compares
+    each core vertex against the target the EMITTER recorded — which is
+    now the patch-relative rendered base — so it measures the coupling
+    the ruling defines rather than an absolute number of its own."""
+    layout = make_layout(apron_alt=6.75)
+    emit(layout, dem, [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)],
+                                 base_y=0.5, agl=0.25)])
+    record = layout.object_pad_records[0]
+    assert record["emitted_target_metres"] == pytest.approx(7.5)
+    assert verification.check_object_pads(
+        layout, dem, TILE_LAT, TILE_LON) == []
 
 
 def test_the_validator_catches_a_core_off_its_law_target(gate_on, dem):
     """Lockstep (R5): the reader recomputes the target from the SAME law
     the emitter used, so a surface that drifts from it is visible."""
     layout = make_layout()
-    emit(layout, dem, sidecar([request(layout, square_ring(0.0, 0.0, 10.0),
-                                       6.5)]))
+    emit(layout, dem,
+         [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=6.5)])
     core = cores(layout)[0]
     core.node_altitudes = [a + 0.5 for a in core.node_altitudes]
     findings = verification.check_object_pads(
@@ -710,29 +722,12 @@ def test_the_validator_catches_a_core_off_its_law_target(gate_on, dem):
     assert "pad_core_off_target" in kinds(findings)
 
 
-def test_the_validator_catches_a_broken_weld(gate_on, dem):
-    """§5.5: "every pad↔pavement shared-boundary vertex carries the
-    pavement's value exactly (weld; a mismatch is a groove/cliff
-    finding)"."""
-    layout = make_layout(apron_ring=[(-20.0, 10.0), (20.0, 10.0),
-                                     (20.0, 50.0), (-20.0, 50.0)])
-    emit(layout, dem, sidecar([request(layout, square_ring(0.0, 0.0, 10.0),
-                                       6.5)]))
-    blend = blends(layout)[0]
-    blend.node_altitudes = [a - 0.9 for a in blend.node_altitudes]
-    findings = verification.check_object_pads(
-        layout, dem, TILE_LAT, TILE_LON)
-    assert "pad_weld_mismatch" in kinds(findings)
-
-
-def test_the_validator_surfaces_refusals_and_expiries(gate_on, dem):
+def test_the_validator_surfaces_refusals(gate_on, dem):
     """§5.5: "every refused pad (over-cap relief, inadmissible clip)
-    surfaced as a finding carrying the measured numbers" and "every
-    ``emitted`` sidecar record either re-emitted or expired-with-reason
-    (no silent pad loss)"."""
+    surfaced as a finding carrying the measured numbers"."""
     layout = make_layout()
-    emit(layout, dem, sidecar([request(layout, square_ring(0.0, 0.0, 10.0),
-                                       12.0)]))
+    emit(layout, dem,
+         [pad_frame(layout, [square_ring(0.0, 0.0, 8.0)], target_m=12.0)])
     findings = verification.check_object_pads(
         layout, dem, TILE_LAT, TILE_LON)
     assert "pad_over_relief_cap" in kinds(findings)
@@ -748,67 +743,25 @@ def test_the_validator_is_silent_without_pads(dem):
 # ══════════════════════════════════════════════════════════════════════
 # FOOTPRINT-HUGGING RINGS (object-reseat-threshold-spec §2.5)
 #
-# The consumer's geometry is UNCHANGED by that amendment — it consumes
-# rings verbatim — so what is pinned here is that it consumes the
-# SMALLER rings correctly: one pad per ring, blend width and refusal
-# accounting per ring, and every emitted polygon inside the contact
-# hulls its request was built from.
+# The ring law is unchanged; what moved is WHERE it is applied — in-run
+# over the frame's contact parts instead of post-mesh over the rebake's.
+# So the same structural properties are pinned on the new path: one pad
+# per connected component, refusal accounting per component, and every
+# emitted polygon inside the contact hulls it came from.
 # ══════════════════════════════════════════════════════════════════════
 
-def contact_parts(layout, boxes_m):
-    """Hand-built contact parts in the sidecar's ``(lon, lat)``
-    convention — ``boxes_m`` are ``(cx, cy, half)`` in local metres."""
-    parts = []
-    for cx, cy, half in boxes_m:
-        part = []
-        for x, y in square_ring(cx, cy, half):
-            lat, lon = layout.m_to_ll(x, y)
-            part.append((lon, lat))
-        parts.append(part)
-    return parts
-
-
-def request_from_parts(layout, parts, target_m: float, *,
-                       cluster_id: int = 1) -> dict:
-    """The producer's own path, in miniature: parts → rings (the §2.5
-    union law) → one request record carrying them all."""
-    from auto_patch.object_footprints import foot_pad_rings
-
-    rings = foot_pad_rings([list(part) for part in parts], MARGIN_M)
-    points = [point for part in parts for point in part]
-    lat = sum(p[1] for p in points) / len(points)
-    lon = sum(p[0] for p in points) / len(points)
-    return {
-        "kind": "cluster",
-        "cluster_id": cluster_id,
-        "structure_index": 0,
-        "resource_path": "Buildings/spread.obj",
-        "latitude": lat,
-        "longitude": lon,
-        "base_y": 0.0,
-        "residual_metres": target_m - BASE_TERRAIN_M,
-        "target_ground_metres": target_m,
-        "part_count": len(parts),
-        "over_relief_cap": False,
-        "pavement_clipped": False,
-        "rings_lonlat": [[list(point) for point in ring] for ring in rings],
-    }
-
-
-def test_each_ring_of_a_request_becomes_its_own_pad(gate_on, dem):
+def test_each_component_of_a_structure_becomes_its_own_pad(gate_on, dem):
     """§2.5: "each connected component of that union raised as its OWN
     request ring".  Three parts strung 40 m apart are three pads, each
     hugging its own object — not one rectangle over the ground between
     them."""
     layout = make_layout()
-    parts = contact_parts(layout, [(-40.0, -40.0, 5.0), (0.0, -40.0, 5.0),
-                                   (40.0, -40.0, 5.0)])
-    spec = request_from_parts(layout, parts, 6.5)
-    assert len(spec["rings_lonlat"]) == 3
-
-    assert emit(layout, dem, sidecar([spec])) >= 6
+    frames = [pad_frame(layout, [square_ring(-40.0, -40.0, 5.0),
+                                 square_ring(0.0, -40.0, 5.0),
+                                 square_ring(40.0, -40.0, 5.0)],
+                        target_m=6.5)]
+    assert emit(layout, dem, frames) == 3
     assert len(cores(layout)) == 3
-    # One record per RING, each with its own seat key and ring index.
     records = layout.object_pad_records
     assert len(records) == 3
     assert sorted(r["ring_index"] for r in records) == [0, 1, 2]
@@ -819,37 +772,33 @@ def test_each_ring_of_a_request_becomes_its_own_pad(gate_on, dem):
 
 
 def test_every_emitted_pad_lies_inside_its_contact_hulls(gate_on, dem):
-    """THE STRUCTURAL ASSERTION (§2.5), consumer side: every emitted pad
-    polygon is covered by (its request's contact-hull union ⊕ margin),
-    so no pad vertex is further than the margin from a real contact."""
-    from shapely.geometry import MultiPoint
+    """THE STRUCTURAL ASSERTION (§2.5): every emitted pad polygon is
+    covered by (the contact-hull union ⊕ margin), so no pad vertex is
+    further than the margin from a real contact."""
     from shapely.ops import unary_union
 
     layout = make_layout()
-    parts = contact_parts(layout, [(-30.0, -30.0, 6.0), (0.0, -45.0, 3.0),
-                                   (25.0, -25.0, 8.0), (-5.0, -20.0, 4.0)])
-    spec = request_from_parts(layout, parts, 6.5)
-    assert emit(layout, dem, sidecar([spec])) > 0
-
-    hulls_m = unary_union([
-        MultiPoint([layout.ll_to_m(lat, lon) for lon, lat in part]).convex_hull
-        for part in parts])
-    allowed = hulls_m.buffer(MARGIN_M + 0.05)      # + the round-trip eps
+    hulls = [square_ring(-30.0, -30.0, 6.0), square_ring(0.0, -45.0, 3.0),
+             square_ring(25.0, -25.0, 8.0), square_ring(-5.0, -20.0, 4.0)]
+    assert emit(layout, dem,
+                [pad_frame(layout, hulls, target_m=6.5)]) > 0
+    allowed = unary_union(
+        [Polygon(hull + [hull[0]]) for hull in hulls]
+    ).buffer(MARGIN_M + 0.05)                      # + the round-trip eps
     for shape in pads(layout):
         assert shape.polygon.within(allowed), shape.ref
 
 
-def test_a_ring_lost_to_pavement_does_not_condemn_its_siblings(gate_on, dem):
+def test_a_component_lost_to_pavement_does_not_condemn_its_siblings(
+        gate_on, dem):
     """The refusal accounting still PARTITIONS: one component wholly
     inside the apron is refused with its own key while the other emits."""
     layout = make_layout(apron_ring=[(20.0, 20.0), (100.0, 20.0),
                                      (100.0, 100.0), (20.0, 100.0)])
-    parts = contact_parts(layout, [(-40.0, -40.0, 5.0), (60.0, 60.0, 5.0)])
-    spec = request_from_parts(layout, parts, 6.5)
-    assert len(spec["rings_lonlat"]) == 2
-
-    assert emit(layout, dem, spec_sidecar := sidecar([spec])) > 0
-    assert spec_sidecar["version"] == post_mesh.OBJECT_FOOT_PAD_SIDECAR_VERSION
+    frames = [pad_frame(layout, [square_ring(-40.0, -40.0, 5.0),
+                                 square_ring(60.0, 60.0, 5.0)],
+                        target_m=6.5, anchor_m=(95.0, 25.0))]
+    assert emit(layout, dem, frames) > 0
     assert len(cores(layout)) == 1
     refused = [f for f in layout.object_pad_findings
                if f[0] == "pad_wholly_inside_pavement"]
@@ -857,60 +806,11 @@ def test_a_ring_lost_to_pavement_does_not_condemn_its_siblings(gate_on, dem):
     assert refused[0][1] != layout.object_pad_records[0]["seat_key"]
 
 
-# ── the version-4 gate ────────────────────────────────────────────────
-
-def test_a_version_3_sidecar_is_refused_not_consumed(gate_on, dem):
-    """§2.5: "Sidecar version bumps (3 → 4) so hull-ring request corpora
-    are discarded".  A v3 file's rings are the retired law's geometry —
-    the consumer emits NOTHING from it and says why."""
-    layout = make_layout()
-    stale = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)],
-                    version=3)
-    # The retired shape, verbatim: v3 carried one "ring_lonlat" per
-    # request.  Even carrying BOTH keys it must not be consumed.
-    stale["airports"][0]["requests"][0]["ring_lonlat"] = \
-        stale["airports"][0]["requests"][0]["rings_lonlat"][0]
-
-    assert emit(layout, dem, stale) == 0
-    assert pads(layout) == []
-    expired = [f for f in layout.object_pad_findings
-               if f[0] == "pad_record_expired"]
-    assert expired and all(f[4] == "sidecar_version_stale" for f in expired)
-
-
-def test_version_3_emitted_records_drop_rather_than_re_emit(gate_on, dem):
-    """"``emitted`` records with stale-version fingerprints drop and the
-    §5.2 convergence loop re-derives" — the record is reported expired,
-    by key, so the loss is measured."""
-    layout = make_layout()
-    live = sidecar([request(layout, square_ring(0.0, 0.0, 10.0), 6.5)])
-    emit(layout, dem, live)
-    records = layout.object_pad_records
-    assert records
-
-    after = make_layout()
-    stale = sidecar([], emitted=records, version=3)
-    assert emit(after, dem, stale) == 0
-    expired = dict((f[1], f[4]) for f in after.object_pad_findings
-                   if f[0] == "pad_record_expired")
-    assert expired == {r["seat_key"]: "sidecar_version_stale"
-                       for r in records}
-
-
-def test_a_stale_sidecar_is_never_relabelled_current(tmp_path):
-    """The merge must not LAUNDER a hull-law corpus by stamping the new
-    version on it: with nothing to add it leaves the file alone."""
-    path = tmp_path / "o4_object_foot_pads.json"
-    payload = sidecar([], emitted=[{"icao": "TEST", "seat_key": "old"}],
-                      version=3)
-    path.write_text(json.dumps(payload))
-    assert object_pads.merge_emitted_records(str(path), "TEST", []) is False
-    assert json.loads(path.read_text()) == payload
-
+# ── the law digest ────────────────────────────────────────────────────
 
 def test_the_law_digest_moves_with_the_sidecar_version(monkeypatch):
     """The version is part of the pad law's fingerprint, so a record
-    written under the hull law can never match this build's digest."""
+    written under an older law can never match this build's digest."""
     before = object_pads.law_digest()
     monkeypatch.setattr(post_mesh, "OBJECT_FOOT_PAD_SIDECAR_VERSION", 3)
     assert object_pads.law_digest() != before

@@ -1372,6 +1372,7 @@ def _measure_structure_parts(
     elevated_base_metres: float,
     *,
     for_clustering: bool = False,
+    welded_parts: list[list[Triangle]] | None = None,
 ) -> list[_PartMeasurement]:
     """Weld one structure's triangles into parts and measure each one.
 
@@ -1389,11 +1390,35 @@ def _measure_structure_parts(
     inline loop always did: the seating gate must not be paid for by
     builds that have it switched off (build-time HARD LAW, repo-root
     CLAUDE.md).
+
+    ``sampler=None`` is the MESH-FREE reading (S5v3, RULINGS "OBJECT
+    PADS: EMISSION-TIME RELATIVE" + the R3 single-pass ruling): the
+    parts, their base ``y``, plan boxes, areas, centroids and world
+    positions are all PACK data and none of them consults the mesh —
+    only ``ground_metres`` does.  With no sampler the ground columns come
+    back ``None``/``ground_measured=False`` and everything else is
+    byte-identical to the sampled call, which is what lets the frame be
+    built once IN-RUN, pre-solve, and cached on pristine inputs.  No
+    "outside the built mesh" warning is printed, because nothing was
+    asked of a mesh.
+
+    ``welded_parts`` supplies the WELDING instead of performing it — the
+    object pad frame's contribution (S5v3 step 2, Fable's R3 "one frame,
+    single pass").  Welding is the expensive half of this function and it
+    is pure PACK data, so the frame builds it once per build and both
+    consumers read that one product; every line below is unchanged, so a
+    supplied welding and a performed one cannot produce different
+    measurements.  The caller owns the validity question — the triangles
+    are SHARED-INDEX, meaningful only against the pool frame that minted
+    them — and ``structure_deltas`` refuses a frame whose signature does
+    not match its own rather than indexing into the wrong vertex array.
     """
     measurements: list[_PartMeasurement] = []
-    for part_triangles in obj8_partition.weld_parts(
-        frame.shared_vertices, structure_shared_triangles
-    ):
+    if welded_parts is None:
+        welded_parts = obj8_partition.weld_parts(
+            frame.shared_vertices, structure_shared_triangles
+        )
+    for part_triangles in welded_parts:
         used_shared_indices = {
             shared_index
             for triangle in part_triangles
@@ -1435,6 +1460,21 @@ def _measure_structure_parts(
         part_latitude, part_longitude = _pool_frame_to_world_point(
             frame.origin_latitude, frame.origin_longitude, part_x, part_z
         )
+        if sampler is None:
+            measurements.append(
+                _PartMeasurement(
+                    is_ground=True,
+                    area_square_metres=part_area,
+                    centroid_x=part_x,
+                    centroid_z=part_z,
+                    latitude=part_latitude,
+                    longitude=part_longitude,
+                    ground_metres=None,
+                    ground_measured=False,
+                    **common,
+                )
+            )
+            continue
         part_ground = sampler.elevation_at_or_none(part_latitude, part_longitude)
         ground_measured = part_ground is not None
         if part_ground is None:
@@ -1462,6 +1502,26 @@ def _measure_structure_parts(
             )
         )
     return measurements
+
+
+def pool_frame_signature(frame: _PoolFrame) -> tuple:
+    """The identity a SHARED-INDEX triangle is only meaningful against.
+
+    A welded part carries pool-frame vertex INDICES.  Handing one built
+    against a different frame to :func:`_measure_structure_parts` would
+    read the wrong vertices — silently, with plausible numbers.  So the
+    pad frame records this signature when it welds and
+    :func:`structure_deltas` compares it with its own before consuming
+    anything; a mismatch re-welds and says so (never-silent posture).
+    It covers exactly what the index space depends on: which resources
+    are in, where each one's slice starts, and how many vertices the
+    frame holds in total.
+    """
+    return (
+        tuple(frame.included_resources),
+        tuple(sorted(frame.base_offset_by_resource.items())),
+        len(frame.shared_vertices),
+    )
 
 
 def _union_plan_boxes(
@@ -2275,6 +2335,7 @@ def structure_deltas(
     sampler: MeshElevationSampler,
     *,
     measure_only: bool = False,
+    pad_frame=None,
 ) -> RebakeDecision:
     """Compute per-(structure, object) y offsets against the built mesh.
 
@@ -2361,6 +2422,21 @@ def structure_deltas(
     bake to its authored bytes.  The flag gates pack modification, not
     terrain.
 
+    ``pad_frame`` (S5v3 step 2, Fable's R3 "one frame, single pass") is
+    an ``object_frame.ObjectPadFrame`` built EARLIER IN THE SAME BUILD
+    from the same pack data.  It carries the WELDING — the pure-pack
+    half of every part measurement, and this function's dominant cost
+    (2026-07-26 profile: ``weld_parts`` from here measured 783.6 s,
+    57.8 % of a +30+031 build).  With one supplied, this function
+    performs no welding and keeps only the genuinely mesh-dependent
+    work: sampling the built mesh under each anchor and each part
+    centroid.  Everything else runs line for line as before, so the
+    decision is unchanged — the twin
+    (``test_object_pad_frame.py``) asserts exactly that.  A frame whose
+    ``pool_frame_signature`` does not match this pool's is REFUSED with
+    a message and the welding is performed here, because a shared-index
+    triangle read against the wrong vertex array fails silently.
+
     Positional commands and ``ANIM`` handling are workstream W5's
     concern, not this function's.
     """
@@ -2392,6 +2468,28 @@ def structure_deltas(
     )
 
     frame = _build_pool_frame(pool, geometry_by_resource)
+
+    # THE FRAME'S WELDING, or none.  Refused loudly on a signature
+    # mismatch: the triangles are pool-frame vertex INDICES, so a frame
+    # built against a different resource set would read real vertices at
+    # the wrong positions and produce plausible, wrong parts.
+    welded_labels_by_structure: dict = {}
+    if pad_frame is not None:
+        if (
+            getattr(pad_frame, "pool_frame_signature", ())
+            == pool_frame_signature(frame)
+        ):
+            welded_labels_by_structure = dict(
+                pad_frame.welded_labels_by_structure)
+        else:
+            import O4_UI_Utils as UI
+
+            UI.vprint(
+                1,
+                "   [object-anchor] pad frame REFUSED: its pool-frame "
+                "signature does not match this pool's (resource set or "
+                "vertex count changed) — welding here instead",
+            )
 
     skipped: list[tuple[str, str]] = []
     unusable_reason_by_resource: dict[str, str] = {}
@@ -2456,6 +2554,25 @@ def structure_deltas(
                 for first_index, second_index, third_index in triangles
             )
         shared_triangles_by_structure.append(structure_shared_triangles)
+        # The frame's labels are POSITIONAL over exactly these triangles.
+        # A length mismatch means the frame was welded over a different
+        # structure list (a partition-cache skew the pristine key cannot
+        # see) — drop it for this structure and weld here.
+        structure_index = len(shared_triangles_by_structure) - 1
+        supplied = welded_labels_by_structure.get(structure_index)
+        if supplied is not None and len(supplied) != len(
+            structure_shared_triangles
+        ):
+            import O4_UI_Utils as UI
+
+            UI.vprint(
+                1,
+                "   [object-anchor] pad frame welding REFUSED for "
+                f"structure {structure_index}: it labels "
+                f"{len(supplied)} triangles, the structure has "
+                f"{len(structure_shared_triangles)} — welding here instead",
+            )
+            del welded_labels_by_structure[structure_index]
         if structure_shared_triangles:
             bounding_box_by_structure.append(
                 obj8_reader.horizontal_bounding_box(
@@ -2472,6 +2589,21 @@ def structure_deltas(
                 structure.centroid_longitude,
             )
         )
+
+    def _frame_welding(structure_index: int):
+        """The frame's welding for one structure, or ``None`` to weld.
+
+        Regrouped from the labels here rather than carried as triangle
+        groups, so the sidecar stays one small int per triangle instead
+        of a second copy of the pack's geometry.
+        """
+        labels = welded_labels_by_structure.get(structure_index)
+        if labels is None:
+            return None
+        from .object_frame import regroup_welded_parts
+
+        return regroup_welded_parts(
+            shared_triangles_by_structure[structure_index], labels)
 
     # Pass 1 — structure grounds and the unconditional skips.
     skip_reason_by_index: dict[int, str] = {}
@@ -2613,6 +2745,7 @@ def structure_deltas(
                 ground_by_index[structure_index],
                 DSF_OBJECT_ELEVATED_BASE_M,
                 for_clustering=True,
+                welded_parts=_frame_welding(structure_index),
             )
             measurements_by_index[structure_index] = measurements
             if len(measurements) > 1 and not structure.contact_edges:
@@ -3049,6 +3182,13 @@ def structure_deltas(
                 structure_shared_triangles,
                 structure_ground,
                 DSF_OBJECT_ELEVATED_BASE_M,
+                # The frame welds ONCE, with ``for_clustering=True``.
+                # This call site reads only ``is_ground``,
+                # ``ground_metres``, ``base_y`` and ``base_resource`` —
+                # none of which the flag touches — so the same welding
+                # serves both, and the parts, their order and their
+                # triangle order are the welding's, not the flag's.
+                welded_parts=_frame_welding(structure_index),
             ):
                 if not measurement.is_ground:
                     continue

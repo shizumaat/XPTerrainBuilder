@@ -428,3 +428,44 @@ Skipped, per PRE-SHIP mode + the wave-2 spec (walls belong to P4):
   orders of magnitude larger than this one.
 - 0 new law constants and 0 new env flags. `CENTERLINE_SPECS_MEMO` is a
   module-level kill switch for the twin; no law reads it.
+
+## S7 — census domain restoration + drainage retirement (2026-08-13/14)
+
+- lane/s7domain, two commits (aba74b7, 8907f5a). Verification actually
+  run: the blast `--tests-for` selection over grade_law + check_grade +
+  config (131 test files) once through `run_with_ledger`, and a MATCHED
+  CONTROL of the failing files on clean main. Both sides: the SAME 19
+  failures, test-id for test-id (test_pavement_grade x7,
+  test_flat_site_mode x6, test_tunnel_portal_fidelity x2,
+  test_contracts, test_pad_host_pavement_level, test_object_anchor,
+  test_runway_seam_dem_steps). S7 introduces ZERO new failures; those 19
+  are pre-existing at 8345bf8 and are NOT this lane's to fix.
+- SKIPPED: no build of any kind. The five-airport re-census is over the
+  FROZEN 1.0.245 artifacts, which is what the charter asked for — but it
+  means nothing here verifies that a FRESHLY BUILT patch censuses the
+  same way under the retired family. It cannot differ (the retirement
+  removes a reader, and no emitter ever read the law), but it is not
+  measured.
+- SKIPPED: no in-sim pass. The retirement removes rows from reports; it
+  moves no geometry, so there is nothing for the sim to judge.
+- OPEN, and the round's to rule (reported in tmp/s7_domain_frame.md §4
+  and in the twin's docstring): THE SURVIVING DRAINAGE LAW HAS NO CENSUS
+  READER. With §B3 retired the runway crown minimum is the only drainage
+  law, and it is generation-bound only. A runway emitted dead flat
+  against a declared 0.30 m crown drop censuses ZERO rows — measured —
+  because the within-shape crown check judges deviation from the
+  designed crown against the runway's own transverse cap allowance, and
+  a 1 % crown sits inside a 1.5 % cap by construction. Adding a
+  crown-minimum family is a new law reader: spec work, not this lane's.
+- OPEN, not touched, reported to the lead: `check_grade._TRANSVERSE_ROLES`
+  excludes `service_road` while `lateral_spine_nodes` DOES insert
+  cross-section vertices on service_road shapes and constrains them at
+  SERVICE_ROAD_MAX_TRANSVERSE. The exclusion is deliberate and in
+  documented lockstep ("Expressed over the lateral pass's own target
+  roles, which are exactly check_grade._TRANSVERSE_ROLES"), so it is not
+  the migration-blindness class and S7 left it alone — but it IS a
+  generation-binding constraint whose validator twin reads nothing.
+- NOTED, now moot: `tunnel_ramp` is groundside in layout.GROUNDSIDE_ROLES
+  and was never in the §B3 walk either. The family is gone, so the
+  question dies with it; it is recorded in case landside drainage is ever
+  re-opened.

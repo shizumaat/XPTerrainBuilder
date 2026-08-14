@@ -651,27 +651,48 @@ def remove_dsftool_dump_leftovers(tile):
                     pass
 
 def delete_incomplete_imgs(tile):
-    """Delete orthophoto jpegs and dds that have white squares."""
+    """Delete the white-squared orthophotos THIS RUN WROTE, and their dds.
+
+    Only the artifacts registered in ``IMG.incomplete_img_paths`` are
+    touched: those are the exact paths ``download_jpeg_ortho`` saved a
+    white-filled image to, so they are proven bad.  A texture that is in
+    ``IMG.incomplete_imgs`` but not there — a fetch that failed AND whose
+    save then failed too — leaves the bytes on disk as the user's own,
+    and they are kept.
+
+    This is the 2026-08-12 KCLT incident's site: the registration used to
+    happen before the save, so a permission-denied window (a macOS
+    volume-access prompt killed unanswered) had the engine delete healthy
+    imagery it had never read.  A read that fails is evidence about the
+    ACCESS, never about the artifact.
+    """
     tile_coords = FNAMES.short_latlon(tile.lat, tile.lon)
     if tile_coords not in IMG.incomplete_imgs:
         return
     file_name_list = IMG.incomplete_imgs[tile_coords]
+    written = IMG.incomplete_img_paths.get(tile_coords, {})
     for file_name in file_name_list:
-        # Delete the orthophoto jpegs with white squares
-        for root, _, files in os.walk(FNAMES.Imagery_dir):
-            if file_name in files:
-                file_path = os.path.join(root, file_name)
-                os.remove(file_path)
-                UI.lvprint(1, f"Deleted: {file_name} in {file_path}")
+        file_path = written.get(file_name)
+        if not file_path:
+            UI.lvprint(
+                1,
+                f"KEPT: {file_name} — its parts could not be obtained, but "
+                "no white-squared file was written over it, so whatever is "
+                "on disk is not this run's product.",
+            )
+            continue
+        # The orthophoto jpeg this run white-filled.
+        IMG.remove_imagery_artifact(file_path, "white squares, rewritten")
 
-        # Delete the tile dds textures with white squares
-        # file_name has .jpg extension, so create a variable for .dds extension as well
+        # And the dds built from it, wherever it landed in the pack.
         base_name, _ = os.path.splitext(file_name)
         file_name_dds = f"{base_name}.dds"
         for root, _, files in os.walk(tile.build_dir):
             if file_name_dds in files:
-                file_path = os.path.join(root, file_name_dds)
-                os.remove(file_path)
-                UI.lvprint(1, f"Deleted: {file_name_dds} in {file_path}")
+                IMG.remove_imagery_artifact(
+                    os.path.join(root, file_name_dds),
+                    "built from a white-squared orthophoto",
+                )
 
     IMG.incomplete_imgs.pop(tile_coords, None)
+    IMG.incomplete_img_paths.pop(tile_coords, None)

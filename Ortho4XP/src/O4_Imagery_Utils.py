@@ -1,7 +1,9 @@
+import errno
 import io
 import os
 import queue
 import random
+import stat
 import subprocess
 import sys
 import threading
@@ -51,7 +53,100 @@ http_timeout = 10
 check_tms_response = False
 max_connect_retries = 10
 max_baddata_retries = 10
+# {tile_coords: [jpeg_file_name, ...]} — the textures whose parts could not
+# all be obtained, for the user-facing warning and the one rebuild attempt.
 incomplete_imgs = {}
+# {tile_coords: {jpeg_file_name: absolute_path}} — the SUBSET of the above
+# the engine actually WROTE a white-squared file for.  Only these may be
+# deleted: an entry in ``incomplete_imgs`` alone proves nothing about the
+# bytes on disk (2026-08-12, the KCLT deletion — see
+# ``O4_Tile_Utils.delete_incomplete_imgs``).
+incomplete_img_paths = {}
+
+
+################################################################################
+#  IMAGERY IS NEVER DELETED ON AN ERROR THAT DOES NOT PROVE CORRUPTION
+#
+#  Reference incident, 2026-08-12: the app ran while a macOS TCC
+#  volume-access dialog was killed unanswered.  In the permission-denied
+#  window ``os.path.isfile`` reported healthy orthophotos ABSENT, the
+#  engine re-fetched them, the fetch failed, and the cleanup path deleted
+#  the KCLT imagery — user data destroyed by code that read "cannot
+#  access" as "corrupt".
+#
+#  The law these helpers implement: a failed READ is evidence about the
+#  ACCESS, never about the artifact.  Deletion stays lawful only where
+#  the bytes were readable and proved bad (a failed decode, a checksum
+#  mismatch) or where the engine itself just wrote the bad file.
+################################################################################
+def is_access_error(error):
+    """True when ``error`` means "could not access", not "is corrupt"."""
+    if isinstance(error, PermissionError):
+        return True
+    return getattr(error, "errno", None) in (errno.EACCES, errno.EPERM)
+
+
+def artifact_state(path):
+    """``"present"`` / ``"absent"`` / ``"unreadable"`` for one artifact.
+
+    ``os.path.isfile`` collapses the last two: it swallows every
+    ``OSError`` and answers False, so a permission-denied stat reads as
+    "the file is not there" and every caller downstream treats a healthy
+    artifact as missing.  This helper keeps the third answer.
+    """
+    try:
+        return "present" if stat.S_ISREG(os.stat(path).st_mode) else "absent"
+    except FileNotFoundError:
+        return "absent"
+    except NotADirectoryError:
+        return "absent"
+    except OSError as error:
+        if is_access_error(error):
+            return "unreadable"
+        # An unexpected OSError is still not proof the artifact is bad.
+        UI.lvprint(
+            0,
+            "WARNING: could not determine the state of",
+            path,
+            ":",
+            error,
+        )
+        return "unreadable"
+
+
+def report_unreadable_artifact(path, action):
+    """Log an access failure loudly; the artifact is left untouched."""
+    UI.lvprint(
+        0,
+        "ERROR: cannot access the imagery artifact",
+        path,
+        "- it exists as far as this run can tell but could not be read",
+        "(permissions? a pending macOS volume-access prompt?).",
+        action,
+        "Nothing was deleted; restore access and re-run.",
+    )
+
+
+def remove_imagery_artifact(path, reason):
+    """Delete one imagery artifact, refusing on an access error.
+
+    Callers must already have PROVEN the artifact bad (the engine wrote
+    a white-squared file over it, a decode of readable bytes failed).
+    A ``PermissionError`` here means the deletion could not happen at
+    all — it is reported, never retried into a partial removal.
+    """
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        if is_access_error(error):
+            report_unreadable_artifact(path, "Deletion was refused.")
+        else:
+            UI.lvprint(0, "ERROR: could not delete", path, ":", error)
+        return False
+    UI.lvprint(1, "Deleted:", path, "(" + reason + ")")
+    return True
 
 
 user_agent_generic = (
@@ -1632,6 +1727,7 @@ def download_jpeg_ortho(
     # if stop flag we do not wish to imprint a white texture
     if UI.red_flag:
         return 0
+    tile_coords = Path(file_dir).parent.name
     if not success:
         UI.lvprint(
             1,
@@ -1640,13 +1736,13 @@ def download_jpeg_ortho(
             "could not be obtained ",
             "(even at lower ZL), it was filled with white there.",
         )
-        tile_coords = Path(file_dir).parent.name
         incomplete_imgs.setdefault(tile_coords, []).append(file_name)
     if not os.path.exists(file_dir):
         os.makedirs(file_dir)
+    destination = os.path.join(file_dir, file_name)
     try:
         if super_resol_factor == 1:
-            big_image.save(os.path.join(file_dir, file_name))
+            big_image.save(destination)
         else:
             big_image.resize(
                 (
@@ -1654,7 +1750,7 @@ def download_jpeg_ortho(
                     int(height / super_resol_factor),
                 ),
                 Image.Resampling.BICUBIC,
-            ).save(os.path.join(file_dir, file_name))
+            ).save(destination)
     except Exception as e:
         UI.lvprint(
             0,
@@ -1662,7 +1758,22 @@ def download_jpeg_ortho(
             "received message :",
             e,
         )
+        # The white-squared image never reached the disk, so whatever is
+        # at ``destination`` is NOT this run's product and must not be
+        # deleted downstream (2026-08-12, the KCLT deletion: the name was
+        # registered before the save and a denied write left the user's
+        # healthy orthophoto queued for removal).
+        if is_access_error(e):
+            report_unreadable_artifact(
+                destination, "The orthophoto was NOT rewritten."
+            )
         return 0
+    # Registered only now: the file on disk IS the white-squared image
+    # this run just wrote, which is what makes deleting it lawful.
+    if not success:
+        incomplete_img_paths.setdefault(tile_coords, {})[
+            file_name
+        ] = destination
     return 1
 
 
@@ -1724,9 +1835,16 @@ def build_jpeg_ortho(
                     true_zl,
                     providers_dict[rlayer["layer_code"]],
                 )
-                if not os.path.isfile(
-                    os.path.join(true_file_dir, true_file_name)
-                ):
+                true_path = os.path.join(true_file_dir, true_file_name)
+                state = artifact_state(true_path)
+                if state == "unreadable":
+                    # NOT "missing": re-downloading here would overwrite an
+                    # orthophoto this run merely cannot stat.
+                    report_unreadable_artifact(
+                        true_path, "The texture was NOT rebuilt."
+                    )
+                    return 0
+                if state == "absent":
                     UI.vprint(
                         1,
                         "   Downloading missing orthophoto "
@@ -1795,7 +1913,16 @@ def build_jpeg_ortho(
         file_dir = FNAMES.jpeg_file_dir_from_attributes(
             tile.lat, tile.lon, zoomlevel, providers_dict[provider_code]
         )
-        if not os.path.isfile(os.path.join(file_dir, file_name)):
+        state = artifact_state(os.path.join(file_dir, file_name))
+        if state == "unreadable":
+            # NOT "missing": re-downloading here would overwrite an
+            # orthophoto this run merely cannot stat.
+            report_unreadable_artifact(
+                os.path.join(file_dir, file_name),
+                "The texture was NOT rebuilt.",
+            )
+            return 0
+        if state == "absent":
             UI.vprint(1, "   Downloading missing orthophoto " + file_name)
             if not download_jpeg_ortho(
                 file_dir, file_name, *texture_attributes

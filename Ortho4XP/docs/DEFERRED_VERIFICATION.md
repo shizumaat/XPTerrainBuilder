@@ -1756,3 +1756,37 @@ canonical key) are scratchpad one-offs on FIRST use — a second use
 promotes them into `tools/` with index entries, and the airside value
 join is the stronger candidate: it answers "did airside move" as an
 EQUALITY where a census A/B can only answer it as a count.
+
+## 2026-08-14 — ENGINE IMAGERY HARDENING (lane/imgharden)
+
+Imagery deletion now guards on the ERROR CLASS: a permission failure is
+evidence about the ACCESS, never about the artifact. Attribution map:
+`tmp/imagery_delete_map.md` (committed). Eight delete sites classified;
+S1 `O4_Tile_Utils.delete_incomplete_imgs` is the 2026-08-12 KCLT site.
+
+DEFERRED, with reasons:
+
+1. **No tile build.** Every changed path is file handling and is covered
+   by unit twins (`tests/test_imagery_permission_hardening.py`, 7 tests,
+   each verified to FAIL against the pre-change tree — the denied-save
+   twin reproduces the incident, printing `Deleted: ...jpg`). The blast
+   selection (8 files) ran once through the ledger: 66 passed. No full
+   suite, no acceptance build, no in-sim arm (PRE-SHIP MODE).
+2. **S3, the geotiff pre-clean** (`O4_Imagery_Utils.convert_texture`,
+   the `os.remove` of an existing `Geotiffs/<name>.tif` before
+   regenerating it). NOT permission-triggered — `os.path.exists` answers
+   False under EPERM, so nothing is deleted — but if the gdal conversion
+   then fails (the 10-try loop only logs), the user's previous geotiff
+   is already gone. Out of this lane's error-class scope; owed as a
+   write-to-temp-then-replace change.
+3. **The `grouped` imagery-dir key mismatch.** `download_jpeg_ortho`
+   keys `incomplete_imgs` by `Path(file_dir).parent.name`, which is
+   `long_latlon` for providers with `imagery_dir = grouped`, while
+   `delete_incomplete_imgs` looks the tile up by `short_latlon`. For
+   those providers the cleanup silently never fires. Pre-existing, in
+   the SAFE direction (a stale white-squared file is kept, not user data
+   deleted), so it is recorded rather than changed here.
+4. **`_shared_tile_cache_get`'s bare `except Exception: pass`** turns a
+   permission-denied map-cache read into a silent miss. It deletes
+   nothing, so it is outside the deletion law; it does make a denial
+   window quieter than it should be. Owed as a logging change.

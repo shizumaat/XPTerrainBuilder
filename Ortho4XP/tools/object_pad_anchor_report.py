@@ -108,11 +108,13 @@ def _harness_build_module():
 
 # ── pure readers (the twin's surface) ─────────────────────────────────
 
-def patch_shapes(patch_path) -> list:
-    """``[(role, ref, shapely Polygon in LON/LAT)]`` for an emitted patch.
+def patch_rings(patch_path) -> list:
+    """``[(role, ref, Polygon in LON/LAT, per-vertex alts | None)]``.
 
     Parsed with ``check_grade._parse_osm`` — the harness library, so this
-    tool sees exactly the rings the census sees.  Degenerate rings (fewer
+    tool sees exactly the rings the census sees, and the altitudes are
+    the census's own per-vertex derivation (``alt_abs`` nodes, the
+    ``node_altitudes`` / high-low way forms).  Degenerate rings (fewer
     than 4 node references, unresolvable ids, empty polygons) are
     skipped, never repaired into something the patch does not contain.
     """
@@ -138,8 +140,85 @@ def patch_shapes(patch_path) -> list:
             continue
         if poly.is_empty:
             continue
-        out.append((way.role, way.ref, poly))
+        alts = list(way.elevs) if getattr(way, "elevs", None) else None
+        if alts is not None and len(alts) < len(pts):
+            alts = None
+        # The RAW ring travels beside the polygon: ``buffer(0)`` repairs
+        # a self-touching ring by changing its vertices, and an altitude
+        # list paired with repaired coordinates is a silent mis-join.
+        out.append((way.role, way.ref, poly, alts, pts))
     return out
+
+
+def patch_shapes(patch_path) -> list:
+    """``[(role, ref, shapely Polygon in LON/LAT)]`` for an emitted patch.
+
+    The elevation-free view of :func:`patch_rings` — one parse, one ring
+    derivation, two shapes of answer.
+    """
+    return [(role, ref, poly) for (role, ref, poly, _alts, _pts)
+            in patch_rings(patch_path)]
+
+
+def _metre_frame(lat0: float, lon0: float):
+    """``ll_to_m(lat, lon)`` for a local frame anchored at (lat0, lon0).
+
+    The mesher triangulates in ``(lon * cos(lat0), lat)``
+    (``O4_Mesh_Utils``' ``VECT.scalx``) and a Delaunay triangulation is
+    invariant under UNIFORM scaling, so this frame — that one times
+    ~111320 — triangulates identically.  It is the same frame
+    ``PatchGroundField`` gets from a layout in production, which is why
+    the tool and the build cannot disagree about a face.
+    """
+    metres_per_degree = 111320.0
+    cos_lat = math.cos(math.radians(lat0))
+
+    def ll_to_m(lat: float, lon: float):
+        return ((lon - lon0) * metres_per_degree * cos_lat,
+                (lat - lat0) * metres_per_degree)
+
+    return ll_to_m
+
+
+class _OutermostField:
+    """A sensitivity arm: the LARGEST covering shape decides, not the
+    smallest.  It wraps a built field rather than rebuilding one, so the
+    two arms differ in exactly one decision and nothing else."""
+
+    def __init__(self, field) -> None:
+        self._field = field
+
+    def value_at(self, x: float, y: float):
+        from shapely.geometry import Point
+        rows = self._field._rows
+        point = Point(x, y)
+        covering = [i for i in range(len(rows)) if rows[i][1].covers(point)]
+        if not covering:
+            return None, None
+        index = max(covering, key=lambda i: rows[i][1].area)
+        saved = self._field.host_index
+        self._field.host_index = lambda _x, _y: index
+        try:
+            return self._field.value_at(x, y)
+        finally:
+            self._field.host_index = saved
+
+
+def patch_ground_field(shapes, ll_to_m):
+    """A :class:`auto_patch.patch_ground.PatchGroundField` over a PATCH.
+
+    Production builds the same field from the live layout
+    (``patch_ground.field_from_layout``); this builds it from an emitted
+    patch's rings so the two frames can be compared against a built
+    mesh.  ONE evaluator, never a second copy of the rule.
+    """
+    from auto_patch.patch_ground import PatchGroundField
+    rows = []
+    for role, _ref, _poly, alts, pts in shapes:
+        if alts is None:
+            continue
+        rows.append((role, [ll_to_m(y, x) for (x, y) in pts], alts))
+    return PatchGroundField(rows)
 
 
 def group_by_datum(placements) -> dict:
@@ -234,8 +313,18 @@ def sidecar_requests(sidecar_path, icao) -> list:
 
 def collect(dsf_path, patch_path, *, sidecar_path=None, icao=None,
             pack_root=None, tile_lat=None, tile_lon=None, meshes=(),
-            xplane_root=None, out_dir=ARTIFACT_DIR) -> dict:
-    """Read the pack, the patch and (optionally) the DEM + meshes."""
+            xplane_root=None, out_dir=ARTIFACT_DIR, eval_patch=False,
+            extra_patches=(), sensitivity=False) -> dict:
+    """Read the pack, the patch and (optionally) the DEM + meshes.
+
+    ``eval_patch`` adds each datum's PATCH-EVALUATED ground — what
+    ``auto_patch.patch_ground`` says the emitted surface carries there —
+    and, when a mesh is also given, the residual against the mesh the
+    same patch produced.  That pair is the emission-time design's
+    pre-registered premise test.  ``extra_patches`` are the OTHER
+    patches of the same tile: the mesher triangulates all of them at
+    once, so a datum may be hosted by a neighbouring airport's shape.
+    """
     from auto_patch import dsf_reader, obj8_reader
 
     guard_frame = {"armed": False}
@@ -254,7 +343,10 @@ def collect(dsf_path, patch_path, *, sidecar_path=None, icao=None,
         accept_resource=lambda r: r.lower().endswith(".obj"),
         include_object_msl=True,
     )
-    shapes = patch_shapes(patch_path)
+    rings = patch_rings(patch_path)
+    for extra in (extra_patches or ()):
+        rings.extend(patch_rings(extra))
+    shapes = [(role, ref, poly) for (role, ref, poly, _a, _p) in rings]
     groups = group_by_datum(placements)
 
     baked = baked_resources(pack_root) if pack_root else set()
@@ -296,6 +388,30 @@ def collect(dsf_path, patch_path, *, sidecar_path=None, icao=None,
                   max(lons) + 0.01, max(lats) + 0.01)
         samplers = [MeshElevationSampler(m, bounds) for m in meshes]
 
+    field = ll_to_m = None
+    arms: dict = {}
+    if eval_patch:
+        lat0 = sum(k[0] for k in groups) / max(1, len(groups))
+        lon0 = sum(k[1] for k in groups) / max(1, len(groups))
+        ll_to_m = _metre_frame(lat0, lon0)
+        field = patch_ground_field(rings, ll_to_m)
+        if sensitivity:
+            # ARM 1 — the FRAME.  Delaunay is invariant under uniform
+            # scaling but not under the longitude stretch, so evaluating
+            # in raw (lon, lat) is a different triangulation of the same
+            # ring.  If the two agree, the frame is not load-bearing at
+            # these datums; if they do not, the metre frame is the one
+            # that matches the mesher and this arm says by how much.
+            arms["raw_lonlat_frame"] = (
+                patch_ground_field(rings, lambda la, lo: (lo, la)),
+                lambda la, lo: (lo, la))
+            # ARM 2 — the HOST CHOICE.  Nested rings make "innermost"
+            # a decision; the outermost covering shape is the other
+            # answer the same geometry admits.
+            arms["outermost_host"] = (
+                _OutermostField(patch_ground_field(rings, ll_to_m)),
+                ll_to_m)
+
     index = host_index(shapes)
     rows = []
     for key, members in groups.items():
@@ -307,7 +423,17 @@ def collect(dsf_path, patch_path, *, sidecar_path=None, icao=None,
             from auto_patch import elevation
             dem_value = elevation._sample_dem(dem, tile_lat, tile_lon,
                                               lat, lon)
+        patch_value = None
+        arm_values = {}
+        if field is not None:
+            x, y = ll_to_m(lat, lon)
+            patch_value, _role = field.value_at(x, y)
+            for name, (arm_field, arm_frame) in arms.items():
+                ax, ay = arm_frame(lat, lon)
+                arm_values[name] = arm_field.value_at(ax, ay)[0]
         rows.append({
+            "patch_m": patch_value,
+            "arm_m": arm_values,
             "lat": lat, "lon": lon, "agl": agl,
             "placements": len(members),
             "resources": len(resources),
@@ -354,6 +480,9 @@ def render(record, limit=12) -> None:
               f"{'baked':>7}{'reqs':>7}  {'host':<22}{'d(m)':>9}")
     if record.get("rows") and record["rows"][0]["dem_m"] is not None:
         header += f"{'DEM':>10}"
+    has_patch = any(r.get("patch_m") is not None for r in rows)
+    if has_patch:
+        header += f"{'PATCH':>10}"
     header += "".join(f"{'mesh'+str(i+1):>10}" for i in range(n_mesh))
     if n_mesh and record.get("rows") and record["rows"][0]["dem_m"] is not None:
         header += f"{'mesh1-DEM':>11}"
@@ -367,6 +496,9 @@ def render(record, limit=12) -> None:
                 f"{(row['distance_to_patch_m'] if row['distance_to_patch_m'] is not None else float('nan')):>9.1f}")
         if row["dem_m"] is not None:
             line += f"{row['dem_m']:>10.3f}"
+        if has_patch:
+            line += (f"{row['patch_m']:>10.3f}"
+                     if row.get("patch_m") is not None else f"{'-':>10}")
         for value in row["mesh_m"]:
             line += (f"{value:>10.3f}" if value is not None
                      else f"{'-':>10}")
@@ -400,6 +532,103 @@ def render(record, limit=12) -> None:
         if drift:
             print(f"  datum build-to-build drift, max over datums: "
                   f"{max(drift):.4f} m")
+    render_premise(record)
+
+
+def _percentile(values, fraction: float) -> float:
+    """The ``fraction`` percentile by nearest-rank on a sorted list."""
+    ordered = sorted(values)
+    if not ordered:
+        return float("nan")
+    rank = max(0, min(len(ordered) - 1,
+                      int(math.ceil(fraction * len(ordered))) - 1))
+    return ordered[rank]
+
+
+def premise_rows(record) -> dict:
+    """The PREMISE TEST populations: patch-evaluated vs mesh, by hosting.
+
+    A datum is HOSTED when an emitted non-pad shape covers it; there the
+    patch authors the mesh value and the emission-time design can be
+    exact.  UNHOSTED datums stand on draped ambient DEM: the patch says
+    nothing there and the design's fallback is the y-bake path, so their
+    DEM-approximation error is reported separately and never mixed into
+    the same percentile.
+    """
+    hosted, unhosted = [], []
+    for row in record.get("rows") or ():
+        mesh = (row.get("mesh_m") or [None])[0]
+        if mesh is None:
+            continue
+        weight = int(row.get("pad_requests") or 0)
+        if row.get("host_role") and row.get("patch_m") is not None:
+            hosted.append((abs(row["patch_m"] - mesh), weight, row))
+        elif not row.get("host_role") and row.get("dem_m") is not None:
+            unhosted.append((abs(row["dem_m"] - mesh), weight, row))
+    return {"hosted": hosted, "unhosted": unhosted}
+
+
+def render_premise(record) -> None:
+    """Print the premise test, or nothing when it was not measured."""
+    populations = premise_rows(record)
+    hosted, unhosted = populations["hosted"], populations["unhosted"]
+    if not hosted and not unhosted:
+        return
+    print()
+    print("PREMISE TEST — |patch-evaluated ground − mesh| at the datum:")
+    for label, rows in (("hosted  (patch authors it)", hosted),
+                        ("UNHOSTED (DEM read vs mesh)", unhosted)):
+        if not rows:
+            print(f"  {label:<28} no datums")
+            continue
+        residuals = [r[0] for r in rows]
+        weighted = [r[0] for r in rows for _ in range(r[1])]
+        print(f"  {label:<28} datums {len(rows):>6}  "
+              f"p50 {_percentile(residuals, 0.50):.4f}  "
+              f"p90 {_percentile(residuals, 0.90):.4f}  "
+              f"max {max(residuals):.4f}")
+        if weighted:
+            print(f"  {'  ... weighted by requests':<28} "
+                  f"reqs {len(weighted):>7}  "
+                  f"p50 {_percentile(weighted, 0.50):.4f}  "
+                  f"p90 {_percentile(weighted, 0.90):.4f}  "
+                  f"max {max(weighted):.4f}")
+    render_sensitivity(record)
+
+
+def render_sensitivity(record) -> None:
+    """How far each sensitivity arm moves the datum evaluation."""
+    names = sorted({name for row in (record.get("rows") or ())
+                    for name in (row.get("arm_m") or {})})
+    if not names:
+        return
+    print()
+    print("SENSITIVITY — |arm − the ruled evaluation| at hosted datums:")
+    for name in names:
+        deltas, weighted = [], []
+        misses = 0
+        for row in record["rows"]:
+            if row.get("patch_m") is None:
+                continue
+            value = (row.get("arm_m") or {}).get(name)
+            if value is None:
+                misses += 1
+                continue
+            delta = abs(value - row["patch_m"])
+            deltas.append(delta)
+            weighted.extend([delta] * int(row.get("pad_requests") or 0))
+        if not deltas:
+            print(f"  {name:<24} no comparable datums")
+            continue
+        print(f"  {name:<24} datums {len(deltas):>6}  "
+              f"p50 {_percentile(deltas, 0.50):.4f}  "
+              f"p90 {_percentile(deltas, 0.90):.4f}  "
+              f"max {max(deltas):.4f}  arm-miss {misses}")
+        if weighted:
+            print(f"  {'  ... weighted by requests':<24} "
+                  f"reqs {len(weighted):>7}  "
+                  f"p90 {_percentile(weighted, 0.90):.4f}  "
+                  f"max {max(weighted):.4f}")
 
 
 def main() -> int:
@@ -421,6 +650,18 @@ def main() -> int:
                         help="a built Data+XX+YYY.mesh (repeatable): the "
                              "datum's ACTUAL rendered ground, and with "
                              "two or more its build-to-build drift")
+    parser.add_argument("--eval-patch", action="store_true",
+                        help="also evaluate the PATCH's own ground at "
+                             "each datum (auto_patch.patch_ground); with "
+                             "--mesh this is the emission-time design's "
+                             "premise test")
+    parser.add_argument("--also-patch", action="append", default=[],
+                        help="another patch of the SAME tile (repeatable) "
+                             "— the mesher triangulates them together")
+    parser.add_argument("--eval-sensitivity", action="store_true",
+                        help="with --eval-patch, also evaluate under the "
+                             "raw (lon,lat) frame and the outermost-host "
+                             "choice — the design's sensitivity arms")
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--json", default=None)
     parser.add_argument("--from-json", default=None,
@@ -442,7 +683,10 @@ def main() -> int:
             sidecar_path=arguments.sidecar, icao=arguments.icao,
             pack_root=arguments.pack_root,
             tile_lat=arguments.tile_lat, tile_lon=arguments.tile_lon,
-            meshes=tuple(arguments.mesh), xplane_root=xplane_root)
+            meshes=tuple(arguments.mesh), xplane_root=xplane_root,
+            eval_patch=arguments.eval_patch,
+            extra_patches=tuple(arguments.also_patch),
+            sensitivity=arguments.eval_sensitivity)
         if arguments.json:
             Path(arguments.json).write_text(json.dumps(record, indent=1))
     render(record, arguments.limit)

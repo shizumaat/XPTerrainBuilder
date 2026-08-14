@@ -3014,7 +3014,7 @@ def check_object_pads(layout, dem, tile_lat, tile_lon,
     Pure reporter: returns ``[(kind, key, measured, tolerance,
     "lat,lon"), …]`` worst-first.  Kinds are the emitter's own refusal /
     expiry kinds (``pad_over_relief_cap``, ``pad_wholly_inside_pavement``,
-    ``pad_clipped_away``, ``pad_off_dem``, ``pad_ring_degenerate``,
+    ``pad_clipped_away``, ``pad_ground_unhosted``, ``pad_ring_degenerate``,
     ``pad_pull_shortfall``, ``pad_record_expired``,
     ``pad_deformed_pavement``) plus this reader's own
     (``pad_core_off_target``, ``pad_weld_mismatch``,
@@ -3146,15 +3146,28 @@ def check_object_pads(layout, dem, tile_lat, tile_lon,
                                     tolerance_m, _ll(layout, x, y)))
                         break
 
-        # 3. THE RELIEF CAP holds on what was actually emitted.
+        # 3. THE RELIEF CAP holds on what was actually emitted — against
+        #    THE PAD'S OWN GROUND, never raw DEM (RULINGS "PAD RELIEF CAP
+        #    MEASURES AGAINST THE PAD'S OWN GROUND", Fable 2026-08-14).
+        #    The reference is the one the emission path evaluated and
+        #    recorded; re-sampling the raster here would make the
+        #    validator refuse exactly what the emitter now serves, which
+        #    is the two-instruments defect the ruling closes.  The check
+        #    is still independent of the emitter's own decision: it holds
+        #    the cap on the PULLED target that was actually written, which
+        #    the pull-toward-pavement clause can move after admissibility
+        #    was granted.
         if target is not None and core_polys:
             cx, cy = core_polys[0].centroid.x, core_polys[0].centroid.y
-            ground = _dem_at(cx, cy)
+            try:
+                ground = float(record.get("ground_reference_metres"))
+            except (TypeError, ValueError):
+                ground = None
             if ground is not None and not object_pad_admissible(
-                    target, float(ground),
+                    target, ground,
                     float(DSF_OBJECT_PAD_MAX_RELIEF_M)):
                 out.append(("pad_over_cap_emitted", key,
-                            abs(target - float(ground)),
+                            abs(target - ground),
                             float(DSF_OBJECT_PAD_MAX_RELIEF_M),
                             _ll(layout, cx, cy)))
 
@@ -4638,7 +4651,12 @@ def verify_and_log(layout, icao: str, debug_log_path: str | None = None,
         _refusals = [f for f in pad_findings
                      if f[0] in ("pad_over_relief_cap",
                                  "pad_wholly_inside_pavement",
-                                 "pad_clipped_away", "pad_off_dem",
+                                 "pad_clipped_away",
+                                 # ``pad_off_dem`` retired with the cap's
+                                 # raw-DEM reference (2026-08-14); a pad
+                                 # whose own ground authority is missing
+                                 # is refused as ``pad_ground_unhosted``.
+                                 "pad_ground_unhosted",
                                  "pad_ring_degenerate")]
         _breaches = [f for f in pad_findings if f not in _refusals]
         if _breaches:

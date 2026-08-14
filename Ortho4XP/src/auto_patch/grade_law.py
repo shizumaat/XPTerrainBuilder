@@ -2595,28 +2595,40 @@ def tunnel_trench_floor_elevation_m(
 # read except the two named caps passed in by the caller.
 
 def object_pad_relief_m(target_elevation_m: float,
-                        dem_elevation_m: float) -> float:
-    """The pad's SIGNED relief against raw DEM: ``target − DEM``.
+                        ground_elevation_m: float) -> float:
+    """The pad's SIGNED relief against THE GROUND IT ADJOINS:
+    ``target − ground``.
+
+    ``ground_elevation_m`` is the pad's OWN in-run ground authority — the
+    patch's own evaluated surface where the patch authors it, ambient DEM
+    only where it does not — the value the emission path computed under
+    this pad's parts and carried on the request
+    (``object_frame.pad_requests_from_frame``).  It is NEVER raw DEM under
+    a graded surface: deviation from DEM is not an error and not reported
+    (owner 2026-08-14), and a raw-DEM reference here refused pads for
+    standing on our own solved apron (RULINGS, Fable 2026-08-14).
 
     Positive = the pad FILLS (terrain raised to meet a building seated
     above the ground); negative = the pad CUTS a bench (spec §5.1 clause 1:
     "Pads may RAISE or LOWER terrain ... direction default-symmetric")."""
-    return float(target_elevation_m) - float(dem_elevation_m)
+    return float(target_elevation_m) - float(ground_elevation_m)
 
 
 def object_pad_admissible(target_elevation_m: float,
-                          dem_elevation_m: float,
+                          ground_elevation_m: float,
                           max_relief_m: float) -> bool:
-    """Spec §5.1 clause 1: a pad is admissible only while its deviation
-    from DEM is within ``DSF_OBJECT_PAD_MAX_RELIEF_M``.
+    """Spec §5.1 clause 1, as re-framed 2026-08-14: a pad is admissible
+    only while it stands within ``DSF_OBJECT_PAD_MAX_RELIEF_M`` of the
+    ground it ADJOINS (see :func:`object_pad_relief_m` for what that
+    ground is; the cap VALUE is unchanged).
 
-    "As close as feasible to DEM, then some adjustment to terrain is
-    acceptable."  A pad needing more relief than the cap is REFUSED — the
-    requesting cluster keeps its residual and the refusal is a finding
+    "As close as feasible to the ground, then some adjustment to terrain
+    is acceptable."  A pad needing more relief than the cap is REFUSED —
+    the requesting cluster keeps its residual and the refusal is a finding
     (§5.5) — never emitted at a truncated height, which would promise a
     seat the terrain does not deliver."""
     return abs(object_pad_relief_m(target_elevation_m,
-                                   dem_elevation_m)) <= float(max_relief_m)
+                                   ground_elevation_m)) <= float(max_relief_m)
 
 
 def object_pad_pull_toward_pavement(target_elevation_m: float,

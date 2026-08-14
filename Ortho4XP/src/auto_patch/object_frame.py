@@ -337,6 +337,15 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
     A group's target is the MEDIAN of its parts' rendered bases, exactly
     as the rebake's, so the pad still asks terrain for the least it can.
 
+    ``maximum_relief_metres`` is NOT measured here.  ``over_relief_cap``
+    below is the parts-vs-host question — a part floating further than
+    the cap above the ground under IT is not padable — while the pad's
+    own admissibility is plate-vs-LANDING-ground and can only be taken
+    once the plate survives the pavement clip, in
+    ``object_pads.emit_object_pads`` (RULINGS "PAD CAP REFERENCE IS THE
+    PLATE'S LANDING GROUND", owner 2026-08-14).  The two compose; neither
+    reads raw DEM.
+
     THE GROUPING IS THE RING LAW'S (``object_footprints.foot_pad_rings``):
     the candidate parts' contact hulls are dilated and unioned and each
     connected component comes back as one ring, which is the same
@@ -460,6 +469,8 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                     worst_part.base_resource, abs(worst_residual), 0.0,
                     f"{anchor.latitude:.5f},{anchor.longitude:.5f}"))
                 continue
+            target = _median(
+                [base for _part, base, _residual in group])
             requests.append({
                 "kind": "cluster",
                 "structure_index": structure_index,
@@ -469,9 +480,16 @@ def pad_requests_from_frame(frame: ObjectPadFrame, datum_ground_at,
                 "longitude": worst_part.longitude,
                 "base_y": worst_part.base_y,
                 "residual_metres": worst_residual,
-                "target_ground_metres": _median(
-                    [base for _part, base, _residual in group]),
+                "target_ground_metres": target,
                 "part_count": len(group),
+                # UNCHANGED, and deliberately NOT folded into the cap's
+                # re-frame: this flag is the WORST PART's own residual
+                # against the ground under IT — already an in-run,
+                # local-ground measurement, and a different question from
+                # "how far does the pad stand over its own ground" (a
+                # group can have a within-cap median target and one part
+                # still floating far above it).  Re-framing the reference
+                # is this lane's charter; widening admissibility is not.
                 "over_relief_cap": (
                     abs(worst_residual) > maximum_relief_metres),
                 "ring_index": ring_index,

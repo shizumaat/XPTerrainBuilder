@@ -6548,6 +6548,16 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     from .one_solve import feasibility_project_partitioned
 
     t0 = _time.time()
+    # THE PROJECTION COUNT (S1e acceptance, RULINGS 2026-08-14 "THE DOUBLE
+    # PROJECTION RETIRES").  ONE ``final_grade_projection`` call per build
+    # is the ruling's own first acceptance item, so the build LOGS its
+    # ordinal — counted on the layout, so concurrent builds in one process
+    # never share a counter.  Log-only: it moves no value and no byte.
+    _fgp_n = int(getattr(layout, "_final_projection_calls", 0)) + 1
+    layout._final_projection_calls = _fgp_n
+    import O4_UI_Utils as _UI_fgpn
+    _UI_fgpn.vprint(1, f"  [final-projection] {icao}: CALL #{_fgp_n} "
+                       f"(acceptance: exactly 1 per build).")
     _stage_t = {}
     _stage_prev = [t0]
 

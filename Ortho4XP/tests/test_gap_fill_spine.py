@@ -778,37 +778,53 @@ def test_every_gap_pass_sees_the_same_candidates(monkeypatch):
             f"three passes would disagree about the rim pockets")
 
 
-def test_rim_pockets_grade_post_solve_only(monkeypatch):
-    """THE RATIFIED DEFAULT (ruling 2026-08-12b, after the OTHH
-    interventional pair): a rim pocket's spine is EMITTED, but its
-    vertices are NOT admitted to the one solve.
+def test_the_absorption_gate_is_retired_and_its_removal_is_inert():
+    """THE GATE RETIREMENT (owner ruling 2026-08-13, RULINGS "OTHH -639
+    ADJUDICATED"; S3 dossier §6) AND ITS INERTNESS TWIN.
 
-    Measured at OTHH on one tree with this as the only variable —
-    absorbing them moved AIRSIDE apron values on rings byte-identical
-    between arms, 98.90-135.68 m from any pocket (within_shape airside
-    29 -> 47); withheld, the same build reads 9, better than the
-    rim-pockets-off baseline itself.  Groundside spine variables pulling
-    airside is the violation this default closes.
-    """
+    ``O4_RIM_PRESOLVE_ABSORB`` withheld rim-pocket spine vertices from
+    the one solve.  It never ran in production — pockets ship OFF, so
+    ``_rim_pocket_polys`` returns [] and ``rim_ids`` is empty — and
+    which constructs a stage may move is the STAGE TAG's job now, never
+    a per-construct flag.
+
+    Two halves, and the second is the twin the removal owes: the symbol
+    is GONE from both modules, and with pockets OFF the retired branch's
+    subject does not exist, so the construction is unchanged."""
+    import inspect
+    from auto_patch import config as _cfg
+    assert not hasattr(_cfg, "RIM_PRESOLVE_ABSORB"), (
+        "the retired absorption gate is still defined in config")
+    assert not hasattr(GF, "RIM_PRESOLVE_ABSORB"), (
+        "gap_fill still imports the retired absorption gate")
+    _code = "\n".join(
+        ln for ln in inspect.getsource(
+            GF.construct_gap_fill_presolve).splitlines()
+        if not ln.lstrip().startswith("#"))     # the note may name it
+    assert "RIM_PRESOLVE_ABSORB" not in _code, (
+        "the retired gate's branch is still in the pre-solve construction")
+    # INERT WHILE POCKETS ARE OFF: the branch's whole subject (``rim_ids``)
+    # is empty at the shipped default, so nothing it used to do happens.
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
+        "the rim-pocket gate must ship OFF")
+    layout, _ = _rim_pocket_layout()
+    airside = GF._airside_shapes(layout)
+    assert GF._rim_pocket_polys(layout, airside) == []
+    _cands, rim_ids = GF._gap_candidate_polys(layout, airside)
+    assert rim_ids == set(), (
+        "pockets OFF must leave the retired branch no subject at all")
+    assert GF.construct_gap_fill_presolve(layout) == 0
+    assert not getattr(layout, "gap_fill_presolve", None)
+    assert emit_gap_fill_spines(layout, None, 0, 0) == 0
+
+
+def test_a_rim_pocket_spine_is_constructed_when_pockets_are_on(monkeypatch):
+    """With the gate retired, a rim pocket enters the pre-solve store
+    like any other gap — admission to a solve STAGE is decided by the
+    stage tag (``solve_stage``), not by dropping the construct.  Emission
+    is unaffected either way (S3 dossier §6.3)."""
     monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
     layout, _ = _rim_pocket_layout()
-    # PRE-SOLVE: the rim pocket contributes NO spine to the store.
-    assert GF.construct_gap_fill_presolve(layout) == 0, (
-        "a rim pocket entered the pre-solve store — groundside spine "
-        "variables are back in the one solve")
-    assert not getattr(layout, "gap_fill_presolve", None)
-    # EMISSION is unchanged: the pocket still grades.
+    assert GF.construct_gap_fill_presolve(layout) == 1
     assert emit_gap_fill_spines(layout, None, 0, 0) == 1
     assert len(_faces(layout)) == 1
-
-
-def test_the_absorb_gate_restores_the_pre_solve_spine(monkeypatch):
-    """The gate exists for the staged-solve design round: setting it
-    restores the measured-worse behaviour deliberately, so the round can
-    A/B its remedy against it."""
-    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
-    monkeypatch.setattr(GF, "RIM_PRESOLVE_ABSORB", True)
-    layout, _ = _rim_pocket_layout()
-    assert GF.construct_gap_fill_presolve(layout) == 1, (
-        "O4_RIM_PRESOLVE_ABSORB=1 must put the rim pocket's spine back "
-        "in the pre-solve store")

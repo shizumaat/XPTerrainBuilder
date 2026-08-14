@@ -69,7 +69,6 @@ from .config import (
     GAP_FILL_MIN_AREA_M2,
     GAP_FILL_RIM_POCKET_GRADED_FRACTION,
     GAP_FILL_RIM_POCKETS_ENABLED,
-    RIM_PRESOLVE_ABSORB,
     GAP_FILL_SPINE_ENABLED,
     GAP_FILL_SPINE_STEP_M,
     OPEN_FRONTAGE_CLOSE_M,
@@ -2827,24 +2826,16 @@ def construct_gap_fill_presolve(layout) -> int:
     if len(airside) < 2:
         return 0
     gap_candidates, rim_ids = _gap_candidate_polys(layout, airside)
-    # ── RIM POCKETS GRADE POST-SOLVE ONLY (ruling 2026-08-12b) ─────────
-    # Their spines are EMITTED like any other gap's; their vertices are
-    # not admitted to the one solve.  Measured at OTHH on one tree with
-    # this as the only variable: absorbing them moved AIRSIDE apron
-    # values (within_shape airside 29 → 47, the 41-row cluster on aprons
-    # -10270/-10271/-10273 at 98.90-135.68 m from any rim face) on rings
-    # byte-identical between arms; withheld, the same build reads airside
-    # 9 and cluster 6 — better than the rim-pockets-off baseline itself
-    # (29/23).  Groundside spine variables pulling airside is the
-    # "airside solves first, groundside conforms" violation, and the
-    # staged-solve design round owns the general fix.
-    # ``O4_RIM_PRESOLVE_ABSORB=1`` restores absorption for that round.
-    if rim_ids and not RIM_PRESOLVE_ABSORB:
-        gap_candidates = [g for g in gap_candidates if id(g) not in rim_ids]
-        UI.vprint(1, f"  [rim-pocket] {len(rim_ids)} rim pocket(s) graded "
-                     f"POST-SOLVE only (not admitted to the one solve) — "
-                     f"emission unchanged.")
-        rim_ids = set()
+    # ── THE ABSORPTION GATE IS RETIRED (S4, owner ruling 2026-08-13) ───
+    # ``O4_RIM_PRESOLVE_ABSORB`` used to drop the rim pockets from this
+    # construction so their spine vertices were never solver variables.
+    # It was measured INERT in production (pockets default OFF ⇒
+    # ``rim_ids`` empty ⇒ the branch never ran), and it is the wrong
+    # shape of boundary: which constructs a solve stage may move is the
+    # STAGE TAG's job (``solve_stage.py``), never a per-construct flag.
+    # A rim pocket admitted here is a stage-B variable and stage A must
+    # be structurally free of it — see
+    # ``solver_primitives._build_gap_spine_constraints``.
     if not gap_candidates:
         return 0
     pads, skirts = _gap_parents(layout)

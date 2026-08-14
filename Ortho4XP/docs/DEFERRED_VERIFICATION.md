@@ -1316,3 +1316,27 @@ provisioning that tile's cfg (unchanged since step 1); and the R19-3
 weld to reconcile — it adopted 3 of 55 groups in both arms and is a
 candidate for the same retirement, but retiring it is a design decision
 this lane did not take.
+
+## Staged-solve S4 — rim-pocket re-enable (lane/s4rim, 2026-08-14)
+
+Landed: the retirement of `O4_RIM_PRESOLVE_ABSORB` (config.py, gap_fill.py)
+per the owner ruling 2026-08-13 (RULINGS "OTHH −639 ADJUDICATED").  The
+rim-pocket default stays OFF — the flip was measured in a lane arm only.
+
+- Tests: only the files covering the change were run, once
+  (`test_gap_fill_spine.py`, `test_one_solve_gap_spine.py`,
+  `test_solve_stage.py`, `test_geometry_freeze.py`; 72 passed).  No blast
+  set, no full suite (pre-ship mode).
+- Battery: HECA + OTHH only.  CYXY, KCLT, SPJC, SPLP not censused under
+  the retirement (it is byte-inert with pockets OFF — proven at HECA by a
+  replay byte-identical to the clean-tree build, `a9496e142bff`, not by a
+  five-airport sweep).
+- NOT measured: whether the pockets-ON airside channel behaves the same
+  at the other three battery airports; only HECA and OTHH were armed.
+- INSTRUMENT DEFECT FOUND, NOT FIXED: `solve_cut.py` capture→replay does
+  NOT reproduce its own build at OTHH on this tree (build `232e028febf6`
+  vs control replay `6a0a832588c6`; object_pad 3036 vs 2771, graded_strip
+  100 vs 171, within_shape airside 51 vs 686), while HECA reproduces byte
+  for byte.  OTHH acceptance was re-run as two full BUILDS instead.  The
+  divergence is unattributed and belongs to whoever owns the instrument.
+- Timing: not measured (no timing claim made anywhere in this lane).

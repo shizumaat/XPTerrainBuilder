@@ -2732,12 +2732,21 @@ def discover_and_rebake_airport(
                 pack_root,
                 epsilon_metres,
             )
+            # THE ONE FRAME (R3 step 2).  Pure pack data, so it is the
+            # SAME product the pad emitter reads in-run — this call is a
+            # disk hit on the pristine key when the emitter already built
+            # it, and the build that pays for it pays once either way.
+            # The y-bake below keeps only what needs the built mesh.
+            pad_frame = cached_pad_frame(
+                pool, pool_geometry_by_resource, structures, pack_root
+            )
             decision = object_anchor.structure_deltas(
                 pool,
                 pool_geometry_by_resource,
                 structures,
                 sampler,
                 measure_only=measure_only,
+                pad_frame=pad_frame,
             )
             result["decisions"].append((pool, decision))
             result["foot_pad_requests"].extend(decision.foot_pad_requests)

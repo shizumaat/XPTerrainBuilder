@@ -20,11 +20,14 @@ for _p in (_ROOT / "src", _ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from auto_patch import object_anchor, object_frame  # noqa: E402
+from auto_patch import obj8_partition, object_anchor, object_frame  # noqa: E402
 from test_object_anchor import (  # noqa: E402
+    PIT_CENTRE_LATITUDE,
+    PIT_CENTRE_LONGITUDE,
     box_vertices_and_triangles,
     make_geometry,
     make_placement,
+    pit_sampler,  # noqa: F401  (a pytest fixture, used by name below)
 )
 
 
@@ -238,3 +241,158 @@ class TestTheCacheIsTheSameFrame:
 
 def _boom(*args, **kwargs):
     raise AssertionError("a warm read must not rebuild the frame")
+
+
+# ---------------------------------------------------------------------------
+# R3 STEP (2): the y-bake CONSUMES the frame instead of rebuilding it.
+# ---------------------------------------------------------------------------
+
+
+def _pit_pool_and_geometry():
+    """A two-object pool over the PIT mesh: a shed and a lean-to sharing a
+    contact edge, so the partition welds several parts and the decision
+    exercises grounds, spans and pad requests rather than a trivial box."""
+    shed_vertices, shed_triangles = box_vertices_and_triangles(
+        0.0, 30.0, 0.0, 8.0, 0.0, 30.0)
+    # 0.02 m clear of the shed: WELDING is by exact position, so this is
+    # a second PART, while the 0.05 m contact epsilon still binds the two
+    # into ONE structure — the multi-part case the welding exists for.
+    lean_vertices, lean_triangles = box_vertices_and_triangles(
+        30.02, 45.0, 0.0, 4.0, 0.0, 15.0)
+    geometry = {
+        "shed.obj": make_geometry(shed_vertices, shed_triangles),
+        "lean.obj": make_geometry(lean_vertices, lean_triangles),
+    }
+    placements = [
+        make_placement("shed.obj", PIT_CENTRE_LATITUDE, PIT_CENTRE_LONGITUDE),
+        make_placement("lean.obj", PIT_CENTRE_LATITUDE, PIT_CENTRE_LONGITUDE),
+    ]
+    pool = object_anchor.ObjectPool(
+        placements=placements,
+        resolved_paths={
+            "shed.obj": "/nowhere/shed.obj",
+            "lean.obj": "/nowhere/lean.obj",
+        },
+    )
+    return pool, geometry
+
+
+def _pit_case():
+    pool, geometry = _pit_pool_and_geometry()
+    structures = object_anchor.partition_structures(
+        pool, geometry, epsilon_metres=0.05)
+    frame = object_frame.build_pad_frame(pool, geometry, structures)
+    return pool, geometry, structures, frame
+
+
+def _shared_triangles(pool_frame, structure):
+    shared = []
+    for resource_path, triangles in structure.triangles_by_resource.items():
+        offset = pool_frame.base_offset_by_resource.get(resource_path)
+        if offset is None:
+            continue
+        shared.extend(tuple(offset + i for i in t) for t in triangles)
+    return shared
+
+
+def test_the_frame_carries_the_welding_and_its_pool_frame_signature():
+    """Step (2)'s payload: one label per shared triangle, stamped with
+    the index space those triangles belong to."""
+    pool, geometry, structures, frame = _pit_case()
+    pool_frame = object_anchor._build_pool_frame(pool, geometry)
+
+    assert frame.pool_frame_signature == (
+        object_anchor.pool_frame_signature(pool_frame))
+    assert frame.welded_labels_by_structure, "the welding must be carried"
+    for structure_index, labels in frame.welded_labels_by_structure.items():
+        shared = _shared_triangles(pool_frame, structures[structure_index])
+        assert len(labels) == len(shared)
+        assert len(set(labels)) > 1, (
+            "this fixture must exercise a MULTI-part structure, or the "
+            "regroup twin below proves nothing")
+
+
+def test_the_labels_regroup_into_exactly_what_weld_parts_returned():
+    """The identity R3 step (2) rests on: a CONSUMED welding and a
+    PERFORMED one are the same object, part order and triangle order
+    included — otherwise the parts, their keys and every seat drift."""
+    pool, geometry, structures, frame = _pit_case()
+    pool_frame = object_anchor._build_pool_frame(pool, geometry)
+    for structure_index, labels in frame.welded_labels_by_structure.items():
+        shared = _shared_triangles(pool_frame, structures[structure_index])
+        assert object_frame.regroup_welded_parts(shared, labels) == (
+            obj8_partition.weld_parts(pool_frame.shared_vertices, shared))
+
+
+def test_the_frame_consuming_rebake_decides_exactly_what_the_old_one_did(
+        pit_sampler):  # noqa: F811
+    """THE STEP (2) ACCEPTANCE TWIN: same mesh in, same decision out.
+
+    The frame supplies the welding and nothing else, so every downstream
+    number — deltas, grounds, spans, skips, pad requests, cluster seats —
+    must be identical to the build that welded for itself.  If it is
+    not, the frame is not the same frame and R3's whole premise fails.
+    """
+    pool, geometry, structures, frame = _pit_case()
+
+    without = object_anchor.structure_deltas(
+        pool, geometry, structures, pit_sampler)
+    with_frame = object_anchor.structure_deltas(
+        pool, geometry, structures, pit_sampler, pad_frame=frame)
+
+    assert with_frame == without
+
+
+def test_a_supplied_welding_means_the_rebake_never_welds(
+        monkeypatch, pit_sampler):  # noqa: F811
+    """The COST claim, not just the value claim (acceptance (c)): with the
+    frame in hand the rebake must not call ``weld_parts`` at all — that
+    call measured 783.6 s, 57.8 % of a +30+031 build, in the 2026-07-26
+    profile.  Proved by making it raise."""
+    pool, geometry, structures, frame = _pit_case()
+
+    def _no_welding(*args, **kwargs):
+        raise AssertionError("the frame's welding must be consumed, not redone")
+
+    monkeypatch.setattr(obj8_partition, "weld_parts", _no_welding)
+    decision = object_anchor.structure_deltas(
+        pool, geometry, structures, pit_sampler, pad_frame=frame)
+    assert decision.structures
+
+
+class TestTheFrameIsRefusedRatherThanMisread:
+    """A welded part is a list of pool-frame vertex INDICES.  Read against
+    the wrong frame it would name real vertices at wrong positions — a
+    silent, plausible wrong answer, which is the one outcome this repo's
+    never-silent posture forbids."""
+
+    def test_a_foreign_signature_is_refused_and_the_decision_still_right(
+            self, pit_sampler):  # noqa: F811
+        pool, geometry, structures, frame = _pit_case()
+        import dataclasses
+
+        foreign = dataclasses.replace(
+            frame, pool_frame_signature=("some other pool", 1, 2))
+        assert object_anchor.structure_deltas(
+            pool, geometry, structures, pit_sampler, pad_frame=foreign,
+        ) == object_anchor.structure_deltas(
+            pool, geometry, structures, pit_sampler)
+
+    def test_a_welding_that_does_not_partition_the_structure_is_refused(
+            self, pit_sampler):  # noqa: F811
+        """The signature matches but the partition does not — the
+        partition-cache skew the pristine key cannot see."""
+        pool, geometry, structures, frame = _pit_case()
+        import dataclasses
+
+        truncated = dataclasses.replace(
+            frame,
+            welded_labels_by_structure={
+                index: labels[:1]
+                for index, labels in frame.welded_labels_by_structure.items()
+            },
+        )
+        assert object_anchor.structure_deltas(
+            pool, geometry, structures, pit_sampler, pad_frame=truncated,
+        ) == object_anchor.structure_deltas(
+            pool, geometry, structures, pit_sampler)

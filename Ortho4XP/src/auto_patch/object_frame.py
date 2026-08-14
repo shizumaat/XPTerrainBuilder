@@ -47,11 +47,15 @@ pure while ``post_mesh._cached_partition_structures`` owns its cache.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from array import array
+from dataclasses import dataclass, field as dataclass_field
 
 #: Bump when a field or a derivation below changes; the cache key
 #: carries it, so a stale sidecar can never be read as a fresh frame.
-PAD_FRAME_VERSION = 1
+#: 2: the WELDING rides along (``welded_labels_by_structure`` +
+#:    ``pool_frame_signature``) so the post-mesh y-bake consumes this
+#:    frame instead of re-welding — step (2) of the R3 order.
+PAD_FRAME_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,27 @@ class ObjectPadFrame:
     #: carried so a consumer reports the same refusals the rebake does
     #: rather than silently padding something the bake would not touch.
     excluded_resources: tuple[tuple[str, str], ...] = ()
+    #: THE WELDING, per structure index — as PART LABELS, one per shared
+    #: triangle in the structure's own triangle order (see
+    #: :func:`regroup_welded_parts`).  Welding is the expensive half of a
+    #: part measurement and it is pure pack data, so the frame is the ONE
+    #: place a build pays for it; the post-mesh y-bake consumes this
+    #: rather than re-welding (R3 step 2, the basis of acceptance (c)).
+    #:
+    #: LABELS, not the triangle groups themselves, because this record
+    #: goes to a sidecar: a group carries every triangle again (three
+    #: ints each, a pack-sized pickle), while the label array is one
+    #: small int per triangle and regroups EXACTLY — ``weld_parts``
+    #: appends in input order into a dict keyed by root, so parts come
+    #: back in first-appearance order with their triangles in input
+    #: order, which is what the regroup reproduces.
+    welded_labels_by_structure: dict[int, array] = (
+        dataclass_field(default_factory=dict))
+    #: ``object_anchor.pool_frame_signature`` of the frame these welded
+    #: triangle INDICES point into.  A consumer whose own pool frame has
+    #: a different signature must re-weld: the indices would otherwise
+    #: read the wrong vertices, plausibly and silently.
+    pool_frame_signature: tuple = ()
 
     def parts_by_structure(self) -> dict:
         """``{structure_index: [PadPart]}`` — the grouping unit.  A pad
@@ -113,6 +138,41 @@ class ObjectPadFrame:
         for part in self.parts:
             out.setdefault(part.structure_index, []).append(part)
         return out
+
+
+def welded_part_labels(shared_triangles, welded_parts) -> array:
+    """``weld_parts``' output as one small int per triangle.
+
+    The label of a triangle is the ordinal of the part it landed in, in
+    the order ``weld_parts`` returned the parts.  Triangle identity is
+    POSITIONAL — the i-th label belongs to the i-th of
+    ``shared_triangles`` — because a welded part holds the very tuple
+    objects the caller passed in, in input order, so position is exact
+    and never needs the triangle's contents.
+    """
+    label_by_position: dict[int, int] = {}
+    for part_ordinal, part in enumerate(welded_parts):
+        for triangle in part:
+            label_by_position[id(triangle)] = part_ordinal
+    return array("i", (label_by_position[id(triangle)]
+                       for triangle in shared_triangles))
+
+
+def regroup_welded_parts(shared_triangles, labels) -> list[list]:
+    """The inverse of :func:`welded_part_labels` — ``weld_parts``' exact
+    output rebuilt from the labels.
+
+    ``weld_parts`` groups by appending each triangle, in input order,
+    into a dict keyed by its part's union-find root, then returns
+    ``list(values())``.  Dicts preserve insertion order, so parts come
+    out in FIRST-APPEARANCE order with their triangles in INPUT order —
+    both of which this reproduces by construction, which is why a
+    consumed welding and a performed one cannot differ.
+    """
+    groups: dict[int, list] = {}
+    for triangle, label in zip(shared_triangles, labels):
+        groups.setdefault(label, []).append(triangle)
+    return list(groups.values())
 
 
 def build_pad_frame(pool, geometry_by_resource, structures) -> ObjectPadFrame:
@@ -149,6 +209,7 @@ def build_pad_frame(pool, geometry_by_resource, structures) -> ObjectPadFrame:
         )
 
     parts: list[PadPart] = []
+    welded_labels_by_structure: dict = {}
     for structure_index, structure in enumerate(structures):
         shared_triangles = []
         for resource_path, triangles in (
@@ -163,6 +224,14 @@ def build_pad_frame(pool, geometry_by_resource, structures) -> ObjectPadFrame:
             )
         if not shared_triangles:
             continue
+        # THE ONE WELD (R3 step 2).  Performed here, kept on the frame,
+        # and handed to the measurement below — so the post-mesh y-bake
+        # reads this product instead of repeating the pool's most
+        # expensive pure-pack computation against the same inputs.
+        welded = object_anchor.obj8_partition.weld_parts(
+            frame.shared_vertices, shared_triangles)
+        welded_labels_by_structure[structure_index] = welded_part_labels(
+            shared_triangles, welded)
         measurements = object_anchor._measure_structure_parts(
             frame,
             None,                                     # MESH-FREE
@@ -170,6 +239,7 @@ def build_pad_frame(pool, geometry_by_resource, structures) -> ObjectPadFrame:
             0.0,                                      # unused with no sampler
             DSF_OBJECT_ELEVATED_BASE_M,
             for_clustering=True,
+            welded_parts=welded,
         )
         for measurement in measurements:
             if not measurement.is_ground:
@@ -195,6 +265,8 @@ def build_pad_frame(pool, geometry_by_resource, structures) -> ObjectPadFrame:
         parts=tuple(parts),
         anchor_by_resource=anchor_by_resource,
         excluded_resources=tuple(frame.excluded_resources),
+        welded_labels_by_structure=welded_labels_by_structure,
+        pool_frame_signature=object_anchor.pool_frame_signature(frame),
     )
 
 

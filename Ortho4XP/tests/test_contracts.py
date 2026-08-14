@@ -422,6 +422,13 @@ OBJECT_ANCHOR_SIGNATURES = [
             # the pass runs, routes every unit as below-threshold and
             # writes nothing to the pack.
             "measure_only",
+            # THE OBJECT PAD FRAME (RULINGS "OBJECT PADS: EMISSION-TIME
+            # RELATIVE", owner 2026-08-14; Fable's R3 step 2):
+            # keyword-only, defaults None, and carries the build's ONE
+            # mesh-free frame so this function consumes the welding
+            # instead of repeating it.  ``None`` is the pre-frame
+            # behaviour byte for byte — it welds for itself.
+            "pad_frame",
         ],
     ),
 ]

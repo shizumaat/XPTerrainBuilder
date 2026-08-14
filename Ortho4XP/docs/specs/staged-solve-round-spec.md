@@ -290,7 +290,21 @@ contradicting (an S1-boundary condition, not a profile defect); the
 free-end over-floor outlier (3.256 m at 30.1119707,31.3731240,
 second mechanism un-isolated at S2b's cap); the legacy per-vertex
 station path S2b's audit shows carrying the airport-wide over-cap
-residual the profile never reaches.
+residual the profile never reaches; the two stack-minted rows from
+the merge-gate dossier (frontage 30.12549863,31.41625211;
+UNATTRIBUTABLE junction 30.13129527,31.39656796, way -11890); S4's
+named rim-pocket writer, both halves (gap spines hard-stamped
+STAGE_A on a false enclosure premise, solver_primitives.py:1893-1903;
+spine vertices on no ring so the receiver scan never admits them,
+solve.py:1533-1550) — rim pockets re-flip only after both close;
+INSTRUMENT DEFECT, fix-first when S1d dispatches: solve_cut
+capture→replay DIVERGES at OTHH on the post-S5 tree (232e028febf6 vs
+6a0a832588c6, object_pad 3036 vs 2771) while HECA reproduces
+byte-for-byte — suspicion: S5's in-run pad-frame reads added solve-
+boundary state the captured key set does not cover and the capture
+version was not bumped; a replay that default-fills a missing key is
+a different solve, which is exactly what capture_version exists to
+refuse.
 
 **S7 — census domain restoration + drainage retirement (instrument
 lane, dispatchable immediately).** Per the S3 blindness verdict and

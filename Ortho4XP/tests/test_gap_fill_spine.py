@@ -828,3 +828,112 @@ def test_a_rim_pocket_spine_is_constructed_when_pockets_are_on(monkeypatch):
     assert GF.construct_gap_fill_presolve(layout) == 1
     assert emit_gap_fill_spines(layout, None, 0, 0) == 1
     assert len(_faces(layout)) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE ENCLOSURE HOST'S STAGE (staged-solve lane S1d)
+# ══════════════════════════════════════════════════════════════════════
+#
+# S4 measured that flipping ``O4_GAP_FILL_RIM_POCKETS=1`` makes rim-pocket
+# drainage spines WRITE AIRSIDE elevations: the spine constraint was
+# stamped ``STAGE_A`` unconditionally, on the (true, but only for the
+# ENCLOSED path) reasoning that a gap is an interior ring of the airside
+# union.  A RIM POCKET is admitted precisely because it is NOT — its rim
+# may be wholly groundside — so the stage is now decided per candidate by
+# ``gap_fill._gap_host_stage`` and carried on the pre-solve entry.
+#
+# The rim geometry is IDENTICAL across these fixtures and only the ROLES
+# move, so nothing but the host verdict can explain a difference.
+
+from auto_patch.solve_stage import (                  # noqa: E402
+    STAGE_A as _ST_A, STAGE_B as _ST_B)
+
+#: Two aprons far enough from the pocket (and from each other) that they
+#: bound nothing and close into no corridor — the ``len(airside) >= 2``
+#: precondition of ``construct_gap_fill_presolve``, and nothing else.
+#: ``OPEN_FRONTAGE_CLOSE_M`` is 87.5 m; these clear 2x that with room.
+_FAR_AIRSIDE_BOXES = ((1000.0, 0.0, 1100.0, 100.0),
+                      (1500.0, 0.0, 1600.0, 100.0))
+
+
+def _rim_pocket_layout_roles(north, east, south, west, *, pocket=140.0,
+                             open_side_m=40.0, far_airside=True):
+    """``_rim_pocket_layout``'s geometry with the four rim arms' ROLES
+    given explicitly (plus, by default, the two far-away aprons that
+    satisfy the construction's airside-count precondition without
+    touching the pocket)."""
+    shapes = [
+        _rect(-40.0, pocket, pocket + 40.0, pocket + 30.0, north),   # N
+        _rect(pocket, -40.0, pocket + 40.0, pocket + 30.0, east),    # E
+        _rect(open_side_m, -40.0, pocket, 0.0, south),               # S
+        _rect(-40.0, -40.0, 0.0, pocket + 30.0, west),               # W
+    ]
+    if far_airside:
+        shapes += [_rect(*b, ROLE_APRON) for b in _FAR_AIRSIDE_BOXES]
+    return _FakeLayout(shapes), list(shapes)
+
+
+def test_a_wholly_groundside_rim_pocket_is_hosted_by_stage_b(monkeypatch):
+    """T1.  No airside arm on the rim ⇒ the enclosure is groundside and
+    its drainage spine is a stage-B variable.  This is the S4 write: at
+    ``STAGE_A`` these spine nodes are free variables of the AIRSIDE pass,
+    which is groundside authoring airside."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
+    layout, _ = _rim_pocket_layout_roles(
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B
+
+
+def test_one_airside_arm_makes_the_rim_pocket_stage_a(monkeypatch):
+    """T2, the AIRSIDE-IS-KING control: the shipped ``_rim_pocket_layout``
+    fixture has an apron on the E and S rim, so the airside system claims
+    the enclosure and the verdict is stage A.  Same detector, same
+    pocket, one role difference from T1."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
+    layout, _ = _rim_pocket_layout()
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_A
+
+
+def test_a_pad_on_the_rim_does_not_make_the_host_airside(monkeypatch):
+    """T3, the ``ROLE_BUILDING`` WRINKLE, in lockstep with the generic
+    fold it must NOT use.
+
+    ``solve_stage.stage_of_roles`` returns STAGE_A for
+    ``{service_road, building}`` because ``ROLE_BUILDING`` is not in
+    ``layout.GROUNDSIDE_ROLES``.  For a NODE that is the conservative
+    side (airside wins a shared seat).  For an ENCLOSURE HOST it is the
+    wrong side — a pad bounds ground, it does not make the ground
+    airside — so ``_gap_host_stage`` tests IDENTITY against the airside
+    list instead and never names the role at all.  Both halves are
+    asserted here so the test documents WHY."""
+    monkeypatch.setattr(GF, "GAP_FILL_RIM_POCKETS_ENABLED", True)
+    layout, _ = _rim_pocket_layout_roles(
+        ROLE_SERVICE_ROAD, ROLE_SERVICE_ROAD, ROLE_SERVICE_ROAD,
+        ROLE_BUILDING)
+    assert GF.construct_gap_fill_presolve(layout) == 1
+    assert layout.gap_fill_presolve[0]["host_stage"] == _ST_B
+    from auto_patch import solve_stage
+    assert solve_stage.stage_of_roles(
+        {ROLE_SERVICE_ROAD, ROLE_BUILDING}) == solve_stage.STAGE_A, (
+        "the generic node fold is what this host rule must not be")
+
+
+def test_at_the_shipped_default_every_gap_host_is_airside():
+    """T4, INERTNESS.  Rim pockets ship OFF, so the only candidates are
+    the enclosed interior rings of the airside union — airside-hosted by
+    construction, with no geometry test — and the tag is STAGE_A
+    everywhere, exactly as before S1d.  The groundside-rim geometry
+    produces no candidate at all."""
+    assert GF.GAP_FILL_RIM_POCKETS_ENABLED is False, (
+        "the rim-pocket gate must ship OFF")
+    layout, _ = _frame_layout(30.0)
+    assert GF.construct_gap_fill_presolve(layout) >= 1
+    assert [e["host_stage"] for e in layout.gap_fill_presolve] == \
+        [_ST_A] * len(layout.gap_fill_presolve)
+    gs, _ = _rim_pocket_layout_roles(
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT,
+        ROLE_SERVICE_ROAD, ROLE_GROUNDSIDE_PAVEMENT)
+    assert GF.construct_gap_fill_presolve(gs) == 0

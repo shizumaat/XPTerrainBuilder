@@ -261,6 +261,20 @@ def main(argv=None) -> int:
         return show(args.show)
     if not args.replay:
         ap.error("one of --replay or --show is required")
+    # THE CWD LAW APPLIES TO A REPLAY TOO (S1d 2026-08-14).  The engine
+    # resolves its read-only resources with ``O4_File_Names.resource_path``
+    # = ``os.path.abspath(".")``, so a replay launched from the wrong
+    # directory silently loses them: measured at OTHH, the DEM prep's
+    # production-parity path failed with FileNotFoundError, the run fell
+    # back to the STANDALONE DEM ("no cached airports OSM layer"), and the
+    # replay emitted 2,027 shapes against the build's 2,186 — then reported
+    # a DIVERGED body hash, which reads as an engine defect rather than as
+    # the operator error it is.  ``build_airport.require_build_cwd`` is the
+    # SAME law the build entry enforces and the SAME implementation (never
+    # a second spelling); a replay is a build's phases [5]+[6] and owes it
+    # identically.  ``--show`` is exempt: it only reads a manifest.
+    from build_airport import require_build_cwd     # noqa: E402
+    require_build_cwd(Path.cwd())
     baseline = args.baseline
     if args.baseline_manifest or args.baseline_key:
         if not (args.baseline_manifest and args.baseline_key):

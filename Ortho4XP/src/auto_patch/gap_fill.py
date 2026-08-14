@@ -118,6 +118,11 @@ from .clearance import (
     _nearest_pav_alt,
     _open_coords,
 )
+# THE STAGE TAG (staged-solve round).  A gap-fill spine's stage is its
+# ENCLOSURE HOST's, decided here at mint and carried on the pre-solve
+# entry — ``solver_primitives._build_gap_spine_constraints`` stamps the
+# constraint from it and never guesses.
+from .solve_stage import STAGE_A as _STAGE_A, STAGE_B as _STAGE_B
 from .emit_decimate import _key
 from .enclaves import (
     ENCLAVE_SURROUND_ROLES,
@@ -2655,6 +2660,81 @@ def _gap_candidate_polys(layout, airside):
     return enclosed + rim, {id(p) for p in rim}
 
 
+def _gap_host_stage(layout, airside, gap_poly, rim_pocket):
+    """THE SOLVE STAGE of the gap face's ENCLOSURE HOST (staged-solve
+    lane S1d; S4's measurement that a rim-pocket drainage spine WRITES
+    AIRSIDE elevations when ``O4_GAP_FILL_RIM_POCKETS=1``).
+
+    A gap-fill drainage spine is a CONSTRUCT over a host surface, and
+    ``solve_stage``'s own rule for such a construct is "the stage of its
+    HOST, never its own construct role" (``graded_strip`` is not a
+    stage).  This function answers WHO THE HOST IS:
+
+    * an ENCLOSED gap is, by construction of ``_gap_detection_polys``, an
+      interior ring of the AIRSIDE union — airside-hosted with no
+      geometry test at all, so ``rim_pocket=False`` returns ``STAGE_A``
+      immediately.
+    * a RIM POCKET is admitted precisely BECAUSE it is not such a ring:
+      ``_rim_pocket_bounding_shapes`` widens the rim to airside PLUS the
+      ruling-3 groundside/road/junction/pad classes.  So the question is
+      whether any AIRSIDE member actually bounds this pocket.  AIRSIDE IS
+      KING: one airside arm on the rim and the airside system claims the
+      enclosure (``STAGE_A``); a rim with no airside arm at all is a
+      groundside enclosure and its spine is a stage-B variable.
+
+    THE TEST IS BY SEGMENT MIDPOINT, not exterior-to-exterior distance,
+    so a corner-only touch does not count — the identical measure
+    ``_graded_rim`` uses for the graded fraction, and the reason the two
+    cannot disagree about what "on the rim" means.
+
+    NO ROLE LITERAL IS SPELLED HERE, deliberately.  Membership is by
+    IDENTITY against the ``airside`` list, which ``_airside_shapes``
+    built from ``_AIRSIDE_PAVEMENT_ROLES`` — so a building, a service
+    road or a groundside lot falls to ``STAGE_B`` simply by not being in
+    it, and this function never has to name ``ROLE_BUILDING`` (which
+    would also be a blast.py role-literal hazard).
+
+    AND NOT ``solve_stage.stage_of_roles`` OVER THE RIM ROLES.  That fold
+    returns ``STAGE_A`` for ``{service_road, building}``, because
+    ``ROLE_BUILDING`` is not in ``layout.GROUNDSIDE_ROLES``.  For a NODE
+    that is the conservative side (airside wins a shared seat).  For an
+    ENCLOSURE HOST it is the WRONG side: it would hand a wholly
+    groundside pocket's spine to stage A, which is the exact write S4
+    measured.  A pad bounds ground; it does not make the ground airside.
+
+    Degenerate geometry returns ``STAGE_A`` — the conservative side, per
+    ``stage_of_role``'s own argument (a wrong stage-A tag only
+    over-constrains stage A with its own kind).
+    """
+    if not rim_pocket:
+        return _STAGE_A
+    try:
+        ring = list(gap_poly.exterior.coords)
+    except _GEOM_EXC:
+        return _STAGE_A
+    if len(ring) < 2:
+        return _STAGE_A
+    mids = []
+    for (ax, ay), (bx, by) in zip(ring, ring[1:]):
+        if math.hypot(bx - ax, by - ay) <= 0.0:
+            continue
+        mids.append(Point(0.5 * (ax + bx), 0.5 * (ay + by)))
+    if not mids:
+        return _STAGE_A
+    for s in airside:
+        try:
+            ext = s.polygon.exterior
+        except _GEOM_EXC:
+            continue
+        for m in mids:
+            try:
+                if ext.distance(m) <= _RIM_POCKET_BOUNDARY_TOL_M:
+                    return _STAGE_A
+            except _GEOM_EXC:
+                continue
+    return _STAGE_B
+
+
 def _enclave_treatable(layout, poly):
     """The published enclave whose interior ``poly`` is AND whose ground
     the ruled treatment can actually take, or ``None`` — the gate on the
@@ -2819,7 +2899,12 @@ def construct_gap_fill_presolve(layout) -> int:
 
     Stores ``layout.gap_fill_presolve = [{"spine": [(x, y), ...],
     "specs": [per-node ``_freeze_spine_parent_specs`` list],
-    "values": None}, ...]`` and returns the entry count."""
+    "host_stage": ``_gap_host_stage`` verdict, "values": None}, ...]``
+    and returns the entry count.  ``host_stage`` is the entry's SOLVE
+    STAGE, decided at mint from the enclosure host and consumed by
+    ``solver_primitives._build_gap_spine_constraints`` — an entry
+    reaching that builder without one is a defect there, never a
+    default."""
     if not GAP_FILL_SPINE_ENABLED:
         return 0
     airside = _airside_shapes(layout)
@@ -2907,6 +2992,13 @@ def construct_gap_fill_presolve(layout) -> int:
                     continue
             if overlapped:
                 continue
+            # THE ENCLOSURE HOST'S STAGE, once per candidate (S1d): every
+            # face and every station of this gap shares one enclosure, so
+            # the question is asked of the CANDIDATE, not of each face.
+            # ``id(gap_poly) in rim_ids`` is the rim-pocket membership
+            # test the width rule below already uses.
+            host_stage = _gap_host_stage(layout, airside, gap_poly,
+                                         id(gap_poly) in rim_ids)
             faces = (_parent_residual_faces(gap_poly, parents, chain_keys)
                      if parents else [gap_poly])
             for face_poly in faces:
@@ -2937,6 +3029,7 @@ def construct_gap_fill_presolve(layout) -> int:
                 entries.append({"spine": [(float(px), float(py))
                                           for px, py in spine],
                                 "specs": specs,
+                                "host_stage": host_stage,
                                 "values": None})
     layout.gap_fill_presolve = entries
     if entries:

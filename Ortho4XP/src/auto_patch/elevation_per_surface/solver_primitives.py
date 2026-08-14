@@ -54,7 +54,8 @@ from auto_patch.grade_law import (
 # THE STAGE TAG (staged-solve round S1b).  Stamped where each constraint
 # entry is minted; every entry reaching a projection must carry it.
 from auto_patch.solve_stage import (
-    STAGE_A as _STAGE_A, STAGE_KEY as _STAGE_KEY,
+    STAGE_A as _STAGE_A, STAGE_B as _STAGE_B, STAGE_KEY as _STAGE_KEY,
+    UntaggedConstraintError as _UntaggedConstraintError,
     stage_of_shape as _stage_of_shape)
 
 # Narrow exception tuple for shapely / numeric-geometry failure
@@ -1890,16 +1891,35 @@ def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
         node_list = [i for i in idx if i is not None]
         if not node_list:
             continue
+        # STAGE FROM THE HOST, NOT THE CONSTRUCT ROLE (S1b) AND NOT FROM
+        # THE PARENTS (S1d).  ``graded_strip`` is not a stage, so the
+        # spine takes its enclosure HOST's — decided at mint by
+        # ``gap_fill._gap_host_stage`` and carried on the entry.
+        #
+        # WHY THE FROZEN PARENTS DO NOT DECIDE IT: they are ALWAYS
+        # airside — ``gap_fill._freeze_spine_parent_specs`` ranks
+        # ``_airside_index`` and nothing else — so "the stations are
+        # airside" is a fact about the entry's DATA, true of every entry,
+        # and can distinguish nothing.  The rim-pocket law
+        # (``_rim_pocket_bounding_shapes``) admits enclosures whose rim
+        # is wholly groundside; such a spine is a stage-B variable, and
+        # tagging it A is exactly the airside WRITE lane S4 measured
+        # under ``O4_GAP_FILL_RIM_POCKETS=1``.
+        _host_stage = entry.get("host_stage")
+        if _host_stage not in (_STAGE_A, _STAGE_B):
+            raise _UntaggedConstraintError(
+                f"gap-fill pre-solve entry reached "
+                f"_build_gap_spine_constraints with no valid "
+                f"'host_stage' (got {_host_stage!r}; keys="
+                f"{sorted(entry)}).  The stage of a gap spine is its "
+                f"ENCLOSURE HOST's and is stamped AT MINT by "
+                f"gap_fill.construct_gap_fill_presolve — an untagged "
+                f"entry is a constructor defect there, never a "
+                f"partition default (auto_patch/solve_stage.py).")
         sc_out.append({"nodes": node_list, "edges": edges, "flat": False,
                        "flat_pairs": (), "area": 0.0,
                        "role": ROLE_GRADED_STRIP,
-                       # STAGE FROM THE HOST, NOT THE CONSTRUCT ROLE
-                       # (S1b): ``graded_strip`` is not a stage.  A
-                       # gap-fill drainage spine grades an ENCLOSED GAP
-                       # OF THE AIRSIDE PAVEMENT UNION and its frozen
-                       # parents come from ``gap_fill._airside_index``,
-                       # so every station it couples to is airside.
-                       _STAGE_KEY: _STAGE_A,
+                       _STAGE_KEY: _host_stage,
                        "ref": "gap_fill_spine"})
         chains.append({"idx": idx, "xy": list(entry["spine"]),
                        "specs": node_specs})
@@ -1908,6 +1928,41 @@ def _build_gap_spine_constraints(layout, bucket_to_idx, seed_elev=None):
               f"{n_pruned} node(s) kept the nearer parent's interval "
               f"only (the analytic law's own fallback rule)")
     return sc_out, spine_idx, chains
+
+
+def gap_spine_stage_b_nodes(layout, bucket_to_idx, n_nodes=None) -> set:
+    """The node indices of every STAGE-B gap-fill drainage spine (S1d).
+
+    THE OTHER HALF OF THE STAGE TAG.  A spine vertex lies on NO ring, so
+    its role set is empty and ``solve._receiver_nodes_from_roles`` — which
+    admits a receiver only from groundside RING roles — never admits it.
+    Tagging a groundside-hosted spine entry stage B without this set would
+    freeze it on BOTH sides (out of the airside pass by the tag, out of
+    the groundside pass by the receiver scan) and its law would be
+    silently deleted.  So the two halves land together.
+
+    RESOLVED BY CANONICAL KEY, never by carrying indices: the final
+    projection REBUILDS the node list, and an index from the solve's node
+    space means something else there (or nothing).  ``n_nodes``, when
+    given, drops anything past the caller's field length — the same guard
+    the ``_gap_spine_idx`` consumers apply.
+    """
+    entries = getattr(layout, "gap_fill_presolve", None) or []
+    cps = getattr(layout, "canonical_points", None)
+    if not entries or cps is None:
+        return set()
+    out: set[int] = set()
+    for entry in entries:
+        if entry.get("host_stage") != _STAGE_B:
+            continue
+        for (x, y) in entry.get("spine") or ():
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is None:
+                continue
+            if n_nodes is not None and i >= n_nodes:
+                continue
+            out.add(i)
+    return out
 
 
 def runway_end_resa_ceiling_offset(end_spec, x, y):

@@ -1581,3 +1581,102 @@ that is now refused away, and another argument for that pass's retirement.
 into `tools/` with index entries and twins if this mechanism lands —
 promote-on-reuse, RULINGS `7e90032`.  (3) OTHH's tile arm and VHHH remain
 blocked on tile-cfg provisioning.
+
+---
+
+## S1d (staged-solve round, lane/s1d, base d4c8485)
+
+Control arms, all through the harness entries, guard clean
+(`write_guard_blocked: []`): HECA `5d12d1ce4b5a` (3211 shapes, law-true
+7221, airside 1711), CYXY `0de9dbec1438` (462, 319, 68), OTHH
+`3850b8a43867` (2186). Matched pre-edit test control on this tree: 130
+passed / 0 failed; post-change 139 passed / 0 failed.
+
+**ITEM 1 — solve_cut capture→replay at OTHH: ATTRIBUTED, NOT CLOSED.**
+The docket's suspicion (S5's in-run pad-frame reads + an unbumped
+`capture_version`) is REFUTED as stated: S4 measured the divergence at
+`1388b9b`, and `git merge-base --is-ancestor 1faf907 1388b9b` is FALSE —
+`object_frame.py` does not exist at S4's tree, so S5's pad frame cannot
+have caused it. At S4's tree the pad emitter still read the cross-build
+request sidecar `o4_object_foot_pads.json` (the ratchet class), which
+S5's `1faf907` retired and which is now railed twice
+(`test_the_sidecar_reader_is_gone_from_the_emission_path`,
+`test_no_terrain_module_reads_the_pad_sidecar`).
+On current main the divergence PERSISTS with a different mechanism:
+HECA reproduces byte-for-byte (`5d12d1ce4b5a`, 334.7 s) but OTHH does
+not (build `3850b8a43867` / replay `5bfafd6d8318`, 2186 vs 2301 shapes).
+Attributed by differential: the replay's DEM is NOT the build's DEM —
+relief 3.71 → 3.12 m, sea-excluded 11 % → 2 %, and the flat-site pack
+read moves from `off 0.03 m / spread 0.53 m` to `off 0.32 m /
+spread 1.78 m`, which drives object pads 145 → 191 (182 → 226 polygons).
+The build runs the harness-verified production DEM frame
+(`airports_layer=True`, insets 100 %); the replay re-runs DEM prep inside
+phases [5]+[6] and gets a different surface. `tile_dem` is a captured key
+but is None for a `--patch-only` build, so the DEM the solve actually
+uses is created AFTER the boundary and no key set can cover it as it
+stands. OWED: a Fable-scoped boundary change (capture the prepared
+airport DEM, or make the replay adopt the build's DEM frame) plus a
+`CAPTURE_VERSION` bump. NOT attempted here — it changes
+`solve_and_finalize`'s signature and is a design decision.
+LANDED instead: `tools/solve_cut.py` now enforces the BUILD-CWD LAW via
+`build_airport.require_build_cwd` (one implementation, never a second
+spelling), twin `test_a_replay_from_the_wrong_cwd_refuses`. This closes a
+real hole that bit this lane: `O4_File_Names.resource_path` is
+`os.path.abspath(".")`, so a replay from the wrong directory lost the
+engine's resources, DEM prep failed with FileNotFoundError, the run fell
+back to the standalone DEM, and the replay emitted 2,027 shapes and
+reported DIVERGED — an operator error indistinguishable from an engine
+defect.
+
+**ITEM 2 — rim-pocket writer: BOTH HALVES LANDED, POCKETS STAY PARKED.**
+(a) `gap_fill._gap_host_stage` decides a gap face's stage from its
+ENCLOSURE HOST, by identity against the lawful-airside list (no role
+literal; `ROLE_BUILDING` falls to stage B by non-membership, and the
+docstring records why `solve_stage.stage_of_roles` is the right fold for
+the wrong question). `construct_gap_fill_presolve` stamps `host_stage`
+at mint; `solver_primitives._build_gap_spine_constraints` consumes it and
+raises `UntaggedConstraintError` rather than defaulting.
+(b) `solve._receiver_nodes_from_roles(roles, stage_b_nodes=())` admits
+role-less stage-B spine vertices, fed by the new
+`solver_primitives.gap_spine_stage_b_nodes` (canonical-key resolved) at
+both `solve_route_profile` and `final_grade_projection`.
+BYTE-INERT AT THE SHIPPED DEFAULT, proved not claimed: the HECA replay
+with pockets OFF on the changed tree is `5d12d1ce4b5a`, byte-identical to
+the control build.
+RE-FLIP ARM FAILS ACCEPTANCE (b). `O4_GAP_FILL_RIM_POCKETS=1` at HECA:
+law-true 7221 → 7305, airside_for_acceptance 1711 → 1779 (+68); row join
+NEW 492 / GONE 408 / net +84, of which ~299 NEW airside
+(257 `within_shape::apron|apron`, 22 `junction|junction`, 20 transverse);
+259 of 317 NEW airside rows lie >50 m from every gap-fill candidate
+(median 119 m) — S4's off-face signature, reproduced.
+RESIDUAL MECHANISM, NAMED AND MEASURED: at HECA the construction yields
+229 spines tagged **138 STAGE_A / 91 STAGE_B**. The stage-B half is
+correctly demoted; the writing population is the 138 that keep STAGE_A
+through the "one airside arm on the rim ⇒ airside is king" branch. A rim
+pocket is by definition NOT airside-enclosed (that is what distinguishes
+it from an interior ring of the airside union), so the open design
+question is whether a rim pocket should be stage B UNCONDITIONALLY. That
+reinterprets "airside is king" for an enclosure host and contradicts the
+twin `test_one_airside_arm_makes_the_rim_pocket_stage_a`, so it is
+ROUTED TO FABLE/OWNER rather than decided in-lane (attempt cap reached;
+intent questions route to the owner). Pockets remain default OFF.
+
+**ITEM 3 — open couplings 9/10/12/21: NOT STARTED.** Budget went to
+items 1, 2 and 4. The dossier entries (`tmp/s1_attribution.md` in the
+lane/s1freeze worktree) and the spec's own file:line pointers stand
+unchanged; no code was touched, so nothing is half-done. Expected
+byte-inert at HECA per S1c's six.
+
+**ITEM 4 — row-adjudication annex: DELIVERED**, `tmp/s1d_row_annex.md`.
+Free-end outlier `30.1119707,31.3731240` CLOSED (no row in the control).
+The UNATTRIBUTABLE junction way -11890 is now attributed (`within_shape
+junction|junction`, airside, 1.84 % vs the 1.5 % law-true cap). The
+frontage row persists (`frontage_near_miss`, apron|building, 7.94 %).
+S5c's `+14` ruled LAWFUL BOUNDARY CHURN: 71 of the control's airside rows
+are `apron|apron` sitting inside 0.05 pp of the 1.5 % cap, so any lawful
+re-emission reshuffles membership — that band is recommended as its own
+docket line, since it will make every future arm's airside delta noisy.
+
+**OWED AT CLOSE.** OTHH and CYXY censuses on the final tree (only HECA
+was censused both ways here); the determinism spot-check (sequential
+HECA tile pair) was not run; item 3.

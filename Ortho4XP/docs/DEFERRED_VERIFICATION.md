@@ -1786,3 +1786,37 @@ EQUALITY where a census A/B can only answer it as a count.
   in `solve_and_finalize` (from 3803), so the R17-1(b) last-author
   invariant it claims to guard structurally is unguarded.  Filed
   separately; not caused by this lane.
+
+## S1f (lane/s1f, 2026-08-14) — the +89 adjudication and the docket
+
+- **The convergence arm is a REFUTATION arm, not an acceptance arm.**
+  `s1f_conv_cyxy` (`5dd542654f0c`) and `s1f_conv_heca` (`c2ae6a556821`)
+  were built to test branch (b) and the change was reverted on the
+  measurement.  Their bodies are evidence, not products; nothing in the
+  lane's committed tree produces them.
+- **Timing NOT measured, per the standing suspension.**  Indicative only,
+  single runs with other builds on the machine: the projection cost 17.4 s
+  at HECA before the reverted patience change and 23.8 s after; the arms
+  ran 380–404 s (HECA) and 33–35 s (CYXY).  Not quotable.
+- **OTHH arm on the REFUTED tree only.**  No OTHH arm was built on the
+  final (reverted) tree, because that tree is source-identical to
+  `lane/s1e` except a report-time instrument dump proven byte-inert — the
+  S1e OTHH arm (`271f5e2df731`, −11 vs reference) still stands unchanged.
+  A fresh OTHH arm is owed at the consolidated acceptance.
+- **HECA determinism pair NOT run** (still owed from S1e; one HECA build
+  ≈ 6.5 min).  Identity was proven instead by REPRODUCTION: this lane's
+  HECA build with the seam audit armed emits `3ab5a8dfae80`, S1e's own
+  mid-only body, and its CYXY control emits `5dd542654f0c`.
+- **Tile arms NOT run.**  All arms are `--patch-only`.  The sequential
+  HECA tile pair the round's acceptance asks for is unpaid.
+- **Full suite NOT run** (PRE-SHIP mode).  `blast --tests-for` over the
+  changed files selected 30 files, run once through the ledger: 788
+  passed, 5 xfailed (all pre-existing, kill-half §2 exposed consumers).
+- **Items 2, 3, 4, 5 are ATTRIBUTED, NOT IMPLEMENTED**, each with its
+  minter named by file:line in `Ortho4XP/tmp/s1f_dossier.md`.  In
+  particular the solve-capture DEM leak is unclosed, so **OTHH replays
+  remain not quotable** (RULINGS 2026-08-14).
+- **Item 6's residual question is unmeasured:** whether a near-miss law
+  edge was ever built for building22's pad against apron vertex −2409
+  needs `_fp_law_counts` dumped from an instrumented run
+  (`solve.py:6764`).

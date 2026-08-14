@@ -211,6 +211,12 @@ def report_post_solve_changes(layout: PavementLayout, snapshot: dict | None,
 #
 _SEAM_ENV = "O4_GEOM_SEAM_AUDIT"
 
+#: Optional path the armed audit dumps its whole seam ledger to as JSON
+#: (S1f).  Same data the report prints, without the top-5 truncation, so a
+#: per-SITE "which stage moved this vertex" join is possible; unset ⇒ one
+#: dict lookup at report time and no file.
+_SEAM_JSON_ENV = "O4_GEOM_SEAM_AUDIT_JSON"
+
 #: Roles this guard calls airside that the SOLVE partitions as groundside
 #: (``layout.GROUNDSIDE_ROLES``, the projection's receiver set).  Their
 #: post-solve value authorship is stage-B law seating, not a failed carry.
@@ -562,6 +568,26 @@ def seam_report(layout, icao: str = "") -> None:
                  f"weld, or is additive emission); stage-B service seating "
                  f"{tot_gs} (lawful, groundside partition); the projection "
                  f"seams' own authorship is excluded and counted above.")
+    # THE LEDGER AS DATA (S1f).  The printed report keeps the top 5 sites
+    # per seam, which answers "which stage" and cannot answer "which stage
+    # moved THIS vertex" — the question an attribution of an emitted row
+    # back to its minting stage has to ask, per site, for every site.  The
+    # dump is the SAME ``log`` the lines above are printed from (one
+    # ledger, one authority; it derives nothing and re-measures nothing),
+    # written only when the path is given.  A failure here is reported and
+    # never raised: an audit that can fail a build is a worse instrument
+    # than no audit.
+    _json_path = os.environ.get(_SEAM_JSON_ENV)
+    if _json_path:
+        try:
+            import json as _json
+            with open(_json_path, "w") as _fh:
+                _json.dump({"icao": icao, "seams": log}, _fh)
+            UI.vprint(1, f"  [geom-seam] {icao}: ledger written to "
+                         f"{_json_path} ({len(log)} seam(s)).")
+        except Exception as exc:                           # pragma: no cover
+            UI.vprint(1, f"  [geom-seam] {icao}: ledger dump FAILED "
+                         f"{exc!r}")
 
 
 # ── Coverage probe (env O4_COVERAGE_PROBE, debug aid) ────────────────

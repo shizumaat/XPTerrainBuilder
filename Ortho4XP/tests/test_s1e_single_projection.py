@@ -221,3 +221,76 @@ def test_the_stage_b_roles_the_audit_splits_out_are_the_solves_own():
     assert _GROUNDSIDE_SIDE_ROLES <= GROUNDSIDE_ROLES, (
         "a role the audit excuses as stage-B seating must actually be a "
         "groundside receiver in the solve partition")
+
+
+# ── S1f: the seam ledger as DATA ─────────────────────────────────────────
+
+def test_the_seam_ledger_dump_is_the_report_s_own_log(tmp_path,
+                                                      monkeypatch):
+    """``O4_GEOM_SEAM_AUDIT_JSON`` writes the SAME ledger the report prints.
+
+    S1f's attribution asks "which stage moved THIS vertex", per site, for
+    every site — a question the printed report cannot answer because it
+    keeps the top 5 sites per seam.  The dump exists for that join, so the
+    twin's whole point is that it is not a second measurement: the file
+    must be the very ``_geom_seam_log`` list the report reads, not a
+    re-derivation of it.
+    """
+    import json
+
+    from auto_patch import geom_guard as GG
+
+    class _L:
+        pass
+
+    layout = _L()
+    log = [{"seam": "19_final_projection", "shapes": 3, "changed": 1,
+            "pure_insert": 0, "pure_drop": 0, "moved": 1, "new_shape": 0,
+            "removed_shape": 0, "survivors": 9, "survivor_moved": 2,
+            "survivor_moved_material": 1, "survivor_worst_m": 0.44,
+            "inserted": 0, "lerp_exact": 0, "lerp_near": 0,
+            "weld_adopt": 0, "off_lerp": 0, "no_value": 0,
+            "insert_worst_m": 0.0, "dropped_verts": 0,
+            "gs_survivor_moved": 0,
+            "mv_sites": [[0.44, 1.0, 2.0, "apron", 10.0, 10.44]],
+            "ins_sites": []}]
+    layout._geom_seam_log = log
+
+    dest = tmp_path / "ledger.json"
+    monkeypatch.setenv("O4_GEOM_SEAM_AUDIT", "1")
+    monkeypatch.setenv("O4_GEOM_SEAM_AUDIT_JSON", str(dest))
+    GG.seam_report(layout, "TEST")
+    assert dest.exists(), "the armed audit must write the ledger it prints"
+    got = json.loads(dest.read_text())
+    assert got["icao"] == "TEST"
+    assert got["seams"] == log, (
+        "the dump must be the report's own ledger, verbatim — a second "
+        "spelling of it is the census-wrapper defect at one remove")
+    # EVERY site survives the dump: the truncation the printed report
+    # applies is the reason this file exists.
+    assert got["seams"][0]["mv_sites"] == log[0]["mv_sites"]
+
+
+def test_the_seam_ledger_dump_is_opt_in(tmp_path, monkeypatch):
+    """No path ⇒ no file (and the gate off ⇒ not even a report)."""
+    from auto_patch import geom_guard as GG
+
+    class _L:
+        pass
+
+    layout = _L()
+    layout._geom_seam_log = [{"seam": "x", "shapes": 0, "changed": 0,
+                              "pure_insert": 0, "pure_drop": 0, "moved": 0,
+                              "new_shape": 0, "removed_shape": 0,
+                              "survivors": 0, "survivor_moved": 0,
+                              "survivor_moved_material": 0,
+                              "survivor_worst_m": 0.0, "inserted": 0,
+                              "lerp_exact": 0, "lerp_near": 0,
+                              "weld_adopt": 0, "off_lerp": 0,
+                              "no_value": 0, "insert_worst_m": 0.0,
+                              "dropped_verts": 0, "gs_survivor_moved": 0,
+                              "mv_sites": [], "ins_sites": []}]
+    monkeypatch.setenv("O4_GEOM_SEAM_AUDIT", "1")
+    monkeypatch.delenv("O4_GEOM_SEAM_AUDIT_JSON", raising=False)
+    GG.seam_report(layout, "TEST")
+    assert not list(tmp_path.iterdir())

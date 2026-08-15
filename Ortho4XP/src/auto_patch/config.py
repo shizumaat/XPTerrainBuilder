@@ -1520,6 +1520,12 @@ def runway_dem_follow_band_m() -> float:
 # the origin split halves every pull; 3 rounds of geometric halving
 # leave 25 % of the demand unmet by construction.  Iterate until a round
 # drains less than the materiality floor, or the hard cap below.
+# ROUND-CAP ARM REFUTED (band-findings fix, 2026-08-15): raising 12 →
+# 48 at HECA ran all 48 rounds and drained 84 m more TOTAL demand, but
+# the last-round residual (48.51 vs 48.41 m) and all 21 rwy_flexed
+# band-instrument findings were UNCHANGED — the same 22 bins re-present
+# every round and verify-and-relax refuses them every round (347 m
+# discarded).  The cap is not the mechanism; 12 stands.
 RUNWAY_FLEX_MAX_ROUNDS = 12
 RUNWAY_FLEX_ROUND_DRAIN_FLOOR_M = 0.01
 

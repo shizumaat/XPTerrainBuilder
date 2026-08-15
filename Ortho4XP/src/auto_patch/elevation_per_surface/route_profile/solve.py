@@ -2831,6 +2831,39 @@ def solve_route_profile(layout, icao: str,
     for _i in list(building_seats):
         if _i in _seam_pin_idx:
             del building_seats[_i]
+    # ── THE TRUE-ANCHOR BAND, built ONCE for the whole frame (owner
+    # ruling 2026-08-15 + the 47-findings fix): the cap-Lipschitz band
+    # from the ONLY physically-certain anchors (CIFP thresholds + tile
+    # seams), over the solve's own law edges.  Three consumers, one
+    # construction: the §4 seat-stamp guard below (a seat outside this
+    # band could not be held by ANY lawful surface — the route-metric
+    # envelope alone missed 26 such seats at HECA, up to 10.3 m), the
+    # report-only band instrument, and the warm start (both in the
+    # iterative branch).  ~1.5 s at HECA.
+    from .constructive import runway_station_chains as _rsc_tab
+    from .one_solve import LivingBand as _LB_tab
+    from .one_solve import envelope_radj as _era_tab
+    from .one_solve import law_edge_limits as _lel_tab
+    _tab_el, _tab_il, _tab_esk = _lel_tab(
+        shape_constraints, n, include_flat_pairs=True)
+    _tab_cra, _tab_fra = _era_tab(
+        _tab_el, _tab_il, _tab_esk, interval_yield_from=_iyf)
+    _tab_p0: dict = {}
+    _tab_p0m: dict = {}
+    for _i in sorted(_seam_pin_idx):
+        if _i < n:
+            _tab_p0[_i] = float(elev[_i])
+            _tab_p0m[_i] = "seam"
+    for _ch in _rsc_tab(layout, bucket_to_idx, n):
+        for _q, _e in sorted(_ch.pegs.items()):
+            for _i in _ch.members[_q]:
+                if _i < n and _i not in _tab_p0:
+                    _tab_p0[_i] = float(_e)
+                    _tab_p0m[_i] = f"cifp:{_ch.ref}"
+    _tab_band = _LB_tab(
+        _tab_cra, _tab_fra, n,
+        track_paths=bool(_os.environ.get("O4_BAND_INSTRUMENT_DUMP")))
+    _tab_band.seed(_tab_p0, _tab_p0m)
     # A building seat that IS a spine node (a pad node on a taxi centerline)
     # is anchored at its ACTUAL seat level DURING the spine solve — so the
     # spine grades its neighbours to within cap of the building (buildings are
@@ -2855,7 +2888,17 @@ def solve_route_profile(layout, icao: str,
     # contradiction reported with the anchor that binds it.
     _seat_yield_idx: set = set()
     _seat_guard_rows: list = []
+    _seat_band_rows: list = []
     _seat_guard_on = _anchor_envelope is not None
+    # §4 EXTENSION (owner-ordered 47-findings fix, 2026-08-15): the
+    # TRUE-ANCHOR BAND is a second, tighter refusal frame beside the
+    # route-metric envelope — it composes EVERY law edge (strips,
+    # cross-sections, near-miss frontage), not just route budgets, so
+    # a seat it excludes cannot be held by any lawful surface at all.
+    # Same fallback as the route guard: the seat keeps its value as
+    # the node's starting elevation and enters YIELD-HARD.  Kill
+    # switch ``O4_BAND_SEAT_GUARD=0`` for attribution arms.
+    _band_guard_on = _os.environ.get("O4_BAND_SEAT_GUARD", "1") != "0"
     for i, lv in building_seats.items():
         if i < n and lv is not None and i in u_spine_adj \
                 and i not in _seam_pin_idx:
@@ -2866,9 +2909,38 @@ def solve_route_profile(layout, icao: str,
                     _seat_yield_idx.add(i)
                     _seat_guard_rows.append((i, float(lv), _v))
                     continue
+            if _band_guard_on:
+                _blo, _bhi = _tab_band.interval(i)
+                _bv = float(lv)
+                if ((_blo is not None and _bv < _blo - 0.01)
+                        or (_bhi is not None and _bv > _bhi + 0.01)):
+                    elev[i] = _bv
+                    _seat_yield_idx.add(i)
+                    _fa, _fm, _ca, _cm = _tab_band.bounding(i)
+                    _seat_band_rows.append(
+                        (i, _bv, _blo, _bhi, _fm, _fa, _cm, _ca))
+                    continue
             elev[i] = float(lv)
             base_hard[i] = True
             _hard_cat.setdefault(i, "seat_on_spine")
+    if _seat_band_rows:
+        import O4_UI_Utils as _UI_sbg
+        _UI_sbg.vprint(
+            1,
+            f"  [seat-guard] {icao}: {len(_seat_band_rows)} further "
+            f"seat(s) OUTSIDE the true-anchor band (CIFP+seam law "
+            f"cones) — NOT stamped base_hard, entering yield-hard.")
+        for (_i, _bv, _blo, _bhi, _fm, _fa, _cm, _ca) in sorted(
+                _seat_band_rows,
+                key=lambda r: -max(
+                    (r[2] - r[1]) if r[2] is not None else 0.0,
+                    (r[1] - r[3]) if r[3] is not None else 0.0))[:5]:
+            _UI_sbg.vprint(
+                1,
+                f"  [seat-guard]   node {_i}: seat {_bv:.3f} vs band "
+                f"[{'-inf' if _blo is None else f'{_blo:.3f}'}, "
+                f"{'+inf' if _bhi is None else f'{_bhi:.3f}'}] "
+                f"(floor by {_fm}@{_fa}, ceiling by {_cm}@{_ca}).")
     layout._seat_stamp_yield_idx = _seat_yield_idx
     if _seat_guard_on:
         import O4_UI_Utils as _UI_sg
@@ -3083,30 +3155,14 @@ def solve_route_profile(layout, icao: str,
         _bi_on = _os.environ.get("O4_BAND_INSTRUMENT", "1") != "0"
         _ws_on = _os.environ.get("O4_ITER_WARM_START", "1") != "0"
         if _bi_on or _ws_on:
-            from .constructive import runway_station_chains as _rsc_wb
-            from .one_solve import LivingBand as _LB_wb
-            from .one_solve import envelope_radj as _era_wb
-            from .one_solve import law_edge_limits as _lel_wb
             from .one_solve import reach_envelope as _re_wb
             _t_wb = _time.time()
-            _el_wb, _il_wb, _esk_wb = _lel_wb(
-                shape_constraints, n, include_flat_pairs=True)
-            _cra_wb, _fra_wb = _era_wb(
-                _el_wb, _il_wb, _esk_wb, interval_yield_from=_iyf)
-            _p0_wb: dict = {}
-            _p0m_wb: dict = {}
-            for _i in sorted(_seam_pin_idx):
-                if _i < n:
-                    _p0_wb[_i] = float(elev[_i])
-                    _p0m_wb[_i] = "seam"
-            for _ch in _rsc_wb(layout, bucket_to_idx, n):
-                for _q, _e in sorted(_ch.pegs.items()):
-                    for _i in _ch.members[_q]:
-                        if _i < n and _i not in _p0_wb:
-                            _p0_wb[_i] = float(_e)
-                            _p0m_wb[_i] = f"cifp:{_ch.ref}"
-            _band_wb = _LB_wb(_cra_wb, _fra_wb, n)
-            _band_wb.seed(_p0_wb, _p0m_wb)
+            # ONE construction (single-pass principle): the true-anchor
+            # band and its adjacencies were built beside the §4 seat
+            # guard above; the instrument and warm start read them.
+            _cra_wb, _fra_wb = _tab_cra, _tab_fra
+            _p0_wb = _tab_p0
+            _band_wb = _tab_band
             if _bi_on:
                 _bi_rows: list = []
                 for _i in range(n):
@@ -3132,6 +3188,37 @@ def solve_route_profile(layout, icao: str,
                     })
                 _bi_rows.sort(key=lambda r: (-r["deficit"], r["node"]))
                 layout._band_instrument_findings = _bi_rows
+                # Full-row dump for the fixing queue (findings are
+                # otherwise in-memory only): O4_BAND_INSTRUMENT_DUMP=
+                # /path.json writes every row, not the top-5 print.
+                _bi_dump = _os.environ.get("O4_BAND_INSTRUMENT_DUMP")
+                if _bi_dump:
+                    import json as _json_bi
+                    # The BOUNDING PATH for the worst rows (A4's
+                    # debugging half): the exact law-edge chain that
+                    # carries the binding cone, so a tight ceiling can
+                    # be attributed to real taxiway chains vs a false
+                    # bridge (the wrong-pair-graph class).
+                    for _r in _bi_rows[:10]:
+                        _i_r = _r["node"]
+                        _side = (-1 if (_r["band_lo"] is not None
+                                        and _r["value"]
+                                        < _r["band_lo"]) else +1)
+                        _chain = _band_wb.bounding_path(_i_r, _side)
+                        _lab = (_band_wb.floor if _side < 0
+                                else _band_wb.ceil)
+                        _r["bound_side"] = ("floor" if _side < 0
+                                            else "ceil")
+                        _r["bound_path"] = [
+                            (int(_k), round(nodes[_k][0], 2),
+                             round(nodes[_k][1], 2),
+                             round(float(_lab.get(_k, 0.0)), 3),
+                             tuple(round(_x, 6) for _x in
+                                   layout.m_to_ll(*nodes[_k])))
+                            for _k in _chain if _k < len(nodes)]
+                    with open(_bi_dump, "w") as _fh_bi:
+                        _json_bi.dump({"icao": icao, "rows": _bi_rows},
+                                      _fh_bi, indent=1)
                 if _bi_rows:
                     import O4_UI_Utils as _UI_bi
                     _UI_bi.vprint(1,

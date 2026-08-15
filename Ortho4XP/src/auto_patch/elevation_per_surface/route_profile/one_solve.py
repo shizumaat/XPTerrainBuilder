@@ -701,7 +701,7 @@ class LivingBand:
     identical labels AND identical provenance.
     """
 
-    def __init__(self, ceil_radj, floor_radj, n):
+    def __init__(self, ceil_radj, floor_radj, n, *, track_paths=False):
         self.n = int(n)
         self._radj = {+1: ceil_radj, -1: floor_radj}
         self.ceil: dict = {}
@@ -712,21 +712,32 @@ class LivingBand:
         self.anchors: dict = {}
         #: anchor node -> minter id (A4's naming half).
         self.minter: dict = {}
+        #: Optional label predecessors (``track_paths=True``): the node
+        #: each accepted label was relaxed FROM (``None`` at an
+        #: anchor's own label).  The debugging half of A4 — a finding
+        #: can then print the WHOLE bounding path, not only its two
+        #: endpoint anchors.  Off by default: production carries no
+        #: extra tuple element.
+        self.track_paths = bool(track_paths)
+        self.ceil_pred: dict = {}
+        self.floor_pred: dict = {}
 
     def _relax(self, sign, seeds):
         import heapq
         best = self.ceil if sign > 0 else self.floor
         src = self.ceil_src if sign > 0 else self.floor_src
+        pred = self.ceil_pred if sign > 0 else self.floor_pred
+        track = self.track_paths
         radj = self._radj[sign]
         pq = []
         for (v, k, s) in seeds:
             cur = best.get(k)
             if cur is None or (sign > 0 and v < cur) \
                     or (sign < 0 and v > cur):
-                pq.append(((v if sign > 0 else -v), 0.0, k, s))
+                pq.append(((v if sign > 0 else -v), 0.0, k, s, None))
         heapq.heapify(pq)
         while pq:
-            key, dk, k, s = heapq.heappop(pq)
+            key, dk, k, s, par = heapq.heappop(pq)
             t = key if sign > 0 else -key
             cur = best.get(k)
             if cur is not None and ((sign > 0 and t >= cur)
@@ -734,6 +745,8 @@ class LivingBand:
                 continue
             best[k] = t
             src[k] = s
+            if track:
+                pred[k] = par
             for (j, w) in radj.get(k, ()):
                 nt = t + w
                 pj = best.get(j)
@@ -741,7 +754,21 @@ class LivingBand:
                         or (sign < 0 and nt > pj):
                     heapq.heappush(
                         pq, ((nt if sign > 0 else -nt),
-                             dk + (w if w >= 0.0 else -w), j, s))
+                             dk + (w if w >= 0.0 else -w), j, s, k))
+
+    def bounding_path(self, i, side):
+        """``track_paths`` only: the label chain from node ``i`` back to
+        the anchor that minted its ``side`` (``+1`` ceiling / ``-1``
+        floor) bound — ``[i, ..., anchor]``."""
+        pred = self.ceil_pred if side > 0 else self.floor_pred
+        out = [i]
+        seen = {i}
+        k = pred.get(i)
+        while k is not None and k not in seen:
+            out.append(k)
+            seen.add(k)
+            k = pred.get(k)
+        return out
 
     def seed(self, anchors, minters):
         """P0: one batched multi-source relaxation from the true

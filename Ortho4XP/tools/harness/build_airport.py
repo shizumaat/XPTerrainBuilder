@@ -1087,6 +1087,75 @@ def provision_tile_cfg(lat: int, lon: int, build_dir, prog=None,
 # RECORDING
 # ══════════════════════════════════════════════════════════════════════
 
+#: Every artifact file a run writes at its tag stem — the collision
+#: surface :func:`claim_tag` must keep free.  (The ``tile_<tag>`` build
+#: dir and ``<tag>.engine_caches`` overlay hang off the same stem, so a
+#: free stem here means a free run.)
+TAG_ARTIFACT_SUFFIXES = (".progress", ".osm", ".osm.axes.json",
+                         ".result.json", ".frame.json", ".env.json",
+                         ".served.json")
+
+
+def tag_artifacts_present(out_dir, tag: str) -> list:
+    """The artifact files already sitting at ``tag``'s stem in ``out_dir``."""
+    return [f"{tag}{suffix}" for suffix in TAG_ARTIFACT_SUFFIXES
+            if (Path(out_dir) / f"{tag}{suffix}").exists()]
+
+
+def claim_tag(out_dir, icao: str, explicit_tag=None) -> str:
+    """A run tag no other run holds — CLAIMED, never just formatted.
+
+    The measured defect (lane/mouthweld, 2026-08-15): the auto tag was
+    minute-resolution, two lawful parallel HECA arms both tagged
+    ``HECA_20260815T1438``, and the second finisher silently overwrote
+    the first's patch — each run logged its own body_sha but only one
+    ``.osm`` survived on disk.  Parallel correctness builds are the
+    owner-ruled norm (2026-08-12), so a timestamp format alone can
+    never be unique: the claim is the atomic exclusive create of
+    ``<tag>.progress`` (``open(..., "x")``) — whichever process creates
+    it owns the tag, the loser moves to the next ``_N`` suffix.  A stem
+    with ANY artifact already at it (yesterday's run at the same
+    second, a ``.osm`` whose ``.progress`` was cleaned away) is
+    likewise skipped, so an existing artifact path is never rewritten.
+
+    An EXPLICIT ``--tag`` is an identity, not a template: if anything
+    already sits at it the run REFUSES rather than suffixing — a report
+    quoting that tag would otherwise be reading someone else's run.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if explicit_tag:
+        hits = tag_artifacts_present(out_dir, explicit_tag)
+        if not hits:
+            try:
+                with open(out_dir / f"{explicit_tag}.progress", "x"):
+                    pass
+                return explicit_tag
+            except FileExistsError:      # lost the race to a parallel run
+                hits = [f"{explicit_tag}.progress"]
+        raise SystemExit(
+            f"REFUSING --tag {explicit_tag}: artifact(s) already at that "
+            f"stem in {out_dir}: {', '.join(hits)}.\n"
+            f"  Overwriting would silently replace another run's patch "
+            f"(the lane/mouthweld collision, 2026-08-15).  Pick a fresh "
+            f"tag, or remove the old artifacts explicitly.")
+    base = f"{icao}_{time.strftime('%Y%m%dT%H%M%S')}"
+    n = 1
+    while True:
+        candidate = base if n == 1 else f"{base}_{n}"
+        if not tag_artifacts_present(out_dir, candidate):
+            try:
+                with open(out_dir / f"{candidate}.progress", "x"):
+                    pass
+                return candidate
+            except FileExistsError:      # a parallel run claimed it first
+                pass
+        n += 1
+        if n > 10000:                                     # pragma: no cover
+            raise SystemExit(f"could not claim a run tag under {base} "
+                             f"after {n} attempts in {out_dir}")
+
+
 class Progress:
     """The ``.progress`` convention: START / step / EXIT stamps a lead can
     tail to audit liveness without touching the run."""
@@ -1806,7 +1875,9 @@ def main(argv=None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("icao", help="ICAO code (or the tile's label with --tile)")
     ap.add_argument("--tag", default=None,
-                    help="output tag (default <ICAO>_<yyyymmddThhmm>)")
+                    help="output tag (default <ICAO>_<yyyymmddThhmmss>, "
+                         "suffixed _N if that stem is taken; an explicit "
+                         "tag REFUSES to overwrite existing artifacts)")
     ap.add_argument("--patch-only", action="store_true", default=True,
                     help="build the airport patch only (the default)")
     ap.add_argument("--tile", nargs=2, type=int, metavar=("LAT", "LON"),
@@ -1992,8 +2063,8 @@ def main(argv=None) -> int:
     if root.resolve() != ROOT.resolve():
         print(f"  [harness] NOTE: cwd tree {root} is not this script's tree "
               f"{ROOT} — the build will use {root}.")
-    tag = args.tag or f"{args.icao}_{time.strftime('%Y%m%dT%H%M')}"
     out_dir = Path(args.out)
+    tag = claim_tag(out_dir, args.icao, args.tag)
     prog = Progress(out_dir / f"{tag}.progress")
     prog.note(f"START {tag} argv={' '.join(sys.argv[1:])}")
 

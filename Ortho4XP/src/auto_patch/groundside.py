@@ -1413,6 +1413,14 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
     key = law_anchor_key(layout, anchors)
     stats = _law_seat_stats(layout, "post_solve_groundside_law_seat")
     n = 0
+    # Between-ring weld (finalarch item 1, see ``_SeatedWeldBook``):
+    # groundside lots sharing a node weld to the FIRST-seated value and
+    # absorb the level change over their own run.  Cross-pass welds
+    # (lot↔service) already ride ``law_anchor_values`` — the service
+    # pass runs first and its shipped values outrank a lot — so this
+    # book carries only the lot↔lot debt.
+    _weld_book = _SeatedWeldBook()
+    _n_weld_pins = 0
     # SKIP BUCKETS, one per BRANCH, named by the CONDITION the branch
     # tests (cycle-7.5 instrument sweep, RULINGS 2026-08-06 binding point
     # 2).  Every one of these rings keeps whatever field it arrived with —
@@ -1485,9 +1493,11 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         # ring limiter has since smeared across the shape — and adopting a
         # smeared seed as a datum is exactly the laundering
         # ``_shape_prior`` refuses.
+        ring_anchors = dict(anchors)
+        _n_weld_pins += _weld_book.pin_ring(ring, ring_anchors, key)
         seat_out: dict = {}
         alts, pinned = _seat_ring_on_law_anchors(
-            ring, dem_alts, anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
+            ring, dem_alts, ring_anchors, GROUNDSIDE_MAX_GRADE, key_fn=key,
             stats=stats, seat_out=seat_out, band_at=band_at)
         if not seat_out.get("law_seated"):
             # The ladder ran and found NO law source — no weld, no prior
@@ -1512,7 +1522,11 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
         s.altitude = None
         setattr(s, _LAW_SEATED_ATTR, True)
         n += 1
+        for k, (x, y) in enumerate(ring):
+            _weld_book.add(x, y, alts[k])
     stats["reseated"] = stats.get("reseated", 0) + n
+    stats["between_ring_weld_pins"] = (
+        stats.get("between_ring_weld_pins", 0) + _n_weld_pins)
     return n
 
 
@@ -1559,6 +1573,80 @@ def disconnected_rings_sidecar(layout) -> list:
     return out
 
 
+class _SeatedWeldBook:
+    """Values this seating pass has already authored, by node identity.
+
+    THE BETWEEN-RING DEBT (finalarch item 1; S1f dossier item 2,
+    measured at HECA: 894 ``service_junction`` seatings at seam 14,
+    worst step 3.260 m).  Each seat pass grades its ring WITHIN itself
+    (``_grade_limit_ring`` closes the ring), but two seated rings
+    sharing a node were seated in ISOLATION — the anchor map is built
+    once, before the loop, so ring B never saw the value ring A had
+    just written at their shared node.  Under weld-or-gap (RULINGS
+    2026-08-13) a shared-node disagreement is ALWAYS a defect, and the
+    seating minted exactly the between-shape census families
+    (``mid_edge_step`` 42/45 new sites service_junction,
+    ``vertex_to_edge_step`` 9/9, ``transverse`` 41/49).
+
+    This book is the weld: every value a ring ships is recorded here,
+    and a later ring PINS its shared vertices to the recorded value
+    (rung-1 law anchor), then absorbs the level change over its own run
+    under its cap — the S6 routing's "a losing lot adopting the
+    winner's value must absorb the level change over its own run",
+    implemented with the pass's own machinery and no new constant.
+
+    Identity is the emitter's: nearest-within-``SHARED_VERTEX_TOL_M``
+    (the ``law_anchor_key`` rule), so a vertex 3 mm off the node it
+    welds to still finds it.  First writer wins — entries are never
+    overwritten — so the winner is deterministic (layout order) and a
+    solve-authored value pre-seeded ahead of the pass outranks any
+    post-solve seat.
+    """
+
+    def __init__(self):
+        from .canonical_points import CanonicalPointRegistry
+        self._index = CanonicalPointRegistry(tol_m=SHARED_VERTEX_TOL_M)
+        self._values: dict = {}
+
+    def add(self, x, y, value) -> None:
+        k = _mm_key(x, y)
+        if k in self._values:
+            return                          # first writer wins
+        self._index.add_exact(float(x), float(y))
+        self._values[k] = float(value)
+
+    def get(self, x, y):
+        k = _mm_key(x, y)
+        v = self._values.get(k)
+        if v is not None:
+            return v
+        near = self._index.find_nearest(float(x), float(y),
+                                        SHARED_VERTEX_TOL_M)
+        if near is None:
+            return None
+        return self._values.get(_mm_key(near[0], near[1]))
+
+    def pin_ring(self, ring, ring_anchors: dict, key_fn) -> int:
+        """Pin ``ring``'s vertices to already-seated shared-node values.
+
+        Adds entries to ``ring_anchors`` under each vertex's own
+        ``key_fn`` key (the spelling ``_seat_ring_on_law_anchors`` looks
+        up).  Existing entries — outranking law welds, the ring's own
+        solved vertices — are never displaced.  Returns how many
+        vertices were pinned by the book.
+        """
+        n = 0
+        for (x, y) in ring:
+            kk = key_fn(x, y)
+            if kk in ring_anchors:
+                continue
+            v = self.get(x, y)
+            if v is not None:
+                ring_anchors[kk] = v
+                n += 1
+        return n
+
+
 def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
                                  tile_lon: int = 0, band_at=None) -> int:
     """POST-SOLVE: seat every SERVICE road / junction vertex the one solve
@@ -1599,6 +1687,40 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
     stats = _law_seat_stats(layout, "post_solve_service_law_seat")
     skips = stats.setdefault("skipped", {})
     n = 0
+    # ── THE BETWEEN-RING WELD (finalarch item 1; weld-or-gap) ────────
+    # ONE book across both roles.  Pre-seeded with every SOLVE-authored
+    # service vertex (a vertex not on its DEM seed) so a seat can never
+    # step against a solved value it shares a node with — the solve is
+    # the winner by authority, not by loop order.  Ring outputs join the
+    # book as they ship; later rings pin shared nodes and absorb the
+    # level change over their own run (see ``_SeatedWeldBook``).
+    _weld_book = _SeatedWeldBook()
+    for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+        for s in layout.shapes:
+            if getattr(s, "role", "") != role:
+                continue
+            poly = getattr(s, "polygon", None)
+            if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+                continue
+            try:
+                ring = list(poly.exterior.coords)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if len(ring) > 1 and ring[0] == ring[-1]:
+                ring = ring[:-1]
+            cur = list(getattr(s, "node_altitudes", None) or ())
+            if len(cur) == len(ring) + 1:
+                cur = cur[:-1]
+            if len(cur) != len(ring):
+                continue
+            for k, (x, y) in enumerate(ring):
+                if cur[k] is None:
+                    continue
+                d = _dem_at(x, y)
+                if d is None or abs(float(cur[k]) - float(d)) \
+                        > _SEED_MATCH_TOL_M:
+                    _weld_book.add(x, y, float(cur[k]))
+    _n_weld_pins = 0
     for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
         # THE STRICTEST CAP OF THE CONTIGUOUS CROSS-SECTION, not the
         # road's own (RULINGS 2026-08-02, lateral-contiguity grade law,
@@ -1663,6 +1785,11 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
                     continue
                 ring_anchors.setdefault(key(ring[k][0], ring[k][1]),
                                         float(cur[k]))
+            # Between-ring weld: pin shared nodes an earlier ring (or
+            # the solve) already valued.  Outranking law anchors and the
+            # ring's own solved vertices, added above, are never
+            # displaced.
+            _n_weld_pins += _weld_book.pin_ring(ring, ring_anchors, key)
             seat_out: dict = {}
             alts, pinned = _seat_ring_on_law_anchors(
                 ring, dem_alts, ring_anchors, cap, key_fn=key,
@@ -1676,7 +1803,13 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
             s.node_altitudes = alts + [alts[0]]
             s.altitude = None
             n += 1
+            # The ring's SHIPPED values join the book (first writer
+            # wins), so every later ring welds to what actually emitted.
+            for k, (x, y) in enumerate(ring):
+                _weld_book.add(x, y, alts[k])
     stats["reseated"] = stats.get("reseated", 0) + n
+    stats["between_ring_weld_pins"] = (
+        stats.get("between_ring_weld_pins", 0) + _n_weld_pins)
     return n
 
 

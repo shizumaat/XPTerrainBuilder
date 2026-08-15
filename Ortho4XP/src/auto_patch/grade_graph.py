@@ -2786,16 +2786,62 @@ def _sc_run_key(gs: GradeShape, ctx: GradeContext, ring_only: bool):
             getattr(gs, "lateral_cap", None))
 
 
+def _sc_ctx_key(gs: GradeShape, ring_only: bool):
+    """The PER-CTX memo key — CONTENT, never ``id()`` (finalarch item 2,
+    RULINGS 2026-08-14 "THE DOUBLE PROJECTION RETIRES" / the repetition
+    charter; the perfgraph/perfcenter key discipline: value keys).
+
+    The historical key was ``(id(s.polygon), role, ring_only)``.  Within
+    one build that is safe — every keyed polygon is alive for its whole
+    lifetime — but a ctx carried ACROSS the freeze→solve gap is not:
+    ``construct_adjacent_ground_presolve`` mints and drops thousands of
+    temporary polygons in between and CPython reuses ``id()`` freely, so
+    a recycled id served one shape another shape's constraint pairs
+    (measured at HECA: within_shape 3,764 → 5,629, worst 431 % — the
+    refusal that kept the freeze-published graph unreused).  This key
+    spells the SAME identity by value: everything ``shape_constraints``
+    reads off the ``GradeShape`` itself.  The ctx-side inputs (law
+    digest, building/seam membership, inherited junction cap) are NOT
+    here because a per-ctx memo's scope holds them constant — the
+    RUN-scoped tier below keys on them (:func:`_sc_run_key`) exactly
+    because it crosses ctxs.
+
+    A ctx may therefore be REUSED across the freeze→solve gap iff the
+    layout's solve-consumed geometry is unchanged (the geometry-freeze
+    rail proves it) — which is what makes the freeze-published graph
+    build-once-read-many.
+
+    Note the flag triple is IN the key: the two consumers construct
+    GradeShapes that differ only in the gate-off ``adopts_*`` flags
+    (``solver_primitives._grade_graph_edges`` omits them), and the old
+    id key let whichever consumer ran FIRST fix the answer for both.
+    Under the lateral-contiguity law (standing, ungated) the flags are
+    never set, so the flavors are identical in production; keying on
+    them closes the reported first-writer-wins gap structurally instead
+    of preserving it.
+    """
+    return ("scmemo", gs.role, bool(ring_only),
+            tuple(gs.ring), tuple(gs.keys),
+            bool(getattr(gs, "fan_ramp_zone", False)),
+            bool(getattr(gs, "adopts_apron_grade", False)),
+            bool(getattr(gs, "adopts_taxi_grade", False)),
+            getattr(gs, "adopted_taxi_letter", None),
+            getattr(gs, "lateral_cap", None))
+
+
 def shape_constraints_cached(polygon_key, gs: GradeShape,
                              ctx: GradeContext,
                              ring_only: bool = False) -> "ShapeConstraints":
-    """Memoised :func:`shape_constraints` — keyed by ``(polygon_key, role,
-    ring_only)`` on the CONTEXT, so the two per-solve law consumers
-    (``solver_primitives._build_shape_constraints`` and
+    """Memoised :func:`shape_constraints` — keyed BY CONTENT
+    (:func:`_sc_ctx_key`) on the CONTEXT, so the two per-solve law
+    consumers (``solver_primitives._build_shape_constraints`` and
     :func:`build_unified_graph`, which construct identical ``GradeShape``s
     from the same polygons) run the expensive pair generation ONCE when they
     share a ctx (measured ~11 s/solve of duplicate work at SPJC).  Results
-    are shared, never mutated by either consumer.
+    are shared, never mutated by either consumer.  ``polygon_key`` (the
+    callers' ``id(s.polygon)``) is retired from the key — see
+    :func:`_sc_ctx_key` for the recycled-id defect that forced it — and
+    kept in the signature only so the call sites need not churn.
 
     ``ring_only`` is part of the key (user 2026-07-05 flatness tier): the
     certified-lazy branch's ring-only result and ``build_unified_graph``'s
@@ -2844,7 +2890,7 @@ def shape_constraints_cached(polygon_key, gs: GradeShape,
     if memo is None:
         memo = {}
         ctx._sc_memo = memo
-    key = (polygon_key, gs.role, ring_only)
+    key = _sc_ctx_key(gs, ring_only)
     sc = memo.get(key)
     if sc is not None:
         return sc

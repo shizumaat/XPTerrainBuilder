@@ -22,6 +22,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from shapely.geometry import Polygon
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -224,3 +226,47 @@ class TestTheSealIsTheLastCallInThePipeline:
                        "relevel_pads_to_host_pavement("):
             assert author not in tail, author
             assert author not in entry_tail, author
+
+
+class TestSealAuthorshipIsConfined:
+    """finalarch item 1b, adjudicated by measurement (2026-08-14): of the
+    docket's two arms — a following grade, or an attribution for why the
+    seal's authorship stands — the GRADE arm was built and refuted (HECA
+    seam-26 re-projection class 18 → 91; OTHH +24 apron within_shape
+    flips).  The authorship STANDS: the clamp is confined to the vertices
+    the band actually clamped, every clamp is a counted finding, and the
+    step it leaves stays visible as the upstream out-of-band author's
+    signature (no-degradation-shield law)."""
+
+    def _band_at_origin_only(self, ceiling):
+        def band(x, y):
+            if abs(x) < 1e-6 and abs(y) < 1e-6:
+                return (None, ceiling)
+            return None
+        return band
+
+    def test_a_clamp_never_moves_an_unclamped_vertex(self):
+        # A NON-flat ring: only vertex 0 is banded, the rest must ship
+        # exactly the values they arrived with — the seal is a clamp,
+        # never a smoother.
+        s = _shape(alts=(20.0, 20.2, 20.4, 20.2))
+        layout = _Layout([s])
+        BF.publish_band_of_record(
+            layout, self._band_at_origin_only(12.0))
+        assert SP.seal_pavement_to_band(layout, "TEST") == 1
+        alts = list(s.node_altitudes)
+        assert alts[0] == pytest.approx(12.0, abs=0.02), (
+            "the clamped vertex must sit AT the band — the band is the "
+            "last authority")
+        assert alts[1:] == [20.2, 20.4, 20.2], (
+            "the seal moved a vertex the band never clamped — last-seam "
+            "authorship beyond the clamp is the refuted grade arm")
+        # And the clamp is a counted, sited finding (the attribution).
+        assert len(layout.band_clamp_findings) == 1
+
+    def test_a_flat_ring_still_levels_as_one_surface(self):
+        s = _shape(alts=(20.0, 20.0, 20.0, 20.0))
+        layout = _Layout([s])
+        BF.publish_band_of_record(layout, _band())
+        assert SP.seal_pavement_to_band(layout, "TEST") == 1
+        assert s.node_altitudes == [9.4] * 4

@@ -4005,6 +4005,27 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
                 level = round(float(
                     max(out, key=lambda v: abs(v - before[0]))), 2)
                 out = [level] * len(out)
+            # ── THE AUTHORSHIP STANDS, ATTRIBUTED (finalarch item 1b,
+            # adjudicated by measurement 2026-08-14) ──────────────────
+            # The S1f docket offered two arms for the seal's ungraded
+            # authorship (HECA seam 26: one service_junction vertex
+            # re-authored 9.382 m with its ring neighbours untouched):
+            # a FOLLOWING GRADE, or an attribution for why it stands.
+            # The grade arm WAS BUILT AND MEASURED: relaxing each
+            # clamped ring to its clamped vertices under the role cap
+            # moved 74 airside survivors at HECA's seam 26 (the seam
+            # ledger's re-projection class 18 → 91) and flipped +24
+            # apron within_shape rows INTO violation at OTHH — new
+            # last-seam airside authorship, exactly what the class
+            # exists to refuse, and a smoothing of the step that is the
+            # upstream defect's visible signature (the no-degradation-
+            # shield law).  REVERTED.  The authorship therefore STANDS
+            # as clamped: the band is the last authority (R17-1b), the
+            # clamp is confined to the vertices the band actually
+            # clamped, and every one is a counted, sited finding — the
+            # step it leaves is EVIDENCE routed to the stage-B / solve
+            # docket that owns the out-of-band author, never a surface
+            # for this last pass to re-grade.
             if form == "node":
                 s.node_altitudes = list(out)
             elif form == "plane":

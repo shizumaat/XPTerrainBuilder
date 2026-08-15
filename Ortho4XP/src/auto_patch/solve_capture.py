@@ -73,7 +73,16 @@ CAPTURE_ENV = "O4_SOLVE_CAPTURE"
 
 #: Bump when the captured key set changes — an older capture then
 #: refuses at replay instead of filling a parameter with a default.
-CAPTURE_VERSION = 1
+#:
+#: v2 (RULINGS 2026-08-14 "THE SOLVE CAPTURE HAS A BOUNDARY LEAK AT
+#: DEM-DERIVED STATE"): the capture carries the composed airport DEM
+#: (``elevation._DEM_CACHE``) and the build's X-Plane root.  A v1
+#: capture on the AIRPORT path (``tile_dem is None``) let phases 5-6
+#: call ``elevation._load_airport_dem`` at REPLAY time and read
+#: whatever the shared caches held THEN — at OTHH the replay's DEM was
+#: not the build's (relief 3.71→3.12 m, pads 145→191).  Every v1
+#: capture therefore refuses rather than default-filling.
+CAPTURE_VERSION = 2
 
 STATE_NAME = "solve_capture.pkl.gz"
 MANIFEST_NAME = "solve_capture.json"
@@ -89,6 +98,19 @@ SCALAR_KEYS = ("icao", "xplane_root", "current_tile_lat",
                "_build_started_at")
 #: Rebuilt at replay rather than captured — see the module docstring.
 DERIVED_KEYS = ("to_m", "_progress", "_build_features")
+#: DEM-derived boundary state (capture v2) — not tail kwargs, but state
+#: phases 5-6 CONSUME (the capture's contract: "the phases 1-4 product
+#: at the boundary" includes everything the tail reads).  ``dem_cache``
+#: is ``elevation._DEM_CACHE`` — the composed per-tile airport DEM the
+#: build's own process holds (forced through ``_load_airport_dem``, the
+#: same entry phases 5-6 use, so build and capture share ONE object).
+#: The flat-site / sea-exclusion products are DERIVED from this DEM (the
+#: flat-site substitution runs INSIDE the DEM composition; the
+#: sea-exclusion percentiles read the composed raster), so carrying the
+#: DEM plus the build's X-Plane root (``set_build_xplane_root`` at
+#: replay) reconstructs them provably byte-equal from the same pack
+#: files — the ruling's sanctioned alternative to pickling each product.
+STATE_KEYS = ("dem_cache",)
 
 #: Env keys that describe the CAPTURE, not the solve, so a difference in
 #: them is not frame drift.
@@ -129,11 +151,50 @@ def maybe_capture(tail: dict) -> Path | None:
     return write_capture(tail, Path(dest) / str(tail["icao"]).upper())
 
 
+def _dem_boundary_state(tail: dict) -> dict:
+    """``elevation._DEM_CACHE`` as phases 5-6 will read it — forced warm.
+
+    On the AIRPORT path (``tile_dem is None``) the tail's first DEM read
+    (``finalize`` / ``elevation._compute_elevations``) composes the tile
+    DEM through ``elevation._load_airport_dem`` and memoises it.  Capture
+    runs BEFORE the tail, so the memo may be cold here: composing it now,
+    through the SAME entry with the build's own root, hands the build the
+    identical object via the memo — the capture is still a pure reader of
+    the boundary (the build would have composed exactly this).
+
+    On the TILE path the DEM rides ``tile_dem`` (already pickled) and the
+    memo is snapshotted as-is (usually empty).
+    """
+    import math as _math
+    from . import elevation as _elevation
+    layout = tail["layout"]
+    keys = set()
+    if getattr(layout, "anchor", None) is not None:
+        lat0, lon0 = layout.anchor
+        keys.add((int(_math.floor(float(lat0))),
+                  int(_math.floor(float(lon0)))))
+        if (tail.get("compute_elevations")
+                and tail.get("tile_dem") is None):
+            _elevation._load_airport_dem(
+                float(lat0), float(lon0),
+                xplane_root=tail.get("xplane_root"))
+    if (tail.get("current_tile_lat") is not None
+            and tail.get("current_tile_lon") is not None):
+        keys.add((int(tail["current_tile_lat"]),
+                  int(tail["current_tile_lon"])))
+    # Only the tiles THIS airport reads ride the capture — a process-wide
+    # snapshot would drag other airports' composed rasters (a tile build
+    # captures each airport in turn) into every capture.
+    return {k: _elevation._DEM_CACHE[k] for k in sorted(keys)
+            if k in _elevation._DEM_CACHE}
+
+
 def write_capture(tail: dict, dest: Path) -> Path:
     """Serialize the solve-boundary state of ``tail`` into ``dest``."""
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     state = {k: tail[k] for k in PICKLED_KEYS + SCALAR_KEYS}
+    state["dem_cache"] = _dem_boundary_state(tail)
     t0 = time.time()
     blob = dest / STATE_NAME
     try:
@@ -162,6 +223,11 @@ def write_capture(tail: dict, dest: Path) -> Path:
         },
         "tile_dem": None if tail["tile_dem"] is None
                     else type(tail["tile_dem"]).__name__,
+        # v2: the composed airport DEM(s) riding the capture, named per
+        # 1° tile key for the human reader (the state file carries the
+        # objects themselves).
+        "dem_cache": sorted(f"{k[0]:+03d}{k[1]:+04d}"
+                            for k in state["dem_cache"]),
         "env": _env_snapshot(),
         **{k: tail[k] for k in SCALAR_KEYS},
     }
@@ -224,7 +290,8 @@ def load_capture(src: Path) -> tuple[dict, dict]:
             f"the fixture was modified after it was cut.")
     with gzip.open(blob, "rb") as fh:
         state = pickle.load(fh)
-    missing = [k for k in PICKLED_KEYS + SCALAR_KEYS if k not in state]
+    missing = [k for k in PICKLED_KEYS + SCALAR_KEYS + STATE_KEYS
+               if k not in state]
     if missing:
         raise CaptureError(f"capture is missing {missing}")
 
@@ -234,7 +301,20 @@ def load_capture(src: Path) -> tuple[dict, dict]:
     if layout.anchor is None:
         raise CaptureError(
             "captured layout has no anchor — to_m cannot be rebuilt")
-    tail = dict(state)
+    # ── v2: install the DEM-derived boundary state (the leak's fix) ──
+    # The replay's phases 5-6 must read the BUILD's DEM, not whatever the
+    # shared caches compose at replay time.  Installing the captured
+    # objects into ``elevation._DEM_CACHE`` makes ``_load_airport_dem``
+    # return them without touching disk; recording the build's X-Plane
+    # root (as ``build_airport_pavement`` did at phase 0) makes every
+    # flat-site / pack read inside the tail resolve against the same
+    # install the build read.
+    from . import elevation as _elevation
+    from . import flat_site_mode as _flat_site_mode
+    _flat_site_mode.set_build_xplane_root(state["xplane_root"])
+    for _k, _dem in (state["dem_cache"] or {}).items():
+        _elevation._DEM_CACHE[_k] = _dem
+    tail = {k: state[k] for k in PICKLED_KEYS + SCALAR_KEYS}
     tail["to_m"] = _pipeline._projection(layout.anchor)
     tail["_progress"] = _progress_mod.for_build(
         state["icao"], compute_elevations=state["compute_elevations"])

@@ -2056,33 +2056,37 @@ def solve_route_profile(layout, icao: str,
     # shared ctx the law's pair generation memoises across the two consumers
     # (grade_graph.shape_constraints_cached) instead of running twice.
     from auto_patch import grade_graph as _GG
-    # THE ONE GRAPH IS *NOT* REUSED HERE — MEASURED AND REJECTED, S1
-    # attempt 1 (staged-solve round, 2026-08-13).  The premise was sound
-    # on indices: ``_build_node_list`` interns every SHAPE-RING vertex
-    # first, in ``layout.shapes`` order, and only then appends the
-    # vertices that lie on no ring (gap-fill spines, RESA cut rows,
-    # adjacent-ground zone rows — see the ``_adjacent_ground_first_zone_
-    # index`` block), so this call's node list is an APPEND-ONLY
-    # extension of the frozen one and every ring-vertex index agrees.
+    # THE FROZEN CTX OBJECT IS *NOT* REUSED HERE — MEASURED AND REJECTED
+    # TWICE, each time for a different mechanism, both recorded so the
+    # next lane rebuilds neither:
     #
-    # WHAT KILLS IT is the CONTEXT, not the indices.  ``build_context``
-    # carries the ``shape_constraints_cached`` memo, and that memo is
-    # keyed by ``id(s.polygon)``.  A context is safe WITHIN one build
-    # because every keyed polygon is alive for its whole lifetime; a
-    # context carried ACROSS the freeze→solve gap is not, because
-    # ``construct_adjacent_ground_presolve`` mints and drops thousands of
-    # temporary polygons in between and CPython reuses ``id()`` freely.
-    # A recycled id serves one shape another shape's constraint pairs.
-    # Measured at HECA (replay of the s1ctl capture, arm 1): within_shape
-    # 3764 -> 5629, transverse 3289 -> 3674, worst rows 431 % grades on
-    # ``service_junction`` — the shape of a mis-keyed pair set, not of a
-    # geometry change.
+    # (1) S1 attempt 1 (2026-08-13): the ``shape_constraints_cached``
+    #     per-ctx memo keyed on ``id(s.polygon)``; a recycled id across
+    #     the freeze→solve gap served one shape another shape's pairs
+    #     (HECA within_shape 3764 -> 5629, worst 431 %).  CLOSED: the
+    #     memo is now keyed BY CONTENT (``grade_graph._sc_ctx_key``),
+    #     so this failure class is structurally gone.
+    # (2) finalarch item 2 (2026-08-14, fa_0_heca 3ab5a8dfae80 vs
+    #     fa_A_heca ed040ecb0e65): with the memo fixed, reusing the
+    #     published ctx STILL moved HECA bytes — 72,418 changed lines,
+    #     +20 emitted nodes, a node-id renumbering cascade — because
+    #     ``build_context`` INTERNS (``canonical_points.get_or_add``)
+    #     while it builds its building-key set, and that solve-time
+    #     interning side effect is part of the canonical node space the
+    #     emitted patch is spelled in.  Skipping the call changes which
+    #     later points intern together (the ``law_anchor_key`` warning,
+    #     measured), which is the node-space identity change the roster
+    #     comment already rejects.  CYXY/OTHH reproduce byte-identically
+    #     either way (nothing new to intern there); HECA does not.
     #
-    # The freeze still publishes the graph; the consumer that can safely
-    # take it is one that reads it IMMEDIATELY (the adjacent-ground
-    # construct band does).  Making this call safe needs the memo re-keyed
-    # off object identity — recorded as the next increment, not bodged
-    # here behind a liveness assumption.
+    # THE COLLAPSE THAT SURVIVES is the value layer: the freeze's
+    # pair-generation work is served to this build through the
+    # layout-scoped run memo (``_sc_run_key`` — full value key, node-key
+    # space, digest + per-shape law projections), which spans the gap by
+    # construction and cannot alter identity.  ``build_context`` itself
+    # is the cheap half (its ``centerline_specs`` walk is memoised;
+    # dupcensus: 8 calls, 0.0 s CPU) and its rebuild is REQUIRED — the
+    # interning it performs is part of the build, not overhead.
     _gg_ctx = _GG.build_context(layout, bucket_to_idx)
     # FLATNESS-CERTIFIED LAZY TIER (user 2026-07-05): pass the DEM (the
     # certificate source) and the currently-hard nodes (runway/seam seeds +

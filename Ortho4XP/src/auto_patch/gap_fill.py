@@ -163,6 +163,20 @@ _OPEN_FRONTAGE_FOREIGN_STANDOFF_M = 1.0
 # 2026-08-07 HECA specimen this exemption was minted for).
 _TUNNEL_BLOCKER_ROLES = frozenset((ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH))
 _TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall",))
+# SERVICE-ROAD BLOCKERS (owner ruling 2026-08-15): gap-fill spines and
+# drainage must STOP at a service road, never run through it.  A service
+# road / service junction inside an enclave pocket therefore stays a
+# blocker on the HARD set too — which routes a road-crossed pocket into
+# the R19-2 subdivision (the roads BOUND the residual pockets exactly as
+# they do in the non-enclave path) instead of letting ``_build_spine``
+# march through the road pavement (measured at HECA patch
+# HECA_20260815T1329: 31 gap faces burying 21,099 m² of road pavement,
+# 9 drainage spines running 108 m inside roads).
+# OPEN QUESTION (not ruled 2026-08-15): ``groundside_pavement`` is NOT
+# in this set — the owner's ruling names service roads only; groundside
+# pavement inside an enclave keeps its exemption until ruled otherwise.
+_SERVICE_ROAD_BLOCKER_ROLES = frozenset((
+    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION))
 # ── R19-2: THE SUBDIVIDERS OF AN ENCLOSED HOLE ───────────────────────
 # An ENCLOSED hole (an interior ring of the airside union — it touches
 # no coverage-box edge by construction) that the width test refuses is
@@ -2795,10 +2809,9 @@ def _enclave_exempt(shape) -> bool:
     foreign-shape blocker (spec §3).
 
     The exemption covers the shapes an enclave interior CONTAINS and the
-    enclave law re-verdicts — groundside pavement, service pieces,
-    terraces, bands and their walls.  Three classes are never exempt, and
-    none is an exception to the law so much as a shape the law does
-    not reach:
+    enclave law re-verdicts — groundside pavement, terraces, bands and
+    their walls.  Four classes are never exempt, and none is an
+    exception to the law so much as a shape the law does not reach:
 
       * a SURROUND-role shape (``ENCLAVE_SURROUND_ROLES``) is part of the
         union that DEFINES the enclave — a building inside a hole is the
@@ -2814,7 +2827,15 @@ def _enclave_exempt(shape) -> bool:
         ``_TUNNEL_BLOCKER_REFS``, R6 owner spec 2026-08-10) is BELOW
         grade with its own portal profile — the enclave law re-verdicts
         surface pavement, not a law-cut hole, and a gap face graded over
-        one puts the drainage spine THROUGH the ramp (OTHH S6).
+        one puts the drainage spine THROUGH the ramp (OTHH S6);
+      * a SERVICE ROAD / SERVICE JUNCTION (``_SERVICE_ROAD_BLOCKER_ROLES``,
+        owner ruling 2026-08-15): gap-fill spines and drainage must STOP
+        at a service road, never run through it.  Kept on the hard set,
+        the road routes its pocket into the R19-2 subdivision (it is a
+        ``_POCKET_SUBDIVIDER_ROLES`` member), so the residual pockets
+        around it still take the ruled treatment — the spine stops at
+        the road instead of burying it.  ``groundside_pavement`` is NOT
+        ruled and stays exempt (open question, see the set's comment).
     """
     if getattr(shape, "role", None) in ENCLAVE_SURROUND_ROLES:
         return False
@@ -2823,6 +2844,8 @@ def _enclave_exempt(shape) -> bool:
     if getattr(shape, "role", None) in _TUNNEL_BLOCKER_ROLES:
         return False
     if getattr(shape, "ref", None) in _TUNNEL_BLOCKER_REFS:
+        return False
+    if getattr(shape, "role", None) in _SERVICE_ROAD_BLOCKER_ROLES:
         return False
     return True
 
@@ -2916,6 +2939,11 @@ def construct_gap_fill_presolve(layout) -> int:
     Construction is therefore a SUPERSET of emission — a spine built for
     a gap that emission later blocks simply never emits (its solver
     variables settle inside their lawful envelope and are dropped).
+    The mirroring includes the R19-2 SUBDIVISION (owner ruling
+    2026-08-15): a hole vetoed only by its own groundside/service
+    subdividers is split into its residual pockets here exactly as the
+    emitter splits it, so the per-pocket spines coordinate-match the
+    value store instead of the whole-hole spine that would never emit.
 
     Stores ``layout.gap_fill_presolve = [{"spine": [(x, y), ...],
     "specs": [per-node ``_freeze_spine_parent_specs`` list],
@@ -3011,6 +3039,35 @@ def construct_gap_fill_presolve(layout) -> int:
                         break
                 except _GEOM_EXC:
                     continue
+            subdivided = None
+            if overlapped and _veto_is_only_subdividers(
+                    layout, gap_poly, blockers):
+                # ── R19-2 SUBDIVISION, MIRRORED (owner ruling 2026-08-15)
+                # The emitter subdivides a hole vetoed only by its own
+                # groundside/service subdividers; the SUPERSET contract
+                # and the coordinate-matched value store require the
+                # pre-solve constructor to mint spines for the SAME
+                # residual pockets, or every such pocket emits on the
+                # analytic fallback.  Identical guard: the subdivision
+                # stands only if every residual pocket is itself under
+                # the width cap — otherwise the veto stands, as in the
+                # emitter.
+                _parts = _subdivide_enclosed_face(layout, gap_poly,
+                                                  chain_keys)
+                _all_pocket = bool(_parts)
+                for _pt in _parts:
+                    try:
+                        _ax = _mrr_axes(min_rotated_rect(_pt))
+                    except _GEOM_EXC:
+                        _all_pocket = False
+                        break
+                    if _ax is None or _ax[0] is None \
+                            or _ax[0] > GAP_FILL_MAX_WIDTH_M:
+                        _all_pocket = False
+                        break
+                if _all_pocket:
+                    subdivided = _parts
+                    overlapped = False
             if overlapped:
                 continue
             # THE ENCLOSURE HOST'S STAGE, once per candidate (S1d): every
@@ -3022,8 +3079,16 @@ def construct_gap_fill_presolve(layout) -> int:
             _is_rim = id(gap_poly) in rim_ids
             host_stage = _gap_host_stage(_is_rim)
             _n_before = len(entries)
-            faces = (_parent_residual_faces(gap_poly, parents, chain_keys)
-                     if parents else [gap_poly])
+            # BODIES: the subdivided residual pockets when the R19-2
+            # branch above took the hole, else the whole gap — the same
+            # ``_bodies`` fold the emitter applies, so the spines minted
+            # here coordinate-match the ones it will emit.
+            _bodies = subdivided if subdivided else [gap_poly]
+            faces = []
+            for _body in _bodies:
+                faces.extend(
+                    _parent_residual_faces(_body, parents, chain_keys)
+                    if parents else [_body])
             for face_poly in faces:
                 if face_poly.is_empty or not face_poly.is_valid:
                     continue

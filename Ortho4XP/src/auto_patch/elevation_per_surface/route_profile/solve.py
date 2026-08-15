@@ -3052,6 +3052,134 @@ def solve_route_profile(layout, icao: str,
         _fairing_moved_keys = _cc.fairing_moved_keys
         _scoped_gate = _cc.scoped_gate
     else:
+        # ── LIVING-BAND INSTRUMENT + CONSTRUCTIVE WARM START (owner
+        # ruling 2026-08-15, post in-sim A/B: ITERATIVE IS THE
+        # PRODUCTION MODEL; the constructive core is parked behind
+        # ``solve_model``.  Two grafts from it live here, in the
+        # iterative branch, both kill-switchable:
+        #
+        # (a) THE INSTRUMENT (``O4_BAND_INSTRUMENT=0`` disables;
+        #     REPORT-ONLY, moves no value): the living band from the
+        #     TRUE anchors alone (CIFP thresholds + tile-seam pins,
+        #     AMENDMENT 1's A1 set) with A4 provenance, auditing every
+        #     other hard anchor's stamped value against it.  A hard
+        #     anchor outside that band is a contradiction this model
+        #     ABSORBS silently at solve time — the K1b A/B showed the
+        #     absorbed class at HECA is ~14.5 m deep (rwy 05C/23C
+        #     interior vs 05L/23R threshold cone).  Rows on
+        #     ``layout._band_instrument_findings``, each naming its
+        #     floor- and ceiling-minting anchor.
+        #
+        # (b) THE WARM START (``O4_ITER_WARM_START=0`` disables and
+        #     restores pre-ruling bytes exactly): every SOFT node's
+        #     seed is replaced by the constructive carrier — the
+        #     cap-Lipschitz regularization of the seed field, clamped
+        #     into the living band.  A seed, not an authority (the
+        #     phase-A solve and every projection still own the values);
+        #     it just starts them lawful-adjacent instead of on raw
+        #     terrain, for fewer projection sweeps and a smoother
+        #     settled field.  In-sim evaluation of app 1.0.249 is the
+        #     acceptance (owner instruction).
+        _bi_on = _os.environ.get("O4_BAND_INSTRUMENT", "1") != "0"
+        _ws_on = _os.environ.get("O4_ITER_WARM_START", "1") != "0"
+        if _bi_on or _ws_on:
+            from .constructive import runway_station_chains as _rsc_wb
+            from .one_solve import LivingBand as _LB_wb
+            from .one_solve import envelope_radj as _era_wb
+            from .one_solve import law_edge_limits as _lel_wb
+            from .one_solve import reach_envelope as _re_wb
+            _t_wb = _time.time()
+            _el_wb, _il_wb, _esk_wb = _lel_wb(
+                shape_constraints, n, include_flat_pairs=True)
+            _cra_wb, _fra_wb = _era_wb(
+                _el_wb, _il_wb, _esk_wb, interval_yield_from=_iyf)
+            _p0_wb: dict = {}
+            _p0m_wb: dict = {}
+            for _i in sorted(_seam_pin_idx):
+                if _i < n:
+                    _p0_wb[_i] = float(elev[_i])
+                    _p0m_wb[_i] = "seam"
+            for _ch in _rsc_wb(layout, bucket_to_idx, n):
+                for _q, _e in sorted(_ch.pegs.items()):
+                    for _i in _ch.members[_q]:
+                        if _i < n and _i not in _p0_wb:
+                            _p0_wb[_i] = float(_e)
+                            _p0m_wb[_i] = f"cifp:{_ch.ref}"
+            _band_wb = _LB_wb(_cra_wb, _fra_wb, n)
+            _band_wb.seed(_p0_wb, _p0m_wb)
+            if _bi_on:
+                _bi_rows: list = []
+                for _i in range(n):
+                    if not base_hard[_i] or _i in _p0_wb:
+                        continue
+                    _v = float(elev[_i])
+                    _lo, _hi = _band_wb.interval(_i)
+                    _under = _lo is not None and _v < _lo - 1e-6
+                    _over = _hi is not None and _v > _hi + 1e-6
+                    if not (_under or _over):
+                        continue
+                    _fa, _fm, _ca, _cm = _band_wb.bounding(_i)
+                    _bi_rows.append({
+                        "deficit": float((_lo - _v) if _under
+                                         else (_v - _hi)),
+                        "node": int(_i), "value": _v,
+                        "band_lo": _lo, "band_hi": _hi,
+                        "minter": _hard_cat.get(
+                            _i, "base_hard:unattributed"),
+                        "floor_anchor": _fa, "floor_minter": _fm,
+                        "ceil_anchor": _ca, "ceil_minter": _cm,
+                        "ll": tuple(layout.m_to_ll(*nodes[_i])),
+                    })
+                _bi_rows.sort(key=lambda r: (-r["deficit"], r["node"]))
+                layout._band_instrument_findings = _bi_rows
+                if _bi_rows:
+                    import O4_UI_Utils as _UI_bi
+                    _UI_bi.vprint(1,
+                        f"  [band-instrument] {icao}: {len(_bi_rows)} "
+                        f"hard anchor(s) OUTSIDE the true-anchor band "
+                        f"(absorbed contradictions, named; report-"
+                        f"only).  Worst:")
+                    for _r in _bi_rows[:5]:
+                        _UI_bi.vprint(1,
+                            f"  [band-instrument]   {_r['minter']} at "
+                            f"node {_r['node']} "
+                            f"({_r['ll'][0]:.6f},{_r['ll'][1]:.6f}): "
+                            f"value {_r['value']:.3f} vs band, "
+                            f"deficit {_r['deficit']:.3f} m (floor by "
+                            f"{_r['floor_minter']}@{_r['floor_anchor']}"
+                            f", ceiling by "
+                            f"{_r['ceil_minter']}@{_r['ceil_anchor']})")
+            if _ws_on:
+                _src_wb = list(range(n))
+                _cr_wb, _ = _re_wb(+1, _cra_wb, _src_wb, elev, n)
+                _fr_wb, _ = _re_wb(-1, _fra_wb, _src_wb, elev, n)
+                _n_ws = 0
+                for _i in range(n):
+                    if base_hard[_i]:
+                        continue
+                    _c = _cr_wb.get(_i)
+                    _f = _fr_wb.get(_i)
+                    if _c is None and _f is None:
+                        continue
+                    _v = (float(_c) if _f is None else float(_f)
+                          if _c is None else 0.5 * (float(_c)
+                                                    + float(_f)))
+                    _lo, _hi = _band_wb.interval(_i)
+                    if _lo is not None and _v < _lo:
+                        _v = float(_lo)
+                    if _hi is not None and _v > _hi:
+                        _v = float(_hi)
+                    if _v != elev[_i]:
+                        elev[_i] = _v
+                        _n_ws += 1
+                import O4_UI_Utils as _UI_ws
+                _UI_ws.vprint(1,
+                    f"  [warm-start] {icao}: {_n_ws} soft seed(s) "
+                    f"re-seeded on the constructive carrier "
+                    f"(Lipschitz-regularized, band-clamped; "
+                    f"{_time.time() - _t_wb:.1f} s incl. instrument) "
+                    f"— seeds only, every solve pass still owns the "
+                    f"values.")
         # PHASE A — dedicated SMOOTH spine solve on the unified graph (geometry
         # nodes), runway/seam HARD at their LOCAL value, building floors honoured.
         # The spine is min-curvature and ≤cap by construction, then FROZEN so the

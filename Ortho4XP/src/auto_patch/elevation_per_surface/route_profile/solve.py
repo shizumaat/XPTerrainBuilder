@@ -2834,18 +2834,41 @@ def solve_route_profile(layout, icao: str,
     # ── THE TRUE-ANCHOR BAND, built ONCE for the whole frame (owner
     # ruling 2026-08-15 + the 47-findings fix): the cap-Lipschitz band
     # from the ONLY physically-certain anchors (CIFP thresholds + tile
-    # seams), over the solve's own law edges.  Three consumers, one
-    # construction: the §4 seat-stamp guard below (a seat outside this
-    # band could not be held by ANY lawful surface — the route-metric
-    # envelope alone missed 26 such seats at HECA, up to 10.3 m), the
-    # report-only band instrument, and the warm start (both in the
-    # iterative branch).  ~1.5 s at HECA.
+    # seams).  Three consumers, one construction: the §4 seat-stamp
+    # guard below, the report-only band instrument, and the warm start
+    # (both in the iterative branch).  ~1.5 s at HECA.
+    #
+    # ★ THE CARRIER GRAPH IS ROUTE-CONTINUOUS ONLY (owner audit ruling
+    # 2026-08-15: "the route must follow a taxiway_centerline").  The
+    # first cut propagated over ALL law pairs, and its worst HECA chain
+    # audited as unlawful composition: 1,171 m of it rode APRON
+    # interiors/edges — pairs a DECLARED TERRACE may lawfully break —
+    # so the cone was over-tight (the standing reach-follows-
+    # centerlines law, re-learned in a new instrument).  The carrier
+    # is now: the airside route-spine edges (taxi CENTERLINES at their
+    # route budgets; service excluded per REACH_NO_SERVICE_SPINES) +
+    # runway/runway-crossing within-shape pairs (a terrace may never
+    # cross a taxi route and never exist inside a runway, so THESE
+    # compose unconditionally).  Aprons, service, groundside and taxi
+    # edge-chords no longer carry the cone.
+    from auto_patch.layout import ROLE_RUNWAY as _R_RWY_tab
+    from auto_patch.layout import ROLE_RUNWAY_CROSSING as _R_RXC_tab
     from .constructive import runway_station_chains as _rsc_tab
     from .one_solve import LivingBand as _LB_tab
     from .one_solve import envelope_radj as _era_tab
     from .one_solve import law_edge_limits as _lel_tab
+    _tab_entries = [sc for sc in shape_constraints
+                    if sc.get("role") in (_R_RWY_tab, _R_RXC_tab)]
     _tab_el, _tab_il, _tab_esk = _lel_tab(
-        shape_constraints, n, include_flat_pairs=True)
+        _tab_entries, n, include_flat_pairs=True)
+    for _i, _lst in u_spine_adj_airside.items():
+        for (_j, _b) in _lst:
+            if _i == _j or _b is None or _b < 0 or _i >= n or _j >= n:
+                continue
+            _e = (_i, _j) if _i < _j else (_j, _i)
+            _prev = _tab_el.get(_e)
+            if _prev is None or _b < _prev:
+                _tab_el[_e] = float(_b)
     _tab_cra, _tab_fra = _era_tab(
         _tab_el, _tab_il, _tab_esk, interval_yield_from=_iyf)
     _tab_p0: dict = {}
@@ -3155,12 +3178,21 @@ def solve_route_profile(layout, icao: str,
         _bi_on = _os.environ.get("O4_BAND_INSTRUMENT", "1") != "0"
         _ws_on = _os.environ.get("O4_ITER_WARM_START", "1") != "0"
         if _bi_on or _ws_on:
+            from .one_solve import envelope_radj as _era_ws
+            from .one_solve import law_edge_limits as _lel_ws
             from .one_solve import reach_envelope as _re_wb
             _t_wb = _time.time()
-            # ONE construction (single-pass principle): the true-anchor
-            # band and its adjacencies were built beside the §4 seat
-            # guard above; the instrument and warm start read them.
-            _cra_wb, _fra_wb = _tab_cra, _tab_fra
+            # ONE band (single-pass principle): the true-anchor band
+            # was built beside the §4 seat guard above; the instrument
+            # reads it, and the warm start clamps into it.  The warm
+            # start's CARRIER regularization, by contrast, is a seed
+            # SMOOTHER, not a feasibility claim — it keeps the FULL
+            # pair-law adjacency (the owner's route ruling narrows
+            # what may carry the CONE, not what may smooth a seed).
+            _el_ws, _il_ws, _esk_ws = _lel_ws(
+                shape_constraints, n, include_flat_pairs=True)
+            _cra_wb, _fra_wb = _era_ws(
+                _el_ws, _il_ws, _esk_ws, interval_yield_from=_iyf)
             _p0_wb = _tab_p0
             _band_wb = _tab_band
             if _bi_on:

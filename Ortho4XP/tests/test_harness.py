@@ -5700,3 +5700,75 @@ def test_a_within_shape_row_points_at_its_pair_not_its_shape(cg, tmp_path):
             continue
         for r in fams.get(key, []):
             assert r.lat is not None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §12 THE RUN TAG IS CLAIMED, NEVER FORMATTED (lane/mouthweld 2026-08-15)
+# ══════════════════════════════════════════════════════════════════════
+#
+# The measured defect: the auto tag was minute-resolution, two lawful
+# PARALLEL HECA arms (a fix arm and its O4_SVC_MOUTH_PROX_ANCHOR=0
+# control) both tagged ``HECA_20260815T1438``, and the second finisher
+# silently overwrote the first's patch — each run logged its own
+# body_sha (06358baf9c5e / 3053349c0b26) but only one ``.osm`` survived
+# on disk.  Parallel correctness builds are the owner-ruled norm
+# (2026-08-12), so the tag must be a CLAIM (atomic exclusive create of
+# ``<tag>.progress``), not a timestamp format.
+
+def test_two_runs_started_in_the_same_minute_get_distinct_tags(
+        build_mod, tmp_path, monkeypatch):
+    """The collision itself: with the clock FROZEN (stricter than the
+    same minute — the same second), two claims yield two distinct tags,
+    and every artifact stem the run writes stays distinct with them."""
+    monkeypatch.setattr(build_mod.time, "strftime",
+                        lambda fmt, *a: "20260815T143800")
+    t1 = build_mod.claim_tag(tmp_path, "HECA")
+    t2 = build_mod.claim_tag(tmp_path, "HECA")
+    assert t1 != t2, "two runs in the same second share a tag — the " \
+                     "second finisher overwrites the first (mouthweld)"
+    assert t1 == "HECA_20260815T143800"
+    assert t2 == "HECA_20260815T143800_2"
+    for suffix in build_mod.TAG_ARTIFACT_SUFFIXES:
+        assert (tmp_path / f"{t1}{suffix}") != (tmp_path / f"{t2}{suffix}")
+    # The claim is the .progress file, atomically created by each winner.
+    assert (tmp_path / f"{t1}.progress").exists()
+    assert (tmp_path / f"{t2}.progress").exists()
+
+
+def test_the_auto_tag_is_seconds_resolution(build_mod, tmp_path):
+    """Minute resolution was the defect's precondition — the format half
+    of the fix is asserted on the REAL clock, no freezing."""
+    tag = build_mod.claim_tag(tmp_path, "HECA")
+    assert re.fullmatch(r"HECA_\d{8}T\d{6}", tag), (
+        f"auto tag {tag!r} is not <ICAO>_<yyyymmddThhmmss>")
+
+
+def test_a_stem_with_any_leftover_artifact_is_never_reused(
+        build_mod, tmp_path, monkeypatch):
+    """The .progress claim alone would miss a stem whose .progress was
+    cleaned away but whose .osm survives — exactly the artifact an
+    overwrite destroys.  ANY artifact at the stem disqualifies it."""
+    monkeypatch.setattr(build_mod.time, "strftime",
+                        lambda fmt, *a: "20260815T143800")
+    (tmp_path / "HECA_20260815T143800.osm").write_text("<osm/>")
+    tag = build_mod.claim_tag(tmp_path, "HECA")
+    assert tag == "HECA_20260815T143800_2"
+    assert (tmp_path / "HECA_20260815T143800.osm").read_text() == "<osm/>"
+
+
+def test_an_explicit_tag_refuses_rather_than_overwrites(
+        build_mod, tmp_path):
+    """--tag is an identity, not a template: suffixing it would make the
+    report quote a tag that names a DIFFERENT run's artifacts, so an
+    occupied explicit stem is a refusal, and the refusal names the
+    artifact in the way."""
+    assert build_mod.claim_tag(tmp_path, "HECA", "mytag") == "mytag"
+    with pytest.raises(SystemExit) as exc:
+        build_mod.claim_tag(tmp_path, "HECA", "mytag")
+    assert "mytag" in str(exc.value)
+    assert ".progress" in str(exc.value)
+    # ...and a leftover artifact with no live claim refuses just the same.
+    (tmp_path / "oldtag.osm").write_text("<osm/>")
+    with pytest.raises(SystemExit) as exc:
+        build_mod.claim_tag(tmp_path, "HECA", "oldtag")
+    assert "oldtag.osm" in str(exc.value)

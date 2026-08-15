@@ -135,7 +135,7 @@ blend; the all-airside case reproduces the free-end law exactly.
 | shared repo UNCHANGED | GREEN | every arm's harness snapshot line |
 | OTHH capture→replay reproduces | GREEN | fa_G replay `aaf3ce394d01` REPRODUCED (and fa_F `d4b97ca68f2a…809a45` byte-equal) — the quarantine lifts |
 | HECA capture→replay reproduces | GREEN | fa_G replay body `3053349c0b26` = its own build, REPRODUCED |
-| HECA tile pair byte-identical | see report | sequential `--tile 30 31 --no-ledger` pair |
+| HECA tile pair byte-identical | GREEN | sequential `--tile 30 31 --no-ledger` pair (657 s / 641 s): DSF `3274a46cdc12b055…` and mesh `e3b354f0d53892b8…` BYTE-IDENTICAL across the runs — determinism stands at the final product |
 
 ## HASHES
 

@@ -192,6 +192,25 @@ cfg_tile_vars = {
         },
         "hint": 'Controls Ortho4XP auto-generation of runway slope patches from CIFP/AIRAC data. Auto-patches provide accurate threshold-anchored elevation profiles and are overridden by any manual patches. "ICAO" (default) only patches airports with a 4-letter ICAO code, "All" patches every airport found in CIFP, "None" disables auto-patching entirely.',
     },
+    # ── THE SOLVE MODEL (docs/specs/constructive-solve-spec.md, section
+    # "Mode plumbing") ────────────────────────────────────────────────
+    # Two elevation solves ship side by side and the owner's in-sim A/B
+    # picks the default; until it rules, this key defaults to the
+    # ITERATIVE model, so an existing config builds exactly what it built
+    # before.  Registered in ``cfg_tile_vars`` — that, and nothing else,
+    # is what gives it the global + per-tile scopes every tile var has.
+    # The resolver (env override, precedence, provenance) is
+    # ``src/O4_Solve_Model.py``; nothing reads this key directly.
+    "solve_model": {
+        "type": str,
+        "default": "iterative",
+        "values": ("iterative", "constructive"),
+        "value_labels": {
+            "iterative": "Iterative — best fit to the terrain (slower)",
+            "constructive": "Constructive — lawful by construction (faster)",
+        },
+        "hint": 'Which solve computes airport elevations. "Iterative" (the default) optimises the paved surface toward the underlying terrain while obeying the aerodrome grade, weld and drainage rules — the most faithful result, and the slower one. "Constructive" builds a surface that satisfies the same rules by construction: runway profiles first, one propagation out from them, planar interiors, no fitting pass. Both obey identical law and emit identical patches, censuses and sidecars; they differ in how closely the finished surface tracks the raw elevation data and in how long the airport takes to build. Set per tile to build drafts fast and finals faithfully.',
+    },
     # ── FLAT-SITE declaration (docs/specs/flat-site-detector-spec.md
     # section 2 (c), owner ruling 2026-08-09) ──────────────────────────
     # INTENT NEVER WAITS ON STATISTICS.  The detector measures four
@@ -713,6 +732,7 @@ gui_app_vars_long = list_app_vars[-4:]
 
 list_vector_vars = [
     "auto_patch",
+    "solve_model",
     "flat_site_declared",
     "flat_site_declared_elevation_m",
     "modify_custom_airports",

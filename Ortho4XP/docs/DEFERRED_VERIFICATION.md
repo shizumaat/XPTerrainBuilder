@@ -1896,3 +1896,41 @@ DEFERRED, with reasons:
    the corridor-profile conflict count on the next instrumented arm
    is the cheap follow-up read.
 4. No timing arm (timing stays with the round's one timing block).
+
+## 2026-08-14 — MODE PLUMBING for the constructive solve (lane/k2mode)
+
+The `solve_model` cfg key, its one reader (`src/O4_Solve_Model.py`),
+the harness frame/variant recording and the two UI selectors
+(constructive-solve spec, §"Mode plumbing").  Verified: 619 tests in
+one blast-selected ledger run (`O4_ROUND_TAG=k2mode`, 16 files, all
+pass); two HEAZ arms (iterative + `O4_SOLVE_MODEL=constructive`) —
+ledger MISS across modes as required, patch bodies and `.axes.json`
+sidecars BYTE-IDENTICAL, censuses identical (269 rows / 262
+adjudicated / 23 families both sides); shared repo UNCHANGED on both
+arms; `swift build` clean.
+
+DEFERRED, with reasons:
+1. No battery build/census beyond HEAZ (PRE-SHIP: no per-lane
+   acceptance batteries).  HEAZ was chosen because it is the ~40 s
+   fixture and shares HECA's tile — enough to exercise the harness
+   path end to end, not a law claim about any other airport.
+2. No timing arm.  The one new cost in a build is
+   `O4_Solve_Model.current()` after the solve, which imports nothing
+   the flat-site classifier has not already imported in the same
+   process (measured cold: 0.32 s for `O4_Config_Utils`, paid once
+   either way).  Timing stays with the round's timing block.
+3. The mode-isolation twin ("flipping the key changes ONLY the solve")
+   is asserted TODAY, before K1's constructor lands, so it currently
+   proves the weaker fact that flipping the key changes nothing at
+   all.  It must be re-run against the landed constructor, where the
+   two bodies are EXPECTED to differ and only the census/sidecar
+   SHAPE must stay identical.
+4. `Sources/SceneryKit/Resources/o4_schema_snapshot.json` was NOT
+   regenerated.  It is already stale on main (engineVersion 1.50.0 vs
+   1.50.1689, missing `flat_site_declared` and
+   `flat_site_declared_elevation_m`, ~8 drifted hints, and a
+   non-ASCII encoding the current dump script does not reproduce), so
+   refreshing it is a separate change with its own diff.  Consequence
+   while it stands: the Swift `solve_model` row appears when the app
+   runs a LOOSE engine and not when it runs the FROZEN bundled one.
+   The Qt selector and the engine cfg contract are unaffected.

@@ -1868,3 +1868,30 @@ DEFERRED, with reasons:
   edge was ever built for building22's pad against apron vertex −2409
   needs `_fp_law_counts` dumped from an instrumented run
   (`solve.py:6764`).
+
+## 2026-08-14 — FINAL ARCHITECTURE DOCKET (lane/finalarch, Fable implementation)
+
+The five S1f architecture items, implemented/adjudicated on
+lane/finalarch (27885d9 items 2+3; 5c2ad4b items 1a/1b/4/5; bcd762b
+item-2 adjudication; d2e7da3 item-1b adjudication).  Full dossier:
+`tmp/finalarch_dossier.md`.  Arms: fa_0/fa_A/fa_B (controls),
+fa_G_{heca,othh,cyxy} (acceptance), OTHH+HECA capture→replay, HECA
+tile pair.  Shared repo UNCHANGED on every arm.
+
+DEFERRED, with reasons:
+1. Tests ran ONCE through the ledger (O4_ROUND_TAG=finalarch,
+   blast-selected 82 files): 1,774 passed / 2 failed — both failures
+   reproduced on the UNCHANGED cacae39 sources (matched control, same
+   selection): pre-existing (test_pad_host_pavement_level
+   ::test_the_pad_law_re_asserts_after_the_late_projection;
+   test_single_graph_acceptance::test_solver_validator_same_edge_budgets
+   @CYXY).  No full suite, no blast sweep (PRE-SHIP).
+2. KCLT/KSTJ/SPJC/SPLP arms not built — the docket names HECA/CYXY/
+   OTHH; the consolidated arm owns the rest.
+3. The 1,631-inverted-tube COUNT was not re-measured as a headline
+   number: the mechanism is closed structurally (stage-aware anchors,
+   conformance recorded per site in layout._svc_cross_stage_conform)
+   and the emitted-surface effect is row-attributed in the censuses;
+   the corridor-profile conflict count on the next instrumented arm
+   is the cheap follow-up read.
+4. No timing arm (timing stays with the round's one timing block).

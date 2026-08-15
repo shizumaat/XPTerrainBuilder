@@ -33,6 +33,7 @@ from .anchors import (
     build_building_seats, detached_pad_nodes, seat_detached_pads_by_law,
     withhold_airside_band_from_detached_pads,
     build_nobuilding_apron_seats,
+    reseat_service_mouths as _reseat_service_mouths,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
                         price_slab_against_law,
@@ -4335,6 +4336,16 @@ def solve_route_profile(layout, icao: str,
                       # otherwise drop it.
                       | {i for i in
                          (getattr(layout, "_svc_free_end_idx", None) or ())
+                         if i < n}
+                      # …and the corridor MOUTH seats (owner law
+                      # 2026-08-15): a road meeting aircraft pavement
+                      # ARRIVES at that pavement's value, and the soft
+                      # spelling measured the same loss the free-end tie
+                      # did — 96 of 141 HECA seats written over, worst
+                      # 9.069 m.  Same channel, same reason, stated at
+                      # the same two points.
+                      | {i for i in
+                         (getattr(layout, "_svc_mouth_prox_idx", None) or ())
                          if i < n})
         # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
         # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
@@ -4656,6 +4667,18 @@ def solve_route_profile(layout, icao: str,
                           (getattr(layout, "_svc_free_end_idx", None) or ())
                           if i < n}
         yield_hard |= _svc_free_ends
+        # ── NOR DO THE MOUTH SEATS ────────────────────────────────
+        # (owner law 2026-08-15, "a service road meeting a taxiway must
+        # arrive AT that pavement's elevation"; gate
+        # ``SVC_MOUTH_PROX_ANCHOR``.)  The seat IS the law's answer at
+        # that node — it is the airside surface's own interpolated
+        # value, read-only by ruling — so a pointwise yield here is the
+        # law being overwritten, not a relaxation of it.  Membership
+        # only, exactly like the free-end tie above.
+        _svc_mouths = {i for i in
+                       (getattr(layout, "_svc_mouth_prox_idx", None) or ())
+                       if i < n}
+        yield_hard |= _svc_mouths
         # ── THE WHOLE-RUN CORRIDOR PROFILE NEVER LEAVES THE HARD SET ──
         # (staged-solve round, S2, "WHOLE-RUN CORRIDOR PROFILE".)  A
         # corridor is ONE law object and its profile was solved over the
@@ -7171,6 +7194,40 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _fp_free_ends = _store_of(layout).view_keyset("svc_free_end", b2i, n)
     if _fp_free_ends:
         hard |= _fp_free_ends
+    # ── CORRIDOR MOUTH SEATS: RE-DERIVED HERE, THEN HELD ──────────────
+    # (owner law 2026-08-15 + the timing adjudication on this lane's
+    # attempt-2 measurement.)  THE SEAT IS RE-TAKEN BEFORE IT IS FROZEN.
+    # A value seat cannot track a surface that keeps moving: taken at
+    # DEM-follow time it agreed with the apron edge to within 0.03-0.28 m
+    # and the apron then moved 5-9 m before emit, so the hold pinned a
+    # stale value with perfect fidelity (measured at HECA, 22 of 23
+    # residual sites).  HERE the airside surface has stopped — every
+    # prior projection has run — so the seat is re-derived from the
+    # CURRENT interpolated value at the same perpendicular foot (a pure
+    # lookup on the minted recipe; the geometry is frozen, only values
+    # moved) and the keyset below then freezes the FRESH value.  Order is
+    # load-bearing: re-derive, then hard, then the W3 seed snapshot, so
+    # the re-seated nodes are attributed as ``seed:base_hard`` and not as
+    # unclaimed.  This is the OBJECT PADS posture (RULINGS 2026-08-14 —
+    # resolve against the surface's own final value, downstream of the
+    # movers) applied to road mouths.
+    _mouth_reseated, _mouth_worst = _reseat_service_mouths(
+        layout, b2i, elev, n, crown_of=_crown_of)
+    if _mouth_reseated:
+        import O4_UI_Utils as _UI_ms
+        _UI_ms.vprint(1,
+            f"  [pav-builder] service mouth seats RE-DERIVED at the "
+            f"airside-final moment: {_mouth_reseated} seat(s) moved to "
+            f"their pavement's current value (worst {_mouth_worst:.3f} m) "
+            f"before the hold freezes them.")
+    # Same channel and same reason as the free-end tie above — this pass
+    # rebuilds the node list, so the seat crosses as a ``keyset`` artifact
+    # through the one resolver.  The value it protects is the AIRSIDE
+    # surface's own, so holding it here is airside-is-king expressed in
+    # the last pass that could move it.
+    _fp_mouths = _store_of(layout).view_keyset("svc_mouth", b2i, n)
+    if _fp_mouths:
+        hard |= _fp_mouths
     # ── THE CORRIDOR PROFILE, CARRIED BY CANONICAL KEY ────────────────
     # (staged-solve round, S2.)  Same channel and same reason as the
     # free-end tie above: the whole-run profile is the corridor's band

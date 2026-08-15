@@ -3235,6 +3235,48 @@ def free_end_targets(layout, svc_nodes, node_pos, anchors, dem_elev,
     return targets, records
 
 
+def _profile_law_release(conflicts, run_sid) -> set:
+    """R1 (service-road law spec, 2026-08-15): A HELD PROFILE MUST BE
+    LAWFUL OR IT IS NOT HELD — the anchor-placement law applied to
+    ``svc_profile``.
+
+    The corridor profile's OWN audit already names every unlawful spot
+    (``corridor_profile``): an ``over_cap_segment`` conflict (a strung
+    segment steeper than the cap, only reachable through a relaxed
+    inverted tube) and an ``inverted_tube`` conflict (a station whose
+    tube ``_relax_tube`` levelled because two anchor regimes
+    contradict).  Every station in such a segment/tube is RELEASED from
+    the hold: it never enters the ``svc_profile`` keyset, keeps the
+    profile value as its SEED, and solves under the road's own law
+    edges — exactly the mechanism of the 1-D validity release below.
+    Stations whose audit is clean stay held (the smooth majority must
+    not loosen).  The release conditions are EXACTLY the audit's two
+    conflict classes — no new thresholds (spec, pre-delegated
+    decisions; ``peg_pair`` conflicts name an end-tie tension, not a
+    held-station value, and do not release).
+
+    ``conflicts``  one run's ``RunProfile.conflicts``.
+    ``run_sid``    the run's station ids, indexed by the conflicts'
+                   ``station_index`` (the run-local station ordinal).
+    Returns the set of station ids released.
+    """
+    rel: set = set()
+    for cf in conflicts:
+        kind = getattr(cf, "kind", None)
+        k = getattr(cf, "station_index", None)
+        if k is None:
+            continue
+        if kind == "over_cap_segment":
+            # segment k-1 -> k: BOTH stations of the over-cap segment.
+            for kk in (k - 1, k):
+                if 0 <= kk < len(run_sid):
+                    rel.add(run_sid[kk])
+        elif kind == "inverted_tube":
+            if 0 <= k < len(run_sid):
+                rel.add(run_sid[k])
+    return rel
+
+
 def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                              dem_elev, cap, node_ceil, node_floor,
                              node_ceil_dist, node_floor_dist,
@@ -3536,6 +3578,11 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     audits_out = list(getattr(layout, "_svc_profile_audits", None) or ())
     _m_to_ll = getattr(layout, "m_to_ll", None)
     profiled: set = set()
+    # R1 (service-road law spec): stations the run's own audit releases
+    # from the hold, and the per-run report rows (run id, count, worst
+    # grade) the spec requires.
+    _law_release: set = set()
+    _law_release_runs: list = []
 
     for _li, _sids in runs.items():
         run_s: list = []
@@ -3586,6 +3633,12 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             for i in stations[sid]["members"]:
                 node_target[i] = tgt
             profiled.add(sid)
+        _rel = _profile_law_release(prof.conflicts, run_sid)
+        if _rel:
+            _law_release |= _rel
+            _law_release_runs.append(
+                {"line": _li[0], "part": _li[1], "released": len(_rel),
+                 "worst_grade": prof.audit.worst_grade})
         for cf in prof.conflicts:
             rec = {
                 "line": _li[0], "part": _li[1], "kind": cf.kind, "s_m": cf.station_s_m,
@@ -3685,9 +3738,28 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                                      f"hold")})
         layout._svc_profile_conflicts = conflicts_out
     layout._svc_profile_not_1d_stations = len(_not_1d)
+    # R1 (service-road law spec): the audit-released stations leave the
+    # hold membership exactly as the not-1-D stations do — they never
+    # enter the ``svc_profile`` keyset; ``node_target`` keeps the
+    # profile value as their seed.
+    layout._svc_profile_law_released_stations = len(_law_release)
+    layout._svc_profile_law_release_runs = _law_release_runs
     layout._svc_profile_members = {
         i for sid in profiled if sid not in _not_1d
+        and sid not in _law_release
         for i in stations[sid]["members"]}
+    if _law_release_runs:
+        import O4_UI_Utils as _UI_r1
+        _per_run = "; ".join(
+            f"run ({r['line']},{r['part']}): {r['released']} station(s), "
+            f"worst {r['worst_grade'] * 100:.2f} %"
+            for r in _law_release_runs)
+        _UI_r1.vprint(1,
+            f"  [pav-builder] R1 held-profile validity release: "
+            f"{len(_law_release)} station(s) released from the "
+            f"svc_profile hold on {len(_law_release_runs)} run(s) "
+            f"(over-cap segment / relaxed inverted tube — values stay "
+            f"as seeds): {_per_run}")
     if audits_out:
         import O4_UI_Utils as _UI_cp
         _n_over = sum(x["over_cap_segments"] for x in audits_out)

@@ -3844,6 +3844,62 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     return node_target, broken_nodes
 
 
+def reseat_service_mouths(layout, b2i, elev, n, *, crown_of=None):
+    """RE-DERIVE every held service-road mouth seat from the airside
+    edge's CURRENT value — the last airside-final moment.
+
+    Owner law 2026-08-15 ("a service road meeting a taxiway must arrive
+    AT that pavement's elevation") + the timing adjudication that
+    followed this lane's attempt-2 measurement.  The seat itself was
+    never wrong; WHEN it was taken was.  ``apply_service_road_dem_follow``
+    runs while the airside surface is still moving: at every failing HECA
+    site the seat moved the road 0.03-0.28 m — the two agreed at the time
+    — and the apron then travelled 5-9 m before emit, so the hold pinned
+    a stale value with perfect fidelity.
+
+    THE RULE LIVES HERE, at module level, so the twins drive the rule the
+    pass applies instead of re-implementing it (``classify_projection_
+    hard``'s discipline).  It is a PURE LOOKUP: the recipe minted by the
+    DEM-follow pass is the edge's two endpoint canonical KEYS and the
+    interpolation parameter of the perpendicular foot, resolved through
+    the one resolver, so this never rebuilds an index — the geometry is
+    frozen by now, only values moved.
+
+    ``crown_of`` is the caller's z′ frame: endpoints are read UNCROWNED
+    (the runway partner's crown is a designed sub-cap offset, not part of
+    the value a truck arrives at) and the seat is written back into the
+    caller's frame — the ``elev[i] - _crown_of[i]`` / ``+ _crown_of[i]``
+    spelling ``final_grade_projection`` already uses.
+
+    Returns ``(reseated, worst_move_m)``; an unresolvable side is skipped,
+    never guessed.
+    """
+    store = _store_of(layout)
+    edge_a = store.view_relation("svc_mouth_edge_a", b2i, n)
+    if not edge_a:
+        return (0, 0.0)
+    edge_b = store.view_relation("svc_mouth_edge_b", b2i, n)
+    t_of = store.view_scalar("svc_mouth_t", b2i, n)
+    crown = crown_of or {}
+    reseated = 0
+    worst = 0.0
+    for i, ai in sorted(edge_a.items()):
+        bi = edge_b.get(i)
+        t = t_of.get(i)
+        if (ai is None or bi is None or t is None
+                or i >= len(elev) or ai >= len(elev) or bi >= len(elev)):
+            continue
+        za = float(elev[ai]) - crown.get(ai, 0.0)
+        zb = float(elev[bi]) - crown.get(bi, 0.0)
+        z = za + float(t) * (zb - za) + crown.get(i, 0.0)
+        move = abs(z - float(elev[i]))
+        if move > 1e-9:
+            elev[i] = z
+            reseated += 1
+            worst = max(worst, move)
+    return (reseated, worst)
+
+
 def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                                   anchor_extra=()):
     """Grade the service-road network to FOLLOW DEM at <=cap (user 2026-06-27).
@@ -3970,6 +4026,76 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     # Airside is king: a node ANY airside ring claims is stage A
     # (``stage_of_roles``' own rule).
     from auto_patch.solve_stage import STAGE_A, STAGE_B, stage_of_shape
+    # ── PROXIMITY MOUTH ANCHORS (owner law 2026-08-15) ────────────────
+    # "A service road meeting a taxiway (or any airside pavement) must
+    # arrive AT that pavement's elevation — exactly like roads meeting
+    # runways."  AIRSIDE IS KING: the road conforms, the airside value is
+    # read-only.
+    #
+    # THE MEASURED DEFECT: the exact-vertex loop below anchors a service
+    # node only where it IS a canonical vertex of a non-service ring.  A
+    # road that ABUTS without a weld gets no anchor at all — and abutting
+    # without a weld is the NORMAL state, not the exception: the corridor
+    # minter cuts the body back from aircraft pavement by
+    # ``_PAV_CLEAR_TOL_M`` = 1.0 m while conformance welds only within
+    # ``SHARED_VERTEX_TOL_M`` = 0.5 m, and the mouth fill that closes that
+    # annulus has a terminus hole.  Measured at HECA: of 187 road↔airside
+    # contact sites, all 127 WELDED ones step 0.000 m, while 34 of the 60
+    # unwelded ones step > 0.3 m (max 9.135 m — a cliff at the kerb).
+    #
+    # THE FIX: anchor any service node within ``_PAV_CLEAR_TOL_M +
+    # SHARED_VERTEX_TOL_M`` of an AIRCRAFT-PAVEMENT ring EDGE — the widest gap
+    # the cut-back can open plus the weld tolerance it fails to reach, so
+    # the number is DERIVED from the two constants that mint the gap, not
+    # a new one — at that edge's INTERPOLATED already-solved elevation at
+    # the node's perpendicular foot, tagged with the minting ring's stage
+    # exactly as an exact-vertex anchor is.  Exact-vertex anchors keep
+    # precedence (a node already anchored is never re-read).  From there
+    # the existing ``_reach`` band does the rest: the road ramps away
+    # from the mouth value at <= its own cap.
+    #
+    # ── THE CARRIER IS AIRCRAFT PAVEMENT ONLY (adjudication 2026-08-15,
+    # on this lane's attempt-1 measurement) ──────────────────────────
+    # The seat's authority is the owner's law — "arrive AT the TAXIWAY's
+    # (runway's, apron's) elevation" — so the edge index is built from
+    # ``enclaves.ENCLAVE_AIRSIDE_ROLES``, THE canonical airside-pavement
+    # family (imported, never re-spelled: blast.py's role-literal
+    # hazard), and from nothing else.  Attempt 1 indexed the whole
+    # non-service population the exact-vertex loop walks, and measured
+    # the cost at HECA: of 141 seats, 52 were minted by a
+    # ``graded_strip`` and 42 by a ``building`` ring against only 35 from
+    # real pavement.  A graded strip is the road's OWN grading product
+    # riding at the road's own level, so such a seat PINS the road at
+    # exactly the value the law wants replaced (measured: seat 102.079 at
+    # d = 0.00 m from strip -13003, facing an apron at 93.01).  Buildings
+    # are stage-B seats, not a surface a truck arrives at.  The
+    # exact-vertex loop's population is UNCHANGED — a genuinely shared
+    # vertex is a weld, and a weld's value is authoritative whatever
+    # welded it.
+    # ``O4_SVC_MOUTH_PROX_ANCHOR=0`` restores the exact-vertex-only
+    # anchor set byte-identically.
+    from auto_patch.config import SVC_MOUTH_PROX_ANCHOR as _MOUTH_PROX
+    from auto_patch.enclaves import ENCLAVE_AIRSIDE_ROLES as _MOUTH_ROLES
+    from auto_patch.layout import SHARED_VERTEX_TOL_M as _WELD_TOL_M
+    from auto_patch.pavement.service_roads import (
+        _PAV_CLEAR_TOL_M as _PAV_CLEAR_M)
+    _MOUTH_TOL_M = _PAV_CLEAR_M + _WELD_TOL_M            # 1.5 m, derived
+    # Grid cell for the edge index — the ``_PROX_M`` pattern above.  The
+    # stamp walks each segment at one CELL per step, so the sample
+    # nearest a node's perpendicular foot is within
+    # ``hypot(_MOUTH_TOL_M, CELL/2)`` = 1.803 m of the node, which the
+    # 3x3 cell window (radius CELL = 2.0 m, L-infinity) contains: the
+    # query is exact, not approximate.
+    _MOUTH_CELL = 2.0
+    _mouth_segs: list = []     # (ax, ay, az, bx, by, bz, stage)
+    _mouth_grid: dict = {}
+    _mouth_cells: set = set()  # only cells a service node can query
+    if _MOUTH_PROX:
+        for (_px, _py) in node_pos.values():
+            _cx, _cy = int(_px // _MOUTH_CELL), int(_py // _MOUTH_CELL)
+            for _ox in (-1, 0, 1):
+                for _oy in (-1, 0, 1):
+                    _mouth_cells.add((_cx + _ox, _cy + _oy))
     anchors: dict = {}
     anchor_stage: dict = {}
     for s in layout.shapes:
@@ -3977,12 +4103,190 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                 or s.polygon is None or s.polygon.is_empty):
             continue
         _s_stage = stage_of_shape(s)
-        for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
+        _ring = _open_ring(list(s.polygon.exterior.coords))
+        _ring_idx: list = []
+        for (x, y) in _ring:
             i = bucket_to_idx.get(_key(x, y))
+            _ring_idx.append(i)
             if i in svc_nodes:
                 anchors[i] = elev[i]
                 if anchor_stage.get(i) != STAGE_A:
                     anchor_stage[i] = _s_stage
+        if not _mouth_cells or s.role not in _MOUTH_ROLES:
+            continue
+        # ONE pass over the ring builds both the exact-vertex anchors and
+        # the proximity edge index (single-pass principle).  Only an
+        # AIRCRAFT-PAVEMENT ring reaches this point.
+        _nr = len(_ring)
+        for k in range(_nr):
+            _i, _j = _ring_idx[k], _ring_idx[(k + 1) % _nr]
+            if (_i is None or _j is None
+                    or _i >= len(elev) or _j >= len(elev)):
+                continue
+            (_ax, _ay) = _ring[k]
+            (_bx, _by) = _ring[(k + 1) % _nr]
+            _sd = _m.hypot(_bx - _ax, _by - _ay)
+            _sid = None
+            _nst = int(_sd // _MOUTH_CELL) + 1
+            for _st in range(_nst + 1):
+                _f = min(1.0, (_st * _MOUTH_CELL) / _sd) if _sd > 0.0 else 0.0
+                _ck = (int((_ax + _f * (_bx - _ax)) // _MOUTH_CELL),
+                       int((_ay + _f * (_by - _ay)) // _MOUTH_CELL))
+                if _ck not in _mouth_cells:
+                    continue
+                if _sid is None:
+                    _sid = len(_mouth_segs)
+                    # The endpoints' CANONICAL KEYS travel with the
+                    # segment: the seat's recipe must outlive this node
+                    # space (node_space's law), and the re-derivation
+                    # below re-reads these two values, never the
+                    # geometry, so nothing rebuilds the index later.
+                    _mouth_segs.append((_ax, _ay, float(elev[_i]),
+                                        _bx, _by, float(elev[_j]),
+                                        _s_stage,
+                                        _key(_ax, _ay), _key(_bx, _by)))
+                _bucket = _mouth_grid.setdefault(_ck, [])
+                if not _bucket or _bucket[-1] != _sid:
+                    _bucket.append(_sid)
+    _mouth_moved: set = set()
+    _mouth_records: list = []
+    if _mouth_grid:
+        for i in sorted(svc_nodes):
+            if i in anchors or i >= len(elev):
+                continue
+            _p = node_pos.get(i)
+            if _p is None:
+                continue
+            (_px, _py) = _p
+            _cx, _cy = int(_px // _MOUTH_CELL), int(_py // _MOUTH_CELL)
+            _best = None
+            _seen: set = set()
+            for _ox in (-1, 0, 1):
+                for _oy in (-1, 0, 1):
+                    for _sid in _mouth_grid.get((_cx + _ox, _cy + _oy), ()):
+                        if _sid in _seen:
+                            continue
+                        _seen.add(_sid)
+                        (_ax, _ay, _az, _bx, _by, _bz,
+                         _sstage, _akey, _bkey) = _mouth_segs[_sid]
+                        _dx, _dy = _bx - _ax, _by - _ay
+                        _l2 = _dx * _dx + _dy * _dy
+                        _t = (0.0 if _l2 <= 0.0 else
+                              max(0.0, min(1.0, ((_px - _ax) * _dx
+                                                 + (_py - _ay) * _dy) / _l2)))
+                        _dd = _m.hypot(_px - (_ax + _t * _dx),
+                                       _py - (_ay + _t * _dy))
+                        if _dd > _MOUTH_TOL_M:
+                            continue
+                        # Nearest edge wins; ties break on index order, so
+                        # the choice is deterministic.
+                        if _best is None or (_dd, _sid) < (_best[0], _best[1]):
+                            _best = (_dd, _sid, _az + _t * (_bz - _az),
+                                     _sstage, _akey, _bkey, _t)
+            if _best is None:
+                continue
+            (_dd, _sid, _z, _sstage, _akey, _bkey, _tfoot) = _best
+            _step = abs(_z - float(elev[i]))
+            anchors[i] = _z
+            if anchor_stage.get(i) != STAGE_A:
+                anchor_stage[i] = _sstage
+            if _step > 1e-9:
+                elev[i] = _z
+                _mouth_moved.add(i)
+            _mouth_records.append({"i": i, "gap_m": round(_dd, 4),
+                                   "value_m": round(_z, 4),
+                                   "step_m": round(_step, 4),
+                                   "stage": _sstage, "xy": (_px, _py),
+                                   "edge_a": _akey, "edge_b": _bkey,
+                                   "t": _tfoot})
+    layout._svc_mouth_prox_idx = {r["i"] for r in _mouth_records}
+    layout._svc_mouth_prox_records = _mouth_records
+    # ── THE MOUTH SEAT IS HELD (adjudication 2026-08-15) ──────────────
+    # Attempt 1 seated the mouths and let the downstream projections
+    # write over them: of 141 seats only 35 survived to emit within
+    # 0.01 m, 96 were moved off (median 0.134 m, worst 9.069 m).  That is
+    # the free-end tie's OWN measured failure — the SOFT spelling that
+    # lost 6.31 m at KCLT — so the cure is its spelling too, not a new
+    # mechanism: MEMBERSHIP ONLY, no value write, minted by CANONICAL KEY
+    # so it survives the final pass's node-list rebuild (node_space's
+    # law), consumed beside ``svc_free_end`` in the yield-hard set and in
+    # ``final_grade_projection``'s hard set.  What the hold protects is
+    # the owner's law itself: the road ARRIVES at the pavement's value.
+    # Everything downstream of the mouth still yields — the road ramps
+    # away under its own cap exactly as before.
+    # ── …AND RE-DERIVED AT THE LAST AIRSIDE-FINAL MOMENT ─────────────
+    # Attempt 2 measured the hold working (64 of 69 seats emitted within
+    # 0.01 m) and the ACCEPTANCE still missing, and named why: this pass
+    # runs while the airside surface is still moving.  At every failing
+    # HECA site the seat moved the road only 0.03-0.28 m — road and apron
+    # edge AGREED here — and the apron then travelled 5-9 m before emit,
+    # so a perfectly held seat is a perfectly held STALE value.
+    #
+    # A value seat cannot track a surface that keeps moving, so the seat
+    # is re-derived where the surface has stopped: the RECIPE (the edge's
+    # two endpoint canonical keys + the interpolation parameter of the
+    # perpendicular foot) is minted here, and
+    # ``reseat_service_mouths`` re-reads the two CURRENT endpoint values
+    # immediately before ``final_grade_projection`` freezes the hold.
+    # The geometry is frozen by then — only values moved — so the
+    # re-derivation is a pure lookup and no index is ever rebuilt.
+    # This is the OBJECT PADS posture (RULINGS 2026-08-14: resolve
+    # against the surface's own final value, downstream of the movers)
+    # applied to road mouths.  The one-graph alternative — a node-vs-edge
+    # LAW PAIR, so road and pavement move together by construction — is
+    # the eventual posture and is out of this round's scope.
+    if _mouth_records:
+        try:
+            _store = _store_of(layout)
+            _store.mint(
+                "svc_mouth", "keyset",
+                {_key(*node_pos[i]) for i in layout._svc_mouth_prox_idx
+                 if i in node_pos},
+                replace=True)
+            _rk = {r["i"]: _key(*node_pos[r["i"]]) for r in _mouth_records
+                   if r["i"] in node_pos}
+            _store.mint("svc_mouth_edge_a", "relation",
+                        {_rk[r["i"]]: r["edge_a"] for r in _mouth_records
+                         if r["i"] in _rk}, replace=True)
+            _store.mint("svc_mouth_edge_b", "relation",
+                        {_rk[r["i"]]: r["edge_b"] for r in _mouth_records
+                         if r["i"] in _rk}, replace=True)
+            _store.mint("svc_mouth_t", "scalar",
+                        {_rk[r["i"]]: float(r["t"]) for r in _mouth_records
+                         if r["i"] in _rk}, replace=True)
+        except Exception:                                # pragma: no cover
+            pass
+    # ATTRIBUTION DUMP (default off, one env read when unset): the seat this
+    # pass wrote, in lat/lon, so a patch-side census can separate "never
+    # anchored" from "anchored, then overwritten downstream" without a
+    # second instrument of its own.
+    _mp_dump = _os.environ.get("O4_SVC_MOUTH_DUMP")
+    if _mp_dump and _mouth_records:
+        try:
+            import json as _json_mp
+            _m_to_ll_mp = getattr(layout, "m_to_ll", None)
+            _out = []
+            for _r in _mouth_records:
+                _d = dict(_r)
+                if _m_to_ll_mp is not None:
+                    _la, _lo = _m_to_ll_mp(*_r["xy"])
+                    _d["lat"], _d["lon"] = round(_la, 11), round(_lo, 11)
+                _out.append(_d)
+            with open(_mp_dump, "w") as _fh:
+                _json_mp.dump(_out, _fh, indent=1)
+        except Exception:                                # pragma: no cover
+            pass
+    if _mouth_records:
+        import O4_UI_Utils as _UI_mp
+        _worst = max(r["step_m"] for r in _mouth_records)
+        _UI_mp.vprint(1,
+            f"  [pav-builder] service mouth PROXIMITY anchors (owner law "
+            f"2026-08-15, airside is king): {len(_mouth_records)} road "
+            f"node(s) within {_MOUTH_TOL_M:.1f} m of an AIRCRAFT-PAVEMENT "
+            f"ring edge seated AT that edge's interpolated solved value "
+            f"and HELD through the projections ({len(_mouth_moved)} moved, "
+            f"worst {_worst:.3f} m; {len(_mouth_segs)} indexed edge(s) "
+            f"over {len(_MOUTH_ROLES)} airside role(s)).")
     for i in anchor_extra:
         if i in svc_nodes and i < len(elev):
             anchors[i] = elev[i]
@@ -4161,7 +4465,7 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                       f" ceil={ceil.get(_i)} floor={floor.get(_i)}")
         except Exception as _e:
             print(f"    [svc-dbg] error {_e!r}")
-    changed: set = set(_fe_moved)       # the free-end ties moved these
+    changed: set = set(_fe_moved) | _mouth_moved   # ties + mouth seats
     # BREAK-BLEND EXPORT (user 2026-07-06, handover fix (b)): nodes whose
     # welded anchors contradict (floor > ceil) render the designed blend
     # below — persist them so the caller can quarantine their over-cap

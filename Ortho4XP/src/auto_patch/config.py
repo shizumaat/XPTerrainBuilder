@@ -4307,6 +4307,26 @@ SERVICE_CORRIDOR_FREE_END = _os.environ.get(
 # ``O4_SERVICE_CORRIDOR_MOUTH_JOIN=0`` restores the unweldable 1 m gap.
 SERVICE_CORRIDOR_MOUTH_JOIN = _os.environ.get(
     "O4_SERVICE_CORRIDOR_MOUTH_JOIN", "1") == "1"
+# PROXIMITY MOUTH ANCHORS (owner law 2026-08-15: "a service road meeting a
+# taxiway — or any airside pavement — must arrive AT that pavement's
+# elevation, exactly like roads meeting runways"; AIRSIDE IS KING, the road
+# conforms and the airside value is read-only).  The weld above closes the
+# annulus only where the mouth-join minter reaches; where it does not (a
+# terminus mouth, an oblique abutment, a post-solve weld-ordering gap) the
+# road node abuts WITHOUT a shared vertex and the DEM-follow's anchor set —
+# exact canonical vertices only — never saw it.  Measured at HECA: 34 of 60
+# unwelded road<->airside contact sites stepped > 0.3 m, worst 9.135 m,
+# against 0.000 m at all 127 welded ones.  ON,
+# ``anchors.apply_service_road_dem_follow`` additionally anchors any service
+# node within ``_PAV_CLEAR_TOL_M + SHARED_VERTEX_TOL_M`` (1.5 m — DERIVED
+# from the cut-back that opens the gap plus the weld tolerance that fails to
+# close it, no new number) of a non-service ring EDGE, at that edge's
+# interpolated already-solved elevation; the existing reach band then ramps
+# the road away under its own cap.  Exact-vertex anchors keep precedence.
+# ``O4_SVC_MOUTH_PROX_ANCHOR=0`` restores the exact-vertex-only anchor set
+# byte-identically.
+SVC_MOUTH_PROX_ANCHOR = _os.environ.get(
+    "O4_SVC_MOUTH_PROX_ANCHOR", "1") == "1"
 # HARD FREE-END DEM TIE (corridor-joins round ruling 3, on the KCLT free end
 # at 35.2077054,-80.9290667: the road descended 2.9 % against an 8 % cap and
 # ended 6.31 m proud of DEM).  Two halves, one gate:

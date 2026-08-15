@@ -100,3 +100,75 @@ wiring. K2 (Opus): mode plumbing (cfg/harness/ledger-variant/UI
 selector), measurement support, tile builds for the A/B. Lead:
 consolidated censuses, the exclusive timing pairs, and the A/B
 handoff package for the owner.
+
+## AMENDMENT 1 — THE LIVING BAND (owner correction, 2026-08-14; supersedes C1/C2's anchor model)
+
+K1's attempt 2 (lane/k1construct) proved the selection/certification
+tail and the mode gates, and FAILED census acceptance at HECA/CYXY by
+over-anchoring: C1 froze whole runway profiles, and derived minters
+(certified pins et al.) were admitted as hard without mutual
+validation — 14,104 crossed intervals at HECA in one 19.846 m
+pair-class. The owner's correction, now the model:
+
+A1 TRUE ANCHORS ONLY: the CIFP runway thresholds and the tile seam
+   boundaries. Nothing else is hard before the band exists. True
+   anchors are physically real and mutually consistent by reality; a
+   contradiction WITHIN this set is a data defect (CIFP vs seam) —
+   reported, never absorbed.
+A2 THE BAND RUNS FIRST AND LIVES: the one published graph computes
+   the cap-Lipschitz band from the true anchors alone. Thereafter
+   every value that wants to be fixed is minted IN PRIORITY ORDER,
+   validated against the CURRENT band, and — when accepted — joins
+   the anchor set and locally refines the band before the next mint.
+   Consistency holds by induction; every interval is non-empty by
+   construction. Order (stable canonical ids within each class):
+     P0 true anchors → P1 runway interiors — 1-D taut strings
+     threaded through the band tube (string_with_pegs; thresholds are
+     the ONLY pegs; flex emerges where the band narrows, which is the
+     flex law's own definition) → P2 seam/DEM ties, seats, EAT pins,
+     corridor free ends → P3 certified region fits → P4 remainder.
+A3 REFUSAL SEMANTICS (anchor-placement law, executable): a mint
+   outside the current band is REFUSED and recorded with minter id,
+   value, band [lo,hi], deficit, and the two bounding anchors — the
+   refused feature falls back to its non-anchored path (seat →
+   yield-hard, pad → y-bake, plane fit → smaller region). No law
+   value is ever silently clamped. These named refusals ARE the
+   anchor-defect findings the round has been missing.
+A4 SOURCE TRACKING: the band propagation carries provenance — every
+   node knows its floor-minter and ceiling-minter — so any residual
+   finding names its pair. (This is also the instrument the iterative
+   model's absorbed-contradiction attribution needs; it ships in both
+   modes' shared band code.)
+A5 SINGLE PASS: after minting, K1's landed selection stands (interval
+   midpoint + one in-interval smooth). No yielding projections exist
+   in this mode.
+
+## Amended acceptance
+
+Original acceptance 1-4 stands, plus: ZERO empty intervals at all
+battery airports (by construction — any would-be contradiction
+surfaces as an A3 named refusal instead); census parity-or-better at
+HECA and CYXY specifically (K1's failure set); K1's gates stay green
+(mode isolation byte-for-byte, per-mode determinism); the owner's
+time bar — LESS THAN HALF the iterative exclusive wall at HECA
+(sub-minute remains aspirational; K1's broken-anchor version already
+measured 267-277 vs 581 direction, and this removes work).
+
+## Deployment (confirmed)
+
+PARALLEL PATH: solve_model default stays iterative; the constructive
+mode is reachable via env/per-tile/global cfg and both app selectors
+(merged K2 plumbing, one-reader precedence, ledger variant
+separation). The A/B compares performance and output quality across
+the same tiles in both modes; the owner's in-sim verdict picks the
+default or keeps both.
+
+## Implementation base (K1b — a bounded revision, not a rewrite)
+
+Build on lane/k1construct: KEEP the mode dispatch (O4_Solve_Model),
+selection, certification tier, twins, and gate infrastructure;
+REPLACE the anchor assembly (demote all but A1) and the propagation
+(living band, ordered minting, source tracking, A3 refusals). The
+K1 arms' logs (worktree k1construct tmp/k1_*.log) and the recorded
+empty-interval rows are the regression fixtures: HECA's 19.846 m
+pair-class and CYXY's 0.195 m chain must become named A3 refusals.

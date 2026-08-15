@@ -1983,6 +1983,21 @@ def solve_route_profile(layout, icao: str,
     )
 
     t0 = _time.time()
+    # ── THE SOLVE-MODEL SWITCH (constructive-solve round; the mode key
+    # is ``solve_model``, module ``auto_patch.solve_model`` — cfg attr >
+    # ``O4_SOLVE_MODEL`` env > iterative default; K2 lands the cfg/UI
+    # plumbing against that module) ──────────────────────────────────
+    from auto_patch.solve_model import (
+        MODEL_CONSTRUCTIVE as _MODEL_CONSTRUCTIVE,
+        resolve as _resolve_solve_model)
+    _solve_constructive = (_resolve_solve_model(layout)
+                           == _MODEL_CONSTRUCTIVE)
+    if _solve_constructive:
+        import O4_UI_Utils as _UI_sm
+        _UI_sm.vprint(1, f"  [solve-model] {icao}: CONSTRUCTIVE solve "
+                         f"core (spec constructive-solve; anchor "
+                         f"assembly, law objects and the publication "
+                         f"tail shared with the iterative model)")
     nodes, bucket_to_idx = _build_node_list(layout)
     if not nodes:
         return
@@ -2991,1972 +3006,2018 @@ def solve_route_profile(layout, icao: str,
         f"classifier residue base_hard:unattributed={_n_resid_cls}; "
         f"truth_hard={len(truth_hard)} of node space n={n} "
         f"(SOLVE node space, pre-freeze, uncrowned z′).")
-    # PHASE A — dedicated SMOOTH spine solve on the unified graph (geometry
-    # nodes), runway/seam HARD at their LOCAL value, building floors honoured.
-    # The spine is min-curvature and ≤cap by construction, then FROZEN so the
-    # body grades to it (the body twists to meet the spine, never the reverse).
-    # Stage probe (P3 drag attribution) — allocated ONLY when the dump
-    # gate is set; ``None`` keeps every production call unchanged.
-    _spine_probe = ({} if _os.environ.get("O4_DUMP_SOLVE_STATE")
-                    else None)
-    # ── S1b: CHORD TARGETS AS DIRICHLET BOUNDARIES (docs/specs/
-    # s1b-first-class-chord-boundaries-spec.md §1) ─────────────────
-    # The harmonic owns 67.1 % of the corridor's departure from DEM
-    # and has NO altitude preference of its own — it interpolates
-    # toward whatever the network does.  Giving it the strings as
-    # BOUNDARIES is what supplies that preference, so the strings
-    # enter phase A ONCE, here, instead of overwriting its interiors
-    # afterwards (the α single-pass violation, now closed).
-    # ★ PRE-FREEZE ANCHORS: ``base_hard`` has not yet absorbed the
-    # spine freeze at this point (that happens below, on ``frozen``),
-    # and the hook contract's hazard follows the code — pass the
-    # TRUTH set, never a post-freeze one.
-    # ★ RULING 52 — the chord is never bent by law; the GRIP is.  A
-    # pin joins ``anchors``, so fairing and the exact cap projection
-    # can no longer drive a both-pinned pair to its cap; the pin SET
-    # is therefore law-filtered first and the released stations are
-    # handed back to the solver to ride their cap toward the chord.
-    # Gate off ⇒ never imported, never computed ⇒ phase A
-    # byte-identical.
-    _string_pins = None
-    _grip_yields: list = []
-    # Bound unconditionally: ``_summary`` is written in the gated
-    # block below and read again at the yield site (ruling 54).  A
-    # name bound only inside a branch is the UnboundLocalError class
-    # the SPLP/CYXY identity build caught in this very function.
-    _summary: dict = {}
-    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
-    # The taut-string machinery is the owner's PAUSED feature: the strings
-    # verdict is pending (memory ``string-purpose-statement``: strings are a
-    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
-    # surface authority), so this switch is deliberately NOT deleted with
-    # the law gates.  It selects whether a PARKED feature runs at all, not
-    # which law the build obeys.  Retire or adopt it when the owner rules.
-    if _os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") == "1":
-        from auto_patch.config import TAXI_MAX_GRADE as _TAUT_CAP_DEF
-        from .taut_string import construct_taut_strings as _cts
-        from .taut_string import filter_pins_by_grade_law as _grip
-        _taut_cap: dict = {}
-        for _si, _slst in u_spine_adj.items():
-            for (_sj, _sbudget) in _slst:
-                _spk = (_si, _sj) if _si < _sj else (_sj, _si)
-                if _spk in _taut_cap:
+    # ══ THE SOLVE CORE — MODE-DISPATCHED (constructive-solve round,
+    # docs/specs/constructive-solve-spec.md) ══════════════════════════
+    # Everything ABOVE this line (node list, seeds, anchors, the one
+    # graph, the reach band, seats, floors, EAT guards) and everything
+    # BELOW the two branches (crown, writeback, law-store carry,
+    # zone/RESA/gap writebacks, reports) is ONE shared frame.  Flipping
+    # ``solve_model`` changes ONLY the core between them — the
+    # mode-isolation gate (iterative builds byte-identical) rests on the
+    # iterative branch below being the pre-round code, unedited, merely
+    # indented into the ``else``.
+    if _solve_constructive:
+        from .constructive import constructive_core as _constructive_core
+        _cc = _constructive_core(
+            layout=layout, icao=icao, elev=elev, base_hard=base_hard,
+            nodes=nodes, bucket_to_idx=bucket_to_idx, n=n,
+            dem_elev=dem_elev, runway_nodes=runway_nodes,
+            shape_constraints=shape_constraints, G=G,
+            u_spine_adj_airside=u_spine_adj_airside,
+            u_spine_floor=u_spine_floor, node_band=node_band,
+            building_seats=building_seats, hard_cat=_hard_cat,
+            near_miss_edges=_near_miss_edges,
+            u_pair_stage=_u_pair_stage,
+            detached_pads=_detached_pads, pad_frontage=_pad_frontage,
+            seam_pin_idx=_seam_pin_idx,
+            gap_spine_chains=_gap_spine_chains,
+            zone_idx=_zone_idx, resa_idx=_resa_idx,
+            terrain_first=_terrain_first, iyf=_iyf)
+        # The locals the shared publication tail reads, bound from the
+        # constructive core (the iterative branch binds the same names
+        # in its own flow).
+        u_edges = _cc.u_edges
+        _u_family_of = _cc.u_family_of
+        _gs_hard = _cc.gs_hard
+        _solve_broken_idx = _cc.solve_broken_idx
+        yield_hard = _cc.yield_hard
+        rem, bh, n_free = _cc.rem, _cc.bh, _cc.n_free
+        frozen = _cc.frozen
+        _spine_phase_a = _cc.spine_phase_a
+        _spine_preserved = _cc.spine_preserved
+        _spine_yield_idx = _cc.spine_yield_idx
+        _mover = _cc.mover
+        _string_pins = _cc.string_pins
+        _summary = _cc.summary
+        _fairing_moved_keys = _cc.fairing_moved_keys
+        _scoped_gate = _cc.scoped_gate
+    else:
+        # PHASE A — dedicated SMOOTH spine solve on the unified graph (geometry
+        # nodes), runway/seam HARD at their LOCAL value, building floors honoured.
+        # The spine is min-curvature and ≤cap by construction, then FROZEN so the
+        # body grades to it (the body twists to meet the spine, never the reverse).
+        # Stage probe (P3 drag attribution) — allocated ONLY when the dump
+        # gate is set; ``None`` keeps every production call unchanged.
+        _spine_probe = ({} if _os.environ.get("O4_DUMP_SOLVE_STATE")
+                        else None)
+        # ── S1b: CHORD TARGETS AS DIRICHLET BOUNDARIES (docs/specs/
+        # s1b-first-class-chord-boundaries-spec.md §1) ─────────────────
+        # The harmonic owns 67.1 % of the corridor's departure from DEM
+        # and has NO altitude preference of its own — it interpolates
+        # toward whatever the network does.  Giving it the strings as
+        # BOUNDARIES is what supplies that preference, so the strings
+        # enter phase A ONCE, here, instead of overwriting its interiors
+        # afterwards (the α single-pass violation, now closed).
+        # ★ PRE-FREEZE ANCHORS: ``base_hard`` has not yet absorbed the
+        # spine freeze at this point (that happens below, on ``frozen``),
+        # and the hook contract's hazard follows the code — pass the
+        # TRUTH set, never a post-freeze one.
+        # ★ RULING 52 — the chord is never bent by law; the GRIP is.  A
+        # pin joins ``anchors``, so fairing and the exact cap projection
+        # can no longer drive a both-pinned pair to its cap; the pin SET
+        # is therefore law-filtered first and the released stations are
+        # handed back to the solver to ride their cap toward the chord.
+        # Gate off ⇒ never imported, never computed ⇒ phase A
+        # byte-identical.
+        _string_pins = None
+        _grip_yields: list = []
+        # Bound unconditionally: ``_summary`` is written in the gated
+        # block below and read again at the yield site (ruling 54).  A
+        # name bound only inside a branch is the UnboundLocalError class
+        # the SPLP/CYXY identity build caught in this very function.
+        _summary: dict = {}
+        # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+        # The taut-string machinery is the owner's PAUSED feature: the strings
+        # verdict is pending (memory ``string-purpose-statement``: strings are a
+        # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+        # surface authority), so this switch is deliberately NOT deleted with
+        # the law gates.  It selects whether a PARKED feature runs at all, not
+        # which law the build obeys.  Retire or adopt it when the owner rules.
+        if _os.environ.get("O4_TAUT_STRING_CONSTRUCTION", "0") == "1":
+            from auto_patch.config import TAXI_MAX_GRADE as _TAUT_CAP_DEF
+            from .taut_string import construct_taut_strings as _cts
+            from .taut_string import filter_pins_by_grade_law as _grip
+            _taut_cap: dict = {}
+            for _si, _slst in u_spine_adj.items():
+                for (_sj, _sbudget) in _slst:
+                    _spk = (_si, _sj) if _si < _sj else (_sj, _si)
+                    if _spk in _taut_cap:
+                        continue
+                    _sdist = _GG._dist(G.pos.get(_si), G.pos.get(_sj))
+                    if _sdist > 1e-9:
+                        _taut_cap[_spk] = float(_sbudget) / _sdist
+
+            def _taut_cap_of(_a, _b):
+                return _taut_cap.get((_a, _b) if _a < _b else (_b, _a),
+                                     _TAUT_CAP_DEF)
+
+            _raw_pins = _cts(
+                layout, G, elev=elev, bucket_to_idx=bucket_to_idx, n=n,
+                node_band=node_band,
+                hard=(truth_hard | {i for i in runway_nodes if i < n}
+                      | {i for i in building_seats if i < n}),
+                # ── STAGE A'S ROUTE GRAPH HAS NO SERVICE CENTERLINES
+                # (S1c, couplings 7/8/16) ──────────────────────────────
+                # The strings built here become DIRICHLET PINS into phase A,
+                # so this is an AIRSIDE authority that WRITES values — the
+                # same standing that made ``_solve_spine_profile`` apply the
+                # ``service_spine_pairs`` exclusion internally (cycle 8) and
+                # that ``reach_band_unified`` has obeyed since
+                # REACH_NO_SERVICE_SPINES.  These two consumers simply
+                # predate it: ``_build_spine_corridors`` cut its pieces from
+                # the RAW graph, and ``taut_string.walk_spine_runs`` builds
+                # its walk adjacency from whatever it is handed — it skips
+                # service CHAINS but service EDGES stayed walkable, so an
+                # airside chain's segmentation (its turns, its gaps) was
+                # decided partly by the road network.  Service corridors are
+                # stage-B objects entirely and are strung, solved and
+                # emitted there.
+                corridor_pieces=_build_spine_corridors(u_spine_adj_airside,
+                                                       nodes),
+                junction_adj=u_spine_adj_airside, cap_of_segment=_taut_cap_of,
+                # ── PROBE B (spec §2): pure passengers for the hook-entry
+                # state dump.  ``_hard_cat`` is passed as a COPY so the
+                # callee cannot alias a set the solver iterates.
+                # ⚠ ``_have_initial`` is NOT the warm-start/DEM splitter
+                # the spec assumed — every seeding branch sets it, so it
+                # reads True for every node (see the constructor's
+                # docstring).  It ships as specified; do not read a P0
+                # sub-class out of it.  Neither is read by the callee.
+                hard_cat=dict(_hard_cat),
+                have_initial=_have_initial)
+            # ★ ``_store_of`` is imported at MODULE level (line ~20) and
+            # used unconditionally later in this function.  Re-importing
+            # it HERE would make the name function-LOCAL, so with the gate
+            # OFF the later uses raise UnboundLocalError — a gate-off
+            # break, which is exactly what the identity build caught.
+            # Use the module-level binding; never shadow it.
+            _summary = (_store_of(layout).raw("string_domains") or {}).get(
+                "__summary__", {})
+            # ★ FIX ARM §1 — GRIP COMPLETENESS.  ``elev`` supplies the
+            # HARD side's value so the filter can also examine pin-vs-hard
+            # pairs (a pin one spine edge from a seat / runway join / seam
+            # was never enumerated, and the mover ledger proved those 88
+            # ``law_anchor`` conflicts are STATIC — born right here).  The
+            # hard set is the one this call already used; the array is read
+            # only, and hard values are stamped by P0-P5 well before this
+            # point.  Inside the string gate: gate off ⇒ never reached.
+            # ★ ROUND 2 §1a — THE GRIP'S PAIR GRAPH IS THE LAW'S.
+            # ``shape_constraints`` is the ONE constraints object this
+            # solve built at its top (well BEFORE this hook — the round-2
+            # spec's premise that the build follows the hook is stale;
+            # nothing is reordered and nothing is rebuilt).  Its edges
+            # stream through the grip in a single pass, so the pin pair
+            # universe also contains the junction/apron RING edges the
+            # spine graph does not carry, and (§1b) the two-hop pairs
+            # through one free node.  The counter proves no second build.
+            from auto_patch.elevation_per_surface import (
+                solver_primitives as _sp_audit)
+            _sc_builds_before = _sp_audit.SHAPE_CONSTRAINT_BUILDS
+            _grip_stats: dict = {}
+            # THE LAZY TIER IS A HOLE IN THE STREAM, MEASURED not assumed:
+            # a flatness-CERTIFIED apron/junction entry carries only its
+            # ring-adjacent pairs eagerly (the body pairs live behind
+            # ``lazy_expand``).  Expanding them here would be the second
+            # build the spec forbids, so the grip reads what the entry
+            # holds — and this counts the entries where that could hide a
+            # pin-vs-pin pair, so a residual can be attributed instead of
+            # explained away.
+            _lazy_entries = 0
+            _lazy_multi_pin = 0
+            for _sc_e in shape_constraints:
+                if _sc_e.get("lazy_expand") is None:
                     continue
-                _sdist = _GG._dist(G.pos.get(_si), G.pos.get(_sj))
-                if _sdist > 1e-9:
-                    _taut_cap[_spk] = float(_sbudget) / _sdist
+                _lazy_entries += 1
+                if sum(1 for _li in (_sc_e.get("lazy_nodes") or ())
+                       if _li in _raw_pins) >= 2:
+                    _lazy_multi_pin += 1
+            _grip_stats["n_lazy_entries"] = _lazy_entries
+            _grip_stats["n_lazy_entries_with_2plus_pins"] = _lazy_multi_pin
+            _t_grip = _time.time()
+            _string_pins, _grip_yields = _grip(
+                _raw_pins, u_spine_adj,
+                hard=(truth_hard | {i for i in runway_nodes if i < n}),
+                endpoint_depth=_summary.get("pin_depth") or {},
+                elev=elev,
+                law_edges=_law_edge_stream(shape_constraints),
+                stats_out=_grip_stats)
+            _grip_stats["grip_seconds"] = _time.time() - _t_grip
+            _grip_stats["shape_constraint_builds_during_grip"] = (
+                _sp_audit.SHAPE_CONSTRAINT_BUILDS - _sc_builds_before)
+            _grip_stats["n_constraint_entries"] = len(shape_constraints)
+            assert _grip_stats["shape_constraint_builds_during_grip"] == 0, (
+                "the grip must consume the solve's ONE constraints object")
+            # ── ROUND 4 §1: PINS LIVE ON THE FROZEN GRAPH ─────────────
+            # The grip has finished; ``_kept_by_grip`` is its answer.  Now
+            # drop the targets the phase-A solve structurally cannot hold
+            # (see ``_pins_on_frozen_graph``).  ONE rebinding of
+            # ``_string_pins`` covers every consumer at once — the phase-A
+            # ``string_pins=`` argument, Ruling 54's ``yield_hard``, the
+            # mover watch set, the final-hold export and the G2/pin-drag
+            # delivery all read this name and nothing else.  Off-graph
+            # targets are ledgered below and never applied anywhere.
+            _kept_by_grip = _string_pins
+            _string_pins, _pins_off_graph = _pins_on_frozen_graph(
+                _kept_by_grip, u_spine_adj, n)
+            # ── THE PIN LEDGER, stamped with its grip disposition ─────
+            # Production is the only place that knows which vertices were
+            # pinned and to what value; the offline re-walk has failed to
+            # reproduce it three times.  So the disposition ships in the
+            # sidecar, and ``max |emitted - chord|`` at kept pins becomes
+            # a one-line check on the next build.
+            _off_graph_strings, _n_off_targets = _stamp_pin_ledger(
+                _summary.get("pins", ()), _string_pins, _pins_off_graph,
+                u_spine_adj, n)
+            _summary["n_targets"] = len(_raw_pins)
+            # ★ ARITHMETIC: n_targets = n_pins_kept + n_pins_off_graph
+            #   + n_released.  ``n_pins_kept`` is the APPLIED set (what the
+            # solve holds); the release counts keep their old meaning (what
+            # the grip's law filter released), so no existing reader's
+            # number changes meaning silently — the new third bucket is
+            # named, not folded into either.
+            _summary["n_pins_kept"] = len(_string_pins)
+            _summary["n_pins_off_graph"] = len(_pins_off_graph)
+            # the TARGET-level count (rows with ``pin_frozen`` false):
+            # off-graph pins the grip already released are counted here and
+            # NOT in ``n_pins_off_graph`` — two populations, never mixed.
+            _summary["n_targets_off_graph"] = _n_off_targets
+            _summary["pins_off_graph_strings"] = _off_graph_strings
+            _summary["n_released"] = len(_raw_pins) - len(_kept_by_grip)
+            _summary["n_over_cap_pairs"] = len(_grip_yields)
+            # kept under their old names too — a renamed key silently
+            # breaks whatever already reads the sidecar.
+            _summary["n_pins_offered"] = len(_raw_pins)
+            _summary["n_pins_released"] = len(_raw_pins) - len(_kept_by_grip)
+            _summary["n_grip_yields"] = len(_grip_yields)
+            _summary["grip_yields"] = _grip_yields
+            # ROUND 2 §3 delivery: the pair universe the grip actually
+            # filtered on, its runtime, and the single-build proof.
+            _summary["grip_pair_universe"] = _grip_stats
+            # ★ WRITE THE SIDECAR LAST.  The constructor no longer writes
+            # it: the filter runs here, after the constructor returned, so
+            # a write during construction could never carry these counts —
+            # which is exactly why the log line proved the treatment ran
+            # while the sidecar could not.
+            from .taut_string import write_string_sidecar as _write_sidecar
+            _write_sidecar(layout)
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [S1b] n_targets={len(_raw_pins)} "
+                      f"n_pins_kept={len(_string_pins)} "
+                      f"n_pins_off_graph={len(_pins_off_graph)} "
+                      f"n_released={len(_raw_pins) - len(_kept_by_grip)} "
+                      f"n_over_cap_pairs={len(_grip_yields)} "
+                      f"(all five in the domains sidecar)")
+                if _pins_off_graph:
+                    print(f"    [S1b off-graph] {len(_pins_off_graph)} kept "
+                          f"target(s) have no u_spine_adj entry ⇒ the "
+                          f"phase-A freeze cannot hold them; ledgered, not "
+                          f"applied; string(s) {_off_graph_strings}")
+                print(f"    [S1b] grip pair universe: "
+                      f"{_grip_stats['n_pairs']} pair(s) from "
+                      f"{_grip_stats['n_law_edges_in']} within-shape law "
+                      f"edge(s) over {_grip_stats['n_constraint_entries']} "
+                      f"constraint entrie(s) + spine_adj; "
+                      f"by rule {_grip_stats['n_pairs_by_rule']}; "
+                      f"over-cap {_grip_stats['n_over_by_rule']}; "
+                      f"two-hop {_grip_stats['n_two_hop_pairs_offered']} "
+                      f"pair(s) over "
+                      f"{_grip_stats['n_two_hop_free_nodes']} free node(s); "
+                      f"tightened {_grip_stats['n_pairs_tightened']}; "
+                      f"lazy entries {_grip_stats['n_lazy_entries']} "
+                      f"({_grip_stats['n_lazy_entries_with_2plus_pins']} "
+                      f"with 2+ pins); "
+                      f"{_grip_stats['grip_seconds']:.3f} s; "
+                      f"second constraints build(s) during grip="
+                      f"{_grip_stats['shape_constraint_builds_during_grip']}")
+        frozen, _rod_pieces = _solve_spine_profile(
+            elev, base_hard, u_spine_adj, u_spine_floor, node_band,
+            nodes_xy=nodes, graph=G, probe_out=_spine_probe,
+            string_pins=_string_pins)
+        # ── SPINE-FREEZE ROUND: the yield-hard set and the preserved set ──
+        # (STANDING LAW; see the module comment above
+        # ``_spine_yield_membership``.)  Built BEFORE the freeze loop
+        # because ``truth_hard`` is precisely "hard before the freeze" and
+        # the loop is what makes the difference invisible.  The preserved
+        # set is ENUMERATED here, not implied: a spine node that is also a
+        # runway/CIFP value, a runway join, a seat, a detached-pad pin or a
+        # tile-seam pin is LAW and never yields.
+        _spine_phase_a: dict = {}
+        _spine_preserved, _spine_yield_idx = _spine_yield_membership(
+            frozen, n,
+            truth_hard=truth_hard,
+            runway_nodes=runway_nodes,
+            building_seats=building_seats,
+            runway_anchor=G.runway_anchor,
+            seam_pins=_seam_pin_idx,
+            seat_stamp_yield=_seat_yield_idx)
+        for i in frozen:
+            if i < n:
+                # §4: a seat the hard-stamp guard refused is not
+                # re-frozen by the phase-A freeze either — it was never
+                # phase-A TRUTH, only a phase-A estimate the projection
+                # was free to move.
+                if i in _seat_yield_idx:
+                    continue
+                base_hard[i] = True
+        if _spine_yield_idx:
+            # THE phase-A values, snapshotted for the FORENSIC movement
+            # report (they are no longer an authority — nothing downstream
+            # is pulled toward them).  Taken here, one statement after the
+            # freeze: phase B holds these nodes hard (they are
+            # ``base_hard``), so this is also their value at the first
+            # projection's entry — the honest "phase-A value".
+            _spine_phase_a = {i: float(elev[i]) for i in _spine_yield_idx}
+            try:
+                import O4_UI_Utils as _UI_sy
+                _UI_sy.vprint(1,
+                    f"  [spine-yield] {icao}: {len(frozen)} frozen spine "
+                    f"node(s); {len(_spine_yield_idx)} enter the downstream "
+                    f"projections FREE (yield-hard membership), "
+                    f"{len({i for i in frozen if i < n} & _spine_preserved)} "
+                    f"preserved base_hard (runway/CIFP/seat/seam).")
+            except Exception:
+                pass
+        _psub(0.62, "Solving elevations — spine profile solved")
 
-        def _taut_cap_of(_a, _b):
-            return _taut_cap.get((_a, _b) if _a < _b else (_b, _a),
-                                 _TAUT_CAP_DEF)
-
-        _raw_pins = _cts(
-            layout, G, elev=elev, bucket_to_idx=bucket_to_idx, n=n,
-            node_band=node_band,
-            hard=(truth_hard | {i for i in runway_nodes if i < n}
-                  | {i for i in building_seats if i < n}),
-            # ── STAGE A'S ROUTE GRAPH HAS NO SERVICE CENTERLINES
-            # (S1c, couplings 7/8/16) ──────────────────────────────
-            # The strings built here become DIRICHLET PINS into phase A,
-            # so this is an AIRSIDE authority that WRITES values — the
-            # same standing that made ``_solve_spine_profile`` apply the
-            # ``service_spine_pairs`` exclusion internally (cycle 8) and
-            # that ``reach_band_unified`` has obeyed since
-            # REACH_NO_SERVICE_SPINES.  These two consumers simply
-            # predate it: ``_build_spine_corridors`` cut its pieces from
-            # the RAW graph, and ``taut_string.walk_spine_runs`` builds
-            # its walk adjacency from whatever it is handed — it skips
-            # service CHAINS but service EDGES stayed walkable, so an
-            # airside chain's segmentation (its turns, its gaps) was
-            # decided partly by the road network.  Service corridors are
-            # stage-B objects entirely and are strung, solved and
-            # emitted there.
-            corridor_pieces=_build_spine_corridors(u_spine_adj_airside,
-                                                   nodes),
-            junction_adj=u_spine_adj_airside, cap_of_segment=_taut_cap_of,
-            # ── PROBE B (spec §2): pure passengers for the hook-entry
-            # state dump.  ``_hard_cat`` is passed as a COPY so the
-            # callee cannot alias a set the solver iterates.
-            # ⚠ ``_have_initial`` is NOT the warm-start/DEM splitter
-            # the spec assumed — every seeding branch sets it, so it
-            # reads True for every node (see the constructor's
-            # docstring).  It ships as specified; do not read a P0
-            # sub-class out of it.  Neither is read by the callee.
-            hard_cat=dict(_hard_cat),
-            have_initial=_have_initial)
-        # ★ ``_store_of`` is imported at MODULE level (line ~20) and
-        # used unconditionally later in this function.  Re-importing
-        # it HERE would make the name function-LOCAL, so with the gate
-        # OFF the later uses raise UnboundLocalError — a gate-off
-        # break, which is exactly what the identity build caught.
-        # Use the module-level binding; never shadow it.
-        _summary = (_store_of(layout).raw("string_domains") or {}).get(
-            "__summary__", {})
-        # ★ FIX ARM §1 — GRIP COMPLETENESS.  ``elev`` supplies the
-        # HARD side's value so the filter can also examine pin-vs-hard
-        # pairs (a pin one spine edge from a seat / runway join / seam
-        # was never enumerated, and the mover ledger proved those 88
-        # ``law_anchor`` conflicts are STATIC — born right here).  The
-        # hard set is the one this call already used; the array is read
-        # only, and hard values are stamped by P0-P5 well before this
-        # point.  Inside the string gate: gate off ⇒ never reached.
-        # ★ ROUND 2 §1a — THE GRIP'S PAIR GRAPH IS THE LAW'S.
-        # ``shape_constraints`` is the ONE constraints object this
-        # solve built at its top (well BEFORE this hook — the round-2
-        # spec's premise that the build follows the hook is stale;
-        # nothing is reordered and nothing is rebuilt).  Its edges
-        # stream through the grip in a single pass, so the pin pair
-        # universe also contains the junction/apron RING edges the
-        # spine graph does not carry, and (§1b) the two-hop pairs
-        # through one free node.  The counter proves no second build.
-        from auto_patch.elevation_per_surface import (
-            solver_primitives as _sp_audit)
-        _sc_builds_before = _sp_audit.SHAPE_CONSTRAINT_BUILDS
-        _grip_stats: dict = {}
-        # THE LAZY TIER IS A HOLE IN THE STREAM, MEASURED not assumed:
-        # a flatness-CERTIFIED apron/junction entry carries only its
-        # ring-adjacent pairs eagerly (the body pairs live behind
-        # ``lazy_expand``).  Expanding them here would be the second
-        # build the spec forbids, so the grip reads what the entry
-        # holds — and this counts the entries where that could hide a
-        # pin-vs-pin pair, so a residual can be attributed instead of
-        # explained away.
-        _lazy_entries = 0
-        _lazy_multi_pin = 0
-        for _sc_e in shape_constraints:
-            if _sc_e.get("lazy_expand") is None:
-                continue
-            _lazy_entries += 1
-            if sum(1 for _li in (_sc_e.get("lazy_nodes") or ())
-                   if _li in _raw_pins) >= 2:
-                _lazy_multi_pin += 1
-        _grip_stats["n_lazy_entries"] = _lazy_entries
-        _grip_stats["n_lazy_entries_with_2plus_pins"] = _lazy_multi_pin
-        _t_grip = _time.time()
-        _string_pins, _grip_yields = _grip(
-            _raw_pins, u_spine_adj,
-            hard=(truth_hard | {i for i in runway_nodes if i < n}),
-            endpoint_depth=_summary.get("pin_depth") or {},
-            elev=elev,
-            law_edges=_law_edge_stream(shape_constraints),
-            stats_out=_grip_stats)
-        _grip_stats["grip_seconds"] = _time.time() - _t_grip
-        _grip_stats["shape_constraint_builds_during_grip"] = (
-            _sp_audit.SHAPE_CONSTRAINT_BUILDS - _sc_builds_before)
-        _grip_stats["n_constraint_entries"] = len(shape_constraints)
-        assert _grip_stats["shape_constraint_builds_during_grip"] == 0, (
-            "the grip must consume the solve's ONE constraints object")
-        # ── ROUND 4 §1: PINS LIVE ON THE FROZEN GRAPH ─────────────
-        # The grip has finished; ``_kept_by_grip`` is its answer.  Now
-        # drop the targets the phase-A solve structurally cannot hold
-        # (see ``_pins_on_frozen_graph``).  ONE rebinding of
-        # ``_string_pins`` covers every consumer at once — the phase-A
-        # ``string_pins=`` argument, Ruling 54's ``yield_hard``, the
-        # mover watch set, the final-hold export and the G2/pin-drag
-        # delivery all read this name and nothing else.  Off-graph
-        # targets are ledgered below and never applied anywhere.
-        _kept_by_grip = _string_pins
-        _string_pins, _pins_off_graph = _pins_on_frozen_graph(
-            _kept_by_grip, u_spine_adj, n)
-        # ── THE PIN LEDGER, stamped with its grip disposition ─────
-        # Production is the only place that knows which vertices were
-        # pinned and to what value; the offline re-walk has failed to
-        # reproduce it three times.  So the disposition ships in the
-        # sidecar, and ``max |emitted - chord|`` at kept pins becomes
-        # a one-line check on the next build.
-        _off_graph_strings, _n_off_targets = _stamp_pin_ledger(
-            _summary.get("pins", ()), _string_pins, _pins_off_graph,
-            u_spine_adj, n)
-        _summary["n_targets"] = len(_raw_pins)
-        # ★ ARITHMETIC: n_targets = n_pins_kept + n_pins_off_graph
-        #   + n_released.  ``n_pins_kept`` is the APPLIED set (what the
-        # solve holds); the release counts keep their old meaning (what
-        # the grip's law filter released), so no existing reader's
-        # number changes meaning silently — the new third bucket is
-        # named, not folded into either.
-        _summary["n_pins_kept"] = len(_string_pins)
-        _summary["n_pins_off_graph"] = len(_pins_off_graph)
-        # the TARGET-level count (rows with ``pin_frozen`` false):
-        # off-graph pins the grip already released are counted here and
-        # NOT in ``n_pins_off_graph`` — two populations, never mixed.
-        _summary["n_targets_off_graph"] = _n_off_targets
-        _summary["pins_off_graph_strings"] = _off_graph_strings
-        _summary["n_released"] = len(_raw_pins) - len(_kept_by_grip)
-        _summary["n_over_cap_pairs"] = len(_grip_yields)
-        # kept under their old names too — a renamed key silently
-        # breaks whatever already reads the sidecar.
-        _summary["n_pins_offered"] = len(_raw_pins)
-        _summary["n_pins_released"] = len(_raw_pins) - len(_kept_by_grip)
-        _summary["n_grip_yields"] = len(_grip_yields)
-        _summary["grip_yields"] = _grip_yields
-        # ROUND 2 §3 delivery: the pair universe the grip actually
-        # filtered on, its runtime, and the single-build proof.
-        _summary["grip_pair_universe"] = _grip_stats
-        # ★ WRITE THE SIDECAR LAST.  The constructor no longer writes
-        # it: the filter runs here, after the constructor returned, so
-        # a write during construction could never carry these counts —
-        # which is exactly why the log line proved the treatment ran
-        # while the sidecar could not.
-        from .taut_string import write_string_sidecar as _write_sidecar
-        _write_sidecar(layout)
-        if _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [S1b] n_targets={len(_raw_pins)} "
-                  f"n_pins_kept={len(_string_pins)} "
-                  f"n_pins_off_graph={len(_pins_off_graph)} "
-                  f"n_released={len(_raw_pins) - len(_kept_by_grip)} "
-                  f"n_over_cap_pairs={len(_grip_yields)} "
-                  f"(all five in the domains sidecar)")
-            if _pins_off_graph:
-                print(f"    [S1b off-graph] {len(_pins_off_graph)} kept "
-                      f"target(s) have no u_spine_adj entry ⇒ the "
-                      f"phase-A freeze cannot hold them; ledgered, not "
-                      f"applied; string(s) {_off_graph_strings}")
-            print(f"    [S1b] grip pair universe: "
-                  f"{_grip_stats['n_pairs']} pair(s) from "
-                  f"{_grip_stats['n_law_edges_in']} within-shape law "
-                  f"edge(s) over {_grip_stats['n_constraint_entries']} "
-                  f"constraint entrie(s) + spine_adj; "
-                  f"by rule {_grip_stats['n_pairs_by_rule']}; "
-                  f"over-cap {_grip_stats['n_over_by_rule']}; "
-                  f"two-hop {_grip_stats['n_two_hop_pairs_offered']} "
-                  f"pair(s) over "
-                  f"{_grip_stats['n_two_hop_free_nodes']} free node(s); "
-                  f"tightened {_grip_stats['n_pairs_tightened']}; "
-                  f"lazy entries {_grip_stats['n_lazy_entries']} "
-                  f"({_grip_stats['n_lazy_entries_with_2plus_pins']} "
-                  f"with 2+ pins); "
-                  f"{_grip_stats['grip_seconds']:.3f} s; "
-                  f"second constraints build(s) during grip="
-                  f"{_grip_stats['shape_constraint_builds_during_grip']}")
-    frozen, _rod_pieces = _solve_spine_profile(
-        elev, base_hard, u_spine_adj, u_spine_floor, node_band,
-        nodes_xy=nodes, graph=G, probe_out=_spine_probe,
-        string_pins=_string_pins)
-    # ── SPINE-FREEZE ROUND: the yield-hard set and the preserved set ──
-    # (STANDING LAW; see the module comment above
-    # ``_spine_yield_membership``.)  Built BEFORE the freeze loop
-    # because ``truth_hard`` is precisely "hard before the freeze" and
-    # the loop is what makes the difference invisible.  The preserved
-    # set is ENUMERATED here, not implied: a spine node that is also a
-    # runway/CIFP value, a runway join, a seat, a detached-pad pin or a
-    # tile-seam pin is LAW and never yields.
-    _spine_phase_a: dict = {}
-    _spine_preserved, _spine_yield_idx = _spine_yield_membership(
-        frozen, n,
-        truth_hard=truth_hard,
-        runway_nodes=runway_nodes,
-        building_seats=building_seats,
-        runway_anchor=G.runway_anchor,
-        seam_pins=_seam_pin_idx,
-        seat_stamp_yield=_seat_yield_idx)
-    for i in frozen:
-        if i < n:
-            # §4: a seat the hard-stamp guard refused is not
-            # re-frozen by the phase-A freeze either — it was never
-            # phase-A TRUTH, only a phase-A estimate the projection
-            # was free to move.
-            if i in _seat_yield_idx:
-                continue
-            base_hard[i] = True
-    if _spine_yield_idx:
-        # THE phase-A values, snapshotted for the FORENSIC movement
-        # report (they are no longer an authority — nothing downstream
-        # is pulled toward them).  Taken here, one statement after the
-        # freeze: phase B holds these nodes hard (they are
-        # ``base_hard``), so this is also their value at the first
-        # projection's entry — the honest "phase-A value".
-        _spine_phase_a = {i: float(elev[i]) for i in _spine_yield_idx}
-        try:
-            import O4_UI_Utils as _UI_sy
-            _UI_sy.vprint(1,
-                f"  [spine-yield] {icao}: {len(frozen)} frozen spine "
-                f"node(s); {len(_spine_yield_idx)} enter the downstream "
-                f"projections FREE (yield-hard membership), "
-                f"{len({i for i in frozen if i < n} & _spine_preserved)} "
-                f"preserved base_hard (runway/CIFP/seat/seam).")
-        except Exception:
-            pass
-    _psub(0.62, "Solving elevations — spine profile solved")
-
-    # (The sloping-rect flat-end stamp that lived here was RETIRED by
-    # spec §10.2 — the global slice emits no rect roles and no end
-    # caps; role census across all fixtures measured zero.)
-    # PHASE B — body fill (apron/junction interiors + rect bodies + caps) with
-    # the spine frozen.  Apron body = 1% VISIBILITY/GEODESIC smoothing within
-    # the reach band [floor, ceiling] (apron_smooth=True) — graded ≤1% from its
-    # anchored edges/spine, NOT draped on raw DEM bumps (user 2026-06-26).  The
-    # band still fills it to the reachable level (west apron → ~693).
-    # RECEIVER-ONLY IN THE BODY SOLVE (cycle 9; ATTRIBUTED by probe, not
-    # guessed).  ``one_profile_solve`` makes every node of ``spine_adj`` a
-    # SPINE node and clamps it to its adjacency — and "the apron body yields
-    # to the spine instead of squeezing it out of grade".  With the road feed
-    # in the one graph that made TRUCK ROUTES into spines the aprons yield
-    # to: withholding the service edges from the graph (and nothing else)
-    # returned HECA -500 airside from 4,581 to 4,150 of a 4,129 baseline and
-    # KCLT -500 from 522 to 484 of 473 — i.e. ~95 % / ~78 % of the airside
-    # rise is carried HERE, by the graph edges, not by the pair law.
-    # ``_solve_spine_profile`` (phase A) already drops exactly this pair set
-    # (cycle 8); the body solve simply never did.  Direction, not deletion:
-    # the road pairs remain law in the partitioned projections and the road
-    # is still seated as a receiver from its mouth band.
-    _body_adj = u_spine_adj_airside
-    # a node left with only road edges is not an aircraft spine node
-    _body_nodes = ({i for i in u_spine_nodes if i in _body_adj}
-                   if _svc_pairs else u_spine_nodes)
-    if _svc_pairs:
-        _UI_env.vprint(1,
-            f"  [body-solve] {icao}: spine set {len(u_spine_nodes)} -> "
-            f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
-            f"{len(_body_adj)} node(s) after excluding "
-            f"{len(_svc_pairs)} service spine pair(s)")
-    n_free = one_profile_solve(
-        elev, shape_constraints, base_hard, nodes, dem_elev,
-        runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
-        node_band, u_spine_floor, coupling, apron_smooth=True)
-    _psub(0.78, "Solving elevations — body fill solved")
-    # Guarantee compliance: project EVERY grade-graph edge ≤cap with the
-    # spine + runway + buildings + seams HARD; only the apron/junction body
-    # flexes.  Edges left over cap have both ends hard = genuine steps.
-    hard = {i for i in range(n) if base_hard[i]}
-    hard |= {i for i in runway_nodes if i < n}
-    hard |= {i for i in building_seats if i < n}
-    # SPINE-FREEZE ROUND: the frozen spine leaves the HARD membership
-    # — a value certified on the 1.5-4.8 k-edge phase-A subgraph is an
-    # ESTIMATE against this 64-272 k-edge law, so it settles where the
-    # full graph admits instead of forcing a contradiction.
-    # ``_spine_yield_idx`` already excludes every preserved class, so
-    # this subtraction can never release a runway/CIFP value, a seat
-    # or a seam pin.
-    hard -= _spine_yield_idx
-    # ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
-    # ``docs/specs/apron-terrace-law-spec.md``; gate
-    # ``O4_APRON_TERRACE_LAW``, default off) ──────────────────────
-    # THE PANELIZATION IS NOT HERE ANY MORE — it ran before the solve
-    # (``pipeline`` -> ``construct_apron_terrace_presolve``), which is
-    # what makes the panel boundary a set of SOLVE VARIABLES instead of
-    # geometry invented after the surface settled.  What runs here is
-    # the BINDER: it resolves that declaration into this pass's index
-    # space and hands the projections the actual-step edges.  HERE, and
-    # not later, because the plan must bind every downstream projection
-    # through the SAME ``shape_constraints`` object.
-    _terrace_plan = None
-    from .apron_terrace import (apply_terrace_budgets,
-                                plan_apron_terraces)
-    try:
-        _terrace_plan = plan_apron_terraces(
-            layout, shape_constraints, nodes, dem_elev, elev,
-            hard, icao=icao, bucket_to_idx=bucket_to_idx)
-        _n_relaxed = apply_terrace_budgets(
-            _terrace_plan, shape_constraints, nodes)
-        layout._apron_terrace_plan = _terrace_plan
-        # ── THE FAN-RAMP LAW joins the SAME shape_constraints object
-        # (owner RULINGS 21f0980).  The zones were built pre-solve with
-        # the panelization; here their interior pairs enter the ONE solve
-        # at the 5 % zone cap as ordinary law edges, and a surface
-        # fanning between the two building seat levels is what the system
-        # solves to.  Movement surfaces are untouched — a pair only
-        # relaxes when its whole chord is inside one zone.
-        from .apron_terrace import apply_fan_ramp_caps as _apply_fan
-        _fan_plan = getattr(layout, "_fan_ramp_plan", None)
-        _n_fan = _apply_fan(_fan_plan, shape_constraints, nodes)
-        if _n_fan:
-            import O4_UI_Utils as _UI_fan
-            _UI_fan.vprint(1,
-                f"  [fan-ramp] {icao}: {_n_fan} within-apron law edge(s) "
-                f"raised to the {_fan_plan.zones[0]['cap'] * 100:.0f} % "
-                f"zone cap across {_fan_plan.stats['zones']} zone(s)")
-        if _terrace_plan is not None:
-            import O4_UI_Utils as _UI_terr
-            _UI_terr.vprint(1,
-                f"  [apron-terrace] {icao}: "
-                f"{_terrace_plan.stats['triggered']} apron(s) "
-                f"panelized, {_terrace_plan.stats['joints']} "
-                f"declared joint(s), {_n_relaxed} law edge(s) "
-                f"bound to a joint step; "
-                f"{_terrace_plan.stats['joint_step_pairs']} "
-                f"joint-step pair constraint(s), "
-                f"{_terrace_plan.stats['facing_edges_excluded']} "
-                f"facing-boundary edge(s) held at full law, "
-                f"{_terrace_plan.stats['facing_conformance_pairs']}"
-                f" conformance pair(s), "
-                f"{_terrace_plan.stats['joints_stillborn_keepout']}"
-                f" stillborn; apron area "
-                f"{_terrace_plan.area_fraction() * 100:.1f} % "
-                f"(REPORT ONLY)")
-    except Exception as _terr_exc:
-        # A production build must never die on an optional law
-        # pass — but a MEASUREMENT arm that silently produces the
-        # default surface is worse than a crash (it reads as "the
-        # law did nothing", which is a result).  Under the debug
-        # gate the failure is raised.
-        import O4_UI_Utils as _UI_terr
-        _UI_terr.vprint(1, f"  [pav-builder] WARN: {icao}: apron "
-                           f"terrace plan failed ({_terr_exc}) — "
-                           f"no panelization this build.")
+        # (The sloping-rect flat-end stamp that lived here was RETIRED by
+        # spec §10.2 — the global slice emits no rect roles and no end
+        # caps; role census across all fixtures measured zero.)
+        # PHASE B — body fill (apron/junction interiors + rect bodies + caps) with
+        # the spine frozen.  Apron body = 1% VISIBILITY/GEODESIC smoothing within
+        # the reach band [floor, ceiling] (apron_smooth=True) — graded ≤1% from its
+        # anchored edges/spine, NOT draped on raw DEM bumps (user 2026-06-26).  The
+        # band still fills it to the reachable level (west apron → ~693).
+        # RECEIVER-ONLY IN THE BODY SOLVE (cycle 9; ATTRIBUTED by probe, not
+        # guessed).  ``one_profile_solve`` makes every node of ``spine_adj`` a
+        # SPINE node and clamps it to its adjacency — and "the apron body yields
+        # to the spine instead of squeezing it out of grade".  With the road feed
+        # in the one graph that made TRUCK ROUTES into spines the aprons yield
+        # to: withholding the service edges from the graph (and nothing else)
+        # returned HECA -500 airside from 4,581 to 4,150 of a 4,129 baseline and
+        # KCLT -500 from 522 to 484 of 473 — i.e. ~95 % / ~78 % of the airside
+        # rise is carried HERE, by the graph edges, not by the pair law.
+        # ``_solve_spine_profile`` (phase A) already drops exactly this pair set
+        # (cycle 8); the body solve simply never did.  Direction, not deletion:
+        # the road pairs remain law in the partitioned projections and the road
+        # is still seated as a receiver from its mouth band.
+        _body_adj = u_spine_adj_airside
+        # a node left with only road edges is not an aircraft spine node
+        _body_nodes = ({i for i in u_spine_nodes if i in _body_adj}
+                       if _svc_pairs else u_spine_nodes)
+        if _svc_pairs:
+            _UI_env.vprint(1,
+                f"  [body-solve] {icao}: spine set {len(u_spine_nodes)} -> "
+                f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
+                f"{len(_body_adj)} node(s) after excluding "
+                f"{len(_svc_pairs)} service spine pair(s)")
+        n_free = one_profile_solve(
+            elev, shape_constraints, base_hard, nodes, dem_elev,
+            runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
+            node_band, u_spine_floor, coupling, apron_smooth=True)
+        _psub(0.78, "Solving elevations — body fill solved")
+        # Guarantee compliance: project EVERY grade-graph edge ≤cap with the
+        # spine + runway + buildings + seams HARD; only the apron/junction body
+        # flexes.  Edges left over cap have both ends hard = genuine steps.
+        hard = {i for i in range(n) if base_hard[i]}
+        hard |= {i for i in runway_nodes if i < n}
+        hard |= {i for i in building_seats if i < n}
+        # SPINE-FREEZE ROUND: the frozen spine leaves the HARD membership
+        # — a value certified on the 1.5-4.8 k-edge phase-A subgraph is an
+        # ESTIMATE against this 64-272 k-edge law, so it settles where the
+        # full graph admits instead of forcing a contradiction.
+        # ``_spine_yield_idx`` already excludes every preserved class, so
+        # this subtraction can never release a runway/CIFP value, a seat
+        # or a seam pin.
+        hard -= _spine_yield_idx
+        # ── APRON TERRACE LAW (owner ruling 2026-08-04; spec
+        # ``docs/specs/apron-terrace-law-spec.md``; gate
+        # ``O4_APRON_TERRACE_LAW``, default off) ──────────────────────
+        # THE PANELIZATION IS NOT HERE ANY MORE — it ran before the solve
+        # (``pipeline`` -> ``construct_apron_terrace_presolve``), which is
+        # what makes the panel boundary a set of SOLVE VARIABLES instead of
+        # geometry invented after the surface settled.  What runs here is
+        # the BINDER: it resolves that declaration into this pass's index
+        # space and hands the projections the actual-step edges.  HERE, and
+        # not later, because the plan must bind every downstream projection
+        # through the SAME ``shape_constraints`` object.
         _terrace_plan = None
-        if _os.environ.get("O4_APRON_TERRACE_DEBUG") == "1":
-            raise
-    # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
-    # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "1" since the
-    # 2026-08-04 kill-half flip) ─────────────────────────────────
-    # "A hard anchor whose node carries NO route-pavement role may not
-    # seed the airside feasibility envelope in ANY pass."  ONE role
-    # scan for this whole solve; ``feasibility_project`` intersects it
-    # with each pass's own hard set.  ``_hard_cat`` is the solve's own
-    # provenance map for the role-unmatched anchors (spec §2: they are
-    # CLASSIFIED, never dropped blind).  Gate off ⇒ ``None`` passed
-    # everywhere ⇒ byte-identical.
-    _rm_roles, _rm_route_roles, _route_excluded = (
-        _route_witness_admission(layout, bucket_to_idx, n))
-    if route_metric_envelope_enabled():
-        _rm_excl, _rm_rep = _non_route_witness_nodes(
-            _rm_roles, _rm_route_roles, hard, n, provenance=_hard_cat)
-        _route_excluded |= _rm_excl
-        _report_witness_admission(icao, "solve", _rm_rep)
-    else:                                              # pragma: no cover
-        _route_excluded = None
-    # ── THE PROJECTION PARTITIONS, SOLVE SIDE (spec addendum) ─────────
-    # The same receiver set the final projection uses, in the SOLVE's node
-    # space.  EVERY projection of this solve partitions, not only fp#8:
-    # the addendum says "in every projection", and a phase-A/B pass that
-    # still co-projects the two sides hands fp#8 an airside seed a
-    # groundside pair already moved — measured as a 1-2 row canyon
-    # flutter (HEAZ 10 000 +2, KCLT 10 000 +1) that survived partitioning
-    # the last three sites alone.
-    _solve_receivers = _receiver_nodes_from_roles(_rm_roles,
-                                                  _gap_spine_b_idx)
-    rem, bh = feasibility_project_partitioned(
-                                  elev, shape_constraints, hard,
-                                  receiver_nodes=_solve_receivers, n_nodes=n,
-                                  interval_yield_from=_iyf,
-                                  witness_excluded=_route_excluded,
-                                  env_band=_env_band)
-    # Project on the UNIFIED graph's OWN edges too (the EXACT pairs/caps the
-    # validator checks — rects/caps all-pair, which shape_constraints only
-    # approximates with axial edges), so build and validate cannot leave a
-    # residual between them.  The spine stays HARD; only body nodes flex.
-    u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
-               for (a, b, cap, _sp) in G.edges
-               if a in G.pos and b in G.pos]
-    # THE FAMILY AXIS, TAKEN ONCE (cycle-7 fix 5; single-pass principle).
-    # ``family_by_pair`` walks the whole unified edge list, and THREE
-    # readers want it now: the SOLVE EXIT certificate below, the fp#8
-    # projection's own uncertified-exit family table, and the final
-    # projection's ENTRY/EXIT certificates (which rebuild their own graph
-    # and take their own map).  Taken here, beside the edge list it is
-    # derived from, and handed to both consumers in this scope.
-    _u_family_of = G.family_by_pair()
-    # THE UNIFIED GRAPH'S OWN MINT-TIME STAGES (staged-solve S1b).  Taken
-    # beside the family axis it parallels, once, and handed to every
-    # projection below through ``_u_entries``.  Before S1b the whole
-    # graph reached each projection as ONE bare ``{"edges": u_edges}``
-    # entry with no role key, so every service_road / service_junction /
-    # groundside_pavement within-shape law pair was enforced in the
-    # AIRSIDE pass (tmp/s1_attribution.md couplings 3 and 6 — with
-    # coupling 6 measured as a channel of HECA's corridor +130).
-    for _pk_, _st_ in G.stage_by_pair().items():
-        _u_pair_stage.setdefault(_pk_, _st_)
-    # NEAR-MISS BUILDING-FRONTAGE LAW EDGES (2026-07-08): pad ↔ apron
-    # near-miss edge endpoints, budget = APRON_MAX_GRADE·d — the value-
-    # agreement law across a sub-metre unpaved source-offset sliver (SPJC
-    # building29).  The phase-A/B floors alone don't survive the
-    # projections (min-displacement POCS knows caps, not floors, and
-    # projects the lift away); as u_edges members these pairs are
-    # enforced by every projection INCLUDING the movable-pad final yield
-    # GS, which settles pad level and apron edge JOINTLY (pad stays a
-    # rigid flat group).  Gate O4_BUILDING_FRONTAGE_NEAR_MISS=0 → no
-    # edges, byte-identical.  See anchors.near_miss_building_frontage_edges.
-    from .anchors import near_miss_building_frontage_edges
-    # (PAD ROD COUPLING — the ``weld_refs_out`` contact map and its
-    # ``pad_weld_refs`` store carry — was DELETED with the §7
-    # reference channel it fed.  The near-miss frontage LAW EDGES
-    # stay: they are ordinary law, enforced by every projection.)
-    # ONE PASS (2026-08-06): the near-miss recognition already ran at the
-    # band-withhold site above, where the frontage-coupling test needs
-    # it; these ARE those edges.  ``near_miss_building_frontage_edges``
-    # stays imported there for the one call.
-    u_edges.extend(_near_miss_edges)
-    # ── CROSS-SECTION LAW EDGES (LEAD RULINGS 2 ruling 1, 2026-08-08) ──
-    # PRICED ⟺ BOUND.  The TRANSVERSE census walks each taxi axis and
-    # prices the ring span BRACKETING it (|Δz| ≤ cT·width); R-b plants
-    # exactly that span's two feet.  The R-b round then MEASURED that
-    # the solve leaves those feet within 2 cm of the straight chord and
-    # the decimator collapses them — the census was pricing a pair the
-    # solve never bound (CYXY apron shapeID 115: 35 planted, 2 emitted,
-    # 1.51 m over 17.56 m at the 1 % apron transverse cap).  So the
-    # pairs join ``u_edges`` here, beside the near-miss frontage law
-    # they follow precedent from, and every projection below enforces
-    # them.  R-a is untouched: ``u_edges`` is the SURFACE edge set, not
-    # the route graph — ``G.spine_adj`` still skips every foot, so a
-    # cross-section constrains elevation and mints no route edge.
-    from auto_patch.lateral_spine_nodes import (
-        lateral_xsection_law_edges as _xsec_edges)
-    _xsec = _xsec_edges(layout, bucket_to_idx, stage_out=_u_pair_stage)
-    if _xsec:
-        u_edges.extend(_xsec)
-        import O4_UI_Utils as _UI_XS
-        _UI_XS.vprint(1, f"  [xsection-law] {len(_xsec)} priced "
-                         f"cross-section pair(s) BOUND in the solve "
-                         f"(|dz| <= cT*width)")
-    # APRON TERRACE LAW: the unified graph carries its OWN copy of the
-    # apron's all-pair law, so the joint budgets have to be bound onto
-    # it too — one law, both edge sets (see
-    # ``apron_terrace.apply_terrace_budgets_to_edges``).  Done once,
-    # here, because ``u_edges`` is reused by every later projection in
-    # this function.  No plan ⇒ the list object is returned unchanged.
-    if _terrace_plan is not None:
-        from .apron_terrace import apply_terrace_budgets_to_edges
-        u_edges, _n_u_relaxed = apply_terrace_budgets_to_edges(
-            _terrace_plan, u_edges, nodes)
-        if _n_u_relaxed and _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [apron-terrace] {_n_u_relaxed} unified-graph "
-                  f"edge(s) bound to a joint step")
-    # BOTH EDGE SETS OR NEITHER: relief granted only in
-    # ``shape_constraints`` is taken straight back by the unified-graph
-    # projection.  Same law, same call shape as the terrace budget.
-    from .apron_terrace import apply_fan_ramp_caps_to_edges as _apply_fan_u
-    u_edges, _n_u_fan = _apply_fan_u(
-        getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
-    if _n_u_fan and _os.environ.get("O4_STEP_DEBUG") == "1":
-        print(f"    [fan-ramp] {_n_u_fan} unified-graph edge(s) at the "
-              f"zone cap")
-    rem, bh = feasibility_project_partitioned(
-                                  elev,
-                                  _unified_entries(u_edges, _u_pair_stage,
-                                                   "solve/unified"), hard,
-                                  receiver_nodes=_solve_receivers, n_nodes=n,
-                                  witness_excluded=_route_excluded,
-                                  env_band=_env_band)
-    # (The end-cap planar re-stamp that lived here was RETIRED by spec
-    # §10.2 with the rect flat-end stamp above.)
-    # GROUNDSIDE REACH + MOUTH WELD (user 2026-06-27).  Done LAST — after the
-    # body solve + feasibility project — so buildings + aprons are anchored:
-    #   1. Re-level each groundside piece a service road connects to an apron, to
-    #      the elevation the connector can REACH within the service-road grade
-    #      cap (apron mouth ± cap·route_len, clamped toward DEM) — so the
-    #      connector grades <=cap instead of ramping steeply to the raw DEM.  A
-    #      piece with no apron-connected service road stays DEM.
-    #   2. Weld each service-road connector mouth to the (re-levelled) groundside
-    #      altitude, so connector and groundside emit as ONE node (no cliff).
-    # Gate off → elev + groundside untouched → byte-identical.
-    _gs_hard = set()
-    # Stage G's moved set, bound unconditionally so the mover ledger
-    # (probe A) can read it whether or not the groundside gate ran.
-    # Re-bound below by ``apply_service_road_dem_follow``.
-    _svc_moved: set = set()
-    # ── GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
-    # memory ``groundside-terrace-law``; gate
-    # ``O4_GS_NO_AIRSIDE_WITNESS``, default ON) ──────────────────────
-    # "Groundside values never act as a feasibility witness (floor or
-    # ceiling) for airside pavement beyond the Part-C mouth allowance"
-    # — the mirror of the standing ruling that airside reachability
-    # never rides service roads or groundside
-    # (memory ``free-road-ruling``).
-    #
-    # Part C already bounds what a groundside pin may BE (its value may
-    # not exceed its WELD DATUM — a solved pavement variable — by more
-    # than the reach law plus ``cap·MOUTH_ALLOWANCE_M``; item 3(a)
-    # replaced the old own-DEM datum, the allowance is unchanged).
-    # This bounds what it may DO: the pin stays HARD — groundside is
-    # still pinned, and every mouth-weld law edge is still enforced by
-    # the sweeps — but it is withdrawn from the reach-envelope anchor
-    # set that DECLARES BREAK REGIONS for airside nodes, except within
-    # one connector throat of the mouth (the permitted exception,
-    # ``anchors.gs_witness_horizon`` — the same scalar as Part C's
-    # value bound, in the envelope's budget metric).
-    #
-    # Why (measured 2026-07-30 by witness-pair forensics,
-    # ``O4_BREAK_FORENSICS``): of HECA's 13,428 broken nodes at fp#8, a
-    # ``gs_pin`` is the floor or ceiling witness for 12,123 = 90.3 %,
-    # median deficit ≈24 m.  Groundside was ASSERTING an authority the
-    # owner's law does not grant it.
-    #
-    # ★ WHAT IT IS NOT.  Withdrawing that authority is NOT curative, and
-    # the "strip the class and 802 remain" reading of the forensics table
-    # was a CATEGORY ERROR — the table partitions broken nodes by their
-    # TIGHTEST witness pair, so removing an anchor class RE-WITNESSES
-    # those nodes rather than freeing them.  Measured on this change:
-    # fp#8 broken 13,428 → 13,258 (−170, zero new), of which 98.6 % of
-    # the 12,123 groundside-witnessed nodes are still broken, now
-    # ``seed_rwy_seam`` ↔ ``seed_rwy_seam`` (802 → 11,783, deficit p50
-    # 4.0 → 19.6 m).  The residual is a RUNWAY-SEAM-anchor contradiction
-    # concentrated in a handful of anchors (one ceiling witness accounts
-    # for 8,187 of the 11,783) — that, not groundside, is where the
-    # ``feasibility-is-guaranteed`` investigation goes next.
-    #
-    # ★ BUILD-TIME COST (CLAUDE.md item 6, alternating 3-run A/B on one
-    # frozen tree): CYXY 35.4 s → 38.6 s (+3.2 s, +9 %); the SAME tree
-    # with the gate off runs 35.2 s, so the added code costs nothing —
-    # the cost is BEHAVIOURAL.  Withdrawing an anchor loosens the
-    # one-shot reach envelope, so fewer nodes are clamped by the warm
-    # start and the POCS sweeps do more work.  HECA is unaffected
-    # (348-352 s across every arm).  Under budget (60 s) but over the
-    # 1 % review trigger — reported, not approved.
-    # Gate off ⇒ ``None`` ⇒ the single unrestricted envelope pass ⇒
-    # byte-identical (proven: HECA patch body identical to the
-    # pre-clause tree, 2026-07-30).
-    _gs_witness = None
-    from auto_patch.config import SERVICE_ROAD_MAX_GRADE
-    from .anchors import apply_groundside_reach, gs_witness_horizon
-    _nrl, _gs_hard = apply_groundside_reach(
-        layout, bucket_to_idx, elev, SERVICE_ROAD_MAX_GRADE)
-    # STANDING LAW (owner 2026-07-30, memory ``airside-is-king`` /
-    # ``groundside-terrace-law``; UNGATED in the build-complete-then-
-    # debug round).  "Groundside has ZERO effect or pull on airside" —
-    # so a groundside pin witnesses the airside envelope only inside the
-    # Part-C mouth allowance, and nothing beyond it.  This is the SOLVE
-    # half; the final-projection half is the same law one node space
-    # later, and both are now on: shipping one half was the compromise
-    # the gates encoded, and a half-applied owner law is not a state
-    # this architecture has.
-    #
-    # Measured cost of the solve half, RECORDED (not a reason to gate):
-    # CYXY solve +3.4 s (35.2 → 38.6 s, 3 runs/arm same tree), HECA
-    # within-shape 460 → 482 against break pairs −631.
-    if _gs_hard:
-        _gs_witness = (frozenset(_gs_hard),
-                       gs_witness_horizon(SERVICE_ROAD_MAX_GRADE))
-    if _gs_hard:
-        # The truck route (apron arm + connector + groundside mouth) now
-        # carries its re-levelled value as a SEED; re-project so the apron
-        # BODY grades into the arm and nothing else exceeds its cap.
+        from .apron_terrace import (apply_terrace_budgets,
+                                    plan_apron_terraces)
+        try:
+            _terrace_plan = plan_apron_terraces(
+                layout, shape_constraints, nodes, dem_elev, elev,
+                hard, icao=icao, bucket_to_idx=bucket_to_idx)
+            _n_relaxed = apply_terrace_budgets(
+                _terrace_plan, shape_constraints, nodes)
+            layout._apron_terrace_plan = _terrace_plan
+            # ── THE FAN-RAMP LAW joins the SAME shape_constraints object
+            # (owner RULINGS 21f0980).  The zones were built pre-solve with
+            # the panelization; here their interior pairs enter the ONE solve
+            # at the 5 % zone cap as ordinary law edges, and a surface
+            # fanning between the two building seat levels is what the system
+            # solves to.  Movement surfaces are untouched — a pair only
+            # relaxes when its whole chord is inside one zone.
+            from .apron_terrace import apply_fan_ramp_caps as _apply_fan
+            _fan_plan = getattr(layout, "_fan_ramp_plan", None)
+            _n_fan = _apply_fan(_fan_plan, shape_constraints, nodes)
+            if _n_fan:
+                import O4_UI_Utils as _UI_fan
+                _UI_fan.vprint(1,
+                    f"  [fan-ramp] {icao}: {_n_fan} within-apron law edge(s) "
+                    f"raised to the {_fan_plan.zones[0]['cap'] * 100:.0f} % "
+                    f"zone cap across {_fan_plan.stats['zones']} zone(s)")
+            if _terrace_plan is not None:
+                import O4_UI_Utils as _UI_terr
+                _UI_terr.vprint(1,
+                    f"  [apron-terrace] {icao}: "
+                    f"{_terrace_plan.stats['triggered']} apron(s) "
+                    f"panelized, {_terrace_plan.stats['joints']} "
+                    f"declared joint(s), {_n_relaxed} law edge(s) "
+                    f"bound to a joint step; "
+                    f"{_terrace_plan.stats['joint_step_pairs']} "
+                    f"joint-step pair constraint(s), "
+                    f"{_terrace_plan.stats['facing_edges_excluded']} "
+                    f"facing-boundary edge(s) held at full law, "
+                    f"{_terrace_plan.stats['facing_conformance_pairs']}"
+                    f" conformance pair(s), "
+                    f"{_terrace_plan.stats['joints_stillborn_keepout']}"
+                    f" stillborn; apron area "
+                    f"{_terrace_plan.area_fraction() * 100:.1f} % "
+                    f"(REPORT ONLY)")
+        except Exception as _terr_exc:
+            # A production build must never die on an optional law
+            # pass — but a MEASUREMENT arm that silently produces the
+            # default surface is worse than a crash (it reads as "the
+            # law did nothing", which is a result).  Under the debug
+            # gate the failure is raised.
+            import O4_UI_Utils as _UI_terr
+            _UI_terr.vprint(1, f"  [pav-builder] WARN: {icao}: apron "
+                               f"terrace plan failed ({_terr_exc}) — "
+                               f"no panelization this build.")
+            _terrace_plan = None
+            if _os.environ.get("O4_APRON_TERRACE_DEBUG") == "1":
+                raise
+        # ── NON-ROUTE SEED ADMISSION (spec ``route-metric-envelope`` §2;
+        # gate ``O4_ROUTE_METRIC_ENVELOPE``, default "1" since the
+        # 2026-08-04 kill-half flip) ─────────────────────────────────
+        # "A hard anchor whose node carries NO route-pavement role may not
+        # seed the airside feasibility envelope in ANY pass."  ONE role
+        # scan for this whole solve; ``feasibility_project`` intersects it
+        # with each pass's own hard set.  ``_hard_cat`` is the solve's own
+        # provenance map for the role-unmatched anchors (spec §2: they are
+        # CLASSIFIED, never dropped blind).  Gate off ⇒ ``None`` passed
+        # everywhere ⇒ byte-identical.
+        _rm_roles, _rm_route_roles, _route_excluded = (
+            _route_witness_admission(layout, bucket_to_idx, n))
+        if route_metric_envelope_enabled():
+            _rm_excl, _rm_rep = _non_route_witness_nodes(
+                _rm_roles, _rm_route_roles, hard, n, provenance=_hard_cat)
+            _route_excluded |= _rm_excl
+            _report_witness_admission(icao, "solve", _rm_rep)
+        else:                                              # pragma: no cover
+            _route_excluded = None
+        # ── THE PROJECTION PARTITIONS, SOLVE SIDE (spec addendum) ─────────
+        # The same receiver set the final projection uses, in the SOLVE's node
+        # space.  EVERY projection of this solve partitions, not only fp#8:
+        # the addendum says "in every projection", and a phase-A/B pass that
+        # still co-projects the two sides hands fp#8 an airside seed a
+        # groundside pair already moved — measured as a 1-2 row canyon
+        # flutter (HEAZ 10 000 +2, KCLT 10 000 +1) that survived partitioning
+        # the last three sites alone.
+        _solve_receivers = _receiver_nodes_from_roles(_rm_roles,
+                                                      _gap_spine_b_idx)
+        rem, bh = feasibility_project_partitioned(
+                                      elev, shape_constraints, hard,
+                                      receiver_nodes=_solve_receivers, n_nodes=n,
+                                      interval_yield_from=_iyf,
+                                      witness_excluded=_route_excluded,
+                                      env_band=_env_band)
+        # Project on the UNIFIED graph's OWN edges too (the EXACT pairs/caps the
+        # validator checks — rects/caps all-pair, which shape_constraints only
+        # approximates with axial edges), so build and validate cannot leave a
+        # residual between them.  The spine stays HARD; only body nodes flex.
+        u_edges = [(a, b, cap.at(_GG._dist(G.pos.get(a), G.pos.get(b)), 0.0))
+                   for (a, b, cap, _sp) in G.edges
+                   if a in G.pos and b in G.pos]
+        # THE FAMILY AXIS, TAKEN ONCE (cycle-7 fix 5; single-pass principle).
+        # ``family_by_pair`` walks the whole unified edge list, and THREE
+        # readers want it now: the SOLVE EXIT certificate below, the fp#8
+        # projection's own uncertified-exit family table, and the final
+        # projection's ENTRY/EXIT certificates (which rebuild their own graph
+        # and take their own map).  Taken here, beside the edge list it is
+        # derived from, and handed to both consumers in this scope.
+        _u_family_of = G.family_by_pair()
+        # THE UNIFIED GRAPH'S OWN MINT-TIME STAGES (staged-solve S1b).  Taken
+        # beside the family axis it parallels, once, and handed to every
+        # projection below through ``_u_entries``.  Before S1b the whole
+        # graph reached each projection as ONE bare ``{"edges": u_edges}``
+        # entry with no role key, so every service_road / service_junction /
+        # groundside_pavement within-shape law pair was enforced in the
+        # AIRSIDE pass (tmp/s1_attribution.md couplings 3 and 6 — with
+        # coupling 6 measured as a channel of HECA's corridor +130).
+        for _pk_, _st_ in G.stage_by_pair().items():
+            _u_pair_stage.setdefault(_pk_, _st_)
+        # NEAR-MISS BUILDING-FRONTAGE LAW EDGES (2026-07-08): pad ↔ apron
+        # near-miss edge endpoints, budget = APRON_MAX_GRADE·d — the value-
+        # agreement law across a sub-metre unpaved source-offset sliver (SPJC
+        # building29).  The phase-A/B floors alone don't survive the
+        # projections (min-displacement POCS knows caps, not floors, and
+        # projects the lift away); as u_edges members these pairs are
+        # enforced by every projection INCLUDING the movable-pad final yield
+        # GS, which settles pad level and apron edge JOINTLY (pad stays a
+        # rigid flat group).  Gate O4_BUILDING_FRONTAGE_NEAR_MISS=0 → no
+        # edges, byte-identical.  See anchors.near_miss_building_frontage_edges.
+        from .anchors import near_miss_building_frontage_edges
+        # (PAD ROD COUPLING — the ``weld_refs_out`` contact map and its
+        # ``pad_weld_refs`` store carry — was DELETED with the §7
+        # reference channel it fed.  The near-miss frontage LAW EDGES
+        # stay: they are ordinary law, enforced by every projection.)
+        # ONE PASS (2026-08-06): the near-miss recognition already ran at the
+        # band-withhold site above, where the frontage-coupling test needs
+        # it; these ARE those edges.  ``near_miss_building_frontage_edges``
+        # stays imported there for the one call.
+        u_edges.extend(_near_miss_edges)
+        # ── CROSS-SECTION LAW EDGES (LEAD RULINGS 2 ruling 1, 2026-08-08) ──
+        # PRICED ⟺ BOUND.  The TRANSVERSE census walks each taxi axis and
+        # prices the ring span BRACKETING it (|Δz| ≤ cT·width); R-b plants
+        # exactly that span's two feet.  The R-b round then MEASURED that
+        # the solve leaves those feet within 2 cm of the straight chord and
+        # the decimator collapses them — the census was pricing a pair the
+        # solve never bound (CYXY apron shapeID 115: 35 planted, 2 emitted,
+        # 1.51 m over 17.56 m at the 1 % apron transverse cap).  So the
+        # pairs join ``u_edges`` here, beside the near-miss frontage law
+        # they follow precedent from, and every projection below enforces
+        # them.  R-a is untouched: ``u_edges`` is the SURFACE edge set, not
+        # the route graph — ``G.spine_adj`` still skips every foot, so a
+        # cross-section constrains elevation and mints no route edge.
+        from auto_patch.lateral_spine_nodes import (
+            lateral_xsection_law_edges as _xsec_edges)
+        _xsec = _xsec_edges(layout, bucket_to_idx, stage_out=_u_pair_stage)
+        if _xsec:
+            u_edges.extend(_xsec)
+            import O4_UI_Utils as _UI_XS
+            _UI_XS.vprint(1, f"  [xsection-law] {len(_xsec)} priced "
+                             f"cross-section pair(s) BOUND in the solve "
+                             f"(|dz| <= cT*width)")
+        # APRON TERRACE LAW: the unified graph carries its OWN copy of the
+        # apron's all-pair law, so the joint budgets have to be bound onto
+        # it too — one law, both edge sets (see
+        # ``apron_terrace.apply_terrace_budgets_to_edges``).  Done once,
+        # here, because ``u_edges`` is reused by every later projection in
+        # this function.  No plan ⇒ the list object is returned unchanged.
+        if _terrace_plan is not None:
+            from .apron_terrace import apply_terrace_budgets_to_edges
+            u_edges, _n_u_relaxed = apply_terrace_budgets_to_edges(
+                _terrace_plan, u_edges, nodes)
+            if _n_u_relaxed and _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [apron-terrace] {_n_u_relaxed} unified-graph "
+                      f"edge(s) bound to a joint step")
+        # BOTH EDGE SETS OR NEITHER: relief granted only in
+        # ``shape_constraints`` is taken straight back by the unified-graph
+        # projection.  Same law, same call shape as the terrace budget.
+        from .apron_terrace import apply_fan_ramp_caps_to_edges as _apply_fan_u
+        u_edges, _n_u_fan = _apply_fan_u(
+            getattr(layout, "_fan_ramp_plan", None), u_edges, nodes)
+        if _n_u_fan and _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [fan-ramp] {_n_u_fan} unified-graph edge(s) at the "
+                  f"zone cap")
+        rem, bh = feasibility_project_partitioned(
+                                      elev,
+                                      _unified_entries(u_edges, _u_pair_stage,
+                                                       "solve/unified"), hard,
+                                      receiver_nodes=_solve_receivers, n_nodes=n,
+                                      witness_excluded=_route_excluded,
+                                      env_band=_env_band)
+        # (The end-cap planar re-stamp that lived here was RETIRED by spec
+        # §10.2 with the rect flat-end stamp above.)
+        # GROUNDSIDE REACH + MOUTH WELD (user 2026-06-27).  Done LAST — after the
+        # body solve + feasibility project — so buildings + aprons are anchored:
+        #   1. Re-level each groundside piece a service road connects to an apron, to
+        #      the elevation the connector can REACH within the service-road grade
+        #      cap (apron mouth ± cap·route_len, clamped toward DEM) — so the
+        #      connector grades <=cap instead of ramping steeply to the raw DEM.  A
+        #      piece with no apron-connected service road stays DEM.
+        #   2. Weld each service-road connector mouth to the (re-levelled) groundside
+        #      altitude, so connector and groundside emit as ONE node (no cliff).
+        # Gate off → elev + groundside untouched → byte-identical.
+        _gs_hard = set()
+        # Stage G's moved set, bound unconditionally so the mover ledger
+        # (probe A) can read it whether or not the groundside gate ran.
+        # Re-bound below by ``apply_service_road_dem_follow``.
+        _svc_moved: set = set()
+        # ── GROUNDSIDE FEASIBILITY-WITNESS CLAUSE (owner ruling 2026-07-30,
+        # memory ``groundside-terrace-law``; gate
+        # ``O4_GS_NO_AIRSIDE_WITNESS``, default ON) ──────────────────────
+        # "Groundside values never act as a feasibility witness (floor or
+        # ceiling) for airside pavement beyond the Part-C mouth allowance"
+        # — the mirror of the standing ruling that airside reachability
+        # never rides service roads or groundside
+        # (memory ``free-road-ruling``).
         #
-        # THE PINS ARE NOT HARD HERE (cycle-5 spec fix 3).  ``_gs_hard``
-        # used to join this projection's immovable set, which made the
-        # groundside weld value an ANCHOR.  On a constant-DEM world that
-        # value IS the raw DEM (the reach law re-levels a piece to its
-        # closest-to-DEM reachable level), so the anchor was DEM acting as
-        # a constraint — forbidden outright by RULINGS 2026-08-05 ("DEM is
-        # a SEED, never a constraint, never an authority") — and it was
-        # groundside pulling airside, forbidden by "airside is king".
+        # Part C already bounds what a groundside pin may BE (its value may
+        # not exceed its WELD DATUM — a solved pavement variable — by more
+        # than the reach law plus ``cap·MOUTH_ALLOWANCE_M``; item 3(a)
+        # replaced the old own-DEM datum, the allowance is unchanged).
+        # This bounds what it may DO: the pin stays HARD — groundside is
+        # still pinned, and every mouth-weld law edge is still enforced by
+        # the sweeps — but it is withdrawn from the reach-envelope anchor
+        # set that DECLARES BREAK REGIONS for airside nodes, except within
+        # one connector throat of the mouth (the permitted exception,
+        # ``anchors.gs_witness_horizon`` — the same scalar as Part C's
+        # value bound, in the envelope's budget metric).
         #
-        # Measured at HECA plateau: all 70 out-of-band hard nodes were
-        # ``gs_pin``; 25 sat exactly on the constant DEM; 21 of those were
-        # below their own band floor, worst deficit 89.369 m.  The single
-        # worst over-cap row in the whole solve (93.125 m) was one of them
-        # dragging an in-band building seat.
+        # Why (measured 2026-07-30 by witness-pair forensics,
+        # ``O4_BREAK_FORENSICS``): of HECA's 13,428 broken nodes at fp#8, a
+        # ``gs_pin`` is the floor or ceiling witness for 12,123 = 90.3 %,
+        # median deficit ≈24 m.  Groundside was ASSERTING an authority the
+        # owner's law does not grant it.
         #
-        # What still holds the weld together: every mouth-weld LAW EDGE is
-        # in the joint and enforced by the sweeps, and the pin's own law
-        # ceiling bounds it from above (below).  Losing the anchor loses
-        # no law — it loses an assertion.
-        _ghard = hard | {i for i in runway_nodes if i < n}
-        feasibility_project_partitioned(
-                            elev, shape_constraints, _ghard,
-                            receiver_nodes=_solve_receivers, n_nodes=n,
-                            interval_yield_from=_iyf,
-                            witness_limited=_gs_witness,
-                            witness_excluded=_route_excluded,
-                            env_band=_env_band)
-        feasibility_project_partitioned(
-                            elev,
-                            _unified_entries(u_edges, _u_pair_stage,
-                                             "solve/groundside"), _ghard,
-                            receiver_nodes=_solve_receivers, n_nodes=n,
-                            witness_limited=_gs_witness,
-                            witness_excluded=_route_excluded,
-                            env_band=_env_band)
-    # Service roads FOLLOW DEM at <=cap (a ground road climbs toward terrain,
-    # anchored only at its airside/groundside welds) — SVC4 was held flat in
-    # the bowl ~6-11 m below DEM.
-    from .anchors import apply_service_road_dem_follow
-    _svc_moved = apply_service_road_dem_follow(
-        layout, bucket_to_idx, elev, dem_elev, SERVICE_ROAD_MAX_GRADE,
-        anchor_extra=_gs_hard)
-    if (_nrl or _svc_moved) and _os.environ.get("O4_STEP_DEBUG") == "1":
-        print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
-              f"groundside piece(s); pinned {len(_gs_hard)} route node(s); "
-              f"DEM-followed {len(_svc_moved)} service node(s).")
-    # ── DETACHED PADS SEAT BY LAW (item 3(b)) ────────────────────────
-    # HERE, not earlier: a detached pad is a groundside object, its datum
-    # is a SOLVED groundside variable, and groundside conforms to airside
-    # — so the pad is the last thing seated.  The seat is FLAT inside the
-    # host-datum box (``anchors.detached_pad_law_box``), at the point of
-    # that box nearest the pad's seed; the box is registered in the
-    # ``seat_boxes`` store so fp#8 and the final projection bound the pad
-    # through the ratified channel.  Merging the seats into
-    # ``building_seats`` is what makes each pad an ORDINARY movable FLAT
-    # group downstream (flatness is the building law; the deleted DEM
-    # pin's exclusion from those groups existed only to protect a value
-    # the law did not choose).  ``building_seats`` is read for the spine
-    # yield membership ~280 lines ABOVE this point, so this merge cannot
-    # retro-preserve anything — keep the call below that read.
-    if _detached_pads:
-        from auto_patch.config import GROUNDSIDE_MAX_GRADE
-        # ── CYCLE-7 FIX 2 (owner ruling 2026-08-06) ───────────────────
-        # A FRONTAGE-COUPLED pad is seated from the route-graph band
-        # through its frontage chord; the groundside contact datum is not
-        # its law and may not bound it.  ``detached_pad_law_box``'s
-        # contact march stops at 2.5 m while the LAW GRAPH has no
-        # horizon: HECA's building172 sits 6.46 m from an apron node with
-        # an ordinary 1 %-cap chord to it, so the march saw only
-        # groundside pieces at d = 0 and minted a ZERO-WIDTH box at the
-        # groundside/DEM datum — which then held that airside apron edge
-        # in a permanent clamp/sweep 2-cycle worth 60.772738 m, the worst
-        # residual in the whole solve.  Only a pad with NO frontage
-        # coupling keeps the contact-box path.
-        _dp_seats, _dp_stats = seat_detached_pads_by_law(
-            layout, bucket_to_idx, elev, _detached_pads,
-            GROUNDSIDE_MAX_GRADE,
-            frontage_coupled=_pad_frontage, node_band=node_band)
-        building_seats.update(_dp_seats)
-        if any(_dp_stats):
-            import O4_UI_Utils as _UI_dl
-            _UI_dl.vprint(1,
-                f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
-                f"solved groundside datum, {_dp_stats[1]} with NO "
-                f"resolvable host (left unbounded on their seed — a "
-                f"missing datum is never a DEM bound), "
-                f"{_dp_stats[2]} DECLARED CONTACT CONFLICT(S) (an empty "
-                f"box is the split-level-seat law's trigger, RULINGS "
-                f"2026-08-04).")
-            _UI_dl.vprint(1,
-                f"  [detached-pad] frontage-band seating (owner "
-                f"2026-08-06): {_dp_stats[3]} pad(s) seated FROM THE "
-                f"ROUTE-GRAPH BAND through their frontage chord (no "
-                f"DEM-datum bound), {_dp_stats[4]} frontage-coupled with "
-                f"NO DERIVABLE BAND (left unbounded on their seed and "
-                f"reported — never a fallback to the datum pin), "
-                f"{_dp_stats[5]} SPLIT-LEVEL CANDIDATE(S) whose frontage "
-                f"couplings no single flat level meets (RULINGS "
-                f"2026-08-04 — reported, never silently resolved).")
-    _psub(0.88, "Solving elevations — feasibility projection")
-    # ── S1b: THE POST-PHASE-A OVERWRITE IS RETIRED ────────────────
-    # It applied the chord values here, AFTER phase A returned, which
-    # meant the harmonic computed corridor interiors this hook then
-    # discarded (the acknowledged single-pass violation "α").  Under
-    # S1b the chord values enter phase A ONCE, as Dirichlet pins on
-    # the spine solve above, so the harmonic keeps its interiors and
-    # demotes to a residual gap-filler WITH string boundaries — which
-    # is what gives it the altitude preference it measurably lacks
-    # (it owns 67.1 % of the corridor's departure from DEM and has no
-    # height preference of its own).  Nothing overwrites after phase
-    # A; the rod below is still minted FROM the strung spine, because
-    # the strung spine now carries the chord values by construction.
-    # ── STRING-AS-LAW INTERVAL ROD registration (spec §10, owner
-    # ruling 2026-07-28 late session — supersedes the §7 holds) ────
-    # The corridor string becomes ORDINARY LAW: one signed interval
-    # edge ``z_i − z_j ∈ [Δstring − ε, Δstring + ε]`` per
-    # consecutive strung spine pair, registered in
-    # ``shape_constraints`` like the adjacent-ground envelope edges.
-    # Every subsequent projection that reads ``shape_constraints`` /
-    # ``joint`` maintains the string's SHAPE automatically: the
-    # corridor is a quasi-rigid ROD that translates vertically to
-    # meet seats, seams, runways and the body web — the yields keep
-    # their feasibility freedom but cannot manufacture dips, and
-    # bodies follow through their body↔spine law edges to wherever
-    # the rod SETTLED (no value-holds, so nothing is minted where
-    # the law graph lacks a body↔spine pair).
-    # Δ IS SNAPSHOT HERE — at yield entry — not at phase-A end:
-    # every projection between the phase-A freeze and this point
-    # holds the spine HARD, so a taxi corridor's Δ here IS the
-    # faired phase-A string (spec §10.1) byte-for-byte, while a
-    # SERVICE corridor's Δ includes the authoritative
-    # ``apply_service_road_dem_follow`` re-shape above (a rod
-    # snapshot at phase-A end froze the pre-follow shape and minted
-    # 8.95 % service pairs at CYXY).
-    # ``envelope_skip``: rod slabs carry signed (often negative)
-    # directed weights that the reach-envelope Dijkstra must not
-    # see (the retired EAT interval edges' blowup class); the
-    # sweeps enforce them fully.  The canonical-key export lets
-    # ``final_grade_projection`` carry the SAME edges into its
-    # rebuilt node space.  Gate off ⇒ no strung pieces ⇒ no entry,
-    # no export — byte-identical.
-    # Kept in THIS index space for the projections and the forensic
-    # dump; empty ⇒ no strung pieces.
-    _rod_edges: list = []
-    # The solve-index → canonical-key reverse map, bound unconditionally
-    # so the conflict ledger below can carry canonical keys without
-    # building a THIRD reverse map (spec §1 identity clause).  Filled by
-    # the rod export below when there are strung pieces.
-    _rod_key_of: dict = {}
-    if _rod_pieces:
-        from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
-        # SLAB PRICING AGAINST THE LAW — the FLOOR (RULINGS 2026-08-06
-        # "Slab budgets floor at the law") and the §10.1 CLAMP
-        # (2026-07-29, CYXY service spine 6.2 %) are BOTH applied by
-        # ``one_solve.price_slab_against_law``, which is the one site
-        # that prices a rod slab; read its header for the two rulings
-        # and why the composition lands the slab AT the law.  Here we
-        # only supply the per-pair law budget it floors and clamps to.
-        # Budgets are looked up rod-pairs-first (the rod pair set is
-        # tiny) so the one pass over ``shape_constraints`` pays a
-        # set-membership test per edge, not a dict insert.
-        _rod_pair_keys = {
-            (min(_ra, _rb), max(_ra, _rb))
-            for _rp in _rod_pieces for _ra, _rb in zip(_rp, _rp[1:])}
-        _rod_pair_budget: dict = {}
-        for _sc_ent in shape_constraints:
-            for _e in _sc_ent.get("edges", ()):
-                if len(_e) >= 4:
-                    continue
-                _pk = (_e[0], _e[1]) if _e[0] <= _e[1] \
-                    else (_e[1], _e[0])
-                if _pk not in _rod_pair_keys:
-                    continue
-                _pb = float(_e[2])
-                _cur = _rod_pair_budget.get(_pk)
-                if _cur is None or _pb < _cur:
-                    _rod_pair_budget[_pk] = _pb
-        _rod_clamped = 0
-        _rod_floored = 0
-        _rod_lawless = 0
-        # Half-open [start, stop) spans of ``_rod_edges`` per STRUNG
-        # PIECE — the chain structure the composition export below
-        # needs (consecutive entries within one span share a node, so
-        # a run of removed vertices is a contiguous sub-span).
-        _rod_piece_spans: list = []
-        # ROD STAGE, INHERITED FROM THE OWNING CHAIN (staged-solve S1b,
-        # Fable ruling 2026-08-13b).  The rod interval is the live
-        # successor of the retired §7 memory and it reaches the final
-        # projection as ``family="rod_interval"`` with NO role key — so
-        # ``_withhold_road_pair_law`` is structurally blind to it and a
-        # SERVICE corridor's rod bound ``z_a - z_b`` against an airside
-        # endpoint in the airside pass (coupling 4, and coupling 5 for
-        # the ``apply_service_road_dem_follow`` re-shape the snapshot
-        # deliberately includes).  A chain is groundside when ANY of its
-        # nodes is a stage-B node: a rod is a QUASI-RIGID object, so a
-        # chain running through groundside is a groundside corridor and
-        # binding it in stage A imports exactly the variable staging
-        # removes.  Mouth vertices are stage A (airside is king), so a
-        # taxi corridor stays airside.
-        _rod_edge_stage: list = []
-        for _rp in _rod_pieces:
-            _p0 = len(_rod_edges)
-            _piece_stage = (_STAGE_B if any(v in _solve_receivers for v in _rp)
-                            else _STAGE_A)
-            for _ra, _rb in zip(_rp, _rp[1:]):
-                _rd = elev[_ra] - elev[_rb]
-                _pb = _rod_pair_budget.get(
-                    (min(_ra, _rb), max(_ra, _rb)))
-                _rlo, _rhi, _rfl, _rcl = price_slab_against_law(
-                    _rd, _ROD_EPS, _pb)
-                if _pb is None:
-                    _rod_lawless += 1
-                if _rfl:
-                    _rod_floored += 1
-                if _rcl:
-                    _rod_clamped += 1
-                _rod_edges.append((_ra, _rb, _rlo, _rhi))
-                _rod_edge_stage.append(_piece_stage)
-            if len(_rod_edges) > _p0:
-                _rod_piece_spans.append((_p0, len(_rod_edges)))
-        if _rod_edges:
-            # ONE ENTRY PER STAGE.  ``_taut_rod_key_edges`` below still
-            # exports the WHOLE rod (both stages) in canonical-key space
-            # — the final projection re-derives each interval's stage in
-            # its own node space, so the export stays stage-free.
-            _rod_a = [e for e, st in zip(_rod_edges, _rod_edge_stage)
-                      if st == _STAGE_A]
-            _rod_b = [e for e, st in zip(_rod_edges, _rod_edge_stage)
-                      if st == _STAGE_B]
-            _n_rod_gs = len(_rod_b)
-            for _re_, _rs_ in ((_rod_a, _STAGE_A), (_rod_b, _STAGE_B)):
-                if _re_:
-                    shape_constraints.append({"edges": _re_,
-                                              "envelope_skip": True,
-                                              "family": "rod_interval",
-                                              _STAGE_KEY: _rs_})
-            if _n_rod_gs:
-                import O4_UI_Utils as _UI_rod_st
-                _UI_rod_st.vprint(
-                    1, f"  [stage] rod intervals: {_n_rod_gs} of "
-                       f"{len(_rod_edges)} interval(s) belong to a "
-                       f"GROUNDSIDE chain and are enforced in stage B "
-                       f"(airside is king)")
-            # Canonical-key export of the rod's own stage, so the final
-            # projection inherits the SAME chain verdict instead of
-            # re-deriving it from a node space the solve does not share.
-            layout._taut_rod_edge_stage = list(_rod_edge_stage)
-            _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
-            layout._taut_rod_key_edges = [
-                (_rod_key_of[a], _rod_key_of[b], lo, hi)
-                for (a, b, lo, hi) in _rod_edges
-                if a in _rod_key_of and b in _rod_key_of]
-            # STAGE RIDES WITH THE EXPORT (S1b).  The final projection
-            # rebuilds the node space, so it cannot re-derive the chain
-            # verdict; the solve is the rod store's only writer and the
-            # stage is part of the store.
-            layout._taut_rod_key_edge_stage = [
-                st for (a, b, lo, hi), st in zip(_rod_edges, _rod_edge_stage)
-                if a in _rod_key_of and b in _rod_key_of]
-            # ROD COMPOSITION EXPORT (owner-approved design 2026-07-29,
-            # docs/specs/rod-compose-and-band-single-source-spec.md §A).
-            # AUDITED FACT: 100 % of the rod's carry loss into
-            # ``final_grade_projection`` is ``emit_decimate.
-            # decimate_emit_nodes`` DELETING strung 3D-collinear ring
-            # vertices between the solve and the projection's node
-            # rebuild (HECA 13,680 vertices → 4,068 of 7,034 links
-            # dropped).  Those links are not lost information: the
-            # decimator's own kept-pair grade is the length-weighted
-            # mean of the removed sub-segments, so the removed chain's
-            # INTERVAL SUM is the exact rod constraint between the two
-            # SURVIVORS.  Export the chain STRUCTURE (not just the flat
-            # pair list) so the carry site can replace a removed run
-            # S1..S2 by ONE composed link with ``[ΣΔ − Σε, ΣΔ + Σε]``.
-            # Single-pass principle: nothing is re-derived, re-strung or
-            # transported — the solve stays the rod store's only writer
-            # and the carry is a pure consumer.  Chains break wherever a
-            # solve node has no canonical key (nothing to compose
-            # through); the union of chains is exactly
-            # ``_taut_rod_key_edges``.
-            _rod_chains: list = []
-            _rod_chain_stage: list = []
-            for (_p0, _p1) in _rod_piece_spans:
-                _span_stage = (_rod_edge_stage[_p0]
-                               if _p0 < len(_rod_edge_stage) else _STAGE_A)
-                _cur: list = []
-                for (_a, _b, _lo, _hi) in _rod_edges[_p0:_p1]:
-                    _ka = _rod_key_of.get(_a)
-                    _kb = _rod_key_of.get(_b)
-                    if _ka is None or _kb is None:
-                        if _cur:
+        # ★ WHAT IT IS NOT.  Withdrawing that authority is NOT curative, and
+        # the "strip the class and 802 remain" reading of the forensics table
+        # was a CATEGORY ERROR — the table partitions broken nodes by their
+        # TIGHTEST witness pair, so removing an anchor class RE-WITNESSES
+        # those nodes rather than freeing them.  Measured on this change:
+        # fp#8 broken 13,428 → 13,258 (−170, zero new), of which 98.6 % of
+        # the 12,123 groundside-witnessed nodes are still broken, now
+        # ``seed_rwy_seam`` ↔ ``seed_rwy_seam`` (802 → 11,783, deficit p50
+        # 4.0 → 19.6 m).  The residual is a RUNWAY-SEAM-anchor contradiction
+        # concentrated in a handful of anchors (one ceiling witness accounts
+        # for 8,187 of the 11,783) — that, not groundside, is where the
+        # ``feasibility-is-guaranteed`` investigation goes next.
+        #
+        # ★ BUILD-TIME COST (CLAUDE.md item 6, alternating 3-run A/B on one
+        # frozen tree): CYXY 35.4 s → 38.6 s (+3.2 s, +9 %); the SAME tree
+        # with the gate off runs 35.2 s, so the added code costs nothing —
+        # the cost is BEHAVIOURAL.  Withdrawing an anchor loosens the
+        # one-shot reach envelope, so fewer nodes are clamped by the warm
+        # start and the POCS sweeps do more work.  HECA is unaffected
+        # (348-352 s across every arm).  Under budget (60 s) but over the
+        # 1 % review trigger — reported, not approved.
+        # Gate off ⇒ ``None`` ⇒ the single unrestricted envelope pass ⇒
+        # byte-identical (proven: HECA patch body identical to the
+        # pre-clause tree, 2026-07-30).
+        _gs_witness = None
+        from auto_patch.config import SERVICE_ROAD_MAX_GRADE
+        from .anchors import apply_groundside_reach, gs_witness_horizon
+        _nrl, _gs_hard = apply_groundside_reach(
+            layout, bucket_to_idx, elev, SERVICE_ROAD_MAX_GRADE)
+        # STANDING LAW (owner 2026-07-30, memory ``airside-is-king`` /
+        # ``groundside-terrace-law``; UNGATED in the build-complete-then-
+        # debug round).  "Groundside has ZERO effect or pull on airside" —
+        # so a groundside pin witnesses the airside envelope only inside the
+        # Part-C mouth allowance, and nothing beyond it.  This is the SOLVE
+        # half; the final-projection half is the same law one node space
+        # later, and both are now on: shipping one half was the compromise
+        # the gates encoded, and a half-applied owner law is not a state
+        # this architecture has.
+        #
+        # Measured cost of the solve half, RECORDED (not a reason to gate):
+        # CYXY solve +3.4 s (35.2 → 38.6 s, 3 runs/arm same tree), HECA
+        # within-shape 460 → 482 against break pairs −631.
+        if _gs_hard:
+            _gs_witness = (frozenset(_gs_hard),
+                           gs_witness_horizon(SERVICE_ROAD_MAX_GRADE))
+        if _gs_hard:
+            # The truck route (apron arm + connector + groundside mouth) now
+            # carries its re-levelled value as a SEED; re-project so the apron
+            # BODY grades into the arm and nothing else exceeds its cap.
+            #
+            # THE PINS ARE NOT HARD HERE (cycle-5 spec fix 3).  ``_gs_hard``
+            # used to join this projection's immovable set, which made the
+            # groundside weld value an ANCHOR.  On a constant-DEM world that
+            # value IS the raw DEM (the reach law re-levels a piece to its
+            # closest-to-DEM reachable level), so the anchor was DEM acting as
+            # a constraint — forbidden outright by RULINGS 2026-08-05 ("DEM is
+            # a SEED, never a constraint, never an authority") — and it was
+            # groundside pulling airside, forbidden by "airside is king".
+            #
+            # Measured at HECA plateau: all 70 out-of-band hard nodes were
+            # ``gs_pin``; 25 sat exactly on the constant DEM; 21 of those were
+            # below their own band floor, worst deficit 89.369 m.  The single
+            # worst over-cap row in the whole solve (93.125 m) was one of them
+            # dragging an in-band building seat.
+            #
+            # What still holds the weld together: every mouth-weld LAW EDGE is
+            # in the joint and enforced by the sweeps, and the pin's own law
+            # ceiling bounds it from above (below).  Losing the anchor loses
+            # no law — it loses an assertion.
+            _ghard = hard | {i for i in runway_nodes if i < n}
+            feasibility_project_partitioned(
+                                elev, shape_constraints, _ghard,
+                                receiver_nodes=_solve_receivers, n_nodes=n,
+                                interval_yield_from=_iyf,
+                                witness_limited=_gs_witness,
+                                witness_excluded=_route_excluded,
+                                env_band=_env_band)
+            feasibility_project_partitioned(
+                                elev,
+                                _unified_entries(u_edges, _u_pair_stage,
+                                                 "solve/groundside"), _ghard,
+                                receiver_nodes=_solve_receivers, n_nodes=n,
+                                witness_limited=_gs_witness,
+                                witness_excluded=_route_excluded,
+                                env_band=_env_band)
+        # Service roads FOLLOW DEM at <=cap (a ground road climbs toward terrain,
+        # anchored only at its airside/groundside welds) — SVC4 was held flat in
+        # the bowl ~6-11 m below DEM.
+        from .anchors import apply_service_road_dem_follow
+        _svc_moved = apply_service_road_dem_follow(
+            layout, bucket_to_idx, elev, dem_elev, SERVICE_ROAD_MAX_GRADE,
+            anchor_extra=_gs_hard)
+        if (_nrl or _svc_moved) and _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
+                  f"groundside piece(s); pinned {len(_gs_hard)} route node(s); "
+                  f"DEM-followed {len(_svc_moved)} service node(s).")
+        # ── DETACHED PADS SEAT BY LAW (item 3(b)) ────────────────────────
+        # HERE, not earlier: a detached pad is a groundside object, its datum
+        # is a SOLVED groundside variable, and groundside conforms to airside
+        # — so the pad is the last thing seated.  The seat is FLAT inside the
+        # host-datum box (``anchors.detached_pad_law_box``), at the point of
+        # that box nearest the pad's seed; the box is registered in the
+        # ``seat_boxes`` store so fp#8 and the final projection bound the pad
+        # through the ratified channel.  Merging the seats into
+        # ``building_seats`` is what makes each pad an ORDINARY movable FLAT
+        # group downstream (flatness is the building law; the deleted DEM
+        # pin's exclusion from those groups existed only to protect a value
+        # the law did not choose).  ``building_seats`` is read for the spine
+        # yield membership ~280 lines ABOVE this point, so this merge cannot
+        # retro-preserve anything — keep the call below that read.
+        if _detached_pads:
+            from auto_patch.config import GROUNDSIDE_MAX_GRADE
+            # ── CYCLE-7 FIX 2 (owner ruling 2026-08-06) ───────────────────
+            # A FRONTAGE-COUPLED pad is seated from the route-graph band
+            # through its frontage chord; the groundside contact datum is not
+            # its law and may not bound it.  ``detached_pad_law_box``'s
+            # contact march stops at 2.5 m while the LAW GRAPH has no
+            # horizon: HECA's building172 sits 6.46 m from an apron node with
+            # an ordinary 1 %-cap chord to it, so the march saw only
+            # groundside pieces at d = 0 and minted a ZERO-WIDTH box at the
+            # groundside/DEM datum — which then held that airside apron edge
+            # in a permanent clamp/sweep 2-cycle worth 60.772738 m, the worst
+            # residual in the whole solve.  Only a pad with NO frontage
+            # coupling keeps the contact-box path.
+            _dp_seats, _dp_stats = seat_detached_pads_by_law(
+                layout, bucket_to_idx, elev, _detached_pads,
+                GROUNDSIDE_MAX_GRADE,
+                frontage_coupled=_pad_frontage, node_band=node_band)
+            building_seats.update(_dp_seats)
+            if any(_dp_stats):
+                import O4_UI_Utils as _UI_dl
+                _UI_dl.vprint(1,
+                    f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
+                    f"solved groundside datum, {_dp_stats[1]} with NO "
+                    f"resolvable host (left unbounded on their seed — a "
+                    f"missing datum is never a DEM bound), "
+                    f"{_dp_stats[2]} DECLARED CONTACT CONFLICT(S) (an empty "
+                    f"box is the split-level-seat law's trigger, RULINGS "
+                    f"2026-08-04).")
+                _UI_dl.vprint(1,
+                    f"  [detached-pad] frontage-band seating (owner "
+                    f"2026-08-06): {_dp_stats[3]} pad(s) seated FROM THE "
+                    f"ROUTE-GRAPH BAND through their frontage chord (no "
+                    f"DEM-datum bound), {_dp_stats[4]} frontage-coupled with "
+                    f"NO DERIVABLE BAND (left unbounded on their seed and "
+                    f"reported — never a fallback to the datum pin), "
+                    f"{_dp_stats[5]} SPLIT-LEVEL CANDIDATE(S) whose frontage "
+                    f"couplings no single flat level meets (RULINGS "
+                    f"2026-08-04 — reported, never silently resolved).")
+        _psub(0.88, "Solving elevations — feasibility projection")
+        # ── S1b: THE POST-PHASE-A OVERWRITE IS RETIRED ────────────────
+        # It applied the chord values here, AFTER phase A returned, which
+        # meant the harmonic computed corridor interiors this hook then
+        # discarded (the acknowledged single-pass violation "α").  Under
+        # S1b the chord values enter phase A ONCE, as Dirichlet pins on
+        # the spine solve above, so the harmonic keeps its interiors and
+        # demotes to a residual gap-filler WITH string boundaries — which
+        # is what gives it the altitude preference it measurably lacks
+        # (it owns 67.1 % of the corridor's departure from DEM and has no
+        # height preference of its own).  Nothing overwrites after phase
+        # A; the rod below is still minted FROM the strung spine, because
+        # the strung spine now carries the chord values by construction.
+        # ── STRING-AS-LAW INTERVAL ROD registration (spec §10, owner
+        # ruling 2026-07-28 late session — supersedes the §7 holds) ────
+        # The corridor string becomes ORDINARY LAW: one signed interval
+        # edge ``z_i − z_j ∈ [Δstring − ε, Δstring + ε]`` per
+        # consecutive strung spine pair, registered in
+        # ``shape_constraints`` like the adjacent-ground envelope edges.
+        # Every subsequent projection that reads ``shape_constraints`` /
+        # ``joint`` maintains the string's SHAPE automatically: the
+        # corridor is a quasi-rigid ROD that translates vertically to
+        # meet seats, seams, runways and the body web — the yields keep
+        # their feasibility freedom but cannot manufacture dips, and
+        # bodies follow through their body↔spine law edges to wherever
+        # the rod SETTLED (no value-holds, so nothing is minted where
+        # the law graph lacks a body↔spine pair).
+        # Δ IS SNAPSHOT HERE — at yield entry — not at phase-A end:
+        # every projection between the phase-A freeze and this point
+        # holds the spine HARD, so a taxi corridor's Δ here IS the
+        # faired phase-A string (spec §10.1) byte-for-byte, while a
+        # SERVICE corridor's Δ includes the authoritative
+        # ``apply_service_road_dem_follow`` re-shape above (a rod
+        # snapshot at phase-A end froze the pre-follow shape and minted
+        # 8.95 % service pairs at CYXY).
+        # ``envelope_skip``: rod slabs carry signed (often negative)
+        # directed weights that the reach-envelope Dijkstra must not
+        # see (the retired EAT interval edges' blowup class); the
+        # sweeps enforce them fully.  The canonical-key export lets
+        # ``final_grade_projection`` carry the SAME edges into its
+        # rebuilt node space.  Gate off ⇒ no strung pieces ⇒ no entry,
+        # no export — byte-identical.
+        # Kept in THIS index space for the projections and the forensic
+        # dump; empty ⇒ no strung pieces.
+        _rod_edges: list = []
+        # The solve-index → canonical-key reverse map, bound unconditionally
+        # so the conflict ledger below can carry canonical keys without
+        # building a THIRD reverse map (spec §1 identity clause).  Filled by
+        # the rod export below when there are strung pieces.
+        _rod_key_of: dict = {}
+        if _rod_pieces:
+            from auto_patch.config import SPINE_ROD_EPSILON_M as _ROD_EPS
+            # SLAB PRICING AGAINST THE LAW — the FLOOR (RULINGS 2026-08-06
+            # "Slab budgets floor at the law") and the §10.1 CLAMP
+            # (2026-07-29, CYXY service spine 6.2 %) are BOTH applied by
+            # ``one_solve.price_slab_against_law``, which is the one site
+            # that prices a rod slab; read its header for the two rulings
+            # and why the composition lands the slab AT the law.  Here we
+            # only supply the per-pair law budget it floors and clamps to.
+            # Budgets are looked up rod-pairs-first (the rod pair set is
+            # tiny) so the one pass over ``shape_constraints`` pays a
+            # set-membership test per edge, not a dict insert.
+            _rod_pair_keys = {
+                (min(_ra, _rb), max(_ra, _rb))
+                for _rp in _rod_pieces for _ra, _rb in zip(_rp, _rp[1:])}
+            _rod_pair_budget: dict = {}
+            for _sc_ent in shape_constraints:
+                for _e in _sc_ent.get("edges", ()):
+                    if len(_e) >= 4:
+                        continue
+                    _pk = (_e[0], _e[1]) if _e[0] <= _e[1] \
+                        else (_e[1], _e[0])
+                    if _pk not in _rod_pair_keys:
+                        continue
+                    _pb = float(_e[2])
+                    _cur = _rod_pair_budget.get(_pk)
+                    if _cur is None or _pb < _cur:
+                        _rod_pair_budget[_pk] = _pb
+            _rod_clamped = 0
+            _rod_floored = 0
+            _rod_lawless = 0
+            # Half-open [start, stop) spans of ``_rod_edges`` per STRUNG
+            # PIECE — the chain structure the composition export below
+            # needs (consecutive entries within one span share a node, so
+            # a run of removed vertices is a contiguous sub-span).
+            _rod_piece_spans: list = []
+            # ROD STAGE, INHERITED FROM THE OWNING CHAIN (staged-solve S1b,
+            # Fable ruling 2026-08-13b).  The rod interval is the live
+            # successor of the retired §7 memory and it reaches the final
+            # projection as ``family="rod_interval"`` with NO role key — so
+            # ``_withhold_road_pair_law`` is structurally blind to it and a
+            # SERVICE corridor's rod bound ``z_a - z_b`` against an airside
+            # endpoint in the airside pass (coupling 4, and coupling 5 for
+            # the ``apply_service_road_dem_follow`` re-shape the snapshot
+            # deliberately includes).  A chain is groundside when ANY of its
+            # nodes is a stage-B node: a rod is a QUASI-RIGID object, so a
+            # chain running through groundside is a groundside corridor and
+            # binding it in stage A imports exactly the variable staging
+            # removes.  Mouth vertices are stage A (airside is king), so a
+            # taxi corridor stays airside.
+            _rod_edge_stage: list = []
+            for _rp in _rod_pieces:
+                _p0 = len(_rod_edges)
+                _piece_stage = (_STAGE_B if any(v in _solve_receivers for v in _rp)
+                                else _STAGE_A)
+                for _ra, _rb in zip(_rp, _rp[1:]):
+                    _rd = elev[_ra] - elev[_rb]
+                    _pb = _rod_pair_budget.get(
+                        (min(_ra, _rb), max(_ra, _rb)))
+                    _rlo, _rhi, _rfl, _rcl = price_slab_against_law(
+                        _rd, _ROD_EPS, _pb)
+                    if _pb is None:
+                        _rod_lawless += 1
+                    if _rfl:
+                        _rod_floored += 1
+                    if _rcl:
+                        _rod_clamped += 1
+                    _rod_edges.append((_ra, _rb, _rlo, _rhi))
+                    _rod_edge_stage.append(_piece_stage)
+                if len(_rod_edges) > _p0:
+                    _rod_piece_spans.append((_p0, len(_rod_edges)))
+            if _rod_edges:
+                # ONE ENTRY PER STAGE.  ``_taut_rod_key_edges`` below still
+                # exports the WHOLE rod (both stages) in canonical-key space
+                # — the final projection re-derives each interval's stage in
+                # its own node space, so the export stays stage-free.
+                _rod_a = [e for e, st in zip(_rod_edges, _rod_edge_stage)
+                          if st == _STAGE_A]
+                _rod_b = [e for e, st in zip(_rod_edges, _rod_edge_stage)
+                          if st == _STAGE_B]
+                _n_rod_gs = len(_rod_b)
+                for _re_, _rs_ in ((_rod_a, _STAGE_A), (_rod_b, _STAGE_B)):
+                    if _re_:
+                        shape_constraints.append({"edges": _re_,
+                                                  "envelope_skip": True,
+                                                  "family": "rod_interval",
+                                                  _STAGE_KEY: _rs_})
+                if _n_rod_gs:
+                    import O4_UI_Utils as _UI_rod_st
+                    _UI_rod_st.vprint(
+                        1, f"  [stage] rod intervals: {_n_rod_gs} of "
+                           f"{len(_rod_edges)} interval(s) belong to a "
+                           f"GROUNDSIDE chain and are enforced in stage B "
+                           f"(airside is king)")
+                # Canonical-key export of the rod's own stage, so the final
+                # projection inherits the SAME chain verdict instead of
+                # re-deriving it from a node space the solve does not share.
+                layout._taut_rod_edge_stage = list(_rod_edge_stage)
+                _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
+                layout._taut_rod_key_edges = [
+                    (_rod_key_of[a], _rod_key_of[b], lo, hi)
+                    for (a, b, lo, hi) in _rod_edges
+                    if a in _rod_key_of and b in _rod_key_of]
+                # STAGE RIDES WITH THE EXPORT (S1b).  The final projection
+                # rebuilds the node space, so it cannot re-derive the chain
+                # verdict; the solve is the rod store's only writer and the
+                # stage is part of the store.
+                layout._taut_rod_key_edge_stage = [
+                    st for (a, b, lo, hi), st in zip(_rod_edges, _rod_edge_stage)
+                    if a in _rod_key_of and b in _rod_key_of]
+                # ROD COMPOSITION EXPORT (owner-approved design 2026-07-29,
+                # docs/specs/rod-compose-and-band-single-source-spec.md §A).
+                # AUDITED FACT: 100 % of the rod's carry loss into
+                # ``final_grade_projection`` is ``emit_decimate.
+                # decimate_emit_nodes`` DELETING strung 3D-collinear ring
+                # vertices between the solve and the projection's node
+                # rebuild (HECA 13,680 vertices → 4,068 of 7,034 links
+                # dropped).  Those links are not lost information: the
+                # decimator's own kept-pair grade is the length-weighted
+                # mean of the removed sub-segments, so the removed chain's
+                # INTERVAL SUM is the exact rod constraint between the two
+                # SURVIVORS.  Export the chain STRUCTURE (not just the flat
+                # pair list) so the carry site can replace a removed run
+                # S1..S2 by ONE composed link with ``[ΣΔ − Σε, ΣΔ + Σε]``.
+                # Single-pass principle: nothing is re-derived, re-strung or
+                # transported — the solve stays the rod store's only writer
+                # and the carry is a pure consumer.  Chains break wherever a
+                # solve node has no canonical key (nothing to compose
+                # through); the union of chains is exactly
+                # ``_taut_rod_key_edges``.
+                _rod_chains: list = []
+                _rod_chain_stage: list = []
+                for (_p0, _p1) in _rod_piece_spans:
+                    _span_stage = (_rod_edge_stage[_p0]
+                                   if _p0 < len(_rod_edge_stage) else _STAGE_A)
+                    _cur: list = []
+                    for (_a, _b, _lo, _hi) in _rod_edges[_p0:_p1]:
+                        _ka = _rod_key_of.get(_a)
+                        _kb = _rod_key_of.get(_b)
+                        if _ka is None or _kb is None:
+                            if _cur:
+                                _rod_chains.append(_cur)
+                                _rod_chain_stage.append(_span_stage)
+                                _cur = []
+                            continue
+                        if _cur and _cur[-1][1] != _ka:
                             _rod_chains.append(_cur)
                             _rod_chain_stage.append(_span_stage)
                             _cur = []
-                        continue
-                    if _cur and _cur[-1][1] != _ka:
+                        _cur.append((_ka, _kb, _lo, _hi))
+                    if _cur:
                         _rod_chains.append(_cur)
                         _rod_chain_stage.append(_span_stage)
-                        _cur = []
-                    _cur.append((_ka, _kb, _lo, _hi))
-                if _cur:
-                    _rod_chains.append(_cur)
-                    _rod_chain_stage.append(_span_stage)
-            layout._taut_rod_key_chains = _rod_chains
-            layout._taut_rod_key_chain_stage = _rod_chain_stage
+                layout._taut_rod_key_chains = _rod_chains
+                layout._taut_rod_key_chain_stage = _rod_chain_stage
+                if _os.environ.get("O4_STEP_DEBUG") == "1":
+                    print(f"    [taut-string] rod edges="
+                          f"{len(_rod_edges)} ({_rod_floored} law-FLOORED "
+                          f"— RULINGS 2026-08-06, a slab may not price "
+                          f"tighter than its pair's law; {_rod_clamped} "
+                          f"law-clamped §10.1; {_rod_lawless} on pairs "
+                          f"with no symmetric law edge, priced raw at "
+                          f"±ε; snapshot at yield entry)")
+                # ROD CARRY AUDIT (phase-1 probe, gate O4_ROD_CARRY_AUDIT=1
+                # — docs/specs/single-space-string-audit-spec.md §2).  Off
+                # ⇒ not even imported ⇒ byte-identical.
+                if _os.environ.get("O4_ROD_CARRY_AUDIT") == "1":
+                    from auto_patch import rod_carry_audit as _rca
+                    _rca.record_mint(layout, _rod_edges, nodes,
+                                     _rod_key_of, graph=G,
+                                     pieces=_rod_pieces, icao=icao)
+        # SPINE-YIELD projection (global-slice spine adaptation, 2026-07-02).
+        # Under the global slice most graph nodes ARE spine (every face is
+        # born from a centerline cut), so "both ends frozen = genuine step"
+        # no longer holds: two route chains solved independently in PHASE A
+        # can freeze 2.6 m apart one ring-edge from each other (SPJC measured
+        # 1622→3034 frozen-spine/spine residual edges).  Re-project with only
+        # the TRUTH anchors hard — runway/CIFP, tile-seam DEM pins, building
+        # seats, groundside truck-route pins — so the frozen profiles yield
+        # minimally where they disagree.  Runs LAST (after the groundside
+        # reach block, whose own re-projections hold the full frozen spine
+        # and would otherwise re-wall what an earlier yield fixed), right
+        # before writeback.  The phase-A profile is the seed, so smooth
+        # spines stay smooth wherever they were already feasible.
+        # (2026-07-29) the legacy rect-model gate was retired — the
+        # global slice is the only path, so this always runs.
+        # THE KEPT-HARD SOURCES, each with its law (cycle-5 fix 3 enumerated
+        # them and demoted exactly one):
+        #   truth_hard      — ``seed_rwy_seam`` (CIFP runway profile values,
+        #                     absolute for v1 per RULINGS 2026-08-05, and the
+        #                     TILE-SEAM DEM pins, which are cross-tile
+        #                     continuity law), ``rwy_join`` / ``rwy_flexed``
+        #                     (runway anchors), ``seat_on_spine`` (building
+        #                     seat law), ``seam_spine_anchor``;
+        #   runway_nodes    — the runway ring/vertex set (CIFP truth);
+        #   building_seats  — every seated pad / no-building-apron level
+        #                     (the building law: flat seats).
+        # DEMOTED: ``_gs_hard`` (``gs_pin``).  A groundside weld is not truth
+        # — it is a value groundside ASSERTS onto the route, at raw DEM on a
+        # constant-DEM world.  It is now a SEED bounded by its own law
+        # ceiling; see the groundside-reach block above and the box below.
+        yield_hard = (truth_hard
+                      | {i for i in runway_nodes if i < n}
+                      | {i for i in building_seats if i < n}
+                      # …and the corridor FREE-END DEM ties (corridor-joins
+                      # ruling 3): a road's walk to ground is law, and the
+                      # measured failure of the soft spelling was this very
+                      # pass writing 6.31 m back over the seed.  Stated again
+                      # after the pad relaxations below ("never leave the
+                      # hard set"), which is where a set subtraction could
+                      # otherwise drop it.
+                      | {i for i in
+                         (getattr(layout, "_svc_free_end_idx", None) or ())
+                         if i < n})
+        # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
+        # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
+        # string may be overruled only by LAW; the measured 4.87 m at
+        # chord 1's dip was the surface sitting BELOW ITS OWN CEILING
+        # with no law author at all — no cap contact, no clamp, no
+        # runway, no clip.  The quarantine blend's retained purpose is
+        # GENUINE BAND INVERSIONS, which does not cover a station with
+        # 4.87 m of admitted headroom, so the blend was overwriting a
+        # lawful strung value and §7 then froze the result.
+        # ★ WHY THE KEPT PIN SET AND NOT THE FREEZE.  Inheriting the
+        # whole ~3.7 k-node phase-A spine freeze is REJECTED: it would
+        # over-freeze exactly the unstrung residual domain that has no
+        # string authority and MUST yield — the smoother's ground,
+        # junctions, sub-min runs.  The kept pins are the vertices S1b
+        # holds to a lawful chord value, already Ruling-52 law-filtered
+        # so none of them forces an over-cap pair.  Excluding pins from
+        # the blend alone is UNDER-SCOPED (1892/1988 consume
+        # ``yield_hard`` too), and hard membership is the existing
+        # protection idiom — no new mechanism.
+        # ★ PRECEDENCE (Ruling 52, carried): law is never released.  A
+        # genuine law demand reaching a pin at yield time is a DECLARED
+        # CONFLICT for attribution, never a silent un-pin — a pinned
+        # node behaves here exactly as a truth anchor already does.
+        # ``_string_pins`` is None with the gate off ⇒ byte-identical.
+        _pins_in_yield = ({i for i in _string_pins if i < n}
+                          if _string_pins else set())
+        yield_hard = yield_hard | _pins_in_yield
+        # ── PROBE A: OPEN THE MOVER LEDGER (spec §1) ───────────────
+        # WATCH SET = the conflict-eligible population: every kept pin
+        # ∪ its ``u_spine_adj`` neighbours (~10 k at HECA).  Built
+        # ONCE, here, because this is where the pin set is known and
+        # nothing has yet re-projected the spine.  Stages B-F cannot
+        # move a spine node (the spine is ``base_hard`` from the phase-A
+        # freeze), so the only earlier boundary that matters is stage G
+        # — and it hands back its own moved set, no diff needed.
+        # BASELINE = ``elev`` at this statement.  Nothing between here
+        # and the first spine-yield projection below writes ``elev``
+        # (the only intervening statement is the ``_elev_entry_A``
+        # COPY), so this is exactly the spec's pre-projection baseline.
+        # Gate off ⇒ ``None`` ⇒ a handful of ``is None`` checks.
+        _mover = None
+        if (_pins_in_yield and _os.environ.get(
+                "O4_STRING_MOVER_LEDGER", "0") == "1"):
+            _ml_watch = set(_pins_in_yield)
+            for _wi in _pins_in_yield:
+                for _we in (u_spine_adj.get(_wi) or ()):
+                    _wj = _we[0] if isinstance(_we, (tuple, list)) else _we
+                    if _wj < n:
+                        _ml_watch.add(_wj)
+            _mover = _mover_ledger_new(_ml_watch, elev,
+                                       svc_moved=_svc_moved)
+            # CANONICAL KEYS for the final-projection tail (spec
+            # amendment): those passes REBUILD the node list, so the
+            # watch set must cross by key.  Read off the rod export's
+            # reverse map — the same complete ``{i: key}`` inversion
+            # of ``bucket_to_idx`` the rod carry already built; never
+            # a third map.  Empty (no strung pieces ⇒ no rod export)
+            # is reported, never silent: ``n_mover_keyed`` below.
+            _mover["key_of"] = {_wi: _rod_key_of[_wi]
+                                for _wi in _ml_watch
+                                if _wi in _rod_key_of}
+        # ── FIX ARM §3: THE KEPT PIN SET CROSSES BY CANONICAL KEY ──
+        # (gate ``O4_STRING_PINS_FINAL_HOLD``, default "0"; only ever
+        # non-empty when strings are on.)  The mover ledger attributed
+        # 85.8 % of the G2 pin drag to ``final_proj_2``: pins are
+        # Dirichlet ONLY in phase A and nothing downstream holds them.
+        # The two ``final_grade_projection`` passes REBUILD the node
+        # list, so the set crosses the way the probe's watch set
+        # already does — by canonical key, never by index carry —
+        # through the SAME reverse map (``_rod_key_of``; built here
+        # only if the rod export did not already build it, so there is
+        # still no third map).  The value rides along for the ledger;
+        # the HOLD itself is set membership, exactly as Ruling 54
+        # joined the pins to the solve's ``yield_hard``.
+        # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+        # The taut-string machinery is the owner's PAUSED feature: the strings
+        # verdict is pending (memory ``string-purpose-statement``: strings are a
+        # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+        # surface authority), so this switch is deliberately NOT deleted with
+        # the law gates.  It selects whether a PARKED feature runs at all, not
+        # which law the build obeys.  Retire or adopt it when the owner rules.
+        if (_string_pins and _os.environ.get(
+                "O4_STRING_PINS_FINAL_HOLD", "0") == "1"):
+            if not _rod_key_of:
+                _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
+            layout._string_pin_keys = {
+                _rod_key_of[_pi]: float(_pz)
+                for _pi, _pz in _string_pins.items()
+                if _pi in _rod_key_of}
             if _os.environ.get("O4_STEP_DEBUG") == "1":
-                print(f"    [taut-string] rod edges="
-                      f"{len(_rod_edges)} ({_rod_floored} law-FLOORED "
-                      f"— RULINGS 2026-08-06, a slab may not price "
-                      f"tighter than its pair's law; {_rod_clamped} "
-                      f"law-clamped §10.1; {_rod_lawless} on pairs "
-                      f"with no symmetric law edge, priced raw at "
-                      f"±ε; snapshot at yield entry)")
-            # ROD CARRY AUDIT (phase-1 probe, gate O4_ROD_CARRY_AUDIT=1
-            # — docs/specs/single-space-string-audit-spec.md §2).  Off
-            # ⇒ not even imported ⇒ byte-identical.
-            if _os.environ.get("O4_ROD_CARRY_AUDIT") == "1":
-                from auto_patch import rod_carry_audit as _rca
-                _rca.record_mint(layout, _rod_edges, nodes,
-                                 _rod_key_of, graph=G,
-                                 pieces=_rod_pieces, icao=icao)
-    # SPINE-YIELD projection (global-slice spine adaptation, 2026-07-02).
-    # Under the global slice most graph nodes ARE spine (every face is
-    # born from a centerline cut), so "both ends frozen = genuine step"
-    # no longer holds: two route chains solved independently in PHASE A
-    # can freeze 2.6 m apart one ring-edge from each other (SPJC measured
-    # 1622→3034 frozen-spine/spine residual edges).  Re-project with only
-    # the TRUTH anchors hard — runway/CIFP, tile-seam DEM pins, building
-    # seats, groundside truck-route pins — so the frozen profiles yield
-    # minimally where they disagree.  Runs LAST (after the groundside
-    # reach block, whose own re-projections hold the full frozen spine
-    # and would otherwise re-wall what an earlier yield fixed), right
-    # before writeback.  The phase-A profile is the seed, so smooth
-    # spines stay smooth wherever they were already feasible.
-    # (2026-07-29) the legacy rect-model gate was retired — the
-    # global slice is the only path, so this always runs.
-    # THE KEPT-HARD SOURCES, each with its law (cycle-5 fix 3 enumerated
-    # them and demoted exactly one):
-    #   truth_hard      — ``seed_rwy_seam`` (CIFP runway profile values,
-    #                     absolute for v1 per RULINGS 2026-08-05, and the
-    #                     TILE-SEAM DEM pins, which are cross-tile
-    #                     continuity law), ``rwy_join`` / ``rwy_flexed``
-    #                     (runway anchors), ``seat_on_spine`` (building
-    #                     seat law), ``seam_spine_anchor``;
-    #   runway_nodes    — the runway ring/vertex set (CIFP truth);
-    #   building_seats  — every seated pad / no-building-apron level
-    #                     (the building law: flat seats).
-    # DEMOTED: ``_gs_hard`` (``gs_pin``).  A groundside weld is not truth
-    # — it is a value groundside ASSERTS onto the route, at raw DEM on a
-    # constant-DEM world.  It is now a SEED bounded by its own law
-    # ceiling; see the groundside-reach block above and the box below.
-    yield_hard = (truth_hard
-                  | {i for i in runway_nodes if i < n}
-                  | {i for i in building_seats if i < n}
-                  # …and the corridor FREE-END DEM ties (corridor-joins
-                  # ruling 3): a road's walk to ground is law, and the
-                  # measured failure of the soft spelling was this very
-                  # pass writing 6.31 m back over the seed.  Stated again
-                  # after the pad relaxations below ("never leave the
-                  # hard set"), which is where a set subtraction could
-                  # otherwise drop it.
-                  | {i for i in
-                     (getattr(layout, "_svc_free_end_idx", None) or ())
-                     if i < n})
-    # ── RULING 54: THE KEPT PIN SET JOINS ``yield_hard`` ───────
-    # ★ A BLEND IS NOT GRADE LAW.  Under the owner's invariant a
-    # string may be overruled only by LAW; the measured 4.87 m at
-    # chord 1's dip was the surface sitting BELOW ITS OWN CEILING
-    # with no law author at all — no cap contact, no clamp, no
-    # runway, no clip.  The quarantine blend's retained purpose is
-    # GENUINE BAND INVERSIONS, which does not cover a station with
-    # 4.87 m of admitted headroom, so the blend was overwriting a
-    # lawful strung value and §7 then froze the result.
-    # ★ WHY THE KEPT PIN SET AND NOT THE FREEZE.  Inheriting the
-    # whole ~3.7 k-node phase-A spine freeze is REJECTED: it would
-    # over-freeze exactly the unstrung residual domain that has no
-    # string authority and MUST yield — the smoother's ground,
-    # junctions, sub-min runs.  The kept pins are the vertices S1b
-    # holds to a lawful chord value, already Ruling-52 law-filtered
-    # so none of them forces an over-cap pair.  Excluding pins from
-    # the blend alone is UNDER-SCOPED (1892/1988 consume
-    # ``yield_hard`` too), and hard membership is the existing
-    # protection idiom — no new mechanism.
-    # ★ PRECEDENCE (Ruling 52, carried): law is never released.  A
-    # genuine law demand reaching a pin at yield time is a DECLARED
-    # CONFLICT for attribution, never a silent un-pin — a pinned
-    # node behaves here exactly as a truth anchor already does.
-    # ``_string_pins`` is None with the gate off ⇒ byte-identical.
-    _pins_in_yield = ({i for i in _string_pins if i < n}
-                      if _string_pins else set())
-    yield_hard = yield_hard | _pins_in_yield
-    # ── PROBE A: OPEN THE MOVER LEDGER (spec §1) ───────────────
-    # WATCH SET = the conflict-eligible population: every kept pin
-    # ∪ its ``u_spine_adj`` neighbours (~10 k at HECA).  Built
-    # ONCE, here, because this is where the pin set is known and
-    # nothing has yet re-projected the spine.  Stages B-F cannot
-    # move a spine node (the spine is ``base_hard`` from the phase-A
-    # freeze), so the only earlier boundary that matters is stage G
-    # — and it hands back its own moved set, no diff needed.
-    # BASELINE = ``elev`` at this statement.  Nothing between here
-    # and the first spine-yield projection below writes ``elev``
-    # (the only intervening statement is the ``_elev_entry_A``
-    # COPY), so this is exactly the spec's pre-projection baseline.
-    # Gate off ⇒ ``None`` ⇒ a handful of ``is None`` checks.
-    _mover = None
-    if (_pins_in_yield and _os.environ.get(
-            "O4_STRING_MOVER_LEDGER", "0") == "1"):
-        _ml_watch = set(_pins_in_yield)
-        for _wi in _pins_in_yield:
-            for _we in (u_spine_adj.get(_wi) or ()):
-                _wj = _we[0] if isinstance(_we, (tuple, list)) else _we
-                if _wj < n:
-                    _ml_watch.add(_wj)
-        _mover = _mover_ledger_new(_ml_watch, elev,
-                                   svc_moved=_svc_moved)
-        # CANONICAL KEYS for the final-projection tail (spec
-        # amendment): those passes REBUILD the node list, so the
-        # watch set must cross by key.  Read off the rod export's
-        # reverse map — the same complete ``{i: key}`` inversion
-        # of ``bucket_to_idx`` the rod carry already built; never
-        # a third map.  Empty (no strung pieces ⇒ no rod export)
-        # is reported, never silent: ``n_mover_keyed`` below.
-        _mover["key_of"] = {_wi: _rod_key_of[_wi]
-                            for _wi in _ml_watch
-                            if _wi in _rod_key_of}
-    # ── FIX ARM §3: THE KEPT PIN SET CROSSES BY CANONICAL KEY ──
-    # (gate ``O4_STRING_PINS_FINAL_HOLD``, default "0"; only ever
-    # non-empty when strings are on.)  The mover ledger attributed
-    # 85.8 % of the G2 pin drag to ``final_proj_2``: pins are
-    # Dirichlet ONLY in phase A and nothing downstream holds them.
-    # The two ``final_grade_projection`` passes REBUILD the node
-    # list, so the set crosses the way the probe's watch set
-    # already does — by canonical key, never by index carry —
-    # through the SAME reverse map (``_rod_key_of``; built here
-    # only if the rod export did not already build it, so there is
-    # still no third map).  The value rides along for the ledger;
-    # the HOLD itself is set membership, exactly as Ruling 54
-    # joined the pins to the solve's ``yield_hard``.
-    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
-    # The taut-string machinery is the owner's PAUSED feature: the strings
-    # verdict is pending (memory ``string-purpose-statement``: strings are a
-    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
-    # surface authority), so this switch is deliberately NOT deleted with
-    # the law gates.  It selects whether a PARKED feature runs at all, not
-    # which law the build obeys.  Retire or adopt it when the owner rules.
-    if (_string_pins and _os.environ.get(
-            "O4_STRING_PINS_FINAL_HOLD", "0") == "1"):
-        if not _rod_key_of:
-            _rod_key_of = {i: k for k, i in bucket_to_idx.items()}
-        layout._string_pin_keys = {
-            _rod_key_of[_pi]: float(_pz)
-            for _pi, _pz in _string_pins.items()
-            if _pi in _rod_key_of}
-        if _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [S1b final-hold] exported "
-                  f"{len(layout._string_pin_keys)} of "
-                  f"{len(_string_pins)} kept pin(s) by canonical "
-                  f"key for the final projections")
-    # Fast Jacobi first (bulk of the correction), then the FINAL pass
-    # as scalar Gauss-Seidel POCS on the joint edge set — Jacobi has no
-    # convergence guarantee and stalls with ~2.5k edges marginally over
-    # cap (the audit's POCS on the same polytope reaches ~0 in <100
-    # sweeps).  Joint set: projecting the two graphs alternately
-    # un-does one with the other.
-    # REFERENCE HONESTY (spec docs/specs/reference-honesty-and-
-    # terracing-spec.md Track 1): these two projections run the
-    # quarantine blend, so every reference built AFTER them is
-    # sampling a field the law refused to admit.  Capture WHICH
-    # nodes were quarantined so the reference builders below can
-    # tell a law-true value from a blended one.  ``broken_out`` is
-    # write-only inside ``feasibility_project`` (it never reads the
-    # set back), so collecting it cannot change the solve —
-    # gate-off identity is unaffected either way; it is gated only
-    # so the OFF arm allocates nothing.
-    # ── FIELD MOMENT "A" (R1/P2-CP1; rides ``O4_DUMP_SOLVE_STATE``) ─
-    # Spec §4.1 layer 6's source state: the PRE-PROJECTION phase-A/B
-    # value, captured BEFORE the two projections below apply the
-    # quarantine blend.  No artifact carried this until P2 added it
-    # (the ``/tmp/bandq`` "fp#8" dump is written INSIDE the third
-    # projection, after its clamp+blend).  Candidate "B" — the
-    # post-projection state today's snapshot reads — needs no field
-    # of its own: it is the payload's existing ``elev`` key, since
-    # ``elev`` is not written again before the dump below.
-    # Read-only: gate unset ⇒ one env read, nothing allocated.
-    _elev_entry_A = (
-        list(elev) if _os.environ.get("O4_DUMP_SOLVE_STATE")
-        else None)
-    # (``O4_CORRIDOR_REF_STRING`` — the back door that promoted
-    # rod-held string values into ``z_ref`` — was DELETED with the
-    # refs channel and the proximal pull, per docs/RULINGS.md
-    # "No degradation-shield interims; retire the string back
-    # door".)  The quarantine set the two projections declare is
-    # still collected: it is the ``O4_DUMP_SOLVE_STATE`` forensic
-    # payload and the band-carry input below.
-    _yield_broken: set = set()
-    _bo = _yield_broken
-    # ── FIX ARM §2: THE DECLARED-CONFLICT CHANNEL ─────────────
-    # Write-only, allocated only under the gate, one list per
-    # call so each row can name the projection that declared it.
-    # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
-    # The taut-string machinery is the owner's PAUSED feature: the strings
-    # verdict is pending (memory ``string-purpose-statement``: strings are a
-    # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
-    # surface authority), so this switch is deliberately NOT deleted with
-    # the law gates.  It selects whether a PARKED feature runs at all, not
-    # which law the build obeys.  Retire or adopt it when the owner rules.
-    _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND",
-                              "0") == "1"
-    _hnb_decl: list = []
+                print(f"    [S1b final-hold] exported "
+                      f"{len(layout._string_pin_keys)} of "
+                      f"{len(_string_pins)} kept pin(s) by canonical "
+                      f"key for the final projections")
+        # Fast Jacobi first (bulk of the correction), then the FINAL pass
+        # as scalar Gauss-Seidel POCS on the joint edge set — Jacobi has no
+        # convergence guarantee and stalls with ~2.5k edges marginally over
+        # cap (the audit's POCS on the same polytope reaches ~0 in <100
+        # sweeps).  Joint set: projecting the two graphs alternately
+        # un-does one with the other.
+        # REFERENCE HONESTY (spec docs/specs/reference-honesty-and-
+        # terracing-spec.md Track 1): these two projections run the
+        # quarantine blend, so every reference built AFTER them is
+        # sampling a field the law refused to admit.  Capture WHICH
+        # nodes were quarantined so the reference builders below can
+        # tell a law-true value from a blended one.  ``broken_out`` is
+        # write-only inside ``feasibility_project`` (it never reads the
+        # set back), so collecting it cannot change the solve —
+        # gate-off identity is unaffected either way; it is gated only
+        # so the OFF arm allocates nothing.
+        # ── FIELD MOMENT "A" (R1/P2-CP1; rides ``O4_DUMP_SOLVE_STATE``) ─
+        # Spec §4.1 layer 6's source state: the PRE-PROJECTION phase-A/B
+        # value, captured BEFORE the two projections below apply the
+        # quarantine blend.  No artifact carried this until P2 added it
+        # (the ``/tmp/bandq`` "fp#8" dump is written INSIDE the third
+        # projection, after its clamp+blend).  Candidate "B" — the
+        # post-projection state today's snapshot reads — needs no field
+        # of its own: it is the payload's existing ``elev`` key, since
+        # ``elev`` is not written again before the dump below.
+        # Read-only: gate unset ⇒ one env read, nothing allocated.
+        _elev_entry_A = (
+            list(elev) if _os.environ.get("O4_DUMP_SOLVE_STATE")
+            else None)
+        # (``O4_CORRIDOR_REF_STRING`` — the back door that promoted
+        # rod-held string values into ``z_ref`` — was DELETED with the
+        # refs channel and the proximal pull, per docs/RULINGS.md
+        # "No degradation-shield interims; retire the string back
+        # door".)  The quarantine set the two projections declare is
+        # still collected: it is the ``O4_DUMP_SOLVE_STATE`` forensic
+        # payload and the band-carry input below.
+        _yield_broken: set = set()
+        _bo = _yield_broken
+        # ── FIX ARM §2: THE DECLARED-CONFLICT CHANNEL ─────────────
+        # Write-only, allocated only under the gate, one list per
+        # call so each row can name the projection that declared it.
+        # PARKED FEATURE — NOT A LAW GATE (integration sweep 2026-08-05).
+        # The taut-string machinery is the owner's PAUSED feature: the strings
+        # verdict is pending (memory ``string-purpose-statement``: strings are a
+        # smoothing refinement for otherwise-correctly-graded taxiways, NOT a
+        # surface authority), so this switch is deliberately NOT deleted with
+        # the law gates.  It selects whether a PARKED feature runs at all, not
+        # which law the build obeys.  Retire or adopt it when the owner rules.
+        _hnb_on = _os.environ.get("O4_HARD_NEIGHBOUR_BOUND",
+                                  "0") == "1"
+        _hnb_decl: list = []
 
-    def _hnb_take(rows, call):
-        for _r in rows:
-            _r["call"] = call
-        _hnb_decl.extend(rows)
+        def _hnb_take(rows, call):
+            for _r in rows:
+                _r["call"] = call
+            _hnb_decl.extend(rows)
 
-    _hnb_a: list = [] if _hnb_on else None
-    _hnb_b: list = [] if _hnb_on else None
-    # SPINE-FREEZE ROUND: the spine is already OUT of ``yield_hard``
-    # here (``truth_hard`` was snapshotted before the freeze), but
-    # it entered these two passes with NO reference at all — free to
-    # settle anywhere feasible.  Under the gate it carries the same
-    # phase-A rod as every projection above, so its status is ONE
-    # thing from the freeze to writeback: yield-hard.  ``None`` off
-    # the gate ⇒ byte-identical.
-    rem, bh = feasibility_project_partitioned(
-                                  elev, shape_constraints, yield_hard,
-                                  receiver_nodes=_solve_receivers, n_nodes=n,
-                                  interval_yield_from=_iyf,
-                                  witness_limited=_gs_witness,
-                                  witness_excluded=_route_excluded,
-                                  broken_out=_bo,
-                                  env_band=_env_band,
-                                  probe_out=_mover,
-                                  declared_out=_hnb_a)
-    # PROBE A boundaries 1-2: the blend copy the callee left in the
-    # ledger, then the post-return state (the sweeps).
-    _mover_stamp_probe(_mover, "proj_shape.blend")
-    if _mover is not None:
-        _mover_stamp(_mover, _mover_snapshot(_mover, elev),
-                     "proj_shape.sweep")
-    if _hnb_on:
-        _hnb_take(_hnb_a, "proj_shape")
-    rem, bh = feasibility_project_partitioned(
-                                  elev,
-                                  _unified_entries(u_edges, _u_pair_stage,
-                                                   "solve/yield"),
-                                  yield_hard, broken_out=_bo,
-                                  receiver_nodes=_solve_receivers, n_nodes=n,
-                                  witness_limited=_gs_witness,
-                                  witness_excluded=_route_excluded,
-                                  env_band=_env_band,
-                                  probe_out=_mover,
-                                  declared_out=_hnb_b)
-    if _hnb_on:
-        _hnb_take(_hnb_b, "proj_u")
-    # PROBE A boundaries 3-4.
-    _mover_stamp_probe(_mover, "proj_u.blend")
-    if _mover is not None:
-        _mover_stamp(_mover, _mover_snapshot(_mover, elev),
-                     "proj_u.sweep")
-    # ── RULING 54 INSTRUMENTATION ─────────────────────────────
-    # The ruling expects pin-vs-neighbour declarations to be small
-    # and AUTHOR-CARRYING; "small and author-carrying" is only
-    # checkable if they are emitted.  Read straight off the graph
-    # after the yield, so it depends on no projection internal.
-    if _pins_in_yield:
-        _pin_decl = []
-        for _pi, _plst in u_spine_adj.items():
-            if _pi not in _pins_in_yield:
-                continue
-            for (_pj, _pbudget) in _plst:
-                if _pj >= n or (_pj in _pins_in_yield and _pi > _pj):
-                    continue
-                _pdz = abs(elev[_pi] - elev[_pj])
-                if _pdz <= float(_pbudget) + 1e-9:
-                    continue
-                _row = {
-                    "pin": _pi, "neighbour": _pj,
-                    "pin_z": elev[_pi], "neighbour_z": elev[_pj],
-                    "budget_m": float(_pbudget),
-                    "excess_m": _pdz - float(_pbudget),
-                    "neighbour_class": (
-                        "law_anchor" if _pj in truth_hard else
-                        "pin" if _pj in _pins_in_yield else
-                        "free")}
-                # ── PROBE A DELIVERY (spec §1) ────────────────
-                # Identity: ``pin`` / ``neighbour`` / ``elev``
-                # indices are ONE space (raw solver node indices),
-                # so no join is needed — but the CANONICAL key
-                # rides along for offline geometry, read off the
-                # rod export's reverse map (never a third map).
-                if _mover is not None:
-                    _row["pin_last_writer"] = \
-                        _mover["label"].get(_pi)
-                    _row["neighbour_last_writer"] = \
-                        _mover["label"].get(_pj)
-                    _row["pin_key"] = _rod_key_of.get(_pi)
-                    _row["neighbour_key"] = _rod_key_of.get(_pj)
-                _pin_decl.append(_row)
-        _summary["n_pins_in_yield_hard"] = len(_pins_in_yield)
-        _summary["pins_in_yield_hard"] = sorted(_pins_in_yield)
-        _summary["n_pin_yield_conflicts"] = len(_pin_decl)
-        _summary["pin_yield_conflicts"] = _pin_decl
-        if _hnb_on:
-            # FIX ARM §2: the declared population, whole (a LARGE
-            # one is a finding, never something to suppress).
-            _summary["n_declared_hard_conflict"] = len(_hnb_decl)
-            _summary["declared_hard_conflict"] = _hnb_decl
+        _hnb_a: list = [] if _hnb_on else None
+        _hnb_b: list = [] if _hnb_on else None
+        # SPINE-FREEZE ROUND: the spine is already OUT of ``yield_hard``
+        # here (``truth_hard`` was snapshotted before the freeze), but
+        # it entered these two passes with NO reference at all — free to
+        # settle anywhere feasible.  Under the gate it carries the same
+        # phase-A rod as every projection above, so its status is ONE
+        # thing from the freeze to writeback: yield-hard.  ``None`` off
+        # the gate ⇒ byte-identical.
+        rem, bh = feasibility_project_partitioned(
+                                      elev, shape_constraints, yield_hard,
+                                      receiver_nodes=_solve_receivers, n_nodes=n,
+                                      interval_yield_from=_iyf,
+                                      witness_limited=_gs_witness,
+                                      witness_excluded=_route_excluded,
+                                      broken_out=_bo,
+                                      env_band=_env_band,
+                                      probe_out=_mover,
+                                      declared_out=_hnb_a)
+        # PROBE A boundaries 1-2: the blend copy the callee left in the
+        # ledger, then the post-return state (the sweeps).
+        _mover_stamp_probe(_mover, "proj_shape.blend")
         if _mover is not None:
-            # The label histogram over the FREE member — the
-            # spec's question is which stage last moved it.  Per-
-            # row labels (both sides) carry every finer cut the
-            # readings need, offline.
-            _mlc: dict = {}
-            for _row in _pin_decl:
-                _lbl = _row.get("neighbour_last_writer")
-                _mlc[_lbl] = _mlc.get(_lbl, 0) + 1
-            _summary["mover_ledger_counts"] = _mlc
-            _summary["n_mover_watch"] = len(_mover["watch"])
-            _summary["n_mover_keyed"] = len(_mover["key_of"])
-        from .taut_string import write_string_sidecar as _ws
-        _ws(layout)                      # last call wins
-        if _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [S1b yield] {len(_pins_in_yield)} pin(s) held "
-                  f"through the yield; {len(_pin_decl)} declared "
-                  f"neighbour conflict(s)")
-    # MOVABLE FLAT PADS (user 2026-07-03): building pads leave the
-    # hard set and become rigid flat GROUPS the projection may move —
-    # the audit proves the polytope is feasible ONLY when buildings
-    # can move (holding every pre-picked seat hard is infeasible
-    # through chained paths: pad↔spine↔pad, even with 0 both-hard
-    # edges).  Each pad stays FLAT (the invariant) at a level the
-    # projection chooses jointly with the field.
-    from auto_patch.layout import ROLE_BUILDING as _RB
-    pad_groups = []
-    _cps = layout.canonical_points
-    for _s in layout.shapes:
-        if (_s.role != _RB or _s.polygon is None
-                or _s.polygon.is_empty):
-            continue
-        _ring = list(_s.polygon.exterior.coords)
-        _g = {bucket_to_idx.get(_cps.get_or_add(float(x), float(y)))
-              for (x, y) in _ring}
-        # Seam pins never join a movable group (they are
-        # immovable terrain anchors — see yield_hard below).
-        _g = {i for i in _g
-              if i is not None and i < n and i in building_seats
-              and i not in _seam_pin_idx}
-        if len(_g) >= 2:
-            pad_groups.append(_g)
-    if pad_groups:
-        _pad_nodes = set().union(*pad_groups)
-        yield_hard = yield_hard - _pad_nodes
-    # NON-PAD SEAT ANCHORS (nobuild-apron tilt seats + contact seats,
-    # and seat nodes not on any pad ring) also leave the hard set for
-    # the FINAL pass: held hard they oscillate against the runway
-    # profile exactly like pads did (measured: worst residual 1.0 m →
-    # 0.02, SPJC law-true 406 → ~180).  They still anchored phases
-    # A/B, so the surface is already shaped by them; the final GS
-    # only relaxes the last-mile conflicts.
-    if pad_groups:
-        yield_hard = yield_hard - (
-            {i for i in building_seats if i < n} - _pad_nodes)
-    # SEAM PINS NEVER LEAVE THE HARD SET (user 2026-07-04): the
-    # movable-pads / free-apron-seats relaxations above may have
-    # freed a node that is ALSO a tile-seam terrain pin — but the
-    # seam is a graded-TO anchor exactly like a runway edge; a
-    # freed pin lets the final GS park the boundary off the
-    # terrain it must meet (SPLP: 0.7 m float at the band edge).
-    yield_hard |= {i for i in _seam_pin_idx if i < n}
-    # ── FREE-END DEM TIES NEVER LEAVE THE HARD SET EITHER ─────
-    # (corridor-joins round, ruling 3, gate
-    # ``SERVICE_CORRIDOR_FREE_END_ANCHOR``.)  A corridor terminus over
-    # open terrain is a LAW TARGET — the road grades to ambient DEM
-    # under its own cap (RULINGS 2026-08-12b) — and the measured
-    # failure of the SOFT spelling is exactly this pass: the seed
-    # wrote DEM at the KCLT free end and the projections wrote 6.31 m
-    # back over it.  Membership only, no value write, exactly like a
-    # seam pin: the road's own descent law is what the hold protects,
-    # and everything downstream of the terminus still yields.
-    _svc_free_ends = {i for i in
-                      (getattr(layout, "_svc_free_end_idx", None) or ())
-                      if i < n}
-    yield_hard |= _svc_free_ends
-    # ── THE WHOLE-RUN CORRIDOR PROFILE NEVER LEAVES THE HARD SET ──
-    # (staged-solve round, S2, "WHOLE-RUN CORRIDOR PROFILE".)  A
-    # corridor is ONE law object and its profile was solved over the
-    # WHOLE run against its own cap and band; a pointwise yield here
-    # re-humps it, which is the defect the round closes.  Membership
-    # only, exactly like the free-end tie beside it.
-    _svc_profile = {i for i in
-                    (getattr(layout, "_svc_profile_idx", None) or ())
-                    if i < n}
-    yield_hard |= _svc_profile
-    # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely
-    # needs to stay within the feasibility box").  Everything the
-    # yield above released keeps its seat-time reach-band box as a
-    # hard clamp inside the projection: a pad flat group translates
-    # only within the intersection of its member seats' boxes; a
-    # freed non-pad seat clamps to the band interval that seated it
-    # (store artifact ``seat_boxes``, recorded by whatever seated the
-    # node).  A node with no recorded box keeps the unbounded yield
-    # — the clamp refines the yield, never adds a hold.  Conflicts
-    # that exceed a box surface as remaining over-cap edges / break
-    # regions instead of burying seated structures (HECA
-    # building199: seated 101.13 by the reach band, parked at 87.94
-    # by the unbounded projection — the south-terminal ~15 m drag;
-    # the blunt hard-hold arm instead minted 9 runway grade
-    # violations, the anti-goal).  STANDING LAW — there is no
-    # unbounded-yield arm.
-    _yield_group_bounds = None
-    _yield_node_bounds = None
-    _seat_box_idx: dict = {}
-    # The seat boxes are a NODE-SPACE STORE artifact (U1),
-    # canonical-key-keyed; resolve into THIS solve's index
-    # space, intersecting keys that alias one node (tightest
-    # per side).
-    _seat_box_idx = _store_of(layout).view_interval(
-        "seat_boxes", bucket_to_idx, n, combine="intersect")
-    _pn = _pad_nodes if pad_groups else set()
-    if pad_groups:
-        _yield_group_bounds = []
-        for _g in pad_groups:
-            _gb = None
-            for _i in _g:
-                _b = _seat_box_idx.get(_i)
-                if _b is not None:
-                    _gb = (_b if _gb is None
-                           else (max(_gb[0], _b[0]),
-                                 min(_gb[1], _b[1])))
-            _yield_group_bounds.append(_gb)
-    # The freed non-pad seats are exactly the seat nodes no
-    # longer in ``yield_hard`` (pads carry the group box above).
-    _yield_node_bounds = {
-        _i: _seat_box_idx[_i]
-        for _i in building_seats
-        if _i < n and _i not in yield_hard and _i not in _pn
-        and _i in _seat_box_idx}
-    # ── THE FREED GROUNDSIDE PINS ARE BOUNDED BY THEIR OWN LAW ────────
-    # (cycle-5 fix 3, the other half of the demotion.)  A pin is no longer
-    # an anchor, so it must not be unbounded either: it carries the LAW
-    # ceiling the reach already computed — the weld datum plus one throat
-    # of reach, with NO DEM term (``anchors.apply_groundside_reach`` builds
-    # it, and the mouth verify-and-relax below has always used exactly this
-    # bound for the pins it frees).  Fix 3 simply frees ALL of them
-    # instead of only the ones that already contradicted, so the same
-    # bound applies to the same class.
-    #
-    # Upper side only, matching the existing relax door's contract: a
-    # mouth may always settle DOWN toward its seed.  The FLOOR comes from
-    # the reach band, which binds per sweep as of fix 2.  A pin with no
-    # weld datum has no entry and stays unbounded above — a missing datum
-    # never becomes a terrain bound.
-    #
-    # The bounded pins are also CARRIED (``_gs_pin_bound_idx``) into the
-    # projection: where this ceiling and the airside reach band cannot
-    # both hold, the merge resolves the declared conflict BAND WINS and
-    # the pin box yields (cycle-6 Part P; "airside is king" — the lot
-    # conforms via the terrace/wall machinery).  Without the carry the
-    # merge cannot tell a groundside ceiling from a building seat box.
-    _gs_pin_bound_idx: set = set()
-    if _gs_hard:
-        _pin_ceil_fp8 = getattr(layout, "_gs_pin_law_ceiling_idx", None) or {}
-        if _pin_ceil_fp8:
-            _yield_node_bounds = dict(_yield_node_bounds or {})
-            _n_pin_bound = 0
-            for _gi in _gs_hard:
-                _c = _pin_ceil_fp8.get(_gi)
-                if _c is None or _gi >= n:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                         "proj_shape.sweep")
+        if _hnb_on:
+            _hnb_take(_hnb_a, "proj_shape")
+        rem, bh = feasibility_project_partitioned(
+                                      elev,
+                                      _unified_entries(u_edges, _u_pair_stage,
+                                                       "solve/yield"),
+                                      yield_hard, broken_out=_bo,
+                                      receiver_nodes=_solve_receivers, n_nodes=n,
+                                      witness_limited=_gs_witness,
+                                      witness_excluded=_route_excluded,
+                                      env_band=_env_band,
+                                      probe_out=_mover,
+                                      declared_out=_hnb_b)
+        if _hnb_on:
+            _hnb_take(_hnb_b, "proj_u")
+        # PROBE A boundaries 3-4.
+        _mover_stamp_probe(_mover, "proj_u.blend")
+        if _mover is not None:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                         "proj_u.sweep")
+        # ── RULING 54 INSTRUMENTATION ─────────────────────────────
+        # The ruling expects pin-vs-neighbour declarations to be small
+        # and AUTHOR-CARRYING; "small and author-carrying" is only
+        # checkable if they are emitted.  Read straight off the graph
+        # after the yield, so it depends on no projection internal.
+        if _pins_in_yield:
+            _pin_decl = []
+            for _pi, _plst in u_spine_adj.items():
+                if _pi not in _pins_in_yield:
                     continue
-                _pb = _yield_node_bounds.get(_gi)
-                _yield_node_bounds[_gi] = (
-                    (-1e18, float(_c)) if _pb is None
-                    else (_pb[0], min(_pb[1], float(_c))))
-                _gs_pin_bound_idx.add(_gi)
-                _n_pin_bound += 1
-            if _os.environ.get("O4_STEP_DEBUG") == "1":
-                print(f"    [groundside-reach] {_n_pin_bound} freed "
-                      f"groundside pin(s) bounded by their LAW ceiling "
-                      f"(weld datum + one throat of reach, no DEM term)")
-
-    # ── ADJACENT-GROUND: ONE AUTHORITY, AND IT IS THE RELATIVE EDGE ───
-    # (cycle-5 spec fix 1.)  This used to ALSO bind the zone law as an
-    # absolute per-node box on the bounded-yield channel, snapshotting the
-    # pavement foot datum from ``elev`` right here — and then fp#8 moved
-    # that foot by p50 2.340 m / p90 24.949 m / max 88.905 m while the
-    # frozen box went on clamping at seed and after every sweep.
-    #
-    # THE DECISIVE MEASUREMENT (attribution dossier §3, over all 20,135
-    # over-cap ``graded_strip:adjacent_ground`` rows at fp#8 EXIT):
-    #
-    #     ground value inside the box implied by the fp#8-ENTRY datum
-    #                                                  13,208   65.6 %
-    #     ground value inside the box implied by the fp#8-EXIT datum
-    #     (what the law actually asks)                  1,346    6.7 %
-    #
-    # The residual therefore could not go to zero by binding HARDER;
-    # binding harder is what produced it.  So the box is DELETED and the
-    # RELATIVE interval edge — already built, already correct, and already
-    # in this joint — is the only authority.  What remains here is the
-    # AUDIT that the deletion lost nothing.
-    _zone_edge_nodes = {
-        _e[0] for _sc in shape_constraints
-        if _sc.get("ref") == "adjacent_ground"
-        for _e in (_sc.get("edges") or ())}
-    _zone_cov = _zone_law_coverage(
-        layout, bucket_to_idx, n,
-        getattr(layout, "_adjacent_ground_first_zone_index", 0),
-        _zone_edge_nodes)
-    if _zone_cov[0]:
-        import O4_UI_Utils as _UI_zone
-        _UI_zone.vprint(1,
-            f"  [adjacent-ground] zone-law COVERAGE: {_zone_cov[2]} of "
-            f"{_zone_cov[1]} resolved band node(s) carried by the "
-            f"RELATIVE interval edge (the one authority); "
-            f"{_zone_cov[3]} adopted a pavement variable by identity; "
-            f"{_zone_cov[4]} UNCARRIED"
-            + ("" if not _zone_cov[4] else
-               " — a published zone row whose law NOTHING enforces; "
-               "this must be 0")
-            + f".  ({_zone_cov[0]} row(s) published.)  The absolute "
-            f"foot-datum box is RETIRED (cycle-5 fix 1): it froze a "
-            f"constraint derived from variables this same projection "
-            f"then moved.")
-    # NO REFERENCE RODS (build-complete-then-debug round).  The
-    # §7 reference channel this block built — the pre-yield
-    # snapshot, the rod-held corridor string, the pad-rod
-    # coupling shadow, the apron reference surface R and the R1
-    # reference field — is DELETED with the proximal pull that
-    # consumed it.  A movable node is plain free here: it settles
-    # wherever the caps, the bounded-yield boxes and the reach
-    # band admit, under ONE authority (the law edges).
-    joint = list(shape_constraints) + _unified_entries(
-        u_edges, _u_pair_stage, "solve/joint")
-    # DEBUG snapshot (O4_DUMP_SOLVE_STATE=<path>): pickle the final-
-    # projection inputs so projection variants iterate OFFLINE (~1 s)
-    # instead of via full rebuilds (~115 s).  Node lat/lon included so
-    # an offline scorer can map emitted-patch nids to solver indices.
-    _dump = _os.environ.get("O4_DUMP_SOLVE_STATE")
-    if _dump:
-        import pickle
-        _ll = [layout.m_to_ll(x, y) for (x, y) in nodes]
-        _cat = dict(_hard_cat)
-        for i in runway_nodes:
-            if i < n:
-                _cat.setdefault(i, "runway_node")
-        for i in building_seats:
-            if i < n:
-                _cat.setdefault(i, "seat")
-        for i in _gs_hard:
-            if i < n:
-                _cat.setdefault(i, "gs_pin")
-        with open(_dump, "wb") as _fh:
-            pickle.dump({
-                "elev": list(elev),
-                "joint_edges": [tuple(e) for sc in joint
-                                for e in sc["edges"]],
-                "yield_hard": set(yield_hard),
-                "pad_groups": [set(g) for g in pad_groups],
-                "nodes_m": list(nodes),
-                "nodes_ll": _ll,
-                "dem_elev": list(dem_elev),
-                "node_band": list(node_band),
-                "hard_cat": _cat,
-                # BOUNDED YIELD (2026-07-29): the live seat boxes
-                # (this solve's index space), so an offline fp#8
-                # replay passes the exact bounds the build did
-                # (node_band is only a proxy).
-                "seat_boxes": {
-                    int(_bi): (float(_bl), float(_bh))
-                    for _bi, (_bl, _bh) in _seat_box_idx.items()},
-                # Replay fidelity (2026-07-29): the zone-slab
-                # threshold fp#8 actually ran with — without it
-                # an offline replay mis-kinds the zone<->host
-                # slabs and inflates the broken set.
-                "interval_yield_from": _iyf,
-                # Spine graph (per-edge cap budgets) + runway
-                # anchors: lets an offline probe audit whether a
-                # node's solved level equals its cap-reachable
-                # ceiling (Dijkstra over budgets from anchors).
-                "spine_adj": {int(i): [(int(j), float(b))
-                                       for (j, b) in lst]
-                              for i, lst in u_spine_adj.items()},
-                "runway_anchor": {int(i): float(a) for i, a
-                                  in G.runway_anchor.items()},
-                # ── R1/P2-CP1 field-moment fields ────────────────
-                # ``elev`` above IS candidate B (the post-projection
-                # state today's snapshot reads); this is candidate A,
-                # spec §4.1 layer 6's ruled source state.
-                "elev_entry_A": _elev_entry_A,
-                # §10 rod slabs — the interval law that governs ALL
-                # strung vertices, so an offline replay enforces the
-                # same shape the build did.
-                "rod_edges": [(int(_a), int(_b), float(_lo),
-                               float(_hi))
-                              for (_a, _b, _lo, _hi) in _rod_edges],
-                # Chain identity: half-open [start, stop) spans of
-                # ``rod_edges`` per strung piece (free — already
-                # built for the rod law clamp above).
-                "rod_piece_spans": [(int(_p0), int(_p1))
-                                    for (_p0, _p1)
-                                    in _rod_piece_spans],
-                # The quarantine set the two projections declared.
-                "yield_broken": sorted(int(_i)
-                                       for _i in _yield_broken),
-                "yield_hard": sorted(int(_i) for _i in yield_hard),
-                # Per-node building-frontage floor fed to the phase-A
-                # spine solve (P3 input; local to this scope).
-                "spine_floor": {int(_i): float(_v) for _i, _v
-                                in u_spine_floor.items()},
-                # P3 drag attribution: the five STAGE-LABELLED
-                # ``elev`` copies from inside the phase-A spine
-                # solve + the cross-corridor coupling adjacency,
-                # collected via its ``probe_out`` out-parameter.
-                "spine_stages": _spine_probe,
-                # ── fp#8 REPLAY FIDELITY (cycle-7 chore, 2026-08-06) ──
-                # ``joint_edges`` above is FLATTENED, and the flat list
-                # loses the three things the projection reads off the
-                # ENTRY: its law family, its ``envelope_skip`` flag, and
-                # whether it is still a lazy certificate.  A replay built
-                # from the flat list therefore judges a DIFFERENT
-                # constraint set from production's fp#8 — the exact
-                # instrument gap the c6attr dossier's tool-debt note
-                # names (``interval_reach_replay.py`` "is now
-                # unfaithful").  These keys close it; the flat list stays
-                # for the callers that already read it.
-                "joint_entries": [
-                    {"family": _sc.get("family"),
-                     "role": _sc.get("role"), "ref": _sc.get("ref"),
-                     "envelope_skip": bool(_sc.get("envelope_skip")),
-                     # A thunk is not picklable and its body pairs are
-                     # not generated yet: the flag is recorded so a
-                     # replay can SAY how many entries it could not
-                     # carry rather than silently dropping law.
-                     "lazy": _sc.get("lazy_expand") is not None,
-                     "edges": [tuple(_e) for _e in (_sc.get("edges")
-                                                    or ())]}
-                    for _sc in joint],
-                # The certificate's family axis, in ORIGINAL node space —
-                # what ``feasibility_project(family_of=...)`` re-keys.
-                "family_by_pair": {(int(_a), int(_b)): _f
-                                   for (_a, _b), _f
-                                   in _u_family_of.items()},
-                # THE fp#8 KWARGS.  Every argument the production call
-                # passes that is not already a top-level key, so a replay
-                # reconstructs the call verbatim instead of guessing.
-                # ``env_band`` is ``node_band`` itself when the gate is
-                # on (``solve.py`` ``_env_band = node_band if
-                # _ENV_FROM_BAND else None``), so the flag plus the
-                # existing ``node_band`` key carries it losslessly.
-                "fp8_kwargs": {
-                    "group_bounds": _yield_group_bounds,
-                    "node_bounds": _yield_node_bounds,
-                    "gs_pin_nodes": (sorted(int(_i)
-                                            for _i in _gs_pin_bound_idx)
-                                     if _gs_pin_bound_idx else None),
-                    "witness_excluded": (sorted(int(_i) for _i
-                                                in _route_excluded)
-                                         if _route_excluded else None),
-                    "gs_witness": ((sorted(int(_i)
-                                           for _i in _gs_witness[0]),
-                                    _gs_witness[1])
-                                   if _gs_witness else None),
-                    "env_band_is_node_band": _env_band is not None,
-                },
-            }, _fh)
-        print(f"    [dump] solve state -> {_dump} "
-              f"(+A-copy, {len(_rod_edges)} rod slab(s))")
-    # 2400 sweeps: with tightest-budget edge dedup the polytope is
-    # consistent and the scalar GS CONVERGES (SPJC: worst residual
-    # 0.025 at 800 sweeps → 0.0000 at 1702; the old "oscillation
-    # plateau" was the first-edge-wins dedup enforcing conflicting
-    # duplicate budgets).  Cap with headroom; the loop exits early
-    # at tol.
-    _scoped_gate = _scoped_projection_enabled()
-    # Capture the BROKEN quarantine (genuine anchor contradictions,
-    # full-graph detection) for the scoped final projection — its
-    # sparser graph can miss the same contradictions and grind POCS
-    # on the infeasible pockets instead (measured: CYXY 66 k → 11.5 M
-    # worklist visits).  Keys, not indices: the projection rebuilds
-    # its own node list.
-    _solve_broken_idx: set = set()
-    # (The §7 pre-yield re-string + ``yield_hard`` hold that
-    # lived here were DELETED by spec §10 — the string is now
-    # ordinary law via the interval-rod entry registered after
-    # phase A, so this yield and everything downstream maintain
-    # the string's shape without any value-hold to fight.)
-    # BREAK FORENSICS (spec reference-honesty Track 1 step 4, gate
-    # ``O4_BREAK_FORENSICS=<path>``): the anchor CLASS map + node
-    # lat/lons the report names its witness pairs with.  Unset ⇒
-    # nothing is built and nothing is passed.
-    _fp8_forensics = None
-    if _os.environ.get("O4_BREAK_FORENSICS"):
-        _fcat = dict(_hard_cat)
-        for _i in runway_nodes:
-            if _i < n:
-                _fcat.setdefault(_i, "runway_node")
-        for _i in building_seats:
-            if _i < n:
-                _fcat.setdefault(_i, "seat")
-        for _i in _gs_hard:
-            if _i < n:
-                _fcat.setdefault(_i, "gs_pin")
-        for _i in _seam_pin_idx:
-            if _i < n:
-                _fcat.setdefault(_i, "seam_pin")
-        for _i in u_spine_nodes:
-            if _i < n:
-                _fcat.setdefault(_i, "spine")
-        _fp8_forensics = {
-            "label": "fp#8",
-            "classes": _fcat,
-            "nodes_ll": [layout.m_to_ll(_x, _y) for (_x, _y) in nodes],
-        }
-    _t_fp8 = _time.perf_counter()
-    rem, bh = feasibility_project_partitioned(
-                                  elev, joint, yield_hard,
-                                  receiver_nodes=_solve_receivers, n_nodes=n,
-                                  forensics=_fp8_forensics,
-                                  witness_limited=_gs_witness,
-                                  force_scalar=True,
-                                  # SWEEP BUDGET: derived from this
-                                  # projection's own graph inside
-                                  # ``feasibility_project`` (the hand-set
-                                  # 2400 was BINDING and chose surfaces —
-                                  # config's derivation note).  No
-                                  # ``max_iters`` here BY DESIGN.
-                                  flat_groups=pad_groups or None,
-                                  interval_yield_from=_iyf,
-                                  broken_out=(_solve_broken_idx
-                                              if _scoped_gate
-                                              else None),
-                                  group_bounds=_yield_group_bounds,
-                                  node_bounds=_yield_node_bounds,
-                                  gs_pin_nodes=(_gs_pin_bound_idx
-                                                or None),
-                                  witness_excluded=_route_excluded,
-                                  env_band=_env_band,
-                                  family_of=_u_family_of)
-    _t_fp8_end = _time.perf_counter()
-    # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
-    # STAMPED OUTSIDE THE ``_t_fp8`` WINDOW (spec §0.3 — the
-    # ``[spine-yield]`` line is a published A/B number), and the
-    # fp#8 call is NOT given ``probe_out`` for the same reason:
-    # one post-call diff, no snapshot inside the timed region.
-    if _mover is not None:
-        _mover_stamp(_mover, _mover_snapshot(_mover, elev), "fp8")
-    # Tagged ``[spine-yield]``, NOT ``[taut-string]``: this line
-    # must print on BOTH sides of the gate or the held-vs-baseline
-    # delta is unmeasurable, and a gate-OFF run must emit zero
-    # ``[taut-string]`` lines.
-    if _os.environ.get("O4_STEP_DEBUG") == "1":
-        print(f"    [spine-yield] fp#8 body yield "
-              f"{_t_fp8_end - _t_fp8:.3f}s "
-              f"hard={len(yield_hard)}")
-    # MOUTH VERIFY-AND-RELAX (user 2026-07-06, HECA #541/#546): the
-    # groundside mouth welds (``_gs_hard``) were pinned from lot
-    # rings computed BEFORE this movable-pad/free-seat yield — a
-    # building pad or apron body that settles at a different level
-    # leaves a road-ring edge pad↔mouth over-cap with BOTH ends
-    # effectively hard (mutually conflicting weld authorities; the
-    # DEM-follow break blend cannot fire on a sliver with no
-    # interior nodes).  Verify every welded mouth against the joint
-    # law edges; where violated, FREE the whole mouth cluster (ONE
-    # authority: the joint solve), re-project warm, and have the
-    # LOT adopt the projected mouth profile (exact at freed
-    # vertices, cap-decay fill, chord-limited) so road and lot
-    # still emit as one lawful welded surface.
-    if _gs_hard:
-        # Spec kill-prep §1 (owner 2026-08-03): the class-universal
-        # absorption ruling governs BOTH exports below — A2's
-        # unconditional freed-cluster export and A3's weld↔weld
-        # pocket.  See each site.
-        from auto_patch.config import (
-            SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL)
-        _VIOL_TOL_M = 0.03
-        _conflicted: set = set()
-        for _sc in joint:
-            for _e in _sc["edges"]:
-                if len(_e) >= 4:
-                    continue      # interval edge (Stage B0): not a
-                    #               symmetric-budget mouth weld
-                _a, _b, _bud = _e[0], _e[1], _e[2]
-                if (_a >= n or _b >= n
-                        or (_a not in _gs_hard
-                            and _b not in _gs_hard)):
-                    continue
-                # weld↔weld edges are the LOT↔LOT class — the
-                # reach-time reconciliation owns those (both lots
-                # are final there); freeing both welds here lets
-                # the solve drag them apart (HECA #522: 0.8 m →
-                # 2.1 m after a both-weld free).
-                if _a in _gs_hard and _b in _gs_hard:
-                    continue
-                if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
-                    if _a in _gs_hard:
-                        _conflicted.add(_a)
-                    if _b in _gs_hard:
-                        _conflicted.add(_b)
-        if _conflicted:
-            from .anchors import (adopt_projected_mouths,
-                                  expand_mouth_cluster)
-            _freed = expand_mouth_cluster(
-                layout, bucket_to_idx, _conflicted, _gs_hard)
-            # ── STAGE B MAY NOT WRITE STAGE A (S1c, coupling 11) ──────
-            # This scan frees a mouth CLUSTER from the hard set because a
-            # GROUNDSIDE weld violates a law edge — and the cluster
-            # expansion walks rings, so it can free AIRSIDE nodes too.
-            # Freeing an airside node is a write to stage A authored by a
-            # groundside conflict, which the staged law forbids outright
-            # ("nothing in stage B may write, re-project or re-blend a
-            # stage-A row").  The groundside half of the cluster still
-            # frees and still re-projects; the airside half stays hard and
-            # the lot adopts the profile it finds, which is the mouth
-            # ruling (RULINGS 2026-08-06) unchanged.
-            _freed_air = _freed - _solve_receivers
-            if _freed_air:
-                import O4_UI_Utils as _UI_f
-                _UI_f.vprint(
-                    1, f"    [stage] mouth-cluster conflict: "
-                       f"{len(_freed_air)} of {len(_freed)} freed node(s) "
-                       f"are AIRSIDE and stay hard (a groundside weld "
-                       f"violation never frees an airside variable)")
-                _freed = _freed & _solve_receivers
-            yield_hard = yield_hard - _freed
-            # GROUNDSIDE PIN LAW BOUND (spec §C.2 ★, datum replaced by
-            # item 3(a)): the freed mouth cluster is re-projected and
-            # the LOT then ADOPTS the projected profile — so an
-            # unbounded re-projection re-imports exactly the float §C
-            # removes, through the relax door.  Carry the pin's LAW
-            # ceiling (weld datum + one throat of reach; NO DEM term)
-            # as a bounded-yield box on every freed mouth node (the
-            # landed ``node_bounds`` machinery; upper side only — a
-            # mouth may always settle DOWN toward its seed).  A pin
-            # with no weld datum has no entry and stays unbounded
-            # above: a missing datum never becomes a terrain bound.
-            _relax_node_bounds = _yield_node_bounds
-            _relax_pin_idx = set(_gs_pin_bound_idx)
-            _pin_ceil = getattr(
-                layout, "_gs_pin_law_ceiling_idx", None) or {}
-            if _pin_ceil:
-                _relax_node_bounds = dict(_yield_node_bounds or {})
-                for _fi in _freed:
-                    _c = _pin_ceil.get(_fi)
-                    if _c is None or _fi >= n:
+                for (_pj, _pbudget) in _plst:
+                    if _pj >= n or (_pj in _pins_in_yield and _pi > _pj):
                         continue
-                    _pb = _relax_node_bounds.get(_fi)
-                    _relax_node_bounds[_fi] = (
+                    _pdz = abs(elev[_pi] - elev[_pj])
+                    if _pdz <= float(_pbudget) + 1e-9:
+                        continue
+                    _row = {
+                        "pin": _pi, "neighbour": _pj,
+                        "pin_z": elev[_pi], "neighbour_z": elev[_pj],
+                        "budget_m": float(_pbudget),
+                        "excess_m": _pdz - float(_pbudget),
+                        "neighbour_class": (
+                            "law_anchor" if _pj in truth_hard else
+                            "pin" if _pj in _pins_in_yield else
+                            "free")}
+                    # ── PROBE A DELIVERY (spec §1) ────────────────
+                    # Identity: ``pin`` / ``neighbour`` / ``elev``
+                    # indices are ONE space (raw solver node indices),
+                    # so no join is needed — but the CANONICAL key
+                    # rides along for offline geometry, read off the
+                    # rod export's reverse map (never a third map).
+                    if _mover is not None:
+                        _row["pin_last_writer"] = \
+                            _mover["label"].get(_pi)
+                        _row["neighbour_last_writer"] = \
+                            _mover["label"].get(_pj)
+                        _row["pin_key"] = _rod_key_of.get(_pi)
+                        _row["neighbour_key"] = _rod_key_of.get(_pj)
+                    _pin_decl.append(_row)
+            _summary["n_pins_in_yield_hard"] = len(_pins_in_yield)
+            _summary["pins_in_yield_hard"] = sorted(_pins_in_yield)
+            _summary["n_pin_yield_conflicts"] = len(_pin_decl)
+            _summary["pin_yield_conflicts"] = _pin_decl
+            if _hnb_on:
+                # FIX ARM §2: the declared population, whole (a LARGE
+                # one is a finding, never something to suppress).
+                _summary["n_declared_hard_conflict"] = len(_hnb_decl)
+                _summary["declared_hard_conflict"] = _hnb_decl
+            if _mover is not None:
+                # The label histogram over the FREE member — the
+                # spec's question is which stage last moved it.  Per-
+                # row labels (both sides) carry every finer cut the
+                # readings need, offline.
+                _mlc: dict = {}
+                for _row in _pin_decl:
+                    _lbl = _row.get("neighbour_last_writer")
+                    _mlc[_lbl] = _mlc.get(_lbl, 0) + 1
+                _summary["mover_ledger_counts"] = _mlc
+                _summary["n_mover_watch"] = len(_mover["watch"])
+                _summary["n_mover_keyed"] = len(_mover["key_of"])
+            from .taut_string import write_string_sidecar as _ws
+            _ws(layout)                      # last call wins
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [S1b yield] {len(_pins_in_yield)} pin(s) held "
+                      f"through the yield; {len(_pin_decl)} declared "
+                      f"neighbour conflict(s)")
+        # MOVABLE FLAT PADS (user 2026-07-03): building pads leave the
+        # hard set and become rigid flat GROUPS the projection may move —
+        # the audit proves the polytope is feasible ONLY when buildings
+        # can move (holding every pre-picked seat hard is infeasible
+        # through chained paths: pad↔spine↔pad, even with 0 both-hard
+        # edges).  Each pad stays FLAT (the invariant) at a level the
+        # projection chooses jointly with the field.
+        from auto_patch.layout import ROLE_BUILDING as _RB
+        pad_groups = []
+        _cps = layout.canonical_points
+        for _s in layout.shapes:
+            if (_s.role != _RB or _s.polygon is None
+                    or _s.polygon.is_empty):
+                continue
+            _ring = list(_s.polygon.exterior.coords)
+            _g = {bucket_to_idx.get(_cps.get_or_add(float(x), float(y)))
+                  for (x, y) in _ring}
+            # Seam pins never join a movable group (they are
+            # immovable terrain anchors — see yield_hard below).
+            _g = {i for i in _g
+                  if i is not None and i < n and i in building_seats
+                  and i not in _seam_pin_idx}
+            if len(_g) >= 2:
+                pad_groups.append(_g)
+        if pad_groups:
+            _pad_nodes = set().union(*pad_groups)
+            yield_hard = yield_hard - _pad_nodes
+        # NON-PAD SEAT ANCHORS (nobuild-apron tilt seats + contact seats,
+        # and seat nodes not on any pad ring) also leave the hard set for
+        # the FINAL pass: held hard they oscillate against the runway
+        # profile exactly like pads did (measured: worst residual 1.0 m →
+        # 0.02, SPJC law-true 406 → ~180).  They still anchored phases
+        # A/B, so the surface is already shaped by them; the final GS
+        # only relaxes the last-mile conflicts.
+        if pad_groups:
+            yield_hard = yield_hard - (
+                {i for i in building_seats if i < n} - _pad_nodes)
+        # SEAM PINS NEVER LEAVE THE HARD SET (user 2026-07-04): the
+        # movable-pads / free-apron-seats relaxations above may have
+        # freed a node that is ALSO a tile-seam terrain pin — but the
+        # seam is a graded-TO anchor exactly like a runway edge; a
+        # freed pin lets the final GS park the boundary off the
+        # terrain it must meet (SPLP: 0.7 m float at the band edge).
+        yield_hard |= {i for i in _seam_pin_idx if i < n}
+        # ── FREE-END DEM TIES NEVER LEAVE THE HARD SET EITHER ─────
+        # (corridor-joins round, ruling 3, gate
+        # ``SERVICE_CORRIDOR_FREE_END_ANCHOR``.)  A corridor terminus over
+        # open terrain is a LAW TARGET — the road grades to ambient DEM
+        # under its own cap (RULINGS 2026-08-12b) — and the measured
+        # failure of the SOFT spelling is exactly this pass: the seed
+        # wrote DEM at the KCLT free end and the projections wrote 6.31 m
+        # back over it.  Membership only, no value write, exactly like a
+        # seam pin: the road's own descent law is what the hold protects,
+        # and everything downstream of the terminus still yields.
+        _svc_free_ends = {i for i in
+                          (getattr(layout, "_svc_free_end_idx", None) or ())
+                          if i < n}
+        yield_hard |= _svc_free_ends
+        # ── THE WHOLE-RUN CORRIDOR PROFILE NEVER LEAVES THE HARD SET ──
+        # (staged-solve round, S2, "WHOLE-RUN CORRIDOR PROFILE".)  A
+        # corridor is ONE law object and its profile was solved over the
+        # WHOLE run against its own cap and band; a pointwise yield here
+        # re-humps it, which is the defect the round closes.  Membership
+        # only, exactly like the free-end tie beside it.
+        _svc_profile = {i for i in
+                        (getattr(layout, "_svc_profile_idx", None) or ())
+                        if i < n}
+        yield_hard |= _svc_profile
+        # BOUNDED YIELD (owner ruling 2026-07-29: "Any yield absolutely
+        # needs to stay within the feasibility box").  Everything the
+        # yield above released keeps its seat-time reach-band box as a
+        # hard clamp inside the projection: a pad flat group translates
+        # only within the intersection of its member seats' boxes; a
+        # freed non-pad seat clamps to the band interval that seated it
+        # (store artifact ``seat_boxes``, recorded by whatever seated the
+        # node).  A node with no recorded box keeps the unbounded yield
+        # — the clamp refines the yield, never adds a hold.  Conflicts
+        # that exceed a box surface as remaining over-cap edges / break
+        # regions instead of burying seated structures (HECA
+        # building199: seated 101.13 by the reach band, parked at 87.94
+        # by the unbounded projection — the south-terminal ~15 m drag;
+        # the blunt hard-hold arm instead minted 9 runway grade
+        # violations, the anti-goal).  STANDING LAW — there is no
+        # unbounded-yield arm.
+        _yield_group_bounds = None
+        _yield_node_bounds = None
+        _seat_box_idx: dict = {}
+        # The seat boxes are a NODE-SPACE STORE artifact (U1),
+        # canonical-key-keyed; resolve into THIS solve's index
+        # space, intersecting keys that alias one node (tightest
+        # per side).
+        _seat_box_idx = _store_of(layout).view_interval(
+            "seat_boxes", bucket_to_idx, n, combine="intersect")
+        _pn = _pad_nodes if pad_groups else set()
+        if pad_groups:
+            _yield_group_bounds = []
+            for _g in pad_groups:
+                _gb = None
+                for _i in _g:
+                    _b = _seat_box_idx.get(_i)
+                    if _b is not None:
+                        _gb = (_b if _gb is None
+                               else (max(_gb[0], _b[0]),
+                                     min(_gb[1], _b[1])))
+                _yield_group_bounds.append(_gb)
+        # The freed non-pad seats are exactly the seat nodes no
+        # longer in ``yield_hard`` (pads carry the group box above).
+        _yield_node_bounds = {
+            _i: _seat_box_idx[_i]
+            for _i in building_seats
+            if _i < n and _i not in yield_hard and _i not in _pn
+            and _i in _seat_box_idx}
+        # ── THE FREED GROUNDSIDE PINS ARE BOUNDED BY THEIR OWN LAW ────────
+        # (cycle-5 fix 3, the other half of the demotion.)  A pin is no longer
+        # an anchor, so it must not be unbounded either: it carries the LAW
+        # ceiling the reach already computed — the weld datum plus one throat
+        # of reach, with NO DEM term (``anchors.apply_groundside_reach`` builds
+        # it, and the mouth verify-and-relax below has always used exactly this
+        # bound for the pins it frees).  Fix 3 simply frees ALL of them
+        # instead of only the ones that already contradicted, so the same
+        # bound applies to the same class.
+        #
+        # Upper side only, matching the existing relax door's contract: a
+        # mouth may always settle DOWN toward its seed.  The FLOOR comes from
+        # the reach band, which binds per sweep as of fix 2.  A pin with no
+        # weld datum has no entry and stays unbounded above — a missing datum
+        # never becomes a terrain bound.
+        #
+        # The bounded pins are also CARRIED (``_gs_pin_bound_idx``) into the
+        # projection: where this ceiling and the airside reach band cannot
+        # both hold, the merge resolves the declared conflict BAND WINS and
+        # the pin box yields (cycle-6 Part P; "airside is king" — the lot
+        # conforms via the terrace/wall machinery).  Without the carry the
+        # merge cannot tell a groundside ceiling from a building seat box.
+        _gs_pin_bound_idx: set = set()
+        if _gs_hard:
+            _pin_ceil_fp8 = getattr(layout, "_gs_pin_law_ceiling_idx", None) or {}
+            if _pin_ceil_fp8:
+                _yield_node_bounds = dict(_yield_node_bounds or {})
+                _n_pin_bound = 0
+                for _gi in _gs_hard:
+                    _c = _pin_ceil_fp8.get(_gi)
+                    if _c is None or _gi >= n:
+                        continue
+                    _pb = _yield_node_bounds.get(_gi)
+                    _yield_node_bounds[_gi] = (
                         (-1e18, float(_c)) if _pb is None
                         else (_pb[0], min(_pb[1], float(_c))))
-                    # Same carry as fp#8: a pin ceiling installed through
-                    # the relax door yields to the band on conflict too,
-                    # or the lift returns through exactly that door
-                    # (cycle-6 Part P).
-                    _relax_pin_idx.add(_fi)
-            # Same BOUNDED YIELD boxes as fp#8 above: the
-            # mouth-relax re-projection moves the same freed seats
-            # and must not un-do the clamp.
-            # SWEEP BUDGET derived from the graph (the 1200 this used to
-            # pass was half the already-binding final cap; a re-projection
-            # over the SAME law graph needs the same propagation distance,
-            # so there was never a reason for it to be smaller).
-            rem, bh = feasibility_project_partitioned(
-                elev, joint, yield_hard, force_scalar=True,
-                receiver_nodes=_solve_receivers, n_nodes=n,
-                flat_groups=pad_groups or None,
-                interval_yield_from=_iyf,
-                witness_limited=_gs_witness,
-                group_bounds=_yield_group_bounds,
-                node_bounds=_relax_node_bounds,
-                gs_pin_nodes=_relax_pin_idx or None,
-                witness_excluded=_route_excluded,
-                env_band=_env_band)
-            _n_adopted = adopt_projected_mouths(
-                layout, bucket_to_idx, elev, _freed, _gs_hard)
-            # ── PROBE A, TAIL BOUNDARY 2: mouth_relax ─────────
-            # One boundary for the whole stage (re-projection +
-            # lot adoption), stamped after both.
-            if _mover is not None:
-                _mover_stamp(_mover, _mover_snapshot(_mover, elev),
-                             "mouth_relax")
-            # A relaxed mouth is a solver-DECLARED authority-
-            # conflict pocket: export it to the break quarantine
-            # (a fully reconciled mouth has no over-cap pairs, so
-            # the export is inert there; a residual blend — e.g.
-            # the lot ring the adoption re-shaped around the
-            # solved mouth — is quarantined honestly instead of
-            # reading as an actionable solver miss).
-            # CLASS-UNIVERSAL ABSORPTION (owner 2026-08-03, spec
-            # kill-prep §1): "inert there" was never tested — the
-            # export fired UNCONDITIONALLY on the whole freed
-            # cluster, and 48 of HECA's + 6 of HEAZ's exported
-            # nodes carry ZERO deficit (quarret2 decomposition).
-            # Under the gate the mouth is RE-TESTED after the
-            # adoption and only a still-deficient node reports;
-            # quarantine is unauthorized (docs/RULINGS.md), so a
-            # reconciled mouth exports nothing at all.
-            if _CLASS_UNIVERSAL:
-                _still_deficient: set = set()
-                for _sc in joint:
-                    for _e in _sc["edges"]:
-                        if len(_e) >= 4:
-                            continue
-                        _a, _b, _bud = _e[0], _e[1], _e[2]
-                        if (_a >= n or _b >= n
-                                or (_a not in _freed
-                                    and _b not in _freed)):
-                            continue
-                        if abs(elev[_a] - elev[_b]) <= (
-                                _bud + _VIOL_TOL_M):
-                            continue
-                        if _a in _freed:
-                            _still_deficient.add(_a)
-                        if _b in _freed:
-                            _still_deficient.add(_b)
-                _solve_broken_idx |= {i for i in _still_deficient
-                                      if i < n}
+                    _gs_pin_bound_idx.add(_gi)
+                    _n_pin_bound += 1
                 if _os.environ.get("O4_STEP_DEBUG") == "1":
-                    print(f"    [mouth-relax] re-tested "
-                          f"{len(_freed)} freed node(s): "
-                          f"{len(_still_deficient)} still "
-                          f"deficient → exported")
-            else:
-                _solve_broken_idx |= {i for i in _freed if i < n}
-            if _os.environ.get("O4_STEP_DEBUG") == "1":
-                print(f"    [mouth-relax] {len(_conflicted)} "
-                      f"conflicted weld(s) → freed cluster "
-                      f"{len(_freed)}; {_n_adopted} lot ring(s) "
-                      f"adopted the solved profile")
-        # WELD↔WELD residuals (HECA #522): two lots' mouth welds on
-        # one road ring can still contradict after the reach-time
-        # lot↔lot reconciliation (later passes move the field the
-        # reconciliation measured against).  Both ends are truth
-        # welds — neither may yield — so a still-violated edge is
-        # a genuine break pocket: export both mouths.
-        # THE PREMISE DISSOLVES under the class-universal
-        # absorption ruling (owner 2026-08-03, spec kill-prep §1):
-        # a road welded to a lot IS the lot — the two "authorities"
-        # are ONE laterally-contiguous surface taking ONE
-        # (strictest) cap, so "neither may yield" describes a
-        # topology that no longer exists.  Under the gate the scan
-        # stays as a REPORTER and exports nothing; the residual is
-        # a visible violation of that one surface's law.
-        _n_weld_pocket = 0
-        for _sc in joint:
-            for _e in _sc["edges"]:
-                if len(_e) >= 4:
-                    continue      # interval edge (Stage B0)
-                _a, _b, _bud = _e[0], _e[1], _e[2]
-                if (_a >= n or _b >= n
-                        or _a not in _gs_hard
-                        or _b not in _gs_hard):
-                    continue
-                if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
-                    if not _CLASS_UNIVERSAL:
-                        _solve_broken_idx.add(_a)
-                        _solve_broken_idx.add(_b)
-                    _n_weld_pocket += 1
-        if _n_weld_pocket and _os.environ.get(
-                "O4_STEP_DEBUG") == "1":
-            print(f"    [mouth-relax] {_n_weld_pocket} weld↔weld "
-                  f"edge(s) still contradictory → "
-                  f"{'REPORT only' if _CLASS_UNIVERSAL else 'break export'}")
-    # EDGE FAIRING (user 2026-07-04, CYXY taxiway E): the spine
-    # fairing law covers spine CHAINS only — a corridor's ring
-    # EDGE still tracks noise in legal ±cap wiggles (E's edge
-    # alternated +2.3 %/+0.8 % every 12 m around a 1.55 % mean).
-    # Apply the same second-difference POCS to STRAIGHT boundary
-    # runs of airside rings (corners are real grade breaks —
-    # skipped by the bend test; anchors never move; band-clamped).
-    # SCOPED FINAL PROJECTION (user 2026-07-05): the edge fairing is
-    # the ONE pass between the yield projection (which enforced every
-    # pair) and the writeback that moves nodes WITHOUT re-enforcing
-    # their pairs — record which nodes it moved so the scoped
-    # projection treats their shapes as changed (the "unchanged ⇒
-    # already enforced" proof does not cover fairing-perturbed nodes).
-    _pre_fairing_elev = list(elev) if _scoped_gate else None
-    from auto_patch.config import TAXIWAY_MAX_GRADE_CHANGE_PER_M
-    # RESA-CUT FAIRING EXEMPTION (arc R slice R1): the cut is
-    # a free terrain leaf under ONE envelope edge — no
-    # within-shape rule, no fairing (the law trace).  Its ring
-    # vertices only resolve to FREE nodes once admitted, so
-    # with the gate off the set is empty and this is
-    # byte-inert.  ADOPTED cut vertices are excluded: those
-    # ARE pavement variables and keep the pavement's fairing.
-    _resa_no_fair = ({i for i in _resa_idx
-                      if i >= (_terrain_first or 0)}
-                     if _resa_idx else None)
-    _n_ekink = _fair_ring_edges(
-        layout, elev, bucket_to_idx, yield_hard, node_band,
-        TAXIWAY_MAX_GRADE_CHANGE_PER_M,
-        skip_nodes=_resa_no_fair)
-    if _os.environ.get("O4_STEP_DEBUG") == "1":
-        print(f"    [edge-fairing] residual kinks={_n_ekink}")
-    # ── PROBE A, TAIL BOUNDARY 3: ring_fairing ────────────────
-    if _mover is not None:
-        _mover_stamp(_mover, _mover_snapshot(_mover, elev),
-                     "ring_fairing")
-    _fairing_moved_keys = None
-    if _pre_fairing_elev is not None:
-        _fairing_moved_keys = {
-            key for key, i in bucket_to_idx.items()
-            if elev[i] != _pre_fairing_elev[i]}
-    # ── GAP-SPINE longitudinal fairing (Slice B stage B2, ratified
-    # 2026-07-10) ─────────────────────────────────────────────────
-    # The projection above drove every spine node into its envelope
-    # interval (a feasible point, not a smooth one — POCS finds ANY
-    # point of the intersection).  The longitudinal law is the
-    # project's own spine-curvature law, TAXIWAY_MAX_GRADE_CHANGE_
-    # PER_M as a second-difference cap (the ``_fair_spine_chains``
-    # form), applied per gap-spine chain with every move clamped
-    # back into the node's envelope interval read at the CURRENT
-    # (settled) station elevations — so smoothing never exits the
-    # law the interval edges enforce.  Spine nodes belong to no
-    # shape ring, so this pass cannot perturb the scoped-projection
-    # proof or any pavement value.  Gate OFF: no chains, no-op.
-    if _gap_spine_chains:
-        from auto_patch.config import (
-            TAXIWAY_MAX_GRADE_CHANGE_PER_M as _K_GAP_SPINE)
-        _n_gap_kink = _fair_gap_spine_chains(
-            elev, _gap_spine_chains, _K_GAP_SPINE,
-            frozen=base_hard)
+                    print(f"    [groundside-reach] {_n_pin_bound} freed "
+                          f"groundside pin(s) bounded by their LAW ceiling "
+                          f"(weld datum + one throat of reach, no DEM term)")
+
+        # ── ADJACENT-GROUND: ONE AUTHORITY, AND IT IS THE RELATIVE EDGE ───
+        # (cycle-5 spec fix 1.)  This used to ALSO bind the zone law as an
+        # absolute per-node box on the bounded-yield channel, snapshotting the
+        # pavement foot datum from ``elev`` right here — and then fp#8 moved
+        # that foot by p50 2.340 m / p90 24.949 m / max 88.905 m while the
+        # frozen box went on clamping at seed and after every sweep.
+        #
+        # THE DECISIVE MEASUREMENT (attribution dossier §3, over all 20,135
+        # over-cap ``graded_strip:adjacent_ground`` rows at fp#8 EXIT):
+        #
+        #     ground value inside the box implied by the fp#8-ENTRY datum
+        #                                                  13,208   65.6 %
+        #     ground value inside the box implied by the fp#8-EXIT datum
+        #     (what the law actually asks)                  1,346    6.7 %
+        #
+        # The residual therefore could not go to zero by binding HARDER;
+        # binding harder is what produced it.  So the box is DELETED and the
+        # RELATIVE interval edge — already built, already correct, and already
+        # in this joint — is the only authority.  What remains here is the
+        # AUDIT that the deletion lost nothing.
+        _zone_edge_nodes = {
+            _e[0] for _sc in shape_constraints
+            if _sc.get("ref") == "adjacent_ground"
+            for _e in (_sc.get("edges") or ())}
+        _zone_cov = _zone_law_coverage(
+            layout, bucket_to_idx, n,
+            getattr(layout, "_adjacent_ground_first_zone_index", 0),
+            _zone_edge_nodes)
+        if _zone_cov[0]:
+            import O4_UI_Utils as _UI_zone
+            _UI_zone.vprint(1,
+                f"  [adjacent-ground] zone-law COVERAGE: {_zone_cov[2]} of "
+                f"{_zone_cov[1]} resolved band node(s) carried by the "
+                f"RELATIVE interval edge (the one authority); "
+                f"{_zone_cov[3]} adopted a pavement variable by identity; "
+                f"{_zone_cov[4]} UNCARRIED"
+                + ("" if not _zone_cov[4] else
+                   " — a published zone row whose law NOTHING enforces; "
+                   "this must be 0")
+                + f".  ({_zone_cov[0]} row(s) published.)  The absolute "
+                f"foot-datum box is RETIRED (cycle-5 fix 1): it froze a "
+                f"constraint derived from variables this same projection "
+                f"then moved.")
+        # NO REFERENCE RODS (build-complete-then-debug round).  The
+        # §7 reference channel this block built — the pre-yield
+        # snapshot, the rod-held corridor string, the pad-rod
+        # coupling shadow, the apron reference surface R and the R1
+        # reference field — is DELETED with the proximal pull that
+        # consumed it.  A movable node is plain free here: it settles
+        # wherever the caps, the bounded-yield boxes and the reach
+        # band admit, under ONE authority (the law edges).
+        joint = list(shape_constraints) + _unified_entries(
+            u_edges, _u_pair_stage, "solve/joint")
+        # DEBUG snapshot (O4_DUMP_SOLVE_STATE=<path>): pickle the final-
+        # projection inputs so projection variants iterate OFFLINE (~1 s)
+        # instead of via full rebuilds (~115 s).  Node lat/lon included so
+        # an offline scorer can map emitted-patch nids to solver indices.
+        _dump = _os.environ.get("O4_DUMP_SOLVE_STATE")
+        if _dump:
+            import pickle
+            _ll = [layout.m_to_ll(x, y) for (x, y) in nodes]
+            _cat = dict(_hard_cat)
+            for i in runway_nodes:
+                if i < n:
+                    _cat.setdefault(i, "runway_node")
+            for i in building_seats:
+                if i < n:
+                    _cat.setdefault(i, "seat")
+            for i in _gs_hard:
+                if i < n:
+                    _cat.setdefault(i, "gs_pin")
+            with open(_dump, "wb") as _fh:
+                pickle.dump({
+                    "elev": list(elev),
+                    "joint_edges": [tuple(e) for sc in joint
+                                    for e in sc["edges"]],
+                    "yield_hard": set(yield_hard),
+                    "pad_groups": [set(g) for g in pad_groups],
+                    "nodes_m": list(nodes),
+                    "nodes_ll": _ll,
+                    "dem_elev": list(dem_elev),
+                    "node_band": list(node_band),
+                    "hard_cat": _cat,
+                    # BOUNDED YIELD (2026-07-29): the live seat boxes
+                    # (this solve's index space), so an offline fp#8
+                    # replay passes the exact bounds the build did
+                    # (node_band is only a proxy).
+                    "seat_boxes": {
+                        int(_bi): (float(_bl), float(_bh))
+                        for _bi, (_bl, _bh) in _seat_box_idx.items()},
+                    # Replay fidelity (2026-07-29): the zone-slab
+                    # threshold fp#8 actually ran with — without it
+                    # an offline replay mis-kinds the zone<->host
+                    # slabs and inflates the broken set.
+                    "interval_yield_from": _iyf,
+                    # Spine graph (per-edge cap budgets) + runway
+                    # anchors: lets an offline probe audit whether a
+                    # node's solved level equals its cap-reachable
+                    # ceiling (Dijkstra over budgets from anchors).
+                    "spine_adj": {int(i): [(int(j), float(b))
+                                           for (j, b) in lst]
+                                  for i, lst in u_spine_adj.items()},
+                    "runway_anchor": {int(i): float(a) for i, a
+                                      in G.runway_anchor.items()},
+                    # ── R1/P2-CP1 field-moment fields ────────────────
+                    # ``elev`` above IS candidate B (the post-projection
+                    # state today's snapshot reads); this is candidate A,
+                    # spec §4.1 layer 6's ruled source state.
+                    "elev_entry_A": _elev_entry_A,
+                    # §10 rod slabs — the interval law that governs ALL
+                    # strung vertices, so an offline replay enforces the
+                    # same shape the build did.
+                    "rod_edges": [(int(_a), int(_b), float(_lo),
+                                   float(_hi))
+                                  for (_a, _b, _lo, _hi) in _rod_edges],
+                    # Chain identity: half-open [start, stop) spans of
+                    # ``rod_edges`` per strung piece (free — already
+                    # built for the rod law clamp above).
+                    "rod_piece_spans": [(int(_p0), int(_p1))
+                                        for (_p0, _p1)
+                                        in _rod_piece_spans],
+                    # The quarantine set the two projections declared.
+                    "yield_broken": sorted(int(_i)
+                                           for _i in _yield_broken),
+                    "yield_hard": sorted(int(_i) for _i in yield_hard),
+                    # Per-node building-frontage floor fed to the phase-A
+                    # spine solve (P3 input; local to this scope).
+                    "spine_floor": {int(_i): float(_v) for _i, _v
+                                    in u_spine_floor.items()},
+                    # P3 drag attribution: the five STAGE-LABELLED
+                    # ``elev`` copies from inside the phase-A spine
+                    # solve + the cross-corridor coupling adjacency,
+                    # collected via its ``probe_out`` out-parameter.
+                    "spine_stages": _spine_probe,
+                    # ── fp#8 REPLAY FIDELITY (cycle-7 chore, 2026-08-06) ──
+                    # ``joint_edges`` above is FLATTENED, and the flat list
+                    # loses the three things the projection reads off the
+                    # ENTRY: its law family, its ``envelope_skip`` flag, and
+                    # whether it is still a lazy certificate.  A replay built
+                    # from the flat list therefore judges a DIFFERENT
+                    # constraint set from production's fp#8 — the exact
+                    # instrument gap the c6attr dossier's tool-debt note
+                    # names (``interval_reach_replay.py`` "is now
+                    # unfaithful").  These keys close it; the flat list stays
+                    # for the callers that already read it.
+                    "joint_entries": [
+                        {"family": _sc.get("family"),
+                         "role": _sc.get("role"), "ref": _sc.get("ref"),
+                         "envelope_skip": bool(_sc.get("envelope_skip")),
+                         # A thunk is not picklable and its body pairs are
+                         # not generated yet: the flag is recorded so a
+                         # replay can SAY how many entries it could not
+                         # carry rather than silently dropping law.
+                         "lazy": _sc.get("lazy_expand") is not None,
+                         "edges": [tuple(_e) for _e in (_sc.get("edges")
+                                                        or ())]}
+                        for _sc in joint],
+                    # The certificate's family axis, in ORIGINAL node space —
+                    # what ``feasibility_project(family_of=...)`` re-keys.
+                    "family_by_pair": {(int(_a), int(_b)): _f
+                                       for (_a, _b), _f
+                                       in _u_family_of.items()},
+                    # THE fp#8 KWARGS.  Every argument the production call
+                    # passes that is not already a top-level key, so a replay
+                    # reconstructs the call verbatim instead of guessing.
+                    # ``env_band`` is ``node_band`` itself when the gate is
+                    # on (``solve.py`` ``_env_band = node_band if
+                    # _ENV_FROM_BAND else None``), so the flag plus the
+                    # existing ``node_band`` key carries it losslessly.
+                    "fp8_kwargs": {
+                        "group_bounds": _yield_group_bounds,
+                        "node_bounds": _yield_node_bounds,
+                        "gs_pin_nodes": (sorted(int(_i)
+                                                for _i in _gs_pin_bound_idx)
+                                         if _gs_pin_bound_idx else None),
+                        "witness_excluded": (sorted(int(_i) for _i
+                                                    in _route_excluded)
+                                             if _route_excluded else None),
+                        "gs_witness": ((sorted(int(_i)
+                                               for _i in _gs_witness[0]),
+                                        _gs_witness[1])
+                                       if _gs_witness else None),
+                        "env_band_is_node_band": _env_band is not None,
+                    },
+                }, _fh)
+            print(f"    [dump] solve state -> {_dump} "
+                  f"(+A-copy, {len(_rod_edges)} rod slab(s))")
+        # 2400 sweeps: with tightest-budget edge dedup the polytope is
+        # consistent and the scalar GS CONVERGES (SPJC: worst residual
+        # 0.025 at 800 sweeps → 0.0000 at 1702; the old "oscillation
+        # plateau" was the first-edge-wins dedup enforcing conflicting
+        # duplicate budgets).  Cap with headroom; the loop exits early
+        # at tol.
+        _scoped_gate = _scoped_projection_enabled()
+        # Capture the BROKEN quarantine (genuine anchor contradictions,
+        # full-graph detection) for the scoped final projection — its
+        # sparser graph can miss the same contradictions and grind POCS
+        # on the infeasible pockets instead (measured: CYXY 66 k → 11.5 M
+        # worklist visits).  Keys, not indices: the projection rebuilds
+        # its own node list.
+        _solve_broken_idx: set = set()
+        # (The §7 pre-yield re-string + ``yield_hard`` hold that
+        # lived here were DELETED by spec §10 — the string is now
+        # ordinary law via the interval-rod entry registered after
+        # phase A, so this yield and everything downstream maintain
+        # the string's shape without any value-hold to fight.)
+        # BREAK FORENSICS (spec reference-honesty Track 1 step 4, gate
+        # ``O4_BREAK_FORENSICS=<path>``): the anchor CLASS map + node
+        # lat/lons the report names its witness pairs with.  Unset ⇒
+        # nothing is built and nothing is passed.
+        _fp8_forensics = None
+        if _os.environ.get("O4_BREAK_FORENSICS"):
+            _fcat = dict(_hard_cat)
+            for _i in runway_nodes:
+                if _i < n:
+                    _fcat.setdefault(_i, "runway_node")
+            for _i in building_seats:
+                if _i < n:
+                    _fcat.setdefault(_i, "seat")
+            for _i in _gs_hard:
+                if _i < n:
+                    _fcat.setdefault(_i, "gs_pin")
+            for _i in _seam_pin_idx:
+                if _i < n:
+                    _fcat.setdefault(_i, "seam_pin")
+            for _i in u_spine_nodes:
+                if _i < n:
+                    _fcat.setdefault(_i, "spine")
+            _fp8_forensics = {
+                "label": "fp#8",
+                "classes": _fcat,
+                "nodes_ll": [layout.m_to_ll(_x, _y) for (_x, _y) in nodes],
+            }
+        _t_fp8 = _time.perf_counter()
+        rem, bh = feasibility_project_partitioned(
+                                      elev, joint, yield_hard,
+                                      receiver_nodes=_solve_receivers, n_nodes=n,
+                                      forensics=_fp8_forensics,
+                                      witness_limited=_gs_witness,
+                                      force_scalar=True,
+                                      # SWEEP BUDGET: derived from this
+                                      # projection's own graph inside
+                                      # ``feasibility_project`` (the hand-set
+                                      # 2400 was BINDING and chose surfaces —
+                                      # config's derivation note).  No
+                                      # ``max_iters`` here BY DESIGN.
+                                      flat_groups=pad_groups or None,
+                                      interval_yield_from=_iyf,
+                                      broken_out=(_solve_broken_idx
+                                                  if _scoped_gate
+                                                  else None),
+                                      group_bounds=_yield_group_bounds,
+                                      node_bounds=_yield_node_bounds,
+                                      gs_pin_nodes=(_gs_pin_bound_idx
+                                                    or None),
+                                      witness_excluded=_route_excluded,
+                                      env_band=_env_band,
+                                      family_of=_u_family_of)
+        _t_fp8_end = _time.perf_counter()
+        # ── PROBE A, TAIL BOUNDARY 1: fp#8 (spec §1 extension) ────
+        # STAMPED OUTSIDE THE ``_t_fp8`` WINDOW (spec §0.3 — the
+        # ``[spine-yield]`` line is a published A/B number), and the
+        # fp#8 call is NOT given ``probe_out`` for the same reason:
+        # one post-call diff, no snapshot inside the timed region.
+        if _mover is not None:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev), "fp8")
+        # Tagged ``[spine-yield]``, NOT ``[taut-string]``: this line
+        # must print on BOTH sides of the gate or the held-vs-baseline
+        # delta is unmeasurable, and a gate-OFF run must emit zero
+        # ``[taut-string]`` lines.
         if _os.environ.get("O4_STEP_DEBUG") == "1":
-            print(f"    [gap-spine] fairing residual "
-                  f"kinks={_n_gap_kink}")
-    # ── PROBE A, TAIL BOUNDARY 4: gap_spine_fairing ──────────────
-    # Unconditional (a no-op diff when there were no chains) so the
-    # ledger's last boundary is always the same statement.
-    if _mover is not None:
-        _mover_stamp(_mover, _mover_snapshot(_mover, elev),
-                     "gap_spine_fairing")
-    # (The §7 taut-string witness + final-hold canonical-key export
-    # that lived here were DELETED by spec §10.  The interval-rod
-    # entry registered after phase A carries the string's shape
-    # through every projection above, and its canonical-key form —
-    # ``layout._taut_rod_key_edges`` — is what
-    # ``final_grade_projection`` maps into its rebuilt node space.)
+            print(f"    [spine-yield] fp#8 body yield "
+                  f"{_t_fp8_end - _t_fp8:.3f}s "
+                  f"hard={len(yield_hard)}")
+        # MOUTH VERIFY-AND-RELAX (user 2026-07-06, HECA #541/#546): the
+        # groundside mouth welds (``_gs_hard``) were pinned from lot
+        # rings computed BEFORE this movable-pad/free-seat yield — a
+        # building pad or apron body that settles at a different level
+        # leaves a road-ring edge pad↔mouth over-cap with BOTH ends
+        # effectively hard (mutually conflicting weld authorities; the
+        # DEM-follow break blend cannot fire on a sliver with no
+        # interior nodes).  Verify every welded mouth against the joint
+        # law edges; where violated, FREE the whole mouth cluster (ONE
+        # authority: the joint solve), re-project warm, and have the
+        # LOT adopt the projected mouth profile (exact at freed
+        # vertices, cap-decay fill, chord-limited) so road and lot
+        # still emit as one lawful welded surface.
+        if _gs_hard:
+            # Spec kill-prep §1 (owner 2026-08-03): the class-universal
+            # absorption ruling governs BOTH exports below — A2's
+            # unconditional freed-cluster export and A3's weld↔weld
+            # pocket.  See each site.
+            from auto_patch.config import (
+                SERVICE_LOT_ABSORPTION as _CLASS_UNIVERSAL)
+            _VIOL_TOL_M = 0.03
+            _conflicted: set = set()
+            for _sc in joint:
+                for _e in _sc["edges"]:
+                    if len(_e) >= 4:
+                        continue      # interval edge (Stage B0): not a
+                        #               symmetric-budget mouth weld
+                    _a, _b, _bud = _e[0], _e[1], _e[2]
+                    if (_a >= n or _b >= n
+                            or (_a not in _gs_hard
+                                and _b not in _gs_hard)):
+                        continue
+                    # weld↔weld edges are the LOT↔LOT class — the
+                    # reach-time reconciliation owns those (both lots
+                    # are final there); freeing both welds here lets
+                    # the solve drag them apart (HECA #522: 0.8 m →
+                    # 2.1 m after a both-weld free).
+                    if _a in _gs_hard and _b in _gs_hard:
+                        continue
+                    if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
+                        if _a in _gs_hard:
+                            _conflicted.add(_a)
+                        if _b in _gs_hard:
+                            _conflicted.add(_b)
+            if _conflicted:
+                from .anchors import (adopt_projected_mouths,
+                                      expand_mouth_cluster)
+                _freed = expand_mouth_cluster(
+                    layout, bucket_to_idx, _conflicted, _gs_hard)
+                # ── STAGE B MAY NOT WRITE STAGE A (S1c, coupling 11) ──────
+                # This scan frees a mouth CLUSTER from the hard set because a
+                # GROUNDSIDE weld violates a law edge — and the cluster
+                # expansion walks rings, so it can free AIRSIDE nodes too.
+                # Freeing an airside node is a write to stage A authored by a
+                # groundside conflict, which the staged law forbids outright
+                # ("nothing in stage B may write, re-project or re-blend a
+                # stage-A row").  The groundside half of the cluster still
+                # frees and still re-projects; the airside half stays hard and
+                # the lot adopts the profile it finds, which is the mouth
+                # ruling (RULINGS 2026-08-06) unchanged.
+                _freed_air = _freed - _solve_receivers
+                if _freed_air:
+                    import O4_UI_Utils as _UI_f
+                    _UI_f.vprint(
+                        1, f"    [stage] mouth-cluster conflict: "
+                           f"{len(_freed_air)} of {len(_freed)} freed node(s) "
+                           f"are AIRSIDE and stay hard (a groundside weld "
+                           f"violation never frees an airside variable)")
+                    _freed = _freed & _solve_receivers
+                yield_hard = yield_hard - _freed
+                # GROUNDSIDE PIN LAW BOUND (spec §C.2 ★, datum replaced by
+                # item 3(a)): the freed mouth cluster is re-projected and
+                # the LOT then ADOPTS the projected profile — so an
+                # unbounded re-projection re-imports exactly the float §C
+                # removes, through the relax door.  Carry the pin's LAW
+                # ceiling (weld datum + one throat of reach; NO DEM term)
+                # as a bounded-yield box on every freed mouth node (the
+                # landed ``node_bounds`` machinery; upper side only — a
+                # mouth may always settle DOWN toward its seed).  A pin
+                # with no weld datum has no entry and stays unbounded
+                # above: a missing datum never becomes a terrain bound.
+                _relax_node_bounds = _yield_node_bounds
+                _relax_pin_idx = set(_gs_pin_bound_idx)
+                _pin_ceil = getattr(
+                    layout, "_gs_pin_law_ceiling_idx", None) or {}
+                if _pin_ceil:
+                    _relax_node_bounds = dict(_yield_node_bounds or {})
+                    for _fi in _freed:
+                        _c = _pin_ceil.get(_fi)
+                        if _c is None or _fi >= n:
+                            continue
+                        _pb = _relax_node_bounds.get(_fi)
+                        _relax_node_bounds[_fi] = (
+                            (-1e18, float(_c)) if _pb is None
+                            else (_pb[0], min(_pb[1], float(_c))))
+                        # Same carry as fp#8: a pin ceiling installed through
+                        # the relax door yields to the band on conflict too,
+                        # or the lift returns through exactly that door
+                        # (cycle-6 Part P).
+                        _relax_pin_idx.add(_fi)
+                # Same BOUNDED YIELD boxes as fp#8 above: the
+                # mouth-relax re-projection moves the same freed seats
+                # and must not un-do the clamp.
+                # SWEEP BUDGET derived from the graph (the 1200 this used to
+                # pass was half the already-binding final cap; a re-projection
+                # over the SAME law graph needs the same propagation distance,
+                # so there was never a reason for it to be smaller).
+                rem, bh = feasibility_project_partitioned(
+                    elev, joint, yield_hard, force_scalar=True,
+                    receiver_nodes=_solve_receivers, n_nodes=n,
+                    flat_groups=pad_groups or None,
+                    interval_yield_from=_iyf,
+                    witness_limited=_gs_witness,
+                    group_bounds=_yield_group_bounds,
+                    node_bounds=_relax_node_bounds,
+                    gs_pin_nodes=_relax_pin_idx or None,
+                    witness_excluded=_route_excluded,
+                    env_band=_env_band)
+                _n_adopted = adopt_projected_mouths(
+                    layout, bucket_to_idx, elev, _freed, _gs_hard)
+                # ── PROBE A, TAIL BOUNDARY 2: mouth_relax ─────────
+                # One boundary for the whole stage (re-projection +
+                # lot adoption), stamped after both.
+                if _mover is not None:
+                    _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                                 "mouth_relax")
+                # A relaxed mouth is a solver-DECLARED authority-
+                # conflict pocket: export it to the break quarantine
+                # (a fully reconciled mouth has no over-cap pairs, so
+                # the export is inert there; a residual blend — e.g.
+                # the lot ring the adoption re-shaped around the
+                # solved mouth — is quarantined honestly instead of
+                # reading as an actionable solver miss).
+                # CLASS-UNIVERSAL ABSORPTION (owner 2026-08-03, spec
+                # kill-prep §1): "inert there" was never tested — the
+                # export fired UNCONDITIONALLY on the whole freed
+                # cluster, and 48 of HECA's + 6 of HEAZ's exported
+                # nodes carry ZERO deficit (quarret2 decomposition).
+                # Under the gate the mouth is RE-TESTED after the
+                # adoption and only a still-deficient node reports;
+                # quarantine is unauthorized (docs/RULINGS.md), so a
+                # reconciled mouth exports nothing at all.
+                if _CLASS_UNIVERSAL:
+                    _still_deficient: set = set()
+                    for _sc in joint:
+                        for _e in _sc["edges"]:
+                            if len(_e) >= 4:
+                                continue
+                            _a, _b, _bud = _e[0], _e[1], _e[2]
+                            if (_a >= n or _b >= n
+                                    or (_a not in _freed
+                                        and _b not in _freed)):
+                                continue
+                            if abs(elev[_a] - elev[_b]) <= (
+                                    _bud + _VIOL_TOL_M):
+                                continue
+                            if _a in _freed:
+                                _still_deficient.add(_a)
+                            if _b in _freed:
+                                _still_deficient.add(_b)
+                    _solve_broken_idx |= {i for i in _still_deficient
+                                          if i < n}
+                    if _os.environ.get("O4_STEP_DEBUG") == "1":
+                        print(f"    [mouth-relax] re-tested "
+                              f"{len(_freed)} freed node(s): "
+                              f"{len(_still_deficient)} still "
+                              f"deficient → exported")
+                else:
+                    _solve_broken_idx |= {i for i in _freed if i < n}
+                if _os.environ.get("O4_STEP_DEBUG") == "1":
+                    print(f"    [mouth-relax] {len(_conflicted)} "
+                          f"conflicted weld(s) → freed cluster "
+                          f"{len(_freed)}; {_n_adopted} lot ring(s) "
+                          f"adopted the solved profile")
+            # WELD↔WELD residuals (HECA #522): two lots' mouth welds on
+            # one road ring can still contradict after the reach-time
+            # lot↔lot reconciliation (later passes move the field the
+            # reconciliation measured against).  Both ends are truth
+            # welds — neither may yield — so a still-violated edge is
+            # a genuine break pocket: export both mouths.
+            # THE PREMISE DISSOLVES under the class-universal
+            # absorption ruling (owner 2026-08-03, spec kill-prep §1):
+            # a road welded to a lot IS the lot — the two "authorities"
+            # are ONE laterally-contiguous surface taking ONE
+            # (strictest) cap, so "neither may yield" describes a
+            # topology that no longer exists.  Under the gate the scan
+            # stays as a REPORTER and exports nothing; the residual is
+            # a visible violation of that one surface's law.
+            _n_weld_pocket = 0
+            for _sc in joint:
+                for _e in _sc["edges"]:
+                    if len(_e) >= 4:
+                        continue      # interval edge (Stage B0)
+                    _a, _b, _bud = _e[0], _e[1], _e[2]
+                    if (_a >= n or _b >= n
+                            or _a not in _gs_hard
+                            or _b not in _gs_hard):
+                        continue
+                    if abs(elev[_a] - elev[_b]) > _bud + _VIOL_TOL_M:
+                        if not _CLASS_UNIVERSAL:
+                            _solve_broken_idx.add(_a)
+                            _solve_broken_idx.add(_b)
+                        _n_weld_pocket += 1
+            if _n_weld_pocket and _os.environ.get(
+                    "O4_STEP_DEBUG") == "1":
+                print(f"    [mouth-relax] {_n_weld_pocket} weld↔weld "
+                      f"edge(s) still contradictory → "
+                      f"{'REPORT only' if _CLASS_UNIVERSAL else 'break export'}")
+        # EDGE FAIRING (user 2026-07-04, CYXY taxiway E): the spine
+        # fairing law covers spine CHAINS only — a corridor's ring
+        # EDGE still tracks noise in legal ±cap wiggles (E's edge
+        # alternated +2.3 %/+0.8 % every 12 m around a 1.55 % mean).
+        # Apply the same second-difference POCS to STRAIGHT boundary
+        # runs of airside rings (corners are real grade breaks —
+        # skipped by the bend test; anchors never move; band-clamped).
+        # SCOPED FINAL PROJECTION (user 2026-07-05): the edge fairing is
+        # the ONE pass between the yield projection (which enforced every
+        # pair) and the writeback that moves nodes WITHOUT re-enforcing
+        # their pairs — record which nodes it moved so the scoped
+        # projection treats their shapes as changed (the "unchanged ⇒
+        # already enforced" proof does not cover fairing-perturbed nodes).
+        _pre_fairing_elev = list(elev) if _scoped_gate else None
+        from auto_patch.config import TAXIWAY_MAX_GRADE_CHANGE_PER_M
+        # RESA-CUT FAIRING EXEMPTION (arc R slice R1): the cut is
+        # a free terrain leaf under ONE envelope edge — no
+        # within-shape rule, no fairing (the law trace).  Its ring
+        # vertices only resolve to FREE nodes once admitted, so
+        # with the gate off the set is empty and this is
+        # byte-inert.  ADOPTED cut vertices are excluded: those
+        # ARE pavement variables and keep the pavement's fairing.
+        _resa_no_fair = ({i for i in _resa_idx
+                          if i >= (_terrain_first or 0)}
+                         if _resa_idx else None)
+        _n_ekink = _fair_ring_edges(
+            layout, elev, bucket_to_idx, yield_hard, node_band,
+            TAXIWAY_MAX_GRADE_CHANGE_PER_M,
+            skip_nodes=_resa_no_fair)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [edge-fairing] residual kinks={_n_ekink}")
+        # ── PROBE A, TAIL BOUNDARY 3: ring_fairing ────────────────
+        if _mover is not None:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                         "ring_fairing")
+        _fairing_moved_keys = None
+        if _pre_fairing_elev is not None:
+            _fairing_moved_keys = {
+                key for key, i in bucket_to_idx.items()
+                if elev[i] != _pre_fairing_elev[i]}
+        # ── GAP-SPINE longitudinal fairing (Slice B stage B2, ratified
+        # 2026-07-10) ─────────────────────────────────────────────────
+        # The projection above drove every spine node into its envelope
+        # interval (a feasible point, not a smooth one — POCS finds ANY
+        # point of the intersection).  The longitudinal law is the
+        # project's own spine-curvature law, TAXIWAY_MAX_GRADE_CHANGE_
+        # PER_M as a second-difference cap (the ``_fair_spine_chains``
+        # form), applied per gap-spine chain with every move clamped
+        # back into the node's envelope interval read at the CURRENT
+        # (settled) station elevations — so smoothing never exits the
+        # law the interval edges enforce.  Spine nodes belong to no
+        # shape ring, so this pass cannot perturb the scoped-projection
+        # proof or any pavement value.  Gate OFF: no chains, no-op.
+        if _gap_spine_chains:
+            from auto_patch.config import (
+                TAXIWAY_MAX_GRADE_CHANGE_PER_M as _K_GAP_SPINE)
+            _n_gap_kink = _fair_gap_spine_chains(
+                elev, _gap_spine_chains, _K_GAP_SPINE,
+                frozen=base_hard)
+            if _os.environ.get("O4_STEP_DEBUG") == "1":
+                print(f"    [gap-spine] fairing residual "
+                      f"kinks={_n_gap_kink}")
+        # ── PROBE A, TAIL BOUNDARY 4: gap_spine_fairing ──────────────
+        # Unconditional (a no-op diff when there were no chains) so the
+        # ledger's last boundary is always the same statement.
+        if _mover is not None:
+            _mover_stamp(_mover, _mover_snapshot(_mover, elev),
+                         "gap_spine_fairing")
+        # (The §7 taut-string witness + final-hold canonical-key export
+        # that lived here were DELETED by spec §10.  The interval-rod
+        # entry registered after phase A carries the string's shape
+        # through every projection above, and its canonical-key form —
+        # ``layout._taut_rod_key_edges`` — is what
+        # ``final_grade_projection`` maps into its rebuilt node space.)
     _psub(0.97, "Solving elevations — writing back")
     # ── SPINE CROWN v2 (user 2026-07-07, part 30) ────────────────────
     # The whole solve above ran in UNCROWNED space z′.  The crown is a

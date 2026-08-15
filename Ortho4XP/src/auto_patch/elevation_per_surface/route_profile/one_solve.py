@@ -498,6 +498,169 @@ def shape_constraints_edges(shape_constraints):
             yield edge
 
 
+def law_edge_limits(shape_constraints, n, *, include_flat_pairs=False):
+    """The joint law as canonical per-pair limits, in the UNREMAPPED node
+    space: ``(edge_lim, interval_lim, envelope_skip_pairs)``.
+
+    CONSTRUCTIVE-SOLVE round (K1): this is the SAME dedup contract
+    :func:`feasibility_project` applies to its own entry stream — tightest
+    symmetric budget wins per pair; a signed interval 4-tuple
+    (``interval_low <= z_i − z_j <= interval_high``, ``None`` = open side)
+    is pair-normalised to ``i < j`` (flipping negates and swaps the sides)
+    and intersected tightest-per-side; an ``envelope_skip``-flagged entry
+    keeps its interval pairs out of the reach-envelope adjacency (the
+    negative-weight Dijkstra blowup class).  The authority for these
+    semantics is the in-projection loop in ``feasibility_project`` (search
+    "TIGHTEST budget wins") — kept there verbatim because it additionally
+    interleaves the flat-group remap and the family axis, which the
+    constructive caller has none of (no flat groups: pads are emission-time
+    relative, owner 2026-08-14).  ``tests/test_constructive_solve.py``
+    twin-asserts the two spellings agree on a shared fixture.
+
+    ``include_flat_pairs``: fold every ``sc["flat_pairs"]`` rigid-level pair
+    in as a ZERO-budget symmetric edge (the level-coupling law expressed in
+    the envelope's own vocabulary — coupled nodes then share one interval
+    and the midpoint selection keeps them co-levelled by construction).
+    """
+    edge_lim: dict = {}
+    interval_lim: dict = {}
+    envelope_skip_pairs: set = set()
+    for sc in shape_constraints:
+        _env_skip = bool(sc.get("envelope_skip"))
+        for edge in sc["edges"]:
+            if len(edge) >= 4:
+                i, j, raw_low, raw_high = (edge[0], edge[1],
+                                           edge[2], edge[3])
+                if raw_low is None and raw_high is None:
+                    continue
+                if i >= n or j >= n or i == j:
+                    continue
+                if _env_skip:
+                    envelope_skip_pairs.add((i, j) if i < j else (j, i))
+                if i < j:
+                    pair, low, high = (i, j), raw_low, raw_high
+                else:
+                    pair = (j, i)
+                    low = None if raw_high is None else -raw_high
+                    high = None if raw_low is None else -raw_low
+                previous = interval_lim.get(pair)
+                if previous is None:
+                    interval_lim[pair] = (low, high)
+                else:
+                    prev_low, prev_high = previous
+                    new_low = (low if prev_low is None
+                               else low if (low is not None
+                                            and low > prev_low)
+                               else prev_low)
+                    new_high = (high if prev_high is None
+                                else high if (high is not None
+                                              and high < prev_high)
+                                else prev_high)
+                    interval_lim[pair] = (new_low, new_high)
+                continue
+            i, j, lim = edge
+            if lim is None or lim < 0 or i >= n or j >= n or i == j:
+                continue
+            e = (i, j) if i < j else (j, i)
+            prev = edge_lim.get(e)
+            if prev is None or lim < prev:
+                edge_lim[e] = lim
+        if include_flat_pairs:
+            for (a, b) in sc.get("flat_pairs", ()):
+                if a >= n or b >= n or a == b:
+                    continue
+                e = (a, b) if a < b else (b, a)
+                edge_lim[e] = 0.0
+    return edge_lim, interval_lim, envelope_skip_pairs
+
+
+def envelope_radj(edge_lim, interval_lim, envelope_skip_pairs=frozenset(),
+                  interval_yield_from=None):
+    """Directed reach-envelope adjacencies ``(ceil_radj, floor_radj)`` from
+    canonical pair limits (:func:`law_edge_limits`'s output shape).
+
+    Same embedding as the in-projection build in
+    :func:`feasibility_project` (search "DIRECTED reach-envelope
+    adjacencies"), including its two standing safety clauses, both
+    load-bearing:
+
+    * ZONE-LEAF EXCLUSION — an interval pair crossing
+      ``interval_yield_from`` is a host-authoritative terrain leaf and is
+      excluded (the lazy-Dijkstra re-expand blowup class; the leaf is
+      valued directly against its solved host instead);
+    * ENVELOPE SIGN DISCIPLINE — only ``high >= 0`` / ``low <= 0``
+      directions embed, so every ceiling weight is ≥ 0 and every floor
+      weight ≤ 0 and the lazy-deletion Dijkstra stays bounded (the KCLT
+      26-56 GB SIGKILL class, memory ``reach-envelope-sign-discipline``).
+
+    Dropping a direction only LOOSENS the envelope — law enforcement of
+    every skipped slab stays with its consumer, exactly as in the
+    projection.
+    """
+    ceil_radj: dict = {}
+    floor_radj: dict = {}
+    for (i, j), lim in edge_lim.items():
+        ceil_radj.setdefault(i, []).append((j, lim))
+        ceil_radj.setdefault(j, []).append((i, lim))
+        floor_radj.setdefault(i, []).append((j, -lim))
+        floor_radj.setdefault(j, []).append((i, -lim))
+    for (i, j), (low, high) in interval_lim.items():
+        zone_slab = (interval_yield_from is not None
+                     and ((i >= interval_yield_from)
+                          != (j >= interval_yield_from)))
+        if zone_slab or (i, j) in envelope_skip_pairs:
+            continue
+        if high is not None and high >= 0.0:
+            ceil_radj.setdefault(j, []).append((i, high))
+            floor_radj.setdefault(i, []).append((j, -high))
+        if low is not None and low <= 0.0:
+            ceil_radj.setdefault(i, []).append((j, -low))
+            floor_radj.setdefault(j, []).append((i, low))
+    return ceil_radj, floor_radj
+
+
+def reach_envelope(sign, radj, seeds, values, n, horizon=None):
+    """Multi-source cap-bounded envelope: ``best[k] = min over seeds a of
+    (values[a] + capdist(a→k))`` for ``sign=+1`` (the ceiling), ``max of
+    (values[a] − capdist)`` for ``sign=−1`` (the floor).  Returns
+    ``(best, dist)`` — ``dist`` is the budget-metric distance of the
+    optimal label.
+
+    This is the module-level spelling of the projection's own
+    ``_reach_plain`` (same lazy-deletion Dijkstra, same relaxation
+    ``nt = t + w`` with the sign baked into the weights, same horizon
+    truncation semantics), taking the value field as a parameter instead
+    of a closure.  Both envelopes are cap-Lipschitz by construction, which
+    is the constructive solve's C2 premise: ANY selection inside
+    ``[floor, ceil]`` that is itself cap-Lipschitz — the interval midpoint
+    of two Lipschitz envelopes is — satisfies every embedded pair.
+    """
+    import heapq
+    best: dict = {}
+    dist: dict = {}
+    pq = [((values[a] if sign > 0 else -values[a]), 0.0, a)
+          for a in seeds if a < n]
+    heapq.heapify(pq)
+    while pq:
+        val, dk, k = heapq.heappop(pq)
+        t = val if sign > 0 else -val
+        if k in best and ((sign > 0 and t >= best[k])
+                          or (sign < 0 and t <= best[k])):
+            continue
+        best[k] = t
+        dist[k] = dk
+        for (j, w) in radj.get(k, ()):
+            ndk = dk + (w if w >= 0.0 else -w)
+            if horizon is not None and ndk > horizon:
+                continue
+            nt = t + w
+            pj = best.get(j)
+            if pj is None or (sign > 0 and nt < pj) \
+                    or (sign < 0 and nt > pj):
+                heapq.heappush(pq, ((nt if sign > 0 else -nt), ndk, j))
+    return best, dist
+
+
 def _box_isect(box_a, box_b):
     """Tightest-per-side intersection of two optional ``(lo, hi)`` boxes
     (``None`` = unbounded).  BOUNDED YIELD (owner ruling 2026-07-29): two

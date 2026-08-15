@@ -3982,7 +3982,6 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
         band = band_of_record(layout)
     findings: list = []
     n_shapes = 0
-    n_seal_conflicts = 0
     if band is not None:
         for s in getattr(layout, "shapes", ()) or ():
             if s.role not in PAVEMENT_ROLES or s.role in SEAL_HARD_ROLES:
@@ -4006,37 +4005,27 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
                 level = round(float(
                     max(out, key=lambda v: abs(v - before[0]))), 2)
                 out = [level] * len(out)
-            else:
-                # ── THE FOLLOWING GRADE (finalarch item 1b) ──────────
-                # The seal is the pipeline's LAST elevation author, so a
-                # clamp here is authorship NOTHING FOLLOWS — measured at
-                # HECA seam 26: one service_junction vertex re-authored
-                # 9.382 m (115.980 → 106.598) with its ring neighbours
-                # untouched, an interior step no pass could ever grade.
-                # Under weld-or-gap an interior disagreement is always a
-                # defect, so the seal now grades its own authorship: the
-                # ring relaxes to the clamped vertices (pinned) under
-                # its OWN role cap, then re-clamps once — the band stays
-                # the last authority, and a vertex the re-clamp still
-                # moves is a band-vs-cap LAW CONFLICT, counted and
-                # reported below, never silently shipped as a step.
-                cap = ROLE_GRADE_LIMITS.get(s.role)
-                moved_idx = frozenset(
-                    i for i, (a, b) in enumerate(zip(before, out))
-                    if abs(float(a) - float(b))
-                    > WRITEBACK_BAND_CLAMP_MATERIALITY_M)
-                if cap and moved_idx and len(moved_idx) < len(out):
-                    from auto_patch.groundside import _grade_limit_ring
-                    graded = _grade_limit_ring(
-                        ring, [float(v) for v in out], float(cap),
-                        pinned=moved_idx)
-                    refindings: list = []
-                    reclamped = _clamp_corner_elevs_to_band(
-                        layout, ring, graded, band, s, refindings)
-                    out = graded if reclamped is graded else reclamped
-                    if refindings:
-                        findings.extend(refindings)
-                        n_seal_conflicts += len(refindings)
+            # ── THE AUTHORSHIP STANDS, ATTRIBUTED (finalarch item 1b,
+            # adjudicated by measurement 2026-08-14) ──────────────────
+            # The S1f docket offered two arms for the seal's ungraded
+            # authorship (HECA seam 26: one service_junction vertex
+            # re-authored 9.382 m with its ring neighbours untouched):
+            # a FOLLOWING GRADE, or an attribution for why it stands.
+            # The grade arm WAS BUILT AND MEASURED: relaxing each
+            # clamped ring to its clamped vertices under the role cap
+            # moved 74 airside survivors at HECA's seam 26 (the seam
+            # ledger's re-projection class 18 → 91) and flipped +24
+            # apron within_shape rows INTO violation at OTHH — new
+            # last-seam airside authorship, exactly what the class
+            # exists to refuse, and a smoothing of the step that is the
+            # upstream defect's visible signature (the no-degradation-
+            # shield law).  REVERTED.  The authorship therefore STANDS
+            # as clamped: the band is the last authority (R17-1b), the
+            # clamp is confined to the vertices the band actually
+            # clamped, and every one is a counted, sited finding — the
+            # step it leaves is EVIDENCE routed to the stage-B / solve
+            # docket that owns the out-of-band author, never a surface
+            # for this last pass to re-grade.
             if form == "node":
                 s.node_altitudes = list(out)
             elif form == "plane":
@@ -4060,9 +4049,7 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
             _UI.vprint(1, f"  [band-seal] {icao}: the band clamp is the "
                           f"LAST elevation author — {n_shapes} shape(s) "
                           f"re-clamped after every post-solve pass "
-                          f"({len(findings)} vertex finding(s), "
-                          f"{n_seal_conflicts} band-vs-cap conflict(s) "
-                          f"after the following grade).")
+                          f"({len(findings)} vertex finding(s)).")
     except Exception:                                      # pragma: no cover
         pass
     _seal_pavement(layout)

@@ -228,13 +228,15 @@ class TestTheSealIsTheLastCallInThePipeline:
             assert author not in entry_tail, author
 
 
-class TestSealFollowingGrade:
-    """finalarch item 1b: the seal's clamp is authorship NOTHING follows
-    (it is the last author), so a material clamp used to leave an
-    interior step of the whole clamp height beside its untouched ring
-    neighbours (HECA seam 26: 9.382 m).  The seal now grades its own
-    authorship: ring relaxed to the clamped vertices under the role cap,
-    then re-clamped once — the band stays the last authority."""
+class TestSealAuthorshipIsConfined:
+    """finalarch item 1b, adjudicated by measurement (2026-08-14): of the
+    docket's two arms — a following grade, or an attribution for why the
+    seal's authorship stands — the GRADE arm was built and refuted (HECA
+    seam-26 re-projection class 18 → 91; OTHH +24 apron within_shape
+    flips).  The authorship STANDS: the clamp is confined to the vertices
+    the band actually clamped, every clamp is a counted finding, and the
+    step it leaves stays visible as the upstream out-of-band author's
+    signature (no-degradation-shield law)."""
 
     def _band_at_origin_only(self, ceiling):
         def band(x, y):
@@ -243,11 +245,10 @@ class TestSealFollowingGrade:
             return None
         return band
 
-    def test_a_material_clamp_is_followed_by_a_ring_grade(self):
-        import math as _m
-        from auto_patch.config import ROLE_GRADE_LIMITS
-        # A NON-flat junction ring (flat rings level as one surface and
-        # carry no interior step by construction).
+    def test_a_clamp_never_moves_an_unclamped_vertex(self):
+        # A NON-flat ring: only vertex 0 is banded, the rest must ship
+        # exactly the values they arrived with — the seal is a clamp,
+        # never a smoother.
         s = _shape(alts=(20.0, 20.2, 20.4, 20.2))
         layout = _Layout([s])
         BF.publish_band_of_record(
@@ -257,15 +258,11 @@ class TestSealFollowingGrade:
         assert alts[0] == pytest.approx(12.0, abs=0.02), (
             "the clamped vertex must sit AT the band — the band is the "
             "last authority")
-        cap = float(ROLE_GRADE_LIMITS[s.role])
-        ring = list(s.polygon.exterior.coords)[:-1]
-        for k in range(len(ring)):
-            j = (k + 1) % len(ring)
-            d = _m.hypot(ring[j][0] - ring[k][0], ring[j][1] - ring[k][1])
-            g = abs(alts[j] - alts[k]) / d
-            assert g <= cap + 1e-3, (
-                f"the seal shipped an ungraded {g:.1%} interior step "
-                f"(cap {cap:.1%}) — its authorship has no following grade")
+        assert alts[1:] == [20.2, 20.4, 20.2], (
+            "the seal moved a vertex the band never clamped — last-seam "
+            "authorship beyond the clamp is the refuted grade arm")
+        # And the clamp is a counted, sited finding (the attribution).
+        assert len(layout.band_clamp_findings) == 1
 
     def test_a_flat_ring_still_levels_as_one_surface(self):
         s = _shape(alts=(20.0, 20.0, 20.0, 20.0))

@@ -2,25 +2,9 @@
  "_doc": "Owner-committed approvals for build-time hard-law exceptions (canonical law: CLAUDE.md working-style item 6; checker: tools/check_build_time.py). Each entry: subject ('airport:<ICAO>' | 'tile:<short_latlon>' | '*'), metric ('total' | 'phase:<label>' | '*'), allowed_seconds (approved ceiling the measured value must stay under), reason (required, non-empty), approved_by (required), date. Hollow entries are ignored by the checker.",
  "approvals": [
   {
-   "subject": "airport:OTHH",
-   "metric": "total",
-   "allowed_seconds": 262.91,
-   "reason": "PERF-PHASE P4 ADJUDICATION (owner directive 2026-08-13; RULINGS 'PERFORMANCE PHASE OPENED': budgets adjudicated in-phase; baseline re-record owner-approved at phase open). Ceiling = the 2-run exclusive median measured on the merged wave-1+2 tree (commit d787464), byte-identical x5 to the frozen 1.0.245 manifest. Old committed numbers were 2026-08-04 machine-drift artifacts (13-32% fast). The airport remains over the 60 s budget; the staged-solve round (geometry freeze, one graph, single projection, weld-or-gap retirement) is the chartered path down.",
-   "approved_by": "owner (P4 adjudication, session 2026-08-13)",
-   "date": "2026-08-13"
-  },
-  {
    "subject": "airport:SPJC",
    "metric": "total",
    "allowed_seconds": 210.33,
-   "reason": "PERF-PHASE P4 ADJUDICATION (owner directive 2026-08-13; RULINGS 'PERFORMANCE PHASE OPENED': budgets adjudicated in-phase; baseline re-record owner-approved at phase open). Ceiling = the 2-run exclusive median measured on the merged wave-1+2 tree (commit d787464), byte-identical x5 to the frozen 1.0.245 manifest. Old committed numbers were 2026-08-04 machine-drift artifacts (13-32% fast). The airport remains over the 60 s budget; the staged-solve round (geometry freeze, one graph, single projection, weld-or-gap retirement) is the chartered path down.",
-   "approved_by": "owner (P4 adjudication, session 2026-08-13)",
-   "date": "2026-08-13"
-  },
-  {
-   "subject": "airport:HECA",
-   "metric": "total",
-   "allowed_seconds": 347.19,
    "reason": "PERF-PHASE P4 ADJUDICATION (owner directive 2026-08-13; RULINGS 'PERFORMANCE PHASE OPENED': budgets adjudicated in-phase; baseline re-record owner-approved at phase open). Ceiling = the 2-run exclusive median measured on the merged wave-1+2 tree (commit d787464), byte-identical x5 to the frozen 1.0.245 manifest. Old committed numbers were 2026-08-04 machine-drift artifacts (13-32% fast). The airport remains over the 60 s budget; the staged-solve round (geometry freeze, one graph, single projection, weld-or-gap retirement) is the chartered path down.",
    "approved_by": "owner (P4 adjudication, session 2026-08-13)",
    "date": "2026-08-13"
@@ -32,6 +16,30 @@
    "reason": "PERF-PHASE P4 ADJUDICATION (owner directive 2026-08-13; RULINGS 'PERFORMANCE PHASE OPENED': budgets adjudicated in-phase; baseline re-record owner-approved at phase open). Ceiling = the 2-run exclusive median measured on the merged wave-1+2 tree (commit d787464), byte-identical x5 to the frozen 1.0.245 manifest. Old committed numbers were 2026-08-04 machine-drift artifacts (13-32% fast). The airport remains over the 60 s budget; the staged-solve round (geometry freeze, one graph, single projection, weld-or-gap retirement) is the chartered path down.",
    "approved_by": "owner (P4 adjudication, session 2026-08-13)",
    "date": "2026-08-13"
+  },
+  {
+   "subject": "airport:OTHH",
+   "metric": "total",
+   "allowed_seconds": 309.27,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR (owner approval 2026-08-14). The regression is the architecture's own measured cost (Fable whole-pipeline review, lane/solvereg: one-graph+band publish ~+18 net, pair law +14 on fewer executions, rim pockets +10 (the knoll fix, owner-ruled ON), flat-site +13; single projection -15 and emit improvements offset). All optimization suspects exonerated at <=1.5 s; recovery requires OUTPUT-MOVING changes (publish collapse, flag-flavor law gap) which are rulings. What it bought: deterministic builds (ratchet dead), ONE projection, weld-or-gap (walls retired), rim pockets ON, un-blinded census. Owner chartered a dedicated publish/pair-path perf round + the flag-flavor ruling POST-in-sim. Ceilings = closing exclusive 2-run medians.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:HECA",
+   "metric": "total",
+   "allowed_seconds": 380.35,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR (owner approval 2026-08-14). The regression is the architecture's own measured cost (Fable whole-pipeline review, lane/solvereg: one-graph+band publish ~+18 net, pair law +14 on fewer executions, rim pockets +10 (the knoll fix, owner-ruled ON), flat-site +13; single projection -15 and emit improvements offset). All optimization suspects exonerated at <=1.5 s; recovery requires OUTPUT-MOVING changes (publish collapse, flag-flavor law gap) which are rulings. What it bought: deterministic builds (ratchet dead), ONE projection, weld-or-gap (walls retired), rim pockets ON, un-blinded census. Owner chartered a dedicated publish/pair-path perf round + the flag-flavor ruling POST-in-sim. Ceilings = closing exclusive 2-run medians.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:HEAZ",
+   "metric": "total",
+   "allowed_seconds": 47.44,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR (owner approval 2026-08-14). The regression is the architecture's own measured cost (Fable whole-pipeline review, lane/solvereg: one-graph+band publish ~+18 net, pair law +14 on fewer executions, rim pockets +10 (the knoll fix, owner-ruled ON), flat-site +13; single projection -15 and emit improvements offset). All optimization suspects exonerated at <=1.5 s; recovery requires OUTPUT-MOVING changes (publish collapse, flag-flavor law gap) which are rulings. What it bought: deterministic builds (ratchet dead), ONE projection, weld-or-gap (walls retired), rim pockets ON, un-blinded census. Owner chartered a dedicated publish/pair-path perf round + the flag-flavor ruling POST-in-sim. Ceilings = closing exclusive 2-run medians.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
   }
  ]
 }

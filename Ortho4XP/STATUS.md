@@ -1,4 +1,46 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260814b (HANDOVER — CONSTRUCTIVE SOLVE K1b, THE LIVING BAND)
+# NEXT SESSION IMPLEMENTS K1b: docs/specs/constructive-solve-spec.md
+# AMENDMENT 1 (the living band — owner correction). TRUE anchors =
+# CIFP thresholds + tile seams ONLY; the one graph computes the band
+# FIRST from those alone; every other value (runway INTERIORS as
+# in-band taut strings w/ thresholds as only pegs — flex emerges
+# where the band narrows; seats/ties/pins P2; certified fits P3)
+# mints IN PRIORITY ORDER against the LIVING band (each accepted
+# value refines it before the next validates — consistency by
+# induction); out-of-band mint = A3 NAMED REFUSAL (minter id, value,
+# band, deficit, bounding anchors) + fallback path, never a clamp;
+# A4 source tracking (floor/ceiling-minter per node) ships in BOTH
+# modes' band code. Single pass after minting (K1's midpoint+smooth).
+# BASE: lane/k1construct (K1 attempt 2, NOT merged) — KEEP mode
+# dispatch/selection/certification/twins/gates, REPLACE anchor
+# assembly + propagation. K1's gates already GREEN on that branch:
+# mode isolation (iterative HECA 3053349c0b26 + CYXY 2c3331baccb1
+# byte-for-byte), constructive determinism (HECA d85b42e64647 twice).
+# K1 FAILED census at HECA/CYXY by over-anchoring: HECA 14,104 empty
+# intervals in ONE 19.846 m pair-class (cluster 30.1216-30.1255,
+# 31.4059-31.4087; rows on layout._constructive_empty_intervals);
+# CYXY 0.195 m chain. BOTH must become A3 refusals — they are the
+# regression fixtures (logs: worktree k1construct Ortho4XP/tmp/
+# k1_*.log). OTHH constructive parity was TRIVIAL (flat field), not
+# validation. MAIN already has K2 plumbing MERGED (O4_Solve_Model
+# one-reader env>tile>global>default, default iterative — the A/B is
+# structural; ledger variant separation; Qt+Swift selectors).
+# ACCEPTANCE (amended): zero empty intervals everywhere (by
+# construction), census parity-or-better at HECA+CYXY, K1 gates stay
+# green, owner time bar = LESS THAN HALF iterative exclusive at HECA
+# (K1 direction: 267-277 vs 581), sub-minute aspirational.
+# AFTER K1b: lead close-out = exclusive per-mode timing pairs
+# (HECA+CYXY), consolidated censuses, A/B tile builds BOTH modes
+# (HECA/OTHH/KCLT/VHHH), app build (DEVELOPER_DIR=Xcode-beta for
+# make_app; verify make_engine freeze line — rc through a pipe LIES),
+# owner in-sim A/B decides the default. STANDING QUEUE UNCHANGED:
+# owner in-sim on 1.0.247 (knoll/western apron/VHHH coast/KCLT/OTHH
+# flats/rebuild-twice); post-in-sim: deletion sweep (gate verified
+# inert), 2026-08-12a ratification triage, stage-B groundside docket;
+# open chip: o4_schema_snapshot regeneration (task_898e3c75).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260814a (STAGED-SOLVE ROUND CLOSED TO IN-SIM — ARCHITECTURE COMPLETE)
 # The ENTIRE agreed architecture is implemented (owner no-deferral
 # ruling): geometry freeze + stage partition (21/21 couplings railed),

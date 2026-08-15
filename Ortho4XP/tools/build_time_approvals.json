@@ -40,6 +40,62 @@
    "reason": "STAGED-SOLVE ARCHITECTURE FLOOR (owner approval 2026-08-14). The regression is the architecture's own measured cost (Fable whole-pipeline review, lane/solvereg: one-graph+band publish ~+18 net, pair law +14 on fewer executions, rim pockets +10 (the knoll fix, owner-ruled ON), flat-site +13; single projection -15 and emit improvements offset). All optimization suspects exonerated at <=1.5 s; recovery requires OUTPUT-MOVING changes (publish collapse, flag-flavor law gap) which are rulings. What it bought: deterministic builds (ratchet dead), ONE projection, weld-or-gap (walls retired), rim pockets ON, un-blinded census. Owner chartered a dedicated publish/pair-path perf round + the flag-flavor ruling POST-in-sim. Ceilings = closing exclusive 2-run medians.",
    "approved_by": "owner (staged-solve residual, 2026-08-14)",
    "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:OTHH",
+   "metric": "phase:Solving elevations (FAA grade compliance)",
+   "allowed_seconds": 197.21,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:OTHH",
+   "metric": "phase:Building taxi rects, junctions & service roads",
+   "allowed_seconds": 45.84,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:SPJC",
+   "metric": "phase:Solving elevations (FAA grade compliance)",
+   "allowed_seconds": 160.38,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:HECA",
+   "metric": "phase:Solving elevations (FAA grade compliance)",
+   "allowed_seconds": 252.38,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:HECA",
+   "metric": "phase:Emitting terrain features & finalizing",
+   "allowed_seconds": 82.32,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:HEAZ",
+   "metric": "phase:Solving elevations (FAA grade compliance)",
+   "allowed_seconds": 39.9,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
+  },
+  {
+   "subject": "airport:KCLT",
+   "metric": "phase:Solving elevations (FAA grade compliance)",
+   "allowed_seconds": 260.34,
+   "reason": "STAGED-SOLVE ARCHITECTURE FLOOR, phase encoding (same owner approval 2026-08-14 as the total ceilings; solvereg review decomposition). The solve phase carries the publish/pair/pockets/flat-site cost at every airport, inside improved totals at SPJC/KCLT.",
+   "approved_by": "owner (staged-solve residual, 2026-08-14)",
+   "date": "2026-08-14"
   }
  ]
 }

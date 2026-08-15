@@ -1,4 +1,35 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260814a (STAGED-SOLVE ROUND CLOSED TO IN-SIM — ARCHITECTURE COMPLETE)
+# The ENTIRE agreed architecture is implemented (owner no-deferral
+# ruling): geometry freeze + stage partition (21/21 couplings railed),
+# THE SINGLE PROJECTION (late call proven a degradation shield, twice
+# independently; refinement proven value-preserving), pads emission-
+# time relative (RATCHET DEAD — tile builds byte-identical at patch/
+# DSF/mesh; OTHH 86.5% objects need nothing), weld-or-gap (walls/
+# terraces/feathers retired — they MINTED the steps; seawalls exempt,
+# VHHH coast byte-stable), rim pockets ON (knoll ships; spines
+# unconditionally stage B), census un-blinded (11,932 rows), capture
+# v2 (OTHH replay quarantine lifted), imagery hardening (KCLT
+# orthophoto-loss class impossible), tile cfg from global defaults.
+# Report: docs/staged-solve-round-report-2026-08-14.md. Final bodies:
+# HECA 3053349c0b26 / KCLT bbd2ed66a8a4 / OTHH aaf3ce394d01 / CYXY
+# 2c3331baccb1 / KSTJ ed91563060d8 (all guard-clean, row-attributed).
+# BUILD TIME (exclusive medians vs P4): SPJC -19.8 KCLT -17.8 CYXY
+# -3.7 SPLP -0.8 IMPROVED; OTHH +46 HECA +33 HEAZ +6 = the
+# architecture's measured floor, OWNER-APPROVED (approvals file;
+# solvereg review: publish +18, pair law +14, pockets +10, flat-site
+# +13, single projection -15; suspects exonerated at <=1.5 s).
+# check_build_time: PASS.
+# NEXT: app build -> OWNER IN-SIM (knoll, western apron, VHHH coast,
+# KCLT, OTHH flats, rebuild-twice determinism). POST-IN-SIM QUEUE:
+# dead-code deletion sweep (gate verified inert); publish/pair perf
+# round + GradeShape flag-flavor ruling (output-moving, census-
+# adjudicated); 2026-08-12a ratification triage; stage-B groundside
+# docket. GOTCHA: inter-block timing spread ~5-9% (thermal) — compare
+# only within one block; the one-time pack re-key trap struck TWICE
+# this phase (never let a first post-merge build into a median).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260813b (PERF PHASE CLOSED — WAVE 2 + P4; STAGED-SOLVE RE-CHARTERED)
 # WAVE 2 MERGED, byte-identical x5 (consolidated-5 = frozen 1.0.245
 # manifest exactly, zero contamination): lane H −52 s solve (flex

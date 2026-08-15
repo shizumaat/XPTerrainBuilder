@@ -3165,18 +3165,26 @@ def solve_route_profile(layout, icao: str,
         #     ``layout._band_instrument_findings``, each naming its
         #     floor- and ceiling-minting anchor.
         #
-        # (b) THE WARM START (``O4_ITER_WARM_START=0`` disables and
-        #     restores pre-ruling bytes exactly): every SOFT node's
-        #     seed is replaced by the constructive carrier — the
-        #     cap-Lipschitz regularization of the seed field, clamped
-        #     into the living band.  A seed, not an authority (the
-        #     phase-A solve and every projection still own the values);
-        #     it just starts them lawful-adjacent instead of on raw
-        #     terrain, for fewer projection sweeps and a smoother
-        #     settled field.  In-sim evaluation of app 1.0.249 is the
-        #     acceptance (owner instruction).
+        # (b) THE WARM START — RETIRED BY MEASUREMENT, default OFF
+        #     (``O4_ITER_WARM_START=1`` re-enables for study).  The
+        #     owner's in-sim evaluation was the acceptance and it
+        #     FAILED: "something is flattening a big area for
+        #     kilometers around CYXY."  Measured off-vs-on: |Δemitted|
+        #     p90 8.12 m / max 22.71 m at 1.5-2 km from the field,
+        #     GROWING with distance — the Lipschitz-regularized
+        #     carrier is itself a flattener far from anchors (cone
+        #     midpoints, not terrain), graded groundside law (4 %) is
+        #     slack enough to keep it, and DEM deviation is
+        #     deliberately not a census family so no instrument could
+        #     see it.  Scoping the reseed to graded roles changed
+        #     NOTHING (byte-identical): the distortion propagates
+        #     through graded groundside surfaces, not the traces.
+        #     Benefits measured at retirement: census −2 rows at HECA
+        #     (noise), final-projection movement p50 −0.06 m at CYXY,
+        #     wall time within single-run noise — not worth moving
+        #     terrain the owner never asked to move.
         _bi_on = _os.environ.get("O4_BAND_INSTRUMENT", "1") != "0"
-        _ws_on = _os.environ.get("O4_ITER_WARM_START", "1") != "0"
+        _ws_on = _os.environ.get("O4_ITER_WARM_START", "0") == "1"
         if _bi_on or _ws_on:
             from .one_solve import envelope_radj as _era_ws
             from .one_solve import law_edge_limits as _lel_ws
@@ -3269,12 +3277,48 @@ def solve_route_profile(layout, icao: str,
                             f", ceiling by "
                             f"{_r['ceil_minter']}@{_r['ceil_anchor']})")
             if _ws_on:
+                # ── SCOPE: GRADED-PAVEMENT NODES ONLY (owner in-sim
+                # report 2026-08-15: "something is flattening a big
+                # area for kilometers around CYXY").  The first cut
+                # re-seeded EVERY soft node; measured off-vs-on at
+                # CYXY: |Δemitted| p90 8.12 m / max 22.71 m at
+                # 1.5-2 km from the field — boundary/zone/clearance
+                # TERRAIN TRACES rode the carrier instead of raw DEM
+                # (adjacent-ground zone law: beyond the zones, raw DEM
+                # governs), and DEM deviation is deliberately not a
+                # census family, so only the in-sim eye could catch
+                # it.  Re-seeding is now confined to nodes claimed by
+                # a shape whose role carries a grade law
+                # (ROLE_GRADE_LIMITS non-None — the surfaces the
+                # projections iterate on); terrain traces and the
+                # zone/RESA leaves keep their raw seeds.
+                from auto_patch.config import (
+                    ROLE_GRADE_LIMITS as _RGL_ws)
+                _graded_roles_ws = {r for r, _lim in _RGL_ws.items()
+                                    if _lim is not None}
+                _cps_ws = layout.canonical_points
+                _ws_scope: set = set()
+                for _s in layout.shapes:
+                    if (_s.role not in _graded_roles_ws
+                            or _s.polygon is None
+                            or _s.polygon.is_empty):
+                        continue
+                    _ring_ws = list(_s.polygon.exterior.coords)
+                    for (_x, _y) in (_ring_ws[:-1]
+                                     if _ring_ws
+                                     and _ring_ws[0] == _ring_ws[-1]
+                                     else _ring_ws):
+                        _iw = bucket_to_idx.get(
+                            _cps_ws.get_or_add(float(_x), float(_y)))
+                        if _iw is not None and _iw < n \
+                                and (_iyf is None or _iw < _iyf):
+                            _ws_scope.add(_iw)
                 _src_wb = list(range(n))
                 _cr_wb, _ = _re_wb(+1, _cra_wb, _src_wb, elev, n)
                 _fr_wb, _ = _re_wb(-1, _fra_wb, _src_wb, elev, n)
                 _n_ws = 0
                 for _i in range(n):
-                    if base_hard[_i]:
+                    if base_hard[_i] or _i not in _ws_scope:
                         continue
                     _c = _cr_wb.get(_i)
                     _f = _fr_wb.get(_i)

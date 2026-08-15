@@ -14,8 +14,10 @@ These pin the spec's pre-delegated properties at unit level:
   discipline, cap-Lipschitz envelopes, midpoint lawfulness).
 * CERTIFIED-TIER RIDE — ``certified_pins`` pins every node a
   still-lazy entry names (body and ring), and nothing else.
-* MODE KEY — ``solve_model`` resolution: layout attr > env > default,
-  unknown value falls back loudly to iterative.
+
+(The mode key itself — precedence, typo refusal, tile publication — is
+K2's ``O4_Solve_Model``, twinned in ``tests/test_solve_model.py``; the
+dispatch site here only calls ``is_constructive()``.)
 """
 import math
 import os
@@ -23,7 +25,6 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from auto_patch import solve_model
 from auto_patch.elevation_per_surface.route_profile.one_solve import (
     envelope_radj, law_edge_limits, reach_envelope)
 from auto_patch.elevation_per_surface.route_profile.constructive import (
@@ -218,23 +219,3 @@ def test_certified_pins_body_and_ring_minus_hard():
     pins, n_lazy = certified_pins(scs, base_hard, 10)
     assert n_lazy == 1
     assert pins == {0, 7, 8}          # 1 is hard, 2/3 eager
-
-
-# ── the mode key ─────────────────────────────────────────────────────
-
-def test_solve_model_resolution(monkeypatch):
-    monkeypatch.delenv(solve_model.SOLVE_MODEL_ENV, raising=False)
-    assert solve_model.resolve() == "iterative"
-
-    class L:
-        pass
-    layout = L()
-    assert solve_model.resolve(layout) == "iterative"
-    monkeypatch.setenv(solve_model.SOLVE_MODEL_ENV, "constructive")
-    assert solve_model.resolve(layout) == "constructive"
-    layout.solve_model = "iterative"          # cfg wins over env
-    assert solve_model.resolve(layout) == "iterative"
-    layout.solve_model = "Constructive"       # case-insensitive
-    assert solve_model.resolve(layout) == "constructive"
-    layout.solve_model = "bogus"              # loud fallback
-    assert solve_model.resolve(layout) == "iterative"

@@ -1983,15 +1983,14 @@ def solve_route_profile(layout, icao: str,
     )
 
     t0 = _time.time()
-    # ── THE SOLVE-MODEL SWITCH (constructive-solve round; the mode key
-    # is ``solve_model``, module ``auto_patch.solve_model`` — cfg attr >
-    # ``O4_SOLVE_MODEL`` env > iterative default; K2 lands the cfg/UI
-    # plumbing against that module) ──────────────────────────────────
-    from auto_patch.solve_model import (
-        MODEL_CONSTRUCTIVE as _MODEL_CONSTRUCTIVE,
-        resolve as _resolve_solve_model)
-    _solve_constructive = (_resolve_solve_model(layout)
-                           == _MODEL_CONSTRUCTIVE)
+    # ── THE SOLVE-MODEL SWITCH (constructive-solve round) ────────────
+    # ``O4_Solve_Model`` is THE ONE READER (K2's plumbing: env >
+    # per-tile cfg > global cfg > default; a typo RAISES).  This deep
+    # call site has no Tile — the driver's ``tile_scope`` published the
+    # tile's value to the environment for exactly this read, and a lane
+    # arm pins the mode the same way (``O4_SOLVE_MODEL``).
+    import O4_Solve_Model as _SM
+    _solve_constructive = _SM.is_constructive()
     if _solve_constructive:
         import O4_UI_Utils as _UI_sm
         _UI_sm.vprint(1, f"  [solve-model] {icao}: CONSTRUCTIVE solve "
@@ -3031,6 +3030,7 @@ def solve_route_profile(layout, icao: str,
             detached_pads=_detached_pads, pad_frontage=_pad_frontage,
             seam_pin_idx=_seam_pin_idx,
             gap_spine_chains=_gap_spine_chains,
+            gap_spine_b_idx=_gap_spine_b_idx,
             zone_idx=_zone_idx, resa_idx=_resa_idx,
             terrain_first=_terrain_first, iyf=_iyf)
         # The locals the shared publication tail reads, bound from the

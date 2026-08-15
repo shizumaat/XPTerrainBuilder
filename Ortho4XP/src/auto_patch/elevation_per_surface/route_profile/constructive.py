@@ -163,8 +163,8 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
                       u_spine_floor, node_band, building_seats,
                       hard_cat, near_miss_edges, u_pair_stage,
                       detached_pads, pad_frontage, seam_pin_idx,
-                      gap_spine_chains, zone_idx, resa_idx,
-                      terrain_first, iyf) -> SimpleNamespace:
+                      gap_spine_chains, gap_spine_b_idx, zone_idx,
+                      resa_idx, terrain_first, iyf) -> SimpleNamespace:
     """Run the constructive selection.  Mutates ``elev`` (and, through the
     shared groundside law passes, ``layout``/``building_seats``) in place;
     returns the locals the shared publication tail reads."""
@@ -175,9 +175,9 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
                             shape_constraints_edges)
     # The stage/witness/report helpers are module-level in ``solve`` —
     # imported lazily HERE (this module is imported from ``solve``).
-    from .solve import (_non_route_witness_nodes, _report_witness_admission,
-                        _route_witness_admission, _unified_entries,
-                        _fair_gap_spine_chains)
+    from .solve import (_non_route_witness_nodes, _receiver_nodes_from_roles,
+                        _report_witness_admission, _route_witness_admission,
+                        _unified_entries, _fair_gap_spine_chains)
 
     t0 = _time.time()
 
@@ -224,16 +224,31 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
     else:                                              # pragma: no cover
         route_excluded = set()
 
-    # ── C2: ONE multi-source cap-bounded envelope over the joint law ─
+    # ── THE STAGE PARTITION (staged-solve architecture, ruled) ───────
+    # Stage A is structurally free of groundside variables: the
+    # RECEIVERS (every-role-groundside nodes + role-less stage-B
+    # constructs) take NO part in the airside envelope, selection or
+    # smoothing — they hold their seed until the groundside constructors
+    # below value them from the solved airside mouths (airside-is-king;
+    # attempt 1 measured what mixing costs: CYXY +70 adjudicated rows,
+    # every worst row a service-road pair torn between the midpoint
+    # field and the groundside re-level).
+    receivers = _receiver_nodes_from_roles(_rm_roles, gap_spine_b_idx)
+
+    # ── C2: ONE multi-source cap-bounded envelope over the stage-A law ─
     joint = list(shape_constraints) + _unified_entries(
         u_edges, u_pair_stage, "constructive/envelope")
     edge_lim, interval_lim, env_skip = law_edge_limits(
         joint, n, include_flat_pairs=True)
+    edge_lim_a = {(i, j): lim for (i, j), lim in edge_lim.items()
+                  if i not in receivers and j not in receivers}
+    interval_lim_a = {(i, j): iv for (i, j), iv in interval_lim.items()
+                      if i not in receivers and j not in receivers}
     ceil_radj, floor_radj = envelope_radj(
-        edge_lim, interval_lim, env_skip, interval_yield_from=iyf)
+        edge_lim_a, interval_lim_a, env_skip, interval_yield_from=iyf)
     leaf_from = iyf if (zone_idx or resa_idx) else None
     seeds = [i for i in sorted(hard | cert_pins)
-             if i not in route_excluded
+             if i not in route_excluded and i not in receivers
              and (leaf_from is None or i < leaf_from)]
     ceil, _cdist = reach_envelope(+1, ceil_radj, seeds, elev, n)
     floor, _fdist = reach_envelope(-1, floor_radj, seeds, elev, n)
@@ -246,7 +261,7 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
     n_free = 0
     n_unlabeled = 0
     for i in range(n):
-        if i in immovable:
+        if i in immovable or i in receivers:
             continue
         if leaf_from is not None and i >= leaf_from:
             continue                      # terrain leaf — valued below
@@ -280,10 +295,11 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
         n_free += 1
 
     # ── at most ONE in-interval smoothing sweep (``smooth_once``) ────
-    # Interval-edge endpoints do not move here (a symmetric surrogate
+    # Stage-A adjacency only (receivers are not smoothed and never pull);
+    # interval-edge endpoints do not move here (a symmetric surrogate
     # could exit a signed slab).
     sym_adj: dict = {}
-    for (i, j), lim in edge_lim.items():
+    for (i, j), lim in edge_lim_a.items():
         sym_adj.setdefault(i, []).append((j, lim))
         sym_adj.setdefault(j, []).append((i, lim))
     interval_locked = set()
@@ -293,6 +309,7 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
 
     def _movable(i):
         return (i not in immovable and i not in interval_locked
+                and i not in receivers
                 and (leaf_from is None or i < leaf_from))
 
     n_smoothed = smooth_once(
@@ -300,6 +317,49 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
         interval_of=lambda i: _interval_of(i, ceil, floor, node_band,
                                            u_spine_floor))
     _psub(0.72, "Solving elevations — constructive selection smoothed")
+
+    # ── gap-fill drainage spines: the longitudinal law ───────────────
+    # (Enclosed-area water escape stays law — owner 2026-08-14 drainage
+    # scope.)  The shared second-difference fairing, every move clamped
+    # into the slab intervals at current station values.
+    n_gap_kinks = 0
+    if gap_spine_chains:
+        from auto_patch.config import (
+            TAXIWAY_MAX_GRADE_CHANGE_PER_M as _K_GAP)
+        n_gap_kinks = _fair_gap_spine_chains(
+            elev, gap_spine_chains, _K_GAP, frozen=base_hard)
+
+    # ── groundside conforms (airside-is-king), by the SAME law passes ─
+    from auto_patch.config import (GROUNDSIDE_MAX_GRADE,
+                                   SERVICE_ROAD_MAX_GRADE)
+    from .anchors import (apply_groundside_reach,
+                          apply_service_road_dem_follow)
+    from .anchors import seat_detached_pads_by_law
+    _nrl, gs_hard = apply_groundside_reach(
+        layout, bucket_to_idx, elev, SERVICE_ROAD_MAX_GRADE)
+    _svc_moved = apply_service_road_dem_follow(
+        layout, bucket_to_idx, elev, dem_elev, SERVICE_ROAD_MAX_GRADE,
+        anchor_extra=gs_hard)
+    if (_nrl or _svc_moved) and _os.environ.get("O4_STEP_DEBUG") == "1":
+        print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
+              f"groundside piece(s); pinned {len(gs_hard)} route "
+              f"node(s); DEM-followed {len(_svc_moved)} service "
+              f"node(s).")
+    if detached_pads:
+        _dp_seats, _dp_stats = seat_detached_pads_by_law(
+            layout, bucket_to_idx, elev, detached_pads,
+            GROUNDSIDE_MAX_GRADE,
+            frontage_coupled=pad_frontage, node_band=node_band)
+        building_seats.update(_dp_seats)
+        if any(_dp_stats):
+            UI.vprint(1,
+                f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
+                f"solved groundside datum, {_dp_stats[1]} with no "
+                f"resolvable host, {_dp_stats[2]} declared contact "
+                f"conflict(s), {_dp_stats[3]} seated from the "
+                f"route-graph band, {_dp_stats[4]} with no derivable "
+                f"band, {_dp_stats[5]} split-level candidate(s).")
+    _psub(0.88, "Solving elevations — groundside conformed")
 
     # ── terrain leaves: host-authoritative slab valuation ────────────
     # Zone rows / RESA cut rows are envelope LEAVES (the standing
@@ -348,49 +408,6 @@ def constructive_core(*, layout, icao, elev, base_hard, nodes,
                 v = b_hi
             elev[k] = v
             n_leaves += 1
-
-    # ── gap-fill drainage spines: the longitudinal law ───────────────
-    # (Enclosed-area water escape stays law — owner 2026-08-14 drainage
-    # scope.)  The shared second-difference fairing, every move clamped
-    # into the slab intervals at current station values.
-    n_gap_kinks = 0
-    if gap_spine_chains:
-        from auto_patch.config import (
-            TAXIWAY_MAX_GRADE_CHANGE_PER_M as _K_GAP)
-        n_gap_kinks = _fair_gap_spine_chains(
-            elev, gap_spine_chains, _K_GAP, frozen=base_hard)
-
-    # ── groundside conforms (airside-is-king), by the SAME law passes ─
-    from auto_patch.config import (GROUNDSIDE_MAX_GRADE,
-                                   SERVICE_ROAD_MAX_GRADE)
-    from .anchors import (apply_groundside_reach,
-                          apply_service_road_dem_follow)
-    from .anchors import seat_detached_pads_by_law
-    _nrl, gs_hard = apply_groundside_reach(
-        layout, bucket_to_idx, elev, SERVICE_ROAD_MAX_GRADE)
-    _svc_moved = apply_service_road_dem_follow(
-        layout, bucket_to_idx, elev, dem_elev, SERVICE_ROAD_MAX_GRADE,
-        anchor_extra=gs_hard)
-    if (_nrl or _svc_moved) and _os.environ.get("O4_STEP_DEBUG") == "1":
-        print(f"  [groundside-reach] {icao}: re-levelled {_nrl} "
-              f"groundside piece(s); pinned {len(gs_hard)} route "
-              f"node(s); DEM-followed {len(_svc_moved)} service "
-              f"node(s).")
-    if detached_pads:
-        _dp_seats, _dp_stats = seat_detached_pads_by_law(
-            layout, bucket_to_idx, elev, detached_pads,
-            GROUNDSIDE_MAX_GRADE,
-            frontage_coupled=pad_frontage, node_band=node_band)
-        building_seats.update(_dp_seats)
-        if any(_dp_stats):
-            UI.vprint(1,
-                f"  [detached-pad] {_dp_stats[0]} pad(s) seated on a "
-                f"solved groundside datum, {_dp_stats[1]} with no "
-                f"resolvable host, {_dp_stats[2]} declared contact "
-                f"conflict(s), {_dp_stats[3]} seated from the "
-                f"route-graph band, {_dp_stats[4]} with no derivable "
-                f"band, {_dp_stats[5]} split-level candidate(s).")
-    _psub(0.88, "Solving elevations — groundside conformed")
 
     # ── the honest exit tally (raw law frame, both edge kinds) ───────
     rem = 0

@@ -45,6 +45,11 @@ from shapely.errors import GEOSException, TopologicalError
 
 from . import fabric_flags as _FF
 from . import grade_law as GL
+# R3 (service-road law spec, 2026-08-15): the road family whose
+# unshared-route pairs migrate to the nearest-route bake in
+# ``_bake_edge`` — the service lateral pass's own target set, one list,
+# so the family this rule prices is the family that pass plants on.
+from .lateral_spine_nodes import SERVICE_AXIS_PRICED_ROLES
 # THE STAGE TAG (staged-solve S1b) — stamped per unified-graph edge from
 # the minting shape's lawful role.
 from .solve_stage import stage_of_shape as _stage_of_shape
@@ -1945,20 +1950,12 @@ def _route_metric_far_pair(allow, pa, pb, d, ctx):
     return GL.Allowance.baked(allow.cL, allow.cT, budget)
 
 
-def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
-    """Replace a live ``Allowance`` with its route-decomposed BAKED budget (when
-    the pair has a route, §3c); otherwise return it unchanged (isotropic).
-
-    The budget is the anisotropic ``√((cL·Δs∥)² + (cT·Δs⊥)²)`` against the
-    pair's route — the max |Δz| in an oblique direction on a surface with
-    principal gradient limits ``cL`` along the route and ``cT`` across it.
-    (Two former inflations, both measured wrong 2026-07-03: Δs∥ used to be
-    the along-route ARC — near curves physically-close pairs earned budgets
-    far beyond any surface cap — and the L1 sum ``cL·Δs∥ + cT·Δs⊥``
-    over-allowed diagonals by up to √2.)"""
-    route = _edge_route(role, shared, ctx, vr_i[0], vr_j[0], vr_i[1], vr_j[1])
-    if route is None:
-        return allow
+def _bake_one_route(allow, pa, pb, shared, ctx, vr, route):
+    """Bake one pair's anisotropic budget against ONE route — the
+    decomposition body of :func:`_bake_edge`, factored so the R3
+    unshared-route path below can price candidate routes with the same
+    law.  ``vr`` is the route index used for the spine-frame taxi-cap
+    lookup (ignored when ``shared`` is non-empty)."""
     dp, dt = ds_decompose(pa, pb, route)
     cL = allow.cL
     # Transverse cap: A/B taxiways (cL == narrow 3 %) earn the tighter 2 %
@@ -1980,11 +1977,62 @@ def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
         # SPINE-FRAME upgrade (owner model 2026-07-29): the route's
         # per-letter TAXI cap carries longitudinally through the shape
         # it threads — never a service road's rate (free-road ruling).
-        rcap = _route_taxi_cap(shared, vr_i[0], ctx)
+        rcap = _route_taxi_cap(shared, vr, ctx)
         if rcap is not None and rcap > cL:
             cL = rcap
     return GL.Allowance.baked(
         cL, cT, math.hypot(cL * dp, cT * dt))
+
+
+def _bake_edge(allow, role, pa, pb, shared, ctx, vr_i, vr_j):
+    """Replace a live ``Allowance`` with its route-decomposed BAKED budget (when
+    the pair has a route, §3c); otherwise return it unchanged (isotropic).
+
+    The budget is the anisotropic ``√((cL·Δs∥)² + (cT·Δs⊥)²)`` against the
+    pair's route — the max |Δz| in an oblique direction on a surface with
+    principal gradient limits ``cL`` along the route and ``cT`` across it.
+    (Two former inflations, both measured wrong 2026-07-03: Δs∥ used to be
+    the along-route ARC — near curves physically-close pairs earned budgets
+    far beyond any surface cap — and the L1 sum ``cL·Δs∥ + cT·Δs⊥``
+    over-allowed diagonals by up to √2.)
+
+    R3 (service-road law spec, 2026-08-15) — TRANSVERSE CAP WITHOUT A
+    SHARED ROUTE: a SERVICE-family pair whose endpoints find no shared
+    nearest route (:func:`_edge_route` → ``None``) used to stay isotropic
+    at the 8 % road cap — the 2 % transverse cap never applied (measured
+    at HECA: 2,151 of 15,892 ring-adjacent service pairs, 13.5 %).  Such
+    a pair now bakes against the nearest route of EITHER endpoint
+    (endpoints within ``SERVICE_SPINE_PERP_TOL_M`` of their route — the
+    module's own service node-on-spine tolerance, no new number), and
+    the TIGHTEST resulting budget wins.  A pair genuinely off-network
+    (neither endpoint within the tolerance of any route) stays isotropic
+    as before.  Migrated pairs are counted on
+    ``ctx._svc_pair_route_migrated`` and reported by
+    :func:`build_unified_graph`."""
+    route = _edge_route(role, shared, ctx, vr_i[0], vr_j[0], vr_i[1], vr_j[1])
+    if route is not None:
+        return _bake_one_route(allow, pa, pb, shared, ctx, vr_i[0], route)
+    if role not in SERVICE_AXIS_PRICED_ROLES:
+        return allow
+    cand: list = []
+    for (ridx, perp) in (vr_i, vr_j):
+        if (ridx is not None and 0 <= ridx < len(ctx.routes)
+                and perp <= SERVICE_SPINE_PERP_TOL_M
+                and all(ridx != c0 for (c0, _r) in cand)):
+            cand.append((ridx, ctx.routes[ridx]))
+    if not cand:
+        return allow            # genuinely off-network — isotropic, as today
+    best = None
+    for (ridx, r) in cand:
+        baked = _bake_one_route(allow, pa, pb, shared, ctx, ridx, r)
+        if best is None or baked.budget < best.budget:
+            best = baked
+    try:
+        ctx._svc_pair_route_migrated = getattr(
+            ctx, "_svc_pair_route_migrated", 0) + 1
+    except Exception:                                    # pragma: no cover
+        pass
+    return best
 
 
 def _route_taxi_cap(shared, vr, ctx):
@@ -3055,6 +3103,17 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # ── runway anchors: every geometry node a taxi spine joins the runway
         # at ──
         _runway_anchors(layout, G, bucket_to_idx)
+    # R3 (service-road law spec): report the service-family pairs whose
+    # unshared-route bake migrated to a nearest-endpoint route (cumulative
+    # on this shared ctx — the per-shape law memo means a pair is baked,
+    # and therefore counted, once).
+    _n_mig = getattr(ctx, "_svc_pair_route_migrated", 0)
+    if _n_mig:
+        import O4_UI_Utils as _UI_r3
+        _UI_r3.vprint(1,
+            f"  [pav-builder] R3 unshared-route service pairs migrated to "
+            f"the nearest-endpoint route bake (transverse cap applies): "
+            f"{_n_mig} pair(s).")
     return G
 
 

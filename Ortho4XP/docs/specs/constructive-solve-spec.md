@@ -172,3 +172,66 @@ REPLACE the anchor assembly (demote all but A1) and the propagation
 K1 arms' logs (worktree k1construct tmp/k1_*.log) and the recorded
 empty-interval rows are the regression fixtures: HECA's 19.846 m
 pair-class and CYXY's 0.195 m chain must become named A3 refusals.
+
+## K1b IMPLEMENTATION RECORD (2026-08-15, Fable lead — owner ratification pending on the three starred items)
+
+AMENDMENT 1 is implemented on lane/k1construct: ``one_solve.LivingBand``
+(A2 band-first + incremental refinement + A4 floor/ceiling-minter
+provenance, module-level in the shared band code),
+``constructive.constructive_core`` rewritten to ordered minting
+(P0 true anchors = ``cifp_pins`` verbatim + tile-seam pins; P1 runway
+interiors via ``corridor_profile.solve_run_profile`` — thresholds the
+only pegs, a crossing runway's pinch arrives through the band; P2 the
+demoted base_hard populations; P3 certified fits per node; P4
+remainder), A3 named refusals with fallbacks
+(``layout._constructive_refusals``), A1 data-defect channel
+(``_constructive_p0_defects``).  Zero empty intervals at HECA and CYXY
+by construction (the K1 fixtures now surface as named refusals:
+HECA's 19.846 m pair-class as ``floor by rwy:05C/23C / ceiling by
+cifp:05L/23R`` rows, CYXY's 0.195 m chain as ``cert:264 vs
+cifp:02/20`` rows).
+
+Deviations taken under the pre-delegated clause ("alternatives are
+measured only if acceptance 1 fails" — the as-written selection failed
+CYXY census parity), each measured at CYXY, census family tables in
+the session record:
+
+*  ★ SELECTION = THE CARRIER, not the bare interval midpoint: the DEM
+   seed field regularized to cap-Lipschitz over the law adjacency
+   (midpoint of its lower/upper Lipschitz regularizations), clamped
+   into the living band per node.  Median of three cap-Lipschitz
+   fields — pair-lawfulness by construction is UNCHANGED.  Midpoint
+   arm remains measurable (``O4_CONSTRUCTIVE_SELECT=mid``).  Measured:
+   every worst-row magnitude improved, tears/steps/arc families went
+   to zero, groundside within-shape −16.
+*  ★ SMOOTHING = up to 8 in-interval sweeps (fixed count, zero-move
+   early exit; ``O4_CONSTRUCTIVE_SWEEPS``), not exactly one.  The
+   per-sweep containment/lawfulness invariant is the twin's own proof;
+   iteration converges toward the in-band harmonic.  Measured: CYXY
+   adjudicated 374 → 361, within_shape reached iterative parity.
+*  ★ STAGE-B RECEIVER VALUATION: before the groundside law passes, the
+   receivers take a band-from-the-mouths + carrier valuation (the
+   population the iterative model's partitioned projection values;
+   holding it at raw seed measured +22 within_shape::service_junction
+   at CYXY).  Airside-is-king preserved: mouths are read-only
+   authority.
+*  C4 consequence (not a deviation): the CONSTRUCTED profile is
+   persisted onto ``layout._runway_redistributed_profiles[ref]``
+   (fractions/elevs/anchored; ``cifp_pins``/``seam_t``/law fields
+   verbatim), so the crown-spine ridge, tile-cut rewrite and seam
+   clamp floor read the same surface the ring emits.  Measured:
+   HECA-class runway_crown shortfall at CYXY 113 → 6 (better than
+   iterative's 10).
+*  A per-surface planar seed fill (C3 spelled as pre-regularization
+   median) was built and MEASURED WORSE (CYXY 380 vs 373) — removed;
+   the certified tier remains the planar-interior mechanism.
+
+Census standing at CYXY (adjudicated, constructive vs iterative
+3-family view): total 361 vs 313; within_shape 71 vs 71 (parity, worst
+2.25 vs 4.09), transverse 275 vs 227 (worst equal at 1.637, the
+excess spread across corpus-shared apron/service classes whose spans
+the visibility-windowed graph does not bind), runway_crown/raoa/
+strip_longitudinal/strip_arc/tears/steps all at-or-better.  Residual
+family-parity gap is transverse-shaped and lives in spans no
+projection binds in either mode; the owner's in-sim A/B remains the
+round's real gate.

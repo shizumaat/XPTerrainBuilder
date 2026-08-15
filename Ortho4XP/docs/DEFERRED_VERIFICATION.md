@@ -1952,3 +1952,16 @@ DEFERRED, with reasons:
    252-312 s on the same phase ledger) was measured on a machine also
    running census/build arms — DIRECTION ONLY; the lead owns the
    exclusive `--runs 2` pairs (spec acceptance 2).
+
+## K1b constructive solve — living band (2026-08-15, lane/k1construct)
+- Battery scope: constructive census run at HECA + CYXY only (the
+  amended acceptance's named fixtures); SPJC/SPLP/HEAZ/KCLT/OTHH
+  constructive censuses deferred to the lead close-out A/B.
+- Suite scope: tests/test_constructive_solve.py run once (20 twins);
+  no full-suite arm (pre-ship mode).
+- Timing: no exclusive pairs run; ledger-frame walls only (CYXY ~19 s
+  vs 34.6 s iterative same-frame; HECA 287.7 s vs 581 s exclusive
+  baseline — direction only, the lead close-out owns the exclusive
+  pairs).
+- The three starred K1b deviations in the spec's implementation
+  record await owner ratification.

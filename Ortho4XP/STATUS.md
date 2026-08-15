@@ -1,4 +1,51 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815a (K1b IMPLEMENTED — THE LIVING BAND, lane/k1construct)
+# AMENDMENT 1 is code: one_solve.LivingBand (A2 band-first +
+# incremental refinement + A4 floor/ceiling-minter provenance,
+# module-level shared band code) + constructive.constructive_core
+# rewritten to ordered minting — P0 true anchors ONLY (cifp_pins
+# verbatim + tile-seam pins; A1 contradictions -> _constructive_
+# p0_defects), P1 runway interiors as taut strings through the band
+# tube (solve_run_profile; thresholds the ONLY pegs; crossing pinch
+# arrives through the band; constructed profile PERSISTED onto
+# _runway_redistributed_profiles so crown ridge/tile-cut/seam clamp
+# read the emitted surface — CYXY runway_crown 113->6, better than
+# iterative's 10), P2 demoted base_hard mints, P3 certified fits per
+# node, P4 remainder; A3 NAMED REFUSALS with fallbacks on
+# layout._constructive_refusals.  ZERO empty intervals at HECA+CYXY
+# BY CONSTRUCTION — the K1 fixtures now surface named: HECA's
+# 19.846 m pair-class as "floor by rwy:05C/23C@16927 / ceiling by
+# cifp:05L/23R@2026, deficit ~14.5 m" rows (1,902 refusals; 428
+# refused drainage floors = the old dip class, now attributed);
+# CYXY's 0.195 m chain as cert:264-vs-cifp:02/20 rows (9 refusals).
+# GATES: mode isolation GREEN at final tree (CYXY iterative
+# 2c3331baccb1 byte-for-byte; HECA iterative gate 3053349c0b26 —
+# LOG tmp/k1b_heca_iter.log); constructive determinism GREEN (CYXY
+# b3e0b6ee2087 twice; HECA pair in tmp/k1b_heca_c2/c3.log).  TIME
+# (ledger frame, direction only — exclusive pairs are the lead
+# close-out's): CYXY ~19 s vs 34.6 s same-frame iterative; HECA
+# ~288 s vs 581 s exclusive baseline (< half, owner bar met in
+# direction).  THREE STARRED DEVIATIONS under the spec's own
+# alternatives clause (midpoint failed CYXY parity), recorded in the
+# spec's K1b IMPLEMENTATION RECORD, owner ratification pending:
+# carrier selection (Lipschitz-regularized seed clamped into band —
+# lawfulness-by-construction preserved; O4_CONSTRUCTIVE_SELECT=mid
+# keeps the midpoint arm), up-to-8 in-interval sweeps
+# (O4_CONSTRUCTIVE_SWEEPS), stage-B receiver valuation from the
+# mouths (the population iterative's partitioned projection values).
+# CENSUS at CYXY (adjudicated): 361 vs iterative 313 — within_shape
+# 71 vs 71 PARITY (worst 2.25 vs 4.09), crown/raoa/strip_long/
+# strip_arc/tears/steps at-or-better, transverse 275 vs 227 the
+# residual gap (worst equal 1.637; spans no projection binds in
+# either mode).  HECA census pair pending at close.  NEXT: lead
+# close-out per 20260814b (exclusive timing pairs, consolidated
+# censuses, A/B tile builds both modes, app build, owner in-sim A/B
+# decides the default); owner rules on the three starred deviations
+# + the CYXY transverse residual.  Twins: 20 pass
+# (test_constructive_solve.py — LivingBand induction/provenance,
+# chains/pegs, envelope contract, containment).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260814b (HANDOVER — CONSTRUCTIVE SOLVE K1b, THE LIVING BAND)
 # NEXT SESSION IMPLEMENTS K1b: docs/specs/constructive-solve-spec.md
 # AMENDMENT 1 (the living band — owner correction). TRUE anchors =

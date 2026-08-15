@@ -661,6 +661,126 @@ def reach_envelope(sign, radj, seeds, values, n, horizon=None):
     return best, dist
 
 
+class LivingBand:
+    """THE LIVING BAND (constructive-solve spec AMENDMENT 1, A2 + A4).
+
+    The cap-Lipschitz band over the one published law graph, computed
+    FIRST from the true anchors alone (A1: CIFP thresholds + tile-seam
+    pins) and then REFINED incrementally as every later value is minted
+    against it in priority order.  Two persistent lazy-deletion
+    Dijkstras (:func:`reach_envelope`'s relaxation exactly — the seed
+    batch is twin-asserted equal to it) hold
+
+      ``ceil[k]  = min over anchors a of (v_a + capdist(a→k))``
+      ``floor[k] = max over anchors a of (v_a − capdist(a→k))``
+
+    and :meth:`add` pushes one new anchor's labels and relaxes to
+    quiescence, so refinement costs only the labels that actually
+    improve.  THE INDUCTION the amendment rests on: an accepted mint is
+    inside the current band, and (triangle inequality in the budget
+    metric) refining from an in-band value can never invert the band
+    anywhere — every interval stays non-empty BY CONSTRUCTION.  A
+    contradiction can therefore only enter through the seed batch
+    itself, which is A1's data-defect class (CIFP vs seam), audited by
+    the caller.
+
+    A4 SOURCE TRACKING: every label carries the ANCHOR NODE that minted
+    it (``ceil_src`` / ``floor_src``), and ``minter`` maps each anchor
+    node to its minter id — so any refusal or residual finding names
+    its two bounding anchors instead of an anonymous field.  Ships at
+    module level in the shared band code; the iterative model's
+    absorbed-contradiction attribution may consume it unchanged.
+
+    ``add(..., seed=False)`` records an accepted anchor WITHOUT letting
+    it propagate — the route-metric witness-admission law (non-route
+    witnesses keep their value and their law edges but never seed the
+    envelope).
+
+    Determinism: heap entries are ``(key, dist, node, src)`` tuples of
+    floats/ints; ties resolve by tuple order, so identical inputs give
+    identical labels AND identical provenance.
+    """
+
+    def __init__(self, ceil_radj, floor_radj, n):
+        self.n = int(n)
+        self._radj = {+1: ceil_radj, -1: floor_radj}
+        self.ceil: dict = {}
+        self.floor: dict = {}
+        self.ceil_src: dict = {}
+        self.floor_src: dict = {}
+        #: anchor node -> value, in acceptance order (dicts preserve it).
+        self.anchors: dict = {}
+        #: anchor node -> minter id (A4's naming half).
+        self.minter: dict = {}
+
+    def _relax(self, sign, seeds):
+        import heapq
+        best = self.ceil if sign > 0 else self.floor
+        src = self.ceil_src if sign > 0 else self.floor_src
+        radj = self._radj[sign]
+        pq = []
+        for (v, k, s) in seeds:
+            cur = best.get(k)
+            if cur is None or (sign > 0 and v < cur) \
+                    or (sign < 0 and v > cur):
+                pq.append(((v if sign > 0 else -v), 0.0, k, s))
+        heapq.heapify(pq)
+        while pq:
+            key, dk, k, s = heapq.heappop(pq)
+            t = key if sign > 0 else -key
+            cur = best.get(k)
+            if cur is not None and ((sign > 0 and t >= cur)
+                                    or (sign < 0 and t <= cur)):
+                continue
+            best[k] = t
+            src[k] = s
+            for (j, w) in radj.get(k, ()):
+                nt = t + w
+                pj = best.get(j)
+                if pj is None or (sign > 0 and nt < pj) \
+                        or (sign < 0 and nt > pj):
+                    heapq.heappush(
+                        pq, ((nt if sign > 0 else -nt),
+                             dk + (w if w >= 0.0 else -w), j, s))
+
+    def seed(self, anchors, minters):
+        """P0: one batched multi-source relaxation from the true
+        anchors (``anchors``: node -> value; ``minters``: node -> id).
+        Stable ascending-node order for determinism."""
+        items = sorted(anchors.items())
+        for i, v in items:
+            self.anchors[i] = float(v)
+            self.minter[i] = minters.get(i, "?")
+        batch = [(float(v), i, i) for i, v in items if i < self.n]
+        self._relax(+1, batch)
+        self._relax(-1, batch)
+
+    def add(self, i, value, minter_id, *, seed=True):
+        """Record an ACCEPTED mint (the caller validated it against the
+        current band) and — unless ``seed=False`` — locally refine the
+        band from it before the next mint validates."""
+        self.anchors[i] = float(value)
+        self.minter[i] = minter_id
+        if seed and i < self.n:
+            batch = [(float(value), i, i)]
+            self._relax(+1, batch)
+            self._relax(-1, batch)
+
+    def interval(self, i):
+        """The current band ``(lo, hi)`` at node ``i`` (``None`` side =
+        unbounded — off-graph from every anchor on that side)."""
+        return self.floor.get(i), self.ceil.get(i)
+
+    def bounding(self, i):
+        """A4: the two bounding anchors at node ``i`` —
+        ``(floor_anchor_node, floor_minter_id, ceil_anchor_node,
+        ceil_minter_id)``; ``None`` where that side is unbounded."""
+        fs = self.floor_src.get(i)
+        cs = self.ceil_src.get(i)
+        return (fs, self.minter.get(fs) if fs is not None else None,
+                cs, self.minter.get(cs) if cs is not None else None)
+
+
 def _box_isect(box_a, box_b):
     """Tightest-per-side intersection of two optional ``(lo, hi)`` boxes
     (``None`` = unbounded).  BOUNDED YIELD (owner ruling 2026-07-29): two

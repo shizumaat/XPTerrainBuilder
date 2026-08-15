@@ -1300,7 +1300,19 @@ def generate_auto_patches(tile, cifp_path: str,
     # MAIN process does all logging + the verify-log concatenation so nothing
     # races or interleaves.  Serial path (default) is behaviourally identical to
     # the old inline loop.
-    _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
+    # THE SOLVE MODEL'S PER-TILE SCOPE (docs/specs/constructive-solve-
+    # spec.md, "Mode plumbing": the cfg key is global + per-tile).
+    # ``Tile.read_from_config`` puts the per-tile value on the Tile
+    # INSTANCE only, and the solve dispatch is many frames below here with
+    # no tile in hand — and, with O4_PARALLEL_AIRPORTS, in another PROCESS.
+    # ``tile_scope`` publishes the tile's resolved model on the
+    # environment for exactly the span in which airports build, so the
+    # workers inherit it; it never overrides an ``O4_SOLVE_MODEL`` the
+    # caller already set (an A/B arm's pin outranks a tile's cfg).
+    import O4_Solve_Model as _SM
+    with _SM.tile_scope(tile) as _scope:
+        UI.vprint(1, "   Auto-patch: solve model", _scope.model)
+        _run_build_tasks(tasks, tile, auto_patched, _verify_debug_path)
 
     UI.verbosity = _saved_verbosity
 

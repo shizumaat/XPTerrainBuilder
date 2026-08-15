@@ -79,15 +79,53 @@ def _as_polygons(geom) -> list[Polygon]:
     return []
 
 
-def _split_at_bends(coords: list[tuple[float, float]]
+def _max_chord_deviation(run: list[tuple[float, float]],
+                         ex: float, ey: float) -> float:
+    """Largest PERPENDICULAR distance from ``run``'s vertices to the chord
+    ``run[0] → (ex, ey)`` — i.e. to the axis the rect would be built on."""
+    ax, ay = run[0]
+    dx, dy = ex - ax, ey - ay
+    L = math.hypot(dx, dy)
+    if L < 1e-9:
+        return 0.0
+    worst = 0.0
+    for px, py in run[1:]:
+        d = abs((px - ax) * dy - (py - ay) * dx) / L
+        if d > worst:
+            worst = d
+    return worst
+
+
+def _split_at_bends(coords: list[tuple[float, float]],
+                    width: float | None = None
                     ) -> list[list[tuple[float, float]]]:
-    """Split a polyline into straight-ish runs at vertices whose turn
-    angle exceeds ``_BEND_ANGLE_DEG``."""
+    """Split a polyline into straight-ish runs.
+
+    Two independent break tests, either of which closes the current run:
+
+    * TURN ANGLE — a vertex whose turn exceeds ``_BEND_ANGLE_DEG`` (the
+      original test; an L-bend).
+    * CHORD DEVIATION (needs ``width``) — a run whose own vertices stray
+      more than ``width / 2`` from its chord ``run[0] → candidate``.  A
+      gently-curved road passes every per-vertex angle test yet bows well
+      clear of the first-to-last chord the rect is built on
+      (:func:`_rect_from_endpoints`), so ONE rect gets laid off the real
+      road (CYXY "Barkley-Grow Crescent": 11 vertices, max turn 14.5°,
+      sagitta 10.31 m against a 6 m corridor) and the corridor−rect
+      residue is emitted as a bogus ribbon junction.  Half the width is
+      the exact threshold at which the rect stops covering its own
+      centerline.
+
+    ``width=None`` (no caller-supplied corridor width) runs the turn test
+    alone, exactly as before.  This is THE straightness definition: the
+    rect builder stays a pure chord rect.
+    """
     if len(coords) < 2:
         return []
     runs: list[list[tuple[float, float]]] = []
     cur = [coords[0], coords[1]]
     cos_tol = math.cos(math.radians(_BEND_ANGLE_DEG))
+    half = None if width is None else width / 2.0
     for k in range(1, len(coords) - 1):
         ax, ay = coords[k - 1]
         bx, by = coords[k]
@@ -98,6 +136,9 @@ def _split_at_bends(coords: list[tuple[float, float]]
         n2 = math.hypot(v2x, v2y)
         straight = (n1 > 1e-6 and n2 > 1e-6
                     and (v1x * v2x + v1y * v2y) / (n1 * n2) >= cos_tol)
+        if straight and half is not None \
+                and _max_chord_deviation(cur, cx, cy) > half:
+            straight = False               # bows off its own chord
         if straight:
             cur.append((cx, cy))
         else:
@@ -424,7 +465,7 @@ def build_service_road_network(
     kept_polys: list[Polygon] = []
     for piece, name in ext:
         coords = list(piece.coords)
-        for run in _split_at_bends(coords):
+        for run in _split_at_bends(coords, width):
             if len(run) < 2:
                 continue
             ax, ay = run[0]

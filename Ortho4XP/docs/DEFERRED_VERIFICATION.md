@@ -1934,3 +1934,21 @@ DEFERRED, with reasons:
    while it stands: the Swift `solve_model` row appears when the app
    runs a LOOSE engine and not when it runs the FROZEN bundled one.
    The Qt selector and the engine cfg contract are unaffected.
+
+## 2026-08-14 — K1 constructive-solve core (lane/k1construct)
+
+1. Constructive-mode censuses were run at CYXY + HECA + OTHH only (the
+   lane's chartered set); SPJC / SPLP / KCLT / HEAZ constructive
+   censuses are deferred to the round's consolidation (the acceptance
+   verdict already FAILS on the chartered set, so the deferred arms
+   cannot change the round's direction, only its detail).
+2. The full pytest suite was not run against the mode branch (pre-ship
+   law: only the directly-covering test files, once) —
+   `tests/test_constructive_solve.py` (13 twins) and the CYXY/HECA
+   iterative byte-identity arms are the mode-isolation evidence; the
+   35 solve.py-importing test files run at the ship-gate hardening
+   round.
+3. The constructive HECA solve-phase wall (144.1 s vs iterative
+   252-312 s on the same phase ledger) was measured on a machine also
+   running census/build arms — DIRECTION ONLY; the lead owns the
+   exclusive `--runs 2` pairs (spec acceptance 2).

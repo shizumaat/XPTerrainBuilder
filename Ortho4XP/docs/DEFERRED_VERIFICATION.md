@@ -2056,3 +2056,14 @@ and any timing measurement.  The lane built one acceptance pair
 (CYXY + HECA) against the two reference patches the spec names; walls
 are ledger-frame only and are NOT a timing claim — the machine carried
 two concurrent tile builds throughout.
+
+## F3/F3b HELD AT THE ATTEMPT CAP (2026-08-15 late, Fable lead)
+- F3+F3b on lane/gapconform: solve-refusal fixed (ceiling-only stage);
+  validator staged (cone from conformed ends; MIN_FALL kept
+  provisional; 262 twins). HELD: 1,323 airside drainage_spine rows on
+  the HECA arm (worst 25.6 m, p50 4.66, median 76 m from parents) are
+  an EMITTER population not yet located (not the interval reach —
+  two_nearest is uncapped; suspect a second spine-emission path or the
+  ring chains). Two fix attempts spent; STOP per the convergence law.
+  Attribution next round: sample rows' way ids -> which emitter; the
+  arm HECA_20260815T212514 (66932401efba) + rows /tmp/harness/rf3b2.json.

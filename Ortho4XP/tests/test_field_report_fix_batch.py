@@ -109,9 +109,13 @@ def test_spine_ceiling_is_at_least_the_fall_below_every_edge():
         _floor, ceil = GL.drainage_spine_envelope("junction", None, "E", d)
         assert ceil is not None
         if d <= CFG.GAP_PAVEMENT_CONFORM_MARGIN_M:
-            # F3b staged law: the conformance band is PINNED to the
-            # edge — the dam clause owns the INTERIOR only.
-            assert (_floor, ceil) == (0.0, 0.0), (d, _floor, ceil)
+            # F3b staged law: in-band the GRAPH carries only the
+            # ceiling-at-the-edge (never above); the pin's equality is
+            # the emitter walk's and the validator's, never a rigid
+            # anchor in the solve (measured: a (0,0) pin inverted 677
+            # HECA nodes by a uniform 1.8009 m).
+            assert ceil == 0.0, (d, ceil)
+            assert _floor is None or _floor <= 0.0, (d, _floor)
         else:
             assert ceil <= -fall + 1e-12, (d, ceil)
 

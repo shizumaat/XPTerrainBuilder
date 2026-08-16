@@ -1,4 +1,56 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815d (R5 TERRAIN-TRACKING ROADS MERGED — app 1.0.253, owner
+# in-sim pending; R5b refuted)
+# Owner in-sim on 1.0.252: CYXY terrain FIXED (warm-start retirement
+# holds); 8 new road/groundside sites, all attributed to FIVE
+# families: F1 taut-chord (roads strung straight between mouths —
+# CYXY causeway 30.71/-135.073 +5.2m over a dip, canyon complex
+# 60.7016/-135.0674 flat 706 under 718-722 HRDEM, HECA plateau;
+# who_wrote-confirmed the solve ingests the held chord), F2
+# pointwise-jagged (no/1-peg runs post-R4 on rough DEM; HECA
+# 30.1091/31.4080 7m swings), F3 stamped-low flats (gap_drainage_
+# spine flat 695.8 = 7.7m BELOW terrain at CYXY 60.7124/-135.0802;
+# HECA plateau's 94.9 side), F4 = F2 sibling (HECA 30.1048/31.3980),
+# F5 OLS-cut-through-road (real ols_cut/ols_transitional shapes
+# 3381/3382 at HECA H1; cut slices road without a joint).
+# R5 (spec + R5b + refutation in service-road-law-spec.md, owner-
+# ratified w/ longitudinal-cap + lateral-flat conditions):
+# track_dem_profile = cap-Lipschitz least-deviation tracker of
+# low-passed station DEM (provably sup-norm minimal), service-road
+# runs only, taut string stays airside; R4 span rule kept; unpegged
+# stretches tracked as SEEDS. MEASURED (Opus lane, matched control):
+# road 349 dips -0.32..+0.84m vs HRDEM (was +5.2 causeway),
+# junction-190 rises 710.7-720.7 (was flat 706), HECA -11585 stays
+# ambient, AIRSIDE BYTE-IDENTICAL both airports both arms. Census
+# CYXY 303->377 / HECA 6,700->6,998 — ALL groundside, transverse
+# rows more-but-milder (p90 excess 2.46->1.60m): pricing real
+# cross-corridor relief a chord hid. R5b (tracker HOLDS) REFUTED:
+# sites unchanged, transverse flat, +211 HECA via ONE-SIDED
+# WELD-OR-GAP (frozen 1-D profile vs welded 2-D neighbours); the
+# over-cap-emitted-segment instrument reads RELIEF not roughening
+# (chord has none by construction). Seeds arm d7e3435 merged;
+# 7919c3e NOT merged (lane keeps it). Twins 136+1 pre-existing.
+# App 1.0.253 / engine 1.50.1695, embedded==dist verified.
+# TILE-SEAM CHECK (owner report "KAFL" + SPLP): round touched ZERO
+# tile-cut/mesh code; SPLP seam envelope BYTE-IDENTICAL pre/post
+# round (lon min -76.99995, 0 nodes on -77 meridian, both eras;
+# ledger artifact s6_before); 58 seam/tile-cut twins pass. KAFL not
+# in any apt.dat (closest PAFL, mid-tile) — ICAO/latlon requested
+# from owner. HYPOTHESIS: mixed-version tile seams — tiles built on
+# 1.0.249-251 carry warm-start-flattened terrain (up to 22.7m at
+# range, largest at tile edges); seam vs differently-built neighbor
+# = uneven ground; remedy is rebuilding both tiles on 1.0.253.
+# DOCKET adds: one-sided weld-or-gap class (joins node-vs-edge
+# mouth law pair — law-paired boundaries, never a frozen side);
+# CYXY weld site 60.69699,-135.05965 (0.76/0.61m steps, dossiered);
+# service_road -10368 plane sliver; F3 stamped-low flats lane; F5
+# OLS-road joint lane; F2 no-substrate road population; r5base lane
+# needs re-mount (up r5base 32e6cc3) or down --force (control
+# patches CYXYBASE/HECABASE.osm intact in /tmp/harness).
+# OWNER QUEUE: in-sim 1.0.253 (the road-terrain round's acceptance);
+# KAFL identity; R5/R5b rulings ratified-by-conditions, refutation
+# recorded. STANDING QUEUE unchanged from 20260815c.
+# ══════════════════════════════════════════════════════════════════
 # 20260815c (SERVICE-ROAD ROUND MERGED — app 1.0.252 built, owner
 # in-sim pending)
 # All three 20260815b blockers cleared and svcround MERGED to main

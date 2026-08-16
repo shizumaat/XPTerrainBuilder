@@ -42,18 +42,27 @@ boundaries are LAW-PAIRED in the one graph — never a frozen side, never
 two independent conformances. One spec covers this and the R5c weld-site
 dossier (C6).
 
-### C3 — Transverse pricing on terrain-following roads
-**Rows:** groundside `transverse` 1,684 HECA / 82 CYXY (p50 0.45 m —
-many, mild), airside `transverse` 104 / 63.
-**Cause:** the R5 ruling makes roads track terrain; the R3 nearest-route
-2 % cross-corridor cap then prices every cross-slope pair a flat chord
-used to satisfy trivially. More rows, each milder (HECA p90 excess fell
-2.46 → 1.56 m through the round).
-**Ruling needed from the owner:** is the 2 % transverse cap correct for
-groundside roads on sloping terrain, or does lateral-flat-per-cross-section
-(already law) satisfy the intent, with the cross-corridor cap scoped to
-airside? If the cap stands, this is real regrade work; if scoped, most of
-this category re-adjudicates away.
+### C3 — Station misalignment expressed as transverse tilt
+**Rows:** groundside `transverse` 1,684 HECA / 82 CYXY (ALL same-shape;
+p50 grade 5.1 % at p50 width 7.5 m; junctions carry 1,154 of 1,684),
+airside `transverse` 104 / 63.
+**Cause (corrected 2026-08-15 late, after the owner's 0 %-by-construction
+question):** the cap and the instrument are both right — each paired
+cross-section IS 0 % by the station-shared value rule, and the census
+casts true perpendiculars. The rows live BETWEEN stations: where opposite
+edges carry vertices at misaligned arclengths, edge interpolation samples
+two different effective stations and the road's lawful LONGITUDINAL grade
+appears as lateral tilt (8 % × ~4 m misalignment ≈ 4–5 % across 7.5 m —
+the measured p50). A flat chord had zero longitudinal grade, so the class
+was invisible until R5 made roads track terrain. The mesh interpolates
+the same way, so these are real small diagonal warps, honestly priced.
+Junction rings dominate because they have no cross-section pairing at
+all; the 350 % worst cases are genuine junction cliffs (co-level
+residue).
+**Fix (no ruling needed):** plant aligned partner feet on BOTH edges at
+every road station, and extend the R5c co-level so junction ring
+vertices join the through-chain's stations. The family then collapses
+to the real cliffs.
 
 ### C4 — Landside lots, frontage welds, and the lot-over-road class
 **Rows:** groundside `within_shape` 3,176 HECA / 174 CYXY, plus most of
@@ -110,5 +119,5 @@ edges) persists until affected tiles are rebuilt on the current app.
 1. **C7** (whole airports missing) — R8 + the KDFW attribution.
 2. **C4** (the groundside bulk, ~3,400 rows, all three laws already ruled) — R6/R7 spec + lane.
 3. **C5** (F3's last attribution pass) — closes the photographed classes.
-4. **C3** needs only an owner ruling to re-adjudicate ~1,700 rows.
+4. **C3** is a station-alignment fix (no ruling needed) — ~1,700 rows collapse to the real junction cliffs.
 5. **C1/C2** are the airside end-game — the two open K1b rulings gate them.

@@ -2032,3 +2032,23 @@ arm vs a control worktree at the same tree) under the 2026-08-12
 measured-arms amendment; walls are ledger-frame only, never a timing
 claim (CYXY 53.2 s arm / 54.7 s control; HECA 907.5 s arm / 901.8 s
 control, both first-in-lane cold object-footprint builds).
+
+## 2026-08-15 — R5c graded-road character (lane/roadchar)
+
+`corridor_profile._suppress_reversals` (+ `turning_points`,
+`monotone_bridge`) called from `track_dem_profile`, and
+`anchors._corridor_colevel_rehome` called from
+`_svc_spine_station_seeds`; one new constant
+`config.SVC_PROFILE_REVERSAL_MIN_M` (0.4 m).  PRE-SHIP mode: only the
+covering test files were run, once — `test_r5c_graded_road_character.py`
+(18 new twins), `test_corridor_whole_run_profile.py`,
+`test_service_parallel_merge.py`, plus the three adjacent service-spine
+files (`test_svc_spine_edge_couple.py`,
+`test_service_spine_stringing.py`, `test_service_corridor_round.py`):
+66 + 56 pass and 1 recorded pre-existing xfail.  SKIPPED: the full
+suite, the blast-radius sweep, the other three battery airports
+(SPJC/SPLP/KCLT), and any timing measurement.  The lane built CYXY and
+HECA through the harness against the R5 reference patches; walls are
+LEDGER-FRAME ONLY and are not a timing claim — four heavy builds
+(two of the owner's tile builds and two of this lane's) ran
+concurrently throughout.

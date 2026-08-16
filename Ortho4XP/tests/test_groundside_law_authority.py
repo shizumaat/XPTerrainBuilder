@@ -49,8 +49,9 @@ import pytest
 from auto_patch.groundside import (
     _grade_limit_ring, _seat_ring_on_law_anchors, law_anchor_values)
 from auto_patch.layout import (
-    BuiltShape, PavementLayout, ROLE_APRON, ROLE_GRADED_STRIP,
-    ROLE_GROUNDSIDE_PAVEMENT, ROLE_RUNWAY, ROLE_SERVICE_JUNCTION)
+    BuiltShape, PavementLayout, ROLE_APRON, ROLE_BUILDING, ROLE_GRADED_STRIP,
+    ROLE_GROUNDSIDE_PAVEMENT, ROLE_RUNWAY, ROLE_SERVICE_JUNCTION,
+    ROLE_SERVICE_ROAD)
 
 from shapely.geometry import Polygon
 
@@ -154,6 +155,83 @@ def test_the_anchors_come_from_shapes_that_OUTRANK_groundside():
     lay.shapes.append(_shape(ROLE_SERVICE_JUNCTION, ring, [90.0] * 4))
     anchors = law_anchor_values(lay)
     assert anchors[(0.0, 0.0)] == pytest.approx(90.0)
+
+
+# ── R7b: A ROAD NEVER WELDS TO A BUILDING (owner 2026-08-15) ─────────
+
+def test_a_BUILDING_PAD_is_never_a_weld_for_a_LOT():
+    """THE CYXY SINK, as a law test.  Building 25's 697.13 pad datum
+    reached lot 377 through the authority order and carved 40,000 m³
+    against a 702.2 terrain median.  A pad datum is legitimate for its
+    own footprint and stops there."""
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    lay.shapes.append(_shape(ROLE_BUILDING, ring, [697.13] * 4))
+    assert law_anchor_values(lay) == {}, (
+        "a building pad seeded a groundside weld — the measured "
+        "mechanism of the CYXY lot-377 hollow")
+
+
+def test_a_BUILDING_PAD_is_never_a_weld_for_A_ROAD_EITHER():
+    """The ruling names the ROAD NETWORK: the sink ran pad → frontage
+    junctions 352/364/365 → lot, so blocking the lot alone leaves the
+    channel open one hop upstream."""
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    lay.shapes.append(_shape(ROLE_BUILDING, ring, [697.13] * 4))
+    for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+        assert law_anchor_values(lay, for_role=role) == {}, role
+
+
+def test_the_pad_is_STILL_law_for_a_surface_that_is_not_a_road():
+    """The clause is scoped, not a retirement: a pad still outranks —
+    and still welds — everything junior to it that is not road family.
+    The guard against 'buildings stopped being law'."""
+    from auto_patch.layout import authority_rank
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    lay.shapes.append(_shape(ROLE_BUILDING, ring, [697.13] * 4))
+    assert authority_rank(ROLE_BUILDING) < authority_rank(
+        ROLE_GROUNDSIDE_PAVEMENT), "the precedence order itself is unchanged"
+    # A soft receiver ranks BELOW groundside and is not road family, so
+    # the pad is still its law.
+    anchors = law_anchor_values(lay, for_role=ROLE_GRADED_STRIP)
+    assert anchors[(0.0, 0.0)] == pytest.approx(697.13)
+
+
+def test_an_APRON_weld_still_reaches_the_road():
+    """Only BUILDINGS leave the road's weld set — the mouths-and-aprons
+    half of the ruling is a different clause, and airside law is
+    untouched here."""
+    lay = PavementLayout(icao="T", anchor=(0.0, 0.0))
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    lay.shapes.append(_shape(ROLE_APRON, ring, [702.0] * 4))
+    anchors = law_anchor_values(lay, for_role=ROLE_SERVICE_JUNCTION)
+    assert anchors[(0.0, 0.0)] == pytest.approx(702.0)
+
+
+def test_a_ROAD_is_no_longer_a_BUILDINGS_FRONTAGE():
+    """The third pad→road channel, and the LIVE one at CYXY: the pad-seat
+    builder's frontage recognition counted a ``service_junction`` ring as
+    apron frontage, so the pad seated ON the road's band and the road on
+    the pad's.  Airside frontage (apron, junction) is untouched."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import anchors
+    src = inspect.getsource(anchors.build_building_seats)
+    head = src.split("def _median", 1)[0]
+    assert "ROLE_SERVICE_JUNCTION" not in head, (
+        "a road is a building's frontage again — the CYXY sink channel")
+    assert "ROLE_APRON" in head and "ROLE_JUNCTION" in head
+
+
+def test_the_near_miss_frontage_law_no_longer_names_a_ROAD():
+    """The second pad→road channel: the near-miss law is a WELD across a
+    sliver, so a road on its soft-role list is a road welded to a
+    building at one remove."""
+    from auto_patch import config as cfg
+    assert "service_junction" not in cfg.NEAR_MISS_FRONTAGE_SOFT_ROLES
+    assert "apron" in cfg.NEAR_MISS_FRONTAGE_SOFT_ROLES
+    assert "junction" in cfg.NEAR_MISS_FRONTAGE_SOFT_ROLES
 
 
 def test_a_SOFT_RECEIVER_is_never_an_anchor():

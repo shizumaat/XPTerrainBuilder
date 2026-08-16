@@ -721,12 +721,32 @@ def law_anchor_values(layout, for_role=None) -> dict:
     inventing a per-vertex value from an end pair is minting, and the
     measured weld population here (HEAZ way -10281: 17 service_junction
     nodes) carries explicit node altitudes.
+
+    R7b — A ROAD NEVER WELDS TO A BUILDING (owner ruling 2026-08-15, the
+    sink ruling): "a building pad datum is legitimate for its own
+    footprint and must not propagate into the road network".
+    ``ROLE_BUILDING`` outranks every road-family and groundside role in
+    ``AUTHORITY_PRECEDENCE``, so before this clause every pad vertex
+    within the weld tolerance of a road, junction or lot ring was a
+    PINNED law anchor for it.  That is the measured CYXY sink: building
+    25's 697.13 pad datum reached lot 377 through frontage junctions
+    352/364/365 and carved 40,000 m³ against a 702.2 terrain median.
+    Buildings are therefore skipped for every asking role in
+    ``GROUNDSIDE_ROLES``; they remain law for everything senior to them
+    (the apron↔building frontage weld, owner 2026-08-08, is untouched —
+    an apron outranks a building and reads it through its own path).
     """
-    from .layout import ROLE_GROUNDSIDE_PAVEMENT, authority_rank
-    my_rank = authority_rank(for_role or ROLE_GROUNDSIDE_PAVEMENT)
+    from .layout import (GROUNDSIDE_ROLES, ROLE_BUILDING,
+                         ROLE_GROUNDSIDE_PAVEMENT, authority_rank)
+    asking = for_role or ROLE_GROUNDSIDE_PAVEMENT
+    my_rank = authority_rank(asking)
+    no_pads = asking in GROUNDSIDE_ROLES
     best: dict = {}
     for idx, s in enumerate(getattr(layout, "shapes", ()) or ()):
-        rank = authority_rank(getattr(s, "role", "") or "")
+        role = getattr(s, "role", "") or ""
+        if no_pads and role == ROLE_BUILDING:
+            continue                    # R7b: pads stay on their footprints
+        rank = authority_rank(role)
         if rank >= my_rank:
             continue
         poly = getattr(s, "polygon", None)
@@ -2159,12 +2179,25 @@ def _regrade_merged_host(host, _dem_at) -> Optional[float]:
 # on the clip boundary and so is NOT float-free, and must be gated on the
 # frozen body hash rather than argued.  Recorded rather than left for the
 # next lane to rediscover.
-def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
-    """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
-    service centerline — the ONE measurement both the narrow-strip carve
-    and the free-road slice filter key on, so they cannot drift.  ``None``
-    on geometry failure (callers treat that as NOT road-width —
-    conservative, never carve on a broken measurement)."""
+def _svc_contiguous_cross_section(line, arc, pav_union,
+                                  probe: float = 60.0):
+    """The contiguous pavement CROSS-SECTION chord at arc-length ``arc``
+    of a service centerline — THE measurement, of which
+    :func:`_svc_contiguous_width` is the length.
+
+    Returns the chord as a ``LineString``; an EMPTY ``LineString`` when
+    the road crosses open terrain there (the old ``0.0``); ``None`` on
+    geometry failure (callers treat that as NOT road-width —
+    conservative, never carve on a broken measurement).
+
+    The chord itself — not just its length — is what R7a's landside term
+    needs (owner ruling 2026-08-15): the question "is this wide pavement
+    an apron or a landside lot" is answered by asking the airside
+    evidence layer whether it touches THIS chord.  Splitting the width
+    out of the geometry would have been a second cross-section
+    measurement, and the free-road filter and the narrow-strip carve
+    exist in lockstep precisely because there is only one.
+    """
     p = line.interpolate(arc)
     q = line.interpolate(min(arc + 1.0, line.length))
     dx, dy = q.x - p.x, q.y - p.y
@@ -2180,11 +2213,22 @@ def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
              else list(getattr(inter, "geoms", ())))
     for part in parts:
         if part.geom_type == "LineString" and part.distance(p) < 2.0:
-            return part.length
-    return 0.0
+            return part
+    return LineString()
+
+
+def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
+    """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
+    service centerline — the ONE measurement both the narrow-strip carve
+    and the free-road slice filter key on, so they cannot drift.  ``None``
+    on geometry failure (callers treat that as NOT road-width —
+    conservative, never carve on a broken measurement)."""
+    part = _svc_contiguous_cross_section(line, arc, pav_union, probe=probe)
+    return None if part is None else part.length
 
 
 def free_road_subsegments(lines, pav_union, *,
+                          landside_evidence=None,
                           narrow_width_m: float = 25.0,
                           sample_step_m: float = 5.0,
                           min_run_m: float = 12.0):
@@ -2209,6 +2253,44 @@ def free_road_subsegments(lines, pav_union, *,
     are dropped (a road momentarily narrow inside an apron is still the
     apron's road).
 
+    R7a — THE LANDSIDE TERM (owner ruling 2026-08-15, "roads carry
+    spines like taxiways … the free-road width test gains its missing
+    landside term").  The ruling above says APRON, and the width test
+    read only WIDTH.  A DSF ``.pol`` pack delivers apron and car park as
+    one undifferentiated pavement blob, so every wide LANDSIDE lot read
+    as "an apron the road is inside of" and swallowed the public road
+    whole: measured at CYXY, lot 377 dropped 82-93 % of the road's
+    stations and then valued the strip it had taken by its own
+    lot law, 3.2 m away from the road faces either side of it; at HECA
+    142 of 160 groundside shapes contain a road on these terms.
+
+    THE TERM IS POSITIVE (Fable AMENDMENT A1, 2026-08-15 late).  The
+    first arm asked for positive AIRSIDE evidence and read its ABSENCE
+    as landside; that is refuted at exactly the airports this feature
+    exists for, because at a DSF-pack airport genuine apron routinely
+    carries no OSM ``aeroway`` and no apt.dat row-110 name, so "no
+    airside evidence" is the normal reading of real aircraft pavement.
+    A wide station therefore stays APRON — dropped, as the 2026-07-27
+    ruling says — unless there is POSITIVE LANDSIDE EVIDENCE for the
+    cross-section it actually stands in: ``landside_evidence`` (a
+    ``pavement_classification.CoverIndex``:
+    ``pavement_classification.landside_evidence_layer`` — the
+    parking-aisle corridor layer, and pavement outside the runway-touch
+    connectivity chain).  Wide pavement WITH landside evidence keeps the
+    knife: the road cuts its own face through the lot and scores as a
+    road.
+
+    The two classes the width test was built for are preserved BY
+    CONSTRUCTION — SPJC's east terminal and HECA's svc-junction aprons
+    are aircraft pavement chained to a runway and carry no parking
+    aisles, so neither landside term fires and their wide stations are
+    still dropped.
+
+    ``landside_evidence=None`` is the WIDTH-ONLY fallback (synthetic
+    callers and the pre-R7a law): with no evidence layer to ask, every
+    wide station is treated as apron, exactly as before.  Production
+    passes the layer — see ``pipeline`` at the free-road scoping site.
+
     Pure function over LineStrings — the slice feeds the result in
     place of the raw service set; the narrow-strip carve keeps its own
     identical per-station test.
@@ -2231,8 +2313,18 @@ def free_road_subsegments(lines, pav_union, *,
         arcs = [line.length * k / (n_st - 1) for k in range(n_st)]
         free = []
         for arc in arcs:
-            w = _svc_contiguous_width(line, arc, pav_union)
-            free.append(w is not None and w <= narrow_width_m)
+            part = _svc_contiguous_cross_section(line, arc, pav_union)
+            if part is None:                    # broken measurement
+                free.append(False)
+                continue
+            if part.length <= narrow_width_m:   # the pavement IS the road
+                free.append(True)
+                continue
+            # WIDE.  Apron — unless there is POSITIVE LANDSIDE evidence
+            # for THIS cross-section (R7a, amendment A1), in which case
+            # the station stays a knife.
+            free.append(landside_evidence is not None
+                        and landside_evidence.intersects(part))
         coords = list(line.coords)
         vertex_arcs = [0.0]
         for (xa, ya), (xb, yb) in zip(coords, coords[1:]):
@@ -3496,12 +3588,86 @@ def conform_parallel_service_edges(layout, window_m: float = 2.0,
     return n_inserted
 
 
+# R7c — the CUT-AND-FILL kernel, shared verbatim by the single-ring
+# limiter and the layout-wide one, so the two cannot drift into two lot
+# laws (the census-wrapper lesson, applied to the surface law itself).
+#
+# THE EXCESS IS SPLIT, exactly as ``_grade_limit_ring`` splits it between
+# two free ring neighbours — the same law, now over CHORD pairs.  A
+# GAUSS-SEIDEL walk cannot do that: whichever end the sweep reaches first
+# absorbs the whole excess, so the pre-R7c order made every pair yield
+# DOWNWARD and a pit pulled its whole ring into itself instead of being
+# filled.  So the walk is a DAMPED JACOBI: every free vertex reads the
+# band the CURRENT field gives it, and they all move half-way to it
+# together, which is order-independent and shares the correction.  A
+# short cut-only finisher then guarantees the field is lawful (after
+# convergence it is a no-op; where two PINNED welds are mutually
+# infeasible it is what still yields, downward, as before).
+_CHORD_JACOBI_SWEEPS = 16
+_CHORD_JACOBI_DAMPING = 0.5
+_CHORD_JACOBI_TOL_M = 1e-4
+
+
+def _chord_band(coords, vals, live, a, cap):
+    """``(lo, hi)`` — the ``cap``-reachable band vertex ``a`` may sit in,
+    generated by every other live vertex of the ring."""
+    xa, ya = coords[a]
+    hi = float("inf")
+    lo = float("-inf")
+    for b in live:
+        if b == a:
+            continue
+        xb, yb = coords[b]
+        reach = cap * math.hypot(xa - xb, ya - yb)
+        up = vals[b] + reach
+        if up < hi:
+            hi = up
+        dn = vals[b] - reach
+        if dn > lo:
+            lo = dn
+    return lo, hi
+
+
+def _chord_cut_and_fill(coords, vals, live, free, cap, sweeps: int = 4):
+    """R7c in place: clamp ``vals`` into the two-sided ``cap`` band over
+    CHORD pairs, leaving every vertex not in ``free`` (the welds) alone."""
+    if not free:
+        return
+    for _sweep in range(_CHORD_JACOBI_SWEEPS):
+        worst = 0.0
+        moves = []
+        for a in free:
+            lo, hi = _chord_band(coords, vals, live, a, cap)
+            v = vals[a]
+            target = hi if lo > hi else min(max(v, lo), hi)
+            d = (target - v) * _CHORD_JACOBI_DAMPING
+            if d:
+                moves.append((a, v + d))
+                worst = max(worst, abs(d))
+        for a, nv in moves:
+            vals[a] = nv
+        if worst <= _CHORD_JACOBI_TOL_M:
+            break
+    # THE GUARANTEE: whatever the damped walk left over cap comes down.
+    for _sweep in range(max(1, sweeps)):
+        changed = False
+        for a in free:
+            _lo, hi = _chord_band(coords, vals, live, a, cap)
+            if hi < vals[a] - 1e-6:
+                vals[a] = hi
+                changed = True
+        if not changed:
+            break
+
+
 def chord_limit_ring_altitudes(coords, alts,
                                cap: float = GROUNDSIDE_MAX_GRADE,
-                               sweeps: int = 4):
-    """Largest ``cap``-Lipschitz field ≤ ``alts`` over straight-line CHORD
-    pairs of ONE ring (the within-shape validator metric) — the single-ring
-    core of ``_grade_limit_groundside_chords``, callable at SOLVE time.
+                               sweeps: int = 4,
+                               pinned=None):
+    """The ``cap``-Lipschitz field CLOSEST to ``alts`` over straight-line
+    CHORD pairs of ONE ring (the within-shape validator metric) — the
+    single-ring core of ``_grade_limit_groundside_chords``, callable at
+    SOLVE time.
 
     ``apply_groundside_reach`` welds service-road nodes to the groundside
     ring values it computes, but the post-solve chord limiter used to
@@ -3512,28 +3678,32 @@ def chord_limit_ring_altitudes(coords, alts,
     identical to the post-solve one (the late limiter is idempotent on an
     already-limited ring).
 
+    R7c — CUT **AND** FILL (owner ruling 2026-08-15, "groundside lots cut
+    and fill"): this pass used to be the largest Lipschitz field ≤
+    ``alts`` — CUT-ONLY, and therefore the last writer that UNDID every
+    fill the seat/reach passes had lawfully made.  The lot law is now the
+    TWO-SIDED band: each vertex is clamped into
+    ``[v_b − cap·d, v_b + cap·d]`` of every other vertex, so a vertex the
+    law must RAISE to reach its weld is raised, and one it must lower is
+    lowered.  The one-sided law was the measured mechanism of the CYXY
+    40,000 m³ lot-377 hollow's persistence and of the apron-42 mirror
+    (99.6 % fill refused).
+
+    ``pinned`` — indices (into ``coords``) whose value is LAW and may not
+    move: the ring's welds.  The band the ruling names is generated by
+    those, so they are held while everything else clamps into it.  Where
+    two pinned welds are mutually infeasible the free vertex takes the
+    CEILING (the pre-R7c side), never a value above a weld it must reach
+    down to.
+
     ``coords`` may be closed (last == first); ``alts`` may carry ``None``
     (skipped).  Returns a new list shaped like ``alts``."""
     m = min(len(coords), len(alts))
     vals = [None if alts[k] is None else float(alts[k]) for k in range(m)]
     live = [k for k in range(m) if vals[k] is not None]
-    for _sweep in range(sweeps):
-        changed = False
-        for a in live:
-            xa, ya = coords[a]
-            best = vals[a]
-            for b in live:
-                if b == a:
-                    continue
-                xb, yb = coords[b]
-                lim = vals[b] + cap * math.hypot(xa - xb, ya - yb)
-                if lim < best:
-                    best = lim
-            if best < vals[a] - 1e-6:
-                vals[a] = best
-                changed = True
-        if not changed:
-            break
+    held = set(pinned or ())
+    free = [k for k in live if k not in held]
+    _chord_cut_and_fill(coords, vals, live, free, cap, sweeps=sweeps)
     out = list(alts)
     for k in range(m):
         if vals[k] is not None:
@@ -3546,18 +3716,45 @@ def chord_limit_ring_altitudes(coords, alts,
 
 
 def _grade_limit_groundside_chords(layout) -> int:
-    """Pull every groundside shape's altitude field down to the largest
-    ``GROUNDSIDE_MAX_GRADE``-Lipschitz field ≤ its current (DEM) values,
-    measured over straight-line CHORD pairs — the within-shape validator
-    metric.  ``_dem_follow_polygon``'s ring-ramp limit only bounds
-    CONSECUTIVE ring vertices; a ring-compliant hillside piece still
-    reads >4 % across its interior (HECA #230: 4.7-5.5 %).  Shared
-    boundary nodes are UNIFIED across shapes (keyed by rounded coords)
-    so abutting groundside pieces stay flush.  Runs ONCE, late, over
-    ALL groundside shapes regardless of which pass created them.
-    Returns the number of shapes whose altitudes changed."""
+    """Clamp every groundside shape's altitude field into the
+    ``GROUNDSIDE_MAX_GRADE``-Lipschitz band of its own vertices, measured
+    over straight-line CHORD pairs — the within-shape validator metric.
+    ``_dem_follow_polygon``'s ring-ramp limit only bounds CONSECUTIVE
+    ring vertices; a ring-compliant hillside piece still reads >4 %
+    across its interior (HECA #230: 4.7-5.5 %).  Shared boundary nodes
+    are UNIFIED across shapes (keyed by rounded coords) so abutting
+    groundside pieces stay flush.  Runs ONCE, late, over ALL groundside
+    shapes regardless of which pass created them.  Returns the number of
+    shapes whose altitudes changed.
+
+    R7c — CUT **AND** FILL (owner ruling 2026-08-15).  This is the LAST
+    groundside-altitude writer, and while it was one-sided ("the largest
+    Lipschitz field ≤ the current values") it undid every lawful FILL the
+    seat and reach passes made: the emitted lot read as
+    ``min(terrain, cone)`` no matter what the welds asked for.  It is now
+    the two-sided clamp the ruling names, with the ring's WELDS held —
+    ``law_anchor_values`` is the same weld set ``_seat_ring_on_law_anchors``
+    pins, so the band a lot is clamped into is generated by exactly the
+    law datums that seated it.
+    """
     node_alt: dict = {}
     rings: dict = {}
+    # THE WELDS ARE NOT PINNED HERE, and that is MEASURED, not assumed.
+    # Holding them (``law_anchor_values`` keyed to this pass's 2-decimal
+    # node key) is the literal reading of R7c's "[weld − cap·d,
+    # weld + cap·d]" — but a lot ring commonly carries MANY welds whose
+    # law values are not mutually lawful across the ring's own chords,
+    # and freezing them converts every such pair from a cut into a
+    # standing violation: CYXY way -10126 went to 6.17 m at 16-26 %
+    # where the same site had read 4.79 m at 8.1 % (the shaping cap is
+    # 5 %, so a >8 % pair is a pair no limiter touched).  The weld nodes
+    # are OVERWRITTEN AT EMIT by the higher-authority claimant anyway
+    # (``to_osm``'s precedence resolution — the lot's own field at a weld
+    # is not what ships), so moving them inside the lot's field costs
+    # nothing and is the pre-R7c behaviour.  The kernel keeps the ``pinned``
+    # capability for the single-ring API, where the caller knows its
+    # welds are one consistent datum.
+    pinned_keys: set = set()
     for i, s in enumerate(layout.shapes):
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
@@ -3584,25 +3781,25 @@ def _grade_limit_groundside_chords(layout) -> int:
             node_alt[kxy] = min(node_alt.get(kxy, v), v)
     if not rings:
         return 0
-    for _sweep in range(4):
-        changed = False
+    # R7c: CUT **AND** FILL, through the ONE kernel the single-ring
+    # limiter uses (``_chord_cut_and_fill``) — per ring, over the SHARED
+    # node values, so abutting pieces stay flush exactly as before.  The
+    # welds are held: they are the band the lot is clamped into.
+    for _round in range(4):
+        moved = False
         for i, keys in rings.items():
             m = len(keys)
-            for ai in range(m):
-                xa, ya = keys[ai]
-                best = node_alt[keys[ai]]
-                for bj in range(m):
-                    if bj == ai:
-                        continue
-                    xb, yb = keys[bj]
-                    dd = math.hypot(xa - xb, ya - yb)
-                    cap = node_alt[keys[bj]] + GROUNDSIDE_MAX_GRADE * dd
-                    if cap < best:
-                        best = cap
-                if best < node_alt[keys[ai]] - 1e-6:
-                    node_alt[keys[ai]] = best
-                    changed = True
-        if not changed:
+            vals = [node_alt[k] for k in keys]
+            before = list(vals)
+            live = list(range(m))
+            free = [k for k in live if keys[k] not in pinned_keys]
+            _chord_cut_and_fill(keys, vals, live, free,
+                                GROUNDSIDE_MAX_GRADE)
+            for k in range(m):
+                if abs(vals[k] - before[k]) > 1e-6:
+                    node_alt[keys[k]] = vals[k]
+                    moved = True
+        if not moved:
             break
     n_changed = 0
     for i, keys in rings.items():
@@ -4590,6 +4787,150 @@ def _reclassify_groundside_orphan_junctions(
 GROUNDSIDE_CLEARANCE_M = SHARED_VERTEX_TOL_M + 0.5  # 1.0 m
 _GROUNDSIDE_MIN_AREA_M2 = 5.0
 
+# ── R7b CLAUSE 3 — PARALLEL FRONTAGE CUTS BACK TO DEM ────────────────
+# Owner ruling 2026-08-15 late (the sink ruling): "a road running
+# PARALLEL to an apron for more than 1.5x the road's width takes the
+# STANDARD GROUNDSIDE CUTBACK and stays AT DEM — roads commonly run up
+# to and along terminals at DIFFERENT LEVELS (at CYXY the landside
+# frontage road is a second-story level several metres above the airside
+# apron; that separation is real and must be preserved, not welded
+# away)."  Fable amendment A2 rules the mechanism GEOMETRIC and names
+# this machinery: the cutback IS ``_separate_groundside_from_airside``'s
+# clearance buffer, its mouth windows and its DEM re-follow, applied to
+# the ROAD face instead of to a lot.  Nothing new is invented — a road
+# that no longer shares a node with the apron cannot be welded to it,
+# and the level separation survives by construction.
+ROAD_FRONTAGE_SPAN_WIDTH_FACTOR = 1.5
+
+
+def _face_carriageway_width(polygon) -> float:
+    """A road face's OWN carriageway width: ``2·area / perimeter``.
+
+    For an L×W strip that is ``LW/(L+W)`` → W as L grows, and a road
+    face IS that shape.  Deliberately measured off the face's own
+    geometry: an axis-based or centerline-based width would be a SECOND
+    measurement of the same quantity, free to drift from the one the
+    free-road knife already keys on.
+    """
+    try:
+        perimeter = polygon.length
+        if perimeter <= 0.0:
+            return 0.0
+        return 2.0 * polygon.area / perimeter
+    except _GEOM_EXC:
+        return 0.0
+
+
+def _longest_contact_run_m(ring, clip_geom) -> float:
+    """The longest CONTIGUOUS run of ``ring`` inside ``clip_geom`` — the
+    edge-contact span R7b measures its 1.5× against.
+
+    Contiguity is the whole point of the ruling's word PARALLEL: a road
+    that touches an apron at two separate MOUTHS is not a road running
+    along it, and summing the two runs would say it was.
+    """
+    try:
+        inter = ring.intersection(clip_geom)
+    except _GEOM_EXC:
+        return 0.0
+    if inter is None or inter.is_empty:
+        return 0.0
+    parts = ([inter] if inter.geom_type == "LineString"
+             else list(getattr(inter, "geoms", ())))
+    return max((p.length for p in parts if p.geom_type == "LineString"),
+               default=0.0)
+
+
+def _cut_back_road_frontage(layout, frontage_clips, _dem_at,
+                            span_factor: float
+                            = ROAD_FRONTAGE_SPAN_WIDTH_FACTOR,
+                            stats=None) -> int:
+    """R7b clause 3 in place: every road face that runs along an apron
+    for more than ``span_factor`` × its own carriageway width is CUT
+    BACK off it and DEM-re-follows.  Returns the number of faces cut.
+
+    ``frontage_clips`` — the apron/junction clearance buffers ALREADY
+    built by :func:`_separate_groundside_from_airside`, with the mouth
+    windows subtracted.  That is what makes mouths exempt in both
+    directions at once: a mouth is outside the clip, so it neither
+    counts toward the parallel span nor gets cut, and the road keeps its
+    shared edge — and therefore its weld — exactly there.  R7b clause 1
+    ("a road welds to an apron ONLY at a mouth") is the same geometry
+    read from the other side.
+
+    A cut that would ERASE the road or FRAGMENT it into several pieces
+    is refused: a cutback opens a 1 m gap along a flank, and anything
+    else is a severance this clause never authorised.
+    """
+    if not frontage_clips:
+        return 0
+    from shapely.strtree import STRtree
+    try:
+        tree = STRtree(frontage_clips)
+    except _GEOM_EXC:
+        return 0
+    anchors_by_role: dict = {}
+    n_cut = 0
+    for s in layout.shapes:
+        if s.role not in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        width = _face_carriageway_width(poly)
+        if width <= 0.0:
+            continue
+        need = span_factor * width
+        ring = poly.exterior
+        try:
+            hits = [frontage_clips[int(i)] for i in tree.query(poly)]
+        except _GEOM_EXC:
+            continue
+        qualifying = [g for g in hits
+                      if _longest_contact_run_m(ring, g) > need]
+        if not qualifying:
+            continue
+        try:
+            cut = (qualifying[0] if len(qualifying) == 1
+                   else unary_union(qualifying))
+            diff = poly.difference(cut)
+        except _GEOM_EXC:
+            continue
+        parts = [p for p in ([diff] if diff.geom_type == "Polygon"
+                             else list(getattr(diff, "geoms", ())))
+                 if p.geom_type == "Polygon" and not p.is_empty
+                 and p.area >= _GROUNDSIDE_MIN_AREA_M2]
+        if len(parts) != 1 or parts[0].equals(poly):
+            continue        # erased or fragmented — not a cutback
+        if len(parts[0].interiors) > len(poly.interiors):
+            # A HOLE is not a cutback either, and this one is measured:
+            # where an apron pokes into a road's bay the difference
+            # returns an ANNULUS, and ``_dem_follow_polygon`` then opens
+            # the hole with a corridor — rewriting the road's footprint
+            # instead of trimming its flank (SPJC 2026-08-16: 4 → 9
+            # ``shape_interior_ring`` ways, and the road at
+            # -12.0313,-77.1071 went from a 10-node face spanning 1.89 m
+            # to a 12-node face + interior ring spanning 2.87 m).
+            continue
+        if s.role not in anchors_by_role:
+            _a = law_anchor_values(layout, for_role=s.role)
+            anchors_by_role[s.role] = (_a, law_anchor_key(layout, _a))
+        _law_anchors, _anchor_key = anchors_by_role[s.role]
+        _seat_out: dict = {}
+        built = _dem_follow_polygon(parts[0], _dem_at, simplify_tol=0.0,
+                                    law_anchors=_law_anchors,
+                                    anchor_key=_anchor_key, stats=stats,
+                                    seat_out=_seat_out)
+        if built is None:
+            continue
+        # MUTATED IN PLACE, never rebuilt: the face carries slice state
+        # (``source_axis``, ``ref``, centerline provenance) that a fresh
+        # ``BuiltShape`` would silently drop.
+        s.polygon, s.node_altitudes = built
+        setattr(s, _LAW_SEATED_ATTR, bool(_seat_out.get("law_seated")))
+        n_cut += 1
+    return n_cut
+
 
 def _merge_touching_groundside(
         layout: "PavementLayout", dem, tile_lat: int, tile_lon: int,
@@ -4722,7 +5063,9 @@ def _merge_touching_groundside(
 def _separate_groundside_from_airside(
         layout: "PavementLayout", dem, tile_lat: int, tile_lon: int,
         clearance: float = GROUNDSIDE_CLEARANCE_M,
-        preserve_field: bool = False) -> int:
+        preserve_field: bool = False,
+        road_frontage_cutback: bool = False,
+        groundside_clip: bool = True) -> int:
     """Clip every groundside polygon so it keeps ``clearance`` from all
     terminal / airside pavement — enforcing the invariant that groundside
     shares no node or edge with terminal or airside (it is separate
@@ -4740,6 +5083,15 @@ def _separate_groundside_from_airside(
     chord-limit / weld field; resetting a clipped piece to raw DEM
     detached it from every road welded to it at solve time (CYXY: a
     mouth lot reset 695.8 → 700.6 = 5 m road↔lot yanks).
+
+    ``road_frontage_cutback=True`` additionally runs R7b clause 3
+    (:func:`_cut_back_road_frontage`) over the SAME clearance buffers
+    and mouth windows built here.  ``groundside_clip=False`` runs ONLY
+    that clause.  Both default to the pre-R7b behaviour, so every
+    existing call site is byte-identical; production reaches the clause
+    through ONE explicit pre-solve call in ``pipeline`` (a road cut back
+    post-solve would throw away the solved road field, which is the
+    opposite of "stays at DEM").
     """
     AIRSIDE_ROLES = {
         ROLE_RUNWAY, ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
@@ -4783,6 +5135,10 @@ def _separate_groundside_from_airside(
             except (ValueError, IndexError):
                 continue
     clip_polys = []
+    # R7b clause 3's frontage partners: the AIRCRAFT pavement a road can
+    # run along.  Their clearance buffers are collected as the clause
+    # sees them — mouth windows already subtracted.
+    frontage_clips: list = []
     for s in layout.shapes:
         if s.role in AIRSIDE_ROLES and s.polygon is not None \
                 and not s.polygon.is_empty:
@@ -4810,8 +5166,29 @@ def _separate_groundside_from_airside(
                     buffered = buffered.difference(windows)
                     clip_polys.append(s.polygon)
                 clip_polys.append(buffered)
+                if s.role in _DEMOTABLE_ROLES and not buffered.is_empty:
+                    frontage_clips.append(buffered)
             except _GEOM_EXC:
                 continue
+    # ── R7b clause 3, over the buffers just built (see
+    #    ``_cut_back_road_frontage``).  Runs BEFORE the groundside clip
+    #    so a lot clipped below sees the road's FINAL geometry.
+    n_road_cut = 0
+    if road_frontage_cutback:
+        _dem_at_rf = _dem_sampler(layout, dem, tile_lat, tile_lon)
+        n_road_cut = _cut_back_road_frontage(
+            layout, frontage_clips, _dem_at_rf,
+            stats=_law_seat_stats(layout, "cut_back_road_frontage"))
+        if n_road_cut:
+            import O4_UI_Utils as UI
+            UI.vprint(1,
+                f"  [pav-builder] R7b: cut {n_road_cut} road face(s) back "
+                f"from the apron they front (parallel run > "
+                f"{ROAD_FRONTAGE_SPAN_WIDTH_FACTOR}x their own width); "
+                f"they DEM-refollow at their own level "
+                f"(owner ruling 2026-08-15).")
+    if not groundside_clip:
+        return n_road_cut
     # Groundside may TOUCH a service road (shared edge, kept above) but must not
     # OVERLAP it (area overlap = self-overlap, not a shared edge — e.g. a curved
     # SVC connector emitted as service_junction that straddles the lot it feeds).

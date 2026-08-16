@@ -2241,3 +2241,29 @@ The two acceptance builds ran at tree bd217eaddcbb, which differs from the
 committed tree ONLY in `solve._PROBE_PUBLISHED_ATTRS` (the string-mover
 probe's snapshot list; that probe needs O4_STRING_MOVER_LEDGER=1, absent
 from every arm's recorded env), so no arm is affected by the delta.
+
+## 2026-08-16 — R6/R7 amendments A1 + A2 (lane/frontage)
+
+`pavement_classification.landside_evidence_layer` /
+`runway_disconnected_pavement` (replacing the refuted
+`airside_evidence_layer`), `groundside.free_road_subsegments`'
+`landside_evidence` term, `groundside._cut_back_road_frontage` +
+`_face_carriageway_width` + `_longest_contact_run_m` reached through
+`_separate_groundside_from_airside(road_frontage_cutback=…,
+groundside_clip=…)`, and one explicit pre-solve call in `pipeline`
+gated `O4_ROAD_FRONTAGE_CUTBACK`.  PRE-SHIP mode: only the covering
+test files were run, once — `test_road_frontage_cutback.py` (12 new
+twins), `test_free_road_scoping.py` (17), plus every file `blast.py`
+names for `groundside.py` / `pavement_classification.py`
+(`test_groundside_law_authority.py`, `test_membership_round.py`,
+`test_pavement_classification.py`, `test_classification_round.py`,
+`test_service_corridor_round.py`, `test_band_reports_instrument.py`,
+`test_kill_prep_round.py`, `test_one_graph_groundside.py`,
+`test_owner_constants_round.py`, `test_pavement_scoring.py`): 355 pass,
+0 fail.  SKIPPED: the full suite, SPLP and KCLT, and any timing
+measurement.  BUILT through the harness on the shared corpus, against a
+base worktree at 837183d served from the artifact ledger: CYXY, SPJC and
+HECA in three arms each (base / R7a-only / R7a+R7b).  Walls are
+LEDGER-FRAME ONLY and are not a timing claim — another lane's KDFW and
+OTHH builds ran concurrently throughout (21 concurrent `build_airport`
+processes at peak).

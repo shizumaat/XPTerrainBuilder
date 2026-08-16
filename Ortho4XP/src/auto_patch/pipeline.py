@@ -3509,20 +3509,37 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # "svc junctions 4→76" carve the owner flagged).  Applies to the
     # apt.dat 1206 routes and the road-feed ways alike — the ruling
     # names roads, not sources.
+    #
+    # R7a (owner ruling 2026-08-15, Fable amendment A1): the width test
+    # alone cannot tell an apron from a landside car park — a DSF
+    # ``.pol`` pack delivers both as one blob — so a wide station is
+    # released from the apron only on POSITIVE LANDSIDE EVIDENCE
+    # (``landside_evidence_layer``: parking-aisle corridors, and
+    # pavement outside the runway-touch chain).  Absence of AIRSIDE
+    # evidence is not evidence: genuine DSF apron routinely carries no
+    # OSM aeroway and no apt.dat name at all.
     if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
         from .groundside import free_road_subsegments
+        from .pavement_classification import landside_evidence_layer
         _n_svc_lines_in = len(_cn_svc)
         _svc_len_in = sum(ln.length for ln in _cn_svc)
-        _cn_svc = free_road_subsegments(_cn_svc, _cn_pav)
+        _cn_land_ev = landside_evidence_layer(layout, pav_union=_cn_pav)
+        _cn_svc = free_road_subsegments(
+            _cn_svc, _cn_pav, landside_evidence=_cn_land_ev)
         _svc_len_out = sum(ln.length for ln in _cn_svc)
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: free-road landside evidence layer "
+            f"carries {len(_cn_land_ev.parts)} piece(s) "
+            f"(R7a/A1 2026-08-15).")
         if _svc_len_out < _svc_len_in - 1.0:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: free-road scoping kept "
                 f"{_svc_len_out:,.0f} of {_svc_len_in:,.0f} m of "
                 f"service centerline for the slice "
                 f"({_n_svc_lines_in} → {len(_cn_svc)} line(s)); "
-                f"the rest runs inside/along apron pavement and "
-                f"grades with the apron (owner ruling 2026-07-27).")
+                f"the rest runs inside/along APRON pavement and "
+                f"grades with the apron (owner rulings 2026-07-27 + "
+                f"R7a 2026-08-15).")
     # NO dedup — the route-arc graph is planarized, noded and
     # arc-deduped by construction, and the 3.5 m paint-dedup eats the
     # SHORT junction connector fragments (SPJC 481→399), which
@@ -4841,6 +4858,36 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: re-roled {_n_cr} groundside-connector "
                     f"service_junction(s) → service_road (axial ramp).")
+
+        # ── R7b CLAUSE 3 — PARALLEL FRONTAGE CUTS BACK TO DEM (owner
+        # ruling 2026-08-15 late, the sink ruling; Fable amendment A2).
+        # "A road running PARALLEL to an apron for more than 1.5x the
+        # road's width takes the STANDARD GROUNDSIDE CUTBACK and stays
+        # AT DEM — at CYXY the landside frontage road is a second-story
+        # level several metres above the airside apron; that separation
+        # is real and must be preserved, not welded away."  The cutback
+        # is GEOMETRIC and reuses ``_separate_groundside_from_airside``'s
+        # own clearance buffer, mouth windows and DEM re-follow.
+        # HERE, PRE-SOLVE and explicitly, for two reasons: the road must
+        # stop sharing nodes with the apron BEFORE the solve can weld
+        # them, and a road cut back POST-solve would lose the solved road
+        # field (the opposite of "stays at DEM").  Runs after the
+        # connector re-roles (roles final) and before the mouth
+        # conformance below, which must see the road's final ring.
+        # ``O4_ROAD_FRONTAGE_CUTBACK=0`` is the kill switch AND the
+        # attribution instrument: with it off the round's R7a half runs
+        # alone, so a census delta can be split between the two clauses
+        # without arguing about it.
+        if dem is not None and os.environ.get(
+                "O4_ROAD_FRONTAGE_CUTBACK", "1") == "1":
+            try:
+                from .groundside import (
+                    _separate_groundside_from_airside as _sep_road_frontage)
+                _sep_road_frontage(layout, dem, tile_lat, tile_lon,
+                                   road_frontage_cutback=True,
+                                   groundside_clip=False)
+            except _GEOM_EXC:
+                pass
 
         # The road↔lot connection is FIRST-CLASS shared geometry (user
         # 2026-07-04, CYXY P4): insert shared vertices into groundside

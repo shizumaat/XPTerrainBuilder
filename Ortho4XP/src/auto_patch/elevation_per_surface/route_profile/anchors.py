@@ -714,10 +714,25 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # whole-ring MEDIAN seat, re-creating the over-pinned frontage
     # conflicts the frontage seat was built to fix (CYXY pads seated
     # 1-2 m apart at close quarters).
-    from auto_patch.layout import (
-        ROLE_JUNCTION as _RJ, ROLE_SERVICE_JUNCTION as _RSJ)
+    #
+    # R7b (owner ruling 2026-08-15, the sink ruling): ``service_junction``
+    # LEFT this set.  "A road NEVER welds to a building (a building pad
+    # datum is legitimate for its own footprint and must not propagate
+    # into the road network)" — and this recognition is precisely what
+    # made a road a building's frontage, seating the pad ON the road's
+    # band and the road on the pad's.  It is the third of the three
+    # pad→road channels the CYXY lot-377 sink ran through (the others are
+    # ``groundside.law_anchor_values`` and
+    # ``config.NEAR_MISS_FRONTAGE_SOFT_ROLES``).  AIRSIDE frontage —
+    # ``apron`` and ``junction`` — is untouched: a building fronting
+    # aircraft pavement keeps its own standing ruling (2026-08-08), and
+    # the corridor-face reason this set was widened in the first place
+    # (the global slice roles a fronted face ``junction``) is airside and
+    # still here.  A building that fronts ONLY a road now falls back to
+    # the whole-ring band seat — its own footprint, which is the ruling.
+    from auto_patch.layout import ROLE_JUNCTION as _RJ
     for a in layout.shapes:
-        if (a.role in (ROLE_APRON, _RJ, _RSJ) and a.polygon is not None
+        if (a.role in (ROLE_APRON, _RJ) and a.polygon is not None
                 and not a.polygon.is_empty):
             for (x, y) in _open_ring(list(a.polygon.exterior.coords)):
                 apron_keys.add((round(x, 2), round(y, 2)))

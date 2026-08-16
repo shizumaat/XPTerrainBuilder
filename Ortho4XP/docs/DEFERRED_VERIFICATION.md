@@ -2123,3 +2123,40 @@ two parents' intervals do not intersect, and `_spine_interval`'s
 emitted 139.29 IS the runway floor 140.99 − 1.701 to the centimetre,
 4.31 m above the lower edge the dam clause reads.  Which clause yields is
 an owner/Fable ruling, not an implementation choice.
+
+## 2026-08-16 — R8 stage 1, transverse-feasible runway seeding (lane/kafwseed)
+
+`grade_law.runway_join_contacts` (crossings added, gate
+`O4_RUNWAY_CROSSING_JOIN`, new constant `RUNWAY_JOIN_DEDUP_M`);
+`pavement.runway_segments` (`law_line_at`, `seat_law_stations`,
+`solve_anchor_set`; the emit solve is handed `anchored ∪ law-seated` and
+publishes `law_seated` on the profile state);
+`runway_redistribute` (carries / re-seats / holds `law_seated` through
+`_insert_seam_anchors`, the end-zone solve and `apply_runway_flex`).
+PRE-SHIP mode: only the covering test file was run, once —
+`tests/test_anchor_law_join.py`, 16 pass (9 pre-existing + 7 new R8
+twins).  SKIPPED: the full suite, the blast-radius sweep, KCLT, and any
+timing measurement (per-change timing gates SUSPENDED, RULINGS
+2026-08-04; the free ledger tripwire shows no ~2x anomaly — KAFW 128 s
+wall against a 136 s refusing base).  Battery arms (KAFW, CYXY, HECA,
+SPJC, SPLP) were built through the harness in a matched
+same-tree/same-corpus pair of lane worktrees, but every build ran
+concurrently with other sessions' builds, so the WALLS are ledger-frame
+only and are not a timing claim.  ALSO DEFERRED: `grade_graph_validate`'s
+runway-join check still re-derives contacts per ENDPOINT and therefore
+now inspects a SUBSET of the joins the solver anchors (conservative — it
+cannot mint a false violation — but it is a second "where a join is"
+rule and should be folded onto `runway_join_contacts`).
+
+### 2026-08-16 — R8 stage 1, attempt 2 (law-seat release)
+
+`pavement.runway_segments` gains `segment_grades`,
+`minted_over_cap_segments`, `solve_holding_seats` and
+`within_shape_runway_cap`; both solve sites (emit + redistribute) run
+through `solve_holding_seats`.  Covering test file re-run once:
+`tests/test_anchor_law_join.py`, 20 pass (9 pre-existing + 11 R8).
+Battery re-measured (KAFW/CYXY/HECA/SPJC/SPLP) — CYXY, KAFW, SPJC and
+HECA came out BYTE-IDENTICAL to attempt 1 (the release fires only where
+the hold mints an over-cap within-shape runway segment, i.e. SPLP only),
+so attempt 1's attribution stands unchanged for those four.  SKIPPED as
+before: full suite, blast sweep, KCLT, timing.

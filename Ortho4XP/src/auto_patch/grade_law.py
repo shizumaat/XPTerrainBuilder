@@ -130,6 +130,21 @@ JUNCTION_ROLES = ("junction", "service_junction")
 #    ``lateral_spine_nodes`` (was three copies of 12 m / 18 m).
 RUNWAY_CONTACT_M = 12.0
 RUNWAY_JOIN_NEAR_M = 18.0
+# A join is ALSO where a taxi route CROSSES a runway (spec
+# ``docs/specs/r8-runway-seeding-spec.md`` stage 1).  A taxi route that runs
+# THROUGH a runway (a connector between two parallel runways, a taxiway that
+# continues past the strip) contacts the runway surface at each edge crossing
+# exactly as a terminating route does at its endpoint — the emitted taxi /
+# junction node is welded to the runway edge there in both cases.  Enumerating
+# only the ENDPOINTS left every through-crossing free: the runway's DEM-follow
+# seating ride survived at the crossing, and each parallel runway rode its own
+# cross-field fall independently (KAFW 16L/34R vs 16R/34L: +0.848 / −1.398 m
+# off a 0.087 m law spread ⇒ 2.333 m across a 136 m connector whose route
+# budget is 2.046 m ⇒ a 9-node inverted band, the build refused).
+# Two contacts within this of each other on the SAME runway are ONE join (the
+# endpoint of a route ending just inside the edge and the edge crossing it
+# resolves to are the same contact).
+RUNWAY_JOIN_DEDUP_M = 0.5
 # COINCIDENT-join tolerance (user ruling 2026-07-16: taxi joins anchor to
 # the RUNWAY EDGE value — the crowned edge — never the centerline/crown
 # profile).  A join vertex that COINCIDES with its runway contact must sit
@@ -191,7 +206,25 @@ def taxi_centerline_line_and_ref(entry):
     return ln, ref
 
 
-def runway_join_contacts(centerlines, runways, *, edge_contact=None):
+def _runway_edge_crossings(ln, rwy_polygon):
+    """Every point where centerline ``ln`` crosses the EDGE of ``rwy_polygon``.
+
+    Returns ``[(x, y), ...]``.  Tangential / collinear overlaps yield non-Point
+    intersection geometries; those are not crossings and are skipped."""
+    try:
+        xing = ln.intersection(rwy_polygon.boundary)
+    except Exception:
+        return []
+    if getattr(xing, "is_empty", True):
+        return []
+    geoms = ([xing] if getattr(xing, "geom_type", "") == "Point"
+             else list(getattr(xing, "geoms", []) or ()))
+    return [(float(g.x), float(g.y)) for g in geoms
+            if getattr(g, "geom_type", "") == "Point"]
+
+
+def runway_join_contacts(centerlines, runways, *, edge_contact=None,
+                         crossings=None):
     """THE enumeration of taxi-route↔runway JOIN CONTACTS — one authority for
     *where a join is*.
 
@@ -199,6 +232,15 @@ def runway_join_contacts(centerlines, runways, *, edge_contact=None):
     ``RUNWAY_CONTACT_M`` of the runway polygon) joins it; the contact point is
     resolved through ``runway_join_contact`` (the runway-EDGE crossing on a wide
     runway, the endpoint itself otherwise).
+
+    A taxi route that CROSSES a runway joins it too, at EVERY edge crossing
+    (spec ``docs/specs/r8-runway-seeding-spec.md`` stage 1) — the emitted node
+    is welded to the runway edge there exactly as at a terminating endpoint,
+    and leaving it out left the runway's DEM-follow seating ride standing at
+    every through-crossing.  ``crossings`` defaults to the
+    ``O4_RUNWAY_CROSSING_JOIN`` reading (default on); ``False`` reverts to the
+    endpoint-only set.  A crossing within ``RUNWAY_JOIN_DEDUP_M`` of a contact
+    already reported for the same runway is the SAME join and is not repeated.
 
     Two consumers share this, and they must not drift apart:
       * ``grade_graph._runway_anchors`` — anchors the nearest EMITTED node to
@@ -219,12 +261,19 @@ def runway_join_contacts(centerlines, runways, *, edge_contact=None):
     from shapely.geometry import Point
     if edge_contact is None:
         edge_contact = _os.environ.get("O4_RUNWAY_EDGE_CONTACT", "1") == "1"
+    if crossings is None:
+        crossings = _os.environ.get("O4_RUNWAY_CROSSING_JOIN", "1") == "1"
     out = []
     polys = [r for r in (runways or [])
              if getattr(r, "polygon", None) is not None
              and not r.polygon.is_empty]
     if not polys:
         return out
+    _dedup2 = RUNWAY_JOIN_DEDUP_M * RUNWAY_JOIN_DEDUP_M
+    # Bounding boxes, once — the crossing sweep is centerlines × runway PIECES
+    # (a runway is emitted as many sub-rects), so the cheap envelope reject has
+    # to happen before any shapely intersection (build-time law).
+    bounds = [r.polygon.bounds for r in polys] if crossings else []
     for entry in (centerlines or []):
         ln, ref = taxi_centerline_line_and_ref(entry)
         if (ln is None or ln.is_empty
@@ -233,6 +282,18 @@ def runway_join_contacts(centerlines, runways, *, edge_contact=None):
         cs = list(ln.coords)
         if len(cs) < 2:
             continue
+        # Per-runway contacts reported for THIS centerline, for the dedup.
+        seen: dict = {}
+
+        def _emit(rwy, cx, cy, ex, ey):
+            key = id(rwy)
+            for (px, py) in seen.get(key, ()):  # noqa: B023
+                if (px - cx) ** 2 + (py - cy) ** 2 <= _dedup2:
+                    return
+            seen.setdefault(key, []).append((cx, cy))  # noqa: B023
+            out.append((rwy, (float(cx), float(cy)),
+                        (float(ex), float(ey))))
+
         for (ex, ey) in (cs[0], cs[-1]):
             P = Point(ex, ey)
             rwy = min(polys, key=lambda r: r.polygon.distance(P))
@@ -243,7 +304,18 @@ def runway_join_contacts(centerlines, runways, *, edge_contact=None):
                 cx, cy = c if c is not None else (ex, ey)
             else:
                 cx, cy = ex, ey
-            out.append((rwy, (float(cx), float(cy)), (float(ex), float(ey))))
+            _emit(rwy, cx, cy, ex, ey)
+        if not crossings:
+            continue
+        lx0, ly0, lx1, ly1 = ln.bounds
+        for rwy, (rx0, ry0, rx1, ry1) in zip(polys, bounds):
+            if rx1 < lx0 or rx0 > lx1 or ry1 < ly0 or ry0 > ly1:
+                continue
+            for (cx, cy) in _runway_edge_crossings(ln, rwy.polygon):
+                # A crossing IS its own contact: the emitted node sits on the
+                # runway edge there, so the contact and the "endpoint it came
+                # from" are the same point.
+                _emit(rwy, cx, cy, cx, cy)
     return out
 
 

@@ -108,13 +108,24 @@ def test_spine_ceiling_is_at_least_the_fall_below_every_edge():
     for d in (0.5, 5.0, 19.0, 40.0, 67.5, 95.0):
         _floor, ceil = GL.drainage_spine_envelope("junction", None, "E", d)
         assert ceil is not None
-        assert ceil <= -fall + 1e-12, (d, ceil)
+        if d <= CFG.GAP_PAVEMENT_CONFORM_MARGIN_M:
+            # F3b staged law: in-band the GRAPH carries only the
+            # ceiling-at-the-edge (never above); the pin's equality is
+            # the emitter walk's and the validator's, never a rigid
+            # anchor in the solve (measured: a (0,0) pin inverted 677
+            # HECA nodes by a uniform 1.8009 m).
+            assert ceil == 0.0, (d, ceil)
+            assert _floor is None or _floor <= 0.0, (d, _floor)
+        else:
+            assert ceil <= -fall + 1e-12, (d, ceil)
 
 
 def test_spine_law_only_tightens_the_lateral_ceiling():
     """Never LOOSER than the lateral corridor — the spine law may only
     lower the ceiling, and it leaves a finite floor alone."""
-    for d in (5.0, 12.0, 18.9):
+    for d in (10.5, 12.0, 18.9):
+        # F3b: the only-tightens clause is the INTERIOR's (the band is
+        # pinned by the conformance ruling, a different law).
         lat_floor, lat_ceil = GL.adjacent_ground_envelope(
             "junction", None, "E", d)
         sp_floor, sp_ceil = GL.drainage_spine_envelope(

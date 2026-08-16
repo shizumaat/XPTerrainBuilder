@@ -1571,6 +1571,29 @@ def drainage_spine_envelope(
     empty-intersection fallback for a reason that is not a contradiction
     between the two parents.
     """
+    # F3b (gap-conformance spec, 2026-08-16): THE STAGED SPINE LAW.
+    # Within the pavement-conformance margin the spine is PINNED to the
+    # edge value — the owner's ruling ("close to pavement, match the
+    # pavement solved elevations") — and the dam clause applies only in
+    # the INTERIOR beyond it.  One law, both readers: gap_fill's
+    # interval composition and check_grade's dam predicate stage on the
+    # same lateral distance this signature already carries.
+    from .config import GAP_PAVEMENT_CONFORM_MARGIN_M
+    if distance_from_pavement_edge_m <= float(GAP_PAVEMENT_CONFORM_MARGIN_M):
+        # CEILING-ONLY in the graph: a (0, 0) hard pin exported the
+        # band station as a rigid anchor into the solver's pairwise
+        # slab and contradicted other regimes (measured at HECA:
+        # 677 nodes, a uniform 1.8009 m inversion).  The pin's
+        # EQUALITY lives in the emitter walk and the validator's band
+        # predicate; the graph only needs "never above the edge" —
+        # the dam clause's in-band form.  The lateral floor (the
+        # crater guard) stays.
+        floor_off, _lat_ceil = adjacent_ground_envelope(
+            role, code_number, code_letter, distance_from_pavement_edge_m)
+        ceil_off = 0.0
+        if floor_off is not None and float(floor_off) > ceil_off:
+            floor_off = ceil_off
+        return floor_off, ceil_off
     floor_off, ceil_off = adjacent_ground_envelope(
         role, code_number, code_letter, distance_from_pavement_edge_m)
     fall = -float(DRAINAGE_SPINE_MIN_FALL_M)

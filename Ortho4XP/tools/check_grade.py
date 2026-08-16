@@ -70,6 +70,7 @@ try:
         ROUTE_FIELD_LOCAL_WINDOW_M,
         ROAD_FRONTAGE_TOL_M,
         DRAINAGE_SPINE_MIN_FALL_M as _DRAINAGE_SPINE_MIN_FALL_M,
+        GAP_PAVEMENT_CONFORM_MARGIN_M as _GAP_CONFORM_MARGIN_M,
         SERVICE_ROAD_MAX_GRADE,
         TAXI_GRADE_BY_WIDTH,
         TAXI_GRADE_WIDTH_ROLES,
@@ -94,6 +95,7 @@ except Exception:
     ROUTE_FIELD_LOCAL_WINDOW_M = 80.0
     ROAD_FRONTAGE_TOL_M = 3.0
     _DRAINAGE_SPINE_MIN_FALL_M = 0.30
+    _GAP_CONFORM_MARGIN_M = 10.0
     SERVICE_ROAD_MAX_GRADE = 0.08
     TAXI_GRADE_BY_WIDTH = True
     TAXI_GRADE_WIDTH_ROLES = frozenset({
@@ -3063,7 +3065,39 @@ def _check_drainage_spine_below_pavement(
     # of the airside-by-default '?' the way carries.  Reporting only:
     # nothing in the law reads a spine way's role.
     host_tally: Dict[str, Dict[str, int]] = {}
+    _BENCH_SLOPE = 0.05  # gap_fill._RING_ALONG_BENCH_SLOPE, the band's
+    #                       own maximum down slope (one number, both
+    #                       readers; gap_fill asserts the twin below).
+    try:
+        from auto_patch.gap_fill import _RING_ALONG_BENCH_SLOPE
+        _BENCH_SLOPE = float(_RING_ALONG_BENCH_SLOPE)
+    except Exception:
+        pass
     for w in spine_ways:
+        # F3b cone geometry: the way's arclength and its two END PINS
+        # (the nearest bounding edge's interpolated elevation at each
+        # end station — the emitter's conformed boundary read).
+        _pts = []
+        for nid in w.nids:
+            _pts.append(ll_to_m(*nodes[nid]) if nid in nodes else None)
+        _spine_s = None
+        _spine_ends = None
+        if all(p is not None for p in _pts) and len(_pts) >= 2:
+            _spine_s = [0.0]
+            for (ax, ay), (bx, by) in zip(_pts, _pts[1:]):
+                _spine_s.append(_spine_s[-1] + math.hypot(bx - ax, by - ay))
+            _ends = []
+            for j in (0, -1):
+                nj = _nearest_edge_alt_by_way(
+                    _pts[j][0], _pts[j][1], rings, grid)
+                # An end grants a descent cone only when it is itself
+                # CONFORMED (within the band margin of its edge) — the
+                # emitter's own reach; a far end never conformed and
+                # grants nothing.
+                _ends.append(nj[0][2] if nj
+                             and nj[0][0] <= _GAP_CONFORM_MARGIN_M
+                             else None)
+            _spine_ends = _ends
         for k, nid in enumerate(w.nids):
             if nid not in nodes or k >= len(w.elevs) or w.elevs[k] is None:
                 continue
@@ -3076,12 +3110,48 @@ def _check_drainage_spine_below_pavement(
             tally = host_tally.setdefault(w.wid, {})
             tally[near[0][1]] = tally.get(near[0][1], 0) + 1
             lower = min(near[0][2], near[1][2])
-            if z >= lower:
+            # F3b staged law (gap-conformance spec): within the
+            # conformance margin of its nearest bounding pavement the
+            # spine is PINNED to that edge's value (the owner's
+            # conformance ruling) — a band station is judged against
+            # its pin, never the dam clause; the dam clause owns the
+            # INTERIOR.  Same stage, same distance, as the emitter's
+            # ``grade_law.drainage_spine_envelope``.
+            if near[0][0] <= _GAP_CONFORM_MARGIN_M:
+                if abs(z - near[0][2]) > SHARED_VERTEX_TOL_M:
+                    out.append(Violation(
+                        grade_pct=0.0, excess_pct=0.0,
+                        distance_m=near[0][0], de_m=z - near[0][2],
+                        way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
+                        elev_a=z, elev_b=near[0][2]))
+                continue
+            # F3b interior ceiling: max(lower − FALL, cone floor) — a
+            # spine lawfully DESCENDING from its higher conformed end
+            # spends distance above the lower edge; the cone (the
+            # emitter's own descent bound from each end pin at the
+            # bench slope) is the lawful allowance for that, and the
+            # dam clause binds once the descent could have arrived.
+            cones = []
+            if _spine_s is not None and _spine_ends is not None:
+                if _spine_ends[0] is not None:
+                    cones.append(_spine_ends[0]
+                                 - _BENCH_SLOPE * _spine_s[k])
+                if _spine_ends[1] is not None:
+                    cones.append(_spine_ends[1] - _BENCH_SLOPE
+                                 * (_spine_s[-1] - _spine_s[k]))
+            # The dam line stays the LOWER EDGE (MIN_FALL is provisional
+            # and never the pass/fail line, per this family's charter);
+            # a lawful descent from a CONFORMED end raises the ceiling
+            # along its cone.
+            ceiling = lower
+            if cones:
+                ceiling = max(ceiling, max(cones))
+            if z > ceiling + 0.11:
                 out.append(Violation(
                     grade_pct=0.0, excess_pct=0.0,
-                    distance_m=near[0][0], de_m=z - lower,
+                    distance_m=near[0][0], de_m=z - ceiling,
                     way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
-                    elev_a=z, elev_b=lower))
+                    elev_a=z, elev_b=ceiling))
             elif z > lower - _DRAINAGE_SPINE_MIN_FALL_M:
                 n_short += 1
     for w in spine_ways:

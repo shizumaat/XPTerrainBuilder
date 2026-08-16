@@ -35,7 +35,6 @@ from shapely.geometry import LineString, Point, Polygon
 
 from auto_patch import gap_fill as GF
 from auto_patch.gap_fill import emit_gap_fill_spines
-from auto_patch.grade_law import adjacent_ground_envelope
 from auto_patch.layout import BuiltShape, ROLE_RUNWAY, ROLE_STUB
 
 EDGE_ALT = 100.0
@@ -170,61 +169,39 @@ def test_rings_are_complete_closed_simple_loops(rings_on):
             "round-9 invariant: emitted loop must be SIMPLE")
 
 
-def test_deep_dip_pins_at_the_floor(rings_on):
-    """Value law: with terrain far below every floor, each node carries
-    at least the point-law floor (max over the two nearest parents of
-    edge + floor_offset at min(true distance, band width)); most nodes
-    sit EXACTLY on it (the along-ring bench may lift seam nodes, never
-    lower them)."""
+def test_deep_dip_conforms_to_the_pavement_edge(rings_on):
+    """F3 LAW 1 (owner 2026-08-15, RULINGS "GAP INTERIOR RINGS NEVER
+    CLIFF AGAINST PAVEMENT") SUPERSEDES the round-8 floor pin this twin
+    used to assert.
+
+    Both emitted loops stand inside the conformance band (ring 1 at the
+    3 m lip, ring 2 on the eroded boundary at
+    ``GAP_PAVEMENT_CONFORM_MARGIN_M``), so with terrain 10 m below the
+    pavement NOT ONE station rides the terrain or pins to the band
+    floor: every one takes its nearest pavement edge's SOLVED value.
+    That is the ruling — conformance, not terrain — and it is what
+    leaves no cliff at the pavement edge to fall off."""
     layout = _frame_layout(87.0)
     emit_gap_fill_spines(layout, _LOW, 0, 0)
-    from auto_patch.layout import taxi_shape_code_letter
-    from auto_patch.config import taxiway_strip_graded_half_width_for_letter
-    pav = []
-    for s in layout.shapes:
-        if s.role == ROLE_RUNWAY:          # 1300 m chord -> code 3
-            pav.append((s.polygon.exterior, ("runway", 3, None), 75.0))
-        elif s.role == ROLE_STUB:
-            letter = taxi_shape_code_letter(layout, s)
-            pav.append((s.polygon.exterior, ("stub", None, letter),
-                        taxiway_strip_graded_half_width_for_letter(letter)))
-    exact = checked = 0
+    checked = 0
     for pts, alts in _ring_chains_m(layout):
         open_pts = pts[:-1] if pts[0] == pts[-1] else pts
         for (x, y), v in zip(open_pts, alts):
-            dists = sorted((ext.distance(Point(x, y)), key, w)
-                           for ext, key, w in pav)
-            per_parent = []
-            for d, (role, cn, cl), w in dists[:2]:
-                lo, _hi = adjacent_ground_envelope(role, cn, cl, min(d, w))
-                _lo, hi = adjacent_ground_envelope(role, cn, cl, d)
-                per_parent.append(
-                    (None if lo is None else EDGE_ALT + lo,
-                     None if hi is None else EDGE_ALT + hi))
-            floors = [q[0] for q in per_parent if q[0] is not None]
-            ceils = [q[1] for q in per_parent if q[1] is not None]
-            assert floors
-            lo_abs = max(floors)
-            hi_abs = min(ceils) if ceils else None
-            if hi_abs is not None and lo_abs > hi_abs:
-                # empty intersection: the NEARER parent's corridor
-                # governs (the _spine_interval fallback).
-                lo_abs = per_parent[0][0]
-            assert lo_abs is None or v >= lo_abs - 0.05, (
-                f"node at ({x:.0f},{y:.0f}) value {v} BELOW its floor "
-                f"{lo_abs:.2f}")
+            assert abs(v - EDGE_ALT) <= 0.01, (
+                f"band node at ({x:.0f},{y:.0f}) is {v}, not its "
+                f"pavement edge's solved {EDGE_ALT}")
             checked += 1
-            if lo_abs is not None and abs(v - lo_abs) <= 0.05:
-                exact += 1
     assert checked >= 40
-    assert exact >= checked * 0.6, "most nodes must sit exactly on floor"
 
 
 def test_lawful_terrain_economy_skips_whole_gap(rings_on):
-    """Per-gap economy gate (all-or-nothing): terrain inside the law
-    corridor everywhere -> NO rings, and the spine emits equal to the
-    gate-OFF run (the ring gate must be value-invisible)."""
-    dem = _lawful_terrain(30.0)
+    """Per-gap economy gate (all-or-nothing), re-founded on F3 law 1:
+    the ring value is the pavement's, so the gate fires where TERRAIN
+    ALREADY IS the pavement value (nothing for a ring to hold) — not
+    where terrain merely falls away lawfully, which under the ruling
+    still conforms.  No rings, and the spine emits exactly as the
+    gate-OFF run (the ring gate must stay value-invisible)."""
+    dem = _StubDem(lambda x, y: EDGE_ALT)
     layout_on = _frame_layout(30.0)
     emit_gap_fill_spines(layout_on, dem, 0, 0)
     assert not _rings(layout_on)
@@ -278,30 +255,39 @@ def test_narrow_gap_collapses_to_spine_only(rings_on):
     assert getattr(layout, "gap_spines", None)
 
 
-def test_runway_axes_key_the_ring_width(rings_on):
-    # A 900 m frame chord keys code 2 (band edge 40 m); the TRUE runway
-    # axis is 2000 m -> code 4 (band edge 75 m).  In a 170 m gap
-    # neither the cross-fraction cap (76.5) nor the opposite-side cap
-    # (84) binds, so the deepest ring-2 offset reads the code source.
+def test_the_ring_offset_is_the_margin_not_the_runway_code(rings_on):
+    """F3 LAW 2 SUPERSEDES the round-9 band-width offset this twin used
+    to assert (ring 2 at the runway strip's own graded half-width, keyed
+    by the TRUE ICAO code from the runway AXES).
+
+    The emitted ring IS the eroded boundary now — ``pocket.buffer(-
+    GAP_PAVEMENT_CONFORM_MARGIN_M)`` — so the SAME frame gives the SAME
+    offset whether the runway code comes from a 2000 m axis or from the
+    900 m segment chord.  The code source still keys the point-law
+    interval for stations OUTSIDE the band; it no longer places the
+    ring."""
     length = 900.0
-    layout = _frame_layout(87.0, length=length)
-    axis = _FakeRunway(-600.0, 15.0, 1400.0, 15.0)   # 2000 m axis
-    emit_gap_fill_spines(layout, _LOW, 0, 0, source_runways=[axis])
     bottom_edge = LineString([(0.0, 30.0), (length, 30.0)])
-    offs = [bottom_edge.distance(Point(x, y))
-            for pts, alts in _ring_chains_m(layout)
-            for x, y in pts if y < 110.0 and 200 < x < 700]
-    assert offs, "expected ring nodes off the bottom runway edge"
-    assert 70.0 <= max(offs) <= 76.5, (
-        f"axis code 4 must place ring 2 near 75 m, got {max(offs):.1f}")
-    layout2 = _frame_layout(87.0, length=length)
-    emit_gap_fill_spines(layout2, _LOW, 0, 0)
-    offs2 = [bottom_edge.distance(Point(x, y))
-             for pts, alts in _ring_chains_m(layout2)
-             for x, y in pts if y < 110.0 and 200 < x < 700]
-    assert offs2
-    assert max(offs2) <= 45.0, (
-        f"chord code 2 must cap ring 2 near 40 m, got {max(offs2):.1f}")
+
+    def _offsets(source_runways):
+        layout = _frame_layout(87.0, length=length)
+        emit_gap_fill_spines(layout, _LOW, 0, 0,
+                             source_runways=source_runways)
+        return [bottom_edge.distance(Point(x, y))
+                for pts, alts in _ring_chains_m(layout)
+                for x, y in pts if y < 110.0 and 200 < x < 700]
+
+    axis = _FakeRunway(-600.0, 15.0, 1400.0, 15.0)   # 2000 m axis
+    offs = _offsets([axis])
+    offs2 = _offsets(None)
+    assert offs and offs2, "expected ring nodes off the bottom runway edge"
+    margin = GF.GAP_PAVEMENT_CONFORM_MARGIN_M
+    for name, got in (("axis code 4", offs), ("chord code 2", offs2)):
+        assert abs(max(got) - margin) <= 0.05, (
+            f"{name}: ring 2 must stand at the conformance margin "
+            f"{margin:.1f} m, got {max(got):.2f}")
+    assert max(offs) == pytest.approx(max(offs2), abs=1e-6), (
+        "the ring offset must not depend on the runway code source")
 
 
 def test_ring_zero_lens_guards(rings_on):
@@ -352,21 +338,25 @@ def test_spine_trimmed_to_ring_core(rings_on):
     assert kept >= 3
 
 
-def test_core_empty_keeps_spine_inside_ring_one(rings_on):
-    """Zones-fully-overlap rung: the 60 m frame gap sits entirely
-    inside the 75 m runway bands — no core, ring 1 alone — and the
-    drainage crest spine survives INSIDE the ring-1 loop (trimmed to
-    the lip region, clear of the loop) instead of dying or crossing."""
-    layout = _frame_layout(30.0)
-    emit_gap_fill_spines(layout, _LOW, 0, 0)
-    chains = _ring_chains_m(layout)
-    assert len(chains) == 1, "band-covered gap: single ring-1 loop"
+def test_a_pocket_narrower_than_twice_the_margin_is_pure_band(rings_on):
+    """F3 LAW 2, the erosion rung — SUPERSEDES the round-9
+    "zones-fully-overlap" rung this twin used to assert (a 60 m gap
+    swallowed whole by the 75 m runway bands, ring 1 alone).
+
+    "Lobes narrower than 2x margin erode away entirely and are pure
+    conformance band."  An 18 m gap has no interior at all: the eroded
+    region is empty, so there is no ring-2 loop and nothing may descend
+    to terrain — and the drainage spine still emits, untrimmed."""
+    margin = GF.GAP_PAVEMENT_CONFORM_MARGIN_M
+    layout = _frame_layout(0.5 * 18.0)              # 18 m < 2 x margin
+    n = emit_gap_fill_spines(layout, _LOW, 0, 0)
+    assert n == 1
+    gap = Polygon([(30.0, 30.0), (FRAME_LENGTH - 30.0, 30.0),
+                   (FRAME_LENGTH - 30.0, 48.0), (30.0, 48.0)])
+    assert gap.buffer(-margin).is_empty, "fixture: the interior must erode away"
+    assert not [c for c in _ring_chains_m(layout)], (
+        "a pocket narrower than twice the margin is pure conformance band")
     assert getattr(layout, "gap_spines", None), "crest spine must survive"
-    ring_ls = LineString(chains[0][0])
-    for pts_ll, vals in layout.gap_spines:
-        for lat, lon in pts_ll:
-            x, y = lon * 111320.0, lat * 111320.0
-            assert ring_ls.distance(Point(x, y)) >= 1.9
 
 
 def test_spine_recouples_to_ring_two_ceiling(rings_on):
@@ -388,22 +378,25 @@ def test_spine_recouples_to_ring_two_ceiling(rings_on):
 
 
 def test_polygon_offset_multi_component(rings_on):
-    """Round-9: a dumbbell gap — two wide lobes joined by a neck too
-    narrow for a core — splits its ring-2 core into components, each
-    getting its own SIMPLE closed collar loop (the hole-in-the-middle
-    rung falling out of the region geometry)."""
+    """Round-9 geometry law, re-founded on F3 law 2: a dumbbell gap —
+    two wide lobes joined by a neck narrower than TWICE THE CONFORMANCE
+    MARGIN (the erosion's own threshold now, no longer the runway band)
+    — splits its eroded interior into components, each getting its own
+    SIMPLE closed collar loop."""
     from shapely.geometry import LinearRing
     # Frame with a mid-frame PLUG narrowing the gap: two 174 m lobes
-    # joined by a 40 m-wide neck (well under twice the runway band).
+    # joined by a 16 m neck (under 2 x GAP_PAVEMENT_CONFORM_MARGIN_M).
     length = FRAME_LENGTH
     y_gap0, y_gap1 = 30.0, 204.0
+    neck = 16.0
+    assert neck < 2.0 * GF.GAP_PAVEMENT_CONFORM_MARGIN_M
     shapes = [
         _rect(0.0, 0.0, length, 30.0, ROLE_RUNWAY),
         _rect(0.0, y_gap1, length, y_gap1 + 30.0, ROLE_RUNWAY),
         _rect(0.0, y_gap0, 30.0, y_gap1, ROLE_STUB),
         _rect(length - 30.0, y_gap0, length, y_gap1, ROLE_STUB),
-        # the plug: pavement tooth from the bottom leaving a 40 m neck
-        _rect(600.0, y_gap0, 700.0, y_gap1 - 40.0, ROLE_STUB),
+        # the plug: pavement tooth from the bottom leaving the neck
+        _rect(600.0, y_gap0, 700.0, y_gap1 - neck, ROLE_STUB),
     ]
     layout = _FakeLayout(shapes)
     n = emit_gap_fill_spines(layout, _LOW, 0, 0)

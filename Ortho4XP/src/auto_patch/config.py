@@ -278,6 +278,7 @@ __all__ = [
     "GAP_FILL_SPINE_STEP_M",
     "GAP_FILL_MAX_WIDTH_M",
     "GAP_FILL_MIN_AREA_M2",
+    "GAP_PAVEMENT_CONFORM_MARGIN_M",
     "GAP_FILL_INTERIOR_FLOOR_ENABLED",
     "GAP_FILL_INTERIOR_RINGS_ENABLED",
     "OPEN_FRONTAGE_CLOSE_M",
@@ -5435,6 +5436,21 @@ GAP_FILL_SPINE_STEP_M = 15.0
 # legitimately ungoverned terrain).
 GAP_FILL_MAX_WIDTH_M = 175.0
 GAP_FILL_MIN_AREA_M2 = 100.0
+# ── GAP PAVEMENT CONFORMANCE MARGIN (owner ruling 2026-08-15 evening,
+# RULINGS "GAP INTERIOR RINGS NEVER CLIFF AGAINST PAVEMENT"; Fable spec
+# F3 docs/specs/gap-conformance-spec.md) ──────────────────────────────
+# THE band width of the gap-surface conformance shelf.  Within this of
+# an ENCLOSING graded pavement edge a gap surface vertex takes that
+# edge's SOLVED elevation (never terrain, never a stamped basin value),
+# and the gap INTERIOR — the region that may descend to terrain — is
+# the pocket ERODED by this margin.  It is a GEOMETRIC width, not an
+# aerodrome-standards number: no FAA/EASA/ICAO table sets it, so it
+# carries no STANDARDS.md row.  10 m is the owner's measured CYXY
+# geometry — it erodes the 8-15 m sliver at 60.709358,-135.0734701
+# away entirely (a lobe narrower than 2x the margin is pure
+# conformance band) while keeping the ~87 m neck the owner's preferred
+# ring cuts across.
+GAP_PAVEMENT_CONFORM_MARGIN_M = 10.0
 # ENCLOSED-POCKET INTERIOR DEPTH FLOOR (owner ruling 2026-07-19, HECA
 # round 2 "steep pits in enclosed pavement areas"): pockets the gap-fill
 # emitter SKIPS (wider than GAP_FILL_MAX_WIDTH_M, foreign shape inside,

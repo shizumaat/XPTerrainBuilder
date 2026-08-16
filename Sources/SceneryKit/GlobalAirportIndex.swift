@@ -55,12 +55,7 @@ public enum GlobalAirportIndex {
     public static func readCache(at url: URL) -> [GlobalAirport]? {
         guard let text = TextFile.contents(of: url) else { return nil }
         let lines = TextFile.lines(text)
-        guard let header = lines.first else { return nil }
-        let headerFields = header.split(whereSeparator: { $0 == " " || $0 == "\t" })
-        guard headerFields.count >= 3, headerFields[0] == "O4AIRPORTIDX",
-              let version = Int(headerFields[1]), version >= 3,
-              let count = Int(headerFields[2])
-        else { return nil }
+        guard let count = declaredRowCount(header: lines.first) else { return nil }
 
         var airports: [GlobalAirport] = []
         airports.reserveCapacity(max(0, count))
@@ -77,5 +72,34 @@ public enum GlobalAirportIndex {
                                           longitude: longitude))
         }
         return airports
+    }
+
+    /// True when `url` holds a cache `readCache` would accept — the header
+    /// line parses as v3+. Rows are not examined.
+    ///
+    /// This is the "was there really an X-Plane install here last time?"
+    /// witness: the engine's `airport_index` command answers "none" both
+    /// when there is genuinely no Global Airports apt.dat AND when a
+    /// TCC/permission denial makes its folder scan come back empty (a
+    /// freshly signed build re-prompts for volume access). A valid cache
+    /// from a previous session distinguishes the two, so the app can keep
+    /// its optimistic display and warn instead of wiping the map layer.
+    public static func cacheLooksValid(at url: URL) -> Bool {
+        guard let text = TextFile.contents(of: url) else { return false }
+        return declaredRowCount(header: TextFile.lines(text).first) != nil
+    }
+
+    /// The row count declared by an `O4AIRPORTIDX <version> <count>` header
+    /// line, or nil if `header` is not an acceptable (v3+) cache header.
+    /// Single parse shared by `readCache` and `cacheLooksValid`, so the two
+    /// can never disagree about what counts as a cache.
+    private static func declaredRowCount(header: Substring?) -> Int? {
+        guard let header else { return nil }
+        let fields = header.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard fields.count >= 3, fields[0] == "O4AIRPORTIDX",
+              let version = Int(fields[1]), version >= 3,
+              let count = Int(fields[2])
+        else { return nil }
+        return count
     }
 }

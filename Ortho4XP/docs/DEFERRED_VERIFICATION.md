@@ -2032,3 +2032,16 @@ arm vs a control worktree at the same tree) under the 2026-08-12
 measured-arms amendment; walls are ledger-frame only, never a timing
 claim (CYXY 53.2 s arm / 54.7 s control; HECA 907.5 s arm / 901.8 s
 control, both first-in-lane cold object-footprint builds).
+
+## 2026-08-15 — App: airport-index "none" reply no longer wipes the cached map layer
+
+`Sources/XPTerrainBuilder/BuildModel.swift` (`handleAirportIndexNone`) +
+`Sources/SceneryKit/GlobalAirportIndex.swift` (`cacheLooksValid`): a
+"none" reply with a valid `.airport_index.tsv` on disk keeps the
+optimistic display and warns in the console (TCC denial masquerades as
+"no X-Plane folder", observed on 1.0.253); genuine "none" still clears.
+PRE-SHIP mode: only `GlobalAirportIndexTests` run, once (9 pass).
+SKIPPED: full SceneryKit suite; live TCC-denial repro (needs a freshly
+signed .app with volume access revoked) — the owner's in-app pass on the
+next build is acceptance; the `BuildModel` branch itself has no
+app-target test (no test target exists for the executable).

@@ -147,4 +147,37 @@ import Foundation
             #expect(GlobalAirportIndex.readCache(at: url)?.isEmpty == true)
         }
     }
+
+    /// `cacheLooksValid` is the witness the app uses when the engine
+    /// replies "none": a valid cache means an X-Plane install was readable
+    /// here before, so the reply is likely a permission denial in disguise
+    /// and the optimistic display is kept. It must accept exactly what
+    /// `readCache` accepts.
+    @Test func cacheLooksValidAcceptsWhatReadCacheAccepts() throws {
+        try Self.withCache(Self.v4Cache) { url in
+            #expect(GlobalAirportIndex.cacheLooksValid(at: url))
+        }
+        // Header validity is the test — an empty index is still a real
+        // cache written by a real engine run against a real install.
+        try Self.withCache("O4AIRPORTIDX 4 0\n") { url in
+            #expect(GlobalAirportIndex.cacheLooksValid(at: url))
+        }
+    }
+
+    /// Junk, pre-v3, and missing files are NOT evidence of an install:
+    /// with no valid cache, a "none" reply is genuine and clears the map
+    /// layer.
+    @Test func cacheLooksValidRejectsWhatReadCacheRejects() throws {
+        for junk in ["", "not an index at all\n", "O4AIRPORTIDX\n",
+                     "O4AIRPORTIDX 4\n", "O4AIRPORTIDX four 3\n",
+                     "O4AIRPORTIDX 2 1\n"] {
+            try Self.withCache(junk) { url in
+                #expect(!GlobalAirportIndex.cacheLooksValid(at: url),
+                        "validated a bad cache: \(junk.debugDescription)")
+            }
+        }
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("no-such-index-\(UUID().uuidString).tsv")
+        #expect(!GlobalAirportIndex.cacheLooksValid(at: missing))
+    }
 }

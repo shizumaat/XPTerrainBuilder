@@ -137,6 +137,37 @@ NOT AN ERROR AND IS NOT REPORTED").  Departure spans ride the AUDIT —
 which is the round's own instrument, not the census — so the acceptance
 read can see where the cap out-ran the terrain without a single row
 being reported anywhere a defect is counted.
+
+R5c — GRADED-ROAD CHARACTER (service-road law spec, 2026-08-15; owner
+in-sim on R5, CYXY 60.7087015,-135.0746305)
+-----------------------------------------------------------------------
+R5's tracker follows the low-passed terrain FAITHFULLY — including its
+wiggles — where the owner wants ROAD character: "a smooth graded
+surface", not terrain-hugging bumps.  :func:`_suppress_reversals` is
+the tracker's last stage: every grade REVERSAL (a rise-fall-rise or
+fall-rise-fall) whose INTERIOR AMPLITUDE is below
+``config.SVC_PROFILE_REVERSAL_MIN_M`` is levelled through — a MONOTONE
+BRIDGE between the excursion's endpoints — leaving piecewise-monotone
+ramps between the terrain features that are real.  It is an AMPLITUDE
+filter, not a smoothing length: a 2 m terrain feature survives at any
+wavelength, and a 0.2 m wiggle dies at any wavelength.
+
+Three properties make it safe to run AFTER the cap-Lipschitz
+projection rather than instead of it:
+
+* PEGS ARE FIXED TURNING POINTS.  A peg is a law target, so it can
+  never be filtered away and no bridge may span it — the peg values
+  come out of this stage untouched.
+* THE BRIDGE IS CAP-LAWFUL BY CONSTRUCTION.  The monotone bridge is a
+  running max (rising run) / running min (falling run) of the tracker
+  profile clamped to the run's far endpoint; a running extremum of a
+  cap-Lipschitz sequence is cap-Lipschitz with the SAME constant, and
+  clamping against a constant preserves it.
+* THE TUBE STILL BINDS.  The bridge is re-clamped into (tube ∩ peg
+  cone) and re-projected onto the cap-Lipschitz set, so a bridge that
+  would push through a band wall yields to the wall — character never
+  outranks law.  Where nothing binds (the common case) the re-clamp
+  and re-projection are the identity and the bridge stands as drawn.
 """
 
 from __future__ import annotations
@@ -154,8 +185,10 @@ __all__ = [
     "RunAudit",
     "RunProfile",
     "audit_run",
+    "monotone_bridge",
     "solve_run_profile",
     "track_dem_profile",
+    "turning_points",
 ]
 
 #: A grade at or above this fraction of the cap counts as RIDING it.  A
@@ -242,6 +275,14 @@ class RunAudit:
     dem_departure_max_m: float = 0.0
     #: ``(s_start_m, s_end_m)`` per contiguous departure span.
     dem_departure_spans: tuple[tuple[float, float], ...] = ()
+    #: R5c — grade REVERSALS collapsed into monotone bridges, and the
+    #: largest interior amplitude that was levelled through.  Audit
+    #: rows: character is not a defect class and mints no census row.
+    reversals_collapsed: int = 0
+    reversal_max_amplitude_m: float = 0.0
+    #: Turning points the emitted profile still carries (its
+    #: piecewise-monotone segment count is ``reversals_kept + 1``).
+    reversals_kept: int = 0
 
 
 @dataclass
@@ -522,6 +563,162 @@ def _fill_dem(dem: Sequence[float | None],
     return vals, sampled
 
 
+# ── R5c: REVERSAL SUPPRESSION — the graded-road character filter ────
+
+def turning_points(z: Sequence[float], *,
+                   fixed: Sequence[int] = (),
+                   tol: float = 1e-12) -> list[int]:
+    """The profile's DIRECTION CHANGES, plus both ends and ``fixed``.
+
+    Consecutive entries bound a MONOTONE run of ``z``.  Flats belong to
+    the run they extend (a plateau is not a reversal), and ``fixed``
+    indices — the run's pegs — are always kept: a peg is a law target,
+    so no bridge may span it and no filter may remove it.
+    """
+    k = len(z)
+    if k < 2:
+        return list(range(k))
+    keep = {0, k - 1}
+    keep.update(int(i) for i in fixed if 0 <= int(i) < k)
+    cur = 0
+    for i in range(1, k):
+        d = float(z[i]) - float(z[i - 1])
+        s = 0 if abs(d) <= tol else (1 if d > 0.0 else -1)
+        if s == 0:
+            continue
+        if cur == 0:
+            cur = s
+        elif s != cur:
+            keep.add(i - 1)             # the extremum ends the old run
+            cur = s
+    return sorted(keep)
+
+
+def monotone_bridge(z: Sequence[float], a: int, b: int) -> list[float]:
+    """The MONOTONE BRIDGE of ``z`` over ``[a, b]``: the running
+    extremum toward ``z[b]``, clamped to it.
+
+    Rising (``z[b] >= z[a]``) it is the running MAX clamped from above
+    by ``z[b]``; falling, the running MIN clamped from below.  Both
+    endpoints come out exactly as they went in, the interior is
+    monotone, and the result is cap-Lipschitz whenever ``z`` is — a
+    running extremum can never move by more than the step that produced
+    it (``|M_i - M_{i-1}| = max(0, z_i - M_{i-1}) <= max(0, z_i -
+    z_{i-1})``), and clamping against a constant only shrinks steps.
+    """
+    out = [float(v) for v in z]
+    if b <= a:
+        return out
+    va, vb = out[a], out[b]
+    prev = va
+    if vb >= va:
+        for i in range(a + 1, b):
+            v = min(max(out[i], prev), vb)
+            out[i] = v
+            prev = v
+    else:
+        for i in range(a + 1, b):
+            v = max(min(out[i], prev), vb)
+            out[i] = v
+            prev = v
+    return out
+
+
+def _suppress_reversals(stations: Sequence[float], z: list[float],
+                        lo: Sequence[float], hi: Sequence[float],
+                        pegs: dict[int, float], cap: float,
+                        min_amplitude_m: float
+                        ) -> tuple[list[float], int, float, int]:
+    """R5c(1): collapse sub-materiality grade REVERSALS into monotone
+    ramps — the graded-road character filter.
+
+    An EXCURSION is one monotone run between two consecutive turning
+    points; its AMPLITUDE is the elevation it covers.  An INTERIOR
+    excursion — one with a run on both sides, i.e. the spec's
+    rise-fall-rise or fall-rise-fall — below ``min_amplitude_m`` is not
+    a terrain feature a road should ramp for, so its two turning points
+    are dropped and the runs on either side merge into one:
+    repeatedly, smallest first, so a stack of small wiggles inside one
+    ramp dies together while a real feature between them survives.
+    Then each surviving run is redrawn as a :func:`monotone_bridge`.
+
+    Law outranks character, in this order:
+
+    * pegs are FIXED turning points (never dropped, never spanned);
+    * the bridged profile is re-clamped into ``[lo, hi]`` — the tube
+      intersected with the peg cone — and re-projected onto the
+      cap-Lipschitz set, so the cap and the band both still bind;
+    * pegs are rewritten exactly afterwards.
+
+    Returns ``(z, collapsed, worst_amplitude_m, turning_points_kept)``.
+    """
+    k = len(z)
+    if k < 3 or min_amplitude_m <= 0.0:
+        return z, 0, 0.0, max(0, len(turning_points(z)) - 2)
+
+    fixed = {int(i) for i in pegs if 0 <= int(i) < k}
+    fixed.update((0, k - 1))
+    tp = turning_points(z, fixed=fixed)
+    collapsed = 0
+    worst = 0.0
+    # THE PATTERN IS THE SPEC'S: rise-fall-rise (or fall-rise-fall) — an
+    # excursion with a run on BOTH sides.  Only its two INTERIOR turning
+    # points are dropped, never a run's own end.
+    #
+    # Why not the ends too: an end excursion is a HALF feature, and
+    # collapsing one re-measures its neighbour against the run's
+    # endpoint instead of the extremum it actually turned at, so the
+    # amplitudes cascade downward and a genuine feature dies.  Measured
+    # on the R5 twin ``test_r5_empty_pegs_still_returns_a_profile_that_
+    # tracks_dem``: a 0.6 m sine (well over the 0.4 m floor) has 0.3 m
+    # HALF-excursions at both ends, and end-aware collapsing ate the
+    # whole feature in three cascading steps.  A single residual
+    # reversal at a run's tail is what the R5c acceptance already
+    # allows ("monotone within one reversal").
+    while len(tp) >= 4:
+        best = None
+        for m in range(1, len(tp) - 2):
+            a, b = tp[m], tp[m + 1]
+            if a in fixed or b in fixed:
+                continue                # a peg is a law target, not a wiggle
+            amp = abs(z[b] - z[a])
+            if amp >= min_amplitude_m:
+                continue
+            if best is None or amp < best[0]:
+                best = (amp, m)
+        if best is None:
+            break
+        amp, m = best
+        del tp[m:m + 2]
+        collapsed += 1
+        worst = max(worst, amp)
+
+    if collapsed:
+        out = list(z)
+        for m in range(len(tp) - 1):
+            bridged = monotone_bridge(out, tp[m], tp[m + 1])
+            out[tp[m]:tp[m + 1] + 1] = bridged[tp[m]:tp[m + 1] + 1]
+        # LAW OUTRANKS CHARACTER: back into (tube ∩ peg cone), back onto
+        # the cap-Lipschitz set, pegs exact.  Where nothing binds these
+        # three are the identity and the bridge stands as drawn.
+        out = [min(max(out[i], float(lo[i])), float(hi[i]))
+               for i in range(k)]
+        for i, v in pegs.items():
+            if 0 <= int(i) < k:
+                out[int(i)] = float(v)
+        upper = _lipschitz_min_envelope(stations, out, cap)
+        lower = _lipschitz_max_envelope(stations, out, cap)
+        out = [0.5 * (upper[i] + lower[i]) for i in range(k)]
+        for i, v in pegs.items():
+            if 0 <= int(i) < k:
+                out[int(i)] = float(v)
+        z = out
+
+    # ``reversals_kept`` measures the EMITTED profile, so pegs are not
+    # forced into the count: it is the road's real direction changes.
+    return z, collapsed, worst, max(0, len(turning_points(z)) - 2)
+
+
 def track_dem_profile(stations: Sequence[float],
                       floor: Sequence[float],
                       ceiling: Sequence[float],
@@ -529,7 +726,8 @@ def track_dem_profile(stations: Sequence[float],
                       cap: float,
                       *,
                       dem: Sequence[float | None],
-                      xy: Sequence[tuple[float, float]] | None = None
+                      xy: Sequence[tuple[float, float]] | None = None,
+                      reversal_min_m: float | None = None
                       ) -> RunProfile | None:
     """R5: solve ONE service-road run's profile as the CAP-CONSTRAINED
     LEAST-DEVIATION TRACKER of ``dem``.
@@ -544,6 +742,11 @@ def track_dem_profile(stations: Sequence[float],
               entries allowed: interior holes interpolate, the ends hold
               flat, and only really-sampled stations are audited for
               departure.  A run with NO sample returns ``None``.
+    ``reversal_min_m``
+              R5c: the grade-REVERSAL amplitude floor.  ``None`` (the
+              production path) takes ``config.SVC_PROFILE_REVERSAL_MIN_M``;
+              ``0.0`` disables the character filter and returns the bare
+              R5 tracker (what the R5 twins measure).
 
     Pegs come out EXACT.  Every adjacent-station grade obeys ``cap``.
     DEM deviation mints NO conflict — the departure spans ride
@@ -596,7 +799,23 @@ def track_dem_profile(stations: Sequence[float],
     for i, v in work.items():
         z[i] = v                        # exact by construction; explicit
 
+    # 4. R5c — GRADED-ROAD CHARACTER: sub-materiality grade reversals
+    #    become monotone ramps.  Law still outranks character: the
+    #    bridge is re-clamped into (tube ∩ peg cone), re-projected onto
+    #    the cap-Lipschitz set and the pegs rewritten exactly.
+    if reversal_min_m is None:
+        try:
+            from auto_patch.config import SVC_PROFILE_REVERSAL_MIN_M
+            reversal_min_m = float(SVC_PROFILE_REVERSAL_MIN_M)
+        except Exception:                                # pragma: no cover
+            reversal_min_m = 0.0
+    z, _rev_n, _rev_amp, _rev_kept = _suppress_reversals(
+        stations, z, lo, hi, work, cap, float(reversal_min_m))
+
     audit = audit_run(stations, z, cap, xy=xy, conflicts=conflicts)
+    audit = replace(audit, reversals_collapsed=_rev_n,
+                    reversal_max_amplitude_m=_rev_amp,
+                    reversals_kept=_rev_kept)
 
     # THE DEPARTURE SPANS — audit only, no conflict, no census row.
     spans: list[tuple[float, float]] = []

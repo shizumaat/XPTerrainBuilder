@@ -1914,6 +1914,7 @@ def build_nobuilding_apron_seats(layout, bucket_to_idx, band, dem_fn,
 # ``tests/test_building_frontage_near_miss.py``) is unaffected.
 from auto_patch.config import (                            # noqa: E402
     BUILDING_FRONTAGE_NEAR_MISS_M,                         # noqa: F401
+    SVC_PROFILE_REVERSAL_MIN_M,                            # noqa: F401
     near_miss_frontage_budget as _near_miss_frontage_budget)
 
 
@@ -3303,10 +3304,136 @@ def _r4_pegged_span(run_pegs: dict) -> tuple | None:
     return lo, hi
 
 
+def _corridor_colevel_rehome(lines, node_pos, node_station_raw,
+                             node_shapes, anchors, reach_m) -> int:
+    """R5c(2) — CORRIDOR CO-LEVEL ACROSS THE COMPOSITE.
+
+    The visible "road" is a COMPOSITE: CYXY's owner site is
+    ``service_road`` 349 and ``service_junction`` 63 on ONE corridor.
+    Each shape's vertices pick their OWN nearest chain, so the two
+    pieces take station values from two different chain projections and
+    the corridor can slope LATERALLY across itself — even though every
+    single shape is cross-section-flat (each station value is shared by
+    its whole cluster, the spine-first law, which is why the defect is
+    invisible to a per-shape instrument).
+
+    The fix is membership, not a second value rule: a junction vertex
+    that can project onto the chain of an ADJOINING road — within the
+    same station reach the seeder already uses — joins THAT chain's
+    station cluster instead of its own, so road and junction pieces at
+    equal arclength take one value by construction.
+
+    THE JUNCTION RULE for a junction hosting MULTIPLE chains (spec):
+
+    1. MOUTH WELDS WIN — the chain carrying the most of the junction's
+       welded (anchor) vertices is the corridor the junction belongs to;
+       a weld is a law target and it names its own corridor.
+    2. Otherwise the THROUGH-CHAIN OF ITS WIDEST ROAD — measured with
+       the layout's own width instrument (``_rect_short_edge_width_m``),
+       never a second one.
+
+    Vertices farther than ``reach_m`` from the chosen chain are left
+    alone (the reach is the seeder's, unchanged), as are vertices that
+    carry no station at all — they keep the per-vertex fallback exactly
+    as before.  Mutates ``node_station_raw`` in place; returns the
+    number of vertices re-homed.
+    """
+    from auto_patch.layout import (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+                                   _rect_short_edge_width_m)
+    if not node_shapes or not lines:
+        return 0
+    try:
+        from shapely.geometry import Point
+    except Exception:                                   # pragma: no cover
+        return 0
+
+    # shape identity -> (shape, its stationed vertices)
+    by_shape: dict = {}
+    for i, shs in node_shapes.items():
+        if i not in node_pos:
+            continue
+        for s in shs:
+            e = by_shape.get(id(s))
+            if e is None:
+                by_shape[id(s)] = e = (s, [])
+            e[1].append(i)
+
+    _width_cache: dict = {}
+
+    def _width(o):
+        w = _width_cache.get(id(o))
+        if w is None:
+            w = _rect_short_edge_width_m(getattr(o, "polygon", None)) or 0.0
+            _width_cache[id(o)] = w
+        return w
+
+    def _chain_of(o):
+        """The road's THROUGH-CHAIN: the line its vertices mostly
+        project onto (ties break on the lower line index, so the choice
+        is deterministic across runs)."""
+        counts: dict = {}
+        for i in by_shape.get(id(o), (None, ()))[1]:
+            e = node_station_raw.get(i)
+            if e is not None:
+                counts[e[0]] = counts.get(e[0], 0) + 1
+        if not counts:
+            return None
+        return max(counts.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+
+    moved = 0
+    for _sid, (s, nodes) in by_shape.items():
+        if getattr(s, "role", None) != ROLE_SERVICE_JUNCTION:
+            continue
+        # ADJOINING roads share a vertex with the junction — the weld
+        # that makes the two pieces one corridor in the first place.
+        roads: dict = {}
+        for i in nodes:
+            for o in node_shapes.get(i, ()):
+                if o is s or getattr(o, "role", None) != ROLE_SERVICE_ROAD:
+                    continue
+                roads.setdefault(id(o), o)
+        if not roads:
+            continue
+        cand: dict = {}                 # chain -> widest road on it
+        for o in roads.values():
+            li = _chain_of(o)
+            if li is None or li >= len(lines):
+                continue
+            w = _width(o)
+            if li not in cand or w > cand[li]:
+                cand[li] = w
+        if not cand:
+            continue
+        weld_votes: dict = {}
+        for i in nodes:
+            if i not in anchors:
+                continue
+            e = node_station_raw.get(i)
+            if e is not None and e[0] in cand:
+                weld_votes[e[0]] = weld_votes.get(e[0], 0) + 1
+        if weld_votes:                  # 1. mouth welds win
+            target = max(weld_votes.items(),
+                         key=lambda kv: (kv[1], cand[kv[0]], -kv[0]))[0]
+        else:                           # 2. the widest road's through-chain
+            target = max(cand.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+
+        ln = lines[target]
+        for i in nodes:
+            e = node_station_raw.get(i)
+            if e is None or e[0] == target:
+                continue
+            P = Point(node_pos[i])
+            if ln.distance(P) > reach_m:
+                continue                # out of the seeder's station reach
+            node_station_raw[i] = (target, ln.project(P))
+            moved += 1
+    return moved
+
+
 def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                              dem_elev, cap, node_ceil, node_floor,
                              node_ceil_dist, node_floor_dist,
-                             prox_pairs=()):
+                             prox_pairs=(), node_shapes=None):
     """SPINE-FIRST seed field (config.SVC_SPINE_FIRST, part 30m): the service
     network's DEM-follow computed per spine STATION and shared by the whole
     cross-section, instead of per ring vertex.
@@ -3326,7 +3453,12 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
       * stations = clusters of the service ring vertices' perpendicular
         projections onto the service (truck-route) centerlines — the spine
         arclength is the station coordinate, so opposite-edge partners
-        (aligned by ``insert_service_lateral_nodes``) share one station;
+        (aligned by ``insert_service_lateral_nodes``) share one station.
+        R5c(2): cluster membership crosses SHAPE boundaries — a
+        ``service_junction`` vertex within station reach of an adjoining
+        road's chain joins THAT chain (``_corridor_colevel_rehome``), so
+        one corridor's road and junction pieces are co-levelled at equal
+        arclength instead of taking two chain projections;
       * station DEM = mean vertex DEM of the cluster, LOW-PASSED along the
         line (±~1.5 station steps) — the seed follows terrain at station
         wavelength, not raster noise (a lone unpaired station otherwise
@@ -3385,6 +3517,25 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             node_station_raw[i] = (best[1], best[2])
     if not node_station_raw:
         return {}, set()
+
+    # R5c(2) — CORRIDOR CO-LEVEL: junction pieces join the ADJOINING
+    # road's chain before the clusters are cut, so a corridor's road and
+    # junction shapes take ONE station value at equal arclength instead
+    # of two chain projections that can slope laterally across it
+    # (owner in-sim, CYXY 60.7087015,-135.0746305).  See
+    # ``_corridor_colevel_rehome`` for the junction rule.
+    _colevel_moved = _corridor_colevel_rehome(
+        lines, node_pos, node_station_raw, node_shapes, anchors, R)
+    try:
+        import O4_UI_Utils as _UI_cl
+        _UI_cl.vprint(1,
+            f"  [pav-builder] R5c corridor co-level: {_colevel_moved} "
+            f"service_junction vertex/vertices re-homed onto an adjoining "
+            f"road's chain (mouth welds win, then the widest road's "
+            f"through-chain) — road and junction pieces of one corridor "
+            f"now share a station value at equal arclength.")
+    except Exception:                                   # pragma: no cover
+        pass
 
     # Cluster per-line arclengths into stations (cross-section partners
     # project to near-identical s; 2.0 m absorbs foot/weld noise while
@@ -3673,7 +3824,11 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                         "cap_ride_segments": _a.cap_ride_segments,
                         "cap_ride_length_m": _a.cap_ride_length_m,
                         "dem_departure_stations": _a.dem_departure_stations,
-                        "dem_departure_max_m": _a.dem_departure_max_m})
+                        "dem_departure_max_m": _a.dem_departure_max_m,
+                        "reversals_collapsed": _a.reversals_collapsed,
+                        "reversals_kept": _a.reversals_kept,
+                        "reversal_max_amplitude_m":
+                            _a.reversal_max_amplitude_m})
             k = j + 1
 
     for _li, _sids in runs.items():
@@ -3791,7 +3946,10 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             "cap_ride_segments": a.cap_ride_segments,
             "cap_ride_length_m": a.cap_ride_length_m,
             "dem_departure_stations": a.dem_departure_stations,
-            "dem_departure_max_m": a.dem_departure_max_m})
+            "dem_departure_max_m": a.dem_departure_max_m,
+            "reversals_collapsed": a.reversals_collapsed,
+            "reversals_kept": a.reversals_kept,
+            "reversal_max_amplitude_m": a.reversal_max_amplitude_m})
 
     layout._svc_profile_conflicts = conflicts_out
     layout._svc_profile_audits = audits_out
@@ -3897,6 +4055,16 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
         _n_dep = sum(x.get("dem_departure_stations", 0) for x in audits_out)
         _worst_dep = max((x.get("dem_departure_max_m", 0.0)
                           for x in audits_out), default=0.0)
+        _n_rev = sum(x.get("reversals_collapsed", 0) for x in audits_out)
+        _n_kept = sum(x.get("reversals_kept", 0) for x in audits_out)
+        _worst_rev = max((x.get("reversal_max_amplitude_m", 0.0)
+                          for x in audits_out), default=0.0)
+        _UI_cp.vprint(1,
+            f"  [pav-builder] R5c reversal suppression: {_n_rev} grade "
+            f"reversal(s) collapsed into monotone bridges (worst interior "
+            f"amplitude {_worst_rev:.3f} m, floor "
+            f"{SVC_PROFILE_REVERSAL_MIN_M:.2f} m); {_n_kept} real "
+            f"direction change(s) kept.")
         _UI_cp.vprint(1,
             f"  [pav-builder] whole-run corridor profile (R5: roads TRACK "
             f"terrain): {len(audits_out)} run(s), {len(profiled)} held "
@@ -4086,6 +4254,11 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     adj = defaultdict(list)
     node_pos: dict = {}
     node_shape: dict = {}
+    # R5c(2): EVERY service shape a vertex belongs to (``node_shape``
+    # above keeps only the first — it exists to answer "same shape?").
+    # A weld vertex is shared by a road and the junction it feeds, and
+    # that shared membership is exactly what makes them ONE corridor.
+    node_shapes: dict = {}
     for s in layout.shapes:
         if s.role not in SVC or s.polygon is None or s.polygon.is_empty:
             continue
@@ -4103,6 +4276,9 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                               else min(_prev, float(_lc)))
             node_pos.setdefault(i, ring[k])
             node_shape.setdefault(i, id(s))
+            _ns = node_shapes.setdefault(i, [])
+            if not any(o is s for o in _ns):
+                _ns.append(s)
             if j is not None and j != i and j < len(elev):
                 import math as _m
                 dd = _m.hypot(ring[k][0] - ring[(k + 1) % len(ring)][0],
@@ -4620,7 +4796,8 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
     if _SPINE_FIRST:
         spine_target, spine_broken = _svc_spine_station_seeds(
             layout, svc_nodes, node_pos, anchors, dem_elev, cap,
-            ceil, floor, ceil_dist, floor_dist, prox_pairs)
+            ceil, floor, ceil_dist, floor_dist, prox_pairs,
+            node_shapes=node_shapes)
     _lat_bound_breaks = 0
     _fallback_legacy: set = set()
     for i in svc_nodes:

@@ -162,6 +162,7 @@ __all__ = [
     "TAXIWAY_CURVE_RUN_M",
     "TAXIWAY_MAX_GRADE_CHANGE_PER_M",
     "SERVICE_ROAD_MAX_GRADE",
+    "SVC_PROFILE_REVERSAL_MIN_M",
     "SERVICE_ROAD_MAX_TRANSVERSE",
     "SERVICE_ROAD_CROWN_TRANSVERSE",
     "SVC_SPINE_FIRST",
@@ -1223,6 +1224,18 @@ REACH_NO_SERVICE_SPINES = (
 # junctions are to be split from the road body that is a second owner
 # ruling and a second constant, not an implementer's call.
 SERVICE_ROAD_MAX_GRADE = 0.080
+# R5c — GRADED-ROAD CHARACTER (service-road law spec, Fable 2026-08-15;
+# owner in-sim on R5 at CYXY 60.7087015,-135.0746305).  R5's tracker
+# follows the low-passed terrain faithfully — INCLUDING its wiggles —
+# where a road is a GRADED SURFACE: piecewise-monotone ramps between
+# real terrain features, not terrain-hugging bumps.  After the tracker,
+# a grade REVERSAL (rise-fall-rise or fall-rise-fall) whose interior
+# amplitude is below this floor is levelled through — a monotone bridge
+# between its endpoints, still clamped to tube ∩ peg cone ∩ cap.  Large
+# terrain movement is still tracked: this is a reversal AMPLITUDE floor,
+# not a smoothing length.  ONE constant (the spec's own wording); it
+# constrains nothing else and mints no second law number.
+SVC_PROFILE_REVERSAL_MIN_M = 0.4
 # Ground-vehicle ``service_road`` rect geometry (session 47).
 SERVICE_ROAD_WIDTH_M = 6.0          # corridor width for a service-road rect
 MIN_SERVICE_STRIP_LEN_M = 25.0      # min dedicated-strip length to emit a rect

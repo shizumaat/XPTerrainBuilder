@@ -2141,7 +2141,18 @@ BUILDING_FRONTAGE_NEAR_MISS_M = 1.0
 #: The soft-pavement roles the near-miss frontage law recognizes (the same set
 #: ``build_building_seats``' frontage recognition keys on).  One tuple, read by
 #: the solve's edge builder and the census twin alike.
-NEAR_MISS_FRONTAGE_SOFT_ROLES = ("apron", "junction", "service_junction")
+#:
+#: R7b (owner ruling 2026-08-15, the sink ruling): ``service_junction`` LEFT
+#: this set — "a road NEVER welds to a building (a building pad datum is
+#: legitimate for its own footprint and must not propagate into the road
+#: network)".  The near-miss law is a WELD across a sliver, so a road on this
+#: list is a road welded to a building at one remove; it was the second of the
+#: three pad→road channels the CYXY lot-377 sink ran through (the first is the
+#: authority-order weld in ``groundside.law_anchor_values``, the third the
+#: frontage recognition in ``build_building_seats``).  AIRSIDE frontage —
+#: ``apron`` and ``junction`` — is untouched: the apron↔building frontage weld
+#: is its own standing owner ruling (2026-08-08).
+NEAR_MISS_FRONTAGE_SOFT_ROLES = ("apron", "junction")
 
 
 def near_miss_frontage_budget(distance_m: float) -> float:

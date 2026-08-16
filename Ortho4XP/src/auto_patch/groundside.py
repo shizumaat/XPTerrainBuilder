@@ -721,12 +721,32 @@ def law_anchor_values(layout, for_role=None) -> dict:
     inventing a per-vertex value from an end pair is minting, and the
     measured weld population here (HEAZ way -10281: 17 service_junction
     nodes) carries explicit node altitudes.
+
+    R7b — A ROAD NEVER WELDS TO A BUILDING (owner ruling 2026-08-15, the
+    sink ruling): "a building pad datum is legitimate for its own
+    footprint and must not propagate into the road network".
+    ``ROLE_BUILDING`` outranks every road-family and groundside role in
+    ``AUTHORITY_PRECEDENCE``, so before this clause every pad vertex
+    within the weld tolerance of a road, junction or lot ring was a
+    PINNED law anchor for it.  That is the measured CYXY sink: building
+    25's 697.13 pad datum reached lot 377 through frontage junctions
+    352/364/365 and carved 40,000 m³ against a 702.2 terrain median.
+    Buildings are therefore skipped for every asking role in
+    ``GROUNDSIDE_ROLES``; they remain law for everything senior to them
+    (the apron↔building frontage weld, owner 2026-08-08, is untouched —
+    an apron outranks a building and reads it through its own path).
     """
-    from .layout import ROLE_GROUNDSIDE_PAVEMENT, authority_rank
-    my_rank = authority_rank(for_role or ROLE_GROUNDSIDE_PAVEMENT)
+    from .layout import (GROUNDSIDE_ROLES, ROLE_BUILDING,
+                         ROLE_GROUNDSIDE_PAVEMENT, authority_rank)
+    asking = for_role or ROLE_GROUNDSIDE_PAVEMENT
+    my_rank = authority_rank(asking)
+    no_pads = asking in GROUNDSIDE_ROLES
     best: dict = {}
     for idx, s in enumerate(getattr(layout, "shapes", ()) or ()):
-        rank = authority_rank(getattr(s, "role", "") or "")
+        role = getattr(s, "role", "") or ""
+        if no_pads and role == ROLE_BUILDING:
+            continue                    # R7b: pads stay on their footprints
+        rank = authority_rank(role)
         if rank >= my_rank:
             continue
         poly = getattr(s, "polygon", None)

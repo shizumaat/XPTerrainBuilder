@@ -93,6 +93,7 @@ from .config import (
 )
 from .layout import (
     ROLE_APRON,
+    ROLE_BUILDING,
     ROLE_GROUNDSIDE_PAVEMENT,
     ROLE_SERVICE_ROAD,
     BuiltShape,
@@ -105,6 +106,8 @@ __all__ = [
     "whole_shape_verdict",
     "split_body_and_tails",
     "evidence_sources",
+    "landside_evidence_layer",
+    "runway_disconnected_pavement",
 ]
 
 _GEOM_EXC = (ValueError, ZeroDivisionError, AttributeError, TypeError,
@@ -388,10 +391,58 @@ def _osm_airside_unions(layout):
             _cover_index(taxi_geoms), _cover_index(airside_geoms), n_ways)
 
 
-def airside_evidence_layer(layout, taxi_lines=None) -> CoverIndex:
-    """THE POSITIVE-AIRSIDE-EVIDENCE LAYER (owner ruling 2026-08-15,
+def runway_disconnected_pavement(layout, pav_union,
+                                 touch_tol_m: float = 0.05) -> list:
+    """The pavement pieces with NO touch-chain back to a runway.
+
+    The standing connectivity law
+    (``junction_repair._reclassify_runway_disconnected_to_groundside``,
+    user 2026-06-09) stated over the PAVEMENT UNION instead of over
+    built shapes, because the free-road knife runs BEFORE the global
+    slice mints any: "an APRON must have a direct connection chain
+    (through touching airside shapes) back to a runway — pavement
+    islands without one are landside (FBO ramps, curbside, parking)".
+    ``pav_union`` is already a union, so its components ARE the maximal
+    chains; a component is landside exactly when it does not reach the
+    runway union.
+
+    The law's own precondition travels with it (user 2026-06-11): an
+    airport with NO buildings has no landside at all — every paved area
+    is aircraft parking — so the term is inert there.  It is inert too
+    where the source is absent (no runway union): absence of a source
+    is never evidence.
+    """
+    if pav_union is None or getattr(pav_union, "is_empty", True):
+        return []
+    runway_u = getattr(layout, "runway_union", None)
+    if runway_u is None or getattr(runway_u, "is_empty", True):
+        return []
+    if not any(getattr(s, "role", "") == ROLE_BUILDING
+               and getattr(s, "polygon", None) is not None
+               and not s.polygon.is_empty
+               for s in (getattr(layout, "shapes", ()) or ())):
+        return []
+    comps = ([pav_union] if pav_union.geom_type == "Polygon"
+             else [g for g in getattr(pav_union, "geoms", ())
+                   if g.geom_type == "Polygon"])
+    try:
+        probe = runway_u.buffer(touch_tol_m)
+    except _GEOM_EXC:
+        return []
+    out = []
+    for comp in comps:
+        try:
+            if not comp.intersects(probe):
+                out.append(comp)
+        except _GEOM_EXC:
+            continue
+    return out
+
+
+def landside_evidence_layer(layout, pav_union=None) -> CoverIndex:
+    """THE POSITIVE-LANDSIDE-EVIDENCE LAYER (owner ruling 2026-08-15,
     "roads carry spines … the free-road width test gains its missing
-    landside term").
+    landside term"; AMENDMENT A1, Fable 2026-08-15 late).
 
     R7a.  The free-road knife (``groundside.free_road_subsegments``)
     asks one question per station: is this wide pavement an APRON the
@@ -401,62 +452,48 @@ def airside_evidence_layer(layout, taxi_lines=None) -> CoverIndex:
     CYXY lot 377 swallowing a public road whole (82-93 % of its
     stations dropped; HECA 142 of 160 groundside shapes contain roads).
 
-    A station is airside ONLY on evidence no landside pavement can
-    supply:
+    THE TERM IS POSITIVE, AND THAT IS AMENDMENT A1.  The first arm of
+    this round asked instead for positive AIRSIDE evidence and treated
+    its ABSENCE as landside — refuted at exactly the airports the
+    feature exists for: at a DSF-pack airport genuine apron routinely
+    carries no OSM ``aeroway`` and no apt.dat row-110 name at all, so
+    "no airside evidence" is the normal reading of real aircraft
+    pavement and the knife cut through it.  Absence of a source is
+    never evidence.  A station is LANDSIDE only on evidence of its own:
 
-    * **OSM ``aeroway`` backing** — the same whitelist, buffers and
-      geometry ``_osm_airside_unions`` builds for the classifier
-      (apron polygons, stand buffers, taxiway/taxilane territory);
-    * **the airport's OWN name for it** — apt.dat row-110 pavement
-      named apron or taxiway (``pavement_scoring.score_sources``);
-    * **the runway union** and **the taxi centerline network** —
-      airside by identity, never gated by anything here.
+    * **the parking layer the classifier already builds** — road-feed
+      corridors tagged ``service=parking_aisle`` / ``parking``
+      (``EvidenceSources.parking_corridors``, ``_PARKING_SERVICE``).
+      A car park's own circulation is not something an apron carries;
+    * **pavement outside the runway-touch connectivity chain**
+      (:func:`runway_disconnected_pavement`) — the standing 2026-06-09
+      law, which already rules such pavement landside downstream.
 
-    The two classes the width test was BUILT for are preserved by
-    construction, because both are airside on this evidence: the SPJC
-    east-terminal frontage (apt.dat-named apron + OSM apron) and the
-    HECA "svc junctions 4→76" carve (OSM apron backing).  What changes
-    is only the pavement with NO airside evidence at all.
+    The two classes the width test was BUILT for are preserved BY
+    CONSTRUCTION: SPJC's east terminal and HECA's svc-junction aprons
+    are aircraft pavement chained to a runway and carry no parking
+    aisles, so neither term fires and their wide stations are dropped
+    exactly as before.
 
-    ``taxi_lines`` — the effective taxi centerline set at the call site
-    (the slice's own ``_cn_cls``); ``None`` falls back to
-    ``layout.apt_taxi_centerlines``.  Memoized on the layout as
-    ``_airside_evidence_layer``.
+    ``pav_union`` — the slice's own pavement union (the connectivity
+    term is measured on it).  Memoized on the layout as
+    ``_landside_evidence_layer``.
     """
-    cached = getattr(layout, "_airside_evidence_layer", None)
+    cached = getattr(layout, "_landside_evidence_layer", None)
     if cached is not None:
         return cached
     parts: list = []
-    # (1) OSM aeroway backing — THE classifier's own layer, re-read here
-    #     (the unions are memo-free but cheap; the ways are already in
-    #     memory as ``_osm_airport_features``).
-    apron_u, stand_u, taxi_u, airside_u, _n = _osm_airside_unions(layout)
-    parts.extend(airside_u.parts)
-    # (2) the airport's own apt.dat naming.
+    # (1) THE PARKING LAYER — built once per layout by ``evidence_sources``
+    #     and memoized there, so the classifier downstream reuses this
+    #     very object rather than paying for a second one.
     try:
-        from .pavement_scoring import score_sources
-        ss = score_sources(layout)
-        parts.extend(ss.name_apron.parts)
-        parts.extend(ss.name_taxi.parts)
-    except Exception:
+        parts.extend(evidence_sources(layout).parking_corridors.parts)
+    except _GEOM_EXC:
         pass
-    # (3) airside by identity — runways and the taxi centerline network.
-    runway_u = getattr(layout, "runway_union", None)
-    if runway_u is not None and not runway_u.is_empty:
-        parts.append(runway_u)
-    if taxi_lines is None:
-        taxi_lines = [
-            getattr(cl, "chained_line", None) or getattr(cl, "line", None)
-            for cl in (getattr(layout, "apt_taxi_centerlines", None) or [])]
-    for line in taxi_lines or []:
-        if line is None or getattr(line, "is_empty", True):
-            continue
-        try:
-            parts.append(line.buffer(PAVEMENT_CLASS_TAXI_BUFFER_M))
-        except _GEOM_EXC:
-            continue
+    # (2) pavement with no touch-chain to a runway.
+    parts.extend(runway_disconnected_pavement(layout, pav_union))
     layer = CoverIndex(parts)
-    layout._airside_evidence_layer = layer
+    layout._landside_evidence_layer = layer
     return layer
 
 

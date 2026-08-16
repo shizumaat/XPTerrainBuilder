@@ -1,5 +1,5 @@
 """Free-road scoping of the service slice set — owner ruling 2026-07-27,
-with the R7a LANDSIDE TERM (owner ruling 2026-08-15).
+with the R7a LANDSIDE TERM (owner ruling 2026-08-15, Fable amendment A1).
 
 "Any road inside, or sharing an edge with an apron must be graded the
 same as the apron, so essentially just becomes part of the apron and
@@ -12,8 +12,11 @@ the ruling; ``carve_narrow_service_strips`` keys the strip carve on the
 SAME per-station measurement (``_svc_contiguous_width``), so the two
 cannot drift.
 
-R7a: the ruling says APRON.  Wide pavement with NO airside evidence is a
-landside lot, not an apron, and the road keeps its knife there.
+R7a: the ruling says APRON.  Wide pavement carrying POSITIVE LANDSIDE
+EVIDENCE is a lot, not an apron, and the road keeps its knife there.
+Amendment A1 is why the term is positive: the first arm read the ABSENCE
+of airside evidence as landside, and at a DSF-pack airport genuine apron
+routinely carries no OSM aeroway and no apt.dat name at all.
 
 Hermetic: hand-built geometry, no fixtures, no DEM, no network.
 """
@@ -30,11 +33,12 @@ from auto_patch.pavement_classification import CoverIndex
 _APRON = Polygon([(0, -100), (400, -100), (400, 100), (0, 100)])
 _RIBBON = Polygon([(500, -5), (900, -5), (900, 5), (500, 5)])
 _PAV = _APRON.union(_RIBBON)
-# The airside evidence layer that makes ``_APRON`` an APRON (in
-# production: OSM ``aeroway=apron``, apt.dat row-110 naming, the taxi
-# network).  Without it the same geometry is a landside lot.
-_AIRSIDE = CoverIndex([_APRON])
-_NO_AIRSIDE = CoverIndex([])
+# The LANDSIDE evidence layer.  In production: the parking-aisle
+# corridor layer, and pavement outside the runway-touch chain.  EMPTY is
+# the normal reading of aircraft pavement — including DSF apron that
+# carries no OSM/apt evidence of its own.
+_NO_LANDSIDE = CoverIndex([])
+_LANDSIDE = CoverIndex([_APRON])
 
 
 def test_a_road_through_the_apron_is_not_free():
@@ -42,7 +46,7 @@ def test_a_road_through_the_apron_is_not_free():
     slice — it IS the apron."""
     road = LineString([(50, 0), (350, 0)])
     assert free_road_subsegments(
-        [road], _PAV, airside_evidence=_AIRSIDE) == []
+        [road], _PAV, landside_evidence=_NO_LANDSIDE) == []
 
 
 def test_a_road_hugging_the_apron_edge_is_not_free():
@@ -50,13 +54,14 @@ def test_a_road_hugging_the_apron_edge_is_not_free():
     measures the apron's full cross-section — part of the apron."""
     road = LineString([(50, -95), (350, -95)])
     assert free_road_subsegments(
-        [road], _PAV, airside_evidence=_AIRSIDE) == []
+        [road], _PAV, landside_evidence=_NO_LANDSIDE) == []
 
 
 def test_a_road_width_ribbon_is_free():
     """Pavement that is nothing but the road grades as a road."""
     road = LineString([(510, 0), (890, 0)])
-    segs = free_road_subsegments([road], _PAV, airside_evidence=_AIRSIDE)
+    segs = free_road_subsegments([road], _PAV,
+                                 landside_evidence=_NO_LANDSIDE)
     assert len(segs) == 1
     assert segs[0].length > 350.0
 
@@ -65,7 +70,8 @@ def test_a_mixed_route_keeps_only_its_free_span():
     """One 1206 route running apron → open ribbon: only the ribbon span
     survives; the apron span is dropped whole."""
     road = LineString([(50, 0), (890, 0)])
-    segs = free_road_subsegments([road], _PAV, airside_evidence=_AIRSIDE)
+    segs = free_road_subsegments([road], _PAV,
+                                 landside_evidence=_NO_LANDSIDE)
     assert len(segs) == 1
     (x0, _y0) = segs[0].coords[0]
     (x1, _y1) = segs[0].coords[-1]
@@ -75,7 +81,8 @@ def test_a_mixed_route_keeps_only_its_free_span():
 
 def test_off_pavement_roads_pass_through_unfiltered():
     road = LineString([(0, 500), (400, 500)])
-    segs = free_road_subsegments([road], _PAV, airside_evidence=_AIRSIDE)
+    segs = free_road_subsegments([road], _PAV,
+                                 landside_evidence=_NO_LANDSIDE)
     assert len(segs) == 1
 
 
@@ -105,14 +112,15 @@ def test_the_width_is_the_length_of_the_one_cross_section():
         LineString([(0, 500), (400, 500)]), 200.0, _PAV) == 0.0
 
 
-# ── R7a: THE LANDSIDE TERM ───────────────────────────────────────────
+# ── R7a / A1: THE POSITIVE LANDSIDE TERM ─────────────────────────────
 
 def test_a_road_through_a_LANDSIDE_lot_keeps_its_knife():
-    """THE R7a CLAUSE.  Same 200 m-wide pavement, same road — but no
-    airside evidence anywhere.  It is a car park, not an apron: the
-    road cuts its own face straight through it (CYXY lot 377)."""
+    """THE R7a CLAUSE.  Same 200 m-wide pavement, same road — but the
+    pavement carries landside evidence (a parking aisle, or no
+    touch-chain to a runway).  It is a car park, not an apron: the road
+    cuts its own face straight through it (CYXY lot 377)."""
     road = LineString([(50, 0), (350, 0)])
-    segs = free_road_subsegments([road], _PAV, airside_evidence=_NO_AIRSIDE)
+    segs = free_road_subsegments([road], _PAV, landside_evidence=_LANDSIDE)
     assert len(segs) == 1, "a landside lot may not swallow a public road"
     assert segs[0].length > 250.0
 
@@ -122,22 +130,33 @@ def test_the_landside_term_is_evidence_not_geometry():
     layer — the guard against 'it happened to be the width after all'."""
     road = LineString([(50, 0), (350, 0)])
     assert free_road_subsegments(
-        [road], _PAV, airside_evidence=_AIRSIDE) == []
+        [road], _PAV, landside_evidence=_NO_LANDSIDE) == []
     assert free_road_subsegments(
-        [road], _PAV, airside_evidence=_NO_AIRSIDE) != []
+        [road], _PAV, landside_evidence=_LANDSIDE) != []
 
 
-def test_evidence_ANYWHERE_on_the_cross_section_makes_it_airside():
+def test_ABSENCE_of_evidence_leaves_wide_pavement_APRON():
+    """AMENDMENT A1, stated as a test.  An empty evidence layer is the
+    DSF-pack airport whose genuine apron carries no OSM aeroway and no
+    apt.dat name: it must read APRON, not landside.  The refuted arm
+    inverted exactly this and cut the airport's real apron."""
+    road = LineString([(50, 0), (350, 0)])
+    assert free_road_subsegments(
+        [road], _PAV, landside_evidence=CoverIndex([])) == []
+
+
+def test_evidence_ANYWHERE_on_the_cross_section_is_read():
     """The evidence is asked about the cross-section the station stands
-    in, not about the station point: a road hugging the apron's edge
-    inside airside pavement is still the apron's road."""
+    in, not about the station point: a lot's parking aisle 60 m inboard
+    still releases a road hugging the lot's south edge."""
     road = LineString([(50, -95), (350, -95)])
     # Evidence that does NOT contain the station (y = -95) but does
     # touch the chord it stands in (the probe reaches y = -35).
     inboard = CoverIndex([
         Polygon([(0, -60), (400, -60), (400, -40), (0, -40)])])
     assert not inboard.intersects(LineString([(200, -96), (200, -94)]))
-    assert free_road_subsegments([road], _PAV, airside_evidence=inboard) == []
+    assert free_road_subsegments(
+        [road], _PAV, landside_evidence=inboard) != []
 
 
 def test_a_landside_lot_ABUTTING_an_apron_still_yields_the_apron_span():
@@ -146,7 +165,8 @@ def test_a_landside_lot_ABUTTING_an_apron_still_yields_the_apron_span():
     lot = Polygon([(400, -100), (800, -100), (800, 100), (400, 100)])
     pav = _APRON.union(lot)
     road = LineString([(50, 0), (750, 0)])
-    segs = free_road_subsegments([road], pav, airside_evidence=_AIRSIDE)
+    segs = free_road_subsegments([road], pav,
+                                 landside_evidence=CoverIndex([lot]))
     assert len(segs) == 1
     xs = [c[0] for c in segs[0].coords]
     assert min(xs) >= 395.0, "the apron span must not be carved"
@@ -154,7 +174,7 @@ def test_a_landside_lot_ABUTTING_an_apron_still_yields_the_apron_span():
 
 
 def test_no_evidence_layer_at_all_is_the_pre_R7a_law():
-    """``airside_evidence=None`` — synthetic callers and the width-only
+    """``landside_evidence=None`` — synthetic callers and the width-only
     fallback: every wide station is apron, exactly as before R7a."""
     road = LineString([(50, 0), (350, 0)])
     assert free_road_subsegments([road], _PAV) == []
@@ -164,8 +184,59 @@ def test_the_cover_index_answers_a_LINE_not_only_an_area():
     """``CoverIndex.intersects`` is the membership question the area
     fractions cannot answer for a zero-area chord."""
     chord = LineString([(200, -100), (200, 100)])
-    assert _AIRSIDE.cover_fraction(chord) == 0.0     # no area, no fraction
-    assert _AIRSIDE.intersects(chord) is True
-    assert _NO_AIRSIDE.intersects(chord) is False
-    assert _AIRSIDE.intersects(LineString()) is False
-    assert _AIRSIDE.intersects(None) is False
+    assert _LANDSIDE.cover_fraction(chord) == 0.0    # no area, no fraction
+    assert _LANDSIDE.intersects(chord) is True
+    assert _NO_LANDSIDE.intersects(chord) is False
+    assert _LANDSIDE.intersects(LineString()) is False
+    assert _LANDSIDE.intersects(None) is False
+
+
+# ── the layer itself ─────────────────────────────────────────────────
+
+class _FakeShape:
+    def __init__(self, role, polygon):
+        self.role = role
+        self.polygon = polygon
+
+
+class _FakeLayout:
+    """The two attributes ``runway_disconnected_pavement`` reads."""
+
+    def __init__(self, runway_union, shapes):
+        self.runway_union = runway_union
+        self.shapes = shapes
+
+
+def test_pavement_off_the_runway_touch_chain_IS_landside_evidence():
+    """The standing 2026-06-09 law, stated over the pavement union: a
+    component that cannot reach a runway is landside (FBO ramps,
+    curbside, parking) — CYXY's west-side 'aprons', 6-153 m from the
+    airside network."""
+    from auto_patch.pavement_classification import (
+        runway_disconnected_pavement)
+    runway = Polygon([(0, -10), (400, -10), (400, 10), (0, 10)])
+    lot = Polygon([(600, -100), (800, -100), (800, 100), (600, 100)])
+    pav = _APRON.union(lot)          # _APRON overlaps the runway strip
+    lay = _FakeLayout(runway, [_FakeShape("building", _APRON)])
+    out = runway_disconnected_pavement(lay, pav)
+    assert len(out) == 1 and out[0].equals(lot)
+
+
+def test_the_connectivity_term_is_inert_with_no_buildings():
+    """"Airports with NO terminal have no landside" (user 2026-06-11) —
+    the precondition travels with the law it comes from."""
+    from auto_patch.pavement_classification import (
+        runway_disconnected_pavement)
+    runway = Polygon([(0, -10), (400, -10), (400, 10), (0, 10)])
+    lot = Polygon([(600, -100), (800, -100), (800, 100), (600, 100)])
+    lay = _FakeLayout(runway, [])
+    assert runway_disconnected_pavement(lay, _APRON.union(lot)) == []
+
+
+def test_the_connectivity_term_is_inert_with_no_runway_union():
+    """Absence of the SOURCE is never evidence."""
+    from auto_patch.pavement_classification import (
+        runway_disconnected_pavement)
+    lot = Polygon([(600, -100), (800, -100), (800, 100), (600, 100)])
+    lay = _FakeLayout(None, [_FakeShape("building", _APRON)])
+    assert runway_disconnected_pavement(lay, _APRON.union(lot)) == []

@@ -2228,7 +2228,7 @@ def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
 
 
 def free_road_subsegments(lines, pav_union, *,
-                          airside_evidence=None,
+                          landside_evidence=None,
                           narrow_width_m: float = 25.0,
                           sample_step_m: float = 5.0,
                           min_run_m: float = 12.0):
@@ -2264,21 +2264,29 @@ def free_road_subsegments(lines, pav_union, *,
     lot law, 3.2 m away from the road faces either side of it; at HECA
     142 of 160 groundside shapes contain a road on these terms.
 
-    So a wide station is "inside an apron" only on POSITIVE AIRSIDE
-    EVIDENCE for the cross-section it actually stands in —
-    ``airside_evidence`` (a
-    ``pavement_classification.CoverIndex``: OSM ``aeroway`` backing,
-    the airport's own apt.dat naming, the runway union, the taxi
-    centerline network).  Wide pavement with NO airside evidence is
-    LANDSIDE: the station stays a knife, the road cuts its own face
-    through the lot and scores as a road.
+    THE TERM IS POSITIVE (Fable AMENDMENT A1, 2026-08-15 late).  The
+    first arm asked for positive AIRSIDE evidence and read its ABSENCE
+    as landside; that is refuted at exactly the airports this feature
+    exists for, because at a DSF-pack airport genuine apron routinely
+    carries no OSM ``aeroway`` and no apt.dat row-110 name, so "no
+    airside evidence" is the normal reading of real aircraft pavement.
+    A wide station therefore stays APRON — dropped, as the 2026-07-27
+    ruling says — unless there is POSITIVE LANDSIDE EVIDENCE for the
+    cross-section it actually stands in: ``landside_evidence`` (a
+    ``pavement_classification.CoverIndex``:
+    ``pavement_classification.landside_evidence_layer`` — the
+    parking-aisle corridor layer, and pavement outside the runway-touch
+    connectivity chain).  Wide pavement WITH landside evidence keeps the
+    knife: the road cuts its own face through the lot and scores as a
+    road.
 
     The two classes the width test was built for are preserved BY
-    CONSTRUCTION — both SPJC's east terminal and HECA's svc junctions
-    are airside pavement and carry that evidence, so their wide
-    stations are still dropped.
+    CONSTRUCTION — SPJC's east terminal and HECA's svc-junction aprons
+    are aircraft pavement chained to a runway and carry no parking
+    aisles, so neither landside term fires and their wide stations are
+    still dropped.
 
-    ``airside_evidence=None`` is the WIDTH-ONLY fallback (synthetic
+    ``landside_evidence=None`` is the WIDTH-ONLY fallback (synthetic
     callers and the pre-R7a law): with no evidence layer to ask, every
     wide station is treated as apron, exactly as before.  Production
     passes the layer — see ``pipeline`` at the free-road scoping site.
@@ -2312,10 +2320,11 @@ def free_road_subsegments(lines, pav_union, *,
             if part.length <= narrow_width_m:   # the pavement IS the road
                 free.append(True)
                 continue
-            # WIDE.  Apron only on positive airside evidence for THIS
-            # cross-section (R7a); landside pavement stays a knife.
-            free.append(airside_evidence is not None
-                        and not airside_evidence.intersects(part))
+            # WIDE.  Apron — unless there is POSITIVE LANDSIDE evidence
+            # for THIS cross-section (R7a, amendment A1), in which case
+            # the station stays a knife.
+            free.append(landside_evidence is not None
+                        and landside_evidence.intersects(part))
         coords = list(line.coords)
         vertex_arcs = [0.0]
         for (xa, ya), (xb, yb) in zip(coords, coords[1:]):
@@ -4778,6 +4787,150 @@ def _reclassify_groundside_orphan_junctions(
 GROUNDSIDE_CLEARANCE_M = SHARED_VERTEX_TOL_M + 0.5  # 1.0 m
 _GROUNDSIDE_MIN_AREA_M2 = 5.0
 
+# ── R7b CLAUSE 3 — PARALLEL FRONTAGE CUTS BACK TO DEM ────────────────
+# Owner ruling 2026-08-15 late (the sink ruling): "a road running
+# PARALLEL to an apron for more than 1.5x the road's width takes the
+# STANDARD GROUNDSIDE CUTBACK and stays AT DEM — roads commonly run up
+# to and along terminals at DIFFERENT LEVELS (at CYXY the landside
+# frontage road is a second-story level several metres above the airside
+# apron; that separation is real and must be preserved, not welded
+# away)."  Fable amendment A2 rules the mechanism GEOMETRIC and names
+# this machinery: the cutback IS ``_separate_groundside_from_airside``'s
+# clearance buffer, its mouth windows and its DEM re-follow, applied to
+# the ROAD face instead of to a lot.  Nothing new is invented — a road
+# that no longer shares a node with the apron cannot be welded to it,
+# and the level separation survives by construction.
+ROAD_FRONTAGE_SPAN_WIDTH_FACTOR = 1.5
+
+
+def _face_carriageway_width(polygon) -> float:
+    """A road face's OWN carriageway width: ``2·area / perimeter``.
+
+    For an L×W strip that is ``LW/(L+W)`` → W as L grows, and a road
+    face IS that shape.  Deliberately measured off the face's own
+    geometry: an axis-based or centerline-based width would be a SECOND
+    measurement of the same quantity, free to drift from the one the
+    free-road knife already keys on.
+    """
+    try:
+        perimeter = polygon.length
+        if perimeter <= 0.0:
+            return 0.0
+        return 2.0 * polygon.area / perimeter
+    except _GEOM_EXC:
+        return 0.0
+
+
+def _longest_contact_run_m(ring, clip_geom) -> float:
+    """The longest CONTIGUOUS run of ``ring`` inside ``clip_geom`` — the
+    edge-contact span R7b measures its 1.5× against.
+
+    Contiguity is the whole point of the ruling's word PARALLEL: a road
+    that touches an apron at two separate MOUTHS is not a road running
+    along it, and summing the two runs would say it was.
+    """
+    try:
+        inter = ring.intersection(clip_geom)
+    except _GEOM_EXC:
+        return 0.0
+    if inter is None or inter.is_empty:
+        return 0.0
+    parts = ([inter] if inter.geom_type == "LineString"
+             else list(getattr(inter, "geoms", ())))
+    return max((p.length for p in parts if p.geom_type == "LineString"),
+               default=0.0)
+
+
+def _cut_back_road_frontage(layout, frontage_clips, _dem_at,
+                            span_factor: float
+                            = ROAD_FRONTAGE_SPAN_WIDTH_FACTOR,
+                            stats=None) -> int:
+    """R7b clause 3 in place: every road face that runs along an apron
+    for more than ``span_factor`` × its own carriageway width is CUT
+    BACK off it and DEM-re-follows.  Returns the number of faces cut.
+
+    ``frontage_clips`` — the apron/junction clearance buffers ALREADY
+    built by :func:`_separate_groundside_from_airside`, with the mouth
+    windows subtracted.  That is what makes mouths exempt in both
+    directions at once: a mouth is outside the clip, so it neither
+    counts toward the parallel span nor gets cut, and the road keeps its
+    shared edge — and therefore its weld — exactly there.  R7b clause 1
+    ("a road welds to an apron ONLY at a mouth") is the same geometry
+    read from the other side.
+
+    A cut that would ERASE the road or FRAGMENT it into several pieces
+    is refused: a cutback opens a 1 m gap along a flank, and anything
+    else is a severance this clause never authorised.
+    """
+    if not frontage_clips:
+        return 0
+    from shapely.strtree import STRtree
+    try:
+        tree = STRtree(frontage_clips)
+    except _GEOM_EXC:
+        return 0
+    anchors_by_role: dict = {}
+    n_cut = 0
+    for s in layout.shapes:
+        if s.role not in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        width = _face_carriageway_width(poly)
+        if width <= 0.0:
+            continue
+        need = span_factor * width
+        ring = poly.exterior
+        try:
+            hits = [frontage_clips[int(i)] for i in tree.query(poly)]
+        except _GEOM_EXC:
+            continue
+        qualifying = [g for g in hits
+                      if _longest_contact_run_m(ring, g) > need]
+        if not qualifying:
+            continue
+        try:
+            cut = (qualifying[0] if len(qualifying) == 1
+                   else unary_union(qualifying))
+            diff = poly.difference(cut)
+        except _GEOM_EXC:
+            continue
+        parts = [p for p in ([diff] if diff.geom_type == "Polygon"
+                             else list(getattr(diff, "geoms", ())))
+                 if p.geom_type == "Polygon" and not p.is_empty
+                 and p.area >= _GROUNDSIDE_MIN_AREA_M2]
+        if len(parts) != 1 or parts[0].equals(poly):
+            continue        # erased or fragmented — not a cutback
+        if len(parts[0].interiors) > len(poly.interiors):
+            # A HOLE is not a cutback either, and this one is measured:
+            # where an apron pokes into a road's bay the difference
+            # returns an ANNULUS, and ``_dem_follow_polygon`` then opens
+            # the hole with a corridor — rewriting the road's footprint
+            # instead of trimming its flank (SPJC 2026-08-16: 4 → 9
+            # ``shape_interior_ring`` ways, and the road at
+            # -12.0313,-77.1071 went from a 10-node face spanning 1.89 m
+            # to a 12-node face + interior ring spanning 2.87 m).
+            continue
+        if s.role not in anchors_by_role:
+            _a = law_anchor_values(layout, for_role=s.role)
+            anchors_by_role[s.role] = (_a, law_anchor_key(layout, _a))
+        _law_anchors, _anchor_key = anchors_by_role[s.role]
+        _seat_out: dict = {}
+        built = _dem_follow_polygon(parts[0], _dem_at, simplify_tol=0.0,
+                                    law_anchors=_law_anchors,
+                                    anchor_key=_anchor_key, stats=stats,
+                                    seat_out=_seat_out)
+        if built is None:
+            continue
+        # MUTATED IN PLACE, never rebuilt: the face carries slice state
+        # (``source_axis``, ``ref``, centerline provenance) that a fresh
+        # ``BuiltShape`` would silently drop.
+        s.polygon, s.node_altitudes = built
+        setattr(s, _LAW_SEATED_ATTR, bool(_seat_out.get("law_seated")))
+        n_cut += 1
+    return n_cut
+
 
 def _merge_touching_groundside(
         layout: "PavementLayout", dem, tile_lat: int, tile_lon: int,
@@ -4910,7 +5063,9 @@ def _merge_touching_groundside(
 def _separate_groundside_from_airside(
         layout: "PavementLayout", dem, tile_lat: int, tile_lon: int,
         clearance: float = GROUNDSIDE_CLEARANCE_M,
-        preserve_field: bool = False) -> int:
+        preserve_field: bool = False,
+        road_frontage_cutback: bool = False,
+        groundside_clip: bool = True) -> int:
     """Clip every groundside polygon so it keeps ``clearance`` from all
     terminal / airside pavement — enforcing the invariant that groundside
     shares no node or edge with terminal or airside (it is separate
@@ -4928,6 +5083,15 @@ def _separate_groundside_from_airside(
     chord-limit / weld field; resetting a clipped piece to raw DEM
     detached it from every road welded to it at solve time (CYXY: a
     mouth lot reset 695.8 → 700.6 = 5 m road↔lot yanks).
+
+    ``road_frontage_cutback=True`` additionally runs R7b clause 3
+    (:func:`_cut_back_road_frontage`) over the SAME clearance buffers
+    and mouth windows built here.  ``groundside_clip=False`` runs ONLY
+    that clause.  Both default to the pre-R7b behaviour, so every
+    existing call site is byte-identical; production reaches the clause
+    through ONE explicit pre-solve call in ``pipeline`` (a road cut back
+    post-solve would throw away the solved road field, which is the
+    opposite of "stays at DEM").
     """
     AIRSIDE_ROLES = {
         ROLE_RUNWAY, ROLE_PRIMARY_PARALLEL, ROLE_SECONDARY_PARALLEL,
@@ -4971,6 +5135,10 @@ def _separate_groundside_from_airside(
             except (ValueError, IndexError):
                 continue
     clip_polys = []
+    # R7b clause 3's frontage partners: the AIRCRAFT pavement a road can
+    # run along.  Their clearance buffers are collected as the clause
+    # sees them — mouth windows already subtracted.
+    frontage_clips: list = []
     for s in layout.shapes:
         if s.role in AIRSIDE_ROLES and s.polygon is not None \
                 and not s.polygon.is_empty:
@@ -4998,8 +5166,29 @@ def _separate_groundside_from_airside(
                     buffered = buffered.difference(windows)
                     clip_polys.append(s.polygon)
                 clip_polys.append(buffered)
+                if s.role in _DEMOTABLE_ROLES and not buffered.is_empty:
+                    frontage_clips.append(buffered)
             except _GEOM_EXC:
                 continue
+    # ── R7b clause 3, over the buffers just built (see
+    #    ``_cut_back_road_frontage``).  Runs BEFORE the groundside clip
+    #    so a lot clipped below sees the road's FINAL geometry.
+    n_road_cut = 0
+    if road_frontage_cutback:
+        _dem_at_rf = _dem_sampler(layout, dem, tile_lat, tile_lon)
+        n_road_cut = _cut_back_road_frontage(
+            layout, frontage_clips, _dem_at_rf,
+            stats=_law_seat_stats(layout, "cut_back_road_frontage"))
+        if n_road_cut:
+            import O4_UI_Utils as UI
+            UI.vprint(1,
+                f"  [pav-builder] R7b: cut {n_road_cut} road face(s) back "
+                f"from the apron they front (parallel run > "
+                f"{ROAD_FRONTAGE_SPAN_WIDTH_FACTOR}x their own width); "
+                f"they DEM-refollow at their own level "
+                f"(owner ruling 2026-08-15).")
+    if not groundside_clip:
+        return n_road_cut
     # Groundside may TOUCH a service road (shared edge, kept above) but must not
     # OVERLAP it (area overlap = self-overlap, not a shared edge — e.g. a curved
     # SVC connector emitted as service_junction that straddles the lot it feeds).

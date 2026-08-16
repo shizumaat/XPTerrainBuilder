@@ -358,3 +358,219 @@ def test_r4_both_end_pegged_run_is_unchanged():
 def test_r4_interior_pegs_bound_the_span():
     span = _span_of()({2: 100.0, 5: 101.0, 11: 100.5})
     assert span == (2, 11)
+
+
+# ══ R5 — ROAD RUNS TRACK TERRAIN ════════════════════════════════════
+# The taut string draws the STRAIGHTEST lawful profile — correct for an
+# airside spine, wrong for a road (owner in-sim on 1.0.252: CYXY road
+# 349 as a 5.2 m causeway over a 2.7 % dip, the junction-190 complex as
+# a 12-16 m canyon under 718-722 m terrain, HECA as a plateau).  A
+# service-road run's profile is the CAP-CONSTRAINED LEAST-DEVIATION
+# TRACKER of its low-passed station DEM.
+
+from auto_patch.elevation_per_surface.route_profile.corridor_profile import (  # noqa: E402
+    MATERIALITY_M, track_dem_profile)
+
+
+def _v_dip(n: int, depth: float, base: float = 100.0) -> list[float]:
+    """A symmetric V dip of ``depth`` m at the middle station."""
+    mid = (n - 1) / 2.0
+    return [base - depth * (1.0 - abs(i - mid) / mid) for i in range(n)]
+
+
+# ── (a) LONGITUDINAL CAP — the owner's condition 1, hard ────────────
+def test_r5_longitudinal_cap_holds_at_every_adjacent_pair():
+    """Terrain far steeper than the cap, in both directions, with pegs:
+    every emitted adjacent-station grade still obeys the cap."""
+    n = 41
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [100.0 + 7.0 * math.sin(i * 1.1) + 0.9 * i * (i % 3 - 1)
+           for i in range(n)]
+    out = track_dem_profile(s, f, c, {0: 100.0, 25: 103.0, 40: 99.0},
+                            CAP, dem=dem)
+    assert out is not None
+    for i in range(1, n):
+        g = abs(out.z[i] - out.z[i - 1]) / (s[i] - s[i - 1])
+        assert g <= CAP + 1e-9, f"segment {i} rides {g * 100:.3f} % > cap"
+    assert out.audit.over_cap_segments == 0
+
+
+# ── (b) A WITHIN-CAP DIP IS TRACKED, NOT BRIDGED ────────────────────
+def test_r5_within_cap_dip_is_tracked():
+    """CYXY road 349's class: a road between two equal mouth welds over
+    a dip the cap can follow.  The tracker follows it (<= 0.5 m); the
+    taut string bridges it as a causeway — the measured defect."""
+    n = 21
+    s = _uniform(n)                     # 200 m of run
+    f, c = _wide_band(n)
+    dem = _v_dip(n, 2.5)                # 2.5 % flanks, well inside 8 %
+    pegs = {0: 100.0, 20: 100.0}
+
+    tracked = track_dem_profile(s, f, c, pegs, CAP, dem=dem)
+    assert tracked is not None
+    dev = max(abs(tracked.z[i] - dem[i]) for i in range(n))
+    assert dev <= 0.5, f"tracker deviates {dev:.3f} m from a within-cap dip"
+
+    strung = solve_run_profile(s, f, c, pegs, CAP, dem=dem)
+    assert strung is not None
+    causeway = max(strung.z[i] - dem[i] for i in range(n))
+    assert causeway > 2.0, (
+        "control: the taut string must still bridge the dip (if this "
+        "fails the contrast the twin measures no longer exists)")
+
+
+def test_r5_a_rise_within_cap_is_tracked_exactly():
+    """No cap pressure anywhere ⇒ the profile IS the terrain."""
+    n = 15
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [700.0 + 0.5 * i for i in range(n)]      # 5 % < 8 %
+    out = track_dem_profile(s, f, c, {}, CAP, dem=dem)
+    assert out is not None
+    for i in range(n):
+        assert out.z[i] == pytest.approx(dem[i], abs=1e-9)
+    assert out.audit.dem_departure_stations == 0
+    assert out.audit.dem_departure_spans == ()
+
+
+# ── (c) AN OVER-CAP RISE DEPARTS MINIMALLY, AND THE AUDIT SAYS SO ───
+def test_r5_over_cap_rise_departs_minimally_and_is_audited():
+    """A 5 m riser across one 10 m station pair is 50 % — five times the
+    cap.  The minimum possible sup deviation of ANY cap-Lipschitz
+    profile from this terrain is (rise - cap*run)/2 = 2.1 m; the
+    tracker attains it, and the audit carries the departure span."""
+    n = 21
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [100.0] * 10 + [105.0] * 11
+    out = track_dem_profile(s, f, c, {}, CAP, dem=dem)
+    assert out is not None
+    dev = max(abs(out.z[i] - dem[i]) for i in range(n))
+    optimal = (5.0 - CAP * 10.0) / 2.0
+    assert dev == pytest.approx(optimal, abs=1e-6), (
+        f"deviation {dev:.4f} m is not the minimal {optimal:.4f} m")
+    a = out.audit
+    assert a.dem_departure_stations > 0
+    assert a.dem_departure_max_m == pytest.approx(optimal, abs=1e-6)
+    assert len(a.dem_departure_spans) == 1
+    lo_s, hi_s = a.dem_departure_spans[0]
+    assert lo_s < s[10] < hi_s or lo_s <= s[9]      # spans the riser
+    assert a.dem_departure_max_m > MATERIALITY_M
+
+
+# ── (d) PEGS ARE EXACT LAW TARGETS ──────────────────────────────────
+def test_r5_pegs_are_exact():
+    n = 31
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [100.0 + 3.0 * math.cos(i * 0.7) for i in range(n)]
+    pegs = {0: 101.25, 12: 99.5, 30: 100.75}
+    out = track_dem_profile(s, f, c, pegs, CAP, dem=dem)
+    assert out is not None
+    for i, v in pegs.items():
+        assert out.z[i] == pytest.approx(v, abs=1e-9), (
+            f"peg {i} moved: {out.z[i]} != {v}")
+
+
+def test_r5_pegs_stay_exact_under_a_tight_band():
+    """The tube clamps everywhere, but a peg is a LAW target, not a
+    band value."""
+    n = 11
+    s = _uniform(n)
+    f = [99.0] * n
+    c = [101.0] * n
+    dem = [90.0] * n                    # far below the tube
+    out = track_dem_profile(s, f, c, {0: 100.0, 10: 100.4}, CAP, dem=dem)
+    assert out is not None
+    assert out.z[0] == pytest.approx(100.0, abs=1e-9)
+    assert out.z[10] == pytest.approx(100.4, abs=1e-9)
+    for v in out.z:
+        assert 99.0 - 1e-9 <= v <= 101.0 + 1e-9
+
+
+# ── (e) NO PEGS AT ALL — the R4-unstrung stretch still tracks ───────
+def test_r5_empty_pegs_still_returns_a_profile_that_tracks_dem():
+    """R5 SCOPE: outside the pegged span the same tracker applies with
+    NO pegs — the stretch R4 left to the pointwise rule."""
+    n = 25
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [89.7 + 0.3 * math.sin(i * 0.4) for i in range(n)]
+    out = track_dem_profile(s, f, c, {}, CAP, dem=dem)
+    assert out is not None
+    assert out.pegs == {}
+    assert out.synthetic_end_ties == 0
+    for i in range(n):
+        assert out.z[i] == pytest.approx(dem[i], abs=1e-9)
+
+
+def test_r5_no_dem_at_all_returns_none():
+    """Nothing to track ⇒ the caller keeps its own fallback."""
+    n = 5
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    assert track_dem_profile(s, f, c, {0: 100.0}, CAP,
+                             dem=[None] * n) is None
+
+
+def test_r5_missing_interior_samples_are_bridged():
+    n = 9
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [100.0, None, 100.2, None, None, 100.5, 100.6, None, 100.8]
+    out = track_dem_profile(s, f, c, {}, CAP, dem=dem)
+    assert out is not None
+    assert len(out.z) == n
+    for i in range(1, n):
+        assert abs(out.z[i] - out.z[i - 1]) / (s[i] - s[i - 1]) <= CAP + 1e-9
+    # only really-sampled stations are audited for departure
+    assert out.audit.dem_stations == 5      # indices 0, 2, 5, 6, 8
+
+
+# ── (f) DEM DEVIATION MINTS NO CONFLICT ─────────────────────────────
+def test_r5_dem_deviation_mints_zero_conflicts():
+    """Owner 2026-08-14: DEM deviation is not an error and is not
+    reported.  A terrain the cap cannot follow departs into the AUDIT,
+    never into the conflict list."""
+    n = 31
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = [100.0 + 20.0 * (i % 2) for i in range(n)]   # 200 % zig-zag
+    out = track_dem_profile(s, f, c, {}, CAP, dem=dem)
+    assert out is not None
+    assert out.conflicts == [], (
+        f"DEM deviation minted conflicts: "
+        f"{[x.kind for x in out.conflicts]}")
+    assert out.audit.dem_departure_stations > 0
+    assert out.audit.over_cap_segments == 0
+
+
+def test_r5_tube_and_peg_conflicts_are_still_reported():
+    """The tracker keeps the SAME conflict vocabulary: an inverted tube
+    and an unabsorbable peg pair are still named with their numbers."""
+    n = 11
+    s = _uniform(n)
+    f = [100.0] * n
+    c = [100.0] * n
+    f[5] = 105.0                        # inverted tube at station 5
+    dem = [100.0] * n
+    out = track_dem_profile(s, f, c, {0: 100.0, 1: 108.0}, CAP, dem=dem)
+    assert out is not None
+    kinds = {x.kind for x in out.conflicts}
+    assert "inverted_tube" in kinds
+    assert "peg_pair" in kinds
+
+
+# ── the airside form is untouched ───────────────────────────────────
+def test_r5_taut_string_is_still_the_airside_form():
+    """``solve_run_profile`` keeps taut-string semantics (the airside
+    spine's law); R5 adds a second objective, it does not replace one."""
+    n = 11
+    s = _uniform(n)
+    f, c = _wide_band(n)
+    dem = _v_dip(n, 2.0)
+    out = solve_run_profile(s, f, c, {0: 100.0, 10: 100.0}, CAP, dem=dem)
+    assert out is not None
+    for v in out.z:
+        assert v == pytest.approx(100.0, abs=1e-9)

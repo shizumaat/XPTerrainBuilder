@@ -3570,7 +3570,17 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # peg pair whose rise the run cannot absorb at the cap — are RECORDED
     # with their numbers on ``layout._svc_profile_conflicts`` and never
     # blended away (feasibility-is-guaranteed: report, never quarantine).
-    from .corridor_profile import solve_run_profile as _solve_run
+    # R5 — ROAD RUNS TRACK TERRAIN (service-road law spec, owner-ratified
+    # 2026-08-15).  The taut string draws the STRAIGHTEST lawful profile;
+    # for a ROAD that is a causeway over every dip and a canyon through
+    # every rise (CYXY 349: 5.2 m over a 2.7 % dip at 0.4 % grade; the
+    # junction-190 complex flat at ~706 under 718-722 m HRDEM; HECA an
+    # elevated plateau).  A service-road run's profile is the
+    # CAP-CONSTRAINED LEAST-DEVIATION TRACKER of its low-passed station
+    # DEM — same tube, same pegs, same cap, same audit, terrain as the
+    # objective.  The taut string stays the AIRSIDE spine form
+    # (``construct_taut_strings``), untouched.
+    from .corridor_profile import track_dem_profile as _track_run
 
     # A LINE IS NOT A RUN.  A service seed line is an OSM/apt course that
     # may run kilometres past the airport; stations exist only where the
@@ -3609,6 +3619,62 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # grade) the spec requires.
     _law_release: set = set()
     _law_release_runs: list = []
+    # R5 SCOPE: stations the R4 span rule leaves UNSTRUNG (a run with
+    # <= 1 law target, and the stretches outside a run's pegged span)
+    # now take the SAME tracker with whatever pegs are in their scope
+    # (outside a span: none) instead of the pointwise station clamp —
+    # "strung and unstrung stretches converge in character, healing
+    # their seam".  R4's other half STANDS: these stations join no
+    # ``svc_profile`` hold and no R1 accounting; the tracker replaces
+    # only their VALUE rule, and they stay seeds exactly as the
+    # pointwise clamp left them (they keep their fallback cross-section
+    # group for the neighbour-term pass).
+    _tracked_free: set = set()
+    _tracked_free_groups: list = []
+
+    def _track_unpegged(_li, a, b, run_s, run_f, run_c, run_de, run_xy,
+                        run_sid, run_pegs):
+        """Track [a..b] (run-local indices) as terrain, in maximal
+        contiguous stretches of stations that HAVE a DEM sample — a
+        station without one has no terrain to track and keeps the
+        existing fallback."""
+        if b < a:
+            return
+        k = a
+        while k <= b:
+            if run_de[k] is None:
+                k += 1
+                continue
+            j = k
+            while j + 1 <= b and run_de[j + 1] is not None:
+                j += 1
+            if j > k:
+                _pg = {q - k: run_pegs[q] for q in run_pegs if k <= q <= j}
+                _pr = _track_run(run_s[k:j + 1], run_f[k:j + 1],
+                                 run_c[k:j + 1], _pg, cap,
+                                 dem=run_de[k:j + 1], xy=run_xy[k:j + 1])
+                if _pr is not None:
+                    for _q, _sid in enumerate(run_sid[k:j + 1]):
+                        _tgt = float(_pr.z[_q])
+                        for _i in stations[_sid]["members"]:
+                            node_target[_i] = _tgt
+                        _tracked_free.add(_sid)
+                        _tracked_free_groups.append(
+                            frozenset(stations[_sid]["members"]))
+                    _a = _pr.audit
+                    audits_out.append({
+                        "line": _li[0], "part": _li[1], "scope": "unpegged",
+                        "stations": j - k + 1, "segments": _a.segments,
+                        "length_m": run_s[j] - run_s[k],
+                        "pegs": len(_pr.pegs), "synthetic_end_ties": 0,
+                        "worst_grade": _a.worst_grade,
+                        "over_cap_segments": _a.over_cap_segments,
+                        "cap_ride_runs": _a.cap_ride_runs,
+                        "cap_ride_segments": _a.cap_ride_segments,
+                        "cap_ride_length_m": _a.cap_ride_length_m,
+                        "dem_departure_stations": _a.dem_departure_stations,
+                        "dem_departure_max_m": _a.dem_departure_max_m})
+            k = j + 1
 
     for _li, _sids in runs.items():
         run_s: list = []
@@ -3666,8 +3732,17 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
         # between.
         _span = _r4_pegged_span(run_pegs)
         if _span is None:
-            continue                    # <=1 law target → pointwise rule
+            # <= 1 law target: R4 leaves the run unstrung — R5 tracks it.
+            _track_unpegged(_li, 0, len(run_s) - 1, run_s, run_f, run_c,
+                            run_de, run_xy, run_sid, run_pegs)
+            continue
         _lo_k, _hi_k = _span
+        # Outside the pegged span there is nothing lawful to string to;
+        # the tracker applies there with NO pegs in scope (R5 SCOPE).
+        _track_unpegged(_li, 0, _lo_k - 1, run_s, run_f, run_c,
+                        run_de, run_xy, run_sid, run_pegs)
+        _track_unpegged(_li, _hi_k + 1, len(run_s) - 1, run_s, run_f,
+                        run_c, run_de, run_xy, run_sid, run_pegs)
         run_s = run_s[_lo_k:_hi_k + 1]
         run_f = run_f[_lo_k:_hi_k + 1]
         run_c = run_c[_lo_k:_hi_k + 1]
@@ -3675,7 +3750,7 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
         run_xy = run_xy[_lo_k:_hi_k + 1]
         run_sid = run_sid[_lo_k:_hi_k + 1]
         run_pegs = {k - _lo_k: v for k, v in run_pegs.items()}
-        prof = _solve_run(run_s, run_f, run_c, run_pegs, cap,
+        prof = _track_run(run_s, run_f, run_c, run_pegs, cap,
                           dem=run_de, xy=run_xy)
         if prof is None:
             continue                    # under-determined run → fallback
@@ -3706,14 +3781,17 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
             conflicts_out.append(rec)
         a = prof.audit
         audits_out.append({
-            "line": _li[0], "part": _li[1], "stations": len(run_s), "segments": a.segments,
+            "line": _li[0], "part": _li[1], "scope": "pegged",
+            "stations": len(run_s), "segments": a.segments,
             "length_m": run_s[-1] - run_s[0], "pegs": len(prof.pegs),
             "synthetic_end_ties": prof.synthetic_end_ties,
             "worst_grade": a.worst_grade,
             "over_cap_segments": a.over_cap_segments,
             "cap_ride_runs": a.cap_ride_runs,
             "cap_ride_segments": a.cap_ride_segments,
-            "cap_ride_length_m": a.cap_ride_length_m})
+            "cap_ride_length_m": a.cap_ride_length_m,
+            "dem_departure_stations": a.dem_departure_stations,
+            "dem_departure_max_m": a.dem_departure_max_m})
 
     layout._svc_profile_conflicts = conflicts_out
     layout._svc_profile_audits = audits_out
@@ -3816,12 +3894,18 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
         _n_over = sum(x["over_cap_segments"] for x in audits_out)
         _n_ride = sum(x["cap_ride_runs"] for x in audits_out)
         _worst = max((x["worst_grade"] for x in audits_out), default=0.0)
+        _n_dep = sum(x.get("dem_departure_stations", 0) for x in audits_out)
+        _worst_dep = max((x.get("dem_departure_max_m", 0.0)
+                          for x in audits_out), default=0.0)
         _UI_cp.vprint(1,
-            f"  [pav-builder] whole-run corridor profile: "
-            f"{len(audits_out)} run(s), {len(profiled)} station(s); "
+            f"  [pav-builder] whole-run corridor profile (R5: roads TRACK "
+            f"terrain): {len(audits_out)} run(s), {len(profiled)} held "
+            f"station(s) + {len(_tracked_free)} unpegged tracked; "
             f"worst grade {_worst * 100:.2f} % (cap {cap * 100:.2f} %), "
             f"{_n_over} over-cap segment(s), {_n_ride} cap-riding run(s), "
-            f"{len(conflicts_out)} reported conflict(s).")
+            f"{len(conflicts_out)} reported conflict(s); cap-departure "
+            f"from DEM at {_n_dep} station(s), worst {_worst_dep:.2f} m "
+            f"(audit only — DEM deviation is not a reported defect).")
         for _c in conflicts_out[:8]:
             _UI_cp.vprint(2,
                 f"      [corridor-profile] line {_c['line']}: {_c['text']}"
@@ -3837,10 +3921,11 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
     # clamp with no neighbour term, so DEM-follow noise between ADJACENT
     # stations is unbounded by cap exactly where the whole-run law never
     # reached.
-    _fb_groups: list = []
+    _fb_groups: list = list(_tracked_free_groups)
     layout._svc_station_fallback_groups = _fb_groups
+    layout._svc_profile_tracked_free_stations = len(_tracked_free)
     for sid, st in enumerate(stations):
-        if not st["members"] or sid in profiled:
+        if not st["members"] or sid in profiled or sid in _tracked_free:
             continue
         de = smooth_de.get(sid)
         if de is None:

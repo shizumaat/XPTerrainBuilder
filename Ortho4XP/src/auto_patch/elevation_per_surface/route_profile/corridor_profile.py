@@ -78,12 +78,71 @@ which is what lets one continuous lawful path route through it — and
 recorded as a :class:`CorridorConflict` carrying the deficit and the
 binding peg pair.  The profile stays one object; the conflict stays
 visible.
+
+R5 — ROAD RUNS TRACK TERRAIN (service-road law spec, owner-ratified
+2026-08-15)
+-----------------------------------------------------------------------
+The taut string draws the STRAIGHTEST lawful profile.  That is CORRECT
+for an airside spine (a taxiway is a designed surface between designed
+anchors) and WRONG for a road, whose owner-law is terrain-hugging: a
+road strung between two mouths rides a CHORD — CYXY road 349 as a 5.2 m
+causeway over a 2.7 % terrain dip at 0.4 % grade, the CYXY junction-190
+complex flat at ~706 m under 718-722 m of HRDEM, HECA as an elevated
+plateau.
+
+:func:`track_dem_profile` is the road form of the same 1-D law object:
+the CAP-CONSTRAINED LEAST-DEVIATION TRACKER of the run's low-passed
+station DEM.  Same tube, same pegs, same cap, same audit and conflict
+types — a different OBJECTIVE.  ``solve_run_profile`` (the taut string)
+is untouched and remains the airside form.
+
+Mechanism, three O(n) stages, no new constant and no new solver:
+
+1. THE PEG CONE.  Each peg is a LAW TARGET the profile must pass
+   through exactly, so at station ``i`` the cap alone already bounds the
+   profile to ``[max_j(p_j - cap*|s_i - s_j|), min_j(p_j + cap*|s_i -
+   s_j|)]``.  Both envelopes are inf-convolutions with ``cap*d`` and are
+   computed by one forward and one backward pass (not an O(n*p) double
+   loop).  Intersected with the reach-band tube, this is the admissible
+   interval; where the two disagree the minimal convex relaxation
+   ``[min, max]`` applies, exactly as :func:`_relax_tube` does (the
+   contradiction is already reported as a ``peg_pair`` conflict).
+2. THE SEED IS THE TERRAIN.  ``z_i = clamp(dem_i, admissible_i)`` — the
+   source IS the DEM, which is what separates this from the retired
+   warm-start hazard class (whose carrier was cone-MIDPOINT-seeded at
+   range and therefore flattened).  Pegs are written exactly.
+3. THE CAP-LIPSCHITZ PROJECTION.  ``U_i = min_j(z_j + cap*d_ij)`` (the
+   largest cap-Lipschitz minorant) and ``L_i = max_j(z_j - cap*d_ij)``
+   (the smallest cap-Lipschitz majorant) are the same forward/backward
+   pass pair; ``z' = (U + L)/2`` is cap-Lipschitz and is the MINIMAL
+   move in the sup norm: no cap-Lipschitz profile is closer to ``z``
+   than ``max_ij (z_i - z_j - cap*d_ij)^+ / 2``, and ``z'`` attains it.
+   Where terrain stays within cap, ``U = L = z`` and the profile IS the
+   terrain; where terrain out-runs the cap it departs, minimally.
+
+PEGS COME OUT EXACT.  At a peg station ``p`` the cone collapses to
+``[p, p]``, so every clamped ``z_j`` satisfies ``|z_j - p| <=
+cap*d_pj``; therefore ``U_p = L_p = z_p = p``.  (Mutually infeasible
+pegs are the reported ``peg_pair`` conflict and keep the string's own
+semantics: the peg wins, the segment is audited over-cap.)
+
+THE TUBE STILL BINDS.  The band walls are themselves cap-Lipschitz
+(grown from the anchors at this same cap), and the inf-convolution of a
+function under a cap-Lipschitz ceiling stays under it — so ``z'`` never
+leaves the relaxed tube, and no post-clamp (which would break the cap)
+is needed.
+
+DEM DEVIATION MINTS NO CONFLICT (owner 2026-08-14, "DEM DEVIATION IS
+NOT AN ERROR AND IS NOT REPORTED").  Departure spans ride the AUDIT —
+which is the round's own instrument, not the census — so the acceptance
+read can see where the cap out-ran the terrain without a single row
+being reported anywhere a defect is counted.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Sequence
 
 from .taut_string import string_with_pegs
@@ -96,6 +155,7 @@ __all__ = [
     "RunProfile",
     "audit_run",
     "solve_run_profile",
+    "track_dem_profile",
 ]
 
 #: A grade at or above this fraction of the cap counts as RIDING it.  A
@@ -173,6 +233,15 @@ class RunAudit:
     cap_ride_segments: int = 0
     cap_ride_runs: int = 0
     cap_ride_length_m: float = 0.0
+    #: R5 — where the CAP (or the tube) forced the tracker off the
+    #: terrain it tracks.  Populated by :func:`track_dem_profile` only.
+    #: These are AUDIT rows, never conflicts and never census rows: DEM
+    #: deviation is not an error and is not reported (owner 2026-08-14).
+    dem_stations: int = 0
+    dem_departure_stations: int = 0
+    dem_departure_max_m: float = 0.0
+    #: ``(s_start_m, s_end_m)`` per contiguous departure span.
+    dem_departure_spans: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass
@@ -369,3 +438,192 @@ def solve_run_profile(stations: Sequence[float],
     audit = audit_run(stations, z, cap, xy=xy, conflicts=conflicts)
     return RunProfile(z=z, pegs=work, audit=audit, conflicts=conflicts,
                       synthetic_end_ties=synthetic)
+
+
+# ── R5: THE CAP-CONSTRAINED LEAST-DEVIATION TERRAIN TRACKER ─────────
+
+def _lipschitz_min_envelope(stations: Sequence[float], seed: list[float],
+                            cap: float) -> list[float]:
+    """``E_i = min_j (seed_j + cap * |s_i - s_j|)`` — the inf-convolution
+    of ``seed`` with the cap metric, in one forward and one backward
+    pass.  ``+inf`` seeds are inert (they name "no constraint here")."""
+    e = list(seed)
+    for i in range(1, len(e)):
+        b = e[i - 1] + cap * (float(stations[i]) - float(stations[i - 1]))
+        if b < e[i]:
+            e[i] = b
+    for i in range(len(e) - 2, -1, -1):
+        b = e[i + 1] + cap * (float(stations[i + 1]) - float(stations[i]))
+        if b < e[i]:
+            e[i] = b
+    return e
+
+
+def _lipschitz_max_envelope(stations: Sequence[float], seed: list[float],
+                            cap: float) -> list[float]:
+    """``E_i = max_j (seed_j - cap * |s_i - s_j|)`` — the sup-convolution
+    twin of :func:`_lipschitz_min_envelope` (``-inf`` seeds inert)."""
+    e = list(seed)
+    for i in range(1, len(e)):
+        b = e[i - 1] - cap * (float(stations[i]) - float(stations[i - 1]))
+        if b > e[i]:
+            e[i] = b
+    for i in range(len(e) - 2, -1, -1):
+        b = e[i + 1] - cap * (float(stations[i + 1]) - float(stations[i]))
+        if b > e[i]:
+            e[i] = b
+    return e
+
+
+def _fill_dem(dem: Sequence[float | None],
+              stations: Sequence[float]) -> tuple[list[float], list[bool]] | None:
+    """Return ``(values, sampled)`` — the DEM with interior holes bridged
+    by linear interpolation in ``s`` and the ends held flat at the
+    nearest sample.  ``sampled[i]`` marks a station that really carries a
+    DEM sample (only those are audited for departure).  ``None`` when the
+    run carries no sample at all: there is no terrain to track, and the
+    caller keeps its own fallback."""
+    k = len(stations)
+    known = [i for i in range(k)
+             if i < len(dem) and dem[i] is not None
+             and math.isfinite(float(dem[i]))]
+    if not known:
+        return None
+    vals = [0.0] * k
+    sampled = [False] * k
+    for i in known:
+        vals[i] = float(dem[i])
+        sampled[i] = True
+    # One linear sweep: nearest sample at or before / at or after i.
+    prev_i = [-1] * k
+    p = -1
+    for i in range(k):
+        if sampled[i]:
+            p = i
+        prev_i[i] = p
+    next_i = [-1] * k
+    n = -1
+    for i in range(k - 1, -1, -1):
+        if sampled[i]:
+            n = i
+        next_i[i] = n
+    for i in range(k):
+        if sampled[i]:
+            continue
+        a, b = prev_i[i], next_i[i]
+        if a >= 0 and b >= 0:
+            sa, sb = float(stations[a]), float(stations[b])
+            t = ((float(stations[i]) - sa) / (sb - sa)) if sb > sa else 0.0
+            vals[i] = vals[a] + (vals[b] - vals[a]) * t
+        elif a >= 0:
+            vals[i] = vals[a]
+        else:
+            vals[i] = vals[b]
+    return vals, sampled
+
+
+def track_dem_profile(stations: Sequence[float],
+                      floor: Sequence[float],
+                      ceiling: Sequence[float],
+                      pegs: dict[int, float],
+                      cap: float,
+                      *,
+                      dem: Sequence[float | None],
+                      xy: Sequence[tuple[float, float]] | None = None
+                      ) -> RunProfile | None:
+    """R5: solve ONE service-road run's profile as the CAP-CONSTRAINED
+    LEAST-DEVIATION TRACKER of ``dem``.
+
+    Same contract as :func:`solve_run_profile` — same arguments, same
+    :class:`RunProfile` shape, same audit and conflict types — with the
+    OBJECTIVE swapped: instead of the shortest path through the tube
+    (which draws a chord, the causeway/canyon defect R5 names), this is
+    the terrain, moved as little as the cap and the tube allow.
+
+    ``dem``   per-station low-passed DEM (``smooth_de``), ``None``
+              entries allowed: interior holes interpolate, the ends hold
+              flat, and only really-sampled stations are audited for
+              departure.  A run with NO sample returns ``None``.
+
+    Pegs come out EXACT.  Every adjacent-station grade obeys ``cap``.
+    DEM deviation mints NO conflict — the departure spans ride
+    ``RunProfile.audit`` (``dem_departure_*``), which is the round's
+    instrument, never the census.
+
+    Returns ``None`` when the run is too short or carries no terrain.
+    """
+    k = len(stations)
+    if k < 2:
+        return None
+    filled = _fill_dem(dem, stations)
+    if filled is None:
+        return None
+    de, sampled = filled
+
+    floor = [float(v) for v in floor]
+    ceiling = [float(v) for v in ceiling]
+    conflicts: list[CorridorConflict] = []
+    _relax_tube(floor, ceiling, stations, cap, xy, conflicts)
+
+    work = {int(i): float(v) for i, v in pegs.items()
+            if 0 <= int(i) < k and math.isfinite(float(v))}
+    _peg_pair_conflicts(stations, work, cap, xy, conflicts)
+
+    # 1. THE PEG CONE, intersected with the tube.
+    inf = float("inf")
+    cone_hi = _lipschitz_min_envelope(
+        stations, [work.get(i, inf) for i in range(k)], cap)
+    cone_lo = _lipschitz_max_envelope(
+        stations, [work.get(i, -inf) for i in range(k)], cap)
+    lo = [max(floor[i], cone_lo[i]) for i in range(k)]
+    hi = [min(ceiling[i], cone_hi[i]) for i in range(k)]
+    for i in range(k):
+        if lo[i] > hi[i]:
+            # The minimal convex relaxation _relax_tube applies, applied
+            # to the tube-vs-cone contradiction: the peg pair that mints
+            # it is already a reported conflict.
+            lo[i], hi[i] = hi[i], lo[i]
+
+    # 2. THE SEED IS THE TERRAIN (pegs written exactly).
+    z = [min(max(de[i], lo[i]), hi[i]) for i in range(k)]
+    for i, v in work.items():
+        z[i] = v
+
+    # 3. THE MINIMAL CAP-LIPSCHITZ PROJECTION.
+    upper = _lipschitz_min_envelope(stations, z, cap)   # U <= z
+    lower = _lipschitz_max_envelope(stations, z, cap)   # L >= z
+    z = [0.5 * (upper[i] + lower[i]) for i in range(k)]
+    for i, v in work.items():
+        z[i] = v                        # exact by construction; explicit
+
+    audit = audit_run(stations, z, cap, xy=xy, conflicts=conflicts)
+
+    # THE DEPARTURE SPANS — audit only, no conflict, no census row.
+    spans: list[tuple[float, float]] = []
+    n_dep = 0
+    worst_dep = 0.0
+    open_from: float | None = None
+    last_s = 0.0
+    for i in range(k):
+        if not sampled[i]:
+            continue
+        d = abs(z[i] - de[i])
+        s_i = float(stations[i])
+        if d > MATERIALITY_M:
+            n_dep += 1
+            worst_dep = max(worst_dep, d)
+            if open_from is None:
+                open_from = s_i
+            last_s = s_i
+        elif open_from is not None:
+            spans.append((open_from, last_s))
+            open_from = None
+    if open_from is not None:
+        spans.append((open_from, last_s))
+
+    audit = replace(audit, dem_stations=sum(1 for f in sampled if f),
+                    dem_departure_stations=n_dep,
+                    dem_departure_max_m=worst_dep,
+                    dem_departure_spans=tuple(spans))
+    return RunProfile(z=z, pegs=work, audit=audit, conflicts=conflicts,
+                      synthetic_end_ties=0)

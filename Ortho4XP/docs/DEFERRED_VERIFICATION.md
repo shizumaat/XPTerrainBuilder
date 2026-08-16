@@ -2015,3 +2015,20 @@ DEFERRED, with reasons:
   applies, including the uncrowned-endpoint reading and node-list-rebuild
   survival.  Battery/suite/timing scope unchanged from above (the
   re-seat arm built in 340.1 s — still not a timing measurement).
+
+## 2026-08-15 — R5 road runs track terrain (lane/roadtrack)
+
+`corridor_profile.track_dem_profile` (the cap-constrained least-deviation
+DEM tracker) + its caller in `anchors._svc_spine_station_seeds`.
+PRE-SHIP mode: only the four covering test files were run, once
+(`test_corridor_whole_run_profile.py` +19 R5 twins,
+`test_grade_graph.py`, `test_lateral_cross_section.py`,
+`test_service_mouth_prox_anchor.py` — 136 pass + the recorded
+pre-existing `test_the_solve_ingests_the_family_at_BOTH_edge_set_sites`
+failure).  SKIPPED: full suite, blast-radius sweep, the other three
+battery airports (SPJC/SPLP/KCLT), and any timing measurement.  The
+lane DID build one matched acceptance pair per airport (CYXY + HECA,
+arm vs a control worktree at the same tree) under the 2026-08-12
+measured-arms amendment; walls are ledger-frame only, never a timing
+claim (CYXY 53.2 s arm / 54.7 s control; HECA 907.5 s arm / 901.8 s
+control, both first-in-lane cold object-footprint builds).

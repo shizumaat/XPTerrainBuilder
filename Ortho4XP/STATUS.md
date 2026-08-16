@@ -1,4 +1,63 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815e (HANDOVER — F3/R5c LANES BUILT+HELD, THREE NEW OWNER
+# RULINGS, KAFW SEAM BISECT QUEUED; agents died at the account
+# monthly SPEND LIMIT — no subagents until raised)
+# Post-1.0.253 owner in-sim rounds, all attributed:
+# LOT-OVER-ROAD DOSSIER (CYXY 377): DSF .pol pavement arrives as one
+#   blob; free-road test is WIDTH-ONLY (no landside term) so lots
+#   absorb public roads (82-93% stations dropped; HECA 142/160
+#   groundside shapes contain roads); no production path can split.
+# SINK DOSSIER: groundside = min(terrain, 8% cone from perimeter
+#   welds) — CUT-ONLY; lot 377's low weld inherited from building
+#   25's pad datum (5.03m gap → 92.8% cut, 40k m³); predates ALL
+#   2026-08-15 rounds (every arm within 0.11m); apron 42 mirror =
+#   99.6% fill. Owner's 3.2m step = lot spans the min() branch
+#   switch between two road faces on one chain (axis 182).
+# THREE NEW RULINGS (canon updated): (1) roads carry spines like
+#   taxiways, OSM ways as source, spines PASS THROUGH pavement
+#   (lots/aprons consume spine stations — taxiway-through-apron
+#   precedent); (2) roads weld to aprons at MOUTHS ONLY, never to
+#   buildings; parallel frontage >1.5x width cuts back to DEM
+#   (multi-level terminal frontage is real — CYXY 2nd-story road);
+#   (3) groundside lots CUT AND FILL (two-sided projection
+#   supersedes cut-only). Together = the R7 frontage/lot round
+#   (spec next session; composes with, does not conflict with,
+#   F3/R5c). Also RULED: gap rings conform near pavement + eroded-
+#   pocket interior + spines never below terrain (= spec F3,
+#   docs/specs/gap-conformance-spec.md).
+# LANES (agents died at spend limit; work PRESERVED, NOT merged):
+#   lane/gapconform (F3) 46f4630: CYXY acceptance PASSED (agent-
+#   verified, committed); HECA arm built by lead post-mortem
+#   (HECA_20260815T203509, cf79ec64d773) — censuses 8,315 vs 6,998:
+#   +1,332 ALL ONE FAMILY airside drainage_spine (instrument-vs-law:
+#   the family flags spines at-or-above pavement edge; F3 spines
+#   START at conformed pavement value BY the new ruling) + gs
+#   transverse +429 (needs eyes). ADJUDICATION OPEN: re-found the
+#   drainage_spine family under the new law (harness law change,
+#   twins) before judging F3; all other airside families +0.
+#   lane/roadchar (R5c) 84df5ee: lead PRESERVATION commit of the
+#   dead agent's uncommitted tree (reversal suppression + corridor
+#   co-level + twins) — NOT reviewed, NOT adjudicated; its arms are
+#   built (CYXY_20260815T203504, r5checa rc=0) awaiting census +
+#   lead diff review.
+# KAFW ("KAFL" resolved): straddles lat 33; +33 sliver patched OK,
+#   +32 main REFUSED 20:16 — FINAL band INVERTED 9/994 nodes. OWNER
+#   CORRECTED the clip hypothesis: seam-through-runway is a HANDLED
+#   class (seam edge = DEM anchor; SPLP fixture; twins exist) — a
+#   2026-08-15 round broke the seam-anchor interaction. BISECT
+#   queued: KAFW +32 arm at dd6473f vs merged main; suspects
+#   mouthweld prox anchors / R2/R3 / R5 pegs.
+# ALSO: airport-index "gone" scare = intact (engine+cache+Swift all
+#   verified; fresh-signature TCC re-prompt clears the map via the
+#   "none" reply — owner chip task_053c0752 fixes the erase); a
+#   second repo-root docs/RULINGS.md was created in error and
+#   merged back (one canon only).
+# NEXT SESSION: (1) drainage_spine family re-found → adjudicate F3;
+#   (2) review+adjudicate R5c; (3) merge what passes → app 1.0.254;
+#   (4) KAFW bisect; (5) R7 spec (three rulings above); (6) HECA
+#   H1/H2 residuals (F5 OLS-road joint; substrate). Standing queue
+#   unchanged. r5base lane needs re-mount or down --force.
+# ══════════════════════════════════════════════════════════════════
 # 20260815d (R5 TERRAIN-TRACKING ROADS MERGED — app 1.0.253, owner
 # in-sim pending; R5b refuted)
 # Owner in-sim on 1.0.252: CYXY terrain FIXED (warm-start retirement

@@ -3277,6 +3277,32 @@ def _profile_law_release(conflicts, run_sid) -> set:
     return rel
 
 
+def _r4_pegged_span(run_pegs: dict) -> tuple | None:
+    """R4 (service-road law spec, 2026-08-15): THE STRING HOLDS ON THE
+    PEGGED SPAN ONLY.
+
+    Pegs are the corridor run's LAW TARGETS; the 1-D string is the law
+    object BETWEEN targets.  Returns the closed station-index span
+    ``(lo, hi)`` of the outermost pegged stations, or ``None`` when the
+    run has fewer than two law targets (or a degenerate single-station
+    span) — in which case the run is not strung at all and every
+    station keeps the pointwise spine-first DEM-follow rule.
+
+    Measured defect this encodes: HECA run (46,0), 2,364.6 m of
+    corridor with pegs only at s=0/3.0/7.2 m, strung FLAT at 127.21
+    end to end (37.6 m over ambient at the far junction).  A synthetic
+    far-end DEM tie is refused as the fix: it re-draws the run as a
+    km-scale chord — the census-invisible ridge class the warm-start
+    retirement named.
+    """
+    if len(run_pegs) < 2:
+        return None
+    lo, hi = min(run_pegs), max(run_pegs)
+    if hi - lo < 1:
+        return None
+    return lo, hi
+
+
 def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                              dem_elev, cap, node_ceil, node_floor,
                              node_ceil_dist, node_floor_dist,
@@ -3624,6 +3650,31 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                                else sum(av) / len(av))
         if len(run_s) < 2:
             continue
+        # R4 (service-road law spec): THE STRING HOLDS ON THE PEGGED
+        # SPAN ONLY.  Pegs are the corridor's law targets, and the 1-D
+        # string is the law object BETWEEN targets; beyond the
+        # outermost pegged stations there is nothing lawful to string
+        # to, so those stations keep the pointwise station rule below
+        # (DEM-follow — the band is wide there by construction).
+        # Measured: run (46,0) at HECA, 2,364.6 m with pegs only at
+        # s=0/3.0/7.2 m, strung FLAT at the south mouths' 127.21 across
+        # its whole length and stamped the -11585 junction 37.6 m over
+        # ambient; a synthetic far-end DEM tie instead re-draws the run
+        # as a km-scale chord (the census-invisible ridge class the
+        # warm-start retirement named).  A run with <= 1 peg is not
+        # strung at all — same principle, zero targets to string
+        # between.
+        _span = _r4_pegged_span(run_pegs)
+        if _span is None:
+            continue                    # <=1 law target → pointwise rule
+        _lo_k, _hi_k = _span
+        run_s = run_s[_lo_k:_hi_k + 1]
+        run_f = run_f[_lo_k:_hi_k + 1]
+        run_c = run_c[_lo_k:_hi_k + 1]
+        run_de = run_de[_lo_k:_hi_k + 1]
+        run_xy = run_xy[_lo_k:_hi_k + 1]
+        run_sid = run_sid[_lo_k:_hi_k + 1]
+        run_pegs = {k - _lo_k: v for k, v in run_pegs.items()}
         prof = _solve_run(run_s, run_f, run_c, run_pegs, cap,
                           dem=run_de, xy=run_xy)
         if prof is None:

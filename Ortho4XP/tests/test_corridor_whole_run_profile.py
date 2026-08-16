@@ -314,3 +314,47 @@ def test_clean_run_releases_no_station():
     assert out is not None
     assert not out.conflicts
     assert _release_of(out, ["s0", "s1", "s2", "s3", "s4"]) == set()
+
+
+# ── R4: THE STRING HOLDS ON THE PEGGED SPAN ONLY (service-road law
+# spec amendment, 2026-08-15 — the run-(46,0) eruption class) ────────
+
+def _span_of():
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        _r4_pegged_span)
+    return _r4_pegged_span
+
+
+def test_r4_one_sided_pegs_string_only_their_span():
+    """HECA run (46,0): 265 stations, pegs at indices 0/1/2 only.  The
+    string holds on [0..2]; every station beyond keeps the pointwise
+    DEM-follow rule (NOT a 2.36 km flat at the mouth value, NOT a
+    synthetic far-end chord)."""
+    span = _span_of()({0: 127.21, 1: 127.21, 2: 127.21})
+    assert span == (0, 2)
+
+
+def test_r4_zero_or_one_peg_runs_are_not_strung():
+    """Zero law targets → nothing to string between: the whole run is
+    pointwise.  One peg likewise (the weld's own reach band shapes the
+    departure; the string has no second target)."""
+    span = _span_of()
+    assert span({}) is None
+    assert span({7: 101.5}) is None
+
+
+def test_r4_degenerate_single_station_span_is_not_strung():
+    span = _span_of()
+    assert span({3: 100.0}) is None
+
+
+def test_r4_both_end_pegged_run_is_unchanged():
+    """A run pegged at both termini strings end to end — R4 changes
+    nothing for the healthy case."""
+    span = _span_of()({0: 100.0, 9: 102.0})
+    assert span == (0, 9)
+
+
+def test_r4_interior_pegs_bound_the_span():
+    span = _span_of()({2: 100.0, 5: 101.0, 11: 100.5})
+    assert span == (2, 11)

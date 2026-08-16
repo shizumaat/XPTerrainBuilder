@@ -89,3 +89,51 @@ R3  TRANSVERSE CAP WITHOUT A SHARED ROUTE: when ``_edge_route``
   existing chain dedupe) — nothing mapped is dropped.
 - A deviation from R1-R3 as written is a STOP-and-report to the lead,
   never the implementer's decision.
+
+## R4 — THE STRING HOLDS ON THE PEGGED SPAN ONLY (Fable amendment,
+## 2026-08-15, composed-tree blocker B1)
+
+Measured defect (svcround composed tree, HECA): run (46,0) — 265
+stations, 2,364.6 m — carries pegs ONLY at s=0/3.0/7.2 m (three south
+mouth welds, all ≈127.21).  ``solve_run_profile`` synthesises DEM end
+ties only when the run has FEWER THAN TWO pegs total, so a many-pegged
+run's far terminus stays unpegged; the tube is ±inf beyond anchor
+reach; FLAT IS LAWFUL — the string holds 127.21 for 2.36 km and stamps
+the -11585 service_junction 37.6 m above ambient (40 tear rows at
+30.10937,31.38545).  Interventional attribution: R1-off arm erupts
+identically (R1 exonerated); station dump shows WHOLE-RUN targets
+127.2132 over DEM 89.7; peg dump above.  A DEM tie at the far end
+alone is REFUSED here: it re-draws the run as a 2.36 km chord
+(127.21→89.6) with an ~8 m census-invisible ridge mid-corridor — the
+km-scale seed-character class the warm-start retirement named
+(in-sim-only detection).
+
+The law: pegs are the corridor's LAW TARGETS, and the 1-D string is
+the law object BETWEEN targets.  Beyond a run's outermost pegged
+stations there is nothing lawful to string to — DEM under the road's
+own cap is the only law there (the free-end principle, applied to the
+span boundary instead of synthesised across open country).
+
+Mechanism (caller-side, ``anchors.py`` run assembly;
+``solve_run_profile``'s own contract is unchanged):
+
+- A run with >= 2 pegged stations is strung over the CLOSED SPAN
+  [first pegged station .. last pegged station] only.  Stations
+  outside the span are NOT profiled: they keep the spine-first
+  DEM-follow station rule (band-clamped pointwise), exactly as if the
+  corridor ended at its outermost law target.  They join no
+  ``svc_profile`` hold and no R1 accounting.
+- A run with <= 1 pegged station is not strung at all — the whole run
+  keeps the pointwise station rule.  (This retires the synthetic
+  both-end DEM tie as the caller's under-pegged path: a zero-peg
+  kilometre run strung between two DEM ties is the SAME chord class.
+  The function keeps the tie mechanism for direct callers/twins.)
+- The bang-bang regression class S2 measured (cap-ridden humps near
+  anchors) cannot return through this: outside the pegged span the
+  reach band is wide by construction (no law target within reach), so
+  the pointwise rule is DEM there, not a cap envelope.
+
+Acceptance: composed HECA loses the -11585 eruption (junction back at
+ambient ≈89.6; the 40 tear rows gone) with no new family firing;
+CYXY census at-or-better vs composed 294; unit twins for the three
+span cases (one-sided pegs / zero pegs / both-ends pegged unchanged).

@@ -240,3 +240,43 @@ projection re-roughening.  RULING: R5-seeds is the production arm
 (lane d7e3435 merges; 7919c3e does not).  The one-sided-weld class
 joins the node-vs-edge mouth law pair docket — the structural fix is
 law-paired boundaries in the one graph, never a frozen side.
+
+## R5c — GRADED-ROAD CHARACTER: SMOOTH LONGITUDINALLY, CO-LEVELED
+## ACROSS THE COMPOSITE (Fable spec, 2026-08-15; owner in-sim on R5,
+## CYXY 60.7087015,-135.0746305)
+
+R5's tracker follows the low-passed terrain faithfully — including
+its wiggles — where the owner wants ROAD character: "a smooth graded
+surface", not terrain-hugging bumps.  And the visible "road" is a
+COMPOSITE (service_road 349 pieces + service_junction 63 pieces on
+one corridor): each shape takes station values from its own chain
+projection, so the surface can slope laterally across the corridor
+even though every single shape is cross-section-flat.
+
+1. **REVERSAL SUPPRESSION (longitudinal).**  After the R5 tracker,
+   collapse grade REVERSALS below materiality: a local
+   rise-fall-rise (or fall-rise-fall) whose interior amplitude is
+   < `SVC_PROFILE_REVERSAL_MIN_M` (ONE new constant, default 0.4 m)
+   over any span is levelled through (monotone bridge between its
+   endpoints, still clamped to tube ∩ peg cone ∩ cap).  Result:
+   piecewise-monotone ramps between real terrain features; large
+   terrain movement still tracked.  Both owner conditions unchanged
+   (cap; one value per cross-section).
+2. **CORRIDOR CO-LEVEL (lateral).**  All shapes of one corridor
+   (road pieces + junction pieces whose vertices project onto the
+   SAME chain within the existing station reach) share the chain's
+   station value at their arclength — extend station cluster
+   membership across shape boundaries instead of per shape.  A
+   junction hosting MULTIPLE chains keeps its junction rule (mouth
+   welds win; then the through-chain of its widest road).
+3. Airside untouched — byte-identical.
+
+Acceptance: twins for (1) reversal-collapse (synthetic wiggle
+levelled; real 2 m terrain feature kept) and (2) cross-shape
+station sharing (junction vertex adopts through-chain value);
+CYXY: the owner stretch (lot → 60.7087015,-135.0746305) is
+monotone within one reversal and laterally level across road+
+junction pieces at equal arclength; R5's three site verifications
+still PASS; censuses reported vs CYXY 377 / HECA 6,998, no new
+family; ledger-frame walls only.  Materiality 0.01 m; attempt cap
+2; deviations STOP to the Fable lead.

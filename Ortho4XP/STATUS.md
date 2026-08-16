@@ -1,4 +1,72 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815g (HANDOVER — ZERO-DEBT ROUND: wave 1+2 adjudicated, F3+R8
+# MERGED, three lanes IN FLIGHT, wave 3 queued; owner-ordered pause)
+# Owner mandate: complete every ledger category, all adjudicated -> 0,
+# app bundle LAST. TWO NEW RULINGS in canon: within-shape budget is
+# ROUTE-METRIC for the apron family (the C1 keystone — SM1's 1,007
+# rows retire by construction); string-bend RETIRED.
+# MERGED to main this stretch: F3+F3b complete (located author =
+# reclamp_gap_spines re-applying the superseded terrain floor LAST;
+# one staged-law evaluator both authors; HECA drainage_spine
+# 1,323->70 ~ control 66, CYXY->0; all owner sites verified; two
+# STOPs docketed: trench cone floor inert pending validator-side
+# conformance population; 70 survivors = empty-intersection fallback
+# class, crater-floor-vs-dam-ceiling OWNER RULING PENDING) and R8
+# both attempts (KAFW BUILDS rc=0; SPLP 57->42/34a ws::runway 9;
+# HECA airside-acc 1,821->1,526; 2 sub-metre HECA ws::runway
+# residuals docketed: diagonal-pair blind spot in the minting test +
+# join_snap_t sliver — snap radius is an owner knob).
+# C1 ATTRIBUTION (the dossier that changed everything): 1,502 apron
+# rows = SM1 1,007 (route-vs-euclid metric gap) + SM2 232 (long-chord
+# relief; terrace trigger fires ZERO joints — anchor-envelope licensed,
+# nobody asks) + SM3 263 (solver exits still-descending @2,632/250k
+# sweeps; 2,061 empty polytopes midpointed). DEMAND CENSUS histogram
+# measured EMPTY both arms (SM3 lane) — envelope never fires at HECA.
+# KDFW ATTRIBUTION: the 183.286 plateau = Aerosoft inset mesh (5 obj,
+# ONE DSF anchor, 2.85x0.82 km) misclassified DECK_CARRIED via
+# deck_profile_fallback; datum = anchor DEM + 8m; 193 hard pins ->
+# band inversion. Interventionally proven (O4_OBJECT_BRIDGE_TERRAIN=0
+# arm rc=0). NOT the KAFW family.
+# IN FLIGHT (background agents; harvest via lane worktrees +
+# .progress if the session ends): lane/routemetric (RM keystone spec
+# docs/specs/rm-route-metric-within-shape-spec.md — one shared law
+# function, SM decomposition re-run required); lane/bridgeguard
+# (docs/specs/kdfw-bridge-refusal-spec.md — refusal bounds PROVISIONAL
+# length>1000/width>60/area>40k m² NEED OWNER RATIFICATION; OTHH
+# viaducts must survive); lane/frontage continuation (amendments
+# A1-A3 in r6r7-frontage-lot-spec.md — POSITIVE landside term, ruled
+# clause-3 cutback mechanism, corrected sink attribution; prior
+# commits bff8f2b/70a49dd/5a52e1c KEPT; HECA guard + build are the
+# gates).
+# HELD FOR WAVE 3 (committed lanes, kill switches, re-measure on RM
+# base): lane/align C3 671d1cb (transverse HECA 1,684->1,135 but
+# pair-binding PULLS AIRSIDE worst 58.5m — rework under the
+# rim-pocket/airside-frozen posture C2 already implements; its
+# survivors list = the genuine junction cliffs, 351 rows >=20%);
+# lane/sm3solve e1fadad (certified exit + refuse-not-midpoint; HECA
+# refuses on a PRE-EXISTING 204-node population: spine_floor pinned
+# AT band ceiling vs neighbour cap slab — likely dissolved by RM;
+# rulings pending: population disposition, O4_SM3_EMPTY_INTERVAL_
+# PROBE keep/delete); lane/lawpair (C2: seam tears 45->8, adjacent_
+# ground_tear 0, CYXY 313/74, R5c sliver closed; needs fixpoint
+# re-enumeration over minted stations + RM re-pricing; 8 survivors
+# are NON-CONTACT pairs 1.6-5.6m — outside the law-pair predicate by
+# construction, need their own frame).
+# WAVE 3 QUEUE (after RM/bridgeguard/frontage land): (1) re-measure
+# SM3+C2+C3 on RM base, rework C3 pair-binding airside-frozen,
+# C2 fixpoint; (2) merge order RM -> bridgeguard -> frontage ->
+# reworked C3/C2/SM3; (3) full battery composed censuses (CYXY HECA
+# SPJC SPLP + KAFW KDFW as new fixtures); (4) residual sweep:
+# R8's 2 rows, F3's 70 + trench, C2's 8, C3 cliffs, SM2 survivors;
+# owner rulings then: crater-vs-dam clause, KDFW bounds, snap
+# radius, C1-model revisit; (5) Grade Debt Ledger REFRESH (current
+# one is pre-F3/R8 numbers) + final report; (6) app 1.0.254+ build
+# (engine 1.50.1696 frozen; make_app was refused while app ran —
+# re-run make_app + verify embedded==dist). Standing docket: F5
+# OLS-road joint (H1), HECA H2 verify post-C3/R6, r5base/sm3base/
+# kafwctl control worktrees to tear down --force when done.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260815f (R5c MERGED, F3 HELD AT CAP, GRADE DEBT LEDGER published)
 # R5c reviewed+adjudicated by the lead: PASS (CYXY 333/74 airside,
 # HECA 6,955/1,733 — both better, airside byte-stable; the stale

@@ -202,3 +202,26 @@ Acceptance (harness only):
 
 Pre-delegated: materiality floor 0.01 m; attempt cap 2 per target;
 deviations STOP-and-report to the Fable lead (this spec's author).
+
+### R5b — THE TRACKER PROFILE HOLDS (Fable adjudication of R5's
+### STOP, 2026-08-15; owner ratification rides the round)
+
+R5's first measurement: sites (i)-(iii) PASS with airside
+byte-identical, but unpegged stretches carry the tracker as SEEDS
+(R4's join-no-hold clause), so the projections re-roughen them —
+over-cap emitted segments 38→71 at CYXY, and the transverse cost
+(+45 CYXY / +430 HECA, each row milder) prices a surface the tracker
+never actually emitted.  This is the SAME soft-seed failure the
+pegged-span hold already names ("as a SOFT seed the whole-run profile
+is written and then written over — measured").
+
+Amendment: tracker stations HOLD (join the ``svc_profile`` keyset)
+wherever the tracker's profile is cap-lawful — pegged span and
+unpegged stretches alike — under EXACTLY the R1 validity release
+(over-cap segment / relaxed inverted tube stations release to the
+solve with the tracker value as seed).  R4's span rule is unchanged
+for STRINGING; its join-no-hold clause is superseded for TRACKED
+stations by this hold.  The R5 acceptance criteria re-run unchanged;
+the two CYXY new-family rows (one weld site 60.69699,-135.05965 and
+one plane_gradient) are re-measured under the hold and docketed if
+they survive.

@@ -1,4 +1,34 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815f (R5c MERGED, F3 HELD AT CAP, GRADE DEBT LEDGER published)
+# R5c reviewed+adjudicated by the lead: PASS (CYXY 333/74 airside,
+# HECA 6,955/1,733 — both better, airside byte-stable; the stale
+# T203504 arm was mid-implementation; honest arm T210728). Merged to
+# main; composed-main builds CONFIRM lane numbers (T214510/T214605);
+# covering twins pass. F3+F3b: solve refusal fixed (ceiling-only
+# stage — a (0,0) pin had inverted 677 nodes uniformly 1.8009 m),
+# validator staged (cones from CONFORMED ends only; MIN_FALL kept
+# provisional per charter; 262 twins), but 1,323 airside
+# drainage_spine rows (worst 25.6, median 76 m from parents) are an
+# UNLOCATED EMITTER POPULATION — HELD at the attempt cap on
+# lane/gapconform; next: rows->way-ids->emitter attribution.
+# KAFW BISECT VERDICT (owner's seam frame refuted too): NOT a
+# regression (identical to d787464), NOT the seam (877 m away,
+# healthy) — the runway DEM-follow band is per-runway longitudinal;
+# parallel runways seat 2.333 m apart across a 136 m connector
+# (budget 2.046) -> 0.287 deficit -> refusal. R8 direction: route-
+# feasible seeding (or join contacts at taxi crossings, seated
+# through faa_joint_solve). KDFW = DIFFERENT family (hard-seed
+# plateau 183.286 vs 176.470, 6.8 m, 650 nodes) — unattributed, the
+# larger +32-098 blocker. Artifacts Ortho4XP/tmp/kafwbisect/.
+# GRADE DEBT LEDGER published (docs/grade-debt-ledger-20260815.md +
+# artifact): 8 root-cause categories, priorities C7 (withheld
+# patches) > C4 (R6/R7 groundside bulk) > C5 (F3 last pass) > C3
+# (owner transverse-cap ruling re-adjudicates ~1,700) > C1/C2
+# (airside end-game, gated on the two open K1b rulings).
+# App 1.0.254: engine 1.50.1696 FROZEN; make_app REFUSED (owner is
+# running the app) — quit + rerun make_app, verify embedded==dist.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260815e (HANDOVER — F3/R5c LANES BUILT+HELD, THREE NEW OWNER
 # RULINGS, KAFW SEAM BISECT QUEUED; agents died at the account
 # monthly SPEND LIMIT — no subagents until raised)

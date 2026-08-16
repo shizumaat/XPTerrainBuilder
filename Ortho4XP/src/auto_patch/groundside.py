@@ -3730,16 +3730,22 @@ def _grade_limit_groundside_chords(layout) -> int:
     """
     node_alt: dict = {}
     rings: dict = {}
-    # THE WELDS — law datums from shapes that OUTRANK groundside (the one
-    # weld reader, ``law_anchor_values``); keyed to this pass's own
-    # 2-decimal node key so a weld is recognised as the node it is.
+    # THE WELDS ARE NOT PINNED HERE, and that is MEASURED, not assumed.
+    # Holding them (``law_anchor_values`` keyed to this pass's 2-decimal
+    # node key) is the literal reading of R7c's "[weld − cap·d,
+    # weld + cap·d]" — but a lot ring commonly carries MANY welds whose
+    # law values are not mutually lawful across the ring's own chords,
+    # and freezing them converts every such pair from a cut into a
+    # standing violation: CYXY way -10126 went to 6.17 m at 16-26 %
+    # where the same site had read 4.79 m at 8.1 % (the shaping cap is
+    # 5 %, so a >8 % pair is a pair no limiter touched).  The weld nodes
+    # are OVERWRITTEN AT EMIT by the higher-authority claimant anyway
+    # (``to_osm``'s precedence resolution — the lot's own field at a weld
+    # is not what ships), so moving them inside the lot's field costs
+    # nothing and is the pre-R7c behaviour.  The kernel keeps the ``pinned``
+    # capability for the single-ring API, where the caller knows its
+    # welds are one consistent datum.
     pinned_keys: set = set()
-    try:
-        for (wx, wy) in (law_anchor_values(
-                layout, for_role=ROLE_GROUNDSIDE_PAVEMENT) or {}):
-            pinned_keys.add((round(float(wx), 2), round(float(wy), 2)))
-    except Exception:
-        pinned_keys = set()
     for i, s in enumerate(layout.shapes):
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue

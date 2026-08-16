@@ -188,6 +188,9 @@ __all__ = [
     "faa_rate_of_change_pass",
     "faa_joint_solve",
     "generate_patch_osm",
+    "law_line_at",
+    "seat_law_stations",
+    "solve_anchor_set",
     "runway_grade_cap_at",
     "runway_segment_grade_cap",
 ]
@@ -474,6 +477,77 @@ def faa_rate_of_change_pass(fractions, elevs, anchored, phys_dist,
 
     for j in range(n):
         elevs[j] = elevs_ext[j + start_offset]
+
+
+def law_line_at(fractions, elevs, anchored, frac):
+    """THE law line at centreline fraction ``frac``: the linear interpolation
+    over the ANCHORED stations of the profile.
+
+    One spelling, shared by the emit-time seeder's ``_anchor_profile`` and by
+    every later re-seat of the law-seated (taxi-join) stations, so "the law
+    line" cannot mean two things at two sites."""
+    anchors = sorted((f, e) for (f, e, a) in zip(fractions, elevs, anchored)
+                     if a)
+    if not anchors:
+        return None
+    if frac <= anchors[0][0]:
+        return anchors[0][1]
+    if frac >= anchors[-1][0]:
+        return anchors[-1][1]
+    for k in range(len(anchors) - 1):
+        f0, e0 = anchors[k]
+        f1, e1 = anchors[k + 1]
+        if f0 <= frac <= f1:
+            if f1 - f0 < 1e-9:
+                return e0
+            return e0 + (frac - f0) / (f1 - f0) * (e1 - e0)
+    return anchors[-1][1]
+
+
+def seat_law_stations(fractions, elevs, anchored, seated):
+    """Re-value every LAW-SEATED station ON the law line, in place.
+
+    THE SURVIVING SEAT (spec ``docs/specs/r8-runway-seeding-spec.md`` stage 1).
+    A taxi-join station is seeded at the law line by giving it a ZERO DEM band,
+    but it is FREE, so every later projection — ``faa_joint_solve``'s grade and
+    vertical-curve passes, and the whole ``runway_redistribute`` re-solve after
+    the seam anchors land — was able to drag it back off that line, and the
+    DEM-follow ride of its neighbours RETURNED at the join (KAFW: a join
+    contact reading −1.398 m off its seat, republished by
+    ``grade_graph._runway_anchors`` as a HARD band anchor).
+
+    Re-seating is exact and adds NO constraint of its own: the law line is
+    linear between the flanking anchors, so a station valued on it is
+    COLLINEAR with them (twinned in ``tests/test_anchor_law_join.py``).  That
+    is why the companion ``solve_anchor_set`` may hold these stations during a
+    solve without bounding anything the real anchors did not already bound —
+    and why they must NOT be published in ``anchored``: ``flex_slack_at``
+    bounds the runway flex against every anchored station, and 8-18 extra
+    anchors per runway is the documented SELF-ANCHOR LOCK.
+
+    Returns the number of stations re-seated."""
+    n = 0
+    for i, s in enumerate(seated or ()):
+        if not s or anchored[i]:
+            continue
+        v = law_line_at(fractions, elevs, anchored, fractions[i])
+        if v is None:
+            continue
+        elevs[i] = v
+        n += 1
+    return n
+
+
+def solve_anchor_set(anchored, seated):
+    """``anchored ∪ law-seated`` — the set a profile SOLVE holds fixed.
+
+    The published ``anchored`` list stays the real-authority set (see
+    ``seat_law_stations``); this union is what the FAA gates are handed so a
+    law-seated join does not move and the free interior yields to it instead."""
+    if not seated:
+        return list(anchored)
+    return [bool(a) or bool(seated[i] if i < len(seated) else False)
+            for i, a in enumerate(anchored)]
 
 
 def faa_joint_solve(fractions, elevs, anchored, phys_dist,
@@ -1742,8 +1816,19 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 _runway_code_letter(rwy_width),
                 runway_length_m=phys_dist,
                 ruleset=_resolve_ruleset(icao))
+            # THE SEAT SURVIVES THE SOLVE (R8 stage 1).  The join stations were
+            # just seeded ON the law line by the zero band above; hand the FAA
+            # gates ``anchored ∪ law-seated`` so the projection moves the free
+            # interior to meet them instead of dragging the seat back off the
+            # line.  A seated station is COLLINEAR with its flanking anchors,
+            # so holding it adds no constraint the anchors did not already
+            # impose.  ``anchored`` itself is untouched — publishing these as
+            # anchors is the self-anchor lock (see ``seat_law_stations``).
+            _law_seated = [bool(z) and not bool(a)
+                           for z, a in zip(_zero_band, anchored)]
             faa_joint_solve(
-                fractions, elevs, anchored, phys_dist,
+                fractions, elevs, solve_anchor_set(anchored, _law_seated),
+                phys_dist,
                 blast_a=blast_a, blast_b=blast_b,
                 grade_cap=_rw_law["max_grade"],
                 end_grade_cap=_rw_law["end_grade"],
@@ -1765,6 +1850,12 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
                 'fractions': list(fractions),
                 'elevs': list(elevs),
                 'anchored': list(anchored),
+                # THE LAW-SEATED STATIONS (R8 stage 1), parallel to
+                # ``anchored`` and disjoint from it: the taxi-join stations
+                # that must be RE-SEATED on the law line and held through
+                # every later re-solve (``runway_redistribute``).  They are
+                # NOT authority — nothing may bound the flex against them.
+                'law_seated': list(_law_seated),
                 # THE WORLD-INVARIANT PINS (cycle-5 fix 1): CIFP threshold
                 # elevations and the physical ends derived from them.  A
                 # seam shift may later MOVE the threshold samples in

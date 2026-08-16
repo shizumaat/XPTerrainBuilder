@@ -72,6 +72,7 @@ from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
     MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE_CHANGE_PER_M, RUNWAY_END_GRADE,
     faa_joint_solve, runway_grade_cap_at, runway_segment_grade_cap,
+    seat_law_stations, solve_anchor_set,
 )
 from .runway_regrade import regrade_runway, DEFAULT_ARC_K_M
 
@@ -287,12 +288,17 @@ def _shift_thresholds_for_seams(
 
 def _insert_seam_anchors(fractions: List[float], elevs: List[float],
                           anchored: List[bool],
-                          seam_samples: List[Tuple[float, float]]
+                          seam_samples: List[Tuple[float, float]],
+                          seated: "List[bool] | None" = None
                           ) -> None:
     """Merge ``seam_samples`` (list of (t, elev)) into the parallel
     arrays, preserving sort order on ``fractions``.  A seam coinciding
     (within 1e-3 in t) with an existing sample takes over that sample
     — sets anchored=True and overrides elev.
+
+    ``seated`` is the parallel LAW-SEATED flag list (R8 stage 1) and is kept
+    in step index-for-index.  A seam landing ON a law-seated station takes it
+    over: the seam is real authority (owner ruling 2026-07-24), a join is not.
     """
     for t, e in sorted(seam_samples):
         if t < 0.0 or t > 1.0:
@@ -304,6 +310,8 @@ def _insert_seam_anchors(fractions: List[float], elevs: List[float],
             if abs(f - t) < 1e-3:
                 anchored[i] = True
                 elevs[i] = e
+                if seated is not None and i < len(seated):
+                    seated[i] = False
                 matched = True
                 break
             if f > t:
@@ -314,6 +322,8 @@ def _insert_seam_anchors(fractions: List[float], elevs: List[float],
         fractions.insert(insert_at, t)
         elevs.insert(insert_at, e)
         anchored.insert(insert_at, True)
+        if seated is not None:
+            seated.insert(insert_at, False)
 
 
 def sample_redistributed_profile(layout, ref: str,
@@ -1046,6 +1056,15 @@ def redistribute_runway_profile(
         fractions = list(state['fractions'])
         elevs = list(state['elevs'])
         anchored = list(state['anchored'])
+        # THE LAW-SEATED STATIONS (R8 stage 1) — the taxi joins the emitter
+        # seated ON the law line.  They are carried through this whole
+        # re-solve, RE-SEATED after the seam anchors move the law line, and
+        # held by the FAA gates; without that the redistribute's own solve
+        # dragged them off the line and the DEM-follow ride of their
+        # neighbours came straight back at the join (KAFW: −1.398 m).
+        law_seated = [bool(s) for s in (state.get('law_seated') or ())]
+        if len(law_seated) != len(fractions):
+            law_seated = [False] * len(fractions)
         phys_dist = state['phys_dist_m']
         # THE RUNWAY'S OWN LAW (debug lane A 2026-08-05) — resolved once
         # by ``runway_segments`` through ``grade_law.runway_profile_law``
@@ -1154,7 +1173,34 @@ def redistribute_runway_profile(
                 seam_samples, phys_dist,
                 grade_cap=_MAIN_CAP, end_grade_cap=_law["end_grade"])
             _insert_seam_anchors(fractions, elevs, anchored,
-                                  seam_samples)
+                                  seam_samples, seated=law_seated)
+
+        # RE-SEAT (R8 stage 1).  The two steps above may have moved the
+        # thresholds and inserted seam anchors, i.e. moved the LAW LINE
+        # itself; a join follows the law line by definition, so it is
+        # re-valued on the new one before the gates run.  Re-seating is
+        # exact and collinear, so it introduces no grade the anchors did
+        # not already imply.
+        _pre_seat = list(elevs)
+        _n_seated = seat_law_stations(fractions, elevs, anchored, law_seated)
+        if _n_seated:
+            _worst_reseat = max(abs(a - b) for a, b
+                                in zip(elevs, _pre_seat))
+            try:
+                from O4_UI_Utils import vprint as _vp_seat
+                _vp_seat(1,
+                         f"  [pav-builder] runway {ref}: {_n_seated} "
+                         f"taxi-join station(s) RE-SEATED on the law line "
+                         f"after the seam/threshold step and held through "
+                         f"the FAA gates (worst re-seat "
+                         f"{_worst_reseat:+.3f} m) — the seat survives the "
+                         f"re-solve (R8 stage 1).")
+            except ImportError:
+                pass
+        # The set the FAA gates hold fixed: real anchors PLUS the seats.
+        # ``anchored`` itself stays the authority set that is persisted and
+        # that ``flex_slack_at`` bounds against (the self-anchor lock).
+        solve_anchored = solve_anchor_set(anchored, law_seated)
 
         # Step 2: re-run the FAA gates on the full sample list.
         # Thresholds are still anchored (at their possibly-shifted
@@ -1170,7 +1216,7 @@ def redistribute_runway_profile(
         # TIERED end-zone relaxation (defect G) — STANDING LAW.
         _strict_m = RUNWAY_THRESHOLD_STRICT_M
         end_zone_cap = solve_profile_with_minimal_end_zone_cap(
-            fractions, elevs, anchored, phys_dist,
+            fractions, elevs, solve_anchored, phys_dist,
             blast_a=state['blast_a_m'],
             blast_b=state['blast_b_m'],
             threshold_strict_m=_strict_m,
@@ -1339,6 +1385,10 @@ def redistribute_runway_profile(
             # CERTAIN anchors (thresholds + seams) while treating the
             # rest as negotiable.
             'anchored': list(anchored),
+            # THE LAW-SEATED STATIONS (R8 stage 1), carried so the flex
+            # re-solve holds the same seats this solve did.  Parallel to
+            # ``anchored`` and disjoint from it — NOT authority.
+            'law_seated': list(law_seated),
             # FIX 1 (spec ``runway-flex-completion``): parallel to
             # ``anchored``.  Nothing here is flex-minted — every anchor at
             # redistribute time is a CIFP threshold, a physical end, a
@@ -1630,6 +1680,18 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             original_minted += [False] * (len(original_fractions)
                                           - len(original_minted))
         del original_minted[len(original_fractions):]
+        # THE LAW-SEATED STATIONS (R8 stage 1), carried into the flex so the
+        # seats the redistribute solved under are the seats the flex re-solve
+        # holds.  Parallel to ``original_anchored``, disjoint from it, and
+        # NOT authority — nothing bounds the flex against a seat (that is the
+        # self-anchor lock); it only keeps the join ON the law line while the
+        # gates smooth the free interior around the flex's targets.
+        original_seated = list(profile.get('law_seated')
+                               or [False] * len(original_fractions))
+        if len(original_seated) < len(original_fractions):
+            original_seated += [False] * (len(original_fractions)
+                                          - len(original_seated))
+        del original_seated[len(original_fractions):]
         axis_len = math.sqrt(profile['axis_len2'])
         ax_a_x, ax_a_y = profile['axis_a']
         ax_dx, ax_dy = profile['axis_d']
@@ -1670,6 +1732,9 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                         # clause that holds CYXY's 02/20 crossing anchors
                         # under fix 1.
                         original_minted[j] = False
+                        # Real geometric authority takes the station over
+                        # from a law seat, exactly as a seam anchor does.
+                        original_seated[j] = False
                         matched = True
                         break
                 if not matched:
@@ -1680,6 +1745,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     original_elevs.insert(insert_at, value)
                     original_anchored.insert(insert_at, True)
                     original_minted.insert(insert_at, False)
+                    original_seated.insert(insert_at, False)
         pending = sorted((t, v) for (t, v) in contact_list
                          if 0.0 < t < 1.0)
 
@@ -1728,6 +1794,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             elevs = list(original_elevs)
             anchored = list(_solve_anchored)
             minted = list(original_minted)
+            seated = list(original_seated)
             for t, v in target_list:
                 placed = False
                 for k, frac in enumerate(fractions):
@@ -1743,6 +1810,11 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                         if not anchored[k]:
                             minted[k] = True
                         anchored[k] = True
+                        # A flex target ON a law seat is a request to MOVE
+                        # that station: the target wins and the seat is
+                        # released (R8 stage 1 — a seat never refuses a
+                        # lawful move, it only refuses the DEM ride).
+                        seated[k] = False
                         placed = True
                         break
                 if not placed:
@@ -1753,13 +1825,19 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
                     elevs.insert(insert_at, v)
                     anchored.insert(insert_at, True)
                     minted.insert(insert_at, True)
+                    seated.insert(insert_at, False)
+            # THE SEAT SURVIVES THE FLEX RE-SOLVE TOO (R8 stage 1): the
+            # targets just moved the law line, so every remaining seat is
+            # re-valued on it and held by the gates alongside the anchors.
+            seat_law_stations(fractions, elevs, anchored, seated)
+            _gate_anchored = solve_anchor_set(anchored, seated)
             # Same end-zone cap the redistribute solve used for this
             # ref (possibly escalated above 0.8% — see
             # ``solve_profile_with_minimal_end_zone_cap``): the flexed
             # profile must be gated identically or the flex re-stamp
             # diverges from the redistributed profile.
             faa_joint_solve(
-                fractions, elevs, anchored, axis_len,
+                fractions, elevs, _gate_anchored, axis_len,
                 blast_a=float(profile.get('blast_a_m') or 0.0),
                 blast_b=float(profile.get('blast_b_m') or 0.0),
                 grade_cap=_flex_law["max_grade"],
@@ -1781,7 +1859,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             for k in range(len(anchored)):
                 if k < len(minted) and minted[k]:
                     anchored[k] = True
-            return fractions, elevs, anchored, minted
+            return fractions, elevs, anchored, minted, seated
 
         def _worst_over_cap(fractions, elevs):
             return _worst_segment_over_main_cap(
@@ -1829,7 +1907,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
             # it is compared against has been through ``faa_joint_solve``
             # too, so this compares like with like and isolates what the
             # TARGETS did from what the gates did.
-            _rf, _re, _ra, _rm = _solve_with([])
+            _rf, _re, _ra, _rm, _rs = _solve_with([])
             profile['flex_endzone_ref'] = _segment_excesses(_rf, _re)
         _endzone_ref = profile['flex_endzone_ref']
 
@@ -1943,7 +2021,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         _refusals: list = []
         _relaxed: set = set()
         while True:
-            fractions, elevs, anchored, minted = _solve_with(pending)
+            fractions, elevs, anchored, minted, seated = _solve_with(pending)
             worst = _worst_violation(fractions, elevs)
             if worst is None or not pending:
                 break
@@ -2031,6 +2109,7 @@ def apply_runway_flex(layout, demands: Dict[str, list]) -> Dict[str, list]:
         profile['elevs'] = list(elevs)
         profile['anchored'] = list(anchored)
         profile['flex_minted'] = list(minted)
+        profile['law_seated'] = list(seated)
         ax_a_x, ax_a_y = profile['axis_a']
         ax_dx, ax_dy = profile['axis_d']
         _apply_profile_to_shapes(

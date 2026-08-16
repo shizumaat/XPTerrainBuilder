@@ -174,6 +174,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "auth_providers": session.auth_providers,
         "provider_sign_in": session.provider_sign_in,
         "provider_sign_out": session.provider_sign_out,
+        # Default-airport index (protocol 1.6): replies "none" / "ready"
+        # with the cache path / "building", the last completing through
+        # AirportIndexReady — the apt.dat parse is hundreds of megabytes
+        # and may not run on THIS thread either.
+        "airport_index": session.airport_index,
     }
 
 

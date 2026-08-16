@@ -29,6 +29,7 @@ import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
 from .events import (
+    AirportIndexReady,
     AutoPatchBegin, AutoPatchProgress, BuildDone, EngineEvent, EngineHello,
     ImageryDownloadsDone,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
@@ -571,6 +572,11 @@ class EngineSession:
         self._provider_status_lock = threading.Lock()
         self._api_key_stored_cache: dict = {}
         self._api_key_probes: set = set()
+        # True while an airport-index build worker is running, so a second
+        # airport_index command joins it instead of starting a second
+        # 380 MB parse (see the command's own note).
+        self._airport_index_lock = threading.Lock()
+        self._airport_index_building = False
         UI.engine_session = self
         self._emit(EngineHello(ortho4xp_version=version,
                                capabilities=("scan", "build", "cancel",
@@ -1513,3 +1519,68 @@ class EngineSession:
         threading.Thread(target=work, daemon=True,
                          name="o4-provider-sign-out").start()
         return {"started": True}
+
+    # ------------------------------------------------------------------
+    # Command: default-airport index
+    # (docs/specs/airport-index-engine-command-spec.md)
+    # ------------------------------------------------------------------
+    def airport_index(self, xplane_dir: str = ""):
+        """Make X-Plane's Global Airports index available to a front end.
+
+        ``O4_Airport_Index`` is the ONE apt.dat parser this project has
+        (the Qt map uses it in-process; a front end with no Python of its
+        own asks for it here rather than growing a second parser that
+        would drift).  The reply says where the front end stands:
+
+        * ``{"status": "none"}`` -- no X-Plane folder, or it holds no
+          Global Airports ``apt.dat``.
+        * ``{"status": "ready", "path": ..., "count": ...}`` -- the cache
+          is fresh; read it now.  ``count`` comes from the cache HEADER
+          (:func:`O4_Airport_Index.index_count`), never a full load.
+        * ``{"status": "building"}`` -- a rebuild started (or one was
+          already running); the cache path and count arrive as
+          :class:`AirportIndexReady`.
+
+        THE READ-LOOP HAZARD (as with the provider commands above):
+        command handlers run on the transport's read loop, and the parse
+        is hundreds of megabytes.  It therefore runs on a worker thread —
+        the loop must stay free to deliver the next command.
+
+        Args:
+            xplane_dir: Path to the X-Plane installation root.  Empty
+                means the front end has no X-Plane folder configured.
+
+        Returns:
+            One of the three reply dictionaries above.
+        """
+        import O4_Airport_Index as AIRPORT_INDEX
+
+        paths = AIRPORT_INDEX.find_apt_dats(xplane_dir) if xplane_dir else []
+        if not paths:
+            return {"status": "none"}
+        cache = FNAMES.airport_index_cache()
+        if not AIRPORT_INDEX.index_is_stale(paths, cache):
+            return {"status": "ready", "path": cache,
+                    "count": AIRPORT_INDEX.index_count(cache)}
+
+        with self._airport_index_lock:
+            if self._airport_index_building:
+                # A worker is already parsing these sources; its
+                # AirportIndexReady answers both callers.
+                return {"status": "building"}
+            self._airport_index_building = True
+
+        def work():
+            try:
+                count = AIRPORT_INDEX.build_index(paths, cache)
+                event = AirportIndexReady(path=cache, count=count)
+            except Exception as error:
+                event = AirportIndexReady(path="", count=0, error=str(error))
+            finally:
+                with self._airport_index_lock:
+                    self._airport_index_building = False
+            self._emit(event)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-airport-index").start()
+        return {"status": "building"}

@@ -127,6 +127,21 @@ public struct O4ProviderAccount: Sendable, Equatable, Identifiable {
     }
 }
 
+/// The `airport_index` command's reply (protocol 1.6).
+///
+/// `status` is the engine's own vocabulary: "ready" (read the TSV at
+/// `path`; `count` airports), "building" (a rebuild started — the
+/// `airportIndexReady` event carries the path when it lands), or "none"
+/// (no X-Plane folder, or it ships no Global Airports apt.dat).
+public struct O4AirportIndexReply: Sendable, Equatable {
+    public let status: String
+    public let path: String
+    public let count: Int
+
+    public var isReady: Bool { status == "ready" }
+    public var isBuilding: Bool { status == "building" }
+}
+
 /// Typed mirror of the engine protocol's event stream
 /// (docs/specs/engine-protocol-multi-gui.md §5; src/o4_engine/events.py is
 /// the schema). Unknown event types and fields are ignored by protocol rule.
@@ -161,6 +176,11 @@ public enum O4Event: Sendable, Equatable {
     /// store, which the engine's own command thread may not do.
     /// `errorText` is the failure message, ready to show.
     case signInResult(sessionName: String, ok: Bool, errorText: String)
+    /// The Global Airports index finished (re)building (protocol 1.6) —
+    /// the completion half of an `airport_index` command that replied
+    /// "building". `path` is the TSV cache to read (empty on failure) and
+    /// `error` the engine's failure text.
+    case airportIndexReady(path: String, count: Int, error: String)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -256,6 +276,9 @@ public enum O4Event: Sendable, Equatable {
         case "SignInResult":
             return .signInResult(sessionName: string("session_name"),
                                  ok: bool("ok"), errorText: string("error_text"))
+        case "AirportIndexReady":
+            return .airportIndexReady(path: string("path"), count: int("count"),
+                                      error: string("error"))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -497,6 +520,31 @@ public final class OrthoEngineClient: @unchecked Sendable {
                 continuation.resume(returning: reply.ok
                                     ? nil : (reply.error ?? "unknown engine error"))
             }
+        }
+    }
+
+    // MARK: - Default airport index (protocol 1.6)
+
+    /// Ask the engine for X-Plane's Global Airports index. The engine owns
+    /// the apt.dat parse (src/O4_Airport_Index.py) and answers with the TSV
+    /// cache to read — this app never parses the 380 MB file itself.
+    ///
+    /// A "building" reply means the parse started on an engine worker
+    /// thread; the `airportIndexReady` event completes it. Engines that
+    /// predate the command reply ok=false and are reported as "none".
+    public func requestAirportIndex(
+        xplaneDir: String,
+        completion: @escaping @Sendable (O4AirportIndexReply) -> Void
+    ) {
+        send(command: "airport_index", arguments: ["xplane_dir": xplaneDir]) { reply in
+            guard reply.ok, let result = reply.result?.objectValue else {
+                completion(O4AirportIndexReply(status: "none", path: "", count: 0))
+                return
+            }
+            completion(O4AirportIndexReply(
+                status: result["status"]?.stringValue ?? "none",
+                path: result["path"]?.stringValue ?? "",
+                count: result["count"]?.intValue ?? 0))
         }
     }
 

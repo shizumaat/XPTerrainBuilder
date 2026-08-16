@@ -44,6 +44,9 @@ struct MapMainView: View {
             // Fill empty engine paths (Custom Scenery, overlays, CIFP)
             // from the newly chosen X-Plane folder.
             buildModel.seedPathsFromXPlane()
+            // A different X-Plane folder is a different Global Airports
+            // apt.dat: ask the engine to re-index it.
+            buildModel.refreshAirportIndex()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
@@ -180,22 +183,36 @@ struct MapMainView: View {
             return
         }
 
+        // Finding an airport also selects its tile — the airport index
+        // doubles as the tile picker.
+        func zoomAndSelect(_ info: AirportInfo) {
+            var cam = controller.mapCamera.value
+            cam.centerLon = info.longitude
+            cam.centerLat = info.latitude
+            cam.scale = max(cam.scale, 60)
+            cam.clamp(in: controller.mapCanvasSize.value)
+            controller.mapCamera.value = cam
+            buildModel.selectTile(containingLat: info.latitude, lon: info.longitude)
+        }
+
         // Airports first: exact ICAO, then prefix, then name contains.
         let airports = controller.mapOverlays.airports
         let match = airports.first { $0.icao.lowercased() == query }
             ?? airports.first { $0.icao.lowercased().hasPrefix(query) }
             ?? airports.first { $0.info.name.lowercased().contains(query) }
         if let match {
-            var cam = controller.mapCamera.value
-            cam.centerLon = match.info.longitude
-            cam.centerLat = match.info.latitude
-            cam.scale = max(cam.scale, 60)
-            cam.clamp(in: controller.mapCanvasSize.value)
-            controller.mapCamera.value = cam
-            // Finding an airport also selects its tile — the airport index
-            // doubles as the tile picker.
-            buildModel.selectTile(containingLat: match.info.latitude,
-                                  lon: match.info.longitude)
+            zoomAndSelect(match.info)
+            return
+        }
+
+        // Then X-Plane's default airports, which have no custom pack and
+        // carry only an ICAO: any airport in the sim can be found, even
+        // where nothing is installed.
+        let defaults = controller.mapOverlays.defaultAirports
+        let defaultMatch = defaults.first { $0.icao.lowercased() == query }
+            ?? defaults.first { $0.icao.lowercased().hasPrefix(query) }
+        if let defaultMatch {
+            zoomAndSelect(defaultMatch.info)
             return
         }
 

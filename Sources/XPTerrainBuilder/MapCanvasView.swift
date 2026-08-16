@@ -29,6 +29,7 @@ struct MapCanvasView: View {
     static let grid = Color(red: 0.55, green: 0.63, blue: 0.75).opacity(0.18)
     static let gridMajor = Color(red: 0.55, green: 0.63, blue: 0.75).opacity(0.34)
     static let magenta = Color(red: 0.78, green: 0.25, blue: 0.47)
+    static let defaultAirport = Color.gray.opacity(0.75)
     static let regionOutline = Color(white: 0.62).opacity(0.85)
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90) // landmark diamonds
     static let selection = Color.white
@@ -211,6 +212,37 @@ struct MapCanvasView: View {
         // Airports: sectional dots, ICAO labels when zoomed.
         let showLabels = cam.scale > 26
         let radius: CGFloat = cam.scale > 26 ? 5 : (cam.scale > 8 ? 3.5 : 2.2)
+        // Default (Global Airports) airports first, so a custom pack's
+        // magenta mark always sits on top. Gated with the 1° graticule —
+        // the zoom where tiles become pickable; above world view a wide
+        // viewport still holds tens of thousands of them. One color for
+        // all, so the circles batch into a single stroked path. Labels
+        // wait for the tile-key zoom: at the custom-label threshold a
+        // dense region would put thousands of Text draws in every frame.
+        if cam.scale > 14 {
+            var circles = Path()
+            var labeled: [(point: CGPoint, icao: String)] = []
+            let labelDefaults = cam.scale > 52
+            for airport in overlays.defaultAirports {
+                let lon = airport.info.longitude, lat = airport.info.latitude
+                guard lon > minLon - 1, lon < maxLon + 1,
+                      lat > minLat - 1, lat < maxLat + 1 else { continue }
+                let p = cam.point(lon: lon, lat: lat, in: size)
+                circles.addEllipse(in: CGRect(x: p.x - radius, y: p.y - radius,
+                                              width: radius * 2, height: radius * 2))
+                if labelDefaults { labeled.append((p, airport.icao)) }
+            }
+            context.stroke(circles, with: .color(Self.defaultAirport),
+                           lineWidth: max(1.4, radius * 0.4))
+            for (p, icao) in labeled {
+                context.draw(
+                    Text(icao)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Self.defaultAirport),
+                    at: CGPoint(x: p.x, y: p.y - radius - 8)
+                )
+            }
+        }
         for airport in overlays.airports {
             let lon = airport.info.longitude, lat = airport.info.latitude
             guard lon > minLon - 1, lon < maxLon + 1, lat > minLat - 1, lat < maxLat + 1 else { continue }

@@ -11,27 +11,36 @@ no network access, no printing):
 * :func:`find_apt_dats` -- locate the Global Airports ``apt.dat`` file(s).
 * :func:`build_index`   -- stream-parse ``apt.dat`` into a compact cache.
 * :func:`load_index`    -- fast reload from that cache.
+* :func:`index_count`   -- the cache's recorded airport count (header only).
 * :func:`index_is_stale` -- decide whether the cache needs rebuilding.
 * :func:`search`        -- rank airports for a free-text query.
 * :func:`parse_coordinate_query` -- interpret a query as tile coordinates.
 
+This module is the SINGLE airport-index implementation every front end
+uses: the Qt map consumes it in-process, and the macOS application asks
+for it over the engine protocol's ``airport_index`` command (which builds
+the cache off the transport read loop and replies with the cache path --
+the application only READS the TSV, it never parses ``apt.dat`` itself;
+see docs/specs/airport-index-engine-command-spec.md).
+
 The cache is a compact TSV file (see :func:`build_index`) so reloads are
 cheap and the on-disk format is easy to inspect.
 
-Cache format v2 and the freshness contract
+Cache format v4 and the freshness contract
 -------------------------------------------
-The cache header is ``O4AIRPORTIDX 2 <count>``.  Immediately after the
+The cache header is ``O4AIRPORTIDX 4 <count>``.  Immediately after the
 header, :func:`build_index` writes one ``#SRC <mtime_ns> <size_bytes>
 <path>`` line for every source ``apt.dat`` it actually read (the path is
 written last because it may contain spaces; ``mtime_ns`` comes from
 :func:`os.stat`'s ``st_mtime_ns`` for full precision, and the byte size is
 recorded as a second freshness signal).  The tab-separated data rows are
-unchanged from v1.  :func:`load_index` transparently loads both v1 (no
-``#SRC`` lines) and v2 caches, skipping any ``#SRC`` lines.
-:func:`index_is_stale` reads only the header and ``#SRC`` lines to report
-whether the recorded sources still match the requested ones (same set of
-paths, and identical ``st_mtime_ns`` and size for each), so callers can
-rebuild only when something has actually changed on disk.
+unchanged from v3 (v3 added the trailing ``category`` column; v4 changes
+only what gets INDEXED, not the row shape).  :func:`load_index`
+transparently loads v1 (no ``#SRC`` lines) through v4 caches, skipping any
+``#SRC`` lines.  :func:`index_is_stale` reads only the header and ``#SRC``
+lines to report whether the recorded sources still match the requested
+ones (same set of paths, and identical ``st_mtime_ns`` and size for each),
+so callers can rebuild only when something has actually changed on disk.
 """
 
 import os
@@ -44,6 +53,7 @@ __all__ = [
     "find_apt_dats",
     "build_index",
     "load_index",
+    "index_count",
     "index_is_stale",
     "search",
     "parse_coordinate_query",
@@ -55,8 +65,17 @@ __all__ = [
 # Version 2 adds ``#SRC <mtime_ns> <size_bytes> <path>`` lines right after
 # the header, recording every source file used to build the index so
 # :func:`index_is_stale` can tell when a rebuild is needed.
+#
+# Version 3 adds the trailing per-airport ``category`` column.
+#
+# Version 4 changes what gets indexed, not the row shape: water runways
+# (row 101) now provide a fallback position, so seaplane bases that carry
+# no datum metadata are indexed instead of skipped, and
+# :func:`find_apt_dats` looks in one more place (the shipped default
+# scenery) and at both ``Earth nav data`` spellings.  Both change the
+# CONTENT a source set produces, so v3 caches must rebuild once.
 _CACHE_MAGIC = "O4AIRPORTIDX"
-_CACHE_VERSION = 3
+_CACHE_VERSION = 4
 
 # Prefix marking a source-file provenance line in a v2+ cache.
 _SRC_PREFIX = "#SRC"
@@ -101,13 +120,37 @@ class AirportEntry:
 # ---------------------------------------------------------------------------
 # Locating apt.dat
 # ---------------------------------------------------------------------------
+# The folders (relative to the X-Plane root) that may hold a Global
+# Airports ``apt.dat``, highest priority first.  The ``Earth nav data``
+# level is appended per spelling by :func:`find_apt_dats`.
+_APT_DAT_FOLDERS = (
+    ("Global Scenery", "Global Airports"),                    # XP12
+    ("Custom Scenery", "Global Airports"),                    # XP11
+    ("Resources", "default scenery", "default apt dat"),      # shipped default
+)
+
+# Both spellings of the nav-data folder, in preference order.  Linux is
+# case-sensitive and packs in the wild carry either.
+_NAV_DATA_SPELLINGS = ("Earth nav data", "Earth Nav Data")
+
+
 def find_apt_dats(xplane_dir: str) -> List[str]:
     """Return existing Global Airports ``apt.dat`` paths under ``xplane_dir``.
 
-    Two well-known locations are checked, in priority order:
+    Three well-known locations are checked, in priority order:
 
-    1. ``<xp>/Global Scenery/Global Airports/Earth nav data/apt.dat`` (XP12)
-    2. ``<xp>/Custom Scenery/Global Airports/Earth nav data/apt.dat`` (XP11)
+    1. ``<xp>/Global Scenery/Global Airports/...`` (XP12)
+    2. ``<xp>/Custom Scenery/Global Airports/...`` (XP11)
+    3. ``<xp>/Resources/default scenery/default apt dat/...`` (the
+       airports X-Plane itself ships, the last resort when neither
+       Global Airports pack is installed)
+
+    Each is tried with both nav-data spellings (``Earth nav data`` and
+    ``Earth Nav Data``), and only the FIRST spelling that exists is taken:
+    on a case-insensitive volume both answer for the same file, and a
+    duplicated path would make :func:`build_index` stream the same 380 MB
+    file twice.  The same file reached through two candidates (a symlinked
+    pack) is likewise emitted once.
 
     Args:
         xplane_dir: Path to the X-Plane installation root.
@@ -116,15 +159,19 @@ def find_apt_dats(xplane_dir: str) -> List[str]:
         A list of the ``apt.dat`` paths that actually exist, in the order
         above.  Returns ``[]`` when none are found.
     """
-    candidates = [
-        os.path.join(
-            xplane_dir, "Global Scenery", "Global Airports",
-            "Earth nav data", "apt.dat"),
-        os.path.join(
-            xplane_dir, "Custom Scenery", "Global Airports",
-            "Earth nav data", "apt.dat"),
-    ]
-    return [p for p in candidates if os.path.isfile(p)]
+    found: List[str] = []
+    seen: set = set()
+    for folder in _APT_DAT_FOLDERS:
+        for nav_data in _NAV_DATA_SPELLINGS:
+            path = os.path.join(xplane_dir, *folder, nav_data, "apt.dat")
+            if not os.path.isfile(path):
+                continue
+            key = os.path.normcase(os.path.realpath(path))
+            if key not in seen:
+                seen.add(key)
+                found.append(path)
+            break   # this candidate answered; never take its other spelling
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +236,7 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
     * ``1302 <key> <value>`` -- metadata; keys ``icao_code`` (overrides the
       header ID), ``city``, ``country``, ``datum_lat``, ``datum_lon``.
     * ``100`` -- land runway; end-1 lat/lon are fields 9 and 10 (0-based).
+    * ``101`` -- water runway; end-1 lat/lon are fields 4 and 5 (0-based).
     * ``102`` -- helipad; lat/lon are fields 2 and 3 (0-based).
 
     An airport with no metadata datum and no runway/helipad coordinate is
@@ -267,9 +315,22 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
 
             # Runway / helipad coordinate fallbacks -- only the FIRST such
             # row is used (datum metadata still overrides these anyway).
+            # All three share the ``rwy_lat is None`` gate, so whichever
+            # kind of runway comes first in the airport's block wins.
             if row_code == "100" and rwy_lat is None and len(row) >= 11:
                 lat = _parse_float(row[9])
                 lon = _parse_float(row[10])
+                if lat is not None and lon is not None:
+                    rwy_lat = lat
+                    rwy_lon = lon
+                continue
+
+            # Water runway: `101 <width> <buoys> <end1> <lat> <lon> ...`.
+            # Without this a seaplane base carrying no datum metadata has
+            # no position at all and is skipped entirely.
+            if row_code == "101" and rwy_lat is None and len(row) >= 6:
+                lat = _parse_float(row[4])
+                lon = _parse_float(row[5])
                 if lat is not None and lon is not None:
                     rwy_lat = lat
                     rwy_lon = lon
@@ -310,12 +371,12 @@ def build_index(apt_dat_paths: Iterable[str], cache_file: str) -> int:
 
     The cache is a UTF-8 TSV file whose first line is::
 
-        O4AIRPORTIDX 2 <count>
+        O4AIRPORTIDX 4 <count>
 
     followed by one ``#SRC <mtime_ns> <size_bytes> <path>`` line per source
     file actually read, then one tab-separated ``code<TAB>name<TAB>city<TAB>
-    country<TAB>lat<TAB>lon`` row per airport.  The file is written
-    atomically (to a temporary file then :func:`os.replace`).
+    country<TAB>lat<TAB>lon<TAB>category`` row per airport.  The file is
+    written atomically (to a temporary file then :func:`os.replace`).
 
     Args:
         apt_dat_paths: Ordered iterable of ``apt.dat`` paths to index.
@@ -372,7 +433,7 @@ def load_index(cache_file: str) -> List[AirportEntry]:
 
     The cache is streamed line-by-line.  A missing file or a file without
     the expected magic header yields an empty list.  v1 (no ``#SRC``
-    lines), v2 and v3 caches are all accepted; ``#SRC`` provenance lines
+    lines) through v4 caches are all accepted; ``#SRC`` provenance lines
     are skipped, and pre-v3 rows (no category column) load with the
     :class:`AirportEntry` category default.  Malformed data rows are
     skipped rather than raising.
@@ -413,6 +474,35 @@ def load_index(cache_file: str) -> List[AirportEntry]:
     return entries
 
 
+def index_count(cache_file: str) -> Optional[int]:
+    """Return the airport count recorded in a cache's header line.
+
+    ONLY the header is read -- the point of this helper is to answer "how
+    many airports does that cache hold?" without loading 40k rows (the
+    engine protocol's ``airport_index`` command answers on the transport's
+    read loop, where a full load is exactly what must not happen).
+
+    Args:
+        cache_file: Path to a cache produced by :func:`build_index`.
+
+    Returns:
+        The recorded count, or ``None`` when the file is missing,
+        unreadable, or its header is not ``<magic> <version> <count>``.
+    """
+    try:
+        with open(cache_file, "r", encoding="utf-8",
+                  errors="replace") as handle:
+            tokens = handle.readline().split()
+    except OSError:
+        return None
+    if len(tokens) < 3 or tokens[0] != _CACHE_MAGIC:
+        return None
+    try:
+        return int(tokens[2])
+    except ValueError:
+        return None
+
+
 def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
     """Return ``True`` when ``cache_file`` needs rebuilding from the sources.
 
@@ -424,7 +514,9 @@ def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
     * the cache file is missing or unreadable;
     * the header is malformed (missing/incorrect magic or version);
     * the header version is below the current one (v1 caches carry no
-      source info; pre-v3 caches carry no airport categories);
+      source info; pre-v3 caches carry no airport categories; pre-v4
+      caches were built by a parse that skipped water-only seaplane
+      bases, from a smaller candidate set);
     * the set of recorded source paths differs from ``apt_dat_paths``
       (compared order-insensitively after :func:`os.path.abspath`);
     * a recorded source no longer exists on disk;
@@ -463,7 +555,8 @@ def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
                 return True
             if version < _CACHE_VERSION:
                 # Pre-v3 caches carry no airport categories (v1 also no
-                # source info): rebuild once to gain the new column.
+                # source info) and pre-v4 caches were built without the
+                # water-runway fallback: rebuild once to catch up.
                 return True
             # Read only the leading #SRC provenance lines.
             for line in handle:

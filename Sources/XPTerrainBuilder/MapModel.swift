@@ -269,6 +269,13 @@ struct MapOverlays: Sendable {
 
     var tintTiles: [TintTile] = []
     var airports: [Airport] = []
+    /// X-Plane's default (Global Airports) airports, drawn gray under the
+    /// custom magenta marks and searchable by ICAO. Not built by
+    /// `init(packs:)` — the ENGINE's index supplies them (the
+    /// `airport_index` command, via BuildModel) and they are installed
+    /// with `withDefaultAirports` by the scans' publish paths and by
+    /// `AnalysisController.setGlobalAirports`.
+    var defaultAirports: [Airport] = []
     var packBounds: [PackBounds] = []
     var markers: [Marker] = []
     var regions: [SceneryRegion] = []
@@ -345,6 +352,25 @@ struct MapOverlays: Sendable {
         tintTiles = kinds.map { hash, kind in
             TintTile(lat: hash / 1000 - 90, lon: hash % 1000 - 180, kind: kind)
         }
+    }
+
+    /// Same overlays carrying the default-airport marks, minus every ICAO a
+    /// custom pack already draws — a gray disc under a magenta one is just
+    /// noise. Runs on the scan worker: 35k rows is nothing there, and never
+    /// per frame.
+    func withDefaultAirports(_ index: [GlobalAirport]) -> MapOverlays {
+        let custom = Set(airports.map(\.icao))
+        var updated = self
+        updated.defaultAirports = index.compactMap { airport in
+            guard !custom.contains(airport.icao) else { return nil }
+            return Airport(icao: airport.icao,
+                           info: AirportInfo(name: airport.icao,
+                                             latitude: airport.latitude,
+                                             longitude: airport.longitude),
+                           packName: "Global Airports",
+                           status: .enabled)
+        }
+        return updated
     }
 
     /// Same overlays with marks moved from tile centroids to the exact

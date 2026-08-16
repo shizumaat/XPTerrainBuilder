@@ -321,6 +321,13 @@ public struct InstallationScanner {
     /// Airport headers are row codes 1 (land), 16 (seaplane), 17 (heliport):
     ///   `1 433 0 0 KSEA Seattle Tacoma Intl`
     /// XP11+ adds `1302 icao_code KSEA` metadata which takes precedence.
+    ///
+    /// This parser exists for CUSTOM packs' small apt.dats only. X-Plane's
+    /// DEFAULT airports (the 380 MB Global Airports file this one's size cap
+    /// deliberately skips) come from the engine: `src/O4_Airport_Index.py`
+    /// is the single implementation, reached over the protocol's
+    /// `airport_index` command, and the app only reads the TSV cache it
+    /// produces (`GlobalAirportIndex.readCache`).
     func parseAirports(inPack packURL: URL) -> [String: AirportInfo] {
         let candidates = [
             packURL.appendingPathComponent("Earth nav data/apt.dat"),

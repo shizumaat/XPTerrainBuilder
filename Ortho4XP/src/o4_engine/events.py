@@ -33,7 +33,12 @@ from typing import Optional
 # provider_sign_in / provider_sign_out commands — a front end with no
 # Python of its own (the macOS application) drives provider account
 # sign-in engine-side (docs/specs/swift-provider-signin-spec.md).
-PROTOCOL_VERSION = "1.5"
+# 1.6 (2026-08-15, additive): AirportIndexReady, beside the
+# airport_index command — the engine's O4_Airport_Index is the SINGLE
+# apt.dat parser for every front end, so a front end asks for the
+# Global Airports index instead of parsing its own
+# (docs/specs/airport-index-engine-command-spec.md).
+PROTOCOL_VERSION = "1.6"
 
 
 @dataclass(frozen=True)
@@ -274,6 +279,28 @@ class SignInResult(EngineEvent):
     session_name: str = ""
     ok: bool = False
     error_text: str = ""
+
+
+@dataclass(frozen=True)
+class AirportIndexReady(EngineEvent):
+    """The Global Airports search index finished (re)building.
+
+    The completion half of the ``airport_index`` command
+    (docs/specs/airport-index-engine-command-spec.md): a stale index
+    replies ``{"status": "building"}`` at once and the parse — hundreds
+    of megabytes of ``apt.dat`` — runs on a worker thread, because a
+    command handler runs on the transport's read loop and must never
+    block it.
+
+    ``path`` is the TSV cache the front end may now read
+    (``O4_File_Names.airport_index_cache()``) and ``count`` the number of
+    airports written.  On failure ``error`` carries the exception text,
+    ``path`` is empty and ``count`` is 0.
+    """
+
+    path: str = ""
+    count: int = 0
+    error: str = ""
 
 
 @dataclass(frozen=True)

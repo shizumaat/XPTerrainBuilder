@@ -273,6 +273,28 @@ final class BuildModel: ObservableObject {
     @Published private(set) var lastSignInResult: ProviderSignInResult?
     private var signInResultCounter = 0
 
+    // MARK: Default airport index (protocol 1.6)
+
+    /// X-Plane's default (Global Airports) airports, as the engine's index
+    /// reports them. The engine OWNS the apt.dat parse
+    /// (src/O4_Airport_Index.py, the `airport_index` command); this app
+    /// only reads the TSV cache the engine points it at.
+    private(set) var globalAirports: [GlobalAirport] = []
+    /// Where the index goes once it is read — the map controller, wired at
+    /// construction (see XPTerrainBuilderApp). Setting it delivers whatever
+    /// has already arrived, so an optimistic read that beat the wiring is
+    /// not lost.
+    var onGlobalAirports: (([GlobalAirport]) -> Void)? {
+        didSet {
+            guard !globalAirports.isEmpty else { return }
+            onGlobalAirports?(globalAirports)
+        }
+    }
+    /// The engine has answered `airport_index` at least once — after that
+    /// the optimistic cache read is stale by definition and must not
+    /// overwrite it (whichever of the two finishes first).
+    private var engineAnsweredAirportIndex = false
+
     private var client: OrthoEngineClient?
     private var clearProgressTask: Task<Void, Never>?
 
@@ -289,6 +311,7 @@ final class BuildModel: ObservableObject {
         OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
         reloadEngine()
         loadCachedTileStates()
+        loadCachedGlobalAirports()
         restoreSelection()
     }
 
@@ -474,6 +497,7 @@ final class BuildModel: ObservableObject {
             client = newClient
             console.append("Engine session started (Ortho4XP \(engine.version)).")
             rescan()
+            refreshAirportIndex()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
@@ -527,6 +551,78 @@ final class BuildModel: ObservableObject {
             "working_dir": base.path,
             "custom_scenery_dir": customSceneryPath,
         ])
+    }
+
+    // MARK: - Default airport index (protocol path)
+
+    /// Ask the engine for X-Plane's Global Airports index. Sent when a
+    /// session starts and whenever the X-Plane folder changes; a session
+    /// that isn't up yet gets it from `connectIfNeeded`.
+    ///
+    /// A "ready" reply names the cache to read; "building" means the
+    /// engine is parsing apt.dat on its own worker thread and the
+    /// `airportIndexReady` event will name it.
+    func refreshAirportIndex() {
+        guard let client else { return }
+        let xplane = UserDefaults.standard.string(forKey: PrefKeys.xplanePath) ?? ""
+        guard !xplane.isEmpty else {
+            engineAnsweredAirportIndex = true
+            publishGlobalAirports([])
+            return
+        }
+        client.requestAirportIndex(xplaneDir: xplane) { [weak self] reply in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.engineAnsweredAirportIndex = true
+                if reply.isReady {
+                    self.readGlobalAirports(atPath: reply.path)
+                } else if !reply.isBuilding {
+                    // "none": no X-Plane folder, or no default apt.dat.
+                    self.publishGlobalAirports([])
+                }
+                // "building": the airportIndexReady event finishes it.
+            }
+        }
+    }
+
+    /// Read the engine's TSV index off the main thread and publish it.
+    private func readGlobalAirports(atPath path: String) {
+        guard !path.isEmpty else {
+            publishGlobalAirports([])
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        Task { [weak self] in
+            let airports = await Task.detached(priority: .utility) {
+                GlobalAirportIndex.readCache(at: url) ?? []
+            }.value
+            self?.publishGlobalAirports(airports)
+        }
+    }
+
+    /// Optimistic start, the scenery index's doctrine: last session's cache
+    /// sits in the data folder, so the marks can be on the map before the
+    /// engine has even booted. Display-grade and stale-tolerant — the
+    /// engine's answer supersedes it.
+    private func loadCachedGlobalAirports() {
+        guard let dataRoot = dataRootURL else { return }
+        let url = dataRoot.appendingPathComponent(GlobalAirportIndex.cacheFilename)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        Task { [weak self] in
+            let airports = await Task.detached(priority: .utility) {
+                GlobalAirportIndex.readCache(at: url) ?? []
+            }.value
+            // The engine may have answered first; never overwrite it.
+            guard let self, !self.engineAnsweredAirportIndex,
+                  self.globalAirports.isEmpty, !airports.isEmpty
+            else { return }
+            self.publishGlobalAirports(airports)
+        }
+    }
+
+    private func publishGlobalAirports(_ airports: [GlobalAirport]) {
+        globalAirports = airports
+        onGlobalAirports?(airports)
     }
 
     // MARK: - Event handling (protocol path)
@@ -659,6 +755,13 @@ final class BuildModel: ObservableObject {
                 ok: ok, errorText: errorText)
             // Whatever the sheet does with it, the rows' status changed.
             Task { @MainActor [weak self] in await self?.refreshProviderAccounts() }
+        case .airportIndexReady(let path, _, let error):
+            guard error.isEmpty else {
+                console.append("Engine: default airport index unavailable: \(error)")
+                publishGlobalAirports([])
+                return
+            }
+            readGlobalAirports(atPath: path)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }

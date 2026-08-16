@@ -54,6 +54,11 @@ final class AnalysisController: ObservableObject {
     /// changes, never per frame.
     @Published var mapOverlays = MapOverlays.empty
     @Published var isScanningInstallation = false
+    /// X-Plane's default airports (Global Airports), as the ENGINE's index
+    /// reports them: BuildModel asks for it over the `airport_index`
+    /// command and hands the result here (setGlobalAirports). Kept in
+    /// memory so a rescan re-derives the marks without re-reading anything.
+    private var globalAirports: [GlobalAirport] = []
 
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
@@ -79,6 +84,10 @@ final class AnalysisController: ObservableObject {
         // the map populates live; once anything is showing (an optimistic
         // load or a prior scan), partials would shrink the list mid-rescan.
         let nothingShowing = installationPacks.isEmpty
+        // The gray default-airport marks, as the engine's index last
+        // reported them (setGlobalAirports). An index that arrives AFTER
+        // this scan installs itself on the finished overlays there.
+        let globals = globalAirports
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
                 // Persisted scenery index: after the first launch, unchanged
@@ -96,6 +105,7 @@ final class AnalysisController: ObservableObject {
                         showedCachedPacks = true
                         let overlays = MapOverlays(packs: cachedPacks)
                             .applyingExactMarkers(InstallationScanner.packMarkers(for: cachedPacks))
+                            .withDefaultAirports(globals)
                         Task { @MainActor [weak self] in
                             guard let self, self.isScanningInstallation,
                                   self.installationPacks.isEmpty else { return }
@@ -119,6 +129,7 @@ final class AnalysisController: ObservableObject {
                         // completed scan below supersedes any queued partial.
                         let overlays = MapOverlays(packs: partial)
                             .applyingExactMarkers(InstallationScanner.packMarkers(for: partial))
+                            .withDefaultAirports(globals)
                         Task { @MainActor [weak self] in
                             guard let self, self.isScanningInstallation else { return }
                             self.installationPacks = partial
@@ -147,7 +158,8 @@ final class AnalysisController: ObservableObject {
                 }
                 return (installation,
                         MapOverlays(packs: installation.packs)
-                            .applyingExactMarkers(installation.packMarkers),
+                            .applyingExactMarkers(installation.packMarkers)
+                            .withDefaultAirports(globals),
                         reconciliation)
             }.value
             guard let self else { return }
@@ -171,6 +183,17 @@ final class AnalysisController: ObservableObject {
                 self.refreshInstallation()
             }
         }
+    }
+
+    /// Take delivery of X-Plane's default airports from the engine's index
+    /// (BuildModel's `airport_index` command). The list is stored for the
+    /// scans — all three of their publish paths install it — and the marks
+    /// are re-derived for the CURRENT overlays right here, so an index that
+    /// lands after a finished scan still shows up on the map.
+    func setGlobalAirports(_ airports: [GlobalAirport]) {
+        globalAirports = airports
+        mapOverlays = mapOverlays.withDefaultAirports(airports)
+        scheduleViewportUpdate()
     }
 
     /// Watch Custom Scenery, the Disabled folder and scenery_packs.ini for

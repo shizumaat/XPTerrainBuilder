@@ -3,8 +3,21 @@ import SwiftUI
 @main
 struct XPTerrainBuilderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var controller = AnalysisController()
-    @StateObject private var buildModel = BuildModel()
+    @StateObject private var controller: AnalysisController
+    @StateObject private var buildModel: BuildModel
+
+    init() {
+        let controller = AnalysisController()
+        let buildModel = BuildModel()
+        // X-Plane's default airports come from the ENGINE's index (the
+        // `airport_index` command): BuildModel owns the session that asks
+        // for it, the map controller owns the marks and the search.
+        buildModel.onGlobalAirports = { [weak controller] airports in
+            controller?.setGlobalAirports(airports)
+        }
+        _controller = StateObject(wrappedValue: controller)
+        _buildModel = StateObject(wrappedValue: buildModel)
+    }
 
     var body: some Scene {
         Window("XPTerrainBuilder", id: "main") {

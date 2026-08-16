@@ -1145,6 +1145,8 @@ _PROBE_ABSENT = object()
 _PROBE_PUBLISHED_ATTRS = ("_seam_pin_idx", "_seam_pin_ll",
                           "_seam_pin_residuals", "_eat_anchor_pin_idx",
                           "_eat_anchor_pin_prev", "_eat_anchor_pin_rect",
+                          "_object_bridge_pin_idx",
+                          "_object_bridge_pin_prev",
                           "_terrain_host_yield_first_index",
                           "_adjacent_ground_first_zone_index")
 
@@ -2296,6 +2298,73 @@ def solve_route_profile(layout, icao: str,
     # (``_withhold_service_edges_probe``), so ``u_spine_adj`` above is
     # ALREADY pruned when the gate is on and every consumer of every graph
     # is covered.  Nothing to do here.
+    # ── DECK PIN vs SENIOR HARD ANCHOR — THE CONTRADICTION GUARD
+    # (docs/specs/kdfw-bridge-refusal-spec.md clause 2) ───────────────
+    # A DECK PIN NEVER CONTRADICTS A SENIOR HARD ANCHOR WITHIN ROUTE
+    # BUDGET.  Same law, same predicate and same implementation as the
+    # EAT guard below it (``pin_contradiction_refusals`` ->
+    # ``law_graph_budget``); the only difference is which authority is
+    # junior.  Clause 1 refuses the classification defects that ARE
+    # visible at classification time; this is the backstop for every
+    # future bad pack datum that is not — a pin value is only ever as
+    # good as the pack it came from, and the law graph is the one thing
+    # that can price it.
+    #
+    # HERE, and not at the pin site, for the reason spelled out below:
+    # the predicate is priced on THE GRAPH PHASE A PROJECTS ON, built two
+    # statements above, and this is the first point at which the pins
+    # hold any authority (the flex pass, the anchor registration, the
+    # hard-truth publication, the reach band, the seats, the envelope and
+    # every projection are ALL below).
+    #
+    # ABOVE the EAT guard deliberately.  Deck pins are seeded BEFORE EAT
+    # pins and outrank them, so (a) the EAT pins are passed as ``junior``
+    # here and may not bound a deck pin, and (b) running first means a
+    # REFUSED deck pin is already released from ``base_hard`` when the
+    # EAT guard reads it, so a discredited deck value can never sit in
+    # the EAT guard's senior anchor set.
+    #
+    # The refusal is PER NODE, and RELEASES the node to the seed
+    # ``_seed_elevations`` snapshotted, so it solves as ordinary pavement
+    # under the caps instead of carrying an immovable value the law
+    # cannot reconcile.
+    _deck_pins_guard = getattr(
+        layout, "_object_bridge_pin_idx", None) or {}
+    if _deck_pins_guard:
+        _n_deck_pre = len(_deck_pins_guard)
+        _n_hard_deck = min(len(base_hard), len(elev))
+        _deck_refused = deck_pin_contradiction_refusals(
+            _deck_pins_guard, u_spine_adj_airside,
+            {_i: float(elev[_i]) for _i in u_spine_adj_airside
+             if _i < _n_hard_deck and base_hard[_i]},
+            junior=(getattr(layout, "_eat_anchor_pin_idx", None) or {}))
+        if _deck_refused:
+            _worst_dnode, _worst_d = max(
+                _deck_refused.items(), key=lambda r: r[1]["excess_m"])
+            _worst_d = dict(_worst_d,
+                            pin_m=float(_deck_pins_guard[_worst_dnode]))
+            _wd_anchor = _worst_d.get("witness")
+            _wd_value = (float(elev[_wd_anchor])
+                         if _wd_anchor is not None
+                         and _wd_anchor < len(elev) else float("nan"))
+            _n_deck_released = release_refused_deck_pins(
+                layout, _deck_refused, elev, base_hard, _have_initial)
+            publish_deck_refusal_keys(layout, _deck_refused, nodes)
+            import O4_UI_Utils as _UI_deckg
+            _UI_deckg.vprint(1, format_deck_guard_line(
+                icao, _n_deck_released, _n_deck_pre, _worst_dnode,
+                _worst_d, _wd_value))
+            # A refusal the release could not carry out is a WIRING
+            # defect (the seeder publishes both maps in one statement),
+            # reported rather than swallowed: a silently under-released
+            # count reads exactly like a lawful build.
+            if _n_deck_released != len(_deck_refused):
+                _UI_deckg.vprint(0,
+                    f"  [object-bridge] WARN: {icao}: "
+                    f"{len(_deck_refused) - _n_deck_released} refused "
+                    f"deck pin(s) had NO pre-pin snapshot and were left "
+                    f"stamped — ``_object_bridge_pin_prev`` is out of "
+                    f"step with ``_object_bridge_pin_idx``.")
     # ── EAT PIN vs SENIOR HARD ANCHOR — THE CONTRADICTION GUARD
     # (docs/specs/eat-anchor-contradiction-guard-spec.md) ─────────────
     # AN EAT PIN NEVER CONTRADICTS A SENIOR HARD ANCHOR WITHIN ROUTE
@@ -8786,6 +8855,51 @@ def _open4(poly):
     return c[:-1] if c and c[0] == c[-1] else c
 
 
+def pin_contradiction_refusals(pins, spine_adj, hard_values, *,
+                               junior=(), tol: float = 0.01):
+    """THE PIN-vs-SENIOR-ANCHOR PREDICATE — ``{node: violation}`` for
+    every pin in ``pins`` whose VALUE cap-contradicts a SENIOR hard
+    anchor within its own route budget.
+
+    ONE implementation, every pin family.  The EAT anchor-rect guard
+    (docs/specs/eat-anchor-contradiction-guard-spec.md) and the
+    object-bridge deck-pin guard (docs/specs/kdfw-bridge-refusal-spec.md
+    clause 2) ask the identical question of two different junior
+    authorities, and the predicate itself is the seat machinery's —
+    ``law_graph_budget.build_anchor_envelope`` + ``AnchorEnvelope.
+    violation``.  A second spelling of a predicate is the census-wrapper
+    defect class: two readers of one law that look identical and are not.
+
+    SENIORITY is expressed by SUBTRACTION.  ``pins`` are removed from the
+    anchor set (a pin may never bound itself, and one pin may never bound
+    its sibling — same authority), and so is every node named in
+    ``junior``: the caller's JUNIOR neighbours, the pin families that
+    seed BELOW it.  The deck guard passes the EAT pins there, because a
+    deck pin is seeded before an EAT pin and an EAT pin may not bound it;
+    the EAT guard passes nothing, because it is the last family seeded
+    and every other hard node outranks it.
+
+    Returns ``{}`` when there is nothing to test or no senior anchor to
+    test against — a missing bound is honest, never a silent refusal.
+    Refusal is PER NODE.
+    """
+    if not pins or not spine_adj:
+        return {}
+    from .law_graph_budget import build_anchor_envelope
+    demoted = {int(i) for i in pins} | {int(i) for i in junior}
+    senior = {int(i): float(v) for i, v in (hard_values or {}).items()
+              if int(i) not in demoted}
+    env = build_anchor_envelope(spine_adj, senior)
+    if env is None:
+        return {}
+    refused: dict = {}
+    for i, v in pins.items():
+        viol = env.violation(int(i), float(v), tol=tol)
+        if viol is not None:
+            refused[int(i)] = viol
+    return refused
+
+
 def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
                                    *, tol: float = 0.01):
     """THE EAT PIN GUARD — ``{node: violation}`` for every EAT anchor-rect
@@ -8823,21 +8937,13 @@ def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
     Returns ``{}`` when there is nothing to test or no senior anchor to
     test against — a missing bound is honest, never a silent refusal.
     Refusal is PER NODE: lawful pins in the same rect stand.
+
+    The body is :func:`pin_contradiction_refusals` with no junior set:
+    the EAT rect is the LAST family ``_seed_elevations`` pins, so every
+    other hard node on the graph outranks it.
     """
-    if not pins or not spine_adj:
-        return {}
-    from .law_graph_budget import build_anchor_envelope
-    senior = {int(i): float(v) for i, v in (hard_values or {}).items()
-              if int(i) not in pins}
-    env = build_anchor_envelope(spine_adj, senior)
-    if env is None:
-        return {}
-    refused: dict = {}
-    for i, v in pins.items():
-        viol = env.violation(int(i), float(v), tol=tol)
-        if viol is not None:
-            refused[int(i)] = viol
-    return refused
+    return pin_contradiction_refusals(pins, spine_adj, hard_values,
+                                      tol=tol)
 
 
 def eat_pin_taxi_bound(pins, spine_adj, runway_anchor):
@@ -8937,6 +9043,146 @@ def format_eat_unroutable_line(icao, refused, n_pins, n_rects):
         f"released to their seed.")
 
 
+def deck_pin_contradiction_refusals(pins, spine_adj, hard_values,
+                                    *, junior=(), tol: float = 0.01):
+    """THE OBJECT-BRIDGE DECK-PIN GUARD (docs/specs/kdfw-bridge-refusal-
+    spec.md clause 2) — ``{node: violation}`` for every deck-end pin whose
+    value cap-contradicts a senior hard runway/seam anchor within its own
+    route budget.
+
+    THE LAW: **a deck pin never contradicts a senior hard anchor within
+    route budget** — the EAT pin law, applied to the other pin family that
+    carries a VALUE from outside the solve.  A deck pin's value comes from
+    a scenery pack (``grade_law.bridge_deck_end_pin_elevation_m`` over one
+    DEM sample at the object anchor), so it is only ever as good as the
+    pack; clause 1 refuses the classification defects it can see at
+    classification time, and this is the backstop for every bad pack datum
+    it cannot — which is the generalization the spec asks for.
+
+    Attribution (KDFW +32-098, interventional, 2026-08-16): 193 hard
+    deck-end pins at 183.29 m — one DEM sample at the shared Aerosoft
+    anchor plus the 8 m authored deck height — entered the band seed set
+    and inverted the final band at 650 nodes / 43 pairs, worst 1.996 m.
+    The bridge-feature-off arm built clean.
+
+    Same predicate, same implementation, same graph as the EAT guard
+    (:func:`pin_contradiction_refusals`).  ``junior`` carries the pin
+    families seeded AFTER the deck pins — the EAT anchor rect — so a
+    junior pin can never bound a senior one.
+    """
+    return pin_contradiction_refusals(pins, spine_adj, hard_values,
+                                      junior=junior, tol=tol)
+
+
+def _publish_refusal_keys(layout, refused, nodes, attribute):
+    """CARRY a pin guard's verdict by CANONICAL POINT, on ``attribute``.
+
+    The guard can only be priced where the graph phase A projects on
+    exists — inside the solve.  But ``_seed_elevations`` runs again at
+    every later pass (the crown re-seed, each ``final_grade_projection``)
+    on a layout that has GROWN, and would re-pin exactly the nodes the
+    solve refused; the writeback band then CLAMPS them back, which is a
+    clamp rescuing a law violation rather than the law holding (measured
+    KSTJ on the EAT family: 16 clamps, worst +4.76 m, at the refused
+    pins' own value).
+
+    The join is the CANONICAL POINT, never the node index — index ``i``
+    names a different node after a rebuild (the canonical-identity-join
+    law; index keys once landed 448 of 455 SPJC seeds on the wrong node).
+    Nodes whose point cannot be resolved are simply not carried, which is
+    honest: the guard then re-refuses them on the next pass it can price.
+
+    ONE implementation for both pin families — the EAT rect and the
+    object-bridge decks — because "carry a refusal across a re-seed" is
+    one mechanism, and two copies of it would drift.
+    """
+    cps = getattr(layout, "canonical_points", None)
+    keys: set = set(getattr(layout, attribute, None) or ())
+    if cps is None:
+        return keys
+    for i in refused:
+        if i >= len(nodes):
+            continue
+        try:
+            key = cps.get(float(nodes[i][0]), float(nodes[i][1]))
+        except Exception:                                  # pragma: no cover
+            key = None
+        if key is not None:
+            keys.add(key)
+    setattr(layout, attribute, keys)
+    return keys
+
+
+def publish_deck_refusal_keys(layout, refused, nodes):
+    """CARRY the deck-pin guard's verdict to every later re-seed, by
+    canonical point (:func:`_publish_refusal_keys`).  The seeder's
+    ``_object_bridge_pin_values`` is a BUCKET dict rebuilt from the
+    classification at each pass and knows nothing of the refusal, so this
+    key set is the only thing standing between a refused pin and its own
+    resurrection."""
+    return _publish_refusal_keys(
+        layout, refused, nodes, "_object_bridge_pin_refused_keys")
+
+
+def release_refused_deck_pins(layout, refused, elev, base_hard,
+                              have_initial):
+    """Put every REFUSED deck-end pin back exactly as ``_seed_elevations``
+    found the node, and un-publish it.
+
+    The seeder snapshotted ``(elev, have_initial, is_hard)`` per pinned
+    node in ``layout._object_bridge_pin_prev``.  ALL THREE are restored,
+    which is where this differs from the EAT release: an EAT pin skips
+    every already-hard node, so its release can assume ``is_hard`` was
+    False, while a deck pin deliberately OVERWRITES a coinciding seam
+    vertex (the weld ruling's "pavement value always wins") — so a
+    released deck pin may have to hand the node back to the seam, hard
+    and at the seam's own value.
+
+    Returns the number of nodes released.  A node with no snapshot is
+    LEFT ALONE and reported by the caller's count mismatch rather than
+    guessed at — inventing a seed would be the same class of defect the
+    pin itself committed.
+    """
+    prev = getattr(layout, "_object_bridge_pin_prev", None) or {}
+    pins = getattr(layout, "_object_bridge_pin_idx", None) or {}
+    seam = getattr(layout, "_seam_pin_idx", None)
+    n = 0
+    for i in refused:
+        row = prev.get(i)
+        if row is None:
+            continue
+        if i < len(elev):
+            elev[i] = float(row[0])
+        if i < len(base_hard):
+            base_hard[i] = bool(row[2])
+        if have_initial is not None and i < len(have_initial):
+            have_initial[i] = bool(row[1])
+        pins.pop(i, None)
+        if seam is not None and not row[2]:
+            # Only a node this pin ITSELF put under seam-pin protection
+            # is released from it; one that arrived already hard was
+            # already protected by the family that hardened it.
+            seam.discard(i)
+        n += 1
+    layout._object_bridge_pin_idx = pins  # type: ignore[attr-defined]
+    return n
+
+
+def format_deck_guard_line(icao, n_refused, n_pins, worst_node, worst,
+                           anchor_value):
+    """THE ONE LOUD LINE the deck-pin guard prints (nodes refused, worst
+    shortfall, anchor identity).  Formatted HERE so the twin drives the
+    string the build emits."""
+    return (
+        f"  [object-bridge] {icao}: {n_refused} of {n_pins} deck-end "
+        f"pin(s) REFUSED — a deck pin never contradicts a senior hard "
+        f"runway/seam anchor within route budget; worst node "
+        f"{worst_node} pin {worst['pin_m']:.3f} is {worst['excess_m']:.3f} "
+        f"m past its {worst['side']} {worst['bound']:.3f} (witness anchor "
+        f"{worst['witness']} = {anchor_value:.3f}, route budget "
+        f"{worst['route_budget_m']:.4f} m); released to their seed.")
+
+
 def publish_eat_refusal_keys(layout, refused, nodes):
     """CARRY the guard's verdict by CANONICAL POINT.
 
@@ -8953,22 +9199,13 @@ def publish_eat_refusal_keys(layout, refused, nodes):
     law; index keys once landed 448 of 455 SPJC seeds on the wrong node).
     Nodes whose point cannot be resolved are simply not carried, which is
     honest: the guard then re-refuses them on the next pass it can price.
+
+    The body is :func:`_publish_refusal_keys` on
+    ``_eat_pin_refused_keys``; the deck-pin guard carries its verdict the
+    same way, through the same code.
     """
-    cps = getattr(layout, "canonical_points", None)
-    keys: set = set(getattr(layout, "_eat_pin_refused_keys", None) or ())
-    if cps is None:
-        return keys
-    for i in refused:
-        if i >= len(nodes):
-            continue
-        try:
-            key = cps.get(float(nodes[i][0]), float(nodes[i][1]))
-        except Exception:                                  # pragma: no cover
-            key = None
-        if key is not None:
-            keys.add(key)
-    layout._eat_pin_refused_keys = keys  # type: ignore[attr-defined]
-    return keys
+    return _publish_refusal_keys(
+        layout, refused, nodes, "_eat_pin_refused_keys")
 
 
 def release_refused_eat_pins(layout, refused, elev, base_hard,

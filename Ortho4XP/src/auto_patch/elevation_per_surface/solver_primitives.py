@@ -2878,9 +2878,10 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     skipped by the ``idx is None`` guard already at every site.
     ``readonly`` governs the REGISTRY only: this function still
     PUBLISHES ``layout._seam_pin_idx`` / ``_seam_pin_ll`` /
-    ``_seam_pin_residuals`` / ``_eat_anchor_pin_idx`` in its own node
-    space, which a probe caller must snapshot and restore (the pattern
-    ``_final_projection_snapshot`` already uses).
+    ``_seam_pin_residuals`` / ``_eat_anchor_pin_idx`` /
+    ``_object_bridge_pin_idx`` (+ ``_object_bridge_pin_prev``) in its own
+    node space, which a probe caller must snapshot and restore (the
+    pattern ``_final_projection_snapshot`` already uses).
     """
     from auto_patch.elevation import _sample_dem
     _ro_cps = getattr(layout, "canonical_points", None)
@@ -3361,6 +3362,29 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         from ..layout import SHARED_VERTEX_TOL_M as _BRIDGE_TOL
         _bridge_bucket_scale = 1.0 / _BRIDGE_TOL
         bridge_pinned_idx: set = set()
+        # ── THE DECK-PIN CONTRADICTION GUARD'S CARRIED VERDICT
+        # (docs/specs/kdfw-bridge-refusal-spec.md clause 2) ───────────
+        # Priced ONCE, in the solve, on the graph phase A projects on —
+        # the only place that graph exists — and CARRIED back here by
+        # CANONICAL POINT, never by node index (every later pass rebuilds
+        # the node list on a GROWN layout, so index ``i`` no longer names
+        # the node it named: the canonical-identity-join law).  Without
+        # it the final-projection re-seeds would re-pin exactly the nodes
+        # the solve refused, from the bucket dict that never heard about
+        # the refusal — the EAT guard's measured KSTJ failure mode
+        # (16 clamps rescuing a law violation).  Empty on the solve's own
+        # first pass, which is when the verdict is computed.
+        _deck_refused_keys = getattr(
+            layout, "_object_bridge_pin_refused_keys", None) or ()
+        # PRE-PIN SNAPSHOT.  Unlike an EAT pin, a deck pin may land on a
+        # node an EARLIER family already hardened (it deliberately wins
+        # over a coinciding seam vertex — "pavement value always wins"),
+        # so ``is_hard`` is snapshotted too and the release restores all
+        # three fields.  Recorded per node, published beside the pin map
+        # in one statement so the guard never has to guess whether the
+        # snapshot is stale.
+        _deck_pin_prev: dict = {}
+        _deck_pins: dict = {}
         for s in layout.shapes:
             if s.polygon is None or s.polygon.is_empty:
                 continue
@@ -3373,15 +3397,24 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
                 pin_value = bridge_pin_values.get(bucket)
                 if pin_value is None:
                     continue
-                idx = bucket_to_idx.get(
-                    _intern(float(x), float(y)))
+                key = _intern(float(x), float(y))
+                if key in _deck_refused_keys:
+                    continue
+                idx = bucket_to_idx.get(key)
                 if idx is None:
                     continue
+                if idx not in _deck_pin_prev:
+                    _deck_pin_prev[idx] = (float(elev[idx]),
+                                           bool(have_initial[idx]),
+                                           bool(is_hard[idx]))
                 elev[idx] = float(pin_value)
                 is_hard[idx] = True
                 have_initial[idx] = True
                 bridge_pinned_idx.add(idx)
+                _deck_pins[idx] = float(pin_value)
                 _mark(idx, "object_bridge_deck_pin", s)
+        layout._object_bridge_pin_prev = _deck_pin_prev  # type: ignore[attr-defined]
+        layout._object_bridge_pin_idx = _deck_pins  # type: ignore[attr-defined]
         if bridge_pinned_idx:
             # Deck pins share the seam pins' protection: downstream
             # re-stamp / relaxation passes must never move them.

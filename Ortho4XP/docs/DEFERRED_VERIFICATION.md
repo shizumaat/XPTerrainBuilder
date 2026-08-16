@@ -2160,3 +2160,84 @@ HECA came out BYTE-IDENTICAL to attempt 1 (the release fires only where
 the hold mints an over-cap within-shape runway segment, i.e. SPLP only),
 so attempt 1's attribution stands unchanged for those four.  SKIPPED as
 before: full suite, blast sweep, KCLT, timing.
+## 2026-08-16 — KDFW bridge refusal + deck-pin guard (lane/bridgeguard)
+
+PRE-SHIP mode.  RUN, once: `test_kdfw_bridge_refusal.py` (32, new) plus
+the five covering files — `test_object_terrain_features.py`,
+`test_object_bridge_terrain.py`, `test_round12_bridge_deck_datum.py`,
+`test_eat_ceiling.py`, `test_r17d_unroutable_eat.py` — 384 pass, 11
+skipped (absent packs).  Two acceptance builds: KDFW (the subject, with
+`O4_OBJECT_BRIDGE_TERRAIN` ON) and OTHH (the bridge fixture airport).
+
+A THIRD build, KMCI, was added off-spec: the corpus sweep showed the
+clearance gate refuses six of its cosmetic road-bridge records, and
+whether a fixture airport still builds under that is the round's biggest
+open question.  It does (rc=0).
+
+SKIPPED: the full suite, the blast-radius sweep, every battery airport
+other than the three above, and any timing measurement.  No matched-control
+arm was built for OTHH: its "byte-identical or attributed" acceptance is
+discharged by ATTRIBUTION instead — the v18 classification OTHH's build
+wrote is value-for-value identical to the pre-change v17 record set in the
+shared data repo (3 bridges, same contracts, same clearances, same single
+A4 refusal), and the predicate applied offline to all 35 cached records
+over 14 packs refuses ZERO OTHH records.
+
+ONE ARM WAS DISCARDED AND REBUILT, recorded because the trap is generic:
+the first OTHH build read a classification the KILLED pre-fix run had left
+in the LANE-PERSISTENT mod-cache overlay, and reported OTHH's viaducts
+refused.  A lane cache survives the build that wrote it — after any
+classifier change, an interrupted run's sidecar is a stale authority, and
+the cache VERSION cannot see it because the version did not change between
+those two runs.  The KDFW arm read the same pre-fix sidecar and was KEPT:
+its record is the SCALE refusal, which the fix cannot touch (the scale
+branch returns before the clearance branch, and KDFW exposes a genuine
+girder line at 2.01 m, so the changed expression evaluates identically) —
+established by reading the cached record's own values, not by argument.
+
+BUILD-TIME IMPACT, not measured (per-change timing gates suspended).
+Clause 1 is three comparisons per bridge candidate.  Clause 2 adds ONE
+`build_anchor_envelope` (two Dijkstras over the unified spine graph) per
+solve, and ONLY on an airport that has object-bridge deck pins — the EAT
+guard beside it already pays exactly this cost on every airport with an
+EAT rect.  The envelope cannot be shared between the two guards: they
+demote different junior sets, so one envelope would answer the other's
+question wrongly.
+
+CACHE VERSION 17 -> 18 forces one cold re-classification per pack on
+first use.  That is the round-5 island-tunnel precedent (version 15) and
+is what makes the rule reach an unedited pack at all; it is a one-time
+cost per lane cache, not a per-build one.
+
+CONSEQUENCE FLAGGED FOR THE OWNER, not verified here: a refused structure
+takes no ruling-R4 exclusion, so KDFW's five inset objects (220-224.obj)
+and every other refused family return to the generic Phase-2 y-bake.
+That is the island-tunnel refusal's own precedent ("no terrain was
+adapted to them"), but it is an OBJECT-PLACEMENT change at tile-build
+time and only the owner's in-sim pass can accept it.
+
+RESULTS (all three rc=0, this tree, clean worktree, shared repo UNCHANGED):
+  KDFW  1220.3 s  3491 shapes  body_sha d684de9a144e  census LAW-TRUE 2520 /
+        ADJUDICATED 553 (airside 267, groundside 284, mixed 2), FAIL on
+        PRE-EXISTING defects — a 21.5 m junction cliff cluster at
+        32.879,-97.051, no bridge feature within it.  The subject mechanism
+        is CLOSED: 0 bridges, 1 refusal, 0 deck-end pins, and the final
+        reach band reports 7 sub-materiality inversions with 2 pinned
+        vertices outside band (worst 20.9005 m) — NUMERICALLY IDENTICAL to
+        the bridge-OFF arm's own report, i.e. the feature is now inert
+        here, against the pre-change bridge-ON arm which died on 650
+        nodes / 43 pairs / worst 1.996 m.
+  OTHH   465.1 s  2263 shapes  body_sha eb277c2e4beb  census LAW-TRUE 5882 /
+        ADJUDICATED 5877, FAIL on pre-existing (OTHH is the object-terrain
+        FIXTURE, never a law-clean airport).  3 bridges kept, trench + 2
+        causeways born, deck-flush pins attempted: its viaducts keep their
+        decks.  Band membership 0 of 13710 outside.
+  KMCI   510.6 s  1567 shapes  body_sha 88cb02c03e31  census LAW-TRUE 3026 /
+        ADJUDICATED 2049, FAIL on pre-existing.  6 records refused on
+        clearance (2.09-2.45 m), 1 kept with its trench + 2 causeways.
+        Band membership 0 of 8753 outside.
+
+The two acceptance builds ran at tree bd217eaddcbb, which differs from the
+committed tree ONLY in `solve._PROBE_PUBLISHED_ATTRS` (the string-mover
+probe's snapshot list; that probe needs O4_STRING_MOVER_LEDGER=1, absent
+from every arm's recorded env), so no arm is affected by the delta.

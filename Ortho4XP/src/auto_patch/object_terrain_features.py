@@ -424,6 +424,54 @@ AMBIGUOUS = "AMBIGUOUS"
 CONTRACT_EVIDENCE_PAVEMENT_COVERAGE = "pavement_coverage"
 CONTRACT_EVIDENCE_DECK_PROFILE = "deck_profile_fallback"
 
+# ── KDFW CONTRACT REFUSAL BOUNDS (docs/specs/kdfw-bridge-refusal-spec.md
+# clause 1; BOUNDS PROVISIONAL — owner ratification rides the round
+# report) ────────────────────────────────────────────────────────────
+#
+# A BRIDGE IS A BRIDGE-SHAPED THING.  The Aerosoft KDFW pack ships its
+# whole airport pavement inset as five objects on ONE shared DSF anchor;
+# pooled, their near-horizontal hard faces union into a 2,849.6 × 820.6 m
+# "deck" of 263,160 m².  With no pavement evidence to read (the deck IS
+# the airport, so the coverage band measures nothing and the contract
+# falls back to the profile — ``CONTRACT_EVIDENCE_DECK_PROFILE``) the
+# crest test alone called it DECK_CARRIED, and 193 hard deck-end pins at
+# one DEM sample + 8 m (183.29) inverted the final band (650 nodes /
+# 43 pairs, worst 1.996 m).  The building-pad precedent does not apply:
+# no footprint exists at which 183.286 is the right answer.
+#
+# The bounds are the same KIND of instrument as
+# ``TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2`` above (a tunnel is not an island)
+# and are calibrated the same way — from the corpus, with orders of
+# margin.  Sweep of every ``o4_object_terrain_classification`` sidecar in
+# the shared data repo, 2026-08-16 (35 bridge records over 14 packs):
+#
+#   KDFW inset slab   2 849.6 m × 820.6 m   263 160 m²  <- refused here
+#   next longest        217.8 m              (KMCI)
+#   next widest          49.3 m              (KMCI)
+#   next largest                               1 941 m² (OTHH)
+#
+# — the refused record exceeds every bound by 2.8× / 13.7× / 6.6× while
+# the largest real deck in the corpus sits at 4.6× / 1.2× / 20.6× UNDER
+# them.  The env overrides exist so the ratification arm is one variable,
+# not an edit (the ``TUNNEL_MAX_DECK_FOOTPRINT_AREA_M2`` pattern).
+BRIDGE_FALLBACK_MAX_DECK_LENGTH_M = float(
+    os.environ.get("O4_BRIDGE_FALLBACK_MAX_DECK_LENGTH_M", "1000.0")
+)
+BRIDGE_FALLBACK_MAX_DECK_WIDTH_M = float(
+    os.environ.get("O4_BRIDGE_FALLBACK_MAX_DECK_WIDTH_M", "60.0")
+)
+BRIDGE_FALLBACK_MAX_DECK_AREA_M2 = float(
+    os.environ.get("O4_BRIDGE_FALLBACK_MAX_DECK_AREA_M2", "40000.0")
+)
+
+# The reason tokens the two clause-1 refusals record on the
+# :class:`RefusedStructure` audit trail.  Each is a PREFIX: the reason
+# string continues with the measurements that fired it, because "logs the
+# refusal with its measurements" is the spec's own wording and a bare
+# token sends the reader back to the pack to find out what happened.
+BRIDGE_REFUSAL_IMPLAUSIBLE_DECK = "bridge_deck_scale_implausible"
+BRIDGE_REFUSAL_CLEARANCE_UNDER_MINIMUM = "bridge_girder_clearance_under_minimum"
+
 # The contract coverage band spans the middle third of the deck ALONG the
 # axis and — A10 round-5 calibration — the central HALF of the deck ACROSS
 # the axis.  Measured at KBNA taxiway-L (the deck-carried flagship): every
@@ -2673,6 +2721,115 @@ def _classify_contract(
     return AMBIGUOUS
 
 
+def contract_refusal_reason(
+    contract: str,
+    contract_evidence: str,
+    deck_hardness: str,
+    deck_length_m: float,
+    deck_width_m: float,
+    deck_area_m2: float,
+    girder_clearance_m: float | None,
+) -> str | None:
+    """THE CONTRACT REFUSAL (docs/specs/kdfw-bridge-refusal-spec.md
+    clause 1) — the reason this verdict may not become a terrain feature,
+    or ``None`` when it may.
+
+    Two laws, both judged HERE, at classification, because a refused
+    contract emits NOTHING (no trench, no corridor, no pins) and every
+    one of those is downstream of the record's existence.  The caller
+    turns a reason into a :class:`RefusedStructure`, which is the module's
+    established "recognized but refused a terrain FEATURE" channel
+    (amendment A4's piered viaduct, round-5's island tunnel deck).
+
+    **1. IMPLAUSIBLE DECK SCALE ON PROFILE-FALLBACK EVIDENCE.**  A
+    :data:`DECK_CARRIED` verdict reached WITHOUT pavement evidence
+    (:data:`CONTRACT_EVIDENCE_DECK_PROFILE`) rests on the crest test
+    alone, and the crest test cannot tell a bridge from an airport-sized
+    slab authored 8 m above its anchor.  So the scale bounds are the
+    missing evidence: over
+    :data:`BRIDGE_FALLBACK_MAX_DECK_LENGTH_M` long, over
+    :data:`BRIDGE_FALLBACK_MAX_DECK_WIDTH_M` wide, or over
+    :data:`BRIDGE_FALLBACK_MAX_DECK_AREA_M2` in plan is not a deck.
+    SCOPED TO THE FALLBACK deliberately: a span with measured pavement
+    coverage has real evidence for its contract and is not judged on its
+    size.
+
+    **2. GIRDER CLEARANCE UNDER THE MINIMUM (amendment A10 becomes a
+    gate).**  ``BRIDGE_ROAD_CLEARANCE_MINIMUM_M`` was an emit-time WARN
+    that emitted anyway ("audit required").  A structure whose modelled
+    girder line stands less than that above the floor its own deck datum
+    implies is not a crossing traffic passes under, and pinning terrain
+    to it digs a corridor no vehicle fits through.  ``girder_clearance_m``
+    is the caller's ``clearance_underside_y_m`` — IDENTICALLY the
+    quantity the emit-time check computes, since
+    ``_bridge_girder_underside_m`` − ``_bridge_corridor_floor_m`` cancels
+    the deck datum and the crest and leaves exactly the underside height
+    in the structure frame.  ``None`` refuses nothing: a missing
+    measurement is honest, and the WARN it replaces was likewise skipped.
+
+    A GIRDER LINE, NOT ANY UNDERSIDE.  The emit-time check falls back to
+    the slab ``ceiling_y_m`` when no girder line was found; a REFUSAL may
+    not, and the corpus is why.  ``clearance_underside_y_m`` is by
+    construction a plane above :data:`CLEARANCE_MINIMUM_OPENING_HEIGHT_M`
+    — one that could roof an opening — while ``ceiling_y_m`` is merely
+    the largest-area underside, which on the cosmetic road-bridge class
+    is soft geometry lying AT or BELOW grade.  Measured over every cached
+    classification in the shared data repo (2026-08-16): all three OTHH
+    viaduct records and one KMCI record expose NO girder line and carry
+    ceiling values of −5.84 / −0.93 / −0.49 / −0.92 m, so a fallback
+    reading would refuse the bridge FIXTURE airport's REAL viaducts on a
+    number that is not a clearance at all.  That is the "two instruments,
+    one assumed population" trap; the law says girder.
+
+    SCOPE of law 2 is the CORRIDOR SET — the contracts A10's warning
+    could ever fire on (``bridges._partition_bridges_for_corridors``:
+    DECK_CARRIED plus every cosmetic deck).  A terrain- or
+    profile-carried span has pavement draping across it and no corridor
+    is ever dug beneath, so its underside height limits nothing and
+    refusing it on that number would be a new law, not this one."""
+    corridor_shaped = (
+        contract == DECK_CARRIED or deck_hardness == DECK_HARDNESS_COSMETIC
+    )
+    if (
+        contract == DECK_CARRIED
+        and contract_evidence == CONTRACT_EVIDENCE_DECK_PROFILE
+    ):
+        over = []
+        if deck_length_m > BRIDGE_FALLBACK_MAX_DECK_LENGTH_M:
+            over.append(
+                f"length {deck_length_m:,.1f} m over "
+                f"{BRIDGE_FALLBACK_MAX_DECK_LENGTH_M:,.0f} m"
+            )
+        if deck_width_m > BRIDGE_FALLBACK_MAX_DECK_WIDTH_M:
+            over.append(
+                f"width {deck_width_m:,.1f} m over "
+                f"{BRIDGE_FALLBACK_MAX_DECK_WIDTH_M:,.0f} m"
+            )
+        if deck_area_m2 > BRIDGE_FALLBACK_MAX_DECK_AREA_M2:
+            over.append(
+                f"area {deck_area_m2:,.0f} m² over "
+                f"{BRIDGE_FALLBACK_MAX_DECK_AREA_M2:,.0f} m²"
+            )
+        if over:
+            return (
+                f"{BRIDGE_REFUSAL_IMPLAUSIBLE_DECK}: DECK_CARRIED on "
+                f"{CONTRACT_EVIDENCE_DECK_PROFILE} evidence at "
+                f"implausible deck scale ({'; '.join(over)}) — refused, "
+                "no terrain feature (KDFW inset-slab class)"
+            )
+    if corridor_shaped and girder_clearance_m is not None:
+        from .config import BRIDGE_ROAD_CLEARANCE_MINIMUM_M
+        minimum = float(BRIDGE_ROAD_CLEARANCE_MINIMUM_M)
+        if float(girder_clearance_m) < minimum - 1e-6:
+            return (
+                f"{BRIDGE_REFUSAL_CLEARANCE_UNDER_MINIMUM}: girder "
+                f"clearance {float(girder_clearance_m):.2f} m under the "
+                f"{minimum} m minimum — refused, no corridor and no "
+                "terrain feature (amendment A10 is a gate)"
+            )
+    return None
+
+
 def _refused_deck_members(deck_faces) -> tuple:
     """One :class:`RefusedDeckMember` per RESOURCE contributing deck
     faces, each with its OWN axis end lines and its OWN effective crest
@@ -2974,6 +3131,83 @@ def _classify_bridge(
         if coverage_fraction is not None
         else CONTRACT_EVIDENCE_DECK_PROFILE
     )
+
+    # ── CONTRACT REFUSAL (docs/specs/kdfw-bridge-refusal-spec.md clause
+    # 1) ─────────────────────────────────────────────────────────────
+    # The last gate before the record exists, and therefore the only
+    # place "emits nothing — no trench, no corridor, no pins" can be
+    # spelled once: every emitter downstream reads the classification,
+    # and none of them can un-emit.  Same channel as amendment A4's
+    # viaduct guard above.
+    # THE GIRDER LINE ONLY (never the ``ceiling_y_m`` slab fallback the
+    # emit-time A10 check accepts) — see the predicate's docstring: the
+    # fallback is not a clearance on the cosmetic road-bridge class and
+    # would refuse OTHH's real viaducts on a below-grade number.
+    girder_clearance_m = clearance_underside_y_m
+    refusal_reason = contract_refusal_reason(
+        contract,
+        contract_evidence,
+        deck_hardness,
+        float(axis.length_m),
+        float(axis.width_m),
+        float(deck_polygon.area),
+        girder_clearance_m,
+    )
+    if refusal_reason is not None:
+        deck_resources = sorted({face.resource_path for face in deck_faces})
+        reference_placement = next(
+            (
+                placement
+                for placement in placements
+                if placement.resource_path in set(deck_resources)
+            ),
+            placements[0],
+        )
+        clearance_text = (
+            "none" if girder_clearance_m is None
+            else f"{float(girder_clearance_m):.2f} m"
+        )
+        _vprint(
+            1,
+            "   [object-bridge] contract REFUSED for "
+            f"{', '.join(deck_resources)} — {refusal_reason} "
+            f"[deck {axis.length_m:,.1f} x {axis.width_m:,.1f} m, "
+            f"{deck_polygon.area:,.0f} m², crest {crest_y_m:.2f} m, "
+            f"clearance {clearance_text}, contract {contract} on "
+            f"{contract_evidence}]",
+        )
+        # WHICH MEASUREMENTS RIDE ALONG (R12-2).  A clearance refusal is
+        # still a bridge — a real deck whose modelled crossing is too
+        # tight — so its family keeps the rigid deck-top seat, exactly as
+        # the refused piered viaduct does.  A SCALE refusal is the
+        # opposite claim: the premise is that this union is not a deck at
+        # all, so carrying its axis and crest into the post-mesh seat
+        # would feed the seat the very measurement the refusal rejects
+        # (the round-5 island-tunnel refusal carries none either, for the
+        # same reason).  ``has_measurable_deck`` then routes it to the
+        # generic y-bake, which is where an unrecognized structure
+        # belongs.
+        if refusal_reason.startswith(BRIDGE_REFUSAL_IMPLAUSIBLE_DECK):
+            return None, RefusedStructure(
+                object_resources=deck_resources,
+                reason=refusal_reason,
+            )
+        return None, RefusedStructure(
+            object_resources=deck_resources,
+            reason=refusal_reason,
+            deck_object_resources=deck_resources,
+            anchor_longitude_latitude=(
+                reference_placement.longitude,
+                reference_placement.latitude,
+            ),
+            frame_origin_longitude_latitude=(
+                frame.origin_longitude,
+                frame.origin_latitude,
+            ),
+            abutment_lines=list(axis.abutment_lines),
+            deck_top_y_m=crest_y_m,
+            deck_members=_refused_deck_members(deck_faces),
+        )
 
     absolute_deck_elevation_m = _median_msl_on_deck(
         deck_polygon,

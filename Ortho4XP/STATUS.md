@@ -1,6 +1,50 @@
 # ══════════════════════════════════════════════════════════════════
-# 20260815g (HANDOVER — ZERO-DEBT ROUND: wave 1+2 adjudicated, F3+R8
-# MERGED, three lanes IN FLIGHT, wave 3 queued; owner-ordered pause)
+# 20260815g FINAL (ZERO-DEBT ROUND CLOSED FOR HANDOVER: all lanes
+# finished+adjudicated; F3, R8, BRIDGEGUARD, FRONTAGE merged; RM/C3/
+# SM3/C2 HELD with owner questions; six-airport battery on composed
+# main ALL rc=0 — KAFW+KDFW first-ever builds)
+# BATTERY (composed main, 2026-08-16 morning, ledger addendum has the
+# table): CYXY 336/75a, SPLP 43/35a, SPJC 482/199a, KAFW 365/89a,
+# HECA 7,548/1,522a, KDFW 576/291a — total 9,350 adjudicated / 2,211
+# airside. NOT zero: the road-face chord-limiter gap (frontage's
+# honest exposure, +892 HECA gs), the held lanes' populations, and
+# the new fixtures' fresh debt are wave 3.
+# MERGES this stretch beyond F3+R8: BRIDGEGUARD 3796168 (KDFW builds
+# with the feature ON; OTHH viaducts value-identical; girder gate
+# requires a MEASURED line — lead-approved disambiguation; refusal
+# bounds PROVISIONAL for owner ratification: len>1000/w>60/area>40k,
+# +clearance gate — blast radius 6 KMCI + 4 KDEN cosmetic records;
+# refused structures return to y-bake = in-sim acceptance item) and
+# FRONTAGE 95e4374 (A1 POSITIVE landside term — HECA builds, guards
+# pass, sink site 62 rows->1 worst 0.39 m; A2 cutback DEFAULT-OFF by
+# lead adjudication — bought neither witness, +286 HECA via the
+# road-chord gap; re-arms when the road chord limiter lands).
+# RM VERDICT (lane/routemetric c009239, HELD): the ruling is RIGHT
+# for SM1/SM2 (827+219 rows -> ~0 in both arms) but the chord law was
+# ALSO holding cross-corridor flatness — debt RELOCATES to transverse
+# (HECA within -1,152 / transverse +963); CYXY (zero within-debt)
+# pays +20. Ring-adjacent chord exclusion (attempt 2) nets HECA
+# airside -194. TWO OWNER QUESTIONS: (a) does transverse follow the
+# route metric too, (b) is "airside strictly improves" per-airport or
+# campaign-net. Also: groundside_pavement/tunnel_ramp have no solver
+# pair bake — pricing them census-only would fork the lockstep
+# (interpretation flagged). C1-proxy lat/lon bug corrected in the
+# lane's SM script (scratchpad rm/sm_decompose.py — promote on 2nd
+# use); tools/INDEX.md vs README.md ritual check discrepancy noted.
+# WAVE 3 (next session): (1) road chord limiter (roads-like-taxiways
+# ruling implements it; unlocks A2 re-arm + prices frontage's exposed
+# faces); (2) RM per owner's two answers; (3) C3 rework airside-
+# frozen; (4) C2 fixpoint + non-contact-survivor frame; (5) SM3 on
+# RM base + its rulings (204-node population; probe flag); (6)
+# residual sweep (R8's 2 rows, F3's 70 + trench cone, C2's 8, C3
+# cliffs); (7) KAFW/KDFW new-fixture triage (365/576); (8) ledger
+# re-refresh + app 1.0.254 (engine 1.50.1696 frozen; run make_app,
+# verify embedded==dist). OWNER RULINGS PENDING (full list): RM (a)
+# (b); crater-floor-vs-dam-ceiling clause (F3's 70); KDFW refusal
+# bounds; join_snap_t radius; refused-structure y-bake in-sim accept.
+# Control worktrees to tear down --force when done: r5base, sm3base,
+# kafwctl, frontagebase, kafwbase.
+# ORIGINAL 20260815g DRAFT (pre-lane-completion) FOLLOWS:
 # Owner mandate: complete every ledger category, all adjudicated -> 0,
 # app bundle LAST. TWO NEW RULINGS in canon: within-shape budget is
 # ROUTE-METRIC for the apron family (the C1 keystone — SM1's 1,007

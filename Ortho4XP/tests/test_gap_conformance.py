@@ -32,7 +32,7 @@ pattern): a pavement frame enclosing one hole plus a stub DEM.
 import math
 
 import pytest
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Point, Polygon
 
 from auto_patch import gap_fill as GF
 from auto_patch.clearance import _edge_interp_alt

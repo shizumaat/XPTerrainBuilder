@@ -35,7 +35,6 @@ from shapely.geometry import LineString, Point, Polygon
 
 from auto_patch import gap_fill as GF
 from auto_patch.gap_fill import emit_gap_fill_spines
-from auto_patch.grade_law import adjacent_ground_envelope
 from auto_patch.layout import BuiltShape, ROLE_RUNWAY, ROLE_STUB
 
 EDGE_ALT = 100.0

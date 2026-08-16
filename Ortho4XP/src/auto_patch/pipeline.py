@@ -4874,12 +4874,20 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # field (the opposite of "stays at DEM").  Runs after the
         # connector re-roles (roles final) and before the mouth
         # conformance below, which must see the road's final ring.
-        # ``O4_ROAD_FRONTAGE_CUTBACK=0`` is the kill switch AND the
+        # DEFAULT OFF (Fable adjudication 2026-08-15 late): the cutback
+        # bought neither CYXY witness (both byte-identical in the
+        # R7a-only arm; the frontage site carries zero road-airside
+        # shared nodes) and cost +286 HECA / +76 SPJC through the
+        # unlimited-road-chord gap. It re-arms (=1) when the road
+        # chord limiter lands (wave 3: extend
+        # _grade_limit_groundside_chords to the road roles under the
+        # standing roads-like-taxiways ruling).
+        # ``O4_ROAD_FRONTAGE_CUTBACK=1`` is the arm switch AND the
         # attribution instrument: with it off the round's R7a half runs
         # alone, so a census delta can be split between the two clauses
         # without arguing about it.
         if dem is not None and os.environ.get(
-                "O4_ROAD_FRONTAGE_CUTBACK", "1") == "1":
+                "O4_ROAD_FRONTAGE_CUTBACK", "0") == "1":
             try:
                 from .groundside import (
                     _separate_groundside_from_airside as _sep_road_frontage)

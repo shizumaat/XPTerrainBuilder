@@ -70,6 +70,7 @@ try:
         ROUTE_FIELD_LOCAL_WINDOW_M,
         ROAD_FRONTAGE_TOL_M,
         DRAINAGE_SPINE_MIN_FALL_M as _DRAINAGE_SPINE_MIN_FALL_M,
+        GAP_PAVEMENT_CONFORM_MARGIN_M as _GAP_CONFORM_MARGIN_M,
         SERVICE_ROAD_MAX_GRADE,
         TAXI_GRADE_BY_WIDTH,
         TAXI_GRADE_WIDTH_ROLES,
@@ -94,6 +95,7 @@ except Exception:
     ROUTE_FIELD_LOCAL_WINDOW_M = 80.0
     ROAD_FRONTAGE_TOL_M = 3.0
     _DRAINAGE_SPINE_MIN_FALL_M = 0.30
+    _GAP_CONFORM_MARGIN_M = 10.0
     SERVICE_ROAD_MAX_GRADE = 0.08
     TAXI_GRADE_BY_WIDTH = True
     TAXI_GRADE_WIDTH_ROLES = frozenset({
@@ -3076,6 +3078,21 @@ def _check_drainage_spine_below_pavement(
             tally = host_tally.setdefault(w.wid, {})
             tally[near[0][1]] = tally.get(near[0][1], 0) + 1
             lower = min(near[0][2], near[1][2])
+            # F3b staged law (gap-conformance spec): within the
+            # conformance margin of its nearest bounding pavement the
+            # spine is PINNED to that edge's value (the owner's
+            # conformance ruling) — a band station is judged against
+            # its pin, never the dam clause; the dam clause owns the
+            # INTERIOR.  Same stage, same distance, as the emitter's
+            # ``grade_law.drainage_spine_envelope``.
+            if near[0][0] <= _GAP_CONFORM_MARGIN_M:
+                if abs(z - near[0][2]) > SHARED_VERTEX_TOL_M:
+                    out.append(Violation(
+                        grade_pct=0.0, excess_pct=0.0,
+                        distance_m=near[0][0], de_m=z - near[0][2],
+                        way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
+                        elev_a=z, elev_b=near[0][2]))
+                continue
             if z >= lower:
                 out.append(Violation(
                     grade_pct=0.0, excess_pct=0.0,

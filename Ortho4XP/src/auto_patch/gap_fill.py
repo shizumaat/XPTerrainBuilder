@@ -1132,37 +1132,36 @@ def _drain_target(lo, hi, edge_alts):
 
 
 def _spine_lawful_profile(layout, conform, spine, values, dem,
-                          tile_lat, tile_lon):
-    """LAW 3 (F3 §"The law" 3) — THE SPINE DESCENDS LAWFULLY AND NEVER
-    BELOW TERRAIN.
+                          tile_lat, tile_lon, intervals=None):
+    """LAW 3 as amended by F3b (gap-conformance spec) — THE STAGED
+    SPINE LAW.
 
-        value(s) = max(terrain(s), boundary_value - slope_cap * s)
+        value(s) = max(cone_floor(s), min(terrain(s), drainage_ceiling))
 
-    walked from EACH end (the max of the two walks): the spine leaves
-    its conformed boundary endpoint at the steepest lawful graded
-    transition and descends until it MEETS terrain, after which it
-    follows terrain.  A spine value below its own local terrain is
-    impossible by construction — which is what kills the stamped-flat
-    trench class the owner measured at CYXY 60.7124,-135.0802 (nine
-    nodes at a flat 695.8, 7.7 m under their own 703.5 terrain: a
-    manufactured canal).
+    clamped into the station's interval, where ``cone_floor(s)`` is the
+    lawful descent from EACH conformed boundary end (``max`` of the two
+    walks at ``_RING_ALONG_BENCH_SLOPE``) and the drainage ceiling is
+    the station's interval ``hi`` — the staged
+    ``grade_law.drainage_spine_envelope`` composition: PINNED to the
+    edge value within ``GAP_PAVEMENT_CONFORM_MARGIN_M`` (the owner's
+    conformance ruling), ``min(edges) − DRAINAGE_SPINE_MIN_FALL_M`` in
+    the interior (the dam clause).
 
-    The slope cap is ``_RING_ALONG_BENCH_SLOPE`` — this module's already
-    named "band maximum down slope, the steepest lawful graded
-    transition".  No new constant, and the ring bench and the spine
-    descent therefore speak one number.
+    The cone floor is the anti-trench guard: depth is bounded by what a
+    lawful descent from the conformed boundaries can carve, which is
+    what kills the stamped-flat trench class (CYXY 60.7124,-135.0802:
+    nine nodes flat at 695.8, 7.7 m under 703.5 terrain).  The
+    ``min(terrain, ceiling)`` half follows terrain where terrain is
+    already below the drainage ceiling and GRADES DOWN an enclave hill
+    that would otherwise dam its own interior (the F3b correction: the
+    superseded clause-3 terrain FLOOR followed terrain UP and collided
+    with the dam law — HECA +1,332).
 
-    The BOUNDARY VALUE at each end is the conformance read there (law
-    1); with no pavement in reach the emitted end value stands, so the
-    terrain floor still applies and the descent simply starts where the
-    spine already was.
-
-    Returns ``(values, terrain)`` — the new value list and the per-node
-    terrain the floor was taken from (published with the emitted spine
-    so the LATE law re-clamp cannot cut the canal back open).  ``dem``
-    None (the open-frontage pilot, the DEM-free fixtures) returns
-    ``values`` unchanged and no terrain: without terrain there is no
-    floor to enforce and no walk to anchor."""
+    Returns ``(values, terrain)`` — the terrain is published with the
+    emitted spine (``_GAP_SPINE_TERRAIN_STORE``) for reporting.  ``dem``
+    None (the open-frontage pilot, DEM-free fixtures) returns ``values``
+    unchanged: without terrain the interval clamp already carries the
+    law."""
     if dem is None or not spine or len(spine) != len(values):
         return list(values), None
     from .elevation import _sample_dem
@@ -1189,10 +1188,30 @@ def _spine_lawful_profile(layout, conform, spine, values, dem,
     cap = _RING_ALONG_BENCH_SLOPE
     out = []
     for i in range(len(spine)):
-        walks = [ends[0] - cap * s[i], ends[1] - cap * (length - s[i])]
-        v = max(walks)
-        if terrain[i] is not None:
-            v = max(v, terrain[i])
+        # F3b staged law: value = max(cone_floor, min(terrain, drainage
+        # ceiling)), clamped into the station's own interval.  The cone
+        # floor bounds the depth to the lawful descent from the
+        # conformed boundaries (the anti-trench guard); the min() is the
+        # dam clause where terrain is high (an enclave hill is GRADED
+        # DOWN to drain — the owner's ruling refutes terrain-following
+        # there) and terrain-following where terrain already sits below
+        # the drainage ceiling.  Band stations arrive with PINNED
+        # intervals from the staged envelope and collapse to the pin.
+        cone = max(ends[0] - cap * s[i], ends[1] - cap * (length - s[i]))
+        lo_i, hi_i = (intervals[i] if intervals is not None
+                      and i < len(intervals) else (None, None))
+        base = None
+        if terrain[i] is not None and hi_i is not None:
+            base = min(terrain[i], hi_i)
+        elif terrain[i] is not None:
+            base = terrain[i]
+        elif hi_i is not None:
+            base = hi_i
+        v = cone if base is None else max(cone, base)
+        if lo_i is not None:
+            v = max(v, lo_i)
+        if hi_i is not None:
+            v = min(v, hi_i)
         out.append(round(v, 1))
     return out, terrain
 
@@ -4393,7 +4412,8 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
     # already at or below the ring value it starts from. ──────────────
     _conform_shp, _conform_idx = _conform_index(layout, airside)
     values, _spine_terrain = _spine_lawful_profile(
-        layout, _conform_idx, spine, values, dem, tile_lat, tile_lon)
+        layout, _conform_idx, spine, values, dem, tile_lat, tile_lon,
+        intervals=intervals if ok else None)
 
     # OPEN-WAY EMISSION (user design 2026-07-09, round 2): ONE face —
     # the gap polygon itself, ring verbatim — plus the spine as an

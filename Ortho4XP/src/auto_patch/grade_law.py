@@ -1571,6 +1571,16 @@ def drainage_spine_envelope(
     empty-intersection fallback for a reason that is not a contradiction
     between the two parents.
     """
+    # F3b (gap-conformance spec, 2026-08-16): THE STAGED SPINE LAW.
+    # Within the pavement-conformance margin the spine is PINNED to the
+    # edge value — the owner's ruling ("close to pavement, match the
+    # pavement solved elevations") — and the dam clause applies only in
+    # the INTERIOR beyond it.  One law, both readers: gap_fill's
+    # interval composition and check_grade's dam predicate stage on the
+    # same lateral distance this signature already carries.
+    from .config import GAP_PAVEMENT_CONFORM_MARGIN_M
+    if distance_from_pavement_edge_m <= float(GAP_PAVEMENT_CONFORM_MARGIN_M):
+        return 0.0, 0.0
     floor_off, ceil_off = adjacent_ground_envelope(
         role, code_number, code_letter, distance_from_pavement_edge_m)
     fall = -float(DRAINAGE_SPINE_MIN_FALL_M)

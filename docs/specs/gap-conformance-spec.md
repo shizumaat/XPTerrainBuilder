@@ -69,3 +69,40 @@ aprons, airside: UNTOUCHED — airside must be byte-identical.
 
 Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; deviations
 STOP-and-report to the Fable lead.
+
+## F3b — THE STAGED SPINE LAW (Fable amendment, 2026-08-16, adjudicating
+## the +1,332 drainage_spine collision)
+
+Measured on the lane's HECA arm (HECA_20260815T203509): +1,332
+drainage_spine rows, all other airside families +0.  Mechanism: spec
+clause 3's ``max(terrain, cone)`` walk follows terrain UP wherever
+interior terrain sits above (lower bounding edge − MIN_FALL), while
+``grade_law.drainage_spine_envelope`` demands the WHOLE spine ≥
+MIN_FALL below the lower edge (the dam clause).  Both laws are right
+in their own region; the spec drew no boundary.  The owner's words
+("a drainage spine pulls terrain down to follow grading
+requirements") also refute clause 3's terrain floor as written: an
+enclave hill above its pavements is GRADED DOWN, not followed.
+
+The staged law (supersedes clause 3; one law, both readers):
+
+* BAND (distance from a bounding pavement edge ≤
+  GAP_PAVEMENT_CONFORM_MARGIN_M): the spine is PINNED to the
+  conformed edge value — ``drainage_spine_envelope`` returns the
+  pinned (0, 0) offsets there; the dam clause does not apply.
+* INTERIOR: ``value(s) = max(cone_floor(s), min(terrain(s),
+  min_edges − MIN_FALL))`` where ``cone_floor(s) = max over
+  conformed ends (end_value − bench_slope·s)``.  The cone floor is
+  the anti-trench guard (depth bounded by lawful descent — the CYXY
+  flat-695.8 canal collapses to ≤ ~2.4 m below its boundary); the
+  ``min(..)`` is the dam clause where terrain is high (the enclave
+  hill is pulled down to drain) and terrain-following where terrain
+  is already below the drainage ceiling.
+* VALIDATOR rows: band station off its pin > materiality; interior
+  station above the drainage ceiling (dam) or below the cone floor
+  (crater/stamped flat).  The existing crater guard (lateral floor)
+  stays.
+
+Acceptance deltas: the HECA re-census must show the +1,332 collapse
+to true violations only; CYXY re-runs (its passed acceptance was
+measured under the superseded clause 3 and is void until re-measured).

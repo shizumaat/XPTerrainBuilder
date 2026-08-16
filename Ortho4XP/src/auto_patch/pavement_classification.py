@@ -182,6 +182,25 @@ class CoverIndex:
         """The whole layer as one geometry (diagnostics / tests only)."""
         return _union(self.parts)
 
+    def intersects(self, geometry) -> bool:
+        """True when ``geometry`` touches ANY piece of this layer.
+
+        The MEMBERSHIP question the area fractions cannot answer for a
+        LINE: a cross-section chord has no area, so ``cover_fraction``
+        reads 0.0 against every layer.  Same tree, same pieces, same
+        prepared ``intersects`` predicate the fractions prefilter with —
+        one index, two questions, no second layer to drift.
+        """
+        if self.tree is None or geometry is None:
+            return False
+        try:
+            if geometry.is_empty:
+                return False
+            return len(self.tree.query(geometry,
+                                       predicate="intersects")) > 0
+        except _GEOM_EXC:
+            return False
+
     def cover_fraction(self, polygon) -> float:
         """Fraction of ``polygon``'s area covered by this layer."""
         if self.tree is None:
@@ -367,6 +386,78 @@ def _osm_airside_unions(layout):
             if is_line else geometry)
     return (_cover_index(apron_polys), _cover_index(stand_geoms),
             _cover_index(taxi_geoms), _cover_index(airside_geoms), n_ways)
+
+
+def airside_evidence_layer(layout, taxi_lines=None) -> CoverIndex:
+    """THE POSITIVE-AIRSIDE-EVIDENCE LAYER (owner ruling 2026-08-15,
+    "roads carry spines … the free-road width test gains its missing
+    landside term").
+
+    R7a.  The free-road knife (``groundside.free_road_subsegments``)
+    asks one question per station: is this wide pavement an APRON the
+    road is inside of, or a LANDSIDE lot the road merely crosses?  The
+    width test alone cannot tell them apart — a DSF ``.pol`` pack
+    delivers apron and car park as one blob — and the measured cost was
+    CYXY lot 377 swallowing a public road whole (82-93 % of its
+    stations dropped; HECA 142 of 160 groundside shapes contain roads).
+
+    A station is airside ONLY on evidence no landside pavement can
+    supply:
+
+    * **OSM ``aeroway`` backing** — the same whitelist, buffers and
+      geometry ``_osm_airside_unions`` builds for the classifier
+      (apron polygons, stand buffers, taxiway/taxilane territory);
+    * **the airport's OWN name for it** — apt.dat row-110 pavement
+      named apron or taxiway (``pavement_scoring.score_sources``);
+    * **the runway union** and **the taxi centerline network** —
+      airside by identity, never gated by anything here.
+
+    The two classes the width test was BUILT for are preserved by
+    construction, because both are airside on this evidence: the SPJC
+    east-terminal frontage (apt.dat-named apron + OSM apron) and the
+    HECA "svc junctions 4→76" carve (OSM apron backing).  What changes
+    is only the pavement with NO airside evidence at all.
+
+    ``taxi_lines`` — the effective taxi centerline set at the call site
+    (the slice's own ``_cn_cls``); ``None`` falls back to
+    ``layout.apt_taxi_centerlines``.  Memoized on the layout as
+    ``_airside_evidence_layer``.
+    """
+    cached = getattr(layout, "_airside_evidence_layer", None)
+    if cached is not None:
+        return cached
+    parts: list = []
+    # (1) OSM aeroway backing — THE classifier's own layer, re-read here
+    #     (the unions are memo-free but cheap; the ways are already in
+    #     memory as ``_osm_airport_features``).
+    apron_u, stand_u, taxi_u, airside_u, _n = _osm_airside_unions(layout)
+    parts.extend(airside_u.parts)
+    # (2) the airport's own apt.dat naming.
+    try:
+        from .pavement_scoring import score_sources
+        ss = score_sources(layout)
+        parts.extend(ss.name_apron.parts)
+        parts.extend(ss.name_taxi.parts)
+    except Exception:
+        pass
+    # (3) airside by identity — runways and the taxi centerline network.
+    runway_u = getattr(layout, "runway_union", None)
+    if runway_u is not None and not runway_u.is_empty:
+        parts.append(runway_u)
+    if taxi_lines is None:
+        taxi_lines = [
+            getattr(cl, "chained_line", None) or getattr(cl, "line", None)
+            for cl in (getattr(layout, "apt_taxi_centerlines", None) or [])]
+    for line in taxi_lines or []:
+        if line is None or getattr(line, "is_empty", True):
+            continue
+        try:
+            parts.append(line.buffer(PAVEMENT_CLASS_TAXI_BUFFER_M))
+        except _GEOM_EXC:
+            continue
+    layer = CoverIndex(parts)
+    layout._airside_evidence_layer = layer
+    return layer
 
 
 def _is_below_grade(tags) -> bool:

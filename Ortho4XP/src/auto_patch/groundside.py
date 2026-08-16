@@ -2159,12 +2159,25 @@ def _regrade_merged_host(host, _dem_at) -> Optional[float]:
 # on the clip boundary and so is NOT float-free, and must be gated on the
 # frozen body hash rather than argued.  Recorded rather than left for the
 # next lane to rediscover.
-def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
-    """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
-    service centerline — the ONE measurement both the narrow-strip carve
-    and the free-road slice filter key on, so they cannot drift.  ``None``
-    on geometry failure (callers treat that as NOT road-width —
-    conservative, never carve on a broken measurement)."""
+def _svc_contiguous_cross_section(line, arc, pav_union,
+                                  probe: float = 60.0):
+    """The contiguous pavement CROSS-SECTION chord at arc-length ``arc``
+    of a service centerline — THE measurement, of which
+    :func:`_svc_contiguous_width` is the length.
+
+    Returns the chord as a ``LineString``; an EMPTY ``LineString`` when
+    the road crosses open terrain there (the old ``0.0``); ``None`` on
+    geometry failure (callers treat that as NOT road-width —
+    conservative, never carve on a broken measurement).
+
+    The chord itself — not just its length — is what R7a's landside term
+    needs (owner ruling 2026-08-15): the question "is this wide pavement
+    an apron or a landside lot" is answered by asking the airside
+    evidence layer whether it touches THIS chord.  Splitting the width
+    out of the geometry would have been a second cross-section
+    measurement, and the free-road filter and the narrow-strip carve
+    exist in lockstep precisely because there is only one.
+    """
     p = line.interpolate(arc)
     q = line.interpolate(min(arc + 1.0, line.length))
     dx, dy = q.x - p.x, q.y - p.y
@@ -2180,11 +2193,22 @@ def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
              else list(getattr(inter, "geoms", ())))
     for part in parts:
         if part.geom_type == "LineString" and part.distance(p) < 2.0:
-            return part.length
-    return 0.0
+            return part
+    return LineString()
+
+
+def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
+    """Contiguous pavement cross-section (m) at arc-length ``arc`` of a
+    service centerline — the ONE measurement both the narrow-strip carve
+    and the free-road slice filter key on, so they cannot drift.  ``None``
+    on geometry failure (callers treat that as NOT road-width —
+    conservative, never carve on a broken measurement)."""
+    part = _svc_contiguous_cross_section(line, arc, pav_union, probe=probe)
+    return None if part is None else part.length
 
 
 def free_road_subsegments(lines, pav_union, *,
+                          airside_evidence=None,
                           narrow_width_m: float = 25.0,
                           sample_step_m: float = 5.0,
                           min_run_m: float = 12.0):
@@ -2209,6 +2233,36 @@ def free_road_subsegments(lines, pav_union, *,
     are dropped (a road momentarily narrow inside an apron is still the
     apron's road).
 
+    R7a — THE LANDSIDE TERM (owner ruling 2026-08-15, "roads carry
+    spines like taxiways … the free-road width test gains its missing
+    landside term").  The ruling above says APRON, and the width test
+    read only WIDTH.  A DSF ``.pol`` pack delivers apron and car park as
+    one undifferentiated pavement blob, so every wide LANDSIDE lot read
+    as "an apron the road is inside of" and swallowed the public road
+    whole: measured at CYXY, lot 377 dropped 82-93 % of the road's
+    stations and then valued the strip it had taken by its own
+    lot law, 3.2 m away from the road faces either side of it; at HECA
+    142 of 160 groundside shapes contain a road on these terms.
+
+    So a wide station is "inside an apron" only on POSITIVE AIRSIDE
+    EVIDENCE for the cross-section it actually stands in —
+    ``airside_evidence`` (a
+    ``pavement_classification.CoverIndex``: OSM ``aeroway`` backing,
+    the airport's own apt.dat naming, the runway union, the taxi
+    centerline network).  Wide pavement with NO airside evidence is
+    LANDSIDE: the station stays a knife, the road cuts its own face
+    through the lot and scores as a road.
+
+    The two classes the width test was built for are preserved BY
+    CONSTRUCTION — both SPJC's east terminal and HECA's svc junctions
+    are airside pavement and carry that evidence, so their wide
+    stations are still dropped.
+
+    ``airside_evidence=None`` is the WIDTH-ONLY fallback (synthetic
+    callers and the pre-R7a law): with no evidence layer to ask, every
+    wide station is treated as apron, exactly as before.  Production
+    passes the layer — see ``pipeline`` at the free-road scoping site.
+
     Pure function over LineStrings — the slice feeds the result in
     place of the raw service set; the narrow-strip carve keeps its own
     identical per-station test.
@@ -2231,8 +2285,17 @@ def free_road_subsegments(lines, pav_union, *,
         arcs = [line.length * k / (n_st - 1) for k in range(n_st)]
         free = []
         for arc in arcs:
-            w = _svc_contiguous_width(line, arc, pav_union)
-            free.append(w is not None and w <= narrow_width_m)
+            part = _svc_contiguous_cross_section(line, arc, pav_union)
+            if part is None:                    # broken measurement
+                free.append(False)
+                continue
+            if part.length <= narrow_width_m:   # the pavement IS the road
+                free.append(True)
+                continue
+            # WIDE.  Apron only on positive airside evidence for THIS
+            # cross-section (R7a); landside pavement stays a knife.
+            free.append(airside_evidence is not None
+                        and not airside_evidence.intersects(part))
         coords = list(line.coords)
         vertex_arcs = [0.0]
         for (xa, ya), (xb, yb) in zip(coords, coords[1:]):
@@ -3496,12 +3559,86 @@ def conform_parallel_service_edges(layout, window_m: float = 2.0,
     return n_inserted
 
 
+# R7c — the CUT-AND-FILL kernel, shared verbatim by the single-ring
+# limiter and the layout-wide one, so the two cannot drift into two lot
+# laws (the census-wrapper lesson, applied to the surface law itself).
+#
+# THE EXCESS IS SPLIT, exactly as ``_grade_limit_ring`` splits it between
+# two free ring neighbours — the same law, now over CHORD pairs.  A
+# GAUSS-SEIDEL walk cannot do that: whichever end the sweep reaches first
+# absorbs the whole excess, so the pre-R7c order made every pair yield
+# DOWNWARD and a pit pulled its whole ring into itself instead of being
+# filled.  So the walk is a DAMPED JACOBI: every free vertex reads the
+# band the CURRENT field gives it, and they all move half-way to it
+# together, which is order-independent and shares the correction.  A
+# short cut-only finisher then guarantees the field is lawful (after
+# convergence it is a no-op; where two PINNED welds are mutually
+# infeasible it is what still yields, downward, as before).
+_CHORD_JACOBI_SWEEPS = 16
+_CHORD_JACOBI_DAMPING = 0.5
+_CHORD_JACOBI_TOL_M = 1e-4
+
+
+def _chord_band(coords, vals, live, a, cap):
+    """``(lo, hi)`` — the ``cap``-reachable band vertex ``a`` may sit in,
+    generated by every other live vertex of the ring."""
+    xa, ya = coords[a]
+    hi = float("inf")
+    lo = float("-inf")
+    for b in live:
+        if b == a:
+            continue
+        xb, yb = coords[b]
+        reach = cap * math.hypot(xa - xb, ya - yb)
+        up = vals[b] + reach
+        if up < hi:
+            hi = up
+        dn = vals[b] - reach
+        if dn > lo:
+            lo = dn
+    return lo, hi
+
+
+def _chord_cut_and_fill(coords, vals, live, free, cap, sweeps: int = 4):
+    """R7c in place: clamp ``vals`` into the two-sided ``cap`` band over
+    CHORD pairs, leaving every vertex not in ``free`` (the welds) alone."""
+    if not free:
+        return
+    for _sweep in range(_CHORD_JACOBI_SWEEPS):
+        worst = 0.0
+        moves = []
+        for a in free:
+            lo, hi = _chord_band(coords, vals, live, a, cap)
+            v = vals[a]
+            target = hi if lo > hi else min(max(v, lo), hi)
+            d = (target - v) * _CHORD_JACOBI_DAMPING
+            if d:
+                moves.append((a, v + d))
+                worst = max(worst, abs(d))
+        for a, nv in moves:
+            vals[a] = nv
+        if worst <= _CHORD_JACOBI_TOL_M:
+            break
+    # THE GUARANTEE: whatever the damped walk left over cap comes down.
+    for _sweep in range(max(1, sweeps)):
+        changed = False
+        for a in free:
+            _lo, hi = _chord_band(coords, vals, live, a, cap)
+            if hi < vals[a] - 1e-6:
+                vals[a] = hi
+                changed = True
+        if not changed:
+            break
+
+
 def chord_limit_ring_altitudes(coords, alts,
                                cap: float = GROUNDSIDE_MAX_GRADE,
-                               sweeps: int = 4):
-    """Largest ``cap``-Lipschitz field ≤ ``alts`` over straight-line CHORD
-    pairs of ONE ring (the within-shape validator metric) — the single-ring
-    core of ``_grade_limit_groundside_chords``, callable at SOLVE time.
+                               sweeps: int = 4,
+                               pinned=None):
+    """The ``cap``-Lipschitz field CLOSEST to ``alts`` over straight-line
+    CHORD pairs of ONE ring (the within-shape validator metric) — the
+    single-ring core of ``_grade_limit_groundside_chords``, callable at
+    SOLVE time.
 
     ``apply_groundside_reach`` welds service-road nodes to the groundside
     ring values it computes, but the post-solve chord limiter used to
@@ -3512,28 +3649,32 @@ def chord_limit_ring_altitudes(coords, alts,
     identical to the post-solve one (the late limiter is idempotent on an
     already-limited ring).
 
+    R7c — CUT **AND** FILL (owner ruling 2026-08-15, "groundside lots cut
+    and fill"): this pass used to be the largest Lipschitz field ≤
+    ``alts`` — CUT-ONLY, and therefore the last writer that UNDID every
+    fill the seat/reach passes had lawfully made.  The lot law is now the
+    TWO-SIDED band: each vertex is clamped into
+    ``[v_b − cap·d, v_b + cap·d]`` of every other vertex, so a vertex the
+    law must RAISE to reach its weld is raised, and one it must lower is
+    lowered.  The one-sided law was the measured mechanism of the CYXY
+    40,000 m³ lot-377 hollow's persistence and of the apron-42 mirror
+    (99.6 % fill refused).
+
+    ``pinned`` — indices (into ``coords``) whose value is LAW and may not
+    move: the ring's welds.  The band the ruling names is generated by
+    those, so they are held while everything else clamps into it.  Where
+    two pinned welds are mutually infeasible the free vertex takes the
+    CEILING (the pre-R7c side), never a value above a weld it must reach
+    down to.
+
     ``coords`` may be closed (last == first); ``alts`` may carry ``None``
     (skipped).  Returns a new list shaped like ``alts``."""
     m = min(len(coords), len(alts))
     vals = [None if alts[k] is None else float(alts[k]) for k in range(m)]
     live = [k for k in range(m) if vals[k] is not None]
-    for _sweep in range(sweeps):
-        changed = False
-        for a in live:
-            xa, ya = coords[a]
-            best = vals[a]
-            for b in live:
-                if b == a:
-                    continue
-                xb, yb = coords[b]
-                lim = vals[b] + cap * math.hypot(xa - xb, ya - yb)
-                if lim < best:
-                    best = lim
-            if best < vals[a] - 1e-6:
-                vals[a] = best
-                changed = True
-        if not changed:
-            break
+    held = set(pinned or ())
+    free = [k for k in live if k not in held]
+    _chord_cut_and_fill(coords, vals, live, free, cap, sweeps=sweeps)
     out = list(alts)
     for k in range(m):
         if vals[k] is not None:
@@ -3546,18 +3687,39 @@ def chord_limit_ring_altitudes(coords, alts,
 
 
 def _grade_limit_groundside_chords(layout) -> int:
-    """Pull every groundside shape's altitude field down to the largest
-    ``GROUNDSIDE_MAX_GRADE``-Lipschitz field ≤ its current (DEM) values,
-    measured over straight-line CHORD pairs — the within-shape validator
-    metric.  ``_dem_follow_polygon``'s ring-ramp limit only bounds
-    CONSECUTIVE ring vertices; a ring-compliant hillside piece still
-    reads >4 % across its interior (HECA #230: 4.7-5.5 %).  Shared
-    boundary nodes are UNIFIED across shapes (keyed by rounded coords)
-    so abutting groundside pieces stay flush.  Runs ONCE, late, over
-    ALL groundside shapes regardless of which pass created them.
-    Returns the number of shapes whose altitudes changed."""
+    """Clamp every groundside shape's altitude field into the
+    ``GROUNDSIDE_MAX_GRADE``-Lipschitz band of its own vertices, measured
+    over straight-line CHORD pairs — the within-shape validator metric.
+    ``_dem_follow_polygon``'s ring-ramp limit only bounds CONSECUTIVE
+    ring vertices; a ring-compliant hillside piece still reads >4 %
+    across its interior (HECA #230: 4.7-5.5 %).  Shared boundary nodes
+    are UNIFIED across shapes (keyed by rounded coords) so abutting
+    groundside pieces stay flush.  Runs ONCE, late, over ALL groundside
+    shapes regardless of which pass created them.  Returns the number of
+    shapes whose altitudes changed.
+
+    R7c — CUT **AND** FILL (owner ruling 2026-08-15).  This is the LAST
+    groundside-altitude writer, and while it was one-sided ("the largest
+    Lipschitz field ≤ the current values") it undid every lawful FILL the
+    seat and reach passes made: the emitted lot read as
+    ``min(terrain, cone)`` no matter what the welds asked for.  It is now
+    the two-sided clamp the ruling names, with the ring's WELDS held —
+    ``law_anchor_values`` is the same weld set ``_seat_ring_on_law_anchors``
+    pins, so the band a lot is clamped into is generated by exactly the
+    law datums that seated it.
+    """
     node_alt: dict = {}
     rings: dict = {}
+    # THE WELDS — law datums from shapes that OUTRANK groundside (the one
+    # weld reader, ``law_anchor_values``); keyed to this pass's own
+    # 2-decimal node key so a weld is recognised as the node it is.
+    pinned_keys: set = set()
+    try:
+        for (wx, wy) in (law_anchor_values(
+                layout, for_role=ROLE_GROUNDSIDE_PAVEMENT) or {}):
+            pinned_keys.add((round(float(wx), 2), round(float(wy), 2)))
+    except Exception:
+        pinned_keys = set()
     for i, s in enumerate(layout.shapes):
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
@@ -3584,25 +3746,25 @@ def _grade_limit_groundside_chords(layout) -> int:
             node_alt[kxy] = min(node_alt.get(kxy, v), v)
     if not rings:
         return 0
-    for _sweep in range(4):
-        changed = False
+    # R7c: CUT **AND** FILL, through the ONE kernel the single-ring
+    # limiter uses (``_chord_cut_and_fill``) — per ring, over the SHARED
+    # node values, so abutting pieces stay flush exactly as before.  The
+    # welds are held: they are the band the lot is clamped into.
+    for _round in range(4):
+        moved = False
         for i, keys in rings.items():
             m = len(keys)
-            for ai in range(m):
-                xa, ya = keys[ai]
-                best = node_alt[keys[ai]]
-                for bj in range(m):
-                    if bj == ai:
-                        continue
-                    xb, yb = keys[bj]
-                    dd = math.hypot(xa - xb, ya - yb)
-                    cap = node_alt[keys[bj]] + GROUNDSIDE_MAX_GRADE * dd
-                    if cap < best:
-                        best = cap
-                if best < node_alt[keys[ai]] - 1e-6:
-                    node_alt[keys[ai]] = best
-                    changed = True
-        if not changed:
+            vals = [node_alt[k] for k in keys]
+            before = list(vals)
+            live = list(range(m))
+            free = [k for k in live if keys[k] not in pinned_keys]
+            _chord_cut_and_fill(keys, vals, live, free,
+                                GROUNDSIDE_MAX_GRADE)
+            for k in range(m):
+                if abs(vals[k] - before[k]) > 1e-6:
+                    node_alt[keys[k]] = vals[k]
+                    moved = True
+        if not moved:
             break
     n_changed = 0
     for i, keys in rings.items():

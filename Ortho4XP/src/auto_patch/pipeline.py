@@ -3509,11 +3509,21 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # "svc junctions 4→76" carve the owner flagged).  Applies to the
     # apt.dat 1206 routes and the road-feed ways alike — the ruling
     # names roads, not sources.
+    #
+    # R7a (owner ruling 2026-08-15): the width test alone cannot tell an
+    # apron from a landside car park — a DSF ``.pol`` pack delivers both
+    # as one blob — so the knife also asks for POSITIVE AIRSIDE EVIDENCE
+    # at each wide station (``airside_evidence_layer``).  Wide pavement
+    # with none is landside: the road keeps its knife and cuts its own
+    # face through the lot.
     if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
         from .groundside import free_road_subsegments
+        from .pavement_classification import airside_evidence_layer
         _n_svc_lines_in = len(_cn_svc)
         _svc_len_in = sum(ln.length for ln in _cn_svc)
-        _cn_svc = free_road_subsegments(_cn_svc, _cn_pav)
+        _cn_air_ev = airside_evidence_layer(layout, taxi_lines=_cn_cls)
+        _cn_svc = free_road_subsegments(
+            _cn_svc, _cn_pav, airside_evidence=_cn_air_ev)
         _svc_len_out = sum(ln.length for ln in _cn_svc)
         if _svc_len_out < _svc_len_in - 1.0:
             UI.vprint(1,
@@ -3521,8 +3531,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 f"{_svc_len_out:,.0f} of {_svc_len_in:,.0f} m of "
                 f"service centerline for the slice "
                 f"({_n_svc_lines_in} → {len(_cn_svc)} line(s)); "
-                f"the rest runs inside/along apron pavement and "
-                f"grades with the apron (owner ruling 2026-07-27).")
+                f"the rest runs inside/along AIRSIDE pavement and "
+                f"grades with the apron (owner rulings 2026-07-27 + "
+                f"R7a 2026-08-15; airside evidence layer carries "
+                f"{len(_cn_air_ev.parts)} piece(s)).")
     # NO dedup — the route-arc graph is planarized, noded and
     # arc-deduped by construction, and the 3.5 m paint-dedup eats the
     # SHORT junction connector fragments (SPJC 481→399), which

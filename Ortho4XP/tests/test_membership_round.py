@@ -405,9 +405,13 @@ class TestChordLimitLawFunction:
         _adj, chord = _worst_pair_grades(lot)
         assert chord <= cfg.GROUNDSIDE_MAX_GRADE + 1e-3
 
-    def test_it_only_ever_lowers(self):
-        """The largest lawful field UNDER the input — it never lifts
-        pavement above the terrain the ring follows."""
+    def test_it_CUTS_AND_FILLS(self):
+        """R7c (owner ruling 2026-08-15, "groundside lots cut and fill"):
+        the field is the LAWFUL field CLOSEST to the input, not the
+        largest one under it.  SUPERSEDES ``test_it_only_ever_lowers``:
+        the one-sided law was the last writer that undid every lawful
+        FILL the seat and reach passes made, and the measured mechanism
+        of the CYXY lot-377 hollow's persistence."""
         from auto_patch import config as cfg
         import auto_patch.groundside as gs
         lot = _dem_lot(0, 0, 100, 100)
@@ -416,8 +420,56 @@ class TestChordLimitLawFunction:
         alts = [dem(x, y) for x, y in ring]
         out = gs.chord_limit_ring_altitudes(ring, alts,
                                             cfg.GROUNDSIDE_MAX_GRADE)
-        assert any(b < a - 1e-6 for a, b in zip(alts, out))
-        assert all(b <= a + 5e-3 for a, b in zip(alts, out))
+        assert any(b < a - 1e-6 for a, b in zip(alts, out)), "no cut"
+        assert any(b > a + 1e-6 for a, b in zip(alts, out)), "no fill"
+
+    def test_a_deep_hollow_is_FILLED_back_to_its_lawful_band(self):
+        """The apron-42 mirror stated as a law test: one vertex dropped
+        far below a ring the cap cannot reach it from is RAISED into the
+        band — under the one-sided law it stayed where it was and the
+        whole ring was cut down to meet it."""
+        from auto_patch import config as cfg
+        import auto_patch.groundside as gs
+        ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+        alts = [700.0, 700.0, 700.0, 690.0]     # the last one is a pit
+        out = gs.chord_limit_ring_altitudes(ring, alts,
+                                            cfg.GROUNDSIDE_MAX_GRADE)
+        # 100 m at 5 % reaches 5 m: the pit may not sit 10 m below.
+        assert out[3] > 690.0 + 1e-6
+        # and the SHARED ring is lawful on every chord afterwards.
+        import math
+        for i in range(4):
+            for j in range(4):
+                if i == j:
+                    continue
+                d = math.dist(ring[i], ring[j])
+                assert abs(out[i] - out[j]) <= \
+                    cfg.GROUNDSIDE_MAX_GRADE * d + 5e-3
+
+    def test_a_PINNED_weld_is_never_moved_and_generates_the_band(self):
+        """R7c's band is the WELD-reachable one: a pinned weld holds its
+        law value and everything else clamps into
+        ``[weld − cap·d, weld + cap·d]``."""
+        from auto_patch import config as cfg
+        import auto_patch.groundside as gs
+        ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+        alts = [690.0, 700.0, 700.0, 700.0]     # index 0 is the weld
+        out = gs.chord_limit_ring_altitudes(
+            ring, alts, cfg.GROUNDSIDE_MAX_GRADE, pinned={0})
+        assert out[0] == 690.0, "a weld is law — it may not move"
+        # 100 m at 5 % = 5 m of reach from the weld.
+        assert out[1] <= 690.0 + cfg.GROUNDSIDE_MAX_GRADE * 100.0 + 5e-3
+
+    def test_an_already_lawful_field_is_left_alone(self):
+        """Cut-and-fill is a CLAMP, not a smoother: a field already
+        inside the band is returned unchanged."""
+        from auto_patch import config as cfg
+        import auto_patch.groundside as gs
+        ring = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+        alts = [700.0, 701.0, 701.5, 700.5]
+        out = gs.chord_limit_ring_altitudes(ring, alts,
+                                            cfg.GROUNDSIDE_MAX_GRADE)
+        assert all(abs(a - b) <= 5e-3 for a, b in zip(alts, out))
 
     def test_a_stricter_cap_binds_harder(self):
         import auto_patch.groundside as gs

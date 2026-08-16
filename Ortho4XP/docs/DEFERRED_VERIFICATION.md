@@ -2032,3 +2032,27 @@ arm vs a control worktree at the same tree) under the 2026-08-12
 measured-arms amendment; walls are ledger-frame only, never a timing
 claim (CYXY 53.2 s arm / 54.7 s control; HECA 907.5 s arm / 901.8 s
 control, both first-in-lane cold object-footprint builds).
+
+## 2026-08-15 — F3 gap conformance (lane/gapconform)
+
+`gap_fill` conformance band + eroded interior + terrain-floor spine
+profile (Fable spec `docs/specs/gap-conformance-spec.md`, owner ruling
+"GAP INTERIOR RINGS NEVER CLIFF AGAINST PAVEMENT") plus the one new
+constant `config.GAP_PAVEMENT_CONFORM_MARGIN_M`.  PRE-SHIP mode: only
+the covering test files were run, once — `test_gap_conformance.py` (new,
+11 twins for the spec's four law classes), `test_gap_interior_rings.py`,
+`test_pocket_collar_rings.py`, `test_gap_fill_loop_resample.py`,
+`test_gap_fill_spine.py`, `test_gap_fill_service_road_stop.py` (the
+gapstop parity twin), `test_one_solve_gap_spine.py`,
+`test_gap_interior_floor.py`, `test_gap_fill_nearest_index.py`,
+`test_crown_spine_seam_weld.py`,
+`test_adjacent_ground_validator_lockstep.py`,
+`test_chain_divergence_selfcross.py` — 183 pass beside three RECORDED
+PRE-EXISTING failures in `test_gap_fill_spine.py` (the rim-pocket gate
+twins assert `GAP_FILL_RIM_POCKETS_ENABLED is False`; the shipped
+default is `1`, unchanged by this lane).  SKIPPED: full suite,
+blast-radius sweep, the other three battery airports (SPJC/SPLP/KCLT),
+and any timing measurement.  The lane built one acceptance pair
+(CYXY + HECA) against the two reference patches the spec names; walls
+are ledger-frame only and are NOT a timing claim — the machine carried
+two concurrent tile builds throughout.

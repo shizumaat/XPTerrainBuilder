@@ -42,18 +42,25 @@ PIT_FLAT_R = 40.0          # depth is at its maximum inside this radius
 PIT_TOE_R = 120.0          # depth reaches zero here
 PIT_DEPTH_M = 8.0
 
-# Pavement edge altitude and the terrain that hangs off it.  The band
-# floor at the ring-2 offset (30 m, ICAO code 1 runway strip) is
-# edge - 1.5; the terrain sits 3 m under the edge, i.e. 1.5 m BELOW that
-# floor, so every ring station engages (no economy skip).  The v2 pit
-# floor is (ring-2 value - 2.5) = edge - 4.0, a further 1 m under the
-# terrain, so nothing outside the pit triggers.
+# Pavement edge altitude and the terrain that hangs off it.
+#
+# RECALIBRATED for F3 law 1 (owner 2026-08-15, RULINGS "GAP INTERIOR
+# RINGS NEVER CLIFF AGAINST PAVEMENT").  Ring 2 no longer stands on the
+# band floor (edge - 1.5 at the old 30 m offset): it stands on the
+# ERODED boundary, inside the conformance band, so its value IS the
+# pavement edge's.  The v2 pit floor derived from it is therefore
+# (edge - GAP_FILL_INTERIOR_FLOOR_DEPTH_M) = edge - 2.5.  The terrain
+# now sits 2 m under the edge — below the ring (every station engages,
+# no economy skip), deep enough that the adjacent-ground band march
+# still builds real footprint inside the pocket (the stand-down twin),
+# and ABOVE the pit floor, so nothing outside the artifact pit triggers
+# the pass and the patch's rim still daylights onto natural ground.
 def _edge_alt(x: float) -> float:
     return 98.0 + 0.01 * x
 
 
 def _base_terrain(x: float) -> float:
-    return _edge_alt(x) - 3.0
+    return _edge_alt(x) - 2.0
 
 
 def _terrain(x: float, y: float) -> float:

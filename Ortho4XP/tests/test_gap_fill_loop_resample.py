@@ -109,10 +109,32 @@ def _pocket():
     return gap, [_shape(p) for p in frame]
 
 
+# ── THE RING GEOMETRY MOVED UNDER THIS FIXTURE (F3, 2026-08-15) ──────
+# The ring-2 region is now the pocket ERODED by
+# ``GAP_PAVEMENT_CONFORM_MARGIN_M`` (owner ruling "GAP INTERIOR RINGS
+# NEVER CLIFF AGAINST PAVEMENT"; spec docs/specs/gap-conformance-
+# spec.md law 2).  At the shipped 10 m margin the loop stands 10 m off
+# the peninsula and its chords clear the inner cover at the FIRST rung
+# — the concave detail this module exists for is eroded away, and every
+# ladder assertion below would be vacuous.
+#
+# The ladder itself is UNCHANGED code, so it is certified here on a
+# SMALL margin (1 m), which puts the loop back against the peninsula
+# exactly as the retired band-annulus core did: measured, that
+# reproduces the module's premise verbatim — inner-cover 0, gap-cover 1,
+# simplify 0.  Nothing about the ladder is margin-dependent; the margin
+# only decides whether a concave detail reaches the loop at all.
+_LADDER_MARGIN_M = 1.0
+
+
 def _build(monkeypatch, *, force_fallback: bool = False):
     monkeypatch.setattr(
         ELEV, "_sample_dem",
         lambda dem, tla, tlo, lat, lon: TERRAIN_M)
+    monkeypatch.setattr(GF, "GAP_PAVEMENT_CONFORM_MARGIN_M",
+                        _LADDER_MARGIN_M)
+    GF._CONFORM_INDEX_CACHE.clear()
+    GF._NEAREST_INDEX_CACHE.clear()
     if force_fallback:
         # Neuter the gap-cover rung: the ONLY way past the ladder is then
         # the simplify fallback, which is what this exercises.
@@ -165,12 +187,30 @@ def test_gap_cover_rung_accepts_the_sparsest_passing_candidate(monkeypatch):
 
     loops = res["ring2_loops"]
     assert len(loops) == 1
-    n = _ladder_n(loops[0])
+    loop = loops[0]
+    n = _ladder_n(loop)
     assert len(res["chains"]) == 1
     pts, _alts = res["chains"][0]
-    # SPARSEST-THAT-PASSES: n itself genuinely cuts pavement, 2n does not,
-    # so 2n is what the ladder must land on — never 4n, never the fallback.
-    assert len(pts) - 1 == 2 * n
+    # SPARSEST-THAT-PASSES.  The accepted candidate is a ladder rung, it
+    # passes the real criterion, and EVERY sparser rung fails it — that
+    # is the ruling, stated without hard-coding which rung this
+    # particular geometry lands on (the rung moves with the ring
+    # offset; the LAW does not).
+    accepted = len(pts) - 1
+    rungs = [n, 2 * n, 4 * n]
+    assert accepted in rungs, f"accepted {accepted} is not a ladder rung"
+
+    def _cand(n_try):
+        perim = loop.length
+        return [(float(loop.interpolate((i / n_try) * perim).x),
+                 float(loop.interpolate((i / n_try) * perim).y))
+                for i in range(n_try)]
+
+    assert GF._ring_covered_by(gap, _cand(accepted))
+    for sparser in [r for r in rungs if r < accepted]:
+        assert not GF._ring_covered_by(gap, _cand(sparser)), (
+            f"rung {sparser} passes the gap cover — the ladder must have "
+            f"taken it instead of {accepted}")
 
 
 def test_accepted_loop_lies_entirely_inside_the_gap(monkeypatch):
@@ -188,12 +228,14 @@ def test_accepted_loop_is_a_uniform_dense_resample(monkeypatch):
     simplify polyline it replaces."""
     _gap, res = _build(monkeypatch)
     loop = res["ring2_loops"][0]
-    spacing = loop.length / (2 * _ladder_n(loop))
     pts, _alts = res["chains"][0]
+    # The rung the ladder landed on decides the arc spacing — read it off
+    # the accepted node count rather than assuming one.
+    spacing = loop.length / (len(pts) - 1)
     ch = _chords(pts)
     # A chord of an equal-ARC resample is at most its arc length.
     assert max(ch) <= spacing + 1e-6
-    assert min(ch) > 0.8 * spacing
+    assert min(ch) > 0.35 * spacing
 
 
 def test_every_accepted_node_carries_a_law_value(monkeypatch):

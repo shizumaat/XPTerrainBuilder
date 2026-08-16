@@ -71,6 +71,7 @@ from .config import (
     GAP_FILL_RIM_POCKETS_ENABLED,
     GAP_FILL_SPINE_ENABLED,
     GAP_FILL_SPINE_STEP_M,
+    GAP_PAVEMENT_CONFORM_MARGIN_M,
     OPEN_FRONTAGE_CLOSE_M,
     POCKET_COLLAR_RINGS_ENABLED,
     RUNWAY_STRIP_HALF_WIDTH_BY_CODE,
@@ -854,6 +855,119 @@ def _airside_index(airside) -> _AirsideNearestIndex:
     return index
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE CONFORMANCE BAND (owner ruling 2026-08-15 evening, RULINGS "GAP
+# INTERIOR RINGS NEVER CLIFF AGAINST PAVEMENT"; Fable spec F3
+# docs/specs/gap-conformance-spec.md §"The law" 1)
+#
+#   "a ``gap_interior_ring`` must never create a cliff.  Wherever ring
+#    geometry is CLOSE TO PAVEMENT it takes the pavement's SOLVED
+#    elevation (conformance, not terrain), and the descent to terrain
+#    happens through a DRAINAGE SPINE ... never through a step at the
+#    pavement edge."
+#
+# Within ``GAP_PAVEMENT_CONFORM_MARGIN_M`` of any ENCLOSING graded
+# pavement edge, a gap surface vertex takes the NEAREST pavement edge's
+# SOLVED elevation — ``_edge_interp_alt``, i.e. interpolated ALONG the
+# edge between its two node altitudes, the mouth-weld read posture
+# (uncrowned, post-solve).  A vertex near TWO pavements blends them by
+# INVERSE DISTANCE: the sliver case, where both sides conform and there
+# is no interior at all.
+#
+# WHICH PAVEMENT ENCLOSES.  ``airside`` alone is not the answer and the
+# measured offender proves it: CYXY ring -10527 sits 4-5 m under a
+# ``service_road`` / ``groundside_pavement`` frontage 11 m away, and no
+# airside shape is anywhere near.  A residual pocket of the R19-2
+# subdivision is BOUNDED by its groundside/service subdividers exactly
+# as an enclosed hole is bounded by airside (the same shapes
+# ``_POCKET_SUBDIVIDER_ROLES`` names for the subdivision), so their
+# solved edges are conformance sources here.  Reading them moves
+# NOTHING on their side: this is a read of a shipped value.
+# ══════════════════════════════════════════════════════════════════════
+
+def _conform_shapes(layout, airside):
+    """Every ENCLOSING GRADED PAVEMENT whose solved edge the conformance
+    band may read: the airside parents plus the groundside / service
+    pavement that bounds a residual pocket.  A shape with no solved
+    values at all (neither ``node_altitudes`` nor a flat ``altitude``)
+    carries nothing to conform to and is left out."""
+    out = list(airside)
+    for s in layout.shapes:
+        if s.role not in _POCKET_SUBDIVIDER_ROLES:
+            continue
+        if s.polygon is None or s.polygon.is_empty:
+            continue
+        if s.polygon.geom_type != "Polygon":
+            continue
+        if not s.node_altitudes and getattr(s, "altitude", None) is None:
+            continue
+        out.append(s)
+    return out
+
+
+# Per-PASS conformance index cache, keyed by the ``airside`` list
+# IDENTITY exactly as ``_NEAREST_INDEX_CACHE`` is (one conformance set
+# per emitter pass; the groundside/service population is complete before
+# gap-fill runs and the pass only APPENDS ``graded_strip`` faces, which
+# are not conformance sources).
+_CONFORM_INDEX_CACHE: dict[int, tuple] = {}
+
+
+def _conform_index(layout, airside):
+    """``(shapes, index)`` — the pass-cached two-nearest index over the
+    conformance sources of :func:`_conform_shapes`."""
+    key = id(airside)
+    hit = _CONFORM_INDEX_CACHE.get(key)
+    if hit is not None and hit[0] is airside and hit[1] == len(airside):
+        return hit[2], hit[3]
+    shapes = _conform_shapes(layout, airside)
+    index = _AirsideNearestIndex(shapes)
+    if (key not in _CONFORM_INDEX_CACHE
+            and len(_CONFORM_INDEX_CACHE) >= _NEAREST_INDEX_CACHE_MAX):
+        _CONFORM_INDEX_CACHE.pop(next(iter(_CONFORM_INDEX_CACHE)))
+    _CONFORM_INDEX_CACHE[key] = (airside, len(airside), shapes, index)
+    return shapes, index
+
+
+def _conform_edge_value(index, px, py, margin=None):
+    """LAW 1 — the conformance value at ``(px, py)``, or ``(None, None)``.
+
+    ``margin`` None means the BAND read: only pavement within
+    ``GAP_PAVEMENT_CONFORM_MARGIN_M`` counts, so a vertex standing on a
+    tile-seam chord (a pocket boundary that is not pavement at all)
+    conforms to nothing and falls through to the terrain law.  A caller
+    that wants the nearest edge regardless of range — the spine's
+    boundary endpoints under law 3 — passes an explicit reach.
+
+    The slack on the range test is ``_PIT_RIM_WELD_TOL_M``, the float
+    slack and nothing more: the eroded interior of law 2 is built at
+    exactly this margin with a fine ``quad_segs``, so its boundary
+    stations sit at the margin up to arithmetic.
+
+    Returns ``(value, distance_to_nearest_source)``."""
+    reach = (GAP_PAVEMENT_CONFORM_MARGIN_M + _PIT_RIM_WELD_TOL_M
+             if margin is None else float(margin))
+    picks = []
+    for d, s in index.two_nearest(Point(px, py)):
+        if d > reach:
+            continue
+        e = _edge_interp_alt(s, px, py)
+        if e is None:
+            continue
+        picks.append((float(d), float(e)))
+    if not picks:
+        return None, None
+    if len(picks) == 1:
+        return picks[0][1], picks[0][0]
+    # INVERSE-DISTANCE blend between the two bounding pavements (spec
+    # §1, the sliver case): both sides conform, so the shelf between
+    # them is one continuous surface and there is no step to cross.
+    wts = [1.0 / max(d, 1e-6) for d, _v in picks]
+    total = sum(wts)
+    value = sum(w * v for w, (_d, v) in zip(wts, picks)) / total
+    return value, min(d for d, _v in picks)
+
+
 def _spine_interval(layout, airside, px, py):
     """The drainage interval ``(lo, hi)`` and reference edge altitudes at
     spine point ``(px, py)``: the two nearest DISTINCT bounding pavement
@@ -903,6 +1017,33 @@ def _spine_interval(layout, airside, px, py):
     return lo, hi, edge_alts
 
 
+#: Layout attribute the spine emitters publish alongside
+#: ``layout.gap_spines`` — one per-node TERRAIN list per emitted spine
+#: way, index-for-index with ``gap_spines``.  It is the F3 law-3 floor
+#: carried forward to the LATE re-clamp (``reclamp_gap_spines``), which
+#: has no DEM of its own and would otherwise cut the manufactured canal
+#: straight back open against the final pavement.  ``None`` in the slot
+#: = no terrain was read for that way (DEM-free paths); such a way keeps
+#: the historical unconditional re-clamp.
+_GAP_SPINE_TERRAIN_STORE = "gap_spine_terrain"
+
+
+def _append_gap_spine(layout, pts_ll, values, terrain=None) -> None:
+    """Append one emitted drainage-spine way, keeping the law-3 terrain
+    floor store index-aligned with ``layout.gap_spines``.  EVERY append
+    goes through here so the two lists cannot drift."""
+    if getattr(layout, "gap_spines", None) is None:
+        layout.gap_spines = []
+    store = getattr(layout, _GAP_SPINE_TERRAIN_STORE, None)
+    if store is None:
+        store = []
+        setattr(layout, _GAP_SPINE_TERRAIN_STORE, store)
+    while len(store) < len(layout.gap_spines):
+        store.append(None)
+    layout.gap_spines.append((pts_ll, list(values)))
+    store.append(None if terrain is None else list(terrain))
+
+
 def reclamp_gap_spines(layout) -> int:
     """Re-clamp every emitted drainage spine into its law interval against
     the pavement that ACTUALLY SHIPS (owner field report 2026-08-02, gate
@@ -934,7 +1075,10 @@ def reclamp_gap_spines(layout) -> int:
         return 0
     n_moved = 0
     worst = 0.0
-    for _pts_ll, values in spines:
+    n_floored = 0
+    floors = getattr(layout, _GAP_SPINE_TERRAIN_STORE, None) or []
+    for w, (_pts_ll, values) in enumerate(spines):
+        terrain = floors[w] if w < len(floors) else None
         for i, ((lat, lon), z) in enumerate(zip(_pts_ll, values)):
             if z is None:
                 continue
@@ -948,6 +1092,19 @@ def reclamp_gap_spines(layout) -> int:
                 nz = lo
             if hi is not None and nz > hi:
                 nz = hi
+            # F3 LAW 3 IS THE FLOOR AND IT SURVIVES THIS PASS.  The
+            # drainage-spine law's CEILING (below the lower adjacent
+            # pavement) is what cut the CYXY canal 7.7 m under its own
+            # ground; the owner's ruling says the descent stops when it
+            # MEETS terrain.  The re-clamp still re-references against
+            # the pavement that ships — it may raise to the floor and
+            # lower toward the ceiling — but never below the terrain the
+            # emitter read at that station.
+            _t = (terrain[i] if terrain is not None and i < len(terrain)
+                  else None)
+            if _t is not None and nz < float(_t):
+                nz = float(_t)
+                n_floored += 1
             if abs(nz - float(z)) > 1e-6:
                 worst = max(worst, abs(nz - float(z)))
                 values[i] = nz
@@ -955,7 +1112,8 @@ def reclamp_gap_spines(layout) -> int:
     if n_moved:
         UI.vprint(1, f"  [gap-fill] drainage-spine law re-clamp: "
                      f"{n_moved} spine vertex/vertices moved against the "
-                     f"final pavement (worst {worst:.2f} m).")
+                     f"final pavement (worst {worst:.2f} m; "
+                     f"{n_floored} held at the F3 terrain floor).")
     return n_moved
 
 
@@ -971,6 +1129,72 @@ def _drain_target(lo, hi, edge_alts):
     if lo is not None:
         return lo
     return min(edge_alts) if edge_alts else None
+
+
+def _spine_lawful_profile(layout, conform, spine, values, dem,
+                          tile_lat, tile_lon):
+    """LAW 3 (F3 §"The law" 3) — THE SPINE DESCENDS LAWFULLY AND NEVER
+    BELOW TERRAIN.
+
+        value(s) = max(terrain(s), boundary_value - slope_cap * s)
+
+    walked from EACH end (the max of the two walks): the spine leaves
+    its conformed boundary endpoint at the steepest lawful graded
+    transition and descends until it MEETS terrain, after which it
+    follows terrain.  A spine value below its own local terrain is
+    impossible by construction — which is what kills the stamped-flat
+    trench class the owner measured at CYXY 60.7124,-135.0802 (nine
+    nodes at a flat 695.8, 7.7 m under their own 703.5 terrain: a
+    manufactured canal).
+
+    The slope cap is ``_RING_ALONG_BENCH_SLOPE`` — this module's already
+    named "band maximum down slope, the steepest lawful graded
+    transition".  No new constant, and the ring bench and the spine
+    descent therefore speak one number.
+
+    The BOUNDARY VALUE at each end is the conformance read there (law
+    1); with no pavement in reach the emitted end value stands, so the
+    terrain floor still applies and the descent simply starts where the
+    spine already was.
+
+    Returns ``(values, terrain)`` — the new value list and the per-node
+    terrain the floor was taken from (published with the emitted spine
+    so the LATE law re-clamp cannot cut the canal back open).  ``dem``
+    None (the open-frontage pilot, the DEM-free fixtures) returns
+    ``values`` unchanged and no terrain: without terrain there is no
+    floor to enforce and no walk to anchor."""
+    if dem is None or not spine or len(spine) != len(values):
+        return list(values), None
+    from .elevation import _sample_dem
+    terrain: list[float | None] = []
+    for px, py in spine:
+        try:
+            lat, lon = layout.m_to_ll(px, py)
+            t = _sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except _GEOM_EXC:
+            t = None
+        terrain.append(None if t is None else float(t))
+    # Arc length along the spine.
+    s = [0.0]
+    for (ax, ay), (bx, by) in zip(spine, spine[1:]):
+        s.append(s[-1] + math.hypot(bx - ax, by - ay))
+    length = s[-1]
+    # The CONFORMED boundary endpoints.  Reach is the band margin: the
+    # spine ends float just inside the eroded interior, so a pocket
+    # bounded by pavement answers, and a seam-open one does not.
+    ends = []
+    for j in (0, len(spine) - 1):
+        bv, _bd = _conform_edge_value(conform, spine[j][0], spine[j][1])
+        ends.append(float(bv) if bv is not None else float(values[j]))
+    cap = _RING_ALONG_BENCH_SLOPE
+    out = []
+    for i in range(len(spine)):
+        walks = [ends[0] - cap * s[i], ends[1] - cap * (length - s[i])]
+        v = max(walks)
+        if terrain[i] is not None:
+            v = max(v, terrain[i])
+        out.append(round(v, 1))
+    return out, terrain
 
 
 def _smooth_spine(vals, intervals, sweeps):
@@ -1202,6 +1426,9 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
     # OPT-1: pass-level two-nearest-parent index (built once per airside
     # list, shared across every gap/pocket of the pass).
     nearest = _airside_index(airside)
+    # F3 law 1: the conformance sources — airside PLUS the groundside /
+    # service pavement that encloses a residual pocket.
+    _conform_shp, conform = _conform_index(layout, airside)
 
     def _dem_at(x, y):
         try:
@@ -1265,14 +1492,34 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
         return lo, hi
 
     def _level(pt):
-        """Per-node record: VALUE = clamp(terrain, floor, ceiling) at
-        the point-law interval (round-8 value semantics, unchanged in
-        round 9).  Lawful terrain → value no-op (the ring rides the
-        ground); drop below floor → floor pin (fill); rise above
-        ceiling → ceiling pin (cut)."""
+        """Per-node record.
+
+        F3 LAW 1 FIRST: a station inside the CONFORMANCE BAND takes the
+        nearest enclosing pavement edge's SOLVED elevation (inverse-
+        distance blended between two).  It is PINNED — ``lo == hi == v``
+        — so the along-ring bench below cannot walk a conformed station
+        off the pavement it conforms to, which is the whole point of the
+        ruling: no cliff at the pavement edge, ever.
+
+        Outside the band the round-8 semantics stand unchanged: VALUE =
+        clamp(terrain, floor, ceiling) at the point-law interval.
+        Lawful terrain → value no-op (the ring rides the ground); drop
+        below floor → floor pin (fill); rise above ceiling → ceiling pin
+        (cut)."""
         if pt is None:
             return None
         terrain = _dem_at(*pt)
+        cv, _cd = _conform_edge_value(conform, pt[0], pt[1])
+        if cv is not None:
+            v = float(cv)
+            return {"pt": pt, "v": v, "terrain": terrain,
+                    "lo": v, "hi": v,
+                    "noop": (terrain is not None
+                             and abs(v - terrain)
+                             <= _RING_VALUE_NOOP_TOLERANCE_M),
+                    "floor_engaged": (terrain is not None and v > terrain
+                                      + _RING_VALUE_NOOP_TOLERANCE_M),
+                    "conformed": True}
         lo, hi = _point_interval(pt)
         if terrain is None:
             v = lo if lo is not None else hi
@@ -1280,7 +1527,7 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
                 return None
             return {"pt": pt, "v": float(v), "terrain": None,
                     "lo": lo, "hi": hi, "noop": False,
-                    "floor_engaged": False}
+                    "floor_engaged": False, "conformed": False}
         v = float(terrain)
         if lo is not None:
             v = max(v, lo)
@@ -1291,7 +1538,8 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
                 "noop": abs(v - terrain) <= _RING_VALUE_NOOP_TOLERANCE_M,
                 "floor_engaged": (lo is not None and
                                   v > terrain +
-                                  _RING_VALUE_NOOP_TOLERANCE_M)}
+                                  _RING_VALUE_NOOP_TOLERANCE_M),
+                "conformed": False}
 
     stats = {"stations": 0, "eligible": 0, "noop_stations": 0,
              "engaged_stations": 0, "chains": 0, "nodes": 0,
@@ -1313,22 +1561,28 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
                 "ring2_stations": ring2_stations,
                 "loop_lines": list(loop_lines)}
 
-    # ── REGIONS (round-9): polygon inward offsets ─────────────────────
-    zones = []
-    for s in airside:
-        pband = _band_of(s)
-        if pband is None:
-            continue
-        w = pband[3]
-        try:
-            if s.polygon.distance(gap_poly) > w:
-                continue
-            zones.append(s.polygon.buffer(w, quad_segs=4))
-        except _GEOM_EXC:
-            continue
+    # ── REGIONS: the ERODED POCKET (F3 law 2) ─────────────────────────
+    # THE INTERIOR IS THE ERODED POCKET.  The region that may descend to
+    # terrain is the pocket eroded by the conformance margin; everything
+    # outside it is band and conforms (law 1).  This REPLACES the round-9
+    # per-parent band annulus (gap minus every bounding parent's polygon
+    # buffered by ITS band width), which had no term for the
+    # groundside/service frontages that bound a residual pocket and so
+    # ran the ring right up to them — the measured CYXY cliff.
+    #
+    # The erosion IS the geometry the owner asked for, with no hand-drawn
+    # line: a lobe narrower than 2x the margin erodes away entirely (the
+    # 8-15 m sliver at 60.709358,-135.0734701 is pure conformance band),
+    # and a neck wider than that survives as the ring's cut across it.
+    # No morphological opening/closing here — that would erode a second
+    # time and, worse, its CLOSING fills notches, which would push ring
+    # stations back INSIDE the margin the erosion just established.
+    # ``quad_segs`` is deliberately fine so a corner arc's chord sits at
+    # the margin to within ``_PIT_RIM_WELD_TOL_M`` and law 1's band test
+    # answers TRUE for every station of the eroded boundary.
     try:
-        core = (gap_poly.difference(unary_union(zones)) if zones
-                else None)
+        core = gap_poly.buffer(-GAP_PAVEMENT_CONFORM_MARGIN_M,
+                               quad_segs=64)
         lip_region = gap_poly.buffer(-lip, quad_segs=4)
     except _GEOM_EXC:
         return _result([])
@@ -1351,7 +1605,18 @@ def _build_collar_rings(layout, airside, gap_poly, dem, tile_lat, tile_lon,
         return [g for g in _poly_parts(region)
                 if g.area >= GAP_FILL_MIN_AREA_M2]
 
-    core_parts = _smooth_region(core)
+    def _eroded_parts(region):
+        """The eroded interior's surviving pieces (F3 law 2, "largest
+        piece(s) kept"): every polygon part above the emitter's own
+        minimum-area floor.  A negative buffer of a valid polygon is
+        valid and its boundary is simple by construction, so there is
+        nothing to repair and nothing to smooth."""
+        if region is None or region.is_empty:
+            return []
+        return [g for g in _poly_parts(region)
+                if g.area >= GAP_FILL_MIN_AREA_M2]
+
+    core_parts = _eroded_parts(core)
     lip_parts = _smooth_region(lip_region)
 
     def _region_loops(parts):
@@ -2071,10 +2336,11 @@ def _emit_open_corridor(layout, airside, face_poly, ring, alts,
     layout.shapes.append(BuiltShape(
         polygon=face_poly, role=ROLE_GRADED_STRIP, ref=_OPEN_FRONTAGE_REF,
         node_altitudes=list(alts) + [alts[0]]))
-    if getattr(layout, "gap_spines", None) is None:
-        layout.gap_spines = []
     pts_ll = [layout.m_to_ll(px, py) for px, py in spine]
-    layout.gap_spines.append((pts_ll, list(values)))
+    # The open-frontage pilot (default OFF) reads no DEM, so it publishes
+    # no F3 terrain floor — the store keeps a None in this way's slot and
+    # the late re-clamp treats it exactly as it always has.
+    _append_gap_spine(layout, pts_ll, list(values))
     return 1
 
 
@@ -4118,6 +4384,17 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
                          f"{ring_stats['stations']} station(s), "
                          f"centroid=({_c.x:.0f},{_c.y:.0f})).")
 
+    # ── F3 LAW 3: the spine descends lawfully and NEVER below terrain.
+    # LAST word on the spine profile, so no earlier author (the analytic
+    # corridor target, the solve writeback, the ring-2 ceiling
+    # re-coupling above) can leave a station under its own ground.  The
+    # ring-2 min() re-coupling is SUBSUMED here: the profile leaves the
+    # conformed boundary at the band's own maximum down slope, so it is
+    # already at or below the ring value it starts from. ──────────────
+    _conform_shp, _conform_idx = _conform_index(layout, airside)
+    values, _spine_terrain = _spine_lawful_profile(
+        layout, _conform_idx, spine, values, dem, tile_lat, tile_lon)
+
     # OPEN-WAY EMISSION (user design 2026-07-09, round 2): ONE face —
     # the gap polygon itself, ring verbatim — plus the spine as an
     # interior open constrained way (layout.gap_spines → the
@@ -4188,6 +4465,17 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
                 alts.append(float(e))
                 continue
         e = _nearest_pav_alt(airside, vx, vy, max_distance_m=5.0)
+        if e is None:
+            # F3 LAW 1 on the FACE BOUNDARY.  A pocket boundary vertex
+            # that is not an airside chain vertex still STANDS ON an
+            # enclosing graded pavement edge whenever the R19-2
+            # subdividers are what bound this residual pocket — and the
+            # old fallback handed it ``values[0]``, the spine's own
+            # first value.  That is the CYXY cliff at the face level:
+            # the boundary of the gap took the trench's elevation while
+            # the road it touches shipped 4 m higher.  Conform to the
+            # edge it actually adjoins.
+            e, _cd = _conform_edge_value(_conform_idx, vx, vy)
         new_ring.append((vx, vy))
         alts.append(float(e) if e is not None else values[0])
     # PARENT-HOLE PRESERVATION (test_no_self_overlap fix).  When a gap
@@ -4225,8 +4513,6 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
     layout.shapes.append(BuiltShape(
         polygon=face_poly, role=ROLE_GRADED_STRIP, ref=_GAP_FILL_REF,
         node_altitudes=alts + [alts[0]]))
-    if getattr(layout, "gap_spines", None) is None:
-        layout.gap_spines = []
     # Spine ways to emit: the full spine as today, or — when interior
     # rings emitted (round-8) — the ring-core TRIMMED sub-chains from
     # the builder (a full-length spine would cross the closed loops at
@@ -4264,8 +4550,10 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
             if len(chain) < 2:
                 continue
             pts_ll = [layout.m_to_ll(*spine[j]) for j in chain]
-            layout.gap_spines.append(
-                (pts_ll, [values[j] for j in chain]))
+            _append_gap_spine(layout, pts_ll,
+                              [values[j] for j in chain],
+                              None if _spine_terrain is None
+                              else [_spine_terrain[j] for j in chain])
             emitted_ways += 1
         if emitted_ways == 0:
             # No drainage way survived the parent hole — the face is
@@ -4282,6 +4570,8 @@ def _emit_one_gap(layout, airside, gap_poly, long_dir, long_len, step,
             if len(chain) < 2:
                 continue
             pts_ll = [layout.m_to_ll(*spine[j]) for j in chain]
-            layout.gap_spines.append(
-                (pts_ll, [values[j] for j in chain]))
+            _append_gap_spine(layout, pts_ll,
+                              [values[j] for j in chain],
+                              None if _spine_terrain is None
+                              else [_spine_terrain[j] for j in chain])
     return 1

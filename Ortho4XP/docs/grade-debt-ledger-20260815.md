@@ -1,5 +1,35 @@
 # Grade Debt Ledger
 
+## 2026-08-16 battery refresh (composed main after the zero-debt round's merges)
+
+Merged this round: F3+F3b gap conformance, R8 runway seeding (both
+attempts), the KDFW/implausible-deck bridge guard, R6/R7 frontage
+(A1 landside term + R7c cut-and-fill + pad-channel closure; the A2
+cutback is default-off pending the road chord limiter). Six-airport
+battery, all rc=0 — KAFW and KDFW build for the first time ever.
+
+| airport | adjudicated | airside-for-acceptance |
+|---|---|---|
+| CYXY | 336 | 75 |
+| SPLP | 43 | 35 |
+| SPJC | 482 | 199 |
+| KAFW (new fixture) | 365 | 89 |
+| HECA | 7,548 | 1,522 |
+| KDFW (new fixture) | 576 | 291 |
+| **total** | **9,350** | **2,211** |
+
+HECA airside is down ~300 from the evening's frame; groundside is UP
+(+892) — the frontage round's honest exposure: area moved from
+chord-limited lots into road faces that have NO chord limiter yet
+(the named wave-3 fix under the standing roads-like-taxiways ruling).
+HELD lanes (implemented, measured, unmerged): RM route-metric
+(SM1/SM2 collapse proven; relocates debt into transverse — two owner
+questions pending), C3 alignment (transverse −549 but pulls airside),
+SM3 certified exit (204-node pre-existing contradiction surfaced),
+C2 law pairs (seam tears 45→8). The original 2026-08-15 category
+analysis below remains the mechanism reference.
+
+
 **Frame:** composed main after the R5+R5c merge (engine 1.50.1696), censuses
 `CYXY_20260815T214510` / `HECA_20260815T214605`, 2026-08-15 late.
 "Adjudicated" = law-true census rows after registered exemptions (declared

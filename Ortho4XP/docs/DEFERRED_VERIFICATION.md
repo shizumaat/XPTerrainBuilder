@@ -2076,3 +2076,16 @@ runway-join check still re-derives contacts per ENDPOINT and therefore
 now inspects a SUBSET of the joins the solver anchors (conservative — it
 cannot mint a false violation — but it is a second "where a join is"
 rule and should be folded onto `runway_join_contacts`).
+
+### 2026-08-16 — R8 stage 1, attempt 2 (law-seat release)
+
+`pavement.runway_segments` gains `segment_grades`,
+`minted_over_cap_segments`, `solve_holding_seats` and
+`within_shape_runway_cap`; both solve sites (emit + redistribute) run
+through `solve_holding_seats`.  Covering test file re-run once:
+`tests/test_anchor_law_join.py`, 20 pass (9 pre-existing + 11 R8).
+Battery re-measured (KAFW/CYXY/HECA/SPJC/SPLP) — CYXY, KAFW, SPJC and
+HECA came out BYTE-IDENTICAL to attempt 1 (the release fires only where
+the hold mints an over-cap within-shape runway segment, i.e. SPLP only),
+so attempt 1's attribution stands unchanged for those four.  SKIPPED as
+before: full suite, blast sweep, KCLT, timing.

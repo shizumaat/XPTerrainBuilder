@@ -494,6 +494,115 @@ def test_seat_law_stations_is_collinear_and_moves_only_seats():
     assert elevs2 == [100.0, 107.0, 110.0]
 
 
+# ── E. a held seat may not make the RUNWAY unlawful (R8 stage 1, attempt 2) ──
+
+def test_the_release_rule_reads_the_within_shape_runway_cap():
+    """The clause the release rule serves is ``within_shape::runway``, judged
+    under ``config.ROLE_GRADE_LIMITS['runway']`` on the CHORD metric (the
+    owner's 2026-08-15 route-metric ruling moved the APRON family only).  That
+    is NOT the runway's own longitudinal law — an ICAO code-4 runway solves at
+    1.25 % while its within-shape cap is 1.5 %, and releasing on the tighter
+    one handed SPLP's whole airside gain back to the DEM ride (measured:
+    airside 49 with the profile law vs 34 with this one)."""
+    from auto_patch.config import ROLE_GRADE_LIMITS
+
+    assert RS.within_shape_runway_cap() == pytest.approx(
+        ROLE_GRADE_LIMITS["runway"])
+
+
+def test_a_pre_existing_over_cap_segment_is_not_minted_by_a_seat():
+    """A runway may already carry an over-cap segment (SPLP 02/20 carries
+    twelve).  Releasing a seat for one of those would give the ride back for a
+    defect the seat never caused, so ``minted_over_cap_segments`` compares the
+    held solve against the SAME seed solved WITHOUT the hold and reports only
+    what the hold made new or worse."""
+    fractions = [0.0, 0.5, 1.0]
+    phys_dist = 1000.0
+    cap = 0.015
+    # 5 % on the first segment in BOTH solves — pre-existing, not minted.
+    ref = [100.0, 125.0, 125.0]
+    held = [100.0, 125.0, 125.0]
+    assert RS.minted_over_cap_segments(
+        fractions, held, ref, phys_dist, grade_cap=cap) == []
+    # The hold pushes the SAME segment further over: minted.
+    held2 = [100.0, 130.0, 130.0]
+    got = RS.minted_over_cap_segments(
+        fractions, held2, ref, phys_dist, grade_cap=cap)
+    assert [i for (i, _g, _r) in got] == [0]
+    # A segment the hold newly takes over the cap: minted.
+    got2 = RS.minted_over_cap_segments(
+        fractions, [100.0, 125.0, 145.0], ref, phys_dist, grade_cap=cap)
+    assert [i for (i, _g, _r) in got2] == [1]
+
+
+def test_a_seat_whose_hold_would_be_unlawful_is_released_but_keeps_its_value():
+    """The release rule: the seat loses the HOLD, never its law-line value."""
+    fractions = [0.0, 0.5, 1.0]
+    phys_dist = 1000.0
+    anchored = [True, False, True]
+    seated = [False, True, False]
+    seed = [100.0, 130.0, 100.0]       # seat carried far off the law line
+
+    calls = []
+
+    def _solve(elevs, gate):
+        calls.append(list(gate))
+        # A stand-in for the FAA gates: every FREE station is pulled onto the
+        # law line, every held one stays.  With the seat held the profile
+        # keeps a 6 % segment; released, it is lawful.
+        for i, g in enumerate(gate):
+            if not g:
+                elevs[i] = RS.law_line_at(fractions, elevs, anchored,
+                                          fractions[i])
+
+    out, released, survivors = RS.solve_holding_seats(
+        fractions, seed, anchored, seated, phys_dist, _solve,
+        grade_cap=0.015, reseat=False)
+    assert released == [1], (
+        f"the seat whose hold minted the over-cap segment was not released "
+        f"({released})")
+    assert survivors == []
+    assert out == pytest.approx([100.0, 100.0, 100.0])
+    # The seed handed to every attempt is untouched — attempts are restarted
+    # from it, never chained (the joint solve is a mutating projection).
+    assert seed == [100.0, 130.0, 100.0]
+    # First attempt is the un-held control, then the held one.
+    assert calls[0] == [True, False, True]
+    assert calls[1] == [True, True, True]
+
+
+def test_a_seat_is_never_given_up_for_nothing():
+    """If releasing does not SHRINK the minted set, the hold is restored: the
+    over-cap segment is not the seat's to fix, and giving up the seat would
+    hand the ride back for free (the SPLP over-release, measured)."""
+    fractions = [0.0, 0.25, 0.5, 0.75, 1.0]
+    anchored = [True, False, False, False, True]
+    seated = [False, True, True, False, False]
+    seed = [100.0] * 5
+    # Segment length 250 m, cap 1.5 % ⇒ anything over 3.75 m is over cap.
+    BY_GATE = {
+        (True, False, False, False, True): [100.0] * 5,          # control
+        (True, True, True, False, True):                          # both held
+            [100.0, 105.0, 105.0, 105.0, 100.0],                 # segs 0 & 3
+        (True, False, True, False, True):                         # seat 1 gone
+            [100.0, 100.0, 110.0, 110.0, 100.0],                 # segs 1 & 3
+    }
+
+    def _stub(elevs, gate):
+        elevs[:] = list(BY_GATE[tuple(bool(g) for g in gate)])
+
+    out, released, survivors = RS.solve_holding_seats(
+        fractions, seed, anchored, seated, 1000.0, _stub,
+        grade_cap=0.015, reseat=False)
+    assert released == [], (
+        f"a seat was released even though releasing it did not shrink the "
+        f"minted set ({released})")
+    # The kept solve is the one with BOTH seats held, and its two minted
+    # segments are reported as survivors rather than iterated on.
+    assert out == pytest.approx([100.0, 105.0, 105.0, 105.0, 100.0])
+    assert sorted(i for (i, _g, _r) in survivors) == [0, 3]
+
+
 class _CrossFallDEM:
     """A DEM that falls across the field: constant along each runway, so the
     two parallel runways see two DIFFERENT constant elevations (KAFW's real

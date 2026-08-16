@@ -72,7 +72,8 @@ from .layout import ROLE_RUNWAY, SHARED_VERTEX_TOL_M
 from .pavement.runway_segments import (
     MAX_RUNWAY_GRADE, MAX_RUNWAY_GRADE_CHANGE_PER_M, RUNWAY_END_GRADE,
     faa_joint_solve, runway_grade_cap_at, runway_segment_grade_cap,
-    seat_law_stations, solve_anchor_set,
+    seat_law_stations, solve_anchor_set, solve_holding_seats,
+    within_shape_runway_cap,
 )
 from .runway_regrade import regrade_runway, DEFAULT_ARC_K_M
 
@@ -1181,11 +1182,13 @@ def redistribute_runway_profile(
         # re-valued on the new one before the gates run.  Re-seating is
         # exact and collinear, so it introduces no grade the anchors did
         # not already imply.
-        _pre_seat = list(elevs)
-        _n_seated = seat_law_stations(fractions, elevs, anchored, law_seated)
+        # (the re-seat itself is applied inside ``solve_holding_seats`` below,
+        # which must restart every attempt from the SAME pre-solve seed; this
+        # is the reported measurement of how far it moves the seats.)
+        _probe = list(elevs)
+        _n_seated = seat_law_stations(fractions, _probe, anchored, law_seated)
         if _n_seated:
-            _worst_reseat = max(abs(a - b) for a, b
-                                in zip(elevs, _pre_seat))
+            _worst_reseat = max(abs(a - b) for a, b in zip(_probe, elevs))
             try:
                 from O4_UI_Utils import vprint as _vp_seat
                 _vp_seat(1,
@@ -1197,10 +1200,6 @@ def redistribute_runway_profile(
                          f"re-solve (R8 stage 1).")
             except ImportError:
                 pass
-        # The set the FAA gates hold fixed: real anchors PLUS the seats.
-        # ``anchored`` itself stays the authority set that is persisted and
-        # that ``flex_slack_at`` bounds against (the self-anchor lock).
-        solve_anchored = solve_anchor_set(anchored, law_seated)
 
         # Step 2: re-run the FAA gates on the full sample list.
         # Thresholds are still anchored (at their possibly-shifted
@@ -1215,15 +1214,55 @@ def redistribute_runway_profile(
         end_zone_report: dict = {}
         # TIERED end-zone relaxation (defect G) — STANDING LAW.
         _strict_m = RUNWAY_THRESHOLD_STRICT_M
-        end_zone_cap = solve_profile_with_minimal_end_zone_cap(
-            fractions, elevs, solve_anchored, phys_dist,
-            blast_a=state['blast_a_m'],
-            blast_b=state['blast_b_m'],
-            threshold_strict_m=_strict_m,
-            grade_cap=_MAIN_CAP,
-            max_dg_per_m=_law["max_dg_per_m"],
-            end_grade=_law["end_grade"],
-            report=end_zone_report)
+        # THE SEATS ARE HELD, AND RELEASED WHERE THE HOLD WOULD BE UNLAWFUL
+        # (R8 stage 1 attempt 2, lead ruling 2026-08-16).  The gates see
+        # ``anchored ∪ still-held seats``; ``anchored`` itself — the set that
+        # is persisted and that ``flex_slack_at`` bounds against — is never
+        # touched.  ``_ez`` carries the accepted attempt's end-zone report out
+        # of the closure so the escalation this profile was SOLVED under is
+        # the one that is persisted.
+        _ez_reports: list = []
+
+        def _ez_solve(_e, _gate, _st=state, _law_=_law, _sm=_strict_m,
+                      _cap=_MAIN_CAP, _pd=phys_dist):
+            _rep: dict = {}
+            _c = solve_profile_with_minimal_end_zone_cap(
+                fractions, _e, _gate, _pd,
+                blast_a=_st['blast_a_m'],
+                blast_b=_st['blast_b_m'],
+                threshold_strict_m=_sm,
+                grade_cap=_cap,
+                max_dg_per_m=_law_["max_dg_per_m"],
+                end_grade=_law_["end_grade"],
+                report=_rep)
+            _rep.setdefault('end_zone_cap', _c)
+            _ez_reports.append(_rep)
+
+        _ws_cap = within_shape_runway_cap()
+        _solved, _released, _survivors = solve_holding_seats(
+            fractions, elevs, anchored, law_seated, phys_dist,
+            _ez_solve, grade_cap=_ws_cap, reseat=True)
+        elevs[:] = _solved
+        for _k in _released:
+            law_seated[_k] = False
+        end_zone_report = _ez_reports[-1] if _ez_reports else {}
+        end_zone_cap = end_zone_report.get('end_zone_cap', _law["end_grade"])
+        if _released or _survivors:
+            try:
+                from O4_UI_Utils import vprint as _vp_rel
+                _vp_rel(1,
+                        f"  [pav-builder] runway {ref}: law-seat release — "
+                        f"{len(_released)} seat(s) released (the hold would "
+                        f"have minted a segment over the "
+                        f"{_ws_cap * 100:.2f}% within-shape runway cap; value "
+                        f"kept as a seed), "
+                        f"{len(_survivors)} minted segment(s) SURVIVE "
+                        f"the release"
+                        + (f" — worst "
+                           f"{max(g for _i, g, _r in _survivors) * 100:.2f}%"
+                           if _survivors else "") + ".")
+            except ImportError:
+                pass
         threshold_cap = end_zone_report.get('threshold_cap', end_zone_cap)
         threshold_strict_fraction = end_zone_report.get(
             'threshold_strict_fraction', 0.0)

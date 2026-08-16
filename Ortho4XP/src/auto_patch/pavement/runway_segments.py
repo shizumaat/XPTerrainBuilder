@@ -69,6 +69,14 @@ from ..config import (
     RUNWAY_MAX_GRADE as MAX_RUNWAY_GRADE,
     RUNWAY_MAX_GRADE_CHANGE_PER_M as MAX_RUNWAY_GRADE_CHANGE_PER_M,
     RUNWAY_CROSSING_PHYSICAL_EXTENT,
+    # THE WITHIN-SHAPE RUNWAY CAP — the law the ``within_shape::runway``
+    # census family judges a runway ring's vertex pairs under (chord metric;
+    # the owner's 2026-08-15 route-metric ruling moved the APRON family only).
+    # The law-seat RELEASE rule is written against exactly this cap, never
+    # against the runway's own LONGITUDINAL law: those differ (an ICAO code-4
+    # runway solves at 1.25 % while its within-shape cap is 1.5 %), and
+    # releasing on the tighter one gave SPLP's whole airside gain back.
+    ROLE_GRADE_LIMITS,
     # The DEM-follow band is read through its accessor, not as a
     # constant: ``config`` owns the single source of truth for the
     # law-bounded band (``RUNWAY_DEM_FOLLOW_LAW_BAND_M``), and the
@@ -80,6 +88,14 @@ from ..config import (
     runway_code_number as _runway_code_number,
 )
 from ..grade_law import runway_profile_law as _runway_profile_law
+
+
+def within_shape_runway_cap():
+    """THE cap the ``within_shape::runway`` law family enforces, read at call
+    time from ``config.ROLE_GRADE_LIMITS`` (the same mapping
+    ``tools/check_grade.py`` reads) so the release rule and the census can
+    never drift onto two numbers."""
+    return float(ROLE_GRADE_LIMITS.get("runway") or MAX_RUNWAY_GRADE)
 DEFAULT_CELL_SIZE = float(RUNWAY_CELL_SIZE_M)  # meters between interp points
 DEFAULT_PROFILE = PATCH_SLOPE_PROFILE
 # How far beyond the physical runway end to extend as a flat apron.
@@ -189,8 +205,12 @@ __all__ = [
     "faa_joint_solve",
     "generate_patch_osm",
     "law_line_at",
+    "minted_over_cap_segments",
     "seat_law_stations",
+    "segment_grades",
     "solve_anchor_set",
+    "solve_holding_seats",
+    "within_shape_runway_cap",
     "runway_grade_cap_at",
     "runway_segment_grade_cap",
 ]
@@ -548,6 +568,126 @@ def solve_anchor_set(anchored, seated):
         return list(anchored)
     return [bool(a) or bool(seated[i] if i < len(seated) else False)
             for i, a in enumerate(anchored)]
+
+
+def segment_grades(fractions, elevs, phys_dist, *, min_seg_m=0.1):
+    """``[grade | None]`` per adjacent station pair — one spelling of "the
+    grade of segment i", shared by the release rule and its twins.  ``None``
+    for a degenerate (sub-``min_seg_m``) segment, which carries no grade."""
+    out = []
+    for i in range(len(fractions) - 1):
+        seg = abs(fractions[i + 1] - fractions[i]) * phys_dist
+        if seg < min_seg_m:
+            out.append(None)
+            continue
+        out.append(abs(elevs[i + 1] - elevs[i]) / seg)
+    return out
+
+
+def minted_over_cap_segments(fractions, held, reference, phys_dist, *,
+                             grade_cap, tol=1e-4):
+    """Segments the HELD solve leaves over the runway's own cap **that the
+    reference solve did not** — ``[(i, g_held, g_ref)]`` for segment
+    ``i``→``i+1``.
+
+    The comparison is what makes the release rule honest.  A runway may carry
+    a pre-existing over-cap segment (SPLP 02/20 has twelve), and releasing a
+    seat for one of those would give the DEM ride back for a defect the seat
+    never caused.  Only a segment the hold MINTS — newly over cap, or pushed
+    further over than the same segment in the un-held solve — attributes to a
+    seat.  Both solves run from the SAME re-seated seed (the joint solve is a
+    mutating projection: its result is path-dependent), so the only difference
+    between them is the hold."""
+    g_h = segment_grades(fractions, held, phys_dist)
+    g_r = segment_grades(fractions, reference, phys_dist)
+    out = []
+    for i, gh in enumerate(g_h):
+        if gh is None:
+            continue
+        gr = g_r[i] if i < len(g_r) and g_r[i] is not None else 0.0
+        if gh > max(grade_cap, gr) + tol:
+            out.append((i, gh, gr))
+    return out
+
+
+def solve_holding_seats(fractions, seed_elevs, anchored, seated, phys_dist,
+                        solve, *, grade_cap, reseat=True,
+                        max_release_passes=2, tol=1e-4):
+    """Solve the profile HOLDING its law seats, RELEASING any seat the hold
+    would make unlawful (R8 stage 1, attempt 2 — lead ruling 2026-08-16).
+
+    A seat exists to refuse the DEM-follow ride, never to make the runway
+    itself unlawful.  Holding a join pins the profile at more stations, so the
+    free interior between two seats is squeezed into a shorter span and
+    ``faa_hard_cap_pass`` can midpoint an INVERTED interval there — minting a
+    marginal over-cap segment (measured: HECA +2 and SPLP +1
+    ``within_shape::runway`` rows, worst 0.950 m at 1.61 % against the 1.5 %
+    chord cap; the owner's 2026-08-15 route-metric ruling moved the APRON
+    family only — runway within-shape stays chord, so this is the law that
+    judges these rows).
+
+    A seat adjacent to such a segment is RELEASED: it keeps its law-line value
+    as a SEED (nothing is stomped) and loses only the hold, so the gates may
+    move it again exactly as before this round.  At most
+    ``max_release_passes`` release passes run; any segment still minted after
+    them is RETURNED as a survivor for the caller to report — never released
+    silently, never iterated on.
+
+    ``solve(elevs, gate_anchored)`` must mutate ``elevs`` in place.  Every
+    attempt restarts from ``seed_elevs`` (path dependence).  ``reseat`` values
+    the FULL original seat set on the law line first; pass ``False`` where the
+    seed already carries the seat (the emit-time zero DEM band does).
+
+    Returns ``(elevs, released_indices, survivors)``."""
+    seats = [bool(s) for s in (seated or ())]
+    seats += [False] * (len(fractions) - len(seats))
+    del seats[len(fractions):]
+    original = list(seats)
+
+    def _attempt(gate_seats):
+        cand = list(seed_elevs)
+        if reseat:
+            seat_law_stations(fractions, cand, anchored, original)
+        solve(cand, solve_anchor_set(anchored, gate_seats))
+        return cand
+
+    if not any(seats):
+        return _attempt(seats), [], []
+
+    # The control: the same re-seated seed solved WITHOUT the hold.  Anything
+    # over cap here is pre-existing and is not a seat's doing.
+    reference = _attempt([False] * len(fractions))
+    held = _attempt(seats)
+    released: list[int] = []
+    survivors = minted_over_cap_segments(
+        fractions, held, reference, phys_dist, grade_cap=grade_cap, tol=tol)
+    for _p in range(max_release_passes):
+        if not survivors:
+            break
+        newly = set()
+        for (i, _gh, _gr) in survivors:
+            for k in (i, i + 1):
+                if 0 <= k < len(seats) and seats[k]:
+                    seats[k] = False
+                    newly.add(k)
+        if not newly:
+            break                       # not attributable to any seat
+        cand = _attempt(seats)
+        cand_survivors = minted_over_cap_segments(
+            fractions, cand, reference, phys_dist, grade_cap=grade_cap,
+            tol=tol)
+        if len(cand_survivors) >= len(survivors):
+            # A SEAT IS NEVER GIVEN UP FOR NOTHING.  Releasing these did not
+            # shrink the minted set, so the segment is not theirs to fix
+            # (measured at SPLP 02/20, where an over-aggressive release
+            # handed the whole round's airside gain back to the DEM ride).
+            # Restore the hold and report the survivors instead.
+            for k in newly:
+                seats[k] = True
+            break
+        released.extend(sorted(newly))
+        held, survivors = cand, cand_survivors
+    return held, released, survivors
 
 
 def faa_joint_solve(fractions, elevs, anchored, phys_dist,
@@ -1824,15 +1964,45 @@ def generate_patch_osm(icao, runway_pairs, runway_widths=None, tile=None,
             # so holding it adds no constraint the anchors did not already
             # impose.  ``anchored`` itself is untouched — publishing these as
             # anchors is the self-anchor lock (see ``seat_law_stations``).
+            #
+            # A HELD SEAT MAY NOT MAKE THE RUNWAY UNLAWFUL (lead ruling
+            # 2026-08-16).  Where holding one MINTS a segment over the
+            # runway's own cap that the un-held solve does not, that seat is
+            # RELEASED — it keeps its law-line value as a seed and loses only
+            # the hold.  ``solve_holding_seats`` owns that rule for both
+            # solve sites.  ``reseat=False``: the zero DEM band above already
+            # seated these stations through ``_anchor_profile``, and re-deriving
+            # the same value here would be a second law-line spelling.
             _law_seated = [bool(z) and not bool(a)
                            for z, a in zip(_zero_band, anchored)]
-            faa_joint_solve(
-                fractions, elevs, solve_anchor_set(anchored, _law_seated),
-                phys_dist,
-                blast_a=blast_a, blast_b=blast_b,
-                grade_cap=_rw_law["max_grade"],
-                end_grade_cap=_rw_law["end_grade"],
-                max_dg_per_m=_rw_law["max_grade_change_per_m"])
+
+            def _rw_solve(_e, _gate, _blast_a=blast_a, _blast_b=blast_b,
+                          _law=_rw_law, _pd=phys_dist):
+                faa_joint_solve(
+                    fractions, _e, _gate, _pd,
+                    blast_a=_blast_a, blast_b=_blast_b,
+                    grade_cap=_law["max_grade"],
+                    end_grade_cap=_law["end_grade"],
+                    max_dg_per_m=_law["max_grade_change_per_m"])
+
+            _ws_cap = within_shape_runway_cap()
+            _solved, _released, _survivors = solve_holding_seats(
+                fractions, elevs, anchored, _law_seated, phys_dist,
+                _rw_solve, grade_cap=_ws_cap, reseat=False)
+            elevs[:] = _solved
+            for _k in _released:
+                _law_seated[_k] = False
+            if _released or _survivors:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao} runway {desig_a}/{desig_b}: "
+                    f"law-seat release — {len(_released)} seat(s) released "
+                    f"(the hold would have minted a segment over the "
+                    f"{_ws_cap * 100:.2f}% within-shape runway cap; value "
+                    f"kept as a seed), "
+                    f"{len(_survivors)} minted segment(s) SURVIVE the "
+                    f"release"
+                    + (f" — worst {max(g for _i, g, _r in _survivors) * 100:.2f}%"
+                       if _survivors else "") + ".")
 
             # Capture the per-pair FAA-compliant profile state so a
             # downstream redistribute step can fold seam DEM altitudes

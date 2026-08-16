@@ -137,3 +137,68 @@ Acceptance: composed HECA loses the -11585 eruption (junction back at
 ambient ≈89.6; the 40 tear rows gone) with no new family firing;
 CYXY census at-or-better vs composed 294; unit twins for the three
 span cases (one-sided pegs / zero pegs / both-ends pegged unchanged).
+
+## R5 — ROAD RUNS TRACK TERRAIN (Fable spec, owner-ratified
+## 2026-08-15 evening; conditions: within grade longitudinally,
+## flat laterally)
+
+Owner in-sim reports on 1.0.252 (CYXY sites 60.7100216,-135.0726292 /
+60.7096716,-135.073278 / 60.7015765,-135.0674007; HECA
+30.1156366,31.4114059): the taut string draws the STRAIGHTEST lawful
+profile, so a road strung between mouths rides a chord — a causeway
+5.2 m over a terrain dip (CYXY road 349: 0.4 % grade over a 2.7 %
+dip), a 12–16 m canyon through a rise (CYXY junction-190 complex flat
+at ~706 under 718–722 HRDEM terrain), an elevated plateau (HECA).
+`who_wrote --at` confirms the solve ingests the held profile value
+unchanged.  Taut-string semantics are CORRECT for airside spines
+(test_dem_hump_inside_the_band_is_not_traced stands, unchanged) and
+WRONG for roads, whose owner-law is terrain-hugging.
+
+THE LAW: a service-road run's profile is the CAP-CONSTRAINED
+LEAST-DEVIATION TRACKER of its low-passed station DEM.
+
+- LATERAL (owner condition 2, already law): every cross-section takes
+  ONE station value (the station-shared value rule) — restate as an
+  explicit twin, not re-implemented.
+- LONGITUDINAL (owner condition 1): every adjacent-station grade
+  <= the road cap — hard constraint, explicit twin.
+- PEGS remain exact law targets (mouth welds, free-end ties, interior
+  values); the reach-band tube still clamps everywhere.
+- BETWEEN pegs the profile minimizes deviation from `smooth_de` (the
+  existing low-passed station DEM) subject to the above.  Where
+  terrain out-runs the cap the profile departs minimally (the
+  cap-Lipschitz projection); the departure spans join the audit —
+  recorded, no conflict minted (DEM deviation stays unreported by
+  ruling; the AUDIT is not the census).
+- Mechanism: the cap-Lipschitz regularization of `smooth_de` clamped
+  into (tube ∩ peg cone) — the K1b carrier machinery pattern
+  (forward/backward Lipschitz passes), applied to the DEM objective.
+  NOT the warm-start hazard class: warm start flattened because its
+  carrier was cone-midpoint-seeded at range; here the source IS the
+  terrain, and the filter only moves values where the cap forces it.
+- SCOPE: service-road corridor runs only.  Airside spine profiles
+  keep the taut string.  R4's span rule stands: outside the pegged
+  span the same tracker applies with no pegs (subsumes the pointwise
+  station rule for chained roads — strung and unstrung stretches now
+  converge in character, healing their seam).  Per-vertex fallback
+  for roads with NO station substrate is out of scope (its own
+  docket: the unmapped-route population), as are the stamped-low
+  drainage/gap flats and the OLS-cut/road interaction.
+
+Acceptance (harness only):
+1. Twins: (a) longitudinal cap holds at every emitted station pair;
+   (b) cross-section single-value invariant; (c) a dip within cap is
+   TRACKED (max |z − smooth_de| ≤ 0.5 m on a synthetic within-cap
+   dip); (d) a rise steeper than cap departs minimally and the audit
+   records the span; (e) pegs are exact; (f) both-ends-pegged airside
+   spine runs byte-unchanged (taut string kept).
+2. CYXY: road 349 tracks its dip; the junction-190 complex rises with
+   terrain (no 10 m+ undercut); census no new family, adjudicated
+   at-or-better vs 303 modulo honest re-pricing (report deltas).
+3. HECA: -11585 stays at ambient (B1 must not return); censuses
+   reported vs 6,700 with family deltas attributed.
+4. Build-time: O(n) passes per run — state the wall delta from the
+   ledger frame; no exclusive timing (suspended).
+
+Pre-delegated: materiality floor 0.01 m; attempt cap 2 per target;
+deviations STOP-and-report to the Fable lead (this spec's author).

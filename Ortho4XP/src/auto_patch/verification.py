@@ -3387,6 +3387,17 @@ def check_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon,
     corridor_bridges, _suppress, _refused, _road_carried, _portals = (
         _partition_bridges_for_corridors(classification, layout)
     )
+    # LOCKSTEP WITH THE WRITER, part 2 (docs/specs/kdfw-bridge-refusal-
+    # spec.md clause 2): a pin the deck-pin contradiction guard REFUSED
+    # was never written, so it is not law-bound and reporting it would
+    # book the guard's own correct refusal as a deviation.  The refusal
+    # set is carried by CANONICAL POINT, the same key the seeder skips
+    # on; absent (no guard verdict) it is empty and this reads exactly as
+    # before.
+    _refused_keys = getattr(
+        layout, "_object_bridge_pin_refused_keys", None) or ()
+    _cps = getattr(layout, "canonical_points", None) if _refused_keys \
+        else None
     out = []
     for bridge in corridor_bridges:
         datum = _bridge_datum_elevation_m(bridge, dem, tile_lat, tile_lon)
@@ -3461,6 +3472,13 @@ def check_bridge_deck_end_pins(layout, dem, tile_lat, tile_lon,
                         continue
                     if not on_line:
                         continue
+                    if _cps is not None:
+                        try:
+                            key = _cps.get(float(x), float(y))
+                        except Exception:
+                            key = None
+                        if key is not None and key in _refused_keys:
+                            continue
                     deviation = abs(float(value) - law_value)
                     if deviation > tolerance_m:
                         out.append((

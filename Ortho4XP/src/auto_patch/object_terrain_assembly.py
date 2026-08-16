@@ -482,7 +482,17 @@ def _discover_sibling_road_networks(
 # (per-resource deck end lines + effective crests).  A v16 pickle
 # restores it as the class default ``()``, and ``has_measurable_deck``
 # now reads THAT, so every refused viaduct would fall back.
-_CLASSIFICATION_CACHE_VERSION = 17
+# 18: the KDFW contract refusals (docs/specs/kdfw-bridge-refusal-spec.md
+# clause 1, ``object_terrain_features.contract_refusal_reason``) — an
+# implausibly-scaled DECK_CARRIED verdict on profile-fallback evidence,
+# and a girder clearance under BRIDGE_ROAD_CLEARANCE_MINIMUM_M, are
+# refused a terrain feature instead of emitted.  Exactly the version-15
+# situation: a v17 result for an unedited pack still carries KDFW's
+# 2,849.6 x 820.6 m pavement-inset "deck", whose 193 hard deck-end pins
+# at 183.29 inverted the final band — the fingerprint covers the PACK,
+# and cannot see a classifier rule change, so the version is what
+# retires the record.
+_CLASSIFICATION_CACHE_VERSION = 18
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under

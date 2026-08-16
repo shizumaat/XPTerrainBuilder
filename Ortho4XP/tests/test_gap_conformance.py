@@ -382,3 +382,98 @@ def test_the_terrain_floor_store_stays_index_aligned():
     for (pts_ll, vals), floor in zip(layout.gap_spines, store):
         assert floor is not None
         assert len(floor) == len(vals) == len(pts_ll)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# (e) F3b — THE LATE RE-CLAMP IS THE SAME STAGED LAW
+#
+# ``reclamp_gap_spines`` is the LAST writer of a gap spine's values.  It
+# used to clamp the station into ``[lo, hi]`` and then RAISE it back to
+# the terrain the emitter stored — the clause-3 terrain floor F3b
+# superseded — so the drainage ceiling was no longer last and every
+# interior station standing under high terrain left the pipeline DAMMED.
+# Measured at HECA (arm ``HECA_20260815T212514``): 1,323 airside
+# ``drainage_spine`` rows, worst 25.64 m.  These twins are that class.
+# ══════════════════════════════════════════════════════════════════════
+
+_HILL = _StubDem(lambda x, y: 130.0)        # 30 m ABOVE the pavement
+
+
+def _ceilings(layout):
+    """``[(station, hi), …]`` — the drainage ceiling the LAW gives each
+    emitted spine station against the pavement that ships."""
+    airside = GF._airside_shapes(layout)
+    out = []
+    for pts, vals in _spines_m(layout):
+        for (px, py), v in zip(pts, vals):
+            _lo, hi, _e = GF._spine_interval(layout, airside, px, py)
+            out.append((v, hi))
+    return out
+
+
+def test_the_late_reclamp_grades_an_enclave_hill_down_to_drain():
+    """THE HECA 1,323 CLASS.  Interior terrain 30 m ABOVE the bounding
+    pavement: the emitter grades it down to the drainage ceiling, and
+    the late re-clamp must not put it back on the hill."""
+    layout = _plain_frame()
+    emit_gap_fill_spines(layout, _HILL, 0, 0)
+    assert layout.gap_spines, "expected emitted spines"
+    GF.reclamp_gap_spines(layout)
+    checked = 0
+    for v, hi in _ceilings(layout):
+        assert hi is not None, "an enclosed spine station must have a ceiling"
+        assert v <= hi + 1e-6, (
+            f"spine station at {v} dams its {hi} drainage ceiling")
+        checked += 1
+    assert checked >= 3
+    assert max(v for v, _hi in _ceilings(layout)) < 130.0 - 1.0, (
+        "the hill must be GRADED DOWN, not followed")
+
+
+def test_the_late_reclamp_is_idempotent():
+    """A spine already at its staged value is untouched — the pass is a
+    re-evaluation of one law, not a second author."""
+    layout = _plain_frame()
+    emit_gap_fill_spines(layout, _HILL, 0, 0)
+    GF.reclamp_gap_spines(layout)
+    first = [list(v) for _p, v in layout.gap_spines]
+    assert GF.reclamp_gap_spines(layout) == 0
+    assert [list(v) for _p, v in layout.gap_spines] == first
+
+
+def test_the_late_reclamp_keeps_the_anti_trench_cone_floor():
+    """The re-clamp may lower a station to the ceiling; it may never cut
+    below the lawful descent from the way's own conformed ends (the
+    CYXY flat-695.8 canal class)."""
+    layout = _plain_frame()
+    emit_gap_fill_spines(layout, _LOW, 0, 0)
+    GF.reclamp_gap_spines(layout)
+    checked = 0
+    for pts, vals in _spines_m(layout):
+        s = [0.0]
+        for a, b in zip(pts, pts[1:]):
+            s.append(s[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+        length = s[-1]
+        for i, v in enumerate(vals):
+            cone = max(vals[0] - CAP * s[i],
+                       vals[-1] - CAP * (length - s[i]))
+            assert v >= cone - 0.06, (
+                f"station {i} at {v} is below its {cone} cone floor")
+            checked += 1
+    assert checked >= 3
+
+
+def test_the_staged_evaluator_applies_the_ceiling_last():
+    """The evaluator both authors share: terrain ABOVE the ceiling is
+    cut to the ceiling, terrain below it is followed, and the cone
+    floor still bounds the depth."""
+    s = [0.0, 50.0, 100.0]
+    ends = [100.0, 100.0]
+    intervals = [(None, 99.7), (None, 99.7), (None, 99.7)]
+    # terrain above the ceiling -> the ceiling wins (the dam clause)
+    out = GF._staged_spine_values(s, [0.0] * 3, [130.0] * 3, intervals, ends)
+    assert all(v <= 99.7 + 1e-9 for v in out)
+    # terrain below it -> followed, but never under the cone floor
+    out = GF._staged_spine_values(s, [0.0] * 3, [10.0] * 3, intervals, ends)
+    assert out[1] == pytest.approx(100.0 - CAP * 50.0, abs=1e-6)
+    assert out[0] == pytest.approx(99.7, abs=1e-6)

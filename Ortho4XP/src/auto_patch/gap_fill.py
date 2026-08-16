@@ -1064,7 +1064,17 @@ def reclamp_gap_spines(layout) -> int:
     Called from the pipeline immediately after the late projection, which
     is the last pass that moves AIRSIDE pavement (the strip-reconcile and
     conformance passes after it move graded strips and groundside lots,
-    which are not spine parents)."""
+    which are not spine parents).
+
+    F3b (2026-08-16): THE SAME STAGED LAW, not a second one.  This pass
+    re-evaluates ``_staged_spine_values`` — the emitter's own evaluator —
+    against the final rings, with the terrain the emitter stored.  What
+    it used to do instead was clamp into ``[lo, hi]`` and then RAISE the
+    station back to terrain, the clause-3 terrain floor F3b superseded:
+    the ceiling was no longer last, so every interior station whose
+    terrain stands above the drainage ceiling left this pass DAMMED.
+    That is the located author of the HECA 1,323-row ``drainage_spine``
+    population (2026-08-15 arm ``HECA_20260815T212514``)."""
     if not DRAINAGE_SPINE_LAW_ENABLED:
         return 0
     spines = getattr(layout, "gap_spines", None) or []
@@ -1075,45 +1085,82 @@ def reclamp_gap_spines(layout) -> int:
         return 0
     n_moved = 0
     worst = 0.0
-    n_floored = 0
+    n_staged = 0
     floors = getattr(layout, _GAP_SPINE_TERRAIN_STORE, None) or []
+    _conform_shp, conform = _conform_index(layout, airside)
     for w, (_pts_ll, values) in enumerate(spines):
         terrain = floors[w] if w < len(floors) else None
-        for i, ((lat, lon), z) in enumerate(zip(_pts_ll, values)):
-            if z is None:
+        pts_m = []
+        for (lat, lon) in _pts_ll:
+            try:
+                pts_m.append(layout.ll_to_m(lat, lon))
+            except _GEOM_EXC:
+                pts_m.append(None)
+        intervals = []
+        for p in pts_m:
+            if p is None:
+                intervals.append((None, None))
                 continue
             try:
-                px, py = layout.ll_to_m(lat, lon)
-                lo, hi, _edges = _spine_interval(layout, airside, px, py)
+                lo, hi, _edges = _spine_interval(layout, airside, p[0], p[1])
             except _GEOM_EXC:
+                lo = hi = None
+            intervals.append((lo, hi))
+        if terrain is None:
+            # No terrain was read for this way (the DEM-free paths): there
+            # is no staged law to evaluate, so the interval clamp IS the
+            # whole law here — the historical unconditional re-clamp.
+            for i, z in enumerate(values):
+                if z is None:
+                    continue
+                lo, hi = intervals[i]
+                nz = float(z)
+                if lo is not None and nz < lo:
+                    nz = lo
+                if hi is not None and nz > hi:
+                    nz = hi
+                if abs(nz - float(z)) > 1e-6:
+                    worst = max(worst, abs(nz - float(z)))
+                    values[i] = nz
+                    n_moved += 1
+            continue
+        # Arc length + the CONFORMED end pins of THIS emitted way (a
+        # spine is emitted in chains, so the way's own ends are the
+        # cone's ends — the emitter walk's own read, ``_conform_shapes``,
+        # which is WIDER than the validator's airside-parent end read;
+        # the cone is a floor UNDER the ceiling here, so the two cannot
+        # disagree about a row, but see the 2026-08-16 STOP dossier).
+        s = [0.0]
+        for a, b in zip(pts_m, pts_m[1:]):
+            s.append(s[-1] + (0.0 if a is None or b is None
+                              else math.hypot(b[0] - a[0], b[1] - a[1])))
+        ends = []
+        for j in (0, len(pts_m) - 1):
+            bv = None
+            if pts_m[j] is not None:
+                try:
+                    bv, _bd = _conform_edge_value(
+                        conform, pts_m[j][0], pts_m[j][1])
+                except _GEOM_EXC:
+                    bv = None
+            if bv is None and values[j] is not None:
+                bv = float(values[j])
+            ends.append(None if bv is None else float(bv))
+        staged = _staged_spine_values(s, values, terrain, intervals, ends)
+        for i, z in enumerate(values):
+            if z is None or staged[i] is None:
                 continue
-            nz = float(z)
-            if lo is not None and nz < lo:
-                nz = lo
-            if hi is not None and nz > hi:
-                nz = hi
-            # F3 LAW 3 IS THE FLOOR AND IT SURVIVES THIS PASS.  The
-            # drainage-spine law's CEILING (below the lower adjacent
-            # pavement) is what cut the CYXY canal 7.7 m under its own
-            # ground; the owner's ruling says the descent stops when it
-            # MEETS terrain.  The re-clamp still re-references against
-            # the pavement that ships — it may raise to the floor and
-            # lower toward the ceiling — but never below the terrain the
-            # emitter read at that station.
-            _t = (terrain[i] if terrain is not None and i < len(terrain)
-                  else None)
-            if _t is not None and nz < float(_t):
-                nz = float(_t)
-                n_floored += 1
+            nz = float(staged[i])
             if abs(nz - float(z)) > 1e-6:
                 worst = max(worst, abs(nz - float(z)))
                 values[i] = nz
                 n_moved += 1
+                n_staged += 1
     if n_moved:
         UI.vprint(1, f"  [gap-fill] drainage-spine law re-clamp: "
                      f"{n_moved} spine vertex/vertices moved against the "
-                     f"final pavement (worst {worst:.2f} m; "
-                     f"{n_floored} held at the F3 terrain floor).")
+                     f"final pavement (worst {worst:.2f} m; {n_staged} "
+                     f"re-valued by the F3b staged law).")
     return n_moved
 
 
@@ -1185,35 +1232,74 @@ def _spine_lawful_profile(layout, conform, spine, values, dem,
     for j in (0, len(spine) - 1):
         bv, _bd = _conform_edge_value(conform, spine[j][0], spine[j][1])
         ends.append(float(bv) if bv is not None else float(values[j]))
+    out = [round(v, 1) for v in _staged_spine_values(
+        s, values, terrain, intervals, ends)]
+    return out, terrain
+
+
+def _staged_spine_values(s, values, terrain, intervals, ends):
+    """THE F3b staged spine law, evaluated on ALREADY-READ inputs — arc
+    length ``s``, the incoming ``values``, the per-station ``terrain``
+    (entries may be ``None``), the per-station drainage ``intervals``
+    (``(lo, hi)``, or ``None`` for "no interval known") and the two
+    CONFORMED end values ``ends`` (an entry is ``None`` when that end
+    conformed to nothing, which grants no cone).
+
+        value(s) = max(cone_floor(s), min(terrain(s), ceiling)) clamped
+                   into [lo, hi]
+
+    ONE evaluator, both authors: the emitter (``_spine_lawful_profile``,
+    which reads terrain off the DEM) and the LATE re-clamp
+    (``reclamp_gap_spines``, which replays it against the pavement that
+    actually ships using the terrain the emitter stored).  Before this
+    was shared, the re-clamp carried the SUPERSEDED clause-3 terrain
+    FLOOR — it raised a station back up to terrain AFTER clamping it
+    under the drainage ceiling, so wherever interior terrain stands
+    above the ceiling the last writer in the pipeline re-dammed the
+    spine (measured at HECA on 2026-08-15: 1,323 airside
+    ``drainage_spine`` rows, worst 25.64 m, 88 % of them carrying the
+    re-clamp's own unrounded value spelling).  Returns RAW floats; the
+    emitter rounds, the re-clamp does not (it never has)."""
     cap = _RING_ALONG_BENCH_SLOPE
-    out = []
-    for i in range(len(spine)):
-        # F3b staged law: value = max(cone_floor, min(terrain, drainage
-        # ceiling)), clamped into the station's own interval.  The cone
-        # floor bounds the depth to the lawful descent from the
-        # conformed boundaries (the anti-trench guard); the min() is the
-        # dam clause where terrain is high (an enclave hill is GRADED
-        # DOWN to drain — the owner's ruling refutes terrain-following
-        # there) and terrain-following where terrain already sits below
-        # the drainage ceiling.  Band stations arrive with PINNED
-        # intervals from the staged envelope and collapse to the pin.
-        cone = max(ends[0] - cap * s[i], ends[1] - cap * (length - s[i]))
+    length = s[-1] if s else 0.0
+    out: list = []
+    for i in range(len(s)):
+        cones = []
+        if ends and ends[0] is not None:
+            cones.append(ends[0] - cap * s[i])
+        if ends and len(ends) > 1 and ends[1] is not None:
+            cones.append(ends[1] - cap * (length - s[i]))
+        cone = max(cones) if cones else None
         lo_i, hi_i = (intervals[i] if intervals is not None
                       and i < len(intervals) else (None, None))
+        t_i = (terrain[i] if terrain is not None and i < len(terrain)
+               else None)
         base = None
-        if terrain[i] is not None and hi_i is not None:
-            base = min(terrain[i], hi_i)
-        elif terrain[i] is not None:
-            base = terrain[i]
+        if t_i is not None and hi_i is not None:
+            base = min(t_i, hi_i)
+        elif t_i is not None:
+            base = t_i
         elif hi_i is not None:
             base = hi_i
-        v = cone if base is None else max(cone, base)
+        if base is None and cone is None:
+            # Nothing the law can say about this station — keep it.
+            out.append(values[i])
+            continue
+        if base is None:
+            v = cone
+        elif cone is None:
+            v = base
+        else:
+            v = max(cone, base)
         if lo_i is not None:
             v = max(v, lo_i)
         if hi_i is not None:
+            # THE CEILING IS LAST.  The dam clause is what makes a spine
+            # a drain; no floor of this law (cone, terrain, crater) may
+            # be applied after it.
             v = min(v, hi_i)
-        out.append(round(v, 1))
-    return out, terrain
+        out.append(v)
+    return out
 
 
 def _smooth_spine(vals, intervals, sweeps):

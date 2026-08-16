@@ -2067,3 +2067,40 @@ two concurrent tile builds throughout.
   ring chains). Two fix attempts spent; STOP per the convergence law.
   Attribution next round: sample rows' way ids -> which emitter; the
   arm HECA_20260815T212514 (66932401efba) + rows /tmp/harness/rf3b2.json.
+
+## 2026-08-16 — F3b re-clamp attribution + fix (lane/gapconform)
+
+The located author of the held 1,323-row HECA `drainage_spine`
+population: `gap_fill.reclamp_gap_spines`, the LAST writer of a gap
+spine's values, still carried the clause-3 terrain FLOOR F3b superseded
+— it clamped the station into `[lo, hi]` and then RAISED it back to the
+stored terrain, so the drainage ceiling was no longer last.  Fix: one
+staged-law evaluator (`gap_fill._staged_spine_values`) shared by the
+emitter walk and the re-clamp.  PRE-SHIP mode: only the covering test
+files were run, once — `test_gap_conformance.py` (15, +4 new F3b
+re-clamp twins), the ten gap files of the F3 lane's own list (172 pass
+beside the three RECORDED PRE-EXISTING `test_gap_fill_spine.py`
+rim-pocket gate failures) and `test_harness.py` /
+`test_census_instrument.py` / `test_field_report_fix_batch.py` /
+`test_reg_families_round.py` (351).  SKIPPED: full suite,
+blast-radius sweep, SPJC/SPLP/KCLT, and any timing measurement.  Two
+acceptance arms were built (CYXY + HECA) against the main-tree control
+patches the lane already had; walls are ledger-frame only and are NOT a
+timing claim.  Build-time impact: one extra conformance index build
+(already built per gap-fill pass) and two index queries per emitted
+spine way (287 at HECA, 45 at CYXY) inside a pass that already queries
+`_spine_interval` per station — far below the 0.6 s / 1 % gate, not
+measured.
+
+Residual, NOT chased (attempt cap): HECA keeps 70 `drainage_spine` rows
+(main-tree control 66, so +4 for the lane) and CYXY 0 (control 5).  The
+dominant survivor — 34 of the 70, way `-13464` @30.116941,31.443884 — is
+the EMPTY-INTERSECTION FALLBACK class and is verified arithmetically off
+the emitted patch, not inferred: at 54.7 m from both parents the runway's
+lateral crater FLOOR (`adjacent_ground_envelope` −1.701 m) stands above
+the lower parent's dam CEILING (−0.3 m under an apron 6.0 m lower), the
+two parents' intervals do not intersect, and `_spine_interval`'s
+2026-07-09 fallback resolves it to the NEARER parent's own interval — the
+emitted 139.29 IS the runway floor 140.99 − 1.701 to the centimetre,
+4.31 m above the lower edge the dam clause reads.  Which clause yields is
+an owner/Fable ruling, not an implementation choice.

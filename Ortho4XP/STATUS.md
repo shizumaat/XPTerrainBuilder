@@ -1,4 +1,56 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260815c (SERVICE-ROAD ROUND MERGED — app 1.0.252 built, owner
+# in-sim pending)
+# All three 20260815b blockers cleared and svcround MERGED to main
+# (162c22c, on top of the concurrent session's dd6473f airport-index
+# commit; DEFERRED_VERIFICATION union-resolved).
+# (B1) ATTRIBUTED + FIXED — R4 spec amendment (service-road-law-spec):
+#   the whole-run corridor string held values BEYOND its pegged span.
+#   Run (46,0): 2,364.6 m, 265 stations, pegs ONLY at s=0/3.0/7.2 m
+#   (south mouth welds ≈127.21) → strung FLAT end to end, stamping
+#   -11585 37.6 m over ambient. Interventional chain: R1-off arm
+#   erupts identically (R1 EXONERATED); O4_SVC_SPINE_DEBUG_LL station
+#   dump = WHOLE-RUN tgt 127.2132 over DEM 89.7; peg dump (temporary
+#   probe) showed the one-sided pegs. Far-end DEM tie REFUSED as the
+#   fix — it re-draws the run as a km-scale chord (~8 m census-
+#   invisible mid-corridor ridge, the warm-start in-sim-only class).
+#   Fix `_r4_pegged_span` (anchors.py): string [first..last peg] only;
+#   <=1-peg runs entirely pointwise (retires the caller's synthetic
+#   both-end DEM tie — same chord class); outside-span stations keep
+#   spine-first DEM-follow. 5 twins. Eruption gone (ring 89.6–89.7).
+#   HECA 6,908→6,700 (within_shape −216, transverse +24 honest ≤ old
+#   worst, no new family); CYXY 294→303 (+9 all groundside, new rows
+#   ≤0.36 m, worst unchanged — the composed 294 partly rode the
+#   retired unlawful mechanism). R4 amendment awaits OWNER
+#   RATIFICATION (recorded in the spec).
+# (B2) ADJUDICATED: apron within_shape +21 / transverse +9 / strip_arc
+#   +5 / strip_long +1 = honest pricing (distributions identical,
+#   worst 11.35→11.36, p50 0.90→0.89; headline 8.55/6.15 tears are
+#   PRE-EXISTING sites renumbered). ONE real regression site
+#   30.1110,31.4283: 44 airside rows ≤2.59 m (38 strip_seam_tear + 4
+#   adjacent_ground_tear + 2 within_shape) where service roads thread
+#   between graded strips — strips re-conform unevenly to moved road
+#   values; net site 13→52 rows though 5 groundside fixed. DOCKETED
+#   (joins the node-vs-edge mouth law pair docket — one owner per
+#   seam). (B3) ADJUDICATED: 8 rows, ONE spine (way -13304) at
+#   30.107010,31.401492, ≤1.348 m — gapstop's own held item, the
+#   concave-notch class already docketed; accepted as named residual.
+# Twins on merged main: the 7 covering files 173 pass + the SAME
+# pre-existing test_lateral_cross_section::test_the_solve_ingests...
+# failure (stale twin, docketed). App 1.0.252 (engine 1.50.1694,
+# embedded == dist freeze ef3949953110) — THE FIRST HONEST TERRAIN
+# BUILD (1.0.251 still had the retired warm-start flattener); owner
+# in-sim on 1.0.252 is the round's acceptance. TCC note: fresh app
+# signature will re-prompt volume access (0% CPU at solve start =
+# pending prompt; tccutil reset + killall tccd if stuck).
+# OWNER QUEUE: ratify R4; rule on B2-site docket + B3 residual;
+# in-sim verdict on 1.0.252 (terrain character at CYXY range
+# especially — the warm-start class detector is in-sim only).
+# DOCKET UNCHANGED from 20260815b (node-vs-edge law pair, gap spine
+# clip-to-face, late-roled faces, apt.dat SVC carve, _svc_dup_block,
+# stale lateral twin) + STANDING QUEUE (2026-08-12a triage, deletion
+# sweep, task_898e3c75; rwy-flexed/string-bend rulings).
+# ══════════════════════════════════════════════════════════════════
 # 20260815b (HANDOVER — SERVICE-ROAD ROUND: 4 LANES COMPOSED, ONE
 # ERUPTION BLOCKS THE MERGE)
 # Owner bug reports (all root-caused, all lanes implemented+committed):

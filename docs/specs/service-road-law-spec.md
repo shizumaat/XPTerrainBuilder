@@ -225,3 +225,18 @@ stations by this hold.  The R5 acceptance criteria re-run unchanged;
 the two CYXY new-family rows (one weld site 60.69699,-135.05965 and
 one plane_gradient) are re-measured under the hold and docketed if
 they survive.
+
+### R5b REFUTED BY MEASUREMENT (Fable adjudication, 2026-08-15)
+
+The hold arm (lane commit 7919c3e): sites unchanged (all PASS in both
+arms), transverse unchanged (CYXY 91→90, HECA 1,741→1,751), and +211
+adjudicated at HECA via ONE-SIDED WELD-OR-GAP — freezing the road's
+1-D profile leaves welded 2-D neighbours (junction yards, groundside
+lots) unable to reach it within their own caps; under seeds the solve
+reconciles BOTH sides.  The premise instrument was wrong: over-cap
+EMITTED segments count the RELIEF a terrain-following road lawfully
+has (a chord has none by construction) — it never measured
+projection re-roughening.  RULING: R5-seeds is the production arm
+(lane d7e3435 merges; 7919c3e does not).  The one-sided-weld class
+joins the node-vs-edge mouth law pair docket — the structural fix is
+law-paired boundaries in the one graph, never a frozen side.

@@ -255,3 +255,106 @@ def test_the_widest_thing_the_carve_calls_a_road_is_still_linear():
     from auto_patch.config import ROAD_CARVE_MAX_WIDTH_M as W
     wide_road = Polygon([(0, 0), (2000, 0), (2000, W), (0, W)])
     assert _mean_width(wide_road) <= W
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# R1 — A HELD PROFILE MUST BE LAWFUL OR IT IS NOT HELD (service-road law
+# spec 2026-08-15).  The run's OWN audit names every over-cap segment and
+# every relaxed inverted tube; exactly those stations are RELEASED from
+# the ``svc_profile`` hold (values stay as seeds).  Clean stations stay
+# held — the smooth majority must not loosen.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _release_of(prof, run_sid):
+    import auto_patch.pipeline  # noqa: F401 — import-order guard
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        _profile_law_release)
+    return _profile_law_release(prof.conflicts, run_sid)
+
+
+def test_over_cap_strung_run_releases_exactly_its_over_cap_stations():
+    """A tube that FORCES a 40 % segment between stations 1 and 2 (the
+    walls pinch to two levels the cap cannot join) releases BOTH stations
+    of that segment — and nothing else.  The run's peg_pair conflict (an
+    end-tie tension, not a held-station value) releases nothing."""
+    s = [0.0, 10.0, 20.0, 30.0, 40.0]
+    f = [100.0, 100.0, 104.0, 104.0, 104.0]
+    c = [100.0, 100.0, 104.0, 104.0, 104.0]
+    out = solve_run_profile(s, f, c, {0: 100.0, 4: 104.0}, CAP)
+    assert out is not None
+    kinds = {cf.kind for cf in out.conflicts}
+    assert "over_cap_segment" in kinds
+    assert "inverted_tube" not in kinds
+    run_sid = ["s0", "s1", "s2", "s3", "s4"]
+    rel = _release_of(out, run_sid)
+    assert rel == {"s1", "s2"}, (
+        f"released {sorted(rel)}; the over-cap segment is 1→2 and its "
+        f"two stations are the whole release")
+
+
+def test_relaxed_inverted_tube_station_is_released():
+    """An inverted tube (two anchor regimes contradicting at station 2)
+    is levelled by ``_relax_tube`` and RECORDED — that station leaves the
+    hold even when the string through the relaxed tube is lawful."""
+    s = [0.0, 10.0, 20.0, 30.0, 40.0]
+    f = [90.0, 90.0, 110.0, 90.0, 90.0]
+    c = [110.0, 110.0, 90.0, 110.0, 110.0]      # inverted at station 2
+    out = solve_run_profile(s, f, c, {0: 100.0, 4: 100.0}, CAP)
+    assert out is not None
+    assert {cf.kind for cf in out.conflicts} == {"inverted_tube"}
+    rel = _release_of(out, ["s0", "s1", "s2", "s3", "s4"])
+    assert rel == {"s2"}
+
+
+def test_clean_run_releases_no_station():
+    """Stations whose audit is clean stay HELD."""
+    s = [0.0, 10.0, 20.0, 30.0, 40.0]
+    f, c = _wide_band(5)
+    out = solve_run_profile(s, f, c, {0: 100.0, 4: 102.0}, CAP)
+    assert out is not None
+    assert not out.conflicts
+    assert _release_of(out, ["s0", "s1", "s2", "s3", "s4"]) == set()
+
+
+# ── R4: THE STRING HOLDS ON THE PEGGED SPAN ONLY (service-road law
+# spec amendment, 2026-08-15 — the run-(46,0) eruption class) ────────
+
+def _span_of():
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        _r4_pegged_span)
+    return _r4_pegged_span
+
+
+def test_r4_one_sided_pegs_string_only_their_span():
+    """HECA run (46,0): 265 stations, pegs at indices 0/1/2 only.  The
+    string holds on [0..2]; every station beyond keeps the pointwise
+    DEM-follow rule (NOT a 2.36 km flat at the mouth value, NOT a
+    synthetic far-end chord)."""
+    span = _span_of()({0: 127.21, 1: 127.21, 2: 127.21})
+    assert span == (0, 2)
+
+
+def test_r4_zero_or_one_peg_runs_are_not_strung():
+    """Zero law targets → nothing to string between: the whole run is
+    pointwise.  One peg likewise (the weld's own reach band shapes the
+    departure; the string has no second target)."""
+    span = _span_of()
+    assert span({}) is None
+    assert span({7: 101.5}) is None
+
+
+def test_r4_degenerate_single_station_span_is_not_strung():
+    span = _span_of()
+    assert span({3: 100.0}) is None
+
+
+def test_r4_both_end_pegged_run_is_unchanged():
+    """A run pegged at both termini strings end to end — R4 changes
+    nothing for the healthy case."""
+    span = _span_of()({0: 100.0, 9: 102.0})
+    assert span == (0, 9)
+
+
+def test_r4_interior_pegs_bound_the_span():
+    span = _span_of()({2: 100.0, 5: 101.0, 11: 100.5})
+    assert span == (2, 11)

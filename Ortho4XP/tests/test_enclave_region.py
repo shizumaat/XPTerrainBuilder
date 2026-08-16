@@ -498,14 +498,30 @@ def test_a_pocket_enclave_region_is_still_exempt():
 def test_the_construct_pass_mirrors_the_emitter():
     """Parity is load-bearing (the emitter matches spines against the
     pre-solve store by coordinate), so the pre-solve construction must
-    apply the same enclave rule."""
+    apply the same enclave rule.
+
+    AMENDED with the service-road stop fix (owner ruling 2026-08-15):
+    the construct pass now mirrors the emitter's R19-2 subdivision too,
+    so the unpublished sliver-vetoed hole — which the EMITTER has
+    subdivided and emitted since R19-2
+    (``test_the_same_sliver_no_longer_vetoes_but_subdivides``) — also
+    constructs.  The old ``== 0`` pinned a construct/emit ASYMMETRY
+    (every such pocket emitted on the analytic fallback).  The A/B this
+    half exists for — construction refuses what emission refuses — is
+    preserved on a blocker the subdivision law never reaches."""
     layout = _frame([_sliver()])
     EN.publish_airside_enclaves(layout)
     assert GF.construct_gap_fill_presolve(layout) >= 1
 
+    # Unpublished: the R19-2 subdivision takes it on BOTH passes now.
     layout2 = _frame([_sliver()])
     layout2.airside_enclaves = []
-    assert GF.construct_gap_fill_presolve(layout2) == 0
+    assert GF.construct_gap_fill_presolve(layout2) >= 1
+
+    # A non-subdividing blocker (tunnel ramp) still refuses on both.
+    layout3 = _frame([_sliver(role=ROLE_TUNNEL_RAMP)])
+    layout3.airside_enclaves = []
+    assert GF.construct_gap_fill_presolve(layout3) == 0
 
 
 # ═════════════════════════════════════════════════════════════════════

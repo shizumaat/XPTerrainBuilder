@@ -744,3 +744,65 @@ def test_a_TAXI_axis_still_prices_no_service_road(tmp_path):
     that surface's law belongs to its own spine."""
     _cg, rows = _service_road_census(tmp_path, 0.60, service_axis=False)
     assert rows == []
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# R2 — THE LATERAL PASS READS THE REGISTERED CHAINS (service-road law
+# spec 2026-08-15).  ``insert_service_lateral_nodes`` consumes
+# ``grade_graph.service_chain_lines`` (the ONE registered service set)
+# unioned with the row-1206 courses, deduped by the existing chain
+# dedupe — so cross-section feet land on FEED-chain roads the row-1206
+# filter never saw.
+# ═══════════════════════════════════════════════════════════════════════
+
+def test_the_lateral_pass_plants_feet_on_a_feed_chain_only_road():
+    """A road whose only mapped axis is a SLICED (feed) chain — no
+    apt.dat row-1206 course at all — gets its cross-section feet.  The
+    row-1206-only source read ZERO lines here and planted nothing."""
+    from shapely.geometry import LineString, Polygon
+    from auto_patch.layout import ROLE_SERVICE_ROAD
+
+    road = _Shape(Polygon([(0.0, 0.0), (6.0, 0.0), (6.0, 100.0),
+                           (0.0, 100.0)]), role=ROLE_SERVICE_ROAD)
+    layout = _Layout([road], [])          # NO row-1206 service courses
+    # presence of the attribute selects the sliced source — the feed
+    # chain registers exactly as production's global slice registers it.
+    layout._slice_service_subsegments = [
+        LineString([(3.0, 0.0), (3.0, 100.0)])]
+    n = lsn.insert_service_lateral_nodes(layout, "TEST")
+    assert n > 0, ("feed-chain-only road planted no cross-section feet — "
+                   "the pass is still reading the row-1206 filter")
+    ring = list(road.polygon.exterior.coords)[:-1]
+    near = [p for p in ring if abs(p[0]) < 1e-6]
+    far = [p for p in ring if abs(p[0] - 6.0) < 1e-6]
+    assert len(near) > 2 and len(far) > 2, (
+        f"feet must land on BOTH road edges (near {len(near)}, "
+        f"far {len(far)}) — the station-shared value rule co-levels them")
+
+
+def test_row_1206_courses_stay_in_the_union_nothing_mapped_is_dropped():
+    """The 1206 courses are kept as chains too (union, deduped by the
+    existing chain dedupe): a fixture whose ONLY source is a row-1206
+    course still plants — and plants ONCE (the dedupe removes the
+    duplicate spelling of the same physical road)."""
+    from shapely.geometry import LineString, Polygon
+    from auto_patch.layout import ROLE_SERVICE_ROAD
+
+    def _build(with_slice_dup):
+        road = _Shape(Polygon([(0.0, 0.0), (6.0, 0.0), (6.0, 100.0),
+                               (0.0, 100.0)]), role=ROLE_SERVICE_ROAD)
+        layout = _Layout(
+            [road], [_CL(LineString([(3.0, 0.0), (3.0, 100.0)]),
+                         is_service=True)])
+        if with_slice_dup:
+            # the SAME physical road, also registered as a sliced chain
+            layout._slice_service_subsegments = [
+                LineString([(3.0, 0.0), (3.0, 100.0)])]
+        return lsn.insert_service_lateral_nodes(layout, "TEST")
+
+    n_1206_only = _build(False)
+    assert n_1206_only > 0, "a row-1206-only fixture must still plant"
+    assert _build(True) == n_1206_only, (
+        "one physical road spelled by both sources must dedupe to ONE "
+        "chain — a second spelling doubling the feet is the drift the "
+        "chain dedupe exists to prevent")

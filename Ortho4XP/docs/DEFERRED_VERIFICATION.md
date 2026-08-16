@@ -1967,3 +1967,51 @@ DEFERRED, with reasons:
   record await owner ratification.
 
 - 2026-08-15 airport index served by the engine (docs/specs/airport-index-engine-command-spec.md; `O4_Airport_Index` water-runway + candidate coverage, cache v4, `index_count`, the `airport_index` command + `AirportIndexReady`, and the Swift parser reduced to a TSV cache reader): engine tests run ONCE through the run ledger — `tests/test_airport_index.py` + the new `tests/test_engine_airport_index.py` (71 passed); Swift `swift build` + `swift test` once (58 tests, 9 suites). NOT run (PRE-SHIP MODE): the full pytest suite, and the blast radius of `events.py` / `session.py` / `jsonl.py` (19 and 15 and 5 importers, 13 + 12 + 5 test files) — the wire-protocol pair is instead evidenced by `tools/blast.py`, which reports no new events.py↔OrthoEngineClient.swift drift (`AirportIndexReady` present both sides; 19 python handlers cover all 13 Swift call sites). No build, no census: nothing in the tile-build or auto-patch path changes (the index is built only on UI demand, off the transport read loop). The v3→v4 cache bump is unverified against a REAL Global Airports apt.dat — the Qt map and the bathymetry band rebuild transparently through `index_is_stale`, but the one-time 380 MB rebuild's wall time and the real airport count are the owner's in-sim observation.
+
+## Proximity mouth anchors (2026-08-15, lane/mouthweld)
+- Battery scope: HECA only (the owner's named site).  CYXY/SPJC/SPLP/
+  HEAZ/KCLT builds + censuses deferred — every one of them has service
+  roads, and KCLT is where the corridor-mouth class was first measured.
+- Suite scope: `tests/test_service_mouth_prox_anchor.py` (9 twins) plus
+  the three files that already cover the service pass
+  (`test_corridor_joins_round.py`, `test_kill_prep_round.py`,
+  `test_service_corridor_round.py`) run ONCE, 95 passed; no full-suite
+  arm (pre-ship mode).
+- Timing: NOT measured.  The pass adds one grid build over non-service
+  ring segments (O(total ring perimeter / 2 m), restricted to cells a
+  service node can query) once per airport — 1,108 indexed edges at
+  HECA.  Wall clock for the three HECA arms on this tree was 356.4 /
+  358.2 / 359.8 s (fix / gate-off control / instrumented), i.e. inside
+  single-run noise in BOTH directions; no exclusive timing pair was
+  run and no number here may be quoted as a delta.
+- Attempt 2 (both STOPs adjudicated: airside-only carrier + held
+  `svc_mouth` keyset) re-measured on the same three-arm frame.  The HOLD
+  works (64 of 69 seats survive to emit within 0.01 m, was 35 of 141);
+  the ACCEPTANCE does not (in-tolerance failing sites 25 control -> 23,
+  census 7198 -> 7256).  ROOT CAUSE MEASURED AND REPORTED, NOT CHASED:
+  the pass reads the airside surface BEFORE that surface is final —
+  at seat time the road and the apron edge already agree to within
+  0.03-0.28 m at every failing site, and the apron then moves 5-9 m
+  before emit, so the road is now welded to a STALE airside value with
+  perfect fidelity.  The ordering question was adjudicated and built as
+  attempt 3.
+- Attempt 3 (RE-SEAT at the last airside-final moment, immediately before
+  `final_grade_projection` freezes the hold): the re-derivation fires (51
+  of 69 seats moved, worst 8.995 m) and halves the arrival error — seats
+  emitting AT their pavement's value 15/69 -> 34/69, median 0.272 ->
+  0.010 m, p90 5.034 -> 0.500 m; in-tolerance failing sites 25 (control)
+  -> 9.  ACCEPTANCE STILL MISSES (target ~0-2; and the groundside
+  within_shape absorption class did not recede: +32 vs control).
+  FINAL ATTRIBUTION, no further iteration: the airside partner moves
+  DURING the very projection the seat is frozen for — at HECA -12418 the
+  road emits its held 98.64 while apron -10577 emits 93.13, so the apron
+  travelled 5.5 m inside `final_grade_projection` itself.  A value seat
+  has run out of pipeline: there is no later moment (a seat written after
+  the projection would move the road without its neighbours).  The
+  LAW-PAIR design — a node-vs-edge coupling in the one graph, so road and
+  pavement move together by construction — goes to the round docket.
+- Twins grew to 33; the re-derivation rule lives at module level
+  (`anchors.reseat_service_mouths`) so the twins drive the rule the pass
+  applies, including the uncrowned-endpoint reading and node-list-rebuild
+  survival.  Battery/suite/timing scope unchanged from above (the
+  re-seat arm built in 340.1 s — still not a timing measurement).

@@ -946,3 +946,66 @@ def test_per_ctx_memo_key_is_sensitive_to_the_gradeshape_flags():
                             keys=list(base.keys), adopts_apron_grade=True)
     b = GG.shape_constraints_cached(1, flagged, ctx)
     assert b is not a
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# R3 — TRANSVERSE CAP WITHOUT A SHARED ROUTE (service-road law spec
+# 2026-08-15).  A service-family pair whose endpoints find no SHARED
+# nearest route bakes against the nearest route of EITHER endpoint
+# (tightest budget wins) instead of staying isotropic at the 8 % road
+# cap; a pair genuinely off-network stays isotropic as before.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _two_parallel_service_routes():
+    r0 = GG.RouteChain(pts=[(0.0, -50.0), (0.0, 50.0)])
+    r1 = GG.RouteChain(pts=[(6.0, -50.0), (6.0, 50.0)])
+    cl0 = GG.Centerline(pts=list(r0.pts), seg_caps=[SERVICE_ROAD_MAX_GRADE],
+                        route_idx=0, is_service=True)
+    cl1 = GG.Centerline(pts=list(r1.pts), seg_caps=[SERVICE_ROAD_MAX_GRADE],
+                        route_idx=1, is_service=True)
+    return GG.GradeContext(centerlines=[cl0, cl1], routes=[r0, r1])
+
+
+def test_unshared_route_service_pair_takes_the_nearest_route_transverse_cap():
+    from auto_patch import grade_law as GL
+    ctx = _two_parallel_service_routes()
+    allow = GL.Allowance(SERVICE_ROAD_MAX_GRADE, SERVICE_ROAD_MAX_GRADE)
+    pa, pb = (0.0, 0.0), (6.0, 0.0)
+    # endpoints sit ON different routes → _edge_route is None (unshared)
+    out = GG._bake_edge(allow, "service_road", pa, pb, set(), ctx,
+                        (0, 0.0), (1, 0.0))
+    cT = GG._transverse_cap_for_longitudinal_cap(SERVICE_ROAD_MAX_GRADE)
+    assert cT < SERVICE_ROAD_MAX_GRADE, "service pairs owe a tighter cT"
+    assert out.budget is not None, "the pair must be BAKED, not isotropic"
+    assert out.budget == pytest.approx(cT * 6.0), (
+        f"budget {out.budget}: a pure cross-road pair owes cT×width")
+    assert out.budget < SERVICE_ROAD_MAX_GRADE * 6.0
+    assert getattr(ctx, "_svc_pair_route_migrated", 0) == 1
+
+
+def test_genuinely_off_network_service_pair_stays_isotropic():
+    from auto_patch import grade_law as GL
+    ctx = _two_parallel_service_routes()
+    allow = GL.Allowance(SERVICE_ROAD_MAX_GRADE, SERVICE_ROAD_MAX_GRADE)
+    inf = float("inf")
+    out = GG._bake_edge(allow, "service_road", (200.0, 0.0), (206.0, 0.0),
+                        set(), ctx, (-1, inf), (-1, inf))
+    assert out is allow, "no route at all → isotropic, as today"
+    # within reach of a route index but OUTSIDE the perp tolerance:
+    far = GG.SERVICE_SPINE_PERP_TOL_M + 1.0
+    out2 = GG._bake_edge(allow, "service_road", (200.0, 0.0), (206.0, 0.0),
+                         set(), ctx, (0, far), (1, far))
+    assert out2 is allow, (
+        "beyond the service perp tolerance the pair is off-network")
+    assert getattr(ctx, "_svc_pair_route_migrated", 0) == 0
+
+
+def test_non_service_unshared_route_pair_is_untouched_by_r3():
+    from auto_patch import grade_law as GL
+    ctx = _two_parallel_service_routes()
+    allow = GL.Allowance(APRON_MAX_GRADE, APRON_MAX_GRADE)
+    out = GG._bake_edge(allow, "apron", (0.0, 0.0), (6.0, 0.0), set(), ctx,
+                        (0, 0.0), (1, 0.0))
+    assert out is allow, (
+        "R3 migrates the SERVICE family only; an apron pair spanning two "
+        "routes' Voronoi cells stays isotropic exactly as before")

@@ -1063,7 +1063,9 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
 def insert_service_lateral_nodes(layout, icao: str = "") -> int:
     """SPINE-FIRST service roads (config.SVC_SPINE_FIRST, part 30m): insert
     lateral cross-section vertices on SERVICE shape edges from the SERVICE
-    (truck-route) centerlines, which :func:`insert_lateral_spine_nodes`
+    centerlines — the REGISTERED chains (``grade_graph.service_chain_lines``)
+    unioned with the apt.dat row-1206 truck-route courses (R2, service-road
+    law spec 2026-08-15) — which :func:`insert_lateral_spine_nodes`
     deliberately skips (SVC lines must not couple APRONS to the road law).
 
     A service road's law edges (it joins ``grade_graph.SOFT_VISIBILITY_ROLES``
@@ -1082,15 +1084,37 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
     conformance welds the new vertices into neighbouring shapes.  Returns the
     number of vertices inserted."""
     from .config import ROAD_CARVE_MAX_WIDTH_M, SPINE_STEP_M
+    # R2 (service-road law spec, 2026-08-15): THE LATERAL PASS READS THE
+    # REGISTERED CHAINS.  ``grade_graph.service_chain_lines`` is THE
+    # service centerline set (corridor chains + scoped feed roads where
+    # the slice ran; the row-1206 originals in unit fixtures) — the same
+    # source the DEM-follow seeder was fixed to by the corridor-joins
+    # round's ruling 3.  Reading ``apt_taxi_centerlines`` filtered on
+    # ``is_service`` here saw the apt.dat row-1206 courses ONLY, so
+    # cross-sections on feed-chain roads were never planted and lateral
+    # co-leveling had no substrate (measured at HECA: 24 courses vs 816
+    # registered chains; 492 cross-section nodes airport-wide).  The
+    # 1206 courses stay in as chains too — union, deduped by the
+    # existing chain dedupe (``_corridor_cover``/``_covered_by_corridor``,
+    # the "is this the same physical road" halo test) — so nothing
+    # mapped is dropped.  Function-local import: ``grade_graph`` imports
+    # this module at module level.
+    from .grade_graph import (_corridor_cover, _covered_by_corridor,
+                              service_chain_lines)
     centerlines = getattr(layout, "apt_taxi_centerlines", None) or []
     targets = [s for s in layout.shapes
                if s.role in SERVICE_AXIS_PRICED_ROLES
                and s.polygon is not None and not s.polygon.is_empty
                and s.polygon.geom_type == "Polygon"]
-    svc_lines = [cl for cl in centerlines
-                 if getattr(cl, "is_service", False)
-                 and getattr(cl, "line", None) is not None
-                 and not cl.line.is_empty]
+    chains = [ln for ln in service_chain_lines(layout)
+              if ln is not None and not ln.is_empty]
+    courses = [cl.line for cl in centerlines
+               if getattr(cl, "is_service", False)
+               and getattr(cl, "line", None) is not None
+               and not cl.line.is_empty]
+    cover = _corridor_cover(chains) if chains else None
+    svc_lines = chains + [ln for ln in courses
+                          if not _covered_by_corridor(ln, cover)]
     if not targets or not svc_lines:
         return 0
 
@@ -1110,9 +1134,9 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
         taxi pass's ``station_step_m`` mode (``_densify_to_step``)."""
         return _densify_to_step(cs, SPINE_STEP_M)
 
-    for cl in svc_lines:
+    for ln in svc_lines:
         try:
-            cs = list(cl.line.coords)
+            cs = list(ln.coords)
         except _GEOM_EXC:
             continue
         if len(cs) < 2:

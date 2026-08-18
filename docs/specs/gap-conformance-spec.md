@@ -106,3 +106,52 @@ The staged law (supersedes clause 3; one law, both readers):
 Acceptance deltas: the HECA re-census must show the +1,332 collapse
 to true violations only; CYXY re-runs (its passed acceptance was
 measured under the superseded clause 3 and is void until re-measured).
+
+## F3c — GRADED HANDOFF ON EMPTY INTERSECTION (Fable amendment,
+## 2026-08-18; owner-ruled, RULINGS "CRATER-VS-DAM RESOLVES BY GRADED
+## HANDOFF")
+
+The residual class (DEFERRED 2026-08-16, verified arithmetically off
+the emitted patch): at a station far from BOTH parents the higher
+parent's crater FLOOR (`adjacent_ground_envelope`, anti-trench) can
+stand above the lower parent's dam CEILING (`drainage_spine_envelope`,
+"below the lower adjacent pavement") — HECA way `-13464` @
+30.116941,31.443884: runway floor 140.99 − 1.701 = 139.29 vs dam
+ceiling −0.3 under an apron 6.0 m lower; intervals disjoint; the
+2026-07-09 fallback took the nearer parent and left the spine 4.31 m
+proud of the lower edge. 34 of HECA's 70 surviving drainage_spine
+rows are this class.
+
+The ruled law — neither clause hard-wins; the spine DESCENDS from one
+authority to the other:
+
+* In `_spine_interval` (gap_fill.py:971), when `max(floors) >
+  min(ceils)` with two parents, the fallback is no longer the nearer
+  parent's own interval. The station's value target becomes the
+  MONOTONE HANDOFF: interpolate from the higher-floor parent's floor
+  toward the lower-ceiling parent's ceiling by relative distance
+  (`w = d_high/(d_high + d_low)`), then clamp the profile to lawful
+  slope (`bench_slope`, the clause-3 cone constant) walked from the
+  higher side — where the separation is too short to descend the full
+  drop lawfully, the descent runs AT the cap from the higher side and
+  the residual against the dam ceiling is reported (PASS-with-residual
+  under the materiality floor, a census row above it — never a silent
+  nearer-parent value).
+* Adjacent stations of the same spine must not oscillate between
+  regimes: the handoff is evaluated per station but the emitted
+  profile keeps the clause-3 monotone-walk posture (max of walks from
+  conformed ends still applies afterwards; the handoff supplies the
+  interval, not the final profile).
+* One law, both readers: the validator prices the same handoff value —
+  a station inside a disjoint-interval zone is judged against the
+  handoff, not against either parent's raw clause.
+
+Acceptance (residual-sweep lane): twins — (a) disjoint-interval
+synthetic: value descends monotonically from floor-parent to
+ceiling-parent at ≤ bench_slope, never proud of the handoff; (b)
+intersecting intervals byte-identical to today; (c) short-separation
+case reports the residual. HECA re-census: the 34-row `-13464` class
+collapses to at most the short-separation residuals; the other 36
+survivors re-attributed after (they were never this class — report,
+don't chase past the attempt cap). CYXY stays 0. Airside otherwise
+byte-identical. Materiality 0.01 m; attempt cap 2; STOP to lead.

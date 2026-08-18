@@ -25,3 +25,14 @@ baked budgets); airside strictly improves; no new family; twins:
 (twin-assert through test_harness's shared path), (b) runway/taxi
 pairs byte-unchanged, (c) a genuine long-chord violation still fires
 under the route budget. Materiality 0.01; attempt cap 2; STOP to lead.
+
+## OWNER ANSWERS (2026-08-18 interview; RULINGS same date)
+(a) TRANSVERSE STAYS EUCLIDEAN — the relocated flatness debt (HECA
+transverse +963) is paid by mechanism (C3 aligned partner feet +
+junction co-level, airside-frozen rework), never re-priced. (b)
+"Airside strictly improves" is PER-AIRPORT — CYXY's +20 BLOCKS the
+merge until attributed and paid: `rm-cyxy-plus20-attribution-brief.md`
+is the gate. The groundside_pavement/tunnel_ramp no-solver-pair-bake
+interpretation flag stays open for the lead when the lane resumes
+(census-only pricing would fork the lockstep — do not land it without
+a lead ruling).

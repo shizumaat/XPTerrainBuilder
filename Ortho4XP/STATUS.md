@@ -1,4 +1,43 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260818 (REMOTE INTERVIEW SESSION — ALL SIX PENDING OWNER RULINGS
+# CLOSED; wave 3 re-ordered under them; no builds — remote container)
+# RULINGS 2026-08-18 (canon in RULINGS.md, full text there):
+#  RM (a) TRANSVERSE STAYS EUCLIDEAN — relocated +963 paid by C3
+#    mechanism, never re-priced. RM (b) "airside strictly improves"
+#    is PER-AIRPORT — CYXY +20 BLOCKS lane/routemetric; attribution
+#    brief docs/specs/rm-cyxy-plus20-attribution-brief.md is the
+#    merge gate (pre-delegated tree: relocated-transverse → C3 pays,
+#    newly-legible → lead adjudication, lockstep fork → lane fix,
+#    else STOP). KDFW bounds PROVISIONAL PENDING IN-SIM (bridgeguard
+#    stays merged+ON; ratify after owner eyeballs KDFW + 10 y-baked
+#    KMCI/KDEN records). CRATER-VS-DAM = GRADED HANDOFF (spec:
+#    gap-conformance-spec.md F3c — monotone descent floor→ceiling on
+#    disjoint intervals, supersedes nearer-parent fallback; 34/70
+#    HECA survivors). join_snap_t ADAPTIVE (scales with station
+#    spacing; residual-sweep lane, with the diagonal-pair fix). SM3
+#    both rulings DEFERRED to the RM-base re-measure (probe stays a
+#    lane flag).
+# NEW SPECS: road-chord-limiter-spec.md (wave-3 step 1: extend
+#    _grade_limit_groundside_chords to service_road/service_junction,
+#    stricter cap at shared nodes, corridor-coherent unification,
+#    tunnel_ramp excluded, A2 re-arm in the same lane) + F3c
+#    amendment + RM owner-answers amendment + CYXY+20 brief.
+# WAVE 3 RE-ORDERED under the per-airport ruling: (1) chord limiter;
+#    (2) CYXY+20 attribution → (likely) C3 airside-frozen rework →
+#    RM re-acceptance on that base; (3) C2 fixpoint; (4) SM3 on RM
+#    base + its deferred rulings; (5) residual sweep (now owns F3c
+#    graded handoff + adaptive join_snap_t + R8's 2 rows + C2's 8);
+#    (6) KAFW/KDFW triage; (7) ledger re-refresh + app 1.0.254
+#    (make_app + embedded==dist). In-sim list for the owner: KDFW +
+#    KMCI/KDEN y-baked records (gates the bounds ratification).
+# NOTE: held lanes (routemetric c009239, align 671d1cb, sm3solve
+#    e1fadad, lawpair) + control worktrees live ONLY on the Mac —
+#    unpushed; push them if any remote session should see them. This
+#    session found main itself unpushed for 2 days (20260815g work
+#    reached GitHub 2026-08-18 only after owner pushed mid-session):
+#    CLOSE RITUAL GAINS: git push IS part of session close.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260815g FINAL (ZERO-DEBT ROUND CLOSED FOR HANDOVER: all lanes
 # finished+adjudicated; F3, R8, BRIDGEGUARD, FRONTAGE merged; RM/C3/
 # SM3/C2 HELD with owner questions; six-airport battery on composed

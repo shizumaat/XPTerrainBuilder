@@ -361,6 +361,22 @@ class GradeContext:
     # a facade/step between them), NOT an apron grade path, so it is not graded.
     # Mirrors the validator's building↔building step exemption.
     building_keys: frozenset = frozenset()
+    # ── THE APRON MOVEMENT-SURFACE POPULATION (RULINGS 2026-08-21b) ──────
+    # FRONTAGE VERTICES: node keys on a BUILDING ring EDGE whose two endpoints
+    # are both soft-pavement ring vertices — production's own predicate, via
+    # the ONE function ``grade_law.frontage_vertex_keys`` (anchors._frontage_
+    # box).  SAME KEY SPACE as ``building_keys`` (the caller's), and a subset
+    # of it by construction.  An APRON pair is within-shape LAW only if it is
+    # a FRONTAGE CHORD: one endpoint here, the other in the corridor cover.
+    frontage_keys: frozenset = frozenset()
+    # The centerline GEOMETRY the spine corridor cover is built from — set by
+    # the context builders alongside ``centerlines`` so BOTH readers cover the
+    # same spines.  The cover itself is built LAZILY and cached (see
+    # ``corridor_cover_prepared``): a layout with no building frontage never
+    # pays for it, and ``build_context`` is called several times per solve.
+    corridor_lines: tuple = ()
+    _corridor_cover_prep: object = None
+    _corridor_cover_built: bool = False
     # PREPARED geometry of the service-road carve zone (road shapes unioned and
     # buffered by ``ROAD_FRONTAGE_TOL_M``), in the caller's meter frame.  A
     # soft-shape pair with BOTH endpoints inside it descends at the road cap (the
@@ -408,6 +424,58 @@ def _open_ring(coords):
     """Open ring (drop the repeated closing vertex)."""
     c = list(coords)
     return c[:-1] if c and c[0] == c[-1] else c
+
+
+def edge_family_name(role: str, is_spine: bool) -> str:
+    """THE within-shape edge-family literal — ``UnifiedGraph.edge_family``'s
+    mint-time provenance AND the sidecar ``pair_caps`` family tag
+    (``verification.lockstep_pair_caps_ll``).  ONE speller, so the
+    certificate's families and the sidecar's cannot drift apart."""
+    return f"unified:{role}:spine" if is_spine else f"unified:{role}"
+
+
+def corridor_cover_prepared(ctx: "GradeContext"):
+    """The PREPARED spine corridor cover of this context, built once.
+
+    THE APRON WITHIN-SHAPE POPULATION's second half (RULINGS 2026-08-21b): a
+    frontage chord's far endpoint must lie ON the spine the seat grades to.
+    Geometry and radius come from ``apron_terrace.spine_corridor_cover`` — the
+    engine's ONE corridor-cover function and its ONE radius — over
+    ``ctx.corridor_lines``, which both readers fill from the SAME spine
+    enumeration.  ``None`` ⇒ the airport has no corridor at all."""
+    if ctx._corridor_cover_built:
+        return ctx._corridor_cover_prep
+    ctx._corridor_cover_built = True
+    ctx._corridor_cover_prep = None
+    if not ctx.corridor_lines:
+        return None
+    try:
+        from .elevation_per_surface.route_profile.apron_terrace import (
+            spine_corridor_cover)
+        from shapely.prepared import prep as _cc_prep
+        cover = spine_corridor_cover(ctx.corridor_lines)
+        if cover is not None:
+            ctx._corridor_cover_prep = _cc_prep(cover)
+    except Exception:                                     # pragma: no cover
+        ctx._corridor_cover_prep = None
+    return ctx._corridor_cover_prep
+
+
+def centerline_geometries(centerlines) -> tuple:
+    """The shapely geometry of a ``GradeContext.centerlines`` list — the
+    ``corridor_lines`` both context builders publish.  ONE conversion, so the
+    solver's spine cover and the validator's are the same object shape."""
+    from shapely.geometry import LineString as _CLs
+    out = []
+    for cl in (centerlines or ()):
+        pts = list(getattr(cl, "pts", ()) or ())
+        if len(pts) < 2:
+            continue
+        try:
+            out.append(_CLs(pts))
+        except Exception:                                 # pragma: no cover
+            continue
+    return tuple(out)
 
 
 def service_spine_source(layout) -> str:
@@ -877,19 +945,30 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
         return best if best is not None else TAXI_MAX_GRADE
 
     cps = getattr(layout, "canonical_points", None)
+
+    def _law_key(x, y):
+        """This context's node key for a layout coordinate — the ONE key
+        function ``building_keys`` and ``frontage_keys`` share (they are the
+        same identity space by construction: a frontage vertex IS a building
+        ring vertex)."""
+        if bucket_to_idx is not None and cps is not None:
+            return bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+        return (round(x, 3), round(y, 3))
+
     bld_keys: set = set()
     bld_polys: list = []
+    bld_key_rings: list = []
     for s in layout.shapes:
         if (s.role == ROLE_BUILDING and s.polygon is not None
                 and not s.polygon.is_empty):
             bld_polys.append(s.polygon)
+            ring_keys = []
             for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
-                if bucket_to_idx is not None and cps is not None:
-                    i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-                    if i is not None:
-                        bld_keys.add(i)
-                else:
-                    bld_keys.add((round(x, 3), round(y, 3)))
+                k = _law_key(x, y)
+                ring_keys.append(k)
+                if k is not None:
+                    bld_keys.add(k)
+            bld_key_rings.append(ring_keys)
     # ON-EDGE PAD MEMBERSHIP (2026-07-28).  A solve node can lie EXACTLY on a
     # pad boundary without being one of that pad's ring vertices: the pad only
     # acquires the shared vertex later, at the nid-level final weld.  Keying
@@ -996,10 +1075,31 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     # sidecar's ``seam_pins`` export.
     seam_pin_idx = getattr(layout, "_seam_pin_idx", None) or ()
 
+    # ── FRONTAGE VERTICES (owner ruling RULINGS 2026-08-21b) ─────────────
+    # The soft ring vertices a building pad shares a whole EDGE with — the
+    # apron within-shape population's first half.  Roles and predicate are
+    # the LAW's (``grade_law.FRONTAGE_SOFT_ROLES`` /
+    # ``frontage_vertex_keys``), keyed by ``_law_key`` so this set is a
+    # SUBSET of ``building_keys`` in whichever space this caller uses.
+    soft_front_keys: set = set()
+    if bld_key_rings:
+        for s in layout.shapes:
+            if (s.role not in GL.FRONTAGE_SOFT_ROLES or s.polygon is None
+                    or s.polygon.is_empty):
+                continue
+            for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
+                k = _law_key(x, y)
+                if k is not None:
+                    soft_front_keys.add(k)
+    frontage_keys = (GL.frontage_vertex_keys(bld_key_rings, soft_front_keys)
+                     if soft_front_keys else set())
+
     ctx = GradeContext(centerlines=cls, routes=routes,
                        inherited_junction_cap=_inherited,
                        building_keys=frozenset(bld_keys), road_zone=road_zone,
                        route_zone=route_zone,
+                       frontage_keys=frozenset(frontage_keys),
+                       corridor_lines=centerline_geometries(cls),
                        seam_keys=frozenset(seam_pin_idx),
                        service_source=service_spine_source(layout),
                        service_length_m=_svc_len_m)
@@ -2217,6 +2317,31 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         return sc
     membership = _spine_membership(shape, ctx)
     body_cap = _body_cap(shape, ctx, membership)
+    # ── THE APRON MOVEMENT-SURFACE POPULATION (RULINGS 2026-08-21b) ──────
+    # Per-vertex frontage / corridor membership, computed ONCE per shape and
+    # handed to THE LAW (``grade_law.classify_pair``) as ``a_frontage`` /
+    # ``a_corridor``; the PREDICATE lives only there.  Both readers reach
+    # this one function, so census and bake cannot enumerate different apron
+    # pair sets.
+    apron_pop = (GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY
+                 and shape.role == APRON_ROLE)
+    front_vert = None
+    cover_vert = None
+    if apron_pop:
+        front_vert = ([k in ctx.frontage_keys for k in keys]
+                      if ctx.frontage_keys else [False] * n)
+        if not any(front_vert):
+            # NO frontage vertex on this ring ⇒ the law SKIPs every pair of
+            # it (spec §8(e): a zero-building apron yields zero within-shape
+            # law edges, and the warm-start carrier keeps the smoothing).
+            # Returning here generates the identical (empty) edge set and
+            # spares the O(n²) predicate setup that would only feed skips.
+            sc.spine_chains = _build_spine_chains(shape, ctx, membership)
+            return sc
+        cover = corridor_cover_prepared(ctx)
+        if cover is not None:
+            from shapely.geometry import Point as _CoPt
+            cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]
     vis = None if ring_only else _visibility_predicate(ring)
     # JUNCTION MESH CONSTRAINTS (O4_JUNCTION_MESH_CONSTRAINTS): the RULE — a
     # junction's only real grade paths are the spine + the triangle-mesh edges,
@@ -2360,6 +2485,8 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         mi = membership.get(i)
         mset_i = mem_sets.get(i)
         ki_bld = ki in bld
+        ki_front = bool(front_vert) and front_vert[i]
+        ki_cover = bool(cover_vert) and cover_vert[i]
         for j in range(i + 1, n):
             pair_ord += 1
             ring_adjacent = (j == i + 1) or (i == 0 and j == n - 1)
@@ -2416,7 +2543,11 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 spine_caps=spine_caps, body_cap=body_cap,
                 visible_fn=visible_fn, crosses_spine_fn=crosses_fn,
                 mesh_member_fn=mesh_fn,
-                blend_cap_fn=blend_fn, both_road=both_road))
+                blend_cap_fn=blend_fn, both_road=both_road,
+                a_frontage=ki_front,
+                b_frontage=bool(front_vert) and front_vert[j],
+                a_corridor=ki_cover,
+                b_corridor=bool(cover_vert) and cover_vert[j]))
             if allow is None:
                 continue
             # NEVER bake a route-arc budget into a BUILDING-endpoint pair
@@ -2739,8 +2870,12 @@ def _ctx_law_digest(ctx: GradeContext):
     the ones whose influence on a shape cannot be projected onto that shape
     in O(n).  Cached on the ctx (computed once per graph build).
 
-    The transitive read set of ``shape_constraints`` is exactly eight
-    ``GradeContext`` fields (verified by walking every function reachable
+    The transitive read set of ``shape_constraints`` is exactly ten
+    ``GradeContext`` fields — the eight below plus the apron
+    movement-surface pair added 2026-08-21b, ``frontage_keys`` (projected
+    per shape by :func:`_sc_run_key`, like ``building_keys``) and
+    ``corridor_lines`` (DERIVED from ``centerlines`` by the one function
+    ``centerline_geometries``, so this digest already covers it) (verified by walking every function reachable
     from it: ``centerlines`` via ``_spine_membership`` / ``_spine_cap`` /
     ``_spine_crossing_predicate`` / ``_nearest_centerline`` / ``_edge_route``
     / ``_polyline_tree`` / ``_route_oracle`` / ``_route_taxi_cap``,
@@ -2805,9 +2940,15 @@ def _sc_run_key(gs: GradeShape, ctx: GradeContext, ring_only: bool):
     that are projected onto THIS shape in O(n), which is what a cross-build
     hit needs:
 
-      * ``building_keys`` / ``seam_keys`` are read ONLY as ``key in set``
-        for this shape's own keys, so the membership vector IS their whole
-        influence;
+      * ``building_keys`` / ``seam_keys`` / ``frontage_keys`` are read ONLY
+        as ``key in set`` for this shape's own keys, so the membership
+        vector IS their whole influence.  ``frontage_keys`` (RULINGS
+        2026-08-21b) moves between builds exactly as ``building_keys`` does
+        — it is a subset of it — so it is projected here, never digested
+        globally.  The apron rule's OTHER input, corridor membership, is a
+        pure function of this shape's ring and ``ctx.centerlines``, both of
+        which the key already carries (``gs.ring`` and the law digest);
+
       * ``inherited_junction_cap`` is read ONLY as
         ``ctx.inherited_junction_cap(shape)`` (``_body_cap_unbounded``'s
         last line), so its RETURN VALUE for this shape is its whole
@@ -2826,6 +2967,7 @@ def _sc_run_key(gs: GradeShape, ctx: GradeContext, ring_only: bool):
             tuple(gs.ring), keys,
             tuple(k in bld for k in keys),
             tuple(k in seam for k in keys),
+            tuple(k in ctx.frontage_keys for k in keys),
             float(ctx.inherited_junction_cap(gs)),
             bool(getattr(gs, "fan_ramp_zone", False)),
             bool(getattr(gs, "adopts_apron_grade", False)),
@@ -3035,9 +3177,9 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             is_spine = (min(a, b), max(a, b)) in spine_pairs
             G.edges.append((a, b, cap, is_spine))
             # Mint-time provenance for the certificate (see ``edge_family``).
-            G.edge_family.append(
-                f"unified:{s.role}:spine" if is_spine
-                else f"unified:{s.role}")
+            # ONE speller, shared with the sidecar's ``pair_caps`` family tag
+            # (spec §7) — ``edge_family_name``.
+            G.edge_family.append(edge_family_name(s.role, is_spine))
             # MINT-TIME STAGE (staged-solve S1b).  The unified graph
             # reaches every projection as ONE bare ``{"edges": u_edges}``
             # entry with no role key, so a service_road / groundside lot

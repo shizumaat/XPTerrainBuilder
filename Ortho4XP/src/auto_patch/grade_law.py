@@ -2480,6 +2480,67 @@ MIN_PAIR_DIST_M = 0.5
 # building-frontage and seam chords are NEVER dropped by this.  0 = unlimited.
 APRON_BODY_CHORD_MAX_M = float(os.environ.get("O4_APRON_BODY_CHORD_MAX_M", "60"))
 
+# ── THE APRON WITHIN-SHAPE POPULATION (owner ruling RULINGS 2026-08-21b) ─────
+# "An apron's cap is owed on its MOVEMENT SURFACES — corridor profiles,
+# frontage chords (building→spine) and stand entries — NEVER on a generic
+# ring-vertex pair" (owner 2026-08-21, answer "ii"; spec
+# ``docs/specs/apron-within-shape-population-spec.md``).
+#
+# Measured basis: 1,055 of HECA's 1,089 ``within_shape apron|apron`` airside
+# rows on the 2026-08-21 battery patch are generic vertex-pair chords (p90
+# 412-449 m, max 680 m) that merely CROSS a spine corridor cover; the ruled
+# population — frontage chords — is 441.  SPJC 34 → 0; CYXY had none.
+#
+# STAND ENTRIES fold into frontage: a stand's lead-in IS its frontage chord
+# (``apron_terrace.corridor_cover``'s own construction, and
+# "reach follows centerlines", RULINGS 2026-07-30), and the engine carries no
+# separate stand-entry object.
+#
+# Kill switch: ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY=0`` restores the
+# pre-ruling all-pair population byte-for-byte.
+APRON_WITHIN_SHAPE_FRONTAGE_ONLY = (
+    os.environ.get("O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY", "1") != "0")
+
+#: The soft-pavement roles whose ring vertices make a BUILDING ring edge a
+#: FRONTAGE edge.  Production's own set, not a re-spelling: it is the
+#: ``apron_keys`` of ``elevation_per_surface/route_profile/anchors.py``
+#: ``build_building_seats`` (apron + junction — the corridor face a building
+#: usually fronts onto is roled ``junction`` under the global slice, and
+#: ``service_junction`` LEFT the set with the R7b sink ruling 2026-08-15,
+#: "a road never welds to a building").
+FRONTAGE_SOFT_ROLES = frozenset({APRON_ROLE, "junction"})
+
+
+def frontage_vertex_keys(building_rings, soft_keys) -> set:
+    """THE frontage-vertex set: every key of a BUILDING ring EDGE whose two
+    endpoints are BOTH soft-pavement ring vertices.
+
+    This is production's frontage predicate verbatim — ``anchors._frontage_box``
+    ("both endpoints shared with an apron"), the same one
+    ``tools/frontage_split.classify_buildings`` reads — expressed on KEYS so
+    every reader can supply its own identity space (solver node indices,
+    rounded layout coordinates, emitted node ids).  IDENTITY ONLY: never a
+    proximity join (memory ``canonical-identity-join``).
+
+    ``building_rings``  an iterable of OPEN key rings, one per building pad.
+    ``soft_keys``       the keys of every ``FRONTAGE_SOFT_ROLES`` ring vertex.
+    """
+    out: set = set()
+    for ring in building_rings:
+        keys = [k for k in ring]
+        n = len(keys)
+        if n < 2:
+            continue
+        for i in range(n):
+            a = keys[i]
+            b = keys[(i + 1) % n]
+            if a is None or b is None or a == b:
+                continue
+            if a in soft_keys and b in soft_keys:
+                out.add(a)
+                out.add(b)
+    return out
+
 
 @dataclass(frozen=True)
 class Allowance:
@@ -2595,9 +2656,47 @@ class PairContext:
     # ``both_road``: both endpoints sit on a service-road carve through the host
     # (so the pair descends at the ROAD cap, not the host body cap).
     both_road: bool = False
+    # ── THE APRON MOVEMENT-SURFACE INPUTS (RULINGS 2026-08-21b) ──────────
+    # ``a_frontage`` / ``b_frontage``: the endpoint is a FRONTAGE VERTEX — a
+    # node this shape's ring shares with a building ring that participates in
+    # a frontage EDGE (``frontage_vertex_keys``, production's own predicate).
+    # ``a_corridor`` / ``b_corridor``: the endpoint lies inside the SPINE
+    # CORRIDOR COVER (``apron_terrace.spine_corridor_cover``, its own radius).
+    # Both are computed ONCE PER SHAPE by the reader — the law only DECIDES
+    # with them, exactly like ``a_building`` / ``both_road``.  Defaults are
+    # False, so a reader that does not supply them (plane shapes, a legacy
+    # caller) sees the frontage-only rule refuse every apron pair; the rule
+    # is scoped to ``role == APRON_ROLE``, which no plane shape carries.
+    a_frontage: bool = False
+    b_frontage: bool = False
+    a_corridor: bool = False
+    b_corridor: bool = False
 
 
 SKIP: Optional[Allowance] = None
+
+
+def is_frontage_chord(p: "PairContext") -> bool:
+    """THE frontage-chord predicate (RULINGS 2026-08-21b, spec §1): the pair
+    runs from a building seat contact to the spine it grades to.
+
+    EXACTLY ONE endpoint is a frontage vertex, the OTHER lies inside the spine
+    corridor cover, and the chord is within the frontage band's own reach
+    (``BUILDING_REACH_CORRIDOR_M``, the ONE building↔spine reach value).
+
+    P1 — both endpoints frontage vertices of one pad — is NOT this predicate's
+    business: it is the inter-pad frontage step, and ``classify_pair``'s
+    ``a_building and b_building`` skip (which sits BEFORE the apron rule)
+    already rules it, so P1 keeps exactly the behaviour it has today.  A
+    frontage vertex is by construction a building ring vertex, so a pair
+    reaching the apron rule has at most one of them."""
+    if p.dist > BUILDING_REACH_CORRIDOR_M:
+        return False
+    if p.a_frontage and not p.b_frontage:
+        return bool(p.b_corridor)
+    if p.b_frontage and not p.a_frontage:
+        return bool(p.a_corridor)
+    return False
 
 
 def classify_pair(p: PairContext) -> Optional[Allowance]:
@@ -2626,6 +2725,25 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     # — both ends on building pads ⇒ inter-pad frontage = an allowed building
     #   ↔building step, not an apron grade path.
     if p.a_building and p.b_building:
+        return SKIP
+    # — AN APRON'S CAP IS OWED ON ITS MOVEMENT SURFACES, NEVER ON A GENERIC
+    #   RING-VERTEX PAIR (owner ruling RULINGS 2026-08-21b, answer "ii";
+    #   spec ``docs/specs/apron-within-shape-population-spec.md`` §1).  The
+    #   corridor surface is priced by its OWN longitudinal and transverse
+    #   laws; what an APRON within-shape pair regulates is the FRONTAGE
+    #   CHORD — building seat → the spine it grades to.  Every other apron
+    #   pair is not law: 1,055 of HECA's 1,089 such rows were generic
+    #   vertex-pair chords up to 680 m that merely CROSSED a spine corridor
+    #   cover, and the smoothing they were credited with is the warm-start
+    #   carrier's, not this law's (RULINGS 2026-08-15, band carrier).
+    #   Sits directly after the inter-pad skip so P1 (both endpoints
+    #   frontage vertices) keeps that branch's existing behaviour, and
+    #   before every EXPENSIVE predicate so a dropped chord never pays for
+    #   the polygon-containment or spine-crossing test.
+    #   Runway / taxiway / JUNCTION within-shape laws are UNCHANGED (ruling
+    #   clause 4) — the rule is scoped to ``APRON_ROLE`` alone.
+    if (APRON_WITHIN_SHAPE_FRONTAGE_ONLY and p.role == APRON_ROLE
+            and not is_frontage_chord(p)):
         return SKIP
     # — sub-noise separation is not a grade constraint.
     if p.dist < MIN_PAIR_DIST_M:

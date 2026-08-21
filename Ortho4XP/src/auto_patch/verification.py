@@ -3985,16 +3985,34 @@ def lockstep_pair_caps_ll(layout):
     ring mutations cannot desynchronize the mapping; a vertex that no
     longer exists simply drops its pairs.  Caps are metres (the pair's
     grade budget); duplicate pairs keep the SMALLEST cap (the MIN-budget
-    aggregation ruling, test_single_graph_acceptance 2026-07-17)."""
+    aggregation ruling, test_single_graph_acceptance 2026-07-17).
+
+    ROW SHAPE: ``[[lat_a, lon_a], [lat_b, lon_b], budget_m, family]`` — the
+    FAMILY TAG (spec ``apron-within-shape-population`` §7,
+    ``grade_graph.edge_family_name``: ``unified:<role>`` /
+    ``unified:<role>:spine``) joined 2026-08-21 so the sidecar says WHICH law
+    priced each pair.  Every reader takes the row POSITIONALLY (``row[0]``,
+    ``row[1]``, ``row[2]``) and a pre-2026-08-21 three-element row is still
+    read exactly as before."""
     import math as _math
     from .grade_law import pair_grade_budget_m
     store = getattr(layout, "_lockstep_shape_bake", None)
     registry = getattr(layout, "canonical_points", None)
     if not store or registry is None:
         return []
+    from .grade_graph import edge_family_name
     best: dict = {}
     for (_role, ring_signature, baked_edges, _spine) in store.values():
         for (position_a, position_b, cap_allowance) in baked_edges:
+            # FAMILY TAG (spec ``apron-within-shape-population`` §7): the
+            # SAME literal ``UnifiedGraph.edge_family`` mints
+            # (``grade_graph.edge_family_name``), so a frontage chord is
+            # addressable in the sidecar and the census can assert that
+            # every priced apron pair is a baked frontage chord.
+            family = edge_family_name(
+                _role,
+                (min(position_a, position_b),
+                 max(position_a, position_b)) in (_spine or ()))
             if (position_a >= len(ring_signature)
                     or position_b >= len(ring_signature)):
                 continue
@@ -4021,10 +4039,10 @@ def lockstep_pair_caps_ll(layout):
             if key_a == key_b:
                 continue
             pair_key = (min(key_a, key_b), max(key_a, key_b))
-            if pair_key not in best or budget < best[pair_key]:
-                best[pair_key] = budget
-    return [[list(a), list(b), budget]
-            for ((a, b), budget) in sorted(best.items())]
+            if pair_key not in best or budget < best[pair_key][0]:
+                best[pair_key] = (budget, family)
+    return [[list(a), list(b), budget, family]
+            for ((a, b), (budget, family)) in sorted(best.items())]
 
 
 def taxi_routes_ll(layout):

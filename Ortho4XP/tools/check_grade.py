@@ -1432,6 +1432,22 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
     bld_keys = {nid for w in ways if w.tags.get("role") == "building"
                 for nid in w.nids}
 
+    # ── FRONTAGE VERTICES (owner ruling RULINGS 2026-08-21b) ────────────
+    # The census half of the apron movement-surface population.  Same LAW
+    # function and same soft-role set as ``grade_graph.build_context``
+    # (``grade_law.frontage_vertex_keys`` / ``FRONTAGE_SOFT_ROLES``), read on
+    # emitted node IDENTITY — never a proximity join — so the census and the
+    # solver bake enumerate the same apron pairs.
+    from auto_patch import grade_law as _GL_F
+    _soft_front_nids = {nid for w in ways
+                        if w.tags.get("role") in _GL_F.FRONTAGE_SOFT_ROLES
+                        for nid in w.nids}
+    _bld_rings = [(w.nids[:-1] if (len(w.nids) > 1
+                                   and w.nids[0] == w.nids[-1]) else w.nids)
+                  for w in ways if w.tags.get("role") == "building"]
+    frontage_keys = (_GL_F.frontage_vertex_keys(_bld_rings, _soft_front_nids)
+                     if _soft_front_nids else set())
+
     rect_cap_at: dict = {}
     for w in ways:
         if w.tags.get("role") not in _SLOPING_RECT_OSM_ROLES:
@@ -1486,6 +1502,8 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         seam_keys=frozenset(seam_nids or ()),
         inherited_junction_cap=_inherited,
         building_keys=frozenset(bld_keys),
+        frontage_keys=frozenset(frontage_keys),
+        corridor_lines=GG.centerline_geometries(centerlines),
         road_zone=road_zone,
         route_zone=route_zone,
         # EXACT-MESH sidecar: the solver's junction mesh, consumed 1:1
@@ -1619,9 +1637,14 @@ def iter_shape_grade_constraints(
     # emitted ring diverges: post-projection vertex inserts shorten the
     # spans (tighter anisotropic credit than was lawfully enforced) and
     # the OSM-side context can select pairs the law-side bake never did.
+    # ROW SHAPE (2026-08-21): ``[[la,lo],[la,lo],budget]`` grew a fourth
+    # element, the FAMILY TAG (``grade_graph.edge_family_name``, spec
+    # ``apron-within-shape-population`` §7).  Read POSITIONALLY so a patch
+    # from either side of that change is consumed identically.
     _pair_cap_map: Dict[tuple, float] = {}
     for _entry in (pair_caps_ll or []):
-        (_pla, _plo), (_plb, _plo2), _pcap = _entry
+        (_pla, _plo), (_plb, _plo2), _pcap = (
+            _entry[0], _entry[1], _entry[2])
         _ka = (round(float(_pla), 7), round(float(_plo), 7))
         _kb = (round(float(_plb), 7), round(float(_plo2), 7))
         _pk = (min(_ka, _kb), max(_ka, _kb))

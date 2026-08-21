@@ -2315,3 +2315,39 @@ UNPAID / OWED:
   CYXY has both arms; SPJC (806 / 403) and HECA (7283 / 3281) have the
   rule-on arm only, because the spec scoped the flag-off arm to CYXY.
 - The census/bake FOREIGN-ROW class (below) is reported, not fixed.
+
+### The test comparison (matched control, worktree `apronpopctl` @ 8058002)
+
+Same 7-file selection, both arms: lane 24 failed / 390 passed, control
+11 failed / 389 passed. Test-id for test-id (never counts):
+
+- 11 PRE-EXISTING, identical on both arms: `test_pavement_grade` x5
+  airports + `test_runway_longitudinal_grade[HECA]`/`[SPLP]` +
+  `test_runway_seam_dem_steps_are_reported`,
+  `test_single_graph_acceptance::test_solver_and_validator_same_nodes@CYXY`
+  and `::test_solver_validator_same_edge_budgets@CYXY`,
+  `test_harness::test_the_near_miss_frontage_law_is_one_authority`.
+- 0 fixed by the lane.
+- 13 NEW, in four classes — NONE of them fixed here, all owed a ruling:
+  1. EIGHT twins that encode the PRE-RULING apron population on
+     building-less fixtures (`test_grade_graph` x5, `test_harness` x3):
+     an apron with no frontage now yields zero within-shape pairs, which
+     is spec §8(e)'s own acceptance criterion. Updating them is a spec
+     act, not an implementation act.
+  2. A LAW COLLISION with R19-5 "the bake never removes a ring edge from
+     the domain" (lead 2026-08-12,
+     `test_the_bake_never_removes_a_ring_edge_from_the_domain` +
+     `test_a_steep_unbaked_ring_edge_mints_its_census_row`): on an apron,
+     a PHYSICAL ring edge with no frontage is no longer law, so the
+     class R19-5 exists to catch (HECA -10629's 148 % ring edge) can
+     carry no census row. Two owner rulings now disagree.
+  3. THE FAN-RAMP LAW IS UNREACHABLE (`test_fan_ramp_law` x2): a
+     fan-ramp zone piece is role `apron` and is by construction the
+     ground BETWEEN frontages, clear of every movement surface — so it
+     now generates zero pairs and its 5 % zone cap is never priced.
+     Fan zones are RETIRED by default (W2 2026-08-08), so production is
+     unaffected today; the law is not.
+  4. A SURFACE REGRESSION at CYXY (`test_cyxy_spine_zero@CYXY`,
+     `test_cyxy_spine_zero_no_bowl@CYXY`): 2 spine violations,
+     `service_junction` at 37.1 % and 15.5 % against an 8 % cap. Same
+     mechanism as the census delta.

@@ -126,3 +126,18 @@ are amended:
     SPJC is the gate.
 Everything else stands (twins updated to the cap semantics: a generic pair
 at 3 % passes, at 6 % fails; a frontage chord at 3 % fails).
+
+## AMENDMENT A2 (Fable, 2026-08-21) — ring-adjacent apron edges are interior
+
+Compose-v2 measured: no violation on any airport carries the 5 % cap; HECA
++112 vs bar is ~648 apron RING EDGES over the strict 1 % — the class A1 §1a
+kept strict on R19-5 grounds (the lead's clause, not the owner's). Under
+2026-08-21b a ring edge between two non-frontage vertices IS a generic
+pair, and R19-5's catch (the 148 % ring edge) survives at 5 %. §1a is
+corrected: the ring-adjacent branch takes the INTERIOR cap (5 %) unless the
+edge is a frontage edge (P1, both endpoints frontage vertices — strict) or
+lies within the spine corridor cover at both ends (a corridor-crossing
+edge — strict; report the count). Twins: ring edge at 3 % passes, 6 %
+fails, 148 % fails; frontage edge at 3 % fails. Re-run CYXY/SPJC/HECA
+composed; acceptance unchanged (75 / 189 / 1,487). This is a correction of
+the lead's own clause, not a third attempt at the mechanism.

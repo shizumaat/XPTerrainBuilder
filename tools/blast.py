@@ -26,7 +26,14 @@ below is a UNION, and anything the index cannot attribute falls back WIDE
     3. ALL direct-importer tests of a changed file carrying a symbol the
        index cannot attribute (dynamic use, a re-export, ``__all__``, a
        module-level edit outside any named symbol);
-    4. changed test files themselves.
+    4. changed test files themselves;
+    5. the tests that reach the changed file THROUGH A CONFTEST FIXTURE —
+       a conftest helper (``cached_airport_layout`` & co.) imports a src
+       module inside its body, that module transitively imports the changed
+       file, and the test uses the helper (``from conftest import``, a
+       fixture parameter, ``getfixturevalue``).  These never appear as
+       direct importers; the 2026-08-20 runway_segments sweep (472 passed)
+       skipped test_pavement_grade.py this way.
 
 The file list goes to STDOUT, one per line (``| xargs venv/bin/python -m
 pytest``); the stamped header — changed symbols, per-clause sizes, fallbacks
@@ -46,9 +53,11 @@ from collections import defaultdict
 
 #: v2 adds the per-symbol TEST attribution and the attributed-symbol roster
 #: (``symbol_tests`` / ``symbols_attributed``) that --tests-for selects on.
-#: Bumping it makes every v1 index on disk rebuild instead of answering a
-#: --tests-for query out of shards that never recorded symbol edges.
-VERSION = "2"
+#: v3 adds ``tests_via_fixture`` — the FIXTURE-MEDIATED reach (test ->
+#: conftest helper -> src module -> transitive src imports -> this file).
+#: Bumping it makes every older index on disk rebuild instead of answering
+#: a query out of shards that never recorded the edge.
+VERSION = "3"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCAN_ROOTS = ("Ortho4XP/src", "Ortho4XP/tools", "Ortho4XP/tests")
 SRC_PREFIX = "Ortho4XP/src/"
@@ -65,6 +74,15 @@ SWIFT_CLIENT = "Sources/SceneryKit/OrthoEngineClient.swift"
 CMD_PY = ("Ortho4XP/src/o4_engine/jsonl.py", "Ortho4XP/src/o4_engine/session.py")
 CONTRACTS = os.path.join(REPO, "tools", "artifact_contracts.json")
 ROLE_CANARIES = {"apron", "primary_parallel", "runway"}
+#: (src file, test file) pairs that MUST be joined by a ``tests_via_fixture``
+#: edge: the test never imports the file, it builds through a conftest
+#: helper.  Twinned in tests/test_harness.py and tests/test_blast_index.py.
+FIXTURE_CANARIES = (
+    (SRC_PREFIX + "auto_patch/pavement/runway_segments.py",
+     TESTS_PREFIX + "test_pavement_grade.py"),
+    (SRC_PREFIX + "auto_patch/gap_fill.py",
+     TESTS_PREFIX + "test_single_graph_acceptance.py"),
+)
 MECHANISM = ("the wire name IS the Python class name (type(self).__name__) and "
              "field names travel as JSON keys; Swift matches string literals. "
              "Renaming either silently breaks the GUI -- the string never "
@@ -181,16 +199,17 @@ def parse_all(roles):
     env_reads, env_defaults = defaultdict(set), defaultdict(set)
     role_lits, uses_ap, fails = defaultdict(set), set(), []
 
-    def hit(cand, rel, names=()):
+    def resolve(cand):
         target, parts = None, cand.split(".")
         if cand in mods:
-            target = cand
-        else:                       # trim leading components, then unique stem
-            for i in range(1, len(parts) - 1):
-                if ".".join(parts[i:]) in mods:
-                    target = ".".join(parts[i:])
-                    break
-            target = target or uniq.get(parts[-1])
+            return cand
+        for i in range(1, len(parts) - 1):  # trim leading components ...
+            if ".".join(parts[i:]) in mods:
+                return ".".join(parts[i:])
+        return uniq.get(parts[-1])          # ... then unique stem
+
+    def hit(cand, rel, names=()):
+        target = resolve(cand)
         if target is None:
             return
         importers[target].add(rel)
@@ -199,6 +218,7 @@ def parse_all(roles):
         for n in names:
             sym_users[(target, n)].add(rel)
 
+    conftests, test_uses = {}, {}
     for rel in paths:
         try:
             tree = ast.parse(_read(rel))
@@ -206,7 +226,14 @@ def parse_all(roles):
             fails.append(rel)
             continue
         pkg, my_roles = pkg_parts(rel), set()
+        is_test = rel.startswith(TESTS_PREFIX)
+        if is_test and os.path.basename(rel) == "conftest.py":
+            conftests[rel] = _conftest_helpers(tree, resolve)
+            is_test = False
+        use_names = set()
         for node in ast.walk(tree):
+            if is_test and isinstance(node, _USE_NODES):   # one walk per file
+                _conftest_use_of(node, use_names)
             if isinstance(node, ast.ImportFrom):
                 if node.level:                        # RELATIVE: resolve level
                     if pkg is None or node.level - 1 > len(pkg):
@@ -234,9 +261,145 @@ def parse_all(roles):
                 my_roles.add(node.value)
         for value in my_roles:
             role_lits[value].add(rel)
+        if is_test:
+            test_uses[rel] = sorted(use_names)
     return dict(paths=paths, importers=importers, sym_users=sym_users,
                 env_reads=env_reads, env_defaults=env_defaults,
-                role_lits=role_lits, uses_ap=uses_ap, fails=fails)
+                role_lits=role_lits, uses_ap=uses_ap, fails=fails,
+                conftests=conftests, test_uses=test_uses)
+
+
+# ── fixture-mediated reach (v3) ───────────────────────────────────────
+# pytest wires tests to conftest by NAME, not by import: a test that says
+# ``from conftest import cached_airport_layout`` or takes ``layout`` as a
+# fixture parameter never imports the src module the helper builds with,
+# and the helper imports it INSIDE its body.  The three functions below
+# record the two halves (what each helper reaches, which helpers each test
+# uses); ``build`` joins them through the src import closure.
+
+def _src_imports_in(node, resolve):
+    """Resolved SRC module keys imported anywhere under ``node``."""
+    out = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.ImportFrom) and sub.module and not sub.level:
+            for cand in [sub.module] + [sub.module + "." + a.name
+                                        for a in sub.names]:
+                k = resolve(cand)
+                if k and not k.startswith(("Ortho4XP/",)):
+                    out.add(k)
+        elif isinstance(sub, ast.Import):
+            for a in sub.names:
+                k = resolve(a.name)
+                if k and not k.startswith(("Ortho4XP/",)):
+                    out.add(k)
+    return out
+
+
+def _conftest_helpers(tree, resolve):
+    """``{helper: {"mods": [src keys], "uses": [other helper names]}}`` for
+    every top-level function of a conftest.  Module-level src imports are
+    charged to EVERY helper (recall over precision).  ``uses`` is every
+    name the body calls or takes as a parameter that is ALSO a top-level
+    function here (a helper calling a helper, a fixture requesting a
+    fixture); ``build`` closes over it."""
+    funcs = {n.name: n for n in tree.body
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    module_level = set()
+    for n in tree.body:
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            module_level |= _src_imports_in(n, resolve)
+    out = {}
+    for name, fn in funcs.items():
+        names = {a.arg for a in fn.args.args + fn.args.kwonlyargs}
+        for sub in ast.walk(fn):
+            if isinstance(sub, ast.Name):
+                names.add(sub.id)
+            elif isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                names.add(sub.value)              # getfixturevalue("x")
+        out[name] = {"mods": sorted(_src_imports_in(fn, resolve) | module_level),
+                     "uses": sorted((names & set(funcs)) - {name})}
+    return out
+
+
+_USE_NODES = (ast.ImportFrom, ast.Attribute, ast.FunctionDef,
+              ast.AsyncFunctionDef, ast.Call)
+
+
+def _conftest_use_of(sub, names):
+    """Add to ``names`` every name by which this test-file node might reach
+    a conftest helper: ``from conftest import X``, ``conftest.X``, any
+    function parameter (fixture injection), ``getfixturevalue("x")``.
+    Called from ``parse_all``'s single walk; the roster is intersected with
+    the conftest's real helper names in ``build``, so over-collection here
+    costs nothing."""
+    if isinstance(sub, ast.ImportFrom) and sub.module == "conftest":
+        names.update(a.name for a in sub.names)
+    elif isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) \
+            and sub.value.id == "conftest":
+        names.add(sub.attr)
+    elif isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        names.update(a.arg for a in sub.args.args + sub.args.kwonlyargs)
+    elif isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+            and sub.func.attr == "getfixturevalue" and sub.args \
+            and isinstance(sub.args[0], ast.Constant):
+        names.add(str(sub.args[0].value))
+
+
+def _src_closure(importers, paths):
+    """``{src key: set of src keys it TRANSITIVELY imports}`` (self excluded),
+    from the reverse edges ``importers`` records.  Src->src edges only:
+    a tool or test importing a module is not a path a fixture walks."""
+    fwd = defaultdict(set)
+    src_keys = {modkey(r) for r in paths if r.startswith(SRC_PREFIX)}
+    for target, users in importers.items():
+        if target not in src_keys:
+            continue
+        for rel in users:
+            if rel.startswith(SRC_PREFIX):
+                fwd[modkey(rel)].add(target)
+    closure = {}
+    for start in src_keys:
+        seen, stack = set(), list(fwd.get(start, ()))
+        while stack:
+            k = stack.pop()
+            if k in seen:
+                continue
+            seen.add(k)
+            stack.extend(fwd.get(k, ()))
+        seen.discard(start)
+        closure[start] = seen
+    return closure
+
+
+def fixture_reach(d):
+    """``{src key: {test rel: [helper, ...]}}`` — the tests that reach each
+    src module through a conftest helper.  A test uses the helpers of every
+    conftest whose directory contains it."""
+    closure = _src_closure(d["importers"], d["paths"])
+    helper_mods = {}                        # (conftest rel, helper) -> src keys
+    for crel, helpers in d["conftests"].items():
+        mods = {h: set(v["mods"]) for h, v in helpers.items()}
+        changed = True                      # close over helper->helper use
+        while changed:
+            changed = False
+            for h, v in helpers.items():
+                before = len(mods[h])
+                for u in v["uses"]:
+                    mods[h] |= mods.get(u, set())
+                changed |= len(mods[h]) != before
+        for h, m in mods.items():
+            helper_mods[(crel, h)] = m
+    via = defaultdict(lambda: defaultdict(set))
+    for trel, names in d["test_uses"].items():
+        tdir = os.path.dirname(trel) + "/"
+        for crel, helpers in d["conftests"].items():
+            if not tdir.startswith(os.path.dirname(crel) + "/"):
+                continue
+            for h in set(names) & set(helpers):
+                for m in helper_mods[(crel, h)]:
+                    for key in {m} | closure.get(m, set()):
+                        via[key][trel].add(h)
+    return via
 
 
 def _rename_map():
@@ -371,12 +534,21 @@ def build(idx):
     by_module = defaultdict(dict)
     for (m, s), users in d["sym_users"].items():
         by_module[m][s] = users
+    via = fixture_reach(d)
     for rel in d["paths"]:
         key, card = modkey(rel), {}
         imps = sorted(d["importers"].get(key, ()))
         if imps:
             card["imported_by"] = imps
             card["tests"] = [f for f in imps if f.startswith(TESTS_PREFIX)]
+        # THE FIXTURE-MEDIATED EDGES (v3): tests that never import this file
+        # but build through a conftest helper that transitively does.  Kept
+        # apart from ``tests`` so the card can say HOW each one reaches.
+        direct = set(card.get("tests", ()))
+        fx = {tst: sorted(hs) for tst, hs in via.get(key, {}).items()
+              if tst not in direct}
+        if fx:
+            card["tests_via_fixture"] = fx
         syms = by_module.get(key, {})
         hot = sorted(((len(v), s) for s, v in syms.items() if len(v) >= 3),
                      reverse=True)[:12]
@@ -565,6 +737,20 @@ def render(rel, s):
     elif card.get("imported_by"):
         out.append("TESTS (direct importers -- may miss dynamic use): none -- "
                    "NOT a claim that the file is untested")
+    fx = card.get("tests_via_fixture") or {}
+    if fx:
+        # Grouped by helper and NOT truncated to 8 like the direct line: the
+        # whole point of the group is the build suites that sort late.
+        by_helper = defaultdict(list)
+        for tst in sorted(fx):
+            by_helper[fx[tst][0]].append(os.path.basename(tst))
+        out.append("TESTS VIA CONFTEST FIXTURE (no import edge: a conftest "
+                   "helper imports src that transitively imports this file) "
+                   "(%d): %s" % (len(fx), "; ".join(
+                       "%s -> %s" % (h, " ".join(v[:24])
+                                     + (" +%d more" % (len(v) - 24)
+                                        if len(v) > 24 else ""))
+                       for h, v in sorted(by_helper.items()))))
     hi = sorted(k for k, v in s["roles"].items() if rel in v["high"])
     if hi:
         out.append("ROLE LITERALS HERE (%d): %s -- renaming a ROLE_* VALUE in "
@@ -717,7 +903,7 @@ def select_tests(changed, shards, ceiling=CHEAP_CEILING, wide_reasons=None):
     selection replaces — every number the header quotes, computed once.
     """
     clauses = {"symbol": set(), "cheap_file": set(), "fallback": set(),
-               "changed_test": set()}
+               "changed_test": set(), "fixture": set()}
     fallbacks, unindexed, full = [], [], set()
     wide_reasons = dict(wide_reasons or {})
     for rel in wide_reasons:
@@ -754,6 +940,7 @@ def select_tests(changed, shards, ceiling=CHEAP_CEILING, wide_reasons=None):
                     f"to all {len(tests)} direct-importer test(s)")
         if len(tests) <= ceiling:                        # clause 2
             clauses["cheap_file"] |= tests
+        clauses["fixture"] |= set(card.get("tests_via_fixture", ()))  # 5
     selected = set().union(*clauses.values())
     return {"selected": sorted(selected),
             "clauses": {k: sorted(v) for k, v in clauses.items()},
@@ -807,9 +994,13 @@ def cmd_tests_for(files, idx, ref="HEAD", ceiling=CHEAP_CEILING):
                  if syms else ""), file=err)
     c = result["clauses"]
     print("#   clauses: symbol-attributed=%d cheap-file(<=%d)=%d "
-          "fallback-wide=%d changed-test=%d"
+          "fallback-wide=%d changed-test=%d via-fixture=%d"
           % (len(c["symbol"]), ceiling, len(c["cheap_file"]),
-             len(c["fallback"]), len(c["changed_test"])), file=err)
+             len(c["fallback"]), len(c["changed_test"]),
+             len(c["fixture"])), file=err)
+    if c["fixture"]:
+        print("#   VIA FIXTURE (reach through a conftest helper, not an "
+              "import): " + " ".join(c["fixture"]), file=err)
     for line in result["fallbacks"]:
         print(f"#   FALLBACK {line}", file=err)
     print("#   SELECTED %d test file(s) of the %d-file full direct-importer "
@@ -988,6 +1179,16 @@ def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):
         ok = c in s["roles"]
         print("  role literal %-20s %s" % (c, "OK" if ok else "FAIL"))
         bad += [] if ok else ["role:" + c]
+    # The 2026-08-20 miss: runway_segments.py's sweep ran 472 tests and
+    # skipped the grade suite, which reaches it only through a conftest
+    # helper.  If this edge ever vanishes the index is back to lying.
+    for rel, test in FIXTURE_CANARIES:
+        fx = s["modules"].get(rel, {}).get("tests_via_fixture", {})
+        ok = test in fx
+        print("  via-fixture %-34s -> %-28s %s"
+              % (rel[len(SRC_PREFIX):], os.path.basename(test),
+                 "OK [%s]" % ",".join(fx[test]) if ok else "FAIL"))
+        bad += [] if ok else ["fixture:" + os.path.basename(test)]
     print("== recall sample (15 src modules, AST index vs grep ground truth) ==")
     src = sorted(r for r in s["modules"] if r.startswith(SRC_PREFIX)
                  and r.endswith(".py") and not r.endswith("__init__.py"))

@@ -212,10 +212,120 @@ def test_tests_line_drops_conftest_and_is_hedged(index):
         if not conftests:
             continue
         for line in blast.render(rel, index):
-            if line.startswith("TESTS"):
+            if line.startswith("TESTS ("):          # the direct-importer line
                 assert "may miss dynamic use" in line
                 assert "conftest.py" not in line
         break
+
+
+# ══════════════════════════════════════════════════════════════════════
+# v3 — FIXTURE-MEDIATED REACH (tests_via_fixture)
+# ══════════════════════════════════════════════════════════════════════
+# pytest wires a test to conftest by NAME, never by import.  On 2026-08-20
+# a lane edited runway_segments.py and gap_fill.py, ran the blast-listed
+# sweep (472 passed) and never ran test_pavement_grade.py or
+# test_single_graph_acceptance.py, which build through
+# conftest.cached_airport_layout -> auto_patch.pipeline -> (transitively)
+# both files.  These twins keep that edge recorded, rendered and selected.
+
+RUNWAY_SEGMENTS = "Ortho4XP/src/auto_patch/pavement/runway_segments.py"
+GAP_FILL = "Ortho4XP/src/auto_patch/gap_fill.py"
+GRADE_TEST = "Ortho4XP/tests/test_pavement_grade.py"
+SINGLE_GRAPH_TEST = "Ortho4XP/tests/test_single_graph_acceptance.py"
+
+
+def test_the_real_index_joins_the_2026_08_20_misses_through_the_fixture(index):
+    conftest = blast._read("Ortho4XP/tests/conftest.py")
+    for rel in (RUNWAY_SEGMENTS, GAP_FILL):
+        card = index["modules"][rel]
+        fx = card["tests_via_fixture"]
+        for test in (GRADE_TEST, SINGLE_GRAPH_TEST):
+            assert test in fx, "%s must reach %s via fixture" % (test, rel)
+            assert "cached_airport_layout" in fx[test]
+            assert test not in card.get("tests", ()), \
+                "a direct importer is listed once, under tests"
+        # every recorded edge is REAL: the test names the helper it is
+        # credited with, and that helper exists in conftest
+        for test, helpers in fx.items():
+            src = blast._read(test)
+            for h in helpers:
+                assert h in src and ("def %s(" % h) in conftest
+
+
+def test_the_card_renders_the_fixture_group_apart_from_direct_importers(index):
+    lines = blast.render(RUNWAY_SEGMENTS, index)
+    direct = [l for l in lines if l.startswith("TESTS (direct importers")]
+    via = [l for l in lines if l.startswith("TESTS VIA CONFTEST FIXTURE")]
+    assert len(direct) == 1 and len(via) == 1
+    assert "cached_airport_layout ->" in via[0]
+    assert "test_pavement_grade.py" in via[0]
+    assert "test_pavement_grade.py" not in direct[0]
+
+
+def test_the_audit_carries_the_fixture_canaries(index):
+    for rel, test in blast.FIXTURE_CANARIES:
+        assert test in index["modules"][rel]["tests_via_fixture"]
+
+
+def test_fixture_reach_closes_over_helpers_and_transitive_src_imports():
+    """Synthetic: test -> helper A (calls helper B) -> B imports ``pkg.top``
+    -> top imports mid -> mid imports leaf.  The test must be credited to
+    leaf, with A (the helper it names) as the reason; a test naming no
+    helper is credited nowhere."""
+    S = blast.SRC_PREFIX
+    d = {"paths": [S + "pkg/top.py", S + "pkg/mid.py", S + "pkg/leaf.py",
+                   "Ortho4XP/tests/conftest.py", "Ortho4XP/tests/test_t.py",
+                   "Ortho4XP/tests/test_none.py"],
+         "importers": {"pkg.mid": {S + "pkg/top.py"},
+                       "pkg.leaf": {S + "pkg/mid.py"},
+                       "pkg.top": {"Ortho4XP/tests/conftest.py"}},
+         "conftests": {"Ortho4XP/tests/conftest.py": {
+             "A": {"mods": [], "uses": ["B"]},
+             "B": {"mods": ["pkg.top"], "uses": []},
+             "unrelated": {"mods": [], "uses": []}}},
+         "test_uses": {"Ortho4XP/tests/test_t.py": ["A", "tmp_path"],
+                       "Ortho4XP/tests/test_none.py": ["tmp_path"]}}
+    via = blast.fixture_reach(d)
+    for key in ("pkg.top", "pkg.mid", "pkg.leaf"):
+        assert dict(via[key]) == {"Ortho4XP/tests/test_t.py": {"A"}}, key
+    assert "Ortho4XP/tests/test_none.py" not in via["pkg.leaf"]
+
+
+def test_a_tool_importing_a_module_is_not_a_fixture_path():
+    """Src->src edges only: tools/x.py importing leaf does not make every
+    module the tool imports a neighbour of leaf."""
+    S = blast.SRC_PREFIX
+    closure = blast._src_closure(
+        {"pkg.leaf": {"Ortho4XP/tools/x.py", S + "pkg/top.py"},
+         "pkg.other": {"Ortho4XP/tools/x.py"}},
+        [S + "pkg/top.py", S + "pkg/leaf.py", S + "pkg/other.py"])
+    assert closure["pkg.top"] == {"pkg.leaf"}
+    assert closure["pkg.other"] == set()
+
+
+def test_clause_5_selects_fixture_reached_tests_and_names_them():
+    mods = {"Ortho4XP/src/x.py": {
+        "tests": ["Ortho4XP/tests/test_%d.py" % i for i in range(20)],
+        "symbol_tests": {"foo": ["Ortho4XP/tests/test_1.py"]},
+        "symbols_attributed": ["foo"],
+        "tests_via_fixture": {"Ortho4XP/tests/test_grade.py": ["layout"]}}}
+    got = blast.select_tests({"Ortho4XP/src/x.py": {"foo"}}, _shards(mods))
+    assert got["clauses"]["fixture"] == ["Ortho4XP/tests/test_grade.py"]
+    assert got["selected"] == ["Ortho4XP/tests/test_1.py",
+                               "Ortho4XP/tests/test_grade.py"]
+
+
+def test_tests_for_cli_emits_the_fixture_reached_file(index_path):
+    """End to end: a change to runway_segments.py selects the grade suite
+    and the header says WHY on stderr, with stdout still a clean list."""
+    out = subprocess.run(
+        [sys.executable, os.path.join(TOOLS, "blast.py"), "--tests-for",
+         RUNWAY_SEGMENTS, "--index-dir", index_path],
+        capture_output=True, text=True, cwd=REPO)
+    assert out.returncode == 0, out.stderr
+    assert GRADE_TEST in out.stdout.split()
+    assert "VIA FIXTURE" in out.stderr and GRADE_TEST in out.stderr
+    assert not any(l.startswith("#") for l in out.stdout.splitlines())
 
 
 # ══════════════════════════════════════════════════════════════════════

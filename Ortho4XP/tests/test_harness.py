@@ -122,6 +122,36 @@ FIXTURE_PATCH = ROOT / "tests" / "fixtures" / "SPJC_target.osm"
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §0 THE BLAST INDEX NAMES THE HARNESS SUITES A FIXTURE REACHES
+# ══════════════════════════════════════════════════════════════════════
+
+
+def test_blast_lists_the_grade_suite_for_runway_segments(tmp_path):
+    """2026-08-20: a lane edited runway_segments.py and gap_fill.py, ran
+    the blast-listed sweep (472 passed) and never ran this file's
+    neighbours test_pavement_grade.py / test_single_graph_acceptance.py —
+    they reach those modules through ``conftest.cached_airport_layout``,
+    not an import.  The index must record that reach, in its own group,
+    and the sweep selector must emit it."""
+    blast = _load("harness_twin_blast", ROOT.parent / "tools" / "blast.py")
+    shards = blast.build(str(tmp_path / "idx"))
+    for src, test in (("auto_patch/pavement/runway_segments.py",
+                       "test_pavement_grade.py"),
+                      ("auto_patch/gap_fill.py",
+                       "test_single_graph_acceptance.py")):
+        rel = blast.SRC_PREFIX + src
+        card = shards["modules"][rel]
+        fx = card["tests_via_fixture"]
+        assert blast.TESTS_PREFIX + test in fx, (src, test)
+        assert "cached_airport_layout" in fx[blast.TESTS_PREFIX + test]
+        assert any(l.startswith("TESTS VIA CONFTEST FIXTURE") and test in l
+                   for l in blast.render(rel, shards))
+        sel = blast.select_tests({rel: {"anything"}}, shards)
+        assert blast.TESTS_PREFIX + test in sel["clauses"]["fixture"]
+        assert blast.TESTS_PREFIX + test in sel["selected"]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §1 THE CENSUS IS ONE CODE PATH
 # ══════════════════════════════════════════════════════════════════════
 

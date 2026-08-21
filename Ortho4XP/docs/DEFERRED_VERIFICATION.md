@@ -2432,3 +2432,84 @@ EXACTLY apronpop's 11 pre-existing + 13 NEW four classes, plus
 `test_the_solve_ingests_the_family_at_BOTH_edge_set_sites`, which fails on
 lane/transect ALONE (verified in the transect worktree at 77aeac2: 1
 failed / 64 passed). Nothing on this list is new to the merge.
+
+## 2026-08-21c — the composed arm under A1: interior at 5 % (lane/compose, attempt 2)
+
+Owner ruling RULINGS 2026-08-21c + spec AMENDMENT A1 (main d2f5bc6),
+implemented as 396d94b on lane/compose (apronpop + transect + A1). Three
+harness builds, all rc=0, all shared-repo UNCHANGED. This is ATTEMPT 2 of
+the apron-population spec; no fix was attempted for the STOPs below.
+
+MEASURED — adjudicated airside, battery -> apronpop -> compose-v1 (the
+2026-08-21b removal) -> compose-v2 (A1):
+
+| airport | battery | apronpop | v1 | v2 | bar | verdict |
+|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 189 | STOP +15 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 1487 | STOP +112 |
+
+within_shape airside 0/3/3/0, 45/12/258/52, 1284/643/770/1383.
+transverse airside 63/188/51/4, 46/331/167/51, 95/572/155/63.
+steps airside 0/0/0/0, 0/37/31/0, 3/192/131/8.
+
+A1 REPAIRS EVERYTHING THE REMOVAL DAMAGED. Transverse is BELOW the
+battery on all three; steps are gone (SPJC 37->0, HECA 192->8); the
+surface is far closer to the battery (worst airside |dz| vs battery
+CYXY 3.95->0.93 m, SPJC 9.66->1.09 m, HECA 18.23->6.77 m); CYXY clears
+its bar by 59 with within_shape airside ZERO, and the CYXY
+service_junction spine 37.1 % row that survived both earlier arms is
+GONE.
+
+UNPAID / OWED:
+
+- SPJC (204 vs 189) and HECA (1599 vs 1487) EXCEED their bars. The
+  attribution is identical on both and is NOT the new law: not one
+  violation anywhere carries the 5 % cap. SPJC within_shape airside 52 =
+  46 @1.0 % + 6 @1.5 %; HECA 1383 = 1326 @1.0 % + 56 @1.5 % + 1 @8 %. The
+  debt sits on the STRICT class.
+- HECA's is the RING-ADJACENT branch. Of 1258 within_shape apron|apron
+  airside rows, 582 are frontage chords and 676 generic; since no row
+  carries the 5 % cap, every violating generic row is necessarily
+  ring-adjacent (the only generic-and-strict combination A1 allows) or
+  foreign-priced (28 of 676). ~648 rows are apron RING EDGES over the
+  strict 1 % cap. Severity rose with the count: >2x-cap 447 -> 663,
+  accumulated excess 4332 -> 4564 pct-points. Head sites
+  (30.11843,31.41048), (30.11848,31.41047), (30.12442,31.41397) at
+  1.11-1.64 % against 1.00 %.
+- SPJC's +15 is within_shape +7, transverse +5, frontage_near_miss +2,
+  plane_gradient +1; strip_arc, drainage_spine and strip_longitudinal are
+  unchanged. The worst NEW rows are apron|apron on way -10113 at
+  1.016-1.033 % against 1.000 % over ~260 m chords.
+- MECHANISM: 5 % is a far better interior constraint than none, but it is
+  still four points looser than the strict cap, so the interior may
+  legally tilt under the transect rows and the movement surfaces and ring
+  edges bounding it absorb the difference — the v1 failure shape, an order
+  of magnitude smaller.
+- OWNER QUESTION THIS TURNS ON: is a long apron RING EDGE a movement
+  surface (strict) or interior (5 %)? A1 §1a reserved ring-adjacent for
+  the strict cap on R19-5 grounds; the measurement says that choice
+  decides HECA's bar.
+- broken_by_emit is still 48-62 % of every bound transect (CYXY 1471,
+  SPJC 4131, HECA 17005) — reported, not a STOP (A1 §8d).
+- The projection-law certificate: CYXY 1001 over_cap (451 both-hard),
+  SPJC 1670 (427), HECA 18496 (3751). CYXY and SPJC FELL against v1
+  (1179 / 2670); HECA rose (16577).
+- `[writeback-band]` worst > 10 m count is 0 on all three, but HECA's
+  worst clamp rose 4.70 -> 8.80 m.
+- A PRE-EXISTING census/bake CAP DRIFT is now visible and is reported, not
+  adopted: one ring edge reads the blend branch's 1.5 % in the bake and
+  the plain body cap in the census, identically with the interior flag on
+  and off. The new cap-lockstep twin asserts NO NEW drift.
+- A role-LESS duplicate ring of an apron host keeps the strict cap while
+  its host prices its interior at 5 % — one geometry, two laws.
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+TESTS. 37/37 on the three twin files; 341 passed / 1 failed across
+test_harness + test_grade_graph + test_fan_ramp_law + the twins, that 1
+being one of the 11 the apronpop lane measured on its matched control.
+A1 RESOLVED BOTH CLASSES apronpop could not — the R19-5 law collision and
+the unreachable fan-ramp law, all four twins passing untouched — and six
+of the eight building-less-fixture twins recovered untouched. Two stale
+twins were updated as the ruling requires with their substantive
+assertions intact.

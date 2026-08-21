@@ -737,3 +737,72 @@ class TestTheEmitAuthorityStillWins:
         moved = [v for (x, y), v in zip(_ring, alts) if round(x, 2) == 40.0]
         assert moved and all(v < 16.0 for v in moved), (
             "the weld was pinned — the ring could not reach its law")
+
+
+class TestAirsideIsDataToTheLimiter:
+    """AIRSIDE IS KING (RULINGS, standing; lead adjudication 2026-08-20).
+    A node an airside ring claims is DATA to this pass — it seats the
+    weld and the road grades from it.  The carrier the pin closes is
+    MEASURED: the final projection's airside pass re-projects from the
+    SEED, so a groundside rewrite of a shared node moves airside even
+    though the projection's partition keeps every groundside PAIR out of
+    the airside constraint set."""
+
+    def _welded_scene(self):
+        # an APRON (airside) sharing its two right-hand corners with a
+        # road that badly needs the clamp
+        apron = BuiltShape(polygon=_rect(0, 0, 40, 10), role="apron",
+                           node_altitudes=[100.0, 100.2, 100.2, 100.0,
+                                           100.0])
+        road = _svc(40, 0, 90, 10,
+                    alts=[100.2, 106.0, 106.0, 100.2, 100.2])
+        return apron, road
+
+    def test_the_airside_ring_is_untouched_to_the_bit(self):
+        import auto_patch.groundside as gs
+        apron, road = self._welded_scene()
+        before = list(apron.node_altitudes)
+        layout = _layout([apron, road])
+        gs._grade_limit_groundside_chords(layout)
+        assert list(apron.node_altitudes) == before
+
+    def test_the_weld_keeps_the_AIRSIDE_value_and_the_road_clamps(self):
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        apron, road = self._welded_scene()
+        layout = _layout([apron, road])
+        gs._grade_limit_groundside_chords(layout)
+        ring, alts = _open_ring_alts(road)
+        weld = [v for (x, y), v in zip(ring, alts) if round(x, 2) == 40.0]
+        assert weld and all(v == pytest.approx(100.2, abs=1e-9) for v in weld), (
+            "the pass moved a node the apron claims")
+        assert _worst_chord_grade(road) <= (
+            cfg.ROLE_GRADE_LIMITS["service_road"] + 5e-3), (
+            "the road did not clamp against its frozen airside weld")
+
+    def test_the_pin_set_is_the_registry_partition_not_a_list(self):
+        """``layout.GROUNDSIDE_ROLES`` decides — a role added there stops
+        being pinned with no edit here (the role-literal hazard)."""
+        import auto_patch.groundside as gs
+        from auto_patch.layout import GROUNDSIDE_ROLES
+        apron, road = self._welded_scene()
+        layout = _layout([apron, road])
+        xy, _canon = gs._airside_claimed_keys(layout)
+        assert (40.0, 0.0) in xy and (0.0, 0.0) in xy      # apron ring
+        assert (90.0, 0.0) not in xy                        # road-only
+        assert "apron" not in GROUNDSIDE_ROLES
+        assert {"groundside_pavement", "service_road",
+                "service_junction"} <= set(GROUNDSIDE_ROLES)
+
+    def test_a_groundside_only_scene_pins_nothing(self):
+        """No airside ring ⇒ the pin set is empty and the pass is the
+        one the lot round shipped."""
+        import auto_patch.groundside as gs
+        lot = _dem_lot(0, 0, 100, 60)
+        lot.node_altitudes = [
+            0.0 if k % 2 else 50.0
+            for k in range(len(lot.polygon.exterior.coords))]
+        layout = _layout([lot])
+        xy, canon = gs._airside_claimed_keys(layout)
+        assert not xy and not canon
+        assert gs._grade_limit_groundside_chords(layout) == 1

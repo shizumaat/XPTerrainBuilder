@@ -3764,9 +3764,10 @@ def _chord_limit_cap_for_role(role: str) -> float:
     return float(lim) if lim else float(SERVICE_ROAD_MAX_GRADE)
 
 
-def _airside_claimed_keys(layout) -> set:
-    """The chord limiter's PINNED set: every node key an AIRSIDE ring
-    claims, in this pass's own 2-decimal key spelling.
+def _airside_claimed_keys(layout):
+    """The chord limiter's PINNED set: every node an AIRSIDE ring claims,
+    in BOTH identities the pass can be asked in — ``(xy_keys,
+    canonical_keys)``.
 
     THE PARTITION IS THE REGISTRY'S, NOT A LIST HERE.
     ``layout.GROUNDSIDE_ROLES`` is the single source the census's
@@ -3777,9 +3778,23 @@ def _airside_claimed_keys(layout) -> set:
     airside ring claiming a node makes it airside.  A role added to the
     registry therefore lands here with no edit (the blast.py
     role-literal hazard, closed by construction).
+
+    THE 2-DECIMAL KEY IS NOT THE EMITTER'S IDENTITY, and the difference
+    is measured: with the xy key alone ONE HECA apron node welded to a
+    service junction still moved 0.12 m (way-level: the apron vertex and
+    the road vertex are millimetres apart, so they hash to different
+    2-dp buckets while ``to_osm`` merges them into one node).  So the
+    CANONICAL POINT is carried too — ``layout.canonical_points``, the
+    registry the emitter, ``_node_role_sets`` and the weld book all
+    resolve identity through — and a vertex is pinned if EITHER identity
+    says an airside ring claims it.  A layout without the registry (unit
+    scenes) simply gets the xy set, unchanged.
     """
     from .layout import GROUNDSIDE_ROLES
     keys: set = set()
+    canon: set = set()
+    cps = getattr(layout, "canonical_points", None)
+    tol = getattr(cps, "tol_m", None) if cps is not None else None
     for s in (getattr(layout, "shapes", None) or ()):
         role = getattr(s, "role", None)
         if role is None or role in GROUNDSIDE_ROLES:
@@ -3799,7 +3814,12 @@ def _airside_claimed_keys(layout) -> set:
                 continue
             for (x, y) in coords:
                 keys.add((round(float(x), 2), round(float(y), 2)))
-    return keys
+                if tol is None:
+                    continue
+                k = cps.find_nearest(float(x), float(y), tol)
+                if k is not None:
+                    canon.add(k)
+    return keys, canon
 
 
 def _chord_limit_shared_node_census(stats, node_roles, node_cap,
@@ -3954,7 +3974,10 @@ def _grade_limit_groundside_chords(layout) -> int:
     # this makes the clamp agree with what actually emits.  The pinned
     # values still GENERATE the band — the groundside side conforms to
     # airside, which is the mouth ruling in clamp form.
-    pinned_keys: set = _airside_claimed_keys(layout)
+    pinned_keys, _airside_canon = _airside_claimed_keys(layout)
+    _cps_pin = getattr(layout, "canonical_points", None)
+    _pin_tol = (getattr(_cps_pin, "tol_m", None)
+                if (_cps_pin is not None and _airside_canon) else None)
     for i, s in enumerate(layout.shapes):
         role = getattr(s, "role", "")
         if role not in _CHORD_LIMIT_ROLES:
@@ -3978,6 +4001,18 @@ def _grade_limit_groundside_chords(layout) -> int:
         if any(a is None for a in alts):
             continue
         keys = [(round(x, 2), round(y, 2)) for x, y in ring]
+        # THE CANONICAL SECOND READING of the airside pin (see
+        # ``_airside_claimed_keys``): a vertex the emitter will merge into
+        # an airside node is airside DATA even when its 2-dp bucket
+        # differs by millimetres.
+        if _pin_tol is not None:
+            for _k, (_vx, _vy) in enumerate(ring):
+                if keys[_k] in pinned_keys:
+                    continue
+                _ck = _cps_pin.find_nearest(float(_vx), float(_vy),
+                                            _pin_tol)
+                if _ck is not None and _ck in _airside_canon:
+                    pinned_keys.add(keys[_k])
         rings[i] = keys
         ring_role[i] = role
         cap = _chord_limit_cap_for_role(role)

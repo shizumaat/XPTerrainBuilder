@@ -391,7 +391,18 @@ def _hop_eccentricity_bound(iter_edges, n):
     return 2 * worst
 
 
-def derive_sweep_budget(iter_edges, n):
+def derive_sweep_budget(iter_edges, n, hyper_rows=None):
+    """See below.  ``hyper_rows`` (spec §7) join the basis: a weighted
+    transect couples FOUR nodes, so it is a hop between each of its near
+    nodes and each of its far ones for propagation purposes.  Leaving
+    them out would derive ``max_iters`` from a SMALLER graph than the one
+    being solved — the anti-hang guard priced on the wrong diameter."""
+    return _derive_sweep_budget(
+        list(iter_edges) + [(int(r[0][0]), int(r[0][2]), 0.0)
+                            for r in (hyper_rows or ())], n)
+
+
+def _derive_sweep_budget(iter_edges, n):
     """``(block, hop_bound)`` — the POCS sweep BLOCK size FOR THIS GRAPH.
 
     CYCLE-7 FIX 1 CHANGED WHAT THIS NUMBER IS.  It used to be the exit:
@@ -496,6 +507,23 @@ def shape_constraints_edges(shape_constraints):
     for sc in shape_constraints:
         for edge in sc["edges"]:
             yield edge
+
+
+def shape_constraints_hyper(shape_constraints):
+    """Flatten every ``sc["hyper"]`` list into one iterator — the WEIGHTED
+    4-NODE transect rows (spec ``transverse-hyperplane-solve-spec.md``
+    §3).  Each row is ``(idx4, w4, budget, station_id)``: ``|w . z| <= b``
+    over four nodes, which is what a cross-section whose ends are
+    INTERPOLATED along ring edges actually is.
+
+    They live in their OWN key, never as a 5-tuple in ``edges``: every
+    reader of the edge contract branches on ``len(edge) >= 4`` to detect
+    an interval slab (:func:`shape_constraints_edges`, the certificate,
+    ``_edge_adjacency``), so a longer tuple there would be read as a slab
+    with a station id for a ceiling."""
+    for sc in shape_constraints:
+        for row in (sc.get("hyper") or ()):
+            yield row
 
 
 def law_edge_limits(shape_constraints, n, *, include_flat_pairs=False):
@@ -2049,7 +2077,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        sweep_budget_basis=None,
                        family_by_pair=None,
                        sweep_hard_cap=None,
-                       flat_group_reps=None):
+                       flat_group_reps=None,
+                       hyper_rows=None, hard_nodes=None):
     """Colored Gauss-Seidel POCS (survey candidate 1) — the vectorized
     replacement for BOTH legacy inner sweeps.  Mutates ``elev`` in place.
 
@@ -2150,6 +2179,38 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
     endpoint_j = np.asarray(flat_endpoint_j, dtype=np.intp)
     weight_i = np.asarray(flat_weight_i, dtype=np.float64)
     weight_j = np.asarray(flat_weight_j, dtype=np.float64)
+    # ── HYPER ROWS — the WEIGHTED 4-NODE TRANSECT CONSTRAINTS ─────────
+    # Spec ``transverse-hyperplane-solve-spec.md`` §3-5 (owner ruling
+    # 2026-08-21).  A corridor cross-section is not a node pair: its two
+    # ends are points INTERPOLATED along ring edges, so the law is
+    # ``|w . z| <= b`` with four nodes and four weights
+    # ((1-t), t, -(1-s), -s), not ``|z_i - z_j| <= b``.  They ride their
+    # own columns — never a 5-tuple in ``iter_edges``, which the
+    # ``len(edge) >= 4`` decoders would read as an interval slab.
+    # A HARD node's weight is MASKED in the projection step (it absorbs
+    # none of the correction and never moves), exactly as ``kind``
+    # masks a hard endpoint's ``wi``/``wj`` above.
+    H_idx = H_w = H_b = H_free = None
+    H_m = 0
+    if hyper_rows:
+        _hard = hard_nodes or ()
+        _rows = [r for r in hyper_rows
+                 if all(0 <= int(k) < n for k in r[0])]
+        H_m = len(_rows)
+        if H_m:
+            H_idx = np.asarray([[int(k) for k in r[0]] for r in _rows],
+                               dtype=np.intp)
+            H_w = np.asarray([[float(w) for w in r[1]] for r in _rows],
+                             dtype=np.float64)
+            H_b = np.asarray([float(r[2]) for r in _rows],
+                             dtype=np.float64)
+            H_free = np.ones_like(H_w)
+            if _hard:
+                _hs = set(int(i) for i in _hard)
+                for _r in range(H_m):
+                    for _c in range(4):
+                        if int(H_idx[_r, _c]) in _hs:
+                            H_free[_r, _c] = 0.0
     budget_column = np.asarray(flat_budget, dtype=np.float64)
     # RAW-LAW instrument column (§1a): the sweep budgets with every
     # margined entry restored to its raw law budget.  Write-only — it
@@ -2217,6 +2278,15 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                 above = di - slab_high_column[interval_rows]
                 below = slab_low_column[interval_rows] - di
                 feasible = not bool(((above > tol) | (below > tol)).any())
+        if feasible and H_m:
+            # THE TRANSECT ROWS ARE PART OF "FEASIBLE" (spec §5).  Without
+            # this the pre-check certifies a field on the PAIR law alone
+            # and returns before the sweep — a whole law family skipped in
+            # exactly the case it was added for (every pair satisfied,
+            # the corridor still leaning: CYXY within_shape airside 0 with
+            # 75 transverse airside rows).
+            _pre = (H_w * z[H_idx]).sum(1) - H_b
+            feasible = not bool((_pre > tol).any())
         if feasible:
             # Mirror the certified-on-sweep-1 exit exactly: same writeback,
             # same counters, same return value (worst resets to 0.0 at sweep
@@ -2546,6 +2616,42 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                 z[box_idx[mv_rows]] = clamped[mv_rows]
             else:
                 z[box_idx] = clamped
+        # ── THE HALF-SPACE PROJECTION (spec §5) ───────────────────
+        # ``r = w . z - b``; an over-cap row is projected onto its
+        # half-space, the correction spread over its FREE nodes in
+        # weight proportion (``step * w / ||w_free||^2``) and scattered
+        # into the same degree-normalised accumulator shape the pair
+        # rows use.  Two rows (w and -w) express ``|near - far| <= b``,
+        # so nothing here needs a sign convention of its own.
+        if H_m:
+            _hz = z[H_idx]
+            _r = (H_w * _hz).sum(1) - H_b
+            _act = _r > tol
+            if bool(_act.any()):
+                any_active = True
+                _w = float(_r.max())
+                if _w > worst:
+                    worst = _w
+                    if stall_on:
+                        _k = int(_r.argmax())
+                        stall_carrier = ("hyp", int(H_idx[_k, 0]),
+                                         int(H_idx[_k, 2]), float(H_b[_k]),
+                                         float(_r[_k]), 0.0, 0.0)
+                _wf = H_w * H_free
+                _nrm = (_wf * _wf).sum(1)
+                _step = np.where(_act & (_nrm > 0.0), _r / np.maximum(
+                    _nrm, 1e-30), 0.0)
+                _corr = -(_step[:, None] * _wf)
+                _flat = H_idx.ravel()
+                _acc = np.bincount(_flat, weights=_corr.ravel(),
+                                   minlength=n)
+                _cnt = np.bincount(
+                    _flat,
+                    weights=np.repeat(_act.astype(np.float64), 4)
+                    * H_free.ravel(),
+                    minlength=n)
+                _nz = _cnt > 0.0
+                z[_nz] += _acc[_nz] / _cnt[_nz]
         if not any_active:
             certified = True
             exit_reason = "certified"
@@ -4665,8 +4771,21 @@ def feasibility_project(elev, shape_constraints, hard, *,
     _fp_reps = {rep for (rep, _g) in groups_eff} or None
     _sweep_basis = None
     _sweep_hard_cap = sweep_hard_cap
+    # THE HYPER ROWS (spec §3-5): collected once, from the same entries
+    # the edges come from, so a caller that passes them cannot have them
+    # silently dropped — the two paths that cannot carry them REFUSE
+    # below rather than solving a smaller law than they were given.
+    _hyper = list(shape_constraints_hyper(shape_constraints))
+    if _hyper and not (_chromatic_enabled() and iter_edges):
+        raise RuntimeError(
+            f"{len(_hyper)} weighted transect row(s) were handed to a "
+            f"projection path that cannot carry them "
+            f"(chromatic={_chromatic_enabled()}, edges={len(iter_edges)}). "
+            f"Refusing rather than solving a smaller law than the caller "
+            f"passed (spec transverse-hyperplane-solve-spec.md §3-5).")
     if max_iters is None:
-        max_iters, _sweep_basis = derive_sweep_budget(iter_edges, n)
+        max_iters, _sweep_basis = derive_sweep_budget(
+            iter_edges, n, _hyper)
         # CYCLE-7 FIX 1: the derived figure is the BLOCK; the exit is the
         # convergence criterion, and the only hard ceiling left is the
         # absolute anti-hang guard.  A caller that IMPOSES ``max_iters``
@@ -4704,7 +4823,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            sweep_budget_basis=_sweep_basis,
                            family_by_pair=fam_by_pair,
                            sweep_hard_cap=_sweep_hard_cap,
-                           flat_group_reps=_fp_reps)
+                           flat_group_reps=_fp_reps,
+                           hyper_rows=_hyper, hard_nodes=immovable)
         # Lazy shapes: as for the Jacobi path, only the FINAL state matters for
         # a certificate, so re-warm + re-sweep on the grown edge set until no
         # further shape expands (bounded: each round expands ≥1 entry).
@@ -4740,7 +4860,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                sweep_budget_basis=_sweep_basis,
                                family_by_pair=fam_by_pair,
                                sweep_hard_cap=_sweep_hard_cap,
-                               flat_group_reps=_fp_reps)
+                               flat_group_reps=_fp_reps,
+                               hyper_rows=_hyper, hard_nodes=immovable)
         _sweeps_run = _chroma_stats.get("sweeps", 0)
         _last_worst = _chroma_stats.get("worst", 0.0)
         if _os.environ.get("O4_STEP_DEBUG") == "1":

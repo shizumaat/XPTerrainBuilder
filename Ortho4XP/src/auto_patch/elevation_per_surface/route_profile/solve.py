@@ -6828,6 +6828,30 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                 row[1] = excess
             if a in hard and b in hard:
                 row[2] += 1
+        # ── THE WEIGHTED TRANSECT ROWS (spec §7) ─────────────────────
+        # A hyper row is not an edge and this loop's ``e[0]``/``e[1]``
+        # would read its weight vector as a node index, so it is counted
+        # here, under its own family: an over-cap transect at exit MUST
+        # appear in ``over_cap=N`` or the certificate reports a smaller
+        # law than the projection was given.  BOTH-HARD means every one
+        # of its four nodes is immovable — the transect analogue of an
+        # infeasible edge, and the only shape "genuinely infeasible" can
+        # take when four nodes share one inequality.
+        for row_h in (entry.get("hyper") or ()):
+            idx4, w4, b_h = row_h[0], row_h[1], row_h[2]
+            if any(int(k) >= n for k in idx4):
+                continue
+            val = sum(float(w) * elev[int(k)] for w, k in zip(w4, idx4))
+            excess = val - float(b_h)
+            if excess <= tol:
+                continue
+            fam_h = "transverse"
+            row = out.setdefault(fam_h, [0, 0.0, 0])
+            row[0] += 1
+            if excess > row[1]:
+                row[1] = excess
+            if all(int(k) in hard for k in idx4):
+                row[2] += 1
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -7263,6 +7287,24 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _fp_law_counts["lateral_xsection"] = len(_xsec_fp)
     except Exception as _xsec_exc:
         _fp_law_counts["lateral_xsection"] = f"FAILED {_xsec_exc!r}"
+    # ── THE WEIGHTED TRANSECT ROWS (owner ruling 2026-08-21; spec
+    # transverse-hyperplane-solve-spec.md §§2-5 + AMENDMENT A1 §8a) ────
+    # The pair form above can only bind a cross-section where a foot was
+    # planted at BOTH ends; 66 of 75 CYXY airside transverse rows have no
+    # ring vertex near either end.  A transect is a WEIGHTED FOUR-NODE
+    # inequality over the ring edges its ends interpolate along, so it is
+    # bound as one — here, on the ring THIS projection sees, because no
+    # projection runs after to_osm begins (A1, measured).
+    _hyper_fp: list = []
+    _bound_spans_fp: list = []
+    try:
+        from auto_patch.lateral_spine_nodes import (
+            transect_hyper_rows as _transect_rows_fp)
+        _hyper_fp = list(_transect_rows_fp(
+            layout, b2i, elev, spans_out=_bound_spans_fp))
+        _fp_law_counts["transverse_hyper"] = len(_hyper_fp)
+    except Exception as _hyp_exc:
+        _fp_law_counts["transverse_hyper"] = f"FAILED {_hyp_exc!r}"
     if _terrace_plan_fp is not None:
         from .apron_terrace import (
             apply_terrace_budgets_to_edges as _apply_terr_u_fp)
@@ -7283,6 +7325,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     joint = list(shape_constraints) + _unified_entries(
         u_edges, _fp_pair_stage, "final_projection/unified",
         family="unified_graph")
+    if _hyper_fp:
+        # THE TRANSECT ROWS RIDE THEIR OWN ENTRY (spec §3): never a
+        # 5-tuple in ``edges``, whose ``len(edge) >= 4`` decoders would
+        # read them as an interval slab.  Airside transects are STAGE A
+        # (§6) — the shapes they cross are the airside ones the taxi axes
+        # price — so they bind in the pass that owns airside values.
+        from auto_patch.solve_stage import STAGE_A as _STAGE_A_FP, STAGE_KEY
+        joint.append({"edges": [], "hyper": _hyper_fp,
+                      STAGE_KEY: _STAGE_A_FP, "family": "transverse"})
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
@@ -8813,6 +8864,44 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _rs.altitude = _al
         _rs.altitude_high = _ah
         _rs.altitude_low = _lo
+    # ── [transverse-bind] — THE BAND'S KNOWN BLIND SPOT, MEASURED ─────
+    # (spec §10.)  ``reach_band_unified`` is a route-edge Dijkstra and
+    # cannot carry a hyperplane, so the writeback's band clamp may move a
+    # node the transect law had just settled.  Nothing is repaired here —
+    # the follow-on is a transect-aware clamp floor/ceiling, its own spec
+    # — but the count is taken every build, on the WRITTEN-BACK values,
+    # so a re-violation can never be an unmeasured suspicion.
+    if _hyper_fp:
+        try:
+            _rv = _n_worst = 0
+            _worst = 0.0
+            _seen: set = set()
+            for (_idx4, _w4, _b_h, _sid) in _hyper_fp:
+                if _sid in _seen:
+                    continue          # the (w, -w) pair is ONE transect
+                _seen.add(_sid)
+                _val = max(
+                    sum(float(w) * float(elev[int(k)])
+                        for w, k in zip(_w4, _idx4)),
+                    -sum(float(w) * float(elev[int(k)])
+                         for w, k in zip(_w4, _idx4)))
+                _ex = _val - float(_b_h)
+                if _ex > 0.02:
+                    _rv += 1
+                    if _ex > _worst:
+                        _worst = _ex
+            _bound = len(_seen)
+            import O4_UI_Utils as _UI_TB
+            _UI_TB.vprint(
+                1, f"  [transverse-bind] {icao}: bound={_bound} "
+                   f"rows={len(_hyper_fp)} clamp_reviolated={_rv} "
+                   f"worst={_worst:.3f} m (band cannot carry a "
+                   f"hyperplane — spec section 10)")
+            setattr(layout, "_transverse_bind_report",
+                    {"bound": _bound, "rows": len(_hyper_fp),
+                     "clamp_reviolated": _rv, "worst_m": _worst})
+        except Exception:                              # pragma: no cover
+            pass
     _stage("writeback")
     # SNAPSHOT RECAPTURE (2026-07-18): the solve captures the scoped
     # snapshot ONCE at its writeback, so the LATE projection run compared

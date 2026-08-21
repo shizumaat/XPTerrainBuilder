@@ -3561,6 +3561,65 @@ except Exception:                                      # pragma: no cover
     _TW = None
 
 
+#: How far an emitted interpolated height may sit from the height the
+#: solve BOUND before the span counts as broken by the emit stage.  The
+#: decimation z-tolerance (spec AMENDMENT A1 section 8c); a collinear
+#: insert is height-neutral by construction, which the walker's own twin
+#: asserts, so anything above this came from a repair that MOVED the
+#: boundary — needle drops, on-edge moves, sliver repairs, decimation.
+BROKEN_BY_EMIT_TOL_M = 0.02
+
+
+def transverse_bind_report(stations, xsection_spans):
+    """``(priced, bound, unbound, broken, worst)`` — the lockstep line
+    (spec section 12 + AMENDMENT A1 section 8c).
+
+    ``stations`` are the census's own priced stations, walked on the
+    EMITTED ring; ``xsection_spans`` are the spans the FINAL PROJECTION
+    bound, walked on the ring it saw, carried in the sidecar.  They are
+    joined on ``station_id`` — never by proximity — and every bound span
+    is re-evaluated against the emitted heights: ``broken`` counts the
+    ones the emit stage moved by more than ``BROKEN_BY_EMIT_TOL_M``.
+
+    The number is the deliverable, not a verdict: it is what decides
+    whether the topology-only emit repairs have to move ahead of the
+    final projection ("nothing moves after the final projection", a
+    separate spec).  This round REPORTS it."""
+    priced = len(stations)
+    if not xsection_spans:
+        return priced, 0, priced, 0, 0.0
+    by_id: dict = {}
+    for sp in xsection_spans:
+        try:
+            by_id.setdefault(tuple(sp["station_id"])[:3], []).append(sp)
+        except Exception:                              # pragma: no cover
+            continue
+    bound = broken = 0
+    worst = 0.0
+    for st in stations:
+        # JOIN ON THE AXIS GEOMETRY (axis, segment, station) — the part
+        # both readers derive from the SAME sidecar axes.  The shape
+        # ordinal is reader-local (a way id here, a ring index there) and
+        # deliberately stays out of the key; where one station prices two
+        # shapes the nearest WIDTH disambiguates, and the width is a
+        # property of the span, not of either reader's numbering.
+        cands = by_id.get(tuple(st.station_id[:3])) or []
+        if not cands:
+            continue
+        sp = min(cands, key=lambda q: abs(float(q.get("width_m", 0.0))
+                                          - float(st.width_m)))
+        bound += 1
+        try:
+            d = max(abs(float(st.z_lo) - float(sp["z_lo"])),
+                    abs(float(st.z_hi) - float(sp["z_hi"])))
+        except Exception:                              # pragma: no cover
+            continue
+        if d > BROKEN_BY_EMIT_TOL_M:
+            broken += 1
+            worst = max(worst, d)
+    return priced, bound, priced - bound, broken, worst
+
+
 def _transverse_span_budget(cap_l: float, width_m: float) -> float:
     """THE cross-section budget, from THE law function
     (``grade_law.transverse_span_budget_m``) — the same product the solve's
@@ -5740,6 +5799,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "fan_ramp_zones": "fan_ramp_zones_ll",
     "disconnected_rings": "disconnected_rings_ll",
     "ruleset": "ruleset",
+    # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
+    # AMENDMENT A1 section 8b).  LAW INPUT, not evidence: the census
+    # re-walks the emitted ring and joins these to report priced / bound /
+    # unbound / broken_by_emit, which is this round's measurement.
+    "xsection_spans": "xsection_spans",
 }
 
 #: Sidecar keys that are EVIDENCE, not law input: they are reported by the
@@ -5843,6 +5907,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
@@ -6030,6 +6095,7 @@ def run_checks(
     fan_ramp_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
+    xsection_spans: Optional[list] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
@@ -6317,9 +6383,10 @@ def run_checks(
         strip_seam_tears, top_n)
     within = within + strip_seam_tears
 
+    _tr_stations: list = []
     transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(
         ways, nodes, ll_to_m, taxi_axes,
-        terrace_joints_m=terrace_joints_m)
+        terrace_joints_m=terrace_joints_m, stations_out=_tr_stations)
     _fam("transverse", transverse)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
         "cap (ICAO Annex 14 §3.9.11)",
@@ -6329,6 +6396,25 @@ def run_checks(
               f"crossing(s) over {n_tr_shapes} shape(s) — coverage is "
               f"pavement a taxi centreline crosses, stations "
               f"{_TRANSVERSE_STEP_M:g} m apart are correlated)")
+    # ── THE LOCKSTEP LINE (spec section 12 + AMENDMENT A1 section 8c) ──
+    # priced HERE, on the emitted ring; bound THERE, on the ring the final
+    # projection saw.  ``broken_by_emit`` is the count the amendment
+    # exists to take: bound spans the emit-stage repairs moved after the
+    # binding.  Printed whenever the patch carries bound spans, and
+    # printed as ZERO-BOUND when it does not, because "the solve bound
+    # nothing here" is exactly the fact a reader must not have to infer.
+    if _tr_stations:
+        # PRINTED EVEN UNDER ``quiet`` — the census runs quiet and this is
+        # the round's measurement, not chatter (the ``[bake] UNVERIFIED``
+        # precedent: a number a report can omit is a number nobody reads).
+        _p, _b, _u, _brk, _bw = transverse_bind_report(
+            _tr_stations, xsection_spans)
+        print(f"  [transverse-bind] priced {_p} / bound {_b} / unbound "
+              f"{_u} / broken_by_emit {_brk}"
+              + (f" (worst {_bw:.3f} m)" if _brk else "")
+              + ("" if xsection_spans else
+                 "  — this patch carries NO bound spans (built before the "
+                 "law, or O4_TRANSVERSE_HYPER=0)"))
     within = within + transverse
 
     spine_dams, n_spine_checked, n_spine_short = (

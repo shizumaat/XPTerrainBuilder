@@ -1207,3 +1207,166 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
                   f"cross-section node(s) on road/service-junction edges from "
                   f"the truck-route spine (spine-first law sampling).")
     return n_added
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE WEIGHTED TRANSECT ROWS — transverse in the solve
+# ══════════════════════════════════════════════════════════════════════
+# Owner ruling RULINGS 2026-08-21; spec
+# ``docs/specs/transverse-hyperplane-solve-spec.md`` §§2-5 and AMENDMENT
+# A1 (§8a).
+#
+# WHY THIS EXISTS BESIDE :func:`lateral_xsection_law_edges`.  That
+# function binds the cross-section as a NODE PAIR, which only works where
+# the lateral pass planted a foot at both ends; measured on the RM lane's
+# CYXY arm, 66 of 75 airside transverse rows have no ring vertex within
+# the weld tolerance of EITHER end, and 35 have no baked pair joining the
+# two sides at all.  A transect's ends are points INTERPOLATED along ring
+# edges, so the law it obeys is a WEIGHTED FOUR-NODE inequality
+# ``|near - far| <= cap_T x width`` with
+# ``near = (1-t) z_a + t z_b``, ``far = (1-s) z_c + s z_d``.  No new
+# vertices are planted (``O4_XSECTION_VERTEX_HITS`` stays parked): the
+# constraint binds the ring the solve already has.
+#
+# WHICH RING (AMENDMENT A1).  The census reads the EMITTED ring, and no
+# projection runs after ``layout.to_osm`` begins — measured on the lane:
+# ``pipeline.py:6488`` is the last projection, and to_osm then repairs
+# slivers (:1591), drops needles (:1816), moves on-edge nodes (:2002),
+# inserts welds (:2325), backfills (:2512), decimates (:2796) and snaps
+# (:3232) before writing the sidecar (:3339).  So the binding happens on
+# the ring ``final_grade_projection`` sees, every bound span is written to
+# the sidecar with its solved heights and parameters, and the census
+# re-walks the emitted ring and REPORTS how many bound spans the emit
+# stage moved (``broken_by_emit``).  The measurement is the deliverable;
+# it is what decides whether the topology-only emit repairs must move
+# ahead of the final projection.
+TRANSVERSE_HYPER = os.environ.get("O4_TRANSVERSE_HYPER", "1") == "1"
+
+#: Where the bound spans ride on the layout for the sidecar (§11).
+_BOUND_SPANS_ATTR = "_transverse_bound_spans"
+
+
+def bound_transect_spans(layout):
+    """The spans the solve BOUND, as the sidecar writes them (read-only)."""
+    return getattr(layout, _BOUND_SPANS_ATTR, None) or []
+
+
+def _shape_rings_for_transects(layout):
+    """``[(role, ring_xy)]`` for every shape the transverse law prices —
+    the layout's OWN rings, i.e. the ones ``final_grade_projection`` is
+    about to solve on."""
+    out = []
+    for s in layout.shapes:
+        role = getattr(s, "role", None)
+        if role not in (_TAXI_AXIS_PRICED_ROLES | _SERVICE_AXIS_PRICED_ROLES):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            ring = _open(poly)
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        if len(ring) >= 3:
+            out.append((role, ring))
+    return out
+
+
+def transect_hyper_rows(layout, bucket_to_idx, elev, *, stage_out=None,
+                        spans_out=None):
+    """``[(idx4, w4, budget_m, station_id)]`` — the weighted transect rows
+    for THIS pass's node space.
+
+    ``elev`` supplies the heights the walk reads (the field the projection
+    is about to relax), so the station selection is made on the surface
+    the solve actually has.  Identity is the layout's own canonical point
+    registry — ``get_or_add`` → ``bucket_to_idx``, the SAME join
+    ``lateral_xsection_law_edges`` and the near-miss frontage builder use,
+    never a proximity match; a ring vertex that resolves to no node drops
+    its row (binding a node that is something else is worse than binding
+    nothing).
+
+    Each transect yields TWO rows, ``w`` and ``-w``, which is how
+    ``|near - far| <= b`` is expressed as two half-spaces.  ``spans_out``
+    receives one record per BOUND transect for the sidecar (§11)."""
+    if not TRANSVERSE_HYPER:
+        return []
+    from . import transect_walk as _TW
+    from . import grade_law as _GLaw
+    from .grade_graph import centerline_specs
+    cps = getattr(layout, "canonical_points", None)
+    if cps is None or not bucket_to_idx:
+        return []
+    shapes_ll = _shape_rings_for_transects(layout)
+    if not shapes_ll:
+        return []
+
+    def _idx_of(pt):
+        try:
+            return bucket_to_idx.get(cps.get_or_add(float(pt[0]),
+                                                    float(pt[1])))
+        except Exception:                              # pragma: no cover
+            return None
+
+    tshapes = []
+    ring_idx: list = []
+    for si, (role, ring) in enumerate(shapes_ll):
+        idxs = [_idx_of(p) for p in ring]
+        if any(i is None for i in idxs):
+            # A ring the solve's node space does not fully carry cannot be
+            # bound: reported by the caller's count, never bound partially.
+            continue
+        zs = [float(elev[i]) for i in idxs]
+        tshapes.append(_TW.TransectShape(
+            role=role, ring=[(p[0], p[1], z) for p, z in zip(ring, zs)],
+            key=len(ring_idx)))
+        ring_idx.append(idxs)
+    if not tshapes:
+        return []
+    axes = [_TW.TransectAxis(poly=pts, seg_caps=seg_caps,
+                             is_service=bool(is_svc))
+            for (pts, seg_caps, is_svc, _rk, _rp) in centerline_specs(layout)]
+    if not axes:
+        return []
+
+    def _priced(axis):
+        return (_SERVICE_AXIS_PRICED_ROLES if axis.is_service
+                else _TAXI_AXIS_PRICED_ROLES)
+
+    rows: list = []
+    for st in _TW.walk_transects(tshapes, axes, _priced):
+        idxs = ring_idx[st.shape_key]
+        nring = len(idxs)
+        a = idxs[st.edge_lo]
+        b = idxs[(st.edge_lo + 1) % nring]
+        c = idxs[st.edge_hi]
+        d = idxs[(st.edge_hi + 1) % nring]
+        if len({a, b, c, d}) < 3:
+            # degenerate: the two ends share their edge — the pair law
+            # already governs it.
+            continue
+        budget = _GLaw.transverse_span_budget_m(st.cap_l, st.width_m)
+        if budget <= 0.0:
+            continue
+        t, s_ = float(st.t_lo), float(st.t_hi)
+        w = ((1.0 - t), t, -(1.0 - s_), -s_)
+        idx4 = (int(a), int(b), int(c), int(d))
+        rows.append((idx4, w, float(budget), st.station_id))
+        rows.append((idx4, tuple(-x for x in w), float(budget),
+                     st.station_id))
+        if stage_out is not None:
+            stage_out[st.station_id] = _STAGE_A
+        if spans_out is not None:
+            spans_out.append({
+                "station_id": list(st.station_id[:3]),
+                "role": st.role,
+                "lo": [layout.m_to_ll(*st.point_lo())],
+                "hi": [layout.m_to_ll(*st.point_hi())],
+                "t": t, "s": s_,
+                "z_lo": float(st.z_lo), "z_hi": float(st.z_hi),
+                "width_m": float(st.width_m),
+                "budget_m": float(budget),
+            })
+    if spans_out is not None:
+        setattr(layout, _BOUND_SPANS_ATTR, list(spans_out))
+    return rows

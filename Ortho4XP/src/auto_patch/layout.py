@@ -3486,6 +3486,19 @@ class PavementLayout:
             # lawfully enforced).
             "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
                                   None) or []),
+            # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec
+            # transverse-hyperplane-solve-spec.md section 11 + AMENDMENT
+            # A1 section 8b).  Every cross-section the FINAL PROJECTION
+            # bound as a weighted 4-node constraint, with the endpoints
+            # it interpolated (t/s along the crossed ring edges) and the
+            # heights it settled them at.  The census re-walks the
+            # EMITTED ring and joins on ``station_id`` to report
+            # ``priced / bound / unbound / broken_by_emit`` — the last
+            # being the spans the emit-stage repairs moved after the
+            # binding, which is the measurement A1 exists to take.
+            # A patch without them reports ``bound 0``.
+            "xsection_spans": list(
+                getattr(self, "_transverse_bound_spans", None) or []),
             # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
             # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
             # DECLARED joint polylines, their panel levels and their

@@ -48,7 +48,7 @@ from . import config as _CFG
 from . import grade_law as _GL
 from . import fabric_flags as _FF
 from .layout import (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION,
-                     ROLE_SERVICE_ROAD)
+                     ROLE_SERVICE_ROAD, SHARED_VERTEX_TOL_M)
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
@@ -1272,6 +1272,32 @@ def _shape_rings_for_transects(layout):
     return out
 
 
+def _edge_len(ring, k: int) -> float:
+    """Length of ring edge ``k`` (``ring[k]`` -> ``ring[k+1]``, wrapping)."""
+    n = len(ring)
+    if n < 2:
+        return 0.0
+    ax, ay = ring[k % n][0], ring[k % n][1]
+    bx, by = ring[(k + 1) % n][0], ring[(k + 1) % n][1]
+    return math.hypot(bx - ax, by - ay)
+
+
+def _snap_param(t: float, edge_len_m: float) -> float:
+    """``t`` snapped to 0 or 1 when the foot is within the WELD TOLERANCE
+    of that endpoint — the geometric meaning of "this foot IS that
+    vertex".  The floor is ``SHARED_VERTEX_TOL_M / edge_len`` (capped at
+    0.5, since past the midpoint the two ends compete), so it is the same
+    HALF METRE on every edge rather than a tuned parameter."""
+    if edge_len_m <= 0.0:
+        return 0.0 if t < 0.5 else 1.0
+    floor = min(0.5, SHARED_VERTEX_TOL_M / edge_len_m)
+    if t < floor:
+        return 0.0
+    if t > 1.0 - floor:
+        return 1.0
+    return t
+
+
 def transect_hyper_rows(layout, bucket_to_idx, elev, *, stage_out=None,
                         spans_out=None):
     """``[(idx4, w4, budget_m, station_id)]`` — the weighted transect rows
@@ -1336,6 +1362,7 @@ def transect_hyper_rows(layout, bucket_to_idx, elev, *, stage_out=None,
     rows: list = []
     for st in _TW.walk_transects(tshapes, axes, _priced):
         idxs = ring_idx[st.shape_key]
+        ring = tshapes[st.shape_key].ring
         nring = len(idxs)
         a = idxs[st.edge_lo]
         b = idxs[(st.edge_lo + 1) % nring]
@@ -1348,7 +1375,22 @@ def transect_hyper_rows(layout, bucket_to_idx, elev, *, stage_out=None,
         budget = _GLaw.transverse_span_budget_m(st.cap_l, st.width_m)
         if budget <= 0.0:
             continue
-        t, s_ = float(st.t_lo), float(st.t_hi)
+        # ── THE VERTEX SNAP (attempt 2, 2026-08-21) ───────────────
+        # A foot within the WELD TOLERANCE of a ring vertex IS that
+        # vertex.  Left un-snapped it becomes a near-zero WEIGHT, and the
+        # half-space step ``r / ||w_free||^2`` then divides by that
+        # square: a foot 0.5 mm from a vertex on a 30 m edge weighs
+        # 1.7e-5, and if it is the row's only free node the correction is
+        # ~3e9 x r.  Measured, attempt 1: 984 HECA rows under 1e-4, and
+        # the projection published a -2608 m apron value the band clamp
+        # then caught.  The floor is GEOMETRIC, not a tuned constant —
+        # ``SHARED_VERTEX_TOL_M`` (the weld tolerance the whole tree snaps
+        # vertices at) divided by the edge's own length, so "within half a
+        # metre of the corner" means the same thing on a 5 m edge and a
+        # 300 m one.  Snapping makes the row a 3- or 2-node constraint and
+        # guarantees ||w_free||^2 >= W_FLOOR^2 by construction.
+        t = _snap_param(float(st.t_lo), _edge_len(ring, st.edge_lo))
+        s_ = _snap_param(float(st.t_hi), _edge_len(ring, st.edge_hi))
         w = ((1.0 - t), t, -(1.0 - s_), -s_)
         idx4 = (int(a), int(b), int(c), int(d))
         rows.append((idx4, w, float(budget), st.station_id))

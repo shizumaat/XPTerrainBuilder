@@ -220,6 +220,16 @@ def walk_transects(shapes: Sequence[TransectShape],
                     t = (rx * ny - ry * nx) / den
                     if t < -1e-9 or t > 1.0 + 1e-9:
                         continue
+                    # THE ADMISSION TOLERANCE MUST NOT LEAK INTO THE
+                    # PARAMETER (2026-08-21, attempt 2).  A hit AT an
+                    # endpoint lands at t = -1e-9 or 1+1e-9, and a reader
+                    # that turns t into a WEIGHT then carries a tiny
+                    # NEGATIVE coefficient — measured on the bound rows:
+                    # min(t, 1-t, s, 1-s) reached -1.6e-13 at HECA.  The
+                    # tolerance admits the hit; the parameter is the
+                    # position, and a position outside its own edge is
+                    # not one.
+                    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
                     u = (rx + t * ex) * nx + (ry + t * ey) * ny
                     if abs(u) > half_m:
                         continue

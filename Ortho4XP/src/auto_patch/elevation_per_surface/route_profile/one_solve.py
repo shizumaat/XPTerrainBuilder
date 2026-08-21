@@ -2639,8 +2639,23 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                                          float(_r[_k]), 0.0, 0.0)
                 _wf = H_w * H_free
                 _nrm = (_wf * _wf).sum(1)
+                # THE STEP IS CAPPED AT THE ROW'S OWN VIOLATION (attempt
+                # 2, 2026-08-21).  ``r / ||w_free||^2`` is the exact
+                # projection onto the half-space, and it is exact only
+                # while the norm is healthy: a near-degenerate weight
+                # vector turns a centimetre of excess into a kilometre of
+                # correction (measured attempt 1: a -2608 m apron value
+                # the band clamp caught).  The vertex snap upstream now
+                # bounds the norm geometrically; this cap is the second
+                # belt — with every |w| <= 1, a step of |r| moves no node
+                # further than the violation it is answering, so a row
+                # can never author more displacement than it measures.
+                # Where the norm IS healthy (the overwhelming majority)
+                # the cap is inactive and the step is the exact
+                # projection.
                 _step = np.where(_act & (_nrm > 0.0), _r / np.maximum(
                     _nrm, 1e-30), 0.0)
+                _step = np.clip(_step, -np.abs(_r), np.abs(_r))
                 _corr = -(_step[:, None] * _wf)
                 _flat = H_idx.ravel()
                 _acc = np.bincount(_flat, weights=_corr.ravel(),

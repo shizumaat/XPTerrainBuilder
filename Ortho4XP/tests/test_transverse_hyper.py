@@ -127,3 +127,57 @@ def test_a_path_that_cannot_carry_them_refuses(monkeypatch):
             [_entry(hyper=[_hyper((0, 1, 2, 3),
                                   (1.0, 0.0, -1.0, -0.0), 0.2)],
                     edges=[(0, 1, 10.0)])], set())
+
+
+# ── THE GUARD (attempt 2, 2026-08-21) ──────────────────────────────────
+# Attempt 1 published a -2608 m apron value: a foot a fraction of a
+# millimetre from a ring vertex became a near-zero WEIGHT, and the
+# half-space step ``r / ||w_free||^2`` divides by that square.  Two
+# guards, both asserted here: the foot SNAPS to the vertex it already is
+# (geometric floor SHARED_VERTEX_TOL_M / edge length), and the step is
+# capped at the row's own violation.
+
+def test_a_foot_within_the_weld_tolerance_snaps_to_its_vertex():
+    from auto_patch.lateral_spine_nodes import _snap_param
+    # 30 m edge ⇒ floor 0.5/30 = 0.0167
+    assert _snap_param(1e-6, 30.0) == 0.0
+    assert _snap_param(1.0 - 1e-6, 30.0) == 1.0
+    assert _snap_param(0.5, 30.0) == 0.5          # a real mid-edge foot
+    # the SAME half metre on a long edge and a short one
+    assert _snap_param(0.001, 300.0) == 0.0       # 0.3 m from the corner
+    assert _snap_param(0.05, 5.0) == 0.0          # 0.25 m from the corner
+    assert _snap_param(0.2, 30.0) == 0.2          # 6 m out: not a vertex
+    # the admission tolerance can never survive as a NEGATIVE weight
+    assert _snap_param(-1e-13, 30.0) == 0.0
+
+
+def test_the_walker_never_emits_a_parameter_outside_its_edge():
+    """The -1e-9 admission tolerance is about whether the hit EXISTS; the
+    parameter is the position, and a position outside its own edge is not
+    one.  Attempt 1's bound rows reached t = -1.6e-13."""
+    from auto_patch import transect_walk as TW
+    ring = [(0.0, -10.0, 10.0), (60.0, -10.0, 10.0),
+            (60.0, 10.0, 10.4), (0.0, 10.0, 10.4)]
+    sts = list(TW.walk_transects(
+        [TW.TransectShape(role="apron", ring=ring, key="W")],
+        [TW.TransectAxis(poly=[(0.0, 0.0), (60.0, 0.0)], seg_caps=[0.01])],
+        lambda _a: {"apron"}))
+    assert sts
+    for st in sts:
+        assert 0.0 <= st.t_lo <= 1.0 and 0.0 <= st.t_hi <= 1.0
+
+
+def test_a_degenerate_weight_cannot_move_a_node_further_than_its_violation():
+    """The step cap, on the shape attempt 1 actually produced: one free
+    node carrying a 1e-6 weight.  Un-capped the correction is ~1e12 x r."""
+    w = (1e-6, 1.0 - 1e-6, -1.0, -0.0)
+    elev = [0.0, 0.0, -1.0, 0.0]          # r = near - far = 1.0 over b=0.2
+    before = list(elev)
+    OS.feasibility_project(
+        elev, [_entry(hyper=[_hyper((0, 1, 2, 3), w, 0.2)],
+                      edges=[(0, 1, 10.0)])], {1, 2})
+    r0 = sum(a * b for a, b in zip(w, before)) - 0.2
+    moved = max(abs(a - b) for a, b in zip(elev, before))
+    assert moved <= abs(r0) + 1e-9, (
+        f"a row moved a node by {moved} m against its own {r0} m violation")
+    assert all(abs(v) < 1e3 for v in elev), "the projection diverged"

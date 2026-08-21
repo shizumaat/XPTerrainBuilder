@@ -2267,3 +2267,51 @@ HECA in three arms each (base / R7a-only / R7a+R7b).  Walls are
 LEDGER-FRAME ONLY and are not a timing claim — another lane's KDFW and
 OTHH builds ran concurrently throughout (21 concurrent `build_airport`
 processes at peak).
+
+## 2026-08-21 — apron within-shape population = frontage chords (lane/apronpop)
+
+Spec `docs/specs/apron-within-shape-population-spec.md`, owner ruling
+RULINGS 2026-08-21b. Commits 9bbeedf (predicate + twins + sidecar family
+tag), 0d3028e (the read instrument), this one.
+
+WHAT WAS RUN. The 15 twins of
+`tests/test_apron_within_shape_population.py`; the seven test files
+directly covering the touched code, once, with a MATCHED CONTROL of the
+same selection in a clean `apronpopctl` worktree at the lane's base
+commit 8058002; three harness builds (CYXY, SPJC, HECA) plus a CYXY
+flag-off arm; `harness/census.py` on all six patches; `census_rows_diff`
+and `airside_value_delta` against the 2026-08-21 battery patches
+(artifact-ledger tags `w3s7a_*`).
+
+MEASURED (battery -> lane, adjudicated airside):
+
+| airport | airside | within_shape | transverse | steps |
+|---|---|---|---|---|
+| CYXY | 75 -> 204 | 0 -> 3 | 63 -> 188 | 0 -> 0 |
+| SPJC | 189 -> 474 | 45 -> 12 | 46 -> 331 | 0 -> 37 |
+| HECA | 1487 -> 1508 | 1284 -> 643 | 95 -> 572 | 3 -> 192 |
+
+The RULED population behaves as the read predicted (SPJC drops exactly
+the 34 generic apron rows; HECA drops 641 of the predicted 648; the
+survivors are frontage chords). The DEBT RELOCATES TO TRANSVERSE, the
+family the ruling itself names as the corridor surface's own law and
+which is NOT enforced in the solve on main.
+
+UNPAID / OWED:
+
+- THE BATTERY BARS ARE EXCEEDED at CYXY (204 vs 75) and SPJC (474 vs
+  189) and marginally at HECA (1508 vs 1487). The lane is therefore NOT
+  mergeable alone; it is measured against a main whose transverse family
+  is censused but not solved. No arm was run against
+  lane/transect + lane/routemetric, which is where the ruling puts the
+  payment — that composed arm is OWED before any merge decision.
+- SPLP / KAFW / KDFW were not rebuilt: three of the six battery airports
+  have no arm under this tree.
+- No build-time measurement (per-change timing gates remain suspended).
+  The population shrink is visible as the emit-snap law-pair count
+  (CYXY 8443 -> 7139, HECA 77299) but no wall time is claimed.
+- The projection-law certificate ROSE rather than fell (spec §6 predicted
+  a fall): CYXY 235 -> 277 edges over cap, 193 -> 214 both-hard. Only
+  CYXY has both arms; SPJC (806 / 403) and HECA (7283 / 3281) have the
+  rule-on arm only, because the spec scoped the flag-off arm to CYXY.
+- The census/bake FOREIGN-ROW class (below) is reported, not fixed.

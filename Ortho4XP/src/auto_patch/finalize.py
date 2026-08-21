@@ -448,14 +448,29 @@ def emit_terrain_transition_features(layout: PavementLayout, icao: str, xplane_r
         # interior).  Must follow the separation above, which re-derives
         # DEM altitudes for clipped results.
         try:
-            from .config import GROUNDSIDE_MAX_GRADE as _GS_CAP
             from .groundside import _grade_limit_groundside_chords
             n_gl = _grade_limit_groundside_chords(layout)
             if n_gl:
+                # THE ROAD FAMILY IS IN THIS PASS (wave-3 step 1, spec
+                # docs/specs/road-chord-limiter-spec.md): report per role,
+                # with the caps it shaped to and the shared-node census
+                # the spec asks for by name — the corridor-coherence claim
+                # is then a NUMBER in the build log, not an assumption.
+                _st = getattr(layout, "_chord_limit_stats", None) or {}
+                _caps = _st.get("caps") or {}
+                _by = ", ".join(
+                    f"{n} {role} @{100 * _caps.get(role, 0.0):.0f}%"
+                    for role, n in sorted((_st.get("changed") or {}).items()))
+                _nm = _st.get("road_nodes_near_miss") or 0
                 UI.vprint(1,
                     f"  [pav-builder] chord-grade-limited {n_gl} "
-                    f"groundside polygon(s) to "
-                    f"{100 * _GS_CAP:.0f}%.")
+                    f"polygon(s): {_by or 'groundside'}; shared nodes "
+                    f"road/lot {_st.get('shared_road_lot_nodes', 0)}, "
+                    f"rect/junction "
+                    f"{_st.get('shared_rect_junction_nodes', 0)}, "
+                    f"stricter-cap {_st.get('stricter_cap_nodes', 0)}"
+                    + (f", road near-miss {_nm}" if _nm else "")
+                    + f" (of {_st.get('nodes', 0)} node(s)).")
         except _GEOM_EXC:
             pass
         # Then emit DEM-bridge polygons inside the boundary

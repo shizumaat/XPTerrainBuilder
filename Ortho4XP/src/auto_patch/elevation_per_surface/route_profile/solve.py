@@ -8365,6 +8365,25 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             # solve's), read in the z′ = z + crown frame
                             # lifted at entry above.
                             n_nodes=n, crown_space="uncrowned z'")
+    # ── AIRSIDE-VALUE AUDIT ACROSS THIS PASS (road-chord-limiter lane,
+    # lead ruling 2026-08-20) ──────────────────────────────────────────
+    # AIRSIDE IS KING: a post-solve GROUNDSIDE/ROAD mutation may move
+    # groundside/road nodes only.  The partition below already makes that
+    # structural on the CONSTRAINT side (airside projects with no
+    # groundside pair in its set), but nothing watched the SEED side: an
+    # airside-claimed node whose value a groundside pass rewrote enters
+    # the airside pass with a different seed, and the airside pass then
+    # re-projects from it.  This is the WATCHER for that channel — the
+    # airside node set is the partition's own complement of
+    # ``_fp_receivers`` (``layout.GROUNDSIDE_ROLES``, the same registry
+    # ``check_grade.row_side`` reads), so there is no second role list.
+    # REPORT ONLY: it freezes nothing.  Freezing airside here was built
+    # and MEASURED in the cycle-4 ingestion round and is refused — see the
+    # hold note above (HECA plateau airside 16,832 → 40,902): this pass is
+    # currently what makes the airside surface lawful, so holding it ships
+    # the solve's residual verbatim.
+    _air_idx = [i for i in range(n) if i not in _fp_receivers]
+    _air_entry = [elev[i] for i in _air_idx]
     rem, bh = feasibility_project_partitioned(
                                   elev, joint, hard, force_scalar=True,
                                   receiver_nodes=_fp_receivers, n_nodes=n,
@@ -8387,6 +8406,30 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   group_bounds=_fp_group_bounds,
                                   node_bounds=_fp_node_bounds,
                                   declared_out=_fp_declared)
+    # The audit's read-out.  ``>0`` is a STOP LINE, not a failure: the
+    # count is the size of the airside second-authorship this pass
+    # carries, and it is a PRE-EXISTING number (every post-solve
+    # groundside writer feeds it, the lot chord limiter first of all).
+    try:
+        import O4_UI_Utils as _UI_AIR
+        _air_moved = 0
+        _air_worst = 0.0
+        for _k, _i in enumerate(_air_idx):
+            _d = abs(float(elev[_i]) - float(_air_entry[_k]))
+            if _d > _IDEMPOTENCE_TOL_M:
+                _air_moved += 1
+                if _d > _air_worst:
+                    _air_worst = _d
+        _UI_AIR.vprint(1,
+            f"  [airside-value-audit] {icao} final#{_ml_pass or 1}: "
+            f"{_air_moved} of {len(_air_idx)} AIRSIDE node(s) moved across "
+            f"this projection by > {_IDEMPOTENCE_TOL_M} m "
+            f"(worst {_air_worst:.3f} m)"
+            + (" — STOP: airside is king, a projection this pass drives "
+               "from post-solve groundside seeds is a second author on "
+               "airside values" if _air_moved else " — CLEAN"))
+    except Exception:                                  # pragma: no cover
+        pass
     # ── §4 BAND-3 AUDIT (write-only, env ``O4_TERRACE_FP_AUDIT``) ───────
     # The band-3 instrument is this pass's ``rem`` tally.  It already
     # consumes the terrace-relaxed budgets (both edge sets are rewritten

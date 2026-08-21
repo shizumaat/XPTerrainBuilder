@@ -1,4 +1,75 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260821 (WAVE 3, first pass — Mac session, 6 Opus lanes; FOUR
+# MERGES, composed battery PASS all six: 9,350/2,211 -> 6,121/1,999;
+# app 1.0.254 on engine 1.50.1697 shipped to dist.nosync, embedded==
+# dist; RM/C3/SM3 HELD on a NEW owner question; RULINGS 2026-08-20/21
+# has the lead adjudications + six owner questions)
+# MERGED (in order): F3c graded handoff 47e83ed (HECA drainage_spine
+#   64->35, the 34-row crater-vs-dam class GONE, all else byte-ident);
+#   crown fix e55f98d (undeclared crown endpoint = UNKNOWN interval,
+#   not ridge; HECA ws::runway 3->1, 0 new rows anywhere; new reporter
+#   CROWN DECLARATION GAP HECA 215/CYXY 29/SPLP 27); ROAD CHORD
+#   LIMITER 1590f75 (service_road+service_junction in the finalize
+#   clamp, stricter cap at shared nodes, AIRSIDE PINNED AS DATA at the
+#   seed entry — CYXY 336->206, SPJC 482->407, HECA 7,548->4,844 on
+#   its base; airside values moved vs control CYXY 0/SPJC 2@0.01/HECA
+#   1@0.12 m; new [airside-value-audit] line); EAT RECT-LEVEL REFUSAL
+#   4540c29 (the brief's "refused pin seeds" premise was WRONG — the
+#   contradiction envelope reached 3 of 19 KDFW pins, the 16 UNJUDGED
+#   kept authority; now a contradiction on any pin condemns the whole
+#   flat rect; KDFW 284a->150a, 134 gone/0 new, CYXY byte-ident). Also
+#   on main: triage dossier docs/triage/KAFW-KDFW-20260820.md
+#   (c7caea3), ledger refresh d570fe0, RULINGS 1872e16,
+#   tools/airside_value_delta.py (+twin, INDEX) — the instrument that
+#   sees airside value drift the census cannot.
+# BATTERY 2026-08-21 (composed main 4540c29/1872e16, all rc=0, ledger
+#   d570fe0): CYXY 206/75a, SPLP 36/34a, SPJC 397/189a, KAFW 259/64a,
+#   HECA 4,812/1,487a, KDFW 411/150a = 6,121/1,999. Per-airport
+#   airside <= 08-16 bar EVERYWHERE. HECA -29 proven = F3c emitter.
+# HELD: lane/routemetric fec3b34 (REBASED on main, MERGE-READY: bake-
+#   hash stale-refusal landed per the lead condition, ring-adjacency
+#   one predicate, sm_decompose promoted; CYXY on this base 286/90a);
+#   lane/c3rework ae4a6d5 (airside-frozen C3: worst pull 58.5->1.11 m,
+#   HECA gs -703; STOP — see owner Q1); lane/resid 31909dc adaptive
+#   join_snap_t (clean test record; buys ONE row for 415/353 churn —
+#   owner Q3); A2 cutback default-OFF (pre-solve channel, owner Q4);
+#   C2 lawpair + SM3 NOT re-measured this wave (blocked on RM).
+# OWNER QUESTIONS (full text RULINGS 2026-08-20/21): Q1 C3 CANNOT PAY
+#   RM's relocated AIRSIDE debt (those rows are taxi-pass pairs; the
+#   taxi-pass aligned-partner completion O4_XSECTION_VERTEX_HITS was
+#   previously REFUSED) — extend C3 onto the taxi pass, or park RM?
+#   RM+SM3 wait on this. Q2 RAOA-3 (CYXY -10406 1.68 m/0.45 m survive).
+#   Q3 adaptive snap merge/drop. Q4 A2 spec revision. Q5 KDFW in-sim
+#   (refused inset 220.obj + KMCI/KDEN y-bakes; EAT: KSTJ rect now
+#   refuses whole, ~70% KDFW pins unjudged). Q6 KAFW N-1: road
+#   transverse 2-8% is OVER the cross-section cap, UNDER the 8% chord
+#   cap; the limiter DEPOSITS flattened chord debt into that band (KAFW
+#   148->170, HECA +218) — now the largest groundside class; which cap
+#   is the law?
+# DOCKET: HECA limiter residual node 30.12927761885,31.41320440005
+#   0.12 m; pre-existing final-projection airside channel (HECA 6,085
+#   nodes worst 16.9 m, control too); test_the_near_miss_frontage_law_
+#   is_one_authority FAILS ON MAIN (NEAR_MISS_FRONTAGE_SOFT_ROLES lacks
+#   service_junction vs its twin — pre-existing); blast.py misses
+#   conftest-fixture reach (test_pavement_grade) — task chip spawned;
+#   sm_decompose needs route_pair_legs (RM-lane only) until RM merges;
+#   the nine pre-existing pytest failures (DEFERRED_VERIFICATION) are
+#   unchanged across every arm (3-arm md5-identical).
+# APP: 1.0.254 from 7588def, engine 1.50.1697 frozen fresh (verified:
+#   grade_law carries drainage_spine_interval + crown interval;
+#   groundside carries _airside_claimed_keys), embedded binary cmp-
+#   identical to dist. NOT absolute-zero (6,121 remain) — this is the
+#   owner-queued wave-3 bundle, not an acceptance bundle. make_engine
+#   now prunes tmp/ (lane cache root re-tripped the iCloud conflict
+#   glob on the SPJC "3.0 Nueva Terminal" pack name).
+# WORKTREES: lanes chordlim, cyxy20 (lane/routemetric), c3rework,
+#   resid, fixtriage, eatseed stand; controls residctl/residA/c3ctl/
+#   c3pre/r5base/sm3base torn down. ~50 older worktrees remain — a
+#   cleanup session is overdue.
+# NEXT: owner answers Q1-Q6 -> RM merge (fec3b34, re-run acceptance
+#   composed) -> SM3 + C2 on that base -> A2/N-1 per Q4/Q6 -> ledger.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260818 (REMOTE INTERVIEW SESSION — ALL SIX PENDING OWNER RULINGS
 # CLOSED; wave 3 re-ordered under them; no builds — remote container)
 # RULINGS 2026-08-18 (canon in RULINGS.md, full text there):

@@ -31,13 +31,15 @@ cd "$ENGINE"
 # freeze uses its own venv; iCloud mints thousands of dupes in
 # site-packages), dist/build, and .claude (session worktrees carry full
 # checkout copies — including nested Airport_mod_cache dirs whose pack
-# names re-trip the pattern, 2026-07-27 — and are never embedded).
+# names re-trip the pattern, 2026-07-27 — and are never embedded), and
+# tmp/ (the lane-local engine cache root, tmp/engine_caches/Airport_mod_cache,
+# seeds the same pack names from the shared corpus, 2026-08-21).
 # No `| head` inside the substitution: with pipefail, head closing the
 # pipe early SIGPIPEs find and the whole script died with exit 141 —
 # silently, under callers that piped our output (2026-07-23).
 CONFLICTS="$(find . -path ./dist -prune -o -path ./build -prune \
   -o -path ./Airport_mod_cache -prune -o -path ./venv -prune \
-  -o -path ./.claude -prune \
+  -o -path ./.claude -prune -o -path ./tmp -prune \
   -o -name '* [2-9].*' -print)"
 if [[ -n "$CONFLICTS" ]]; then
   echo "ERROR: iCloud conflict copies in the engine checkout — clean first:" >&2

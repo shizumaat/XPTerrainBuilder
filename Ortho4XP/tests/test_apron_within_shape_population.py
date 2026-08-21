@@ -75,7 +75,9 @@ SPINE_XY = {(300.0, 0.0), (-100.0, 0.0)}
 
 #: the anchor + metre↔lat/lon pair BOTH readers use, so the census's
 #: emitted-node frame is the layout's own frame.
-ANCHOR = (30.0, 31.0)
+#: OFF the integer graticule on purpose — a node at an integer
+#: lat/lon is a TILE SEAM pin and the law exempts along-seam pairs.
+ANCHOR = (30.5, 31.5)
 _MPD_LAT = 111320.0
 _MPD_LON = 96000.0
 
@@ -401,6 +403,66 @@ def test_zero_building_apron_is_fully_populated_with_the_rule_off(rule_off):
     population (the remaining skips are the pre-existing body-chord and
     spine-crossing ones)."""
     assert len(_edges_xy(_layout(with_pads=False))) >= 10
+
+
+# ── the READ instrument (tools/frontage_split --apron-population) ────
+
+_POP_OSM = """<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' generator='apronpop-twin'>
+%(nodes)s
+%(ways)s
+</osm>
+"""
+
+
+def _pop_fixture(tmp_path):
+    """A one-apron / one-pad / one-corridor patch with a STEEP frontage
+    chord and a STEEP generic chord — so the census emits one of each and
+    the read has something to partition."""
+    ring = [(-100.0, -40.0), (300.0, -40.0), (300.0, 0.0), (300.0, 120.0),
+            (60.0, 120.0), (20.0, 120.0), (-100.0, 120.0), (-100.0, 0.0)]
+    #    the SPINE node (-100, 0) is 3 m below the pad-shared node
+    #    (20, 120): a 169.7 m frontage chord at 1.77 % (apron cap 1 %).
+    alt = {(-100.0, 0.0): 97.0, (20.0, 120.0): 100.0}
+    nid, nodes_xml, nid_of = 0, [], {}
+    for (x, y) in ring + PAD1[2:]:
+        nid -= 1
+        lat, lon = _m_to_ll(x, y)
+        nid_of[(x, y)] = str(nid)
+        nodes_xml.append(
+            f"  <node id='{nid}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+            f"<tag k='alt_abs' v='{alt.get((x, y), 100.0):.2f}' /></node>")
+
+    def _way(wid, role, pts):
+        refs = "".join(f"<nd ref='{nid_of[p]}' />" for p in pts)
+        return (f"  <way id='{wid}'>{refs}<nd ref='{nid_of[pts[0]]}' />"
+                f"<tag k='role' v='{role}' />"
+                f"<tag k='shapeID' v='{wid}' /></way>")
+
+    ways_xml = [_way("-10", "apron", ring),
+                _way("-11", "building", PAD1)]
+    osm = tmp_path / "apronpop.osm"
+    osm.write_text(_POP_OSM % {"nodes": "\n".join(nodes_xml),
+                               "ways": "\n".join(ways_xml)})
+    (tmp_path / "apronpop.osm.axes.json").write_text(__import__("json").dumps({
+        "anchor": list(ANCHOR),
+        "axes": [[[list(_m_to_ll(*p)) for p in SPINE], 0.015, 0.015, -1]],
+    }))
+    return osm
+
+
+def test_the_read_partitions_the_population_through_the_law_itself(tmp_path):
+    """The ``--apron-population`` axis is a READ, not a second law: its
+    verdict IS ``grade_law.is_frontage_chord`` and its partition is
+    exhaustive (rows == P1 + CHORD + GENERIC)."""
+    import frontage_split as FS
+    rep = FS.apron_population(_pop_fixture(tmp_path))
+    ap = rep["per_role"].get("apron")
+    assert ap is not None, rep
+    assert ap["rows"] == ap["P1"] + ap["chord"] + ap["generic"]
+    assert ap["chord"] >= 1, ap
+    assert rep["corridor_cover_radius_m"] == pytest.approx(13.5)
+    assert rep["frontage_vertices"] == 2
 
 
 # ── the corridor cover is the EXISTING constant pair ─────────────────

@@ -376,6 +376,195 @@ def print_seats(a: Path, b: Path) -> None:
               f"(>0.01 m), worst {max(moved, key=abs):+.3f} m")
 
 
+# ─────────────────────────────────────────────────────────────────────
+# THE APRON MOVEMENT-SURFACE READ (--apron-population)
+#
+# Owner ruling RULINGS 2026-08-21b: an apron's cap is owed on its
+# MOVEMENT SURFACES — frontage chords (building->spine) and stand
+# entries — never on a generic ring-vertex pair.  This axis answers, on
+# an EMITTED patch and per soft role:
+#
+#   * how the role's ``within_shape`` population splits into P1 (an
+#     inter-pad frontage step), FRONTAGE CHORD and GENERIC;
+#   * the kept rows above a grade threshold, with the pad they front —
+#     the seat/anchor docket the spec §10 asks for;
+#   * the same split on ``junction`` (ruling clause 4: REPORT, then ask).
+#
+# IT DERIVES NO LAW.  The verdict is ``grade_law.is_frontage_chord`` —
+# THE production predicate itself, the one ``classify_pair`` calls — fed
+# a ``PairContext`` built from the row's own endpoints; the frontage
+# vertices come from ``grade_law.frontage_vertex_keys`` and the corridor
+# cover from ``apron_terrace.spine_corridor_cover``, both the engine's
+# own single implementations.  A private re-spelling of the predicate is
+# exactly the census-wrapper defect (RULINGS ``7e90032``).
+# ─────────────────────────────────────────────────────────────────────
+
+def apron_population(patch: Path, grade_pct_floor: float = 5.0) -> dict:
+    """The movement-surface split of every soft role's ``within_shape``
+    population on one emitted patch."""
+    from shapely.geometry import LineString, Point
+    from shapely.prepared import prep
+    from auto_patch import grade_law as GL
+    from auto_patch.elevation_per_surface.route_profile import (
+        apron_terrace as AT)
+
+    fam: dict = {}
+    ctx = cg.law_context_from_sidecar(patch, announce=False)
+    cg.run_checks_law_true(patch, family_out=fam, quiet=True, top_n=0)
+    nodes, ways = cg._parse_osm(patch)
+    ll_to_m = cg._ll_to_m_factory(nodes, anchor=ctx.get("anchor"))
+
+    # THE CORRIDOR COVER — the law's own function over the law's own
+    # spine set (the sidecar's ``taxi_axes``, which mirrors
+    # ``grade_graph.centerline_specs``).
+    lines = []
+    for e in (ctx.get("taxi_axes_ll") or []):
+        pts = [ll_to_m(la, lo) for (la, lo) in e[0]]
+        if len(pts) >= 2:
+            lines.append(LineString(pts))
+    cover = AT.spine_corridor_cover(lines)
+    pc = prep(cover) if cover is not None else None
+
+    # THE FRONTAGE VERTICES — the law's own function on emitted node
+    # IDENTITY (never a proximity join).
+    soft_nids = {nid for w in ways if w.role in GL.FRONTAGE_SOFT_ROLES
+                 for nid in w.nids}
+    bld_rings = [(w.nids[:-1] if (len(w.nids) > 1 and w.nids[0] == w.nids[-1])
+                  else w.nids)
+                 for w in ways if w.role == BUILDING_ROLE]
+    front_nids = GL.frontage_vertex_keys(bld_rings, soft_nids)
+    # which pad(s) each frontage vertex belongs to (for the P1 test and
+    # the docket's "which building")
+    pads_of = defaultdict(set)
+    for w in ways:
+        if w.role != BUILDING_ROLE:
+            continue
+        for nid in w.nids:
+            if nid in front_nids:
+                pads_of[nid].add(w.wid)
+
+    # THE SIDECAR'S PRICED PAIRS, by family (spec §7): ``pair_caps`` rows
+    # carry ``grade_graph.edge_family_name``, so a row that survived the
+    # census can be asked WHICH law priced it.  A pair on an edge two
+    # shapes SHARE is priced once, by whichever shape baked the smaller
+    # budget — so a kept row on an apron way may be a FOREIGN family's.
+    priced = {}
+    for row in (ctx.get("pair_caps_ll") or []):
+        ka = (round(float(row[0][0]), 7), round(float(row[0][1]), 7))
+        kb = (round(float(row[1][0]), 7), round(float(row[1][1]), 7))
+        priced[(min(ka, kb), max(ka, kb))] = (
+            row[3] if len(row) > 3 else "?")
+
+    def _priced_family(na, nb):
+        if na is None or nb is None:
+            return None
+        ka = (round(nodes[na][0], 7), round(nodes[na][1], 7))
+        kb = (round(nodes[nb][0], 7), round(nodes[nb][1], 7))
+        return priced.get((min(ka, kb), max(ka, kb)))
+
+    # nid lookup by the row's METRE endpoint, at the census's own
+    # canonical tolerance — the rows carry coordinates, not ids.
+    tol = float(cg.LAW_TRUE_KNOBS["proximity_m"])
+    cell = max(tol, 0.5)
+    grid = defaultdict(list)
+    for nid, (la, lo) in nodes.items():
+        x, y = ll_to_m(la, lo)
+        grid[_grid_key(x, y, cell)].append((x, y, nid))
+
+    def _nid_at(pt):
+        gx, gy = _grid_key(pt[0], pt[1], cell)
+        best, best_d = None, tol
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for (px, py, nid) in grid.get((gx + dx, gy + dy), ()):
+                    d = math.hypot(px - pt[0], py - pt[1])
+                    if d <= best_d:
+                        best, best_d = nid, d
+        return best
+
+    per_role: dict = {}
+    for row in fam.get("within_shape", []):
+        if getattr(row, "out_of_scope", None):
+            continue
+        ra, rb = cg.row_roles(row)
+        if ra != rb or ra not in ("apron", "junction", "service_junction"):
+            continue
+        if cg.row_side(row) not in ("airside", "mixed"):
+            continue
+        a, b = H.row_points(row)
+        if a is None or b is None:
+            continue
+        na, nb = _nid_at(a), _nid_at(b)
+        pads_a = pads_of.get(na, frozenset())
+        pads_b = pads_of.get(nb, frozenset())
+        d = float(getattr(row, "distance_m", 0.0) or math.dist(a, b))
+        pctx = GL.PairContext(
+            role=ra, dist=d, ring_adjacent=False,
+            a_seam=False, b_seam=False,
+            a_building=bool(pads_a), b_building=bool(pads_b),
+            spine_caps=(), body_cap=0.01,
+            a_frontage=bool(pads_a), b_frontage=bool(pads_b),
+            a_corridor=bool(pc is not None and pc.intersects(Point(*a))),
+            b_corridor=bool(pc is not None and pc.intersects(Point(*b))))
+        p1 = bool(pads_a & pads_b)
+        chord = GL.is_frontage_chord(pctx)
+        rec = per_role.setdefault(ra, {"rows": 0, "P1": 0, "chord": 0,
+                                       "generic": 0, "over": [],
+                                       "chord_len": [],
+                                       "generic_priced_by": Counter()})
+        rec["rows"] += 1
+        if p1:
+            rec["P1"] += 1
+        elif chord:
+            rec["chord"] += 1
+            rec["chord_len"].append(round(d, 1))
+            g = float(getattr(row, "grade_pct", 0.0) or 0.0)
+            if g > grade_pct_floor:
+                way = getattr(row, "way_a", None)
+                rec["over"].append({
+                    "way": getattr(way, "wid", "?"),
+                    "building": sorted(pads_a or pads_b),
+                    "chord_m": round(d, 2),
+                    "grade_pct": round(g, 2)})
+        else:
+            rec["generic"] += 1
+            rec["generic_priced_by"][
+                _priced_family(na, nb) or "(no priced pair)"] += 1
+    for rec in per_role.values():
+        rec["over"].sort(key=lambda r: -r["grade_pct"])
+        rec["generic_priced_by"] = dict(rec["generic_priced_by"].most_common())
+        cl = sorted(rec.pop("chord_len"))
+        rec["chord_dist"] = ({"n": len(cl), "min": cl[0], "p50": cl[len(cl) // 2],
+                              "max": cl[-1]} if cl else None)
+    return {"patch": str(patch), "grade_pct_floor": grade_pct_floor,
+            "frontage_vertices": len(front_nids),
+            "corridor_cover_radius_m": AT.corridor_cover_radius_m(),
+            "per_role": per_role}
+
+
+def print_apron_population(reports, top=None):
+    for rep in reports:
+        print(f"\n=== {rep['patch']}   frontage vertices "
+              f"{rep['frontage_vertices']}   cover radius "
+              f"{rep['corridor_cover_radius_m']:.1f} m")
+        print(f"  {'role':<18} {'rows':>6} {'P1':>5} {'CHORD':>7} "
+              f"{'GENERIC':>8}  chord lengths")
+        for role, r in sorted(rep["per_role"].items()):
+            print(f"  {role:<18} {r['rows']:>6} {r['P1']:>5} "
+                  f"{r['chord']:>7} {r['generic']:>8}  {r['chord_dist']}")
+            if r["generic_priced_by"]:
+                print(f"      GENERIC rows priced by: "
+                      f"{r['generic_priced_by']}")
+            if r["over"]:
+                print(f"      kept rows above the floor "
+                      f"({len(r['over'])}):")
+                for o in (r["over"] if top is None else r["over"][:top]):
+                    print(f"        way {o['way']:>9}  building "
+                          f"{','.join(o['building']) or '-':>9}  "
+                          f"chord {o['chord_m']:>7.2f} m  "
+                          f"grade {o['grade_pct']:>7.2f} %")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("patches", nargs="+")
@@ -383,7 +572,24 @@ def main(argv=None) -> int:
     ap.add_argument("--seats", action="store_true",
                     help="A/B the pads' emitted levels against the welded "
                          "value at their face (needs exactly 2 patches)")
+    ap.add_argument("--apron-population", action="store_true",
+                    help="split each soft role's within_shape population "
+                         "into P1 / FRONTAGE CHORD / GENERIC through "
+                         "grade_law.is_frontage_chord (RULINGS 2026-08-21b)")
+    ap.add_argument("--grade-floor", type=float, default=5.0,
+                    help="--apron-population: list kept rows above this "
+                         "grade %% (default 5)")
+    ap.add_argument("--top", type=int, default=None,
+                    help="--apron-population: cap the listed rows per role")
     args = ap.parse_args(argv)
+    if args.apron_population:
+        reports = [apron_population(Path(p), args.grade_floor)
+                   for p in args.patches]
+        print_apron_population(reports, args.top)
+        if args.json:
+            Path(args.json).write_text(json.dumps(reports, indent=1))
+            print(f"\nwrote {args.json}")
+        return 0
     if args.seats:
         if len(args.patches) != 2:
             ap.error("--seats needs exactly two patches (control, arm)")

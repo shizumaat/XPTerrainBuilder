@@ -2351,3 +2351,84 @@ Same 7-file selection, both arms: lane 24 failed / 390 passed, control
      `test_cyxy_spine_zero_no_bowl@CYXY`): 2 spine violations,
      `service_junction` at 37.1 % and 15.5 % against an 8 % cap. Same
      mechanism as the census delta.
+
+## 2026-08-21 — THE COMPOSED ARM: apron population + transverse in the solve (lane/compose)
+
+Specs `docs/specs/apron-within-shape-population-spec.md` and
+`docs/specs/transverse-hyperplane-solve-spec.md` (+ AMENDMENT A1); owner
+rulings RULINGS 2026-08-21 and 2026-08-21b. lane/apronpop ea4a1b8 with
+lane/transect's five commits cherry-picked (zero textual conflicts).
+This is the composed arm the apronpop lane recorded as OWED.
+
+WHAT WAS RUN. Six harness builds, all rc=0, all shared-repo UNCHANGED:
+CYXY / SPJC / HECA composed; CYXY / SPJC / HECA log-capture reruns
+(byte-identical body_sha — they recover the solve-side instrument lines a
+piped `tail` had cut, they are not new arms); plus ONE attribution arm,
+SPJC with `O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY=0`. `harness/census.py`,
+`census_rows_diff`, `airside_value_delta` and
+`frontage_split --apron-population` against the 2026-08-21 battery
+patches (artifact-ledger tags `w3s7a_*`). Seven test files.
+
+MEASURED (battery -> apronpop alone -> COMPOSED, adjudicated airside):
+
+| airport | airside | within_shape | transverse | steps |
+|---|---|---|---|---|
+| CYXY | 75 -> 204 -> 67 | 0 -> 3 -> 3 | 63 -> 188 -> 51 | 0 -> 0 -> 0 |
+| SPJC | 189 -> 474 -> 551 | 45 -> 12 -> 258 | 46 -> 331 -> 167 | 0 -> 37 -> 31 |
+| HECA | 1487 -> 1508 -> 1167 | 1284 -> 643 -> 770 | 95 -> 572 -> 155 | 3 -> 192 -> 131 |
+
+CYXY and HECA clear their battery bars (67 <= 75, 1167 <= 1487). Transverse
+in the solve pays the relocated debt on all three and binds what the census
+prices (CYXY 3066/3067, SPJC 8477/8491, HECA 26616/26629).
+
+UNPAID / OWED:
+
+- THE SPJC BAR IS EXCEEDED, 551 vs 189, and it is an INTERACTION neither
+  change produces alone. The 2x2: battery 189 / apronpop-only 474 /
+  transect-only 195 / composed 551; within_shape airside 45 / 12 / 62 /
+  258. 231 NEW rows are `within_shape apron|apron` AIRSIDE and the
+  POPULATION IS CORRECT (201 of 233 apron rows are frontage chords), so
+  this is not a predicate defect. Mechanism: apronpop withdraws the
+  generic apron pair law, leaving the building->spine frontage chord as
+  the apron's ONLY within-shape law, and the transverse hyper rows then
+  move the apron surface by metres (3797 airside nodes moved, worst
+  9.66 m) with the frontage chords absorbing the displacement. The
+  carrier regularisation does not hold an apron interior against an
+  ACTIVE projection. Spec §5 forbids a replacement regulariser, so the
+  remedy is a spec/owner act, not an implementation one.
+- BROKEN_BY_EMIT is 54-65 % of every bound transect (CYXY 1701/3066,
+  SPJC 4609/8477, HECA 17221/26616; worst 2.05 / 6.63 / 8.35 m). A1 §8d
+  makes this reported-not-a-STOP; it is the number that decides whether
+  the topology-only emit repairs must move ahead of the final projection.
+- The projection-law certificate ROSE: CYXY final#1 EXIT over_cap=1179
+  (332 both-hard), SPJC 2670 (379), HECA 16577 (3251); the transverse
+  family's own share is CYXY 276/69, SPJC 376/63, HECA 3106/768. The SPJC
+  transect-only arm is 1620/441 — composed is worse on over_cap, better
+  on both-hard. Solve-side `[transverse-bind] exit_over_budget` is CYXY
+  211 (worst 1.037 m), SPJC 326 (3.528 m), HECA 2513 (6.096 m); the
+  band clamp's own footprint beside it is 5 / 37 / 56 values, worst
+  0.114 / 0.535 / 2.606 m. `[writeback-band]` worst > 10 m count is 0 on
+  all three (worst clamp CYXY 0.03 m, SPJC 0.08 m, HECA 4.70 m).
+- AIRSIDE MOVED A LOT vs the battery: CYXY 481 nodes (worst 3.95 m),
+  SPJC 3797 (9.66 m), HECA 8695 (18.23 m). No groundside pull is implied
+  ("airside is king" is about pull, and this is airside's own law
+  changing), but the owner's in-sim eye is owed before any merge.
+- The CYXY `service_junction` spine 37.1 % row STANDS (2.420 m
+  @(60.712398,-135.077719)): it is a FOREIGN-priced generic apron row, so
+  the transverse solve cannot reach it. apronpop class 4 unfixed.
+- Kept frontage rows > 5 % (spec §10 docket, unfixed): CYXY 0, SPJC 9
+  (max 10.08 %), HECA 91 (max 91.06 %, the head all on short 1.8-3.0 m
+  chords — seat/anchor defects).
+- `junction|junction` generic (ruling clause 4, report-only): CYXY 0,
+  SPJC 24, HECA 77.
+- SPLP / KAFW / KDFW have no arm under this tree.
+- No build-time measurement; per-change timing gates remain suspended.
+
+THE TEST COMPARISON — the composition authors ZERO new failures. Test-id
+for test-id: the three twin files pass in full (15 + 11 + 6 = 32/32); the
+four heavy suites give 22 failed / 268 passed, and adding
+`test_fan_ramp_law` (2) and `test_lateral_cross_section` (1) reproduces
+EXACTLY apronpop's 11 pre-existing + 13 NEW four classes, plus
+`test_the_solve_ingests_the_family_at_BOTH_edge_set_sites`, which fails on
+lane/transect ALONE (verified in the transect worktree at 77aeac2: 1
+failed / 64 passed). Nothing on this list is new to the merge.

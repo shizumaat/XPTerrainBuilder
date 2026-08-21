@@ -1,48 +1,52 @@
-LANE lane/chordlim — WAVE-3 STEP 1 road chord limiter — CLOSED (STOP)
-=====================================================================
-2026-08-20, session 787ac54a.  Commit cce9da6 on lane/chordlim.
+LANE lane/chordlim — WAVE-3 STEP 1 road chord limiter + attempt-2 carrier
+==========================================================================
+2026-08-20, session 787ac54a.  Commits on lane/chordlim:
+  cce9da6  the road chord limiter (spec, all five clauses) + 11 twins
+  3190c85  attempt-1 measurement close-out
+  bffe09c  ATTEMPT 2 — airside-claimed nodes are DATA to the limiter
+           + [airside-value-audit] in the final projection
+  69b3632  cherry-pick of lane/c3rework 284495a (tools/airside_value_delta
+           .py + INDEX row + twin; INDEX conflict resolved to THIS lane's
+           one row — sm_decompose was not cherry-picked, it is not here)
+  c064f71  ATTEMPT 2b — the pin carries the CANONICAL identity too + twin
 
-BUILT (spec docs/specs/road-chord-limiter-spec.md, all five clauses)
-  groundside._grade_limit_groundside_chords now clamps the ROAD FAMILY
-  (service_road + service_junction) in the SAME pass, ONE node key
-  space; per-role caps (road = ROLE_GRADE_LIMITS 8 %, lot keeps the
-  GROUNDSIDE_MAX_GRADE 5 % shaping margin); per-NODE caps in the kernel
-  (pair budget = stricter endpoint); node book seeds by AUTHORITY
-  PRECEDENCE across roles / min within a role; welds unpinned;
-  tunnel_ramp excluded; shared-node census on layout._chord_limit_stats,
-  printed by finalize.  11 new twins + 165 adjacent tests pass.
+THE CARRIER, ATTRIBUTED.  The final projection ALREADY partitions
+(one_solve.feasibility_project_partitioned: airside pass carries no
+groundside pair; groundside pass runs with every non-receiver frozen), so
+the channel was never the constraint coupling — it is the SEED: the
+airside pass re-projects from elev, and a groundside pass that rewrote an
+airside-CLAIMED node hands it a different seed.  Fix at the entry point:
+the limiter pins those nodes (layout.GROUNDSIDE_ROLES, the receiver rule,
+both the 2-dp and the canonical identity).  Freezing airside INSIDE the
+projection is refused — built and measured in the cycle-4 ingestion round
+(HECA plateau airside 16,832 -> 40,902 held), noted in the code.
 
-MEASURED (harness builds + censuses; controls at clean 2e3cfc9 reproduce
-the 2026-08-16 battery exactly)
-                 ADJUDICATED (airside / groundside)
-                 control        limiter        limiter+A2(env)
-    CYXY         336 (75/261)   206 (75/131)   187 (75/112)
-    SPJC         482 (199/283)  419 (199/220)  419 (214/205)
-    HECA        7548(1522/6026) 4754(1521/3233) 4833(1473/3360)
-  road-family rows CYXY 151→130, SPJC 271→220, HECA 4030→3231;
-  lot rows CYXY 110→1, HECA 2009→4.  Corridor coherence: rect/junction
-  shared nodes CYXY 688, SPJC 641, HECA 4966 — the extended node book
-  DOES span the chain.  Shared-node stricter-cap: 245 / 129 / 3939.
-  Witness: CYXY sink site = 1 row / 0.40 m with A2 armed (was 0.39).
+ACCEPTANCE (tools/airside_value_delta.py, solve-owned frame, vs CONTROL)
+                attempt 1 (no pin)      attempt 2b (pinned)
+  CYXY          0 moved / 0.000 m       0 moved / 0.000 m
+  SPJC          35 moved / 0.350 m      2 moved / 0.010 m  (both adoption)
+  HECA          1863 moved / 0.150 m    1 moved / 0.120 m (apron+service_
+                                        junction weld; the SAME node in
+                                        both pin identities — the attempt
+                                        cap stops here, reported as the
+                                        residual)
 
-STOP — AIRSIDE IS NOT BYTE-IDENTICAL AT HECA (spec acceptance 3)
-  HECA limiter arm: 1488 airside rows EXACT, 34 GONE, 33 NEW (net −1;
-  the GONE rows are the larger ones).  Airside pavement VALUES move:
-  175 junction ways (≤0.05 m), 82 apron ways (≤0.15 m), 46 building
-  ways (≤0.10 m).  Runways untouched.
-  MECHANISM (not the limiter writing airside — it only ever writes the
-  three groundside/road roles): the FINAL PROJECTION ingests the
-  post-solve mutation set and re-projects the whole node space —
-  "[final-projection-ingestion] post-solve mutation set 740 new + 8509
-  moved" (control) vs "741 new + 13064 moved, p90 |dz| 0.62 m" (lane).
-  The channel PRE-EXISTS (the lot limiter already feeds it); the road
-  family enlarges it.  CYXY: only 6 graded_strip raoa magnitudes, all
-  IMPROVED.  SPJC: 4 apron nodes at exactly the 0.01 m materiality
-  floor; adjudicated airside unchanged (199).
+CENSUS (adjudicated; airside / groundside)
+                control          limiter(a1)      limiter+pin
+  CYXY          336 (75/261)     206 (75/131)     206 (75/131)
+  SPJC          482 (199/283)    419 (199/220)    407 (199/208)
+  HECA          7548(1522/6026)  4754(1521/3233)  4844(1519/3325)
+  airside rows vs control: CYXY 86 EXACT/0/0; SPJC 199 EXACT/0/0;
+  HECA 1515 EXACT / 7 GONE / 4 NEW, net -3 (was 34 GONE / 33 NEW).
+  Per-airport adjudicated AIRSIDE vs control: 75=75, 199=199, 1519<=1522 —
+  no airport increased.
 
-A2 NOT RE-ARMED (default still "0")
-  (a) the spec conditions the flip on the limiter's own acceptance
-  passing, and clause 3 does not; (b) measured, the A2 arm itself adds
-  +15 ADJUDICATED AIRSIDE rows at SPJC (29 new within_shape apron rows
-  on way -10113) — airside is king.  The A2 cost DID collapse
-  (+286 HECA → +79 total, of which airside −48; +76 SPJC → 0).
+A2 VERDICT — STAYS OFF.  SPJC with the pin AND O4_ROAD_FRONTAGE_CUTBACK=1
+still reads airside 214 (control 199): the +15 SURVIVES the freeze, as do
+the same 33 NEW / 18 GONE rows.  ATTRIBUTION: A2 is a PRE-SOLVE geometry
+change ("R7b: cut 50 road face(s) back from the apron they front"), so the
+solve INPUT differs — the shape inventory renumbers (150->160, 698->716),
+the solve-owned airside node population itself changes (184 A-only / 134
+B-only) and apron -10113 re-solves ~0.03 m lower with one extra vertex,
+minting 29 within_shape rows.  No post-solve pin can reach that; it is not
+the limiter's channel.  Default left "0".

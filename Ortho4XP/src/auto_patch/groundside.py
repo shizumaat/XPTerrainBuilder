@@ -3764,6 +3764,44 @@ def _chord_limit_cap_for_role(role: str) -> float:
     return float(lim) if lim else float(SERVICE_ROAD_MAX_GRADE)
 
 
+def _airside_claimed_keys(layout) -> set:
+    """The chord limiter's PINNED set: every node key an AIRSIDE ring
+    claims, in this pass's own 2-decimal key spelling.
+
+    THE PARTITION IS THE REGISTRY'S, NOT A LIST HERE.
+    ``layout.GROUNDSIDE_ROLES`` is the single source the census's
+    ``check_grade.row_side`` and the projection's
+    ``solve._receiver_nodes_from_roles`` both read; airside is its
+    complement, and — exactly as the receiver rule states it — a node is
+    groundside only when EVERY role it carries is groundside, so one
+    airside ring claiming a node makes it airside.  A role added to the
+    registry therefore lands here with no edit (the blast.py
+    role-literal hazard, closed by construction).
+    """
+    from .layout import GROUNDSIDE_ROLES
+    keys: set = set()
+    for s in (getattr(layout, "shapes", None) or ()):
+        role = getattr(s, "role", None)
+        if role is None or role in GROUNDSIDE_ROLES:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            rings = ([poly.exterior] if poly.geom_type == "Polygon"
+                     else [g.exterior for g in poly.geoms])
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        for ring in rings:
+            try:
+                coords = list(ring.coords)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            for (x, y) in coords:
+                keys.add((round(float(x), 2), round(float(y), 2)))
+    return keys
+
+
 def _chord_limit_shared_node_census(stats, node_roles, node_cap,
                                     node_cap_max, node_road_shapes) -> None:
     """Fill ``stats`` with what the ONE node book actually unified.
@@ -3898,7 +3936,25 @@ def _grade_limit_groundside_chords(layout) -> int:
     # nothing and is the pre-R7c behaviour.  The kernel keeps the ``pinned``
     # capability for the single-ring API, where the caller knows its
     # welds are one consistent datum.
-    pinned_keys: set = set()
+    #
+    # THE ONE EXCEPTION IS AIRSIDE (lead ruling 2026-08-20, this lane's
+    # attempt 2).  A node an AIRSIDE ring also claims is not a groundside
+    # weld at all — it is airside DATA: ``layout.GROUNDSIDE_ROLES`` is the
+    # partition (the registry ``check_grade.row_side`` and
+    # ``solve._receiver_nodes_from_roles`` both read — never a hand list),
+    # and a node is a receiver only when EVERY role it carries is in it.
+    # Moving one is a second author on an airside value, and the carrier
+    # is measured: the final projection's airside pass RE-PROJECTS FROM
+    # THE SEED, so a groundside rewrite of a shared node changes the
+    # airside output even though the partition keeps every groundside
+    # PAIR out of the airside constraint set (HECA: 175 junction ways
+    # ≤0.05 m, 82 apron ways ≤0.15 m, 46 building ways ≤0.10 m).  Pinning
+    # costs the lot/road nothing it keeps: the emit ships the airside
+    # claimant's value at that node anyway (``to_osm`` precedence), so
+    # this makes the clamp agree with what actually emits.  The pinned
+    # values still GENERATE the band — the groundside side conforms to
+    # airside, which is the mouth ruling in clamp form.
+    pinned_keys: set = _airside_claimed_keys(layout)
     for i, s in enumerate(layout.shapes):
         role = getattr(s, "role", "")
         if role not in _CHORD_LIMIT_ROLES:
@@ -3963,6 +4019,8 @@ def _grade_limit_groundside_chords(layout) -> int:
     _chord_limit_shared_node_census(stats, node_roles, node_cap,
                                     node_cap_max, node_road_shapes)
     stats["nodes"] = len(node_alt)
+    stats["airside_pinned_nodes"] = sum(1 for k in node_alt
+                                        if k in pinned_keys)
     # R7c: CUT **AND** FILL, through the ONE kernel the single-ring
     # limiter uses (``_chord_cut_and_fill``) — per ring, over the SHARED
     # node values, so abutting pieces stay flush exactly as before.  The

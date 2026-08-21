@@ -93,3 +93,36 @@ Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; a census/bake
 pair-set mismatch is a STOP (fix the predicate, never the count); any
 within_shape apron row that is not a frontage chord after the change is a
 STOP.
+
+## AMENDMENT A1 (Fable, 2026-08-21; owner ruling RULINGS 2026-08-21c) — interior = 5 %
+
+Measured on lane/compose (apronpop + transect): SPJC 189→551 airside, HECA
+1,167 / CYXY 67 pass. Mechanism: with the generic pairs REMOVED the apron
+interior has no law; the transect rows move the rings by metres and the
+frontage chords absorb it (201 of 233 new SPJC rows genuine chords). §1-2
+are amended:
+
+1a. `classify_pair` does NOT skip a generic apron pair. It returns the
+    pair with cap = `fan_ramp_law_cap` (5 %; `config.fan_ramp_law_cap`,
+    the 2026-08-05 constant) when neither rule-1 condition holds, and the
+    strict apron cap when the pair is a frontage chord. The ring-adjacent
+    branch keeps its behaviour at the strict cap (R19-5's catch; report
+    its count). The pair's budget is `pair_grade_budget_m` at that cap
+    over the Euclidean chord; the 60 m `APRON_BODY_CHORD_MAX_M` body gate
+    and the other existing skip rules stay as they are (they predate and
+    are orthogonal to this ruling — report how many interior pairs the 60 m
+    gate removes, since a 680 m chord at 5 % is still 34 m).
+2a. Both readers therefore still enumerate the same pair set as today's
+    bake MINUS nothing; only the CAP changes on the interior class. The
+    census's within_shape rows gain `cap_pct` so a row says which cap
+    priced it; the sidecar family tag from §7 stays.
+5a. §5's "no replacement regulariser" is superseded: the 5 % interior law
+    IS the interior's constraint. The carrier regularisation is unchanged.
+9a. Expectations: HECA ≈ 839 + (generic rows > 5 %: a few dozen from the
+    2026-08-21 read, median generic grade 1.66 %); SPJC ≈ 155 + its
+    generic rows > 5 % (its 34 were all class (a) — report their grades);
+    CYXY unchanged. Composed with lane/transect (the arm that matters):
+    per-airport airside ≤ the battery bars 75 / 189 / 1,487 on ALL three;
+    SPJC is the gate.
+Everything else stands (twins updated to the cap semantics: a generic pair
+at 3 % passes, at 6 % fails; a frontage chord at 3 % fails).

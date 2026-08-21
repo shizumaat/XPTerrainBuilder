@@ -2292,6 +2292,91 @@ def crown_pair_offset(drop_a: float, drop_b: float) -> float:
     return (drop_b or 0.0) - (drop_a or 0.0)
 
 
+def crown_pair_offset_interval(drop_a, drop_b):
+    """THE crown target of ``z_a − z_b`` as an INTERVAL ``(lo, hi)`` — every
+    designed step the field is compatible with.  ``lo == hi`` whenever the
+    field states the answer; a WIDER interval means an endpoint is
+    UNDECLARED, and an undeclared endpoint is UNKNOWN, NOT ON THE RIDGE.
+
+    ``drop_a`` / ``drop_b`` are the endpoints' drops as READ FROM THE FIELD:
+    a float when the node carries a declared drop, ``None`` when the node is
+    absent from it.  The distinction is the whole point, so callers must pass
+    ``field.get(nid)`` and NOT ``field.get(nid, 0.0)``.
+
+    WHY (measured on the 2026-08-16 HECA battery patch).  Defaulting an
+    absent endpoint to 0.0 asserts it sits on the crown RIDGE, which
+    manufactures an expected step equal to the other endpoint's full drop.
+    HECA's runway rings carry 94 undeclared vertices of 521 — post-solve
+    inserts and welds ``crown.extend_field_to_new_ring_nodes`` did not reach,
+    with an EMPTY ``crown_centerline`` field so the Phase-0 centreline skip
+    never fires either.  920 of that patch's 515,260 constrained pairs pair a
+    declared NONZERO drop against an undeclared node, and three of them
+    became census rows whose RAW grades (1.004 %, 1.101 %, and an apron's)
+    are all comfortably under cap.  Nothing in the SOLVER made that claim:
+    ``grade_graph.build_unified_graph`` constrains only
+    ``SOFT_VISIBILITY_ROLES`` and ``plane_constraints`` — the runway ring's
+    pair set — has no caller outside ``tools/check_grade.py``.  The expected
+    step was minted by the reader alone.
+
+    THE INTERVAL, and why it is an interval rather than a skip.  The absent
+    endpoint's true drop lies somewhere between 0 (the ridge) and the
+    declared neighbour's own drop (a full-drop edge node); every value
+    between is a possible declaration, so the designed step lies between
+    ``crown_pair_offset(known, 0)`` and ``0``.  A caller CLAMPS the measured
+    ``Δz`` into that interval: a pair the field cannot price reports no
+    excess, and a pair that is over cap under EVERY compatible declaration
+    still reports its excess in full.  Dropping such pairs outright would
+    blind the census — measured on the same patch, three of the six affected
+    rows are over cap on their raw grade too, and those are real.
+
+      * both endpoints declared     → ``(t, t)``, the crown target, as before;
+      * NEITHER declared            → ``(0.0, 0.0)``, as before (an uncrowned
+        patch, or an uncrowned region of a crowned one, is byte-identical);
+      * one declared at ZERO drop   → ``(0.0, 0.0)``: a declared ridge node
+        and an undeclared one imply no step either way;
+      * one declared NONZERO, other absent → the ordered pair spanning 0 and
+        the full-drop target.
+    """
+    a_known = drop_a is not None
+    b_known = drop_b is not None
+    if a_known and b_known:
+        t = crown_pair_offset(float(drop_a), float(drop_b))
+        return (t, t)
+    if not a_known and not b_known:
+        return (0.0, 0.0)
+    if a_known:
+        t = crown_pair_offset(float(drop_a), 0.0)
+    else:
+        t = crown_pair_offset(0.0, float(drop_b))
+    if abs(t) <= 1e-9:
+        return (0.0, 0.0)
+    return (min(0.0, t), max(0.0, t))
+
+
+def crown_pair_offset_clamped(drop_a, drop_b, delta_z):
+    """``(offset, unpriceable)`` — the crown target to judge ``delta_z``
+    (``z_a − z_b``) against, and whether the field left it UNSTATED.
+
+    The offset is ``delta_z`` clamped into
+    :func:`crown_pair_offset_interval`, so ``|delta_z − offset|`` is the
+    excess under the MOST FAVOURABLE declaration the field is compatible
+    with.  ``unpriceable`` is True when the interval is wider than a point
+    AND ``delta_z`` fell inside it — the case where a reader that defaulted
+    the absent endpoint to the ridge would have minted a row out of a
+    declaration gap.  ONE call, both facts, so no reader can take the offset
+    without being able to report the gap.
+    """
+    lo, hi = crown_pair_offset_interval(drop_a, drop_b)
+    if lo == hi:
+        return lo, False
+    z = float(delta_z)
+    if z < lo:
+        return lo, False
+    if z > hi:
+        return hi, False
+    return z, True
+
+
 # ── Runway within-shape LATERAL scoping (user 2026-07-08) ────────────────────
 # A de-segmented runway (``O4_RUNWAY_SINGLE_POLY``, default on) emits ONE polygon
 # ring per ref whose FAA profile stations live as interior LONG-EDGE vertices.

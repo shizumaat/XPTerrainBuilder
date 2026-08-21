@@ -1374,6 +1374,11 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     axis_overrides, frame_stamp = _axis_frame_override(osm, cg, frame)
     within, cross, steps = cg.run_checks_law_true(
         osm, family_out=families, quiet=True, top_n=0, **axis_overrides)
+    # THE CROWN DECLARATION GAP — read off ``check_grade``'s own tally the
+    # moment the law-true run returns (one code path, no second count), and
+    # carried in the report rather than through a module global, so a
+    # reporter that runs later cannot read a tally some other frame reset.
+    crown_gap = dict(getattr(cg, "_CROWN_UNKNOWN_PAIRS", {}) or {})
 
     # THE STEP EXEMPTION comes from the law register, not from a copy here
     # (``check_grade.step_exempt`` / ``STEP_EXEMPTIONS``).  It used to be a
@@ -1486,6 +1491,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
         "provenance": prov["provenance"],
         "provenance_reason": prov["reason"],
         "law_true_knobs": dict(cg.LAW_TRUE_KNOBS),
+        "crown_gap": crown_gap,
         # THE AXIS FRAME, always stamped — "own" for every default run, so
         # a report without the key is simply an older one and a report WITH
         # it can never be mistaken for the other frame.
@@ -1651,6 +1657,21 @@ def print_report(rep: dict, top: int) -> None:
               + (":" if oos else "  [no class fired]"))
         for key, d in oos.items():
             print(f"      {key:<24}{d['n']:>7}  {d['why']}")
+    # THE CROWN DECLARATION GAP (reporter-only).  Read straight off
+    # ``check_grade``'s own per-pass tally — one code path, no second count.
+    _unk = dict(rep.get("crown_gap") or {})
+    if _unk:
+        _by = ", ".join(f"{r} {n}" for r, n in
+                        sorted(_unk.items(), key=lambda kv: (-kv[1], kv[0])))
+        print(f"    CROWN DECLARATION GAP (reported, NOT adjudicated) "
+              f"{sum(_unk.values())}: {_by} — vertex pairs whose designed "
+              f"crown step the sidecar 'crown_drops' field cannot state "
+              f"(one endpoint declared NONZERO, the other absent) and whose "
+              f"measured step is inside the interval of steps the field IS "
+              f"compatible with. Judged at their most favourable compatible "
+              f"target, so nothing is blinded: a pair over cap under EVERY "
+              f"compatible declaration still reports in full. A rising count "
+              f"is an emitter DECLARATION gap, never a surface defect")
     if "bare" in rep:
         b = rep["bare"]
         # BOTH totals and their DIFFERENCE.  The line used to assert

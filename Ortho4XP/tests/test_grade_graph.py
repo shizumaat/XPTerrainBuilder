@@ -1009,3 +1009,85 @@ def test_non_service_unshared_route_pair_is_untouched_by_r3():
     assert out is allow, (
         "R3 migrates the SERVICE family only; an apron pair spanning two "
         "routes' Voronoi cells stays isotropic exactly as before")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AN UNDECLARED CROWN ENDPOINT IS UNKNOWN, NOT ON THE RIDGE
+# (wave-3 residual sweep; the R8 docket's two "diagonal" ws::runway rows).
+#
+# The crown field is exported per SOLVE-TIME node.  A ring vertex minted
+# after the solve that ``crown.extend_field_to_new_ring_nodes`` did not
+# reach is ABSENT from it — and ``crown_by_nid.get(nid, 0.0)`` used to
+# read that absence as "sits on the crown ridge", manufacturing an
+# expected step equal to its neighbour's whole drop.  Nothing in the
+# SOLVER makes that claim: ``build_unified_graph`` constrains only
+# SOFT_VISIBILITY_ROLES and ``plane_constraints`` — the runway ring's
+# pair set — has no caller outside tools/check_grade.py.
+# ══════════════════════════════════════════════════════════════════════
+
+def test_a_declared_pair_keeps_its_crown_target():
+    from auto_patch.grade_law import (crown_pair_offset,
+                                      crown_pair_offset_interval as ITV,
+                                      crown_pair_offset_clamped as CLAMP)
+    assert ITV(0.3, 0.0) == (crown_pair_offset(0.3, 0.0),) * 2
+    off, unk = CLAMP(0.3, 0.0, 0.65)
+    assert off == crown_pair_offset(0.3, 0.0) and unk is False
+
+
+def test_an_uncrowned_pair_is_byte_identical():
+    """Neither endpoint declared — an uncrowned patch, or an uncrowned
+    region of a crowned one — reads exactly as before."""
+    from auto_patch.grade_law import (crown_pair_offset_interval as ITV,
+                                      crown_pair_offset_clamped as CLAMP)
+    assert ITV(None, None) == (0.0, 0.0)
+    assert CLAMP(None, None, 4.2) == (0.0, False)
+    # a DECLARED ridge node beside an undeclared one implies no step either
+    assert ITV(0.0, None) == (0.0, 0.0)
+    assert CLAMP(None, 0.0, 4.2) == (0.0, False)
+
+
+def test_an_undeclared_endpoint_is_not_placed_on_the_ridge():
+    """HECA way -12222, nodes -17936 -> -17914: a declared 0.30 m drop
+    against an undeclared neighbour.  The measured step is +0.65 m over
+    59.04 m — 1.10 %, under the 1.5 % cap — and the ridge default turned it
+    into a 0.95 m excess."""
+    from auto_patch.grade_law import crown_pair_offset_clamped as CLAMP
+    off, unk = CLAMP(0.3, None, 0.65)
+    assert off == pytest.approx(0.0)        # the nearest compatible target
+    assert abs(0.65 - off) == pytest.approx(0.65)   # NOT 0.95
+    assert unk is False                     # outside the interval: priced
+
+
+def test_a_step_inside_the_compatible_interval_is_unpriceable_and_counted():
+    """HECA way -12220, nodes -33497 -> -33498: measured -0.06 m against a
+    declared 0.30 m neighbour.  Every compatible declaration explains it,
+    so it carries no excess — and the reader must be able to COUNT it."""
+    from auto_patch.grade_law import crown_pair_offset_clamped as CLAMP
+    off, unk = CLAMP(0.3, None, -0.06)
+    assert off == pytest.approx(-0.06) and unk is True
+
+
+def test_the_interval_never_blinds_a_genuinely_over_cap_pair():
+    """A pair over cap under EVERY compatible declaration keeps its FULL
+    excess — the clamp may only remove a fabricated one.  Measured: 3 of
+    the 6 HECA pairs a plain skip would have dropped are over cap on their
+    raw grade too."""
+    from auto_patch.grade_law import crown_pair_offset_clamped as CLAMP
+    # interval spans [-0.3, 0]; a 5 m step is outside it on the high side
+    off, unk = CLAMP(0.3, None, 5.0)
+    assert off == pytest.approx(0.0) and unk is False
+    assert abs(5.0 - off) == pytest.approx(5.0)
+    # …and on the low side
+    off, unk = CLAMP(0.3, None, -9.0)
+    assert off == pytest.approx(-0.3) and unk is False
+    assert abs(-9.0 - off) == pytest.approx(8.7)
+
+
+def test_the_runway_pair_set_is_the_validators_alone():
+    """The premise of the whole fix: the SOLVER never priced these pairs,
+    so the expected step was minted by the reader.  ``plane_constraints``
+    is the runway ring's pair set and the solver's constraint graph does
+    not scope runways into its within-shape domain."""
+    import auto_patch.grade_graph as GG
+    assert "runway" not in GG.SOFT_VISIBILITY_ROLES
+    assert "runway_crossing" not in GG.SOFT_VISIBILITY_ROLES

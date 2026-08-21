@@ -1603,7 +1603,13 @@ def iter_shape_grade_constraints(
                                        mesh_edges_m=mesh_edges_m)
     # SPINE CROWN (part 30): per-nid designed drops (sidecar field);
     # every pair's law re-centres on grade_law.crown_pair_offset.
-    from auto_patch.grade_law import crown_pair_offset as _crown_off
+    from auto_patch.grade_law import crown_pair_offset as _crown_off  # noqa: F401
+    from auto_patch.grade_law import (
+        crown_pair_offset_clamped as _crown_off_clamped)
+    # AN UNDECLARED CROWN ENDPOINT IS UNKNOWN, NOT ON THE RIDGE.  The tally
+    # below ACCUMULATES across this builder's several calls per census and is
+    # reset by ``run_checks`` — the one entry every law frame goes through —
+    # so a reader that prints it after the run sees that run's whole count.
     crown_by_nid = crown_by_nid or {}
     crown_centerline_nids = crown_centerline_nids or set()
     # BAKED PAIR CAPS (sidecar ``pair_caps``, 2026-07-17): the exact pair
@@ -1672,15 +1678,18 @@ def iter_shape_grade_constraints(
                     # the baked budget, floored at the flat cap (the
                     # pair-law MAX), plus the shape's quantization
                     # noise.
+                    _off, _unk = _crown_off_clamped(
+                        crown_by_nid.get(pnids[_ia]),
+                        crown_by_nid.get(pnids[_ib]), ei - ej)
+                    if _unk:
+                        _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[_ia], nid_b=pnids[_ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
                         dist=d, cap=grade_cap,
                         allowance=(max(_cap_m, grade_cap * d)
                                    + _pair_quant_noise_m(w)),
-                        offset=_crown_off(
-                            crown_by_nid.get(pnids[_ia], 0.0),
-                            crown_by_nid.get(pnids[_ib], 0.0))))
+                        offset=_off))
                 # ── RING-EDGE FLOOR (R19-5) ─────────────────────────
                 # The bake is a PAIR SELECTION, not a domain: a vertex
                 # absent from it (post-projection insert, weld) used to
@@ -1716,14 +1725,17 @@ def iter_shape_grade_constraints(
                     d = math.hypot(xi - xj, yi - yj)
                     if d < 0.5:
                         continue
+                    _off, _unk = _crown_off_clamped(
+                        crown_by_nid.get(pnids[ia]),
+                        crown_by_nid.get(pnids[ib]), ei - ej)
+                    if _unk:
+                        _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
                         dist=d, cap=cap.flat_cap(),
                         allowance=_pair_grade_allowance(cap, d, w),
-                        offset=_crown_off(
-                            crown_by_nid.get(pnids[ia], 0.0),
-                            crown_by_nid.get(pnids[ib], 0.0))))
+                        offset=_off))
                 continue
         if role0 in _SOFT_ROLES:
             gs = _soft_grade_shape(w, role0, pts, pnids)
@@ -1744,13 +1756,17 @@ def iter_shape_grade_constraints(
                 # live model (TAXI_SLACK_TERMINALS) regulates the apron strictly
                 # and the back-edge-ramp model it superseded is gone — a steep
                 # building-facing apron pair is a real solver failure to flag.
+                _off, _unk = _crown_off_clamped(
+                    crown_by_nid.get(pnids[ia]), crown_by_nid.get(pnids[ib]),
+                    ei - ej)
+                if _unk:
+                    _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                 out.append(ShapePairConstraint(
                     way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                     xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
                     dist=d, cap=cap.flat_cap(),
                     allowance=_pair_grade_allowance(cap, d, w),
-                    offset=_crown_off(crown_by_nid.get(pnids[ia], 0.0),
-                                      crown_by_nid.get(pnids[ib], 0.0))))
+                    offset=_off))
             continue
         # PLANE shapes (rects / runway / terminal) → the SAME law: all vertex
         # pairs at the role cap, via grade_graph.plane_constraints (the single
@@ -1783,13 +1799,17 @@ def iter_shape_grade_constraints(
             xi, yi, ei, _sa = pts[ia]
             xj, yj, ej, _sb = pts[ib]
             d = math.hypot(xi - xj, yi - yj)
+            _off, _unk = _crown_off_clamped(
+                crown_by_nid.get(pnids[ia]), crown_by_nid.get(pnids[ib]),
+                ei - ej)
+            if _unk:
+                _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
             out.append(ShapePairConstraint(
                 way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                 xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
                 dist=d, cap=capp.flat_cap(),
                 allowance=_pair_grade_allowance(capp, d, w),
-                offset=_crown_off(crown_by_nid.get(pnids[ia], 0.0),
-                                  crown_by_nid.get(pnids[ib], 0.0))))
+                offset=_off))
     return out
 
 
@@ -4460,6 +4480,20 @@ def _check_terrace_actual_step(terrace_joints_m, ways, nodes, ll_to_m,
     return out
 
 
+#: PAIRS THE CROWN FIELD CANNOT PRICE — one endpoint carries a declared
+#: NONZERO crown drop, the other is absent from the field, and the measured
+#: step falls INSIDE the interval of designed steps the field is compatible
+#: with (``grade_law.crown_pair_offset_clamped``).  The pair stays in the
+#: domain and is judged at its most favourable compatible target, so nothing
+#: is blinded — a pair over cap under EVERY compatible declaration still
+#: reports its full excess.  Counted per role by
+#: ``iter_shape_grade_constraints`` and REPORTED by ``run_checks``: the count
+#: is a gap in the DECLARATION, and a census that hid it would hide exactly
+#: the emitter defect that makes these pairs unpriceable.  Reporter-only;
+#: nothing adjudicates on it.
+_CROWN_UNKNOWN_PAIRS: Dict[str, int] = defaultdict(int)
+
+
 def _check_within_shape(ways: List[Way],
                         nodes: Dict[str, Tuple[float, float]],
                         ll_to_m,
@@ -6034,6 +6068,7 @@ def run_checks(
     is re-triangulated from the emitted ring (old patches — stricter, and
     cm-noisy where emit repaired a junction ring).
     """
+    _CROWN_UNKNOWN_PAIRS.clear()
     # REGION RULESET (phase B).  ``ruleset`` is the SIDECAR's key — the
     # authority the build actually ran under.  The census NEVER re-derives
     # it from the ICAO identifier: production emits what it did, and the
@@ -6187,6 +6222,22 @@ def run_checks(
     # exemptions still adjudicate what is a violation.
     _pv(f"WITHIN-SHAPE vertex-pair grade > {max_grade_pct}%",
         within, top_n)
+    if _CROWN_UNKNOWN_PAIRS and not quiet:
+        _n_unk = sum(_CROWN_UNKNOWN_PAIRS.values())
+        _by = ", ".join(f"{r} {n}" for r, n in
+                        sorted(_CROWN_UNKNOWN_PAIRS.items(),
+                               key=lambda kv: (-kv[1], kv[0])))
+        print(f"  crown field UNPRICEABLE pairs: {_n_unk} ({_by}) — one "
+              f"endpoint carries a declared NONZERO crown drop and the other "
+              f"is absent from the sidecar 'crown_drops' field, so the "
+              f"designed step is UNKNOWN; each is judged at the most "
+              f"favourable step the field is compatible with (a pair over "
+              f"cap under EVERY compatible declaration still reports in "
+              f"full). Reported, never adjudicated: defaulting the absent "
+              f"endpoint to the RIDGE minted 3 rows on the 2026-08-16 HECA "
+              f"arm whose raw grades were all under cap. A rising count is a "
+              f"DECLARATION gap (crown.extend_field_to_new_ring_nodes not "
+              f"reaching a post-solve insert), not a surface defect")
 
     plane = _fam("plane_gradient", _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,

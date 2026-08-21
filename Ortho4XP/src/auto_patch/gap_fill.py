@@ -80,6 +80,7 @@ from .config import (
     taxiway_strip_graded_half_width_for_letter,
 )
 from .grade_law import (adjacent_ground_envelope, drainage_spine_envelope,
+                        drainage_spine_interval, drainage_spine_parent_family,
                         drainage_spine_parents)
 
 # THE spine envelope, chosen ONCE for the whole module (owner field report
@@ -314,14 +315,12 @@ def _parent_family_code(layout, shape):
     shape's actual role string is passed through (it already lives in the
     envelope's per-family role sets)."""
     role = shape.role
-    if role in _RUNWAY_ROLES:
-        return (role, runway_code_number(_long_side_length(shape.polygon)),
-                None)
-    if role in _APRON_ROLES:
-        return (role, None, None)
-    if role in _TAXIWAY_ROLES:
-        return (role, None, taxi_shape_code_letter(layout, shape))
-    return (role, None, None)
+    return drainage_spine_parent_family(
+        role,
+        long_side_m=(_long_side_length(shape.polygon)
+                     if role in _RUNWAY_ROLES else None),
+        code_letter=(taxi_shape_code_letter(layout, shape)
+                     if role in _TAXIWAY_ROLES else None))
 
 
 def _parent_flat_value(parent):
@@ -973,8 +972,17 @@ def _spine_interval(layout, airside, px, py):
     spine point ``(px, py)``: the two nearest DISTINCT bounding pavement
     parents each contribute ``[edge + floor(d), edge + ceil(d)]`` from
     ``adjacent_ground_envelope``; the combined interval is
-    ``[max(floors), min(ceils)]``.  On an empty intersection it falls back
-    to the nearer parent's own interval (user design ruling 2026-07-09).
+    ``[max(floors), min(ceils)]``.
+
+    F3c (owner ruling 2026-08-18, "CRATER-VS-DAM RESOLVES BY GRADED
+    HANDOFF"): on an EMPTY INTERSECTION the interval is no longer the nearer
+    parent's own (the 2026-07-09 fallback, which left HECA way ``-13464``
+    4.31 m proud of its lower edge) — it is the GRADED HANDOFF that descends
+    from the higher parent's crater floor to the lower parent's dam ceiling,
+    composed by ``grade_law.drainage_spine_interval``.  That function is THE
+    law: ``tools/check_grade``'s dam reader prices the same handoff from the
+    same call, so a station in a disjoint-interval zone is emitted and judged
+    against one number.
 
     Under ``O4_DRAINAGE_SPINE_LAW`` the per-parent offsets come from
     ``grade_law.drainage_spine_envelope`` instead, so ``min(ceils)``
@@ -985,7 +993,7 @@ def _spine_interval(layout, airside, px, py):
     # OPT-1: the STRtree index reproduces the retired full airside scan
     # exactly, tie order included (see _AirsideNearestIndex).
     parents = _airside_index(airside).two_nearest(p)
-    per_parent = []                      # (edge_alt, floor_abs|None, ceil_abs|None)
+    per_parent = []                      # (distance, floor_abs|None, ceil_abs|None)
     edge_alts = []
     for d, s in parents:
         e = _edge_interp_alt(s, px, py)
@@ -1004,16 +1012,11 @@ def _spine_interval(layout, airside, px, py):
             continue
         edge_alts.append(float(e))
         per_parent.append((
-            float(e),
+            max(0.0, float(d)),
             None if floor_off is None else float(e) + floor_off,
             None if ceil_off is None else float(e) + ceil_off))
-    floors = [q[1] for q in per_parent if q[1] is not None]
-    ceils = [q[2] for q in per_parent if q[2] is not None]
-    lo = max(floors) if floors else None
-    hi = min(ceils) if ceils else None
-    if lo is not None and hi is not None and lo > hi and per_parent:
-        # Empty intersection — the nearer (first) parent's interval alone.
-        lo, hi = per_parent[0][1], per_parent[0][2]
+    lo, hi, _residual, _handoff = drainage_spine_interval(
+        per_parent, bench_slope=_RING_ALONG_BENCH_SLOPE)
     return lo, hi, edge_alts
 
 

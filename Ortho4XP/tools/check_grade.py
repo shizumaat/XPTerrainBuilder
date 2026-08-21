@@ -161,6 +161,14 @@ try:
         runway_strip_max_longitudinal_slope as _runway_strip_long_slope,
         drainage_spine_parents as _drainage_spine_parents,
         DRAINAGE_SPINE_PARENT_ROLES as _DRAINAGE_SPINE_PARENT_ROLES,
+        # F3c — THE GRADED HANDOFF on a disjoint interval.  One law, both
+        # readers: the emitter composes its station interval from these two
+        # and so does the dam reader below, so a station in a
+        # disjoint-interval zone cannot be emitted against one number and
+        # judged against another.
+        drainage_spine_envelope as _drainage_spine_envelope,
+        drainage_spine_parent_family as _drainage_spine_parent_family,
+        drainage_spine_interval as _drainage_spine_interval,
         # ── phase B + the reg families: the law functions the emitters
         # bind through, read HERE verbatim so the census and the surface
         # cannot drift (grade-law completeness, lockstep half).
@@ -224,6 +232,11 @@ except Exception:
         "secondary_parallel", "stub", "cross_connector", "junction",
         "apron",
     })
+    # No law module ⇒ NO handoff: the dam reader falls back to its
+    # pre-F3c geometric form rather than guessing an envelope.
+    _drainage_spine_envelope = None
+    _drainage_spine_parent_family = None
+    _drainage_spine_interval = None
 
     def _drainage_spine_parents(candidates, max_parents=2):
         best = {}
@@ -3012,6 +3025,48 @@ def _nearest_edge_alt_by_way(px, py, rings, grid, search_m=200.0):
         [(d, wid, z) for d, wid, z in _scan_edges(px, py, rings, all_edges)])]
 
 
+#: The convergence-guard materiality floor for elevation classes (CLAUDE.md
+#: "MATERIALITY FLOOR", 0.01 m).  A graded-handoff residual under it is a
+#: PASS-with-residual and never a row; above it the census carries it.
+_SPINE_HANDOFF_MATERIALITY_M = 0.01
+
+
+def _spine_handoff_here(near, family_by_wid, bench_slope):
+    """``(handoff_value | None, residual_m)`` for one interior spine station.
+
+    F3c, the validator half.  ``near`` is this station's bounding parents as
+    ``[(distance_m, wid, edge_alt), …]``; each parent's envelope offsets come
+    from ``grade_law.drainage_spine_envelope`` at its own distance, and the
+    composition is ``grade_law.drainage_spine_interval`` — the identical call
+    ``gap_fill._spine_interval`` makes.  ``None`` means "no handoff applies
+    here": either the law module is absent, a parent's family is unknown, or
+    the two envelopes INTERSECT, in which case this reader's pre-F3c dam
+    clause is untouched.
+    """
+    if _drainage_spine_interval is None or len(near) < 2:
+        return None, 0.0
+    per_parent = []
+    for d, wid, edge in near[:2]:
+        fam = family_by_wid.get(wid)
+        if fam is None:
+            return None, 0.0
+        try:
+            floor_off, ceil_off = _drainage_spine_envelope(
+                fam[0], fam[1], fam[2], max(0.0, float(d)))
+        except Exception:
+            return None, 0.0
+        per_parent.append((
+            max(0.0, float(d)),
+            None if floor_off is None else float(edge) + float(floor_off),
+            None if ceil_off is None else float(edge) + float(ceil_off)))
+    _lo, hi, residual, is_handoff = _drainage_spine_interval(
+        per_parent, bench_slope=bench_slope)
+    if not is_handoff:
+        # An intersecting (or one-sided) interval — no handoff was composed.
+        return None, 0.0
+    return hi, float(residual)
+
+
 def _check_drainage_spine_below_pavement(
         spine_ways: List[Way], ways: List[Way], nodes, ll_to_m
 ) -> Tuple[List[Violation], int, int]:
@@ -3026,6 +3081,11 @@ def _check_drainage_spine_below_pavement(
         return [], 0, 0
     rings: List[Tuple[str, List[Tuple[float, float, float]]]] = []
     parent_by_wid: Dict[str, "Way"] = {}
+    # F3c: the ENVELOPE FAMILY of each parent, resolved through the law's own
+    # ``drainage_spine_parent_family`` (the same call
+    # ``gap_fill._parent_family_code`` makes) so the handoff this reader
+    # prices is composed from the same per-parent bounds the emitter used.
+    family_by_wid: Dict[str, tuple] = {}
     for w in ways:
         if w.role not in _SPINE_AIRSIDE_ROLES:
             continue
@@ -3041,6 +3101,21 @@ def _check_drainage_spine_below_pavement(
             ring.append((x, y, float(w.elevs[k])))
         if len(ring) >= 3:
             rings.append((w.wid, ring))
+            if _drainage_spine_parent_family is not None:
+                # The runway code number keys off the shape's own longest
+                # vertex chord — the emitter's proxy, no row-100 axis here.
+                _long = None
+                if w.role in ("runway", "runway_crossing"):
+                    _long = 0.0
+                    for _i in range(len(ring)):
+                        for _j in range(_i + 1, len(ring)):
+                            _d = math.hypot(ring[_j][0] - ring[_i][0],
+                                            ring[_j][1] - ring[_i][1])
+                            if _d > _long:
+                                _long = _d
+                family_by_wid[w.wid] = _drainage_spine_parent_family(
+                    w.role, long_side_m=_long,
+                    code_letter=w.tags.get("code_letter"))
     if len(rings) < 2:
         return [], 0, 0
     grid: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
@@ -3146,12 +3221,33 @@ def _check_drainage_spine_below_pavement(
             ceiling = lower
             if cones:
                 ceiling = max(ceiling, max(cones))
+            # F3c — THE GRADED HANDOFF.  Where this station's two parents'
+            # envelopes do NOT intersect (the higher parent's crater floor
+            # above the lower parent's dam ceiling), the emitter no longer
+            # takes the nearer parent's interval: it descends from one
+            # authority to the other, and this reader prices that SAME value
+            # from the SAME law call.  ``handoff`` raises the ceiling only —
+            # a station that passes the dam clause today cannot newly fail —
+            # and where the separation is too short for a lawful descent the
+            # law's own ``residual`` becomes the row (never silent).
+            handoff, residual = _spine_handoff_here(
+                near, family_by_wid, _BENCH_SLOPE)
+            if handoff is not None:
+                ceiling = max(ceiling, handoff)
             if z > ceiling + 0.11:
                 out.append(Violation(
                     grade_pct=0.0, excess_pct=0.0,
                     distance_m=near[0][0], de_m=z - ceiling,
                     way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
                     elev_a=z, elev_b=ceiling))
+            elif residual > _SPINE_HANDOFF_MATERIALITY_M:
+                # PASS-with-residual is the sub-materiality case; this one is
+                # above the floor, so the census carries it.
+                out.append(Violation(
+                    grade_pct=0.0, excess_pct=0.0,
+                    distance_m=near[0][0], de_m=residual,
+                    way_a=w, way_b=w, pt_a=(px, py), pt_b=(px, py),
+                    elev_a=z, elev_b=z - residual))
             elif z > lower - _DRAINAGE_SPINE_MIN_FALL_M:
                 n_short += 1
     for w in spine_ways:

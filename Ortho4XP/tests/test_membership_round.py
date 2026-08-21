@@ -509,3 +509,231 @@ class TestFinalizeChainUnchanged:
         small = _dem_lot(50, 50, 150, 150)
         layout = _layout([big, small])
         assert gs._deconflict_groundside_overlaps(layout, None, 0, 0) == 1
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE ROAD CHORD LIMITER — the road family joins the finalize-stage
+# Lipschitz clamp (wave-3 step 1; spec
+# docs/specs/road-chord-limiter-spec.md).  Ruled basis: ROADS CARRY
+# SPINES LIKE TAXIWAYS (2026-08-15 evening); ONE CORRIDOR = ONE LAW
+# OBJECT (2026-08-12b); airside is king (standing).
+# ═════════════════════════════════════════════════════════════════════
+
+def _svc(x0, y0, x1, y1, alts=None, role="service_road", z=10.0):
+    """A road-family rect carrying the CLOSED altitude convention."""
+    poly = _rect(x0, y0, x1, y1)
+    n = len(poly.exterior.coords)
+    return BuiltShape(polygon=poly, role=role,
+                      node_altitudes=(list(alts) if alts is not None
+                                      else [z] * n))
+
+
+def _open_ring_alts(shape):
+    ring = list(shape.polygon.exterior.coords)
+    alts = list(shape.node_altitudes)
+    if ring and ring[0] == ring[-1]:
+        ring, alts = ring[:-1], alts[:-1]
+    return ring, alts
+
+
+def _worst_chord_grade(shape):
+    """Worst ALL-PAIR chord grade of one ring — the within-shape
+    validator's own metric."""
+    import math
+    ring, alts = _open_ring_alts(shape)
+    worst = 0.0
+    for i in range(len(ring)):
+        for j in range(i + 1, len(ring)):
+            d = math.hypot(ring[i][0] - ring[j][0], ring[i][1] - ring[j][1])
+            if d < 1e-9:
+                continue
+            worst = max(worst, abs(alts[i] - alts[j]) / d)
+    return worst
+
+
+class TestTheRoadFamilyIsChordLimited:
+    """§1 SCOPE + §4 KERNEL: the road roles are clamped by the SAME pass,
+    the same two-sided kernel, and ``tunnel_ramp`` is not."""
+
+    def test_a_road_ring_over_cap_is_clamped_two_sided(self):
+        """(a) A road ring whose INTERIOR chord exceeds the road cap is
+        pulled inside it — and the clamp both CUTS and FILLS (R7c
+        posture): the high vertex comes down AND the low one comes up."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        # 40 m x 20 m road face: one corner 4 m high, one 4 m low —
+        # 20 %+ across the ring's own chords, far past the 8 % road cap.
+        road = _svc(0, 0, 40, 20, alts=[10.0, 14.0, 10.0, 6.0, 10.0])
+        layout = _layout([road])
+        assert gs._grade_limit_groundside_chords(layout) == 1
+        _ring, out = _open_ring_alts(road)
+        cap = cfg.ROLE_GRADE_LIMITS["service_road"]
+        assert _worst_chord_grade(road) <= cap + 5e-3
+        assert out[1] < 14.0, "the high vertex was not CUT"
+        assert out[3] > 6.0, "the low vertex was not FILLED"
+
+    def test_the_road_cap_comes_from_ROLE_GRADE_LIMITS(self):
+        """§2 CAP: one constant, read from the one table — not a second
+        number invented in the limiter."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        assert (gs._chord_limit_cap_for_role("service_road")
+                == cfg.ROLE_GRADE_LIMITS["service_road"])
+        assert (gs._chord_limit_cap_for_role("service_junction")
+                == cfg.ROLE_GRADE_LIMITS["service_junction"])
+        # …and the LOT keeps its shaping margin (the standing law).
+        assert (gs._chord_limit_cap_for_role("groundside_pavement")
+                == cfg.GROUNDSIDE_MAX_GRADE)
+
+    def test_tunnel_ramp_is_never_touched(self):
+        """(e) ``tunnel_ramp``'s law is the portal walk — this pass must
+        not be able to see it."""
+        import auto_patch.groundside as gs
+        ramp = _svc(0, 0, 40, 20, alts=[10.0, 30.0, 10.0, -10.0, 10.0],
+                    role="tunnel_ramp")
+        before = list(ramp.node_altitudes)
+        layout = _layout([ramp])
+        assert gs._grade_limit_groundside_chords(layout) == 0
+        assert list(ramp.node_altitudes) == before
+        assert "tunnel_ramp" not in gs._CHORD_LIMIT_ROLES
+
+
+class TestTheCorridorChainIsOneLawObject:
+    """§3 CORRIDOR COHERENCE — the shared-node unification spans
+    rect↔junction↔rect, so the clamp cannot mint a step at a segment
+    boundary."""
+
+    def _chain(self):
+        # rect A [0,50] — junction [50,60] — rect B [60,110], all 10 m
+        # wide and sharing their boundary vertices exactly.
+        a = _svc(0, 0, 50, 10, alts=[6.0, 10.0, 10.0, 6.0, 6.0])
+        j = _svc(50, 0, 60, 10, alts=[10.0, 10.4, 10.4, 10.0, 10.0],
+                 role="service_junction")
+        b = _svc(60, 0, 110, 10, alts=[10.4, 14.0, 14.0, 10.4, 10.4])
+        return a, j, b
+
+    def test_the_chain_shares_node_values_across_shapes(self):
+        """(b) After the clamp, every node two chain members share holds
+        ONE value — no minted step at the joints."""
+        import auto_patch.groundside as gs
+        a, j, b = self._chain()
+        layout = _layout([a, j, b])
+        gs._grade_limit_groundside_chords(layout)
+        vals = {}
+        for shape in (a, j, b):
+            ring, alts = _open_ring_alts(shape)
+            for (x, y), v in zip(ring, alts):
+                k = (round(x, 2), round(y, 2))
+                if k in vals:
+                    assert vals[k] == pytest.approx(v, abs=1e-9), (
+                        f"chain joint {k} minted a step "
+                        f"{vals[k]} vs {v}")
+                vals[k] = v
+
+    def test_the_census_counts_the_chain_joints(self):
+        """§2/§3 report: the pass says out loud what it unified and where
+        a stricter cap won."""
+        import auto_patch.groundside as gs
+        a, j, b = self._chain()
+        lot = _dem_lot(0, 10, 50, 40, z=10.0)      # welds rect A's flank
+        layout = _layout([a, j, b, lot])
+        gs._grade_limit_groundside_chords(layout)
+        st = layout._chord_limit_stats
+        assert st["shared_rect_junction_nodes"] == 4      # two joints
+        assert st["shared_road_lot_nodes"] == 2
+        # lot 5 % vs road 8 % at a shared node ⇒ the STRICTER cap wins
+        assert st["stricter_cap_nodes"] == 2
+        assert st["rings"]["service_road"] == 2
+        assert st["rings"]["service_junction"] == 1
+
+    def test_a_shared_node_takes_the_stricter_cap(self):
+        """The pre-delegated rule, as behaviour: the road chords that
+        touch a lot-shared node are budgeted at the LOT's cap."""
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        road = _svc(0, 0, 40, 10, alts=[10.0, 13.0, 13.0, 10.0, 10.0])
+        # the lot shares the road's two right-hand corners
+        lot = _dem_lot(40, 0, 80, 10, z=13.0)
+        layout = _layout([road, lot])
+        gs._grade_limit_groundside_chords(layout)
+        assert _worst_chord_grade(road) <= cfg.GROUNDSIDE_MAX_GRADE + 5e-3
+
+
+class TestTheRoadRoundLeavesTheLotPassAlone:
+    """(d) With NO road shapes present the pass is the pre-round one —
+    same node identity, same scalar-cap arithmetic, same output."""
+
+    def test_a_lot_only_layout_is_byte_identical_to_the_kernel(self):
+        import auto_patch.groundside as gs
+        from auto_patch import config as cfg
+        lot = _dem_lot(0, 0, 100, 60)
+        lot.node_altitudes = [
+            0.0 if k % 2 else 50.0
+            for k in range(len(lot.polygon.exterior.coords))]
+        ring, alts = _open_ring_alts(lot)
+        # the reference: the ONE kernel, one scalar cap, no per-node caps
+        keys = [(round(x, 2), round(y, 2)) for x, y in ring]
+        vals = [float(a) for a in alts]
+        live = list(range(len(keys)))
+        for _round in range(4):
+            before = list(vals)
+            gs._chord_cut_and_fill(keys, vals, live, live,
+                                   cfg.GROUNDSIDE_MAX_GRADE)
+            if all(abs(v - b) <= 1e-6 for v, b in zip(vals, before)):
+                break
+        expect = [round(v, 2) for v in vals]
+        layout = _layout([lot])
+        assert gs._grade_limit_groundside_chords(layout) == 1
+        assert list(lot.node_altitudes) == expect + [expect[0]]
+
+    def test_two_lots_still_key_by_min_within_the_role(self):
+        """The historical within-role seed rule (``min`` at a shared
+        node) is untouched — only ACROSS roles does precedence decide."""
+        import auto_patch.groundside as gs
+        a = _dem_lot(0, 0, 50, 20, z=10.0)
+        b = _dem_lot(50, 0, 100, 20, z=10.6)
+        layout = _layout([a, b])
+        gs._grade_limit_groundside_chords(layout)
+        _ra, va = _open_ring_alts(a)
+        _rb, vb = _open_ring_alts(b)
+        shared = [v for (x, y), v in zip(_rb, vb) if round(x, 2) == 50.0]
+        assert shared and all(v == pytest.approx(10.0, abs=1e-9)
+                              for v in shared)
+        assert all(v == pytest.approx(10.0, abs=1e-9) for v in va)
+
+
+class TestTheEmitAuthorityStillWins:
+    """(c) The weld values that EMIT are the road's, and the welds are
+    not pinned — the two halves of §4 the measured groundside lesson
+    fixes in place."""
+
+    def test_a_shared_node_is_seeded_from_the_ROAD_not_the_lot(self):
+        """``AUTHORITY_PRECEDENCE`` is airside-first: at a road↔lot weld
+        the emit ships the ROAD's value, so that is the value this pass
+        clamps with — never the lot's lower one."""
+        import auto_patch.groundside as gs
+        from auto_patch.layout import authority_rank
+        assert (authority_rank("service_road")
+                < authority_rank("groundside_pavement"))
+        road = _svc(0, 0, 40, 10, z=10.0)
+        lot = _dem_lot(40, 0, 80, 10, z=4.0)   # LOWER, and it shares 2 nodes
+        layout = _layout([road, lot])
+        gs._grade_limit_groundside_chords(layout)
+        _ring, alts = _open_ring_alts(lot)
+        weld = [v for (x, y), v in zip(_ring, alts) if round(x, 2) == 40.0]
+        assert weld and all(v > 4.0 for v in weld), (
+            "the lot's own value survived at a node the ROAD owns")
+
+    def test_the_welds_are_not_pinned(self):
+        """A weld node MOVES when the ring's own law needs it to — the
+        pinning R7c's literal reading would impose is exactly what the
+        CYXY way -10126 measurement refused."""
+        import auto_patch.groundside as gs
+        road = _svc(0, 0, 40, 10, alts=[10.0, 16.0, 16.0, 10.0, 10.0])
+        lot = _dem_lot(40, 0, 80, 10, z=16.0)
+        layout = _layout([road, lot])
+        gs._grade_limit_groundside_chords(layout)
+        _ring, alts = _open_ring_alts(road)
+        moved = [v for (x, y), v in zip(_ring, alts) if round(x, 2) == 40.0]
+        assert moved and all(v < 16.0 for v in moved), (
+            "the weld was pinned — the ring could not reach its law")

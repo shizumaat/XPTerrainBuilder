@@ -907,7 +907,11 @@ class TestLawfulEatRectIsUnchanged:
         at_graph = src.index("u_spine_adj_airside = adj_without_pairs")
         at_guard = src.index("eat_pin_contradiction_refusals(")
         at_flex = src.index("_apply_runway_flex_hook(")
-        at_anchor = src.index("G.runway_anchor.setdefault(_pi, float(_pv))")
+        # The registration is ``register_eat_anchors`` since the
+        # refusal-contributes-nothing round extracted it (so the twins
+        # can drive the rule instead of a transcription); the WIRING
+        # question — where it sits relative to the guard — is unchanged.
+        at_anchor = src.index("register_eat_anchors(G,")
         at_truth = src.index("layout._seed_hard_truth_values")
         assert at_graph < at_guard < at_flex < at_anchor < at_truth
 

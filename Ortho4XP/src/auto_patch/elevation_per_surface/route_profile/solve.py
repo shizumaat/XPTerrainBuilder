@@ -2440,10 +2440,32 @@ def solve_route_profile(layout, icao: str,
     if _eat_pins_guard:
         _n_pins_pre = len(_eat_pins_guard)
         _n_hard_eat = min(len(base_hard), len(elev))
-        _eat_refused = eat_pin_contradiction_refusals(
+        _eat_unbounded: set = set()
+        _eat_priced = eat_pin_contradiction_refusals(
             _eat_pins_guard, u_spine_adj_airside,
             {_i: float(elev[_i]) for _i in u_spine_adj_airside
-             if _i < _n_hard_eat and base_hard[_i]})
+             if _i < _n_hard_eat and base_hard[_i]},
+            unbounded_out=_eat_unbounded)
+        # ── THE RECT'S VALUE IS ONE VALUE (KDFW +32-098, instrumented
+        # 2026-08-21) ─────────────────────────────────────────────────
+        # The predicate above is priced on ``build_anchor_envelope``, a
+        # Dijkstra over the SPINE adjacency — so a pin whose node carries
+        # no spine edge has NO BOX and is never judged ("a missing bound
+        # is honest").  At KDFW's south rect the envelope prices 3 of
+        # the 19 pins carrying 196.824 and REFUSES ALL THREE; the other
+        # 16 carry the same value unjudged, and one of them (node 3316,
+        # box None) then registered as a band anchor and
+        # authored the shipped INVERTED band ``[196.824, 175.943]``.
+        # ``_build_eat_anchor_rect_pins`` pins a crossing segment FLAT at
+        # one value, so the lawfulness of that value is a question about
+        # the FACILITY — the same reasoning the unroutable law above
+        # already applies, on the other rect-level property.  The priced
+        # nodes are the rect's witnesses; the unpriceable ones are not
+        # lawful, they are unjudged.
+        _eat_refused = eat_rect_value_refusals(
+            _eat_pins_guard,
+            getattr(layout, "_eat_anchor_pin_rect", None) or {},
+            _eat_priced)
         if _eat_refused:
             _worst_node, _worst = max(
                 _eat_refused.items(), key=lambda r: r[1]["excess_m"])
@@ -2460,6 +2482,20 @@ def solve_route_profile(layout, icao: str,
             _UI_eatg2.vprint(1, format_eat_guard_line(
                 icao, _n_released, _n_pins_pre, _worst_node, _worst,
                 _w_value))
+            # PRODUCTION STATES WHAT IT DID, and the number that matters
+            # is how many of the pins it took were never judged at all
+            # (RULINGS 2026-08-06, instrument truth): an UNPRICEABLE pin
+            # used to read exactly like a lawful one.
+            _eat_extended = {_i for _i in _eat_refused
+                             if _i not in _eat_priced}
+            if _eat_extended:
+                _eat_rects_v = getattr(
+                    layout, "_eat_anchor_pin_rect", None) or {}
+                _UI_eatg2.vprint(1, format_eat_rect_value_line(
+                    icao, len(_eat_extended),
+                    len({_eat_rects_v.get(_i, -_i - 1)
+                         for _i in _eat_extended}),
+                    len(_eat_extended & _eat_unbounded)))
             # A refusal the release could not carry out is a WIRING
             # defect (the seeder publishes both maps in one statement, so
             # the only path here is a probe that restored one and not the
@@ -2506,9 +2542,7 @@ def solve_route_profile(layout, icao: str,
     # clears and re-derives the anchor map.  ``setdefault``: a genuine
     # runway-join anchor at a shared bucket keeps datum authority.
     _eat_anchor_pins = getattr(layout, "_eat_anchor_pin_idx", None) or {}
-    for _pi, _pv in _eat_anchor_pins.items():
-        if _pi < len(elev):
-            G.runway_anchor.setdefault(_pi, float(_pv))
+    register_eat_anchors(G, _eat_anchor_pins, len(elev))
     # ── (THE FLAT-AIRPORT FAST PATH STOOD HERE — DELETED 2026-08-05) ──
     # Fix cycle 2 item 1, verdict (a).  The Tier-2 whole-airport fast path
     # tested a ``FlatAirportCertificate`` at this point and, when it held,
@@ -8856,7 +8890,8 @@ def _open4(poly):
 
 
 def pin_contradiction_refusals(pins, spine_adj, hard_values, *,
-                               junior=(), tol: float = 0.01):
+                               junior=(), tol: float = 0.01,
+                               unbounded_out=None):
     """THE PIN-vs-SENIOR-ANCHOR PREDICATE — ``{node: violation}`` for
     every pin in ``pins`` whose VALUE cap-contradicts a SENIOR hard
     anchor within its own route budget.
@@ -8882,8 +8917,19 @@ def pin_contradiction_refusals(pins, spine_adj, hard_values, *,
     Returns ``{}`` when there is nothing to test or no senior anchor to
     test against — a missing bound is honest, never a silent refusal.
     Refusal is PER NODE.
+
+    ``unbounded_out`` — an optional SET the caller passes to be told which
+    pins carried NO BOUND AT ALL (``AnchorEnvelope.box`` is ``None``: the
+    envelope's Dijkstra runs on the spine adjacency, and a pin off the
+    spine graph is never reached).  Write-only, no effect on the verdict;
+    it exists because "inside its envelope" and "never judged" used to be
+    the same silence, and at KDFW that silence covered 47 of 67 pins —
+    16 of them on the one rect whose value was condemned (see
+    :func:`eat_rect_value_refusals`).
     """
     if not pins or not spine_adj:
+        if unbounded_out is not None:
+            unbounded_out.update(int(i) for i in (pins or ()))
         return {}
     from .law_graph_budget import build_anchor_envelope
     demoted = {int(i) for i in pins} | {int(i) for i in junior}
@@ -8891,9 +8937,13 @@ def pin_contradiction_refusals(pins, spine_adj, hard_values, *,
               if int(i) not in demoted}
     env = build_anchor_envelope(spine_adj, senior)
     if env is None:
+        if unbounded_out is not None:
+            unbounded_out.update(int(i) for i in pins)
         return {}
     refused: dict = {}
     for i, v in pins.items():
+        if unbounded_out is not None and env.box(int(i)) is None:
+            unbounded_out.add(int(i))
         viol = env.violation(int(i), float(v), tol=tol)
         if viol is not None:
             refused[int(i)] = viol
@@ -8901,7 +8951,8 @@ def pin_contradiction_refusals(pins, spine_adj, hard_values, *,
 
 
 def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
-                                   *, tol: float = 0.01):
+                                   *, tol: float = 0.01,
+                                   unbounded_out=None):
     """THE EAT PIN GUARD — ``{node: violation}`` for every EAT anchor-rect
     pin that CAP-CONTRADICTS a senior hard runway/seam anchor within its
     own route budget (docs/specs/eat-anchor-contradiction-guard-spec.md).
@@ -8941,9 +8992,14 @@ def eat_pin_contradiction_refusals(pins, spine_adj, hard_values,
     The body is :func:`pin_contradiction_refusals` with no junior set:
     the EAT rect is the LAST family ``_seed_elevations`` pins, so every
     other hard node on the graph outranks it.
+
+    ``unbounded_out`` is passed straight through — the caller uses it to
+    report how many pins the per-node predicate could not judge at all,
+    which is the population :func:`eat_rect_value_refusals` exists for.
     """
     return pin_contradiction_refusals(pins, spine_adj, hard_values,
-                                      tol=tol)
+                                      tol=tol,
+                                      unbounded_out=unbounded_out)
 
 
 def eat_pin_taxi_bound(pins, spine_adj, runway_anchor):
@@ -9026,6 +9082,108 @@ def eat_unroutable_rect_refusals(pins, pin_rect, bound):
     routable_rects = {rect_of[int(i)] for i in bound if int(i) in rect_of}
     return {int(i): rect_of[int(i)] for i in pins
             if rect_of[int(i)] not in routable_rects}
+
+
+def eat_rect_value_refusals(pins, pin_rect, refused):
+    """THE RECT'S VALUE IS ONE VALUE — extend a contradiction refusal to
+    every pin of the rect that carries it.
+
+    THE DEFECT THIS CLOSES (KDFW +32-098, instrumented 2026-08-21; the
+    wave-3 triage dossier's N-5).  ``eat_pin_contradiction_refusals``
+    prices a pin on ``build_anchor_envelope``, which is a Dijkstra over
+    the SPINE adjacency: a pin whose node carries no spine edge has NO
+    BOX, and ``AnchorEnvelope.violation`` then returns ``None`` because
+    *a missing bound is honest, never a silent refusal*.  At KDFW's
+    18L/36R south rect the envelope can price only 3 of the 19 pins that
+    carry 196.824 — and it REFUSES ALL THREE.  Measured, per pin:
+
+        pin 3314 @(-2373,-2022) v=196.824 box=(174.981, 175.599) REFUSED
+        pin 3316 @(-2391,-2021) v=196.824 box=None            accepted
+        pin 3317 @(-2394,-2021) v=196.824 box=(174.672, 175.908) REFUSED
+
+    Three neighbours, metres apart, ONE value, and the two the graph can
+    price are condemned by 20.9-21.2 m against runway anchor 3311 =
+    175.290 while the one it cannot keeps full authority.  Node 3316 then
+    registers as a runway-class band anchor (``register_eat_anchors``)
+    and authors its own band at distance 0 — the shipped, INVERTED
+    ``[196.824, 175.943]`` the writeback clamped 72 solved values into,
+    134 airside rows, worst 21.74 m.  The release path is NOT at fault:
+    the three refused pins came back clean (no value, no hardness, no
+    ``runway_anchor`` entry — twin
+    ``tests/test_eat_refusal_contributes_nothing.py``).
+
+    THE LAW.  ``_build_eat_anchor_rect_pins`` pins each crossing segment
+    FLAT at ONE value (``end_elev + eat_pavement_ceiling(D_mid, ...)``),
+    so "is this value lawful?" is a question about the RECT, not about a
+    node — every node of the rect carries the same number and therefore
+    the same contradiction.  The nodes the spine graph can price are the
+    WITNESSES for the facility; the ones it cannot are not lawful, they
+    are unpriceable.  This is the unroutable law's own reasoning
+    (:func:`eat_unroutable_rect_refusals`, "the question the law asks is
+    about the FACILITY"), applied to the other rect-level property.
+
+    Rects are judged INDEPENDENTLY, and the same build shows the law is
+    not a blanket: KDFW's other pin values — 174.522 (18 pins, 6 priced),
+    167.368 (16 / 5) and 171.712 (14 / 4) — all sit INSIDE their
+    envelopes, refuse nothing, and are untouched by this.  The
+    unpriceable majority is general (only ~30 % of KDFW's pins carry a
+    box at all); what is not general is a contradiction to extend.
+
+    ``pins`` — the surviving ``layout._eat_anchor_pin_idx``.
+    ``pin_rect`` — ``layout._eat_anchor_pin_rect``; a pin with no rect
+    identity is its own rect (the unroutable law's convention), so a
+    missing publication can only ever refuse less.  ``refused`` — the
+    priced verdict from :func:`eat_pin_contradiction_refusals`.
+
+    Returns the EXTENDED verdict: ``refused`` plus one entry per
+    rect-mate, carrying its witness's violation record with
+    ``via_rect`` naming the priced pin the verdict came from (the excess
+    is the same number — the values are identical).  ``refused``
+    unchanged when it is empty: no witness, no verdict.
+    """
+    if not refused or not pins:
+        return dict(refused or {})
+    rect_of = {int(i): (pin_rect or {}).get(int(i), -int(i) - 1)
+               for i in pins}
+    witness_of: dict = {}
+    for i in refused:
+        r = rect_of.get(int(i))
+        if r is None:
+            continue
+        # The WORST priced contradiction on the rect is its witness, so
+        # the reported excess is the rect's own worst — the same rule
+        # the guard's loud line applies across pins.
+        cur = witness_of.get(r)
+        if cur is None or (float(refused[int(i)]["excess_m"])
+                           > float(refused[cur]["excess_m"])):
+            witness_of[r] = int(i)
+    out = dict(refused)
+    for i in pins:
+        i = int(i)
+        if i in out:
+            continue
+        w = witness_of.get(rect_of.get(i))
+        if w is None:
+            continue
+        out[i] = dict(refused[w], via_rect=w)
+    return out
+
+
+def format_eat_rect_value_line(icao, n_extended, n_rects, n_unpriceable):
+    """THE ONE LOUD LINE the rect-value extension prints — how many pins
+    it took with the priced verdict, over how many rects, and how many of
+    them the spine graph could not price AT ALL.
+
+    That last number is the instrument truth the round exists to expose:
+    an unpriceable pin used to read exactly like a lawful one."""
+    return (
+        f"  [eat-anchor-rect] {icao}: {n_extended} further pin(s) over "
+        f"{n_rects} rect(s) REFUSED WITH THEM — the rect is pinned FLAT "
+        f"at ONE value, so a contradiction priced at any node of it "
+        f"condemns that value everywhere it is stamped "
+        f"({n_unpriceable} of them carry NO senior-anchor bound at all: "
+        f"no spine route reaches them, so the per-node predicate could "
+        f"never have judged them); released to their seed.")
 
 
 def format_eat_unroutable_line(icao, refused, n_pins, n_rects):
@@ -9181,6 +9339,33 @@ def format_deck_guard_line(icao, n_refused, n_pins, worst_node, worst,
         f"m past its {worst['side']} {worst['bound']:.3f} (witness anchor "
         f"{worst['witness']} = {anchor_value:.3f}, route budget "
         f"{worst['route_budget_m']:.4f} m); released to their seed.")
+
+
+def register_eat_anchors(G, pins, n_elev):
+    """REGISTER the SURVIVING EAT anchor-rect pins as runway-class band
+    anchors — THE one place the EAT family becomes a reach-band authority
+    (``spine_value_fields`` seeds from ``G.runway_anchor``, so an entry
+    here IS a floor/ceiling source at that node, at distance 0).
+
+    EXTRACTED from ``solve_route_profile``'s inline loop so the twins can
+    drive the RULE production applies instead of a transcription of it:
+    the refusal-contributes-nothing law is a statement about what this
+    function is handed, and a test that re-spells the ``setdefault``
+    could not fail when the call site changes.  The body is verbatim —
+    same iteration order, same ``setdefault`` precedence (a genuine
+    runway-JOIN anchor at a shared bucket keeps datum authority), same
+    ``pi < n_elev`` guard.
+
+    ``pins`` is ``layout._eat_anchor_pin_idx`` AFTER every guard has
+    released what it refused: a refused pin is not in it, and therefore
+    never becomes a band anchor.  Returns the number registered.
+    """
+    n = 0
+    for pi, pv in (pins or {}).items():
+        if pi < n_elev:
+            G.runway_anchor.setdefault(pi, float(pv))
+            n += 1
+    return n
 
 
 def publish_eat_refusal_keys(layout, refused, nodes):

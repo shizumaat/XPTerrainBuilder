@@ -536,6 +536,13 @@ class Violation:
     #: is still measured, still counted in its family and still printed —
     #: instruments report, the law adjudicates.
     out_of_scope: Optional[str] = None
+    #: THE CAP THAT PRICED THIS ROW, in percent (owner ruling RULINGS
+    #: 2026-08-21c, spec A1 §2a).  With the apron interior at 5 % and its
+    #: movement surfaces at the strict cap, "how bad is this row" is not
+    #: answerable from ``grade_pct`` alone — two rows at 3 % are a PASS and a
+    #: FAIL depending on which law priced them.  Set by every within-shape
+    #: row; ``None`` on families that carry no per-pair cap.
+    cap_pct: Optional[float] = None
 
 
 @dataclass
@@ -4599,7 +4606,12 @@ def _check_within_shape(ways: List[Way],
             de_m=de,
             way_a=c.way, way_b=c.way,
             pt_a=(c.xa, c.ya), pt_b=(c.xb, c.yb),
-            elev_a=c.ea, elev_b=c.eb)
+            elev_a=c.ea, elev_b=c.eb,
+            # WHICH CAP PRICED IT (spec A1 §2a) — ``c.cap`` is the cap
+            # ``grade_law.classify_pair`` returned for this very pair, so the
+            # strict/5 % split is reported from the law itself, never
+            # re-derived from the geometry by the reader.
+            cap_pct=c.cap * 100)
         # THE ROW POINTS AT THE PAIR, NOT THE SHAPE (R19-5).  Every other
         # family's ``lat``/``lon`` is the offending way's ring centroid
         # (``run_checks._way_latlon``), which on a 1.2 km apron ring puts

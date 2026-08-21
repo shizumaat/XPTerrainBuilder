@@ -1,26 +1,37 @@
-"""THE APRON WITHIN-SHAPE POPULATION — the movement surfaces, never a
-generic ring-vertex pair (owner ruling ``docs/RULINGS.md`` 2026-08-21b,
-answer "ii"; spec ``docs/specs/apron-within-shape-population-spec.md``).
+"""THE APRON WITHIN-SHAPE POPULATION — the movement surfaces at the STRICT
+cap, the interior at the FAN-RAMP cap (owner rulings ``docs/RULINGS.md``
+2026-08-21b answer "ii" and 2026-08-21c; spec
+``docs/specs/apron-within-shape-population-spec.md`` + AMENDMENT A1).
+
+AMENDED 2026-08-21c: the interior is NOT removed from the law.  Every apron
+pair stays in the domain; what the movement-surface predicate now decides is
+the pair's CAP — strict for a frontage chord and for the ring-adjacent
+branch, ``APRON_INTERIOR_CAP`` (5 %) for the interior.  The removal half of
+2026-08-21b was measured on lane/compose and REVERSED: with the interior
+unpriced the transect rows moved the rings by metres and the frontage chords
+absorbed it (SPJC 189 -> 551 airside).
 
 The five twins the spec pre-registers (§8), all on ONE synthetic airport:
 an apron, TWO building pads on its back edge, and ONE taxi corridor
 running through it.
 
-  (a) a generic apron pair is SKIPPED and a frontage chord is KEPT, and
-      P1 (both endpoints frontage vertices of one pad) takes the
-      pre-existing ring-adjacent branch — its verdict is identical with
-      the rule on and off;
+  (a) a generic apron pair is KEPT AT 5 % and a frontage chord is kept at
+      the STRICT cap, and P1 (both endpoints frontage vertices of one pad)
+      takes the pre-existing ring-adjacent branch — its verdict is identical
+      with the rule on and off;
   (b) the CENSUS (``check_grade.iter_shape_grade_constraints``, reading
       an emitted ring by node id) and the BAKE
       (``grade_graph.shape_constraints`` under the solver's context)
-      enumerate the IDENTICAL apron pair set — the lockstep the ruling
-      requires ("ONE predicate, both readers");
+      enumerate the IDENTICAL apron pair set AND THE IDENTICAL CAP PER
+      PAIR — the lockstep the ruling requires ("ONE predicate, both
+      readers");
   (c) junction / runway / building within-shape pair sets are BYTE-
       IDENTICAL to the rule-off arm (ruling clause 4);
   (d) the sidecar's ``pair_caps`` FAMILY TAG round-trips, and a legacy
       three-element row still reads exactly as before;
-  (e) an apron with NO building frontage yields ZERO within-shape law
-      edges (the warm-start carrier keeps the smoothing — spec §5).
+  (e) an apron with NO building frontage is FULLY POPULATED at the 5 %
+      interior cap (A1 §5a: the interior law IS the interior's constraint,
+      superseding §5's "carrier keeps the smoothing").
 
 Everything here is headless: synthetic rings, no DEM, no X-Plane data,
 no network.
@@ -130,51 +141,155 @@ def _pairs_xy(sc, shape):
     return {frozenset((by_key[a], by_key[b])) for (a, b, _c) in sc.edges}
 
 
+def _caps_xy(sc, shape):
+    """``{frozenset(pair): cap}`` — the pair set WITH the cap that priced
+    each one.  Under RULINGS 2026-08-21c the cap IS the law's answer, so
+    every twin below asserts on this rather than on membership alone."""
+    by_key = {k: p for k, p in zip(shape.keys, shape.ring)}
+    return {frozenset((by_key[a], by_key[b])): c.flat_cap()
+            for (a, b, c) in sc.edges}
+
+
 def _edges_xy(lay, apron_ring=None):
     gs = _apron_shape(lay, apron_ring)
     return _pairs_xy(GG.shape_constraints(gs, _solver_ctx(lay)), gs)
 
 
+def _edge_caps_xy(lay, apron_ring=None):
+    gs = _apron_shape(lay, apron_ring)
+    return _caps_xy(GG.shape_constraints(gs, _solver_ctx(lay)), gs)
+
+
 @pytest.fixture
 def rule_off(monkeypatch):
-    """The kill switch ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY=0`` — the
-    pre-ruling all-pair population.  The module constant is read at
-    import, so the twin drives THAT (the same shape every other gate in
-    this engine is tested through)."""
-    monkeypatch.setattr(GL, "APRON_WITHIN_SHAPE_FRONTAGE_ONLY", False)
+    """The kill switch ``O4_APRON_INTERIOR_RAMP_CAP=0`` — every apron pair
+    at the STRICT body cap, i.e. the 2026-08-21 battery.  (The flag was
+    renamed from ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY`` with 2026-08-21c:
+    nothing is dropped any more, only the interior CAP changes.)  The
+    module constant is read at import, so the twin drives THAT (the same
+    shape every other gate in this engine is tested through)."""
+    monkeypatch.setattr(GL, "APRON_INTERIOR_RAMP_CAP", False)
 
 
 # ── (a) generic skipped, frontage chord kept, P1 unchanged ───────────
 
-def test_frontage_chord_kept_generic_apron_pair_skipped():
-    kept = _edges_xy(_layout())
-    # A FRONTAGE CHORD: one endpoint a frontage vertex, the other on the
-    # spine, within the frontage band's own reach.
+def _caps_rule_off(lay, apron_ring=None):
+    """The same pair set priced with the rule OFF — i.e. today's
+    all-strict behaviour, the 2026-08-21 battery.  Every twin below states
+    the law as a DELTA against this arm, because "the strict cap" is
+    whatever the existing chain (spine / blend / body) already returned:
+    A1 raises exactly one class and touches nothing else."""
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        return _edge_caps_xy(lay, apron_ring)
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+
+
+def test_the_domain_is_unchanged_only_the_interior_cap_moves():
+    """A1 §2a: both readers enumerate the same pair set as today's bake
+    MINUS NOTHING; only the CAP changes, and only on the interior class,
+    and only upward ("relax only")."""
+    lay = _layout()
+    on, off = _edge_caps_xy(lay), _caps_rule_off(lay)
+    assert set(on) == set(off), (
+        f"the DOMAIN moved: on-only {sorted(set(on) - set(off))} / "
+        f"off-only {sorted(set(off) - set(on))}")
+    assert on, "the fixture must produce pairs"
+    raised = {k for k in on if on[k] != off[k]}
+    assert raised, "no interior pair was raised — the amendment is inert"
+    for k in on:
+        assert on[k] >= off[k] - 1e-12, f"{k} was TIGHTENED, not relaxed"
+    # every raised pair landed exactly on the ramp cap, and every raised
+    # pair is one the law calls interior.
+    for k in raised:
+        assert abs(on[k] - GL.APRON_INTERIOR_CAP) < 1e-9
+        assert off[k] < GL.APRON_INTERIOR_CAP
+
+
+def test_frontage_chord_keeps_the_strict_cap_interior_takes_the_ramp_cap():
+    """The movement surface is priced as it was; the interior is not."""
+    lay = _layout()
+    on, off = _edge_caps_xy(lay), _caps_rule_off(lay)
     for pad_xy, spine_xy in (((20.0, 120.0), (-100.0, 0.0)),
                              ((200.0, 120.0), (300.0, 0.0)),
                              ((240.0, 120.0), (300.0, 0.0))):
         assert math.dist(pad_xy, spine_xy) <= BUILDING_REACH_CORRIDOR_M
-        assert frozenset((pad_xy, spine_xy)) in kept, (
-            f"frontage chord {pad_xy}->{spine_xy} was dropped")
-    # GENERIC pairs — including a RING-ADJACENT one, which the ruling
-    # does not exempt: neither endpoint is a frontage vertex.
-    for a, b in (((-100.0, -40.0), (300.0, -40.0)),      # ring-adjacent
-                 ((-100.0, -40.0), (300.0, 120.0)),      # body diagonal
-                 ((300.0, 120.0), (-100.0, 120.0))):     # back edge
-        assert frozenset((a, b)) not in kept, f"generic pair {a}-{b} kept"
-    # EVERY surviving pair is a frontage chord.
-    for pair in kept:
-        (pa, pb) = tuple(pair)
-        assert ({pa, pb} & FRONTAGE_XY) and ({pa, pb} & SPINE_XY), (
-            f"{pair} is not a frontage chord")
+        pair = frozenset((pad_xy, spine_xy))
+        assert pair in on, f"frontage chord {pad_xy}->{spine_xy} was dropped"
+        assert on[pair] == off[pair], (
+            f"frontage chord re-priced {off[pair]} -> {on[pair]}")
+        assert on[pair] < GL.APRON_INTERIOR_CAP, (
+            "a frontage chord must stay STRICTER than the interior")
+    # the back edge is interior: neither endpoint fronts a pad here.
+    back = frozenset(((300.0, 120.0), (-100.0, 120.0)))
+    if back in on:                      # (subject to the 60 m body gate)
+        assert abs(on[back] - GL.APRON_INTERIOR_CAP) < 1e-9
 
 
-def test_over_reach_frontage_chord_is_not_law():
+def test_the_ring_adjacent_branch_is_not_raised():
+    """A1 §1a: the ring-adjacent branch keeps its behaviour — a ring edge
+    is a physical stretch of pavement, and R19-5 exists to catch the
+    148 %-class edge it would otherwise leave unpriced.  Reported count is
+    asserted to be non-zero so the branch cannot silently empty."""
+    lay = _layout()
+    on, off = _edge_caps_xy(lay), _caps_rule_off(lay)
+    ring_adj = [frozenset((APRON_RING[i], APRON_RING[(i + 1) % len(APRON_RING)]))
+                for i in range(len(APRON_RING))]
+    present = [k for k in ring_adj if k in on]
+    assert present, "no ring edge survived — R19-5's own class is empty"
+    for k in present:
+        assert on[k] == off[k], f"ring edge {k} was re-priced to {on[k]}"
+
+
+def test_the_cap_verdicts_are_the_ones_the_amendment_names():
+    """A1's own acceptance sentence: a generic pair at 3 % PASSES and at
+    6 % FAILS; a frontage chord at 3 % FAILS.  Both pairs are inside the
+    60 m body gate so the gate is not what decides them."""
+    base = dict(role="apron", dist=50.0, ring_adjacent=False,
+                a_seam=False, b_seam=False, a_building=False,
+                b_building=False, spine_caps=(), body_cap=GL.APRON_MAX_GRADE)
+    generic = GL.classify_pair(GL.PairContext(
+        **base, a_frontage=False, b_corridor=False))
+    chord = GL.classify_pair(GL.PairContext(
+        **{**base, "dist": 20.0}, a_frontage=True, b_corridor=True))
+    assert generic is not None, "the interior pair must stay in the law"
+    assert chord is not None
+    g_cap, c_cap = generic.flat_cap(), chord.flat_cap()
+    assert g_cap >= 0.03, "a generic interior pair at 3 % must PASS"
+    assert g_cap < 0.06, "a generic interior pair at 6 % must FAIL"
+    assert c_cap < 0.03, "a frontage chord at 3 % must FAIL"
+
+
+def test_the_sixty_metre_body_gate_still_removes_long_interior_chords():
+    """A1 §1a keeps ``APRON_BODY_CHORD_MAX_M``: a 680 m chord at 5 % is
+    still 34 m of fall, so the gate that predates this ruling still runs."""
+    long_pair = dict(role="apron", dist=200.0, ring_adjacent=False,
+                     a_seam=False, b_seam=False, a_building=False,
+                     b_building=False, spine_caps=(),
+                     body_cap=GL.APRON_MAX_GRADE,
+                     a_frontage=False, b_corridor=False)
+    assert math.isfinite(GL.APRON_BODY_CHORD_MAX_M)
+    assert 200.0 > GL.APRON_BODY_CHORD_MAX_M
+    assert GL.classify_pair(GL.PairContext(**long_pair)) is GL.SKIP
+
+
+def test_over_reach_frontage_chord_is_interior_not_dropped():
     """Beyond ``BUILDING_REACH_CORRIDOR_M`` the seat does not reach the
-    spine — the frontage band's OWN reach, not a new constant."""
-    far = frozenset(((20.0, 120.0), (300.0, 0.0)))
-    assert math.dist((20.0, 120.0), (300.0, 0.0)) > BUILDING_REACH_CORRIDOR_M
-    assert far not in _edges_xy(_layout())
+    spine, so the pair is not a MOVEMENT SURFACE — but under A1 it is
+    still law, at the interior cap, rather than dropped (when the 60 m
+    body gate lets it through)."""
+    far_ctx = GL.PairContext(
+        role="apron", dist=BUILDING_REACH_CORRIDOR_M + 5.0,
+        ring_adjacent=False, a_seam=False, b_seam=False,
+        a_building=False, b_building=False, spine_caps=(),
+        body_cap=GL.APRON_MAX_GRADE, a_frontage=True, b_corridor=True)
+    assert not GL.is_frontage_chord(far_ctx)
+    if far_ctx.dist <= GL.APRON_BODY_CHORD_MAX_M:
+        got = GL.classify_pair(far_ctx)
+        assert got is not None
+        assert abs(got.flat_cap() - GL.APRON_INTERIOR_CAP) < 1e-9
 
 
 def test_p1_takes_the_existing_ring_adjacent_branch():
@@ -187,12 +302,12 @@ def test_p1_takes_the_existing_ring_adjacent_branch():
         spine_caps=(), body_cap=0.01,
         a_frontage=True, b_frontage=True)
     with_rule = GL.classify_pair(p1)
-    saved = GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY
+    saved = GL.APRON_INTERIOR_RAMP_CAP
     try:
-        GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY = False
+        GL.APRON_INTERIOR_RAMP_CAP = False
         without_rule = GL.classify_pair(p1)
     finally:
-        GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY = saved
+        GL.APRON_INTERIOR_RAMP_CAP = saved
     assert with_rule == without_rule
     # And the P1 pair is not in the emitted population at all.
     assert frozenset(((20.0, 120.0), (60.0, 120.0))) not in _edges_xy(_layout())
@@ -257,17 +372,22 @@ def _osm_ways_nodes(with_pads=True, apron_ring=None):
     return ways, nodes, nid_of
 
 
-def _census_pairs_xy(with_pads=True, apron_ring=None):
+def _census_caps_xy(with_pads=True, apron_ring=None):
+    """``{frozenset(pair): cap}`` from the CENSUS reader."""
     ways, nodes, nid_of = _osm_ways_nodes(with_pads, apron_ring)
     xy_of = {nid: xy for xy, nid in nid_of.items()}
     axes = [(list(SPINE), 0.015, 0.015, -1, False)]
-    out = set()
+    out = {}
     for c in cg.iter_shape_grade_constraints(
             ways, nodes, _ll_to_m, 0.015, taxi_axes=axes):
         if c.way.tags.get("role") != "apron":
             continue
-        out.add(frozenset((xy_of[c.nid_a], xy_of[c.nid_b])))
+        out[frozenset((xy_of[c.nid_a], xy_of[c.nid_b]))] = c.cap
     return out
+
+
+def _census_pairs_xy(with_pads=True, apron_ring=None):
+    return set(_census_caps_xy(with_pads, apron_ring))
 
 
 def test_census_and_bake_enumerate_the_same_apron_pairs():
@@ -278,6 +398,48 @@ def test_census_and_bake_enumerate_the_same_apron_pairs():
     assert census == bake, (
         f"census-only {sorted(census - bake)} / bake-only {sorted(bake - census)}")
     assert bake, "the fixture must produce at least one frontage chord"
+
+
+def test_census_and_bake_agree_on_the_CAP_of_every_apron_pair():
+    """THE LOCKSTEP EXTENDED TO THE CAP (RULINGS 2026-08-21c / A1 §2a).
+    With two caps in play, agreeing on the pair SET is no longer enough:
+    a census that priced an interior pair at the strict cap while the bake
+    built it at 5 % would mint a whole class of phantom rows and the pair
+    sets would still match.  Both readers call ``classify_pair``, so this
+    is an identity — and it is the twin that keeps it one."""
+    lay = _layout()
+
+    def _drift():
+        bake, census = _edge_caps_xy(lay), _census_caps_xy()
+        assert set(census) == set(bake)
+        return ({k: (bake[k], census[k]) for k in bake
+                 if abs(bake[k] - census[k]) > 1e-9}, bake)
+
+    on_drift, bake = _drift()
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        off_drift, _ = _drift()
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+
+    # THIS RULING INTRODUCES NO CAP DRIFT.  The comparison is on-vs-off, not
+    # against zero, because ONE drifting pair PRE-DATES it: the bottom ring
+    # edge reads the BLEND branch's 0.015 in the bake and the plain body cap
+    # in the census, identically with the flag on and off.  That is the
+    # blend-credit reader gap (docketed, not this lane's to fix); asserting
+    # "no new drift" keeps the guard live for anything A1 might add without
+    # silently adopting a defect it did not cause.
+    assert set(on_drift) == set(off_drift), (
+        f"NEW cap drift introduced by the interior rule: "
+        f"{ {k: on_drift[k] for k in set(on_drift) - set(off_drift)} }")
+    for k in on_drift:
+        assert on_drift[k] == off_drift[k], (
+            f"the interior rule CHANGED a pre-existing drift at {k}: "
+            f"{off_drift[k]} -> {on_drift[k]}")
+    # and both caps really are exercised on this fixture
+    assert any(abs(c - GL.APRON_INTERIOR_CAP) < 1e-9 for c in bake.values())
+    assert any(c < GL.APRON_INTERIOR_CAP for c in bake.values())
 
 
 def test_census_and_bake_agree_with_the_rule_off_too(rule_off):
@@ -302,7 +464,7 @@ def test_junction_and_plane_pair_sets_are_byte_identical(monkeypatch):
                 {(a, b) for (a, b, _c) in rw.edges})
 
     on = _sets()
-    monkeypatch.setattr(GL, "APRON_WITHIN_SHAPE_FRONTAGE_ONLY", False)
+    monkeypatch.setattr(GL, "APRON_INTERIOR_RAMP_CAP", False)
     ctx = _solver_ctx(_layout())
     off = _sets()
     assert on == off
@@ -315,12 +477,12 @@ def test_building_pair_verdicts_are_unchanged():
                        a_seam=False, b_seam=False,
                        a_building=True, b_building=True,
                        spine_caps=(), body_cap=0.01)
-    saved = GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY
+    saved = GL.APRON_INTERIOR_RAMP_CAP
     try:
-        GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY = False
+        GL.APRON_INTERIOR_RAMP_CAP = False
         off = GL.classify_pair(p)
     finally:
-        GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY = saved
+        GL.APRON_INTERIOR_RAMP_CAP = saved
     assert GL.classify_pair(p) == off
 
 
@@ -379,30 +541,47 @@ def test_legacy_three_element_pair_caps_rows_still_read():
             == snap_pairs_from_axes_ll([row4], ll, None))
 
 
-# ── (e) a zero-building apron has no within-shape law edges ──────────
+# ── (e) a zero-building apron is FULLY POPULATED at the interior cap ──
 
-def test_zero_building_apron_yields_no_within_shape_law_edges():
-    """Spec §8(e): the law goes silent and the CARRIER keeps the
-    smoothing (RULINGS 2026-08-15, band carrier) — no replacement
-    regulariser is added here."""
+def test_zero_building_apron_is_fully_populated_at_the_interior_cap():
+    """AMENDED by RULINGS 2026-08-21c (A1 §5a).  Spec §8(e) used to require
+    ZERO law edges here and to lean on the warm-start carrier for the
+    smoothing.  The owner reversed that: an apron with no frontage at all
+    is entirely interior, so it is entirely law at ``APRON_INTERIOR_CAP``.
+    The measured reason is on this lane — an unpriced apron interior let
+    the transect rows move the rings by metres (SPJC 189 -> 551 airside)."""
     lay = _layout(with_pads=False)
-    assert _edges_xy(lay) == set()
-    assert _census_pairs_xy(with_pads=False) == set()
+    caps = _edge_caps_xy(lay)
+    off = _caps_rule_off(lay, None)
+    assert caps, "a pad-less apron must still carry its interior law"
+    # The DOMAIN is identical to the strict arm — nothing is dropped.
+    assert set(caps) == set(off)
+    # Every pair that is NOT a ring edge (nor spine/blend-credited above the
+    # ramp cap) is interior and takes the ramp cap; the ring-adjacent branch
+    # keeps its own, which is what A1 section 1a reserves for it.
+    raised = {k for k in caps if caps[k] != off[k]}
+    assert raised, "a frontage-less apron must have an interior class"
+    assert all(abs(caps[k] - GL.APRON_INTERIOR_CAP) < 1e-9 for k in raised)
+    assert all(caps[k] == off[k] for k in set(caps) - raised)
+    # THE LOCKSTEP HOLDS ON THIS FIXTURE TOO (spec §8(b)).
+    assert _census_pairs_xy(with_pads=False) == set(caps)
     # The shape still registers its spine chain — the global spine, the
     # reach band and the carrier all keep their connectivity.
     gs = _apron_shape(lay)
     sc = GG.shape_constraints(gs, _solver_ctx(lay))
-    assert sc.edges == []
+    assert sc.edges
     assert sc.spine_chains == GG.shape_constraints(
         gs, _solver_ctx(lay)).spine_chains
 
 
-def test_zero_building_apron_is_fully_populated_with_the_rule_off(rule_off):
-    """The (e) claim is the RULE's, not the fixture's: with the kill
-    switch off the same pad-less apron carries its full pre-ruling
-    population (the remaining skips are the pre-existing body-chord and
-    spine-crossing ones)."""
-    assert len(_edges_xy(_layout(with_pads=False))) >= 10
+def test_zero_building_apron_is_the_same_population_with_the_rule_off(rule_off):
+    """The DOMAIN is the fixture's, the CAP is the rule's: with the kill
+    switch off the same pad-less apron carries the same pairs, priced
+    strictly instead (the remaining skips are the pre-existing body-chord
+    and spine-crossing ones)."""
+    off = _edge_caps_xy(_layout(with_pads=False))
+    assert len(off) >= 10
+    assert all(c < GL.APRON_INTERIOR_CAP for c in off.values())
 
 
 # ── the READ instrument (tools/frontage_split --apron-population) ────

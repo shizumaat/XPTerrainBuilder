@@ -5472,8 +5472,14 @@ def test_a_duplicate_ring_is_adjudicated_out_never_dropped(cg, tmp_path):
     host_rows = [r for _k, r in rows if _wid(r, "way_a", "way_v") == "-10"]
     ring_rows = [r for _k, r in rows if _wid(r, "way_a", "way_v") == "-11"]
     assert host_rows and ring_rows, "the fixture must double-count today"
-    assert len(host_rows) == len(ring_rows), (
-        "one geometry judged twice is the premise of this twin")
+    # THE COUNTS ARE NO LONGER EQUAL, and that is a REPORTED ASYMMETRY, not
+    # a fixture bug (RULINGS 2026-08-21c): the host is role ``apron`` and so
+    # prices its INTERIOR at 5 %, while the role-LESS duplicate ring is not
+    # an apron and keeps the strict cap — one geometry, two laws.  The claim
+    # this twin exists for is unaffected and is asserted in full below: the
+    # ring's rows are MARKED, the host's SURVIVE, and nothing is dropped.
+    # Whether a role-less duplicate should inherit its host's cap is an
+    # owner question docketed by the compose lane, not a fix made here.
     assert all(r.out_of_scope == "role_less_host_duplicate"
                for r in ring_rows)
     assert all(r.out_of_scope is None for r in host_rows), (

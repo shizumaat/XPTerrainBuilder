@@ -43,7 +43,7 @@ from .config import (
     ADJACENT_GROUND_DAYLIGHT_SLOPE_LIMIT,
     ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE, ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE,
     ADJACENT_GROUND_LIP_WIDTH_M, ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE,
-    APRON_MAX_GRADE, APRON_SHOULDER_MAX_DOWN_SLOPE,
+    APRON_MAX_GRADE, APRON_SHOULDER_MAX_DOWN_SLOPE, FAN_RAMP_CAP,
     APRON_SHOULDER_MIN_DOWN_SLOPE, APRON_SHOULDER_WIDTH_M,
     BUILDING_FRONTAGE_MAX_GRADE, BUILDING_FULL_FRONTAGE,
     BUILDING_FULL_FRONTAGE_AREA_M2,
@@ -2496,10 +2496,32 @@ APRON_BODY_CHORD_MAX_M = float(os.environ.get("O4_APRON_BODY_CHORD_MAX_M", "60")
 # "reach follows centerlines", RULINGS 2026-07-30), and the engine carries no
 # separate stand-entry object.
 #
-# Kill switch: ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY=0`` restores the
-# pre-ruling all-pair population byte-for-byte.
-APRON_WITHIN_SHAPE_FRONTAGE_ONLY = (
-    os.environ.get("O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY", "1") != "0")
+# ── AMENDED BY RULINGS 2026-08-21c / spec AMENDMENT A1: INTERIOR IS LAW ──
+# The owner REVERSED the removal half of 2026-08-21b.  An interior apron pair
+# is NOT dropped from the law — it is law at the FAN-RAMP CAP
+# (``config.FAN_RAMP_CAP``, 5 %, the 2026-08-05 constant
+# ``fan_ramp_law_cap`` resolves); only the MOVEMENT SURFACES (frontage
+# chords, and the ring-adjacent branch R19-5 exists for) keep the STRICT
+# apron cap.  Measured basis for the reversal, on this very lane
+# (apronpop + transect, 2026-08-21): with the interior REMOVED the apron
+# had no law at all, the transect rows moved the rings by metres and the
+# frontage chords absorbed it — SPJC 189 → 551 airside, 201 of 233 new
+# rows genuine frontage chords.  The 5 % interior law IS the interior's
+# constraint (A1 §5a supersedes the "no replacement regulariser" clause).
+#
+# THE FLAG WAS RENAMED because "FRONTAGE_ONLY" now misdescribes it: nothing
+# is dropped any more, only the interior CAP changes.  The old name
+# ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY`` is NOT read — a stale arm using it
+# would otherwise silently get the default, and an env flag that quietly
+# means something new is exactly the silent-break class.
+# ``O4_APRON_INTERIOR_RAMP_CAP=0`` restores TODAY'S ALL-STRICT behaviour
+# (every apron pair at the body cap), i.e. the 2026-08-21 battery.
+APRON_INTERIOR_RAMP_CAP = (
+    os.environ.get("O4_APRON_INTERIOR_RAMP_CAP", "1") != "0")
+
+#: The interior apron pair's cap (spec A1 §1a).  ONE constant, both readers
+#: — the census reaches it through ``classify_pair`` like every other cap.
+APRON_INTERIOR_CAP = FAN_RAMP_CAP
 
 #: The soft-pavement roles whose ring vertices make a BUILDING ring edge a
 #: FRONTAGE edge.  Production's own set, not a re-spelling: it is the
@@ -2731,6 +2753,25 @@ def is_frontage_chord(p: "PairContext") -> bool:
     return False
 
 
+def is_apron_interior(p: "PairContext") -> bool:
+    """THE interior-apron predicate (RULINGS 2026-08-21c, spec A1 §1a): an
+    apron pair that is neither a MOVEMENT SURFACE nor a physical ring edge.
+
+    Its cap is ``APRON_INTERIOR_CAP`` (5 %) instead of the shape's strict body
+    cap.  RING-ADJACENT pairs are excluded and keep the strict cap — a ring
+    edge is a physical stretch of pavement, and R19-5 ("the bake never removes
+    a ring edge from the domain", lead 2026-08-12) exists to catch exactly the
+    148 %-class edge that would otherwise go unpriced.
+
+    Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws are
+    UNCHANGED (ruling 2026-08-21b clause 4, unamended)."""
+    if not (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE):
+        return False
+    if p.ring_adjacent:
+        return False
+    return not is_frontage_chord(p)
+
+
 def classify_pair(p: PairContext) -> Optional[Allowance]:
     """Apply the within-shape grade law to one pair.  Returns the pair's
     ``Allowance``, or ``SKIP`` (None) if the pair is not a regulated grade path.
@@ -2774,9 +2815,16 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     #   the polygon-containment or spine-crossing test.
     #   Runway / taxiway / JUNCTION within-shape laws are UNCHANGED (ruling
     #   clause 4) — the rule is scoped to ``APRON_ROLE`` alone.
-    if (APRON_WITHIN_SHAPE_FRONTAGE_ONLY and p.role == APRON_ROLE
-            and not is_frontage_chord(p)):
-        return SKIP
+    #
+    #   *** AMENDED, RULINGS 2026-08-21c / spec A1 §1a: THE SKIP IS GONE. ***
+    #   The interior pair is LAW at ``APRON_INTERIOR_CAP`` (5 %), applied at
+    #   cap-selection time below; the frontage chord keeps the strict cap and
+    #   the ring-adjacent branch keeps its own.  Nothing is removed from the
+    #   domain here any more, so every EXISTING skip rule below (sub-noise
+    #   separation, junction mesh, visibility, spine-crossing and the 60 m
+    #   ``APRON_BODY_CHORD_MAX_M`` body gate) still runs on the interior class
+    #   exactly as it did before 2026-08-21b — they predate this ruling and are
+    #   orthogonal to it.
     # — sub-noise separation is not a grade constraint.
     if p.dist < MIN_PAIR_DIST_M:
         return SKIP
@@ -2834,6 +2882,20 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     # — otherwise the shape's body cap (apron 1%, junction the taxi cap, …).
     else:
         cap = p.body_cap
+
+    # THE APRON INTERIOR IS LAW AT THE FAN-RAMP CAP (owner ruling RULINGS
+    # 2026-08-21c, spec AMENDMENT A1 §1a).  An apron pair that is neither a
+    # movement surface (frontage chord) nor a physical ring edge grades at
+    # ``APRON_INTERIOR_CAP`` (5 %) rather than the shape's strict body cap.
+    # RELAX ONLY, like every other relaxation below it: a spine or blended
+    # interior pair that already earned a LOOSER cap keeps it, so this branch
+    # changes exactly one class — the generic interior at the 1 % body cap —
+    # and nothing else in the chain moves.  It sits BEFORE the building and
+    # seam tightenings on purpose: a pair touching a building pad is still the
+    # frontage 1 % rule ("buildings are the heaviest constraint", user
+    # 2026-07-02), and a seam-pinned pair still falls back to its body cap.
+    if cap < APRON_INTERIOR_CAP and is_apron_interior(p):
+        cap = APRON_INTERIOR_CAP
 
     # BUILDINGS ARE THE HEAVIEST CONSTRAINT (user 2026-07-02/03): a pair
     # touching a building pad is the frontage 1 % rule regardless of the

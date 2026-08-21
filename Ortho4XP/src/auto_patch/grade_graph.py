@@ -2323,22 +2323,24 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # ``a_corridor``; the PREDICATE lives only there.  Both readers reach
     # this one function, so census and bake cannot enumerate different apron
     # pair sets.
-    apron_pop = (GL.APRON_WITHIN_SHAPE_FRONTAGE_ONLY
+    # AMENDED BY RULINGS 2026-08-21c / spec A1: the membership is now what
+    # tells a STRICT movement surface from a 5 %-capped INTERIOR pair, not
+    # what tells law from not-law.  The frontage-less early return that used
+    # to live here is GONE with the skip it served: a zero-building apron
+    # still yields a full interior pair set, now at ``APRON_INTERIOR_CAP``.
+    apron_pop = (GL.APRON_INTERIOR_RAMP_CAP
                  and shape.role == APRON_ROLE)
     front_vert = None
     cover_vert = None
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
-        if not any(front_vert):
-            # NO frontage vertex on this ring ⇒ the law SKIPs every pair of
-            # it (spec §8(e): a zero-building apron yields zero within-shape
-            # law edges, and the warm-start carrier keeps the smoothing).
-            # Returning here generates the identical (empty) edge set and
-            # spares the O(n²) predicate setup that would only feed skips.
-            sc.spine_chains = _build_spine_chains(shape, ctx, membership)
-            return sc
-        cover = corridor_cover_prepared(ctx)
+        # With NO frontage vertex on the ring ``is_frontage_chord`` is False
+        # for every pair whatever the cover says, so the O(n) containment
+        # test would only feed a predicate that has already decided.  This is
+        # the surviving half of the old early return: a pure cost skip that
+        # changes no edge and no cap.
+        cover = corridor_cover_prepared(ctx) if any(front_vert) else None
         if cover is not None:
             from shapely.geometry import Point as _CoPt
             cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]

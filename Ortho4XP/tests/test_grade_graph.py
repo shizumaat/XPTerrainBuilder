@@ -4,6 +4,7 @@ import math
 import pytest
 
 from auto_patch import grade_graph as GG
+from auto_patch import grade_law as GL
 from auto_patch.config import (
     APRON_MAX_GRADE, TAXI_MAX_GRADE, TAXI_MAX_GRADE_NARROW,
     SERVICE_ROAD_MAX_GRADE, TAXI_GRADE_BY_WIDTH,
@@ -25,12 +26,30 @@ def _cap_of(sc, a, b):
 
 
 def test_apron_body_is_one_percent_no_spine():
+    """AMENDED by RULINGS 2026-08-21c (spec A1 section 1a): a bare square
+    apron with no spine and no frontage is entirely INTERIOR, so its body
+    chords are priced at ``APRON_INTERIOR_CAP`` (5 %) and only its physical
+    RING EDGES keep ``APRON_MAX_GRADE``.  Before the ruling every pair read
+    1 %; that is the assertion this twin used to make."""
     ring, keys = _square()
     s = GG.GradeShape(role="apron", ring=ring, keys=keys)
     ctx = GG.GradeContext(centerlines=[])
     sc = GG.shape_constraints(s, ctx)
     assert sc.edges, "apron must produce body edges"
-    assert all(abs(cap.flat_cap() - APRON_MAX_GRADE) < 1e-9 for (_a, _b, cap) in sc.edges)
+    caps = {round(cap.flat_cap(), 9) for (_a, _b, cap) in sc.edges}
+    assert caps <= {round(APRON_MAX_GRADE, 9), round(GL.APRON_INTERIOR_CAP, 9)}
+    assert round(GL.APRON_INTERIOR_CAP, 9) in caps, (
+        "the interior class must be priced at the ramp cap")
+    # with the rule OFF the pre-ruling all-strict reading is restored.
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        off = GG.shape_constraints(
+            GG.GradeShape(role="apron", ring=ring, keys=keys), ctx)
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+    assert all(abs(cap.flat_cap() - APRON_MAX_GRADE) < 1e-9
+               for (_a, _b, cap) in off.edges)
 
 
 def test_junction_no_spine_inherits_cap():

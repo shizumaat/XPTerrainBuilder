@@ -1675,6 +1675,102 @@ def drainage_spine_envelope(
     return floor_off, ceil_off
 
 
+def drainage_spine_parent_family(role, *, long_side_m=None, code_letter=None):
+    """``(role, code_number, code_letter)`` — THE family key
+    :func:`drainage_spine_envelope` needs for ONE bounding pavement of a
+    drainage spine.
+
+    ONE resolution, both readers (``gap_fill._parent_family_code`` and
+    ``check_grade``'s dam reader).  Neither reader receives an apt.dat row-100
+    axis here, so a runway's code NUMBER is keyed off the shape's own longest
+    vertex chord (``long_side_m``); a taxiway takes its code LETTER; an apron
+    (and anything else the envelope models) takes neither.  A role the
+    envelope does not model is passed through unchanged so the envelope
+    raises its own ``ValueError`` rather than being silently re-homed here.
+    """
+    if role in _ADJACENT_RUNWAY_ROLES:
+        return (role, runway_code_number(float(long_side_m or 0.0)), None)
+    if role in _ADJACENT_TAXIWAY_ROLES:
+        return (role, None, code_letter)
+    return (role, None, None)
+
+
+def drainage_spine_interval(parents, *, bench_slope):
+    """THE drainage interval of one spine station —
+    ``(lo, hi, residual_m, handoff)``.
+
+    ``parents`` is ``[(distance_m, floor_abs|None, ceil_abs|None), …]``, the
+    station's bounding parents (``drainage_spine_parents`` order, nearest
+    first) with each parent's :func:`drainage_spine_envelope` offsets already
+    added to its own EDGE elevation.  The composition is the historical one —
+    ``lo = max(floors)``, ``hi = min(ceils)`` — until the two disagree.
+
+    THE GRADED HANDOFF (owner ruling 2026-08-18, "CRATER-VS-DAM RESOLVES BY
+    GRADED HANDOFF"; spec ``docs/specs/gap-conformance-spec.md`` amendment
+    F3c).  Far from BOTH parents the higher parent's crater FLOOR (the
+    anti-trench guard) can stand above the lower parent's dam CEILING
+    ("below the lower adjacent pavement") — the intervals are DISJOINT and
+    neither clause hard-wins.  Measured at HECA way ``-13464``
+    (30.116941,31.443884): runway floor 140.99 − 1.701 = 139.29 against a dam
+    ceiling 0.3 m under an apron 6.0 m lower.  The 2026-07-09 fallback took
+    the NEARER parent's own interval and left the spine 4.31 m proud of the
+    lower edge — 34 of HECA's 70 surviving ``drainage_spine`` rows.
+
+    The ruled law: the spine DESCENDS from one authority to the other.  The
+    station's value target is the monotone handoff — interpolate from the
+    higher-floor parent's floor toward the lower-ceiling parent's ceiling by
+    relative distance ``w = d_high / (d_high + d_low)`` — clamped to a lawful
+    descent from the HIGHER side (``bench_slope``, the clause-3 cone
+    constant).  Where the separation is too short to descend the whole drop
+    lawfully the descent runs AT the cap and the shortfall against the dam
+    ceiling is RETURNED as ``residual_m`` (a PASS-with-residual below the
+    materiality floor, a census row above it — never a silent nearer-parent
+    value).  The interval collapses to that value: ``lo == hi ==`` the
+    handoff, so every consumer's own clamp lands on it and the clause-3
+    monotone walk still produces the final profile around it.
+
+    ``handoff`` is True only when the graded handoff was composed, so a
+    caller never has to re-derive "were the intervals disjoint" from the
+    returned bounds (a pinned parent can make ``lo == hi`` lawfully).
+    ``residual_m`` is 0.0 whenever the intervals intersect (the composition is
+    byte-identical to the pre-F3c one there) and whenever the handoff descends
+    freely — a descent still in progress is lawful, and the validator's cone
+    allowance already prices it.
+    """
+    floors = [p[1] for p in parents if p[1] is not None]
+    ceils = [p[2] for p in parents if p[2] is not None]
+    lo = max(floors) if floors else None
+    hi = min(ceils) if ceils else None
+    if lo is None or hi is None or lo <= hi or len(parents) < 2:
+        return lo, hi, 0.0, False
+    # DISJOINT.  ``drainage_spine_envelope`` already collapses a
+    # self-conflicting parent to a pin, so the binding floor and the binding
+    # ceiling are necessarily different parents; if a caller hands in bounds
+    # that violate that, fall back to the historical nearer-parent interval
+    # rather than inventing a handoff across zero separation.
+    hi_p = max((p for p in parents if p[1] is not None), key=lambda p: p[1])
+    lo_p = min((p for p in parents if p[2] is not None), key=lambda p: p[2])
+    if hi_p is lo_p:
+        return parents[0][1], parents[0][2], 0.0, False
+    d_high = max(0.0, float(hi_p[0]))
+    d_low = max(0.0, float(lo_p[0]))
+    f_high = float(hi_p[1])
+    c_low = float(lo_p[2])
+    span = d_high + d_low
+    drop = f_high - c_low               # > 0 by construction
+    residual = 0.0
+    if span <= 0.0:
+        value = f_high
+    elif drop > float(bench_slope) * span:
+        # THE SEPARATION IS TOO SHORT: descend AT the cap from the higher
+        # side and report what the dam ceiling is still owed.
+        value = f_high - float(bench_slope) * d_high
+        residual = max(0.0, value - c_low)
+    else:
+        value = f_high - drop * (d_high / span)
+    return value, value, residual, True
+
+
 # THE bounding-parent set of a drainage spine station — the SELECTION half
 # of the drainage law (field-report round residual, 2026-08-02).  The
 # offsets above were already one law with two readers, but each reader

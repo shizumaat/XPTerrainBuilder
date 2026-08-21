@@ -477,3 +477,112 @@ def test_the_staged_evaluator_applies_the_ceiling_last():
     out = GF._staged_spine_values(s, [0.0] * 3, [10.0] * 3, intervals, ends)
     assert out[1] == pytest.approx(100.0 - CAP * 50.0, abs=1e-6)
     assert out[0] == pytest.approx(99.7, abs=1e-6)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# F3c — THE GRADED HANDOFF ON AN EMPTY INTERSECTION (owner ruling
+# 2026-08-18, "CRATER-VS-DAM RESOLVES BY GRADED HANDOFF"; spec
+# docs/specs/gap-conformance-spec.md amendment F3c).
+#
+# The law function is ``grade_law.drainage_spine_interval`` and it has TWO
+# readers — ``gap_fill._spine_interval`` composes the emitted station
+# interval from it and ``tools/check_grade``'s dam reader prices the same
+# handoff.  These twins pin the law itself, so neither reader can drift.
+# ══════════════════════════════════════════════════════════════════════
+
+from auto_patch.grade_law import (                          # noqa: E402
+    drainage_spine_interval as _DSI,
+    drainage_spine_parent_family as _DSPF,
+)
+
+
+def test_intersecting_intervals_are_byte_identical_to_the_pre_f3c_law():
+    """(b) Where the two parents' envelopes INTERSECT nothing changed:
+    the interval is still ``[max(floors), min(ceils)]`` and no handoff is
+    composed."""
+    parents = [(20.0, 100.0, 105.0), (30.0, 99.0, 104.0)]
+    lo, hi, residual, handoff = _DSI(parents, bench_slope=CAP)
+    assert (lo, hi) == (100.0, 104.0)
+    assert residual == 0.0
+    assert handoff is False
+    # A one-sided pair (a parent with no floor, another with no ceiling)
+    # is not a disjoint interval either.
+    lo, hi, residual, handoff = _DSI(
+        [(40.0, None, 141.0), (60.0, 130.0, None)], bench_slope=CAP)
+    assert (lo, hi, residual, handoff) == (130.0, 141.0, 0.0, False)
+
+
+def test_a_disjoint_interval_descends_monotonically_at_the_bench_slope():
+    """(a) THE HANDOFF.  With enough separation the value walks from the
+    higher parent's crater FLOOR to the lower parent's dam CEILING,
+    monotonically, never faster than ``bench_slope``, never proud of the
+    handoff and never below the ceiling it hands off to.  Geometry is
+    HECA way -13464's: runway floor 139.29 against an apron dam ceiling
+    4.60 m under it."""
+    f_high, c_low, span = 139.29, 134.69, 100.0
+    prev = None
+    for d_high in range(0, 101, 5):
+        d_low = span - d_high
+        lo, hi, residual, handoff = _DSI(
+            [(float(d_high), f_high, f_high + 1.7),
+             (float(d_low), c_low - 4.7, c_low)], bench_slope=CAP)
+        assert handoff is True
+        assert lo == hi                      # the interval IS the target
+        assert residual == 0.0               # the separation is ample
+        assert c_low - 1e-9 <= hi <= f_high + 1e-9
+        if prev is not None:
+            assert hi <= prev + 1e-9, "the handoff must never climb"
+            assert prev - hi <= CAP * 5.0 + 1e-9, "descends over the cap"
+        prev = hi
+    # The ends ARE the two authorities.
+    assert _DSI([(0.0, f_high, f_high + 1.7),
+                 (span, c_low - 4.7, c_low)],
+                bench_slope=CAP)[1] == pytest.approx(f_high, abs=1e-9)
+    assert _DSI([(span, f_high, f_high + 1.7),
+                 (0.0, c_low - 4.7, c_low)],
+                bench_slope=CAP)[1] == pytest.approx(c_low, abs=1e-9)
+
+
+def test_a_short_separation_descends_at_the_cap_and_reports_the_residual():
+    """(c) Too short to descend the whole drop lawfully: the descent runs
+    AT the cap from the higher side and what the dam ceiling is still owed
+    comes back as the residual — never a silent nearer-parent value."""
+    lo, hi, residual, handoff = _DSI(
+        [(5.0, 139.29, 141.0), (5.0, 130.0, 134.69)], bench_slope=CAP)
+    assert handoff is True
+    assert hi == pytest.approx(139.29 - CAP * 5.0, abs=1e-9)
+    assert residual == pytest.approx(hi - 134.69, abs=1e-9)
+    assert residual > 0.01, "this is a census row, not a PASS-with-residual"
+    # And the residual is NOT reported where the descent is lawful.
+    assert _DSI([(50.0, 139.29, 141.0), (50.0, 130.0, 134.69)],
+                bench_slope=CAP)[2] == 0.0
+
+
+def test_the_handoff_never_fires_on_a_single_parent():
+    """One parent can never contradict itself — ``drainage_spine_envelope``
+    collapses a self-conflicting pair to a pin — so a single-parent station
+    keeps its own interval."""
+    lo, hi, residual, handoff = _DSI([(10.0, 100.0, 99.0)], bench_slope=CAP)
+    assert handoff is False and residual == 0.0
+
+
+def test_the_parent_family_is_resolved_by_one_law_function():
+    """``gap_fill._parent_family_code`` and the validator's dam reader ask
+    the SAME function which family key the envelope needs."""
+    assert _DSPF("runway", long_side_m=3000.0)[1] is not None
+    assert _DSPF("runway", long_side_m=3000.0)[2] is None
+    assert _DSPF("junction", code_letter="E") == ("junction", None, "E")
+    assert _DSPF("apron", code_letter="E") == ("apron", None, None)
+
+
+def test_the_emitter_composes_its_interval_through_the_law_function():
+    """``_spine_interval`` is a THIN composition over the law: a station
+    between two real parents returns exactly what the law returns for the
+    per-parent bounds it read."""
+    layout = _plain_frame()
+    airside = GF._airside_shapes(layout)
+    lo, hi, edges = GF._spine_interval(layout, airside, 50.0, 50.0)
+    assert edges, "the station must have found bounding parents"
+    if lo is not None and hi is not None:
+        assert lo <= hi + 1e-9, (
+            "a composed interval is either ordered or a handoff pin")

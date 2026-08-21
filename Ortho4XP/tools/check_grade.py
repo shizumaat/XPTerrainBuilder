@@ -5814,6 +5814,9 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    "band_clamp_nodes",           # the writeback band clamp's own sites +
+                                  # deltas: evidence about the SOLVE, which
+                                  # the census reports and never re-judges
     "terrace_certificates",       # the panelization evidence chain
     # FINAL BAND EXCESS (cycle-5 item 7): the build's own post-solve band
     # MEMBERSHIP report.  EVIDENCE, not law input — the census does not

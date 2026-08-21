@@ -8891,15 +8891,27 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                     if _ex > _worst:
                         _worst = _ex
             _bound = len(_seen)
+            # THE NAME IS WHAT IT MEASURES (lead correction 2026-08-21).
+            # This is read from ``elev`` — the projection's own exit field
+            # — and ``_writeback`` stamps the LAYOUT, never ``elev``, so
+            # the count was never the clamp's doing: it is the transect
+            # residue THIS projection exited with.  The clamp's own
+            # footprint is reported beside it, from its own findings.
+            _cf = list(getattr(layout, "band_clamp_findings", None) or [])
+            _cf_worst = (max(abs(float(f[3])) for f in _cf) if _cf else 0.0)
             import O4_UI_Utils as _UI_TB
             _UI_TB.vprint(
                 1, f"  [transverse-bind] {icao}: bound={_bound} "
-                   f"rows={len(_hyper_fp)} clamp_reviolated={_rv} "
-                   f"worst={_worst:.3f} m (band cannot carry a "
-                   f"hyperplane — spec section 10)")
+                   f"rows={len(_hyper_fp)} exit_over_budget={_rv} "
+                   f"worst={_worst:.3f} m | band clamp: {len(_cf)} "
+                   f"value(s), worst {_cf_worst:.3f} m (the band is a "
+                   f"route-edge Dijkstra and cannot carry a hyperplane — "
+                   f"spec section 10)")
             setattr(layout, "_transverse_bind_report",
                     {"bound": _bound, "rows": len(_hyper_fp),
-                     "clamp_reviolated": _rv, "worst_m": _worst})
+                     "exit_over_budget": _rv, "worst_m": _worst,
+                     "band_clamp_values": len(_cf),
+                     "band_clamp_worst_m": _cf_worst})
         except Exception:                              # pragma: no cover
             pass
     _stage("writeback")

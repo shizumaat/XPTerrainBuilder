@@ -3499,6 +3499,17 @@ class PavementLayout:
             # A patch without them reports ``bound 0``.
             "xsection_spans": list(
                 getattr(self, "_transverse_bound_spans", None) or []),
+            # THE BAND CLAMP'S OWN FOOTPRINT (lead direction 2026-08-21).
+            # ``band_clamp_findings`` lived in memory only, so "did the
+            # clamp author this row?" could not be joined from artifacts
+            # — the §4 read had to bound it instead of measuring it.
+            # Every clamped value's SITE and delta now ride the sidecar:
+            # [lat, lon, dz_m, side, role].
+            "band_clamp_nodes": [
+                [*self.m_to_ll(float(f[5]), float(f[6])),
+                 float(f[3]), str(f[4]), str(f[1])]
+                for f in (getattr(self, "band_clamp_findings", None) or [])
+                if len(f) >= 7],
             # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
             # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
             # DECLARED joint polylines, their panel levels and their

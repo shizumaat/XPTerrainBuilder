@@ -587,6 +587,7 @@ def test_the_SOLVE_is_handed_the_zone_cap_not_just_the_census():
     """
     from auto_patch.elevation_per_surface import solver_primitives as SP
     from auto_patch import grade_graph as GG
+    from auto_patch import grade_law as GL
 
     ring = [(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)]
     ctx = GG.GradeContext(centerlines=[], routes=[])
@@ -607,8 +608,45 @@ def test_the_SOLVE_is_handed_the_zone_cap_not_just_the_census():
     assert got["ramp"] == {round(GROUNDSIDE_MAX_GRADE, 6)}, (
         f"the solve was handed {got['ramp']} on a ramp piece, not the "
         f"zone cap — the law is inert in the solve")
-    assert got["plain"] == {round(APRON_MAX_GRADE, 6)}, (
-        f"a plain apron's solve budgets moved to {got['plain']}")
+    # THE CONTROL ARM MOVED WITH SPEC AMENDMENT A2, and not because of a
+    # defect: this fixture is a bare rectangle with no frontage vertex, no
+    # corridor cover and no spine, so under A2 EVERY one of its pairs is
+    # INTERIOR and takes ``APRON_INTERIOR_CAP`` — numerically the fan-ramp
+    # cap.  Ramp and plain therefore coincide here, and the discrimination
+    # this twin exists for is asserted on the rule-off arm below, where a
+    # plain apron still reads 1 % and the ramp piece still reads its zone cap.
+    assert got["plain"] == {round(GL.APRON_INTERIOR_CAP, 6)}
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        off = {}
+        # THE MEMO TRAP THIS TWIN IS NAMED FOR APPLIES TO THE TWIN ITSELF.
+        # ``shape_constraints_cached`` is keyed BY CONTENT (ring, role,
+        # ring_only, ctx) and the interior-cap FLAG is not part of that key,
+        # so re-running the identical ring with the flag flipped is served
+        # the first arm's caps.  In production the flag is read once at
+        # import and never flips, so this is a TEST-ONLY hazard — docketed
+        # by the compose lane — and the rule-off arm dodges it with its own
+        # geometry rather than by reaching into the cache.
+        ring_off = [(0.0, 0.0), (61.0, 0.0), (61.0, 41.0), (0.0, 41.0)]
+        for name, flag in (("ramp", True), ("plain", False)):
+            s2 = BuiltShape(polygon=Polygon(ring_off), role="apron",
+                            ref=name + "_off", fan_ramp_zone=flag)
+            c2 = list(s2.polygon.exterior.coords)[:-1]
+            e2 = SP._grade_graph_edges(s2, c2, list(range(len(c2))), ctx)
+            caps2 = set()
+            for (a, b, budget) in e2:
+                d = math.hypot(c2[a][0] - c2[b][0], c2[a][1] - c2[b][1])
+                if d > 1e-6:
+                    caps2.add(round(budget / d, 6))
+            off[name] = caps2
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+    assert off["plain"] == {round(APRON_MAX_GRADE, 6)}, (
+        f"a plain apron's rule-off solve budgets moved to {off['plain']}")
+    assert off["ramp"] == {round(GROUNDSIDE_MAX_GRADE, 6)}, (
+        "the zone cap must reach the solve independently of the interior "
+        "rule — that is what this twin is for")
 
 
 def test_a_ramp_piece_is_not_a_TERRACE_candidate():

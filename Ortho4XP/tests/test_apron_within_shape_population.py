@@ -228,19 +228,72 @@ def test_frontage_chord_keeps_the_strict_cap_interior_takes_the_ramp_cap():
         assert abs(on[back] - GL.APRON_INTERIOR_CAP) < 1e-9
 
 
-def test_the_ring_adjacent_branch_is_not_raised():
-    """A1 §1a: the ring-adjacent branch keeps its behaviour — a ring edge
-    is a physical stretch of pavement, and R19-5 exists to catch the
-    148 %-class edge it would otherwise leave unpriced.  Reported count is
-    asserted to be non-zero so the branch cannot silently empty."""
-    lay = _layout()
-    on, off = _edge_caps_xy(lay), _caps_rule_off(lay)
-    ring_adj = [frozenset((APRON_RING[i], APRON_RING[(i + 1) % len(APRON_RING)]))
-                for i in range(len(APRON_RING))]
-    present = [k for k in ring_adj if k in on]
-    assert present, "no ring edge survived — R19-5's own class is empty"
-    for k in present:
-        assert on[k] == off[k], f"ring edge {k} was re-priced to {on[k]}"
+def _apron_ctx(**kw):
+    base = dict(role="apron", dist=30.0, ring_adjacent=True,
+                a_seam=False, b_seam=False, a_building=False,
+                b_building=False, spine_caps=(),
+                body_cap=GL.APRON_MAX_GRADE,
+                a_frontage=False, b_frontage=False,
+                a_corridor=False, b_corridor=False)
+    base.update(kw)
+    return GL.PairContext(**base)
+
+
+def test_a_plain_ring_edge_takes_the_interior_cap():
+    """AMENDMENT A2 corrects A1 section 1a.  A ring edge between two
+    NON-frontage, non-corridor vertices is a generic pair under
+    2026-08-21b, so it takes the 5 % interior cap — 3 % passes, 6 % fails.
+
+    Measured reason: A1 kept every ring-adjacent pair strict on R19-5
+    grounds and compose-v2 came out +112 over HECA's bar, ~648 of those
+    rows being apron ring edges over the strict 1 % while NOT ONE
+    violation anywhere carried the 5 % cap."""
+    got = GL.classify_pair(_apron_ctx())
+    assert got is not None, "a ring edge must never leave the domain (R19-5)"
+    cap = got.flat_cap()
+    assert abs(cap - GL.APRON_INTERIOR_CAP) < 1e-9
+    assert 0.03 <= cap, "a plain ring edge at 3 % must PASS"
+    assert 0.06 > cap, "a plain ring edge at 6 % must FAIL"
+
+
+def test_R19_5s_catch_survives_at_five_percent():
+    """The class R19-5 exists for — the 148 % ring edge — still mints its
+    row.  A2 changes the CAP it is judged at, never its membership."""
+    got = GL.classify_pair(_apron_ctx())
+    assert got is not None
+    assert 1.48 > got.flat_cap(), "a 148 % ring edge must still FAIL"
+
+
+def test_a_ring_FRONTAGE_edge_stays_strict():
+    """Both endpoints frontage vertices: the pavement directly under a
+    building face.  STRICT — 3 % fails."""
+    got = GL.classify_pair(_apron_ctx(a_frontage=True, b_frontage=True))
+    assert got is not None
+    cap = got.flat_cap()
+    assert cap < 0.03, "a ring frontage edge at 3 % must FAIL"
+    assert cap < GL.APRON_INTERIOR_CAP
+
+
+def test_a_corridor_crossing_ring_edge_stays_strict():
+    """Both endpoints inside the spine corridor cover: pavement an aircraft
+    taxis over.  STRICT."""
+    got = GL.classify_pair(_apron_ctx(a_corridor=True, b_corridor=True))
+    assert got is not None
+    assert got.flat_cap() < GL.APRON_INTERIOR_CAP
+    # one endpoint in the cover is NOT a crossing edge — it is interior.
+    half = GL.classify_pair(_apron_ctx(a_corridor=True))
+    assert abs(half.flat_cap() - GL.APRON_INTERIOR_CAP) < 1e-9
+
+
+def test_a_spine_pair_is_never_raised_to_the_interior_cap():
+    """A pair sharing a taxi centerline IS the corridor; its cap is the
+    route's per-letter taxi cap.  Raising it to 5 % would legalise a 5 %
+    grade along a running taxiway — the regression A2 introduced on its
+    first pass, caught by test_grade_graph's spine twin."""
+    got = GL.classify_pair(_apron_ctx(spine_caps=(0.015,)))
+    assert got is not None
+    assert abs(got.flat_cap() - 0.015) < 1e-9
+    assert not GL.is_apron_interior(_apron_ctx(spine_caps=(0.015,)))
 
 
 def test_the_cap_verdicts_are_the_ones_the_amendment_names():
@@ -423,20 +476,20 @@ def test_census_and_bake_agree_on_the_CAP_of_every_apron_pair():
     finally:
         GL.APRON_INTERIOR_RAMP_CAP = saved
 
-    # THIS RULING INTRODUCES NO CAP DRIFT.  The comparison is on-vs-off, not
-    # against zero, because ONE drifting pair PRE-DATES it: the bottom ring
-    # edge reads the BLEND branch's 0.015 in the bake and the plain body cap
-    # in the census, identically with the flag on and off.  That is the
-    # blend-credit reader gap (docketed, not this lane's to fix); asserting
-    # "no new drift" keeps the guard live for anything A1 might add without
-    # silently adopting a defect it did not cause.
-    assert set(on_drift) == set(off_drift), (
-        f"NEW cap drift introduced by the interior rule: "
-        f"{ {k: on_drift[k] for k in set(on_drift) - set(off_drift)} }")
-    for k in on_drift:
-        assert on_drift[k] == off_drift[k], (
-            f"the interior rule CHANGED a pre-existing drift at {k}: "
-            f"{off_drift[k]} -> {on_drift[k]}")
+    # WITH THE RULE ON THERE IS NO CAP DRIFT AT ALL, and A2 is what closed
+    # it.  One pair used to drift and still does on the RULE-OFF arm: the
+    # apron's bottom RING EDGE, fixture-local (-100,-40)-(300,-40),
+    # lat/lon (30.4996407,31.4989583)-(30.4996407,31.5031250).  The bake
+    # reads the BLEND branch's 1.5 % there ("an apron body edge near a
+    # taxiway earns the route's blended cap") while the census reads the
+    # plain 1 % body cap — the blend-credit reader gap, DOCKETED by the
+    # compose lane.  Under A2 that edge is INTERIOR, so both readers agree
+    # at 5 % and the drift disappears from the shipping configuration; the
+    # underlying gap is untouched and still shows on the flag-off arm.
+    assert not on_drift, f"cap drift with the rule ON: {on_drift}"
+    assert set(off_drift) == {
+        frozenset(((-100.0, -40.0), (300.0, -40.0)))}, (
+        f"the KNOWN flag-off blend drift changed shape: {off_drift}")
     # and both caps really are exercised on this fixture
     assert any(abs(c - GL.APRON_INTERIOR_CAP) < 1e-9 for c in bake.values())
     assert any(c < GL.APRON_INTERIOR_CAP for c in bake.values())

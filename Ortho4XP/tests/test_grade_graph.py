@@ -97,10 +97,26 @@ def test_apron_with_spine_taxi_on_spine_one_percent_body():
     s = GG.GradeShape(role="apron", ring=ring, keys=keys)
     ctx = GG.GradeContext(centerlines=[cl])
     sc = GG.shape_constraints(s, ctx)
-    # spine pair (4,5) at taxiway cap
+    # spine pair (4,5) at taxiway cap.  A CORRIDOR pair is never interior
+    # (spec AMENDMENT A2): raising it to the 5 % interior cap would legalise
+    # a 5 % grade along a running taxiway, and this assertion is what caught
+    # that when A2 first landed.
     assert _cap_of(sc, 4, 5) == pytest.approx(TAXI_MAX_GRADE)
-    # a body pair (corner 0 to corner 1), 40 m from the spine → flat apron 1%
-    assert _cap_of(sc, 0, 1) == pytest.approx(APRON_MAX_GRADE)
+    # A body RING EDGE (corner 0 to corner 1), 40 m from the spine, fronting
+    # nothing and outside the corridor: INTERIOR, so the 5 % ramp cap (spec
+    # AMENDMENT A2 correcting A1 section 1a).  Before A2 every ring-adjacent
+    # pair was strict and this read the flat apron 1 %.
+    assert _cap_of(sc, 0, 1) == pytest.approx(GL.APRON_INTERIOR_CAP)
+    # ...and with the rule off it still reads the pre-ruling 1 %.
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        off = GG.shape_constraints(
+            GG.GradeShape(role="apron", ring=ring, keys=keys), ctx)
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+    assert _cap_of(off, 0, 1) == pytest.approx(APRON_MAX_GRADE)
+    assert _cap_of(off, 4, 5) == pytest.approx(TAXI_MAX_GRADE)
 
 
 def test_seam_endpoint_drops_pair():

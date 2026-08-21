@@ -2335,12 +2335,13 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
-        # With NO frontage vertex on the ring ``is_frontage_chord`` is False
-        # for every pair whatever the cover says, so the O(n) containment
-        # test would only feed a predicate that has already decided.  This is
-        # the surviving half of the old early return: a pure cost skip that
-        # changes no edge and no cap.
-        cover = corridor_cover_prepared(ctx) if any(front_vert) else None
+        # The cover is needed EVEN WITH NO FRONTAGE VERTEX (spec AMENDMENT
+        # A2): a ring edge inside the spine corridor cover at both ends is a
+        # CORRIDOR-CROSSING edge and keeps the strict cap, whether or not
+        # anything on this ring fronts a building.  (The A1-era short-circuit
+        # that skipped the containment test on frontage-less rings was
+        # correct only while ring edges were unconditionally strict.)
+        cover = corridor_cover_prepared(ctx)
         if cover is not None:
             from shapely.geometry import Point as _CoPt
             cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]

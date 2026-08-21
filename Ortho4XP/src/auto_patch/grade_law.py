@@ -2753,23 +2753,66 @@ def is_frontage_chord(p: "PairContext") -> bool:
     return False
 
 
+def is_apron_corridor_crossing(p: "PairContext") -> bool:
+    """A pair lying on the taxi CORRIDOR (spec AMENDMENT A2): inside the spine
+    corridor cover at BOTH ends, or sharing a spine centerline outright.  It
+    is pavement an aircraft actually taxis over, so it keeps the STRICT cap
+    even though neither endpoint fronts a building.
+
+    ``spine_caps`` is the same class stated directly — and it is the reason
+    this predicate is NOT gated on ring adjacency: a spine pair's cap is its
+    ROUTE's per-letter taxi cap, and raising it to the 5 % interior cap would
+    legalise a 5 % grade along a running taxiway.  A synthetic fixture with no
+    ``apron_terrace`` cover (``test_grade_graph``'s spine twin) has exactly
+    that shape and is what caught it."""
+    return bool(p.spine_caps) or bool(p.a_corridor and p.b_corridor)
+
+
+def is_apron_frontage_edge(p: "PairContext") -> bool:
+    """P1 as it reaches the APRON shape: a ring edge whose BOTH endpoints are
+    frontage vertices (spec AMENDMENT A2) — the pavement directly under a
+    building face.  STRICT.
+
+    (The inter-pad P1 that both endpoints are BUILDING ring vertices is a
+    different pair and is skipped earlier by ``a_building and b_building``.)"""
+    return bool(p.a_frontage and p.b_frontage)
+
+
 def is_apron_interior(p: "PairContext") -> bool:
-    """THE interior-apron predicate (RULINGS 2026-08-21c, spec A1 §1a): an
-    apron pair that is neither a MOVEMENT SURFACE nor a physical ring edge.
+    """THE interior-apron predicate (RULINGS 2026-08-21c; spec A1 §1a as
+    CORRECTED by AMENDMENT A2): an apron pair that is not a MOVEMENT SURFACE.
 
     Its cap is ``APRON_INTERIOR_CAP`` (5 %) instead of the shape's strict body
-    cap.  RING-ADJACENT pairs are excluded and keep the strict cap — a ring
-    edge is a physical stretch of pavement, and R19-5 ("the bake never removes
-    a ring edge from the domain", lead 2026-08-12) exists to catch exactly the
-    148 %-class edge that would otherwise go unpriced.
+    cap.  The movement surfaces, which keep the strict cap, are:
+
+      * a FRONTAGE CHORD (``is_frontage_chord`` — building seat to the spine
+        it grades to), ring-adjacent or not;
+      * a ring FRONTAGE EDGE (both endpoints frontage vertices);
+      * a ring CORRIDOR-CROSSING edge (both endpoints inside the spine
+        corridor cover).
+
+    A2 CORRECTED A1 §1a, which had kept EVERY ring-adjacent pair strict on
+    R19-5 grounds ("the bake never removes a ring edge from the domain", lead
+    2026-08-12).  Compose-v2 measured what that cost: HECA was +112 over its
+    bar and ~648 of those rows were apron ring edges over the strict 1 %,
+    while NOT ONE violation on any airport carried the 5 % cap.  Under
+    2026-08-21b a ring edge between two non-frontage vertices IS a generic
+    pair, and R19-5's catch survives intact at 5 % — the edge stays in the
+    domain and a 148 % ring edge still mints its row.
 
     Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws are
     UNCHANGED (ruling 2026-08-21b clause 4, unamended)."""
     if not (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE):
         return False
-    if p.ring_adjacent:
+    if is_frontage_chord(p):
         return False
-    return not is_frontage_chord(p)
+    # THE CORRIDOR IS NEVER INTERIOR, ring-adjacent or not: its cap is the
+    # route's, and A2's exception exists precisely to keep it.
+    if is_apron_corridor_crossing(p):
+        return False
+    if p.ring_adjacent and is_apron_frontage_edge(p):
+        return False
+    return True
 
 
 def classify_pair(p: PairContext) -> Optional[Allowance]:

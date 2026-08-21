@@ -86,7 +86,7 @@ from .config import (                                          # noqa: E402
     ruleset_stand_max_grade, ruleset_strip_arc_rate_per_m,
     ruleset_strip_band_max_down_slope, ruleset_strip_half_width_m,
     ruleset_strip_max_longitudinal_slope, ruleset_taxi_max_grade,
-    ruleset_taxi_transverse_max)
+    ruleset_taxi_transverse_max, transverse_cap_for_longitudinal_cap)
 
 
 def ruleset_of(layout_or_icao=None) -> str:
@@ -2611,6 +2611,38 @@ def pair_grade_budget_m(cap_allow: "Allowance", distance_m: float) -> float:
     """
     return max(cap_allow.at(distance_m, 0.0),
                cap_allow.flat_cap() * distance_m)
+
+
+# ── THE TRANSVERSE SPAN BUDGET — ONE FUNCTION, BOTH READERS ─────────────
+# Owner ruling 2026-08-21 (RULINGS "RM's relocated airside debt is paid by
+# the solver pricing transverse"), spec
+# ``docs/specs/transverse-hyperplane-solve-spec.md`` step 1.
+#
+# A corridor CROSS-SECTION is priced over the span the transect actually
+# crosses — ``cap_T x width`` — never over a route and never over a chord
+# between ring vertices.  Both readers of that law used to spell the
+# product themselves: ``check_grade._check_transverse_grade`` (the census)
+# and ``lateral_spine_nodes.lateral_xsection_law_edges`` (the solve-side
+# binding).  Two spellings of one product is the census-wrapper defect in
+# miniature, and this family is precisely the one the owner just moved
+# into the solve, so it gets stated once, here, beside the other
+# within-shape budget functions.
+#
+# NO QUANTIZATION, deliberately, exactly as ``pair_grade_budget_m``:
+# each reader adds its OWN encoding envelope (the census adds
+# ``_pair_quant_noise_m`` on the crossed way and the declared terrace
+# step; the solve adds nothing, because an emitted-reading forgiveness
+# does not fund a solve target).
+def transverse_span_budget_m(cap_l: float, width_m: float) -> float:
+    """THE cross-section budget: ``transverse_cap_for_longitudinal_cap(cap_l)
+    x width_m``.
+
+    ``cap_l`` is the LONGITUDINAL cap of the axis segment the station sits
+    on (the per-letter taxi cap, the apron cap, the service-road rate);
+    the transverse cap is a pure function of it — the same one law source
+    (``config.transverse_cap_for_longitudinal_cap``) the pair law's ``cT``
+    resolves through.  ``width_m`` is the priced span's own width."""
+    return transverse_cap_for_longitudinal_cap(cap_l) * float(width_m)
 
 
 @dataclass(frozen=True)

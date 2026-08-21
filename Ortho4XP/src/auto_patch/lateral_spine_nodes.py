@@ -45,6 +45,7 @@ from shapely.strtree import STRtree
 import O4_UI_Utils as UI
 
 from . import config as _CFG
+from . import grade_law as _GL
 from . import fabric_flags as _FF
 from .layout import (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION,
                      ROLE_SERVICE_ROAD)
@@ -224,7 +225,7 @@ def record_lateral_xsection_pairs(layout, pairs, stages=None) -> int:
     RULINGS 2 ruling 1: *cross-section pairs enter the solve's law
     context — priced ⟺ bound*).
 
-    ``pairs`` is an iterable of ``((xa, ya), (xb, yb), width_m, cap_t)``:
+    ``pairs`` is an iterable of ``((xa, ya), (xb, yb), width_m, cap_l)``:
     the two feet of a span :func:`_bracket_feet` SELECTED BY THE
     VALIDATOR'S OWN RULE and actually PLANTED into the ring, the span it
     was priced over, and the transverse cap that prices it
@@ -253,17 +254,17 @@ def record_lateral_xsection_pairs(layout, pairs, stages=None) -> int:
         setattr(layout, _PAIR_STAGES_ATTR, st_rec)
     n = 0
     stages = list(stages or ())
-    for k, (a, b, width_m, cap_t) in enumerate(pairs):
+    for k, (a, b, width_m, cap_l) in enumerate(pairs):
         rec.append(((float(a[0]), float(a[1])),
                     (float(b[0]), float(b[1])),
-                    float(width_m), float(cap_t)))
+                    float(width_m), float(cap_l)))
         st_rec.append(stages[k] if k < len(stages) else None)
         n += 1
     return n
 
 
 def lateral_xsection_pairs(layout):
-    """The recorded pairs — ``[((xa,ya), (xb,yb), width_m, cap_t), ...]``
+    """The recorded pairs — ``[((xa,ya), (xb,yb), width_m, cap_l), ...]``
     (read-only by contract)."""
     return getattr(layout, _PAIRS_ATTR, None) or []
 
@@ -284,7 +285,10 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
     ``(i, j, budget)`` member of ``u_edges``, enforced by every
     feasibility projection including the final movable-pad yield.
 
-    ``budget_m`` is ``cap_t · width`` — the census's own allowance
+    ``budget_m`` is ``grade_law.transverse_span_budget_m(cap_l, width)``
+    — THE one law function both readers call (spec
+    ``transverse-hyperplane-solve-spec.md`` step 1; the census's own
+    allowance
     (``check_grade._check_transverse_grade``) with its quantization and
     terrace slack left OUT: those forgive an emitted reading, they do
     not fund a solve target.
@@ -317,8 +321,8 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
     best: dict = {}
     sites: dict = {}
     stage_of: dict = {}
-    for _k, (a, b, width_m, cap_t) in enumerate(pairs):
-        if width_m <= 0.0 or cap_t <= 0.0:
+    for _k, (a, b, width_m, cap_l) in enumerate(pairs):
+        if width_m <= 0.0 or cap_l <= 0.0:
             continue
         try:
             i = bucket_to_idx.get(cps.get_or_add(float(a[0]), float(a[1])))
@@ -328,7 +332,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
         if i is None or j is None or i == j:
             continue
         key = (i, j) if i < j else (j, i)
-        budget = float(cap_t) * float(width_m)
+        budget = _GL.transverse_span_budget_m(cap_l, width_m)
         # ONE PAIR, ONE EDGE, THE TIGHTEST BUDGET.  Two stations 12 m
         # apart can resolve to the SAME node pair once the 0.5 m merge
         # tolerance folds their feet together; the law prices BOTH
@@ -338,7 +342,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
         prev = best.get(key)
         if prev is None or budget < prev:
             best[key] = budget
-            sites[key] = (a, b, width_m, cap_t)
+            sites[key] = (a, b, width_m, cap_l)
         # STAGE OF A PAIR TWO STATIONS FOLDED TOGETHER: AIRSIDE WINS.
         # The budget rule above takes the STRICTER law; the stage rule
         # takes the AIRSIDE one, because a pair an airside shape also
@@ -367,7 +371,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
                     (a, b, w, c) = sites[key]
                     fh.write(_json.dumps({
                         "i": key[0], "j": key[1], "a": list(a), "b": list(b),
-                        "width_m": w, "cap_t": c, "budget_m": budget}) + "\n")
+                        "width_m": w, "cap_l": c, "budget_m": budget}) + "\n")
         except OSError:
             pass
     return edges
@@ -439,7 +443,7 @@ def _axis_segment_caps(entry, n_seg: int, is_service: bool) -> list:
 
 
 def _landed_pairs(spans, landed_by_shape, si_out=None):
-    """Yield ``(foot_lo, foot_hi, width_m, cap_t)`` for every selected
+    """Yield ``(foot_lo, foot_hi, width_m, cap_l)`` for every selected
     span BOTH of whose feet are NODES of the shape's final ring —
     reported at the position that actually landed.
 
@@ -480,7 +484,7 @@ def _landed_pairs(spans, landed_by_shape, si_out=None):
                         best = q
         return best
 
-    for (si, a, b, width_m, cap_t) in spans:
+    for (si, a, b, width_m, cap_l) in spans:
         grid = grids.get(si)
         if not grid:
             continue
@@ -493,7 +497,7 @@ def _landed_pairs(spans, landed_by_shape, si_out=None):
         # from the pair record.  Absent ⇒ byte-identical.
         if si_out is not None:
             si_out.append(si)
-        yield (qa, qb, width_m, cap_t)
+        yield (qa, qb, width_m, cap_l)
 
 
 def _open(poly):
@@ -640,7 +644,7 @@ def _densify_to_step(cs, step: float, seg_index_out: list = None):
 
 
 def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
-                  min_span_m: float = None, cap_t: float = None,
+                  min_span_m: float = None, cap_l: float = None,
                   pairs_out: list = None, priced_roles=None,
                   target_roles=None, vertex_hits: bool = False) -> None:
     """Cast the perpendicular at station ``vi`` and record the NEAREST
@@ -668,9 +672,9 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
     condition — the plain union, attempt 3, gated by
     ``O4_XSECTION_BRACKET``.
 
-    ``cap_t`` / ``pairs_out`` — RULING (1), the solve-side binding.  When
+    ``cap_l`` / ``pairs_out`` — RULING (1), the solve-side binding.  When
     both are given, each SELECTED span is appended to ``pairs_out`` as
-    ``(shape_index, foot_lo, foot_hi, width_m, cap_t)`` so the caller can
+    ``(shape_index, foot_lo, foot_hi, width_m, cap_l)`` so the caller can
     keep the ones whose feet actually LAND and record them through
     :func:`record_lateral_xsection_pairs`.  Same act, same selection,
     same span — which is what makes the priced pair and the bound pair
@@ -805,12 +809,12 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
         # RULING (1): the span just SELECTED is the pair the census
         # prices — hand it to the caller so the pair that gets planted
         # is the pair that gets bound.
-        if pairs_out is not None and cap_t is not None:
+        if pairs_out is not None and cap_l is not None:
             if (priced_roles is not None and target_roles is not None
                     and target_roles[si] not in priced_roles):
                 continue                  # not this axis's population
             pairs_out.append((si, span[0][3], span[1][3],
-                              span[1][0] - span[0][0], float(cap_t)))
+                              span[1][0] - span[0][0], float(cap_l)))
 
 
 def insert_lateral_spine_nodes(layout, icao: str = "", *,
@@ -849,7 +853,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
     rings = [_open(p) for p in polys]
     n_rb = 0        # feet the R-b width-adaptive row rule contributed
     # RULING (1) · the priced spans, awaiting their landing check:
-    # ``(shape_index, foot_lo, foot_hi, width_m, cap_t)``.
+    # ``(shape_index, foot_lo, foot_hi, width_m, cap_l)``.
     xsec_spans: list = []
     target_roles = [s.role for s in targets]
     _vertex_hits = _xsection_vertex_hits_on()
@@ -922,9 +926,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
                           else (_seg_caps[-1] if _seg_caps else None))
                 _bracket_feet(vx, vy, cs, _vi, tree, rings, polys, inserts,
                               min_span_m=_rb_span,
-                              cap_t=(None if _cap_l is None else
-                                     _CFG.transverse_cap_for_longitudinal_cap(
-                                         _cap_l)),
+                              cap_l=_cap_l,
                               pairs_out=xsec_spans,
                               priced_roles=_priced,
                               target_roles=target_roles,
@@ -1045,7 +1047,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
                 for (si, a, b, w, c) in xsec_spans:
                     fh.write(_json.dumps({
                         "kind": "span", "si": si, "a": list(a), "b": list(b),
-                        "width_m": w, "cap_t": c}) + "\n")
+                        "width_m": w, "cap_l": c}) + "\n")
         except OSError:
             pass
 

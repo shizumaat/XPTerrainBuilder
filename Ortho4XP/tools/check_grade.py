@@ -182,6 +182,7 @@ try:
         transverse_surface_bounds as _transverse_surface_bounds,
         transverse_minimum_for_role as _transverse_minimum_for_role,
         transverse_minimum_binds as _transverse_minimum_binds,
+        transverse_span_budget_m as _transverse_span_budget_law,
         drainage_minimum_grade as _drainage_minimum_grade,
         drainage_minimum_shortfall as _drainage_minimum_shortfall,
         _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
@@ -219,6 +220,7 @@ except Exception:
     _transverse_surface_bounds = None
     _transverse_minimum_for_role = None
     _transverse_minimum_binds = None
+    _transverse_span_budget_law = None
     _drainage_minimum_grade = None
     _drainage_minimum_shortfall = None
     _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
@@ -3553,6 +3555,21 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     return cap_l
 
 
+def _transverse_span_budget(cap_l: float, width_m: float) -> float:
+    """THE cross-section budget, from THE law function
+    (``grade_law.transverse_span_budget_m``) — the same product the solve's
+    cross-section binding uses (spec ``transverse-hyperplane-solve-spec.md``
+    step 1, owner ruling 2026-08-21).  This reader adds its own encoding
+    envelope on top; the law states the budget only.
+
+    The literal fallback is the no-``auto_patch`` path this module keeps
+    for every constant it imports, and it composes the SAME two factors
+    through this module's own cap resolver."""
+    if _transverse_span_budget_law is not None:
+        return float(_transverse_span_budget_law(cap_l, width_m))
+    return _transverse_cap_for_seg_cap(cap_l) * float(width_m)
+
+
 def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                             terrace_joints_m: Optional[list] = None
                             ) -> Tuple[List[Violation], int, int, int]:
@@ -3630,7 +3647,6 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
             tx, ty = (x2 - x1) / seg_len, (y2 - y1) / seg_len
             nx, ny = -ty, tx
             cap_l = float(cap_list[k] if k < len(cap_list) else cap_list[-1])
-            cap_t = _transverse_cap_for_seg_cap(cap_l)
             s = 0.0
             while s <= seg_len + 1e-9:
                 px, py = x1 + tx * s, y1 + ty * s
@@ -3696,7 +3712,13 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
                     (u_lo, z_lo), (u_hi, z_hi) = span
                     width = u_hi - u_lo
                     dz = abs(z_hi - z_lo)
-                    allow = cap_t * width + _pair_quant_noise_m(way)
+                    # THE ONE LAW FUNCTION, BOTH READERS (spec
+                    # ``transverse-hyperplane-solve-spec.md`` step 1;
+                    # owner ruling 2026-08-21).  The census keeps its
+                    # OWN encoding envelope on top — the law states the
+                    # budget, each reader states its forgiveness.
+                    allow = (_transverse_span_budget(cap_l, width)
+                             + _pair_quant_noise_m(way))
                     # APRON TERRACE LOCKSTEP.  A cross-section whose two
                     # hits sit on OPPOSITE sides of a declared joint has
                     # a DECLARED step between them — the same fact the

@@ -115,3 +115,30 @@ Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; any airside
 increase on any airport is a STOP; band re-violation > 0 is a STOP; a
 station-set mismatch between readers is a STOP (fix the walker, not the
 count).
+
+## AMENDMENT A1 (Fable, 2026-08-21) — §8 binding site
+
+Measured on the lane (9809859): NO projection runs after `layout.to_osm`
+begins (pipeline.py:6488 is the last; to_osm then performs sliver-corner
+repair :1591, needle removal :1816, on-edge moves :2002, nid weld inserts
+:2325, backfill :2512, decimation :2796, emit snap :3232, sidecar :3339).
+The emitted ring therefore cannot be bound by any projection, for this
+design or a node-planting one. §8 is amended:
+
+8a. Bind on the ring `final_grade_projection` sees (post-solve, pre-emit),
+    using the shared walker (`transect_walk.py`), and run the final
+    projection with the hyper rows present.
+8b. Write every bound span to the sidecar (§11) with its edge endpoints'
+    solved z and t/s parameters.
+8c. The census re-walks the EMITTED ring and, for every bound span, joins
+    by station_id and re-evaluates: `priced N / bound M / unbound N−M /
+    broken_by_emit B` where B counts bound spans whose emitted interpolated
+    heights differ from the bound heights by > 0.02 m (the decimation
+    z-tolerance; collinear inserts are height-neutral by construction —
+    twin `test_transect_walk` insert-invariance). One line, every census.
+8d. Acceptance adds: B reported per airport; B is NOT a STOP in this round
+    — it is the measurement that decides whether the topology-only emit
+    repairs must move ahead of the final projection (a separate spec,
+    "nothing moves after the final projection"). CYXY first.
+Everything else in the spec stands (§3-7 kernel + meters, §10 band line,
+§13-16 acceptance, the pre-delegated STOPs).

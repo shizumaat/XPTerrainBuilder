@@ -1,0 +1,48 @@
+LANE lane/chordlim — WAVE-3 STEP 1 road chord limiter — CLOSED (STOP)
+=====================================================================
+2026-08-20, session 787ac54a.  Commit cce9da6 on lane/chordlim.
+
+BUILT (spec docs/specs/road-chord-limiter-spec.md, all five clauses)
+  groundside._grade_limit_groundside_chords now clamps the ROAD FAMILY
+  (service_road + service_junction) in the SAME pass, ONE node key
+  space; per-role caps (road = ROLE_GRADE_LIMITS 8 %, lot keeps the
+  GROUNDSIDE_MAX_GRADE 5 % shaping margin); per-NODE caps in the kernel
+  (pair budget = stricter endpoint); node book seeds by AUTHORITY
+  PRECEDENCE across roles / min within a role; welds unpinned;
+  tunnel_ramp excluded; shared-node census on layout._chord_limit_stats,
+  printed by finalize.  11 new twins + 165 adjacent tests pass.
+
+MEASURED (harness builds + censuses; controls at clean 2e3cfc9 reproduce
+the 2026-08-16 battery exactly)
+                 ADJUDICATED (airside / groundside)
+                 control        limiter        limiter+A2(env)
+    CYXY         336 (75/261)   206 (75/131)   187 (75/112)
+    SPJC         482 (199/283)  419 (199/220)  419 (214/205)
+    HECA        7548(1522/6026) 4754(1521/3233) 4833(1473/3360)
+  road-family rows CYXY 151→130, SPJC 271→220, HECA 4030→3231;
+  lot rows CYXY 110→1, HECA 2009→4.  Corridor coherence: rect/junction
+  shared nodes CYXY 688, SPJC 641, HECA 4966 — the extended node book
+  DOES span the chain.  Shared-node stricter-cap: 245 / 129 / 3939.
+  Witness: CYXY sink site = 1 row / 0.40 m with A2 armed (was 0.39).
+
+STOP — AIRSIDE IS NOT BYTE-IDENTICAL AT HECA (spec acceptance 3)
+  HECA limiter arm: 1488 airside rows EXACT, 34 GONE, 33 NEW (net −1;
+  the GONE rows are the larger ones).  Airside pavement VALUES move:
+  175 junction ways (≤0.05 m), 82 apron ways (≤0.15 m), 46 building
+  ways (≤0.10 m).  Runways untouched.
+  MECHANISM (not the limiter writing airside — it only ever writes the
+  three groundside/road roles): the FINAL PROJECTION ingests the
+  post-solve mutation set and re-projects the whole node space —
+  "[final-projection-ingestion] post-solve mutation set 740 new + 8509
+  moved" (control) vs "741 new + 13064 moved, p90 |dz| 0.62 m" (lane).
+  The channel PRE-EXISTS (the lot limiter already feeds it); the road
+  family enlarges it.  CYXY: only 6 graded_strip raoa magnitudes, all
+  IMPROVED.  SPJC: 4 apron nodes at exactly the 0.01 m materiality
+  floor; adjudicated airside unchanged (199).
+
+A2 NOT RE-ARMED (default still "0")
+  (a) the spec conditions the flip on the limiter's own acceptance
+  passing, and clause 3 does not; (b) measured, the A2 arm itself adds
+  +15 ADJUDICATED AIRSIDE rows at SPJC (29 new within_shape apron rows
+  on way -10113) — airside is king.  The A2 cost DID collapse
+  (+286 HECA → +79 total, of which airside −48; +76 SPJC → 0).

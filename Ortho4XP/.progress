@@ -1,132 +1,161 @@
-LANE lane/compose — THE COMPOSED ARM (apron population + transverse in the
-solve) — v2 under RULINGS 2026-08-21c: CYXY PASSES, SPJC and HECA are STOPs
+LANE lane/compose — apron population + transverse in the solve — v3 under
+spec AMENDMENT A2: CYXY PASSES, SPJC and HECA are STOPs
 ==========================================================================
-2026-08-21, session 787ac54a.  Base lane/apronpop ea4a1b8; lane/transect's
-five commits cherry-picked (zero textual conflicts); then owner ruling
-2026-08-21c + spec AMENDMENT A1 (main d2f5bc6) implemented as 396d94b.
+2026-08-21, session 787ac54a.  lane/apronpop ea4a1b8 + lane/transect (5
+commits, zero conflicts) + RULINGS 2026-08-21c/A1 (396d94b) + spec A2
+(6c9b9c5).
 
-TWO ARMS ARE RECORDED HERE.  compose-v1 = the 2026-08-21b population
-(interior REMOVED from the law).  compose-v2 = A1 (interior is LAW at the
-5 % fan-ramp cap; movement surfaces strict).  v1's measurements are what
-motivated the owner's reversal and are kept for the comparison.
+FOUR ARMS ARE RECORDED.  apronpop = 2026-08-21b alone.  v1 = apronpop +
+transect (interior REMOVED from the law).  v2 = A1 (interior LAW at the 5 %
+fan-ramp cap; EVERY ring-adjacent pair strict).  v3 = A2 (ring-adjacent
+edges are interior too, unless they front a building or cross the
+corridor).
 
-ADJUDICATED AIRSIDE — battery -> apronpop -> compose-v1 -> compose-v2
+ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 (bar)
 
-  | airport | battery | apronpop | v1   | v2   | bar  | v2 verdict     |
-  |---------|---------|----------|------|------|------|----------------|
-  | CYXY    |     75  |     204  |   67 |   16 |   75 | PASS (-59)     |
-  | SPJC    |    189  |     474  |  551 |  204 |  189 | STOP (+15)     |
-  | HECA    |   1487  |    1508  | 1167 | 1599 | 1487 | STOP (+112)    |
+  | airport | battery | apronpop |   v1 |   v2 |   v3 | bar  | v3 verdict |
+  |---------|---------|----------|------|------|------|------|------------|
+  | CYXY    |     75  |     204  |   67 |   16 |   17 |   75 | PASS (-58) |
+  | SPJC    |    189  |     474  |  551 |  204 |  213 |  189 | STOP (+24) |
+  | HECA    |   1487  |    1508  | 1167 | 1599 | 2560 | 1487 | STOP (+1073)|
 
-  within_shape airside   CYXY 0 / 3 / 3 / 0     SPJC 45 / 12 / 258 / 52
-                         HECA 1284 / 643 / 770 / 1383
-  transverse  airside    CYXY 63 / 188 / 51 / 4  SPJC 46 / 331 / 167 / 51
-                         HECA 95 / 572 / 155 / 63
-  steps (mid_edge+v2e)   CYXY 0 / 0 / 0 / 0      SPJC 0 / 37 / 31 / 0
-                         HECA 3 / 192 / 131 / 8
+  within_shape airside  CYXY 0 / 3 / 3 / 0 / 0
+                        SPJC 45 / 12 / 258 / 52 / 73
+                        HECA 1284 / 643 / 770 / 1383 / 2368
+  transverse   airside  CYXY 63 / 188 / 51 / 4 / 5
+                        SPJC 46 / 331 / 167 / 51 / 38
+                        HECA 95 / 572 / 155 / 63 / 49
+  steps        airside  CYXY 0 / 0 / 0 / 0 / 0
+                        SPJC 0 / 37 / 31 / 0 / 0
+                        HECA 3 / 192 / 131 / 8 / 5
 
-WHAT A1 BOUGHT.  Every family the two earlier arms damaged is repaired.
-TRANSVERSE is now BELOW the battery on all three (CYXY 63->4, HECA
-95->63, SPJC 46->51 near-flat) — the transect rows and the 5 % interior
-law together hold the corridor.  STEPS are gone (SPJC 37->0, HECA
-192->8).  The surface is far closer to the battery than v1's: worst
-airside |dz| CYXY 3.95->0.93 m, SPJC 9.66->1.09 m, HECA 18.23->6.77 m.
-CYXY clears its bar by 59 and its within_shape airside is ZERO; the
-service_junction spine 37.1 % row that survived apronpop AND v1 is GONE
-(0 rows within 30 m of 60.712398,-135.077719).
+THE HEADLINE FINDING, AND IT IS THE SAME IN EVERY ARM:
+  ***  NOT ONE VIOLATION ON ANY AIRPORT IS EVER PRICED AT THE 5 % CAP.  ***
+  v3 within_shape airside by cap: CYXY none at all; SPJC 62 @1.0 % + 11
+  @1.5 %; HECA 2221 @1.0 % + 147 @1.5 %.  The interior law mints nothing in
+  v2 and nothing in v3.  What the interior cap changes is how much the
+  interior may MOVE, and every metre it moves is absorbed by the STRICT
+  class bounding it.  Widening the interior class therefore worsens the
+  strict class monotonically at HECA:
 
-THE STOPS — AND THE ATTRIBUTION IS THE SAME ON BOTH AIRPORTS.
+    interior class        HECA within_shape airside    HECA airside
+    v1  removed entirely            770                    1167
+    v2  non-ring-adjacent          1383                    1599
+    v3  + non-corridor ring edges  2368                    2560
 
-  NOT ONE VIOLATION IS PRICED BY THE NEW 5 % INTERIOR CAP.
-    SPJC within_shape airside 52 = 46 @cap 1.0 % + 6 @cap 1.5 % + 0 @5 %.
-    HECA within_shape airside 1383 = 1326 @1.0 % + 56 @1.5 % + 1 @8 % + 0 @5 %.
-  The interior law mints nothing; it is doing its job.  The residual debt
-  sits entirely on the STRICT class — the movement surfaces and, above
-  all, the RING-ADJACENT branch A1 §1a deliberately reserved for the
-  strict cap (R19-5's catch).
+  A2's own prediction held — the ~648 ring edges it targeted DO stop being
+  violations, because they now pass at 5 % — but the surface they no longer
+  hold tilts, and the movement surfaces take it.  A2 is the right reading
+  of 2026-08-21b (a non-frontage ring edge IS a generic pair) and the wrong
+  lever for the bar.
 
-  HECA, the bigger STOP (+112).  within_shape apron|apron airside 1089
-  (battery) -> 1258 (v2).  Of those 1258, 582 are frontage CHORDS and 676
-  are GENERIC — and since no row anywhere carries the 5 % cap, every
-  violating generic row is necessarily RING-ADJACENT (the only way to be
-  generic and strict under A1) or foreign-priced (28 of the 676, by
-  junction / service laws).  So ~648 rows are apron RING EDGES over the
-  strict 1 % cap.  Severity moved with them: the >2x-cap class 447 -> 663,
-  accumulated excess 4332 -> 4564 percentage-points, worst 33.8 % -> 57.8 %
-  at SPJC and the HECA head now at 1.11-1.64 % against a 1.00 % cap on
-  7.2-7.6 m chords.  Sites, HECA head: (30.11843,31.41048),
-  (30.11848,31.41047), (30.11845,31.41048), (30.12442,31.41397).
+  HECA v3 residual, classified: 2205 apron within_shape airside rows = 786
+  FRONTAGE CHORDS + 1419 GENERIC, and since none carry the 5 % cap every
+  generic one is a CORRIDOR-CROSSING ring edge (1366 priced unified:apron,
+  25 apron:spine, 28 foreign).  Severity followed the count: >2x-cap 447
+  (battery) -> 663 (v2) -> 1117 (v3); accumulated excess 4332 -> 4564 ->
+  6905 percentage-points.  Head sites (30.11814,31.41057),
+  (30.11818,31.41055), (30.11843,31.41048) at 1.37-1.41 % against 1.00 %.
 
-  SPJC (+15), family by family vs the battery: within_shape +7 (45->52),
-  transverse +5 (46->51), frontage_near_miss +2 (0->2), plane_gradient +1.
-  strip_arc (54), drainage_spine (36) and strip_longitudinal (7) are
-  UNCHANGED.  The worst NEW airside rows are apron|apron on way -10113 at
-  1.016-1.033 % against a 1.000 % cap — hairline in grade, large in metres
-  because the chords are ~260 m.  19 of the 52 sit within 1.25x of cap.
-  Sites: (-12.020149,-77.110458), (-12.020133,-77.110446),
-  (-12.019231,-77.110059).
+  SPJC v3 residual (+24), as the lead asked it be split: 62 apron rows =
+  15 FRONTAGE CHORDS (chord p50 54.9 m, max 177.9 m) + 47 GENERIC, all
+  strict, so all CORRIDOR-CROSSING ring edges (35 unified:apron, 11
+  apron:spine, 1 foreign); plus 11 junction rows @1.5 %.  TWO POPULATIONS,
+  and they need different fixes:
+    * the METRE-heavy rows are hairline in grade — 1.019-1.097 % against
+      1.000 % on 55-178 m chords, way -10113, sites (-12.019228,-77.110061),
+      (-12.019231,-77.110059), (-12.029663,-77.104875);
+    * the SEVERE rows are a localised WELD CLUSTER on sub-metre chords —
+      39 of the 53 >2x rows are <= 5 m long, 10 more <= 20 m, |de| only
+      0.16-0.45 m, all around (-12.021394,-77.110990) where ways -10113 /
+      -10162 / -10698 / -10699 meet.  That is a seat/weld defect, not a
+      grading one.
+  NO FIX ATTEMPTED (A2 is a correction of the lead's clause, and the
+  instruction on an over-bar airport is STOP + attribution).
 
-  MECHANISM (one sentence): the 5 % interior is a much better constraint
-  than no constraint, but it is still four points looser than the strict
-  cap, so the interior may legally tilt under the transect rows and the
-  movement surfaces and ring edges bounding it absorb the difference —
-  the same shape as the v1 failure, one order of magnitude smaller.
-  NO FIX ATTEMPTED (attempt 2 of the population spec; the brief's
-  instruction is STOP + attribution).
+WHAT THE COMPOSED LANE DID BUY, and it holds across v2 and v3:
+TRANSVERSE IS SOLVED.  Airside transverse is at or below the battery on
+all three and is best in v3 (CYXY 63->5, SPJC 46->38, HECA 95->49).
+STEPS ARE GONE (SPJC 37->0, HECA 192->5).  CYXY clears its bar by 58 with
+within_shape airside ZERO, and the service_junction spine 37.1 % row that
+survived apronpop AND v1 is gone from v2 onward.
 
-INSTRUMENTS (v2; v1 in parentheses)
+INSTRUMENTS (v3; v2 in parentheses)
   [transverse-bind] solve side
-    CYXY bound=3105  rows=6210  exit_over_budget=145  (211) worst 0.811 m
-    SPJC bound=8491  rows=16982 exit_over_budget=212  (326) worst 0.695 m
-    HECA bound=26727 rows=53454 exit_over_budget=2476 (2513) worst 6.150 m
+    CYXY bound=3105  rows=6210  exit_over_budget=143  (145)  worst 0.811 m
+         | band clamp 4 value(s), worst 0.114 m
+    SPJC bound=8490  rows=16980 exit_over_budget=189  (212)  worst 0.696 m
+         | band clamp 36 value(s), worst 0.535 m
+    HECA bound=26728 rows=53456 exit_over_budget=2643 (2476) worst 6.118 m
+         | band clamp 126 value(s), worst 6.065 m
   [transverse-bind] census side, on the EMITTED ring (A1 §8c)
-    CYXY priced 3067  / bound 3066  / unbound  1 / broken_by_emit  1471 (1701)
-    SPJC priced 8486  / bound 8474  / unbound 12 / broken_by_emit  4131 (4609)
-    HECA priced 26634 / bound 26620 / unbound 14 / broken_by_emit 17005 (17221)
-    Still 48-62 % of every bound transect — reported, not a STOP (A1 §8d).
+    CYXY priced 3067  / bound 3066  / unbound  1 / broken_by_emit  1489 (1471)
+    SPJC priced 8486  / bound 8472  / unbound 14 / broken_by_emit  3902 (4131)
+    HECA priced 26633 / bound 26620 / unbound 13 / broken_by_emit 17257 (17005)
+    Still 46-65 % of every bound transect — reported, not a STOP (A1 §8d).
   [writeback-band] worst > 10 m count = 0 on all three (worst clamp CYXY
-    0.02 m, SPJC 0.08 m, HECA 8.80 m — HECA's rose from 4.70 m in v1).
+    0.02 m, SPJC 0.08 m, HECA +4.91 m).
   [proj-law-certificate] final#1 EXIT over_cap (both-hard)
-    CYXY 1001 (451)  [v1 1179 (332)]   SPJC 1670 (427) [v1 2670 (379)]
-    HECA 18496 (3751) [v1 16577 (3251)]
+    CYXY   997 (449)  [v2  1001 (451)]
+    SPJC  1681 (427)  [v2  1670 (427)]
+    HECA 26958 (4097) [v2 18496 (3751)]
   §7 apron population (frontage_split --apron-population)
-    CYXY apron 0 rows — the class is EMPTY
-    SPJC apron 46: 19 chord / 27 generic (25 apron-law, 2 foreign)
-    HECA apron 1258: 582 chord / 676 generic (648 apron-law, 28 foreign)
-  Kept frontage rows > 5 %: CYXY 0, SPJC 0 (v1: 9), HECA 88 (v1: 91).
-  junction|junction generic: CYXY 0, SPJC 6, HECA 53.
-  airside_value_delta vs battery: CYXY 321 nodes / worst 0.93 m,
-    SPJC 3488 / 1.09 m, HECA 11110 / 6.77 m.
+    CYXY apron class EMPTY
+    SPJC apron 62: 15 chord / 47 generic — the generics are the
+         corridor-crossing ring edges A2 keeps strict
+    HECA apron 2205: 786 chord / 1419 generic (1391 apron-law, 28 foreign)
+  Kept frontage rows > 5 %: CYXY 0, SPJC 0, HECA 152 (v2 88).
+  junction|junction generic: CYXY 0, SPJC 11, HECA 141.
+  airside_value_delta vs battery: CYXY 284 nodes / worst 1.96 m,
+    SPJC 3108 / 1.32 m, HECA 10939 / 9.17 m.
 
-TESTS.  37/37 on the three twin files.  341 passed / 1 failed across
-test_harness + test_grade_graph + test_fan_ramp_law + the twins, and that
-1 (test_the_near_miss_frontage_law_is_one_authority) is one of the 11
-failures the apronpop lane measured on its matched CONTROL.
-  A1 RESOLVED BOTH CLASSES apronpop could not: the R19-5 law collision
-  (a physical ring edge is back in the domain — both twins pass untouched)
-  and the unreachable fan-ramp law (both twins pass untouched).  Six of
-  the eight building-less-fixture twins recovered untouched.
-  TWO twins were updated as the ruling requires, substantive assertions
-  intact: test_grade_graph's all-1 % apron body (now two cap classes, with
-  a rule-off arm asserting the old reading) and the duplicate-ring PREMISE
-  in test_harness.
-  The new cap lockstep twin found a PRE-EXISTING reader drift and does not
-  adopt it: one ring edge reads the blend branch's 1.5 % in the bake and
-  the plain body cap in the census, identically with the flag on and off.
-  The twin asserts NO NEW drift rather than zero drift.
+TESTS.  345 passed / 1 failed across test_harness, test_grade_graph,
+test_fan_ramp_law, test_apron_within_shape_population, test_transverse_hyper
+and test_transect_walk.  The 1
+(test_the_near_miss_frontage_law_is_one_authority) is one of the 11 the
+apronpop lane measured on its matched CONTROL.  A1 already resolved both
+classes apronpop could not (the R19-5 law collision and the unreachable
+fan-ramp law); A2 keeps them resolved — R19-5's catch survives at 5 %,
+asserted by its own twin.
 
-BUILD HYGIENE.  Three v2 builds, all rc=0, all "shared repo UNCHANGED".
+A2 ALSO CAUGHT A REGRESSION OF ITS OWN, fixed before the builds: on the
+first pass a pair sharing a taxi CENTERLINE was raised to 5 %, which would
+legalise a 5 % grade along a running taxiway.  test_grade_graph's spine
+twin caught it; ``spine_caps`` is now part of the corridor class outright
+and is not gated on ring adjacency.
+
+BUILD HYGIENE.  Three v3 builds, all rc=0, all "shared repo UNCHANGED".
 No --no-ledger, no degraded-DEM override, no timing claim.
 
-OWNER QUESTIONS THIS LANE DOCKETS
-  1. THE RING-ADJACENT BRANCH is where HECA's remaining debt lives (~648
-     rows).  A1 §1a reserved it for the strict cap on R19-5 grounds.  Is a
-     long apron RING EDGE a movement surface (strict) or interior (5 %)?
-     The measurement says the answer decides HECA's bar.
-  2. A role-LESS duplicate ring of an apron host is priced at the strict
-     cap while its host prices its interior at 5 % — one geometry, two
-     laws (test_harness duplicate-ring twin).
-  3. The blend-branch cap drift between census and bake (pre-existing).
-  4. broken_by_emit at 48-62 % — the "nothing moves after the final
-     projection" spec A1 §8d exists to trigger.
-  5. SPLP / KAFW / KDFW have no arm under this tree.
+DOCKET (named, with sites, nothing fixed here)
+  1. BLEND-CREDIT READER DRIFT (the cap-lockstep twin's find).  On ONE
+     apron ring edge the bake reads the BLEND branch's 1.5 % ("an apron
+     body edge near a taxiway earns the route's blended cap") while the
+     census reads the plain 1.0 % body cap.  Site: the twin fixture's
+     bottom ring edge, layout-local (-100,-40)-(300,-40), lat/lon
+     (30.4996407,31.4989583)-(30.4996407,31.5031250).  Present with the
+     interior flag ON and OFF before A2; under A2 that edge is INTERIOR,
+     both readers agree at 5 %, and the drift is GONE from the shipping
+     configuration — but the underlying gap is untouched and is still
+     asserted on the flag-off arm so it cannot be forgotten.
+  2. MEMO KEY OMITS THE INTERIOR FLAG (test-only).
+     ``shape_constraints_cached`` is keyed by CONTENT (ring, role,
+     ring_only, ctx); the interior-cap flag is not in the key, so an
+     identical ring re-run with the flag flipped is served the first arm's
+     caps.  Production reads the flag once at import so nothing ships
+     wrong, but every flag-off twin through that path must use its own
+     geometry.  Found in test_fan_ramp_law.
+  3. THE SPJC WELD CLUSTER at (-12.021394,-77.110990) — 39 sub-5 m ring
+     edges at 15-35x their cap where ways -10113/-10162/-10698/-10699 meet.
+  4. HECA's 152 kept frontage rows > 5 %.
+  5. broken_by_emit at 46-65 % — what A1 §8d exists to trigger.
+  6. A role-LESS duplicate ring of an apron host is priced strictly while
+     its host prices its interior at 5 % (one geometry, two laws).
+  7. SPLP / KAFW / KDFW still have no arm under this tree.
+
+THE QUESTION THE MEASUREMENTS PUT BACK TO THE OWNER.  No arm passes all
+three airports: CYXY wants v2/v3, SPJC is ~+20 in both, HECA is best in v1
+(1167) and worst in v3 (2560).  Since no violation is ever priced at 5 %,
+the interior CAP is not the lever that closes HECA — what closes it is
+whatever stops the interior from tilting into its movement surfaces.  That
+is a different mechanism from a cap value, and it is an owner/spec call.

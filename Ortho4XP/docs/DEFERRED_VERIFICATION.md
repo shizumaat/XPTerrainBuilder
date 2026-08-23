@@ -2737,3 +2737,77 @@ a LONG-CHORD infeasibility at HECA (aprons whose real relief exceeds what
 corridor exemptions to the 60 m gate) and a SHORT-CHORD weld cluster at
 SPJC. Neither is a cap value, a pin placement, or a sweep budget — all
 three have now been measured and excluded.
+
+## 2026-08-23 A3 — ring edges strict only inside the 60 m gate (lane/compose)
+
+Spec AMENDMENT A3 (main f081294), implemented as 3d5fe0c. Sweep scale back
+at 1. Three harness builds, staged + transects on, all rc=0, shared repo
+UNCHANGED.
+
+ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 / staged / A3:
+
+| airport | batt | apop | v1 | v2 | v3 | staged | A3 | bar | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 24 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 265 | 189 | STOP +76 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | 1487 | STOP +789 |
+
+within_shape airside 0/3/3/0/0/2/2, 45/12/258/52/73/100/120,
+1284/643/770/1383/2368/2280/2107. CYXY's A3 body sha is IDENTICAL to the
+staged arm (6c0cf4f2fd97) — it carries no long ring edge, so A3 is a no-op
+there.
+
+THE DRAG HYPOTHESIS: CONFIRMED AT HECA, REFUTED AT SPJC. within_shape
+airside split by chord (<= 60 m / > 60 m):
+
+| arm | HECA | SPJC |
+|---|---|---|
+| battery | 765 / 519 | 45 / 0 |
+| staged | 1319 / 961 | 76 / 24 |
+| A3 | **1044 / 1063** | **80 / 40** |
+
+HECA's short class fell 1319 -> 1044 (-275, -21 %) and its worst row fell
+11.59 -> 9.59 m: relaxing the long constraints DID stop them dragging the
+short ones. SPJC's short class did not move (76 -> 80) and its long class
+grew 24 -> 40, which is why its total rose.
+
+BY CAP, a fifth arm saying it: STILL NOT ONE VIOLATION AT 5 %. HECA A3
+2055 @1.0 % + 52 @1.5 %; SPJC A3 106 @1.0 % + 14 @1.5 %; CYXY 2 @1.0 %.
+
+THE 20 WORST ARE THE SAME CLASS A3 TARGETED AND DID NOT REACH. All 20 are
+`within_shape apron|apron` airside on way **-10612**, cap **1.0 %**, grade
+1.09-1.26 %, |de| 8.36-9.59 m, chords **665-857 m**; sites (30.11814,
+31.41057), (30.11815,31.41057), (30.11843,31.41048), (30.11852,31.41045).
+A3 reduced their |de| (11.69 -> 9.59 m) but did NOT reclassify them.
+
+WHY, AND IT IS THE CARVE-OUT THIS LANE FLAGGED WHEN IMPLEMENTING A3. The
+gate was applied to the COVER clause and the ring FRONTAGE edge, as A3
+words it; the ``spine_caps`` half of ``is_apron_corridor_crossing`` was
+deliberately left ungated, because that pair IS the route and gating it
+would raise a long taxiway pair to 5 % (the regression A2's first pass
+produced and test_grade_graph's spine twin caught). Evidence that this is
+the surviving door:
+- the sidecar's own ``apron_seniority`` marks 2,712 of 3,288 HECA apron
+  nodes SENIOR (82 %), and the nearest apron node to each of the four
+  worst sites is SENIOR;
+- ``pair_caps`` still carries **9,782 `unified:apron` rows on chords
+  > 60 m**, the longest at 1,417 m with a 21.295 m budget — an implied
+  **1.50 %**, i.e. a spine/blend cap, not the 5 % interior;
+- the residual > 60 m class is 1,063 rows: 280 at 60-200 m, 636 at
+  200-500 m, **147 above 500 m**, on ways -10612 (282), -10682 (226),
+  -13148 (171), -10656 (146), -10641 (91).
+So the long-chord class now reaches the strict law through the SPINE door
+rather than the cover door. Whether a long APRON spine pair (1 %, the
+apron's own spine — not a 1.5 % taxi route) should take the length gate is
+the open question A3 did not answer, and it is what decides HECA.
+
+SPJC WELD-CLUSTER ROWS, listed separately as asked: 37 of the 120
+within_shape airside rows lie within ~60 m of (-12.021394,-77.110990), on
+sub-3 m chords at 7.8-35.3x their cap (worst 35.31 % on a 1.30 m chord,
+|de| 0.460 m, ways -10113 / -10162 / -10698 / -10699). The other 83 rows
+peak at 20.27 %. The cluster is a seat/weld defect and is untouched by
+every apron-law arm so far.
+
+UNPAID / OWED: SPJC and HECA remain over their bars; the spine-door
+question above; the SPJC weld cluster; SPLP / KAFW / KDFW still have no arm
+under this tree.

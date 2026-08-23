@@ -11,23 +11,41 @@ REMOVED).  v2 = A1 (interior LAW at 5 %, every ring edge strict).  v3 = A2
 the two-sub-stage projection (movement surfaces settle first, interior
 conforms with the seniors frozen).
 
-ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 / STAGED (bar)
+ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 / STAGED / A3
 
-  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED | bar  | verdict  |
-  |---------|------|------|------|------|------|--------|------|----------|
-  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   75 | PASS -51 |
-  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  189 | STOP +53 |
-  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 1487 | STOP +985|
+  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED |   A3 | bar  |
+  |---------|------|------|------|------|------|--------|------|------|
+  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   24 |   75 | PASS
+  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  265 |  189 | STOP +76
+  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 2276 | 1487 | STOP +789
 
-  within_shape airside  CYXY 0 / 3 / 3 / 0 / 0 / 2
-                        SPJC 45 / 12 / 258 / 52 / 73 / 100
-                        HECA 1284 / 643 / 770 / 1383 / 2368 / 2280
-  transverse   airside  CYXY 63 / 188 / 51 / 4 / 5 / 10
-                        SPJC 46 / 331 / 167 / 51 / 38 / 41
-                        HECA 95 / 572 / 155 / 63 / 49 / 46
-  steps        airside  CYXY 0 everywhere
-                        SPJC 0 / 37 / 31 / 0 / 0 / 0
-                        HECA 3 / 192 / 131 / 8 / 5 / 11
+  within_shape airside  CYXY 0 / 3 / 3 / 0 / 0 / 2 / 2
+                        SPJC 45 / 12 / 258 / 52 / 73 / 100 / 120
+                        HECA 1284 / 643 / 770 / 1383 / 2368 / 2280 / 2107
+  transverse   airside  CYXY 63 / 188 / 51 / 4 / 5 / 10 / 10
+                        SPJC 46 / 331 / 167 / 51 / 38 / 41 / 44
+                        HECA 95 / 572 / 155 / 63 / 49 / 46 / 36
+
+A3 (ring edges strict only inside the 60 m body gate) — THE DRAG
+HYPOTHESIS IS CONFIRMED AT HECA AND REFUTED AT SPJC.  within_shape airside
+by chord (<= 60 m / > 60 m):
+    HECA  battery 765/519   staged 1319/961   A3 1044/1063
+    SPJC  battery  45/0     staged   76/24    A3   80/40
+  HECA's SHORT class fell 1319 -> 1044 (-21 %) and its worst row 11.59 ->
+  9.59 m: relaxing the long constraints DID stop them dragging the short
+  ones.  SPJC's short class did not move and its long class grew.
+  A fifth arm says STILL NOT ONE VIOLATION AT 5 % (HECA 2055 @1.0 % + 52
+  @1.5 %; SPJC 106 @1.0 % + 14 @1.5 %).
+  THE 20 WORST ARE THE CLASS A3 TARGETED AND DID NOT REACH: way -10612,
+  cap 1.0 %, 1.09-1.26 %, |de| 8.36-9.59 m, chords 665-857 m.  They now
+  arrive through the SPINE door, not the cover door — the ``spine_caps``
+  carve-out this lane flagged when implementing A3.  Evidence:
+  apron_seniority marks 2,712 of 3,288 HECA apron nodes SENIOR; pair_caps
+  still carries 9,782 unified:apron rows on chords > 60 m, longest 1,417 m
+  at an implied 1.50 %.  Whether a long APRON spine pair should take the
+  length gate is the open question, and it decides HECA.
+  CYXY's A3 body sha is IDENTICAL to the staged arm — no long ring edge
+  there, so A3 is a no-op.
 
 THE MECHANISM WORKS AND DOES NOT PAY.  Three findings, in order of weight.
 

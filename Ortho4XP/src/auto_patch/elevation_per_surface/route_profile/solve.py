@@ -6865,6 +6865,95 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # reverse) and the module-head import aliases it here — not a second copy.
 
 
+def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
+                              interior_pairs, family_of):
+    """Report the apron staged solve's A1/A2 certificate split and print
+    A1's both-hard top-20 with their PIN SOURCES (spec section 4).
+
+    A both-hard edge is one neither endpoint of which may move.  In the A1
+    (senior) pass that means the movement-surface law is contradicted by the
+    PINS themselves — the anchor-placement docket's own population — so each
+    row is named with where its pins come from.
+    """
+    import O4_UI_Utils as _UI_c
+    if not report:
+        return
+    try:
+        _pin_src = _pin_source_map(layout, n)
+        rows = []
+        _int = set(interior_pairs or ())
+        for sc in (entries or ()):
+            for e in (sc.get("edges") or ()):
+                a, b = e[0], e[1]
+                if not isinstance(a, int) or not isinstance(b, int):
+                    continue
+                if a >= n or b >= n or not (hard[a] and hard[b]):
+                    continue
+                k = (min(a, b), max(a, b))
+                if k in _int:
+                    continue          # A1 withheld it; it is A2's row
+                d = float(elev[a]) - float(elev[b])
+                if len(e) >= 4:
+                    lo, hi = e[2], e[3]
+                    exc = ((lo - d) if (lo is not None and d < lo)
+                           else (d - hi) if (hi is not None and d > hi)
+                           else 0.0)
+                else:
+                    exc = abs(d) - float(e[2])
+                if exc > 1e-3:
+                    rows.append((exc, a, b, family_of.get(k, "?")))
+        rows.sort(reverse=True)
+        _UI_c.vprint(
+            1, f"  [apron-staged] {icao} CERTIFICATE: "
+               f"A1 over_cap={report.get('a1_over_cap')} "
+               f"(both-hard {report.get('a1_both_hard')}) | "
+               f"A2 over_cap={report.get('a2_over_cap', 0)} "
+               f"(both-hard {report.get('a2_both_hard', 0)}); "
+               f"interior movers={report.get('interior_movers', 0)}; "
+               f"senior moved in A2={report.get('senior_moved', 0)}")
+        if not rows:
+            return
+        _UI_c.vprint(
+            1, f"  [apron-staged] {icao} A1 BOTH-HARD top "
+               f"{min(20, len(rows))} of {len(rows)} — THE PIN DOCKET "
+               f"(both endpoints immovable: the pins contradict the "
+               f"movement-surface law, spec section 4):")
+        for exc, a, b, fam in rows[:20]:
+            _UI_c.vprint(
+                1, f"      excess {exc:7.3f} m  {fam:28s} "
+                   f"nodes {a}/{b}  pins {_pin_src.get(a, '?')}/"
+                   f"{_pin_src.get(b, '?')}")
+        report["a1_both_hard_rows"] = [
+            {"excess_m": round(float(x), 4), "a": int(u), "b": int(v),
+             "family": str(f), "pin_a": _pin_src.get(u, "?"),
+             "pin_b": _pin_src.get(v, "?")}
+            for (x, u, v, f) in rows[:20]]
+    except Exception as _e:                              # pragma: no cover
+        _UI_c.vprint(1, f"  [apron-staged] certificate report failed: {_e}")
+
+
+def _pin_source_map(layout, n):
+    """``{node: pin-source label}`` — runway anchor / seat / seam pin /
+    CIFP / hard, from the layout's own registries (never a re-derivation)."""
+    out = {}
+
+    def _mark(attr, label):
+        for i in (getattr(layout, attr, None) or ()):
+            try:
+                k = int(i)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= k < n:
+                out.setdefault(k, label)
+
+    _mark("_runway_anchor_nodes", "runway-anchor")
+    _mark("_cifp_pin_nodes", "CIFP")
+    _mark("_seam_pin_nodes", "seam-pin")
+    _mark("_seat_nodes", "seat")
+    _mark("_building_seat_nodes", "seat")
+    return out
+
+
 def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
                             crown_space="uncrowned z'"):
     """Print a :func:`projection_law_certificate` result, worst first.
@@ -8469,11 +8558,49 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # the solve's residual verbatim.
     _air_idx = [i for i in range(n) if i not in _fp_receivers]
     _air_entry = [elev[i] for i in _air_idx]
+    # ── THE APRON STAGED SOLVE (spec apron-staged-solve-spec.md) ──────
+    # The partition is the LAW's own mint-time verdict
+    # (``grade_law.is_apron_interior`` via ``UnifiedGraph.edge_interior``),
+    # taken beside the family axis it parallels.  ``staged_report`` collects
+    # the A1/A2 split for the certificate below.
+    _fp_interior = G.interior_pairs()
+    # THE SENIORITY PARTITION, exported for the census (spec section 3).
+    # ONE function (``grade_law.apron_node_seniority``) fed with the pairs
+    # the law already classified — the reader never re-spells the predicate.
+    try:
+        from auto_patch import grade_law as _GLsen
+        _ap_nodes, _strict = set(), []
+        for _e4, _it in zip(G.edges, G.edge_interior):
+            _a4, _b4 = _e4[0], _e4[1]
+            if not isinstance(_a4, int) or not isinstance(_b4, int):
+                continue
+            _k4 = (min(_a4, _b4), max(_a4, _b4))
+            if _k4 in _fp_interior:
+                _ap_nodes.update(_k4)
+            elif str(_fp_family_of.get(_k4, "")).startswith("unified:apron"):
+                _ap_nodes.update(_k4)
+                _strict.append(_k4)
+        _tx_nodes = set()
+        for _h in (getattr(layout, "_transverse_hyper_rows", None) or ()):
+            try:
+                _tx_nodes.update(int(_i) for _i in _h[0])
+            except Exception:
+                pass
+        _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
+        setattr(layout, "_apron_seniority_ll", [
+            [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
+            for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])
+    except Exception as _e_sen:                          # pragma: no cover
+        setattr(layout, "_apron_seniority_ll", [])
+    _fp_staged_report: dict = {}
+    setattr(layout, "_apron_staged_report", _fp_staged_report)
     rem, bh = feasibility_project_partitioned(
                                   elev, joint, hard, force_scalar=True,
                                   receiver_nodes=_fp_receivers, n_nodes=n,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
+                                  apron_interior_pairs=_fp_interior,
+                                  staged_report=_fp_staged_report,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,
@@ -8841,6 +8968,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             # reading above — still BEFORE the crown
                             # transform back, so still uncrowned z′.
                             n_nodes=n, crown_space="uncrowned z'")
+    # ── THE A1/A2 SPLIT AND THE PIN DOCKET (spec section 4) ───────────
+    # A1's both-hard residue is the honest pin-contradiction number: an
+    # edge both of whose endpoints are immovable cannot be projected, so
+    # it is a statement about the PINS, not about the surface.  The list
+    # below IS the next round's brief.
+    _apron_staged_certificate(icao, layout, _fp_staged_report, joint, elev,
+                              hard, n, _fp_interior, _fp_family_of)
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in

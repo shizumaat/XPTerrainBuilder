@@ -3497,6 +3497,14 @@ class PavementLayout:
             # being the spans the emit-stage repairs moved after the
             # binding, which is the measurement A1 exists to take.
             # A patch without them reports ``bound 0``.
+            # THE APRON SENIORITY PARTITION (apron staged solve spec
+            # section 3): [lat, lon, "senior"|"interior"] per apron ring
+            # node, from ``grade_law.apron_node_seniority`` — the SAME
+            # function the solve partitions its two sub-stages with, so the
+            # census can assert that no senior node moved in the interior
+            # pass without re-deriving the partition.
+            "apron_seniority": list(
+                getattr(self, "_apron_seniority_ll", None) or []),
             "xsection_spans": list(
                 getattr(self, "_transverse_bound_spans", None) or []),
             # THE BAND CLAMP'S OWN FOOTPRINT (lead direction 2026-08-21).

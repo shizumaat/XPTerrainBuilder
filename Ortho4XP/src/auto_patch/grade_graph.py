@@ -418,6 +418,14 @@ class ShapeConstraints:
     edges: list[tuple[Hashable, Hashable, "GL.Allowance"]] = field(
         default_factory=list)
     spine_chains: list[list[Hashable]] = field(default_factory=list)
+    #: INDEX-PARALLEL to :attr:`edges`: True where the pair is an APRON
+    #: INTERIOR pair (``grade_law.is_apron_interior`` on the very
+    #: ``PairContext`` ``classify_pair`` judged).  The apron staged solve
+    #: (spec ``docs/specs/apron-staged-solve-spec.md``) withholds exactly
+    #: these from its senior pass; recording it at MINT is what keeps the
+    #: partition the LAW's answer rather than a cap-value guess (a blended
+    #: pair can sit at 5 % without being interior).
+    edge_interior: list[bool] = field(default_factory=list)
 
 
 def _open_ring(coords):
@@ -2539,7 +2547,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                                             body_cap, _kb, boundary=_ra, contact=_cn))
 
             both_road = bool(road_vert and road_vert[i] and road_vert[j])
-            allow = GL.classify_pair(GL.PairContext(
+            _pc = GL.PairContext(
                 role=shape.role, dist=d, ring_adjacent=ring_adjacent,
                 a_seam=ki in seam, b_seam=kj in seam,
                 a_building=ki_bld, b_building=kj_bld,
@@ -2550,9 +2558,14 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 a_frontage=ki_front,
                 b_frontage=bool(front_vert) and front_vert[j],
                 a_corridor=ki_cover,
-                b_corridor=bool(cover_vert) and cover_vert[j]))
+                b_corridor=bool(cover_vert) and cover_vert[j])
+            allow = GL.classify_pair(_pc)
             if allow is None:
                 continue
+            # THE SAME PairContext answers the seniority question, so the
+            # staged solve's partition is the law's own verdict and cannot
+            # drift from the cap it just returned (spec §3, ONE predicate).
+            _is_interior = GL.is_apron_interior(_pc)
             # NEVER bake a route-arc budget into a BUILDING-endpoint pair
             # (user 2026-07-03, extending the 2026-07-02 ruling that already
             # excludes building pairs from the blend and the road carve:
@@ -2592,6 +2605,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 if allow is None:
                     continue
             sc.edges.append((ki, kj, allow))
+            sc.edge_interior.append(_is_interior)
 
     sc.spine_chains = _build_spine_chains(shape, ctx, membership)
     return sc
@@ -2675,15 +2689,21 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
             xj, yj = ring[j]
             d = math.hypot(xi - xj, yi - yj)
             both_road = bool(road_vert and road_vert[i] and road_vert[j])
-            allow = GL.classify_pair(GL.PairContext(
+            _pc = GL.PairContext(
                 role=shape.role, dist=d,
                 ring_adjacent=(j == i + 1) or (i == 0 and j == n - 1),
                 a_seam=ki in seam, b_seam=kj in seam,
                 a_building=False, b_building=False,
-                spine_caps=(), body_cap=cap, both_road=both_road))
+                spine_caps=(), body_cap=cap, both_road=both_road)
+            allow = GL.classify_pair(_pc)
             if allow is None:
                 continue
             sc.edges.append((ki, kj, allow))
+            # Index-parallel, from the same law call — this path is the
+            # PLANE (runway) one and answers False for every real shape,
+            # but keeping the two lists the same length by CONSTRUCTION is
+            # what stops a silent misalignment if it ever carries an apron.
+            sc.edge_interior.append(GL.is_apron_interior(_pc))
     return sc
 
 
@@ -2788,6 +2808,9 @@ class UnifiedGraph:
     #: :attr:`edges`: the lawful-airside partition of the SHAPE that
     #: minted the edge.  See :mod:`auto_patch.solve_stage`.
     edge_stage: list = field(default_factory=list)
+    #: Index-parallel to :attr:`edges`: True for an APRON INTERIOR pair
+    #: (the apron staged solve's partition input, spec §§1-3).
+    edge_interior: list = field(default_factory=list)
     #: MINT-TIME STAGE per NODE (staged-solve S1b): ``{node_idx: stage}``,
     #: stamped as each shape registers its ring positions.  AIRSIDE WINS a
     #: shared node — a service-road mouth vertex on an apron ring is
@@ -2816,6 +2839,27 @@ class UnifiedGraph:
         """The undirected spine pairs ``{(min(a,b), max(a,b))}`` (is_spine)."""
         return {(min(a, b), max(a, b))
                 for (a, b, _c, sp) in self.edges if sp}
+
+    def interior_pairs(self) -> set:
+        """``{(min(a,b), max(a,b))}`` for every APRON INTERIOR pair.
+
+        The apron staged solve's own partition input (spec
+        ``docs/specs/apron-staged-solve-spec.md`` §2): the senior pass
+        withholds exactly this set, the interior pass projects exactly it.
+        Keyed by NODE PAIR for the same reason :meth:`family_by_pair` is —
+        callers rewrite their ``u_edges`` copy freely.
+
+        A pair minted INTERIOR by one shape and STRICT by another resolves
+        to STRICT: seniority is a claim about a movement surface, and a
+        surface that any shape calls a movement surface is one.
+        """
+        out, strict = set(), set()
+        for (a, b, _c, _sp), it in zip(self.edges, self.edge_interior):
+            if not isinstance(a, int) or not isinstance(b, int):
+                continue
+            k = (min(a, b), max(a, b))
+            (out if it else strict).add(k)
+        return out - strict
 
     def family_by_pair(self) -> dict:
         """``{(min(a,b), max(a,b)): family}`` from :attr:`edge_family`.
@@ -3174,7 +3218,7 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             for u, v in zip(chain, chain[1:]):
                 if isinstance(u, int) and isinstance(v, int):
                     spine_pairs.add((min(u, v), max(u, v)))
-        for (a, b, cap) in sc.edges:
+        for _ei, (a, b, cap) in enumerate(sc.edges):
             if not isinstance(a, int) or not isinstance(b, int):
                 continue
             is_spine = (min(a, b), max(a, b)) in spine_pairs
@@ -3183,6 +3227,10 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             # ONE speller, shared with the sidecar's ``pair_caps`` family tag
             # (spec §7) — ``edge_family_name``.
             G.edge_family.append(edge_family_name(s.role, is_spine))
+            # THE STAGED-SOLVE PARTITION, minted where the law answered it.
+            G.edge_interior.append(
+                bool(sc.edge_interior[_ei]) if _ei < len(sc.edge_interior)
+                else False)
             # MINT-TIME STAGE (staged-solve S1b).  The unified graph
             # reaches every projection as ONE bare ``{"edges": u_edges}``
             # entry with no role key, so a service_road / groundside lot

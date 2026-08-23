@@ -5826,6 +5826,13 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
+                                  # partition per apron ring node (spec
+                                  # apron-staged-solve-spec.md section 3):
+                                  # evidence about the SOLVE, so the census
+                                  # can say whether a senior node moved in
+                                  # the interior pass without re-deriving
+                                  # the partition it did not run.
     "band_clamp_nodes",           # the writeback band clamp's own sites +
                                   # deltas: evidence about the SOLVE, which
                                   # the census reports and never re-judges

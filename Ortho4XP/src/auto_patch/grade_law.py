@@ -2778,6 +2778,51 @@ def is_apron_frontage_edge(p: "PairContext") -> bool:
     return bool(p.a_frontage and p.b_frontage)
 
 
+#: Node seniority literals (apron staged solve, spec
+#: ``docs/specs/apron-staged-solve-spec.md`` §3).  ONE spelling, shared by
+#: the solve partition, the sidecar export and the census.
+APRON_SENIOR = "senior"
+APRON_INTERIOR = "interior"
+
+# Kill switch: ``O4_APRON_STAGED_SOLVE=0`` runs the single-pass apron of
+# compose-v3 (byte-for-byte).
+APRON_STAGED_SOLVE = (
+    os.environ.get("O4_APRON_STAGED_SOLVE", "1") != "0")
+
+
+def apron_node_seniority(apron_nodes, strict_pairs, transect_nodes=()) -> dict:
+    """THE APRON NODE PARTITION (spec ``apron-staged-solve-spec.md`` §§1, 3):
+    ``{node: APRON_SENIOR | APRON_INTERIOR}`` over the apron ring nodes.
+
+    A node is SENIOR when it is an endpoint of a STRICT pair — a frontage
+    chord, a ring frontage edge, a corridor-crossing edge or a spine pair,
+    i.e. exactly the pairs ``is_apron_interior`` returns False for — or an
+    endpoint of a BOUND TRANSECT row.  Everything else on an apron ring is
+    INTERIOR.  The movement surfaces are therefore the senior set by
+    construction, and the caller never re-spells the predicate: it hands in
+    the pairs the law already classified.
+
+    ONE function, both readers (§3): the solve partitions its two sub-stages
+    with it and the sidecar exports its result as ``apron_seniority``, so the
+    census can assert that no senior node moved in the interior pass.
+
+    ``apron_nodes``     every node on an apron ring (the partition's domain).
+    ``strict_pairs``    ``(a, b)`` pairs of apron law edges that are NOT
+                        interior.
+    ``transect_nodes``  node ids carried by bound transect rows.
+    """
+    out = {int(n): APRON_INTERIOR for n in apron_nodes}
+    for a, b in strict_pairs:
+        for k in (int(a), int(b)):
+            if k in out:
+                out[k] = APRON_SENIOR
+    for n in transect_nodes:
+        k = int(n)
+        if k in out:
+            out[k] = APRON_SENIOR
+    return out
+
+
 def is_apron_interior(p: "PairContext") -> bool:
     """THE interior-apron predicate (RULINGS 2026-08-21c; spec A1 §1a as
     CORRECTED by AMENDMENT A2): an apron pair that is not a MOVEMENT SURFACE.

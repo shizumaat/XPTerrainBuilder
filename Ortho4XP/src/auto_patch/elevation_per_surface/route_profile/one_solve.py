@@ -2956,6 +2956,62 @@ def partition_constraints_by_receiver(shape_constraints, receiver_nodes):
     return givers, receivers
 
 
+#: Apron staged solve kill switch, read through ``grade_law`` so the flag
+#: has ONE owner (spec §5; ``O4_APRON_STAGED_SOLVE=0`` == compose-v3).
+def _APRON_STAGED_SOLVE_get():
+    from auto_patch import grade_law as _GL
+    return bool(getattr(_GL, "APRON_STAGED_SOLVE", True))
+
+
+class _StagedFlag:
+    def __bool__(self):
+        return _APRON_STAGED_SOLVE_get()
+
+
+_APRON_STAGED_SOLVE = _StagedFlag()
+
+
+def _split_apron_interior(entries, interior_pairs):
+    """Split constraint ENTRIES into (senior, interior) by the apron staged
+    solve's partition (spec ``docs/specs/apron-staged-solve-spec.md`` §2).
+
+    ``interior_pairs`` is ``UnifiedGraph.interior_pairs()`` — the pairs
+    ``grade_law.is_apron_interior`` claimed at MINT, never a cap-value guess.
+
+    Entries are SPLIT, never dropped: every interior edge is enforced in the
+    A2 pass with the seniors frozen, so no law leaves the system.  An entry
+    with no interior edge is returned unchanged (identity, not a copy) so the
+    common path allocates nothing; a mixed entry becomes two entries sharing
+    every other key, which is how the ``hyper`` transect rows and the stage
+    tag ride along with the SENIOR half where they belong.
+    """
+    if not interior_pairs:
+        return list(entries), []
+    senior, interior = [], []
+    for sc in entries:
+        edges = sc.get("edges") or ()
+        idx = [i for i, e in enumerate(edges)
+               if isinstance(e[0], int) and isinstance(e[1], int)
+               and (min(e[0], e[1]), max(e[0], e[1])) in interior_pairs]
+        if not idx:
+            senior.append(sc)
+            continue
+        hit = set(idx)
+        keep = [e for i, e in enumerate(edges) if i not in hit]
+        drop = [edges[i] for i in idx]
+        s_ent = dict(sc)
+        s_ent["edges"] = keep
+        senior.append(s_ent)
+        # THE INTERIOR HALF CARRIES ONLY ITS PAIRS.  ``hyper`` (the bound
+        # transect rows) stays with the senior half by construction: a
+        # transect is a movement-surface law, and its nodes are senior.
+        i_ent = {k: v for k, v in sc.items()
+                 if k not in ("edges", "hyper", "lazy_nodes", "lazy_seed")}
+        i_ent["edges"] = drop
+        interior.append(i_ent)
+    return senior, interior
+
+
 def _partition_by_stage(givers, receivers, where):
     """THE STAGE PARTITION (staged-solve round S1b, Fable ruling
     2026-08-13b) — supersedes :func:`_withhold_road_pair_law`.
@@ -3092,11 +3148,14 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     stays one env var away; nothing in production sets it.
     """
     if not receiver_nodes:
+        _kw0 = dict(kw)
+        _kw0.pop("apron_interior_pairs", None)
+        _kw0.pop("staged_report", None)
         return feasibility_project(elev, shape_constraints, hard,
                                    flat_groups=flat_groups,
                                    group_bounds=group_bounds,
                                    forensics=forensics, probe_out=probe_out,
-                                   **kw)
+                                   **_kw0)
     givers, receivers = partition_constraints_by_receiver(
         shape_constraints, receiver_nodes)
     if _os.environ.get("O4_PROBE_ROAD_PAIR_LAW_AIRSIDE") != "1":
@@ -3152,10 +3211,112 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     # against frozen airside values, so nothing loses its author.
     hard_air = set(hard)
     hard_air.update(receiver_nodes)
-    rem_a, bh_a = feasibility_project(
-        elev, givers, hard_air, flat_groups=flat_groups,
-        group_bounds=group_bounds, forensics=forensics,
-        probe_out=probe_out, **_kw_air)
+    # ── THE APRON STAGED SOLVE (spec apron-staged-solve-spec.md §2) ────
+    # Stage A runs the apron in TWO sub-stages, reusing exactly the frozen-
+    # set mechanism the airside/groundside partition below uses.
+    #   A1 SENIOR: strict pairs + transect rows + spine/runway law.  The
+    #      interior nodes are FREE (they may absorb senior residue) but
+    #      carry NO law edges of their own — their 5 % pairs are withheld.
+    #   A2 INTERIOR: seniors FROZEN as data, interior pairs projected,
+    #      interior nodes the only movers.
+    # Measured basis (lane/compose v1-v3): no violation anywhere is priced
+    # at 5 %, yet freeing the interior worsens the strict class
+    # monotonically — the single Jacobi/POCS sweep spreads pinned
+    # contradictions onto whatever is free, and a freer interior lets more
+    # of it land on the movement surfaces.  Precedence is the cure, not a
+    # cap.  NO BAND IS REBUILT HERE: ``env_band`` rides through kw exactly
+    # as it does for the two passes below, because a band rebuilt after the
+    # crown field publishes double-lifts crowned seeds by one crown (the
+    # R8-2 writeback-band defect, 2026-08-11).
+    _interior = kw.get("apron_interior_pairs") or ()
+    _staged = bool(_interior) and _APRON_STAGED_SOLVE
+    _kw_air = dict(_kw_air)
+    _kw_air.pop("apron_interior_pairs", None)
+    _kw_air.pop("staged_report", None)
+    if not _staged:
+        rem_a, bh_a = feasibility_project(
+            elev, givers, hard_air, flat_groups=flat_groups,
+            group_bounds=group_bounds, forensics=forensics,
+            probe_out=probe_out, **_kw_air)
+    else:
+        g_senior, g_interior = _split_apron_interior(givers, set(_interior))
+        rem_a, bh_a = feasibility_project(
+            elev, g_senior, hard_air, flat_groups=flat_groups,
+            group_bounds=group_bounds, forensics=forensics,
+            probe_out=probe_out, **_kw_air)
+        _report = kw.get("staged_report")
+        if isinstance(_report, dict):
+            _report["a1_over_cap"] = int(rem_a)
+            _report["a1_both_hard"] = int(bh_a)
+        if g_interior:
+            _n_st = int(n_nodes if n_nodes is not None else len(elev))
+            # INTERIOR NODES ARE THE ONLY MOVERS — and "interior" is the
+            # SENIORITY PARTITION's answer, not "an endpoint of an interior
+            # pair".  An interior pair may well touch a SENIOR node (a 5 %
+            # chord from a frontage vertex into the ramp is exactly that),
+            # and taking its endpoints as movers un-freezes the senior and
+            # lets A2 undo A1 — measured on the first pass of this twin,
+            # where node 1 went back from its A1 value of 1.0 to 10.0.
+            # ONE function decides it (spec section 3), fed with the pairs
+            # the law already classified: everything still carrying senior
+            # law after the split is a strict pair, and the transect rows
+            # ride with the senior half.
+            from auto_patch import grade_law as _GLsen
+            _cand, _strict_p, _tx = set(), [], set()
+            for sc in g_interior:
+                for e in (sc.get("edges") or ()):
+                    if isinstance(e[0], int) and isinstance(e[1], int):
+                        _cand.add(int(e[0]))
+                        _cand.add(int(e[1]))
+            for sc in g_senior:
+                for e in (sc.get("edges") or ()):
+                    if isinstance(e[0], int) and isinstance(e[1], int):
+                        _strict_p.append((int(e[0]), int(e[1])))
+                for _h in (sc.get("hyper") or ()):
+                    try:
+                        _tx.update(int(_i) for _i in _h[0])
+                    except Exception:
+                        pass
+            _seniority = _GLsen.apron_node_seniority(_cand, _strict_p, _tx)
+            _mov = {i for i, v in _seniority.items()
+                    if v == _GLsen.APRON_INTERIOR}
+            _senior_frozen = _cand - _mov
+            # Built explicitly, like ``hard_recv`` below and for the same
+            # reason: the reach-band clamp inside ``feasibility_project``
+            # runs over every movable node, so "it has no edges here" would
+            # not freeze a senior.
+            hard_int = set(hard_air)
+            hard_int.update(i for i in range(_n_st) if i not in _mov)
+            _a1_vals = {i: float(elev[i]) for i in range(_n_st)
+                        if i not in _mov}
+            rem_i, bh_i = feasibility_project(
+                elev, g_interior, hard_int, forensics=forensics,
+                probe_out=probe_out, **_kw_air)
+            # A SENIOR NODE MOVING IN A2 IS A STOP (spec, last paragraph).
+            _moved = [i for i, v in _a1_vals.items()
+                      if abs(float(elev[i]) - v) > 1e-9]
+            import O4_UI_Utils as _UI_st
+            _UI_st.vprint(
+                1, f"    [apron-staged] A1 over_cap={rem_a} "
+                   f"(both-hard {bh_a}) | A2 over_cap={rem_i} "
+                   f"(both-hard {bh_i}); interior movers={len(_mov)}, "
+                   f"frozen non-movers={_n_st - len(_mov)}, "
+                   f"senior nodes re-frozen in A2={len(_senior_frozen)}, "
+                   f"senior nodes MOVED in A2={len(_moved)}")
+            if isinstance(_report, dict):
+                _report["a2_over_cap"] = int(rem_i)
+                _report["a2_both_hard"] = int(bh_i)
+                _report["interior_movers"] = len(_mov)
+                _report["senior_moved"] = len(_moved)
+            if _moved:
+                raise AssertionError(
+                    f"APRON STAGED SOLVE: {len(_moved)} SENIOR node(s) moved "
+                    f"in the interior pass (worst "
+                    f"{max(abs(float(elev[i]) - _a1_vals[i]) for i in _moved):.4f}"
+                    f" m at node {_moved[0]}) — the freeze is wrong; fix the "
+                    f"freeze, never the count (spec, pre-delegated STOP)")
+            rem_a += rem_i
+            bh_a += bh_i
     if not receivers:
         return rem_a, bh_a
     n = int(n_nodes if n_nodes is not None else len(elev))
@@ -3168,7 +3329,10 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
     # No flat groups in the receiver pass: a pad is never a receiver, so
     # every group is fully frozen above — passing them would only re-do
     # the merge and re-broadcast values that cannot move.
-    rem_b, bh_b = feasibility_project(elev, receivers, hard_recv, **kw)
+    _kw_b = dict(kw)
+    _kw_b.pop("apron_interior_pairs", None)
+    _kw_b.pop("staged_report", None)
+    rem_b, bh_b = feasibility_project(elev, receivers, hard_recv, **_kw_b)
     return rem_a + rem_b, bh_a + bh_b
 
 

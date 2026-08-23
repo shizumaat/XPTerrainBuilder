@@ -2667,3 +2667,73 @@ the pins are not in contradiction, so neither the cap value nor the pin
 placement is the lever. What remains unexplained is why the strict class
 degrades at all once the interior is anything other than 1 % — and that is
 a question about the projection's residual spreading, not about apron law.
+
+## 2026-08-23 — READ: HECA/SPJC strict-class residual is INFEASIBILITY, not convergence
+
+Lead request; no new mechanism. One lane-only override added
+(`O4_SWEEP_BUDGET_SCALE`, default "1" = today's value bit for bit, f68bdba)
+because no live override existed — `O4_FINAL_PROJECTION_MAX_ITERS` was
+deleted with the rest of that territory's gates (RULINGS 2026-08-05) and
+survives only in a comment. It scales the DERIVED budget only; an imposed
+`max_iters` is untouched. Two builds, staged flags as-is, 10x.
+
+VERDICT: **INFEASIBLE STRICT GRAPH.** The budget was never binding, and
+10x buys nothing.
+
+THE BUDGET WAS NEVER BINDING. Every projection already exited
+`[converged]` — the plateau test, not the ceiling. At 1x, HECA's final
+projection ran 1,880 of 250,000 sweeps and ABANDONED 248,120; its
+n_material trajectory over the last blocks reads 21,624 -> 21,476 ->
+21,416 -> 21,329 (last block drop +87 of 21,329, i.e. 0.4 %). CYXY's
+smaller graph reads 96 -> 96 -> 96, drop +0.
+
+BEFORE / AFTER at 10x (1x -> 10x):
+
+| | SPJC | HECA |
+|---|---|---|
+| A1 over_cap (both-hard) | 324 (13) -> 313 (13) | 4309 (2) -> 3836 (2) |
+| A2 over_cap (both-hard) | 35 (32) -> 30 (27) | 564 (451) -> 575 (459) |
+| final#1 EXIT over_cap (both-hard) | 1796 (427) -> 1781 (434) | 10980 (4060) -> 10531 (4080) |
+| within_shape airside | 100 -> 98 | 2280 -> 2275 |
+| within_shape worst | 34.71 % / 1.810 m -> 34.71 % / 1.810 m | 11.59 m -> 11.69 m |
+| ADJUDICATED AIRSIDE | 242 -> 242 | 2472 -> 2462 |
+| exit label | [converged] every pass | [converged] every pass |
+| sweeps used / ceiling | 1,640/250k -> 9,840/2.5M | 1,880/250k -> 11,280/2.5M |
+| wall (LEDGER FRAME ONLY, not a timing claim) | 307 s -> 614 s | 1,419 s -> 2,087 s |
+
+6x the sweeps moved SPJC's adjudicated airside by ZERO and its worst
+residual by 0.000000 m (2.118673 m both arms, to 7 dp). HECA moved 10 rows
+of the 985 it is over its bar, and its worst within_shape row got WORSE
+(11.59 -> 11.69 m). That is a plateau, not slow convergence.
+
+THE 20 WORST RESIDUAL EDGES (HECA 10x, by |de|) ARE ONE APRON AND ONE
+SHAPE OF DEFECT: all 20 are `within_shape apron|apron` airside on way
+**-10612**, at the strict 1.0 % cap, grade 1.36-1.64 %, |de| 10.67-11.69 m
+— over chords of **650-857 m**. Sites cluster at (30.11815,31.41057),
+(30.11820,31.41055), (30.11843,31.41048), (30.11852,31.41045).
+
+That is the infeasibility stated plainly: one apron spans ~850 m across
+terrain that genuinely falls ~11.7 m, and the strict cap allows 8.4 m over
+that span. The projection cannot satisfy it and no sweep budget can.
+
+THE RESIDUAL POPULATION, HECA 10x within_shape airside 2275:
+- by way: -10612 (558), -13148 (260), -10656 (199), -10348 (178),
+  -10682 (173) — five aprons carry 60 % of it;
+- by chord: 1,319 rows <= 60 m, 398 <= 200 m, 429 <= 500 m, **129 > 500 m**;
+  956 rows are on chords ABOVE the 60 m `APRON_BODY_CHORD_MAX_M` body gate,
+  which means they reach the law as RING-ADJACENT or corridor/spine pairs
+  (the gate exempts those) — the long-chord class the body gate was written
+  to exclude is re-entering through the ring-edge and corridor doors;
+- by relative overshoot: 175 within 1.10x, 599 <= 1.5x, 470 <= 2x,
+  1,031 > 2x.
+
+SPJC's residual is the mirror image and unchanged from the staged report:
+98 rows, 42 of the >2x class on chords <= 5 m — the weld cluster at
+(-12.021394,-77.110990).
+
+WHAT THIS HANDS THE NEXT ROUND. Two DIFFERENT defects wear one number:
+a LONG-CHORD infeasibility at HECA (aprons whose real relief exceeds what
+1 % permits across their own span, entering through the ring-adjacent /
+corridor exemptions to the 60 m gate) and a SHORT-CHORD weld cluster at
+SPJC. Neither is a cap value, a pin placement, or a sweep budget — all
+three have now been measured and excluded.

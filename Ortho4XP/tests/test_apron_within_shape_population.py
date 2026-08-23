@@ -712,3 +712,62 @@ def test_corridor_cover_radius_is_the_existing_terrace_constants():
     from shapely.geometry import Point
     assert cover.contains(Point(0.0, 0.0))
     assert not cover.contains(Point(40.0, 140.0))
+
+
+# ── AMENDMENT A3: a ring edge is strict only inside the body gate ─────
+
+def test_a_short_corridor_crossing_ring_edge_is_still_strict():
+    """A3's own verdict sentence, first half: a 40 m corridor-crossing ring
+    edge at 3 % FAILS."""
+    got = GL.classify_pair(_apron_ctx(dist=40.0,
+                                      a_corridor=True, b_corridor=True))
+    assert got is not None
+    assert got.flat_cap() < 0.03, "a 40 m crossing edge at 3 % must FAIL"
+
+
+def test_a_long_corridor_crossing_ring_edge_is_interior():
+    """A3's verdict sentence, second half: an 800 m one at 3 % PASSES and at
+    6 % FAILS.  A corridor crossing a long edge makes the CROSSING a movement
+    surface, not the whole 800 m edge — and the ungated A2 clause bypassing
+    ``APRON_BODY_CHORD_MAX_M`` is measured as HECA's infeasibility (956 of
+    2,275 rows on chords > 60 m; the worst -10612 edges 650-857 m where the
+    terrain falls 11.7 m and 1 % permits 8.4 m)."""
+    got = GL.classify_pair(_apron_ctx(dist=800.0,
+                                      a_corridor=True, b_corridor=True))
+    assert got is not None, "the ring edge must stay in the domain (R19-5)"
+    cap = got.flat_cap()
+    assert abs(cap - GL.APRON_INTERIOR_CAP) < 1e-9
+    assert 0.03 <= cap, "an 800 m crossing edge at 3 % must PASS"
+    assert 0.06 > cap, "an 800 m crossing edge at 6 % must FAIL"
+
+
+def test_a_long_ring_FRONTAGE_edge_is_interior_too():
+    """A3 says "a ring edge (or corridor-crossing pair)" — the frontage EDGE
+    is a ring edge and takes the same gate.  The frontage CHORD does not."""
+    short = GL.classify_pair(_apron_ctx(dist=40.0,
+                                        a_frontage=True, b_frontage=True))
+    long_ = GL.classify_pair(_apron_ctx(dist=800.0,
+                                        a_frontage=True, b_frontage=True))
+    assert short.flat_cap() < GL.APRON_INTERIOR_CAP
+    assert abs(long_.flat_cap() - GL.APRON_INTERIOR_CAP) < 1e-9
+
+
+def test_a_frontage_chord_keeps_no_length_gate():
+    """Explicitly unchanged by A3: a frontage chord is bounded by
+    ``BUILDING_REACH_CORRIDOR_M`` by construction, so the body gate never
+    reaches it."""
+    d = min(BUILDING_REACH_CORRIDOR_M, GL.APRON_BODY_CHORD_MAX_M + 10.0)
+    ctx = _apron_ctx(dist=d, ring_adjacent=False,
+                     a_frontage=True, b_corridor=True)
+    assert GL.is_frontage_chord(ctx)
+    assert not GL.is_apron_interior(ctx)
+
+
+def test_a_long_SPINE_pair_keeps_its_route_cap():
+    """The ``spine_caps`` half keeps NO length gate, deliberately: that pair
+    IS the route and its cap is the route's own.  Gating it would raise a
+    long taxiway pair from its taxi cap to 5 % — the regression A2's first
+    pass already produced once."""
+    got = GL.classify_pair(_apron_ctx(dist=800.0, spine_caps=(0.015,)))
+    assert got is not None
+    assert abs(got.flat_cap() - 0.015) < 1e-9

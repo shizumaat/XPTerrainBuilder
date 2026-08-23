@@ -2753,6 +2753,17 @@ def is_frontage_chord(p: "PairContext") -> bool:
     return False
 
 
+def _within_body_chord_gate(p: "PairContext") -> bool:
+    """THE BODY-CHORD LENGTH CONDITION (spec AMENDMENT A3): a ring edge or a
+    corridor-crossing pair is a MOVEMENT SURFACE only within
+    ``APRON_BODY_CHORD_MAX_M``.  Beyond it the pair is interior, because a
+    650-857 m "edge" is not a surface an aircraft rolls along at 1 % — it is
+    the apron body, and the 60 m gate has excluded that class since long
+    before this ruling.  ``0`` / unset disables the gate, matching the way
+    ``classify_pair``'s own body-chord skip reads the constant."""
+    return not APRON_BODY_CHORD_MAX_M or p.dist <= APRON_BODY_CHORD_MAX_M
+
+
 def is_apron_corridor_crossing(p: "PairContext") -> bool:
     """A pair lying on the taxi CORRIDOR (spec AMENDMENT A2): inside the spine
     corridor cover at BOTH ends, or sharing a spine centerline outright.  It
@@ -2764,8 +2775,27 @@ def is_apron_corridor_crossing(p: "PairContext") -> bool:
     ROUTE's per-letter taxi cap, and raising it to the 5 % interior cap would
     legalise a 5 % grade along a running taxiway.  A synthetic fixture with no
     ``apron_terrace`` cover (``test_grade_graph``'s spine twin) has exactly
-    that shape and is what caught it."""
-    return bool(p.spine_caps) or bool(p.a_corridor and p.b_corridor)
+    that shape and is what caught it.
+
+    AMENDMENT A3 — THE COVER TEST IS GATED BY THE BODY-CHORD LENGTH.  A
+    corridor crossing a LONG edge makes the CROSSING a movement surface,
+    priced by the corridor's own longitudinal and transverse laws; it does
+    not make the whole 850 m edge one.  A2's ungated clause bypassed
+    ``APRON_BODY_CHORD_MAX_M``, the gate that exists to exclude exactly this
+    class, and that is measured as HECA's infeasibility: 956 of 2,275
+    within-shape apron rows sat on chords > 60 m, the worst being -10612 ring
+    edges of 650-857 m at 1.36-1.64 % where the terrain falls 11.7 m and 1 %
+    permits 8.4 m.
+
+    THE ``spine_caps`` HALF KEEPS NO LENGTH GATE, deliberately: that pair IS
+    the route, its cap is the route's own, and the length gate would raise a
+    long taxiway pair from its taxi cap to 5 %.  A3 names the COVER clause as
+    the one that bypassed the gate, and that is the one gated here."""
+    if p.spine_caps:
+        return True
+    if not (p.a_corridor and p.b_corridor):
+        return False
+    return _within_body_chord_gate(p)
 
 
 def is_apron_frontage_edge(p: "PairContext") -> bool:
@@ -2774,8 +2804,14 @@ def is_apron_frontage_edge(p: "PairContext") -> bool:
     building face.  STRICT.
 
     (The inter-pad P1 that both endpoints are BUILDING ring vertices is a
-    different pair and is skipped earlier by ``a_building and b_building``.)"""
-    return bool(p.a_frontage and p.b_frontage)
+    different pair and is skipped earlier by ``a_building and b_building``.)
+
+    AMENDMENT A3: a RING EDGE is strict only inside the body-chord gate, this
+    one included — "a ring edge (or corridor-crossing pair) is STRICT only if
+    its chord <= APRON_BODY_CHORD_MAX_M".  A frontage CHORD
+    (``is_frontage_chord``) is unchanged and keeps no such gate: it is <=
+    ``BUILDING_REACH_CORRIDOR_M`` by construction."""
+    return bool(p.a_frontage and p.b_frontage) and _within_body_chord_gate(p)
 
 
 #: Node seniority literals (apron staged solve, spec

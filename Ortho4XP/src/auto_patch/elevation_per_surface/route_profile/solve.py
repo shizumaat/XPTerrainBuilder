@@ -6865,8 +6865,7 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # reverse) and the module-head import aliases it here — not a second copy.
 
 
-def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
-                              interior_pairs, family_of):
+def _apron_staged_certificate(icao, report, n, family_of, pin_sources):
     """Report the apron staged solve's A1/A2 certificate split and print
     A1's both-hard top-20 with their PIN SOURCES (spec section 4).
 
@@ -6879,38 +6878,15 @@ def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
     if not report:
         return
     try:
-        _pin_src = _pin_source_map(layout, n)
-        # ``hard`` reaches this pass as EITHER a set of node indices or a
-        # boolean array, depending on the caller; ask it the one question
-        # this report needs in a form both answer.
-        if isinstance(hard, (set, frozenset, dict)):
-            def _is_hard(i):
-                return i in hard
-        else:
-            def _is_hard(i):
-                return bool(hard[i])
-        rows = []
-        _int = set(interior_pairs or ())
-        for sc in (entries or ()):
-            for e in (sc.get("edges") or ()):
-                a, b = e[0], e[1]
-                if not isinstance(a, int) or not isinstance(b, int):
-                    continue
-                if a >= n or b >= n or not (_is_hard(a) and _is_hard(b)):
-                    continue
-                k = (min(a, b), max(a, b))
-                if k in _int:
-                    continue          # A1 withheld it; it is A2's row
-                d = float(elev[a]) - float(elev[b])
-                if len(e) >= 4:
-                    lo, hi = e[2], e[3]
-                    exc = ((lo - d) if (lo is not None and d < lo)
-                           else (d - hi) if (hi is not None and d > hi)
-                           else 0.0)
-                else:
-                    exc = abs(d) - float(e[2])
-                if exc > 1e-3:
-                    rows.append((exc, a, b, family_of.get(k, "?")))
+        _pin_src = _pin_source_map(pin_sources, n)
+        # THE ROWS ARE A1'S OWN, recorded inside the senior pass where its
+        # entry set and its frozen set both exist.  Re-deriving them here
+        # from the JOINT list would report groundside families the senior
+        # pass never enforced (measured: the first CYXY docket was entirely
+        # unified:service_road / service_junction, which are stage B).
+        rows = [(float(x), int(u), int(v), str(family_of.get((min(u, v),
+                                                              max(u, v)), "?")))
+                for (x, u, v) in (report.get("a1_both_hard_raw") or ())]
         rows.sort(reverse=True)
         _UI_c.vprint(
             1, f"  [apron-staged] {icao} CERTIFICATE: "
@@ -6941,25 +6917,24 @@ def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
         _UI_c.vprint(1, f"  [apron-staged] certificate report failed: {_e}")
 
 
-def _pin_source_map(layout, n):
-    """``{node: pin-source label}`` — runway anchor / seat / seam pin /
-    CIFP / hard, from the layout's own registries (never a re-derivation)."""
-    out = {}
+def _pin_source_map(sources, n):
+    """``{node: pin-source label}`` for the A1 pin docket (spec section 4).
 
-    def _mark(attr, label):
-        for i in (getattr(layout, attr, None) or ()):
+    ``sources`` is an ORDERED list of ``(label, node-set)`` handed in by the
+    caller from the very sets that made those nodes hard — the runway datum,
+    the tile-seam terrain freeze, the strip freeze, the seed pins.  First
+    label wins, so the most specific source named by the caller is the one
+    reported.  Nothing is re-derived here: a pin source guessed from geometry
+    would be a second authority on what the projection froze."""
+    out = {}
+    for label, nodes in (sources or ()):
+        for i in (nodes or ()):
             try:
                 k = int(i)
             except (TypeError, ValueError):
                 continue
             if 0 <= k < n:
                 out.setdefault(k, label)
-
-    _mark("_runway_anchor_nodes", "runway-anchor")
-    _mark("_cifp_pin_nodes", "CIFP")
-    _mark("_seam_pin_nodes", "seam-pin")
-    _mark("_seat_nodes", "seat")
-    _mark("_building_seat_nodes", "seat")
     return out
 
 
@@ -8982,8 +8957,13 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # edge both of whose endpoints are immovable cannot be projected, so
     # it is a statement about the PINS, not about the surface.  The list
     # below IS the next round's brief.
-    _apron_staged_certificate(icao, layout, _fp_staged_report, joint, elev,
-                              hard, n, _fp_interior, _fp_family_of)
+    _apron_staged_certificate(
+        icao, _fp_staged_report, n, _fp_family_of,
+        # THE SETS THAT ACTUALLY FROZE THESE NODES, most specific first.
+        [("runway-datum", runway_idx),
+         ("tile-seam", _tile_seam_idx),
+         ("terrain", terrain_hard),
+         ("seed-pin", {i for i in range(n) if base_hard[i]})])
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in

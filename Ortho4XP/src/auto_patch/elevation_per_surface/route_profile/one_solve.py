@@ -3260,6 +3260,34 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
         if isinstance(_report, dict):
             _report["a1_over_cap"] = int(rem_a)
             _report["a1_both_hard"] = int(bh_a)
+            # A1'S BOTH-HARD ROWS, taken HERE — this is the only scope where
+            # the senior entry set and the senior frozen set both exist.
+            # Re-deriving them from the joint list afterwards reports stage-B
+            # families the senior pass never enforced (measured: the first
+            # CYXY docket came out entirely service_road / service_junction).
+            try:
+                _bh_rows = []
+                for _sc in g_senior:
+                    for _e in (_sc.get("edges") or ()):
+                        _a, _b = _e[0], _e[1]
+                        if not isinstance(_a, int) or not isinstance(_b, int):
+                            continue
+                        if _a not in hard_air or _b not in hard_air:
+                            continue
+                        _d = float(elev[_a]) - float(elev[_b])
+                        if len(_e) >= 4:
+                            _lo, _hi = _e[2], _e[3]
+                            _x = ((_lo - _d) if (_lo is not None and _d < _lo)
+                                  else (_d - _hi)
+                                  if (_hi is not None and _d > _hi) else 0.0)
+                        else:
+                            _x = abs(_d) - float(_e[2])
+                        if _x > 1e-3:
+                            _bh_rows.append((float(_x), int(_a), int(_b)))
+                _bh_rows.sort(reverse=True)
+                _report["a1_both_hard_raw"] = _bh_rows[:200]
+            except Exception:
+                _report["a1_both_hard_raw"] = []
         if g_interior:
             _n_st = int(n_nodes if n_nodes is not None else len(elev))
             # INTERIOR NODES ARE THE ONLY MOVERS — and "interior" is the

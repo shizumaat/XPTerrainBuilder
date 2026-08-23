@@ -141,3 +141,22 @@ edge — strict; report the count). Twins: ring edge at 3 % passes, 6 %
 fails, 148 % fails; frontage edge at 3 % fails. Re-run CYXY/SPJC/HECA
 composed; acceptance unchanged (75 / 189 / 1,487). This is a correction of
 the lead's own clause, not a third attempt at the mechanism.
+
+## AMENDMENT A3 (Fable, 2026-08-21) — a ring edge is strict only within the body gate
+
+Measured (lane/compose staged + 10x sweep read): HECA's residual is
+INFEASIBILITY — 956 of 2,275 within_shape apron rows sit on chords > 60 m
+(the 20 worst: -10612 ring edges 650-857 m at 1.36-1.64 %, |de| 10.7-11.7 m,
+terrain falls 11.7 m where 1 % permits 8.4 m). They enter the STRICT class
+through A2's corridor-crossing ring-edge clause, which bypasses
+`APRON_BODY_CHORD_MAX_M` (60 m) — the gate that exists to exclude exactly
+this class. A corridor crossing a long edge makes the CROSSING a movement
+surface (priced by the corridor's longitudinal + transverse laws), not the
+whole edge. A2 is corrected: a ring edge (or corridor-crossing pair) is
+STRICT only if its chord ≤ `APRON_BODY_CHORD_MAX_M`; longer ring edges are
+INTERIOR (5 %). Frontage chords unchanged (≤ 200 m by construction). Twins:
+a 40 m corridor-crossing ring edge at 3 % fails; an 800 m one at 3 % passes,
+at 6 % fails. Re-run CYXY/SPJC/HECA composed+staged; report the ≤60 m
+residual class separately (short chords over cap — whether it relaxes once
+the long constraints stop dragging the surface). Lead clause correction,
+not a new mechanism attempt.

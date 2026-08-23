@@ -2989,6 +2989,17 @@ def _split_apron_interior(entries, interior_pairs):
         return list(entries), []
     senior, interior = [], []
     for sc in entries:
+        # A LAZY ENTRY IS NEVER SPLIT.  Its pair set has not been generated
+        # yet — ``edges`` holds only the ring-only subset and ``lazy_expand``
+        # mints the rest on demand — so there is nothing meaningful to
+        # withhold, and half an entry carrying ``lazy_expand`` without its
+        # ``lazy_nodes``/``lazy_seed`` is a KeyError in ``_lazy_nodes_moved``
+        # (measured: it killed the SPJC staged build at 288 s).  The whole
+        # entry stays SENIOR; the apron law pairs travel in the unified-graph
+        # entry, which is not lazy, so the mechanism keeps its population.
+        if sc.get("lazy_expand") is not None:
+            senior.append(sc)
+            continue
         edges = sc.get("edges") or ()
         idx = [i for i, e in enumerate(edges)
                if isinstance(e[0], int) and isinstance(e[1], int)
@@ -3006,7 +3017,8 @@ def _split_apron_interior(entries, interior_pairs):
         # transect rows) stays with the senior half by construction: a
         # transect is a movement-surface law, and its nodes are senior.
         i_ent = {k: v for k, v in sc.items()
-                 if k not in ("edges", "hyper", "lazy_nodes", "lazy_seed")}
+                 if k not in ("edges", "hyper", "lazy_nodes", "lazy_seed",
+                              "lazy_expand", "lazy_move_tolerance")}
         i_ent["edges"] = drop
         interior.append(i_ent)
     return senior, interior

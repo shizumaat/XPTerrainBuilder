@@ -6880,6 +6880,15 @@ def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
         return
     try:
         _pin_src = _pin_source_map(layout, n)
+        # ``hard`` reaches this pass as EITHER a set of node indices or a
+        # boolean array, depending on the caller; ask it the one question
+        # this report needs in a form both answer.
+        if isinstance(hard, (set, frozenset, dict)):
+            def _is_hard(i):
+                return i in hard
+        else:
+            def _is_hard(i):
+                return bool(hard[i])
         rows = []
         _int = set(interior_pairs or ())
         for sc in (entries or ()):
@@ -6887,7 +6896,7 @@ def _apron_staged_certificate(icao, layout, report, entries, elev, hard, n,
                 a, b = e[0], e[1]
                 if not isinstance(a, int) or not isinstance(b, int):
                     continue
-                if a >= n or b >= n or not (hard[a] and hard[b]):
+                if a >= n or b >= n or not (_is_hard(a) and _is_hard(b)):
                     continue
                 k = (min(a, b), max(a, b))
                 if k in _int:

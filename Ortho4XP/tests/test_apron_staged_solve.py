@@ -173,3 +173,25 @@ def test_an_apron_with_no_movement_surface_projects_as_today():
     assert rep.get("senior_moved") == 0
     assert rep.get("a1_over_cap") == 0      # A1 had no law to enforce
     assert abs(elev[1] - 1.0) < 1e-6 and abs(elev[2] - 2.0) < 1e-6
+
+
+def test_a_lazy_entry_is_never_split():
+    """A lazy entry's pair set has not been generated yet, and half of one
+    carrying ``lazy_expand`` without ``lazy_nodes``/``lazy_seed`` is a
+    KeyError in the projection's own lazy-expansion check — measured: it
+    killed the SPJC staged build at 288 s.  The whole entry stays senior."""
+    ent = {"edges": [(1, 2, 0.1)], "stage": "A",
+           "lazy_expand": lambda: [], "lazy_nodes": [1, 2],
+           "lazy_seed": [0.0, 0.0]}
+    senior, interior = OS._split_apron_interior([ent], {(1, 2)})
+    assert senior == [ent] and interior == []
+
+
+def test_no_interior_half_ever_carries_lazy_machinery():
+    """Belt and braces for the same class: even a NON-lazy entry that
+    happens to carry a lazy key hands none of it to the interior half."""
+    ent = {"edges": [(1, 2, 0.1), (3, 4, 0.2)], "stage": "A",
+           "lazy_move_tolerance": 1e-3}
+    _senior, interior = OS._split_apron_interior([ent], {(3, 4)})
+    assert interior and not any(
+        k.startswith("lazy_") for k in interior[0])

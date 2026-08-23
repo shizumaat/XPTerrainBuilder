@@ -2595,3 +2595,75 @@ TESTS. 345 passed / 1 failed across the six suites, that 1 being one of the
 11 the apronpop lane measured on its matched control. R19-5's catch and the
 fan-ramp law both remain resolved; R19-5 now survives at 5 % with its own
 twin asserting a 148 % ring edge still fails.
+
+## 2026-08-23 — the apron STAGED SOLVE (lane/compose): mechanism holds, bar does not move
+
+Spec `docs/specs/apron-staged-solve-spec.md` (owner "proceed"), implemented
+as 69d897c0 + 091fdc0 + a8588ab. Three harness builds on a clean tree, all
+rc=0, all shared-repo UNCHANGED, plus a CYXY flag-off arm.
+
+MEASURED — adjudicated airside, battery / apronpop / v1 / v2 / v3 / STAGED:
+
+| airport | batt | apop | v1 | v2 | v3 | STAGED | bar | verdict |
+|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 189 | STOP +53 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 1487 | STOP +985 |
+
+within_shape airside 0/3/3/0/0/2, 45/12/258/52/73/100,
+1284/643/770/1383/2368/2280. transverse airside 63/188/51/4/5/10,
+46/331/167/51/38/41, 95/572/155/63/49/46.
+
+WHAT IS PROVEN:
+
+- THE PRECEDENCE HOLDS. Senior nodes moved in A2 = 0 on all three; the
+  freeze covers the sweeps and the band clamp. No band is rebuilt in A2
+  (the R8-2 defect class is avoided by construction).
+- FLAG-OFF IS BYTE-FOR-BYTE compose-v3 on CYXY: `O4_APRON_STAGED_SOLVE=0`
+  rebuilds body_sha 40617f978f7a, exactly v3's. Spec twin (c), on a real
+  airport rather than a fixture.
+- The sidecar `apron_seniority` round-trips (CYXY 493 rows, 287 senior /
+  206 interior).
+
+UNPAID / OWED — and the two findings that matter are REFUTATIONS:
+
+- A1'S BOTH-HARD RESIDUE IS ESSENTIALLY NIL, which refutes spec section 4's
+  premise that it is "the honest pin-contradiction number" and that its
+  top-20 is the next round's brief. Measured: CYXY 1 row worst 0.055 m
+  (runway-datum both ends); SPJC 26 rows worst 0.006 m (unified:apron,
+  terrain both ends); HECA 4 rows worst 0.446 m (unified:junction,
+  runway-datum both ends). A1's over_cap is meanwhile large (HECA 4309,
+  SPJC 324), so THE SENIOR LAW IS FEASIBLE and its residue is ordinary
+  unconverged projection, not a contradiction between pins. There is no
+  pin docket to hand on.
+- THE STAGED SOLVE CANNOT MOVE THE NUMBER because the senior set is almost
+  the whole apron. Interior movers vs seniors re-frozen in A2: CYXY 114 /
+  272, SPJC 355 / 2,195, HECA 334 / 1,506. Under A2's predicates 82-86 %
+  of interior-pair endpoints are already movement surfaces, so A2 has
+  almost nothing to move and precedence almost nothing to protect. A
+  mechanism that reorders two sets cannot help when one is nearly empty.
+- STILL NOT ONE VIOLATION AT 5 %, a fourth time: staged within_shape
+  airside by cap is CYXY 2 @1.0 %, SPJC 89 @1.0 % + 11 @1.5 %, HECA
+  2176 @1.0 % + 104 @1.5 %. HECA's accumulated excess on the strict class
+  went 4332 -> 7622 pct-points against the battery.
+- SPJC residual per spec section 8: within_shape airside 100 (battery 45),
+  25 within 1.10x of cap, 58 above 2x — and 42 of those 58 are chords
+  <= 5 m, i.e. the WELD CLUSTER at (-12.021394,-77.110990) where ways
+  -10113 / -10162 / -10698 / -10699 meet. Seat/weld docket, not this lane.
+- Two defects in this round's own code, both found by builds and fixed: a
+  SPLIT LAZY ENTRY (KeyError 'lazy_nodes', killed the SPJC build at 288 s)
+  and a pin docket that reported the wrong population with every source
+  "?". Neither had a surface effect — CYXY's body sha is 6c0cf4f2fd97
+  across all three code states.
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+THE QUESTION THIS PUTS BACK. Four mechanisms have now been measured on one
+lane — remove the interior, price it at 5 %, extend that to ring edges,
+and solve it last with the movement surfaces frozen — and HECA's strict
+class is worse than the battery in every one of them (1284 -> 770 / 1383 /
+2368 / 2280 while total airside goes 1487 -> 1167 / 1599 / 2560 / 2472).
+No arm passes all three airports. The 5 % cap prices nothing anywhere, and
+the pins are not in contradiction, so neither the cap value nor the pin
+placement is the lever. What remains unexplained is why the strict class
+degrades at all once the interior is anything other than 1 % — and that is
+a question about the projection's residual spreading, not about apron law.

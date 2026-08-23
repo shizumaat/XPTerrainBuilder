@@ -391,6 +391,22 @@ def _hop_eccentricity_bound(iter_edges, n):
     return 2 * worst
 
 
+def _sweep_budget_scale() -> float:
+    """``O4_SWEEP_BUDGET_SCALE`` — multiply the DERIVED sweep budget.
+
+    A lane READ instrument, default ``1`` (today's value, bit-for-bit).  It
+    exists to answer one question with a measurement rather than an
+    argument: when a projection exits UNCERTIFIED, is the residual still
+    falling (convergence, more sweeps would help) or has it plateaued
+    (an infeasible strict graph, more sweeps change nothing)?
+    """
+    try:
+        v = float(_os.environ.get("O4_SWEEP_BUDGET_SCALE", "1") or "1")
+    except ValueError:
+        return 1.0
+    return v if v > 0 else 1.0
+
+
 def derive_sweep_budget(iter_edges, n, hyper_rows=None):
     """See below.  ``hyper_rows`` (spec §7) join the basis: a weighted
     transect couples FOUR nodes, so it is a hop between each of its near
@@ -5005,6 +5021,20 @@ def feasibility_project(elev, shape_constraints, hard, *,
     if max_iters is None:
         max_iters, _sweep_basis = derive_sweep_budget(
             iter_edges, n, _hyper)
+        # LANE-ONLY READ INSTRUMENT (2026-08-23, lead request): scale the
+        # DERIVED sweep budget so "is the strict-class residual convergence
+        # or infeasibility?" can be measured instead of argued.  Default
+        # "1" is today's value exactly, and an IMPOSED ``max_iters`` (a
+        # test, a bounded probe, the replay ladder) is untouched — the
+        # caller's number stays the law.  No existing override covered
+        # this: ``O4_FINAL_PROJECTION_MAX_ITERS`` was deleted with the rest
+        # of that territory's gates (RULINGS 2026-08-05) and only survives
+        # in a comment.  Scaling the BLOCK is what actually matters here:
+        # the exit is a convergence criterion measured once per block, so a
+        # larger block is more sweeps before the plateau test fires.
+        _sb_scale = _sweep_budget_scale()
+        if _sb_scale != 1.0:
+            max_iters = max(1, int(max_iters * _sb_scale))
         # CYCLE-7 FIX 1: the derived figure is the BLOCK; the exit is the
         # convergence criterion, and the only hard ceiling left is the
         # absolute anti-hang guard.  A caller that IMPOSES ``max_iters``
@@ -5014,6 +5044,8 @@ def feasibility_project(elev, shape_constraints, hard, *,
         # asking for a stated block at a stated ceiling, and gets it.
         if _sweep_hard_cap is None:
             _sweep_hard_cap = SWEEP_BUDGET_MAX
+            if _sb_scale != 1.0:
+                _sweep_hard_cap = int(SWEEP_BUDGET_MAX * _sb_scale)
     # CHROMATIC (graph-colored) Gauss-Seidel (Tier 3 wave 2c, survey candidate
     # 1): a numpy-vectorized TRUE Gauss-Seidel sweep that converges where the
     # Jacobi stalls, so it replaces BOTH legacy inner paths — the

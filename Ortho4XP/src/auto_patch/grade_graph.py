@@ -499,10 +499,21 @@ def nearest_spine_pairs(ring, keys, ctx) -> set:
     if not sp or not ring:
         return set()
     import math as _m
-    # the ring vertices that ARE spine nodes, by coordinate identity
-    spset = {(round(x, 6), round(y, 6)) for (x, y) in sp}
-    cand = [i for i, (x, y) in enumerate(ring)
-            if (round(x, 6), round(y, 6)) in spset]
+    # THE SPINE NODES OF THIS RING are the vertices that LIE ON a centerline,
+    # not the ones that coincide with a centerline VERTEX.  Measured: on the
+    # A3 HECA patch not one emitted apron ring vertex equals an ``axes_exact``
+    # vertex, while the node the owner named sits 0.002 m off the line — the
+    # engine welds route geometry onto rings by projection, not by identity.
+    # Coordinate identity therefore yields an EMPTY set and makes A4.1(i)
+    # inert; ``SPINE_PERP_TOL_M`` is the engine's own on-the-spine tolerance
+    # (the same one ``_spine_membership`` uses), so this is that notion, not
+    # a new one.
+    cand = []
+    for i, (x, y) in enumerate(ring):
+        for (sx, sy) in sp:
+            if _m.hypot(sx - x, sy - y) <= SPINE_PERP_TOL_M:
+                cand.append(i)
+                break
     if not cand:
         return set()
     out = set()

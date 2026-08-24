@@ -3330,3 +3330,64 @@ UNPAID / OWED:
   `excluded_both_hard` argument had landed in a fourth function where the
   name does not exist. It survived the SPJC build only because that path
   did not execute.
+
+## 2026-08-24 — HECA verification arm under the read fixes: 1,273 → 1,129
+
+ONE HECA build at `git_head=d6b96b9` (read fixes, clean tree,
+`code_tree_hash=a199962718ff`), staged + transects, rc=0, shared repo
+UNCHANGED. A5 was NOT in this build — see the provenance note.
+
+### Results — HECA passes with more margin
+
+| | battery | A4 | **read fixes** | bar |
+|---|---|---|---|---|
+| adjudicated airside | 1487 | 1273 | **1129** | 1487 (**PASS −358**) |
+| within_shape airside | 1284 | 1106 | **961** | |
+| transverse airside | 95 | 35 | **35** | |
+| A1 over_cap (both-hard) | — | 1388 (2) | **1553 (2)** | |
+| **A2 over_cap (both-hard)** | — | **328 (315)** | **5 (1)** | |
+| senior moved in A2 | — | 0 | **0** | |
+
+**A2's both-hard population collapses 315 → 1**, the same effect measured
+at SPJC (78 → 0): those were interior pairs frozen at both ends because
+neither pass priced them. **21,902** both-senior interior pairs joined A1
+at HECA. A1's over_cap rises 1388 → 1553 — it is now enforcing law that
+previously went unpriced — while the CENSUS falls, which is the right
+direction: more law enforced, fewer violations emitted.
+
+within_shape airside by cap: **928 @1.0 % + 31 @1.5 % + 2 @8 %** — still
+none at the 5 % interior cap. By chord: ≤60 m **642** (A4 789), 60–200 m
+292, >200 m **27** (unchanged), max chord 555 m. Seat/weld residue
+(≤5 m, >2x) **104** (battery 167, A4 123).
+
+`excluded_both_hard` reports for the first time: up to **14,586** on the
+largest projection — the population dropped from the swept set but counted
+by the tally, which is exactly the reconciliation gap item 3(a) named.
+
+`[transverse-bind]` bound 26,728 / exit_over_budget 2,426;
+**`[writeback-band]` worst > 10 m = 0** (worst clamp +6.17 m).
+
+### Confinement
+
+`census_rows_diff` A4 → read fixes: 4,051 EXACT, 6 MOVED, **318 GONE, 142
+NEW, net −176**. GONE is dominated by 234 `within_shape apron|apron`
+airside; NEW by 87 of the same class. Movement is concentrated in the apron
+within-shape and transverse families with a groundside tail — the classes
+the change touches.
+
+### PROVENANCE NOTE — a real instrument gotcha
+
+The census printed `frame: sha=5ce4eddc`, which is the A5 commit, and A5
+was committed at 08:52:07 while this build ran 08:27:47–08:52:02. The
+PATCH's own record is `env.json: git_head=d6b96b9, git_dirty=False,
+code_tree_hash=a199962718ff` — read-fixes only, A5 absent. **The census's
+`frame:` line reports the tree at CENSUS time, not the tree that built the
+patch.** Any arm censused after a subsequent commit will mis-attribute
+itself unless the reader checks `env.json`. Worth a harness fix; recorded
+here so no later reader takes the census line as the build's provenance.
+
+UNPAID / OWED:
+
+- SPLP / KAFW / KDFW still have no arm under this tree.
+- HECA's remaining 961 within_shape airside rows are 642 at ≤60 m, of which
+  104 are the sub-5 m seat/weld class — the parallel read's territory.

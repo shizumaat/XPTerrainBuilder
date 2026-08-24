@@ -160,3 +160,48 @@ at 6 % fails. Re-run CYXY/SPJC/HECA composed+staged; report the ≤60 m
 residual class separately (short chords over cap — whether it relaxes once
 the long constraints stop dragging the surface). Lead clause correction,
 not a new mechanism attempt.
+
+## AMENDMENT A4 (Fable, 2026-08-21; owner rulings RULINGS 2026-08-21d) —
+## nearest-spine chords + strip exclusion
+
+Measured basis (read on the A3 arm): the long-pair class survives A3 through
+the BUILDING CLAMP — grade_law.py:2728 re-tightens every pair touching a
+pad to 1 % AFTER the interior raise (5,050 long HECA pairs, the 53-chord
+fan from one -10612 pad vertex, 118-847 m). And synthetic apron sliver
+-12251 (runway 05C/23C shoulder, no OSM source) enters the population
+because nothing in classify_pair consults the strip keep-out.
+
+A4.1 STRICT CHORD POPULATION. For an apron, the strict (1 %) within-shape
+   chords are: (i) each ring vertex's chord to its NEAREST SPINE NODE
+   (one pair per vertex; nearest by Euclidean over axes_exact spine
+   nodes; skip if no spine node within BUILDING_REACH_CORRIDOR_M);
+   (ii) frontage chords per §1 (unchanged); (iii) ring edges ≤
+   APRON_BODY_CHORD_MAX_M per A2/A3. EVERYTHING else is interior (5 %).
+   The building clamp (grade_law.py:2728) applies ONLY to pairs in
+   (i)-(iii) whose endpoint is a pad vertex — it must run INSIDE the
+   strict branch, never as a blanket post-clamp; the interior branch is
+   final. Twin: a pad-vertex pair at 400 m prices at 5 %, its
+   nearest-spine chord at 1 %.
+A4.2 STRIP EXCLUSION. classify_pair skips any apron pair with an endpoint
+   inside runway_strip_wall_keepout_rings, and apron_node_seniority marks
+   such nodes EXCLUDED (a third value, exported; the trouble map shows
+   them). One geometry, the existing law function — no new constant.
+   Report the count of excluded nodes/pairs per airport and the shapes
+   fully excluded (the -12251 class).
+A4.3 Both readers via classify_pair as always; sidecar/lockstep unchanged
+   except the new seniority value. Twins: (a) nearest-spine chord found
+   deterministically (tie → lower node id); (b) strip-interior vertex
+   contributes zero pairs; (c) a shape fully inside the strip contributes
+   zero population and zero seniority; (d) A1-A3 twins updated only where
+   the population changed, assertions kept.
+A4.4 Acceptance: CYXY, SPJC, HECA (staged + transects on). Bars 75 / 189 /
+   1,487. Report: the battery→…→A4 table; within_shape by cap and by
+   chord class (nearest-spine / frontage / ring-edge / interior);
+   excluded-strip counts; the -10612 fan (must be 1 strict chord per
+   vertex); the seat/weld residue listed separately (short chords > 2x —
+   next docket). census_rows_diff vs A3; airside_value_delta;
+   [transverse-bind]; [writeback-band] > 10 m = 0.
+
+Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; a pad-clamp
+appearing on an interior pair after A4 is a STOP; strict-population
+mismatch census-vs-bake is a STOP.

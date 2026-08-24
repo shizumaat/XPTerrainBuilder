@@ -2320,11 +2320,33 @@ class PavementLayout:
                     pending[_idx] = (_si, _s, out + [out[0]], _sa, _sna)
                 else:
                     _interior_rings[_idx] = out + [out[0]]
+        # ── IDEMPOTENT VERIFICATION (spec weld-before-projection-spec.md
+        # §1) ────────────────────────────────────────────────────────────
+        # The weld's INSERT step now runs BEFORE final_grade_projection
+        # (pipeline part 18b), so the rings reaching here are already
+        # welded and this pass must find NOTHING.  A nonzero count means
+        # the two passes disagree about the weld set — a ring adjacency
+        # minted after the projection, which is law nothing priced and the
+        # law-aware emit snap cannot see (it validates BAKED pairs only).
+        # That is the exact defect the reorder exists to close, so it is
+        # REPORTED LOUDLY rather than counted quietly; the spec makes it a
+        # STOP, and the fix is the disagreement, never the count.
         if _n_weld:
+            _pre_on = os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0"
             UI.vprint(1,
                 f"  [pav-builder] nid-level final weld: inserted "
                 f"{_n_weld} on-edge node reference(s) into welded "
-                f"partner ways.")
+                f"partner ways."
+                + ("  *** POST-PROJECTION WELD RESIDUE: these "
+                   f"{_n_weld} adjacency/ies were minted AFTER the bake and "
+                   "the projection, so NO law priced them (spec "
+                   "weld-before-projection-spec.md §1 requires 0 here). ***"
+                   if _pre_on else ""))
+        elif os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0":
+            UI.vprint(1,
+                "  [pav-builder] nid-level final weld: 0 insert(s) — the "
+                "pre-projection weld left nothing to do (spec "
+                "weld-before-projection-spec.md §1 verification).")
 
         # ── Consensus pass ──────────────────────────────────────
         # For each node id we now have every altitude any shape

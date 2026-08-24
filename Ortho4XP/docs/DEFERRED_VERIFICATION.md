@@ -3254,3 +3254,79 @@ measured the same answer, so the attempt cap is reached and this is a STOP:
 
 SPJC stays at 245 vs 189, class split unchanged: 26 projection-residual +
 22 emit-minted-topology.
+
+## 2026-08-24 — the read's staged-solve fixes: SPJC 245 → 207, A2 both-hard 78 → 0
+
+Five items from the parallel read, implemented as 338c557 + 08b00e3 on
+lane/compose. ONE SPJC build plus a cheap CYXY regression guard.
+
+### The conforming-mint spec is PARKED (ecf15a5)
+
+The "22 emit-minted" class it was written for was a JOIN ARTIFACT in my own
+instrument: `pair_caps` exported lat/lon at 7 dp (half-ulp 0.0056 m) and my
+26/22 split came from a ~5 mm proximity join against that quantum. At 10 mm
+all 48 SPJC rows join to baked pairs. The canonical-identity-join law fired
+on the tool I built to test it; my "the PAIR is new at emit" conclusion is
+WITHDRAWN. The ruling stands and the mechanism is kept intact and tested
+but gated OFF (`O4_CONFORMING_MINT=1` arms it) until a real instance exists.
+
+### Results
+
+| | battery | A4 | **read fixes** | bar |
+|---|---|---|---|---|
+| SPJC adjudicated airside | 189 | 245 | **207** | 189 (+18) |
+| CYXY adjudicated airside | 75 | 18 | **16** | 75 (PASS) |
+
+| SPJC | A4 | read fixes |
+|---|---|---|
+| A1 over_cap (both-hard) | 267 (6) | 267 (6) |
+| **A2 over_cap (both-hard)** | **85 (78)** | **0 (0)** |
+| within_shape airside | 103 | **69** |
+| sub-5 m > 2x class | 48 | **25** (cluster 17) |
+| by cap | 90 @1.0 + 13 @1.5 | 56 @1.0 + 13 @1.5 |
+| senior moved in A2 | 0 | **0** |
+
+**A2's both-hard population is GONE** — 78 → 0 — which is what item 1
+predicted: those were interior pairs frozen at both ends because neither
+pass priced them. 76,468 both-senior interior pairs joined A1 at SPJC
+(2,184 at CYXY), and A1's own counts are unchanged (267/6), so the newly
+priced law was absorbed without cost to the strict class.
+
+### Confinement proof
+
+`census_rows_diff` A4 → read fixes: **378 EXACT, 39 GONE, 1 NEW, net −38**.
+GONE: 35 `within_shape apron|apron` airside, 2 `transverse apron|apron`, 2
+`frontage_near_miss`. NEW: 1 `within_shape apron|apron`. Every moved row is
+in the apron interior/strict classes — nothing beyond, which is the stated
+condition for not rebuilding HECA.
+
+`[writeback-band]` worst > 10 m = 0 (worst clamp +0.08 m);
+`[transverse-bind]` bound 8,490 / exit_over_budget 208.
+
+### Items delivered
+
+1. Both-senior interior pairs enter A1 at their own 5 % cap; A2 keeps only
+   pairs with an interior mover. Seniority hoisted above A1 so both
+   sub-stages partition from ONE answer.
+2. One partition input: the runtime publishes its own partition and the
+   exporter reads it (was 2,395/751 exported vs 2,962/83 at runtime).
+3. (a) `excluded_both_hard=N` names the population dropped from the swept
+   set but counted by the tally; (b) A2 gains its own both-hard docket —
+   correctly SILENT this arm, because A2's both-hard is now 0; (c) an
+   all-hard hyperplane row no longer holds `any_active`.
+5. `pair_caps` / `mesh_edges` export at the canonical 11 dp instead of 7,
+   so identity joins are possible at all — the root cause of the artifact.
+
+UNPAID / OWED:
+
+- SPJC is still +18 over its bar (207 vs 189). Its within_shape residual is
+  69 rows, of which 25 are the sub-5 m > 2x seat/weld class (17 in the
+  declared cluster) — the parallel read's territory, not this lane's.
+- HECA HAS NO ARM under these fixes. The rows_diff showed no movement
+  beyond the apron classes, which the budget makes the condition for not
+  rebuilding, but "no arm" is not "no regression": HECA's 1,273 is
+  unverified against this tree.
+- A latent NameError was found in self-review and fixed (08b00e3): the
+  `excluded_both_hard` argument had landed in a fourth function where the
+  name does not exist. It survived the SPJC build only because that path
+  did not execute.

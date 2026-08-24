@@ -2990,3 +2990,101 @@ UNPAID / OWED:
   export needs a rebuild to observe, so it is left for the merge round.
 - The 27 HECA spine-pair rows > 200 m (way -10256, 484–555 m at 1.54 %).
 - SPLP / KAFW / KDFW still have no arm under this tree.
+
+## 2026-08-23 — SPJC seat/weld ATTRIBUTION (brief 11ffd34): STOP, no fix
+
+Four pre-registered reads on the A4 SPJC artifacts (`a4_spjc` patch +
+sidecar + rows-json). NO BUILD RAN, and none was warranted — see the
+verdict.
+
+### Read 1 — the rows
+
+48 within_shape airside rows on chords <= 5 m at > 2x cap, of 103 total.
+
+- **46 of 48 have BOTH endpoints welded** (a node shared by 2-3 shapes,
+  apron+junction or apron+apron); only 2 rows touch a 1-shape endpoint.
+- **Only 17 of 48 are in the declared cluster.** A larger group (~26) sits
+  1,087-1,378 m away — the class is NOT one junction.
+- Rows arrive in IDENTICAL DUPLICATE PAIRS: -10092/-10093, -10433/-10445,
+  -10162/-10699, -10113/-10698 each report the same chord, |de| and grade.
+  One physical edge, judged once per claiming shape.
+- By way: -10092 (14), -10093 (10), -10698 (6), -10113 (4), -10162 (4),
+  -10699 (3), -10433 (2), -10445 (2), -10470/-10561/-10112 (1 each).
+- Worst: 35.85 % over 0.53 m (|de| 0.190 m, ways -10113/-10698);
+  32.12 % over 0.72 m (0.230 m, -10162/-10698); 15.79 % over 1.96 m
+  (0.310 m, -10092/-10093).
+
+### Read 2 — the values: THE DECISIVE SPLIT
+
+**ZERO emit-consensus disagreements.** Across the 38 distinct endpoints of
+the 48 rows, every node carries ONE altitude across all claiming ways.
+There is no averaging of two authorities, so this is NOT the
+`emit-consensus-mints-violations` class and the seat-is-the-weld ruling
+(2026-08-08) is ALREADY HONOURED here.
+
+The emit stage's own instrument agrees: `law-aware emit snap: 61,717 law
+pair(s), 0 over cap from a naive snap -> 0 after (worst residual
+0.0000 m)`.
+
+Against the solver's bake (`pair_caps`), the 48 split cleanly:
+
+| | rows | meaning |
+|---|---|---|
+| **BAKED** | **26** | the solver priced THIS pair and exited over cap |
+| **pair NEW at emit** | **22** | both endpoints are baked NODES (nearest baked node 0.006-0.009 m) but the PAIR was never priced |
+
+Control: of all 103 within_shape airside rows, 55 are baked and 48 are not.
+The 22 are not "emit moved a node" — their endpoints sit within 9 mm of
+baked nodes. Emit created an ADJACENCY between two pre-existing, lawfully
+valued nodes. The mechanism is in the log: `nid-level final weld: inserted
+68 on-edge node reference(s) into welded partner ways`. Inserting an
+existing node into a partner way mints a new short ring edge that the bake
+never priced — and that the law-aware emit snap cannot catch, because it
+checks BAKED pairs only.
+
+### Read 3 — the history: CHURN, not drift
+
+Class SITES: battery 20, A3 28, A4 30.
+battery∩A3 18, A3∩A4 12, battery∩A4 8, **all three 8**; 18 NEW in A4, 16
+GONE from A3. The class is not a fixed seat defect being carried forward —
+it re-forms in different places as the surface moves.
+
+### Read 4 — the junction geometry
+
+9 nodes within 5 m of (-12.021394, -77.110990), every one welded across
+2-3 of ways -10113 / -10162 / -10698 / -10699, every one single-valued.
+z spread 0.410 m over 4.56 m. Node -3401 (z 23.62) sits 0.23 m BELOW its
+~1 m neighbours -2799 (23.85) and -3400 (23.82) — that dimple IS the
+32.12 % row. A real local surface dip, not a disagreement.
+
+### VERDICT — "anything else": STOP with row-level evidence
+
+The population is MIXED and neither named branch fits it whole:
+
+- **EMIT-MINTED is REFUTED as specified.** That branch's premise is
+  "solver values lawful, emit weld/consensus makes the step", with the fix
+  being "the weld must carry ONE authority's value". Measured: the weld
+  ALREADY carries one authority on every endpoint (0 of 38 disagree).
+  **There is no fix to make on this branch**, which is why no build ran.
+- **SOLVER-SEATED is REFUTED.** It requires two shapes solved to different
+  z at a shared position; measured zero.
+- **PROJECTION RESIDUAL fits the 26 BAKED rows**: they churn arm-to-arm,
+  the step is present pre-emit, and the solver exits over cap on them
+  (SPJC A4 `[apron-staged]` A1 over_cap 267, A2 85). STOP for the lead.
+- **The 22 remaining rows are a class the tree does not name**: emit-minted
+  TOPOLOGY. Values are lawful and single-authored; what emit mints is the
+  PAIR. No law priced it and no emit-side check covers it. This is a
+  law-coverage gap at the nid-level final weld, not a value defect.
+
+UNPAID / OWED:
+
+- SPJC stays at 245 vs bar 189. Its within_shape residual is 103 rows of
+  which 48 are this class; neither half is apron-law territory.
+- THE COVERAGE GAP IS THE ACTIONABLE ITEM: the nid-level final weld inserts
+  node references into partner ways AFTER the bake, minting ring adjacencies
+  that no law ever priced and that the law-aware emit snap does not check
+  (it validates baked pairs only). Either those inserts must re-enter the
+  law, or the emit snap's scope must cover post-weld adjacencies. That is a
+  spec question for the lead, not a lane fix.
+- The 26 projection-residual rows belong with the solver-exit residue
+  already docketed (A1/A2 over_cap).

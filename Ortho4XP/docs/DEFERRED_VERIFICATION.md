@@ -2898,3 +2898,95 @@ UNPAID / OWED:
   corridor-crossing edge) rather than promoting every short ring edge to
   strict. The broader reading would ADD strict rows; this is flagged for
   ratification.
+
+## 2026-08-23 A4 acceptance — CYXY and SPJC arms: two of three airports pass
+
+The two arms the budget ruling deferred, run at the same tree as the HECA
+arm (d861d6f, staged + transects, flags identical). All rc=0, shared repo
+UNCHANGED, no HECA rebuild.
+
+### FINAL TABLE — adjudicated airside, battery → A4
+
+| airport | batt | apop | v1 | v2 | v3 | staged | A3 | **A4** | bar | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 24 | **18** | 75 | **PASS −57** |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 265 | **245** | 189 | **STOP +56** |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | **1273** | 1487 | **PASS −214** |
+
+TWO OF THREE PASS. Both passing arms clear by a wide margin; SPJC is the
+one airport left, at +56, and its residual is not an apron-law class.
+
+### within_shape airside, by cap and chord class
+
+| | CYXY batt→A4 | SPJC batt→A4 | HECA batt→A4 |
+|---|---|---|---|
+| rows | 0 → 3 | 45 → 103 | 1284 → 1106 |
+| cap 1.0 % | 0 → 3 | 34 → 90 | 1177 → 1075 |
+| cap 1.5 % | 0 → 0 | 11 → 13 | 105 → 29 |
+| cap 5 % (interior) | **0 → 0** | **0 → 0** | **0 → 0** |
+| ≤ 60 m | 0 → 3 | 45 → 89 | 765 → 789 |
+| 60–200 m | 0 → 0 | 0 → 14 | 305 → 290 |
+| **> 200 m** | 0 → 0 | 0 → **0** | 214 → **27** |
+| max chord | — → 7 m | 39 → **178 m** | 680 → **555 m** |
+
+NOT ONE VIOLATION AT THE 5 % INTERIOR CAP ON ANY AIRPORT, IN ANY ARM —
+now seven arms and three airports. The interior law mints nothing; it only
+governs how far the interior may move.
+
+SPJC's long-chord class is GONE (A3 had 18 rows > 200 m and a 285 m max;
+A4 has none, max 178 m). HECA's fell 783 → 27 (all spine pairs).
+
+### SPJC weld cluster — the residual is a seat/weld defect, not apron law
+
+Rows on chords ≤ 5 m at more than 2× cap, and how many sit in the declared
+cluster at (-12.021394, -77.110990):
+
+| arm | seat/weld rows | of which in cluster |
+|---|---|---|
+| battery | 31 | 26 |
+| A3 | 43 | 24 |
+| **A4** | **48** | **17** |
+
+SPJC's within_shape airside is 103, of which **48 are sub-5 m chords over
+2× cap** — nearly half. A4 moved the cluster count down (26 → 17) but the
+short-chord class as a whole up. This is the seat/weld docket, untouched by
+every apron-population arm, and it is what stands between SPJC and its bar.
+
+### Strip exclusion (A4.2), measured on the A4 patches
+
+| airport | apron shapes | strip-EXCLUDED nodes | shapes FULLY excluded |
+|---|---|---|---|
+| CYXY | 43 | 3 | 0 |
+| SPJC | 87 | 8 | 0 |
+| HECA | 153 | **143** | **12** |
+
+HECA's 12: `-11412 -11415 -11423 -12240 -12249 -12250 -12251 -12308 -12481
+-12482 -12500 -12520` — including **-12251**, the runway 05C/23C shoulder
+sliver the owner identified in JOSM.
+
+### Instruments
+
+| | CYXY | SPJC | HECA |
+|---|---|---|---|
+| `[apron-staged]` A1 over_cap (both-hard) | 6 (1) | 267 (6) | 1388 (2) |
+| A2 over_cap (both-hard) | 3 (3) | 85 (78) | 328 (315) |
+| **senior moved in A2** | **0** | **0** | **0** |
+| certificate final#1 EXIT | 1065 (471) | 1946 (421) | 16768 (3494) |
+| `[transverse-bind]` exit_over_budget | 150 | 208 | 2424 |
+| **`[writeback-band]` worst > 10 m** | **0** | **0** | **0** |
+
+UNPAID / OWED:
+
+- SPJC IS THE ONE AIRPORT OVER ITS BAR (245 vs 189, +56), and its
+  within_shape residual is dominated by the sub-5 m seat/weld class (48 of
+  103). That is the next docket and is not an apron-law question.
+- A4.2'S `EXCLUDED` SENIORITY VALUE NEVER REACHES THE SIDECAR. The law
+  function carries it and its twin passes, but `solve.py`'s seniority
+  export derives its node set FROM THE GRAPH EDGES — and an excluded node
+  generates no edge, so it is absent rather than tagged. The exclusion
+  itself works (proven by the HECA result and the twins); only its
+  *reporting* is incomplete. The counts above come from re-deriving the
+  footprint over the emitted patches, not from the sidecar. Fixing the
+  export needs a rebuild to observe, so it is left for the merge round.
+- The 27 HECA spine-pair rows > 200 m (way -10256, 484–555 m at 1.54 %).
+- SPLP / KAFW / KDFW still have no arm under this tree.

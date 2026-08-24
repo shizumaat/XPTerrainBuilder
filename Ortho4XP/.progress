@@ -13,20 +13,36 @@ conforms with the seniors frozen).
 
 ADJUDICATED AIRSIDE — battery / apop / v1 / v2 / v3 / STAGED / A3 / A4
 
-  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED |   A3 |   A4 | bar  |
-  |---------|------|------|------|------|------|--------|------|------|------|
-  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   24 |  n/b |   75 |
-  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  265 |  n/b |  189 |
-  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 2276 | 1273 | 1487 |
+  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED |   A3 |   A4 | bar  | verdict  |
+  |---------|------|------|------|------|------|--------|------|------|------|----------|
+  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   24 |   18 |   75 | PASS -57 |
+  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  265 |  245 |  189 | STOP +56 |
+  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 2276 | 1273 | 1487 | PASS -214|
 
-  *** A4: HECA PASSES ITS BAR — 1,273 vs 1,487, by 214.  The first HECA arm
-  to clear it since the battery. ***  n/b = no build this round (owner
-  budget ruling: fastpath first, ONE build, SPJC/CYXY at acceptance).
+  *** TWO OF THREE PASS.  SPJC is the one airport left, and its residual is
+  the SEAT/WELD class, not apron law: 48 of its 103 within_shape airside
+  rows are sub-5 m chords over 2x cap. ***
 
-  HECA within_shape airside  1284 / 643 / 770 / 1383 / 2368 / 2280 / 2107
-                             / 1106   <- BELOW the battery
-  HECA transverse  airside     95 / 572 / 155 / 63 / 49 / 46 / 36 / 35
-                             <- best of any arm
+  within_shape airside (battery -> A4)
+    CYXY 0 -> 3     SPJC 45 -> 103     HECA 1284 -> 1106
+  >200 m class      SPJC 18 -> 0 (max chord 285 -> 178 m)
+                    HECA 783 -> 27 (max 857 -> 555 m, all spine pairs)
+  NOT ONE VIOLATION AT THE 5 % INTERIOR CAP on any airport in any arm —
+  seven arms, three airports.
+
+  SPJC weld cluster at (-12.021394,-77.110990): battery 26 / A3 24 / A4 17
+  of the sub-5 m >2x rows.
+
+  Strip exclusion (A4.2), measured on the A4 patches:
+    CYXY 3 nodes / 0 shapes   SPJC 8 / 0   HECA 143 nodes / 12 shapes
+    HECA's 12 include -12251, the runway 05C/23C shoulder sliver.
+
+  senior moved in A2 = 0 and [writeback-band] worst >10 m = 0 on all three.
+
+  OWED: A4.2's EXCLUDED seniority value never reaches the sidecar —
+  solve.py derives the export's node set from GRAPH EDGES and an excluded
+  node generates none, so it is absent rather than tagged.  The exclusion
+  works; only its reporting is incomplete.  Merge round.
 
 A4 = nearest-spine strict chords + the building clamp scoped to the strict
 branch + the runway strip out of the apron population.

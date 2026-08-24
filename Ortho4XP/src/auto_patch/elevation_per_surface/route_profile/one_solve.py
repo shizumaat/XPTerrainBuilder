@@ -1612,8 +1612,7 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
         verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
                                       raw_budget_column, interval_mask,
                                       weight_i, weight_j, z, n, pairs,
-                                      flat_group_reps=flat_group_reps,
-                            excluded_both_hard=_excluded_both_hard)
+                                      flat_group_reps=flat_group_reps)
     except Exception as exc:                               # pragma: no cover
         print(f"    [stall-report]   adjudication failed: {exc}")
         return
@@ -2097,6 +2096,12 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
 
 def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                        interval_bounds_by_index=None, *, stats=None,
+                       # KEYWORD-ONLY on purpose: this parameter was added
+                       # after the positional signature was fixed, and
+                       # ``interval_bounds_by_index`` is passed POSITIONALLY
+                       # by both call sites — a new positional here would
+                       # silently capture it.
+                       excluded_both_hard=0,
                        coloring_state=None, run_feasibility_precheck=True,
                        node_box=None,
                        raw_budget_by_index=None,
@@ -2780,7 +2785,8 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
             family_by_pair=family_by_pair,
             exit_reason=exit_reason, block=block, hard_cap=hard_cap,
             block_trace=block_trace, last_block_drop=last_block_drop,
-            flat_group_reps=flat_group_reps)
+            flat_group_reps=flat_group_reps,
+            excluded_both_hard=excluded_both_hard)
     if stall_detect_sweep:
         # WRITE-ONLY (after the writeback): nothing below feeds the solve.
         # ``hard_cap``, not the block: the "ran to" figure must be the
@@ -5216,6 +5222,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                            coloring_state=_coloring_state,
                            node_box=bound_of or None,
                            raw_budget_by_index=iter_raw_budget,
+                           excluded_both_hard=_excluded_both_hard,
                            sweep_budget_basis=_sweep_basis,
                            family_by_pair=fam_by_pair,
                            sweep_hard_cap=_sweep_hard_cap,
@@ -5253,6 +5260,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
                                coloring_state=_coloring_state,
                                node_box=bound_of or None,
                                raw_budget_by_index=iter_raw_budget,
+                           excluded_both_hard=_excluded_both_hard,
                                sweep_budget_basis=_sweep_basis,
                                family_by_pair=fam_by_pair,
                                sweep_hard_cap=_sweep_hard_cap,

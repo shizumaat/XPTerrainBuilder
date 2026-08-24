@@ -3445,3 +3445,72 @@ UNPAID / OWED:
   (337 and 55 vertices losing their chord) but a prediction is not an arm;
   SPJC in particular is the airport still over its bar (207 vs 189).
 - SPLP / KAFW / KDFW still have no arm under this tree.
+
+## 2026-08-24 A5 — the SPJC and CYXY arms: no census movement, and the chord-less number
+
+Both built at `git_head=853f94f` (clean), staged + transects, rc=0, shared
+repo UNCHANGED.
+
+### Results
+
+| | A4 | read fixes | **A5** | bar |
+|---|---|---|---|---|
+| SPJC adjudicated airside | 245 | 207 | **207** | 189 (**+18**) |
+| CYXY adjudicated airside | 18 | 16 | **16** | 75 (**PASS −59**) |
+
+A5 moves NEITHER census total. SPJC's within_shape airside is 69 in both
+arms and CYXY's is 1; the patches differ (SPJC body_sha 51ecb51de644 →
+99e22a5aaab2) but the law rows do not.
+
+| SPJC | read fixes | A5 |
+|---|---|---|
+| within_shape airside | 69 | **69** |
+| by cap | 56 @1.0 + 13 @1.5 | **55 @1.0 + 14 @1.5** |
+| by chord | ≤60 m 55, 60–200 m 14 | **same** |
+| seat/weld (≤5 m, >2x) | 25 (17 in cluster) | **25 (17)** |
+| A1 over_cap (both-hard) | 267 (6) | **267 (6)** |
+| A2 over_cap (both-hard) | 0 (0) | **0 (0)** |
+| senior moved in A2 | 0 | **0** |
+| both-senior pairs into A1 | 76,468 | **77,087** |
+
+CYXY: A1 9 (both-hard 1) | A2 **0 (0)**, senior moved 0, 2,246 both-senior
+pairs into A1, within_shape airside 1 @1.5 %.
+
+**`[writeback-band]` worst > 10 m = 0 on both** (SPJC +0.08 m, CYXY 0.11 m).
+
+Confinement, read fixes → A5: SPJC **376 EXACT, 3 GONE, 6 NEW (net +3)**;
+CYXY **197 EXACT, 1 GONE, 0 NEW (net −1)**. Both tiny and confined.
+
+### THE CHORD-LESS NUMBER — for the owner's (a)/(b)/(c) choice
+
+Policy as implemented (unchanged, pending the ruling): a vertex with no
+VISIBLE centerline node within `BUILDING_REACH_CORRIDOR_M` has no strict
+chord and falls to the interior 5 % cap.
+
+| airport | chord-less apron vertices | with a chord | **within_shape airside rows touching one** | their caps | worst |
+|---|---|---|---|---|---|
+| SPJC | 1,006 | 1,397 | **6 of 69** | all 1.0 % | 1.57 % |
+| CYXY | 62 | 249 | **0 of 1** | — | — |
+| HECA | 679 | 1,865 | **312 of 935** | all 1.0 % | 105.01 % |
+
+TWO THINGS THE OWNER SHOULD WEIGH, and they point opposite ways:
+
+1. AT SPJC THE CHOICE IS NEARLY FREE — 6 rows of 69, none above 1.57 %.
+   Whichever of (a)/(b)/(c) is chosen, SPJC's 207 barely moves.
+2. AT HECA IT IS NOT — **312 of 935 rows touch a chord-less vertex**, and
+   the worst is 105 %. A third of HECA's remaining within-shape debt sits
+   on vertices the visibility gate disconnected from the corridor. Note
+   those rows are all at the STRICT 1.0 % cap: they are priced by some
+   OTHER strict clause (a frontage chord, a ring edge, a corridor pair), so
+   losing the nearest-spine chord did not make them interior — it removed
+   one law from vertices that other laws still bind.
+
+That asymmetry is the number the ruling needs: the chord-less policy is
+almost costless at SPJC and materially load-bearing at HECA.
+
+UNPAID / OWED:
+
+- SPJC remains +18 over its bar (207 vs 189), unchanged by A5. Its residual
+  is 69 within_shape rows of which 25 are the sub-5 m seat/weld class (17 in
+  the declared cluster) — the parallel read's territory, not apron law.
+- SPLP / KAFW / KDFW still have no arm under this tree.

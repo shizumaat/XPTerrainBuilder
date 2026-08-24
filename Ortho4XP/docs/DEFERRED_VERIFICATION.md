@@ -3180,3 +3180,77 @@ UNPAID / OWED:
   post-weld adjacencies. Both are spec decisions.
 - HECA/CYXY were not rebuilt: the SPJC diff showed zero law-row movement,
   which is the budget's own condition for not rebuilding.
+
+## 2026-08-23 — weld A1 (wedge insert moves too): also INERT. STOP, with the mechanism named.
+
+Spec AMENDMENT A1 (main 7932a68), implemented as 53f72a4. ONE SPJC build.
+
+### §1b does NOT fire — the halves separate cleanly
+
+`snap_subcm_vertex_twins` and `enforce_conformance` were already two calls.
+Better: **the wedge insert and the nid insert are the SAME function at the
+SAME tolerance** (`enforce_conformance` / `FINAL_WELD_TOL_M`, whose
+`_plan_shape_inserts` is THE one candidate enumeration). What distinguished
+the wedge call was only its DEM/tile frame (the "cuts never fill" bound),
+which the pre-projection pass now carries. The snap stays post-projection
+per §1b; the pre-projection pass adds an *idempotent* snap because the snap
+is the insert's documented precondition (without it the weld propagates
+mm-apart twins — CYXY lockstep, 7.7e-5 m).
+
+### The arm
+
+```
+[weld-before-projection] SPJC: snapped 370 sub-cm vertex twin(s) across 147 shape(s) first
+[weld-before-projection] SPJC: inserted 28 T-vertex(es) into 17 shape(s) BEFORE the final projection
+[final-projection] SPJC: CALL #1
+[pav-builder] SPJC: final epsilon-wedge weld — inserted 142 vertex(es) into 80 shape(s).
+              *** POST-PROJECTION WELD RESIDUE ... requires 0 here ***
+[pav-builder] nid-level final weld: inserted 68 ... *** POST-PROJECTION WELD RESIDUE ***
+```
+
+- **SPJC airside 245 — identical to A4 and to the first reorder arm.**
+- within_shape airside 103; **sub-5 m > 2x class 48 — identical.**
+- `census_rows_diff` reorder-arm vs this arm: **417 EXACT, 0 GONE, 0 NEW.**
+- Verification counts: wedge **142** (must be 0), nid **68** (must be 0) —
+  both unchanged from every prior arm.
+- `[apron-staged]` A1 267 (6) | A2 85 (78), senior moved in A2 = 0;
+  `[transverse-bind]` exit_over_budget 208; **`[writeback-band]` > 10 m = 0.**
+
+### THE STOP, and this arm names the mechanism
+
+The two calls are now the same function, the same tolerance and the same
+DEM frame — and they still disagree **28 vs 142**. So the disagreement is
+NOT in the enumerations. It is in the GEOMETRY they are shown:
+
+**114 of the 142 T-junctions do not exist when the pre-projection pass
+runs.** They are minted between it and the wedge call by the passes that
+emit geometry after the projection — adjacent-ground band emit, gap-fill
+spines, crown-field completion, densify, tile cuts. The pipeline's own
+comment beside the retired late projection lists exactly these as the
+stages that "reshape rings after this point".
+
+That refutes A1's premise the same way the first arm refuted §1's: moving a
+weld earlier cannot weld geometry that does not exist yet. The residue is
+not a weld-ordering defect at all — it is that **ring-minting emitters run
+after the last pass that prices rings**.
+
+### Disposition and what is actually owed
+
+Both reorders are KEPT (`O4_WELD_BEFORE_PROJECTION`, default ON): measured
+law-neutral (0 rows moved across two arms), surface-neutral by
+construction, and correct ordering. Neither closes the 22-row class, and
+the verification lines now say so on every build.
+
+THE ACTIONABLE ITEM IS NOT ANOTHER WELD MOVE. Two attempts have now
+measured the same answer, so the attempt cap is reached and this is a STOP:
+
+- either the post-projection ring-minting emitters move ahead of the
+  projection (a large re-ordering, far beyond this spec), or
+- the law-aware emit snap's scope extends to post-weld adjacencies so the
+  minted edges are checked where they are made, or
+- the class is adjudicated: these are sub-5 m ring edges at a weld, whose
+  |de| is 0.06-0.46 m, and the question is whether a 0.5 m step across a
+  0.7 m weld chord is a defect the surface should be graded for at all.
+
+SPJC stays at 245 vs 189, class split unchanged: 26 projection-residual +
+22 emit-minted-topology.

@@ -11,41 +11,40 @@ REMOVED).  v2 = A1 (interior LAW at 5 %, every ring edge strict).  v3 = A2
 the two-sub-stage projection (movement surfaces settle first, interior
 conforms with the seniors frozen).
 
-ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 / STAGED / A3
+ADJUDICATED AIRSIDE — battery / apop / v1 / v2 / v3 / STAGED / A3 / A4
 
-  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED |   A3 | bar  |
-  |---------|------|------|------|------|------|--------|------|------|
-  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   24 |   75 | PASS
-  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  265 |  189 | STOP +76
-  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 2276 | 1487 | STOP +789
+  | airport | batt | apop |   v1 |   v2 |   v3 | STAGED |   A3 |   A4 | bar  |
+  |---------|------|------|------|------|------|--------|------|------|------|
+  | CYXY    |   75 |  204 |   67 |   16 |   17 |     24 |   24 |  n/b |   75 |
+  | SPJC    |  189 |  474 |  551 |  204 |  213 |    242 |  265 |  n/b |  189 |
+  | HECA    | 1487 | 1508 | 1167 | 1599 | 2560 |   2472 | 2276 | 1273 | 1487 |
 
-  within_shape airside  CYXY 0 / 3 / 3 / 0 / 0 / 2 / 2
-                        SPJC 45 / 12 / 258 / 52 / 73 / 100 / 120
-                        HECA 1284 / 643 / 770 / 1383 / 2368 / 2280 / 2107
-  transverse   airside  CYXY 63 / 188 / 51 / 4 / 5 / 10 / 10
-                        SPJC 46 / 331 / 167 / 51 / 38 / 41 / 44
-                        HECA 95 / 572 / 155 / 63 / 49 / 46 / 36
+  *** A4: HECA PASSES ITS BAR — 1,273 vs 1,487, by 214.  The first HECA arm
+  to clear it since the battery. ***  n/b = no build this round (owner
+  budget ruling: fastpath first, ONE build, SPJC/CYXY at acceptance).
 
-A3 (ring edges strict only inside the 60 m body gate) — THE DRAG
-HYPOTHESIS IS CONFIRMED AT HECA AND REFUTED AT SPJC.  within_shape airside
-by chord (<= 60 m / > 60 m):
-    HECA  battery 765/519   staged 1319/961   A3 1044/1063
-    SPJC  battery  45/0     staged   76/24    A3   80/40
-  HECA's SHORT class fell 1319 -> 1044 (-21 %) and its worst row 11.59 ->
-  9.59 m: relaxing the long constraints DID stop them dragging the short
-  ones.  SPJC's short class did not move and its long class grew.
-  A fifth arm says STILL NOT ONE VIOLATION AT 5 % (HECA 2055 @1.0 % + 52
-  @1.5 %; SPJC 106 @1.0 % + 14 @1.5 %).
-  THE 20 WORST ARE THE CLASS A3 TARGETED AND DID NOT REACH: way -10612,
-  cap 1.0 %, 1.09-1.26 %, |de| 8.36-9.59 m, chords 665-857 m.  They now
-  arrive through the SPINE door, not the cover door — the ``spine_caps``
-  carve-out this lane flagged when implementing A3.  Evidence:
-  apron_seniority marks 2,712 of 3,288 HECA apron nodes SENIOR; pair_caps
-  still carries 9,782 unified:apron rows on chords > 60 m, longest 1,417 m
-  at an implied 1.50 %.  Whether a long APRON spine pair should take the
-  length gate is the open question, and it decides HECA.
-  CYXY's A3 body sha is IDENTICAL to the staged arm — no long ring edge
-  there, so A3 is a no-op.
+  HECA within_shape airside  1284 / 643 / 770 / 1383 / 2368 / 2280 / 2107
+                             / 1106   <- BELOW the battery
+  HECA transverse  airside     95 / 572 / 155 / 63 / 49 / 46 / 36 / 35
+                             <- best of any arm
+
+A4 = nearest-spine strict chords + the building clamp scoped to the strict
+branch + the runway strip out of the apron population.
+  * >200 m within_shape class 783 (A3) -> 27.  Max chord 857 -> 555 m.
+  * THE -10612 FAN THE OWNER READ IN JOSM IS RESOLVED: 367 rows of 665-857 m
+    with up to 53 chords from ONE vertex -> 183 rows, ONE per site, max
+    199 m.
+  * The 27 survivors >200 m are SPINE pairs (deliberately ungated), 21 on
+    way -10256 at 484-555 m / 1.54 %.
+  * Strip exclusion reaches -12251 (the runway 05C/23C shoulder sliver) and
+    11 siblings: 12 shapes fully excluded, 140 nodes, at HECA.
+  * STILL NONE AT THE 5 % CAP (sixth arm): 1,075 @1.0 % + 29 @1.5 % + 2 @8 %.
+  * Seat/weld residue (<=5 m chords over 2x cap) battery 167 / A3 229 /
+    A4 123 — reduced, not addressed, next docket.
+  * THE FASTPATH PAID FOR ITSELF: it caught that nearest-spine selection by
+    coordinate identity yields an EMPTY set on real data (no emitted apron
+    ring vertex equals an axes_exact vertex; the owner's node sits 0.002 m
+    off the line), so A4.1(i) would have shipped inert.
 
 THE MECHANISM WORKS AND DOES NOT PAY.  Three findings, in order of weight.
 

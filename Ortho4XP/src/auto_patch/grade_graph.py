@@ -369,6 +369,13 @@ class GradeContext:
     # of it by construction.  An APRON pair is within-shape LAW only if it is
     # a FRONTAGE CHORD: one endpoint here, the other in the corridor cover.
     frontage_keys: frozenset = frozenset()
+    # ── AMENDMENT A4 ────────────────────────────────────────────────────
+    # ``strip_keepout``: the prepared union of every runway's STRIP footprint
+    # (``grade_law.runway_strip_wall_keepout_rings`` via
+    # ``adjacent_ground.runway_strip_wall_keepout``), or None.  A vertex
+    # inside it carries NO apron law (A4.2).  Both context builders fill it
+    # from the same function, so the two readers exclude the same ground.
+    strip_keepout: object = None
     # The centerline GEOMETRY the spine corridor cover is built from — set by
     # the context builders alongside ``centerlines`` so BOTH readers cover the
     # same spines.  The cover itself is built LAZILY and cached (see
@@ -377,6 +384,8 @@ class GradeContext:
     corridor_lines: tuple = ()
     _corridor_cover_prep: object = None
     _corridor_cover_built: bool = False
+    _spine_nodes_built: bool = False
+    _spine_nodes_m: list = field(default_factory=list)
     # PREPARED geometry of the service-road carve zone (road shapes unioned and
     # buffered by ``ROAD_FRONTAGE_TOL_M``), in the caller's meter frame.  A
     # soft-shape pair with BOTH endpoints inside it descends at the road cap (the
@@ -440,6 +449,91 @@ def edge_family_name(role: str, is_spine: bool) -> str:
     (``verification.lockstep_pair_caps_ll``).  ONE speller, so the
     certificate's families and the sidecar's cannot drift apart."""
     return f"unified:{role}:spine" if is_spine else f"unified:{role}"
+
+
+def spine_nodes_m(ctx: "GradeContext") -> list:
+    """THE SPINE NODE SET, in the context's metre frame — every vertex of
+    every centerline (spec AMENDMENT A4.1(i)).
+
+    ``ctx.centerlines`` is built from ``centerline_specs``, THE one
+    enumeration that also produces the sidecar's ``axes_exact``
+    (``verification.taxi_axes_exact_ll`` walks the same function), so the
+    solver's nearest-spine assignment and the census's are made over the
+    IDENTICAL node set by construction — not by two hand-kept copies.  That
+    is the lockstep the whole sidecar exists to guarantee, applied to this
+    population.
+    """
+    if ctx._spine_nodes_built:
+        return ctx._spine_nodes_m
+    ctx._spine_nodes_built = True
+    out: list = []
+    seen = set()
+    for cl in (ctx.centerlines or ()):
+        for p in (getattr(cl, "pts", None) or ()):
+            k = (round(float(p[0]), 6), round(float(p[1]), 6))
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append((float(p[0]), float(p[1])))
+    ctx._spine_nodes_m = out
+    return out
+
+
+def nearest_spine_pairs(ring, keys, ctx) -> set:
+    """``{(key_a, key_b)}`` — ONE chord per ring vertex, to its NEAREST spine
+    node (spec AMENDMENT A4.1(i)).
+
+    The far end is the RING VERTEX that coincides with that spine node: the
+    corridor's centerline vertices are welded into the apron ring pre-emit, so
+    the chord stays inside the ring x ring enumeration and NO NEW VERTEX is
+    minted (the standing "no new vertices" rule).  A vertex with no spine node
+    within ``BUILDING_REACH_CORRIDOR_M`` contributes nothing — the seat does
+    not reach the corridor, and inventing a chord for it would be the very
+    long-pair class A4 exists to remove.
+
+    DETERMINISTIC (A4.3(a)): ties break on the lower ring index, so the set
+    does not depend on iteration order in either reader.
+    """
+    from .config import BUILDING_REACH_CORRIDOR_M as _BUILDING_REACH_CORRIDOR_M
+    sp = spine_nodes_m(ctx)
+    if not sp or not ring:
+        return set()
+    import math as _m
+    # the ring vertices that ARE spine nodes, by coordinate identity
+    spset = {(round(x, 6), round(y, 6)) for (x, y) in sp}
+    cand = [i for i, (x, y) in enumerate(ring)
+            if (round(x, 6), round(y, 6)) in spset]
+    if not cand:
+        return set()
+    out = set()
+    for i, (x, y) in enumerate(ring):
+        best = None
+        bestd = None
+        for j in cand:
+            if j == i:
+                continue
+            d = _m.hypot(ring[j][0] - x, ring[j][1] - y)
+            if d > _BUILDING_REACH_CORRIDOR_M:
+                continue
+            if bestd is None or d < bestd - 1e-9 or (
+                    abs(d - bestd) <= 1e-9 and j < best):
+                best, bestd = j, d
+        if best is None:
+            continue
+        ka, kb = keys[i], keys[best]
+        out.add((ka, kb) if str(ka) <= str(kb) else (kb, ka))
+    return out
+
+
+def strip_excluded_flags(ring, ctx) -> list:
+    """Per-ring-vertex "inside the runway strip footprint" (A4.2), from
+    ``ctx.strip_keepout`` — the SAME prepared union ``adjacent_ground`` and
+    ``groundside`` already read.  ``None`` keep-out ⇒ all False."""
+    ko = getattr(ctx, "strip_keepout", None)
+    if ko is None or not ring:
+        return [False] * len(ring)
+    from shapely.geometry import Point as _P
+    return [bool(ko.intersects(_P(x, y))) for (x, y) in ring]
 
 
 def corridor_cover_prepared(ctx: "GradeContext"):
@@ -2340,6 +2434,13 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                  and shape.role == APRON_ROLE)
     front_vert = None
     cover_vert = None
+    # ── AMENDMENT A4: the nearest-spine chord set and the strip exclusion,
+    # both computed ONCE per shape and handed to the law as per-pair facts.
+    near_spine = set()
+    strip_vert = None
+    if shape.role == APRON_ROLE:
+        strip_vert = strip_excluded_flags(ring, ctx)
+        near_spine = nearest_spine_pairs(ring, keys, ctx)
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
@@ -2558,7 +2659,12 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 a_frontage=ki_front,
                 b_frontage=bool(front_vert) and front_vert[j],
                 a_corridor=ki_cover,
-                b_corridor=bool(cover_vert) and cover_vert[j])
+                b_corridor=bool(cover_vert) and cover_vert[j],
+                nearest_spine=(
+                    ((ki, kj) if str(ki) <= str(kj) else (kj, ki))
+                    in near_spine),
+                a_in_strip=bool(strip_vert) and strip_vert[i],
+                b_in_strip=bool(strip_vert) and strip_vert[j])
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

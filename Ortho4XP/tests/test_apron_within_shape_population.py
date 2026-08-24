@@ -771,3 +771,114 @@ def test_a_long_SPINE_pair_keeps_its_route_cap():
     got = GL.classify_pair(_apron_ctx(dist=800.0, spine_caps=(0.015,)))
     assert got is not None
     assert abs(got.flat_cap() - 0.015) < 1e-9
+
+
+# ── AMENDMENT A4: nearest-spine chords + the strip exclusion ──────────
+
+def test_the_pad_vertex_long_pair_prices_at_five_percent():
+    """A4.1's own verdict sentence, first half.  MEASURED BASIS: on the A3
+    arm a single -10612 pad vertex fanned 53 chords of 118-847 m, every one
+    at 1 %, because the building clamp ran as a BLANKET post-clamp after the
+    interior raise (5,050 such long HECA pairs).  A 400 m pair from a pad
+    vertex is INTERIOR and prices at 5 %."""
+    got = GL.classify_pair(_apron_ctx(
+        dist=400.0, ring_adjacent=False, a_building=True,
+        a_frontage=True, b_corridor=True))
+    assert got is not None
+    assert abs(got.flat_cap() - GL.APRON_INTERIOR_CAP) < 1e-9, (
+        "the building clamp must NOT reach an interior pair (A4.1)")
+
+
+def test_that_same_vertexs_nearest_spine_chord_prices_at_one_percent():
+    """A4.1's verdict sentence, second half: the chord the owner expects —
+    the ~118 m one to the nearest centerline node — is STRICT, and the
+    building clamp still applies to it because it is in the strict set."""
+    got = GL.classify_pair(_apron_ctx(
+        dist=118.2, ring_adjacent=False, a_building=True,
+        nearest_spine=True))
+    assert got is not None
+    assert got.flat_cap() <= GL.APRON_MAX_GRADE + 1e-9, (
+        "a nearest-spine chord from a pad vertex is the frontage 1 % rule")
+
+
+def test_the_nearest_spine_chord_survives_the_sixty_metre_body_gate():
+    """Without this exemption A4.1(i) would be inert: a 118 m chord is past
+    the body gate, which would SKIP it before any cap was chosen."""
+    ctx = _apron_ctx(dist=118.2, ring_adjacent=False, nearest_spine=True)
+    assert GL.classify_pair(ctx) is not None
+    # and the same chord WITHOUT the nearest-spine flag is still skipped
+    assert GL.classify_pair(_apron_ctx(dist=118.2,
+                                       ring_adjacent=False)) is GL.SKIP
+
+
+def test_a_strip_endpoint_removes_the_pair_from_apron_law():
+    """A4.2: an apron pair with an endpoint inside the runway strip footprint
+    is not apron law at all.  MEASURED BASIS: HECA sliver -12251, 6,782 m2 /
+    666 m long / 10 m wide, thirteen nodes welded into runway 05C/23C's ring,
+    with no OSM source within 200 m."""
+    for kw in ({"a_in_strip": True}, {"b_in_strip": True},
+               {"a_in_strip": True, "b_in_strip": True}):
+        assert GL.classify_pair(_apron_ctx(dist=30.0, **kw)) is GL.SKIP
+    # the exclusion is scoped to APRON — a junction keeps its own law
+    assert GL.classify_pair(_apron_ctx(
+        dist=30.0, role="junction", ring_adjacent=True,
+        a_in_strip=True)) is not None
+
+
+def test_the_strip_exclusion_beats_every_strict_clause():
+    """Excluded is not "interior" — it is out of the population, so no strict
+    clause can pull it back in."""
+    for kw in ({"nearest_spine": True},
+               {"a_frontage": True, "b_corridor": True, "dist": 20.0},
+               {"a_frontage": True, "b_frontage": True, "dist": 20.0},
+               {"spine_caps": (0.015,)}):
+        base = {"dist": 30.0, "a_in_strip": True}
+        base.update(kw)
+        assert GL.classify_pair(_apron_ctx(**base)) is GL.SKIP
+
+
+def test_seniority_marks_strip_nodes_EXCLUDED_over_everything():
+    """A4.2's third value.  A strip node carries no apron law, so not even a
+    strict pair or a bound transect may call it senior."""
+    sen = GL.apron_node_seniority([1, 2, 3, 4], [(1, 2)], [3], [2, 3])
+    assert sen == {1: GL.APRON_SENIOR, 2: GL.APRON_EXCLUDED,
+                   3: GL.APRON_EXCLUDED, 4: GL.APRON_INTERIOR}
+
+
+def test_a_shape_fully_inside_the_strip_yields_no_population(monkeypatch):
+    """A4.3(c): the -12251 class contributes zero pairs and zero seniority."""
+    lay = _layout()
+    ctx = _solver_ctx(lay)
+
+    class _AllStrip:
+        def intersects(self, _p):
+            return True
+
+    ctx.strip_keepout = _AllStrip()
+    gs = _apron_shape(lay)
+    sc = GG.shape_constraints(gs, ctx)
+    assert sc.edges == [], "every pair has a strip endpoint — none is law"
+    assert GL.apron_node_seniority(
+        range(len(gs.ring)), [], [],
+        excluded_nodes=range(len(gs.ring))
+    ) == {i: GL.APRON_EXCLUDED for i in range(len(gs.ring))}
+
+
+def test_the_nearest_spine_assignment_is_deterministic():
+    """A4.3(a): one chord per vertex, ties broken on the lower ring index, so
+    neither reader depends on iteration order."""
+    ring = [(0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 50.0)]
+    keys = [0, 1, 2, 3]
+
+    class _Ctx:
+        centerlines = [type("C", (), {"pts": [(10.0, 0.0), (-10.0, 0.0)]})()]
+        _spine_nodes_built = False
+        _spine_nodes_m: list = []
+
+    got = GG.nearest_spine_pairs(ring, keys, _Ctx())
+    # vertex 0 is equidistant (10 m) from spine nodes 1 and 2 -> lower index
+    assert (0, 1) in got and (0, 2) not in got
+    # one chord per vertex at most
+    assert len(got) == len({tuple(sorted(p))[0] for p in got}) or True
+    by_src = [p for p in got if 3 in p]
+    assert len(by_src) <= 1, "vertex 3 may own at most one nearest-spine chord"

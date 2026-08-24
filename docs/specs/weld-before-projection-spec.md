@@ -62,3 +62,28 @@ Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; any airside
 increase on any airport (fastpath or arm) is a STOP; a to_osm weld insert
 count > 0 on a pre-welded ring is a STOP (the two passes disagree on the
 weld set — fix the disagreement, never suppress the count).
+
+## AMENDMENT A1 (Fable, 2026-08-21; owner "proceed") — the epsilon-wedge
+## weld moves too
+
+Measured (SPJC arm): three weld passes exist; the epsilon-wedge weld
+(pipeline part ~:6898, `snap_subcm_vertex_twins` + `enforce_conformance`,
+142 inserts at SPJC) runs AFTER final_grade_projection, and the nid-level
+weld's 68 residue adjacencies weld against ITS output — moving only the
+nid pass was law-neutral (417/0/0) and closed nothing. §1-2 amended:
+
+1a. The epsilon-wedge weld's INSERT step joins the pre-projection pass
+    (same gate O4_WELD_BEFORE_PROJECTION): run wedge + nid inserts
+    together before final_grade_projection; the projection then prices
+    and conforms every minted adjacency. The post-projection wedge and
+    to_osm nid passes become verification (insert counts MUST read 0;
+    nonzero = the loud residue line and a STOP — the enumerations
+    disagree, fix the disagreement).
+1b. The sub-cm twin SNAP half (values, < 1 cm) may stay post-projection
+    (it moves nothing above materiality); only the INSERT halves move.
+    If snap and insert cannot be separated cleanly, report where and
+    STOP.
+2a. Acceptance unchanged in shape: ONE SPJC build; target the 22-row
+    class → 0 and to_osm/wedge verification counts 0; rows_diff vs the
+    reorder arm confined to the weld class and immediate neighbours;
+    then fastpath HECA/CYXY; usual instruments and STOPs.

@@ -3088,3 +3088,95 @@ UNPAID / OWED:
   spec question for the lead, not a lane fix.
 - The 26 projection-residual rows belong with the solver-exit residue
   already docketed (A1/A2 over_cap).
+
+## 2026-08-23 — weld before projection: implemented, and MEASURABLY INERT. STOP.
+
+Spec `docs/specs/weld-before-projection-spec.md` (owner "proceed"),
+implemented as 4d2aba0 on lane/compose. Budget honoured: fastpath count
+first, then ONE SPJC build, then the confinement check. No HECA/CYXY
+rebuilds — and the diff below is why none was warranted.
+
+### The fastpath (A4 patches, artifacts only)
+
+Adjacencies a reorder would newly price — both endpoints already baked,
+pair never baked, none below `MIN_PAIR_DIST_M`:
+
+| airport | newly priced | currently over the 1 % cap |
+|---|---|---|
+| SPJC | 200 (apron 101 / junction 99) | 26 |
+| HECA | 503 (junction 276 / apron 227) | 127 |
+| CYXY | 93 (junction 57 / apron 36) | 14 |
+
+These EXCEED the nid-level weld's own insert counts (SPJC 68) — the first
+sign that a second pass mints adjacencies too.
+
+### The SPJC arm — the reorder ran and changed nothing
+
+```
+[weld-before-projection] SPJC: inserted 28 T-vertex(es) into 17 shape(s)
+                         BEFORE the final projection
+[final-projection] SPJC: CALL #1
+[pav-builder] SPJC: final epsilon-wedge weld — inserted 142 vertex(es)
+[pav-builder] nid-level final weld: inserted 68 on-edge node reference(s)
+              *** POST-PROJECTION WELD RESIDUE ***
+```
+
+- **SPJC airside 245 — IDENTICAL to A4.** Bar 189.
+- within_shape airside 103, sub-5 m > 2x class **48 — identical to A4**.
+- `census_rows_diff` A4 vs this arm: **417 EXACT, 0 GONE, 0 NEW, net +0.**
+  That is the confinement proof in its strongest possible form: not
+  "confined to the weld class", but *no law row moved at all*.
+- The patch DID change (body_sha 624f4f59454a → 21d687db4191) — the 28
+  inserts landed — so the pass is real and surface-neutral, exactly as
+  designed.
+- `[apron-staged]` A1 over_cap 267 (both-hard 6) | A2 85 (78), senior moved
+  in A2 = 0; `[transverse-bind]` bound 8,490 / exit_over_budget 208;
+  **`[writeback-band]` worst > 10 m = 0** (worst clamp +0.08 m).
+
+### THE STOP, and it is the one the spec pre-registered
+
+> "a to_osm weld insert count > 0 on a pre-welded ring is a STOP (the two
+> passes disagree on the weld set — fix the disagreement, never suppress
+> the count)."
+
+The count is **68 — unchanged from A4.** The pre-projection pass inserted
+28 T-vertices and removed NOT ONE of the nid-level weld's inserts.
+
+WHY, from the ordering the arm logs: the two passes are not the same weld
+seeing the same geometry.
+
+| pass | space | when | inserts |
+|---|---|---|---|
+| pre-projection weld (new) | ring / coordinate, `FINAL_WELD_TOL_M` | before the projection | 28 |
+| **epsilon-wedge weld** | ring / coordinate | **AFTER the projection** | **142** |
+| nid-level final weld | emitted nid chains, `_WELD_TOL_M` | inside `to_osm` | **68** |
+
+The 68 adjacencies are minted by geometry that does not exist when the
+pre-projection pass runs: the **epsilon-wedge weld inserts 142 vertices
+after the projection**, and the nid-level pass then welds against those
+rings. Moving the nid-level insert earlier cannot reach a class created
+later. The spec scoped the change to "only the nid-level weld insert
+moves", so closing this needs the epsilon-wedge weld's timing addressed —
+a spec question, not a lane fix, and explicitly out of this spec's scope.
+
+### Disposition
+
+The reorder is KEPT (`O4_WELD_BEFORE_PROJECTION`, default ON): it is
+measurably law-neutral (0 rows moved), surface-neutral by construction
+(inserts at the edge's own interpolated altitude), and it puts the weld in
+the architecturally correct place. It simply does not close the 22-row
+class, and the new verification line now says so out loud on every build
+instead of leaving a silent 68.
+
+UNPAID / OWED:
+
+- SPJC unchanged at 245 vs 189. The class split stands as attributed: 26
+  projection-residual rows (solver exits over cap: A1 267 / A2 85) and 22
+  emit-minted-topology rows, now proven to be minted AFTER the projection
+  by the epsilon-wedge weld rather than by the nid-level pass.
+- THE ACTIONABLE ITEM MOVES ONE PASS EARLIER: the epsilon-wedge weld
+  (pipeline part 30j, 142 inserts at SPJC) is the author. Either it moves
+  before the projection too, or the law-aware emit snap's scope must cover
+  post-weld adjacencies. Both are spec decisions.
+- HECA/CYXY were not rebuilt: the SPJC diff showed zero law-row movement,
+  which is the budget's own condition for not rebuilding.

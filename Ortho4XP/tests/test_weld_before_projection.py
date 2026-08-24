@@ -155,3 +155,46 @@ def test_the_weld_uses_the_one_candidate_enumeration():
     assert hasattr(CF, "_plan_shape_inserts")
     assert "only one" in CF._plan_shape_inserts.__doc__.lower() or \
         "the only one" in CF._plan_shape_inserts.__doc__.lower()
+
+
+# ── AMENDMENT A1: the wedge insert joins the pre-projection pass ──────
+
+def test_the_wedge_and_nid_inserts_are_the_same_function():
+    """A1 §1a asks for "wedge + nid inserts together".  They already ARE one
+    function at one tolerance — what distinguished the post-projection wedge
+    call was only its DEM/tile frame — so merging them is a call-site
+    change, not a second enumeration."""
+    import inspect
+    src = inspect.getsource(PL)
+    pre = src.index("weld-before-projection] {icao}: inserted")
+    head = src[:pre]
+    assert "_enf_pre(layout, tol=_PRE_WELD_TOL_M" in src
+    assert "dem=_projection_dem" in src[head.rindex("_enf_pre"):pre + 400], (
+        "the pre-projection insert must carry the DEM frame — the "
+        "'cuts never fill' bound the wedge call had")
+
+
+def test_the_snap_is_idempotent_so_it_may_run_in_both_places():
+    """A1 §1b keeps the SNAP post-projection.  The pre-projection pass adds
+    an idempotent call because the snap is the insert's documented
+    precondition; snapping already-unified twins must be a no-op, or the
+    second call would move the surface."""
+    a = _apron([(0, 0), (10, 0), (10, 10), (0, 10)], "a")
+    b = _apron([(10.0005, 0), (20, 0), (20, 10), (10.0005, 10)], "b")
+    lay = _layout([a, b])
+    _s1, v1 = CF.snap_subcm_vertex_twins(lay)
+    _s2, v2 = CF.snap_subcm_vertex_twins(lay)
+    assert v2 == 0, (
+        "a second snap must find nothing — otherwise running it in two "
+        "places moves the surface twice")
+
+
+def test_the_post_projection_wedge_is_verification_when_the_gate_is_on():
+    """A1 §1a: the post-projection wedge insert count MUST read 0, and a
+    nonzero count is the loud residue line, never silence."""
+    import inspect
+    src = inspect.getsource(PL)
+    assert "final epsilon-wedge weld: 0 " in src, (
+        "a zero count must print its own verification line")
+    assert "POST-PROJECTION WELD RESIDUE" in src
+    assert src.count("POST-PROJECTION WELD RESIDUE") >= 1

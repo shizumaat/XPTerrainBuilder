@@ -6520,9 +6520,35 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         if _WELD_BEFORE_PROJECTION and compute_elevations:
             from .conformance import (
                 enforce_conformance as _enf_pre,
+                snap_subcm_vertex_twins as _snap_pre,
                 FINAL_WELD_TOL_M as _PRE_WELD_TOL_M)
+            # THE SNAP IS THE INSERT'S DOCUMENTED PRECONDITION, so it runs
+            # here too (AMENDMENT A1 §1b lets the snap STAY post-projection;
+            # it does, unchanged — this is an ADDITIONAL idempotent call, not
+            # a move).  Without it the weld propagates mm-apart cross-shape
+            # twins instead of unifying them, which the solver/validator
+            # budget lockstep test measures (CYXY, one edge, 7.7e-5 m).
+            # Snapping already-unified twins is a no-op, so the
+            # post-projection call keeps its own meaning.
+            _n_ts_s, _n_ts_v = _snap_pre(layout)
+            if _n_ts_v:
+                UI.vprint(1,
+                    f"  [weld-before-projection] {icao}: snapped {_n_ts_v} "
+                    f"sub-cm vertex twin(s) across {_n_ts_s} shape(s) first "
+                    f"(the insert's precondition; sub-cm, below the 0.01 m "
+                    f"materiality floor).")
+            # THE WEDGE INSERT AND THE NID INSERT ARE THE SAME FUNCTION at
+            # the same tolerance — what distinguished the post-projection
+            # wedge call was only its DEM/tile frame, the "cuts never fill"
+            # bound for an insert on a CUT-ONLY shape (SPJC runway_end_resa:
+            # two inserts floated +2.12 / +2.22 m above the DEM envelope
+            # without it).  Carrying that frame here is what makes this ONE
+            # pass do both halves' work (AMENDMENT A1 §1a).
             _n_pw_s, _n_pw_v = _enf_pre(layout, tol=_PRE_WELD_TOL_M,
-                                        include_overlay_refs=True)
+                                        include_overlay_refs=True,
+                                        dem=_projection_dem,
+                                        tile_lat=_projection_tile_lat,
+                                        tile_lon=_projection_tile_lon)
             UI.vprint(1,
                 f"  [weld-before-projection] {icao}: inserted {_n_pw_v} "
                 f"T-vertex(es) into {_n_pw_s} shape(s) BEFORE the final "
@@ -6971,7 +6997,18 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         if _n_ewv:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: final epsilon-wedge weld — "
-                f"inserted {_n_ewv} vertex(es) into {_n_ews} shape(s).")
+                f"inserted {_n_ewv} vertex(es) into {_n_ews} shape(s)."
+                + ("  *** POST-PROJECTION WELD RESIDUE: these adjacencies "
+                   "were minted AFTER the bake and the projection, so NO "
+                   "law priced them (spec weld-before-projection-spec.md "
+                   "AMENDMENT A1 §1a requires 0 here — the pre-projection "
+                   "pass and this one disagree on the weld set). ***"
+                   if _WELD_BEFORE_PROJECTION else ""))
+        elif _WELD_BEFORE_PROJECTION:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: final epsilon-wedge weld: 0 "
+                f"insert(s) — the pre-projection weld left nothing to do "
+                f"(AMENDMENT A1 §1a verification).")
         # RESIDUAL REPORT (chain identity, 2026-07-09): anything the
         # weld could NOT unify is a divergent chain the tile mesh will
         # Ruppert-refine — name each site so the build log localizes

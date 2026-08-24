@@ -205,3 +205,21 @@ A4.4 Acceptance: CYXY, SPJC, HECA (staged + transects on). Bars 75 / 189 /
 Pre-delegated: materiality 0.01 m; attempt cap 2 then STOP; a pad-clamp
 appearing on an interior pair after A4 is a STOP; strict-population
 mismatch census-vs-bake is a STOP.
+
+## AMENDMENT A5 (Fable, 2026-08-21; owner ruling RULINGS 2026-08-21f) —
+## visible chords, pad interception
+
+A4.1(i) is refined: the per-vertex strict chord is the SHORTEST VISIBLE
+chord to a taxi centerline node — visibility via the engine's existing
+pavement-visibility predicate (`building_feasibility._pavement_visibility`
+/ classify_pair's visibility gate; reuse, never a third notion). If that
+chord INTERSECTS a building pad ring, the vertex's strict chord becomes
+the chord to THAT pad (its frontage authority, at the frontage/strict
+cap); the centerline chord is not priced for that vertex. One chord per
+vertex, deterministic (shortest; ties by node id). Both readers via
+classify_pair as always. Twins: (a) an obstructed nearer spine node loses
+to a visible farther one; (b) a pad-intercepted vertex prices to the pad
+and NOT the centerline; (c) unobstructed case identical to A4. Acceptance:
+fastpath re-price on the current patches first (expected to move HECA's
+frontage/nearest-spine split and behind-building vertices), then builds
+per budget discipline (HECA first if the fastpath moves it materially).

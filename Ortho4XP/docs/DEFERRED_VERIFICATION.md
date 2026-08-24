@@ -3391,3 +3391,57 @@ UNPAID / OWED:
 - SPLP / KAFW / KDFW still have no arm under this tree.
 - HECA's remaining 961 within_shape airside rows are 642 at ≤60 m, of which
   104 are the sub-5 m seat/weld class — the parallel read's territory.
+
+## 2026-08-24 A5 — visible chords + pad interception: HECA 1,129 → 1,116
+
+Spec AMENDMENT A5 (main a49430b; owner ruling RULINGS 2026-08-21f),
+implemented as 5ce4edd. Fastpath on all three patches, then ONE HECA build
+(built at 10a5730, clean).
+
+### Fastpath — how A5 moves the per-vertex chord set
+
+| airport | vertices with a chord | partner CHANGED by visibility | chord INTERCEPTED by a pad | loses its chord (nothing visible) |
+|---|---|---|---|---|
+| HECA | 2,557 | 130 | 151 | **468** |
+| SPJC | 2,021 | 53 | 102 | **337** |
+| CYXY | 336 | 29 | 25 | **55** |
+
+THE THIRD COLUMN IS THE ONE TO LOOK AT. Roughly **one apron vertex in six**
+(HECA 18 %, SPJC 17 %, CYXY 16 %) has NO visible centerline node within
+`BUILDING_REACH_CORRIDOR_M` and therefore loses its strict chord entirely
+under A5 — it falls to the interior 5 % cap. That is a faithful reading of
+the ruling ("the shortest VISIBLE chord"; if none is visible there is none),
+but it is a material narrowing of the movement-surface population and the
+owner should see it stated rather than inferred from a row count.
+
+### The HECA arm
+
+| | A4 | read fixes | **A5** | bar |
+|---|---|---|---|---|
+| adjudicated airside | 1273 | 1129 | **1116** | 1487 (PASS −371) |
+| within_shape airside | 1106 | 961 | **935** | |
+| transverse airside | 35 | 35 | **41** | |
+| A1 over_cap (both-hard) | 1388 (2) | 1553 (2) | **1514 (2)** | |
+| A2 over_cap (both-hard) | 328 (315) | 5 (1) | **3 (1)** | |
+| senior moved in A2 | 0 | 0 | **0** | |
+
+by cap **903 @1.0 % + 30 @1.5 % + 2 @8 %** — still none at 5 %. By chord
+≤60 m **618** (read fixes 642), 60–200 m 288, >200 m 29. Seat/weld residue
+(≤5 m, >2x) **103**. 22,331 both-senior interior pairs joined A1.
+`[writeback-band]` worst > 10 m = **0** (worst clamp +6.17 m).
+
+Confinement, read fixes → A5: 4,057 EXACT, **142 GONE, 128 NEW, net −14**.
+A modest, well-confined move — consistent with the fastpath, where the
+visibility and pad terms touch a few hundred of 2,557 vertices.
+
+UNPAID / OWED:
+
+- A5 is a REAL but SMALL improvement at HECA (−13 airside). Its larger
+  effect is structural: 468 HECA vertices lose their strict chord. Whether
+  that narrowing is intended at that scale is an owner question — the
+  ruling's words support it, but the measurement is worth a look before it
+  is treated as settled.
+- SPJC and CYXY have NO A5 ARM. The fastpath predicts similar proportions
+  (337 and 55 vertices losing their chord) but a prediction is not an arm;
+  SPJC in particular is the airport still over its bar (207 vs 189).
+- SPLP / KAFW / KDFW still have no arm under this tree.

@@ -195,3 +195,120 @@ def test_no_interior_half_ever_carries_lazy_machinery():
     _senior, interior = OS._split_apron_interior([ent], {(3, 4)})
     assert interior and not any(
         k.startswith("lazy_") for k in interior[0])
+
+
+# ── BOTH-SENIOR INTERIOR PAIRS ENTER A1 (lead 2026-08-23) ────────────
+
+def test_a_both_senior_interior_pair_is_corrected_in_A1():
+    """MEASURED GAP: A2 freezes every non-mover and the spec withholds
+    interior pairs from A1, so an interior pair whose endpoints are BOTH
+    SENIOR was priced by NEITHER pass — 21,117 of them at SPJC.  It now
+    joins A1 at its own cap.
+
+    Nodes 1 and 2 are both senior (each carries a strict pair to a pin);
+    the interior pair 1-2 is over its 5 % cap.  A1 must correct it."""
+    n = 6
+    #        0 pin   1        2        3 pin    4,5 receivers/pad
+    elev = [0.0, 0.0, 10.0, 0.0, 0.0, 0.0]
+    entries = [{"edges": [(0, 1, 1.0), (3, 2, 1.0), (1, 2, 1.0)],
+                "stage": "A"}]
+    rep = _run(entries, elev, {0, 3, 5}, {(1, 2)}, n)
+    assert rep.get("a1_both_senior_pairs") == 1, (
+        "the both-senior interior pair must be handed to A1")
+    assert abs(elev[1] - elev[2]) <= 1.0 + 1e-6, (
+        f"A1 must bring the pair under its cap; got {elev[1]} vs {elev[2]}")
+    # With the pair hoisted, A2 has no interior edge left at all, so it
+    # never runs and never reports — which is itself the point: nothing was
+    # left frozen-and-unpriced.
+    assert rep.get("senior_moved") in (0, None)
+
+
+def test_an_interior_pair_with_a_mover_stays_in_A2():
+    """The complement: a pair with at least one interior MOVER is exactly
+    what A2's freeze is built for and must not be hoisted."""
+    n = 4
+    elev = [0.0, 10.0, 20.0, 0.0]
+    rep = _run([{"edges": [(0, 1, 1.0), (1, 2, 1.0)], "stage": "A"}],
+               elev, {0, 3}, {(1, 2)}, n)
+    assert not rep.get("a1_both_senior_pairs"), (
+        "node 2 is an interior mover, so 1-2 belongs to A2")
+    assert rep.get("interior_movers") == 1
+
+
+def test_no_law_leaves_the_system_when_the_interior_is_repartitioned():
+    ent = {"edges": [(1, 2, 0.1), (3, 4, 0.2)], "stage": "A"}
+    both, rest = OS._partition_interior_by_mover([ent], {4})
+    got = [e for sc in both for e in sc["edges"]]
+    got += [e for sc in rest for e in sc["edges"]]
+    assert sorted(got) == [(1, 2, 0.1), (3, 4, 0.2)]
+    assert both and both[0]["edges"] == [(1, 2, 0.1)]
+    assert rest and rest[0]["edges"] == [(3, 4, 0.2)]
+
+
+def test_the_interior_partition_carries_no_lazy_machinery():
+    ent = {"edges": [(1, 2, 0.1)], "stage": "A", "lazy_move_tolerance": 1e-3}
+    both, _rest = OS._partition_interior_by_mover([ent], set())
+    assert both and not any(k.startswith("lazy_") for k in both[0])
+
+
+# ── ONE PARTITION INPUT (lead 2026-08-23) ────────────────────────────
+
+def test_the_runtime_publishes_its_seniority_for_the_exporter():
+    """The sidecar used to RECOMPUTE the partition from a narrower
+    population (only unified:apron families counted as strict), exporting
+    2,395/751 against the runtime's 2,962/83.  A partition nobody solved is
+    not evidence about the solve, so the runtime publishes its own."""
+    n = 4
+    elev = [0.0, 10.0, 20.0, 0.0]
+    rep = _run([{"edges": [(0, 1, 1.0), (1, 2, 1.0)], "stage": "A"}],
+               elev, {0, 3}, {(1, 2)}, n)
+    sen = rep.get("seniority")
+    assert isinstance(sen, dict) and sen, "the runtime must publish it"
+    import auto_patch.grade_law as GL
+    assert sen.get(1) == GL.APRON_SENIOR
+    assert sen.get(2) == GL.APRON_INTERIOR
+
+
+def test_the_exporter_prefers_the_runtime_partition():
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as S
+    src = inspect.getsource(S.final_grade_projection)
+    assert '_fp_staged_report.get("seniority")' in src, (
+        "the export must read the runtime's own partition first")
+
+
+# ── REPORTING FRAME (lead 2026-08-23) ────────────────────────────────
+
+def test_the_exit_line_names_the_excluded_both_hard_population():
+    """[converged] describes the SWEPT set while the tally counts every
+    edge, so the difference must be named or the two cannot reconcile."""
+    import inspect
+    src = inspect.getsource(OS)
+    assert "excluded_both_hard=" in src
+    assert "_excluded_both_hard += 1" in src
+    assert src.count("_excluded_both_hard += 1") == 2, (
+        "both exclusion sites (symmetric and interval) must count")
+
+
+def test_an_all_hard_hyper_row_neither_blocks_nor_moves():
+    """3(c): a hyperplane row whose every node is frozen cannot be
+    projected, so it must not hold ``any_active`` — otherwise the sweep can
+    never certify and burns its whole budget on a row it cannot touch.  It
+    is still reported."""
+    import inspect
+    src = inspect.getsource(OS)
+    assert "_movable = _nrm > 0.0" in src
+    assert "_act = (_r > tol) & _movable" in src
+
+
+def test_the_A2_docket_exists_and_mirrors_A1s():
+    import inspect
+    src = inspect.getsource(OS)
+    assert '_report["a2_both_hard_raw"]' in src
+    from auto_patch.elevation_per_surface.route_profile import solve as S
+    csrc = Path(S.__file__).read_text()
+    # (the phrase is split across source lines by the formatter, so match
+    # its halves rather than the concatenated literal)
+    assert "A2 BOTH-HARD top" in csrc
+    assert "THE FREEZE " in csrc and "DOCKET (an interior pair" in csrc
+    assert 'report["a2_both_hard_rows"]' in csrc

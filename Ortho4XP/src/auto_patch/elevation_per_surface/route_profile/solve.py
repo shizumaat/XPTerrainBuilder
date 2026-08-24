@@ -6888,6 +6888,10 @@ def _apron_staged_certificate(icao, report, n, family_of, pin_sources):
                                                               max(u, v)), "?")))
                 for (x, u, v) in (report.get("a1_both_hard_raw") or ())]
         rows.sort(reverse=True)
+        rows2 = [(float(x), int(u), int(v), str(family_of.get((min(u, v),
+                                                               max(u, v)), "?")))
+                 for (x, u, v) in (report.get("a2_both_hard_raw") or ())]
+        rows2.sort(reverse=True)
         _UI_c.vprint(
             1, f"  [apron-staged] {icao} CERTIFICATE: "
                f"A1 over_cap={report.get('a1_over_cap')} "
@@ -6908,6 +6912,22 @@ def _apron_staged_certificate(icao, report, n, family_of, pin_sources):
                 1, f"      excess {exc:7.3f} m  {fam:28s} "
                    f"nodes {a}/{b}  pins {_pin_src.get(a, '?')}/"
                    f"{_pin_src.get(b, '?')}")
+        if rows2:
+            _UI_c.vprint(
+                1, f"  [apron-staged] {icao} A2 BOTH-HARD top "
+                   f"{min(20, len(rows2))} of {len(rows2)} — THE FREEZE "
+                   f"DOCKET (an interior pair neither endpoint of which A2 "
+                   f"may move: a statement about the freeze, not the law):")
+            for exc, a, b, fam in rows2[:20]:
+                _UI_c.vprint(
+                    1, f"      excess {exc:7.3f} m  {fam:28s} "
+                       f"nodes {a}/{b}  pins {_pin_src.get(a, '?')}/"
+                       f"{_pin_src.get(b, '?')}")
+            report["a2_both_hard_rows"] = [
+                {"excess_m": round(float(x), 4), "a": int(u), "b": int(v),
+                 "family": str(f), "pin_a": _pin_src.get(u, "?"),
+                 "pin_b": _pin_src.get(v, "?")}
+                for (x, u, v, f) in rows2[:20]]
         report["a1_both_hard_rows"] = [
             {"excess_m": round(float(x), 4), "a": int(u), "b": int(v),
              "family": str(f), "pin_a": _pin_src.get(u, "?"),
@@ -8548,34 +8568,6 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # taken beside the family axis it parallels.  ``staged_report`` collects
     # the A1/A2 split for the certificate below.
     _fp_interior = G.interior_pairs()
-    # THE SENIORITY PARTITION, exported for the census (spec section 3).
-    # ONE function (``grade_law.apron_node_seniority``) fed with the pairs
-    # the law already classified — the reader never re-spells the predicate.
-    try:
-        from auto_patch import grade_law as _GLsen
-        _ap_nodes, _strict = set(), []
-        for _e4, _it in zip(G.edges, G.edge_interior):
-            _a4, _b4 = _e4[0], _e4[1]
-            if not isinstance(_a4, int) or not isinstance(_b4, int):
-                continue
-            _k4 = (min(_a4, _b4), max(_a4, _b4))
-            if _k4 in _fp_interior:
-                _ap_nodes.update(_k4)
-            elif str(_fp_family_of.get(_k4, "")).startswith("unified:apron"):
-                _ap_nodes.update(_k4)
-                _strict.append(_k4)
-        _tx_nodes = set()
-        for _h in (getattr(layout, "_transverse_hyper_rows", None) or ()):
-            try:
-                _tx_nodes.update(int(_i) for _i in _h[0])
-            except Exception:
-                pass
-        _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
-        setattr(layout, "_apron_seniority_ll", [
-            [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
-            for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])
-    except Exception as _e_sen:                          # pragma: no cover
-        setattr(layout, "_apron_seniority_ll", [])
     _fp_staged_report: dict = {}
     setattr(layout, "_apron_staged_report", _fp_staged_report)
     rem, bh = feasibility_project_partitioned(
@@ -8602,6 +8594,48 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   group_bounds=_fp_group_bounds,
                                   node_bounds=_fp_node_bounds,
                                   declared_out=_fp_declared)
+    # THE SENIORITY PARTITION, exported for the census (spec section 3).
+    # TAKEN AFTER THE PROJECTION (lead 2026-08-23) so it can publish the
+    # RUNTIME's own partition from the staged report rather than deriving a
+    # second, narrower one — see the ONE PARTITION INPUT note below.
+    # ONE function (``grade_law.apron_node_seniority``) fed with the pairs
+    # the law already classified — the reader never re-spells the predicate.
+    try:
+        from auto_patch import grade_law as _GLsen
+        _ap_nodes, _strict = set(), []
+        for _e4, _it in zip(G.edges, G.edge_interior):
+            _a4, _b4 = _e4[0], _e4[1]
+            if not isinstance(_a4, int) or not isinstance(_b4, int):
+                continue
+            _k4 = (min(_a4, _b4), max(_a4, _b4))
+            if _k4 in _fp_interior:
+                _ap_nodes.update(_k4)
+            elif str(_fp_family_of.get(_k4, "")).startswith("unified:apron"):
+                _ap_nodes.update(_k4)
+                _strict.append(_k4)
+        _tx_nodes = set()
+        for _h in (getattr(layout, "_transverse_hyper_rows", None) or ()):
+            try:
+                _tx_nodes.update(int(_i) for _i in _h[0])
+            except Exception:
+                pass
+        # ONE PARTITION INPUT (lead 2026-08-23): prefer the RUNTIME's own
+        # partition, published by the staged pass on its report.  The local
+        # derivation below is the fallback for a build where the staged
+        # solve did not run (flag off, or no interior pairs at all); it
+        # counted only ``unified:apron`` families as strict and so exported
+        # a DIFFERENT partition from the one that ran — 2,395/751 against
+        # the runtime's 2,962/83.  A partition nobody solved is not
+        # evidence about the solve.
+        _sen = dict(_fp_staged_report.get("seniority") or {}) \
+            if isinstance(_fp_staged_report, dict) else {}
+        if not _sen:
+            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
+        setattr(layout, "_apron_seniority_ll", [
+            [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
+            for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])
+    except Exception as _e_sen:                          # pragma: no cover
+        setattr(layout, "_apron_seniority_ll", [])
     # The audit's read-out.  ``>0`` is a STOP LINE, not a failure: the
     # count is the size of the airside second-authorship this pass
     # carries, and it is a PRE-EXISTING number (every post-solve

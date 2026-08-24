@@ -1612,7 +1612,8 @@ def _stall_guard_report(np, sweeps, max_iters, detect_sweep, detect_active,
         verdict = _stall_envelope_gap(np, endpoint_i, endpoint_j,
                                       raw_budget_column, interval_mask,
                                       weight_i, weight_j, z, n, pairs,
-                                      flat_group_reps=flat_group_reps)
+                                      flat_group_reps=flat_group_reps,
+                            excluded_both_hard=_excluded_both_hard)
     except Exception as exc:                               # pragma: no cover
         print(f"    [stall-report]   adjudication failed: {exc}")
         return
@@ -1831,7 +1832,8 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
                              family_by_pair=None,
                              exit_reason="cap", block=None, hard_cap=None,
                              block_trace=None, last_block_drop=None,
-                             flat_group_reps=None):
+                             flat_group_reps=None,
+                             excluded_both_hard=0):
     """LOUD report for ANY sweep loop that exits WITHOUT a certificate.
 
     THE CONTRACT (build-complete-then-debug round): every exit of the
@@ -1951,7 +1953,15 @@ def _uncertified_exit_report(np, tol, sweeps, max_iters,
           f"{len(block_trace or ())} block(s) of {block}); "
           f"active violating edges {active} "
           f"({n_material} >= {PROJECTION_MATERIALITY_M:g} m); "
-          f"worst residual {worst:.6f}")
+          f"worst residual {worst:.6f}"
+          # THE EXCLUDED POPULATION (lead 2026-08-23): pairs with BOTH
+          # endpoints immovable are dropped from the swept set — nothing can
+          # move them — but the final tally counts them, so this line and
+          # the over-cap total describe different populations unless the
+          # difference is named.  Naming it is what lets a reader subtract.
+          + (f"; excluded_both_hard={int(excluded_both_hard)} "
+             f"(both endpoints immovable: never swept, still tallied)"
+             if excluded_both_hard else ""))
     drop_txt = ("n/a (first block)" if last_block_drop is None
                 else f"{last_block_drop:+d} edge(s) >= "
                      f"{PROJECTION_MATERIALITY_M:g} m")
@@ -2642,7 +2652,21 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
         if H_m:
             _hz = z[H_idx]
             _r = (H_w * _hz).sum(1) - H_b
-            _act = _r > tol
+            # AN ALL-HARD ROW CANNOT BE PROJECTED, SO IT MUST NOT HOLD
+            # ``any_active`` (lead 2026-08-23).  ``_nrm == 0`` means every
+            # node the row touches is frozen: the step below is masked to
+            # zero, so an over-cap all-hard row would keep the sweep
+            # "active" forever while moving nothing — the loop can never
+            # certify and burns its whole budget on a row it cannot touch.
+            # Such rows are still REPORTED (they are real contradictions,
+            # the transverse family's own both-hard population); they just
+            # do not vote on termination, exactly as a both-immovable EDGE
+            # is excluded from ``iter_edges`` above.
+            _wf = H_w * H_free
+            _nrm = (_wf * _wf).sum(1)
+            _movable = _nrm > 0.0
+            _act = (_r > tol) & _movable
+            _act_all = _r > tol
             if bool(_act.any()):
                 any_active = True
                 _w = float(_r.max())
@@ -2653,8 +2677,6 @@ def _project_chromatic(elev, iter_edges, n, max_iters, tol,
                         stall_carrier = ("hyp", int(H_idx[_k, 0]),
                                          int(H_idx[_k, 2]), float(H_b[_k]),
                                          float(_r[_k]), 0.0, 0.0)
-                _wf = H_w * H_free
-                _nrm = (_wf * _wf).sum(1)
                 # THE STEP IS CAPPED AT THE ROW'S OWN VIOLATION (attempt
                 # 2, 2026-08-21).  ``r / ||w_free||^2`` is the exact
                 # projection onto the half-space, and it is exact only
@@ -2987,6 +3009,69 @@ class _StagedFlag:
 _APRON_STAGED_SOLVE = _StagedFlag()
 
 
+def _apron_seniority_for(g_senior, g_interior):
+    """``(seniority, movers)`` for the staged apron partition, computed from
+    the SAME inputs the law classified — the strict pairs still carrying
+    senior law after the split, plus the bound transect rows.
+
+    Hoisted out of the A2 block (lead 2026-08-23) so BOTH sub-stages
+    partition from one answer: A1 needs it to know which interior pairs are
+    both-senior, and A2 needs it to know its movers.  Deriving it twice
+    would be deriving it from sets A1 has already changed.
+    """
+    from auto_patch import grade_law as _GL
+    if not g_interior:
+        return None, None
+    cand, strict_p, tx = set(), [], set()
+    for sc in g_interior:
+        for e in (sc.get("edges") or ()):
+            if isinstance(e[0], int) and isinstance(e[1], int):
+                cand.add(int(e[0]))
+                cand.add(int(e[1]))
+    for sc in g_senior:
+        for e in (sc.get("edges") or ()):
+            if isinstance(e[0], int) and isinstance(e[1], int):
+                strict_p.append((int(e[0]), int(e[1])))
+        for h in (sc.get("hyper") or ()):
+            try:
+                tx.update(int(i) for i in h[0])
+            except Exception:
+                pass
+    seniority = _GL.apron_node_seniority(cand, strict_p, tx)
+    movers = {i for i, v in seniority.items() if v == _GL.APRON_INTERIOR}
+    return seniority, movers
+
+
+def _partition_interior_by_mover(entries, movers):
+    """Split interior ENTRIES into ``(both_senior, has_mover)``.
+
+    A pair with no interior mover cannot be projected by A2 (both ends are
+    frozen there), so it belongs in A1 at its own cap; a pair with at least
+    one mover is A2's by construction.  Entries are SPLIT, never dropped —
+    the two halves partition the input, so no law leaves the system.
+    """
+    both, rest = [], []
+    for sc in entries:
+        edges = sc.get("edges") or ()
+        bs = [e for e in edges
+              if isinstance(e[0], int) and isinstance(e[1], int)
+              and int(e[0]) not in movers and int(e[1]) not in movers]
+        if not bs:
+            rest.append(sc)
+            continue
+        keep = [e for e in edges if e not in bs]
+        b_ent = {k: v for k, v in sc.items()
+                 if k not in ("edges", "hyper", "lazy_nodes", "lazy_seed",
+                              "lazy_expand", "lazy_move_tolerance")}
+        b_ent["edges"] = bs
+        both.append(b_ent)
+        if keep:
+            r_ent = dict(sc)
+            r_ent["edges"] = keep
+            rest.append(r_ent)
+    return both, rest
+
+
 def _split_apron_interior(entries, interior_pairs):
     """Split constraint ENTRIES into (senior, interior) by the apron staged
     solve's partition (spec ``docs/specs/apron-staged-solve-spec.md`` §2).
@@ -3268,6 +3353,41 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
             probe_out=probe_out, **_kw_air)
     else:
         g_senior, g_interior = _split_apron_interior(givers, set(_interior))
+        # ── BOTH-SENIOR INTERIOR PAIRS BELONG TO A1 (lead 2026-08-23) ────
+        # A2 freezes every non-mover, and §2 withholds interior pairs from
+        # A1 — so an interior pair whose endpoints are BOTH SENIOR was
+        # priced by NEITHER pass: A1 never saw the edge, and A2 saw it with
+        # both ends frozen.  Measured at SPJC: 21,117 such pairs.  They join
+        # A1's edge set AT THEIR OWN 5 % CAP (A1 already carries mixed caps
+        # — spine, blend, frontage and body all differ), and A2 keeps only
+        # the pairs with at least one interior MOVER, which is exactly the
+        # population its freeze is built for.
+        # The seniority partition therefore has to be known BEFORE A1 runs;
+        # it is the same call, on the same inputs, just hoisted.
+        _seniority, _movers = _apron_seniority_for(g_senior, g_interior)
+        # ONE PARTITION INPUT (lead 2026-08-23).  The sidecar used to
+        # RECOMPUTE seniority in solve.py from a NARROWER population (only
+        # ``unified:apron`` families counted as strict), so the exported
+        # partition disagreed with the one the solve actually ran:
+        # 2,395/751 exported against 2,962/83 at runtime.  The runtime's
+        # answer is the only one that describes what happened, so it is
+        # published here and the exporter reads it instead of deriving a
+        # second one.
+        if isinstance(kw.get("staged_report"), dict) and _seniority:
+            kw["staged_report"]["seniority"] = dict(_seniority)
+        if _movers is not None:
+            _both_senior, g_interior = _partition_interior_by_mover(
+                g_interior, _movers)
+            if _both_senior:
+                g_senior = list(g_senior) + _both_senior
+                _n_bs = sum(len(e.get("edges") or ()) for e in _both_senior)
+                import O4_UI_Utils as _UI_bs
+                _UI_bs.vprint(
+                    1, f"    [apron-staged] {_n_bs} interior pair(s) with "
+                       f"BOTH endpoints senior joined the A1 pass at their "
+                       f"own cap (neither pass priced them before).")
+                if isinstance(kw.get("staged_report"), dict):
+                    kw["staged_report"]["a1_both_senior_pairs"] = int(_n_bs)
         rem_a, bh_a = feasibility_project(
             elev, g_senior, hard_air, flat_groups=flat_groups,
             group_bounds=group_bounds, forensics=forensics,
@@ -3318,24 +3438,11 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
             # law after the split is a strict pair, and the transect rows
             # ride with the senior half.
             from auto_patch import grade_law as _GLsen
-            _cand, _strict_p, _tx = set(), [], set()
-            for sc in g_interior:
-                for e in (sc.get("edges") or ()):
-                    if isinstance(e[0], int) and isinstance(e[1], int):
-                        _cand.add(int(e[0]))
-                        _cand.add(int(e[1]))
-            for sc in g_senior:
-                for e in (sc.get("edges") or ()):
-                    if isinstance(e[0], int) and isinstance(e[1], int):
-                        _strict_p.append((int(e[0]), int(e[1])))
-                for _h in (sc.get("hyper") or ()):
-                    try:
-                        _tx.update(int(_i) for _i in _h[0])
-                    except Exception:
-                        pass
-            _seniority = _GLsen.apron_node_seniority(_cand, _strict_p, _tx)
-            _mov = {i for i, v in _seniority.items()
-                    if v == _GLsen.APRON_INTERIOR}
+            # THE PARTITION IS THE ONE COMPUTED ABOVE, before A1 — hoisted
+            # so both passes partition from the SAME answer rather than
+            # deriving it twice from sets that A1 has since changed.
+            _mov = set(_movers or ())
+            _cand = set(_seniority or ())
             _senior_frozen = _cand - _mov
             # Built explicitly, like ``hard_recv`` below and for the same
             # reason: the reach-band clamp inside ``feasibility_project``
@@ -3362,6 +3469,35 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
             if isinstance(_report, dict):
                 _report["a2_over_cap"] = int(rem_i)
                 _report["a2_both_hard"] = int(bh_i)
+                # A2'S OWN DOCKET (lead 2026-08-23), the mirror of A1's:
+                # a both-hard row in the INTERIOR pass is an interior pair
+                # neither endpoint of which A2 may move, so it is a
+                # statement about the FREEZE, not about the interior law.
+                try:
+                    _bh2 = []
+                    for _sc in g_interior:
+                        for _e in (_sc.get("edges") or ()):
+                            _a, _b = _e[0], _e[1]
+                            if not isinstance(_a, int) or not isinstance(_b, int):
+                                continue
+                            if _a not in hard_int or _b not in hard_int:
+                                continue
+                            _d = float(elev[_a]) - float(elev[_b])
+                            if len(_e) >= 4:
+                                _lo, _hi = _e[2], _e[3]
+                                _x = ((_lo - _d)
+                                      if (_lo is not None and _d < _lo)
+                                      else (_d - _hi)
+                                      if (_hi is not None and _d > _hi)
+                                      else 0.0)
+                            else:
+                                _x = abs(_d) - float(_e[2])
+                            if _x > 1e-3:
+                                _bh2.append((float(_x), int(_a), int(_b)))
+                    _bh2.sort(reverse=True)
+                    _report["a2_both_hard_raw"] = _bh2[:200]
+                except Exception:
+                    _report["a2_both_hard_raw"] = []
                 _report["interior_movers"] = len(_mov)
                 _report["senior_moved"] = len(_moved)
             if _moved:
@@ -4842,10 +4978,18 @@ def feasibility_project(elev, shape_constraints, hard, *,
     # frame it did not choose.
     iter_edges = []
     iter_raw_budget = []
+    # THE EXCLUDED POPULATION, NAMED (lead 2026-08-23).  A both-immovable
+    # pair is dropped here — nothing can move it — but the FINAL TALLY below
+    # walks ``edges`` and counts it, so ``[converged]`` (a statement about
+    # the swept set) and the over-cap total (a statement about the whole
+    # law) were describing different populations with no line reconciling
+    # them.  Counting the exclusion is what lets a reader subtract.
+    _excluded_both_hard = 0
     for (i, j, _raw_budget, sweep_budget) in edges:
         hi = i in immovable
         hj = j in immovable
         if hi and hj:
+            _excluded_both_hard += 1
             continue
         iter_edges.append((i, j, sweep_budget, 1 if hi else (2 if hj else 0)))
         iter_raw_budget.append(_raw_budget)
@@ -4865,6 +5009,7 @@ def feasibility_project(elev, shape_constraints, hard, *,
         hi = i in immovable
         hj = j in immovable
         if hi and hj:
+            _excluded_both_hard += 1
             continue
         kind = 1 if hi else (2 if hj else 0)
         # HOST-AUTHORITATIVE ZONE EDGES (Slice B stage B3 solve-side fix,

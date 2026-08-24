@@ -198,3 +198,28 @@ def test_the_post_projection_wedge_is_verification_when_the_gate_is_on():
         "a zero count must print its own verification line")
     assert "POST-PROJECTION WELD RESIDUE" in src
     assert src.count("POST-PROJECTION WELD RESIDUE") >= 1
+
+
+# ── sidecar identity spelling (the join-artifact fix) ────────────────
+
+def test_the_sidecar_exports_pair_caps_at_the_canonical_spelling():
+    """MEASURED COST of the old 7 dp key (half-ulp 0.0056 m): a ~5 mm
+    proximity join against that quantum split SPJC's 48-row class into a
+    phantom "26 baked / 22 emit-minted", and a spec round was written
+    against the 22.  At 10 mm all 48 join.  An export that cannot be joined
+    by IDENTITY invites the very defect the canonical-identity-join law
+    forbids, so the sidecar spells coordinates the way the emitted patch
+    does: 11 decimals."""
+    import inspect
+    from auto_patch import verification as V
+    src = inspect.getsource(V.lockstep_pair_caps_ll)
+    assert "round(lat_a, 11)" in src and "round(lon_a, 11)" in src
+    assert "round(lat_a, 7)" not in src, "7 dp is coarser than the geometry"
+
+
+def test_the_mesh_edge_export_uses_the_same_spelling():
+    import inspect
+    from auto_patch import verification as V
+    src = inspect.getsource(V)
+    i = src.index("edges_ll.append")
+    assert "round(lat_a, 11)" in src[i - 400:i + 200]

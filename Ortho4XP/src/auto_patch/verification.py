@@ -3961,8 +3961,12 @@ def junction_mesh_edges_ll(layout):
         for (index_a, index_b) in index_pairs:
             lat_a, lon_a = layout.m_to_ll(*ring[index_a])
             lat_b, lon_b = layout.m_to_ll(*ring[index_b])
-            edges_ll.append([[round(lat_a, 7), round(lon_a, 7)],
-                             [round(lat_b, 7), round(lon_b, 7)]])
+            # 11 dp, the canonical identity spelling — same reason as
+            # ``lockstep_pair_caps_ll`` below: mesh_edges_ll is joined to
+            # emitted nodes, and a 7 dp key (half-ulp 0.0056 m) forces every
+            # reader into a proximity join.
+            edges_ll.append([[round(lat_a, 11), round(lon_a, 11)],
+                             [round(lat_b, 11), round(lon_b, 11)]])
     return edges_ll
 
 
@@ -4034,8 +4038,20 @@ def lockstep_pair_caps_ll(layout):
                 continue
             lat_a, lon_a = layout.m_to_ll(*point_a)
             lat_b, lon_b = layout.m_to_ll(*point_b)
-            key_a = (round(lat_a, 7), round(lon_a, 7))
-            key_b = (round(lat_b, 7), round(lon_b, 7))
+            # THE CANONICAL IDENTITY SPELLING IS 11 DECIMALS (memory
+            # ``canonical-identity-join``; the emitted patch spells nodes
+            # the same way).  It used to be 7, whose half-ulp is 0.0056 m —
+            # coarser than the sub-centimetre geometry this export
+            # describes, so NO reader could join a row to a baked pair by
+            # identity and every consumer fell back to a proximity join.
+            # MEASURED COST (2026-08-23): a ~5 mm proximity join against
+            # that quantum split SPJC's 48-row class into a phantom
+            # "26 baked / 22 emit-minted", and a whole spec round was
+            # written against the 22.  At 10 mm all 48 join.  An export
+            # that cannot be joined by identity is an export that INVITES
+            # the defect the identity law exists to forbid.
+            key_a = (round(lat_a, 11), round(lon_a, 11))
+            key_b = (round(lat_b, 11), round(lon_b, 11))
             if key_a == key_b:
                 continue
             pair_key = (min(key_a, key_b), max(key_a, key_b))

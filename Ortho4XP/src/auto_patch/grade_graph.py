@@ -376,6 +376,13 @@ class GradeContext:
     # inside it carries NO apron law (A4.2).  Both context builders fill it
     # from the same function, so the two readers exclude the same ground.
     strip_keepout: object = None
+    # ── AMENDMENT A5 ────────────────────────────────────────────────────
+    # ``building_polys``: the BUILDING PAD rings as (x, y) tuples, for the
+    # pad-interception half of A5.  Geometry, not keys — the keys already
+    # live in ``building_keys``/``frontage_keys``, but a chord's INTERSECTION
+    # with a pad is a geometric question.  Filled by both context builders
+    # from the same shapes, beside ``corridor_lines``.
+    building_polys: tuple = ()
     # The centerline GEOMETRY the spine corridor cover is built from — set by
     # the context builders alongside ``centerlines`` so BOTH readers cover the
     # same spines.  The cover itself is built LAZILY and cached (see
@@ -479,7 +486,55 @@ def spine_nodes_m(ctx: "GradeContext") -> list:
     return out
 
 
-def nearest_spine_pairs(ring, keys, ctx) -> set:
+def _pad_intercept(ring, i, j, ctx):
+    """The BUILDING PAD a vertex's centerline chord runs into, or ``None``
+    (spec AMENDMENT A5).  Returns the index of a ring vertex ON that pad, so
+    the replacement chord stays inside the ring x ring enumeration and mints
+    no vertex.
+
+    FRONTAGE AUTHORITY (owner ruling RULINGS 2026-08-21f): a pad standing in
+    the path IS what that vertex grades to — the centerline behind it is not
+    the surface an aircraft or an apron edge reaches.  So the chord is
+    REPLACED, not added: one chord per vertex, still.
+    """
+    pads = getattr(ctx, "building_polys", None)
+    if not pads:
+        return None
+    try:
+        from shapely.geometry import LineString, Polygon
+    except ImportError:                                    # pragma: no cover
+        return None
+    ax, ay = ring[i]
+    bx, by = ring[j]
+    chord = LineString([(ax, ay), (bx, by)])
+    best = None
+    bestd = None
+    import math as _m
+    for pad in pads:
+        if len(pad) < 3:
+            continue
+        try:
+            poly = Polygon(pad)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if not chord.intersects(poly):
+                continue
+        except Exception:                                  # pragma: no cover
+            continue
+        # the pad is in the way — price to the ring vertex ON it that is
+        # nearest this one (deterministic: shortest, then lowest index).
+        padset = {(round(px, 6), round(py, 6)) for (px, py) in pad}
+        for k2, (qx, qy) in enumerate(ring):
+            if k2 == i or (round(qx, 6), round(qy, 6)) not in padset:
+                continue
+            d = _m.hypot(qx - ax, qy - ay)
+            if bestd is None or d < bestd - 1e-9 or (
+                    abs(d - bestd) <= 1e-9 and k2 < best):
+                best, bestd = k2, d
+    return best
+
+
+def nearest_spine_pairs(ring, keys, ctx, vis=None) -> set:
     """``{(key_a, key_b)}`` — ONE chord per ring vertex, to its NEAREST spine
     node (spec AMENDMENT A4.1(i)).
 
@@ -526,11 +581,26 @@ def nearest_spine_pairs(ring, keys, ctx) -> set:
             d = _m.hypot(ring[j][0] - x, ring[j][1] - y)
             if d > _BUILDING_REACH_CORRIDOR_M:
                 continue
+            # THE SHORTEST *VISIBLE* CHORD (spec AMENDMENT A5; owner ruling
+            # RULINGS 2026-08-21f).  Visibility is the engine's OWN pavement
+            # predicate — the same ``vis`` thunk ``classify_pair``'s
+            # visibility gate consumes — so no third notion of "can this
+            # vertex reach that one" is minted.  A nearer spine node behind
+            # a re-entrant edge is not the chord this vertex grades on.
+            if vis is not None and not vis(x, y, ring[j][0], ring[j][1]):
+                continue
             if bestd is None or d < bestd - 1e-9 or (
                     abs(d - bestd) <= 1e-9 and j < best):
                 best, bestd = j, d
         if best is None:
             continue
+        # PAD INTERCEPTION (A5): a pad standing in the chord's path IS what
+        # this vertex grades to; the centerline chord behind it is NOT
+        # priced for this vertex.  Replacement, not addition — one chord per
+        # vertex either way.
+        _pad = _pad_intercept(ring, i, best, ctx)
+        if _pad is not None:
+            best = _pad
         ka, kb = keys[i], keys[best]
         out.add((ka, kb) if str(ka) <= str(kb) else (kb, ka))
     return out
@@ -1213,6 +1283,12 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                        route_zone=route_zone,
                        frontage_keys=frozenset(frontage_keys),
                        corridor_lines=centerline_geometries(cls),
+                       building_polys=tuple(
+                           tuple(_open_ring(list(s.polygon.exterior.coords)))
+                           for s in layout.shapes
+                           if (s.role == ROLE_BUILDING and s.polygon is not None
+                               and not s.polygon.is_empty
+                               and s.polygon.geom_type == "Polygon")),
                        seam_keys=frozenset(seam_pin_idx),
                        service_source=service_spine_source(layout),
                        service_length_m=_svc_len_m)
@@ -2449,9 +2525,13 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # both computed ONCE per shape and handed to the law as per-pair facts.
     near_spine = set()
     strip_vert = None
+    # ONE VISIBILITY THUNK for this ring, built once and used by BOTH the
+    # A5 chord selection and the pair loop's own visibility gate — the same
+    # predicate, so "can this vertex reach that one" has one answer here.
+    vis = None if ring_only else _visibility_predicate(ring)
     if shape.role == APRON_ROLE:
         strip_vert = strip_excluded_flags(ring, ctx)
-        near_spine = nearest_spine_pairs(ring, keys, ctx)
+        near_spine = nearest_spine_pairs(ring, keys, ctx, vis=vis)
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
@@ -2465,7 +2545,6 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         if cover is not None:
             from shapely.geometry import Point as _CoPt
             cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]
-    vis = None if ring_only else _visibility_predicate(ring)
     # JUNCTION MESH CONSTRAINTS (O4_JUNCTION_MESH_CONSTRAINTS): the RULE — a
     # junction's only real grade paths are the spine + the triangle-mesh edges,
     # the remaining body chords are phantom — lives in ``grade_law.classify_pair``

@@ -882,3 +882,94 @@ def test_the_nearest_spine_assignment_is_deterministic():
     assert len(got) == len({tuple(sorted(p))[0] for p in got}) or True
     by_src = [p for p in got if 3 in p]
     assert len(by_src) <= 1, "vertex 3 may own at most one nearest-spine chord"
+
+
+# ── AMENDMENT A5: visible chords, pad interception ───────────────────
+
+class _A5Ctx:
+    """A minimal context: one centerline through given points, optional pads."""
+    def __init__(self, spine_pts, pads=()):
+        self.centerlines = [type("C", (), {"pts": list(spine_pts)})()]
+        self.building_polys = tuple(tuple(p) for p in pads)
+        self._spine_nodes_built = False
+        self._spine_nodes_m = []
+
+
+def test_an_obstructed_nearer_spine_node_loses_to_a_visible_farther_one():
+    """A5(a).  Vertex 0 sits in a C-shaped ring; the NEARER spine node is
+    outside the pavement (the chord leaves the ring), the farther one is
+    visible.  The visible one wins — visibility is the engine's own
+    pavement predicate, not a new notion."""
+    # C-shape opening to the right: the chord from 0 to the near node cuts
+    # across the mouth (outside the ring); the far node is straight up.
+    ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 10.0), (10.0, 10.0),
+            (10.0, 30.0), (40.0, 30.0), (40.0, 40.0), (0.0, 40.0)]
+    keys = list(range(len(ring)))
+    near = (40.0, 20.0)     # inside the mouth — chord from (0,0) exits
+    far = (0.0, 40.0)       # a ring vertex straight up the left wall
+    ctx = _A5Ctx([near, far])
+    vis = GG._visibility_predicate(ring)
+    assert vis is not None
+    assert not vis(0.0, 0.0, *near), "the fixture must actually obstruct"
+    got = GG.nearest_spine_pairs(ring, keys, ctx, vis=vis)
+    chosen = {p for p in got if 0 in p}
+    assert chosen, "vertex 0 must still get a chord"
+    partner = [k for k in tuple(chosen)[0] if k != 0][0]
+    assert ring[partner] == far, (
+        f"the obstructed nearer node must lose; got {ring[partner]}")
+
+
+def test_the_unobstructed_case_is_identical_to_A4():
+    """A5(c): with nothing in the way, A5 chooses exactly what A4 did."""
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    keys = list(range(len(ring)))
+    ctx = _A5Ctx([(10.0, 0.0), (10.0, 10.0)])
+    vis = GG._visibility_predicate(ring)
+    with_vis = GG.nearest_spine_pairs(ring, keys, ctx, vis=vis)
+    without = GG.nearest_spine_pairs(ring, keys, ctx, vis=None)
+    assert with_vis == without, (
+        "an unobstructed ring must select the same chords with or without "
+        "the visibility gate")
+
+
+def test_a_pad_in_the_path_intercepts_the_chord():
+    """A5(b): the vertex prices to the PAD, not to the centerline behind
+    it — frontage authority (owner ruling RULINGS 2026-08-21f).  The chord
+    is REPLACED, so there is still exactly one per vertex."""
+    # vertex 0 at origin; spine node at (100,0); a pad sits between them and
+    # shares vertices with the ring.
+    ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
+            (100.0, 50.0), (0.0, 50.0)]
+    keys = list(range(len(ring)))
+    pad = [(40.0, -5.0), (60.0, -5.0), (60.0, 0.0), (40.0, 0.0)]
+    ctx = _A5Ctx([(100.0, 0.0)], pads=[pad])
+    got = GG.nearest_spine_pairs(ring, keys, ctx, vis=None)
+    chosen = [p for p in got if 0 in p]
+    assert len(chosen) == 1, "still exactly one chord per vertex"
+    partner = [k for k in chosen[0] if k != 0][0]
+    assert ring[partner] in ((40.0, 0.0), (60.0, 0.0)), (
+        f"the chord must land on the intercepting pad; got {ring[partner]}")
+    assert ring[partner] != (100.0, 0.0), (
+        "the centerline behind the pad must NOT be priced for this vertex")
+
+
+def test_the_pad_interception_is_deterministic():
+    ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
+            (100.0, 50.0), (0.0, 50.0)]
+    keys = list(range(len(ring)))
+    pad = [(40.0, -5.0), (60.0, -5.0), (60.0, 0.0), (40.0, 0.0)]
+    ctx = _A5Ctx([(100.0, 0.0)], pads=[pad])
+    a = GG.nearest_spine_pairs(ring, keys, ctx, vis=None)
+    b = GG.nearest_spine_pairs(ring, list(keys), _A5Ctx([(100.0, 0.0)],
+                                                        pads=[pad]), vis=None)
+    assert a == b, "the selection must not depend on iteration order"
+
+
+def test_no_pads_means_no_interception():
+    ring = [(0.0, 0.0), (40.0, 0.0), (100.0, 0.0), (100.0, 50.0),
+            (0.0, 50.0)]
+    keys = list(range(len(ring)))
+    ctx = _A5Ctx([(100.0, 0.0)])
+    got = GG.nearest_spine_pairs(ring, keys, ctx, vis=None)
+    chosen = [p for p in got if 0 in p]
+    assert chosen and ring[[k for k in chosen[0] if k != 0][0]] == (100.0, 0.0)

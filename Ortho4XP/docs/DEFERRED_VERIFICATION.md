@@ -2811,3 +2811,90 @@ every apron-law arm so far.
 UNPAID / OWED: SPJC and HECA remain over their bars; the spine-door
 question above; the SPJC weld cluster; SPLP / KAFW / KDFW still have no arm
 under this tree.
+
+## 2026-08-23 A4 — nearest-spine chords + strip exclusion: HECA PASSES ITS BAR
+
+Spec AMENDMENT A4 (main 45f7268; owner rulings RULINGS 2026-08-21d),
+implemented as ef3e842 + b828ff9 on lane/compose. Budget ruling applied:
+FASTPATH re-price on all three A3 patches first, then ONE build (HECA).
+
+### The fastpath (artifacts only — no build)
+
+Re-pricing the A3 patches under the A4 population predicted, per airport:
+
+| | HECA | SPJC | CYXY |
+|---|---|---|---|
+| nearest-spine chords priced | 2,559 | 2,026 | 329 |
+| ...violating at 1 % | 1,253 | 513 | 101 |
+| max nearest-spine chord | 200 m | 169 m | 188 m |
+| strip-EXCLUDED nodes | 140 | 8 | 3 |
+| shapes FULLY excluded | **12** | 0 | 0 |
+| -10612 chords per vertex | **1** | — | — |
+
+The 12 fully-excluded HECA shapes are `-11412 -11415 -11423 -12240 -12249
+-12250 -12251 -12308 -12481 -12482 -12500 -12520` — **including -12251**,
+the runway-05C/23C shoulder sliver the owner identified in JOSM.
+
+THE FASTPATH PAID FOR ITSELF: it caught that selecting the nearest spine
+node by COORDINATE IDENTITY against `axes_exact` vertices yields an EMPTY
+set on real data (not one emitted apron ring vertex equals an axes_exact
+vertex; the node the owner named sits 0.002 m off the line). A4.1(i) would
+have shipped inert. The candidate set is now ring vertices within
+`SPINE_PERP_TOL_M` of a centerline — the engine's own on-the-spine notion.
+
+### The build (HECA, staged + transects)
+
+**ADJUDICATED AIRSIDE 1,273 — UNDER THE 1,487 BAR, by 214.** The first
+HECA arm to clear its bar since the battery.
+
+| arm | batt | apop | v1 | v2 | v3 | staged | A3 | **A4** | bar |
+|---|---|---|---|---|---|---|---|---|---|
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | **1273** | 1487 |
+
+within_shape airside 1284 → … → 2107 (A3) → **1,106** (A4) — *below the
+battery*. transverse airside 95 → **35**, the best of any arm. steps
+airside 3 → 12.
+
+within_shape airside by cap: **1,075 @1.0 % + 29 @1.5 % + 2 @8 %** — still
+none at the 5 % interior cap, now for the sixth arm running.
+
+By chord class (battery / A3 / A4):
+
+| chord | battery | A3 | **A4** |
+|---|---|---|---|
+| ≤ 60 m | 765 | 1,044 | **789** |
+| 60–200 m | 305 | 280 | **290** |
+| **> 200 m** | 214 | **783** | **27** |
+| max chord | 680 m | 857 m | **555 m** |
+
+THE LONG-CHORD INFEASIBILITY CLASS IS GONE: 783 → 27. The -10612 fan the
+owner read in JOSM is resolved — **183 rows, one per site, max chord
+199 m** (A3: 367 rows, 665–857 m, up to 53 chords from one vertex).
+
+The 27 survivors > 200 m are all cap 1.0 %, 21 of them on way -10256, at
+484–555 m and 1.54–1.55 %. They are SPINE pairs, which A4 deliberately
+leaves ungated (a spine pair is the route and keeps its route's cap) —
+the remaining long class, and the next question if it matters.
+
+Instruments: `[apron-staged]` A1 over_cap 1,388 (both-hard **2**) | A2 328
+(both-hard 315), **senior moved in A2 = 0**; certificate final#1 EXIT
+16,768 (3,494 both-hard) vs A3's 22,034 (4,225); `[transverse-bind]`
+bound 26,728 / rows 53,456 / exit_over_budget 2,424; **`[writeback-band]`
+worst > 10 m count = 0** (worst clamp +6.17 m); airside_value_delta vs
+battery 11,348 nodes, worst 12.14 m. census_rows_diff vs A3: 2,238 GONE /
+1,045 NEW, net −1,193.
+
+UNPAID / OWED:
+
+- SEAT/WELD RESIDUE, listed separately as the next docket: rows on chords
+  ≤ 5 m at more than 2× cap — battery 167, A3 229, **A4 123**. Reduced but
+  not addressed; no apron-population change touches it.
+- SPJC and CYXY have NO A4 BUILD this round (budget ruling): they run at
+  acceptance/merge. The fastpath predicts SPJC's nearest-spine class at
+  513 violations and CYXY's at 101, but a prediction is not an arm.
+- The 27 spine-pair rows > 200 m at HECA (way -10256).
+- A4.1(iii) is worded "ring edges ≤ APRON_BODY_CHORD_MAX_M **per A2/A3**"
+  and was implemented as A2/A3's own clauses (ring frontage edge,
+  corridor-crossing edge) rather than promoting every short ring edge to
+  strict. The broader reading would ADD strict rows; this is flagged for
+  ratification.

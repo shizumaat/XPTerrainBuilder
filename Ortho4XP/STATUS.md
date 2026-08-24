@@ -1,4 +1,64 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260821b (WAVE-3 SECOND PASS — the APRON LAW round, one Mac
+# session with the owner interactive in JOSM; lane/compose MERGED
+# c2a00d2 ON OWNER ORDER; app 1.0.256 / engine 1.50.1699 shipped for
+# sim test; CYXY 16 / HECA 1,116 PASS their bars, SPJC 207 (+18,
+# seat/weld dimples — the solver-convergence round's target))
+# SIX OWNER RULINGS this pass (RULINGS 2026-08-21 a-f; full text
+#   there): transverse enforced IN THE SOLVE (option 2); apron
+#   within-shape population = MOVEMENT SURFACES not all pairs (ii);
+#   interior apron pairs = LAW at the 5% fan-ramp cap; strict chord =
+#   vertex -> nearest VISIBLE spine node, pad in path INTERCEPTS
+#   (prices to the pad); runway-strip area NEVER apron population;
+#   CREATION-ORDER SENIORITY (later-minted geometry defers — the
+#   generalisation of airside-is-king).
+# MERGED MECHANISMS (all default-ON unless noted): transverse 4-node
+#   hyper rows bound pre-emit w/ vertex-snap guard + step cap;
+#   apron staged solve (A1 senior incl. BOTH-SENIOR interior pairs,
+#   A2 interior movers only — A2 both-hard 315/78 -> ~0 everywhere);
+#   one partition input runtime==sidecar; weld inserts (nid +
+#   epsilon-wedge) PRE-projection, post passes verify-only with loud
+#   POST-PROJECTION WELD RESIDUE lines; conforming_mint implemented
+#   but GATED OFF (its 22-row justification was a JOIN ARTIFACT —
+#   pair_caps was 7dp, half-ulp 5.6mm; now 11dp canonical identity);
+#   kernel reporting (excluded_both_hard named, a2 both-hard docket,
+#   all-hard hyper rows can't hold any_active); O4_SWEEP_BUDGET_SCALE.
+# NUMBERS (bars 75 / 189 / 1,487 from the 2026-08-21 battery):
+#   CYXY 16, SPJC 207, HECA 1,116. Nothing prices at the 5% interior
+#   cap — 7+ arms, 3 airports: the interior law mints nothing.
+#   HECA within_shape by chord: <=60m 642ish, >200m 27 (spine pairs
+#   way -10256 ~500m @1.54% — owner spine-gate question OPEN).
+# SPJC'S +18: 25 sub-5m seat/weld rows (17 at the -12.021394,
+#   -77.110990 cluster where -10113/-10162/-10698/-10699 meet) —
+#   PROVEN solver fixed-point dimples (all baked, all strict, kernel
+#   at bit-identical plateau, not locally repairable) — the
+#   SOLVER-CONVERGENCE round (SM3/certified-exit docket) owns them.
+# OPEN OWNER ITEMS: (1) chord-less vertices (no visible centerline in
+#   reach, ~1 in 6): (a) interior 5% as now / (b) fallback nearest
+#   visible pad / (c) any visible movement surface — SPJC nearly free
+#   (6 rows), HECA load-bearing (312/935 rows touch one, all still
+#   bound by other strict clauses); (2) long spine pairs >60m gate
+#   (the 27 HECA rows); (3) -12251 mis-roling -> scorer-v2 docket;
+#   (4) 2026-08-21 wave-3 Q2-Q6 still open (RAOA-3, adaptive snap,
+#   A2 cutback, KDFW in-sim, KAFW N-classes).
+# DEBT ELSEWHERE: SPLP/KAFW/KDFW have NO arm under this tree — full
+#   battery + ledger refresh owed next session; RM (lane/routemetric
+#   fec3b34) is MOOT on the new population — re-evaluate then park;
+#   adaptive snap 31909dc + C3 ae4a6d5 still held; census frame: line
+#   reports census-time tree not build tree (harness fix owed);
+#   near_miss_frontage twin still fails on main (pre-existing).
+# APP 1.0.256 / engine 1.50.1699 from 034eed6, embedded==dist —
+#   SIM-TEST bundle (SPJC +18 disclosed), owner-ordered merge.
+#   JOSM trouble maps: tools/trouble_osm.py (Previews/trouble/).
+# WORKTREES: compose is the merged lane (tear down after sim OK);
+#   cyxy20/chordlim/c3rework/resid/fixtriage/eatseed/apronpop +
+#   apronpopctl controls still standing; ~50 older ones — cleanup
+#   session owed.
+# NEXT: owner sim test -> solver-convergence round (SPJC 18) ->
+#   chord-less + spine-gate rulings -> SPLP/KAFW/KDFW arms -> full
+#   battery + ledger -> RM disposition -> merge-round close.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260821 (WAVE 3, first pass — Mac session, 6 Opus lanes; FOUR
 # MERGES, composed battery PASS all six: 9,350/2,211 -> 6,121/1,999;
 # app 1.0.254 on engine 1.50.1697 shipped to dist.nosync, embedded==

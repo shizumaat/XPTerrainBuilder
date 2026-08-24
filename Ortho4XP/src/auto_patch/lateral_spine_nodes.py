@@ -45,9 +45,10 @@ from shapely.strtree import STRtree
 import O4_UI_Utils as UI
 
 from . import config as _CFG
+from . import grade_law as _GL
 from . import fabric_flags as _FF
 from .layout import (ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION,
-                     ROLE_SERVICE_ROAD)
+                     ROLE_SERVICE_ROAD, SHARED_VERTEX_TOL_M)
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
@@ -224,7 +225,7 @@ def record_lateral_xsection_pairs(layout, pairs, stages=None) -> int:
     RULINGS 2 ruling 1: *cross-section pairs enter the solve's law
     context — priced ⟺ bound*).
 
-    ``pairs`` is an iterable of ``((xa, ya), (xb, yb), width_m, cap_t)``:
+    ``pairs`` is an iterable of ``((xa, ya), (xb, yb), width_m, cap_l)``:
     the two feet of a span :func:`_bracket_feet` SELECTED BY THE
     VALIDATOR'S OWN RULE and actually PLANTED into the ring, the span it
     was priced over, and the transverse cap that prices it
@@ -253,17 +254,17 @@ def record_lateral_xsection_pairs(layout, pairs, stages=None) -> int:
         setattr(layout, _PAIR_STAGES_ATTR, st_rec)
     n = 0
     stages = list(stages or ())
-    for k, (a, b, width_m, cap_t) in enumerate(pairs):
+    for k, (a, b, width_m, cap_l) in enumerate(pairs):
         rec.append(((float(a[0]), float(a[1])),
                     (float(b[0]), float(b[1])),
-                    float(width_m), float(cap_t)))
+                    float(width_m), float(cap_l)))
         st_rec.append(stages[k] if k < len(stages) else None)
         n += 1
     return n
 
 
 def lateral_xsection_pairs(layout):
-    """The recorded pairs — ``[((xa,ya), (xb,yb), width_m, cap_t), ...]``
+    """The recorded pairs — ``[((xa,ya), (xb,yb), width_m, cap_l), ...]``
     (read-only by contract)."""
     return getattr(layout, _PAIRS_ATTR, None) or []
 
@@ -284,7 +285,10 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
     ``(i, j, budget)`` member of ``u_edges``, enforced by every
     feasibility projection including the final movable-pad yield.
 
-    ``budget_m`` is ``cap_t · width`` — the census's own allowance
+    ``budget_m`` is ``grade_law.transverse_span_budget_m(cap_l, width)``
+    — THE one law function both readers call (spec
+    ``transverse-hyperplane-solve-spec.md`` step 1; the census's own
+    allowance
     (``check_grade._check_transverse_grade``) with its quantization and
     terrace slack left OUT: those forgive an emitted reading, they do
     not fund a solve target.
@@ -317,8 +321,8 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
     best: dict = {}
     sites: dict = {}
     stage_of: dict = {}
-    for _k, (a, b, width_m, cap_t) in enumerate(pairs):
-        if width_m <= 0.0 or cap_t <= 0.0:
+    for _k, (a, b, width_m, cap_l) in enumerate(pairs):
+        if width_m <= 0.0 or cap_l <= 0.0:
             continue
         try:
             i = bucket_to_idx.get(cps.get_or_add(float(a[0]), float(a[1])))
@@ -328,7 +332,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
         if i is None or j is None or i == j:
             continue
         key = (i, j) if i < j else (j, i)
-        budget = float(cap_t) * float(width_m)
+        budget = _GL.transverse_span_budget_m(cap_l, width_m)
         # ONE PAIR, ONE EDGE, THE TIGHTEST BUDGET.  Two stations 12 m
         # apart can resolve to the SAME node pair once the 0.5 m merge
         # tolerance folds their feet together; the law prices BOTH
@@ -338,7 +342,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
         prev = best.get(key)
         if prev is None or budget < prev:
             best[key] = budget
-            sites[key] = (a, b, width_m, cap_t)
+            sites[key] = (a, b, width_m, cap_l)
         # STAGE OF A PAIR TWO STATIONS FOLDED TOGETHER: AIRSIDE WINS.
         # The budget rule above takes the STRICTER law; the stage rule
         # takes the AIRSIDE one, because a pair an airside shape also
@@ -367,7 +371,7 @@ def lateral_xsection_law_edges(layout, bucket_to_idx, stage_out=None):
                     (a, b, w, c) = sites[key]
                     fh.write(_json.dumps({
                         "i": key[0], "j": key[1], "a": list(a), "b": list(b),
-                        "width_m": w, "cap_t": c, "budget_m": budget}) + "\n")
+                        "width_m": w, "cap_l": c, "budget_m": budget}) + "\n")
         except OSError:
             pass
     return edges
@@ -439,7 +443,7 @@ def _axis_segment_caps(entry, n_seg: int, is_service: bool) -> list:
 
 
 def _landed_pairs(spans, landed_by_shape, si_out=None):
-    """Yield ``(foot_lo, foot_hi, width_m, cap_t)`` for every selected
+    """Yield ``(foot_lo, foot_hi, width_m, cap_l)`` for every selected
     span BOTH of whose feet are NODES of the shape's final ring —
     reported at the position that actually landed.
 
@@ -480,7 +484,7 @@ def _landed_pairs(spans, landed_by_shape, si_out=None):
                         best = q
         return best
 
-    for (si, a, b, width_m, cap_t) in spans:
+    for (si, a, b, width_m, cap_l) in spans:
         grid = grids.get(si)
         if not grid:
             continue
@@ -493,7 +497,7 @@ def _landed_pairs(spans, landed_by_shape, si_out=None):
         # from the pair record.  Absent ⇒ byte-identical.
         if si_out is not None:
             si_out.append(si)
-        yield (qa, qb, width_m, cap_t)
+        yield (qa, qb, width_m, cap_l)
 
 
 def _open(poly):
@@ -640,7 +644,7 @@ def _densify_to_step(cs, step: float, seg_index_out: list = None):
 
 
 def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
-                  min_span_m: float = None, cap_t: float = None,
+                  min_span_m: float = None, cap_l: float = None,
                   pairs_out: list = None, priced_roles=None,
                   target_roles=None, vertex_hits: bool = False) -> None:
     """Cast the perpendicular at station ``vi`` and record the NEAREST
@@ -668,9 +672,9 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
     condition — the plain union, attempt 3, gated by
     ``O4_XSECTION_BRACKET``.
 
-    ``cap_t`` / ``pairs_out`` — RULING (1), the solve-side binding.  When
+    ``cap_l`` / ``pairs_out`` — RULING (1), the solve-side binding.  When
     both are given, each SELECTED span is appended to ``pairs_out`` as
-    ``(shape_index, foot_lo, foot_hi, width_m, cap_t)`` so the caller can
+    ``(shape_index, foot_lo, foot_hi, width_m, cap_l)`` so the caller can
     keep the ones whose feet actually LAND and record them through
     :func:`record_lateral_xsection_pairs`.  Same act, same selection,
     same span — which is what makes the priced pair and the bound pair
@@ -805,12 +809,12 @@ def _bracket_feet(vx, vy, cs, vi, tree, rings, polys, inserts,
         # RULING (1): the span just SELECTED is the pair the census
         # prices — hand it to the caller so the pair that gets planted
         # is the pair that gets bound.
-        if pairs_out is not None and cap_t is not None:
+        if pairs_out is not None and cap_l is not None:
             if (priced_roles is not None and target_roles is not None
                     and target_roles[si] not in priced_roles):
                 continue                  # not this axis's population
             pairs_out.append((si, span[0][3], span[1][3],
-                              span[1][0] - span[0][0], float(cap_t)))
+                              span[1][0] - span[0][0], float(cap_l)))
 
 
 def insert_lateral_spine_nodes(layout, icao: str = "", *,
@@ -849,7 +853,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
     rings = [_open(p) for p in polys]
     n_rb = 0        # feet the R-b width-adaptive row rule contributed
     # RULING (1) · the priced spans, awaiting their landing check:
-    # ``(shape_index, foot_lo, foot_hi, width_m, cap_t)``.
+    # ``(shape_index, foot_lo, foot_hi, width_m, cap_l)``.
     xsec_spans: list = []
     target_roles = [s.role for s in targets]
     _vertex_hits = _xsection_vertex_hits_on()
@@ -922,9 +926,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
                           else (_seg_caps[-1] if _seg_caps else None))
                 _bracket_feet(vx, vy, cs, _vi, tree, rings, polys, inserts,
                               min_span_m=_rb_span,
-                              cap_t=(None if _cap_l is None else
-                                     _CFG.transverse_cap_for_longitudinal_cap(
-                                         _cap_l)),
+                              cap_l=_cap_l,
                               pairs_out=xsec_spans,
                               priced_roles=_priced,
                               target_roles=target_roles,
@@ -1045,7 +1047,7 @@ def insert_lateral_spine_nodes(layout, icao: str = "", *,
                 for (si, a, b, w, c) in xsec_spans:
                     fh.write(_json.dumps({
                         "kind": "span", "si": si, "a": list(a), "b": list(b),
-                        "width_m": w, "cap_t": c}) + "\n")
+                        "width_m": w, "cap_l": c}) + "\n")
         except OSError:
             pass
 
@@ -1205,3 +1207,208 @@ def insert_service_lateral_nodes(layout, icao: str = "") -> int:
                   f"cross-section node(s) on road/service-junction edges from "
                   f"the truck-route spine (spine-first law sampling).")
     return n_added
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE WEIGHTED TRANSECT ROWS — transverse in the solve
+# ══════════════════════════════════════════════════════════════════════
+# Owner ruling RULINGS 2026-08-21; spec
+# ``docs/specs/transverse-hyperplane-solve-spec.md`` §§2-5 and AMENDMENT
+# A1 (§8a).
+#
+# WHY THIS EXISTS BESIDE :func:`lateral_xsection_law_edges`.  That
+# function binds the cross-section as a NODE PAIR, which only works where
+# the lateral pass planted a foot at both ends; measured on the RM lane's
+# CYXY arm, 66 of 75 airside transverse rows have no ring vertex within
+# the weld tolerance of EITHER end, and 35 have no baked pair joining the
+# two sides at all.  A transect's ends are points INTERPOLATED along ring
+# edges, so the law it obeys is a WEIGHTED FOUR-NODE inequality
+# ``|near - far| <= cap_T x width`` with
+# ``near = (1-t) z_a + t z_b``, ``far = (1-s) z_c + s z_d``.  No new
+# vertices are planted (``O4_XSECTION_VERTEX_HITS`` stays parked): the
+# constraint binds the ring the solve already has.
+#
+# WHICH RING (AMENDMENT A1).  The census reads the EMITTED ring, and no
+# projection runs after ``layout.to_osm`` begins — measured on the lane:
+# ``pipeline.py:6488`` is the last projection, and to_osm then repairs
+# slivers (:1591), drops needles (:1816), moves on-edge nodes (:2002),
+# inserts welds (:2325), backfills (:2512), decimates (:2796) and snaps
+# (:3232) before writing the sidecar (:3339).  So the binding happens on
+# the ring ``final_grade_projection`` sees, every bound span is written to
+# the sidecar with its solved heights and parameters, and the census
+# re-walks the emitted ring and REPORTS how many bound spans the emit
+# stage moved (``broken_by_emit``).  The measurement is the deliverable;
+# it is what decides whether the topology-only emit repairs must move
+# ahead of the final projection.
+TRANSVERSE_HYPER = os.environ.get("O4_TRANSVERSE_HYPER", "1") == "1"
+
+#: Where the bound spans ride on the layout for the sidecar (§11).
+_BOUND_SPANS_ATTR = "_transverse_bound_spans"
+
+
+def bound_transect_spans(layout):
+    """The spans the solve BOUND, as the sidecar writes them (read-only)."""
+    return getattr(layout, _BOUND_SPANS_ATTR, None) or []
+
+
+def _shape_rings_for_transects(layout):
+    """``[(role, ring_xy)]`` for every shape the transverse law prices —
+    the layout's OWN rings, i.e. the ones ``final_grade_projection`` is
+    about to solve on."""
+    out = []
+    for s in layout.shapes:
+        role = getattr(s, "role", None)
+        if role not in (_TAXI_AXIS_PRICED_ROLES | _SERVICE_AXIS_PRICED_ROLES):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            ring = _open(poly)
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        if len(ring) >= 3:
+            out.append((role, ring))
+    return out
+
+
+def _edge_len(ring, k: int) -> float:
+    """Length of ring edge ``k`` (``ring[k]`` -> ``ring[k+1]``, wrapping)."""
+    n = len(ring)
+    if n < 2:
+        return 0.0
+    ax, ay = ring[k % n][0], ring[k % n][1]
+    bx, by = ring[(k + 1) % n][0], ring[(k + 1) % n][1]
+    return math.hypot(bx - ax, by - ay)
+
+
+def _snap_param(t: float, edge_len_m: float) -> float:
+    """``t`` snapped to 0 or 1 when the foot is within the WELD TOLERANCE
+    of that endpoint — the geometric meaning of "this foot IS that
+    vertex".  The floor is ``SHARED_VERTEX_TOL_M / edge_len`` (capped at
+    0.5, since past the midpoint the two ends compete), so it is the same
+    HALF METRE on every edge rather than a tuned parameter."""
+    if edge_len_m <= 0.0:
+        return 0.0 if t < 0.5 else 1.0
+    floor = min(0.5, SHARED_VERTEX_TOL_M / edge_len_m)
+    if t < floor:
+        return 0.0
+    if t > 1.0 - floor:
+        return 1.0
+    return t
+
+
+def transect_hyper_rows(layout, bucket_to_idx, elev, *, stage_out=None,
+                        spans_out=None):
+    """``[(idx4, w4, budget_m, station_id)]`` — the weighted transect rows
+    for THIS pass's node space.
+
+    ``elev`` supplies the heights the walk reads (the field the projection
+    is about to relax), so the station selection is made on the surface
+    the solve actually has.  Identity is the layout's own canonical point
+    registry — ``get_or_add`` → ``bucket_to_idx``, the SAME join
+    ``lateral_xsection_law_edges`` and the near-miss frontage builder use,
+    never a proximity match; a ring vertex that resolves to no node drops
+    its row (binding a node that is something else is worse than binding
+    nothing).
+
+    Each transect yields TWO rows, ``w`` and ``-w``, which is how
+    ``|near - far| <= b`` is expressed as two half-spaces.  ``spans_out``
+    receives one record per BOUND transect for the sidecar (§11)."""
+    if not TRANSVERSE_HYPER:
+        return []
+    from . import transect_walk as _TW
+    from . import grade_law as _GLaw
+    from .grade_graph import centerline_specs
+    cps = getattr(layout, "canonical_points", None)
+    if cps is None or not bucket_to_idx:
+        return []
+    shapes_ll = _shape_rings_for_transects(layout)
+    if not shapes_ll:
+        return []
+
+    def _idx_of(pt):
+        try:
+            return bucket_to_idx.get(cps.get_or_add(float(pt[0]),
+                                                    float(pt[1])))
+        except Exception:                              # pragma: no cover
+            return None
+
+    tshapes = []
+    ring_idx: list = []
+    for si, (role, ring) in enumerate(shapes_ll):
+        idxs = [_idx_of(p) for p in ring]
+        if any(i is None for i in idxs):
+            # A ring the solve's node space does not fully carry cannot be
+            # bound: reported by the caller's count, never bound partially.
+            continue
+        zs = [float(elev[i]) for i in idxs]
+        tshapes.append(_TW.TransectShape(
+            role=role, ring=[(p[0], p[1], z) for p, z in zip(ring, zs)],
+            key=len(ring_idx)))
+        ring_idx.append(idxs)
+    if not tshapes:
+        return []
+    axes = [_TW.TransectAxis(poly=pts, seg_caps=seg_caps,
+                             is_service=bool(is_svc))
+            for (pts, seg_caps, is_svc, _rk, _rp) in centerline_specs(layout)]
+    if not axes:
+        return []
+
+    def _priced(axis):
+        return (_SERVICE_AXIS_PRICED_ROLES if axis.is_service
+                else _TAXI_AXIS_PRICED_ROLES)
+
+    rows: list = []
+    for st in _TW.walk_transects(tshapes, axes, _priced):
+        idxs = ring_idx[st.shape_key]
+        ring = tshapes[st.shape_key].ring
+        nring = len(idxs)
+        a = idxs[st.edge_lo]
+        b = idxs[(st.edge_lo + 1) % nring]
+        c = idxs[st.edge_hi]
+        d = idxs[(st.edge_hi + 1) % nring]
+        if len({a, b, c, d}) < 3:
+            # degenerate: the two ends share their edge — the pair law
+            # already governs it.
+            continue
+        budget = _GLaw.transverse_span_budget_m(st.cap_l, st.width_m)
+        if budget <= 0.0:
+            continue
+        # ── THE VERTEX SNAP (attempt 2, 2026-08-21) ───────────────
+        # A foot within the WELD TOLERANCE of a ring vertex IS that
+        # vertex.  Left un-snapped it becomes a near-zero WEIGHT, and the
+        # half-space step ``r / ||w_free||^2`` then divides by that
+        # square: a foot 0.5 mm from a vertex on a 30 m edge weighs
+        # 1.7e-5, and if it is the row's only free node the correction is
+        # ~3e9 x r.  Measured, attempt 1: 984 HECA rows under 1e-4, and
+        # the projection published a -2608 m apron value the band clamp
+        # then caught.  The floor is GEOMETRIC, not a tuned constant —
+        # ``SHARED_VERTEX_TOL_M`` (the weld tolerance the whole tree snaps
+        # vertices at) divided by the edge's own length, so "within half a
+        # metre of the corner" means the same thing on a 5 m edge and a
+        # 300 m one.  Snapping makes the row a 3- or 2-node constraint and
+        # guarantees ||w_free||^2 >= W_FLOOR^2 by construction.
+        t = _snap_param(float(st.t_lo), _edge_len(ring, st.edge_lo))
+        s_ = _snap_param(float(st.t_hi), _edge_len(ring, st.edge_hi))
+        w = ((1.0 - t), t, -(1.0 - s_), -s_)
+        idx4 = (int(a), int(b), int(c), int(d))
+        rows.append((idx4, w, float(budget), st.station_id))
+        rows.append((idx4, tuple(-x for x in w), float(budget),
+                     st.station_id))
+        if stage_out is not None:
+            stage_out[st.station_id] = _STAGE_A
+        if spans_out is not None:
+            spans_out.append({
+                "station_id": list(st.station_id[:3]),
+                "role": st.role,
+                "lo": [layout.m_to_ll(*st.point_lo())],
+                "hi": [layout.m_to_ll(*st.point_hi())],
+                "t": t, "s": s_,
+                "z_lo": float(st.z_lo), "z_hi": float(st.z_hi),
+                "width_m": float(st.width_m),
+                "budget_m": float(budget),
+            })
+    if spans_out is not None:
+        setattr(layout, _BOUND_SPANS_ATTR, list(spans_out))
+    return rows

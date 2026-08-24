@@ -2320,11 +2320,33 @@ class PavementLayout:
                     pending[_idx] = (_si, _s, out + [out[0]], _sa, _sna)
                 else:
                     _interior_rings[_idx] = out + [out[0]]
+        # ── IDEMPOTENT VERIFICATION (spec weld-before-projection-spec.md
+        # §1) ────────────────────────────────────────────────────────────
+        # The weld's INSERT step now runs BEFORE final_grade_projection
+        # (pipeline part 18b), so the rings reaching here are already
+        # welded and this pass must find NOTHING.  A nonzero count means
+        # the two passes disagree about the weld set — a ring adjacency
+        # minted after the projection, which is law nothing priced and the
+        # law-aware emit snap cannot see (it validates BAKED pairs only).
+        # That is the exact defect the reorder exists to close, so it is
+        # REPORTED LOUDLY rather than counted quietly; the spec makes it a
+        # STOP, and the fix is the disagreement, never the count.
         if _n_weld:
+            _pre_on = os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0"
             UI.vprint(1,
                 f"  [pav-builder] nid-level final weld: inserted "
                 f"{_n_weld} on-edge node reference(s) into welded "
-                f"partner ways.")
+                f"partner ways."
+                + ("  *** POST-PROJECTION WELD RESIDUE: these "
+                   f"{_n_weld} adjacency/ies were minted AFTER the bake and "
+                   "the projection, so NO law priced them (spec "
+                   "weld-before-projection-spec.md §1 requires 0 here). ***"
+                   if _pre_on else ""))
+        elif os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0":
+            UI.vprint(1,
+                "  [pav-builder] nid-level final weld: 0 insert(s) — the "
+                "pre-projection weld left nothing to do (spec "
+                "weld-before-projection-spec.md §1 verification).")
 
         # ── Consensus pass ──────────────────────────────────────
         # For each node id we now have every altitude any shape
@@ -3486,6 +3508,38 @@ class PavementLayout:
             # lawfully enforced).
             "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
                                   None) or []),
+            # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec
+            # transverse-hyperplane-solve-spec.md section 11 + AMENDMENT
+            # A1 section 8b).  Every cross-section the FINAL PROJECTION
+            # bound as a weighted 4-node constraint, with the endpoints
+            # it interpolated (t/s along the crossed ring edges) and the
+            # heights it settled them at.  The census re-walks the
+            # EMITTED ring and joins on ``station_id`` to report
+            # ``priced / bound / unbound / broken_by_emit`` — the last
+            # being the spans the emit-stage repairs moved after the
+            # binding, which is the measurement A1 exists to take.
+            # A patch without them reports ``bound 0``.
+            # THE APRON SENIORITY PARTITION (apron staged solve spec
+            # section 3): [lat, lon, "senior"|"interior"] per apron ring
+            # node, from ``grade_law.apron_node_seniority`` — the SAME
+            # function the solve partitions its two sub-stages with, so the
+            # census can assert that no senior node moved in the interior
+            # pass without re-deriving the partition.
+            "apron_seniority": list(
+                getattr(self, "_apron_seniority_ll", None) or []),
+            "xsection_spans": list(
+                getattr(self, "_transverse_bound_spans", None) or []),
+            # THE BAND CLAMP'S OWN FOOTPRINT (lead direction 2026-08-21).
+            # ``band_clamp_findings`` lived in memory only, so "did the
+            # clamp author this row?" could not be joined from artifacts
+            # — the §4 read had to bound it instead of measuring it.
+            # Every clamped value's SITE and delta now ride the sidecar:
+            # [lat, lon, dz_m, side, role].
+            "band_clamp_nodes": [
+                [*self.m_to_ll(float(f[5]), float(f[6])),
+                 float(f[3]), str(f[4]), str(f[1])]
+                for f in (getattr(self, "band_clamp_findings", None) or [])
+                if len(f) >= 7],
             # APRON TERRACE JOINTS (owner ruling 2026-08-04; spec
             # ``docs/specs/apron-terrace-law-spec.md`` §5).  The
             # DECLARED joint polylines, their panel levels and their

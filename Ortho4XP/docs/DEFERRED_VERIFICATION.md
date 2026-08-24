@@ -2267,3 +2267,1250 @@ HECA in three arms each (base / R7a-only / R7a+R7b).  Walls are
 LEDGER-FRAME ONLY and are not a timing claim — another lane's KDFW and
 OTHH builds ran concurrently throughout (21 concurrent `build_airport`
 processes at peak).
+
+## 2026-08-21 — apron within-shape population = frontage chords (lane/apronpop)
+
+Spec `docs/specs/apron-within-shape-population-spec.md`, owner ruling
+RULINGS 2026-08-21b. Commits 9bbeedf (predicate + twins + sidecar family
+tag), 0d3028e (the read instrument), this one.
+
+WHAT WAS RUN. The 15 twins of
+`tests/test_apron_within_shape_population.py`; the seven test files
+directly covering the touched code, once, with a MATCHED CONTROL of the
+same selection in a clean `apronpopctl` worktree at the lane's base
+commit 8058002; three harness builds (CYXY, SPJC, HECA) plus a CYXY
+flag-off arm; `harness/census.py` on all six patches; `census_rows_diff`
+and `airside_value_delta` against the 2026-08-21 battery patches
+(artifact-ledger tags `w3s7a_*`).
+
+MEASURED (battery -> lane, adjudicated airside):
+
+| airport | airside | within_shape | transverse | steps |
+|---|---|---|---|---|
+| CYXY | 75 -> 204 | 0 -> 3 | 63 -> 188 | 0 -> 0 |
+| SPJC | 189 -> 474 | 45 -> 12 | 46 -> 331 | 0 -> 37 |
+| HECA | 1487 -> 1508 | 1284 -> 643 | 95 -> 572 | 3 -> 192 |
+
+The RULED population behaves as the read predicted (SPJC drops exactly
+the 34 generic apron rows; HECA drops 641 of the predicted 648; the
+survivors are frontage chords). The DEBT RELOCATES TO TRANSVERSE, the
+family the ruling itself names as the corridor surface's own law and
+which is NOT enforced in the solve on main.
+
+UNPAID / OWED:
+
+- THE BATTERY BARS ARE EXCEEDED at CYXY (204 vs 75) and SPJC (474 vs
+  189) and marginally at HECA (1508 vs 1487). The lane is therefore NOT
+  mergeable alone; it is measured against a main whose transverse family
+  is censused but not solved. No arm was run against
+  lane/transect + lane/routemetric, which is where the ruling puts the
+  payment — that composed arm is OWED before any merge decision.
+- SPLP / KAFW / KDFW were not rebuilt: three of the six battery airports
+  have no arm under this tree.
+- No build-time measurement (per-change timing gates remain suspended).
+  The population shrink is visible as the emit-snap law-pair count
+  (CYXY 8443 -> 7139, HECA 77299) but no wall time is claimed.
+- The projection-law certificate ROSE rather than fell (spec §6 predicted
+  a fall): CYXY 235 -> 277 edges over cap, 193 -> 214 both-hard. Only
+  CYXY has both arms; SPJC (806 / 403) and HECA (7283 / 3281) have the
+  rule-on arm only, because the spec scoped the flag-off arm to CYXY.
+- The census/bake FOREIGN-ROW class (below) is reported, not fixed.
+
+### The test comparison (matched control, worktree `apronpopctl` @ 8058002)
+
+Same 7-file selection, both arms: lane 24 failed / 390 passed, control
+11 failed / 389 passed. Test-id for test-id (never counts):
+
+- 11 PRE-EXISTING, identical on both arms: `test_pavement_grade` x5
+  airports + `test_runway_longitudinal_grade[HECA]`/`[SPLP]` +
+  `test_runway_seam_dem_steps_are_reported`,
+  `test_single_graph_acceptance::test_solver_and_validator_same_nodes@CYXY`
+  and `::test_solver_validator_same_edge_budgets@CYXY`,
+  `test_harness::test_the_near_miss_frontage_law_is_one_authority`.
+- 0 fixed by the lane.
+- 13 NEW, in four classes — NONE of them fixed here, all owed a ruling:
+  1. EIGHT twins that encode the PRE-RULING apron population on
+     building-less fixtures (`test_grade_graph` x5, `test_harness` x3):
+     an apron with no frontage now yields zero within-shape pairs, which
+     is spec §8(e)'s own acceptance criterion. Updating them is a spec
+     act, not an implementation act.
+  2. A LAW COLLISION with R19-5 "the bake never removes a ring edge from
+     the domain" (lead 2026-08-12,
+     `test_the_bake_never_removes_a_ring_edge_from_the_domain` +
+     `test_a_steep_unbaked_ring_edge_mints_its_census_row`): on an apron,
+     a PHYSICAL ring edge with no frontage is no longer law, so the
+     class R19-5 exists to catch (HECA -10629's 148 % ring edge) can
+     carry no census row. Two owner rulings now disagree.
+  3. THE FAN-RAMP LAW IS UNREACHABLE (`test_fan_ramp_law` x2): a
+     fan-ramp zone piece is role `apron` and is by construction the
+     ground BETWEEN frontages, clear of every movement surface — so it
+     now generates zero pairs and its 5 % zone cap is never priced.
+     Fan zones are RETIRED by default (W2 2026-08-08), so production is
+     unaffected today; the law is not.
+  4. A SURFACE REGRESSION at CYXY (`test_cyxy_spine_zero@CYXY`,
+     `test_cyxy_spine_zero_no_bowl@CYXY`): 2 spine violations,
+     `service_junction` at 37.1 % and 15.5 % against an 8 % cap. Same
+     mechanism as the census delta.
+
+## 2026-08-21 — THE COMPOSED ARM: apron population + transverse in the solve (lane/compose)
+
+Specs `docs/specs/apron-within-shape-population-spec.md` and
+`docs/specs/transverse-hyperplane-solve-spec.md` (+ AMENDMENT A1); owner
+rulings RULINGS 2026-08-21 and 2026-08-21b. lane/apronpop ea4a1b8 with
+lane/transect's five commits cherry-picked (zero textual conflicts).
+This is the composed arm the apronpop lane recorded as OWED.
+
+WHAT WAS RUN. Six harness builds, all rc=0, all shared-repo UNCHANGED:
+CYXY / SPJC / HECA composed; CYXY / SPJC / HECA log-capture reruns
+(byte-identical body_sha — they recover the solve-side instrument lines a
+piped `tail` had cut, they are not new arms); plus ONE attribution arm,
+SPJC with `O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY=0`. `harness/census.py`,
+`census_rows_diff`, `airside_value_delta` and
+`frontage_split --apron-population` against the 2026-08-21 battery
+patches (artifact-ledger tags `w3s7a_*`). Seven test files.
+
+MEASURED (battery -> apronpop alone -> COMPOSED, adjudicated airside):
+
+| airport | airside | within_shape | transverse | steps |
+|---|---|---|---|---|
+| CYXY | 75 -> 204 -> 67 | 0 -> 3 -> 3 | 63 -> 188 -> 51 | 0 -> 0 -> 0 |
+| SPJC | 189 -> 474 -> 551 | 45 -> 12 -> 258 | 46 -> 331 -> 167 | 0 -> 37 -> 31 |
+| HECA | 1487 -> 1508 -> 1167 | 1284 -> 643 -> 770 | 95 -> 572 -> 155 | 3 -> 192 -> 131 |
+
+CYXY and HECA clear their battery bars (67 <= 75, 1167 <= 1487). Transverse
+in the solve pays the relocated debt on all three and binds what the census
+prices (CYXY 3066/3067, SPJC 8477/8491, HECA 26616/26629).
+
+UNPAID / OWED:
+
+- THE SPJC BAR IS EXCEEDED, 551 vs 189, and it is an INTERACTION neither
+  change produces alone. The 2x2: battery 189 / apronpop-only 474 /
+  transect-only 195 / composed 551; within_shape airside 45 / 12 / 62 /
+  258. 231 NEW rows are `within_shape apron|apron` AIRSIDE and the
+  POPULATION IS CORRECT (201 of 233 apron rows are frontage chords), so
+  this is not a predicate defect. Mechanism: apronpop withdraws the
+  generic apron pair law, leaving the building->spine frontage chord as
+  the apron's ONLY within-shape law, and the transverse hyper rows then
+  move the apron surface by metres (3797 airside nodes moved, worst
+  9.66 m) with the frontage chords absorbing the displacement. The
+  carrier regularisation does not hold an apron interior against an
+  ACTIVE projection. Spec §5 forbids a replacement regulariser, so the
+  remedy is a spec/owner act, not an implementation one.
+- BROKEN_BY_EMIT is 54-65 % of every bound transect (CYXY 1701/3066,
+  SPJC 4609/8477, HECA 17221/26616; worst 2.05 / 6.63 / 8.35 m). A1 §8d
+  makes this reported-not-a-STOP; it is the number that decides whether
+  the topology-only emit repairs must move ahead of the final projection.
+- The projection-law certificate ROSE: CYXY final#1 EXIT over_cap=1179
+  (332 both-hard), SPJC 2670 (379), HECA 16577 (3251); the transverse
+  family's own share is CYXY 276/69, SPJC 376/63, HECA 3106/768. The SPJC
+  transect-only arm is 1620/441 — composed is worse on over_cap, better
+  on both-hard. Solve-side `[transverse-bind] exit_over_budget` is CYXY
+  211 (worst 1.037 m), SPJC 326 (3.528 m), HECA 2513 (6.096 m); the
+  band clamp's own footprint beside it is 5 / 37 / 56 values, worst
+  0.114 / 0.535 / 2.606 m. `[writeback-band]` worst > 10 m count is 0 on
+  all three (worst clamp CYXY 0.03 m, SPJC 0.08 m, HECA 4.70 m).
+- AIRSIDE MOVED A LOT vs the battery: CYXY 481 nodes (worst 3.95 m),
+  SPJC 3797 (9.66 m), HECA 8695 (18.23 m). No groundside pull is implied
+  ("airside is king" is about pull, and this is airside's own law
+  changing), but the owner's in-sim eye is owed before any merge.
+- The CYXY `service_junction` spine 37.1 % row STANDS (2.420 m
+  @(60.712398,-135.077719)): it is a FOREIGN-priced generic apron row, so
+  the transverse solve cannot reach it. apronpop class 4 unfixed.
+- Kept frontage rows > 5 % (spec §10 docket, unfixed): CYXY 0, SPJC 9
+  (max 10.08 %), HECA 91 (max 91.06 %, the head all on short 1.8-3.0 m
+  chords — seat/anchor defects).
+- `junction|junction` generic (ruling clause 4, report-only): CYXY 0,
+  SPJC 24, HECA 77.
+- SPLP / KAFW / KDFW have no arm under this tree.
+- No build-time measurement; per-change timing gates remain suspended.
+
+THE TEST COMPARISON — the composition authors ZERO new failures. Test-id
+for test-id: the three twin files pass in full (15 + 11 + 6 = 32/32); the
+four heavy suites give 22 failed / 268 passed, and adding
+`test_fan_ramp_law` (2) and `test_lateral_cross_section` (1) reproduces
+EXACTLY apronpop's 11 pre-existing + 13 NEW four classes, plus
+`test_the_solve_ingests_the_family_at_BOTH_edge_set_sites`, which fails on
+lane/transect ALONE (verified in the transect worktree at 77aeac2: 1
+failed / 64 passed). Nothing on this list is new to the merge.
+
+## 2026-08-21c — the composed arm under A1: interior at 5 % (lane/compose, attempt 2)
+
+Owner ruling RULINGS 2026-08-21c + spec AMENDMENT A1 (main d2f5bc6),
+implemented as 396d94b on lane/compose (apronpop + transect + A1). Three
+harness builds, all rc=0, all shared-repo UNCHANGED. This is ATTEMPT 2 of
+the apron-population spec; no fix was attempted for the STOPs below.
+
+MEASURED — adjudicated airside, battery -> apronpop -> compose-v1 (the
+2026-08-21b removal) -> compose-v2 (A1):
+
+| airport | battery | apronpop | v1 | v2 | bar | verdict |
+|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 189 | STOP +15 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 1487 | STOP +112 |
+
+within_shape airside 0/3/3/0, 45/12/258/52, 1284/643/770/1383.
+transverse airside 63/188/51/4, 46/331/167/51, 95/572/155/63.
+steps airside 0/0/0/0, 0/37/31/0, 3/192/131/8.
+
+A1 REPAIRS EVERYTHING THE REMOVAL DAMAGED. Transverse is BELOW the
+battery on all three; steps are gone (SPJC 37->0, HECA 192->8); the
+surface is far closer to the battery (worst airside |dz| vs battery
+CYXY 3.95->0.93 m, SPJC 9.66->1.09 m, HECA 18.23->6.77 m); CYXY clears
+its bar by 59 with within_shape airside ZERO, and the CYXY
+service_junction spine 37.1 % row that survived both earlier arms is
+GONE.
+
+UNPAID / OWED:
+
+- SPJC (204 vs 189) and HECA (1599 vs 1487) EXCEED their bars. The
+  attribution is identical on both and is NOT the new law: not one
+  violation anywhere carries the 5 % cap. SPJC within_shape airside 52 =
+  46 @1.0 % + 6 @1.5 %; HECA 1383 = 1326 @1.0 % + 56 @1.5 % + 1 @8 %. The
+  debt sits on the STRICT class.
+- HECA's is the RING-ADJACENT branch. Of 1258 within_shape apron|apron
+  airside rows, 582 are frontage chords and 676 generic; since no row
+  carries the 5 % cap, every violating generic row is necessarily
+  ring-adjacent (the only generic-and-strict combination A1 allows) or
+  foreign-priced (28 of 676). ~648 rows are apron RING EDGES over the
+  strict 1 % cap. Severity rose with the count: >2x-cap 447 -> 663,
+  accumulated excess 4332 -> 4564 pct-points. Head sites
+  (30.11843,31.41048), (30.11848,31.41047), (30.12442,31.41397) at
+  1.11-1.64 % against 1.00 %.
+- SPJC's +15 is within_shape +7, transverse +5, frontage_near_miss +2,
+  plane_gradient +1; strip_arc, drainage_spine and strip_longitudinal are
+  unchanged. The worst NEW rows are apron|apron on way -10113 at
+  1.016-1.033 % against 1.000 % over ~260 m chords.
+- MECHANISM: 5 % is a far better interior constraint than none, but it is
+  still four points looser than the strict cap, so the interior may
+  legally tilt under the transect rows and the movement surfaces and ring
+  edges bounding it absorb the difference — the v1 failure shape, an order
+  of magnitude smaller.
+- OWNER QUESTION THIS TURNS ON: is a long apron RING EDGE a movement
+  surface (strict) or interior (5 %)? A1 §1a reserved ring-adjacent for
+  the strict cap on R19-5 grounds; the measurement says that choice
+  decides HECA's bar.
+- broken_by_emit is still 48-62 % of every bound transect (CYXY 1471,
+  SPJC 4131, HECA 17005) — reported, not a STOP (A1 §8d).
+- The projection-law certificate: CYXY 1001 over_cap (451 both-hard),
+  SPJC 1670 (427), HECA 18496 (3751). CYXY and SPJC FELL against v1
+  (1179 / 2670); HECA rose (16577).
+- `[writeback-band]` worst > 10 m count is 0 on all three, but HECA's
+  worst clamp rose 4.70 -> 8.80 m.
+- A PRE-EXISTING census/bake CAP DRIFT is now visible and is reported, not
+  adopted: one ring edge reads the blend branch's 1.5 % in the bake and
+  the plain body cap in the census, identically with the interior flag on
+  and off. The new cap-lockstep twin asserts NO NEW drift.
+- A role-LESS duplicate ring of an apron host keeps the strict cap while
+  its host prices its interior at 5 % — one geometry, two laws.
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+TESTS. 37/37 on the three twin files; 341 passed / 1 failed across
+test_harness + test_grade_graph + test_fan_ramp_law + the twins, that 1
+being one of the 11 the apronpop lane measured on its matched control.
+A1 RESOLVED BOTH CLASSES apronpop could not — the R19-5 law collision and
+the unreachable fan-ramp law, all four twins passing untouched — and six
+of the eight building-less-fixture twins recovered untouched. Two stale
+twins were updated as the ruling requires with their substantive
+assertions intact.
+
+## 2026-08-21 A2 — ring-adjacent apron edges are interior (lane/compose, v3)
+
+Spec AMENDMENT A2 (main 2e70ae9), implemented as 6c9b9c5. A2 corrects the
+LEAD's own A1 §1a clause, so it is not a third attempt at the mechanism.
+Three harness builds, all rc=0, all shared-repo UNCHANGED.
+
+MEASURED — adjudicated airside, battery / apronpop / v1 (removal) / v2
+(A1) / v3 (A2):
+
+| airport | battery | apronpop | v1 | v2 | v3 | bar | v3 |
+|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 189 | STOP +24 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 1487 | STOP +1073 |
+
+within_shape airside 0/3/3/0/0, 45/12/258/52/73, 1284/643/770/1383/2368.
+transverse airside 63/188/51/4/5, 46/331/167/51/38, 95/572/155/63/49.
+steps airside 0/0/0/0/0, 0/37/31/0/0, 3/192/131/8/5.
+
+UNPAID / OWED:
+
+- NOT ONE VIOLATION ON ANY AIRPORT, IN ANY ARM, IS PRICED AT THE 5 % CAP.
+  v3 within_shape airside by cap: CYXY none; SPJC 62 @1.0 % + 11 @1.5 %;
+  HECA 2221 @1.0 % + 147 @1.5 %. The interior law mints nothing. What the
+  interior cap controls is how far the interior may MOVE, and the strict
+  class bounding it absorbs every metre — so widening the interior class
+  worsens the strict class monotonically at HECA (within_shape airside
+  770 -> 1383 -> 2368 as the interior grows v1 -> v2 -> v3).
+- A2's own prediction HELD: the ~648 HECA ring edges it targeted stop
+  being violations, because at 5 % they pass. The cost is that the surface
+  they no longer hold tilts into the movement surfaces. A2 is the correct
+  reading of 2026-08-21b (a non-frontage ring edge IS a generic pair) and
+  the wrong lever for the bar.
+- HECA v3 residual classified: 2205 apron within_shape airside rows = 786
+  frontage chords + 1419 generic; with no row at 5 % every generic one is
+  a CORRIDOR-CROSSING ring edge (1366 unified:apron, 25 apron:spine, 28
+  foreign). Severity: >2x-cap 447 -> 663 -> 1117, accumulated excess
+  4332 -> 4564 -> 6905 pct-points. Head sites (30.11814,31.41057),
+  (30.11818,31.41055), (30.11843,31.41048) at 1.37-1.41 % vs 1.00 %.
+- SPJC v3 residual (+24) is TWO populations: 15 frontage chords + 47
+  corridor-crossing ring edges + 11 junction rows. The metre-heavy rows
+  are hairline (1.019-1.097 % vs 1.000 % on 55-178 m chords, way -10113,
+  sites (-12.019228,-77.110061), (-12.029663,-77.104875)); the severe rows
+  are a localised WELD CLUSTER — 39 of the 53 >2x rows are <= 5 m long,
+  |de| 0.16-0.45 m, around (-12.021394,-77.110990) where ways -10113 /
+  -10162 / -10698 / -10699 meet. A seat/weld defect, not a grading one.
+- NO ARM PASSES ALL THREE. CYXY wants v2/v3, SPJC is ~+20 in both, HECA is
+  best at v1 and worst at v3. Since no violation is ever priced at 5 %,
+  the interior CAP is not the lever that closes HECA; what closes it is
+  whatever stops the interior tilting into its movement surfaces — a
+  different mechanism from a cap value, and an owner/spec call.
+- DOCKETED BY NAME, nothing fixed: (1) the BLEND-CREDIT READER DRIFT the
+  cap-lockstep twin found — bake reads the blend branch's 1.5 % on one
+  apron ring edge, census reads the plain 1.0 % body cap; site is the twin
+  fixture's bottom ring edge, layout-local (-100,-40)-(300,-40), lat/lon
+  (30.4996407,31.4989583)-(30.4996407,31.5031250); A2 removes it from the
+  shipping configuration (that edge is interior, both readers agree at
+  5 %) but the gap is untouched and still asserted on the flag-off arm.
+  (2) `shape_constraints_cached` is keyed by CONTENT and the interior flag
+  is NOT in the key, so a flag-flipped re-run of an identical ring is
+  served the first arm's caps — test-only (production reads the flag once
+  at import), found in test_fan_ramp_law. (3) the SPJC weld cluster.
+  (4) HECA's 152 kept frontage rows > 5 %. (5) broken_by_emit at 46-65 %.
+  (6) a role-less duplicate ring priced strictly while its host prices its
+  interior at 5 %. (7) SPLP / KAFW / KDFW have no arm under this tree.
+- A REGRESSION A2 INTRODUCED AND THIS LANE FIXED before building: a pair
+  sharing a taxi CENTERLINE was raised to 5 %, which would legalise a 5 %
+  grade along a running taxiway. Caught by test_grade_graph's spine twin;
+  `spine_caps` is now part of the corridor class and is not gated on ring
+  adjacency.
+
+WHAT HOLDS. Transverse is at or below the battery on all three and is best
+in v3 (CYXY 63->5, SPJC 46->38, HECA 95->49); steps are gone (SPJC 37->0,
+HECA 192->5); `[writeback-band]` worst > 10 m count is 0 everywhere (worst
+clamp 0.02 / 0.08 / 4.91 m); CYXY clears its bar by 58 with within_shape
+airside zero.
+
+TESTS. 345 passed / 1 failed across the six suites, that 1 being one of the
+11 the apronpop lane measured on its matched control. R19-5's catch and the
+fan-ramp law both remain resolved; R19-5 now survives at 5 % with its own
+twin asserting a 148 % ring edge still fails.
+
+## 2026-08-23 — the apron STAGED SOLVE (lane/compose): mechanism holds, bar does not move
+
+Spec `docs/specs/apron-staged-solve-spec.md` (owner "proceed"), implemented
+as 69d897c0 + 091fdc0 + a8588ab. Three harness builds on a clean tree, all
+rc=0, all shared-repo UNCHANGED, plus a CYXY flag-off arm.
+
+MEASURED — adjudicated airside, battery / apronpop / v1 / v2 / v3 / STAGED:
+
+| airport | batt | apop | v1 | v2 | v3 | STAGED | bar | verdict |
+|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 189 | STOP +53 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 1487 | STOP +985 |
+
+within_shape airside 0/3/3/0/0/2, 45/12/258/52/73/100,
+1284/643/770/1383/2368/2280. transverse airside 63/188/51/4/5/10,
+46/331/167/51/38/41, 95/572/155/63/49/46.
+
+WHAT IS PROVEN:
+
+- THE PRECEDENCE HOLDS. Senior nodes moved in A2 = 0 on all three; the
+  freeze covers the sweeps and the band clamp. No band is rebuilt in A2
+  (the R8-2 defect class is avoided by construction).
+- FLAG-OFF IS BYTE-FOR-BYTE compose-v3 on CYXY: `O4_APRON_STAGED_SOLVE=0`
+  rebuilds body_sha 40617f978f7a, exactly v3's. Spec twin (c), on a real
+  airport rather than a fixture.
+- The sidecar `apron_seniority` round-trips (CYXY 493 rows, 287 senior /
+  206 interior).
+
+UNPAID / OWED — and the two findings that matter are REFUTATIONS:
+
+- A1'S BOTH-HARD RESIDUE IS ESSENTIALLY NIL, which refutes spec section 4's
+  premise that it is "the honest pin-contradiction number" and that its
+  top-20 is the next round's brief. Measured: CYXY 1 row worst 0.055 m
+  (runway-datum both ends); SPJC 26 rows worst 0.006 m (unified:apron,
+  terrain both ends); HECA 4 rows worst 0.446 m (unified:junction,
+  runway-datum both ends). A1's over_cap is meanwhile large (HECA 4309,
+  SPJC 324), so THE SENIOR LAW IS FEASIBLE and its residue is ordinary
+  unconverged projection, not a contradiction between pins. There is no
+  pin docket to hand on.
+- THE STAGED SOLVE CANNOT MOVE THE NUMBER because the senior set is almost
+  the whole apron. Interior movers vs seniors re-frozen in A2: CYXY 114 /
+  272, SPJC 355 / 2,195, HECA 334 / 1,506. Under A2's predicates 82-86 %
+  of interior-pair endpoints are already movement surfaces, so A2 has
+  almost nothing to move and precedence almost nothing to protect. A
+  mechanism that reorders two sets cannot help when one is nearly empty.
+- STILL NOT ONE VIOLATION AT 5 %, a fourth time: staged within_shape
+  airside by cap is CYXY 2 @1.0 %, SPJC 89 @1.0 % + 11 @1.5 %, HECA
+  2176 @1.0 % + 104 @1.5 %. HECA's accumulated excess on the strict class
+  went 4332 -> 7622 pct-points against the battery.
+- SPJC residual per spec section 8: within_shape airside 100 (battery 45),
+  25 within 1.10x of cap, 58 above 2x — and 42 of those 58 are chords
+  <= 5 m, i.e. the WELD CLUSTER at (-12.021394,-77.110990) where ways
+  -10113 / -10162 / -10698 / -10699 meet. Seat/weld docket, not this lane.
+- Two defects in this round's own code, both found by builds and fixed: a
+  SPLIT LAZY ENTRY (KeyError 'lazy_nodes', killed the SPJC build at 288 s)
+  and a pin docket that reported the wrong population with every source
+  "?". Neither had a surface effect — CYXY's body sha is 6c0cf4f2fd97
+  across all three code states.
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+THE QUESTION THIS PUTS BACK. Four mechanisms have now been measured on one
+lane — remove the interior, price it at 5 %, extend that to ring edges,
+and solve it last with the movement surfaces frozen — and HECA's strict
+class is worse than the battery in every one of them (1284 -> 770 / 1383 /
+2368 / 2280 while total airside goes 1487 -> 1167 / 1599 / 2560 / 2472).
+No arm passes all three airports. The 5 % cap prices nothing anywhere, and
+the pins are not in contradiction, so neither the cap value nor the pin
+placement is the lever. What remains unexplained is why the strict class
+degrades at all once the interior is anything other than 1 % — and that is
+a question about the projection's residual spreading, not about apron law.
+
+## 2026-08-23 — READ: HECA/SPJC strict-class residual is INFEASIBILITY, not convergence
+
+Lead request; no new mechanism. One lane-only override added
+(`O4_SWEEP_BUDGET_SCALE`, default "1" = today's value bit for bit, f68bdba)
+because no live override existed — `O4_FINAL_PROJECTION_MAX_ITERS` was
+deleted with the rest of that territory's gates (RULINGS 2026-08-05) and
+survives only in a comment. It scales the DERIVED budget only; an imposed
+`max_iters` is untouched. Two builds, staged flags as-is, 10x.
+
+VERDICT: **INFEASIBLE STRICT GRAPH.** The budget was never binding, and
+10x buys nothing.
+
+THE BUDGET WAS NEVER BINDING. Every projection already exited
+`[converged]` — the plateau test, not the ceiling. At 1x, HECA's final
+projection ran 1,880 of 250,000 sweeps and ABANDONED 248,120; its
+n_material trajectory over the last blocks reads 21,624 -> 21,476 ->
+21,416 -> 21,329 (last block drop +87 of 21,329, i.e. 0.4 %). CYXY's
+smaller graph reads 96 -> 96 -> 96, drop +0.
+
+BEFORE / AFTER at 10x (1x -> 10x):
+
+| | SPJC | HECA |
+|---|---|---|
+| A1 over_cap (both-hard) | 324 (13) -> 313 (13) | 4309 (2) -> 3836 (2) |
+| A2 over_cap (both-hard) | 35 (32) -> 30 (27) | 564 (451) -> 575 (459) |
+| final#1 EXIT over_cap (both-hard) | 1796 (427) -> 1781 (434) | 10980 (4060) -> 10531 (4080) |
+| within_shape airside | 100 -> 98 | 2280 -> 2275 |
+| within_shape worst | 34.71 % / 1.810 m -> 34.71 % / 1.810 m | 11.59 m -> 11.69 m |
+| ADJUDICATED AIRSIDE | 242 -> 242 | 2472 -> 2462 |
+| exit label | [converged] every pass | [converged] every pass |
+| sweeps used / ceiling | 1,640/250k -> 9,840/2.5M | 1,880/250k -> 11,280/2.5M |
+| wall (LEDGER FRAME ONLY, not a timing claim) | 307 s -> 614 s | 1,419 s -> 2,087 s |
+
+6x the sweeps moved SPJC's adjudicated airside by ZERO and its worst
+residual by 0.000000 m (2.118673 m both arms, to 7 dp). HECA moved 10 rows
+of the 985 it is over its bar, and its worst within_shape row got WORSE
+(11.59 -> 11.69 m). That is a plateau, not slow convergence.
+
+THE 20 WORST RESIDUAL EDGES (HECA 10x, by |de|) ARE ONE APRON AND ONE
+SHAPE OF DEFECT: all 20 are `within_shape apron|apron` airside on way
+**-10612**, at the strict 1.0 % cap, grade 1.36-1.64 %, |de| 10.67-11.69 m
+— over chords of **650-857 m**. Sites cluster at (30.11815,31.41057),
+(30.11820,31.41055), (30.11843,31.41048), (30.11852,31.41045).
+
+That is the infeasibility stated plainly: one apron spans ~850 m across
+terrain that genuinely falls ~11.7 m, and the strict cap allows 8.4 m over
+that span. The projection cannot satisfy it and no sweep budget can.
+
+THE RESIDUAL POPULATION, HECA 10x within_shape airside 2275:
+- by way: -10612 (558), -13148 (260), -10656 (199), -10348 (178),
+  -10682 (173) — five aprons carry 60 % of it;
+- by chord: 1,319 rows <= 60 m, 398 <= 200 m, 429 <= 500 m, **129 > 500 m**;
+  956 rows are on chords ABOVE the 60 m `APRON_BODY_CHORD_MAX_M` body gate,
+  which means they reach the law as RING-ADJACENT or corridor/spine pairs
+  (the gate exempts those) — the long-chord class the body gate was written
+  to exclude is re-entering through the ring-edge and corridor doors;
+- by relative overshoot: 175 within 1.10x, 599 <= 1.5x, 470 <= 2x,
+  1,031 > 2x.
+
+SPJC's residual is the mirror image and unchanged from the staged report:
+98 rows, 42 of the >2x class on chords <= 5 m — the weld cluster at
+(-12.021394,-77.110990).
+
+WHAT THIS HANDS THE NEXT ROUND. Two DIFFERENT defects wear one number:
+a LONG-CHORD infeasibility at HECA (aprons whose real relief exceeds what
+1 % permits across their own span, entering through the ring-adjacent /
+corridor exemptions to the 60 m gate) and a SHORT-CHORD weld cluster at
+SPJC. Neither is a cap value, a pin placement, or a sweep budget — all
+three have now been measured and excluded.
+
+## 2026-08-23 A3 — ring edges strict only inside the 60 m gate (lane/compose)
+
+Spec AMENDMENT A3 (main f081294), implemented as 3d5fe0c. Sweep scale back
+at 1. Three harness builds, staged + transects on, all rc=0, shared repo
+UNCHANGED.
+
+ADJUDICATED AIRSIDE — battery / apronpop / v1 / v2 / v3 / staged / A3:
+
+| airport | batt | apop | v1 | v2 | v3 | staged | A3 | bar | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 24 | 75 | PASS |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 265 | 189 | STOP +76 |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | 1487 | STOP +789 |
+
+within_shape airside 0/3/3/0/0/2/2, 45/12/258/52/73/100/120,
+1284/643/770/1383/2368/2280/2107. CYXY's A3 body sha is IDENTICAL to the
+staged arm (6c0cf4f2fd97) — it carries no long ring edge, so A3 is a no-op
+there.
+
+THE DRAG HYPOTHESIS: CONFIRMED AT HECA, REFUTED AT SPJC. within_shape
+airside split by chord (<= 60 m / > 60 m):
+
+| arm | HECA | SPJC |
+|---|---|---|
+| battery | 765 / 519 | 45 / 0 |
+| staged | 1319 / 961 | 76 / 24 |
+| A3 | **1044 / 1063** | **80 / 40** |
+
+HECA's short class fell 1319 -> 1044 (-275, -21 %) and its worst row fell
+11.59 -> 9.59 m: relaxing the long constraints DID stop them dragging the
+short ones. SPJC's short class did not move (76 -> 80) and its long class
+grew 24 -> 40, which is why its total rose.
+
+BY CAP, a fifth arm saying it: STILL NOT ONE VIOLATION AT 5 %. HECA A3
+2055 @1.0 % + 52 @1.5 %; SPJC A3 106 @1.0 % + 14 @1.5 %; CYXY 2 @1.0 %.
+
+THE 20 WORST ARE THE SAME CLASS A3 TARGETED AND DID NOT REACH. All 20 are
+`within_shape apron|apron` airside on way **-10612**, cap **1.0 %**, grade
+1.09-1.26 %, |de| 8.36-9.59 m, chords **665-857 m**; sites (30.11814,
+31.41057), (30.11815,31.41057), (30.11843,31.41048), (30.11852,31.41045).
+A3 reduced their |de| (11.69 -> 9.59 m) but did NOT reclassify them.
+
+WHY, AND IT IS THE CARVE-OUT THIS LANE FLAGGED WHEN IMPLEMENTING A3. The
+gate was applied to the COVER clause and the ring FRONTAGE edge, as A3
+words it; the ``spine_caps`` half of ``is_apron_corridor_crossing`` was
+deliberately left ungated, because that pair IS the route and gating it
+would raise a long taxiway pair to 5 % (the regression A2's first pass
+produced and test_grade_graph's spine twin caught). Evidence that this is
+the surviving door:
+- the sidecar's own ``apron_seniority`` marks 2,712 of 3,288 HECA apron
+  nodes SENIOR (82 %), and the nearest apron node to each of the four
+  worst sites is SENIOR;
+- ``pair_caps`` still carries **9,782 `unified:apron` rows on chords
+  > 60 m**, the longest at 1,417 m with a 21.295 m budget — an implied
+  **1.50 %**, i.e. a spine/blend cap, not the 5 % interior;
+- the residual > 60 m class is 1,063 rows: 280 at 60-200 m, 636 at
+  200-500 m, **147 above 500 m**, on ways -10612 (282), -10682 (226),
+  -13148 (171), -10656 (146), -10641 (91).
+So the long-chord class now reaches the strict law through the SPINE door
+rather than the cover door. Whether a long APRON spine pair (1 %, the
+apron's own spine — not a 1.5 % taxi route) should take the length gate is
+the open question A3 did not answer, and it is what decides HECA.
+
+SPJC WELD-CLUSTER ROWS, listed separately as asked: 37 of the 120
+within_shape airside rows lie within ~60 m of (-12.021394,-77.110990), on
+sub-3 m chords at 7.8-35.3x their cap (worst 35.31 % on a 1.30 m chord,
+|de| 0.460 m, ways -10113 / -10162 / -10698 / -10699). The other 83 rows
+peak at 20.27 %. The cluster is a seat/weld defect and is untouched by
+every apron-law arm so far.
+
+UNPAID / OWED: SPJC and HECA remain over their bars; the spine-door
+question above; the SPJC weld cluster; SPLP / KAFW / KDFW still have no arm
+under this tree.
+
+## 2026-08-23 A4 — nearest-spine chords + strip exclusion: HECA PASSES ITS BAR
+
+Spec AMENDMENT A4 (main 45f7268; owner rulings RULINGS 2026-08-21d),
+implemented as ef3e842 + b828ff9 on lane/compose. Budget ruling applied:
+FASTPATH re-price on all three A3 patches first, then ONE build (HECA).
+
+### The fastpath (artifacts only — no build)
+
+Re-pricing the A3 patches under the A4 population predicted, per airport:
+
+| | HECA | SPJC | CYXY |
+|---|---|---|---|
+| nearest-spine chords priced | 2,559 | 2,026 | 329 |
+| ...violating at 1 % | 1,253 | 513 | 101 |
+| max nearest-spine chord | 200 m | 169 m | 188 m |
+| strip-EXCLUDED nodes | 140 | 8 | 3 |
+| shapes FULLY excluded | **12** | 0 | 0 |
+| -10612 chords per vertex | **1** | — | — |
+
+The 12 fully-excluded HECA shapes are `-11412 -11415 -11423 -12240 -12249
+-12250 -12251 -12308 -12481 -12482 -12500 -12520` — **including -12251**,
+the runway-05C/23C shoulder sliver the owner identified in JOSM.
+
+THE FASTPATH PAID FOR ITSELF: it caught that selecting the nearest spine
+node by COORDINATE IDENTITY against `axes_exact` vertices yields an EMPTY
+set on real data (not one emitted apron ring vertex equals an axes_exact
+vertex; the node the owner named sits 0.002 m off the line). A4.1(i) would
+have shipped inert. The candidate set is now ring vertices within
+`SPINE_PERP_TOL_M` of a centerline — the engine's own on-the-spine notion.
+
+### The build (HECA, staged + transects)
+
+**ADJUDICATED AIRSIDE 1,273 — UNDER THE 1,487 BAR, by 214.** The first
+HECA arm to clear its bar since the battery.
+
+| arm | batt | apop | v1 | v2 | v3 | staged | A3 | **A4** | bar |
+|---|---|---|---|---|---|---|---|---|---|
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | **1273** | 1487 |
+
+within_shape airside 1284 → … → 2107 (A3) → **1,106** (A4) — *below the
+battery*. transverse airside 95 → **35**, the best of any arm. steps
+airside 3 → 12.
+
+within_shape airside by cap: **1,075 @1.0 % + 29 @1.5 % + 2 @8 %** — still
+none at the 5 % interior cap, now for the sixth arm running.
+
+By chord class (battery / A3 / A4):
+
+| chord | battery | A3 | **A4** |
+|---|---|---|---|
+| ≤ 60 m | 765 | 1,044 | **789** |
+| 60–200 m | 305 | 280 | **290** |
+| **> 200 m** | 214 | **783** | **27** |
+| max chord | 680 m | 857 m | **555 m** |
+
+THE LONG-CHORD INFEASIBILITY CLASS IS GONE: 783 → 27. The -10612 fan the
+owner read in JOSM is resolved — **183 rows, one per site, max chord
+199 m** (A3: 367 rows, 665–857 m, up to 53 chords from one vertex).
+
+The 27 survivors > 200 m are all cap 1.0 %, 21 of them on way -10256, at
+484–555 m and 1.54–1.55 %. They are SPINE pairs, which A4 deliberately
+leaves ungated (a spine pair is the route and keeps its route's cap) —
+the remaining long class, and the next question if it matters.
+
+Instruments: `[apron-staged]` A1 over_cap 1,388 (both-hard **2**) | A2 328
+(both-hard 315), **senior moved in A2 = 0**; certificate final#1 EXIT
+16,768 (3,494 both-hard) vs A3's 22,034 (4,225); `[transverse-bind]`
+bound 26,728 / rows 53,456 / exit_over_budget 2,424; **`[writeback-band]`
+worst > 10 m count = 0** (worst clamp +6.17 m); airside_value_delta vs
+battery 11,348 nodes, worst 12.14 m. census_rows_diff vs A3: 2,238 GONE /
+1,045 NEW, net −1,193.
+
+UNPAID / OWED:
+
+- SEAT/WELD RESIDUE, listed separately as the next docket: rows on chords
+  ≤ 5 m at more than 2× cap — battery 167, A3 229, **A4 123**. Reduced but
+  not addressed; no apron-population change touches it.
+- SPJC and CYXY have NO A4 BUILD this round (budget ruling): they run at
+  acceptance/merge. The fastpath predicts SPJC's nearest-spine class at
+  513 violations and CYXY's at 101, but a prediction is not an arm.
+- The 27 spine-pair rows > 200 m at HECA (way -10256).
+- A4.1(iii) is worded "ring edges ≤ APRON_BODY_CHORD_MAX_M **per A2/A3**"
+  and was implemented as A2/A3's own clauses (ring frontage edge,
+  corridor-crossing edge) rather than promoting every short ring edge to
+  strict. The broader reading would ADD strict rows; this is flagged for
+  ratification.
+
+## 2026-08-23 A4 acceptance — CYXY and SPJC arms: two of three airports pass
+
+The two arms the budget ruling deferred, run at the same tree as the HECA
+arm (d861d6f, staged + transects, flags identical). All rc=0, shared repo
+UNCHANGED, no HECA rebuild.
+
+### FINAL TABLE — adjudicated airside, battery → A4
+
+| airport | batt | apop | v1 | v2 | v3 | staged | A3 | **A4** | bar | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CYXY | 75 | 204 | 67 | 16 | 17 | 24 | 24 | **18** | 75 | **PASS −57** |
+| SPJC | 189 | 474 | 551 | 204 | 213 | 242 | 265 | **245** | 189 | **STOP +56** |
+| HECA | 1487 | 1508 | 1167 | 1599 | 2560 | 2472 | 2276 | **1273** | 1487 | **PASS −214** |
+
+TWO OF THREE PASS. Both passing arms clear by a wide margin; SPJC is the
+one airport left, at +56, and its residual is not an apron-law class.
+
+### within_shape airside, by cap and chord class
+
+| | CYXY batt→A4 | SPJC batt→A4 | HECA batt→A4 |
+|---|---|---|---|
+| rows | 0 → 3 | 45 → 103 | 1284 → 1106 |
+| cap 1.0 % | 0 → 3 | 34 → 90 | 1177 → 1075 |
+| cap 1.5 % | 0 → 0 | 11 → 13 | 105 → 29 |
+| cap 5 % (interior) | **0 → 0** | **0 → 0** | **0 → 0** |
+| ≤ 60 m | 0 → 3 | 45 → 89 | 765 → 789 |
+| 60–200 m | 0 → 0 | 0 → 14 | 305 → 290 |
+| **> 200 m** | 0 → 0 | 0 → **0** | 214 → **27** |
+| max chord | — → 7 m | 39 → **178 m** | 680 → **555 m** |
+
+NOT ONE VIOLATION AT THE 5 % INTERIOR CAP ON ANY AIRPORT, IN ANY ARM —
+now seven arms and three airports. The interior law mints nothing; it only
+governs how far the interior may move.
+
+SPJC's long-chord class is GONE (A3 had 18 rows > 200 m and a 285 m max;
+A4 has none, max 178 m). HECA's fell 783 → 27 (all spine pairs).
+
+### SPJC weld cluster — the residual is a seat/weld defect, not apron law
+
+Rows on chords ≤ 5 m at more than 2× cap, and how many sit in the declared
+cluster at (-12.021394, -77.110990):
+
+| arm | seat/weld rows | of which in cluster |
+|---|---|---|
+| battery | 31 | 26 |
+| A3 | 43 | 24 |
+| **A4** | **48** | **17** |
+
+SPJC's within_shape airside is 103, of which **48 are sub-5 m chords over
+2× cap** — nearly half. A4 moved the cluster count down (26 → 17) but the
+short-chord class as a whole up. This is the seat/weld docket, untouched by
+every apron-population arm, and it is what stands between SPJC and its bar.
+
+### Strip exclusion (A4.2), measured on the A4 patches
+
+| airport | apron shapes | strip-EXCLUDED nodes | shapes FULLY excluded |
+|---|---|---|---|
+| CYXY | 43 | 3 | 0 |
+| SPJC | 87 | 8 | 0 |
+| HECA | 153 | **143** | **12** |
+
+HECA's 12: `-11412 -11415 -11423 -12240 -12249 -12250 -12251 -12308 -12481
+-12482 -12500 -12520` — including **-12251**, the runway 05C/23C shoulder
+sliver the owner identified in JOSM.
+
+### Instruments
+
+| | CYXY | SPJC | HECA |
+|---|---|---|---|
+| `[apron-staged]` A1 over_cap (both-hard) | 6 (1) | 267 (6) | 1388 (2) |
+| A2 over_cap (both-hard) | 3 (3) | 85 (78) | 328 (315) |
+| **senior moved in A2** | **0** | **0** | **0** |
+| certificate final#1 EXIT | 1065 (471) | 1946 (421) | 16768 (3494) |
+| `[transverse-bind]` exit_over_budget | 150 | 208 | 2424 |
+| **`[writeback-band]` worst > 10 m** | **0** | **0** | **0** |
+
+UNPAID / OWED:
+
+- SPJC IS THE ONE AIRPORT OVER ITS BAR (245 vs 189, +56), and its
+  within_shape residual is dominated by the sub-5 m seat/weld class (48 of
+  103). That is the next docket and is not an apron-law question.
+- A4.2'S `EXCLUDED` SENIORITY VALUE NEVER REACHES THE SIDECAR. The law
+  function carries it and its twin passes, but `solve.py`'s seniority
+  export derives its node set FROM THE GRAPH EDGES — and an excluded node
+  generates no edge, so it is absent rather than tagged. The exclusion
+  itself works (proven by the HECA result and the twins); only its
+  *reporting* is incomplete. The counts above come from re-deriving the
+  footprint over the emitted patches, not from the sidecar. Fixing the
+  export needs a rebuild to observe, so it is left for the merge round.
+- The 27 HECA spine-pair rows > 200 m (way -10256, 484–555 m at 1.54 %).
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+## 2026-08-23 — SPJC seat/weld ATTRIBUTION (brief 11ffd34): STOP, no fix
+
+Four pre-registered reads on the A4 SPJC artifacts (`a4_spjc` patch +
+sidecar + rows-json). NO BUILD RAN, and none was warranted — see the
+verdict.
+
+### Read 1 — the rows
+
+48 within_shape airside rows on chords <= 5 m at > 2x cap, of 103 total.
+
+- **46 of 48 have BOTH endpoints welded** (a node shared by 2-3 shapes,
+  apron+junction or apron+apron); only 2 rows touch a 1-shape endpoint.
+- **Only 17 of 48 are in the declared cluster.** A larger group (~26) sits
+  1,087-1,378 m away — the class is NOT one junction.
+- Rows arrive in IDENTICAL DUPLICATE PAIRS: -10092/-10093, -10433/-10445,
+  -10162/-10699, -10113/-10698 each report the same chord, |de| and grade.
+  One physical edge, judged once per claiming shape.
+- By way: -10092 (14), -10093 (10), -10698 (6), -10113 (4), -10162 (4),
+  -10699 (3), -10433 (2), -10445 (2), -10470/-10561/-10112 (1 each).
+- Worst: 35.85 % over 0.53 m (|de| 0.190 m, ways -10113/-10698);
+  32.12 % over 0.72 m (0.230 m, -10162/-10698); 15.79 % over 1.96 m
+  (0.310 m, -10092/-10093).
+
+### Read 2 — the values: THE DECISIVE SPLIT
+
+**ZERO emit-consensus disagreements.** Across the 38 distinct endpoints of
+the 48 rows, every node carries ONE altitude across all claiming ways.
+There is no averaging of two authorities, so this is NOT the
+`emit-consensus-mints-violations` class and the seat-is-the-weld ruling
+(2026-08-08) is ALREADY HONOURED here.
+
+The emit stage's own instrument agrees: `law-aware emit snap: 61,717 law
+pair(s), 0 over cap from a naive snap -> 0 after (worst residual
+0.0000 m)`.
+
+Against the solver's bake (`pair_caps`), the 48 split cleanly:
+
+| | rows | meaning |
+|---|---|---|
+| **BAKED** | **26** | the solver priced THIS pair and exited over cap |
+| **pair NEW at emit** | **22** | both endpoints are baked NODES (nearest baked node 0.006-0.009 m) but the PAIR was never priced |
+
+Control: of all 103 within_shape airside rows, 55 are baked and 48 are not.
+The 22 are not "emit moved a node" — their endpoints sit within 9 mm of
+baked nodes. Emit created an ADJACENCY between two pre-existing, lawfully
+valued nodes. The mechanism is in the log: `nid-level final weld: inserted
+68 on-edge node reference(s) into welded partner ways`. Inserting an
+existing node into a partner way mints a new short ring edge that the bake
+never priced — and that the law-aware emit snap cannot catch, because it
+checks BAKED pairs only.
+
+### Read 3 — the history: CHURN, not drift
+
+Class SITES: battery 20, A3 28, A4 30.
+battery∩A3 18, A3∩A4 12, battery∩A4 8, **all three 8**; 18 NEW in A4, 16
+GONE from A3. The class is not a fixed seat defect being carried forward —
+it re-forms in different places as the surface moves.
+
+### Read 4 — the junction geometry
+
+9 nodes within 5 m of (-12.021394, -77.110990), every one welded across
+2-3 of ways -10113 / -10162 / -10698 / -10699, every one single-valued.
+z spread 0.410 m over 4.56 m. Node -3401 (z 23.62) sits 0.23 m BELOW its
+~1 m neighbours -2799 (23.85) and -3400 (23.82) — that dimple IS the
+32.12 % row. A real local surface dip, not a disagreement.
+
+### VERDICT — "anything else": STOP with row-level evidence
+
+The population is MIXED and neither named branch fits it whole:
+
+- **EMIT-MINTED is REFUTED as specified.** That branch's premise is
+  "solver values lawful, emit weld/consensus makes the step", with the fix
+  being "the weld must carry ONE authority's value". Measured: the weld
+  ALREADY carries one authority on every endpoint (0 of 38 disagree).
+  **There is no fix to make on this branch**, which is why no build ran.
+- **SOLVER-SEATED is REFUTED.** It requires two shapes solved to different
+  z at a shared position; measured zero.
+- **PROJECTION RESIDUAL fits the 26 BAKED rows**: they churn arm-to-arm,
+  the step is present pre-emit, and the solver exits over cap on them
+  (SPJC A4 `[apron-staged]` A1 over_cap 267, A2 85). STOP for the lead.
+- **The 22 remaining rows are a class the tree does not name**: emit-minted
+  TOPOLOGY. Values are lawful and single-authored; what emit mints is the
+  PAIR. No law priced it and no emit-side check covers it. This is a
+  law-coverage gap at the nid-level final weld, not a value defect.
+
+UNPAID / OWED:
+
+- SPJC stays at 245 vs bar 189. Its within_shape residual is 103 rows of
+  which 48 are this class; neither half is apron-law territory.
+- THE COVERAGE GAP IS THE ACTIONABLE ITEM: the nid-level final weld inserts
+  node references into partner ways AFTER the bake, minting ring adjacencies
+  that no law ever priced and that the law-aware emit snap does not check
+  (it validates baked pairs only). Either those inserts must re-enter the
+  law, or the emit snap's scope must cover post-weld adjacencies. That is a
+  spec question for the lead, not a lane fix.
+- The 26 projection-residual rows belong with the solver-exit residue
+  already docketed (A1/A2 over_cap).
+
+## 2026-08-23 — weld before projection: implemented, and MEASURABLY INERT. STOP.
+
+Spec `docs/specs/weld-before-projection-spec.md` (owner "proceed"),
+implemented as 4d2aba0 on lane/compose. Budget honoured: fastpath count
+first, then ONE SPJC build, then the confinement check. No HECA/CYXY
+rebuilds — and the diff below is why none was warranted.
+
+### The fastpath (A4 patches, artifacts only)
+
+Adjacencies a reorder would newly price — both endpoints already baked,
+pair never baked, none below `MIN_PAIR_DIST_M`:
+
+| airport | newly priced | currently over the 1 % cap |
+|---|---|---|
+| SPJC | 200 (apron 101 / junction 99) | 26 |
+| HECA | 503 (junction 276 / apron 227) | 127 |
+| CYXY | 93 (junction 57 / apron 36) | 14 |
+
+These EXCEED the nid-level weld's own insert counts (SPJC 68) — the first
+sign that a second pass mints adjacencies too.
+
+### The SPJC arm — the reorder ran and changed nothing
+
+```
+[weld-before-projection] SPJC: inserted 28 T-vertex(es) into 17 shape(s)
+                         BEFORE the final projection
+[final-projection] SPJC: CALL #1
+[pav-builder] SPJC: final epsilon-wedge weld — inserted 142 vertex(es)
+[pav-builder] nid-level final weld: inserted 68 on-edge node reference(s)
+              *** POST-PROJECTION WELD RESIDUE ***
+```
+
+- **SPJC airside 245 — IDENTICAL to A4.** Bar 189.
+- within_shape airside 103, sub-5 m > 2x class **48 — identical to A4**.
+- `census_rows_diff` A4 vs this arm: **417 EXACT, 0 GONE, 0 NEW, net +0.**
+  That is the confinement proof in its strongest possible form: not
+  "confined to the weld class", but *no law row moved at all*.
+- The patch DID change (body_sha 624f4f59454a → 21d687db4191) — the 28
+  inserts landed — so the pass is real and surface-neutral, exactly as
+  designed.
+- `[apron-staged]` A1 over_cap 267 (both-hard 6) | A2 85 (78), senior moved
+  in A2 = 0; `[transverse-bind]` bound 8,490 / exit_over_budget 208;
+  **`[writeback-band]` worst > 10 m = 0** (worst clamp +0.08 m).
+
+### THE STOP, and it is the one the spec pre-registered
+
+> "a to_osm weld insert count > 0 on a pre-welded ring is a STOP (the two
+> passes disagree on the weld set — fix the disagreement, never suppress
+> the count)."
+
+The count is **68 — unchanged from A4.** The pre-projection pass inserted
+28 T-vertices and removed NOT ONE of the nid-level weld's inserts.
+
+WHY, from the ordering the arm logs: the two passes are not the same weld
+seeing the same geometry.
+
+| pass | space | when | inserts |
+|---|---|---|---|
+| pre-projection weld (new) | ring / coordinate, `FINAL_WELD_TOL_M` | before the projection | 28 |
+| **epsilon-wedge weld** | ring / coordinate | **AFTER the projection** | **142** |
+| nid-level final weld | emitted nid chains, `_WELD_TOL_M` | inside `to_osm` | **68** |
+
+The 68 adjacencies are minted by geometry that does not exist when the
+pre-projection pass runs: the **epsilon-wedge weld inserts 142 vertices
+after the projection**, and the nid-level pass then welds against those
+rings. Moving the nid-level insert earlier cannot reach a class created
+later. The spec scoped the change to "only the nid-level weld insert
+moves", so closing this needs the epsilon-wedge weld's timing addressed —
+a spec question, not a lane fix, and explicitly out of this spec's scope.
+
+### Disposition
+
+The reorder is KEPT (`O4_WELD_BEFORE_PROJECTION`, default ON): it is
+measurably law-neutral (0 rows moved), surface-neutral by construction
+(inserts at the edge's own interpolated altitude), and it puts the weld in
+the architecturally correct place. It simply does not close the 22-row
+class, and the new verification line now says so out loud on every build
+instead of leaving a silent 68.
+
+UNPAID / OWED:
+
+- SPJC unchanged at 245 vs 189. The class split stands as attributed: 26
+  projection-residual rows (solver exits over cap: A1 267 / A2 85) and 22
+  emit-minted-topology rows, now proven to be minted AFTER the projection
+  by the epsilon-wedge weld rather than by the nid-level pass.
+- THE ACTIONABLE ITEM MOVES ONE PASS EARLIER: the epsilon-wedge weld
+  (pipeline part 30j, 142 inserts at SPJC) is the author. Either it moves
+  before the projection too, or the law-aware emit snap's scope must cover
+  post-weld adjacencies. Both are spec decisions.
+- HECA/CYXY were not rebuilt: the SPJC diff showed zero law-row movement,
+  which is the budget's own condition for not rebuilding.
+
+## 2026-08-23 — weld A1 (wedge insert moves too): also INERT. STOP, with the mechanism named.
+
+Spec AMENDMENT A1 (main 7932a68), implemented as 53f72a4. ONE SPJC build.
+
+### §1b does NOT fire — the halves separate cleanly
+
+`snap_subcm_vertex_twins` and `enforce_conformance` were already two calls.
+Better: **the wedge insert and the nid insert are the SAME function at the
+SAME tolerance** (`enforce_conformance` / `FINAL_WELD_TOL_M`, whose
+`_plan_shape_inserts` is THE one candidate enumeration). What distinguished
+the wedge call was only its DEM/tile frame (the "cuts never fill" bound),
+which the pre-projection pass now carries. The snap stays post-projection
+per §1b; the pre-projection pass adds an *idempotent* snap because the snap
+is the insert's documented precondition (without it the weld propagates
+mm-apart twins — CYXY lockstep, 7.7e-5 m).
+
+### The arm
+
+```
+[weld-before-projection] SPJC: snapped 370 sub-cm vertex twin(s) across 147 shape(s) first
+[weld-before-projection] SPJC: inserted 28 T-vertex(es) into 17 shape(s) BEFORE the final projection
+[final-projection] SPJC: CALL #1
+[pav-builder] SPJC: final epsilon-wedge weld — inserted 142 vertex(es) into 80 shape(s).
+              *** POST-PROJECTION WELD RESIDUE ... requires 0 here ***
+[pav-builder] nid-level final weld: inserted 68 ... *** POST-PROJECTION WELD RESIDUE ***
+```
+
+- **SPJC airside 245 — identical to A4 and to the first reorder arm.**
+- within_shape airside 103; **sub-5 m > 2x class 48 — identical.**
+- `census_rows_diff` reorder-arm vs this arm: **417 EXACT, 0 GONE, 0 NEW.**
+- Verification counts: wedge **142** (must be 0), nid **68** (must be 0) —
+  both unchanged from every prior arm.
+- `[apron-staged]` A1 267 (6) | A2 85 (78), senior moved in A2 = 0;
+  `[transverse-bind]` exit_over_budget 208; **`[writeback-band]` > 10 m = 0.**
+
+### THE STOP, and this arm names the mechanism
+
+The two calls are now the same function, the same tolerance and the same
+DEM frame — and they still disagree **28 vs 142**. So the disagreement is
+NOT in the enumerations. It is in the GEOMETRY they are shown:
+
+**114 of the 142 T-junctions do not exist when the pre-projection pass
+runs.** They are minted between it and the wedge call by the passes that
+emit geometry after the projection — adjacent-ground band emit, gap-fill
+spines, crown-field completion, densify, tile cuts. The pipeline's own
+comment beside the retired late projection lists exactly these as the
+stages that "reshape rings after this point".
+
+That refutes A1's premise the same way the first arm refuted §1's: moving a
+weld earlier cannot weld geometry that does not exist yet. The residue is
+not a weld-ordering defect at all — it is that **ring-minting emitters run
+after the last pass that prices rings**.
+
+### Disposition and what is actually owed
+
+Both reorders are KEPT (`O4_WELD_BEFORE_PROJECTION`, default ON): measured
+law-neutral (0 rows moved across two arms), surface-neutral by
+construction, and correct ordering. Neither closes the 22-row class, and
+the verification lines now say so on every build.
+
+THE ACTIONABLE ITEM IS NOT ANOTHER WELD MOVE. Two attempts have now
+measured the same answer, so the attempt cap is reached and this is a STOP:
+
+- either the post-projection ring-minting emitters move ahead of the
+  projection (a large re-ordering, far beyond this spec), or
+- the law-aware emit snap's scope extends to post-weld adjacencies so the
+  minted edges are checked where they are made, or
+- the class is adjudicated: these are sub-5 m ring edges at a weld, whose
+  |de| is 0.06-0.46 m, and the question is whether a 0.5 m step across a
+  0.7 m weld chord is a defect the surface should be graded for at all.
+
+SPJC stays at 245 vs 189, class split unchanged: 26 projection-residual +
+22 emit-minted-topology.
+
+## 2026-08-24 — the read's staged-solve fixes: SPJC 245 → 207, A2 both-hard 78 → 0
+
+Five items from the parallel read, implemented as 338c557 + 08b00e3 on
+lane/compose. ONE SPJC build plus a cheap CYXY regression guard.
+
+### The conforming-mint spec is PARKED (ecf15a5)
+
+The "22 emit-minted" class it was written for was a JOIN ARTIFACT in my own
+instrument: `pair_caps` exported lat/lon at 7 dp (half-ulp 0.0056 m) and my
+26/22 split came from a ~5 mm proximity join against that quantum. At 10 mm
+all 48 SPJC rows join to baked pairs. The canonical-identity-join law fired
+on the tool I built to test it; my "the PAIR is new at emit" conclusion is
+WITHDRAWN. The ruling stands and the mechanism is kept intact and tested
+but gated OFF (`O4_CONFORMING_MINT=1` arms it) until a real instance exists.
+
+### Results
+
+| | battery | A4 | **read fixes** | bar |
+|---|---|---|---|---|
+| SPJC adjudicated airside | 189 | 245 | **207** | 189 (+18) |
+| CYXY adjudicated airside | 75 | 18 | **16** | 75 (PASS) |
+
+| SPJC | A4 | read fixes |
+|---|---|---|
+| A1 over_cap (both-hard) | 267 (6) | 267 (6) |
+| **A2 over_cap (both-hard)** | **85 (78)** | **0 (0)** |
+| within_shape airside | 103 | **69** |
+| sub-5 m > 2x class | 48 | **25** (cluster 17) |
+| by cap | 90 @1.0 + 13 @1.5 | 56 @1.0 + 13 @1.5 |
+| senior moved in A2 | 0 | **0** |
+
+**A2's both-hard population is GONE** — 78 → 0 — which is what item 1
+predicted: those were interior pairs frozen at both ends because neither
+pass priced them. 76,468 both-senior interior pairs joined A1 at SPJC
+(2,184 at CYXY), and A1's own counts are unchanged (267/6), so the newly
+priced law was absorbed without cost to the strict class.
+
+### Confinement proof
+
+`census_rows_diff` A4 → read fixes: **378 EXACT, 39 GONE, 1 NEW, net −38**.
+GONE: 35 `within_shape apron|apron` airside, 2 `transverse apron|apron`, 2
+`frontage_near_miss`. NEW: 1 `within_shape apron|apron`. Every moved row is
+in the apron interior/strict classes — nothing beyond, which is the stated
+condition for not rebuilding HECA.
+
+`[writeback-band]` worst > 10 m = 0 (worst clamp +0.08 m);
+`[transverse-bind]` bound 8,490 / exit_over_budget 208.
+
+### Items delivered
+
+1. Both-senior interior pairs enter A1 at their own 5 % cap; A2 keeps only
+   pairs with an interior mover. Seniority hoisted above A1 so both
+   sub-stages partition from ONE answer.
+2. One partition input: the runtime publishes its own partition and the
+   exporter reads it (was 2,395/751 exported vs 2,962/83 at runtime).
+3. (a) `excluded_both_hard=N` names the population dropped from the swept
+   set but counted by the tally; (b) A2 gains its own both-hard docket —
+   correctly SILENT this arm, because A2's both-hard is now 0; (c) an
+   all-hard hyperplane row no longer holds `any_active`.
+5. `pair_caps` / `mesh_edges` export at the canonical 11 dp instead of 7,
+   so identity joins are possible at all — the root cause of the artifact.
+
+UNPAID / OWED:
+
+- SPJC is still +18 over its bar (207 vs 189). Its within_shape residual is
+  69 rows, of which 25 are the sub-5 m > 2x seat/weld class (17 in the
+  declared cluster) — the parallel read's territory, not this lane's.
+- HECA HAS NO ARM under these fixes. The rows_diff showed no movement
+  beyond the apron classes, which the budget makes the condition for not
+  rebuilding, but "no arm" is not "no regression": HECA's 1,273 is
+  unverified against this tree.
+- A latent NameError was found in self-review and fixed (08b00e3): the
+  `excluded_both_hard` argument had landed in a fourth function where the
+  name does not exist. It survived the SPJC build only because that path
+  did not execute.
+
+## 2026-08-24 — HECA verification arm under the read fixes: 1,273 → 1,129
+
+ONE HECA build at `git_head=d6b96b9` (read fixes, clean tree,
+`code_tree_hash=a199962718ff`), staged + transects, rc=0, shared repo
+UNCHANGED. A5 was NOT in this build — see the provenance note.
+
+### Results — HECA passes with more margin
+
+| | battery | A4 | **read fixes** | bar |
+|---|---|---|---|---|
+| adjudicated airside | 1487 | 1273 | **1129** | 1487 (**PASS −358**) |
+| within_shape airside | 1284 | 1106 | **961** | |
+| transverse airside | 95 | 35 | **35** | |
+| A1 over_cap (both-hard) | — | 1388 (2) | **1553 (2)** | |
+| **A2 over_cap (both-hard)** | — | **328 (315)** | **5 (1)** | |
+| senior moved in A2 | — | 0 | **0** | |
+
+**A2's both-hard population collapses 315 → 1**, the same effect measured
+at SPJC (78 → 0): those were interior pairs frozen at both ends because
+neither pass priced them. **21,902** both-senior interior pairs joined A1
+at HECA. A1's over_cap rises 1388 → 1553 — it is now enforcing law that
+previously went unpriced — while the CENSUS falls, which is the right
+direction: more law enforced, fewer violations emitted.
+
+within_shape airside by cap: **928 @1.0 % + 31 @1.5 % + 2 @8 %** — still
+none at the 5 % interior cap. By chord: ≤60 m **642** (A4 789), 60–200 m
+292, >200 m **27** (unchanged), max chord 555 m. Seat/weld residue
+(≤5 m, >2x) **104** (battery 167, A4 123).
+
+`excluded_both_hard` reports for the first time: up to **14,586** on the
+largest projection — the population dropped from the swept set but counted
+by the tally, which is exactly the reconciliation gap item 3(a) named.
+
+`[transverse-bind]` bound 26,728 / exit_over_budget 2,426;
+**`[writeback-band]` worst > 10 m = 0** (worst clamp +6.17 m).
+
+### Confinement
+
+`census_rows_diff` A4 → read fixes: 4,051 EXACT, 6 MOVED, **318 GONE, 142
+NEW, net −176**. GONE is dominated by 234 `within_shape apron|apron`
+airside; NEW by 87 of the same class. Movement is concentrated in the apron
+within-shape and transverse families with a groundside tail — the classes
+the change touches.
+
+### PROVENANCE NOTE — a real instrument gotcha
+
+The census printed `frame: sha=5ce4eddc`, which is the A5 commit, and A5
+was committed at 08:52:07 while this build ran 08:27:47–08:52:02. The
+PATCH's own record is `env.json: git_head=d6b96b9, git_dirty=False,
+code_tree_hash=a199962718ff` — read-fixes only, A5 absent. **The census's
+`frame:` line reports the tree at CENSUS time, not the tree that built the
+patch.** Any arm censused after a subsequent commit will mis-attribute
+itself unless the reader checks `env.json`. Worth a harness fix; recorded
+here so no later reader takes the census line as the build's provenance.
+
+UNPAID / OWED:
+
+- SPLP / KAFW / KDFW still have no arm under this tree.
+- HECA's remaining 961 within_shape airside rows are 642 at ≤60 m, of which
+  104 are the sub-5 m seat/weld class — the parallel read's territory.
+
+## 2026-08-24 A5 — visible chords + pad interception: HECA 1,129 → 1,116
+
+Spec AMENDMENT A5 (main a49430b; owner ruling RULINGS 2026-08-21f),
+implemented as 5ce4edd. Fastpath on all three patches, then ONE HECA build
+(built at 10a5730, clean).
+
+### Fastpath — how A5 moves the per-vertex chord set
+
+| airport | vertices with a chord | partner CHANGED by visibility | chord INTERCEPTED by a pad | loses its chord (nothing visible) |
+|---|---|---|---|---|
+| HECA | 2,557 | 130 | 151 | **468** |
+| SPJC | 2,021 | 53 | 102 | **337** |
+| CYXY | 336 | 29 | 25 | **55** |
+
+THE THIRD COLUMN IS THE ONE TO LOOK AT. Roughly **one apron vertex in six**
+(HECA 18 %, SPJC 17 %, CYXY 16 %) has NO visible centerline node within
+`BUILDING_REACH_CORRIDOR_M` and therefore loses its strict chord entirely
+under A5 — it falls to the interior 5 % cap. That is a faithful reading of
+the ruling ("the shortest VISIBLE chord"; if none is visible there is none),
+but it is a material narrowing of the movement-surface population and the
+owner should see it stated rather than inferred from a row count.
+
+### The HECA arm
+
+| | A4 | read fixes | **A5** | bar |
+|---|---|---|---|---|
+| adjudicated airside | 1273 | 1129 | **1116** | 1487 (PASS −371) |
+| within_shape airside | 1106 | 961 | **935** | |
+| transverse airside | 35 | 35 | **41** | |
+| A1 over_cap (both-hard) | 1388 (2) | 1553 (2) | **1514 (2)** | |
+| A2 over_cap (both-hard) | 328 (315) | 5 (1) | **3 (1)** | |
+| senior moved in A2 | 0 | 0 | **0** | |
+
+by cap **903 @1.0 % + 30 @1.5 % + 2 @8 %** — still none at 5 %. By chord
+≤60 m **618** (read fixes 642), 60–200 m 288, >200 m 29. Seat/weld residue
+(≤5 m, >2x) **103**. 22,331 both-senior interior pairs joined A1.
+`[writeback-band]` worst > 10 m = **0** (worst clamp +6.17 m).
+
+Confinement, read fixes → A5: 4,057 EXACT, **142 GONE, 128 NEW, net −14**.
+A modest, well-confined move — consistent with the fastpath, where the
+visibility and pad terms touch a few hundred of 2,557 vertices.
+
+UNPAID / OWED:
+
+- A5 is a REAL but SMALL improvement at HECA (−13 airside). Its larger
+  effect is structural: 468 HECA vertices lose their strict chord. Whether
+  that narrowing is intended at that scale is an owner question — the
+  ruling's words support it, but the measurement is worth a look before it
+  is treated as settled.
+- SPJC and CYXY have NO A5 ARM. The fastpath predicts similar proportions
+  (337 and 55 vertices losing their chord) but a prediction is not an arm;
+  SPJC in particular is the airport still over its bar (207 vs 189).
+- SPLP / KAFW / KDFW still have no arm under this tree.
+
+## 2026-08-24 A5 — the SPJC and CYXY arms: no census movement, and the chord-less number
+
+Both built at `git_head=853f94f` (clean), staged + transects, rc=0, shared
+repo UNCHANGED.
+
+### Results
+
+| | A4 | read fixes | **A5** | bar |
+|---|---|---|---|---|
+| SPJC adjudicated airside | 245 | 207 | **207** | 189 (**+18**) |
+| CYXY adjudicated airside | 18 | 16 | **16** | 75 (**PASS −59**) |
+
+A5 moves NEITHER census total. SPJC's within_shape airside is 69 in both
+arms and CYXY's is 1; the patches differ (SPJC body_sha 51ecb51de644 →
+99e22a5aaab2) but the law rows do not.
+
+| SPJC | read fixes | A5 |
+|---|---|---|
+| within_shape airside | 69 | **69** |
+| by cap | 56 @1.0 + 13 @1.5 | **55 @1.0 + 14 @1.5** |
+| by chord | ≤60 m 55, 60–200 m 14 | **same** |
+| seat/weld (≤5 m, >2x) | 25 (17 in cluster) | **25 (17)** |
+| A1 over_cap (both-hard) | 267 (6) | **267 (6)** |
+| A2 over_cap (both-hard) | 0 (0) | **0 (0)** |
+| senior moved in A2 | 0 | **0** |
+| both-senior pairs into A1 | 76,468 | **77,087** |
+
+CYXY: A1 9 (both-hard 1) | A2 **0 (0)**, senior moved 0, 2,246 both-senior
+pairs into A1, within_shape airside 1 @1.5 %.
+
+**`[writeback-band]` worst > 10 m = 0 on both** (SPJC +0.08 m, CYXY 0.11 m).
+
+Confinement, read fixes → A5: SPJC **376 EXACT, 3 GONE, 6 NEW (net +3)**;
+CYXY **197 EXACT, 1 GONE, 0 NEW (net −1)**. Both tiny and confined.
+
+### THE CHORD-LESS NUMBER — for the owner's (a)/(b)/(c) choice
+
+Policy as implemented (unchanged, pending the ruling): a vertex with no
+VISIBLE centerline node within `BUILDING_REACH_CORRIDOR_M` has no strict
+chord and falls to the interior 5 % cap.
+
+| airport | chord-less apron vertices | with a chord | **within_shape airside rows touching one** | their caps | worst |
+|---|---|---|---|---|---|
+| SPJC | 1,006 | 1,397 | **6 of 69** | all 1.0 % | 1.57 % |
+| CYXY | 62 | 249 | **0 of 1** | — | — |
+| HECA | 679 | 1,865 | **312 of 935** | all 1.0 % | 105.01 % |
+
+TWO THINGS THE OWNER SHOULD WEIGH, and they point opposite ways:
+
+1. AT SPJC THE CHOICE IS NEARLY FREE — 6 rows of 69, none above 1.57 %.
+   Whichever of (a)/(b)/(c) is chosen, SPJC's 207 barely moves.
+2. AT HECA IT IS NOT — **312 of 935 rows touch a chord-less vertex**, and
+   the worst is 105 %. A third of HECA's remaining within-shape debt sits
+   on vertices the visibility gate disconnected from the corridor. Note
+   those rows are all at the STRICT 1.0 % cap: they are priced by some
+   OTHER strict clause (a frontage chord, a ring edge, a corridor pair), so
+   losing the nearest-spine chord did not make them interior — it removed
+   one law from vertices that other laws still bind.
+
+That asymmetry is the number the ruling needs: the chord-less policy is
+almost costless at SPJC and materially load-bearing at HECA.
+
+UNPAID / OWED:
+
+- SPJC remains +18 over its bar (207 vs 189), unchanged by A5. Its residual
+  is 69 within_shape rows of which 25 are the sub-5 m seat/weld class (17 in
+  the declared cluster) — the parallel read's territory, not apron law.
+- SPLP / KAFW / KDFW still have no arm under this tree.

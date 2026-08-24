@@ -27,6 +27,8 @@ from collections import defaultdict, namedtuple
 import O4_UI_Utils as UI
 from shapely.strtree import STRtree
 
+from . import grade_law as _GL
+
 from .layout import (
     BuiltShape,
     PavementLayout,
@@ -692,6 +694,115 @@ def weld_node_identity_tol(tol=CONFORMANCE_TOL_M) -> float:
     return max(float(tol), _NODE_IDENTITY_TOL_M)
 
 
+#: CREATION-ORDER SENIORITY (spec §2).  The pipeline's own part order IS
+#: the rank: a shape minted by an earlier part is senior to one minted by a
+#: later part.  ``pipeline`` stamps ``_mint_rank`` on the shapes it creates
+#: through :func:`stamp_mint_rank`; anything unstamped predates the
+#: registry and is SENIOR to everything stamped (rank -1), which is the
+#: conservative reading — the solve/projection output is the most senior
+#: surface there is.  No new constants: the ranks are ordinals of the parts
+#: that already exist.
+MINT_RANK_UNSTAMPED = -1
+
+
+def stamp_mint_rank(shapes, rank: int) -> int:
+    """Stamp a ring-minting pass's rank onto the shapes it just created.
+    Returns how many were stamped.  Idempotent: a shape that already
+    carries a rank keeps its FIRST one, because that is when it was made."""
+    n = 0
+    for sh in (shapes or ()):
+        if getattr(sh, "_mint_rank", None) is None:
+            try:
+                setattr(sh, "_mint_rank", int(rank))
+                n += 1
+            except (AttributeError, TypeError):
+                pass
+    return n
+
+
+def _mint_rank(shape) -> int:
+    r = getattr(shape, "_mint_rank", None)
+    return MINT_RANK_UNSTAMPED if r is None else int(r)
+
+
+def _junior_cap(shape) -> float:
+    """The junior ring's OWN cap — the role limit it is already graded at.
+    Read from ``config.ROLE_GRADE_LIMITS``, never re-spelled."""
+    from .config import ROLE_GRADE_LIMITS, APRON_MAX_GRADE
+    return float(ROLE_GRADE_LIMITS.get((shape.role or ""), APRON_MAX_GRADE))
+
+
+def apply_conforming_mints(layout, mints, tol) -> tuple:
+    """Make every JUNIOR ring conform to the values the mints settled.
+
+    For each minted position, the shapes that carry a vertex there and are
+    JUNIOR to the minting receiver adopt the senior value at that vertex and
+    walk their own neighbourhood outward under their own cap
+    (``grade_law.conforming_mint``).  A SENIOR vertex is never written —
+    the rank comparison is what guarantees it, and the caller asserts it.
+
+    Returns ``(n_minted, n_walked, walks)`` where ``walks`` records
+    ``(x, y, senior_rank, junior_ref, reach_m)`` per conformed ring, for the
+    sidecar (spec §5) so a census row inside a walk region is attributable.
+    """
+    if not mints:
+        return 0, 0, []
+    n_walk = 0
+    walks = []
+    for sh in layout.shapes:
+        poly = getattr(sh, "polygon", None)
+        if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        ring = _open_ring(poly)
+        if not ring:
+            continue
+        alts = _vertex_alts(sh, len(ring))
+        if alts is None:
+            continue
+        cap = _junior_cap(sh)
+        rank = (_mint_rank(sh), str(getattr(sh, "ref", "") or ""))
+        n = len(ring)
+        changed = False
+        new = list(alts)
+        for i, (x, y) in enumerate(ring):
+            hit = mints.get((round(x, 6), round(y, 6)))
+            if hit is None:
+                continue
+            senior_value, senior_rank = hit
+            if rank <= senior_rank:
+                continue          # this ring IS the senior one — never move
+            if new[i] is not None and abs(float(new[i]) - senior_value) <= 1e-9:
+                continue
+            new[i] = senior_value
+            changed = True
+            reach = 0.0
+            # walk BOTH ways out of the mint, each under the junior's cap
+            for step in (1, -1):
+                vals, dists, idxs = [], [], []
+                px, py = x, y
+                j = i
+                for _ in range(n - 1):
+                    j = (j + step) % n
+                    qx, qy = ring[j]
+                    dists.append(math.hypot(qx - px, qy - py))
+                    vals.append(new[j])
+                    idxs.append(j)
+                    px, py = qx, qy
+                for (k, v) in _GL.conforming_mint(senior_value, vals,
+                                                  dists, cap):
+                    new[idxs[k]] = v
+                    n_walk += 1
+                    reach = max(reach, sum(dists[:k + 1]))
+            walks.append((float(x), float(y), int(senior_rank[0]),
+                          str(getattr(sh, "ref", "") or ""), float(reach)))
+        if changed:
+            sh.node_altitudes = [float(v) if v is not None else None
+                                 for v in new]
+            sh.altitude_high = None
+            sh.altitude_low = None
+    return len(mints), n_walk, walks
+
+
 def _weld_frame(layout: "PavementLayout", include_overlay_refs: bool):
     """The weld's own working set: ``(elig, cell, grid, registry)``.
     Shared by ``enforce_conformance`` and ``weld_candidate_pairs`` so both
@@ -906,6 +1017,18 @@ def enforce_conformance(layout: "PavementLayout",
     shapes_modified = 0
     vertices_inserted = 0
     insert_altitude = _make_insert_altitude(layout, elig)
+    # ── THE CONFORMING MINT'S WORK LIST (spec
+    # ``creation-order-seniority-spec.md`` §1; owner RULINGS 2026-08-21e) ──
+    # Every insert this pass makes is a MINT against an already-settled
+    # surface: the receiving edge is SENIOR (it was there; the vertex is
+    # landing on it), so the minted vertex takes the receiving ring's own
+    # value at that position — which this pass already does, via
+    # ``insert_altitude``.  What was missing is the other half: the DONOR
+    # ring keeps its own value at the same coordinate, and the emit
+    # consensus then unifies the two at a step NEITHER ring priced.
+    # Collect (position -> senior value, senior rank) here and make the
+    # junior rings conform after the insert loop.
+    _mints: dict = {}
     # Final bound for CUT-ONLY receivers (None ⇒ no clamp at all).
     cut_bound = _make_cut_law_clamp(layout, dem, tile_lat, tile_lon)
 
@@ -965,6 +1088,15 @@ def enforce_conformance(layout: "PavementLayout",
                     if cut_bound is not None:
                         _ins_alt = cut_bound(s, _ins_alt, px, py)
                     new_alts.append(_ins_alt)
+                    # THE MINT: this position now carries a SENIOR value.
+                    # Ties break on (rank, shape id) so two receivers
+                    # claiming one position resolve deterministically.
+                    if _GL.CONFORMING_MINT and _ins_alt is not None:
+                        _rk = (_mint_rank(s), str(getattr(s, "ref", "") or ""))
+                        _pk = (round(px, 6), round(py, 6))
+                        _cur = _mints.get(_pk)
+                        if _cur is None or _rk < _cur[1]:
+                            _mints[_pk] = (float(_ins_alt), _rk)
         # Rebuild the polygon; bail (leave shape untouched) if invalid —
         # LOUDLY: a bailed shape keeps every T-vertex it should have
         # welded, and the un-welded nodes Ruppert-explode the tile mesh.

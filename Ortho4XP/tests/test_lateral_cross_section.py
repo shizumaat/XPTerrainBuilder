@@ -413,10 +413,19 @@ def test_a_service_axis_prices_only_the_road_family():
     lsn.insert_lateral_spine_nodes(layout2, "TEST", station_step_m=12.0)
     assert lsn.lateral_xsection_pairs(layout2), (
         "the road family IS this axis's population")
-    # …and it is priced at the ROAD's transverse cap, not a taxi letter's.
+    # …and it is priced at the ROAD's own rate.  The span record carries
+    # the LONGITUDINAL cap since 2026-08-21 (spec
+    # ``transverse-hyperplane-solve-spec.md`` step 1): the transverse
+    # product lives in ONE law function both readers call, so a record
+    # holding the already-mapped cap would apply the mapping twice.
     from auto_patch import config as CFG
+    from auto_patch import grade_law as GL
     caps = {c for (_a, _b, _w, c) in lsn.lateral_xsection_pairs(layout2)}
-    assert caps == {CFG.SERVICE_ROAD_MAX_TRANSVERSE}
+    assert caps == {CFG.SERVICE_ROAD_MAX_GRADE}
+    # …and the BUDGET the solve binds is the law function's product.
+    _a, _b, _w, _c = lsn.lateral_xsection_pairs(layout2)[0]
+    assert (GL.transverse_span_budget_m(_c, _w)
+            == CFG.SERVICE_ROAD_MAX_TRANSVERSE * _w)
 
 
 def test_the_off_arm_binds_nothing(monkeypatch):
@@ -588,7 +597,7 @@ def test_a_hit_on_an_existing_ring_vertex_still_makes_a_cross_section():
         for vi in (1, 2, 3):
             lsn._bracket_feet(cs[vi][0], cs[vi][1], cs, vi, tree,
                               [lsn._open(poly)], [poly], inserts,
-                              min_span_m=12.0, cap_t=0.015, pairs_out=spans,
+                              min_span_m=12.0, cap_l=0.015, pairs_out=spans,
                               vertex_hits=vertex_hits)
         return spans, inserts
 
@@ -629,7 +638,7 @@ def test_the_vertex_hit_completion_is_parked_default_off(monkeypatch):
         for vi in (1, 2):
             lsn._bracket_feet(cs[vi][0], cs[vi][1], cs, vi, tree,
                               [lsn._open(poly)], [poly], inserts,
-                              min_span_m=12.0, cap_t=0.015, pairs_out=spans,
+                              min_span_m=12.0, cap_l=0.015, pairs_out=spans,
                               vertex_hits=vertex_hits)
         assert len(spans) == expect
     monkeypatch.setenv("O4_XSECTION_VERTEX_HITS", "1")

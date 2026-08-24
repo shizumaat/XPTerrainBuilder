@@ -3961,8 +3961,12 @@ def junction_mesh_edges_ll(layout):
         for (index_a, index_b) in index_pairs:
             lat_a, lon_a = layout.m_to_ll(*ring[index_a])
             lat_b, lon_b = layout.m_to_ll(*ring[index_b])
-            edges_ll.append([[round(lat_a, 7), round(lon_a, 7)],
-                             [round(lat_b, 7), round(lon_b, 7)]])
+            # 11 dp, the canonical identity spelling — same reason as
+            # ``lockstep_pair_caps_ll`` below: mesh_edges_ll is joined to
+            # emitted nodes, and a 7 dp key (half-ulp 0.0056 m) forces every
+            # reader into a proximity join.
+            edges_ll.append([[round(lat_a, 11), round(lon_a, 11)],
+                             [round(lat_b, 11), round(lon_b, 11)]])
     return edges_ll
 
 
@@ -3985,16 +3989,34 @@ def lockstep_pair_caps_ll(layout):
     ring mutations cannot desynchronize the mapping; a vertex that no
     longer exists simply drops its pairs.  Caps are metres (the pair's
     grade budget); duplicate pairs keep the SMALLEST cap (the MIN-budget
-    aggregation ruling, test_single_graph_acceptance 2026-07-17)."""
+    aggregation ruling, test_single_graph_acceptance 2026-07-17).
+
+    ROW SHAPE: ``[[lat_a, lon_a], [lat_b, lon_b], budget_m, family]`` — the
+    FAMILY TAG (spec ``apron-within-shape-population`` §7,
+    ``grade_graph.edge_family_name``: ``unified:<role>`` /
+    ``unified:<role>:spine``) joined 2026-08-21 so the sidecar says WHICH law
+    priced each pair.  Every reader takes the row POSITIONALLY (``row[0]``,
+    ``row[1]``, ``row[2]``) and a pre-2026-08-21 three-element row is still
+    read exactly as before."""
     import math as _math
     from .grade_law import pair_grade_budget_m
     store = getattr(layout, "_lockstep_shape_bake", None)
     registry = getattr(layout, "canonical_points", None)
     if not store or registry is None:
         return []
+    from .grade_graph import edge_family_name
     best: dict = {}
     for (_role, ring_signature, baked_edges, _spine) in store.values():
         for (position_a, position_b, cap_allowance) in baked_edges:
+            # FAMILY TAG (spec ``apron-within-shape-population`` §7): the
+            # SAME literal ``UnifiedGraph.edge_family`` mints
+            # (``grade_graph.edge_family_name``), so a frontage chord is
+            # addressable in the sidecar and the census can assert that
+            # every priced apron pair is a baked frontage chord.
+            family = edge_family_name(
+                _role,
+                (min(position_a, position_b),
+                 max(position_a, position_b)) in (_spine or ()))
             if (position_a >= len(ring_signature)
                     or position_b >= len(ring_signature)):
                 continue
@@ -4016,15 +4038,27 @@ def lockstep_pair_caps_ll(layout):
                 continue
             lat_a, lon_a = layout.m_to_ll(*point_a)
             lat_b, lon_b = layout.m_to_ll(*point_b)
-            key_a = (round(lat_a, 7), round(lon_a, 7))
-            key_b = (round(lat_b, 7), round(lon_b, 7))
+            # THE CANONICAL IDENTITY SPELLING IS 11 DECIMALS (memory
+            # ``canonical-identity-join``; the emitted patch spells nodes
+            # the same way).  It used to be 7, whose half-ulp is 0.0056 m —
+            # coarser than the sub-centimetre geometry this export
+            # describes, so NO reader could join a row to a baked pair by
+            # identity and every consumer fell back to a proximity join.
+            # MEASURED COST (2026-08-23): a ~5 mm proximity join against
+            # that quantum split SPJC's 48-row class into a phantom
+            # "26 baked / 22 emit-minted", and a whole spec round was
+            # written against the 22.  At 10 mm all 48 join.  An export
+            # that cannot be joined by identity is an export that INVITES
+            # the defect the identity law exists to forbid.
+            key_a = (round(lat_a, 11), round(lon_a, 11))
+            key_b = (round(lat_b, 11), round(lon_b, 11))
             if key_a == key_b:
                 continue
             pair_key = (min(key_a, key_b), max(key_a, key_b))
-            if pair_key not in best or budget < best[pair_key]:
-                best[pair_key] = budget
-    return [[list(a), list(b), budget]
-            for ((a, b), budget) in sorted(best.items())]
+            if pair_key not in best or budget < best[pair_key][0]:
+                best[pair_key] = (budget, family)
+    return [[list(a), list(b), budget, family]
+            for ((a, b), (budget, family)) in sorted(best.items())]
 
 
 def taxi_routes_ll(layout):

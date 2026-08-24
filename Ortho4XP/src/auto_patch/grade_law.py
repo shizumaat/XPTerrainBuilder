@@ -43,7 +43,7 @@ from .config import (
     ADJACENT_GROUND_DAYLIGHT_SLOPE_LIMIT,
     ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE, ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE,
     ADJACENT_GROUND_LIP_WIDTH_M, ADJACENT_GROUND_UNGRADED_STRIP_MAX_UP_SLOPE,
-    APRON_MAX_GRADE, APRON_SHOULDER_MAX_DOWN_SLOPE,
+    APRON_MAX_GRADE, APRON_SHOULDER_MAX_DOWN_SLOPE, FAN_RAMP_CAP,
     APRON_SHOULDER_MIN_DOWN_SLOPE, APRON_SHOULDER_WIDTH_M,
     BUILDING_FRONTAGE_MAX_GRADE, BUILDING_FULL_FRONTAGE,
     BUILDING_FULL_FRONTAGE_AREA_M2,
@@ -86,7 +86,7 @@ from .config import (                                          # noqa: E402
     ruleset_stand_max_grade, ruleset_strip_arc_rate_per_m,
     ruleset_strip_band_max_down_slope, ruleset_strip_half_width_m,
     ruleset_strip_max_longitudinal_slope, ruleset_taxi_max_grade,
-    ruleset_taxi_transverse_max)
+    ruleset_taxi_transverse_max, transverse_cap_for_longitudinal_cap)
 
 
 def ruleset_of(layout_or_icao=None) -> str:
@@ -2480,6 +2480,89 @@ MIN_PAIR_DIST_M = 0.5
 # building-frontage and seam chords are NEVER dropped by this.  0 = unlimited.
 APRON_BODY_CHORD_MAX_M = float(os.environ.get("O4_APRON_BODY_CHORD_MAX_M", "60"))
 
+# ── THE APRON WITHIN-SHAPE POPULATION (owner ruling RULINGS 2026-08-21b) ─────
+# "An apron's cap is owed on its MOVEMENT SURFACES — corridor profiles,
+# frontage chords (building→spine) and stand entries — NEVER on a generic
+# ring-vertex pair" (owner 2026-08-21, answer "ii"; spec
+# ``docs/specs/apron-within-shape-population-spec.md``).
+#
+# Measured basis: 1,055 of HECA's 1,089 ``within_shape apron|apron`` airside
+# rows on the 2026-08-21 battery patch are generic vertex-pair chords (p90
+# 412-449 m, max 680 m) that merely CROSS a spine corridor cover; the ruled
+# population — frontage chords — is 441.  SPJC 34 → 0; CYXY had none.
+#
+# STAND ENTRIES fold into frontage: a stand's lead-in IS its frontage chord
+# (``apron_terrace.corridor_cover``'s own construction, and
+# "reach follows centerlines", RULINGS 2026-07-30), and the engine carries no
+# separate stand-entry object.
+#
+# ── AMENDED BY RULINGS 2026-08-21c / spec AMENDMENT A1: INTERIOR IS LAW ──
+# The owner REVERSED the removal half of 2026-08-21b.  An interior apron pair
+# is NOT dropped from the law — it is law at the FAN-RAMP CAP
+# (``config.FAN_RAMP_CAP``, 5 %, the 2026-08-05 constant
+# ``fan_ramp_law_cap`` resolves); only the MOVEMENT SURFACES (frontage
+# chords, and the ring-adjacent branch R19-5 exists for) keep the STRICT
+# apron cap.  Measured basis for the reversal, on this very lane
+# (apronpop + transect, 2026-08-21): with the interior REMOVED the apron
+# had no law at all, the transect rows moved the rings by metres and the
+# frontage chords absorbed it — SPJC 189 → 551 airside, 201 of 233 new
+# rows genuine frontage chords.  The 5 % interior law IS the interior's
+# constraint (A1 §5a supersedes the "no replacement regulariser" clause).
+#
+# THE FLAG WAS RENAMED because "FRONTAGE_ONLY" now misdescribes it: nothing
+# is dropped any more, only the interior CAP changes.  The old name
+# ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY`` is NOT read — a stale arm using it
+# would otherwise silently get the default, and an env flag that quietly
+# means something new is exactly the silent-break class.
+# ``O4_APRON_INTERIOR_RAMP_CAP=0`` restores TODAY'S ALL-STRICT behaviour
+# (every apron pair at the body cap), i.e. the 2026-08-21 battery.
+APRON_INTERIOR_RAMP_CAP = (
+    os.environ.get("O4_APRON_INTERIOR_RAMP_CAP", "1") != "0")
+
+#: The interior apron pair's cap (spec A1 §1a).  ONE constant, both readers
+#: — the census reaches it through ``classify_pair`` like every other cap.
+APRON_INTERIOR_CAP = FAN_RAMP_CAP
+
+#: The soft-pavement roles whose ring vertices make a BUILDING ring edge a
+#: FRONTAGE edge.  Production's own set, not a re-spelling: it is the
+#: ``apron_keys`` of ``elevation_per_surface/route_profile/anchors.py``
+#: ``build_building_seats`` (apron + junction — the corridor face a building
+#: usually fronts onto is roled ``junction`` under the global slice, and
+#: ``service_junction`` LEFT the set with the R7b sink ruling 2026-08-15,
+#: "a road never welds to a building").
+FRONTAGE_SOFT_ROLES = frozenset({APRON_ROLE, "junction"})
+
+
+def frontage_vertex_keys(building_rings, soft_keys) -> set:
+    """THE frontage-vertex set: every key of a BUILDING ring EDGE whose two
+    endpoints are BOTH soft-pavement ring vertices.
+
+    This is production's frontage predicate verbatim — ``anchors._frontage_box``
+    ("both endpoints shared with an apron"), the same one
+    ``tools/frontage_split.classify_buildings`` reads — expressed on KEYS so
+    every reader can supply its own identity space (solver node indices,
+    rounded layout coordinates, emitted node ids).  IDENTITY ONLY: never a
+    proximity join (memory ``canonical-identity-join``).
+
+    ``building_rings``  an iterable of OPEN key rings, one per building pad.
+    ``soft_keys``       the keys of every ``FRONTAGE_SOFT_ROLES`` ring vertex.
+    """
+    out: set = set()
+    for ring in building_rings:
+        keys = [k for k in ring]
+        n = len(keys)
+        if n < 2:
+            continue
+        for i in range(n):
+            a = keys[i]
+            b = keys[(i + 1) % n]
+            if a is None or b is None or a == b:
+                continue
+            if a in soft_keys and b in soft_keys:
+                out.add(a)
+                out.add(b)
+    return out
+
 
 @dataclass(frozen=True)
 class Allowance:
@@ -2552,6 +2635,38 @@ def pair_grade_budget_m(cap_allow: "Allowance", distance_m: float) -> float:
                cap_allow.flat_cap() * distance_m)
 
 
+# ── THE TRANSVERSE SPAN BUDGET — ONE FUNCTION, BOTH READERS ─────────────
+# Owner ruling 2026-08-21 (RULINGS "RM's relocated airside debt is paid by
+# the solver pricing transverse"), spec
+# ``docs/specs/transverse-hyperplane-solve-spec.md`` step 1.
+#
+# A corridor CROSS-SECTION is priced over the span the transect actually
+# crosses — ``cap_T x width`` — never over a route and never over a chord
+# between ring vertices.  Both readers of that law used to spell the
+# product themselves: ``check_grade._check_transverse_grade`` (the census)
+# and ``lateral_spine_nodes.lateral_xsection_law_edges`` (the solve-side
+# binding).  Two spellings of one product is the census-wrapper defect in
+# miniature, and this family is precisely the one the owner just moved
+# into the solve, so it gets stated once, here, beside the other
+# within-shape budget functions.
+#
+# NO QUANTIZATION, deliberately, exactly as ``pair_grade_budget_m``:
+# each reader adds its OWN encoding envelope (the census adds
+# ``_pair_quant_noise_m`` on the crossed way and the declared terrace
+# step; the solve adds nothing, because an emitted-reading forgiveness
+# does not fund a solve target).
+def transverse_span_budget_m(cap_l: float, width_m: float) -> float:
+    """THE cross-section budget: ``transverse_cap_for_longitudinal_cap(cap_l)
+    x width_m``.
+
+    ``cap_l`` is the LONGITUDINAL cap of the axis segment the station sits
+    on (the per-letter taxi cap, the apron cap, the service-road rate);
+    the transverse cap is a pure function of it — the same one law source
+    (``config.transverse_cap_for_longitudinal_cap``) the pair law's ``cT``
+    resolves through.  ``width_m`` is the priced span's own width."""
+    return transverse_cap_for_longitudinal_cap(cap_l) * float(width_m)
+
+
 @dataclass(frozen=True)
 class PairContext:
     """Everything the law needs about ONE vertex pair, computed by the reader
@@ -2595,9 +2710,325 @@ class PairContext:
     # ``both_road``: both endpoints sit on a service-road carve through the host
     # (so the pair descends at the ROAD cap, not the host body cap).
     both_road: bool = False
+    # ── THE APRON MOVEMENT-SURFACE INPUTS (RULINGS 2026-08-21b) ──────────
+    # ``a_frontage`` / ``b_frontage``: the endpoint is a FRONTAGE VERTEX — a
+    # node this shape's ring shares with a building ring that participates in
+    # a frontage EDGE (``frontage_vertex_keys``, production's own predicate).
+    # ``a_corridor`` / ``b_corridor``: the endpoint lies inside the SPINE
+    # CORRIDOR COVER (``apron_terrace.spine_corridor_cover``, its own radius).
+    # Both are computed ONCE PER SHAPE by the reader — the law only DECIDES
+    # with them, exactly like ``a_building`` / ``both_road``.  Defaults are
+    # False, so a reader that does not supply them (plane shapes, a legacy
+    # caller) sees the frontage-only rule refuse every apron pair; the rule
+    # is scoped to ``role == APRON_ROLE``, which no plane shape carries.
+    a_frontage: bool = False
+    b_frontage: bool = False
+    a_corridor: bool = False
+    b_corridor: bool = False
+    # ── AMENDMENT A4 INPUTS ─────────────────────────────────────────────
+    # ``nearest_spine``: THIS pair is an endpoint's chord to its NEAREST
+    # SPINE NODE (A4.1(i), one per ring vertex).  The reader computes the
+    # nearest-spine assignment once per shape, over the spine nodes of
+    # ``centerline_specs`` — the ONE enumeration that also produces the
+    # sidecar's ``axes_exact`` — so bake and census select the same set.
+    # ``a_in_strip`` / ``b_in_strip``: the endpoint lies inside the RUNWAY
+    # STRIP footprint (``runway_strip_wall_keepout_rings``, A4.2).  Membership
+    # is the reader's, the verdict is the law's, exactly like the fields above.
+    nearest_spine: bool = False
+    a_in_strip: bool = False
+    b_in_strip: bool = False
 
 
 SKIP: Optional[Allowance] = None
+
+
+def is_frontage_chord(p: "PairContext") -> bool:
+    """THE frontage-chord predicate (RULINGS 2026-08-21b, spec §1): the pair
+    runs from a building seat contact to the spine it grades to.
+
+    EXACTLY ONE endpoint is a frontage vertex, the OTHER lies inside the spine
+    corridor cover, and the chord is within the frontage band's own reach
+    (``BUILDING_REACH_CORRIDOR_M``, the ONE building↔spine reach value).
+
+    P1 — both endpoints frontage vertices of one pad — is NOT this predicate's
+    business: it is the inter-pad frontage step, and ``classify_pair``'s
+    ``a_building and b_building`` skip (which sits BEFORE the apron rule)
+    already rules it, so P1 keeps exactly the behaviour it has today.  A
+    frontage vertex is by construction a building ring vertex, so a pair
+    reaching the apron rule has at most one of them."""
+    if p.dist > BUILDING_REACH_CORRIDOR_M:
+        return False
+    if p.a_frontage and not p.b_frontage:
+        return bool(p.b_corridor)
+    if p.b_frontage and not p.a_frontage:
+        return bool(p.a_corridor)
+    return False
+
+
+def _within_body_chord_gate(p: "PairContext") -> bool:
+    """THE BODY-CHORD LENGTH CONDITION (spec AMENDMENT A3): a ring edge or a
+    corridor-crossing pair is a MOVEMENT SURFACE only within
+    ``APRON_BODY_CHORD_MAX_M``.  Beyond it the pair is interior, because a
+    650-857 m "edge" is not a surface an aircraft rolls along at 1 % — it is
+    the apron body, and the 60 m gate has excluded that class since long
+    before this ruling.  ``0`` / unset disables the gate, matching the way
+    ``classify_pair``'s own body-chord skip reads the constant."""
+    return not APRON_BODY_CHORD_MAX_M or p.dist <= APRON_BODY_CHORD_MAX_M
+
+
+def is_apron_corridor_crossing(p: "PairContext") -> bool:
+    """A pair lying on the taxi CORRIDOR (spec AMENDMENT A2): inside the spine
+    corridor cover at BOTH ends, or sharing a spine centerline outright.  It
+    is pavement an aircraft actually taxis over, so it keeps the STRICT cap
+    even though neither endpoint fronts a building.
+
+    ``spine_caps`` is the same class stated directly — and it is the reason
+    this predicate is NOT gated on ring adjacency: a spine pair's cap is its
+    ROUTE's per-letter taxi cap, and raising it to the 5 % interior cap would
+    legalise a 5 % grade along a running taxiway.  A synthetic fixture with no
+    ``apron_terrace`` cover (``test_grade_graph``'s spine twin) has exactly
+    that shape and is what caught it.
+
+    AMENDMENT A3 — THE COVER TEST IS GATED BY THE BODY-CHORD LENGTH.  A
+    corridor crossing a LONG edge makes the CROSSING a movement surface,
+    priced by the corridor's own longitudinal and transverse laws; it does
+    not make the whole 850 m edge one.  A2's ungated clause bypassed
+    ``APRON_BODY_CHORD_MAX_M``, the gate that exists to exclude exactly this
+    class, and that is measured as HECA's infeasibility: 956 of 2,275
+    within-shape apron rows sat on chords > 60 m, the worst being -10612 ring
+    edges of 650-857 m at 1.36-1.64 % where the terrain falls 11.7 m and 1 %
+    permits 8.4 m.
+
+    THE ``spine_caps`` HALF KEEPS NO LENGTH GATE, deliberately: that pair IS
+    the route, its cap is the route's own, and the length gate would raise a
+    long taxiway pair from its taxi cap to 5 %.  A3 names the COVER clause as
+    the one that bypassed the gate, and that is the one gated here."""
+    if p.spine_caps:
+        return True
+    if not (p.a_corridor and p.b_corridor):
+        return False
+    return _within_body_chord_gate(p)
+
+
+def is_apron_frontage_edge(p: "PairContext") -> bool:
+    """P1 as it reaches the APRON shape: a ring edge whose BOTH endpoints are
+    frontage vertices (spec AMENDMENT A2) — the pavement directly under a
+    building face.  STRICT.
+
+    (The inter-pad P1 that both endpoints are BUILDING ring vertices is a
+    different pair and is skipped earlier by ``a_building and b_building``.)
+
+    AMENDMENT A3: a RING EDGE is strict only inside the body-chord gate, this
+    one included — "a ring edge (or corridor-crossing pair) is STRICT only if
+    its chord <= APRON_BODY_CHORD_MAX_M".  A frontage CHORD
+    (``is_frontage_chord``) is unchanged and keeps no such gate: it is <=
+    ``BUILDING_REACH_CORRIDOR_M`` by construction."""
+    return bool(p.a_frontage and p.b_frontage) and _within_body_chord_gate(p)
+
+
+#: Node seniority literals (apron staged solve, spec
+#: ``docs/specs/apron-staged-solve-spec.md`` §3).  ONE spelling, shared by
+#: the solve partition, the sidecar export and the census.
+APRON_SENIOR = "senior"
+APRON_INTERIOR = "interior"
+#: A node inside the RUNWAY STRIP footprint (spec AMENDMENT A4.2): it is not
+#: apron law at all, so it is neither senior nor interior.  Exported as a
+#: third value so the census and the trouble map can show what left.
+APRON_EXCLUDED = "excluded"
+
+# Kill switch: ``O4_APRON_STAGED_SOLVE=0`` runs the single-pass apron of
+# compose-v3 (byte-for-byte).
+APRON_STAGED_SOLVE = (
+    os.environ.get("O4_APRON_STAGED_SOLVE", "1") != "0")
+
+
+def apron_node_seniority(apron_nodes, strict_pairs, transect_nodes=(),
+                         excluded_nodes=()) -> dict:
+    """THE APRON NODE PARTITION (spec ``apron-staged-solve-spec.md`` §§1, 3):
+    ``{node: APRON_SENIOR | APRON_INTERIOR}`` over the apron ring nodes.
+
+    A node is SENIOR when it is an endpoint of a STRICT pair — a frontage
+    chord, a ring frontage edge, a corridor-crossing edge or a spine pair,
+    i.e. exactly the pairs ``is_apron_interior`` returns False for — or an
+    endpoint of a BOUND TRANSECT row.  Everything else on an apron ring is
+    INTERIOR.  The movement surfaces are therefore the senior set by
+    construction, and the caller never re-spells the predicate: it hands in
+    the pairs the law already classified.
+
+    ONE function, both readers (§3): the solve partitions its two sub-stages
+    with it and the sidecar exports its result as ``apron_seniority``, so the
+    census can assert that no senior node moved in the interior pass.
+
+    ``apron_nodes``     every node on an apron ring (the partition's domain).
+    ``strict_pairs``    ``(a, b)`` pairs of apron law edges that are NOT
+                        interior.
+    ``transect_nodes``  node ids carried by bound transect rows.
+    ``excluded_nodes``  nodes inside the runway strip footprint (A4.2); they
+                        take ``APRON_EXCLUDED``, which overrides both other
+                        values because a strip node carries no apron law.
+    """
+    out = {int(n): APRON_INTERIOR for n in apron_nodes}
+    # EXCLUDED WINS OVER EVERYTHING (A4.2): a strip node carries no apron law,
+    # so no pair can make it senior.  Applied last, below.
+    excluded = {int(n) for n in excluded_nodes}
+    for a, b in strict_pairs:
+        for k in (int(a), int(b)):
+            if k in out:
+                out[k] = APRON_SENIOR
+    for n in transect_nodes:
+        k = int(n)
+        if k in out:
+            out[k] = APRON_SENIOR
+    for k in excluded:
+        if k in out:
+            out[k] = APRON_EXCLUDED
+    return out
+
+
+# Kill switch for the conforming mint (spec
+# ``docs/specs/creation-order-seniority-spec.md``, owner ruling RULINGS
+# 2026-08-21e).  ``O4_CONFORMING_MINT=0`` restores the pre-ruling behaviour.
+# PARKED 2026-08-23: the "22 emit-minted" class that motivated this was a
+# JOIN ARTIFACT — pair_caps exported lat/lon at 7 dp (half-ulp 0.0056 m) and
+# the 26/22 split came from a ~5 mm proximity join against that quantum; at
+# 10 mm all 48 SPJC rows join to baked pairs.  The canonical-identity-join
+# law fired on our own instrument.  The RULING STANDS and the mechanism is
+# kept intact, but it waits for a real measured instance, so the gate is
+# DEFAULT OFF: O4_CONFORMING_MINT=1 arms it.
+CONFORMING_MINT = (
+    os.environ.get("O4_CONFORMING_MINT", "0") == "1")
+
+
+def conforming_mint(senior_value, junior_values, junior_dists, cap):
+    """CREATION-ORDER SENIORITY (owner ruling RULINGS 2026-08-21e, spec
+    ``creation-order-seniority-spec.md`` §1): later-minted geometry DEFERS
+    to the surface that is already there.
+
+    A pass that mints a vertex against a settled surface gives it the SENIOR
+    surface's value at that position; the JUNIOR ring then conforms its own
+    neighbourhood by a BOUNDED MONOTONE WALK under its own cap, outward from
+    the weld, until it meets the values it already had.  The F3c walk shape.
+
+    Returns the walked junior values as ``[(index, new_value), ...]`` for the
+    prefix the walk actually reaches — everything beyond it is already
+    reachable at ``cap`` and is left untouched, which is what bounds the
+    reach by DEMAND rather than by a constant.
+
+    ``senior_value``  the senior surface's value at the mint position.
+    ``junior_values`` the junior ring's existing values, ordered OUTWARD
+                      from the mint (the mint's own vertex excluded).
+    ``junior_dists``  the segment length to each of those, same order.
+    ``cap``           the junior ring's own cap (a grade, e.g. 0.01).
+
+    BY CONSTRUCTION the minted adjacency and every walked sub-edge are
+    within ``cap``: each step is clamped to ``cap x segment length`` from the
+    previous walked value, and the walk stops at the first vertex already
+    inside that envelope.  Nothing senior is ever returned, so no caller can
+    move a senior vertex through this function.
+
+    Measured basis (SPJC, the 22-row emit-minted class): every one of those
+    rows has an endpoint whose value differs from its OWN ring's linear
+    interpolation by 0.21-0.23 m — the donor vertex keeping its value while
+    the receiving edge was split at the interpolation, so the consensus pass
+    unified them at a step neither ring had priced.
+    """
+    out = []
+    prev = float(senior_value)
+    for i, (v, d) in enumerate(zip(junior_values, junior_dists)):
+        if v is None or d is None:
+            break
+        reach = abs(float(cap)) * float(d)
+        lo, hi = prev - reach, prev + reach
+        v = float(v)
+        if lo - 1e-12 <= v <= hi + 1e-12:
+            # THE WALK TERMINATES HERE: the ring already reaches this value
+            # lawfully from the walked one, so nothing beyond needs moving.
+            break
+        new = lo if v < lo else hi
+        out.append((i, new))
+        prev = new
+    return out
+
+
+def is_apron_strict_chord(p: "PairContext") -> bool:
+    """THE STRICT APRON POPULATION (spec AMENDMENT A4.1).  An apron pair takes
+    the strict cap when it is one of exactly three things:
+
+      (i)   the chord from a ring vertex to its NEAREST SPINE NODE — one per
+            vertex, the reach an aircraft actually rolls to the corridor on
+            (``nearest_spine``, assigned by the reader);
+      (ii)  a FRONTAGE CHORD (section 1, unchanged);
+      (iii) a RING EDGE within ``APRON_BODY_CHORD_MAX_M`` (A2 as corrected by
+            A3), which includes the ring frontage edge and the
+            corridor-crossing edge.
+
+    Everything else on an apron is INTERIOR at ``APRON_INTERIOR_CAP``.
+
+    Measured basis for (i): the A3 arm priced a FAN of 53 chords from one
+    -10612 pad vertex, 118-847 m, every one at 1 % — the owner's reading is
+    that the only chord owed from that vertex is the ~118 m one to its
+    nearest centerline node.  A spine pair (``spine_caps``) is the corridor
+    itself and keeps its route cap; it is strict by that route's own law, not
+    by this predicate."""
+    if p.nearest_spine:
+        return True
+    if is_frontage_chord(p):
+        return True
+    # (iii) is worded "ring edges <= APRON_BODY_CHORD_MAX_M PER A2/A3", so it
+    # carries A2/A3's own clauses rather than promoting every short ring edge:
+    # a ring FRONTAGE edge or a CORRIDOR-CROSSING edge, inside the gate.  A
+    # plain ring edge between two non-frontage, non-corridor vertices stays
+    # INTERIOR, which is what A3 ruled and what keeps R19-5's catch alive at
+    # 5 % (the edge never leaves the domain; only its cap changes).
+    if p.ring_adjacent and _within_body_chord_gate(p) and (
+            is_apron_frontage_edge(p) or (p.a_corridor and p.b_corridor)):
+        return True
+    return bool(p.spine_caps)
+
+
+def is_apron_in_strip(p: "PairContext") -> bool:
+    """The pair has an endpoint inside the RUNWAY STRIP footprint (A4.2).
+
+    Measured basis: synthetic apron sliver -12251 at HECA — 6,782 m2, 666 m
+    long, effective width 10 m, THIRTEEN nodes welded straight into runway
+    05C/23C's ring, with no OSM source within 200 m — entered the apron law
+    population because nothing in ``classify_pair`` consulted the strip
+    keep-out that ``adjacent_ground`` and ``groundside`` already read."""
+    return bool(p.a_in_strip or p.b_in_strip)
+
+
+def is_apron_interior(p: "PairContext") -> bool:
+    """THE interior-apron predicate (RULINGS 2026-08-21c; spec A1 §1a as
+    CORRECTED by AMENDMENT A2): an apron pair that is not a MOVEMENT SURFACE.
+
+    Its cap is ``APRON_INTERIOR_CAP`` (5 %) instead of the shape's strict body
+    cap.  The movement surfaces, which keep the strict cap, are:
+
+      * a FRONTAGE CHORD (``is_frontage_chord`` — building seat to the spine
+        it grades to), ring-adjacent or not;
+      * a ring FRONTAGE EDGE (both endpoints frontage vertices);
+      * a ring CORRIDOR-CROSSING edge (both endpoints inside the spine
+        corridor cover).
+
+    A2 CORRECTED A1 §1a, which had kept EVERY ring-adjacent pair strict on
+    R19-5 grounds ("the bake never removes a ring edge from the domain", lead
+    2026-08-12).  Compose-v2 measured what that cost: HECA was +112 over its
+    bar and ~648 of those rows were apron ring edges over the strict 1 %,
+    while NOT ONE violation on any airport carried the 5 % cap.  Under
+    2026-08-21b a ring edge between two non-frontage vertices IS a generic
+    pair, and R19-5's catch survives intact at 5 % — the edge stays in the
+    domain and a 148 % ring edge still mints its row.
+
+    Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws are
+    UNCHANGED (ruling 2026-08-21b clause 4, unamended)."""
+    if not (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE):
+        return False
+    # AMENDED BY A4.1: interior is simply "not one of the three strict
+    # classes".  A2/A3's frontage-edge and corridor-crossing clauses are
+    # subsumed by (iii) — a ring edge inside the body gate — so they are no
+    # longer asked separately; ``is_apron_corridor_crossing`` survives as the
+    # spine/cover reader the strict predicate and the reports still use.
+    return not is_apron_strict_chord(p)
 
 
 def classify_pair(p: PairContext) -> Optional[Allowance]:
@@ -2627,6 +3058,43 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     #   ↔building step, not an apron grade path.
     if p.a_building and p.b_building:
         return SKIP
+    # — AN APRON PAIR INSIDE THE RUNWAY STRIP IS NOT APRON LAW (spec
+    #   AMENDMENT A4.2; owner ruling RULINGS 2026-08-21d).  The strip has its
+    #   own runway-edge terrain law (2026-08-01, "runway surroundings must
+    #   grade away smoothly") and its footprint is already a law function —
+    #   ``runway_strip_wall_keepout_rings``, which ``adjacent_ground`` and
+    #   ``groundside`` read.  Nothing in this path consulted it, so a
+    #   synthetic apron sliver welded onto a runway shoulder (HECA -12251)
+    #   was graded as apron body.  ONE geometry, no new constant; membership
+    #   is the reader's, the verdict is here.
+    if p.role == APRON_ROLE and is_apron_in_strip(p):
+        return SKIP
+    # — AN APRON'S CAP IS OWED ON ITS MOVEMENT SURFACES, NEVER ON A GENERIC
+    #   RING-VERTEX PAIR (owner ruling RULINGS 2026-08-21b, answer "ii";
+    #   spec ``docs/specs/apron-within-shape-population-spec.md`` §1).  The
+    #   corridor surface is priced by its OWN longitudinal and transverse
+    #   laws; what an APRON within-shape pair regulates is the FRONTAGE
+    #   CHORD — building seat → the spine it grades to.  Every other apron
+    #   pair is not law: 1,055 of HECA's 1,089 such rows were generic
+    #   vertex-pair chords up to 680 m that merely CROSSED a spine corridor
+    #   cover, and the smoothing they were credited with is the warm-start
+    #   carrier's, not this law's (RULINGS 2026-08-15, band carrier).
+    #   Sits directly after the inter-pad skip so P1 (both endpoints
+    #   frontage vertices) keeps that branch's existing behaviour, and
+    #   before every EXPENSIVE predicate so a dropped chord never pays for
+    #   the polygon-containment or spine-crossing test.
+    #   Runway / taxiway / JUNCTION within-shape laws are UNCHANGED (ruling
+    #   clause 4) — the rule is scoped to ``APRON_ROLE`` alone.
+    #
+    #   *** AMENDED, RULINGS 2026-08-21c / spec A1 §1a: THE SKIP IS GONE. ***
+    #   The interior pair is LAW at ``APRON_INTERIOR_CAP`` (5 %), applied at
+    #   cap-selection time below; the frontage chord keeps the strict cap and
+    #   the ring-adjacent branch keeps its own.  Nothing is removed from the
+    #   domain here any more, so every EXISTING skip rule below (sub-noise
+    #   separation, junction mesh, visibility, spine-crossing and the 60 m
+    #   ``APRON_BODY_CHORD_MAX_M`` body gate) still runs on the interior class
+    #   exactly as it did before 2026-08-21b — they predate this ruling and are
+    #   orthogonal to it.
     # — sub-noise separation is not a grade constraint.
     if p.dist < MIN_PAIR_DIST_M:
         return SKIP
@@ -2664,9 +3132,24 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     #   point (decouples building frontages from the route-maxed-low interior).
     if (p.role == APRON_ROLE and APRON_BODY_CHORD_MAX_M
             and not p.spine_caps and not p.ring_adjacent
+            and not p.nearest_spine
             and not p.a_building and not p.b_building
             and p.dist > APRON_BODY_CHORD_MAX_M):
         return SKIP
+
+    # ── THE INTERIOR BRANCH IS FINAL (spec AMENDMENT A4.1) ────────────
+    # An apron pair that is not one of the three strict classes prices at
+    # ``APRON_INTERIOR_CAP`` and RETURNS HERE.  It does not fall through to
+    # the cap chain, so no post-clamp can re-tighten it — which is the whole
+    # correction A4 makes.  MEASURED: under A3 the building clamp below ran
+    # as a BLANKET rule and pulled 5,050 long HECA apron pairs back to 1 %
+    # after the interior raise had released them (every long pair touching a
+    # pad, including the 118-847 m fan from one -10612 vertex).  "Buildings
+    # are the heaviest constraint" (user 2026-07-02) is a statement about the
+    # chords a building is GRADED TO — the strict classes — not about every
+    # chord that happens to touch a pad.
+    if is_apron_interior(p):
+        return Allowance.flat(APRON_INTERIOR_CAP)
 
     # CAP selection — base cap (first match wins):
     # — a spine pair keeps its route's per-letter taxi cap (looser of the shared

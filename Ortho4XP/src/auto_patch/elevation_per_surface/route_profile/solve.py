@@ -6828,6 +6828,30 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
                 row[1] = excess
             if a in hard and b in hard:
                 row[2] += 1
+        # ── THE WEIGHTED TRANSECT ROWS (spec §7) ─────────────────────
+        # A hyper row is not an edge and this loop's ``e[0]``/``e[1]``
+        # would read its weight vector as a node index, so it is counted
+        # here, under its own family: an over-cap transect at exit MUST
+        # appear in ``over_cap=N`` or the certificate reports a smaller
+        # law than the projection was given.  BOTH-HARD means every one
+        # of its four nodes is immovable — the transect analogue of an
+        # infeasible edge, and the only shape "genuinely infeasible" can
+        # take when four nodes share one inequality.
+        for row_h in (entry.get("hyper") or ()):
+            idx4, w4, b_h = row_h[0], row_h[1], row_h[2]
+            if any(int(k) >= n for k in idx4):
+                continue
+            val = sum(float(w) * elev[int(k)] for w, k in zip(w4, idx4))
+            excess = val - float(b_h)
+            if excess <= tol:
+                continue
+            fam_h = "transverse"
+            row = out.setdefault(fam_h, [0, 0.0, 0])
+            row[0] += 1
+            if excess > row[1]:
+                row[1] = excess
+            if all(int(k) in hard for k in idx4):
+                row[2] += 1
     return {k: tuple(v) for k, v in out.items()}
 
 
@@ -6839,6 +6863,99 @@ def projection_law_certificate(joint, elev, n, hard, tol=1e-3,
 # the identical rule inside ``feasibility_project``, so the set and the
 # tag rule live in ``one_solve`` (which ``solve`` imports, never the
 # reverse) and the module-head import aliases it here — not a second copy.
+
+
+def _apron_staged_certificate(icao, report, n, family_of, pin_sources):
+    """Report the apron staged solve's A1/A2 certificate split and print
+    A1's both-hard top-20 with their PIN SOURCES (spec section 4).
+
+    A both-hard edge is one neither endpoint of which may move.  In the A1
+    (senior) pass that means the movement-surface law is contradicted by the
+    PINS themselves — the anchor-placement docket's own population — so each
+    row is named with where its pins come from.
+    """
+    import O4_UI_Utils as _UI_c
+    if not report:
+        return
+    try:
+        _pin_src = _pin_source_map(pin_sources, n)
+        # THE ROWS ARE A1'S OWN, recorded inside the senior pass where its
+        # entry set and its frozen set both exist.  Re-deriving them here
+        # from the JOINT list would report groundside families the senior
+        # pass never enforced (measured: the first CYXY docket was entirely
+        # unified:service_road / service_junction, which are stage B).
+        rows = [(float(x), int(u), int(v), str(family_of.get((min(u, v),
+                                                              max(u, v)), "?")))
+                for (x, u, v) in (report.get("a1_both_hard_raw") or ())]
+        rows.sort(reverse=True)
+        rows2 = [(float(x), int(u), int(v), str(family_of.get((min(u, v),
+                                                               max(u, v)), "?")))
+                 for (x, u, v) in (report.get("a2_both_hard_raw") or ())]
+        rows2.sort(reverse=True)
+        _UI_c.vprint(
+            1, f"  [apron-staged] {icao} CERTIFICATE: "
+               f"A1 over_cap={report.get('a1_over_cap')} "
+               f"(both-hard {report.get('a1_both_hard')}) | "
+               f"A2 over_cap={report.get('a2_over_cap', 0)} "
+               f"(both-hard {report.get('a2_both_hard', 0)}); "
+               f"interior movers={report.get('interior_movers', 0)}; "
+               f"senior moved in A2={report.get('senior_moved', 0)}")
+        if not rows:
+            return
+        _UI_c.vprint(
+            1, f"  [apron-staged] {icao} A1 BOTH-HARD top "
+               f"{min(20, len(rows))} of {len(rows)} — THE PIN DOCKET "
+               f"(both endpoints immovable: the pins contradict the "
+               f"movement-surface law, spec section 4):")
+        for exc, a, b, fam in rows[:20]:
+            _UI_c.vprint(
+                1, f"      excess {exc:7.3f} m  {fam:28s} "
+                   f"nodes {a}/{b}  pins {_pin_src.get(a, '?')}/"
+                   f"{_pin_src.get(b, '?')}")
+        if rows2:
+            _UI_c.vprint(
+                1, f"  [apron-staged] {icao} A2 BOTH-HARD top "
+                   f"{min(20, len(rows2))} of {len(rows2)} — THE FREEZE "
+                   f"DOCKET (an interior pair neither endpoint of which A2 "
+                   f"may move: a statement about the freeze, not the law):")
+            for exc, a, b, fam in rows2[:20]:
+                _UI_c.vprint(
+                    1, f"      excess {exc:7.3f} m  {fam:28s} "
+                       f"nodes {a}/{b}  pins {_pin_src.get(a, '?')}/"
+                       f"{_pin_src.get(b, '?')}")
+            report["a2_both_hard_rows"] = [
+                {"excess_m": round(float(x), 4), "a": int(u), "b": int(v),
+                 "family": str(f), "pin_a": _pin_src.get(u, "?"),
+                 "pin_b": _pin_src.get(v, "?")}
+                for (x, u, v, f) in rows2[:20]]
+        report["a1_both_hard_rows"] = [
+            {"excess_m": round(float(x), 4), "a": int(u), "b": int(v),
+             "family": str(f), "pin_a": _pin_src.get(u, "?"),
+             "pin_b": _pin_src.get(v, "?")}
+            for (x, u, v, f) in rows[:20]]
+    except Exception as _e:                              # pragma: no cover
+        _UI_c.vprint(1, f"  [apron-staged] certificate report failed: {_e}")
+
+
+def _pin_source_map(sources, n):
+    """``{node: pin-source label}`` for the A1 pin docket (spec section 4).
+
+    ``sources`` is an ORDERED list of ``(label, node-set)`` handed in by the
+    caller from the very sets that made those nodes hard — the runway datum,
+    the tile-seam terrain freeze, the strip freeze, the seed pins.  First
+    label wins, so the most specific source named by the caller is the one
+    reported.  Nothing is re-derived here: a pin source guessed from geometry
+    would be a second authority on what the projection froze."""
+    out = {}
+    for label, nodes in (sources or ()):
+        for i in (nodes or ()):
+            try:
+                k = int(i)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= k < n:
+                out.setdefault(k, label)
+    return out
 
 
 def _report_law_certificate(icao, label, cert, top=8, n_nodes=None,
@@ -7263,6 +7380,24 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _fp_law_counts["lateral_xsection"] = len(_xsec_fp)
     except Exception as _xsec_exc:
         _fp_law_counts["lateral_xsection"] = f"FAILED {_xsec_exc!r}"
+    # ── THE WEIGHTED TRANSECT ROWS (owner ruling 2026-08-21; spec
+    # transverse-hyperplane-solve-spec.md §§2-5 + AMENDMENT A1 §8a) ────
+    # The pair form above can only bind a cross-section where a foot was
+    # planted at BOTH ends; 66 of 75 CYXY airside transverse rows have no
+    # ring vertex near either end.  A transect is a WEIGHTED FOUR-NODE
+    # inequality over the ring edges its ends interpolate along, so it is
+    # bound as one — here, on the ring THIS projection sees, because no
+    # projection runs after to_osm begins (A1, measured).
+    _hyper_fp: list = []
+    _bound_spans_fp: list = []
+    try:
+        from auto_patch.lateral_spine_nodes import (
+            transect_hyper_rows as _transect_rows_fp)
+        _hyper_fp = list(_transect_rows_fp(
+            layout, b2i, elev, spans_out=_bound_spans_fp))
+        _fp_law_counts["transverse_hyper"] = len(_hyper_fp)
+    except Exception as _hyp_exc:
+        _fp_law_counts["transverse_hyper"] = f"FAILED {_hyp_exc!r}"
     if _terrace_plan_fp is not None:
         from .apron_terrace import (
             apply_terrace_budgets_to_edges as _apply_terr_u_fp)
@@ -7283,6 +7418,15 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     joint = list(shape_constraints) + _unified_entries(
         u_edges, _fp_pair_stage, "final_projection/unified",
         family="unified_graph")
+    if _hyper_fp:
+        # THE TRANSECT ROWS RIDE THEIR OWN ENTRY (spec §3): never a
+        # 5-tuple in ``edges``, whose ``len(edge) >= 4`` decoders would
+        # read them as an interval slab.  Airside transects are STAGE A
+        # (§6) — the shapes they cross are the airside ones the taxi axes
+        # price — so they bind in the pass that owns airside values.
+        from auto_patch.solve_stage import STAGE_A as _STAGE_A_FP, STAGE_KEY
+        joint.append({"edges": [], "hyper": _hyper_fp,
+                      STAGE_KEY: _STAGE_A_FP, "family": "transverse"})
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}
@@ -8418,11 +8562,21 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # the solve's residual verbatim.
     _air_idx = [i for i in range(n) if i not in _fp_receivers]
     _air_entry = [elev[i] for i in _air_idx]
+    # ── THE APRON STAGED SOLVE (spec apron-staged-solve-spec.md) ──────
+    # The partition is the LAW's own mint-time verdict
+    # (``grade_law.is_apron_interior`` via ``UnifiedGraph.edge_interior``),
+    # taken beside the family axis it parallels.  ``staged_report`` collects
+    # the A1/A2 split for the certificate below.
+    _fp_interior = G.interior_pairs()
+    _fp_staged_report: dict = {}
+    setattr(layout, "_apron_staged_report", _fp_staged_report)
     rem, bh = feasibility_project_partitioned(
                                   elev, joint, hard, force_scalar=True,
                                   receiver_nodes=_fp_receivers, n_nodes=n,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
+                                  apron_interior_pairs=_fp_interior,
+                                  staged_report=_fp_staged_report,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
                                   witness_excluded=_fp_witness_excluded,
@@ -8440,6 +8594,48 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   group_bounds=_fp_group_bounds,
                                   node_bounds=_fp_node_bounds,
                                   declared_out=_fp_declared)
+    # THE SENIORITY PARTITION, exported for the census (spec section 3).
+    # TAKEN AFTER THE PROJECTION (lead 2026-08-23) so it can publish the
+    # RUNTIME's own partition from the staged report rather than deriving a
+    # second, narrower one — see the ONE PARTITION INPUT note below.
+    # ONE function (``grade_law.apron_node_seniority``) fed with the pairs
+    # the law already classified — the reader never re-spells the predicate.
+    try:
+        from auto_patch import grade_law as _GLsen
+        _ap_nodes, _strict = set(), []
+        for _e4, _it in zip(G.edges, G.edge_interior):
+            _a4, _b4 = _e4[0], _e4[1]
+            if not isinstance(_a4, int) or not isinstance(_b4, int):
+                continue
+            _k4 = (min(_a4, _b4), max(_a4, _b4))
+            if _k4 in _fp_interior:
+                _ap_nodes.update(_k4)
+            elif str(_fp_family_of.get(_k4, "")).startswith("unified:apron"):
+                _ap_nodes.update(_k4)
+                _strict.append(_k4)
+        _tx_nodes = set()
+        for _h in (getattr(layout, "_transverse_hyper_rows", None) or ()):
+            try:
+                _tx_nodes.update(int(_i) for _i in _h[0])
+            except Exception:
+                pass
+        # ONE PARTITION INPUT (lead 2026-08-23): prefer the RUNTIME's own
+        # partition, published by the staged pass on its report.  The local
+        # derivation below is the fallback for a build where the staged
+        # solve did not run (flag off, or no interior pairs at all); it
+        # counted only ``unified:apron`` families as strict and so exported
+        # a DIFFERENT partition from the one that ran — 2,395/751 against
+        # the runtime's 2,962/83.  A partition nobody solved is not
+        # evidence about the solve.
+        _sen = dict(_fp_staged_report.get("seniority") or {}) \
+            if isinstance(_fp_staged_report, dict) else {}
+        if not _sen:
+            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
+        setattr(layout, "_apron_seniority_ll", [
+            [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
+            for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])
+    except Exception as _e_sen:                          # pragma: no cover
+        setattr(layout, "_apron_seniority_ll", [])
     # The audit's read-out.  ``>0`` is a STOP LINE, not a failure: the
     # count is the size of the airside second-authorship this pass
     # carries, and it is a PRE-EXISTING number (every post-solve
@@ -8790,6 +8986,18 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             # reading above — still BEFORE the crown
                             # transform back, so still uncrowned z′.
                             n_nodes=n, crown_space="uncrowned z'")
+    # ── THE A1/A2 SPLIT AND THE PIN DOCKET (spec section 4) ───────────
+    # A1's both-hard residue is the honest pin-contradiction number: an
+    # edge both of whose endpoints are immovable cannot be projected, so
+    # it is a statement about the PINS, not about the surface.  The list
+    # below IS the next round's brief.
+    _apron_staged_certificate(
+        icao, _fp_staged_report, n, _fp_family_of,
+        # THE SETS THAT ACTUALLY FROZE THESE NODES, most specific first.
+        [("runway-datum", runway_idx),
+         ("tile-seam", _tile_seam_idx),
+         ("terrain", terrain_hard),
+         ("seed-pin", {i for i in range(n) if base_hard[i]})])
     # ── PROBE A, FINAL-PROJECTION TAIL: THIS PASS'S EXIT BOUNDARY ───────
     # (spec amendment 2026-08-01.)  Taken BEFORE the crown transform back,
     # so it is in the SAME uncrowned z′ frame as every other boundary in
@@ -8813,6 +9021,56 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _rs.altitude = _al
         _rs.altitude_high = _ah
         _rs.altitude_low = _lo
+    # ── [transverse-bind] — THE BAND'S KNOWN BLIND SPOT, MEASURED ─────
+    # (spec §10.)  ``reach_band_unified`` is a route-edge Dijkstra and
+    # cannot carry a hyperplane, so the writeback's band clamp may move a
+    # node the transect law had just settled.  Nothing is repaired here —
+    # the follow-on is a transect-aware clamp floor/ceiling, its own spec
+    # — but the count is taken every build, on the WRITTEN-BACK values,
+    # so a re-violation can never be an unmeasured suspicion.
+    if _hyper_fp:
+        try:
+            _rv = _n_worst = 0
+            _worst = 0.0
+            _seen: set = set()
+            for (_idx4, _w4, _b_h, _sid) in _hyper_fp:
+                if _sid in _seen:
+                    continue          # the (w, -w) pair is ONE transect
+                _seen.add(_sid)
+                _val = max(
+                    sum(float(w) * float(elev[int(k)])
+                        for w, k in zip(_w4, _idx4)),
+                    -sum(float(w) * float(elev[int(k)])
+                         for w, k in zip(_w4, _idx4)))
+                _ex = _val - float(_b_h)
+                if _ex > 0.02:
+                    _rv += 1
+                    if _ex > _worst:
+                        _worst = _ex
+            _bound = len(_seen)
+            # THE NAME IS WHAT IT MEASURES (lead correction 2026-08-21).
+            # This is read from ``elev`` — the projection's own exit field
+            # — and ``_writeback`` stamps the LAYOUT, never ``elev``, so
+            # the count was never the clamp's doing: it is the transect
+            # residue THIS projection exited with.  The clamp's own
+            # footprint is reported beside it, from its own findings.
+            _cf = list(getattr(layout, "band_clamp_findings", None) or [])
+            _cf_worst = (max(abs(float(f[3])) for f in _cf) if _cf else 0.0)
+            import O4_UI_Utils as _UI_TB
+            _UI_TB.vprint(
+                1, f"  [transverse-bind] {icao}: bound={_bound} "
+                   f"rows={len(_hyper_fp)} exit_over_budget={_rv} "
+                   f"worst={_worst:.3f} m | band clamp: {len(_cf)} "
+                   f"value(s), worst {_cf_worst:.3f} m (the band is a "
+                   f"route-edge Dijkstra and cannot carry a hyperplane — "
+                   f"spec section 10)")
+            setattr(layout, "_transverse_bind_report",
+                    {"bound": _bound, "rows": len(_hyper_fp),
+                     "exit_over_budget": _rv, "worst_m": _worst,
+                     "band_clamp_values": len(_cf),
+                     "band_clamp_worst_m": _cf_worst})
+        except Exception:                              # pragma: no cover
+            pass
     _stage("writeback")
     # SNAPSHOT RECAPTURE (2026-07-18): the solve captures the scoped
     # snapshot ONCE at its writeback, so the LATE projection run compared

@@ -182,6 +182,7 @@ try:
         transverse_surface_bounds as _transverse_surface_bounds,
         transverse_minimum_for_role as _transverse_minimum_for_role,
         transverse_minimum_binds as _transverse_minimum_binds,
+        transverse_span_budget_m as _transverse_span_budget_law,
         drainage_minimum_grade as _drainage_minimum_grade,
         drainage_minimum_shortfall as _drainage_minimum_shortfall,
         _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
@@ -219,6 +220,7 @@ except Exception:
     _transverse_surface_bounds = None
     _transverse_minimum_for_role = None
     _transverse_minimum_binds = None
+    _transverse_span_budget_law = None
     _drainage_minimum_grade = None
     _drainage_minimum_shortfall = None
     _LAW_DRAIN_MIN_APRON_ROLES = frozenset()
@@ -534,6 +536,13 @@ class Violation:
     #: is still measured, still counted in its family and still printed —
     #: instruments report, the law adjudicates.
     out_of_scope: Optional[str] = None
+    #: THE CAP THAT PRICED THIS ROW, in percent (owner ruling RULINGS
+    #: 2026-08-21c, spec A1 §2a).  With the apron interior at 5 % and its
+    #: movement surfaces at the strict cap, "how bad is this row" is not
+    #: answerable from ``grade_pct`` alone — two rows at 3 % are a PASS and a
+    #: FAIL depending on which law priced them.  Set by every within-shape
+    #: row; ``None`` on families that carry no per-pair cap.
+    cap_pct: Optional[float] = None
 
 
 @dataclass
@@ -1432,6 +1441,22 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
     bld_keys = {nid for w in ways if w.tags.get("role") == "building"
                 for nid in w.nids}
 
+    # ── FRONTAGE VERTICES (owner ruling RULINGS 2026-08-21b) ────────────
+    # The census half of the apron movement-surface population.  Same LAW
+    # function and same soft-role set as ``grade_graph.build_context``
+    # (``grade_law.frontage_vertex_keys`` / ``FRONTAGE_SOFT_ROLES``), read on
+    # emitted node IDENTITY — never a proximity join — so the census and the
+    # solver bake enumerate the same apron pairs.
+    from auto_patch import grade_law as _GL_F
+    _soft_front_nids = {nid for w in ways
+                        if w.tags.get("role") in _GL_F.FRONTAGE_SOFT_ROLES
+                        for nid in w.nids}
+    _bld_rings = [(w.nids[:-1] if (len(w.nids) > 1
+                                   and w.nids[0] == w.nids[-1]) else w.nids)
+                  for w in ways if w.tags.get("role") == "building"]
+    frontage_keys = (_GL_F.frontage_vertex_keys(_bld_rings, _soft_front_nids)
+                     if _soft_front_nids else set())
+
     rect_cap_at: dict = {}
     for w in ways:
         if w.tags.get("role") not in _SLOPING_RECT_OSM_ROLES:
@@ -1486,6 +1511,8 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         seam_keys=frozenset(seam_nids or ()),
         inherited_junction_cap=_inherited,
         building_keys=frozenset(bld_keys),
+        frontage_keys=frozenset(frontage_keys),
+        corridor_lines=GG.centerline_geometries(centerlines),
         road_zone=road_zone,
         route_zone=route_zone,
         # EXACT-MESH sidecar: the solver's junction mesh, consumed 1:1
@@ -1619,9 +1646,14 @@ def iter_shape_grade_constraints(
     # emitted ring diverges: post-projection vertex inserts shorten the
     # spans (tighter anisotropic credit than was lawfully enforced) and
     # the OSM-side context can select pairs the law-side bake never did.
+    # ROW SHAPE (2026-08-21): ``[[la,lo],[la,lo],budget]`` grew a fourth
+    # element, the FAMILY TAG (``grade_graph.edge_family_name``, spec
+    # ``apron-within-shape-population`` §7).  Read POSITIONALLY so a patch
+    # from either side of that change is consumed identically.
     _pair_cap_map: Dict[tuple, float] = {}
     for _entry in (pair_caps_ll or []):
-        (_pla, _plo), (_plb, _plo2), _pcap = _entry
+        (_pla, _plo), (_plb, _plo2), _pcap = (
+            _entry[0], _entry[1], _entry[2])
         _ka = (round(float(_pla), 7), round(float(_plo), 7))
         _kb = (round(float(_plb), 7), round(float(_plo2), 7))
         _pk = (min(_ka, _kb), max(_ka, _kb))
@@ -3530,20 +3562,119 @@ def _transverse_cap_for_seg_cap(cap_l: float) -> float:
     return cap_l
 
 
+try:
+    from auto_patch import transect_walk as _TW
+except Exception:                                      # pragma: no cover
+    _TW = None
+
+
+#: How far an emitted interpolated height may sit from the height the
+#: solve BOUND before the span counts as broken by the emit stage.  The
+#: decimation z-tolerance (spec AMENDMENT A1 section 8c); a collinear
+#: insert is height-neutral by construction, which the walker's own twin
+#: asserts, so anything above this came from a repair that MOVED the
+#: boundary — needle drops, on-edge moves, sliver repairs, decimation.
+BROKEN_BY_EMIT_TOL_M = 0.02
+
+
+def transverse_bind_report(stations, xsection_spans):
+    """``(priced, bound, unbound, broken, worst)`` — the lockstep line
+    (spec section 12 + AMENDMENT A1 section 8c).
+
+    ``stations`` are the census's own priced stations, walked on the
+    EMITTED ring; ``xsection_spans`` are the spans the FINAL PROJECTION
+    bound, walked on the ring it saw, carried in the sidecar.  They are
+    joined on ``station_id`` — never by proximity — and every bound span
+    is re-evaluated against the emitted heights: ``broken`` counts the
+    ones the emit stage moved by more than ``BROKEN_BY_EMIT_TOL_M``.
+
+    The number is the deliverable, not a verdict: it is what decides
+    whether the topology-only emit repairs have to move ahead of the
+    final projection ("nothing moves after the final projection", a
+    separate spec).  This round REPORTS it."""
+    priced = len(stations)
+    if not xsection_spans:
+        return priced, 0, priced, 0, 0.0
+    by_id: dict = {}
+    for sp in xsection_spans:
+        try:
+            by_id.setdefault(tuple(sp["station_id"])[:3], []).append(sp)
+        except Exception:                              # pragma: no cover
+            continue
+    bound = broken = 0
+    worst = 0.0
+    for st in stations:
+        # JOIN ON THE AXIS GEOMETRY (axis, segment, station) — the part
+        # both readers derive from the SAME sidecar axes.  The shape
+        # ordinal is reader-local (a way id here, a ring index there) and
+        # deliberately stays out of the key; where one station prices two
+        # shapes the nearest WIDTH disambiguates, and the width is a
+        # property of the span, not of either reader's numbering.
+        cands = by_id.get(tuple(st.station_id[:3])) or []
+        if not cands:
+            continue
+        sp = min(cands, key=lambda q: abs(float(q.get("width_m", 0.0))
+                                          - float(st.width_m)))
+        bound += 1
+        try:
+            d = max(abs(float(st.z_lo) - float(sp["z_lo"])),
+                    abs(float(st.z_hi) - float(sp["z_hi"])))
+        except Exception:                              # pragma: no cover
+            continue
+        if d > BROKEN_BY_EMIT_TOL_M:
+            broken += 1
+            worst = max(worst, d)
+    return priced, bound, priced - bound, broken, worst
+
+
+def _transverse_span_budget(cap_l: float, width_m: float) -> float:
+    """THE cross-section budget, from THE law function
+    (``grade_law.transverse_span_budget_m``) — the same product the solve's
+    cross-section binding uses (spec ``transverse-hyperplane-solve-spec.md``
+    step 1, owner ruling 2026-08-21).  This reader adds its own encoding
+    envelope on top; the law states the budget only.
+
+    The literal fallback is the no-``auto_patch`` path this module keeps
+    for every constant it imports, and it composes the SAME two factors
+    through this module's own cap resolver."""
+    if _transverse_span_budget_law is not None:
+        return float(_transverse_span_budget_law(cap_l, width_m))
+    return _transverse_cap_for_seg_cap(cap_l) * float(width_m)
+
+
 def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
-                            terrace_joints_m: Optional[list] = None
+                            terrace_joints_m: Optional[list] = None,
+                            stations_out: Optional[list] = None
                             ) -> Tuple[List[Violation], int, int, int]:
     """``(violations, n_stations, n_rows, n_shapes)`` — every censused
     corridor cross-section steeper than its transverse cap.
 
-    The quantization allowance is the SAME one the within-shape pair law
-    grants (``_pair_quant_noise_m`` on the crossed way), because the two
-    hits are emitted ring vertices interpolated along ring edges — the
-    identical emit/weld envelope.  Without it a 0.1 m weld quantum across
-    a 23 m taxiway reads as 0.43 % of phantom transverse grade."""
+    THE STATION SET IS NOT THIS READER'S OWN (spec
+    ``transverse-hyperplane-solve-spec.md`` step 2, owner ruling
+    2026-08-21).  Where the walk used to live inline here it now comes
+    from ``auto_patch.transect_walk.walk_transects`` — the ONE walker the
+    solve's cross-section binding reads too, because the owner moved this
+    family into the solve and a bound span that is not a priced station
+    buys nothing.  Two walks cannot be asserted equal by comparing
+    constants; one walk is equal by construction
+    (``tests/test_transect_walk.py``).
+
+    What stays HERE is this reader's own forgiveness: the quantization
+    allowance (``_pair_quant_noise_m`` on the crossed way — the two hits
+    are ring vertices interpolated along ring edges, the identical
+    emit/weld envelope; without it a 0.1 m weld quantum across a 23 m
+    taxiway reads as 0.43 % of phantom transverse grade) and the declared
+    apron-terrace step.  The BUDGET is the shared law function.
+
+    ``stations_out`` (optional list) receives every walked station, so a
+    caller can join the priced population to the sidecar's bound spans
+    (the ``priced / bound / unbound`` line) without walking twice."""
     if not taxi_axes:
         return [], 0, 0, 0
-    shapes: List[Tuple[Way, List[Tuple[float, float, float]]]] = []
+    if _TW is None:                                    # pragma: no cover
+        return [], 0, 0, 0
+    by_key: Dict[object, "Way"] = {}
+    tshapes: List = []
     for w in ways:
         if w.role not in _TRANSVERSE_ROLES:
             continue
@@ -3557,150 +3688,72 @@ def _check_transverse_grade(ways: List[Way], nodes, ll_to_m, taxi_axes,
             x, y = ll_to_m(*nodes[nid])
             ring.append((x, y, float(w.elevs[k])))
         if len(ring) >= 3:
-            shapes.append((w, ring))
-    if not shapes:
+            key = (str(w.wid), len(tshapes))
+            by_key[key] = w
+            tshapes.append(_TW.TransectShape(role=w.role, ring=ring,
+                                             key=key))
+    if not tshapes:
         return [], 0, 0, 0
-    cell = 40.0
-    grid: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
-    for si, (_w, ring) in enumerate(shapes):
-        for i in range(len(ring)):
-            a, b = ring[i], ring[(i + 1) % len(ring)]
-            x0, x1 = sorted((a[0], b[0]))
-            y0, y1 = sorted((a[1], b[1]))
-            for gx in range(int(x0 // cell), int(x1 // cell) + 1):
-                for gy in range(int(y0 // cell), int(y1 // cell) + 1):
-                    grid.setdefault((gx, gy), []).append((si, i))
-    out: List[Violation] = []
-    n_stations = n_rows = 0
-    hit_shapes: set = set()
-    half = _TRANSVERSE_HALF_M
+    taxes = []
     for entry in taxi_axes:
-        poly = entry[0]
-        caps = entry[1]
-        if len(poly) < 2:
+        taxes.append(_TW.TransectAxis(
+            poly=entry[0], seg_caps=entry[1],
+            is_service=bool(entry[4]) if len(entry) > 4 else False))
+
+    # A TRUCK ROUTE IS NOT AN AIRCRAFT SPINE (cycle 9; lockstep with
+    # ``grade_graph._reads_service_spines``).  A service axis may only
+    # censure the road family's own shapes — otherwise a road passing an
+    # apron stamps the apron with a cross-section it has no spine for
+    # (measured: ``transverse::apron|apron`` +176 at HECA 10 000 when the
+    # road feed joined the graph).  The scope is the LATERAL PASS'S OWN
+    # target roles, so priced ⟺ planted in BOTH directions.
+    def _priced_roles(axis):
+        return (_TRANSVERSE_SERVICE_ROLES if axis.is_service
+                else _TRANSVERSE_TAXI_ROLES)
+
+    out: List[Violation] = []
+    n_rows = 0
+    hit_shapes: set = set()
+    counted: list = []
+    for st in _TW.walk_transects(tshapes, taxes, _priced_roles,
+                                 station_count=counted):
+        way = by_key[st.shape_key]
+        n_rows += 1
+        hit_shapes.add(way.wid)
+        if stations_out is not None:
+            stations_out.append(st)
+        width = st.width_m
+        dz = st.dz
+        # THE ONE LAW FUNCTION, BOTH READERS (spec step 1) — plus this
+        # reader's own encoding envelope.
+        allow = (_transverse_span_budget(st.cap_l, width)
+                 + _pair_quant_noise_m(way))
+        # APRON TERRACE LOCKSTEP.  A cross-section whose two hits sit on
+        # OPPOSITE sides of a declared joint has a DECLARED step between
+        # them — the same fact the within-pair reader already forgives,
+        # read by a different instrument.  Leaving it out left the
+        # transverse check as the last joint-blind reader: KCLT and HEAZ
+        # each returned cross-sections whose own |dz| was BELOW the
+        # declared step of the joint they span, reported as defects.  One
+        # declared population, one number, every reader.
+        if terrace_joints_m:
+            pa, pb = st.point_lo(), st.point_hi()
+            allow += _terrace_step_allowance(terrace_joints_m,
+                                             pa[0], pa[1], pb[0], pb[1])
+        if dz <= allow:
             continue
-        cap_list = (list(caps) if isinstance(caps, (list, tuple))
-                    else [caps] * (len(poly) - 1))
-        if not cap_list:
-            continue
-        # A TRUCK ROUTE IS NOT AN AIRCRAFT SPINE (cycle 9; lockstep with
-        # ``grade_graph._reads_service_spines``, which applies the same rule
-        # to the within-shape graph).  The transverse law censuses the
-        # CROSS-SECTION of the corridor an axis runs down, so a service axis
-        # may only censure the road family's own shapes — otherwise a road
-        # passing an apron stamps the apron with a cross-section it has no
-        # spine for (measured: ``transverse::apron|apron`` +176 at HECA
-        # 10 000 when the road feed joined the graph).  The scope is the
-        # LATERAL PASS'S OWN target roles (see ``_TRANSVERSE_TAXI_ROLES`` /
-        # ``_TRANSVERSE_SERVICE_ROLES``), so priced ⟺ planted in BOTH
-        # directions: a service axis now prices ``service_road`` — the
-        # surface the service pass plants feet on and the solve binds at
-        # ``SERVICE_ROAD_MAX_TRANSVERSE`` — and a taxi axis still does not.
-        _axis_is_svc = bool(entry[4]) if len(entry) > 4 else False
-        _axis_priced_roles = (_TRANSVERSE_SERVICE_ROLES if _axis_is_svc
-                              else _TRANSVERSE_TAXI_ROLES)
-        for k in range(len(poly) - 1):
-            (x1, y1), (x2, y2) = poly[k], poly[k + 1]
-            seg_len = math.hypot(x2 - x1, y2 - y1)
-            if seg_len < 1e-6:
-                continue
-            tx, ty = (x2 - x1) / seg_len, (y2 - y1) / seg_len
-            nx, ny = -ty, tx
-            cap_l = float(cap_list[k] if k < len(cap_list) else cap_list[-1])
-            cap_t = _transverse_cap_for_seg_cap(cap_l)
-            s = 0.0
-            while s <= seg_len + 1e-9:
-                px, py = x1 + tx * s, y1 + ty * s
-                s += _TRANSVERSE_STEP_M
-                n_stations += 1
-                cand: set = set()
-                for f in (-half, -0.5 * half, 0.0, 0.5 * half, half):
-                    qx, qy = px + nx * f, py + ny * f
-                    gx, gy = int(qx // cell), int(qy // cell)
-                    for dx in (-1, 0, 1):
-                        for dy in (-1, 0, 1):
-                            cand.update(grid.get((gx + dx, gy + dy), ()))
-                hits: Dict[int, List[Tuple[float, float]]] = {}
-                for (si, i) in cand:
-                    if shapes[si][0].role not in _axis_priced_roles:
-                        continue
-                    ring = shapes[si][1]
-                    a, b = ring[i], ring[(i + 1) % len(ring)]
-                    ex, ey = b[0] - a[0], b[1] - a[1]
-                    den = nx * ey - ny * ex
-                    if abs(den) < 1e-12:
-                        continue
-                    rx, ry = a[0] - px, a[1] - py
-                    t = (rx * ny - ry * nx) / den
-                    if t < -1e-9 or t > 1.0 + 1e-9:
-                        continue
-                    u = (rx + t * ex) * nx + (ry + t * ey) * ny
-                    if abs(u) > half:
-                        continue
-                    hits.setdefault(si, []).append(
-                        (u, a[2] + t * (b[2] - a[2])))
-                for si, hl in hits.items():
-                    if len(hl) < 2:
-                        continue
-                    hl.sort()
-                    way, ring = shapes[si]
-                    ring2 = [(p[0], p[1]) for p in ring]
-                    # Every consecutive hit pair is a candidate SPAN; keep
-                    # the INSIDE span nearest u=0 (the station can sit
-                    # exactly ON a ring edge, so a strict u≤0≤u bracket is
-                    # floating-point fragile).
-                    span = None
-                    best_gap = None
-                    for j in range(len(hl) - 1):
-                        lo_h, hi_h = hl[j], hl[j + 1]
-                        if hi_h[0] - lo_h[0] < _TRANSVERSE_MIN_WIDTH_M:
-                            continue
-                        gap = (0.0 if lo_h[0] <= 0.0 <= hi_h[0]
-                               else min(abs(lo_h[0]), abs(hi_h[0])))
-                        if gap > _TRANSVERSE_MAX_GAP_M:
-                            continue
-                        mid = 0.5 * (lo_h[0] + hi_h[0])
-                        if not _point_in_ring(px + nx * mid, py + ny * mid,
-                                              ring2):
-                            continue
-                        if best_gap is None or gap < best_gap:
-                            best_gap = gap
-                            span = (lo_h, hi_h)
-                    if span is None:
-                        continue
-                    n_rows += 1
-                    hit_shapes.add(way.wid)
-                    (u_lo, z_lo), (u_hi, z_hi) = span
-                    width = u_hi - u_lo
-                    dz = abs(z_hi - z_lo)
-                    allow = cap_t * width + _pair_quant_noise_m(way)
-                    # APRON TERRACE LOCKSTEP.  A cross-section whose two
-                    # hits sit on OPPOSITE sides of a declared joint has
-                    # a DECLARED step between them — the same fact the
-                    # within-pair reader already forgives, read by a
-                    # different instrument.  Leaving it out left the
-                    # transverse check as the last joint-blind reader:
-                    # KCLT and HEAZ each returned cross-sections whose
-                    # own |dz| was BELOW the declared step of the joint
-                    # they span, reported as defects.  One declared
-                    # population, one number, every reader.
-                    if terrace_joints_m:
-                        allow += _terrace_step_allowance(
-                            terrace_joints_m,
-                            px + nx * u_lo, py + ny * u_lo,
-                            px + nx * u_hi, py + ny * u_hi)
-                    if dz <= allow:
-                        continue
-                    out.append(Violation(
-                        grade_pct=100.0 * dz / width,
-                        excess_pct=100.0 * (dz - allow) / width,
-                        distance_m=width, de_m=dz,
-                        way_a=way, way_b=way,
-                        pt_a=(px + nx * u_lo, py + ny * u_lo),
-                        pt_b=(px + nx * u_hi, py + ny * u_hi),
-                        elev_a=z_lo, elev_b=z_hi))
+        pa, pb = st.point_lo(), st.point_hi()
+        out.append(Violation(
+            grade_pct=100.0 * dz / width,
+            excess_pct=100.0 * (dz - allow) / width,
+            distance_m=width, de_m=dz,
+            way_a=way, way_b=way,
+            pt_a=pa, pt_b=pb,
+            elev_a=st.z_lo, elev_b=st.z_hi))
     out.sort(key=lambda v: -v.grade_pct)
+    n_stations = counted[0] if counted else 0
     return out, n_stations, n_rows, len(hit_shapes)
+
 
 
 def _check_strip_seam_tears(
@@ -4553,7 +4606,12 @@ def _check_within_shape(ways: List[Way],
             de_m=de,
             way_a=c.way, way_b=c.way,
             pt_a=(c.xa, c.ya), pt_b=(c.xb, c.yb),
-            elev_a=c.ea, elev_b=c.eb)
+            elev_a=c.ea, elev_b=c.eb,
+            # WHICH CAP PRICED IT (spec A1 §2a) — ``c.cap`` is the cap
+            # ``grade_law.classify_pair`` returned for this very pair, so the
+            # strict/5 % split is reported from the law itself, never
+            # re-derived from the geometry by the reader.
+            cap_pct=c.cap * 100)
         # THE ROW POINTS AT THE PAIR, NOT THE SHAPE (R19-5).  Every other
         # family's ``lat``/``lon`` is the offending way's ring centroid
         # (``run_checks._way_latlon``), which on a 1.2 km apron ring puts
@@ -5753,6 +5811,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "fan_ramp_zones": "fan_ramp_zones_ll",
     "disconnected_rings": "disconnected_rings_ll",
     "ruleset": "ruleset",
+    # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
+    # AMENDMENT A1 section 8b).  LAW INPUT, not evidence: the census
+    # re-walks the emitted ring and joins these to report priced / bound /
+    # unbound / broken_by_emit, which is this round's measurement.
+    "xsection_spans": "xsection_spans",
 }
 
 #: Sidecar keys that are EVIDENCE, not law input: they are reported by the
@@ -5763,6 +5826,16 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
+                                  # partition per apron ring node (spec
+                                  # apron-staged-solve-spec.md section 3):
+                                  # evidence about the SOLVE, so the census
+                                  # can say whether a senior node moved in
+                                  # the interior pass without re-deriving
+                                  # the partition it did not run.
+    "band_clamp_nodes",           # the writeback band clamp's own sites +
+                                  # deltas: evidence about the SOLVE, which
+                                  # the census reports and never re-judges
     "terrace_certificates",       # the panelization evidence chain
     # FINAL BAND EXCESS (cycle-5 item 7): the build's own post-solve band
     # MEMBERSHIP report.  EVIDENCE, not law input — the census does not
@@ -5856,6 +5929,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
@@ -6043,6 +6117,7 @@ def run_checks(
     fan_ramp_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
+    xsection_spans: Optional[list] = None,
     family_out: Optional[dict] = None,
 ) -> Tuple[List[Violation], List[Violation], List[EdgeStep]]:
     """``taxi_axes_ll`` (the builder's APT.DAT taxi centerlines as
@@ -6330,9 +6405,10 @@ def run_checks(
         strip_seam_tears, top_n)
     within = within + strip_seam_tears
 
+    _tr_stations: list = []
     transverse, n_tr_st, n_tr_rows, n_tr_shapes = _check_transverse_grade(
         ways, nodes, ll_to_m, taxi_axes,
-        terrace_joints_m=terrace_joints_m)
+        terrace_joints_m=terrace_joints_m, stations_out=_tr_stations)
     _fam("transverse", transverse)
     _pv("TRANSVERSE (cross-corridor) grade > the role/letter transverse "
         "cap (ICAO Annex 14 §3.9.11)",
@@ -6342,6 +6418,25 @@ def run_checks(
               f"crossing(s) over {n_tr_shapes} shape(s) — coverage is "
               f"pavement a taxi centreline crosses, stations "
               f"{_TRANSVERSE_STEP_M:g} m apart are correlated)")
+    # ── THE LOCKSTEP LINE (spec section 12 + AMENDMENT A1 section 8c) ──
+    # priced HERE, on the emitted ring; bound THERE, on the ring the final
+    # projection saw.  ``broken_by_emit`` is the count the amendment
+    # exists to take: bound spans the emit-stage repairs moved after the
+    # binding.  Printed whenever the patch carries bound spans, and
+    # printed as ZERO-BOUND when it does not, because "the solve bound
+    # nothing here" is exactly the fact a reader must not have to infer.
+    if _tr_stations:
+        # PRINTED EVEN UNDER ``quiet`` — the census runs quiet and this is
+        # the round's measurement, not chatter (the ``[bake] UNVERIFIED``
+        # precedent: a number a report can omit is a number nobody reads).
+        _p, _b, _u, _brk, _bw = transverse_bind_report(
+            _tr_stations, xsection_spans)
+        print(f"  [transverse-bind] priced {_p} / bound {_b} / unbound "
+              f"{_u} / broken_by_emit {_brk}"
+              + (f" (worst {_bw:.3f} m)" if _brk else "")
+              + ("" if xsection_spans else
+                 "  — this patch carries NO bound spans (built before the "
+                 "law, or O4_TRANSVERSE_HYPER=0)"))
     within = within + transverse
 
     spine_dams, n_spine_checked, n_spine_short = (

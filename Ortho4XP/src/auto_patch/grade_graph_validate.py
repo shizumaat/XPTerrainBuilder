@@ -54,6 +54,11 @@ def _iter_checked_pairs(layout):
     consumes, so the checker cannot drift from the law.  Runway joins are
     handled separately (one side is a runway-surface sample, not a node)."""
     ctx = GG.build_context(layout)
+    # Build the spine corridor cover ONCE on the shared context: the
+    # per-shape ``dataclasses.replace`` below copies the cache forward, but a
+    # cover built inside one of those copies would die with it and be rebuilt
+    # per shape.
+    GG.corridor_cover_prepared(ctx)
 
     # apron / junction within-shape (body + spine).
     _lockstep_bake = getattr(layout, "_lockstep_shape_bake", None) or {}
@@ -99,7 +104,18 @@ def _iter_checked_pairs(layout):
         bld_idx = frozenset(
             i for i, (x, y) in enumerate(ring)
             if (round(x, 3), round(y, 3)) in ctx.building_keys)
-        ctx_s = _dc.replace(ctx, building_keys=bld_idx) if bld_idx else ctx
+        # FRONTAGE VERTICES ride the SAME key-space remap (RULINGS
+        # 2026-08-21b): ``ctx.frontage_keys`` is a SUBSET of
+        # ``building_keys`` by construction, so it is resolved to ring
+        # indices exactly as the building-step exemption is — otherwise the
+        # apron movement-surface rule would see no frontage vertex here and
+        # refuse every apron pair this reader checks.
+        front_idx = frozenset(
+            i for i, (x, y) in enumerate(ring)
+            if (round(x, 3), round(y, 3)) in ctx.frontage_keys)
+        ctx_s = (_dc.replace(ctx, building_keys=bld_idx,
+                             frontage_keys=front_idx)
+                 if bld_idx else ctx)
         sc = GG.shape_constraints(gs, ctx_s)
         spine_pairs = set()
         for chain in sc.spine_chains:

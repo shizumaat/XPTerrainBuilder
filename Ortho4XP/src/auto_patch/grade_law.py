@@ -2885,6 +2885,71 @@ def apron_node_seniority(apron_nodes, strict_pairs, transect_nodes=(),
     return out
 
 
+# Kill switch for the conforming mint (spec
+# ``docs/specs/creation-order-seniority-spec.md``, owner ruling RULINGS
+# 2026-08-21e).  ``O4_CONFORMING_MINT=0`` restores the pre-ruling behaviour.
+# PARKED 2026-08-23: the "22 emit-minted" class that motivated this was a
+# JOIN ARTIFACT — pair_caps exported lat/lon at 7 dp (half-ulp 0.0056 m) and
+# the 26/22 split came from a ~5 mm proximity join against that quantum; at
+# 10 mm all 48 SPJC rows join to baked pairs.  The canonical-identity-join
+# law fired on our own instrument.  The RULING STANDS and the mechanism is
+# kept intact, but it waits for a real measured instance, so the gate is
+# DEFAULT OFF: O4_CONFORMING_MINT=1 arms it.
+CONFORMING_MINT = (
+    os.environ.get("O4_CONFORMING_MINT", "0") == "1")
+
+
+def conforming_mint(senior_value, junior_values, junior_dists, cap):
+    """CREATION-ORDER SENIORITY (owner ruling RULINGS 2026-08-21e, spec
+    ``creation-order-seniority-spec.md`` §1): later-minted geometry DEFERS
+    to the surface that is already there.
+
+    A pass that mints a vertex against a settled surface gives it the SENIOR
+    surface's value at that position; the JUNIOR ring then conforms its own
+    neighbourhood by a BOUNDED MONOTONE WALK under its own cap, outward from
+    the weld, until it meets the values it already had.  The F3c walk shape.
+
+    Returns the walked junior values as ``[(index, new_value), ...]`` for the
+    prefix the walk actually reaches — everything beyond it is already
+    reachable at ``cap`` and is left untouched, which is what bounds the
+    reach by DEMAND rather than by a constant.
+
+    ``senior_value``  the senior surface's value at the mint position.
+    ``junior_values`` the junior ring's existing values, ordered OUTWARD
+                      from the mint (the mint's own vertex excluded).
+    ``junior_dists``  the segment length to each of those, same order.
+    ``cap``           the junior ring's own cap (a grade, e.g. 0.01).
+
+    BY CONSTRUCTION the minted adjacency and every walked sub-edge are
+    within ``cap``: each step is clamped to ``cap x segment length`` from the
+    previous walked value, and the walk stops at the first vertex already
+    inside that envelope.  Nothing senior is ever returned, so no caller can
+    move a senior vertex through this function.
+
+    Measured basis (SPJC, the 22-row emit-minted class): every one of those
+    rows has an endpoint whose value differs from its OWN ring's linear
+    interpolation by 0.21-0.23 m — the donor vertex keeping its value while
+    the receiving edge was split at the interpolation, so the consensus pass
+    unified them at a step neither ring had priced.
+    """
+    out = []
+    prev = float(senior_value)
+    for i, (v, d) in enumerate(zip(junior_values, junior_dists)):
+        if v is None or d is None:
+            break
+        reach = abs(float(cap)) * float(d)
+        lo, hi = prev - reach, prev + reach
+        v = float(v)
+        if lo - 1e-12 <= v <= hi + 1e-12:
+            # THE WALK TERMINATES HERE: the ring already reaches this value
+            # lawfully from the walked one, so nothing beyond needs moving.
+            break
+        new = lo if v < lo else hi
+        out.append((i, new))
+        prev = new
+    return out
+
+
 def is_apron_strict_chord(p: "PairContext") -> bool:
     """THE STRICT APRON POPULATION (spec AMENDMENT A4.1).  An apron pair takes
     the strict cap when it is one of exactly three things:

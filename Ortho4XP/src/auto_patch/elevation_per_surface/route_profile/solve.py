@@ -35,6 +35,7 @@ from .anchors import (
     build_nobuilding_apron_seats,
     reseat_service_mouths as _reseat_service_mouths,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
+from . import pad_seat_consistency as _psc
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
                         price_slab_against_law,
                         route_metric_envelope_enabled,
@@ -3733,6 +3734,44 @@ def solve_route_profile(layout, icao: str,
             except Exception:
                 pass
         _psub(0.62, "Solving elevations — spine profile solved")
+
+        # ── PAD-SEAT CONSISTENCY (spec docs/specs/pad-seat-consistency-
+        # spec.md; owner direction "pads seated at the elevation that
+        # enables the 1 % cap"; creation-order seniority RULINGS
+        # 2026-08-21e) ────────────────────────────────────────────────
+        # The seat chosen at ``build_building_seats`` time is PROVISIONAL:
+        # it was picked from the reach band, a FEASIBILITY interval 7-34 m
+        # wide, with no reference to where the corridor actually solves —
+        # and the chord law then judges the pad's frontage against that
+        # solved corridor with a 0.13-1.06 m budget (findings
+        # apron-membrane-findings-20260824 §3-4: 100 % of HECA's violating
+        # pads sit lawfully INSIDE their band; the band is right but not
+        # BINDING).
+        #
+        # WHY HERE — the same slot, and the same recorded reason, as the
+        # 24c scaffold seed immediately below: neither anchor source exists
+        # earlier.  The corridor profiles are minted by
+        # ``_solve_spine_profile`` one statement above; the seats and their
+        # frontage provenance by ``build_building_seats`` far above.  This
+        # must run BEFORE the scaffold seed reads ``building_seats`` so the
+        # membrane anchors on the NARROWED values.
+        #
+        # Phase A held the seats hard, so its corridor was if anything
+        # dragged TOWARD the seat — clamping toward that corridor strictly
+        # reduces the priced inconsistency (spec ruling §4).
+        if _psc.pad_seat_consistency_enabled():
+            # The nodes whose ``elev`` currently HOLDS the seat: exactly the
+            # hard-stamp loop's own condition, re-expressed (never a second
+            # predicate).  A seat node outside it keeps the seeder's value
+            # today and keeps it after narrowing.
+            _psc_stamped = {i for i, _lv in building_seats.items()
+                            if i < n and _lv is not None
+                            and i in u_spine_adj and i not in _seam_pin_idx}
+            _psc_report = _psc.apply_pad_seat_consistency(
+                layout, elev, building_seats, n,
+                stamped=_psc_stamped, yield_idx=_seat_yield_idx)
+            if _psc_report["units"]:
+                _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
 
         # (The sloping-rect flat-end stamp that lived here was RETIRED by
         # spec §10.2 — the global slice emits no rect roles and no end

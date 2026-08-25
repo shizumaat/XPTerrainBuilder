@@ -880,6 +880,20 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         return out
 
     _frontage_band_ll: list = []
+    # ── PAD-SEAT CONSISTENCY PROVENANCE (spec pad-seat-consistency-spec.md,
+    # implementation ruling §2) ─────────────────────────────────────────
+    # "Provenance is captured AT SEAT TIME, per PAD UNIT: the governing
+    # anchor node(s) + ``route_m`` from ``band.attachment_at`` at the SAME
+    # frontage points the seat interval is intersected over
+    # (``_frontage_band_records`` already reads exactly this — one capture,
+    # two consumers).  Never a replay, never a re-derived lookup."
+    # The corridor VALUES those anchors carry do not exist yet (phase A
+    # mints them AFTER this function runs), so what is captured here is the
+    # provenance only; the intersection binds in the post-phase-A slot
+    # (``solve.py``, ``pad_seat_consistency.apply_pad_seat_consistency``).
+    from .pad_seat_consistency import pad_seat_consistency_enabled
+    _consist_on = pad_seat_consistency_enabled()
+    _pad_prov: list = []            # index-aligned with ``pads`` below
 
     # ── Per-pad independent target + feasible box ────────────────────────────
     # target = the legacy independent seat (DEM biased into the frontage band);
@@ -953,9 +967,17 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         pads.append((s, ring, float(level), lo, hi))
         # THE BAND EVIDENCE for this pad (lead order 2026-08-24), recorded
         # with the seat so a reader can put the two side by side.
+        _prov_k: list = []
         for _fr in _frontage_band_records(s, ring):
             _fr["seat_m"] = float(level)
             _frontage_band_ll.append(_fr)
+            # ONE capture, TWO consumers: the same record object carries the
+            # evidence export AND the consistency provenance, so the two can
+            # never describe different frontage points.
+            if _consist_on and "anchor_nodes" in _fr:
+                _fr["seat_final_m"] = float(level)   # overwritten if narrowed
+                _prov_k.append(_fr)
+        _pad_prov.append(_prov_k)
         # ── PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c)
         # "A pad seat that cannot reach its governing centerline anchor
         # within 1 % x chord is a SEAT DEFECT caught at seating time
@@ -1280,7 +1302,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
 
     seats: dict = {}
     seat_boxes = _store_of(layout).raw("seat_boxes")
-    for (s, ring, level, lo, hi) in pads:
+    # THE UNIT-KEYED CONSISTENCY PROVENANCE (spec ruling §2): a pad is one
+    # flat level, so the narrowing keys per UNIT — and it must survive into
+    # the same two spaces the seat itself lives in, the solve's node
+    # indices (``elev`` / ``building_seats``) and the CANONICAL keys the
+    # ``seat_boxes`` store is keyed by (a node index is meaningful only
+    # inside one ``_build_node_list`` call — canonical-identity law).
+    _units_prov: list = ([{"ref": u["ref"], "refs": list(u["refs"]),
+                           "level": float(u["level"]),
+                           "lo": float(u["lo"]), "hi": float(u["hi"]),
+                           "records": [], "nodes": [], "keys": []}
+                          for u in units] if _consist_on else [])
+    if _consist_on:
+        for _pk in range(len(_pad_prov)):
+            _units_prov[unit_of[_pk]]["records"].extend(_pad_prov[_pk])
+    for _pk, (s, ring, level, lo, hi) in enumerate(pads):
         # BOUNDED YIELD box (owner ruling 2026-07-29): the pad's box is the
         # ``[lo, hi]`` its seat was chosen from, WIDENED to include the
         # chosen level — an uncoupled seat is ``min(DEM, hi)`` and may rest
@@ -1289,14 +1325,33 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # shared by two pads keeps the tighter interval per side.
         blo = min(float(lo), float(level))
         bhi = max(float(hi), float(level))
+        _up = _units_prov[unit_of[_pk]] if _consist_on else None
         for (x, y) in ring:
             k = cps.get_or_add(float(x), float(y))
             i = bucket_to_idx.get(k)
             if i is not None:
                 seats[i] = float(level)
+                if _up is not None:
+                    _up["nodes"].append(i)
+            if _up is not None:
+                _up["keys"].append(k)
             prev = seat_boxes.get(k)
             seat_boxes[k] = ((blo, bhi) if prev is None
                              else (max(prev[0], blo), min(prev[1], bhi)))
+    if _consist_on:
+        for _up in _units_prov:
+            _up["nodes"] = sorted(set(_up["nodes"]))
+            _up["keys"] = list(dict.fromkeys(_up["keys"]))
+        _units_prov = [u for u in _units_prov if u["records"] and u["nodes"]]
+        setattr(layout, "_pad_seat_consistency_units", _units_prov)
+        if _units_prov:
+            _report(f"  [pad-seat-consistency] provenance captured for "
+                    f"{len(_units_prov)} pad unit(s) "
+                    f"({sum(len(u['records']) for u in _units_prov)} frontage "
+                    f"band record(s)); the consistency intersection binds "
+                    f"after the corridor profiles solve")
+    else:
+        setattr(layout, "_pad_seat_consistency_units", [])
     return seats
 
 

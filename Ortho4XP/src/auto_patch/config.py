@@ -252,11 +252,13 @@ __all__ = [
     "TAIL_HEIGHT_BY_CODE_LETTER",
     "TAXIWAY_WINGTIP_MARGIN_M",
     "EAT_SURFACE_CEILING_ENABLED",
+    "EAT_SCOPING_V2_ENABLED",
     "EAT_FAA_DEPARTURE_SLOPE",
     "EAT_FAA_SETBACK_M",
     "EAT_EASA_TAKEOFF_CLIMB_SLOPE",
     "EAT_EASA_SETBACK_M",
     "EAT_MIN_CROSSING_DIST_M",
+    "EAT_MAX_CROSSING_DIST_M",
     "EAT_CORRIDOR_HALF_WIDTH_M",
     "EAT_RECT_SEGMENT_GAP_M",
     "EAT_MIN_RUNWAY_CODE_NUMBER",
@@ -5123,6 +5125,38 @@ TAIL_HEIGHT_BY_CODE_LETTER = {
 EAT_SURFACE_CEILING_ENABLED = (
     _os.environ.get("O4_EAT_SURFACE_CEILING", "1") == "1")
 
+# ── EAT RECOGNITION SCOPING v2 (owner ruling 2026-08-25c) ────────────
+# DEFAULT ON.  The anchor-rect MECHANISM (the rect, the value formula,
+# the region table, the contradiction guard) is untouched by this gate —
+# what it changes is WHICH pavement is recognised as an end-around
+# taxiway at all, in three clauses:
+#
+#   1. ROUTED WRAP — the corridor must be crossed by a TAXI CENTRELINE
+#      (the engine's own route set, service routes excluded) whose two
+#      sides both reach a runway anchor on the law graph.  An apron or
+#      junction ring lying under the projected centreline with no
+#      through-centreline is NOT an EAT, whatever its geometry.
+#   2. VACUOUS-SURFACE FAR BOUND — nothing is recognised beyond
+#      ``grade_law.eat_ceiling_clear_distance`` (setback + tail/slope),
+#      where the regulation surface has cleared the tallest tail and so
+#      binds nothing.  No new tuning constant: it is the law's own root.
+#   3. CUT-ONLY PIN — the regulation is a CEILING, so a rect pins only
+#      where it CUTS.  A rect whose value sits ABOVE its pavement's
+#      unconstrained reference EVERYWHERE pins nothing (rect-level, per
+#      the 2026-08-21 rect-refusal ruling); pavement is never LIFTED
+#      into the air to meet the surface.
+#
+# Measured basis (LEMD +40-004, 2026-08-25): 149 pins over 10 crossing
+# segments on plain apron/junction rings at 1.0-4.6 km, 59-66 m above
+# the adjacent DEM-seeded pavement; every one of the 12 contradictory
+# final-band anchor pairs was EAT-pin vs EAT-pin, and the build died on
+# the final-band inversion assert.  The owner rules LEMD HAS NO EATs.
+#
+# OFF ⇒ the 2026-07-27 recognition exactly, byte-identical (the
+# attribution arm).
+EAT_SCOPING_V2_ENABLED = (
+    _os.environ.get("O4_EAT_SCOPING_V2", "1") == "1")
+
 # FAA (North America).  AC 150/5300-13B §4.12 + FAA Order 8260.3 (TERPS)
 # departure surface: 40:1 (2.5 %) rising FROM the departure end of runway
 # (DER) AT the DER elevation — no setback.
@@ -5143,6 +5177,27 @@ EAT_EASA_SETBACK_M = 60.0
 # below the runway end).  A real EAT crosses the extended centreline
 # hundreds of metres out — KCLT's 18C-end loop crosses at 439–482 m.
 EAT_MIN_CROSSING_DIST_M = 300.0
+
+# SCOPING GUARD — MAXIMUM along-centreline distance beyond the runway end
+# at which an end-around taxiway is RECOGNISED (owner ruling 2026-08-25d,
+# closing the survivor 2026-08-25c left standing).
+#
+# Unlike ``grade_law.eat_ceiling_clear_distance`` — which is the
+# regulation's own geometry and therefore not a tunable — this IS a
+# recognition constant, and the owner set its value from the measured
+# feature: real end-around taxiways cross at 439-482 m (KCLT's 18C-end
+# loop, the reference EAT).  LEMD's 14R corridor carries a genuine
+# ROUTED WRAP at D = 1066 m — a taxi centreline crosses the extended
+# centreline there, inside the 1280 m vacuous bound, and its regulation
+# value cuts — so the three 25c clauses all pass it and it was the one
+# rect that survived.  The owner rules LEMD HAS NO EATs: a wrap a
+# kilometre out is the airport's own taxi network crossing a projected
+# line, not a loop built to take aircraft around a runway end.
+#
+# The two far bounds compose as a MINIMUM (the stricter governs): the
+# vacuous bound can still bite first where a low tail or a steep surface
+# clears inside 600 m (FAA code A: 0 + 6.1/0.025 = 244 m).
+EAT_MAX_CROSSING_DIST_M = 600.0
 
 # Lateral half-width (m) of the corridor about the extended centreline
 # inside which the ceiling binds.  Deliberately a single conservative

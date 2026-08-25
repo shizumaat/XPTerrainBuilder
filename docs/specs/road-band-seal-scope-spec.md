@@ -71,3 +71,31 @@ across open ground with a hard 30 m horizon.
   are only reported).
 - Attempt cap 2, materiality 0.01 m; STOP on second miss with the
   table. No shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — §2 conformance is PRICING + SEEDING,
+## never population; resolves attempt 1's measured conflict)
+
+Attempt 1 implemented §2 via absorption (contact rings merged into
+airside): HECA airside 1,735 → 1,948 (+53,530 m² apron, new 6 m
+apron|junction steps at -12160/-12167), SPJC 175 → 178. That is the
+airside-contamination direction airside-is-king forbids; the ruling's
+operative words are "conform to the strictest grade".
+
+1. A contact ring (edge-sharing per §2.1's identity test) REMAINS
+   groundside population. NO absorption, NO merges, NO role conversion.
+2. CONFORMANCE = (a) every pair of the contact ring prices at the
+   APRON'S CAP (strictest grade, end-to-end); (b) shared-edge vertices
+   carry the apron's values by identity (automatic); (c) the ring's
+   seeding inside the contact does not DEM-follow against the shared
+   edge — it seeds from the shared-edge apron datum outward under its
+   (now-apron) cap. §2.1's "apron seeding governs" means exactly
+   (b)+(c), not reclassification; §2.3 is amended to match: rows stay
+   in groundside families and the conformance shows as tighter caps.
+3. Acceptance amendments: HECA airside returns to the §1 frame
+   (1,735/1,736); SPJC to 175; the absorption-minted apron|junction
+   steps are gone; everything else (clamp table, owner-site no-step,
+   CYXY) stands as attempt 1 measured. Attempt count RESETS under this
+   amendment, cap 2.
+4. The §1.3 ordering audit's four post-limiter road authors
+   (19_final_projection 2084@5.83 m et al.) are RECORDED as the next
+   docket — out of scope here.

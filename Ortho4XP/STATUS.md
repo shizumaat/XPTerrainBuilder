@@ -1,4 +1,59 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260824 (APRON MEMBRANE ROUND — owner in-sim review + JOSM ground
+# truth drove five ruling cycles; the conclusion is a SPEC'D BUT
+# UNIMPLEMENTED seat-consistency fix. READ
+# docs/findings/apron-membrane-findings-20260824.md FIRST — it holds
+# every number and every refuted mechanism; then
+# docs/specs/pad-seat-consistency-spec.md is the work order.)
+# THE FINDING: the reach band seats pads in a FEASIBILITY interval
+#   7-34 m wide; the chord law then judges them against the SOLVED
+#   corridor at 0.13-1.06 m budgets. 100% of HECA's violating pads
+#   are lawfully INSIDE their band — the band is right but NOT
+#   BINDING. Fix: seat interval = band ∩ [corridor_solved ± cap x
+#   route_dist] (creation-order seniority; DEM still chooses within).
+#   REFUTED on the way (do not retry; findings §2): plateau framing,
+#   interior-cap tuning (5% never priced a row anywhere), hidden DEM
+#   attractor (projection honours seeds, median +0.01 m), scaffold-
+#   derived seats (v4: 22/22 CYXY pads down 9 m, reverted 46c27cf),
+#   route-vs-euclid band mismatch (route==euclid 300/300), seat
+#   edge-clamping (810/810 mid-interval), the lead's 295-row
+#   parallel-structure claim (classification error).
+# RULINGS this round (2026-08-24, 24b, 24c in RULINGS.md): 5% only at
+#   back-edge zones (fan geometry, live-computed); tiny pads (<250 m2)
+#   fold into parent; NO plateaus — continuous membrane on the
+#   centerline scaffold; interior corridor-region chords at 1.5%;
+#   stand scope = pad-anchored at 1%; taut membrane anchors =
+#   centerline profiles + seated pads, NO DEM attraction on interiors,
+#   pad-less edges soft-seed DEM but never hard-anchor; PAD-SEAT
+#   FEASIBILITY GATE (report-first; 1 finding: HECA building60 0.5 m).
+# LANE lane/backedge (worktree .claude/worktrees/backedge, ~12
+#   commits, tips: 41cb44e narrowing, a9d9c88 frontage_band export):
+#   DONE+verified: back-edge zone rescope, tiny-pad fold (56/19/2),
+#   strip-exclusion WIRED (was unimplemented!), 24b corridor chain,
+#   scaffold seed (honoured), pad-seat gate, frontage_band sidecar,
+#   apron_drape_read tool, cliff metric pinned (B: shape-pair sites;
+#   old "145" retired unreproducible). Numbers (bars 75/189/1,487):
+#   CYXY 19, SPJC 167 (PASSES since v2), HECA 1,964 — HECA waits on
+#   the seat spec. Parked branch lane/backedge-seatsrc = the refuted
+#   seat-source experiment (keep for reference, never merge).
+# ALSO THIS SESSION (already ON MAIN, app 1.0.257 / engine
+#   1.50.1700): WCS explicit-size inset fix e295455 — the IGN GetCov
+#   grid drifts ~1/800 vs DescribeCoverage; grid refusals now
+#   TRANSIENT never no-coverage; +40-004's 13 airports (LEMD!)
+#   refetched at 5 m PNOA (corpus verified; ledger stamp still owed:
+#   the --break-stale-lock re-run needs the OWNER, command in the
+#   transcript ~2026-08-24); HECA visual attribution (trouble_osm
+#   --visual, Previews/trouble/HECA_visual.osm) — roads verdict:
+#   pre-existing and improving, band-clamp class 121 records is the
+#   road round's target (owner site 30.102297,31.3951639 = +5.05 m
+#   floor clamp, "clamp is EVIDENCE of a solver defect upstream").
+# NEXT SESSION, in order: (1) review findings doc; (2) implement
+#   pad-seat-consistency-spec.md on lane/backedge (HECA first);
+#   (3) whole-apron Dirichlet interpolator (only after seats are off
+#   the terrain); (4) merge decision + SPLP/KAFW/KDFW + battery +
+#   ledger; (5) roads/band-clamp round; (6) chord-origin reader spec.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260821b (WAVE-3 SECOND PASS — the APRON LAW round, one Mac
 # session with the owner interactive in JOSM; lane/compose MERGED
 # c2a00d2 ON OWNER ORDER; app 1.0.256 / engine 1.50.1699 shipped for

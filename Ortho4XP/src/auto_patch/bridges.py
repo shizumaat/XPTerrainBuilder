@@ -5249,6 +5249,61 @@ def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
     return alts
 
 
+def log_tunnel_piece_removal(layout, shape, predicate: str, *,
+                             coverage=None, cluster=None,
+                             index=None) -> None:
+    """ONE LINE PER PIECE a post-emit pass removes or clips.
+
+    Spec ``docs/specs/portal-corridor-claim-spec.md`` §1 (RULINGS
+    2026-08-25e), and it is MANDATORY AND UNGATED — the instrument is
+    law, not behaviour.  The evidence: OTHH mouth D is admitted and
+    emitted ("[tunnel-cover-bore] admitted on cover (pavement=0.993)")
+    and then every piece of it disappears through three aggregate-
+    logging passes.  4 of 8 OTHH portal clusters lose every ramp that
+    way, and because no remover NAMED what it deleted, the acceptance
+    instrument could only report the mouth as 806 m away: absence is all
+    there is to see.
+
+    THE CENTROID IS THE JOIN KEY.  A removed piece never reaches the
+    emit, so it has no way id and no ``shapeID`` — ``index`` is only its
+    position in ``layout.shapes`` at removal time.  What survives is
+    where it was, which is the coordinate a reviewer flies to and the
+    one the sibling ``tunnel_airside_conflict`` finding already records
+    for exactly this reason (that finding named a role, an area and NO
+    PLACE, and saying which shape it meant took a geometric
+    re-derivation off an emitted patch).
+
+    Frame: ``_local_meter_projections`` — the module's own shared
+    equirectangular projection, as every sibling finding here uses.
+    """
+    try:
+        _poly = getattr(shape, "polygon", None)
+        _lat = _lon = None
+        if _poly is not None and not _poly.is_empty:
+            _, _to_ll = _local_meter_projections(layout.anchor)
+            _c = _poly.centroid
+            _lat, _lon = _to_ll(_c.x, _c.y)
+        _where = ("?" if _lat is None else f"{_lat:.7f},{_lon:.7f}")
+        _cov = "" if coverage is None else f" coverage={coverage:.3f}"
+        _cl = ""
+        if cluster is not None:
+            try:
+                _cl = f" cluster=({cluster[0]:.0f},{cluster[1]:.0f})"
+            except (TypeError, IndexError, ValueError):
+                _cl = ""
+        _area = (f" area={_poly.area:.1f}m2"
+                 if _poly is not None and not _poly.is_empty else "")
+        UI.vprint(1,
+                  f"  [tunnel-remove] {predicate}: "
+                  f"ref={getattr(shape, 'ref', '') or '-'} "
+                  f"role={getattr(shape, 'role', '') or '-'} "
+                  f"way={'-' if index is None else index} "
+                  f"@{_where}{_cov}{_area}{_cl}")
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        # An instrument may never take a build down.
+        return
+
+
 def _clip_piece_off_protected(shape, protected_union):
     """``shape`` clipped clear of AIRCRAFT-TRANSIT pavement, or ``None``.
 
@@ -5464,9 +5519,14 @@ def _finalize_tunnel_emission(
                 # piece drops and a graze is clipped back to the edge —
                 # the same two-way discriminator the cap/wall use.
                 if protected_union is not None:
+                    _before9 = s9
                     s9 = _clip_piece_off_protected(s9, protected_union)
                     if s9 is None:
                         _n_clip += 1
+                        log_tunnel_piece_removal(
+                            layout, _before9,
+                            "protected-transit-cover (R14-2)",
+                            index=_k9)
                         continue
                 _kept9.append(s9)
                 continue
@@ -5485,6 +5545,9 @@ def _finalize_tunnel_emission(
                 continue
             if not _graze_clip or _ov >= 0.5 * s9.polygon.area:
                 _n_clip += 1    # covered stretch — no visible structure
+                log_tunnel_piece_removal(
+                    layout, s9, "covered-stretch drop", index=_k9,
+                    coverage=_ov / max(1e-9, s9.polygon.area))
                 continue
             # A graze — clip the piece off the pavement (with vertex-
             # bucket clearance) and keep the visible remainder.
@@ -5500,12 +5563,20 @@ def _finalize_tunnel_emission(
                 _cutg = s9.polygon.difference(_gate_buf)
             except _GEOM_EXC:
                 _n_clip += 1
+                log_tunnel_piece_removal(
+                    layout, s9, "graze-clip: difference failed",
+                    index=_k9,
+                    coverage=_ov / max(1e-9, s9.polygon.area))
                 continue
             if _cutg.geom_type == "MultiPolygon":
                 _cutg = max(_cutg.geoms, key=lambda g: g.area)
             if (_cutg.geom_type != "Polygon" or _cutg.is_empty
                     or _cutg.area < 1.0):
                 _n_clip += 1
+                log_tunnel_piece_removal(
+                    layout, s9, "graze-clip: nothing visible left",
+                    index=_k9,
+                    coverage=_ov / max(1e-9, s9.polygon.area))
                 continue
             if s9.node_altitudes:
                 try:
@@ -5519,6 +5590,10 @@ def _finalize_tunnel_emission(
                     interior_edge_project=True)
                 if _res is None:
                     _n_clip += 1
+                    log_tunnel_piece_removal(
+                        layout, s9,
+                        "graze-clip: profile unanswerable", index=_k9,
+                        coverage=_ov / max(1e-9, s9.polygon.area))
                     continue
                 s9.node_altitudes = _res
             elif (s9.altitude_high is not None
@@ -5528,11 +5603,19 @@ def _finalize_tunnel_emission(
                     _cutg)
                 if _res is None:
                     _n_clip += 1
+                    log_tunnel_piece_removal(
+                        layout, s9,
+                        "graze-clip: sloped profile unanswerable",
+                        index=_k9,
+                        coverage=_ov / max(1e-9, s9.polygon.area))
                     continue
                 s9.altitude_high = None
                 s9.altitude_low = None
                 s9.node_altitudes = _res
             # (flat ``altitude`` pieces keep their altitude verbatim)
+            log_tunnel_piece_removal(
+                layout, s9, "graze-clip: kept the visible remainder",
+                index=_k9, coverage=_ov / max(1e-9, s9.polygon.area))
             s9.polygon = _cutg
             _n_graze += 1
             _kept9.append(s9)
@@ -5589,6 +5672,9 @@ def _finalize_tunnel_emission(
                             _pieces = _tunnel_cover_pieces(s9, _ramp_u)
                             if not _pieces:
                                 _n_wclip += 1
+                                log_tunnel_piece_removal(
+                                    layout, s9,
+                                    "wall/roof/cap over tunnel pavement")
                                 continue
                             _head = _pieces[0]
                             s9.polygon = _head.polygon
@@ -5823,7 +5909,7 @@ def _airside_conflict_finding(layout: "PavementLayout", shape, poly,
         finding["lon"] = round(lon, 7)
         finding["x_m"] = round(centroid.x, 1)
         finding["y_m"] = round(centroid.y, 1)
-    except (AttributeError, TypeError, ValueError, _GEOM_EXC):
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
         pass
     return finding
 
@@ -6102,6 +6188,246 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
     return _n, _claimed_polys
 
 
+#: Spec ``docs/specs/portal-corridor-claim-spec.md`` §2 gate.  Default
+#: ON; OFF is today's behaviour — which is now NAMED removal, because
+#: §1's per-piece instrument is ungated (it is law, not behaviour).
+_PORTAL_CORRIDOR_CLAIM_ENV = "O4_PORTAL_CORRIDOR_CLAIM"
+
+#: The corridor claim cuts a strip only where the strip is real pavement
+#: area, not a boundary graze — the same floor R14-1's own claim uses.
+_CORRIDOR_CLAIM_MIN_STRIP_M2 = _TUNNEL_CLAIM_MIN_OVERLAP_M2
+
+#: …and only where a HOST SURVIVES the cut.  Below this the "remainder"
+#: is a sliver, and taking the shape whole is what §2 forbids by name.
+_CORRIDOR_CLAIM_MIN_HOST_M2 = 4.0
+
+
+def _claim_portal_corridor_footprint(layout: "PavementLayout",
+                                     portal_data: list,
+                                     facing_pairs: list,
+                                     wall_gap_m: float,
+                                     pre_emit_shape_ids: set) -> int:
+    """THE CORRIDOR FOOTPRINT IS CLAIMED (RULINGS 2026-08-25e option (a);
+    spec ``docs/specs/portal-corridor-claim-spec.md`` §2).
+
+    R14-1 claims ROAD pavement covering the cut.  Where the corridor
+    lands on pavement it may NOT claim — airside, or a landside role
+    outside the claimable set — today's passes admit the mouth, emit its
+    ramp, and then delete every piece for "pavement coverage": OTHH
+    mouth D is emitted and then removed, and 4 of 8 OTHH portal clusters
+    lose every ramp that way.  The owner's disposition is option (a):
+    the ramp CLAIMS THE CORRIDOR'S OWN FOOTPRINT and lowers it to the
+    bore profile.
+
+    SCOPE, and it is the whole of the ruling's caution: the CORRIDOR
+    STRIP only, never the host shape whole.  A 673,901 m² apron crossed
+    by an 8 m ramp cedes the 8 m strip and keeps everything else — its
+    role, its law, its census population — so the host is cut, never
+    claimed.  A host that would not survive the cut is left alone and
+    keeps its ``tunnel_airside_conflict`` finding.
+
+    ONE CLAIM AUTHORITY.  The region is ``_tunnel_open_cut_regions``'
+    own — the same records R14-1 judges against and the same ones
+    ``publish_tunnel_open_cut_regions`` hands to the node book — and the
+    profile is pass 2's arithmetic: each vertex takes the LOWER of its
+    own solved value and ``floor + TUNNEL_APPROACH_GRADE × distance``
+    from the level surface.  The claim can only DIG.
+
+    The strip is minted as claimed corridor pavement (``TUNNEL_ROAD_REF``
+    on ``ROLE_TUNNEL_RAMP``), which is what makes the removers stop
+    deleting the ramp above it: the host no longer covers the alignment,
+    because the host no longer includes it.
+
+    Returns the number of strips claimed.
+    """
+    if os.environ.get(_PORTAL_CORRIDOR_CLAIM_ENV, "1") != "1":
+        return 0
+    from .elevation import _resample_node_altitudes_nn
+    from .groundside import _ring_and_altitudes
+    _regions = _tunnel_open_cut_regions(
+        portal_data, facing_pairs, wall_gap_m)
+    if not _regions:
+        return 0
+    _zones = [(_l, _a, float(_f)) for _l, _a, _f in _regions]
+    _parts = [_z for _l, _a, _f in _zones for _z in (_l, _a)
+              if _z is not None and not _z.is_empty]
+    if not _parts:
+        return 0
+    try:
+        _corridor = unary_union(_parts)
+        _level_surface = unary_union(
+            [_l for _l, _a, _f in _zones
+             if _l is not None and not _l.is_empty])
+    except _GEOM_EXC:                                  # pragma: no cover
+        return 0
+    if _corridor is None or _corridor.is_empty:
+        return 0
+
+    def _profile_at(pt, floors) -> float | None:
+        """Pass 2's arithmetic, verbatim in kind: the lowest profile any
+        hit region offers at this point."""
+        _best = None
+        for _floor in floors:
+            _from = (_level_surface
+                     if _level_surface is not None
+                     and not _level_surface.is_empty else None)
+            try:
+                _d = 0.0 if _from is None else _from.distance(pt)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            _p = _floor + TUNNEL_APPROACH_GRADE * _d
+            if _best is None or _p < _best:
+                _best = _p
+        return _best
+
+    _n = 0
+    _minted: list = []
+    for _idx, _shape in enumerate(list(layout.shapes)):
+        # PRE-EXISTING PAVEMENT ONLY.  A tunnel piece this build just
+        # emitted is not a host — it is what the claim is FOR.
+        if id(_shape) not in pre_emit_shape_ids:
+            continue
+        if getattr(_shape, "ref", "") == TUNNEL_ROAD_REF:
+            continue                    # R14-1 already claimed it whole
+        _role = getattr(_shape, "role", "")
+        if _role not in _AIRSIDE_GATE_ROLES or _role == "building":
+            continue
+        _poly = getattr(_shape, "polygon", None)
+        if (_poly is None or _poly.is_empty
+                or _poly.geom_type != "Polygon"):
+            continue
+        _floors = []
+        for _l, _a, _f in _zones:
+            for _z in (_l, _a):
+                if _z is None or _z.is_empty:
+                    continue
+                try:
+                    if _poly.intersects(_z):
+                        _floors.append(_f)
+                        break
+                except _GEOM_EXC:                      # pragma: no cover
+                    continue
+        if not _floors:
+            continue
+        try:
+            _strip = _poly.intersection(_corridor)
+            _rest = _poly.difference(_corridor)
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        if _strip.is_empty or _strip.area < _CORRIDOR_CLAIM_MIN_STRIP_M2:
+            continue
+        _rest_parts = [_g for _g in getattr(_rest, "geoms", [_rest])
+                       if _g is not None and not _g.is_empty
+                       and _g.geom_type == "Polygon"
+                       and _g.area >= _CORRIDOR_CLAIM_MIN_HOST_M2]
+        if not _rest_parts:
+            # NEVER THE HOST WHOLE (§2).  Nothing would be left of it,
+            # so this is not a corridor crossing a surface — leave it,
+            # and leave R14-1's airside finding to speak for it.
+            continue
+        _ring, _alts = _ring_and_altitudes(_shape)
+        if _ring is None or not _alts:
+            continue
+        _open_ring = _ring[:-1] if (_ring and _ring[0] == _ring[-1]) else _ring
+        _strip_parts = [_g for _g in getattr(_strip, "geoms", [_strip])
+                        if _g is not None and not _g.is_empty
+                        and _g.geom_type == "Polygon"
+                        and _g.area >= _CORRIDOR_CLAIM_MIN_STRIP_M2]
+        _new_strips: list = []
+        for _sp in _strip_parts:
+            _sa = _resample_node_altitudes_nn(
+                _sp, _open_ring, list(_alts), interior_edge_project=True)
+            if _sa is None:
+                continue
+            try:
+                _coords = list(_sp.exterior.coords)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            _lowered = []
+            _dug = 0.0
+            for _v, _xy in enumerate(_coords):
+                _own = float(_sa[min(_v, len(_sa) - 1)])
+                _p = _profile_at(Point(_xy), _floors)
+                _val = _own if _p is None else min(_own, _p)
+                _dug = max(_dug, _own - _val)
+                _lowered.append(round(_val, 2))
+            if _dug < 0.01:
+                # The corridor is already at or below this pavement —
+                # nothing to dig, so nothing to claim.
+                continue
+            _new_strips.append(BuiltShape(
+                polygon=_sp, role=ROLE_TUNNEL_RAMP, ref=TUNNEL_ROAD_REF,
+                node_altitudes=_lowered))
+        if not _new_strips:
+            continue
+        # THE HOST IS CUT, NOT CLAIMED: its largest remainder stays the
+        # shape (identity, role and law preserved), and any further
+        # piece the crossing severed is minted as its sibling — the
+        # corridor may split a host, and dropping the far side would be
+        # taking area the claim never asked for.
+        _rest_parts.sort(key=lambda g: g.area, reverse=True)
+        _host_alts = _resample_node_altitudes_nn(
+            _rest_parts[0], _open_ring, list(_alts),
+            interior_edge_project=True)
+        if _host_alts is None:
+            continue
+        for _extra in _rest_parts[1:]:
+            _ea = _resample_node_altitudes_nn(
+                _extra, _open_ring, list(_alts),
+                interior_edge_project=True)
+            if _ea is None:
+                continue
+            _minted.append(BuiltShape(
+                polygon=_extra, role=_role,
+                ref=getattr(_shape, "ref", ""), node_altitudes=_ea))
+        _shape.polygon = _rest_parts[0]
+        _shape.node_altitudes = _host_alts
+        _shape.altitude = None
+        _shape.altitude_high = None
+        _shape.altitude_low = None
+        _minted.extend(_new_strips)
+        _n += len(_new_strips)
+        for _sp_shape in _new_strips:
+            log_tunnel_corridor_claim(layout, _sp_shape, _role, _idx)
+    if not _n:
+        return 0
+    layout.shapes.extend(_minted)
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] portal corridor claim: {_n} corridor "
+            f"strip(s) cut out of host pavement and lowered to the bore "
+            f"profile (RULINGS 2026-08-25e) — the FOOTPRINT only, never "
+            f"the host whole; each host keeps its role, its law and the "
+            f"rest of its area.")
+    except _GEOM_EXC:                                  # pragma: no cover
+        pass
+    return _n
+
+
+def log_tunnel_corridor_claim(layout, strip, host_role: str,
+                              host_index: int) -> None:
+    """The §1 instrument's positive twin: name every strip the corridor
+    claim CUTS, with the host it came from.
+
+    A claim is a removal from the host's point of view, and the same
+    rule applies — a pass that changes what ships names each piece it
+    changed, so no surface moves anonymously.
+    """
+    try:
+        _, _to_ll = _local_meter_projections(layout.anchor)
+        _c = strip.polygon.centroid
+        _lat, _lon = _to_ll(_c.x, _c.y)
+        _z = strip.node_altitudes or []
+        UI.vprint(1,
+                  f"  [tunnel-claim] corridor footprint: "
+                  f"host_role={host_role or '-'} host={host_index} "
+                  f"@{_lat:.7f},{_lon:.7f} "
+                  f"area={strip.polygon.area:.1f}m2"
+                  + (f" depth={min(_z):.2f}..{max(_z):.2f}m" if _z else ""))
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return
+
+
 def publish_tunnel_open_cut_regions(layout: "PavementLayout",
                                     regions: list) -> int:
     """Publish THE OPEN CUT — the portal walk's own plan-space extent —
@@ -6204,9 +6530,12 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                                                "tunnel_corridor")
                 and _s.polygon is not None and not _s.polygon.is_empty):
             try:
-                if (_s.polygon.intersection(_claimed).area
-                        >= 0.5 * _s.polygon.area):
+                _ovc = _s.polygon.intersection(_claimed).area
+                if _ovc >= 0.5 * _s.polygon.area:
                     _n += 1
+                    log_tunnel_piece_removal(
+                        layout, _s, "R14-1 stand-down over claimed road",
+                        coverage=_ovc / max(1e-9, _s.polygon.area))
                     continue
             except _GEOM_EXC:
                 pass
@@ -6680,6 +7009,31 @@ def _emit_tunnel_portals(
     if _claimed:
         _stand_down_synthetic_over_claimed(
             layout, _claimed, _pre_emit_ids)
+    # RULINGS 2026-08-25e / spec ``portal-corridor-claim-spec.md`` §2.
+    # R14-1 has now claimed every ROAD surface it may.  What remains is
+    # the mouth-D class: a corridor landing on pavement R14-1 may not
+    # claim, which the finalize removers below then delete the ramp for.
+    # The ramp claims that corridor's own FOOTPRINT instead — the host
+    # is cut, keeps its role and the rest of its area, and stops
+    # covering the alignment.
+    _n_corr = _claim_portal_corridor_footprint(
+        layout, portal_data, _facing_pairs, wall_gap_m, _pre_emit_ids)
+    if _n_corr:
+        # THE GATE MUST SEE THE CUT.  ``_airside_gate_u`` was built
+        # before the corridor claim, so a strip that is no longer host
+        # pavement would still read as covering the ramp above it — the
+        # very deletion this claim exists to stop.  Same role set, same
+        # expression, current geometry (the union's own comment requires
+        # the sets stay identical).
+        try:
+            _airside_gate_u = unary_union(
+                [s.polygon for s in layout.shapes
+                 if s.polygon is not None and not s.polygon.is_empty
+                 and s.role in _AIRSIDE_GATE_ROLES])
+            if _airside_gate_u.is_empty:
+                _airside_gate_u = None
+        except _GEOM_EXC:                              # pragma: no cover
+            pass
     try:
         _protected_u = unary_union(
             [s.polygon for s in layout.shapes

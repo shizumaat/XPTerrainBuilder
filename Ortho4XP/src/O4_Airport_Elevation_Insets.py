@@ -282,6 +282,40 @@ def error_message_indicates_transient_network_failure(message):
     )
 
 
+# GDAL failures that describe the RETURNED GRID rather than the data.  The
+# WCS driver derives the cell count it expects from DescribeCoverage and
+# fails the whole read when the server's GetCoverage answer disagrees by
+# even one row or column.  Measured live 2026-08-24 against
+# servicios.idee.es (SPAIN5M): DescribeCoverage advertises a 0.000045 deg
+# posting while GetCoverage answers on a ~0.00004505 deg grid, so every
+# window wider than about 400 cells came back exactly one row and one
+# column short ("Got 1111x823 instead of 1112x824") -- and all thirteen
+# airports of tile +40-004, Madrid Barajas included, recorded a DURABLE
+# "SPAIN5M has no coverage here" negative for a protocol disagreement that
+# says NOTHING about coverage.  Same law as the discovery classifier
+# below: this is a "come back later", never a "no data here".
+_GRID_CONFIGURATION_ERROR_FRAGMENTS = (
+    "does not match expected configuration",
+    "does not match expected band count",
+    "does not match expected band configuration",
+)
+
+
+def error_message_indicates_grid_configuration_failure(message):
+    """Does an error message describe a returned-grid disagreement?
+
+    True for the WCS driver's tile-shape refusals, which are about the
+    server's grid arithmetic and never about coverage, so callers must
+    treat them as retryable instead of writing a durable no-coverage
+    negative.
+    """
+    lowered = str(message).lower()
+    return any(
+        fragment in lowered
+        for fragment in _GRID_CONFIGURATION_ERROR_FRAGMENTS
+    )
+
+
 # =====================================================================
 # HTTP DISCOVERY CLASSIFIER — the ONE place a discovery response becomes
 # "no coverage" or "come back later"
@@ -919,6 +953,14 @@ def warp_vsicurl_sources_to_geotiff(
         if error_message_indicates_transient_network_failure(error):
             raise TransientFetchError(
                 "elevation warp died on a network timeout or outage: "
+                + str(error)
+            ) from error
+        if error_message_indicates_grid_configuration_failure(error):
+            # The server's grid disagreed with its own DescribeCoverage;
+            # that is a protocol answer, not a coverage answer, so it must
+            # never become a durable no-coverage negative.
+            raise TransientFetchError(
+                "elevation warp refused the server's returned grid: "
                 + str(error)
             ) from error
         UI.vprint(1, "   WARNING: elevation warp failed:", str(error))
@@ -2027,6 +2069,101 @@ class WcsStrategy:
             return None
         return [{"dataset": self.dataset_name(definition)}]
 
+    def _window_size(
+        self, definition, bounding_box_wgs84, target_resolution_m
+    ):
+        """Cell count to ask the server for, at the effective posting.
+
+        Same arithmetic as :class:`WcsKvpStrategy`: never finer than the
+        source publishes and never finer than the inset target, because
+        the warp downsamples to the target anyway and a finer request only
+        inflates the server render and the transfer.
+        """
+        (west, south, east, north) = bounding_box_wgs84
+        centre_latitude = (south + north) / 2.0
+        pixel_m = _parse_float(definition.get("native_resolution_m"), 0.0)
+        target = _parse_float(target_resolution_m, 0.0) or 0.0
+        if not pixel_m or pixel_m <= 0.0:
+            pixel_m = target or 1.0
+        if target and target > pixel_m:
+            pixel_m = target
+        width = int(round(
+            (east - west) * GEO.lon_to_m(centre_latitude) / pixel_m
+        ))
+        height = int(round((north - south) * GEO.lat_to_m / pixel_m))
+        return (max(1, width), max(1, height))
+
+    def _materialize_window(
+        self,
+        definition,
+        dataset,
+        bounding_box_wgs84,
+        target_resolution_m,
+        scratch_path,
+    ):
+        """Read the airport window with an EXPLICIT size into a scratch file.
+
+        Returns True when the scratch GeoTIFF is on disk, False when the
+        server or the driver refused it (the caller then falls back to the
+        driver's own windowing, today's behaviour).  Raises
+        :class:`TransientFetchError` for a network-shaped failure, exactly
+        like every other fetch path, so an outage never becomes a durable
+        no-coverage negative.
+        """
+        (west, south, east, north) = bounding_box_wgs84
+        (width, height) = self._window_size(
+            definition, bounding_box_wgs84, target_resolution_m
+        )
+        os.makedirs(os.path.dirname(scratch_path) or ".", exist_ok=True)
+        # A size that happens to equal the source window is a 1:1 read
+        # again -- the one shape the request cannot carry a size in.  One
+        # extra cell per axis can never be 1:1 and never asks the server
+        # to downsample, so the retry is the whole remedy.
+        for extra_cells in (0, 1):
+            try:
+                result = gdal.Translate(
+                    scratch_path,
+                    dataset,
+                    projWin=[west, north, east, south],
+                    projWinSRS="EPSG:4326",
+                    width=width + extra_cells,
+                    height=height + extra_cells,
+                    format="GTiff",
+                    outputType=gdal.GDT_Float32,
+                    resampleAlg="bilinear",
+                    creationOptions=[
+                        "COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES",
+                    ],
+                )
+            except Exception as error:
+                if UI.red_flag:
+                    raise TransientFetchError(
+                        "WCS window read stopped with the build"
+                    ) from error
+                if error_message_indicates_transient_network_failure(error):
+                    raise TransientFetchError(
+                        "WCS window read died on a network timeout or "
+                        "outage: " + str(error)
+                    ) from error
+                if (
+                    extra_cells == 0
+                    and error_message_indicates_grid_configuration_failure(
+                        error
+                    )
+                ):
+                    continue
+                UI.vprint(
+                    1,
+                    "   WARNING: WCS window read failed:",
+                    str(error),
+                )
+                return False
+            if result is None:
+                return False
+            result = None  # flush to disk
+            return os.path.isfile(scratch_path)
+        return False
+
     def fetch(
         self,
         definition,
@@ -2073,13 +2210,52 @@ class WcsStrategy:
             return None
         if wcs_dataset is None:
             return None
-        if not warp_vsicurl_sources_to_geotiff(
-            [wcs_dataset],
+        value_floor_m = float(definition.get("value_floor_m", -600.0))
+        # ASK FOR A SIZE, never let the server guess one (2026-08-24).
+        # Handing the open WCS dataset straight to the warp makes GDAL
+        # read the window 1:1, and a 1:1 read carries no size in the
+        # request: the driver states only SUBSET bounds and then refuses
+        # the answer if the server's own arithmetic returns a different
+        # cell count.  A SCALED read states the size it wants (SCALESIZE
+        # in WCS 2.0, WIDTH/HEIGHT in 1.x) and the server honours it
+        # exactly -- verified live against servicios.idee.es, where the
+        # 1:1 form fails for every airport-sized window (see
+        # _GRID_CONFIGURATION_ERROR_FRAGMENTS).  The scratch window is
+        # materialised at the fetch's effective posting and the shared
+        # warp core then does the reprojection and resampling as before.
+        scratch_path = destination_path + ".getcoverage.tif"
+        warped = False
+        if self._materialize_window(
+            definition,
+            wcs_dataset,
             bounding_box_wgs84,
             target_resolution_m,
-            destination_path,
-            value_floor_m=float(definition.get("value_floor_m", -600.0)),
+            scratch_path,
         ):
+            try:
+                warped = warp_vsicurl_sources_to_geotiff(
+                    [scratch_path],
+                    bounding_box_wgs84,
+                    target_resolution_m,
+                    destination_path,
+                    value_floor_m=value_floor_m,
+                )
+            finally:
+                try:
+                    os.remove(scratch_path)
+                except OSError:
+                    pass
+        else:
+            # Last resort: the driver's own windowing, i.e. the behaviour
+            # every already-cached inset was fetched with.
+            warped = warp_vsicurl_sources_to_geotiff(
+                [wcs_dataset],
+                bounding_box_wgs84,
+                target_resolution_m,
+                destination_path,
+                value_floor_m=value_floor_m,
+            )
+        if not warped:
             return None
         if not _geotiff_has_valid_data(destination_path):
             try:

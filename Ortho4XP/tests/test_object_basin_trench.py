@@ -2001,9 +2001,17 @@ class TestDecalIsNotASolid:
     def test_the_threshold_is_the_specced_one(self):
         assert config.MIN_SOLID_PART_THICKNESS_M == pytest.approx(0.3)
 
-    def test_a_flat_decal_never_witnesses_the_floor(self):
-        """(a) The decal is pooled — it stays in the pool for every other
-        purpose — but the floor comes from the REAL solids."""
+    def test_a_flat_decal_never_witnesses_the_floor(self, monkeypatch):
+        """(a) The decal is a COMPONENT member — it is not thrown out of
+        the classification — but the floor comes from the REAL solids.
+
+        Run with ``BASIN_POOL_SCOPING`` OFF, because that gate is what
+        keeps a decal out of the pit SEED set (see
+        :class:`TestBasinPoolScoping`); with it on there is no pooled
+        decal left for this twin's premise to turn on.  §2.1 and the
+        scoping law are independent, and this pins the §2.1 half.
+        """
+        monkeypatch.setattr(config, "BASIN_POOL_SCOPING", False)
         geometry = dict(_open_pit_pair(depth_m=4.0))
         geometry["Decals/vor_ground_decal.obj"] = _ground_decal(-48.244)
         classification = _classify(geometry)
@@ -2057,6 +2065,183 @@ class TestDecalIsNotASolid:
         assert frame.minimum_effective_height_m == pytest.approx(-48.244)
         assert frame.solid_floor_witness_y_m == pytest.approx(0.0), (
             "a pool of decals witnesses NO floor; the fallback says so")
+
+
+class TestBasinPoolScoping:
+    """The POOLING half of the LEMD defect — spec §2.3's deferred docket,
+    measured and closed 2026-08-25.
+
+    §2.1 made the pool's FLOOR immune to a decal.  Its EXTENT was not:
+    an open-pit SEED contributes its FULL footprint and chains every
+    other seed within :data:`otf.TUNNEL_COMPONENT_JOIN_BUFFER_M` to it,
+    so a flat quad with no vertical extent is the one shape that can
+    make a basin arbitrarily large.  Measured at LEMD: five
+    ``AESlite-LEMD-VOR-*.obj`` decals, each a SINGLE 4-vertex quad
+    1.4-1.6 km on a side at exactly y = −50.0, seeded three pit
+    components of 2.0-2.6 million m² and dragged the real 11,705 m²
+    control-tower cutout into a 2,078,883 m² basin spanning 1.4 km.
+    With the decals off the seed set the basin measures 12,251 m² at
+    the owner's JOSM bbox for the real sunken cutout, at an UNCHANGED
+    floor (−7.016 m both ways).
+
+    The discriminator is :func:`otf.part_has_solid_thickness` — the SAME
+    predicate §2.1 uses.  Paint is not structure, in either law.
+    """
+
+    @staticmethod
+    def _decal_bridge_pool(*, decal_y: float = -48.244):
+        """Two real pits far apart, plus one huge flat decal spanning
+        both — the LEMD shape, minimised.  The pits are 400 m apart, far
+        beyond the 2.0 m join buffer, so ONLY the decal can chain them.
+        """
+        geometry = {
+            "Buildings/Drainage/near_000.obj": _pit_shell(
+                30.0, 6.0, -4.0, 0.0),
+            "Buildings/Drainage/near_001.obj": _pit_shell(
+                28.5, 6.0, -4.06, 0.06),
+            "Buildings/Drainage/far_000.obj": _pit_shell(
+                30.0, 6.0, -4.0, 0.0),
+            "Buildings/Drainage/far_001.obj": _pit_shell(
+                28.5, 6.0, -4.06, 0.06),
+            "Decals/vor_ground_decal.obj": _ground_decal(
+                decal_y, half_span_m=900.0),
+        }
+        far_latitude = ANCHOR_LATITUDE + 400.0 / 111320.0
+        placements = [
+            _placement("Buildings/Drainage/near_000.obj"),
+            _placement("Buildings/Drainage/near_001.obj"),
+            _placement("Buildings/Drainage/far_000.obj",
+                       latitude=far_latitude),
+            _placement("Buildings/Drainage/far_001.obj",
+                       latitude=far_latitude),
+            _placement("Decals/vor_ground_decal.obj"),
+        ]
+        return placements, geometry
+
+    @staticmethod
+    def _pit_components(placements, geometry):
+        cache = otf._ResourceGeometryCache(geometry)
+        frame = otf._build_structure_frame(placements, geometry, cache)
+        return [
+            sorted(component)
+            for component in otf._open_pit_components(
+                placements, frame, cache)
+        ]
+
+    def test_the_gate_is_default_on(self):
+        assert config.BASIN_POOL_SCOPING is True
+
+    def test_the_discriminator_is_the_2_1_predicate(self):
+        """One notion, one spelling.  A second "is it thin" test is the
+        drift this shares a function to prevent."""
+        thickness = config.MIN_SOLID_PART_THICKNESS_M
+        assert otf.part_has_solid_thickness(0.0, thickness)
+        assert otf.part_has_solid_thickness(-4.0, -4.0 + 2.0 * thickness)
+        assert not otf.part_has_solid_thickness(-50.0, -50.0)
+        assert not otf.part_has_solid_thickness(-4.0, -4.0 + thickness / 2.0)
+
+    def test_a_thin_bridge_part_does_not_chain_two_basins(self):
+        """ON: the decal seeds nothing, so each real pit is its own
+        component and neither inherits the decal's kilometre-wide
+        footprint."""
+        placements, geometry = self._decal_bridge_pool()
+        components = self._pit_components(placements, geometry)
+        assert components == [
+            ["Buildings/Drainage/far_000.obj",
+             "Buildings/Drainage/far_001.obj"],
+            ["Buildings/Drainage/near_000.obj",
+             "Buildings/Drainage/near_001.obj"],
+        ], components
+
+    def test_the_confined_basin_is_the_real_object_only(self):
+        """...and the emitted interface's below-grade footprint is the
+        pit's own, not the decal's 3.24 km² quad."""
+        placements, geometry = self._decal_bridge_pool()
+        classification = otf.classify_object_terrain_features(
+            placements, geometry, pack_root="PACK",
+            basin_trench_enabled=True)
+        carved = [
+            interface for interface in classification.ground_interfaces
+            if otf.is_carved_basin_interface(interface)
+        ]
+        assert carved, "fixture no longer classifies as a carved basin"
+        for interface in carved:
+            assert "Decals/vor_ground_decal.obj" not in \
+                interface.object_resources
+            assert interface.below_grade_footprint.area < 10_000.0, (
+                f"basin footprint {interface.below_grade_footprint.area} m² "
+                f"— the decal's footprint escaped into it")
+
+    def test_gate_off_reproduces_the_chain(self, monkeypatch):
+        """OFF is the pre-fix law exactly: one component, both pits and
+        the decal in it."""
+        monkeypatch.setattr(config, "BASIN_POOL_SCOPING", False)
+        placements, geometry = self._decal_bridge_pool()
+        components = self._pit_components(placements, geometry)
+        assert components == [[
+            "Buildings/Drainage/far_000.obj",
+            "Buildings/Drainage/far_001.obj",
+            "Buildings/Drainage/near_000.obj",
+            "Buildings/Drainage/near_001.obj",
+            "Decals/vor_ground_decal.obj",
+        ]], components
+
+    def test_a_thick_deep_neighbour_is_still_pooled(self):
+        """The scope guard.  A genuinely-deep part WITH vertical extent
+        is structure however deep it goes, and still seeds and chains —
+        this is the OTHH sibling-shell class (Drainage_06 at −4.2 beside
+        −3.86), and narrowing it would tear real basins apart."""
+        placements, geometry = self._decal_bridge_pool()
+        # Replace the decal with a SOLID slab of the same plan extent.
+        builder = _GeometryBuilder()
+        builder.add_horizontal_rectangle(-40.0, 40.0, -40.0, 40.0, -8.0)
+        builder.add_horizontal_rectangle(-40.0, 40.0, -40.0, 40.0, -7.0)
+        builder.add_vertical_wall(-40.0, -40.0, 40.0, -8.0, -7.0)
+        geometry["Decals/vor_ground_decal.obj"] = builder.build()
+        components = self._pit_components(placements, geometry)
+        assert any(
+            "Decals/vor_ground_decal.obj" in component
+            and "Buildings/Drainage/near_000.obj" in component
+            for component in components
+        ), components
+
+    def test_othh_class_basins_are_untouched(self):
+        """An OTHH drainage pair carries no thin part at all, so the gate
+        cannot move it — the byte-identity claim, in a twin."""
+        geometry = _open_pit_pair(depth_m=4.0)
+        placements = [_placement(resource) for resource in geometry]
+        assert (self._pit_components(placements, geometry)
+                == [sorted(geometry)])
+
+    def test_the_frame_still_carries_every_part(self):
+        """SCOPE IS THE SEED SET, NOT THE FRAME.  Measured 2026-08-25:
+        dropping thin parts from the structure frame re-seeded OTHH
+        ``Bridge_04`` as a tunnel, because
+        ``_agl_tunnel_seed_resources`` reads its above-grade cap off the
+        WHOLE structure (owner ruling 2026-07-31).  The frame must keep
+        seeing them."""
+        placements, geometry = self._decal_bridge_pool()
+        frame = otf._build_structure_frame(placements, geometry)
+        assert frame.minimum_effective_height_m == pytest.approx(-48.244)
+
+    def test_the_cache_fingerprint_moves_with_the_gate(self, monkeypatch,
+                                                      tmp_path):
+        """A flip changes the CLASSIFICATION, so a flipped run must miss
+        a pickle written by the other arm (the version-14 lesson)."""
+        dsf_path = tmp_path / "+40-004.dsf"
+        dsf_path.write_text("x")
+        pack_root = tmp_path / "pack"
+        pack_root.mkdir()
+        monkeypatch.setattr(
+            assembly.dsf_reader, "airport_mod_cache_dir",
+            lambda root: str(tmp_path))
+        monkeypatch.setattr(config, "BASIN_POOL_SCOPING", True)
+        _path, on_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        monkeypatch.setattr(config, "BASIN_POOL_SCOPING", False)
+        _path, off_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        assert on_digest and off_digest and on_digest != off_digest
 
 
 class TestBasinFloorDisagreementGate:
@@ -2157,4 +2342,4 @@ class TestClassificationCacheVersionCoversTheFloorWitness:
     classifier's rules.  A v18 LEMD result still carries −50.0 m."""
 
     def test_the_cache_version_retires_pre_witness_pickles(self):
-        assert assembly._CLASSIFICATION_CACHE_VERSION >= 19
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 20

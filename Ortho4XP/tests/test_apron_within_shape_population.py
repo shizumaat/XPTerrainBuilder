@@ -983,10 +983,18 @@ def test_the_unobstructed_case_is_identical_to_A4():
         "the visibility gate")
 
 
-def test_a_pad_in_the_path_intercepts_the_chord():
+def test_a_pad_in_the_path_intercepts_the_chord(monkeypatch):
     """A5(b): the vertex prices to the PAD, not to the centerline behind
     it — frontage authority (owner ruling RULINGS 2026-08-21f).  The chord
-    is REPLACED, so there is still exactly one per vertex."""
+    is REPLACED, so there is still exactly one per vertex.
+
+    SUPERSEDED BY RULINGS 2026-08-25 ("the pad is a first-class chord
+    target, not merely an interceptor when it happens to lie in the
+    path"), so this twin now pins the PRE-RULING law behind its kill
+    switch — the flag-off byte-identity clause of the chord-target spec.
+    The armed law's version of this fixture is
+    ``tests/test_apron_chord_anchor_target.py``."""
+    monkeypatch.setattr(GG, "APRON_CHORD_ANCHOR_TARGET", False)
     # vertex 0 at origin; spine node at (100,0); a pad sits between them and
     # shares vertices with the ring.
     ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
@@ -1004,7 +1012,9 @@ def test_a_pad_in_the_path_intercepts_the_chord():
         "the centerline behind the pad must NOT be priced for this vertex")
 
 
-def test_the_pad_interception_is_deterministic():
+def test_the_pad_interception_is_deterministic(monkeypatch):
+    # Same supersession as above: pinned to the pre-2026-08-25 law.
+    monkeypatch.setattr(GG, "APRON_CHORD_ANCHOR_TARGET", False)
     ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
             (100.0, 50.0), (0.0, 50.0)]
     keys = list(range(len(ring)))

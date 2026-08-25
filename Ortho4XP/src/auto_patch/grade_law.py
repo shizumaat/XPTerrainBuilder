@@ -2743,6 +2743,21 @@ class PairContext:
     # STRIP footprint (``runway_strip_wall_keepout_rings``, A4.2).  Membership
     # is the reader's, the verdict is the law's, exactly like the fields above.
     nearest_spine: bool = False
+    # ── THE CHORD-TARGET LAW (owner ruling RULINGS 2026-08-25, spec
+    # ``apron-chord-anchor-target-spec.md`` §1) ─────────────────────────
+    # ``nearest_anchor_pad``: THIS pair is that chord AND its far end is a
+    # BUILDING PAD boundary vertex rather than a centerline node.  The
+    # anchor set is the union of both populations and the NEAREST VISIBLE
+    # one wins, so ``nearest_spine`` stays the strict-population flag (both
+    # kinds are strict) and this one carries only the KIND.  The reader
+    # (``grade_graph.nearest_spine_pairs``, the ONE enumeration both the
+    # census and the bake consume) assigns it; the verdict is the law's,
+    # exactly like every field above.
+    #
+    # DEFAULT FALSE IS TODAY'S READING: a reader that does not supply it —
+    # or one running with ``O4_APRON_CHORD_ANCHOR_TARGET=0`` — sees the
+    # pre-ruling cap assignment unchanged.
+    nearest_anchor_pad: bool = False
     a_in_strip: bool = False
     b_in_strip: bool = False
     # ── THE BACK-EDGE RESCOPE (owner ruling RULINGS 2026-08-24) ─────────
@@ -2990,9 +3005,14 @@ def is_apron_strict_chord(p: "PairContext") -> bool:
     """THE STRICT APRON POPULATION (spec AMENDMENT A4.1).  An apron pair takes
     the strict cap when it is one of exactly three things:
 
-      (i)   the chord from a ring vertex to its NEAREST SPINE NODE — one per
-            vertex, the reach an aircraft actually rolls to the corridor on
-            (``nearest_spine``, assigned by the reader);
+      (i)   the chord from a ring vertex to its NEAREST VISIBLE ANCHOR — one
+            per vertex, the reach an aircraft actually rolls to the corridor
+            (or to the pad it stands beside) on (``nearest_spine``, assigned
+            by the reader).  RULINGS 2026-08-25 widened the ANCHOR SET to
+            pads ∪ centerline nodes, nearest visible wins; both kinds are
+            strict, so this clause is unchanged by that ruling — only the
+            CAP CLASS depends on the kind (``nearest_anchor_pad``, see
+            :func:`apron_pair_class`);
       (ii)  a FRONTAGE CHORD (section 1, unchanged);
       (iii) a RING EDGE within ``APRON_BODY_CHORD_MAX_M`` (A2 as corrected by
             A3), which includes the ring frontage edge and the
@@ -3107,6 +3127,18 @@ def apron_pair_class(p: "PairContext") -> str:
         # 1,751 before the split).  The frontage-vertex set is the
         # predicate the spec named and the only one that means "this vertex
         # is part of a pad's frontage".
+        # ── THE CHORD TARGET (owner ruling RULINGS 2026-08-25) ────────
+        # "The anchor set is BOTH the building pads and the taxiway
+        # centerline nodes — whichever is closer wins… the pad is a
+        # first-class chord target, not merely an interceptor when it
+        # happens to lie in the path."  A chord whose target IS a pad is
+        # therefore a PAD↔apron stand chord and prices in THIS class —
+        # the same class the 2026-08-21f interception already priced its
+        # replacement chord to, now reached by the target rather than by
+        # the accident of standing in the path.  A chord to a CENTERLINE
+        # keeps the 2026-08-24c reading below unchanged.
+        if p.nearest_anchor_pad:
+            return APRON_CLASS_STAND
         if p.a_frontage or p.b_frontage:
             return APRON_CLASS_STAND
         # A non-pad vertex's chord to its centerline IS corridor travel,

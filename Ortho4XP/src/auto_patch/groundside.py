@@ -2395,6 +2395,7 @@ from .lateral_contiguity import (          # noqa: E402
     GAP_TOL_M as _LATERAL_GAP_TOL_M,
     MIN_MEMBER_M as _LATERAL_MIN_MEMBER_M,
     PROBE_M as _LATERAL_PROBE_M,
+    _edge_conformance_on,
     edge_shared_roles as _lateral_edge_shared_roles,
     station_caps as _lateral_station_caps,
     station_normal as _lateral_station_normal,
@@ -2539,8 +2540,14 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         # as a tighter cap.  ``station_caps`` has already folded the
         # apron into every station's class set, so the cap this shape
         # carries is the apron's, end to end.
-        s.apron_contact = bool(_lateral_edge_shared_roles(
-            s.polygon, tree, polys, roles, pos.get(i)))
+        # Gate ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law
+        # EXACTLY — the stamp is read here as well as in ``station_caps``,
+        # so the absorption path below is not silently kept out of reach on
+        # an arm that is supposed to be byte-identical to the old one.
+        s.apron_contact = bool(_edge_conformance_on()
+                               and _lateral_edge_shared_roles(
+                                   s.polygon, tree, polys, roles,
+                                   pos.get(i)))
         if s.apron_contact:
             summary["apron_contact"] += 1
         summary["strip_skipped"] += sum(

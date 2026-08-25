@@ -277,6 +277,29 @@ class TestEdgeSharingContactIsTheApron:
         # The apron is untouched — airside is king, and this law reads it.
         assert apron.polygon.equals(polys[0])
 
+    def test_the_gate_off_restores_the_absorption_path(self, monkeypatch):
+        """``O4_ROAD_APRON_EDGE_CONFORM=0`` must restore the PRE-RULING law
+        exactly — including the absorption the stamp otherwise blocks.  A
+        gate that only silenced the cap would leave the arm neither old nor
+        new, and the two arms could not be compared."""
+        monkeypatch.setattr(CFG, "ROAD_APRON_EDGE_CONFORMANCE", False)
+        from auto_patch import groundside as GS
+        from auto_patch.layout import BuiltShape
+
+        polys, roles, _tree = _contact_fixture(0.0)
+        apron = BuiltShape(role=ROLE_APRON, polygon=polys[0])
+        apron.node_altitudes = [10.0] * len(polys[0].exterior.coords[:-1])
+        road = BuiltShape(role=ROLE_SERVICE_ROAD, polygon=polys[1])
+
+        class _L:
+            pass
+
+        layout = _L()
+        layout.shapes = [apron, road]
+        summary = GS.apply_lateral_contiguity_law(layout, "TEST")
+        assert summary["apron_contact"] == 0
+        assert road.apron_contact is False
+
     def test_a_free_road_is_neither_stamped_nor_capped(self):
         from auto_patch import groundside as GS
         from auto_patch.layout import BuiltShape

@@ -140,3 +140,36 @@ rings touching a claim leave `_CHORD_LIMIT_ROLES` for the pass) is the
 queued next design, owner-gated; finding 2 (a retreat face and a shared
 key are mutually exclusive) is the structural constraint any future
 design must satisfy.
+
+## Amendment 3 (Fable, 2026-08-25 — OPTION A, owner-ordered: "fix
+## tunnels so LEMD and OTHH can build cleanly"; supersedes v1's
+## per-ring exclusion)
+
+Finding 2 (structural, measured): a retreat face and a shared key are
+mutually exclusive — the faces exist only where claimants disagree, so
+the ROAD family must leave the shared key space at tunnel sites, which
+is exactly the revert arm's regime (site read: stations ≤0.13, walls
+9/10, adjudicated +17) scoped so the limiter keeps every road
+elsewhere.
+
+1. THE RULE: a ROAD-ROLE ring (service_road / service_junction) that
+   touches the tunnel open-cut claim set leaves `_CHORD_LIMIT_ROLES`
+   for the pass — it neither mints nor consumes shared keys and is not
+   clamped by the pass; groundside_pavement rings STAY in the pass
+   everywhere (their v1 exclusion retires — v1's lot-half defect).
+   Non-claim road rings keep cce9da6f's full behaviour.
+2. Predicate: attempt 1's `_ring_touches_tunnel_claim` verbatim, over
+   the same published claim set. The v1 per-ring exclusion and the v2/
+   v3 machinery are all superseded — ONE mechanism after this lands.
+3. Flag: reuse `O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION` (default ON) as
+   the gate for THIS rule; OFF = pre-round (cce9da6f full) behaviour.
+4. Twins: rework to the role-scoped shape — (a) claim-touching road
+   ring unclamped/unkeyed, its groundside partner still clamped by its
+   own law; (b) non-claim road ring keeps limiter+precedence; (c)
+   retreat faces emit; (d) OFF = pre-round.
+5. Acceptance (ONE OTHH build): site-1 stations within 0.15 m of GOOD;
+   retreat walls ≥9/10 by footprint (shortfall attributed, reported);
+   movers vs the revert envelope; subgrade arm-relative ≤ revert 9/6;
+   adjudicated delta vs revert's +17; tunnel families/airside
+   byte-stable; limiter's own tests pass. Attempt cap 2; a miss goes
+   to the owner with the ledger.

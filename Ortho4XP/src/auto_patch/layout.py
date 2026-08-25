@@ -3579,6 +3579,16 @@ class PavementLayout:
             # here.  Written unconditionally, so a reader can tell "no
             # adjacent-pad pair" from "predates the rescope".
             "interior_zones": _interior_zones_sidecar(self),
+            # THE PAD-SEAT FEASIBILITY GATE's records (owner ruling
+            # RULINGS 2026-08-24c).  EVIDENCE, not law input: a seat
+            # that cannot reach its governing centerline anchor within
+            # 1 % x chord is a SEAT DEFECT caught at seating time and is
+            # never surface debt, so the census REPORTS it and does not
+            # adjudicate it.  Report-first by order — no seat is moved
+            # this round, and the fix policy is the next ruling.
+            "pad_seat_infeasible": [
+                {**_r, "ll": list(self.m_to_ll(*_r["centroid"]))}
+                for _r in (getattr(self, "_pad_seat_infeasible", None) or [])],
             # THE DISCONNECTED GROUNDSIDE RINGS (owner RULINGS
             # 2026-08-06, "ONE graph": *"Anything truly disconnected, we
             # don't really have to do anything at all — it just gets left

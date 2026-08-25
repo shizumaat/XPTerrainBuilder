@@ -5868,6 +5868,13 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    # THE PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c):
+    # pad seats that cannot reach their governing centerline anchor within
+    # 1 % x chord.  EVIDENCE, deliberately: a seat defect is caught at
+    # SEATING time and is not surface debt, so it is reported beside the
+    # census and never adjudicated as a law family — which is also what
+    # keeps this round's acceptance counts comparable with the last.
+    "pad_seat_infeasible",
     "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
                                   # partition per apron ring node (spec
                                   # apron-staged-solve-spec.md section 3):

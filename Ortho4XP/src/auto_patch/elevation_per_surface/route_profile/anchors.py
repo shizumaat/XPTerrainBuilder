@@ -28,6 +28,74 @@ from ..node_space import store_of as _store_of
 
 _INF = float("inf")
 
+#: PAD-SEAT FEASIBILITY GATE materiality floor (owner ruling RULINGS
+#: 2026-08-24c; the standing 0.01 m elevation floor of the convergence
+#: guards).  A seat inside its reach interval by less than this is a
+#: rounding residual, not a seat defect.
+_SEAT_FEASIBILITY_TOL_M = 0.01
+
+
+def seat_feasibility_gap(level, lo, hi):
+    """THE PAD-SEAT FEASIBILITY PREDICATE (owner ruling RULINGS
+    2026-08-24c), as one pure function so the gate and its twin cannot
+    describe different populations.
+
+    ``(gap_m, side)`` — how far the seat lies OUTSIDE the interval of
+    levels its governing centerline anchor permits at 1 % x chord (which
+    is what the reach band measures), and which side it fell off.
+    ``(0.0, None)`` when the seat is inside, or when the interval is not
+    finite (an off-network pad has no governing anchor to be judged
+    against, and inventing one would be the very long-pair class A4
+    exists to remove).
+
+    NOT a verdict on the surface: a seat defect is caught at seating time
+    and is never surface debt.
+    """
+    if lo is None or hi is None:
+        return 0.0, None
+    try:
+        lo_f, hi_f, lv = float(lo), float(hi), float(level)
+    except (TypeError, ValueError):                        # pragma: no cover
+        return 0.0, None
+    if not (math.isfinite(lo_f) and math.isfinite(hi_f)
+            and math.isfinite(lv)):
+        return 0.0, None
+    short, over = lo_f - lv, lv - hi_f
+    if short >= over:
+        return (short, "below_floor") if short > 0.0 else (0.0, None)
+    return (over, "above_ceiling") if over > 0.0 else (0.0, None)
+
+
+def _publish_seat_infeasible(layout, records, report) -> None:
+    """THE PAD-SEAT FEASIBILITY GATE's read-out (RULINGS 2026-08-24c).
+
+    A seat that cannot reach its governing centerline anchor within
+    1 % x chord is a SEAT DEFECT caught at seating time — the
+    anchor-placement law's analogue ("a misplaced anchor is itself the
+    defect") — and is NEVER surface debt.  So it is named here and
+    published for the census as EVIDENCE rather than left to appear
+    downstream as a pile of over-cap apron rows nobody can attribute.
+
+    REPORT-FIRST BY ORDER: nothing is moved.  The count and the names are
+    this round's deliverable; the fix policy is the next ruling.
+    """
+    setattr(layout, "_pad_seat_infeasible", list(records))
+    if not records:
+        return
+    worst = sorted(records, key=lambda r: -r["gap_m"])
+    below = sum(1 for r in records if r["side"] == "below_floor")
+    report(f"  [pad-seat] {len(records)} pad seat(s) OUTSIDE their own "
+           f"reach interval ({below} below the floor, "
+           f"{len(records) - below} above the ceiling) — SEAT DEFECTS, not "
+           f"surface debt (RULINGS 2026-08-24c); worst "
+           f"{worst[0]['gap_m']:.3f} m.  Report-only this round: no seat "
+           f"is moved.")
+    for r in worst[:12]:
+        report(f"  [pad-seat]   {r['ref']}: seat {r['seat_m']:.3f} vs reach "
+               f"[{r['reach_lo_m']:.3f},{r['reach_hi_m']:.3f}] "
+               f"({r['side']}, {r['gap_m']:+.3f} m, "
+               f"{r['area_m2']:,.0f} m2)")
+
 
 # ── THE PART-C MOUTH ALLOWANCE (one definition, two consumers) ───────────
 # ``MOUTH_ALLOWANCE_M = 15 m`` — justification (spec
@@ -701,6 +769,9 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # other battery airport byte-identical.
     _sb_moved: list = []
     _sb_empty: list = []
+    # PAD-SEAT FEASIBILITY GATE (RULINGS 2026-08-24c) — see the check at
+    # the foot of the per-pad loop.
+    _seat_infeasible: list = []
     # Large buildings (≥ area) seat at the FULL-FRONTAGE feasible level (user
     # 2026-06-27): the entire frontage must grade to the spine ≤1 %, so the seat is
     # the band intersected over the whole frontage (computed by
@@ -838,6 +909,46 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 else:
                     lo = hi = level                  # off-network: immovable
         pads.append((s, ring, float(level), lo, hi))
+        # ── PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c)
+        # "A pad seat that cannot reach its governing centerline anchor
+        # within 1 % x chord is a SEAT DEFECT caught at seating time
+        # (anchor-placement law analogue), NEVER surface debt."
+        #
+        # THE BAND IS THAT TEST, ALREADY COMPUTED.  ``band(x, y)`` is the
+        # interval of levels reachable at cap from the routes that serve
+        # this point — the frontage band ``lo``/``hi`` above is exactly
+        # "what the governing centerline anchor permits at 1 % x chord",
+        # measured along the straight route the band is built on.  So the
+        # gate is: does the seat we are about to ship lie INSIDE its own
+        # reach interval?
+        #
+        # This catches a class nothing reported before.  The full-frontage
+        # path CLAMPS into the interval, and an empty intersection is the
+        # split-level trigger above — but the SMALL-pad path seats at
+        # ``min(de, hi)``, which is bounded above and NOT below: a pad
+        # whose DEM centroid sits under the reach floor ships BELOW every
+        # level its frontage can reach, and no surface can honour it.
+        #
+        # REPORT-FIRST, BY ORDER: the seat is NOT moved this round.  The
+        # count and the names are the deliverable; the fix policy is the
+        # next ruling if the count is material.
+        _gap, _side = seat_feasibility_gap(level, lo, hi)
+        if _gap > _SEAT_FEASIBILITY_TOL_M:
+            _seat_infeasible.append({
+                "ref": s.ref or "?",
+                "seat_m": float(level),
+                "reach_lo_m": float(lo),
+                "reach_hi_m": float(hi),
+                "gap_m": float(_gap),
+                "side": _side,
+                "centroid": (float(s.polygon.centroid.x),
+                             float(s.polygon.centroid.y)),
+                "area_m2": float(s.polygon.area),
+            })
+
+    # THE GATE'S READ-OUT.  Loud, named, and published for the census —
+    # a seat defect is not surface debt and must never be read as one.
+    _publish_seat_infeasible(layout, _seat_infeasible, _report)
 
     if _sb_moved or _sb_empty:
         _report(f"  [seat-band] clamped {len(_sb_moved)} full-frontage seat(s)"

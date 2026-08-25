@@ -530,6 +530,12 @@ down)
     fi
     for d in $ENGINE_LINKS $(data_dirs); do
         [ -L "$ENGINE/$d" ] && rm "$ENGINE/$d"
+        # A mount point may itself be TRACKED (Ortho4XP/Sessions is a
+        # committed symlink into the data repo), so the rm above deletes a
+        # tracked file and `git worktree remove` refuses — same class as the
+        # CLONE_DIRS Patches precedent below.  Put it back.  Measured
+        # 2026-08-25 on lane validity-scan.
+        git -C "$WT" checkout -- "Ortho4XP/$d" 2>/dev/null || true
     done
     for d in $CLONE_DIRS; do
         [ -d "$ENGINE/$d" ] && [ ! -L "$ENGINE/$d" ] && rm -rf "$ENGINE/$d"

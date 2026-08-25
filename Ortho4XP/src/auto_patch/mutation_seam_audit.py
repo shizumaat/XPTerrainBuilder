@@ -26,6 +26,17 @@ import os
 #: |dz| under this is not a move (the convergence guards' elevation floor).
 SEAM_MOVE_MATERIALITY_M = 0.01
 
+#: The ROAD FAMILY, for the §1.3 ordering audit (spec
+#: ``docs/specs/road-band-seal-scope-spec.md``).  With the road roles out
+#: of the band seal, the question "what else can move a road node after
+#: ``_grade_limit_groundside_chords``?" is answered by MEASUREMENT at the
+#: seams the pipeline already marks, not by reading the source: a
+#: post-limiter road author is the same defect shape the seal was.
+#: Spelled as literals because this module deliberately imports nothing
+#: from ``auto_patch.layout``; ``tests/test_road_band_seal_scope.py``
+#: twins the two spellings.
+ROAD_FAMILY_ROLES = frozenset({"service_road", "service_junction"})
+
 
 def enabled() -> bool:
     """True when the audit is armed (``O4_MUTATION_SEAM_AUDIT=1``)."""
@@ -104,9 +115,25 @@ def checkpoint(layout, name: str) -> None:
     # case, and the seam that grows it is the author.
     sub0 = sum(1 for (v, _r) in cur.values() if v <= 0.0)
     sub0_prev = sum(1 for (v, _r) in prev.values() if v <= 0.0)
+    # THE ROAD-FAMILY SPLIT (spec §1.3 ordering audit): the same moved
+    # set, restricted to the roles the seal no longer clamps.  A seam
+    # with a non-zero count here is a post-limiter road author and is
+    # NAMED in the report.
+    road = [m for m in moved if m[4] in ROAD_FAMILY_ROLES]
     rec = {"seam": name, "audited": len(cur), "moved": len(moved),
            "new": n_new, "gone": n_gone, "worst_m": 0.0, "worst": [],
-           "sub_zero": sub0, "sub_zero_delta": sub0 - sub0_prev}
+           "sub_zero": sub0, "sub_zero_delta": sub0 - sub0_prev,
+           "road_moved": len(road), "road_worst_m": 0.0, "road_worst": []}
+    if road:
+        road.sort(reverse=True)
+        rec["road_worst_m"] = round(road[0][0], 3)
+        rec["road_worst"] = [{"dz_m": round(m[1], 3), "x": m[2], "y": m[3],
+                              "role": m[4]} for m in road[:5]]
+        _vprint(
+            f"  [mutation-seam] {name}: ROAD FAMILY {len(road)} vertex(es) "
+            f"moved (max {rec['road_worst_m']:.3f} m); worst: " + "; ".join(
+                f"{w['dz_m']:+.2f} m on {w['role']} at "
+                f"({w['x']:.0f},{w['y']:.0f})" for w in rec["road_worst"][:3]))
     if moved:
         moved.sort(reverse=True)
         rec["worst_m"] = round(moved[0][0], 3)
@@ -143,6 +170,15 @@ def report(layout, icao: str = "") -> None:
             + " | ".join(
                 f"{r['seam']} {r['moved']}@{r.get('worst_m', 0.0):.2f} m"
                 for r in ranked[:8] if r.get("moved")))
+    # THE ORDERING AUDIT (spec ``road-band-seal-scope-spec.md`` §1.3):
+    # every seam that moved a ROAD-family vertex, in PIPELINE ORDER, so
+    # the reader can see which of them run after the road chord limiter.
+    road_seams = [r for r in log if int(r.get("road_moved", 0) or 0)]
+    _vprint(f"  [mutation-seam] {icao}: ROAD-FAMILY LEDGER (pipeline order; "
+            f"who moves a road node at each seam) — " + (" | ".join(
+                f"{r['seam']} {int(r['road_moved'])}@"
+                f"{float(r.get('road_worst_m', 0.0)):.2f} m"
+                for r in road_seams) or "no seam moved a road vertex"))
     minted = sorted(log, key=lambda r: -int(r.get("sub_zero_delta", 0) or 0))
     _vprint(f"  [mutation-seam] {icao}: SUB-ZERO LEDGER (who minted the "
             f"below-0 m population) — " + " | ".join(

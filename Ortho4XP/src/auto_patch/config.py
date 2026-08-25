@@ -159,6 +159,7 @@ __all__ = [
     "TERMINAL_MAX_GRADE",
     "TERMINAL_PADS_SLOPE",
     "PAD_MIN_AREA_M2",
+    "PAD_SEAT_SCAFFOLD",
     "TAXI_CORRIDOR_PROFILE",
     "TAXIWAY_CURVE_RUN_M",
     "TAXIWAY_MAX_GRADE_CHANGE_PER_M",
@@ -2248,6 +2249,31 @@ HOLE_ROUTER_ENABLED = _os.environ.get("O4_HOLE_ROUTER", "1") == "1"
 # running and how many remain.  Output-only — the emitted patch is
 # byte-identical regardless.  O4_BUILD_PROGRESS=0 silences the banners.
 BUILD_PROGRESS = _os.environ.get("O4_BUILD_PROGRESS", "1") == "1"
+
+# ── THE PAD SEAT IS SCAFFOLD-DERIVED (owner ruling RULINGS 2026-08-24c,
+# with the 2026-08-08 SEAT-IS-THE-WELD ruling) ──────────────────────────
+# "Pads seated at the elevation that enables the 1 % cap to the
+# centerlines"; and a fronting building has NO independent seat authority
+# — it seats where the airside apron lawfully meets it.
+#
+# The seat was ``clamp(DEM, floor, ceiling)`` (and ``min(DEM, ceiling)``
+# on the small-pad path): the DEM, pulled into the reach band.  That made
+# every pad a DEM-VALUED Dirichlet anchor of the apron membrane, which is
+# how the DEM re-entered a surface the 24c ruling had just cleared it out
+# of.  MEASURED (this lane, HECA v3): pad seats sat 0.23 m BELOW the
+# terrain while the corridor they front sat 1.66 m ABOVE it, and the apron
+# interpolated between them landed 1.3 m under its own corridor.
+#
+# ON: the seat is the CHEBYSHEV CENTRE of the frontage band — the level
+# furthest from both bounds of the interval its governing centerline
+# permits, i.e. the elevation that most enables the cap to the
+# centerlines.  ONE function, ``scaffold_seed.taut_level``, shared with
+# the apron membrane so a pad and the apron around it are seated by the
+# same arithmetic.  ``0`` restores the DEM-clamped seat exactly.
+#
+# The DEM survives ONLY where a pad has no frontage band at all (the
+# off-network pad), which is the owner's addendum applied to seats.
+PAD_SEAT_SCAFFOLD = _os.environ.get("O4_PAD_SEAT_SCAFFOLD", "1") != "0"
 
 # Runtime within-shape grade WARN audit (``elevation._report_within_shape_violations``).
 # It recomputes the full unified grade graph + reach bands on EVERY build just to

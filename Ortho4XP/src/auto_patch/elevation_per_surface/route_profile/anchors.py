@@ -25,6 +25,8 @@ from auto_patch.layout import (
     ROLE_SERVICE_ROAD, ROLE_STUB,
 )
 from ..node_space import store_of as _store_of
+from .scaffold_seed import taut_level as _taut_level
+from auto_patch.config import PAD_SEAT_SCAFFOLD
 
 _INF = float("inf")
 
@@ -64,6 +66,31 @@ def seat_feasibility_gap(level, lo, hi):
     if short >= over:
         return (short, "below_floor") if short > 0.0 else (0.0, None)
     return (over, "above_ceiling") if over > 0.0 else (0.0, None)
+
+
+def _publish_seat_moves(layout, records, report) -> None:
+    """What the SCAFFOLD-DERIVED seat moved (RULINGS 2026-08-24c).
+
+    The seat used to be ``clamp(DEM, floor, ceiling)``; it is now the
+    Chebyshev centre of the frontage band.  Every pad that changed is
+    counted and the worst are named, because this moves BUILDINGS on every
+    airport and the owner sim-tests the result.
+    """
+    setattr(layout, "_pad_seat_moved", list(records))
+    if not records:
+        return
+    ups = sum(1 for r in records if r["now"] > r["was"])
+    worst = sorted(records, key=lambda r: -abs(r["now"] - r["was"]))
+    total = sum(abs(r["now"] - r["was"]) for r in records)
+    report(f"  [seat-scaffold] {len(records)} pad seat(s) MOVED off the DEM "
+           f"onto the scaffold ({ups} up, {len(records) - ups} down); worst "
+           f"{worst[0]['now'] - worst[0]['was']:+.3f} m on "
+           f"{worst[0]['ref']}; mean |move| "
+           f"{total / len(records):.3f} m — RULINGS 2026-08-24c")
+    for r in worst[:12]:
+        report(f"  [seat-scaffold]   {r['ref']}: {r['was']:.3f} -> "
+               f"{r['now']:.3f} ({r['now'] - r['was']:+.3f} m, "
+               f"{r['area_m2']:,.0f} m2)")
 
 
 def _publish_seat_infeasible(layout, records, report) -> None:
@@ -769,6 +796,10 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # other battery airport byte-identical.
     _sb_moved: list = []
     _sb_empty: list = []
+    # SEAT-MOVE TABLE (RULINGS 2026-08-24c): every pad whose seat changed
+    # because the seat is now scaffold-derived rather than DEM-derived.
+    # Reported prominently — this touches every airport's buildings.
+    _seat_moved: list = []
     # PAD-SEAT FEASIBILITY GATE (RULINGS 2026-08-24c) — see the check at
     # the foot of the per-pad loop.
     _seat_infeasible: list = []
@@ -858,6 +889,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _frontage_band, _pavement_visibility)
             from auto_patch.config import VISIBLE_CHORD_CONNECT
             level = float(lv)
+            _seat_dem_ref = de
             _cls = [cl.line for cl in
                     (getattr(layout, "apt_taxi_centerlines", None) or [])
                     if cl.line is not None and not cl.line.is_empty
@@ -868,6 +900,16 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             if fb is None:
                 fb = band(s.polygon.centroid.x, s.polygon.centroid.y)
             lo, hi = (min(*fb), max(*fb)) if fb is not None else (level, level)
+            # SEAT-MOVE RECORD, full-frontage path: ``level`` came from
+            # ``building_feasible_levels``, which is now scaffold-derived.
+            # The counterfactual is the DEM clamped into this same band.
+            if PAD_SEAT_SCAFFOLD and fb is not None and _seat_dem_ref is not None:
+                _was = min(max(float(_seat_dem_ref), lo), hi)
+                if abs(level - _was) > _SEAT_FEASIBILITY_TOL_M:
+                    _seat_moved.append({
+                        "ref": s.ref or "?", "was": float(_was),
+                        "now": float(level),
+                        "area_m2": float(s.polygon.area)})
             nlo, nhi, _nc = _seat_node_band(ring, band, cps, bucket_to_idx)
             if _nc:
                 ilo, ihi = max(lo, nlo), min(hi, nhi)
@@ -891,7 +933,28 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             box = _frontage_box(ring)
             if box is not None:
                 lo, hi = box
-                level = min(de, hi) if de is not None else hi
+                # ── THE SMALL PAD SEATS ON THE SCAFFOLD TOO (owner
+                # rulings RULINGS 2026-08-24c + 2026-08-08 seat-is-the-
+                # weld).  ``min(DEM, ceiling)`` was bounded ABOVE and not
+                # below, so a pad whose DEM centroid sat under its reach
+                # floor shipped below every level its frontage can reach —
+                # the class the pad-seat feasibility gate was written to
+                # catch.  The Chebyshev centre of the frontage interval is
+                # the level that most enables the 1 % cap to the
+                # centerlines, and it is inside the interval by
+                # construction, so that class closes here rather than
+                # being reported forever.
+                _sc = (_taut_level((lo, hi)) if PAD_SEAT_SCAFFOLD else None)
+                if _sc is not None:
+                    level = _sc
+                else:
+                    level = min(de, hi) if de is not None else hi
+                _seat_was = (min(de, hi) if de is not None else hi)
+                if abs(level - _seat_was) > _SEAT_FEASIBILITY_TOL_M:
+                    _seat_moved.append({
+                        "ref": s.ref or "?", "was": float(_seat_was),
+                        "now": float(level),
+                        "area_m2": float(s.polygon.area)})
             else:                                    # no apron-shared edge / off
                 level = _median(ring, de)
                 if level is None:
@@ -945,6 +1008,10 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                              float(s.polygon.centroid.y)),
                 "area_m2": float(s.polygon.area),
             })
+
+    # THE SEAT-MOVE TABLE.  This change touches every airport's buildings,
+    # so what moved is reported prominently rather than left to a diff.
+    _publish_seat_moves(layout, _seat_moved, _report)
 
     # THE GATE'S READ-OUT.  Loud, named, and published for the census —
     # a seat defect is not surface debt and must never be read as one.

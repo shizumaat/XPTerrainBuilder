@@ -58,6 +58,13 @@
 #   basin machinery is modelling a real feature; the POOLING docket's
 #   acceptance shape is that circle (post-fix depth ~8.5 m is
 #   plausible; the 1.56M m2 / 4 km extent is the pooling defect).
+#   OWNER BBOX for the circle: 40.4910364,-3.5681856 to
+#   40.4923786,-3.5703743. Pack probe: T4STower_(c)_Sim-wings-SWbaume
+#   .obj base_y -6.99..-4.04 (134 parts in-box) + Ground-FSX-LEMD36/
+#   37/85 floor pieces at -7.0 = the REAL basin members (~7 m deep);
+#   Ground-FSX-LEMD03 (the -6.75 decal-chain culprit) touches the box
+#   with ONE part — the bridge the pool escaped through. Pooling spec
+#   acceptance: basin ~= this bbox at ~7 m.
 #   LEMD's mouths will exercise the portal-corridor-claim law
 #   (RULINGS 2026-08-25e) beyond OTHH.
 # IN-FLIGHT at session close of this block: LEMD confirmation build;

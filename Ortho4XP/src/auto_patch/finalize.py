@@ -471,6 +471,11 @@ def emit_terrain_transition_features(layout: PavementLayout, icao: str, xplane_r
                     f"stricter-cap {_st.get('stricter_cap_nodes', 0)}"
                     + (f", road near-miss {_nm}" if _nm else "")
                     + f" (of {_st.get('nodes', 0)} node(s)).")
+            # (The TUNNEL-CORRIDOR EXCLUSION reports from inside the pass
+            # itself — spec tunnel-corridor-node-book-exclusion-spec.md
+            # §2 — because the claim only exists after _emit_tunnel_
+            # portals below, i.e. at the pipeline's later re-limit calls,
+            # and one implementation must serve every call site.)
         except _GEOM_EXC:
             pass
         # Then emit DEM-bridge polygons inside the boundary

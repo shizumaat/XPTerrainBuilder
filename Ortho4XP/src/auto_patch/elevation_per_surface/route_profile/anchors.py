@@ -5055,10 +5055,64 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             node_shapes=node_shapes)
     _lat_bound_breaks = 0
     _fallback_legacy: set = set()
+    # ── APRON-CONTACT SEEDING: THE DATUM, NOT THE TERRAIN ─────────────
+    # (RULINGS 2026-08-25b, spec ``road-band-seal-scope-spec.md`` §2 as
+    # amended — Amendment 1 clause 2(c).)  A ring that shares an edge
+    # with an apron "conforms to the strictest grade".  Two thirds of
+    # that are already structural here: its cap arrives through
+    # ``lat_cap`` (clause 2(a)), and its shared-edge vertices are
+    # ANCHORS by identity — the loop above reads ``anchors[i] = elev[i]``
+    # for every service node that is also a canonical vertex of a
+    # non-service ring, so those nodes already carry the apron's own
+    # values (clause 2(b)).
+    #
+    # The missing third is the SEED.  Every non-anchor service node
+    # below takes ``clamp(DEM, band)`` — it FOLLOWS THE TERRAIN, which
+    # inside a contact ring is precisely the DEM-follow the ruling
+    # forbids: the ring is pulled to the ground while its shared edge is
+    # pinned to the apron, and the difference emits as the step at the
+    # contact.  Here the contact ring seeds from its OWN shared-edge
+    # anchors instead, carried outward under its (now-apron) cap: the
+    # midpoint of the interval those anchors alone allow, which for a
+    # single governing anchor IS that anchor's value carried flat, and
+    # for several is the taut level between them.  It is then clamped
+    # into the FULL band exactly as the DEM target is, so no feasibility
+    # law changes — only what the ring reaches for inside it.
+    #
+    # A contact node no contact anchor reaches keeps the DEM target and
+    # is counted: the fallback is honest, never silent.
+    from auto_patch import config as _cfg_contact
+    _CONTACT_SEED = getattr(_cfg_contact, "ROAD_APRON_EDGE_CONFORMANCE", True)
+    contact_datum: dict = {}
+    _contact_nodes: set = set()
+    if _CONTACT_SEED:
+        for i, _shs in node_shapes.items():
+            if any(getattr(o, "apron_contact", False) for o in _shs):
+                _contact_nodes.add(i)
+        _c_src = {i: v for i, v in anchors.items() if i in _contact_nodes}
+        if _c_src:
+            _c_ceil, _ = _reach(+1, _c_src)
+            _c_floor, _ = _reach(-1, _c_src)
+            for i in _contact_nodes:
+                if i in anchors:
+                    continue
+                hi, lo_ = _c_ceil.get(i), _c_floor.get(i)
+                if hi is None and lo_ is None:
+                    continue
+                if hi is None:
+                    contact_datum[i] = float(lo_)
+                elif lo_ is None:
+                    contact_datum[i] = float(hi)
+                elif lo_ <= hi + 1e-9:
+                    contact_datum[i] = 0.5 * (float(hi) + float(lo_))
+                # lo_ > hi is a genuine contradiction among the ring's own
+                # apron anchors — no datum; the DEM path below applies and
+                # the break machinery reports it, as it does for any road.
+    _contact_seeded: set = set()
     for i in svc_nodes:
         if i in anchors:
             continue
-        if i in spine_target:
+        if i in spine_target and i not in contact_datum:
             tgt = spine_target[i]
             if i in spine_broken:
                 # Laterally bound (spec §1): this node belongs to the
@@ -5074,7 +5128,11 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                 elev[i] = tgt
                 changed.add(i)
             continue
-        de = dem_elev[i] if i < len(dem_elev) else None
+        de = contact_datum.get(i)
+        if de is not None:
+            _contact_seeded.add(i)
+        else:
+            de = dem_elev[i] if i < len(dem_elev) else None
         if de is None:
             continue
         c = ceil.get(i)
@@ -5110,6 +5168,18 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         if abs(tgt - elev[i]) > 1e-3:
             elev[i] = tgt
             changed.add(i)
+    if _contact_nodes:
+        import O4_UI_Utils as _UI_ct
+        _ct_free = len(_contact_nodes) - sum(
+            1 for i in _contact_nodes if i in anchors)
+        _UI_ct.vprint(1,
+            f"  [pav-builder] apron-CONTACT seeding (RULINGS 2026-08-25b, "
+            f"Amendment 1): {len(_contact_nodes)} node(s) on edge-sharing "
+            f"road ring(s) — {len(_contact_nodes) - _ct_free} hold the "
+            f"apron's value BY IDENTITY (shared vertices), "
+            f"{len(_contact_seeded)} seeded from that datum outward under "
+            f"the apron cap, {_ct_free - len(_contact_seeded)} with no "
+            f"contact anchor in reach kept the DEM target.")
     # ── THE WHOLE-RUN CORRIDOR PROFILE IS HELD, NOT SEEDED ────────────
     # Membership only, no value write — the same spelling as the
     # free-end tie (``svc_free_end``) and for the same measured reason.

@@ -118,18 +118,31 @@ class TestClassUniversalAbsorption:
                    for a in lot.node_altitudes)
 
     def test_the_strictest_cap_still_decides_the_host(self, absorption_on):
-        """A road between an apron (1 %) and a lot takes the STRICTEST
-        cap of its cross-section and can only be absorbed by the surface
-        that owns it — the apron, never the lot."""
+        """A road between an apron (1 %) and a lot takes the STRICTEST cap
+        of its cross-section, and the LOT can never have it.
+
+        AMENDED by RULINGS 2026-08-25b / spec ``road-band-seal-scope-
+        spec.md`` Amendment 1: this road SHARES AN EDGE with the apron, so
+        it now CONFORMS to the apron's law instead of being absorbed into
+        it — it keeps its role and its geometry and carries the apron's
+        cap.  (Attempt 1 of that spec measured what absorbing this class
+        costs: HECA airside 1,735 → 1,948, SPJC 175 → 178.)  What the
+        original twin protects is unchanged and still asserted: the
+        strictest cap decides, and the lot neither hosts nor grows.
+        """
         apron = BuiltShape(polygon=_rect(0, 0, 100, 60), role="apron")
         lot = _dem_lot(0, 70, 100, 130)
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
         layout = _layout([apron, lot, road])
         summary = absorption_on.apply_lateral_contiguity_law(layout, "TEST")
-        assert summary["absorbed"] == 1
-        assert list(summary["absorbed_caps"]) == [0.01]
-        assert apron.polygon.area == pytest.approx(100 * 70, rel=1e-6)
+        assert summary["absorbed"] == 0
+        assert summary["apron_contact"] == 1
+        # THE CAP still decides — the apron's, not the lot's, not its own.
+        assert road.lateral_cap == 0.01
+        # …and NOTHING was merged: three shapes in, three shapes out.
+        assert apron.polygon.area == pytest.approx(100 * 60, rel=1e-6)
         assert lot.polygon.area == pytest.approx(100 * 60, rel=1e-6)
+        assert road in layout.shapes and road.role == "service_road"
 
 
 class TestPortionOnlyAbsorption:

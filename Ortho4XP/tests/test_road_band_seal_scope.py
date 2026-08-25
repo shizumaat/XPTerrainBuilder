@@ -10,8 +10,12 @@ the strictest grade — it becomes part of the apron").
     historic clamp reproduces.
 (b) AIRSIDE sealing is byte-identical between the two flag states — the
     change removes roles from the scope and touches nothing else.
-(c) An edge-sharing road ring takes the apron cap; a free road 2 m away
-    does not (canonical identity, never proximity — the ruling's own
+(c) An edge-sharing road ring CONFORMS WITHOUT RECLASSIFICATION: it takes
+    the apron cap end to end and seeds from the apron datum, while staying
+    road-family population — no absorption, no merge, no role change
+    (Amendment 1, on attempt 1's measurement that absorbing them moved
+    HECA airside 1,735 → 1,948 and SPJC 175 → 178).  A free road 2 m away
+    takes neither (canonical identity, never proximity — the ruling's own
     boundary, and the near-miss class it excludes).
 (d) The two spellings each half needs — the seal's scope against the band
     engine's own domain, and the seam audit's road-family literals against
@@ -243,6 +247,55 @@ class TestEdgeSharingContactIsTheApron:
         roles = [ROLE_BUILDING, ROLE_SERVICE_ROAD]
         assert LC.edge_shared_roles(polys[1], tree, polys, roles, 1) == set()
 
+    def test_conformance_never_reclassifies_the_ring(self):
+        """Amendment 1 clause 1: the contact ring REMAINS road-family
+        population.  The law pass stamps the contact and carries the
+        apron cap; it must not absorb, merge or re-role the shape."""
+        from auto_patch import groundside as GS
+        from auto_patch.layout import BuiltShape
+
+        polys, roles, _tree = _contact_fixture(0.0)
+        apron = BuiltShape(role=ROLE_APRON, polygon=polys[0])
+        apron.node_altitudes = [10.0] * len(polys[0].exterior.coords[:-1])
+        road = BuiltShape(role=ROLE_SERVICE_ROAD, polygon=polys[1])
+
+        class _L:
+            pass
+
+        layout = _L()
+        layout.shapes = [apron, road]
+        summary = GS.apply_lateral_contiguity_law(layout, "TEST")
+
+        assert summary["apron_contact"] == 1
+        assert summary["absorbed"] == 0 and summary["cut"] == 0
+        survivors = [s for s in layout.shapes if s is road]
+        assert survivors, "the contact ring was absorbed or replaced"
+        assert road.role == ROLE_SERVICE_ROAD          # no role conversion
+        assert road.apron_contact is True
+        # (a) the ring prices at the APRON'S cap, end to end.
+        assert road.lateral_cap == CFG.ROLE_GRADE_LIMITS[ROLE_APRON]
+        # The apron is untouched — airside is king, and this law reads it.
+        assert apron.polygon.equals(polys[0])
+
+    def test_a_free_road_is_neither_stamped_nor_capped(self):
+        from auto_patch import groundside as GS
+        from auto_patch.layout import BuiltShape
+
+        polys, roles, _tree = _contact_fixture(2.0)
+        apron = BuiltShape(role=ROLE_APRON, polygon=polys[0])
+        apron.node_altitudes = [10.0] * len(polys[0].exterior.coords[:-1])
+        road = BuiltShape(role=ROLE_SERVICE_ROAD, polygon=polys[1])
+
+        class _L:
+            pass
+
+        layout = _L()
+        layout.shapes = [apron, road]
+        summary = GS.apply_lateral_contiguity_law(layout, "TEST")
+        assert summary["apron_contact"] == 0
+        assert road.apron_contact is False
+        assert road.lateral_cap is None
+
     def test_an_apron_is_never_judged_against_itself(self):
         """The term applies to the ROAD family only — an apron sharing an
         edge with another apron is not a road taking a cap."""
@@ -251,6 +304,96 @@ class TestEdgeSharingContactIsTheApron:
         _st, caps = LC.station_caps(polys[1], tree, polys, roles, 1)
         assert {c for c in caps if c is not None} <= {
             CFG.ROLE_GRADE_LIMITS[ROLE_APRON]}
+
+
+# ══════════════════════════════════════════════════════════════════
+# (c) part 3 — the seeding: the apron DATUM, not the terrain
+# ══════════════════════════════════════════════════════════════════
+class _SeedLayout:
+    def __init__(self, shapes):
+        from auto_patch.canonical_points import CanonicalPointRegistry
+        self.icao = "TEST"
+        self.shapes = list(shapes)
+        self.anchor = (0.0, 0.0)
+        self.canonical_points = CanonicalPointRegistry(tol_m=0.05)
+        self.apt_taxi_centerlines = []
+        self._service_corridor_lines = []
+        self._slice_service_subsegments = []
+
+    def m_to_ll(self, x, y):
+        return (y / 111320.0, x / 111320.0)
+
+
+def _seed_fixture(contact: bool):
+    """An apron at 100 m sharing its whole east edge with a 200 m road,
+    over terrain 10 m below.  The shared edge's two vertices are
+    canonical-identical, so they are exact-vertex ANCHORS carrying the
+    apron's value — clause 2(b), automatic.  What the twin measures is
+    clause 2(c): what the ring's INTERIOR reaches for."""
+    from auto_patch.layout import BuiltShape
+    apron_ring = [(-30.0, -3.0), (0.0, -3.0), (0.0, 3.0), (-30.0, 3.0)]
+    xs = [0.0, 50.0, 100.0, 150.0, 200.0]
+    road_ring = ([(x, -3.0) for x in xs]
+                 + [(x, 3.0) for x in reversed(xs)])
+    apron = BuiltShape(polygon=Polygon(apron_ring), role=ROLE_APRON)
+    road = BuiltShape(polygon=Polygon(road_ring), role=ROLE_SERVICE_ROAD)
+    road.lateral_cap = CFG.ROLE_GRADE_LIMITS[ROLE_APRON]
+    road.apron_contact = contact
+    layout = _SeedLayout([apron, road])
+    b2i, nodes = {}, []
+    for s in layout.shapes:
+        for (x, y) in list(s.polygon.exterior.coords)[:-1]:
+            key = layout.canonical_points.get_or_add(float(x), float(y))
+            if key not in b2i:
+                b2i[key] = len(nodes)
+                nodes.append((float(x), float(y)))
+
+    def _idx(x, y):
+        return b2i[layout.canonical_points.get_or_add(float(x), float(y))]
+
+    elev = [90.0] * len(nodes)
+    dem = [90.0] * len(nodes)
+    for (x, y) in apron_ring:
+        elev[_idx(x, y)] = 100.0
+    return layout, b2i, elev, dem, _idx
+
+
+class TestContactSeedingUsesTheApronDatum:
+
+    def _run(self, contact, monkeypatch):
+        from auto_patch.elevation_per_surface.route_profile import (
+            anchors as ANCH)
+        # The free-end DEM tie is its own law and would anchor the far
+        # terminus to terrain; this twin isolates the seeding term.
+        monkeypatch.setattr(CFG, "SERVICE_CORRIDOR_FREE_END_ANCHOR", False)
+        layout, b2i, elev, dem, _idx = _seed_fixture(contact)
+        ANCH.apply_service_road_dem_follow(
+            layout, b2i, elev, dem, CFG.ROLE_GRADE_LIMITS[ROLE_SERVICE_ROAD])
+        return elev, _idx
+
+    def test_the_contact_ring_seeds_from_the_datum_not_the_dem(
+            self, monkeypatch):
+        elev, _idx = self._run(True, monkeypatch)
+        # The shared edge holds the apron's value by identity …
+        assert elev[_idx(0.0, -3.0)] == pytest.approx(100.0, abs=1e-6)
+        # … and the interior is carried outward from it under the apron
+        # cap, NOT pulled down to the 90 m terrain.
+        assert elev[_idx(50.0, -3.0)] == pytest.approx(100.0, abs=0.01)
+        assert elev[_idx(200.0, 3.0)] == pytest.approx(100.0, abs=0.01)
+
+    def test_without_the_contact_stamp_it_follows_the_dem(self, monkeypatch):
+        """The control: the same geometry, not stamped as contact, is the
+        pre-ruling DEM-follow — it dives toward terrain as far as the cap
+        allows."""
+        elev, _idx = self._run(False, monkeypatch)
+        assert elev[_idx(0.0, -3.0)] == pytest.approx(100.0, abs=1e-6)
+        far = elev[_idx(200.0, 3.0)]
+        assert far < 99.9, "the control did not DEM-follow at all"
+
+    def test_the_gate_off_restores_the_dem_follow(self, monkeypatch):
+        monkeypatch.setattr(CFG, "ROAD_APRON_EDGE_CONFORMANCE", False)
+        elev, _idx = self._run(True, monkeypatch)
+        assert elev[_idx(200.0, 3.0)] < 99.9
 
 
 # ══════════════════════════════════════════════════════════════════

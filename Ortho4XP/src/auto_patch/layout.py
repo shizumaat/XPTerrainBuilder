@@ -700,6 +700,18 @@ class BuiltShape:
     # Consumed by ``grade_graph._body_cap`` and emitted as
     # ``o4_grade_law_cap`` for ``tools/check_grade`` (one law, two readers).
     lateral_cap: float | None = None
+    # ROAD↔APRON EDGE CONFORMANCE (owner RULINGS 2026-08-25b; spec
+    # ``road-band-seal-scope-spec.md`` §2 + Amendment 1): this road-family
+    # ring SHARES AT LEAST ONE EDGE with an apron ring, by canonical vertex
+    # identity (``lateral_contiguity.edge_shared_roles`` — never proximity).
+    # It CONFORMS to the apron's law and does NOT become the apron:
+    # the ring stays road-family population (no absorption, no merge, no
+    # role change — Amendment 1, on attempt 1's measurement that absorbing
+    # them moved HECA airside 1,735 → 1,948), it carries the apron cap in
+    # ``lateral_cap`` end to end, its shared-edge vertices already hold the
+    # apron's values by identity, and its seeding does not DEM-follow
+    # against that edge (``anchors.apply_service_road_dem_follow``).
+    apron_contact: bool = False
     # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY, docs/
     # runway_single_polygon_plan.md): this ROLE_RUNWAY shape is ONE ring
     # per runway ref built from the persisted FAA profile (long-edge

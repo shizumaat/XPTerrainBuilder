@@ -158,6 +158,7 @@ __all__ = [
     "BUILDING_FRONTAGE_MAX_GRADE",
     "TERMINAL_MAX_GRADE",
     "TERMINAL_PADS_SLOPE",
+    "PAD_MIN_AREA_M2",
     "TAXI_CORRIDOR_PROFILE",
     "TAXIWAY_CURVE_RUN_M",
     "TAXIWAY_MAX_GRADE_CHANGE_PER_M",
@@ -625,6 +626,22 @@ DSF_FACADE_MERGE_GAP_M = 2.0
 # Min cluster area to emit a building pad.  Lowered from 100 (which dropped real
 # small hangars/buildings) to keep approved buildings; a degenerate-noise guard only.
 DSF_MIN_BUILDING_AREA_M2 = 20.0
+
+# ── THE TINY-PAD FLOOR (owner ruling RULINGS 2026-08-24) ──────────────
+# "A building pad below a minimum area is NOT an independent seat
+# authority."  A sub-threshold pad MINTS NO PAD: no ``ROLE_BUILDING``
+# shape, so no seat, no frontage vertex, no pad-interception authority —
+# its footprint simply REMAINS APRON and its ring seats with the surface
+# around it.  Where it is welded to (or inside the frontage reach of) a
+# >= threshold building, the parent's value governs through the EXISTING
+# weld / frontage machinery; nothing new joins them.
+#
+# Measured basis (owner, HECA in-sim): exemplar -10144, 216 m², one
+# altitude tag, seated 2.56 m BELOW the terminal it serves 68 m away.
+# Threshold >= ~220 m² catches it; 250 m² adopted — it sweeps HECA 56 /
+# SPJC 19 / CYXY 3 pads, worst tiny-pad step 12.04 m.  This is the
+# constant the pipeline's old bare 100.0 pad floor rises to.
+PAD_MIN_AREA_M2 = 250.0
 
 # Building-pad outline NARROW-GAP FILL (user 2026-06-15).  Gate stands are
 # small fingers extending perpendicular off a pier; the gaps between them

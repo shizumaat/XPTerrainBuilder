@@ -197,6 +197,27 @@ PAIR_BUDGET_PRUNE_M = float(os.environ.get("O4_PAIR_BUDGET_PRUNE_M", "150"))
 # (2026-07-03: buildings are the heaviest constraint).
 SPINE_FRAME_PAIRS = os.environ.get("O4_SPINE_FRAME_PAIRS", "1") == "1"
 
+# ── THE CHORD-TARGET LAW (owner ruling RULINGS 2026-08-25, spec
+# ``docs/specs/apron-chord-anchor-target-spec.md`` §1) ────────────────────
+# "An apron ring vertex's strict chord is measured to the NEAREST VISIBLE
+# anchor across APRON-ONLY pavement, where the anchor set is BOTH the
+# building pads and the taxiway centerline nodes — whichever is closer
+# wins."  The enumeration below (``nearest_spine_pairs``) therefore searches
+# a UNION candidate set and carries the target KIND per pair; the kind
+# selects the cap class in ``grade_law.apron_pair_class``.
+#
+# ``O4_APRON_CHORD_ANCHOR_TARGET=0`` restores the pre-ruling enumeration
+# BYTE-FOR-BYTE: spine-coincident candidates only, today's visibility
+# population, and the 2026-08-21f pad INTERCEPTION the ruling supersedes.
+APRON_CHORD_ANCHOR_TARGET = (
+    os.environ.get("O4_APRON_CHORD_ANCHOR_TARGET", "1") != "0")
+
+#: The two anchor kinds carried per chord (spec §1.5).  ONE spelling: the
+#: enumeration mints them, ``ShapeConstraints.edge_anchor_kind`` reports
+#: them and ``grade_law.PairContext.nearest_anchor_pad`` is set from them.
+ANCHOR_KIND_SPINE = "spine"
+ANCHOR_KIND_PAD = "pad"
+
 # The per-pair eligibility/cap decision (min-pair-dist, apron body-chord max,
 # seam/building/spine/visibility skips, cap selection) is THE LAW — it lives in
 # ``grade_law`` so the solver and the grade test share one source.  This module
@@ -389,6 +410,20 @@ class GradeContext:
     # ``corridor_cover_prepared``): a layout with no building frontage never
     # pays for it, and ``build_context`` is called several times per solve.
     corridor_lines: tuple = ()
+    # ── THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24) ───────────
+    # ``interior_zones``: the fan-ramp BACK-EDGE zone polygons, as OPEN
+    # ``((x, y), ...)`` rings in this context's metre frame.  Geometry, not
+    # keys — "is this chord wholly inside one zone" is a geometric
+    # question, exactly like ``building_polys``.  The SOLVER fills it from
+    # ``apron_terrace.plan_fan_ramp_zones`` (the ruling's own predicate,
+    # computed live — the zones need not be DECLARED); the CENSUS fills it
+    # from the sidecar's ``interior_zones`` export of those same polygons,
+    # so both readers price the identical ground.  Empty ⇒ no pair is a
+    # back-edge pair and the apron body is strict throughout, which is the
+    # conservative direction.
+    interior_zones: tuple = ()
+    _interior_zones_prep: object = None
+    _interior_zones_built: bool = False
     _corridor_cover_prep: object = None
     _corridor_cover_built: bool = False
     _spine_nodes_built: bool = False
@@ -442,6 +477,24 @@ class ShapeConstraints:
     #: partition the LAW's answer rather than a cap-value guess (a blended
     #: pair can sit at 5 % without being interior).
     edge_interior: list[bool] = field(default_factory=list)
+    #: INDEX-PARALLEL to :attr:`edges`: the ANCHOR KIND of the pair when it
+    #: is a vertex's nearest-anchor chord (``grade_graph.ANCHOR_KIND_SPINE``
+    #: / ``ANCHOR_KIND_PAD``, owner ruling RULINGS 2026-08-25), ``""``
+    #: otherwise.  Recorded at MINT for the same reason
+    #: :attr:`edge_interior` is: the STAND class now has two sub-populations
+    #: (pad-target and spine-target chords) and a report that re-derives
+    #: which is which from a cap value would be guessing — a 1 % row is a
+    #: stand row whatever its target.
+    edge_anchor_kind: list[str] = field(default_factory=list)
+    #: APRON ring keys inside the RUNWAY STRIP footprint (spec AMENDMENT
+    #: A4.2).  Those pairs are SKIPPED by the law, so the node never
+    #: appears on an edge and the seniority partition — whose domain is
+    #: built from edges — could not see it at all.  Recording it HERE, at
+    #: the same place the flags are computed for the law, is what lets
+    #: ``grade_law.apron_node_seniority`` report ``excluded`` instead of
+    #: silently dropping the node (owner ruling RULINGS 2026-08-21d,
+    #: wired 2026-08-24).
+    strip_excluded: set = field(default_factory=set)
 
 
 def _open_ring(coords):
@@ -534,25 +587,58 @@ def _pad_intercept(ring, i, j, ctx):
     return best
 
 
-def nearest_spine_pairs(ring, keys, ctx, vis=None) -> set:
-    """``{(key_a, key_b)}`` — ONE chord per ring vertex, to its NEAREST spine
-    node (spec AMENDMENT A4.1(i)).
+def nearest_spine_pairs(ring, keys, ctx, vis=None) -> dict:
+    """``{(key_a, key_b): kind}`` — ONE chord per ring vertex, to its NEAREST
+    VISIBLE ANCHOR, with the anchor's KIND (``ANCHOR_KIND_SPINE`` /
+    ``ANCHOR_KIND_PAD``) carried per pair.
 
-    The far end is the RING VERTEX that coincides with that spine node: the
-    corridor's centerline vertices are welded into the apron ring pre-emit, so
-    the chord stays inside the ring x ring enumeration and NO NEW VERTEX is
-    minted (the standing "no new vertices" rule).  A vertex with no spine node
-    within ``BUILDING_REACH_CORRIDOR_M`` contributes nothing — the seat does
-    not reach the corridor, and inventing a chord for it would be the very
-    long-pair class A4 exists to remove.
+    THE ANCHOR SET (owner ruling RULINGS 2026-08-25, spec §1.1) is the UNION
+    of two ring-vertex populations:
 
-    DETERMINISTIC (A4.3(a)): ties break on the lower ring index, so the set
-    does not depend on iteration order in either reader.
+      (a) vertices lying ON a taxiway centerline — the existing
+          ``SPINE_PERP_TOL_M`` notion, unchanged;
+      (b) vertices lying on a BUILDING PAD boundary — the enumeration's
+          existing ``ctx.building_keys`` membership, the same set the pair
+          loop reads as ``bld``/``ki_bld``.  Keys, not geometry, and for a
+          load-bearing reason: the CENSUS context fills ``building_keys``
+          and does NOT fill ``building_polys``, so a geometric pad test here
+          would enumerate a different anchor set in the two readers.
+
+    WHICHEVER IS CLOSER WINS.  This is A4.1(i) as the 2026-08-25 ruling
+    amends it: "the pad is a first-class chord target, not merely an
+    interceptor when it happens to lie in the path" — so with the ruling
+    armed the 2026-08-21f INTERCEPTION step is superseded and does not run;
+    a pad standing between a vertex and a centerline is now reached as the
+    nearer anchor, and a centerline BEHIND a pad is refused by the very
+    visibility gate below (the pad footprint is a re-entrant notch of the
+    apron ring, not pavement the chord may cross).
+
+    The far end is always a RING VERTEX — a centerline node welded into the
+    ring, or a pad-boundary node welded into it — so the chord stays inside
+    the ring x ring enumeration and NO NEW VERTEX is minted (the standing
+    "no new vertices" rule).  A vertex with no visible anchor within
+    ``BUILDING_REACH_CORRIDOR_M`` contributes nothing (spec §1.4, unchanged
+    reach) — the seat does not reach an anchor, and inventing a chord for it
+    would be the very long-pair class A4 exists to remove.
+
+    DETERMINISTIC (A4.3(a)): candidates are walked NEAREST-FIRST with ties on
+    the lower ring index, so the mapping does not depend on iteration order
+    in either reader.  Walking in that order and stopping at the first
+    VISIBLE candidate is the same selection the pre-ruling linear scan made
+    (it, too, only ever compared visible candidates) and it is what keeps the
+    widened candidate set off the build budget: the visibility predicate is
+    shapely-priced per chord, so it is asked ~once per vertex instead of once
+    per candidate.
+
+    ``O4_APRON_CHORD_ANCHOR_TARGET=0`` (``APRON_CHORD_ANCHOR_TARGET``)
+    restores the pre-ruling enumeration exactly: spine candidates only, and
+    the 2026-08-21f pad interception back in place.  Every returned pair is
+    then ``ANCHOR_KIND_SPINE``, which is today's cap assignment.
     """
     from .config import BUILDING_REACH_CORRIDOR_M as _BUILDING_REACH_CORRIDOR_M
     sp = spine_nodes_m(ctx)
     if not sp or not ring:
-        return set()
+        return {}
     import math as _m
     # THE SPINE NODES OF THIS RING are the vertices that LIE ON a centerline,
     # not the ones that coincide with a centerline VERTEX.  Measured: on the
@@ -569,40 +655,78 @@ def nearest_spine_pairs(ring, keys, ctx, vis=None) -> set:
             if _m.hypot(sx - x, sy - y) <= SPINE_PERP_TOL_M:
                 cand.append(i)
                 break
+    spine_cand = set(cand)
+    # ── (b) THE PAD-BOUNDARY ANCHORS (RULINGS 2026-08-25) ────────────────
+    # ``ctx.building_keys`` is the enumeration's OWN pad membership — the
+    # very set the pair loop reads as ``bld`` — so this adds no geometric
+    # notion and no vertex.  Both context builders fill it.
+    if APRON_CHORD_ANCHOR_TARGET:
+        _bld = getattr(ctx, "building_keys", None) or frozenset()
+        if _bld:
+            for i, k in enumerate(keys):
+                if k in _bld and i not in spine_cand:
+                    cand.append(i)
     if not cand:
-        return set()
-    out = set()
+        return {}
+    out = {}
     for i, (x, y) in enumerate(ring):
-        best = None
-        bestd = None
+        # Candidates IN REACH, walked NEAREST-FIRST (ties: lower ring index).
+        near = []
         for j in cand:
             if j == i:
                 continue
             d = _m.hypot(ring[j][0] - x, ring[j][1] - y)
             if d > _BUILDING_REACH_CORRIDOR_M:
                 continue
-            # THE SHORTEST *VISIBLE* CHORD (spec AMENDMENT A5; owner ruling
-            # RULINGS 2026-08-21f).  Visibility is the engine's OWN pavement
-            # predicate — the same ``vis`` thunk ``classify_pair``'s
-            # visibility gate consumes — so no third notion of "can this
-            # vertex reach that one" is minted.  A nearer spine node behind
-            # a re-entrant edge is not the chord this vertex grades on.
+            # Distances are bucketed at 1 nm — the same 1e-9 window the
+            # pre-ruling scan compared in, so a tie is still decided by the
+            # lower ring index and not by floating-point dust.
+            near.append((round(d, 9), j))
+        if not near:
+            continue
+        near.sort()
+        best = None
+        for _d, j in near:
+            # THE SHORTEST *VISIBLE* CHORD (spec AMENDMENT A5; owner rulings
+            # RULINGS 2026-08-21f and 2026-08-25 §1.2).  Visibility is the
+            # engine's OWN pavement predicate — the same ``vis`` thunk
+            # ``classify_pair``'s visibility gate consumes, over this apron
+            # ring's own polygon — so no third notion of "can this vertex
+            # reach that one" is minted, and the population it is priced
+            # over is apron-only by construction.  A nearer anchor behind a
+            # re-entrant edge (or across a gap) is not the chord this vertex
+            # grades on.
             if vis is not None and not vis(x, y, ring[j][0], ring[j][1]):
                 continue
-            if bestd is None or d < bestd - 1e-9 or (
-                    abs(d - bestd) <= 1e-9 and j < best):
-                best, bestd = j, d
+            best = j
+            break
         if best is None:
             continue
-        # PAD INTERCEPTION (A5): a pad standing in the chord's path IS what
-        # this vertex grades to; the centerline chord behind it is NOT
-        # priced for this vertex.  Replacement, not addition — one chord per
-        # vertex either way.
-        _pad = _pad_intercept(ring, i, best, ctx)
-        if _pad is not None:
-            best = _pad
+        if not APRON_CHORD_ANCHOR_TARGET:
+            # PAD INTERCEPTION (A5, owner ruling RULINGS 2026-08-21f) — the
+            # pre-2026-08-25 law, kept whole behind the flag: a pad standing
+            # in the chord's path IS what this vertex grades to; the
+            # centerline chord behind it is NOT priced for this vertex.
+            # Replacement, not addition — one chord per vertex either way.
+            _pad = _pad_intercept(ring, i, best, ctx)
+            if _pad is not None:
+                best = _pad
+        # THE TARGET KIND (spec §1.5).  With the ruling disarmed the
+        # pre-2026-08-25 law knows ONE kind — every chord is a chord to a
+        # centerline node (an intercepting pad only moved its far end) — so
+        # the flag-off enumeration reports ``spine`` throughout and the cap
+        # assignment below it is byte-identically today's.
+        kind = (ANCHOR_KIND_SPINE
+                if (best in spine_cand or not APRON_CHORD_ANCHOR_TARGET)
+                else ANCHOR_KIND_PAD)
         ka, kb = keys[i], keys[best]
-        out.add((ka, kb) if str(ka) <= str(kb) else (kb, ka))
+        pair = (ka, kb) if str(ka) <= str(kb) else (kb, ka)
+        # A pair may be selected from BOTH ends (each vertex is the other's
+        # nearest anchor).  SPINE WINS the kind — the spine reading is
+        # today's assignment and the ruling changes it only where the
+        # nearer anchor is a pad.
+        if out.get(pair) != ANCHOR_KIND_SPINE:
+            out[pair] = kind
     return out
 
 
@@ -615,6 +739,91 @@ def strip_excluded_flags(ring, ctx) -> list:
         return [False] * len(ring)
     from shapely.geometry import Point as _P
     return [bool(ko.intersects(_P(x, y))) for (x, y) in ring]
+
+
+def interior_zones_prepared(ctx: "GradeContext"):
+    """THE BACK-EDGE ZONE INDEX of this context, built once: a list of
+    ``(bounds, prepared_polygon)`` over ``ctx.interior_zones``.
+
+    Same shape (and same reason) as ``FanRampPlan._index``: the pair
+    predicate is asked tens of thousands of times per airport and a raw
+    shapely predicate is ~10 us, so the bbox prefilter plus a PREPARED
+    geometry is what keeps the rescope off the build budget.  Empty /
+    absent zones ⇒ ``[]``, and the predicate below then answers False
+    without touching shapely at all."""
+    if ctx._interior_zones_built:
+        return ctx._interior_zones_prep
+    ctx._interior_zones_built = True
+    ctx._interior_zones_prep = []
+    if not ctx.interior_zones:
+        return ctx._interior_zones_prep
+    try:
+        from shapely.geometry import Polygon as _IzPoly
+        from shapely.prepared import prep as _iz_prep
+        idx = []
+        for ring in ctx.interior_zones:
+            pts = [(float(x), float(y)) for (x, y) in ring]
+            if len(pts) < 3:
+                continue
+            poly = _IzPoly(pts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+                continue
+            idx.append((poly.bounds, _iz_prep(poly)))
+        ctx._interior_zones_prep = idx
+    except Exception:                                     # pragma: no cover
+        ctx._interior_zones_prep = []
+    return ctx._interior_zones_prep
+
+
+def interior_zone_of(ctx: "GradeContext", x, y) -> int:
+    """The index of the back-edge zone containing ``(x, y)``, or ``-1``.
+
+    ``FanRampPlan.zone_of``'s predicate, over the context's own copy of the
+    polygons — ONE spelling for both readers because both readers reach
+    THIS function through ``shape_constraints``."""
+    for k, (bb, pre) in enumerate(interior_zones_prepared(ctx)):
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        try:
+            from shapely.geometry import Point as _IzPt
+            if pre.intersects(_IzPt(x, y)):
+                return k
+        except Exception:                                 # pragma: no cover
+            continue
+    return -1
+
+
+def interior_zone_flags(ring, ctx) -> list:
+    """Per-ring-vertex back-edge ZONE INDEX (``-1`` outside every zone).
+
+    Computed ONCE per shape and handed to the law as the cheap half of
+    ``in_interior_zone`` — the same "membership is the reader's, the
+    verdict is the law's" split as ``strip_excluded_flags``."""
+    if not ring or not interior_zones_prepared(ctx):
+        return [-1] * len(ring)
+    return [interior_zone_of(ctx, x, y) for (x, y) in ring]
+
+
+def interior_zone_pair(ctx, zi: int, zj: int, xa, ya, xb, yb) -> bool:
+    """Is this pair WHOLLY inside ONE back-edge zone (RULINGS 2026-08-24)?
+
+    ``FanRampPlan.pair_cap``'s predicate verbatim: both ends in the SAME
+    zone (the cheap test, already answered by ``interior_zone_flags``) AND
+    the CHORD between them covered by it.  A chord that leaves the zone
+    crosses ground the zone does not own, and that ground holds the strict
+    apron cap always."""
+    if zi < 0 or zi != zj:
+        return False
+    idx = interior_zones_prepared(ctx)
+    if zi >= len(idx):                                    # pragma: no cover
+        return False
+    try:
+        from shapely.geometry import LineString as _IzLine
+        return bool(idx[zi][1].covers(_IzLine([(xa, ya), (xb, yb)])))
+    except Exception:                                     # pragma: no cover
+        return False
 
 
 def corridor_cover_prepared(ctx: "GradeContext"):
@@ -1277,10 +1486,53 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     frontage_keys = (GL.frontage_vertex_keys(bld_key_rings, soft_front_keys)
                      if soft_front_keys else set())
 
+    # ── THE RUNWAY-STRIP KEEP-OUT (spec AMENDMENT A4.2; owner ruling
+    # RULINGS 2026-08-21d, WIRED 2026-08-24) ─────────────────────────────
+    # ``GradeContext.strip_keepout`` existed and was documented from the
+    # day A4.2 landed, but NOTHING EVER ASSIGNED IT — so
+    # ``strip_excluded_flags`` read ``None`` on every production build,
+    # ``is_apron_in_strip`` answered False for every pair, and the ruling's
+    # acceptance counts came from a re-derivation rather than from the
+    # law.  One geometry, one function: the SAME prepared union
+    # ``adjacent_ground`` and ``groundside`` read.  ``require_gate=False``
+    # because A4.2 is not the retaining-wall gate's clause — the footprint
+    # is a law function regardless of whether walls are enabled.
+    strip_keepout = None
+    try:
+        from .adjacent_ground import runway_strip_wall_keepout as _rswk
+        strip_keepout = _rswk(layout, require_gate=False)
+    except Exception:                                         # pragma: no cover
+        strip_keepout = None
+    # ── THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24) ────────────
+    # Computed LIVE from ``plan_fan_ramp_zones``' predicate — the ruling is
+    # explicit that the zones need NOT be declared, so nothing here splits
+    # an apron, mints a shape or touches the terrace pass (fan ZONES stay
+    # retired under W2).  This is a pure read of the pad-adjacency geometry
+    # for the LAW's use, cached on the LAYOUT because ``build_context`` is
+    # called several times per solve and the answer is a function of the
+    # geometry alone.
+    interior_zones = getattr(layout, "_interior_zone_rings", None)
+    if interior_zones is None:
+        interior_zones = ()
+        try:
+            from .elevation_per_surface.route_profile.apron_terrace import (
+                plan_fan_ramp_zones as _pfrz)
+            _plan = _pfrz(layout, icao=getattr(layout, "icao", "") or "")
+            interior_zones = tuple(
+                tuple(_open_ring(list(z["polygon"].exterior.coords)))
+                for z in _plan.zones
+                if z.get("polygon") is not None
+                and not z["polygon"].is_empty
+                and z["polygon"].geom_type == "Polygon")
+        except Exception:                                     # pragma: no cover
+            interior_zones = ()
+        setattr(layout, "_interior_zone_rings", interior_zones)
     ctx = GradeContext(centerlines=cls, routes=routes,
                        inherited_junction_cap=_inherited,
                        building_keys=frozenset(bld_keys), road_zone=road_zone,
                        route_zone=route_zone,
+                       strip_keepout=strip_keepout,
+                       interior_zones=interior_zones,
                        frontage_keys=frozenset(frontage_keys),
                        corridor_lines=centerline_geometries(cls),
                        building_polys=tuple(
@@ -1324,7 +1576,21 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
 def _visibility_predicate(ring: list[tuple[float, float]]):
     """Return ``vis(xa,ya,xb,yb)->bool``: True iff the chord stays inside the
     ring grown by ``_VIS_BUF``.  ``None`` if shapely is unavailable / the polygon
-    is degenerate (caller falls back to plain all-pair)."""
+    is degenerate (caller falls back to plain all-pair).
+
+    THE POLYGON POPULATION IS THIS SHAPE'S OWN RING — which is what makes
+    this predicate already answer the RULINGS 2026-08-25 / spec §1.2
+    question ("visibility is priced across APRON-ONLY pavement; the chord
+    may not cross non-apron pavement or gaps") for the apron chord
+    enumeration: the ring IS one apron's pavement, a chord that leaves it
+    (a gap, a re-entrant edge, ground beyond the apron) is not visible, and
+    a pad-boundary anchor is a vertex OF this ring, so the pad's own
+    footprint at the target end is walkable by construction.  No pad or
+    route GEOMETRY may enter this population: the census context carries no
+    ``building_polys`` at all, so a pad-augmented population here would
+    make the two readers price different chords — the census-wrapper defect
+    in its structural form.
+    """
     try:
         import shapely as _shapely
         from shapely.geometry import LineString, Polygon
@@ -2523,15 +2789,33 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     cover_vert = None
     # ── AMENDMENT A4: the nearest-spine chord set and the strip exclusion,
     # both computed ONCE per shape and handed to the law as per-pair facts.
-    near_spine = set()
+    # ``near_spine`` is now ``{pair: anchor kind}`` — THE ONE nearest-ANCHOR
+    # enumeration (owner ruling RULINGS 2026-08-25, spec §1.5).  Membership
+    # is still the strict-population flag (both kinds are strict); the KIND
+    # selects the cap class in ``grade_law.apron_pair_class``.
+    near_spine = {}
     strip_vert = None
     # ONE VISIBILITY THUNK for this ring, built once and used by BOTH the
     # A5 chord selection and the pair loop's own visibility gate — the same
     # predicate, so "can this vertex reach that one" has one answer here.
     vis = None if ring_only else _visibility_predicate(ring)
+    # ── THE BACK-EDGE ZONES (RULINGS 2026-08-24): per-vertex zone index,
+    # computed ONCE per shape.  Only the 5 % class needs it, so it is
+    # built only for aprons and only when the context carries zones.
+    zone_vert = None
     if shape.role == APRON_ROLE:
         strip_vert = strip_excluded_flags(ring, ctx)
+        # A4.2's excluded nodes, published for the seniority partition:
+        # the law SKIPS their pairs, so nothing downstream would ever see
+        # them if they were not recorded at the flag.
+        if any(strip_vert):
+            sc.strip_excluded.update(
+                k for k, f in zip(keys, strip_vert) if f)
         near_spine = nearest_spine_pairs(ring, keys, ctx, vis=vis)
+        if ctx.interior_zones:
+            zone_vert = interior_zone_flags(ring, ctx)
+            if not any(z >= 0 for z in zone_vert):
+                zone_vert = None
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
@@ -2545,6 +2829,27 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         if cover is not None:
             from shapely.geometry import Point as _CoPt
             cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]
+    # ── NO PLATEAUS (owner ruling RULINGS 2026-08-24b) ───────────────────
+    # IS THIS APRON JOINED TO THE CORRIDOR NETWORK?  A SHAPE-level fact, and
+    # the ruling's reason is shape-level: "an apron spanning between two
+    # lawful 1.5 % taxiways lawfully runs ~1.5 % itself".
+    #
+    # TWO EXISTING NOTIONS, BOTH ALREADY COMPUTED FOR THIS SHAPE — no new
+    # geometry, no new radius, nothing that can drift from the cover the
+    # frontage chords and the back-edge zones are cut against:
+    #   * ``membership``  — a ring vertex lies ON a spine centerline
+    #     (``_spine_membership``, the engine's own ``SPINE_PERP_TOL_M``
+    #     notion).  This is the load-bearing half, and it works on a WIDE
+    #     apron that a taxiway crosses through the middle BECAUSE THE
+    #     ENGINE WELDS route geometry into the apron ring pre-emit — the
+    #     same fact ``nearest_spine_pairs`` is built on.  ``near_spine`` is
+    #     therefore not asked here: it is strictly narrower than
+    #     ``membership`` (same on-the-spine test, plus visibility and
+    #     reach), so it would add nothing.
+    #   * ``cover_vert``  — a ring vertex lies inside the corridor cover;
+    #     the apron abuts a corridor it has no welded vertex on.
+    corridor_connected = (bool(membership)
+                          or bool(cover_vert and any(cover_vert)))
     # JUNCTION MESH CONSTRAINTS (O4_JUNCTION_MESH_CONSTRAINTS): the RULE — a
     # junction's only real grade paths are the spine + the triangle-mesh edges,
     # the remaining body chords are phantom — lives in ``grade_law.classify_pair``
@@ -2738,6 +3043,11 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                                             body_cap, _kb, boundary=_ra, contact=_cn))
 
             both_road = bool(road_vert and road_vert[i] and road_vert[j])
+            # THE ONE nearest-ANCHOR enumeration's verdict for this pair:
+            # ``None`` (not a chord), ``ANCHOR_KIND_SPINE`` or
+            # ``ANCHOR_KIND_PAD`` (RULINGS 2026-08-25).
+            _anchor_kind = near_spine.get(
+                (ki, kj) if str(ki) <= str(kj) else (kj, ki))
             _pc = GL.PairContext(
                 role=shape.role, dist=d, ring_adjacent=ring_adjacent,
                 a_seam=ki in seam, b_seam=kj in seam,
@@ -2750,11 +3060,26 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 b_frontage=bool(front_vert) and front_vert[j],
                 a_corridor=ki_cover,
                 b_corridor=bool(cover_vert) and cover_vert[j],
-                nearest_spine=(
-                    ((ki, kj) if str(ki) <= str(kj) else (kj, ki))
-                    in near_spine),
+                nearest_spine=_anchor_kind is not None,
+                # THE TARGET KIND (RULINGS 2026-08-25): a chord whose
+                # nearest visible anchor is a PAD prices in the STAND
+                # class; a chord to a CENTERLINE keeps today's assignment.
+                nearest_anchor_pad=(_anchor_kind == ANCHOR_KIND_PAD),
                 a_in_strip=bool(strip_vert) and strip_vert[i],
-                b_in_strip=bool(strip_vert) and strip_vert[j])
+                b_in_strip=bool(strip_vert) and strip_vert[j],
+                # THE BACK-EDGE PREDICATE (RULINGS 2026-08-24).  Both
+                # endpoints in the SAME zone is the cheap half and is
+                # tested FIRST, so the chord containment (a shapely
+                # ``covers``) is only ever paid by the handful of pairs
+                # that could pass it — ``FanRampPlan.pair_cap``'s own
+                # ordering, for its own reason.
+                in_interior_zone=(
+                    zone_vert is not None
+                    and zone_vert[i] >= 0
+                    and zone_vert[i] == zone_vert[j]
+                    and interior_zone_pair(ctx, zone_vert[i], zone_vert[j],
+                                           xi, yi, xj, yj)),
+                corridor_connected=corridor_connected)
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue
@@ -2802,6 +3127,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                     continue
             sc.edges.append((ki, kj, allow))
             sc.edge_interior.append(_is_interior)
+            sc.edge_anchor_kind.append(_anchor_kind or "")
 
     sc.spine_chains = _build_spine_chains(shape, ctx, membership)
     return sc
@@ -2900,6 +3226,7 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
             # but keeping the two lists the same length by CONSTRUCTION is
             # what stops a silent misalignment if it ever carries an apron.
             sc.edge_interior.append(GL.is_apron_interior(_pc))
+            sc.edge_anchor_kind.append("")
     return sc
 
 
@@ -3007,6 +3334,29 @@ class UnifiedGraph:
     #: Index-parallel to :attr:`edges`: True for an APRON INTERIOR pair
     #: (the apron staged solve's partition input, spec §§1-3).
     edge_interior: list = field(default_factory=list)
+    #: THE §1 ANCHOR NEIGHBOURHOOD, published for the DEM-LAST SEAT BIAS
+    #: (owner ruling RULINGS 2026-08-25 second ruling; spec
+    #: ``apron-chord-anchor-target-spec.md`` §2): ``(node_a, node_b,
+    #: budget_m, kind)`` for every pair the ONE nearest-anchor enumeration
+    #: selected, where ``budget_m`` is that chord's own ``cap x dist`` and
+    #: ``kind`` is ``ANCHOR_KIND_SPINE`` / ``ANCHOR_KIND_PAD``.
+    #:
+    #: NOT a second enumeration and not a re-derivation: it is
+    #: ``ShapeConstraints.edge_anchor_kind`` carried into the solve's node
+    #: index space at MINT, so the level a pad seats at is chosen against
+    #: exactly the chords its ring vertices are priced on.  Deriving the
+    #: neighbourhood later — from the emitted ring, or from a second
+    #: nearest search — is the census-wrapper defect in seat form.
+    anchor_chords: list = field(default_factory=list)
+    #: APRON NODES INSIDE THE RUNWAY STRIP (spec AMENDMENT A4.2; owner
+    #: ruling RULINGS 2026-08-21d, wired 2026-08-24).  Their pairs are
+    #: SKIPPED by ``grade_law.classify_pair``, so they carry no edge and
+    #: the seniority partition's edge-derived domain cannot see them.
+    #: Accumulated at mint from ``ShapeConstraints.strip_excluded`` and
+    #: handed to ``grade_law.apron_node_seniority`` as ``excluded_nodes``,
+    #: which is what makes the sidecar's third value (``excluded``) real
+    #: rather than merely declared.
+    apron_excluded_nodes: set = field(default_factory=set)
     #: MINT-TIME STAGE per NODE (staged-solve S1b): ``{node_idx: stage}``,
     #: stamped as each shape registers its ring positions.  AIRSIDE WINS a
     #: shared node — a service-road mouth vertex on an apron ring is
@@ -3409,6 +3759,16 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
                             s, "adopted_taxi_letter", None),
                         lateral_cap=getattr(s, "lateral_cap", None))
         sc = shape_constraints_cached(id(s.polygon), gs, ctx)
+        # A4.2 EXCLUDED APRON NODES, accumulated as the shapes are walked
+        # (their pairs never reach ``G.edges``, so this is the only place
+        # the graph can learn about them).
+        if sc.strip_excluded:
+            G.apron_excluded_nodes.update(
+                int(k) for k in sc.strip_excluded if isinstance(k, int))
+        # Ring position of each key — needed by the anchor-chord publish
+        # inside the edge loop AND by the lockstep bake export below, so it
+        # is built ONCE here rather than twice.
+        position_of_key = {key: p for p, key in enumerate(keys)}
         spine_pairs = set()
         for chain in sc.spine_chains:
             for u, v in zip(chain, chain[1:]):
@@ -3437,6 +3797,22 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             # ``edge_family``, and ``stage_by_pair()`` is the readers'
             # pair-keyed view.
             G.edge_stage.append(_stage_of_shape(s))
+            # THE §1 ANCHOR NEIGHBOURHOOD (RULINGS 2026-08-25 §2).  The
+            # kind the ONE enumeration minted for this pair, carried into
+            # the solve's node space with the chord's OWN budget
+            # (cap x dist) — the quantity the seat bias measures its
+            # residuals in.  Only anchor chords are published; everything
+            # else carries ``""`` and is skipped here.
+            _ak = (sc.edge_anchor_kind[_ei]
+                   if _ei < len(sc.edge_anchor_kind) else "")
+            if _ak:
+                _pa = position_of_key.get(a)
+                _pb = position_of_key.get(b)
+                if _pa is not None and _pb is not None:
+                    _d = math.hypot(ring[_pa][0] - ring[_pb][0],
+                                    ring[_pa][1] - ring[_pb][1])
+                    G.anchor_chords.append(
+                        (a, b, float(cap.flat_cap()) * _d, _ak))
         # LOCKSTEP BAKE EXPORT (2026-07-17): persist THIS shape's baked
         # decomposition in RING-POSITION space so the validator
         # (``grade_graph_validate._iter_checked_pairs``) consumes the
@@ -3450,7 +3826,6 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # Repeat builds (the scoped final projection) re-bake only the
         # shapes they re-run; skipped shapes keep the solve-time entry,
         # whose ring is unchanged by definition of the skip.
-        position_of_key = {key: p for p, key in enumerate(keys)}
         ring_signature = tuple(
             (round(x, 6), round(y, 6)) for (x, y) in ring)
         baked_edges = []

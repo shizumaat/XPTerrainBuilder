@@ -39,6 +39,13 @@ class _FakeLayout:
         self.canonical_points = CanonicalPointRegistry()
         self.apt_taxi_centerlines = []
 
+    def m_to_ll(self, x, y):
+        """The frontage-band EVIDENCE export (anchors a9d9c88) spells every
+        recorded point in lat/lon; a fake layout that cannot answer it
+        makes the seat pass raise.  A linear stand-in is enough — nothing
+        under test reads the value."""
+        return (float(y) / 111_320.0, float(x) / 111_320.0)
+
 
 def _shape(ring, role, ref=""):
     return BuiltShape(polygon=Polygon(ring), role=role, ref=ref)

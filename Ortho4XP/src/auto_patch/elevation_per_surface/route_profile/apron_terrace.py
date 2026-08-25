@@ -190,6 +190,7 @@ __all__ = [
     "apply_fan_ramp_caps",
     "apply_fan_ramp_caps_to_edges",
     "fan_ramp_zones_sidecar",
+    "interior_zones_sidecar",
     "rebind_terrace_stations",
     "runway_strip_keepout_geometry",
     "TerraceJoint",
@@ -3455,6 +3456,35 @@ def _rewrite_fan_edges(edges, zones, node_xy):
         out.append((a, b, relaxed))
         touched += 1
     return out, touched
+
+
+def interior_zones_sidecar(layout) -> list:
+    """``interior_zones`` for ``<patch>.axes.json`` — THE BACK-EDGE ZONES
+    the apron law priced this build with (owner ruling RULINGS 2026-08-24).
+
+    NOT a declaration: the ruling is explicit that these zones need not be
+    declared, and nothing in the build splits an apron at them or emits a
+    shape for them (fan ZONES stay retired under W2).  They are exported
+    because the CENSUS must price the identical ground — the same
+    one-reader pattern ``fan_ramp_zones`` and ``terrace_joints`` follow.
+    The rings are the very tuples ``grade_graph.build_context`` handed the
+    law (``layout._interior_zone_rings``), so bake and census cannot
+    enumerate different back-edge geometry.
+
+    Empty list when the airport has no adjacent-pad pair at all — which is
+    the STRICT reading downstream (no pair earns 5 %), never a looser one.
+    """
+    rings = getattr(layout, "_interior_zone_rings", None) or ()
+    out = []
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        try:
+            out.append([list(layout.m_to_ll(float(x), float(y)))
+                        for (x, y) in ring])
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+    return out
 
 
 def fan_ramp_zones_sidecar(layout) -> list:

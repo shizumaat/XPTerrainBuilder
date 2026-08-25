@@ -28,6 +28,74 @@ from ..node_space import store_of as _store_of
 
 _INF = float("inf")
 
+#: PAD-SEAT FEASIBILITY GATE materiality floor (owner ruling RULINGS
+#: 2026-08-24c; the standing 0.01 m elevation floor of the convergence
+#: guards).  A seat inside its reach interval by less than this is a
+#: rounding residual, not a seat defect.
+_SEAT_FEASIBILITY_TOL_M = 0.01
+
+
+def seat_feasibility_gap(level, lo, hi):
+    """THE PAD-SEAT FEASIBILITY PREDICATE (owner ruling RULINGS
+    2026-08-24c), as one pure function so the gate and its twin cannot
+    describe different populations.
+
+    ``(gap_m, side)`` — how far the seat lies OUTSIDE the interval of
+    levels its governing centerline anchor permits at 1 % x chord (which
+    is what the reach band measures), and which side it fell off.
+    ``(0.0, None)`` when the seat is inside, or when the interval is not
+    finite (an off-network pad has no governing anchor to be judged
+    against, and inventing one would be the very long-pair class A4
+    exists to remove).
+
+    NOT a verdict on the surface: a seat defect is caught at seating time
+    and is never surface debt.
+    """
+    if lo is None or hi is None:
+        return 0.0, None
+    try:
+        lo_f, hi_f, lv = float(lo), float(hi), float(level)
+    except (TypeError, ValueError):                        # pragma: no cover
+        return 0.0, None
+    if not (math.isfinite(lo_f) and math.isfinite(hi_f)
+            and math.isfinite(lv)):
+        return 0.0, None
+    short, over = lo_f - lv, lv - hi_f
+    if short >= over:
+        return (short, "below_floor") if short > 0.0 else (0.0, None)
+    return (over, "above_ceiling") if over > 0.0 else (0.0, None)
+
+
+def _publish_seat_infeasible(layout, records, report) -> None:
+    """THE PAD-SEAT FEASIBILITY GATE's read-out (RULINGS 2026-08-24c).
+
+    A seat that cannot reach its governing centerline anchor within
+    1 % x chord is a SEAT DEFECT caught at seating time — the
+    anchor-placement law's analogue ("a misplaced anchor is itself the
+    defect") — and is NEVER surface debt.  So it is named here and
+    published for the census as EVIDENCE rather than left to appear
+    downstream as a pile of over-cap apron rows nobody can attribute.
+
+    REPORT-FIRST BY ORDER: nothing is moved.  The count and the names are
+    this round's deliverable; the fix policy is the next ruling.
+    """
+    setattr(layout, "_pad_seat_infeasible", list(records))
+    if not records:
+        return
+    worst = sorted(records, key=lambda r: -r["gap_m"])
+    below = sum(1 for r in records if r["side"] == "below_floor")
+    report(f"  [pad-seat] {len(records)} pad seat(s) OUTSIDE their own "
+           f"reach interval ({below} below the floor, "
+           f"{len(records) - below} above the ceiling) — SEAT DEFECTS, not "
+           f"surface debt (RULINGS 2026-08-24c); worst "
+           f"{worst[0]['gap_m']:.3f} m.  Report-only this round: no seat "
+           f"is moved.")
+    for r in worst[:12]:
+        report(f"  [pad-seat]   {r['ref']}: seat {r['seat_m']:.3f} vs reach "
+               f"[{r['reach_lo_m']:.3f},{r['reach_hi_m']:.3f}] "
+               f"({r['side']}, {r['gap_m']:+.3f} m, "
+               f"{r['area_m2']:,.0f} m2)")
+
 
 # ── THE PART-C MOUTH ALLOWANCE (one definition, two consumers) ───────────
 # ``MOUTH_ALLOWANCE_M = 15 m`` — justification (spec
@@ -701,6 +769,9 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # other battery airport byte-identical.
     _sb_moved: list = []
     _sb_empty: list = []
+    # PAD-SEAT FEASIBILITY GATE (RULINGS 2026-08-24c) — see the check at
+    # the foot of the per-pad loop.
+    _seat_infeasible: list = []
     # Large buildings (≥ area) seat at the FULL-FRONTAGE feasible level (user
     # 2026-06-27): the entire frontage must grade to the spine ≤1 %, so the seat is
     # the band intersected over the whole frontage (computed by
@@ -767,6 +838,70 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         if fhi is None:
             return None
         return (min(flo, fhi) if flo is not None else -_INF, fhi)
+
+    def _frontage_band_records(shape, ring):
+        """THE BAND, AT THIS PAD'S FRONTAGE POINTS — evidence for the owner
+        (lead order 2026-08-24), read from the band the SOLVE is using.
+
+        ``band.attachment_at`` is the raster band's OWN read-only
+        provenance accessor: it hands out the lookup that ran rather than
+        re-deriving one, which is precisely the "never a replay" clause —
+        a tool that re-derives a lookup is a second engine.
+
+        One record per APRON-SHARED edge centre — the same points
+        ``_frontage_box`` samples to choose the seat, so the exported
+        interval is the one the seat was actually chosen from.
+        """
+        out = []
+        n = len(ring)
+        for i in range(n):
+            a = (round(ring[i][0], 2), round(ring[i][1], 2))
+            b = (round(ring[(i + 1) % n][0], 2), round(ring[(i + 1) % n][1], 2))
+            if a not in apron_keys or b not in apron_keys:
+                continue
+            cx = 0.5 * (ring[i][0] + ring[(i + 1) % n][0])
+            cy = 0.5 * (ring[i][1] + ring[(i + 1) % n][1])
+            bc = band(cx, cy)
+            if bc is None:
+                continue
+            rec = {"pad": shape.ref or "?",
+                   "ll": list(layout.m_to_ll(cx, cy)),
+                   "floor": float(min(bc)), "ceiling": float(max(bc))}
+            at = getattr(band, "attachment_at", None)
+            info = at(cx, cy) if at is not None else None
+            if info:
+                rec["anchor_nodes"] = [int(v) for v in
+                                       (info.get("attachment_nodes") or ())]
+                rec["route_m"] = float(info.get("leg_m") or 0.0)
+                rec["off_mask_m"] = float(info.get("off_mask_m") or 0.0)
+                rec["floor_at_anchor"] = float(info["floor_at_attachment"])
+                rec["ceiling_at_anchor"] = float(info["ceiling_at_attachment"])
+            out.append(rec)
+        return out
+
+    _frontage_band_ll: list = []
+    # ── PAD-SEAT CONSISTENCY PROVENANCE (spec pad-seat-consistency-spec.md,
+    # implementation ruling §2) ─────────────────────────────────────────
+    # "Provenance is captured AT SEAT TIME, per PAD UNIT: the governing
+    # anchor node(s) + ``route_m`` from ``band.attachment_at`` at the SAME
+    # frontage points the seat interval is intersected over
+    # (``_frontage_band_records`` already reads exactly this — one capture,
+    # two consumers).  Never a replay, never a re-derived lookup."
+    # The corridor VALUES those anchors carry do not exist yet (phase A
+    # mints them AFTER this function runs), so what is captured here is the
+    # provenance only; the intersection binds in the post-phase-A slot
+    # (``solve.py``, ``pad_seat_consistency.apply_pad_seat_consistency``).
+    # ONE READER for both consumers of this capture (spec
+    # ``apron-chord-anchor-target-spec.md`` §2): the frontage-subset
+    # narrowing (its own flag, default OFF) and the §2 DEM-LAST SEAT BIAS
+    # (its own flag, also default OFF after the 2026-08-25 acceptance
+    # miss) both need the unit's node set and its band box,
+    # and this is the only place either can get them.  The FRONTAGE
+    # records keep being captured beside them and stay unread by §2 —
+    # capture is provenance, not law.
+    from .pad_seat_consistency import seat_provenance_wanted
+    _consist_on = seat_provenance_wanted()
+    _pad_prov: list = []            # index-aligned with ``pads`` below
 
     # ── Per-pad independent target + feasible box ────────────────────────────
     # target = the legacy independent seat (DEM biased into the frontage band);
@@ -838,6 +973,70 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 else:
                     lo = hi = level                  # off-network: immovable
         pads.append((s, ring, float(level), lo, hi))
+        # THE BAND EVIDENCE for this pad (lead order 2026-08-24), recorded
+        # with the seat so a reader can put the two side by side.
+        _prov_k: list = []
+        for _fr in _frontage_band_records(s, ring):
+            _fr["seat_m"] = float(level)
+            _frontage_band_ll.append(_fr)
+            # ONE capture, TWO consumers: the same record object carries the
+            # evidence export AND the consistency provenance, so the two can
+            # never describe different frontage points.
+            if _consist_on and "anchor_nodes" in _fr:
+                _fr["seat_final_m"] = float(level)   # overwritten if narrowed
+                _prov_k.append(_fr)
+        _pad_prov.append(_prov_k)
+        # ── PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c)
+        # "A pad seat that cannot reach its governing centerline anchor
+        # within 1 % x chord is a SEAT DEFECT caught at seating time
+        # (anchor-placement law analogue), NEVER surface debt."
+        #
+        # THE BAND IS THAT TEST, ALREADY COMPUTED.  ``band(x, y)`` is the
+        # interval of levels reachable at cap from the routes that serve
+        # this point — the frontage band ``lo``/``hi`` above is exactly
+        # "what the governing centerline anchor permits at 1 % x chord",
+        # measured along the straight route the band is built on.  So the
+        # gate is: does the seat we are about to ship lie INSIDE its own
+        # reach interval?
+        #
+        # This catches a class nothing reported before.  The full-frontage
+        # path CLAMPS into the interval, and an empty intersection is the
+        # split-level trigger above — but the SMALL-pad path seats at
+        # ``min(de, hi)``, which is bounded above and NOT below: a pad
+        # whose DEM centroid sits under the reach floor ships BELOW every
+        # level its frontage can reach, and no surface can honour it.
+        #
+        # REPORT-FIRST, BY ORDER: the seat is NOT moved this round.  The
+        # count and the names are the deliverable; the fix policy is the
+        # next ruling if the count is material.
+        _gap, _side = seat_feasibility_gap(level, lo, hi)
+        if _gap > _SEAT_FEASIBILITY_TOL_M:
+            _seat_infeasible.append({
+                "ref": s.ref or "?",
+                "seat_m": float(level),
+                "reach_lo_m": float(lo),
+                "reach_hi_m": float(hi),
+                "gap_m": float(_gap),
+                "side": _side,
+                "centroid": (float(s.polygon.centroid.x),
+                             float(s.polygon.centroid.y)),
+                "area_m2": float(s.polygon.area),
+            })
+
+    # THE BAND EVIDENCE, published for the census (lead order 2026-08-24):
+    # the interval the SOLVE's own band offered at each pad frontage point,
+    # beside the seat that was chosen from it.  Evidence, never law.
+    setattr(layout, "_frontage_band_ll", _frontage_band_ll)
+    if _frontage_band_ll:
+        _n_pads = len({r["pad"] for r in _frontage_band_ll})
+        _report(f"  [frontage-band] {len(_frontage_band_ll)} band "
+                f"interval(s) recorded at the frontage points of "
+                f"{_n_pads} pad(s) — evidence for the seat adjudication "
+                f"(the band the solve used, not a replay)")
+
+    # THE GATE'S READ-OUT.  Loud, named, and published for the census —
+    # a seat defect is not surface debt and must never be read as one.
+    _publish_seat_infeasible(layout, _seat_infeasible, _report)
 
     if _sb_moved or _sb_empty:
         _report(f"  [seat-band] clamped {len(_sb_moved)} full-frontage seat(s)"
@@ -1111,7 +1310,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
 
     seats: dict = {}
     seat_boxes = _store_of(layout).raw("seat_boxes")
-    for (s, ring, level, lo, hi) in pads:
+    # THE UNIT-KEYED CONSISTENCY PROVENANCE (spec ruling §2): a pad is one
+    # flat level, so the narrowing keys per UNIT — and it must survive into
+    # the same two spaces the seat itself lives in, the solve's node
+    # indices (``elev`` / ``building_seats``) and the CANONICAL keys the
+    # ``seat_boxes`` store is keyed by (a node index is meaningful only
+    # inside one ``_build_node_list`` call — canonical-identity law).
+    _units_prov: list = ([{"ref": u["ref"], "refs": list(u["refs"]),
+                           "level": float(u["level"]),
+                           "lo": float(u["lo"]), "hi": float(u["hi"]),
+                           "records": [], "nodes": [], "keys": []}
+                          for u in units] if _consist_on else [])
+    if _consist_on:
+        for _pk in range(len(_pad_prov)):
+            _units_prov[unit_of[_pk]]["records"].extend(_pad_prov[_pk])
+    for _pk, (s, ring, level, lo, hi) in enumerate(pads):
         # BOUNDED YIELD box (owner ruling 2026-07-29): the pad's box is the
         # ``[lo, hi]`` its seat was chosen from, WIDENED to include the
         # chosen level — an uncoupled seat is ``min(DEM, hi)`` and may rest
@@ -1120,14 +1333,41 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # shared by two pads keeps the tighter interval per side.
         blo = min(float(lo), float(level))
         bhi = max(float(hi), float(level))
+        _up = _units_prov[unit_of[_pk]] if _consist_on else None
         for (x, y) in ring:
             k = cps.get_or_add(float(x), float(y))
             i = bucket_to_idx.get(k)
             if i is not None:
                 seats[i] = float(level)
+                if _up is not None:
+                    _up["nodes"].append(i)
+            if _up is not None:
+                _up["keys"].append(k)
             prev = seat_boxes.get(k)
             seat_boxes[k] = ((blo, bhi) if prev is None
                              else (max(prev[0], blo), min(prev[1], bhi)))
+    if _consist_on:
+        for _up in _units_prov:
+            _up["nodes"] = sorted(set(_up["nodes"]))
+            _up["keys"] = list(dict.fromkeys(_up["keys"]))
+        # A unit needs NODES to be narrowable at all.  It needs frontage
+        # RECORDS only for the frontage-subset mechanism: §2 sources its
+        # interval from the §1 anchor neighbourhood, so a pad with no
+        # frontage record is still a candidate there (and is reported as
+        # unanchored if no §1 chord reaches it either).
+        from .pad_seat_consistency import dem_last_seat_bias_enabled
+        _keep_recordless = dem_last_seat_bias_enabled()
+        _units_prov = [u for u in _units_prov
+                       if u["nodes"] and (u["records"] or _keep_recordless)]
+        setattr(layout, "_pad_seat_consistency_units", _units_prov)
+        if _units_prov:
+            _report(f"  [pad-seat-consistency] provenance captured for "
+                    f"{len(_units_prov)} pad unit(s) "
+                    f"({sum(len(u['records']) for u in _units_prov)} frontage "
+                    f"band record(s)); the consistency intersection binds "
+                    f"after the corridor profiles solve")
+    else:
+        setattr(layout, "_pad_seat_consistency_units", [])
     return seats
 
 

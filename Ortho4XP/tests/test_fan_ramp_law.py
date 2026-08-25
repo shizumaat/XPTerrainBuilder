@@ -608,14 +608,15 @@ def test_the_SOLVE_is_handed_the_zone_cap_not_just_the_census():
     assert got["ramp"] == {round(GROUNDSIDE_MAX_GRADE, 6)}, (
         f"the solve was handed {got['ramp']} on a ramp piece, not the "
         f"zone cap — the law is inert in the solve")
-    # THE CONTROL ARM MOVED WITH SPEC AMENDMENT A2, and not because of a
-    # defect: this fixture is a bare rectangle with no frontage vertex, no
-    # corridor cover and no spine, so under A2 EVERY one of its pairs is
-    # INTERIOR and takes ``APRON_INTERIOR_CAP`` — numerically the fan-ramp
-    # cap.  Ramp and plain therefore coincide here, and the discrimination
-    # this twin exists for is asserted on the rule-off arm below, where a
-    # plain apron still reads 1 % and the ramp piece still reads its zone cap.
-    assert got["plain"] == {round(GL.APRON_INTERIOR_CAP, 6)}
+    # THE CONTROL ARM CAME BACK WITH RULINGS 2026-08-24.  A2 had made this
+    # bare rectangle entirely INTERIOR — no frontage vertex, no corridor
+    # cover, no spine — so ramp and plain coincided at 5 % and the
+    # discrimination this twin exists for had to be asserted on the
+    # rule-off arm alone.  The back-edge rescope puts the plain apron back
+    # at the STRICT cap (it declares no back-edge zone), so the two arms
+    # discriminate again on the rule-ON path, which is what this twin is
+    # for.
+    assert got["plain"] == {round(APRON_MAX_GRADE, 6)}
     saved = GL.APRON_INTERIOR_RAMP_CAP
     try:
         GL.APRON_INTERIOR_RAMP_CAP = False

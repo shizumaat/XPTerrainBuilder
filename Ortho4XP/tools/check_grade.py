@@ -1375,7 +1375,7 @@ _SLOPING_RECT_OSM_ROLES = frozenset({
 
 def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
                             max_grade, road_zone=None, routes_m=None,
-                            mesh_edges_m=None):
+                            mesh_edges_m=None, interior_zones_m=None):
     """Build the SAME ``grade_graph.GradeContext`` the solver uses, but from the
     emitted OSM — so the grade TEST reads the one shared within-shape LAW
     (``grade_law.classify_pair`` via ``grade_graph.shape_constraints``).  Keys are
@@ -1505,6 +1505,27 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         except Exception:
             route_zone = None
 
+    # ── THE RUNWAY-STRIP KEEP-OUT (spec AMENDMENT A4.2; owner ruling
+    # RULINGS 2026-08-21d, WIRED 2026-08-24) — the census half.
+    # SAME LAW FUNCTION as the solver's (``grade_law.runway_strip_wall_
+    # keepout_rings``, reached here through ``_runway_strip_keepout_rings``
+    # over the EMITTED runway rings grouped by ref), so both readers
+    # exclude the identical ground.  Neither side had it assigned before
+    # today: the field was declared, documented and never filled.
+    strip_keepout = None
+    try:
+        _sk_rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
+        if _sk_rings:
+            from shapely.geometry import Polygon as _SkPoly
+            from shapely.ops import unary_union as _sk_union
+            from shapely.prepared import prep as _sk_prep
+            _sk_block = _sk_union([_SkPoly(r) for r in _sk_rings
+                                   if len(r) >= 3])
+            if _sk_block is not None and not _sk_block.is_empty:
+                strip_keepout = _sk_prep(_sk_block)
+    except Exception:
+        strip_keepout = None
+
     return GG.GradeContext(
         centerlines=centerlines,
         routes=routes,
@@ -1512,6 +1533,17 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         inherited_junction_cap=_inherited,
         building_keys=frozenset(bld_keys),
         frontage_keys=frozenset(frontage_keys),
+        strip_keepout=strip_keepout,
+        # ── THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24) ────
+        # The sidecar's ``interior_zones`` rings, already in this
+        # reader's metre frame.  ``grade_graph`` owns the predicate for
+        # BOTH readers (this context flows straight into
+        # ``shape_constraints``), so the census cannot spell the
+        # back-edge test differently from the bake — it does not spell
+        # it at all.
+        interior_zones=tuple(
+            tuple((float(x), float(y)) for (x, y) in ring)
+            for ring in (interior_zones_m or []) if len(ring) >= 3),
         corridor_lines=GG.centerline_geometries(centerlines),
         road_zone=road_zone,
         route_zone=route_zone,
@@ -1561,6 +1593,7 @@ def iter_shape_grade_constraints(
         crown_by_nid: Optional[Dict[str, float]] = None,
         crown_centerline_nids: Optional[set] = None,
         pair_caps_ll: Optional[list] = None,
+        interior_zones_m: Optional[list] = None,
         ) -> "list[ShapePairConstraint]":
     """Yield every within-shape vertex-pair the grade check constrains.
 
@@ -1627,7 +1660,8 @@ def iter_shape_grade_constraints(
     _law_ctx = _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes,
                                        seam_nids, max_grade, road_zone=road_zone,
                                        routes_m=routes_m,
-                                       mesh_edges_m=mesh_edges_m)
+                                       mesh_edges_m=mesh_edges_m,
+                                       interior_zones_m=interior_zones_m)
     # SPINE CROWN (part 30): per-nid designed drops (sidecar field);
     # every pair's law re-centres on grade_law.crown_pair_offset.
     from auto_patch.grade_law import crown_pair_offset as _crown_off  # noqa: F401
@@ -4560,6 +4594,7 @@ def _check_within_shape(ways: List[Way],
                         pair_caps_ll: Optional[list] = None,
                         terrace_joints_m: Optional[list] = None,
                         fan_ramp_zones_m: Optional[list] = None,
+                        interior_zones_m: Optional[list] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -4574,7 +4609,8 @@ def _check_within_shape(ways: List[Way],
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
             mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
             crown_centerline_nids=crown_centerline_nids,
-            pair_caps_ll=pair_caps_ll):
+            pair_caps_ll=pair_caps_ll,
+            interior_zones_m=interior_zones_m):
         de = abs((c.ea - c.eb) - c.offset)
         allowance = c.allowance
         if terrace_joints_m:
@@ -5809,6 +5845,12 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "pair_caps": "pair_caps_ll",
     "terrace_joints": "terrace_joints_ll",
     "fan_ramp_zones": "fan_ramp_zones_ll",
+    # THE BACK-EDGE ZONES the apron 5 % class was priced with (owner
+    # ruling RULINGS 2026-08-24).  LAW INPUT: the census reaches
+    # ``grade_law.is_apron_interior`` through the SAME context field the
+    # bake filled, so a census without this key would price every
+    # back-edge pair strict and invent violations the law never had.
+    "interior_zones": "interior_zones_ll",
     "disconnected_rings": "disconnected_rings_ll",
     "ruleset": "ruleset",
     # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
@@ -5826,6 +5868,16 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
+    # THE PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c):
+    # pad seats that cannot reach their governing centerline anchor within
+    # 1 % x chord.  EVIDENCE, deliberately: a seat defect is caught at
+    # SEATING time and is not surface debt, so it is reported beside the
+    # census and never adjudicated as a law family — which is also what
+    # keeps this round's acceptance counts comparable with the last.
+    # THE BAND AT PAD FRONTAGE POINTS (lead order 2026-08-24) — evidence
+    # for the seat adjudication, reported and never adjudicated.
+    "frontage_band",
+    "pad_seat_infeasible",
     "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
                                   # partition per apron ring node (spec
                                   # apron-staged-solve-spec.md section 3):
@@ -5932,6 +5984,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
+    ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["ruleset"] = data.get("ruleset") or None
     if announce:
@@ -5949,6 +6002,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
                  if ctx["terrace_joints_ll"] else "")
               + (f", {len(ctx['fan_ramp_zones_ll'])} fan-ramp zones"
                  if ctx["fan_ramp_zones_ll"] else "")
+              + (f", {len(ctx['interior_zones_ll'])} back-edge zones"
+                 if ctx["interior_zones_ll"] else "")
               + (f", {len(ctx['disconnected_rings_ll'])} disconnected "
                  f"groundside ring(s)"
                  if ctx["disconnected_rings_ll"] else "")
@@ -6115,6 +6170,7 @@ def run_checks(
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
     fan_ramp_zones_ll: Optional[list] = None,
+    interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
@@ -6281,13 +6337,21 @@ def run_checks(
               f"ruling; rows inside one are reported and adjudicated "
               f"OUT OF SCOPE, never dropped)")
 
+    # THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24), converted to
+    # this reader's metre frame.  A patch predating the rescope has no key,
+    # reads ``None``, and every apron pair inside the 60 m body gate is
+    # then STRICT — the conservative direction, never a looser one.
+    interior_zones_m = [
+        [ll_to_m(float(la), float(lo)) for (la, lo) in ring]
+        for ring in (interior_zones_ll or []) if len(ring) >= 3]
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
         mesh_edges_m=mesh_edges_m, crown_by_nid=crown_by_nid,
         crown_centerline_nids=crown_centerline_nids,
         pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m,
-        fan_ramp_zones_m=fan_ramp_zones_m))
+        fan_ramp_zones_m=fan_ramp_zones_m,
+        interior_zones_m=interior_zones_m))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into

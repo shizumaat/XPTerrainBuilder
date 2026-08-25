@@ -1,4 +1,66 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260825 (RULINGS ROUND: apron chord anchor targets + DEM-last;
+# tunnel-corridor fix; LEMD attribution; app 1.0.258 / engine
+# 1.50.1701 SHIPPED for owner sim test, embedded==dist hash-verified)
+# TWO OWNER RULINGS (RULINGS.md 2026-08-25): (1) apron ring vertices
+#   chord to NEAREST VISIBLE anchor — pad OR centerline, closer wins,
+#   apron-only visibility; frontage chords unchanged; (2) DEM LAST
+#   priority — straight planes between anchors, never drape.
+# MERGED TO MAIN: §1 chord-anchor law (spec apron-chord-anchor-target,
+#   grade_graph nearest-anchor enumeration, flag
+#   O4_APRON_CHORD_ANCHOR_TARGET ON) — HECA 1,964→1,735 new frame
+#   (old bar 1,487 NOT re-founded, owner's call), SPJC 175, CYXY 31,
+#   drape all better, median vs DEM 0.400→-0.474 (cutting). The
+#   2026-08-21f pad-INTERCEPT clause superseded (kept behind flag-off);
+#   _pad_intercept was census-blind (asymmetry removed). Tunnel fix v1
+#   (per-RING corridor exclusion from the road chord limiter's node
+#   book, spec tunnel-corridor-node-book-exclusion + owner
+#   disposition): OTHH site-1 ramp EXACT, walls 7/10, adjudicated +30.
+# PARKED OFF (measured-regressing, mechanisms in lane history — do
+#   not re-arm without a new design): O4_PAD_SEAT_CONSISTENCY
+#   (frontage-subset interval, HECA +285), O4_DEM_LAST_SEAT_BIAS
+#   (anchor-neighborhood seat bias, HECA +237/SPJC +265 both attempts;
+#   solved-anchor filter proved regression is population not values;
+#   candidate next design = SPINE-ONLY senior anchors — pad anchors
+#   are other pads' provisional seats, circular under creation-order).
+# TUNNEL LEDGER (lane/tunnelfix, v2 d83379a8 + v3 b9ef30c9 unmerged):
+#   per-NODE keys REFUTED (two-step carrier: road→out-of-cut weld→own
+#   chord law→bore); precedence-exemption REFUTED (clamp carries what
+#   precedence doesn't); FINDING 2 (structural): a retreat face and a
+#   shared key are MUTUALLY EXCLUSIVE — faces need disagreement.
+#   QUEUED option A (owner-gated): claim-touching ROAD rings leave
+#   _CHORD_LIMIT_ROLES for the pass. OTHH sites 2
+#   (25.2791543,51.5997351 mapped-mouth D never emitted) + 3
+#   (25.2760974,51.5920871 ramp-wall no-inset) PRE-EXISTING tickets.
+#   Separate standing defect: 229 post-projection nid-weld insertions
+#   (weld-before-projection spec requires 0) — real, not the author of
+#   the owner sites.
+# LEMD (new fixture, fails final-band inversion): NOT the 5m-PNOA
+#   data (identical on both DEM arms); 4 flat pack-baked datum lines
+#   (624.2/620.8/610.9/603.8, no DEM matches, all CIFP thresholds
+#   <=608.1) at La Munoza campus (40.492-40.500N 3.584-3.591W) descend
+#   ~2.3-2.6% vs 1.5% routes; leading hypothesis deck/crossing-rect
+#   pins (Aerosoft Bridge3.obj placements sit between anchor lines;
+#   deck-vs-deck contradiction UNGUARDED — KDFW guard is deck-vs-
+#   senior only). CONFIRMATION OWED: one harness LEMD build grepping
+#   pin-registration lines for the four values.
+# NEXT: owner sim read (HECA aprons + OTHH tunnels) -> re-found HECA
+#   bar -> tunnel option A on owner go -> §2 spine-only design if
+#   aprons still read wrong at pads -> LEMD confirmation build ->
+#   battery + SPLP/KAFW/KDFW arms + worktree cleanup still owed.
+# OWNER BACKLOG (2026-08-25 in-sim, deferred behind the current bug
+#   list on owner's own call): (1) further OTHH tunnel issues beyond
+#   the v1-restored site-1 (unspecified — collect sites at next sim
+#   pass); (2) DRAINAGE OBJECTS set too low (new class, no sites yet).
+# IN-FLIGHT at session close of this block: LEMD confirmation build;
+#   HECA roads attribution (missing spines + floor-clamp author +
+#   exit_over_budget, site 30.102344,31.3951157); HECA apron
+#   attribution (cut-centerline cliff 30.1289374,31.4052385 ->
+#   30.1311876,31.4048029 owner-hypothesis stand-route end clipping;
+#   back-edge ripples 30.1274109,31.3970477 + 30.1141206,31.4095574 —
+#   possibly 24c DEM-soft-seed vs the DEM-last ruling).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260824 (APRON MEMBRANE ROUND — owner in-sim review + JOSM ground
 # truth drove five ruling cycles; the conclusion is a SPEC'D BUT
 # UNIMPLEMENTED seat-consistency fix. READ

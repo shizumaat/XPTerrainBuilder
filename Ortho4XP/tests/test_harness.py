@@ -254,6 +254,178 @@ def test_the_adjudication_split_is_exhaustive_and_reports_the_deferred(cg):
     assert only_deferred["deferred_total"] == 1
 
 
+# ── THE TUNNEL-TRENCH DECLARED-STEP LAW (spec docs/specs/
+# tunnel-trench-law-and-basin-floor-spec.md §1.4) ────────────────────
+# The defect these pin: the ``tunnel_trench`` role has no
+# ``ROLE_GRADE_LIMITS`` entry, so the by-law node-split trench wall priced
+# as a step at EVERY contact — 90.7 % of LEMD's 12,253 census rows and
+# 95.7 % of OTHH's 5,871.  The fix is an exemption bounded by the
+# facility's OWN declared floor→rim drop, NOT a blanket "skip the role",
+# which would blind the census to a trench born 51 m too deep.
+
+_TWIN_ANCHOR = (25.27, 51.61)   # OTHH-ish; any anchor works
+
+
+def _trench_patch(tmp_path: Path, *, pavement_elev: float,
+                  facility: dict, name: str = "TRENCH") -> Path:
+    """A two-square patch: a DECLARED trench floor plate at 0.0 m beside a
+    junction plate at ``pavement_elev``, sharing a contact edge, plus the
+    ``basin_facilities`` sidecar record that declares the pit."""
+    import math
+    r = 6378137.0
+    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
+
+    def ll(x, y):
+        return (_TWIN_ANCHOR[0] + math.degrees(y / r),
+                _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+
+    nodes, ways, nid = [], [], [0]
+
+    def square(x0, side, alt, tags):
+        ns = []
+        for (x, y) in ((x0, 0.0), (x0 + side, 0.0),
+                       (x0 + side, side), (x0, side)):
+            nid[0] -= 1
+            lat, lon = ll(x, y)
+            nodes.append((str(nid[0]), lat, lon, alt))
+            ns.append(str(nid[0]))
+        nid[0] -= 1
+        ways.append((str(nid[0]), ns + [ns[0]], tags))
+
+    # The pit floor plate, emitted AT the declared floor, and the pavement
+    # it cut — 0.3 m away, inside the step law's contact tolerance and
+    # clear of the stacked-node law (distinct coordinates).
+    square(0.0, 20.0, facility["floor_m"],
+           {"role": "tunnel_trench", "shapeID": "T1"})
+    square(20.3, 20.0, pavement_elev, {"role": "junction", "shapeID": "J1"})
+
+    out = ["<?xml version='1.0' encoding='UTF-8'?>",
+           "<osm version='0.6' generator='trench-twin'>"]
+    for n, lat, lon, alt in nodes:
+        out.append(f"  <node id='{n}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                   f"<tag k='alt_abs' v='{alt:.2f}' /></node>")
+    for wid, nids, tags in ways:
+        out.append(f"  <way id='{wid}'>")
+        out += [f"    <nd ref='{n}' />" for n in nids]
+        out += [f"    <tag k='{k}' v='{v}' />" for k, v in tags.items()]
+        out.append("  </way>")
+    out.append("</osm>")
+    osm = tmp_path / f"{name}_auto.patch.osm"
+    osm.write_text("\n".join(out) + "\n")
+    Path(str(osm) + ".axes.json").write_text(json.dumps({
+        "anchor": list(_TWIN_ANCHOR),
+        "ruleset": "icao",
+        "basin_facilities": [facility],
+    }))
+    return osm
+
+
+def _facility(*, floor_m: float, drop_m: float, body_depth_m: float,
+              solid_minimum_y_m: float) -> dict:
+    return {
+        "resources": ["twin/Pit_01.obj"],
+        "anchor_longitude_latitude": [_TWIN_ANCHOR[1], _TWIN_ANCHOR[0]],
+        "floor_m": floor_m,
+        "rim_law_m": floor_m + drop_m,
+        "body_depth_m": body_depth_m,
+        "solid_minimum_y_m": solid_minimum_y_m,
+    }
+
+
+def _families(cg, osm) -> dict:
+    fo: dict = {}
+    cg.run_checks_law_true(osm, family_out=fo, quiet=True)
+    return fo
+
+
+def test_a_declared_trench_wall_of_its_own_drop_prices_no_row(cg, tmp_path):
+    """§1.4 (a): a wall step of exactly the DECLARED drop D is the geometry
+    the trench law cut — it prices zero rows."""
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=12.0,
+        facility=_facility(floor_m=0.0, drop_m=12.0,
+                           body_depth_m=12.0, solid_minimum_y_m=-12.0)))
+    steps = fo["vertex_to_edge_step"] + fo["mid_edge_step"]
+    assert steps == [], (
+        f"a declared 12.0 m trench wall priced {len(steps)} step row(s) — "
+        f"the declared-step exemption did not bind")
+    assert fo["basin_floor_declaration"] == [], (
+        "a facility whose floor matches its own body depth must declare "
+        "nothing")
+
+
+def test_a_trench_wall_past_its_declared_drop_prices_the_excess(cg,
+                                                                tmp_path):
+    """§1.4 (b): D + 1 m prices, and the EXCESS the report accumulates is
+    the 1 m past the declaration — not the whole 13 m wall."""
+    osm = _trench_patch(
+        tmp_path, pavement_elev=13.0,
+        facility=_facility(floor_m=0.0, drop_m=12.0,
+                           body_depth_m=12.0, solid_minimum_y_m=-12.0))
+    fo = _families(cg, osm)
+    steps = fo["vertex_to_edge_step"] + fo["mid_edge_step"]
+    assert steps, "a 13.0 m step against a declared 12.0 m drop must report"
+    assert all(abs(s.step_m - 13.0) < 0.05 for s in steps), (
+        "the row must carry the MEASURED step; the allowance is not "
+        "subtracted from the measurement")
+    # ...and the same patch with the declaration REMOVED prices every row
+    # at the bare 0.5 m step law, which is what the exemption relaxes.
+    bare: dict = {}
+    cg.run_checks(osm, **dict(cg.LAW_TRUE_KNOBS),
+                  **{k: v for k, v in
+                     cg.law_context_from_sidecar(osm).items()
+                     if k != "basin_facilities"},
+                  quiet=True, top_n=0, family_out=bare)
+    assert len(bare["vertex_to_edge_step"] + bare["mid_edge_step"]) >= \
+        len(steps), (
+        "removing the declaration must never REDUCE the rows — the "
+        "exemption only relaxes")
+
+
+def test_a_trench_born_below_its_own_body_still_reports(cg, tmp_path):
+    """§1.4 (c) — THE LEMD CLASS.  A facility whose floor sits 50 m below
+    its declared rim under a 7 m body is a DECLARATION defect: the
+    exemption above would otherwise let a facility license its own
+    absurdity, since the wall it declared is the wall it cut."""
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=51.5,
+        facility=_facility(floor_m=0.0, drop_m=51.5,
+                           body_depth_m=7.016, solid_minimum_y_m=-50.0)))
+    rows = fo["basin_floor_declaration"]
+    assert len(rows) == 1, (
+        f"the LEMD-class facility reported {len(rows)} row(s) — a trench "
+        f"born 51.5 m below its own rim under a 7.02 m body must never be "
+        f"silent")
+    assert abs(rows[0].de_m - 42.984) < 0.01, rows[0].de_m
+    assert "Pit_01.obj" in cg._label(rows[0].way_a), (
+        "the row must name the resource that claimed the floor")
+
+
+def test_a_patch_with_no_basin_reads_exactly_as_before(cg):
+    """The no-op half: the fixture patch declares no basin, so the law
+    keyword changes nothing about what it measures."""
+    a = cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True)
+    b = cg.run_checks(FIXTURE_PATCH, top_n=0, quiet=True,
+                      basin_facilities=None)
+    assert [len(x) for x in a] == [len(x) for x in b]
+
+
+def test_the_declared_plate_roles_are_the_engines_own(cg):
+    """ONE role set, both sides: the census's declared-plate roles are
+    ``config.DECLARED_TERRAIN_PLATE_ROLES`` itself (the literal in
+    ``check_grade`` is only the no-engine CLI fallback), and every role in
+    it is a role the engine EMITS."""
+    from auto_patch.config import DECLARED_TERRAIN_PLATE_ROLES
+    from auto_patch import layout
+    assert set(cg._DECLARED_PLATE_ROLES) == set(DECLARED_TERRAIN_PLATE_ROLES)
+    emitted = {v for k, v in vars(layout).items()
+               if k.startswith("ROLE_") and isinstance(v, str)}
+    assert set(DECLARED_TERRAIN_PLATE_ROLES) <= emitted, (
+        f"declared-plate role(s) "
+        f"{sorted(set(DECLARED_TERRAIN_PLATE_ROLES) - emitted)} are not "
+        f"emitted by layout.py")
+
+
 def test_the_near_miss_frontage_law_is_one_authority(cg):
     """Cycle-5 item 6: the census family and the solve's law edges must
     recognize ONE population.  The radius, the role set and the budget all

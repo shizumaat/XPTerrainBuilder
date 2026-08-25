@@ -492,7 +492,17 @@ def _discover_sibling_road_networks(
 # at 183.29 inverted the final band — the fingerprint covers the PACK,
 # and cannot see a classifier rule change, so the version is what
 # retires the record.
-_CLASSIFICATION_CACHE_VERSION = 18
+# 19: A DECAL IS NOT A SOLID (spec docs/specs/
+# tunnel-trench-law-and-basin-floor-spec.md §2.1) —
+# ``StructureGroundInterface.solid_minimum_y_m`` now carries the frame's
+# FLOOR WITNESS (parts with no vertical extent excluded) rather than its
+# bare vertex minimum.  Exactly the version-14/15 situation: the field
+# already exists, so a v18 pickle restores a value that LOOKS valid and
+# the fingerprint covers the PACK, not the classifier rule — a v18 LEMD
+# result still carries −50.0 m from two 4-vertex VOR ground decals and
+# still cuts the basin 51.5 m below its own rim.  The version is what
+# retires it.
+_CLASSIFICATION_CACHE_VERSION = 19
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -1785,6 +1795,47 @@ class BasinRimFlushFacility:
         )
 
 
+def basin_facility_deck_reference_y(record) -> "tuple[float, float | None]":
+    """THE FLOOR KEY of one facility member, and the witness it discarded.
+
+    Returns ``(deck_reference_y, discarded_solid_minimum_y)``.  The floor
+    key is the deeper of the modelled body depth and the structure's TRUE
+    deepest solid — the reading the trench law has always taken — EXCEPT
+    where the two disagree by more than
+    :data:`config.BASIN_FLOOR_DISAGREEMENT_M`.
+
+    THE DISAGREEMENT GATE (spec ``docs/specs/
+    tunnel-trench-law-and-basin-floor-spec.md`` §2.2).  ``body_depth_m``
+    (the deck-face median population) and ``solid_minimum_y_m`` (the
+    deepest solid vertex) are two instruments describing ONE bottom.
+    Where they agree — every OTHH basin agrees within 0.4 m, and an
+    EGLL-class shell wall reaching ~2 m below its deck is exactly the
+    case this must NOT catch — the deeper reading wins as before.  Where
+    they disagree grossly the witness is not believed: LEMD pooled two
+    4-vertex VOR ground decals authored at −48.244 m into a facility
+    whose body is 7.02 m deep and cut its basin 51.5 m below its own rim.
+    The floor then derives from the deck-face population and the
+    discarded witness is RETURNED so the caller can name it out loud —
+    the 43 m disagreement used to be printed silently, as two numbers on
+    one log line.
+
+    ONE IMPLEMENTATION, both readers: the emitter
+    (:func:`build_tunnel_layout_shapes`) and the rim-flush seating
+    predictor (:func:`basin_rim_flush_facilities`, which mirrors the
+    emitter's grouping character for character) call this, so a facility
+    can never be cut to one floor and seated against another.
+    """
+    deck_reference_y = -float(record.body_depth_m)
+    solid_minimum_y = getattr(record, "solid_minimum_y_m", None)
+    if solid_minimum_y is None or solid_minimum_y != solid_minimum_y:
+        return deck_reference_y, None
+    solid_minimum_y = float(solid_minimum_y)
+    if (abs(solid_minimum_y - deck_reference_y)
+            > config.BASIN_FLOOR_DISAGREEMENT_M):
+        return deck_reference_y, solid_minimum_y
+    return min(deck_reference_y, solid_minimum_y), None
+
+
 def basin_rim_flush_facilities(classification) -> list:
     """The section-2.2 facility records for one classification.
 
@@ -1833,12 +1884,11 @@ def basin_rim_flush_facilities(classification) -> list:
             body_parts.extend(parts)
             # ``deck_reference_y`` — the emitter's floor key, i.e. the
             # deeper of the modelled body depth and the structure's TRUE
-            # deepest solid.
-            deck_reference_y = -float(record.body_depth_m)
-            solid_minimum_y = getattr(record, "solid_minimum_y_m", None)
-            if solid_minimum_y is not None:
-                deck_reference_y = min(
-                    deck_reference_y, float(solid_minimum_y))
+            # deepest solid, under the §2.2 disagreement gate.  ONE
+            # implementation with the emitter (the discarded witness is
+            # named there, at the cut, not twice).
+            deck_reference_y, _discarded = basin_facility_deck_reference_y(
+                record)
             deck_reference_values.append(deck_reference_y)
             if anchor_longitude_latitude is None:
                 anchor_longitude_latitude = (
@@ -2499,11 +2549,26 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # 2026-07-18: EGLL shell walls reach up to ~2 m below the
             # road deck — a deck-median floor left the object bottoms
             # buried), falling back to the deck median for older records.
-            deck_reference_y = -float(tunnel.body_depth_m)
-            solid_minimum_y = getattr(tunnel, "solid_minimum_y_m", None)
-            if solid_minimum_y is not None:
-                deck_reference_y = min(deck_reference_y,
-                                       float(solid_minimum_y))
+            deck_reference_y, discarded_witness = (
+                basin_facility_deck_reference_y(tunnel))
+            if discarded_witness is not None:
+                # LOUD, NEVER SILENT (spec §2.2): the resource whose
+                # authored geometry claimed the floor, the y it claimed
+                # it at, and the population that overrode it.  The 43 m
+                # LEMD disagreement used to ride two numbers on one
+                # trench-floor log line and nothing looked at it.
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] BASIN FLOOR DISAGREEMENT: "
+                    f"{resources}: deepest-solid witness "
+                    f"{discarded_witness:.3f} m disagrees with the "
+                    f"deck-face body depth "
+                    f"{float(tunnel.body_depth_m):.3f} m by "
+                    f"{abs(discarded_witness + float(tunnel.body_depth_m)):.3f}"
+                    f" m (> {config.BASIN_FLOOR_DISAGREEMENT_M:.1f} m) — "
+                    f"the witness is DISCARDED and the floor derives from "
+                    f"the body depth",
+                )
             member_floor = tunnel_trench_floor_elevation_m(
                 float(datum), deck_reference_y
             )

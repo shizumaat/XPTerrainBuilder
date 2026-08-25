@@ -4778,6 +4778,70 @@ TUNNEL_FLOOR_BELOW_OBJECT_DECK_M = 0.5
 TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M = float(
     _os.environ.get("O4_TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M", "1.0"))
 
+# ── A DECAL IS NOT A SOLID (spec docs/specs/
+# tunnel-trench-law-and-basin-floor-spec.md §2) ─────────────────────
+#
+# §2.1 — MINIMUM SOLID PART THICKNESS (m).  A pooled part contributes to
+# the facility's FLOOR WITNESS (``_StructureFrame.solid_floor_witness_y_m``,
+# the "deepest solid" the basin floor law keys on) only if it has vertical
+# extent of its own: a part whose authored bbox height (max_y − min_y) is
+# below this is a GROUND DECAL, not a structure floor, and is excluded
+# from the witness minimum.  It stays in the pool for every other purpose
+# (ground contact, triangle passes, footprints) — the exclusion is the
+# floor witness only.
+#
+# MEASURED: LEMD's two ``AESlite-LEMD-VOR-15-T4S-*.obj`` VOR ground
+# decals are 4-vertex FLAT quads (bbox height 0.0) authored at
+# y = −48.244 with OBJECT_AGL −1.756, i.e. −50.0 effective.  Pooled with
+# the real airport objects by the 2.0 m chain join, they set the whole
+# facility's floor witness and dug LEMD's basin to 545.52 m — 51.5 m
+# below its own rim, against a body depth of 7.02 m.  0.3 m is an order
+# of magnitude below any modelled shell wall and an order of magnitude
+# above a flat quad's exact 0.0.
+MIN_SOLID_PART_THICKNESS_M = 0.3
+
+# §2.2 — THE BASIN FLOOR DISAGREEMENT GATE (m).  Two independent
+# instruments describe one facility's bottom: ``solid_minimum_y_m`` (the
+# deepest solid vertex the frame saw) and ``body_depth_m`` (the median of
+# the deck-face population).  Where they disagree by more than this, the
+# witness is NOT believed: the floor derives from ``body_depth_m`` and the
+# discarded witness is reported LOUDLY with its resource name and authored
+# y.  Never a silent 43 m disagreement printed on one log line.
+#
+# CALIBRATION (measured 2026-08-25): every OTHH basin agrees within
+# 0.4 m (Drainage_06 −4.201 vs −3.859 = 0.342 m is the worst; EGLL-class
+# shell walls reach ~2 m below their deck, which is the case this
+# threshold must NOT catch).  LEMD's pooled decal disagrees by 42.98 m.
+BASIN_FLOOR_DISAGREEMENT_M = 2.0
+
+# ── DECLARED TERRAIN PLATES (spec §1.2) ─────────────────────────────
+#
+# Roles emitted as FLAT-BY-LAW TERRAIN, not as pavement: the basin/tunnel
+# trench floor and rim plates, whose elevations are set by the trench law
+# from the facility's own declared floor and rim.  A declared plate
+# carries NO within-shape taxiway cap — pricing a by-law flat terrain
+# plate at 1.5 % is judging it under a law it was never built to.
+#
+# DELIBERATELY NOT a ``ROLE_GRADE_LIMITS[role] = None`` entry: that
+# spelling makes ``check_grade._role_grade_limit`` return None, which
+# takes the role off the CROSS-SHAPE STEP checks as well — and those are
+# exactly the checks that must keep seeing a trench, so a trench born
+# 51 m too deep still reports (the LEMD class).  The step law prices a
+# trench contact against the facility's OWN DECLARED floor→rim drop
+# instead (``check_grade._basin_declared_drop``).
+DECLARED_TERRAIN_PLATE_ROLES = frozenset({"tunnel_trench"})
+
+# The tolerance (m) the census joins a step row to its basin facility
+# with: the row's LOWER elevation against the facility's DECLARED
+# ``floor_m``.  A DECLARED-VALUE identity join, never a proximity join —
+# the floor plate is emitted AT the declared floor, so the number itself
+# is the identity.  0.15 m is the emit-rounding step at a shared node
+# (1-decimal altitudes), the same figure ``check_grade``'s shared-node
+# tolerance uses.  MEASURED (2026-08-25): OTHH's eight facilities declare
+# floors −10.737 / −10.680 / −1.739 / −1.354 and every emitted floor
+# plate reads back within 0.005 m of one of them.
+BASIN_DECLARED_FLOOR_MATCH_TOL_M = 0.15
+
 # Vertical clearance (m) the ``grade_law.bridge_crossing_floor`` law adds
 # above a road surface for a TERRAIN/PROFILE_CARRIED span that must RISE
 # (the EDDF class, where WE choose the vertical split — spec section 3.2).

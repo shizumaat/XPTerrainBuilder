@@ -376,14 +376,22 @@ def test_the_stand_class_is_pad_anchored_only():
     1,752 apron airside rows and ~40 % started from a vertex fronting no
     building.  Same chord, same length, one fact different."""
     import auto_patch.config as CFG
-    for pad_kw in (dict(a_frontage=True), dict(b_frontage=True),
-                   dict(a_building=True), dict(b_building=True)):
+    # PAD-ANCHORED IS FRONTAGE-ONLY (lead ruling 2026-08-24, narrowing
+    # this lane's first cut): ``building_keys`` is a SNAPPED set —
+    # ``build_context`` pulls every soft vertex within a tolerance of a pad
+    # boundary into it — so reading it as pad-anchoring re-admitted most of
+    # the apron to 1 % and the class did not shrink at all (HECA v3: 1,793
+    # of 1,795 apron rows still at 1 %, against 1,751 before the split).
+    for pad_kw in (dict(a_frontage=True), dict(b_frontage=True)):
         p = _pair(nearest_spine=True, corridor_connected=True, **pad_kw)
         assert GL.apron_pair_class(p) == GL.APRON_CLASS_STAND
         assert GL.classify_pair(p).flat_cap() == pytest.approx(
             CFG.BUILDING_FRONTAGE_MAX_GRADE)
+    for non_pad in (dict(), dict(a_building=True), dict(b_building=True)):
+        bare = _pair(nearest_spine=True, corridor_connected=True, **non_pad)
+        assert GL.apron_pair_class(bare) == GL.APRON_CLASS_CORRIDOR, (
+            "only a FRONTAGE vertex anchors a stand chord")
     bare = _pair(nearest_spine=True, corridor_connected=True)
-    assert GL.apron_pair_class(bare) == GL.APRON_CLASS_CORRIDOR
     assert GL.classify_pair(bare).flat_cap() == pytest.approx(
         CFG.TAXI_MAX_GRADE)
     # THE SPLIT KEEPS A4.1's NO-LENGTH-GATE PROPERTY: it changes the CAP a

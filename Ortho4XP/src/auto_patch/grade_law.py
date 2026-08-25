@@ -3098,8 +3098,16 @@ def apron_pair_class(p: "PairContext") -> str:
         # MEASURED BASIS (this lane, v2, HECA): the stand class carried
         # 1,751 of 1,752 apron airside rows and ~40 % of them started from
         # a vertex that fronts no building at all.
-        if (p.a_frontage or p.b_frontage
-                or p.a_building or p.b_building):
+        # FRONTAGE-ONLY (lead ruling 2026-08-24, narrowing this lane's
+        # first cut).  ``building_keys`` is NOT consulted: ``build_context``
+        # widens that set by SNAPPING every soft vertex within a tolerance
+        # of a pad boundary into it, so "or a building key" re-admitted
+        # most of the apron and the stand class did not shrink at all
+        # (HECA v3 measured 1,793 of 1,795 apron rows still at 1 %, against
+        # 1,751 before the split).  The frontage-vertex set is the
+        # predicate the spec named and the only one that means "this vertex
+        # is part of a pad's frontage".
+        if p.a_frontage or p.b_frontage:
             return APRON_CLASS_STAND
         # A non-pad vertex's chord to its centerline IS corridor travel,
         # so it takes the corridor cap directly — it reaches a spine by

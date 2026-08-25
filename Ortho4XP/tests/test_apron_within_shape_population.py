@@ -830,14 +830,26 @@ def test_the_pad_vertex_long_pair_prices_at_five_percent():
 
 def test_that_same_vertexs_nearest_spine_chord_prices_at_one_percent():
     """A4.1's verdict sentence, second half: the chord the owner expects —
-    the ~118 m one to the nearest centerline node — is STRICT, and the
-    building clamp still applies to it because it is in the strict set."""
+    the ~118 m one to the nearest centerline node — is STRICT.
+
+    NARROWED (lead ruling 2026-08-24, RULINGS 2026-08-24c stand scope):
+    "pad vertex" is a FRONTAGE vertex.  ``building_keys`` is deliberately
+    not enough — ``build_context`` snaps every soft vertex within a
+    tolerance of a pad boundary into that set, so reading it as
+    pad-anchoring re-admitted most of the apron to the 1 % class (HECA v3:
+    1,793 of 1,795 apron rows still at 1 %)."""
     got = GL.classify_pair(_apron_ctx(
-        dist=118.2, ring_adjacent=False, a_building=True,
+        dist=118.2, ring_adjacent=False, a_frontage=True,
         nearest_spine=True))
     assert got is not None
     assert got.flat_cap() <= GL.APRON_MAX_GRADE + 1e-9, (
-        "a nearest-spine chord from a pad vertex is the frontage 1 % rule")
+        "a nearest-spine chord from a FRONTAGE vertex is the 1 % rule")
+    # …and the same chord from a vertex that merely keys as a building
+    # node is CORRIDOR travel.
+    bare = GL.classify_pair(_apron_ctx(
+        dist=118.2, ring_adjacent=False, a_building=True,
+        nearest_spine=True, corridor_connected=True))
+    assert bare.flat_cap() == pytest.approx(TAXI_MAX_GRADE)
 
 
 def test_the_nearest_spine_chord_survives_the_sixty_metre_body_gate():

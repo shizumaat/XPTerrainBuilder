@@ -50,7 +50,7 @@ from auto_patch import grade_law as GL
 from auto_patch import verification as V
 from auto_patch.apt_dat_reader import TaxiCenterline
 from auto_patch.canonical_points import CanonicalPointRegistry
-from auto_patch.config import BUILDING_REACH_CORRIDOR_M
+from auto_patch.config import BUILDING_REACH_CORRIDOR_M, TAXI_MAX_GRADE
 from auto_patch.layout import BuiltShape, PavementLayout
 
 import check_grade as cg
@@ -201,11 +201,20 @@ def test_the_domain_is_unchanged_only_the_interior_cap_moves():
     assert raised, "no interior pair was raised — the amendment is inert"
     for k in on:
         assert on[k] >= off[k] - 1e-12, f"{k} was TIGHTENED, not relaxed"
-    # every raised pair landed exactly on the ramp cap, and every raised
-    # pair is one the law calls interior.
+    # RE-AMENDED, RULINGS 2026-08-24b: a raised pair now lands on ONE OF
+    # THE TWO caps the apron chain grants — the corridor's 1.5 % or the
+    # back-edge 5 % — never on some third value.  A1's version of this
+    # assertion named only the ramp cap because the plateau was then the
+    # only raised class; 24b abolished the plateau and gave the
+    # corridor-connected body the corridor's own cap.  The invariant this
+    # twin is really about is unchanged: the DOMAIN does not move and no
+    # pair is TIGHTENED.
     for k in raised:
-        assert abs(on[k] - GL.APRON_INTERIOR_CAP) < 1e-9
-        assert off[k] < GL.APRON_INTERIOR_CAP
+        assert (abs(on[k] - GL.APRON_INTERIOR_CAP) < 1e-9
+                or abs(on[k] - TAXI_MAX_GRADE) < 1e-9), (
+            f"{k} was raised to {on[k]}, which is neither the corridor cap "
+            f"nor the back-edge cap — the chain grants no third value")
+        assert off[k] < on[k]
 
 
 def test_frontage_chord_keeps_the_strict_cap_interior_takes_the_ramp_cap():
@@ -239,26 +248,44 @@ def _apron_ctx(**kw):
     return GL.PairContext(**base)
 
 
-def test_a_plain_ring_edge_takes_the_interior_cap():
-    """AMENDMENT A2 corrects A1 section 1a.  A ring edge between two
-    NON-frontage, non-corridor vertices is a generic pair under
-    2026-08-21b, so it takes the 5 % interior cap — 3 % passes, 6 % fails.
+def test_a_plain_ring_edge_on_a_DISCONNECTED_apron_takes_the_body_cap():
+    """RE-AMENDED, RULINGS 2026-08-24 + 2026-08-24b.
 
-    Measured reason: A1 kept every ring-adjacent pair strict on R19-5
-    grounds and compose-v2 came out +112 over HECA's bar, ~648 of those
-    rows being apron ring edges over the strict 1 % while NOT ONE
-    violation anywhere carried the 5 % cap."""
+    A2 had made every plain ring edge 5 %; 2026-08-24 cut that to the
+    BACK-EDGE ZONES; 2026-08-24b then gave the corridor-connected body the
+    LOCAL CORRIDOR CAP.  This fixture declares NO zone and NO corridor
+    connection, so it is the residual ``body`` class — the apron has no
+    corridor to inherit from and keeps its own cap.  The edge never leaves
+    the domain, which is R19-5's clause and is what this twin has always
+    really been about."""
     got = GL.classify_pair(_apron_ctx())
     assert got is not None, "a ring edge must never leave the domain (R19-5)"
+    assert abs(got.flat_cap() - GL.APRON_MAX_GRADE) < 1e-9
+    assert GL.apron_pair_class(_apron_ctx()) == GL.APRON_CLASS_BODY
+
+
+def test_a_plain_ring_edge_on_a_CORRIDOR_CONNECTED_apron_takes_1_5():
+    """THE SUBSTANCE OF RULINGS 2026-08-24b: "unless there is a pavement
+    gap there are NO cliffs in aprons… an apron spanning between two
+    lawful 1.5 % taxiways lawfully runs ~1.5 % itself".  Same edge, same
+    everything, one fact different — the apron is joined to the corridor
+    network — and it inherits the corridor's own cap.
+
+    1.3 % passes, 1.7 % fails: the ruling's acceptance sentence."""
+    p = _apron_ctx(corridor_connected=True)
+    got = GL.classify_pair(p)
+    assert got is not None
     cap = got.flat_cap()
-    assert abs(cap - GL.APRON_INTERIOR_CAP) < 1e-9
-    assert 0.03 <= cap, "a plain ring edge at 3 % must PASS"
-    assert 0.06 > cap, "a plain ring edge at 6 % must FAIL"
+    assert abs(cap - TAXI_MAX_GRADE) < 1e-9
+    assert GL.apron_pair_class(p) == GL.APRON_CLASS_CORRIDOR
+    assert 0.013 <= cap, "a corridor-region interior chord at 1.3 % must PASS"
+    assert 0.017 > cap, "a corridor-region interior chord at 1.7 % must FAIL"
 
 
-def test_R19_5s_catch_survives_at_five_percent():
+def test_R19_5s_catch_survives_every_re_cap():
     """The class R19-5 exists for — the 148 % ring edge — still mints its
-    row.  A2 changes the CAP it is judged at, never its membership."""
+    row.  Every amendment since A2 has changed the CAP it is judged at,
+    never its membership."""
     got = GL.classify_pair(_apron_ctx())
     assert got is not None
     assert 1.48 > got.flat_cap(), "a 148 % ring edge must still FAIL"
@@ -274,15 +301,22 @@ def test_a_ring_FRONTAGE_edge_stays_strict():
     assert cap < GL.APRON_INTERIOR_CAP
 
 
-def test_a_corridor_crossing_ring_edge_stays_strict():
+def test_a_corridor_crossing_ring_edge_takes_the_corridor_cap():
     """Both endpoints inside the spine corridor cover: pavement an aircraft
-    taxis over.  STRICT."""
-    got = GL.classify_pair(_apron_ctx(a_corridor=True, b_corridor=True))
-    assert got is not None
-    assert got.flat_cap() < GL.APRON_INTERIOR_CAP
-    # one endpoint in the cover is NOT a crossing edge — it is interior.
-    half = GL.classify_pair(_apron_ctx(a_corridor=True))
-    assert abs(half.flat_cap() - GL.APRON_INTERIOR_CAP) < 1e-9
+    taxis over.  Under RULINGS 2026-08-24b that is the CORRIDOR class and
+    its cap is the corridor's own 1.5 % — never the 5 % that would
+    legalise a ramp along a taxi route, and no longer the 1 % that belongs
+    to the stand chords.
+
+    A vertex inside the cover makes the apron corridor-connected, so the
+    HALF case (one endpoint in the cover) is the same class here: 24b
+    removed the plateau, so there is no third cap between them."""
+    for kw in (dict(a_corridor=True, b_corridor=True), dict(a_corridor=True)):
+        p = _apron_ctx(corridor_connected=True, **kw)
+        got = GL.classify_pair(p)
+        assert got is not None
+        assert abs(got.flat_cap() - TAXI_MAX_GRADE) < 1e-9
+        assert got.flat_cap() < GL.APRON_INTERIOR_CAP
 
 
 def test_a_spine_pair_is_never_raised_to_the_interior_cap():
@@ -304,15 +338,20 @@ def test_the_cap_verdicts_are_the_ones_the_amendment_names():
                 a_seam=False, b_seam=False, a_building=False,
                 b_building=False, spine_caps=(), body_cap=GL.APRON_MAX_GRADE)
     generic = GL.classify_pair(GL.PairContext(
-        **base, a_frontage=False, b_corridor=False))
+        **base, a_frontage=False, b_corridor=False,
+        corridor_connected=True))
     chord = GL.classify_pair(GL.PairContext(
         **{**base, "dist": 20.0}, a_frontage=True, b_corridor=True))
     assert generic is not None, "the interior pair must stay in the law"
     assert chord is not None
     g_cap, c_cap = generic.flat_cap(), chord.flat_cap()
-    assert g_cap >= 0.03, "a generic interior pair at 3 % must PASS"
-    assert g_cap < 0.06, "a generic interior pair at 6 % must FAIL"
-    assert c_cap < 0.03, "a frontage chord at 3 % must FAIL"
+    # RE-AMENDED by RULINGS 2026-08-24b: the generic corridor-region pair
+    # is priced at the CORRIDOR cap, not at 5 %.  A1's "3 % passes"
+    # sentence described the plateau the 24b ruling abolished.
+    assert abs(g_cap - TAXI_MAX_GRADE) < 1e-9
+    assert g_cap >= 0.013, "a corridor-region pair at 1.3 % must PASS"
+    assert g_cap < 0.017, "a corridor-region pair at 1.7 % must FAIL"
+    assert c_cap < 0.013, "a stand / frontage chord at 1.3 % must FAIL"
 
 
 def test_the_sixty_metre_body_gate_still_removes_long_interior_chords():
@@ -791,14 +830,26 @@ def test_the_pad_vertex_long_pair_prices_at_five_percent():
 
 def test_that_same_vertexs_nearest_spine_chord_prices_at_one_percent():
     """A4.1's verdict sentence, second half: the chord the owner expects —
-    the ~118 m one to the nearest centerline node — is STRICT, and the
-    building clamp still applies to it because it is in the strict set."""
+    the ~118 m one to the nearest centerline node — is STRICT.
+
+    NARROWED (lead ruling 2026-08-24, RULINGS 2026-08-24c stand scope):
+    "pad vertex" is a FRONTAGE vertex.  ``building_keys`` is deliberately
+    not enough — ``build_context`` snaps every soft vertex within a
+    tolerance of a pad boundary into that set, so reading it as
+    pad-anchoring re-admitted most of the apron to the 1 % class (HECA v3:
+    1,793 of 1,795 apron rows still at 1 %)."""
     got = GL.classify_pair(_apron_ctx(
-        dist=118.2, ring_adjacent=False, a_building=True,
+        dist=118.2, ring_adjacent=False, a_frontage=True,
         nearest_spine=True))
     assert got is not None
     assert got.flat_cap() <= GL.APRON_MAX_GRADE + 1e-9, (
-        "a nearest-spine chord from a pad vertex is the frontage 1 % rule")
+        "a nearest-spine chord from a FRONTAGE vertex is the 1 % rule")
+    # …and the same chord from a vertex that merely keys as a building
+    # node is CORRIDOR travel.
+    bare = GL.classify_pair(_apron_ctx(
+        dist=118.2, ring_adjacent=False, a_building=True,
+        nearest_spine=True, corridor_connected=True))
+    assert bare.flat_cap() == pytest.approx(TAXI_MAX_GRADE)
 
 
 def test_the_nearest_spine_chord_survives_the_sixty_metre_body_gate():
@@ -932,10 +983,18 @@ def test_the_unobstructed_case_is_identical_to_A4():
         "the visibility gate")
 
 
-def test_a_pad_in_the_path_intercepts_the_chord():
+def test_a_pad_in_the_path_intercepts_the_chord(monkeypatch):
     """A5(b): the vertex prices to the PAD, not to the centerline behind
     it — frontage authority (owner ruling RULINGS 2026-08-21f).  The chord
-    is REPLACED, so there is still exactly one per vertex."""
+    is REPLACED, so there is still exactly one per vertex.
+
+    SUPERSEDED BY RULINGS 2026-08-25 ("the pad is a first-class chord
+    target, not merely an interceptor when it happens to lie in the
+    path"), so this twin now pins the PRE-RULING law behind its kill
+    switch — the flag-off byte-identity clause of the chord-target spec.
+    The armed law's version of this fixture is
+    ``tests/test_apron_chord_anchor_target.py``."""
+    monkeypatch.setattr(GG, "APRON_CHORD_ANCHOR_TARGET", False)
     # vertex 0 at origin; spine node at (100,0); a pad sits between them and
     # shares vertices with the ring.
     ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
@@ -953,7 +1012,9 @@ def test_a_pad_in_the_path_intercepts_the_chord():
         "the centerline behind the pad must NOT be priced for this vertex")
 
 
-def test_the_pad_interception_is_deterministic():
+def test_the_pad_interception_is_deterministic(monkeypatch):
+    # Same supersession as above: pinned to the pre-2026-08-25 law.
+    monkeypatch.setattr(GG, "APRON_CHORD_ANCHOR_TARGET", False)
     ring = [(0.0, 0.0), (40.0, 0.0), (60.0, 0.0), (100.0, 0.0),
             (100.0, 50.0), (0.0, 50.0)]
     keys = list(range(len(ring)))

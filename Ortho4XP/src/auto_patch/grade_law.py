@@ -2514,13 +2514,21 @@ APRON_BODY_CHORD_MAX_M = float(os.environ.get("O4_APRON_BODY_CHORD_MAX_M", "60")
 # ``O4_APRON_WITHIN_SHAPE_FRONTAGE_ONLY`` is NOT read — a stale arm using it
 # would otherwise silently get the default, and an env flag that quietly
 # means something new is exactly the silent-break class.
-# ``O4_APRON_INTERIOR_RAMP_CAP=0`` restores TODAY'S ALL-STRICT behaviour
-# (every apron pair at the body cap), i.e. the 2026-08-21 battery.
+# ``O4_APRON_INTERIOR_RAMP_CAP=0`` restores THE PRE-RULING ALL-STRICT
+# behaviour (every apron pair at the body cap), i.e. the 2026-08-21
+# battery.  Since RULINGS 2026-08-24b it gates the WHOLE apron cap chain
+# in ``classify_pair`` — back-edge, corridor and stand — because "all
+# strict" is what the flag promises and half of it would be flag drift.
 APRON_INTERIOR_RAMP_CAP = (
     os.environ.get("O4_APRON_INTERIOR_RAMP_CAP", "1") != "0")
 
 #: The interior apron pair's cap (spec A1 §1a).  ONE constant, both readers
 #: — the census reaches it through ``classify_pair`` like every other cap.
+#:
+#: RESCOPED, RULINGS 2026-08-24: the cap is unchanged (5 %, the fan-ramp
+#: constant) but the CLASS that earns it shrank to the fan-ramp BACK-EDGE
+#: ZONES plus the pairs the 60 m body gate has always held out of the
+#: strict chain — see :func:`is_apron_interior`.
 APRON_INTERIOR_CAP = FAN_RAMP_CAP
 
 #: The soft-pavement roles whose ring vertices make a BUILDING ring edge a
@@ -2735,8 +2743,51 @@ class PairContext:
     # STRIP footprint (``runway_strip_wall_keepout_rings``, A4.2).  Membership
     # is the reader's, the verdict is the law's, exactly like the fields above.
     nearest_spine: bool = False
+    # ── THE CHORD-TARGET LAW (owner ruling RULINGS 2026-08-25, spec
+    # ``apron-chord-anchor-target-spec.md`` §1) ─────────────────────────
+    # ``nearest_anchor_pad``: THIS pair is that chord AND its far end is a
+    # BUILDING PAD boundary vertex rather than a centerline node.  The
+    # anchor set is the union of both populations and the NEAREST VISIBLE
+    # one wins, so ``nearest_spine`` stays the strict-population flag (both
+    # kinds are strict) and this one carries only the KIND.  The reader
+    # (``grade_graph.nearest_spine_pairs``, the ONE enumeration both the
+    # census and the bake consume) assigns it; the verdict is the law's,
+    # exactly like every field above.
+    #
+    # DEFAULT FALSE IS TODAY'S READING: a reader that does not supply it —
+    # or one running with ``O4_APRON_CHORD_ANCHOR_TARGET=0`` — sees the
+    # pre-ruling cap assignment unchanged.
+    nearest_anchor_pad: bool = False
     a_in_strip: bool = False
     b_in_strip: bool = False
+    # ── THE BACK-EDGE RESCOPE (owner ruling RULINGS 2026-08-24) ─────────
+    # ``in_interior_zone``: this pair lies WHOLLY inside ONE fan-ramp
+    # back-edge zone — the ground between two adjacent building pads, cut
+    # clear of every movement surface (``apron_terrace.plan_fan_ramp_zones``
+    # and its ``FanRampPlan.pair_cap`` predicate: both ends in the SAME
+    # zone AND the chord covered by it).  It is the ONLY class that still
+    # earns the 5 % interior cap.  Membership is the reader's, the verdict
+    # is the law's — exactly like ``a_in_strip`` above.
+    #
+    # DEFAULT FALSE IS THE STRICT DIRECTION: a reader that supplies no
+    # zones prices every non-strict apron pair inside the 60 m body gate
+    # at the shape's own cap, never looser than the law.
+    in_interior_zone: bool = False
+    # ── NO PLATEAUS (owner ruling RULINGS 2026-08-24b) ──────────────────
+    # ``corridor_connected``: the pair's APRON SHAPE is joined to the taxi
+    # CORRIDOR NETWORK — it carries spine membership, or some ring vertex
+    # of it lies inside the spine corridor cover.  A SHAPE-level fact, not
+    # a pair-level one, because the ruling's reason is about the shape:
+    # "an apron spanning between two lawful 1.5 % taxiways lawfully runs
+    # ~1.5 % itself".  Both notions are the reader's existing ones (the
+    # ``_spine_membership`` map and ``corridor_cover_prepared``, already
+    # computed per shape for ``a_corridor``/``b_corridor``) — no new
+    # geometry and no new radius.
+    #
+    # DEFAULT FALSE IS THE STRICT DIRECTION: an apron the reader cannot
+    # show is joined to a corridor has no corridor cap to inherit and
+    # keeps its own body cap.
+    corridor_connected: bool = False
 
 
 SKIP: Optional[Allowance] = None
@@ -2954,9 +3005,14 @@ def is_apron_strict_chord(p: "PairContext") -> bool:
     """THE STRICT APRON POPULATION (spec AMENDMENT A4.1).  An apron pair takes
     the strict cap when it is one of exactly three things:
 
-      (i)   the chord from a ring vertex to its NEAREST SPINE NODE — one per
-            vertex, the reach an aircraft actually rolls to the corridor on
-            (``nearest_spine``, assigned by the reader);
+      (i)   the chord from a ring vertex to its NEAREST VISIBLE ANCHOR — one
+            per vertex, the reach an aircraft actually rolls to the corridor
+            (or to the pad it stands beside) on (``nearest_spine``, assigned
+            by the reader).  RULINGS 2026-08-25 widened the ANCHOR SET to
+            pads ∪ centerline nodes, nearest visible wins; both kinds are
+            strict, so this clause is unchanged by that ruling — only the
+            CAP CLASS depends on the kind (``nearest_anchor_pad``, see
+            :func:`apron_pair_class`);
       (ii)  a FRONTAGE CHORD (section 1, unchanged);
       (iii) a RING EDGE within ``APRON_BODY_CHORD_MAX_M`` (A2 as corrected by
             A3), which includes the ring frontage edge and the
@@ -2986,6 +3042,116 @@ def is_apron_strict_chord(p: "PairContext") -> bool:
     return bool(p.spine_caps)
 
 
+#: THE APRON PAIR CLASSES (owner ruling RULINGS 2026-08-24b).  The owner's
+#: acceptance test is stated as an EXHAUSTIVE taxonomy — "any apron row is
+#: either a stand chord over 1 %, a corridor-region chord over 1.5 %, a
+#: back-edge chord over 5 %, or solver sag to fix — there is no lawful
+#: fourth class" — so the classes are spelled ONCE here and every reader
+#: (the cap chain, the seniority partition, the census's own cap column)
+#: reaches them through :func:`apron_pair_class`.
+APRON_CLASS_SPINE = "spine"          # the corridor itself: its route's cap
+APRON_CLASS_STAND = "stand"          # pad ↔ centerline: the strict 1 %
+APRON_CLASS_CORRIDOR = "corridor"    # corridor-connected body: 1.5 %
+APRON_CLASS_BACK_EDGE = "back_edge"  # the fan-ramp wedges: 5 %
+APRON_CLASS_BODY = "body"            # no corridor to inherit from: body cap
+
+
+def apron_pair_class(p: "PairContext") -> str:
+    """THE apron pair's class (owner ruling RULINGS 2026-08-24b).
+
+    ONE predicate, consumed by ``classify_pair`` (which turns it into a
+    cap), by ``is_apron_interior`` (which turns it into the staged solve's
+    partition) and by every report — so a census column and a baked cap
+    cannot describe different populations.
+
+    Precedence, and the reason for each step:
+
+      1. SPINE.  The pair IS the corridor, so it keeps its route's own
+         per-letter cap.  First, because raising a running taxiway to any
+         apron cap would legalise a grade along the route itself — the
+         catch ``is_apron_corridor_crossing`` was written for.
+      2. STAND.  The PAD↔centerline chord: a building FRONTAGE chord, or
+         the VISIBLE nearest-spine chord (A4.1(i), one per vertex) OF A
+         PAD-ANCHORED VERTEX.  "The 1 % stand chords are the PAD-ANCHORED
+         vertex→centerline chords; non-pad vertices take the corridor cap"
+         (RULINGS 2026-08-24c).  This is the only class that keeps 1 %, and
+         it keeps it at any length, which is A4.1 and 2026-08-21d agreeing
+         (21d refuted the blanket PAD CLAMP on arbitrary long pairs, never
+         the one nearest-spine chord a pad vertex is owed).  A NON-pad
+         vertex's nearest-spine chord falls to CORRIDOR.
+      3. BACK_EDGE.  Wholly inside one fan-ramp back-edge zone
+         (2026-08-24), or beyond ``APRON_BODY_CHORD_MAX_M`` — the latter
+         being the A3 / 21d classes the 60 m body gate has always held out
+         of the strict chain (HECA -10612's 650-857 m "edges" over an
+         11.7 m fall; the 118-847 m fan from one pad vertex).  Below the
+         movement surfaces in precedence because a zone is cut CLEAR of
+         them by construction.
+      4. CORRIDOR.  Everything else on an apron JOINED to the corridor
+         network.  This is the ruling's substance: "unless there is a
+         pavement gap there are NO cliffs in aprons… an apron spanning
+         between two lawful 1.5 % taxiways lawfully runs ~1.5 % itself".
+      5. BODY.  An apron the reader cannot show is corridor-connected has
+         no corridor cap to inherit and keeps its own body cap.  The
+         strict fallback, and what a legacy caller supplying no
+         membership sees.
+    """
+    if p.spine_caps:
+        return APRON_CLASS_SPINE
+    if is_frontage_chord(p):
+        return APRON_CLASS_STAND
+    if p.nearest_spine:
+        # ── STAND SCOPE IS PAD-ANCHORED (owner ruling RULINGS 2026-08-24c,
+        # confirming the proposal this lane measured) ────────────────────
+        # A4.1(i) assigns a nearest-spine chord to EVERY apron ring vertex,
+        # pad or not.  The owner's 1 % is the PAD↔CENTERLINE (stand) chord:
+        # "non-pad vertices take the corridor cap".  So the A4.1(i)
+        # population SPLITS here — the chord is still one per vertex and
+        # still has no length gate (that is A4.1 and 2026-08-21d agreeing);
+        # only its CAP depends on whether the vertex it starts from is a
+        # pad vertex.
+        #
+        # PAD-ANCHORED reuses the FRONTAGE-VERTEX predicate
+        # (``frontage_vertex_keys``, production's own ``anchors._frontage_
+        # box``) — the same set that already decides ``a_frontage`` — plus
+        # a raw building-ring endpoint.  No new notion of "on a pad".
+        #
+        # MEASURED BASIS (this lane, v2, HECA): the stand class carried
+        # 1,751 of 1,752 apron airside rows and ~40 % of them started from
+        # a vertex that fronts no building at all.
+        # FRONTAGE-ONLY (lead ruling 2026-08-24, narrowing this lane's
+        # first cut).  ``building_keys`` is NOT consulted: ``build_context``
+        # widens that set by SNAPPING every soft vertex within a tolerance
+        # of a pad boundary into it, so "or a building key" re-admitted
+        # most of the apron and the stand class did not shrink at all
+        # (HECA v3 measured 1,793 of 1,795 apron rows still at 1 %, against
+        # 1,751 before the split).  The frontage-vertex set is the
+        # predicate the spec named and the only one that means "this vertex
+        # is part of a pad's frontage".
+        # ── THE CHORD TARGET (owner ruling RULINGS 2026-08-25) ────────
+        # "The anchor set is BOTH the building pads and the taxiway
+        # centerline nodes — whichever is closer wins… the pad is a
+        # first-class chord target, not merely an interceptor when it
+        # happens to lie in the path."  A chord whose target IS a pad is
+        # therefore a PAD↔apron stand chord and prices in THIS class —
+        # the same class the 2026-08-21f interception already priced its
+        # replacement chord to, now reached by the target rather than by
+        # the accident of standing in the path.  A chord to a CENTERLINE
+        # keeps the 2026-08-24c reading below unchanged.
+        if p.nearest_anchor_pad:
+            return APRON_CLASS_STAND
+        if p.a_frontage or p.b_frontage:
+            return APRON_CLASS_STAND
+        # A non-pad vertex's chord to its centerline IS corridor travel,
+        # so it takes the corridor cap directly — it reaches a spine by
+        # construction, which is what corridor-connectedness means.
+        return APRON_CLASS_CORRIDOR
+    if not _within_body_chord_gate(p) or p.in_interior_zone:
+        return APRON_CLASS_BACK_EDGE
+    if p.corridor_connected:
+        return APRON_CLASS_CORRIDOR
+    return APRON_CLASS_BODY
+
+
 def is_apron_in_strip(p: "PairContext") -> bool:
     """The pair has an endpoint inside the RUNWAY STRIP footprint (A4.2).
 
@@ -2998,37 +3164,45 @@ def is_apron_in_strip(p: "PairContext") -> bool:
 
 
 def is_apron_interior(p: "PairContext") -> bool:
-    """THE interior-apron predicate (RULINGS 2026-08-21c; spec A1 §1a as
-    CORRECTED by AMENDMENT A2): an apron pair that is not a MOVEMENT SURFACE.
+    """THE 5 %-CLASS predicate — the pairs priced at ``APRON_INTERIOR_CAP``.
 
-    Its cap is ``APRON_INTERIOR_CAP`` (5 %) instead of the shape's strict body
-    cap.  The movement surfaces, which keep the strict cap, are:
+    Its consumers are the cap chain in :func:`classify_pair` and the apron
+    STAGED SOLVE's partition (``grade_graph`` records it index-parallel to
+    the edges; the staged pass withholds exactly these from its senior
+    sub-stage).  Both reach it through the ONE classifier,
+    :func:`apron_pair_class`, so the partition and the cap cannot drift.
 
-      * a FRONTAGE CHORD (``is_frontage_chord`` — building seat to the spine
-        it grades to), ring-adjacent or not;
-      * a ring FRONTAGE EDGE (both endpoints frontage vertices);
-      * a ring CORRIDOR-CROSSING edge (both endpoints inside the spine
-        corridor cover).
+    ── THE HISTORY THIS PREDICATE HAS TRACKED ──────────────────────────
+    RULINGS 2026-08-21c / spec A1 §1a made it "an apron pair that is not a
+    MOVEMENT SURFACE", priced at the fan-ramp cap; A2/A3 corrected which
+    pairs those were (a ring edge between two non-frontage vertices IS a
+    generic pair, and R19-5's catch survives at 5 % — a 148 % ring edge
+    still mints its row); A4.1 restated the strict set as its three names.
 
-    A2 CORRECTED A1 §1a, which had kept EVERY ring-adjacent pair strict on
-    R19-5 grounds ("the bake never removes a ring edge from the domain", lead
-    2026-08-12).  Compose-v2 measured what that cost: HECA was +112 over its
-    bar and ~648 of those rows were apron ring edges over the strict 1 %,
-    while NOT ONE violation on any airport carried the 5 % cap.  Under
-    2026-08-21b a ring edge between two non-frontage vertices IS a generic
-    pair, and R19-5's catch survives intact at 5 % — the edge stays in the
-    domain and a 148 % ring edge still mints its row.
+    RULINGS 2026-08-24 RESCOPED the 5 % class to the fan-ramp BACK-EDGE
+    ZONES.  Measured basis (the owner's HECA in-sim review): the broad
+    5 % interior let whole rings DRAPE onto the DEM — apron median
+    height-above-DEM 2.92 -> 1.99 m, ring relief +19 %, site -10682 down
+    7.3 m.  The plateau had no authority.
 
-    Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws are
-    UNCHANGED (ruling 2026-08-21b clause 4, unamended)."""
+    RULINGS 2026-08-24b (NO PLATEAUS) then removed the plateau framing
+    altogether and with it the last ambiguity here.  With the
+    corridor-connected apron body priced at the LOCAL CORRIDOR CAP rather
+    than at the shape's body cap, "interior" stops meaning "not a movement
+    surface" and starts meaning exactly what every consumer uses it for:
+    the 5 % class.  That is ``apron_pair_class == APRON_CLASS_BACK_EDGE``
+    — the back-edge zones, plus the pairs beyond
+    ``APRON_BODY_CHORD_MAX_M`` that the 60 m body gate has always held out
+    of the strict chain (A3's -10612 ring "edges" of 650-857 m over an
+    11.7 m fall; 21d's 118-847 m fan from one pad vertex).  Both of those
+    are REFUTED classes and neither is re-opened by any of the above.
+
+    Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws
+    are UNCHANGED (ruling 2026-08-21b clause 4, unamended).
+    """
     if not (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE):
         return False
-    # AMENDED BY A4.1: interior is simply "not one of the three strict
-    # classes".  A2/A3's frontage-edge and corridor-crossing clauses are
-    # subsumed by (iii) — a ring edge inside the body gate — so they are no
-    # longer asked separately; ``is_apron_corridor_crossing`` survives as the
-    # spine/cover reader the strict predicate and the reports still use.
-    return not is_apron_strict_chord(p)
+    return apron_pair_class(p) == APRON_CLASS_BACK_EDGE
 
 
 def classify_pair(p: PairContext) -> Optional[Allowance]:
@@ -3148,8 +3322,59 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     # are the heaviest constraint" (user 2026-07-02) is a statement about the
     # chords a building is GRADED TO — the strict classes — not about every
     # chord that happens to touch a pad.
-    if is_apron_interior(p):
+    #
+    # RESCOPED, RULINGS 2026-08-24: the branch fires only for a
+    # BACK-EDGE-ZONE pair, or for one beyond the 60 m body gate (the A3 /
+    # 21d refuted classes).
+    #
+    # ── NO PLATEAUS (owner ruling RULINGS 2026-08-24b) ─────────────────
+    # THE WHOLE APRON CAP CHAIN IS THE CLASSIFIER'S ANSWER.  Owner,
+    # verbatim: "unless there is a pavement gap there are NO cliffs in
+    # aprons.  The centerline network traverses the terrain within its own
+    # caps (1.5 % taxiway); aprons connect to taxiways and conform
+    # continuously."  So an interior chord on a CORRIDOR-CONNECTED apron
+    # inherits the LOCAL CORRIDOR CAP — an apron spanning between two
+    # lawful 1.5 % taxiways lawfully runs ~1.5 % itself — and the strict
+    # 1 % belongs to the STAND chords (pad ↔ centerline) alone.
+    #
+    # MEASURED BASIS FOR THE AMENDMENT (this lane, v1, HECA): pricing the
+    # whole non-back-edge interior at the 1 % body cap put HECA at 2,138
+    # airside against a 1,487 bar, and it did NOT lift the surface — the
+    # apron came up 0.43 m while ring relief and 50 m amplitude both got
+    # WORSE.  1,941 apron rows all carried cap 1.00 % and not one carried
+    # 5 %.  A cap the surface cannot meet is not authority, it is sag.
+    #
+    # NO NEW NUMBER: ``TAXI_MAX_GRADE`` is the corridor's own cap, the same
+    # constant the apron↔taxi blend credit already hands a ring edge that
+    # nears a taxiway, and the same one ``ROLE_GRADE_LIMITS`` gives the
+    # junction network.
+    # ONE KILL SWITCH, ONE MEANING.  ``O4_APRON_INTERIOR_RAMP_CAP=0``
+    # restores the pre-2026-08-21c ALL-STRICT reading (the 2026-08-21
+    # battery), so it gates the WHOLE apron chain — back-edge, corridor
+    # and stand alike — and every apron pair falls through to the plain
+    # spine / blend / body chain below.  Gating only the 5 % branch would
+    # leave the flag half-honouring its own documented promise, which is
+    # the silent-flag-drift class the rename note above exists for.
+    _apron_class = (apron_pair_class(p)
+                    if (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE)
+                    else None)
+    if _apron_class == APRON_CLASS_BACK_EDGE:
         return Allowance.flat(APRON_INTERIOR_CAP)
+    if _apron_class == APRON_CLASS_CORRIDOR:
+        # The corridor-connected body.  Returned HERE, like the back-edge
+        # branch and for the same reason (A4's correction): falling through
+        # would let the blanket pad clamp below pull it back to 1 %, which
+        # is exactly the "every chord that happens to touch a pad" rule
+        # 2026-08-21d refuted.
+        return Allowance.flat(TAXI_MAX_GRADE)
+    if _apron_class == APRON_CLASS_STAND:
+        # "The 1 % strict cap belongs to the pad↔centerline (stand)
+        # chords."  Stated as the cap rather than left to the chain below,
+        # so a stand chord inside a service-road carve or under a blend
+        # cannot be relaxed off it — buildings remain the heaviest
+        # constraint (user 2026-07-02) and this is the class that sentence
+        # was always about.
+        return Allowance.flat(BUILDING_FRONTAGE_MAX_GRADE)
 
     # CAP selection — base cap (first match wins):
     # — a spine pair keeps its route's per-letter taxi cap (looser of the shared

@@ -35,6 +35,7 @@ from .anchors import (
     build_nobuilding_apron_seats,
     reseat_service_mouths as _reseat_service_mouths,
     build_apron_contact_floors, building_spine_floor, node_bands, reach_band_for)
+from . import pad_seat_consistency as _psc
 from .one_solve import (envelope_from_band_enabled, one_profile_solve,
                         price_slab_against_law,
                         route_metric_envelope_enabled,
@@ -3734,6 +3735,64 @@ def solve_route_profile(layout, icao: str,
                 pass
         _psub(0.62, "Solving elevations — spine profile solved")
 
+        # ── PAD-SEAT CONSISTENCY (spec docs/specs/pad-seat-consistency-
+        # spec.md; owner direction "pads seated at the elevation that
+        # enables the 1 % cap"; creation-order seniority RULINGS
+        # 2026-08-21e) ────────────────────────────────────────────────
+        # The seat chosen at ``build_building_seats`` time is PROVISIONAL:
+        # it was picked from the reach band, a FEASIBILITY interval 7-34 m
+        # wide, with no reference to where the corridor actually solves —
+        # and the chord law then judges the pad's frontage against that
+        # solved corridor with a 0.13-1.06 m budget (findings
+        # apron-membrane-findings-20260824 §3-4: 100 % of HECA's violating
+        # pads sit lawfully INSIDE their band; the band is right but not
+        # BINDING).
+        #
+        # WHY HERE — the same slot, and the same recorded reason, as the
+        # 24c scaffold seed immediately below: neither anchor source exists
+        # earlier.  The corridor profiles are minted by
+        # ``_solve_spine_profile`` one statement above; the seats and their
+        # frontage provenance by ``build_building_seats`` far above.  This
+        # must run BEFORE the scaffold seed reads ``building_seats`` so the
+        # membrane anchors on the NARROWED values.
+        #
+        # Phase A held the seats hard, so its corridor was if anything
+        # dragged TOWARD the seat — clamping toward that corridor strictly
+        # reduces the priced inconsistency (spec ruling §4).
+        #
+        # §2 — DEM IS LAST PRIORITY (owner ruling RULINGS 2026-08-25 second
+        # ruling, spec §2, ``O4_DEM_LAST_SEAT_BIAS``).  SAME SLOT, same
+        # chassis, different interval SOURCE: the pad's own §1 anchor
+        # neighbourhood (``G.anchor_chords`` — the ONE nearest-anchor
+        # enumeration's output, in this solve's node space) instead of its
+        # frontage attachment records.  The seat then takes the level
+        # inside its band box that minimises the chord residual, with the
+        # band's DEM-biased choice as the LAST tiebreaker.
+        _psc_dem_last = _psc.dem_last_seat_bias_enabled()
+        if _psc.pad_seat_consistency_enabled() or _psc_dem_last:
+            # The nodes whose ``elev`` currently HOLDS the seat: exactly the
+            # hard-stamp loop's own condition, re-expressed (never a second
+            # predicate).  A seat node outside it keeps the seeder's value
+            # today and keeps it after narrowing.
+            _psc_stamped = {i for i, _lv in building_seats.items()
+                            if i < n and _lv is not None
+                            and i in u_spine_adj and i not in _seam_pin_idx}
+            _psc_report = _psc.apply_pad_seat_consistency(
+                layout, elev, building_seats, n,
+                stamped=_psc_stamped, yield_idx=_seat_yield_idx,
+                anchor_chords=(list(G.anchor_chords) if _psc_dem_last
+                               else None),
+                # THE ANCHORS THAT ACTUALLY CARRY A SOLVED VALUE HERE:
+                # phase A's own set (the corridor ``_solve_spine_profile``
+                # just minted) plus the seats it stamped hard.  Everything
+                # else in ``elev`` is still the DEM SEED at this slot, and
+                # a residual measured against a seed is a residual against
+                # DEM — the very quantity this ruling demotes to LAST.
+                solved_nodes=((set(u_spine_nodes) | _psc_stamped)
+                              if _psc_dem_last else None))
+            if _psc_report["units"]:
+                _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
+
         # (The sloping-rect flat-end stamp that lived here was RETIRED by
         # spec §10.2 — the global slice emits no rect roles and no end
         # caps; role census across all fixtures measured zero.)
@@ -3765,6 +3824,45 @@ def solve_route_profile(layout, icao: str,
                 f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
                 f"{len(_body_adj)} node(s) after excluding "
                 f"{len(_svc_pairs)} service spine pair(s)")
+        # ── THE SCAFFOLD SEED (owner ruling RULINGS 2026-08-24c) ──────
+        # "Aprons are graded like taxiways and runways — the taut membrane
+        # on the scaffold, never a DEM drape."  The apron interior is
+        # re-seated HERE, on the CHEBYSHEV CENTRE of the cap-Lipschitz
+        # envelope of the centerline profile values (just solved by phase
+        # A, one statement above) and the seated pads.
+        #
+        # WHY HERE AND NOT IN THE SEEDER — a recorded deviation from the
+        # ruling's literal wording, kept because the alternative is worse.
+        # Neither anchor source exists at ``_seed_elevations`` time: the
+        # centerline profiles are minted by ``_solve_spine_profile``
+        # immediately above, the seats by ``build_building_seats``, and
+        # both depend on the reach band and the unified graph, which depend
+        # on the node list the seeder is building.  The solver runs once,
+        # so no warm start carries them.  Seeding the scaffold before its
+        # anchors exist would need a second, pre-solve taxi-profile
+        # authority — which the engine's single-source law forbids.  So the
+        # DEM branch in the seeder is a placeholder and this overwrites it,
+        # the same idiom the adjacent-ground zone seed uses right after the
+        # seeder.
+        #
+        # ``base_hard`` IS NOT TOUCHED.  Every re-seated node stays FREE, so
+        # the projection below still cuts the membrane into a hill or
+        # raises it over a hollow to hold the caps — the owner's addendum.
+        # A node no anchor reaches keeps its DEM seed and stays free too,
+        # which is that addendum's pad-less-apron case exactly.
+        from . import scaffold_seed as _scaffold
+        from .one_solve import _build_adjacency as _sc_build_adj
+        if _scaffold.APRON_SCAFFOLD_SEED and apron_body:
+            _sc_adj = _sc_build_adj(shape_constraints, n)
+            _sc_anchor = _scaffold.scaffold_anchor_values(
+                _body_nodes, elev, building_seats, n=n)
+            _sc_report = _scaffold.scaffold_seed_apron_interior(
+                elev, adjacency=_sc_adj, anchor_values=_sc_anchor,
+                interior_nodes=apron_body, node_band=node_band)
+            if _sc_report["seeded"] or _sc_report["no_anchor_reach"]:
+                _UI_env.vprint(1, _scaffold.format_report(icao, _sc_report))
+            setattr(layout, "_scaffold_seed_report", _sc_report)
+
         n_free = one_profile_solve(
             elev, shape_constraints, base_hard, nodes, dem_elev,
             runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
@@ -8576,6 +8674,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
                                   apron_interior_pairs=_fp_interior,
+                                  apron_excluded_nodes=set(
+                                      getattr(G, "apron_excluded_nodes",
+                                              None) or ()),
                                   staged_report=_fp_staged_report,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
@@ -8627,10 +8728,31 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         # a DIFFERENT partition from the one that ran — 2,395/751 against
         # the runtime's 2,962/83.  A partition nobody solved is not
         # evidence about the solve.
+        # A4.2's EXCLUDED nodes (owner ruling RULINGS 2026-08-21d, wired
+        # 2026-08-24): an apron node inside the runway strip has NO apron
+        # law, so its pairs never reach ``G.edges`` and the edge-derived
+        # domain above cannot contain it.  The graph accumulated them at
+        # mint; they enter the partition here as the third seniority value.
+        _excl = set(getattr(G, "apron_excluded_nodes", None) or ())
+        _ap_nodes |= _excl
         _sen = dict(_fp_staged_report.get("seniority") or {}) \
             if isinstance(_fp_staged_report, dict) else {}
         if not _sen:
-            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
+            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes,
+                                               excluded_nodes=_excl)
+        elif _excl:
+            # The RUNTIME partition is the one that ran (ONE PARTITION
+            # INPUT), but the staged pass only ever sees nodes that carry
+            # law edges.  Re-run THE ONE FUNCTION over the runtime answer
+            # so the excluded value is applied by the law, not spelled
+            # again here: senior/interior nodes keep their runtime verdict
+            # (they enter as strict pairs / transect nodes accordingly).
+            _sen = _GLsen.apron_node_seniority(
+                set(_sen) | _excl,
+                [(k, k) for k, v in _sen.items()
+                 if v == _GLsen.APRON_SENIOR],
+                (),
+                excluded_nodes=_excl)
         setattr(layout, "_apron_seniority_ll", [
             [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
             for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])

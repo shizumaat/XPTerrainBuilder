@@ -95,6 +95,7 @@ from .config import (
     DSF_CLUSTER_OSM_ABSORB_FRAC,
     TERM_BRIDGE_GROUPING,
     TERMINAL_SIMPLIFY_TOL_M,
+    PAD_MIN_AREA_M2,
     RUNWAY_APRON_AREA_RATIO,
     ABSORB_RUNWAY_IN_APRON,
     OSM_SMALL_ROAD_HIGHWAY_TYPES,
@@ -3018,7 +3019,7 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     TERMINAL_SIMPLIFY_TOL_M, preserve_topology=True)
                 if (simp.geom_type == "Polygon"
                         and not simp.is_empty
-                        and simp.area >= 100.0):
+                        and simp.area >= PAD_MIN_AREA_M2):
                     pad = simp
             except _GEOM_EXC:
                 pass
@@ -3138,6 +3139,42 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     f"corridor(s) ({len(terminal_polys)} → "
                     f"{len(_carved)} pads).")
                 terminal_polys = _carved
+
+    # ── THE TINY-PAD FOLD (owner ruling RULINGS 2026-08-24) ──────────
+    # A pad below ``PAD_MIN_AREA_M2`` is not an independent seat
+    # authority, so it never becomes a pad at all: no ``ROLE_BUILDING``
+    # shape ⇒ no building seat (``anchors.build_building_seats`` walks
+    # the shapes), no frontage vertex (``grade_law.frontage_vertex_keys``
+    # walks the building rings), no pad interception (A5 reads
+    # ``ctx.building_polys``, likewise built from the shapes), and no
+    # punch-out of the apron beneath it — the footprint REMAINS APRON and
+    # its ring seats with the surrounding surface.  Where the tiny pad
+    # abuts a real building, that building's weld / frontage reach
+    # already governs the same ground; no new joiner is introduced.
+    #
+    # Applied HERE — after the water clip, the kept-way re-punch and the
+    # depressed-road carve — so a pad that only FALLS below the floor as
+    # a carve remnant folds too, and ``terminal_union`` (the apron
+    # punch-out) never sees a folded pad.
+    # Exemplar: HECA -10144, 216 m², seated 2.56 m below the terminal it
+    # serves 68 m away.
+    if terminal_polys:
+        _kept_pads = [p for p in terminal_polys
+                      if p is not None and not p.is_empty
+                      and p.area >= PAD_MIN_AREA_M2]
+        _n_folded = len(terminal_polys) - len(_kept_pads)
+        if _n_folded:
+            _folded_area = sum(
+                p.area for p in terminal_polys
+                if p is not None and not p.is_empty
+                and p.area < PAD_MIN_AREA_M2)
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: {_n_folded} tiny pad(s) under "
+                f"{PAD_MIN_AREA_M2:g} m² folded into the surrounding "
+                f"surface ({_folded_area:,.0f} m² returned to apron; "
+                f"{len(terminal_polys)} → {len(_kept_pads)} pads) "
+                f"— RULINGS 2026-08-24.")
+            terminal_polys = _kept_pads
 
     terminal_union = (unary_union(terminal_polys)
                       if terminal_polys else None)

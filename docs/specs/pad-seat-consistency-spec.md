@@ -86,3 +86,47 @@ INSIDE their band; the band is right but not BINDING.
 - Usual instruments; [writeback-band] > 10 m = 0; no shared-repo
   writes; no timing. Attempt cap 2 then STOP with the joined
   seat/band/corridor table.
+
+## Implementation ruling (Fable lead, 2026-08-25 — the clause-4 verification)
+
+Clause 4's verification was run and the gap is REAL: the pipeline seats
+pads at `route_profile/solve.py:2708` and hard-stamps them
+(`seat_on_spine`, ~3029-3052) BEFORE phase A (`_solve_spine_profile`,
+~3687) mints the corridor profiles; phase A preserves the seats hard.
+Corridor values do not exist at the current seat consumption point.
+
+Ruling (adjudicated by the spec's author class per the standing
+deviation law, recorded here so the implementer decides nothing):
+
+1. The 2708 seat is PROVISIONAL. The consistency intersection binds in
+   the post-phase-A / pre-phase-B slot — the same slot, and for the same
+   recorded reason, as the 24c scaffold seed ("neither anchor source
+   exists at seeder time"). It must run BEFORE the scaffold seed reads
+   `building_seats`, so the membrane anchors on narrowed values.
+2. Provenance is captured AT SEAT TIME, per PAD UNIT (a pad is one flat
+   level — narrow the unit, never per-node): the governing anchor
+   node(s) + `route_m` from `band.attachment_at` at the SAME frontage
+   points the seat interval is intersected over
+   (`_frontage_band_records` already reads exactly this — one capture,
+   two consumers). Never a replay, never a re-derived lookup.
+3. Narrowed interval = seat box ∩ ⋂ᵢ [elev[anchorᵢ] ± cap × route_mᵢ]
+   over the pad's recorded frontage records, `elev` read AFTER phase A
+   (the solved corridor), cap = the same constant the pad reach band
+   uses (never a literal). The current seat CLAMPS into the narrowed
+   interval (v4 lesson: the band-chosen, DEM-biased seat stays the
+   authority; only the interval narrows). All of the unit's seat nodes
+   move together to the clamped level; `seat_boxes` narrows to match so
+   no downstream coupler/clamp puts the seat back.
+4. Phase-A-side consumers (`building_spine_floor`, near-miss edges,
+   hard-stamp guard) keep the provisional seat — phase A held the seat
+   hard, so its corridor was if anything dragged TOWARD the seat;
+   clamping toward that corridor strictly reduces the priced
+   inconsistency. If HECA's 525-row class does NOT collapse under this,
+   the next lever is removing seats from phase A's preserved set — that
+   is a genuine STOP-and-report, not attempt 2.
+5. Empty intersection = the existing pad-seat gate population
+   (`_publish_seat_infeasible` path): gate record + graded handoff
+   (descend at cap from the corridor side, report the residual), loud
+   line, never a silent pick.
+6. Flag `O4_PAD_SEAT_CONSISTENCY` (default ON): OFF skips capture +
+   narrowing entirely — byte-identical to today (twin d).

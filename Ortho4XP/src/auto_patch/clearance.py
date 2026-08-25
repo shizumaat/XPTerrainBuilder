@@ -1608,7 +1608,8 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
     _eat_slope, _eat_setback = eat_surface_slope_and_setback(
         getattr(layout, "icao", None))
 
-    def _collect_eat_end(end_pt, outward, runway_width, full_len):
+    def _collect_eat_end(end_pt, outward, runway_width, full_len,
+                         end_id=None):
         """One EAT-ceiling record for one runway end.
 
         ``anchor_xy`` is the FROZEN-NEAREST airside pavement ring vertex
@@ -1647,6 +1648,12 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
             "tail_height_m": float(TAIL_HEIGHT_BY_CODE_LETTER[letter]),
             "anchor_xy": (float(anchor[0]), float(anchor[1])),
             "half_width_m": float(runway_width) / 2.0,
+            # LABEL ONLY — the apt.dat row-100 designator whose
+            # threshold sits at this endpoint, so the scoping refusals
+            # (RULINGS 2026-08-25c) can name the end an owner would
+            # recognise on a chart instead of a pair of local metres.
+            # ``None`` on the no-metadata fallback path below.
+            "end_id": (str(end_id) if end_id else None),
         })
 
     # REGION RULESET (phase B): the end-skirt law is the AUTHORITY's.
@@ -2091,9 +2098,11 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                 (getattr(r, "markings_b", 0),
                  getattr(r, "approach_lights_b", 0)),
             )
-            for (end_pt, outward), (markings, lights) in zip(
+            end_desigs = (str(getattr(r, "desig_a", "") or ""),
+                          str(getattr(r, "desig_b", "") or ""))
+            for ((end_pt, outward), (markings, lights), _desig) in zip(
                     (((ax, ay), (-ux, -uy)), ((bx, by), (ux, uy))),
-                    end_metadata):
+                    end_metadata, end_desigs):
                 seed = (end_pt[0] - outward[0] * _RESA_SEED_INSET_M,
                         end_pt[1] - outward[1] * _RESA_SEED_INSET_M)
                 _emit_one_end(
@@ -2102,7 +2111,8 @@ def emit_runway_end_skirts(layout: PavementLayout, dem,
                     runway_end_approach_class(markings, lights))
                 # AUTHORITATIVE anchor for the EAT ceiling: the row-100
                 # endpoint itself (the DER), not the pavement exit.
-                _collect_eat_end(end_pt, outward, width, full_len)
+                _collect_eat_end(end_pt, outward, width, full_len,
+                                 end_id=_desig)
     else:
         # FALLBACK: detect ends from the emitted runway rects.  No
         # apt.dat metadata on this path — the blank-data ladder

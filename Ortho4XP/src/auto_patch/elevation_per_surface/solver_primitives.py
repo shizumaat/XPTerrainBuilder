@@ -2196,6 +2196,81 @@ def eat_scoping_bounds():
     return (float(EAT_MIN_CROSSING_DIST_M), float(EAT_CORRIDOR_HALF_WIDTH_M))
 
 
+def eat_scoping_far_bound(end_spec) -> float:
+    """The THIRD scoping value — ``D_clear``, the corridor's far bound
+    for one runway end (owner ruling 2026-08-25c clause 2).
+
+    The sibling of :func:`eat_scoping_bounds`'s near bound, kept apart
+    from it because it is NOT a config constant: it is
+    ``grade_law.eat_ceiling_clear_distance`` evaluated on THIS end's own
+    region slope / setback / tail height — the distance at which the
+    regulation surface has risen a whole tail above the runway end and
+    therefore binds nothing.  Recognition beyond it is vacuous by the
+    regulation's own geometry, so no new tuning constant exists to
+    tune.
+
+    ``eat_ceiling_offset`` and ``verification.check_eat_ceiling`` are
+    deliberately NOT far-bounded: the audit is a report-only reader of
+    the CEILING, and beyond ``D_clear`` that ceiling is above the runway
+    end — pavement up there that still penetrates it is a genuine
+    finding worth printing, even though no rect is pinned for it.
+    """
+    from auto_patch.grade_law import eat_ceiling_clear_distance
+    return float(eat_ceiling_clear_distance(
+        float(end_spec["slope"]), float(end_spec["setback_m"]),
+        float(end_spec["tail_height_m"])))
+
+
+def eat_wrap_crossing_stations(layout, end_spec) -> list:
+    """The along-corridor stations ``s`` at which a TAXI ROUTE crosses
+    this runway end's extended centreline — sorted, possibly empty.
+
+    THE WRAP TEST'S GEOMETRY HALF (owner ruling 2026-08-25c clause 1).
+    An end-around taxiway is a TAXIWAY that WRAPS the runway end: a taxi
+    route runs out past the end, crosses the extended centreline, and
+    comes back.  So the recognition question is not "is there pavement
+    in the corridor" (an apron under the projected centreline answers
+    yes, and LEMD's 149 false pins are exactly that) but "does a taxi
+    ROUTE cross here".
+
+    THE ROUTE SET IS THE ENGINE'S OWN — ``layout.apt_taxi_centerlines``,
+    the apt.dat row-1200 network as recognition left it, which is the
+    same set ``taxi_routing.build_taxi_route_graph``, the crown and the
+    lateral spine all read.  SERVICE routes (row 1206, ``is_service``)
+    are excluded: a ground-vehicle road carries no aircraft tail, and
+    the airside route graph withholds them for the same reason.
+
+    A crossing is a SIGN CHANGE of ``q`` between consecutive vertices of
+    one route; the station returned is the interpolated ``s`` at
+    ``q == 0``.  A route that merely touches ``q == 0`` and returns is
+    not a crossing and is not reported — recognition must under-claim,
+    never over-claim, which is the whole lesson of this round.
+    """
+    out: list = []
+    for cl in (getattr(layout, "apt_taxi_centerlines", None) or ()):
+        if getattr(cl, "is_service", False):
+            continue
+        line = getattr(cl, "line", None)
+        if line is None:
+            continue
+        try:
+            coords = list(line.coords)
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        prev = None
+        for (x, y) in coords:
+            sv, qv = eat_end_projection(end_spec, float(x), float(y))
+            if prev is not None:
+                ps, pq = prev
+                if (pq < 0.0 <= qv) or (qv < 0.0 <= pq):
+                    denom = qv - pq
+                    t = (-pq / denom) if denom else 0.0
+                    out.append(ps + t * (sv - ps))
+            prev = (sv, qv)
+    out.sort()
+    return out
+
+
 def eat_ceiling_offset(end_spec, x, y, bounds=None):
     """THE LAW at one candidate EAT vertex: the CEILING offset (m,
     normally negative) relative to the runway-END elevation that
@@ -2258,7 +2333,9 @@ def _eat_shape_may_be_governed(bbox, end_spec, bounds):
     return not (qx_lo + qy_lo > half or qx_hi + qy_hi < -half)
 
 
-def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
+def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
+                                *, have_initial=None, dem=None,
+                                tile_lat: int = 0, tile_lon: int = 0):
     """HARD-PIN values for the END-AROUND TAXIWAY anchor rect.
 
     THE LAW (owner rulings 2026-07-27, anchor-rect revision —
@@ -2320,15 +2397,96 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
     from auto_patch.config import (EAT_MIN_CROSSING_DIST_M,
                                    EAT_MIN_RUNWAY_CODE_NUMBER,
                                    EAT_RECT_MAX_ALONG_M,
-                                   EAT_RECT_SEGMENT_GAP_M)
+                                   EAT_RECT_SEGMENT_GAP_M,
+                                   EAT_SCOPING_V2_ENABLED)
     end_specs = getattr(layout, "eat_ceiling_presolve", None) or []
     cps = layout.canonical_points
     pins: dict[int, float] = {}
     pin_rect: dict[int, int] = {}
+    pin_side: dict[int, int] = {}
     min_s = float(EAT_MIN_CROSSING_DIST_M)
     gap = float(EAT_RECT_SEGMENT_GAP_M)
     max_along = float(EAT_RECT_MAX_ALONG_M)
     n_seg = n_no_anchor = n_hard_skip = n_refused_along = 0
+    # ── RECOGNITION SCOPING v2 (owner ruling 2026-08-25c) ────────────
+    # Three clauses, all of them about WHICH pavement is an end-around
+    # taxiway — the rect construction, the value formula, the region
+    # table and the contradiction guard below are untouched.  Every
+    # refusal is LOUD and names its clause: recognition that silently
+    # narrows is indistinguishable from recognition that broke.
+    v2 = bool(EAT_SCOPING_V2_ENABLED)
+    # The cut test's materiality floor (m).  Same 0.01 m the anchor
+    # envelope's ``tol`` uses — a rect that "cuts" by less than a
+    # centimetre is not cutting, it is rounding.
+    cut_tol = 0.01
+    scope_refusals: list = []          # (end_label, d_mid, reason)
+    n_scope_pins_lost = 0
+    # ── THE SCOPE VERDICT IS CARRIED, BY CANONICAL POINT ─────────────
+    # ``final_grade_projection`` re-runs this seeder with NO dem (it
+    # takes a ``dem`` parameter and does not pass it on), so a later
+    # pass cannot re-price clause 3 — it has no reference to price
+    # against — and would happily re-pin a rect the DEM-bearing pass
+    # refused.  That is exactly the defect the contradiction guard's
+    # carried verdict exists for, one law over: the verdict is recorded
+    # by CANONICAL POINT (never by node index — every later pass
+    # rebuilds the node list on a GROWN layout, so index ``i`` no longer
+    # names the node it named) and re-read here on every pass.
+    # Clauses 1 and 2 are pure geometry and would reproduce themselves
+    # anyway; carrying all three keeps ONE verdict rather than two
+    # rules about which refusals stick.
+    scope_refused_keys = set(
+        getattr(layout, "_eat_scope_refused_keys", None) or ())
+    n_scope_carried = 0
+    new_scope_keys: set = set()
+    key_of: dict[int, object] = {}
+    # ── THE UNCONSTRAINED REFERENCE clause 3 prices against ──────────
+    # ⚠ THE PIN SITE RUNS BEFORE THE DEM SEED, not after it.  This
+    # builder is called once every SENIOR PIN family has stamped, but
+    # ``_seed_elevations``' per-vertex DEM pass and its nearest-hard
+    # backfill are ~130 lines BELOW — so ``elev[i]`` at a candidate EAT
+    # vertex is still the array's initial 0.0 unless a warm start or a
+    # senior pin authored it.  Reading it raw would price every rect
+    # against zero and refuse the whole feature.
+    #
+    # The reference is therefore resolved the way the node WILL be
+    # seeded, through the SAME sampler the seeding pass uses
+    # (``elevation._sample_dem``, same dem / tile / lat-lon path — one
+    # notion of "the level this pavement sits at absent the pin", never
+    # two):
+    #   1. the value the node already CARRIES, when a senior family or
+    #      a warm start authored one (``have_initial``);
+    #   2. otherwise its per-vertex DEM sample — which is exactly the
+    #      "DEM-seeded pavement" the LEMD attribution measured the false
+    #      pins 59-66 m above;
+    #   3. otherwise NOTHING.  A node with no reference is not a witness
+    #      for or against the cut, and a rect with no witness at all
+    #      keeps its pin — a missing reference is honest, never a
+    #      silent refusal (the unpriceable-pin lesson, 2026-08-21).
+    from auto_patch.elevation import _sample_dem as _eat_sample_dem
+    ref_of: dict[int, float] = {}
+
+    def _eat_reference(i, x, y):
+        """The node's unconstrained level, or ``None`` if it has none."""
+        if have_initial is not None and i < len(have_initial) \
+                and have_initial[i]:
+            return float(elev[i])
+        if dem is None:
+            return None
+        try:
+            lat, lon = layout.m_to_ll(float(x), float(y))
+            e = _eat_sample_dem(dem, tile_lat, tile_lon, lat, lon)
+        except _GEOM_EXC:                              # pragma: no cover
+            return None
+        return None if e is None else float(e)
+
+    def _refuse(seg, d_mid):
+        """Book one REFUSED candidate rect: its vertex count, and its
+        canonical points into the carried verdict.  The reason line is
+        appended by the clause, which is the only thing that differs."""
+        nonlocal n_scope_pins_lost
+        n_scope_pins_lost += len(seg)
+        new_scope_keys.update(key_of[_i] for (_sv, _i, _q) in seg
+                              if _i in key_of)
     # ── THE CONTRADICTION GUARD'S CARRIED VERDICT (docs/specs/
     # eat-anchor-contradiction-guard-spec.md) ────────────────────────
     # The guard is priced ONCE, in the solve, on the graph phase A
@@ -2363,7 +2521,14 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
             continue
         end_elev = float(elev[j])
         bounds = (min_s, float(half))
-        members: list[tuple[float, int]] = []       # (s, node_index)
+        # CLAUSE 2 — the vacuous-surface far bound, from THIS end's own
+        # region constants, and CLAUSE 1's crossing stations, resolved
+        # ONCE per end (the route sweep is O(centreline vertices) per
+        # runway end, a handful of thousand points on a large airport).
+        d_clear = eat_scoping_far_bound(spec) if v2 else float("inf")
+        cross_s = eat_wrap_crossing_stations(layout, spec) if v2 else ()
+        end_label = str(spec.get("end_id") or "?")
+        members: list[tuple[float, int, float]] = []   # (s, node, q)
         seen: set[int] = set()
         for s in layout.shapes:
             if s.role not in EAT_CEILING_ROLES:
@@ -2377,7 +2542,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                 coords = _open_ring(list(s.polygon.exterior.coords))
             except _GEOM_EXC:
                 continue
-            shape_members: list[tuple[float, int]] = []
+            shape_members: list[tuple[float, int, float]] = []
             for (x, y) in coords:
                 sv, qv = eat_end_projection(spec, x, y)
                 if sv < min_s or abs(qv) > bounds[1]:
@@ -2389,10 +2554,22 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                     # the segment's extent or shift its D_mid either.
                     n_guard_refused += 1
                     continue
+                if v2 and _key in scope_refused_keys:
+                    # REFUSED RECOGNITION on an earlier (DEM-bearing)
+                    # pass: not a member, so it stretches no segment
+                    # and shifts no ``D_mid`` either.
+                    n_scope_carried += 1
+                    continue
                 i = bucket_to_idx.get(_key)
                 if i is None or i in seen:
                     continue
-                shape_members.append((sv, i))
+                shape_members.append((sv, i, qv))
+                if v2:
+                    key_of[i] = _key
+                    if i not in ref_of:
+                        _r = _eat_reference(i, x, y)
+                        if _r is not None:
+                            ref_of[i] = _r
             if not shape_members:
                 continue
             # FALSE-EAT GUARD 2, per SHAPE: a single shape whose
@@ -2404,12 +2581,12 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
             # facility, never an EAT — the whole shape is refused, and
             # its vertices stay unclaimed so a genuine crossing shape
             # sharing a weld vertex can still take it.
-            s_lo = min(v for v, _i in shape_members)
-            s_hi = max(v for v, _i in shape_members)
+            s_lo = min(v for v, _i, _q in shape_members)
+            s_hi = max(v for v, _i, _q in shape_members)
             if s_hi - s_lo > max_along:
                 n_refused_along += 1
                 continue
-            seen.update(i for _v, i in shape_members)
+            seen.update(i for _v, i, _q in shape_members)
             members.extend(shape_members)
         if not members:
             continue
@@ -2430,12 +2607,69 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
             if seg[-1][0] - seg[0][0] > max_along:
                 n_refused_along += 1
                 continue
-            n_seg += 1
             d_mid = 0.5 * (seg[0][0] + seg[-1][0])
             value = end_elev + float(_eat_pavement_ceiling(
                 d_mid, spec["slope"], spec["setback_m"],
                 spec["tail_height_m"]))
-            for (_sv, i) in seg:
+            if v2:
+                # ── CLAUSE 2 — VACUOUS-SURFACE FAR BOUND ───────────
+                # Judged RECT-LEVEL on the rect's NEAR edge: a rect
+                # lying WHOLLY beyond ``D_clear`` is under a surface
+                # that has already cleared the tallest tail, so the
+                # regulation binds nothing there and recognition is
+                # vacuous.  A rect that straddles the bound keeps its
+                # geometry and is judged by clause 3 instead — its
+                # value is then within a tail of the runway end, which
+                # is exactly the case the cut test decides.
+                if seg[0][0] > d_clear:
+                    scope_refusals.append((
+                        end_label, d_mid,
+                        f"beyond D_clear={d_clear:.0f} m "
+                        f"(rect starts at {seg[0][0]:.0f} m; the "
+                        f"surface has cleared the "
+                        f"{float(spec['tail_height_m']):.1f} m tail)"))
+                    _refuse(seg, d_mid)
+                    continue
+                # ── CLAUSE 1 — ROUTED WRAP (geometry half) ─────────
+                # A TAXI CENTRELINE must cross the extended centreline
+                # at this rect.  The window is the rect's own extent
+                # widened by the segmentation gap — the same constant
+                # that decides "one crossing" along ``s``, so a
+                # decimated ring whose vertices straddle the true
+                # crossing still finds it, and no new number is born.
+                if not any(seg[0][0] - gap <= c <= seg[-1][0] + gap
+                           for c in cross_s):
+                    scope_refusals.append((
+                        end_label, d_mid,
+                        "no through-centerline in the corridor "
+                        f"({len(cross_s)} taxi-route crossing(s) at "
+                        f"this end, none within "
+                        f"[{seg[0][0] - gap:.0f},"
+                        f"{seg[-1][0] + gap:.0f}] m)"))
+                    _refuse(seg, d_mid)
+                    continue
+                # ── CLAUSE 3 — CUT-ONLY PIN ────────────────────────
+                # The regulation is a CEILING.  The rect is stamped
+                # FLAT at ONE value, so "does it cut?" is a question
+                # about the RECT (the 2026-08-21 rect-refusal ruling):
+                # if the value sits ABOVE the pavement's unconstrained
+                # reference EVERYWHERE it would stamp, it lifts
+                # pavement into the air and pins nothing.  The
+                # reference is ``ref_of`` — see the block at the top of
+                # this function for why it is NOT ``elev[i]`` raw.
+                refs = [ref_of[i] for (_sv, i, _q) in seg
+                        if not is_hard[i] and i in ref_of]
+                if refs and value >= max(refs) - cut_tol:
+                    scope_refusals.append((
+                        end_label, d_mid,
+                        f"regulation above reference by "
+                        f"+{value - max(refs):.1f} m everywhere "
+                        f"(value {value:.2f} m vs highest reference "
+                        f"{max(refs):.2f} m over {len(refs)} node(s))"))
+                    _refuse(seg, d_mid)
+                    continue
+            n_seg += 1
+            for (_sv, i, qv) in seg:
                 if is_hard[i]:
                     n_hard_skip += 1
                     continue
@@ -2443,6 +2677,47 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
                 if prev is None or value < prev:
                     pins[i] = float(value)
                     pin_rect[i] = n_seg
+                    if v2:
+                        # The SIDE of the extended centreline this node
+                        # sits on, in the frame of the end whose value
+                        # won — the wrap test's connectivity half reads
+                        # it at the guard site, where the law graph
+                        # exists.  Gate OFF publishes NOTHING, so the
+                        # both-sides law stays unarmed there.
+                        pin_side[i] = 1 if qv >= 0.0 else -1
+    if v2 and new_scope_keys:
+        # A node whose rect ANOTHER end recognised and pinned is not a
+        # refused vertex — two ends' corridors can cover one crossing
+        # (the lower value wins), and carrying the losing end's refusal
+        # would delete on the NEXT pass a pin this one just made.  The
+        # verdict recorded is the one the build actually acted on.
+        new_scope_keys -= {key_of[i] for i in pins if i in key_of}
+    if v2 and new_scope_keys:
+        layout._eat_scope_refused_keys = (  # type: ignore[attr-defined]
+            scope_refused_keys | new_scope_keys)
+    if n_scope_carried:
+        import O4_UI_Utils as _UI_eatc
+        _UI_eatc.vprint(1,
+            f"    [eat-scope] {n_scope_carried} vertex read(s) skipped "
+            f"on the CARRIED recognition verdict (rects refused on an "
+            f"earlier, DEM-bearing pass; carried by canonical point "
+            f"across the node-list rebuild).")
+    if scope_refusals:
+        # LOUD, one line per refused rect, naming the clause — the
+        # acceptance evidence for this round is "every former rect
+        # appears here", so this is never summarised away.
+        import O4_UI_Utils as _UI_eats
+        _UI_eats.vprint(1,
+            f"    [eat-scope] {len(scope_refusals)} candidate rect(s) "
+            f"REFUSED recognition ({n_scope_pins_lost} vertex read(s)) "
+            f"— an end-around taxiway is a ROUTED WRAP, inside the "
+            f"surface's own reach, and its pin only CUTS "
+            f"(RULINGS 2026-08-25c).")
+        for (_lbl, _d, _why) in sorted(scope_refusals,
+                                       key=lambda r: (r[0], r[1])):
+            _UI_eats.vprint(1,
+                f"    [eat-scope]   end {_lbl}: rect at D={_d:.0f} m "
+                f"REFUSED ({_why})")
     if n_refused_along:
         try:
             import O4_UI_Utils as _UI_eatg
@@ -2469,7 +2744,8 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard):
               f"{n_no_anchor} end(s) had no resolvable anchor, "
               f"{n_refused_along} over-long segment(s) refused, "
               f"{n_guard_refused} guard-refused vertex read(s) skipped")
-    return pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along), pin_rect
+    return (pins, (n_seg, n_no_anchor, n_hard_skip, n_refused_along),
+            pin_rect, pin_side)
 
 
 def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
@@ -3502,8 +3778,11 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
     from auto_patch.config import EAT_SURFACE_CEILING_ENABLED
     if EAT_SURFACE_CEILING_ENABLED \
             and getattr(layout, "eat_ceiling_presolve", None):
-        eat_pins, _eat_counts, _eat_pin_rect = _build_eat_anchor_rect_pins(
-            layout, bucket_to_idx, elev, is_hard)
+        (eat_pins, _eat_counts, _eat_pin_rect,
+         _eat_pin_side) = _build_eat_anchor_rect_pins(
+            layout, bucket_to_idx, elev, is_hard,
+            have_initial=have_initial, dem=dem,
+            tile_lat=tile_lat, tile_lon=tile_lon)
         # ── PRE-PIN SNAPSHOT for the CONTRADICTION GUARD (docs/specs/
         # eat-anchor-contradiction-guard-spec.md) ────────────────────
         # THE LAW: an EAT pin never contradicts a senior hard runway/seam
@@ -3534,6 +3813,14 @@ def _seed_elevations(layout, nodes, bucket_to_idx,
         # refuses a WHOLE RECT — never has to re-segment the corridor.
         layout._eat_anchor_pin_rect = dict(  # type: ignore[attr-defined]
             _eat_pin_rect)
+        # ROUTED WRAP, connectivity half (owner ruling 2026-08-25c
+        # clause 1): the SIDE of the extended centreline each pin sits
+        # on, published beside the rect in the same breath.  The guard
+        # site prices "both sides reach a runway anchor" on the law
+        # graph — the only place that graph exists — and needs the side
+        # the pin builder already knew, never a re-derivation of it.
+        layout._eat_anchor_pin_side = dict(  # type: ignore[attr-defined]
+            _eat_pin_side)
         if eat_pins:
             existing_pin_idx = getattr(layout, "_seam_pin_idx", None)
             layout._seam_pin_idx = (  # type: ignore[attr-defined]

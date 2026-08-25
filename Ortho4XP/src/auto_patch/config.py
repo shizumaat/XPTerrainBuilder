@@ -252,6 +252,7 @@ __all__ = [
     "TAIL_HEIGHT_BY_CODE_LETTER",
     "TAXIWAY_WINGTIP_MARGIN_M",
     "EAT_SURFACE_CEILING_ENABLED",
+    "EAT_SCOPING_V2_ENABLED",
     "EAT_FAA_DEPARTURE_SLOPE",
     "EAT_FAA_SETBACK_M",
     "EAT_EASA_TAKEOFF_CLIMB_SLOPE",
@@ -5058,6 +5059,38 @@ TAIL_HEIGHT_BY_CODE_LETTER = {
 # ``check_eat_ceiling`` audit — never a silent grade break.
 EAT_SURFACE_CEILING_ENABLED = (
     _os.environ.get("O4_EAT_SURFACE_CEILING", "1") == "1")
+
+# ── EAT RECOGNITION SCOPING v2 (owner ruling 2026-08-25c) ────────────
+# DEFAULT ON.  The anchor-rect MECHANISM (the rect, the value formula,
+# the region table, the contradiction guard) is untouched by this gate —
+# what it changes is WHICH pavement is recognised as an end-around
+# taxiway at all, in three clauses:
+#
+#   1. ROUTED WRAP — the corridor must be crossed by a TAXI CENTRELINE
+#      (the engine's own route set, service routes excluded) whose two
+#      sides both reach a runway anchor on the law graph.  An apron or
+#      junction ring lying under the projected centreline with no
+#      through-centreline is NOT an EAT, whatever its geometry.
+#   2. VACUOUS-SURFACE FAR BOUND — nothing is recognised beyond
+#      ``grade_law.eat_ceiling_clear_distance`` (setback + tail/slope),
+#      where the regulation surface has cleared the tallest tail and so
+#      binds nothing.  No new tuning constant: it is the law's own root.
+#   3. CUT-ONLY PIN — the regulation is a CEILING, so a rect pins only
+#      where it CUTS.  A rect whose value sits ABOVE its pavement's
+#      unconstrained reference EVERYWHERE pins nothing (rect-level, per
+#      the 2026-08-21 rect-refusal ruling); pavement is never LIFTED
+#      into the air to meet the surface.
+#
+# Measured basis (LEMD +40-004, 2026-08-25): 149 pins over 10 crossing
+# segments on plain apron/junction rings at 1.0-4.6 km, 59-66 m above
+# the adjacent DEM-seeded pavement; every one of the 12 contradictory
+# final-band anchor pairs was EAT-pin vs EAT-pin, and the build died on
+# the final-band inversion assert.  The owner rules LEMD HAS NO EATs.
+#
+# OFF ⇒ the 2026-07-27 recognition exactly, byte-identical (the
+# attribution arm).
+EAT_SCOPING_V2_ENABLED = (
+    _os.environ.get("O4_EAT_SCOPING_V2", "1") == "1")
 
 # FAA (North America).  AC 150/5300-13B §4.12 + FAA Order 8260.3 (TERPS)
 # departure surface: 40:1 (2.5 %) rising FROM the departure end of runway

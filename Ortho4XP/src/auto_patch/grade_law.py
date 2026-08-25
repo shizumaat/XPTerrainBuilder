@@ -2254,6 +2254,37 @@ def eat_pavement_ceiling(D_m: float, slope: float, setback_m: float,
     return rise - float(tail_height_m)
 
 
+def eat_ceiling_clear_distance(slope: float, setback_m: float,
+                               tail_height_m: float) -> float:
+    """``D_clear`` (m beyond the runway end) — the distance at which the
+    departure / take-off-climb surface has risen a WHOLE TAIL HEIGHT
+    above the runway end, i.e. the root of :func:`eat_pavement_ceiling`::
+
+        ceiling(D_clear) = 0   ⇔   D_clear = setback + tail / slope
+
+    THE VACUOUS-SURFACE FAR BOUND (owner ruling 2026-08-25c, clause 2).
+    Beyond ``D_clear`` the regulation ceiling sits ABOVE the runway-end
+    elevation and keeps rising, so it binds no pavement that an airport
+    could plausibly build: recognising an end-around taxiway out there
+    is vacuous *by the regulation's own geometry*.  This is therefore
+    NOT a new tuning constant — it is the inverse of the law function
+    two definitions up, computed from the very same ``slope`` /
+    ``setback_m`` / ``tail_height_m`` the end already carries.
+
+    Worked values: FAA (40:1, no setback) code E ⇒ 0 + 20.1/0.025 =
+    804 m; EASA (2 %, 60 m inner edge) code F ⇒ 60 + 24.4/0.02 =
+    1280 m.  Real end-around taxiways cross far inside it — KCLT's
+    18C loop at 439-482 m — while LEMD's false pins sat at 1.0-4.6 km.
+
+    A non-positive ``slope`` (no surface at all) yields ``inf``: a
+    missing bound is honest, never a silent refusal.
+    """
+    s = float(slope)
+    if s <= 0.0:
+        return float("inf")
+    return float(setback_m) + float(tail_height_m) / s
+
+
 def ols_island_refused(max_cut_depth_m: float) -> bool:
     """Whether a contiguous penetration ISLAND is refused whole.
 

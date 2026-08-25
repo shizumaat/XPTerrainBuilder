@@ -597,23 +597,22 @@ class TestTheRoadFamilyIsChordLimited:
         assert list(ramp.node_altitudes) == before
         assert "tunnel_ramp" not in gs._CHORD_LIMIT_ROLES
 
-    def test_a_claim_touching_ROAD_ring_leaves_the_role_set(self):
+    def test_in_claim_nodes_are_private_and_the_boundary_is_severed(self):
         """§4 EXTENSION (spec
         ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``, the
-        2026-08-25 owner-ordered fix, at AMENDMENT 3 / option A).
+        2026-08-25 owner-ordered fix, at AMENDMENT 4).
 
         The role exemption above is the WRONG AXIS on its own: OTHH's
         site-1 bore floor is a ``groundside_pavement`` ring, not a
         ``tunnel_ramp``, and the unified node book handed it the
         surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
-        floor).  The scope that fixes it is the CLAIM: a ROAD ring
-        touching R14-1's OWN open-cut claim leaves ``_CHORD_LIMIT_ROLES``
-        for the pass — no key, no clamp — while ``groundside_pavement``
-        rings stay in the pass everywhere.  Three narrower rules
-        (dropping the claim-touching ring whatever its role; ring-private
-        keys for in-cut nodes; demoting the road's precedence at those
-        welds) were built, measured and refuted first — the spec's
-        do-not-retry ledger.  Full battery of twins:
+        floor).  The rule that fixes it keeps every ring in this pass and
+        withholds two things instead: an in-claim NODE's shared key, and
+        a within-ring chord pair that STRADDLES the claim boundary.  Four
+        narrower rules (dropping the claim-touching ring; private keys
+        alone; demoting the road's precedence; taking claim-touching ROAD
+        rings out of the role set) were built, measured and refuted first
+        — the spec's do-not-retry ledger.  Full battery of twins:
         ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
@@ -625,17 +624,22 @@ class TestTheRoadFamilyIsChordLimited:
         road_before = list(road.node_altitudes)
         gs._grade_limit_groundside_chords(layout)
         assert list(floor.node_altitudes) == before
-        stats = layout._chord_limit_stats
-        # the ROAD left: no shared key survives at the weld…
-        assert stats["shared_road_lot_nodes"] == 0
-        assert stats["tunnel_corridor_exempt_rings"] == {
-            "service_junction": 1}
-        # …and only the GROUNDSIDE ring is in the clamp (v1's per-ring
-        # exclusion, which removed this ring too, is retired)
-        assert stats["rings"] == {"groundside_pavement": 1}
-        # the road is not clamped by this pass at a tunnel site — the
-        # portal walk owns the cut
         assert list(road.node_altitudes) == road_before
+        stats = layout._chord_limit_stats
+        # the in-claim weld vertices are RING-PRIVATE: no shared key…
+        assert stats["shared_road_lot_nodes"] == 0
+        assert stats["nodes"] == 8, "the weld collapsed into one key"
+        assert stats["tunnel_corridor_private_nodes"] == 6
+        assert stats["tunnel_corridor_rings_touched"] == {
+            "groundside_pavement": 1, "service_junction": 1}
+        # …the ROAD carries both sides of the boundary, so its chord law
+        # is severed there…
+        assert stats["tunnel_corridor_severed_rings"] == 1
+        # …and BOTH rings are still in the clamp (v1's per-ring exclusion
+        # and option A's role exit both removed one, and both are
+        # retired)
+        assert stats["rings"] == {"groundside_pavement": 1,
+                                  "service_junction": 1}
 
 
 class TestTheCorridorChainIsOneLawObject:

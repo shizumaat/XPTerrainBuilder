@@ -28,7 +28,8 @@ USAGE
     # thresholds are arguments, never literals in the checks
     ... --mouth-max-m 15 --site-max-m 60 --needle-spread-m 8 \
         --drift-max 10 --retreat-wall-max 5 --over-cap-ramp-max 2 \
-        --adjudicated-delta-max -24 --actionable-sites-max 82
+        --adjudicated-delta-max -24 --actionable-sites-max 82 \
+        --claim-cover-min 4
 
     # an airport with no shipped profile supplies its own sites
     ... --site "A=25.271935,51.6022729" --site "B1=25.2758817,51.6139664"
@@ -145,6 +146,10 @@ class Thresholds:
     adjudicated_delta_max: Optional[float] = None
     actionable_sites_max: Optional[int] = None
     pad_flat_tol_m: float = 0.005
+    #: minimum in-claim node count for the site's below-grade ring; None
+    #: makes ``claim_names_the_bore`` a REPORT (SKIPPED), which is how
+    #: the attribution arms read it
+    claim_cover_min: Optional[int] = None
 
 
 @dataclass
@@ -478,6 +483,105 @@ def _check_retreat_walls(patch: Patch, thr: Thresholds) -> List[Check]:
                   f"of a tunnel_ramp ring")]
 
 
+def _check_claim_names_the_bore(patch: Patch, profile: Profile,
+                                thr: Thresholds) -> List[Check]:
+    """DOES R14-1'S CLAIM ACTUALLY NAME THE BORE'S BELOW-GRADE RING, and
+    which of that ring's welded partners does it name?
+
+    The question every claim-scoped rule in
+    ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md`` rests on,
+    and it was answered by a lane scratchpad three times in one day
+    (2026-08-25, the option-A and Amendment-4 arms) before landing here
+    on the promote-on-reuse rule (RULINGS ``7e90032``) — extended into
+    THIS instrument rather than forked into a second one, so the site
+    profile, the parser and the identity spelling stay single-sourced.
+
+    The claim set is read where it is legible offline: the emitted
+    ``tunnel_road`` surfaces (``bridges.TUNNEL_ROAD_REF``) ARE R14-1's
+    re-profiled claim, so nothing here re-derives a cut zone.  The welds
+    are exact 11-decimal coordinate matches — ``Patch.spell``, the
+    canonical identity join, never a proximity join.
+
+    MEASURED is the in-claim node count of the site's below-grade
+    groundside ring; the detail lists its welded partners with theirs.
+    With no ``--claim-cover-min`` it REPORTS (SKIPPED) — it is an
+    attribution instrument, and the numbers it produced are why the
+    claim-scoped designs were refuted: 14 of the bore ring's welds were
+    partners at ZERO claim coverage against 3 claimed, and the bore ring
+    itself read 0-2 of its 33 nodes inside the claim.
+    """
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    if not profile.sites:
+        return [Check("claim_names_the_bore", SKIP, None,
+                      thr.claim_cover_min,
+                      "no sites: pass --profile or --site NAME=LAT,LON")]
+    claims = []
+    for w in patch.ref_ways("tunnel_road"):
+        pts = patch.pts(w)
+        if len(pts) < 4:
+            continue
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if not poly.is_empty:
+            claims.append(poly)
+    if not claims:
+        return [Check("claim_names_the_bore", SKIP, None,
+                      thr.claim_cover_min,
+                      "no tunnel_road claim surface in the patch")]
+    prepared = prep(unary_union(claims))
+
+    def covered(w) -> Tuple[int, int]:
+        pts = patch.pts(w)
+        return (sum(1 for p in pts if prepared.covers(Point(p))), len(pts))
+
+    lines: List[str] = []
+    worst: Optional[int] = None
+    for name, (lat, lon) in profile.sites.items():
+        here = patch.ll_to_m(lat, lon)
+        best = None
+        for w in patch.role_ways("groundside_pavement"):
+            pts = patch.pts(w)
+            if not pts:
+                continue
+            d = min(math.hypot(x - here[0], y - here[1]) for x, y in pts)
+            if d > thr.site_max_m:
+                continue
+            lows = [e for e in w.elevs if e is not None and e < 0.0]
+            if not lows or (best is not None and len(lows) <= best[1]):
+                continue
+            best = (w, len(lows))
+        if best is None:
+            lines.append(f"{name}: no below-grade groundside ring within "
+                         f"{thr.site_max_m:.0f} m")
+            continue
+        w = best[0]
+        n_in, n_all = covered(w)
+        worst = n_in if worst is None else min(worst, n_in)
+        lines.append(f"{name}: ring {w.wid} {n_in}/{n_all} node(s) in the "
+                     f"claim ({best[1]} below grade)")
+        spell = {s: 1 for s in patch.coordset(w)}
+        partners: Dict[str, int] = defaultdict(int)
+        for w2 in patch.ways:
+            if w2.wid == w.wid:
+                continue
+            for s in patch.coordset(w2):
+                if s in spell:
+                    partners[w2.wid] += 1
+        for wid, cnt in sorted(partners.items(), key=lambda kv: -kv[1]):
+            w2 = patch.by_wid[wid]
+            p_in, p_all = covered(w2)
+            lines.append(f"    weld x{cnt} {wid} role={w2.role} "
+                         f"ref={w2.ref} claim {p_in}/{p_all}"
+                         + ("  <-- IN CLAIM" if p_in else ""))
+    verdict = (SKIP if thr.claim_cover_min is None or worst is None
+               else (PASS if worst >= thr.claim_cover_min else FAIL))
+    return [Check("claim_names_the_bore", verdict, worst,
+                  thr.claim_cover_min, "\n           ".join(lines))]
+
+
 # ── row-level checks: every count comes from the census ────────────
 def _census_rows(osm: Path, census, cg, want_sites: bool = True) -> dict:
     """``census_one``'s own itemised rows + report for one patch.  The
@@ -609,6 +713,7 @@ def run_acceptance(patch_path, control_path=None, *,
     checks += _check_subgrade(patch, control, profile)
     checks += _check_geometry_drift(patch, control, thr)
     checks += _check_retreat_walls(patch, thr)
+    checks += _check_claim_names_the_bore(patch, profile, thr)
 
     mine = _census_rows(Path(patch_path), census, cg)
     theirs = (_census_rows(Path(control_path), census, cg)
@@ -649,7 +754,7 @@ def build_parser() -> argparse.ArgumentParser:
                           ("retreat-wall-radius-m", 2.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     for name in ("drift-max", "retreat-wall-max", "over-cap-ramp-max",
-                 "actionable-sites-max"):
+                 "actionable-sites-max", "claim-cover-min"):
         p.add_argument(f"--{name}", type=int, default=None)
     p.add_argument("--adjudicated-delta-max", type=float, default=None)
     return p
@@ -670,7 +775,8 @@ def main(argv=None) -> int:
         retreat_wall_radius_m=args.retreat_wall_radius_m,
         over_cap_ramp_max=args.over_cap_ramp_max,
         adjudicated_delta_max=args.adjudicated_delta_max,
-        actionable_sites_max=args.actionable_sites_max)
+        actionable_sites_max=args.actionable_sites_max,
+        claim_cover_min=args.claim_cover_min)
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

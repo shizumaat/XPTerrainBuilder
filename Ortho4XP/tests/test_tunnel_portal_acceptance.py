@@ -238,3 +238,84 @@ def test_the_tool_is_in_the_tool_index():
     assert "tunnel_portal_acceptance.py" in text, (
         "a tool absent from tools/INDEX.md is treated as absent "
         "(RULINGS 7e90032) — land the entry in the same commit")
+
+
+# ──────────────────────────────────────────────────────────────────
+# §5 THE CLAIM-MEMBERSHIP READ (added 2026-08-25 on promote-on-reuse:
+# three lane arms asked "does R14-1's claim actually NAME this bore?"
+# before the question landed in the instrument)
+# ──────────────────────────────────────────────────────────────────
+def _claim_scene(directory: Path) -> Path:
+    """A below-grade groundside ring, a road welded to it, and a
+    ``tunnel_road`` claim surface that covers the ROAD only — the
+    measured OTHH shape, at unit scale."""
+    def node(i, lat, lon, a):
+        return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                f"<tag k='alt_abs' v='{a}'/></node>")
+    parts = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6'>"]
+    floor = [(25.0000, 51.0000), (25.0000, 51.0004),
+             (25.0003, 51.0004), (25.0003, 51.0000)]
+    for i, (la, lo) in enumerate(floor, start=1):
+        parts.append(node(i, la, lo, -1.1))
+    parts.append("<way id='-201'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
+                 "<nd ref='-4'/><nd ref='-1'/>"
+                 "<tag k='role' v='groundside_pavement'/>"
+                 "<tag k='ref' v='groundside'/><tag k='shapeID' v='1'/></way>")
+    # the road shares the floor's two east vertices (-2, -3) and is the
+    # claimed corridor surface
+    for i, (la, lo) in enumerate([(25.0000, 51.0009), (25.0003, 51.0009)],
+                                 start=5):
+        parts.append(node(i, la, lo, 2.3))
+    parts.append("<way id='-202'><nd ref='-2'/><nd ref='-5'/><nd ref='-6'/>"
+                 "<nd ref='-3'/><nd ref='-2'/>"
+                 "<tag k='role' v='service_junction'/>"
+                 "<tag k='ref' v='tunnel_road'/><tag k='shapeID' v='2'/></way>")
+    parts.append("</osm>")
+    osm = directory / "claim.osm"
+    osm.write_text("\n".join(parts))
+    (directory / "claim.osm.axes.json").write_text(json.dumps(
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+    return osm
+
+
+def test_the_claim_read_names_the_ring_and_its_welded_partners(tpa, tmp_path):
+    """The attribution the claim-scoped designs were judged on: how many
+    of the bore ring's own nodes the claim covers, and which welded
+    partners it covers — welds joined by the CANONICAL 11-decimal
+    spelling, never by proximity."""
+    osm = _claim_scene(tmp_path)
+    checks = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=tpa.Profile(name="x",
+                                       sites={"S": (25.00015, 51.0002)}))}
+    c = checks["claim_names_the_bore"]
+    # the claim is the ROAD's surface, so only the ring's two WELDED
+    # vertices — the ones lying on the claim boundary — are inside it.
+    # The bore's interior is not named by the claim at all, which is the
+    # whole finding (the measured OTHH ring read 0-2 of 33).
+    assert c.measured == 2, c.detail
+    assert "-201" in c.detail and "2/5" in c.detail
+    assert "-202" in c.detail and "IN CLAIM" in c.detail, (
+        "the welded claimed partner was not named")
+
+
+def test_the_claim_read_reports_until_a_bar_is_given(tpa, tmp_path):
+    """No threshold ⇒ REPORT (SKIPPED), never PASS; with a bar it
+    adjudicates, and the MEASURED value does not move with the bar."""
+    osm = _claim_scene(tmp_path)
+    prof = tpa.Profile(name="x", sites={"S": (25.00015, 51.0002)})
+    quiet = {c.name: c for c in tpa.run_acceptance(osm, None, profile=prof)}
+    barred = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=prof,
+        thresholds=tpa.Thresholds(claim_cover_min=5))}
+    assert quiet["claim_names_the_bore"].verdict == tpa.SKIP
+    assert barred["claim_names_the_bore"].verdict == tpa.FAIL
+    assert (quiet["claim_names_the_bore"].measured
+            == barred["claim_names_the_bore"].measured)
+
+
+def test_the_claim_read_uses_the_patchs_own_parser(tpa):
+    """No second parser inside the check — the tool's rule, restated
+    where a new check could break it."""
+    src = inspect.getsource(tpa._check_claim_names_the_bore)
+    assert "ElementTree" not in src and "iterparse" not in src
+    assert "patch.pts(" in src and "patch.coordset(" in src

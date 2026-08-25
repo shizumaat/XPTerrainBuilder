@@ -3765,6 +3765,45 @@ def solve_route_profile(layout, icao: str,
                 f"{len(_body_nodes)} node(s), adjacency {len(u_spine_adj)} -> "
                 f"{len(_body_adj)} node(s) after excluding "
                 f"{len(_svc_pairs)} service spine pair(s)")
+        # ── THE SCAFFOLD SEED (owner ruling RULINGS 2026-08-24c) ──────
+        # "Aprons are graded like taxiways and runways — the taut membrane
+        # on the scaffold, never a DEM drape."  The apron interior is
+        # re-seated HERE, on the CHEBYSHEV CENTRE of the cap-Lipschitz
+        # envelope of the centerline profile values (just solved by phase
+        # A, one statement above) and the seated pads.
+        #
+        # WHY HERE AND NOT IN THE SEEDER — a recorded deviation from the
+        # ruling's literal wording, kept because the alternative is worse.
+        # Neither anchor source exists at ``_seed_elevations`` time: the
+        # centerline profiles are minted by ``_solve_spine_profile``
+        # immediately above, the seats by ``build_building_seats``, and
+        # both depend on the reach band and the unified graph, which depend
+        # on the node list the seeder is building.  The solver runs once,
+        # so no warm start carries them.  Seeding the scaffold before its
+        # anchors exist would need a second, pre-solve taxi-profile
+        # authority — which the engine's single-source law forbids.  So the
+        # DEM branch in the seeder is a placeholder and this overwrites it,
+        # the same idiom the adjacent-ground zone seed uses right after the
+        # seeder.
+        #
+        # ``base_hard`` IS NOT TOUCHED.  Every re-seated node stays FREE, so
+        # the projection below still cuts the membrane into a hill or
+        # raises it over a hollow to hold the caps — the owner's addendum.
+        # A node no anchor reaches keeps its DEM seed and stays free too,
+        # which is that addendum's pad-less-apron case exactly.
+        from . import scaffold_seed as _scaffold
+        from .one_solve import _build_adjacency as _sc_build_adj
+        if _scaffold.APRON_SCAFFOLD_SEED and apron_body:
+            _sc_adj = _sc_build_adj(shape_constraints, n)
+            _sc_anchor = _scaffold.scaffold_anchor_values(
+                _body_nodes, elev, building_seats, n=n)
+            _sc_report = _scaffold.scaffold_seed_apron_interior(
+                elev, adjacency=_sc_adj, anchor_values=_sc_anchor,
+                interior_nodes=apron_body, node_band=node_band)
+            if _sc_report["seeded"] or _sc_report["no_anchor_reach"]:
+                _UI_env.vprint(1, _scaffold.format_report(icao, _sc_report))
+            setattr(layout, "_scaffold_seed_report", _sc_report)
+
         n_free = one_profile_solve(
             elev, shape_constraints, base_hard, nodes, dem_elev,
             runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,

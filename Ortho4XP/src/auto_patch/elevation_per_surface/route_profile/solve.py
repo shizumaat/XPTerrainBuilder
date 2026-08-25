@@ -3759,7 +3759,17 @@ def solve_route_profile(layout, icao: str,
         # Phase A held the seats hard, so its corridor was if anything
         # dragged TOWARD the seat — clamping toward that corridor strictly
         # reduces the priced inconsistency (spec ruling §4).
-        if _psc.pad_seat_consistency_enabled():
+        #
+        # §2 — DEM IS LAST PRIORITY (owner ruling RULINGS 2026-08-25 second
+        # ruling, spec §2, ``O4_DEM_LAST_SEAT_BIAS``).  SAME SLOT, same
+        # chassis, different interval SOURCE: the pad's own §1 anchor
+        # neighbourhood (``G.anchor_chords`` — the ONE nearest-anchor
+        # enumeration's output, in this solve's node space) instead of its
+        # frontage attachment records.  The seat then takes the level
+        # inside its band box that minimises the chord residual, with the
+        # band's DEM-biased choice as the LAST tiebreaker.
+        _psc_dem_last = _psc.dem_last_seat_bias_enabled()
+        if _psc.pad_seat_consistency_enabled() or _psc_dem_last:
             # The nodes whose ``elev`` currently HOLDS the seat: exactly the
             # hard-stamp loop's own condition, re-expressed (never a second
             # predicate).  A seat node outside it keeps the seeder's value
@@ -3769,7 +3779,17 @@ def solve_route_profile(layout, icao: str,
                             and i in u_spine_adj and i not in _seam_pin_idx}
             _psc_report = _psc.apply_pad_seat_consistency(
                 layout, elev, building_seats, n,
-                stamped=_psc_stamped, yield_idx=_seat_yield_idx)
+                stamped=_psc_stamped, yield_idx=_seat_yield_idx,
+                anchor_chords=(list(G.anchor_chords) if _psc_dem_last
+                               else None),
+                # THE ANCHORS THAT ACTUALLY CARRY A SOLVED VALUE HERE:
+                # phase A's own set (the corridor ``_solve_spine_profile``
+                # just minted) plus the seats it stamped hard.  Everything
+                # else in ``elev`` is still the DEM SEED at this slot, and
+                # a residual measured against a seed is a residual against
+                # DEM — the very quantity this ruling demotes to LAST.
+                solved_nodes=((set(u_spine_nodes) | _psc_stamped)
+                              if _psc_dem_last else None))
             if _psc_report["units"]:
                 _UI_env.vprint(1, _psc.format_report(icao, _psc_report))
 

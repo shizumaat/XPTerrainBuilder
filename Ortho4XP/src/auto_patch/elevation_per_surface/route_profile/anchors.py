@@ -891,8 +891,15 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # mints them AFTER this function runs), so what is captured here is the
     # provenance only; the intersection binds in the post-phase-A slot
     # (``solve.py``, ``pad_seat_consistency.apply_pad_seat_consistency``).
-    from .pad_seat_consistency import pad_seat_consistency_enabled
-    _consist_on = pad_seat_consistency_enabled()
+    # ONE READER for both consumers of this capture (spec
+    # ``apron-chord-anchor-target-spec.md`` §2): the frontage-subset
+    # narrowing (its own flag, default OFF) and the §2 DEM-LAST SEAT BIAS
+    # (default ON in-lane) both need the unit's node set and its band box,
+    # and this is the only place either can get them.  The FRONTAGE
+    # records keep being captured beside them and stay unread by §2 —
+    # capture is provenance, not law.
+    from .pad_seat_consistency import seat_provenance_wanted
+    _consist_on = seat_provenance_wanted()
     _pad_prov: list = []            # index-aligned with ``pads`` below
 
     # ── Per-pad independent target + feasible box ────────────────────────────
@@ -1342,7 +1349,15 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         for _up in _units_prov:
             _up["nodes"] = sorted(set(_up["nodes"]))
             _up["keys"] = list(dict.fromkeys(_up["keys"]))
-        _units_prov = [u for u in _units_prov if u["records"] and u["nodes"]]
+        # A unit needs NODES to be narrowable at all.  It needs frontage
+        # RECORDS only for the frontage-subset mechanism: §2 sources its
+        # interval from the §1 anchor neighbourhood, so a pad with no
+        # frontage record is still a candidate there (and is reported as
+        # unanchored if no §1 chord reaches it either).
+        from .pad_seat_consistency import dem_last_seat_bias_enabled
+        _keep_recordless = dem_last_seat_bias_enabled()
+        _units_prov = [u for u in _units_prov
+                       if u["nodes"] and (u["records"] or _keep_recordless)]
         setattr(layout, "_pad_seat_consistency_units", _units_prov)
         if _units_prov:
             _report(f"  [pad-seat-consistency] provenance captured for "

@@ -3334,6 +3334,20 @@ class UnifiedGraph:
     #: Index-parallel to :attr:`edges`: True for an APRON INTERIOR pair
     #: (the apron staged solve's partition input, spec §§1-3).
     edge_interior: list = field(default_factory=list)
+    #: THE §1 ANCHOR NEIGHBOURHOOD, published for the DEM-LAST SEAT BIAS
+    #: (owner ruling RULINGS 2026-08-25 second ruling; spec
+    #: ``apron-chord-anchor-target-spec.md`` §2): ``(node_a, node_b,
+    #: budget_m, kind)`` for every pair the ONE nearest-anchor enumeration
+    #: selected, where ``budget_m`` is that chord's own ``cap x dist`` and
+    #: ``kind`` is ``ANCHOR_KIND_SPINE`` / ``ANCHOR_KIND_PAD``.
+    #:
+    #: NOT a second enumeration and not a re-derivation: it is
+    #: ``ShapeConstraints.edge_anchor_kind`` carried into the solve's node
+    #: index space at MINT, so the level a pad seats at is chosen against
+    #: exactly the chords its ring vertices are priced on.  Deriving the
+    #: neighbourhood later — from the emitted ring, or from a second
+    #: nearest search — is the census-wrapper defect in seat form.
+    anchor_chords: list = field(default_factory=list)
     #: APRON NODES INSIDE THE RUNWAY STRIP (spec AMENDMENT A4.2; owner
     #: ruling RULINGS 2026-08-21d, wired 2026-08-24).  Their pairs are
     #: SKIPPED by ``grade_law.classify_pair``, so they carry no edge and
@@ -3751,6 +3765,10 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         if sc.strip_excluded:
             G.apron_excluded_nodes.update(
                 int(k) for k in sc.strip_excluded if isinstance(k, int))
+        # Ring position of each key — needed by the anchor-chord publish
+        # inside the edge loop AND by the lockstep bake export below, so it
+        # is built ONCE here rather than twice.
+        position_of_key = {key: p for p, key in enumerate(keys)}
         spine_pairs = set()
         for chain in sc.spine_chains:
             for u, v in zip(chain, chain[1:]):
@@ -3779,6 +3797,22 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
             # ``edge_family``, and ``stage_by_pair()`` is the readers'
             # pair-keyed view.
             G.edge_stage.append(_stage_of_shape(s))
+            # THE §1 ANCHOR NEIGHBOURHOOD (RULINGS 2026-08-25 §2).  The
+            # kind the ONE enumeration minted for this pair, carried into
+            # the solve's node space with the chord's OWN budget
+            # (cap x dist) — the quantity the seat bias measures its
+            # residuals in.  Only anchor chords are published; everything
+            # else carries ``""`` and is skipped here.
+            _ak = (sc.edge_anchor_kind[_ei]
+                   if _ei < len(sc.edge_anchor_kind) else "")
+            if _ak:
+                _pa = position_of_key.get(a)
+                _pb = position_of_key.get(b)
+                if _pa is not None and _pb is not None:
+                    _d = math.hypot(ring[_pa][0] - ring[_pb][0],
+                                    ring[_pa][1] - ring[_pb][1])
+                    G.anchor_chords.append(
+                        (a, b, float(cap.flat_cap()) * _d, _ak))
         # LOCKSTEP BAKE EXPORT (2026-07-17): persist THIS shape's baked
         # decomposition in RING-POSITION space so the validator
         # (``grade_graph_validate._iter_checked_pairs``) consumes the
@@ -3792,7 +3826,6 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         # Repeat builds (the scoped final projection) re-bake only the
         # shapes they re-run; skipped shapes keep the solve-time entry,
         # whose ring is unchanged by definition of the skip.
-        position_of_key = {key: p for p, key in enumerate(keys)}
         ring_signature = tuple(
             (round(x, 6), round(y, 6)) for (x, y) in ring)
         baked_edges = []

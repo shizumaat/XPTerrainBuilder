@@ -67,6 +67,51 @@ MATERIALITY_M = 0.01
 
 ENV_FLAG = "O4_PAD_SEAT_CONSISTENCY"
 
+# ── §2 — DEM IS LAST PRIORITY (owner ruling RULINGS 2026-08-25 second
+# ruling; spec ``apron-chord-anchor-target-spec.md`` §2) ─────────────────
+# "Where the law leaves a choice of level (a seat interval, an unanchored
+# interior), ANCHOR-CONSISTENCY is preferred over DEM proximity; DEM is the
+# LAST tiebreaker."
+#
+# THIS MODULE IS THE CHASSIS, RE-AIMED.  The interval math, the reporting
+# and the post-phase-A / pre-scaffold-seed slot are the ones authored for
+# the pad-seat-consistency round; what changes is the SOURCE of the
+# interval.  The refuted version narrowed against the pad's FRONTAGE
+# attachment records — a much narrower population than the chords the
+# census prices, which is why moving seats against it regressed HECA
+# 1,964 -> 2,249.  §1 replaced the population: an apron ring vertex now
+# chords to its NEAREST VISIBLE ANCHOR (pad or centerline).  §2 aims the
+# seat at THAT neighbourhood, read from the ONE enumeration through
+# ``UnifiedGraph.anchor_chords`` — never re-derived here.
+#
+# The two gates are SEPARATE and mean different things (spec §2.2): the
+# frontage-subset version stays OFF under its own flag and is not
+# re-enabled by this one.
+ENV_FLAG_DEM_LAST = "O4_DEM_LAST_SEAT_BIAS"
+
+
+def dem_last_seat_bias_enabled() -> bool:
+    """THE reader for :data:`ENV_FLAG_DEM_LAST` (default **ON** in-lane —
+    the owner ordered §2 forward after the §1 acceptance read).
+
+    ``O4_DEM_LAST_SEAT_BIAS=0`` ⇒ the build is byte-identical to §1-only:
+    no neighbourhood is captured, no seat moves, and the DEM-biased band
+    seat stays exactly where ``build_building_seats`` put it.
+    """
+    return os.environ.get(ENV_FLAG_DEM_LAST, "1") != "0"
+
+
+def seat_provenance_wanted() -> bool:
+    """Whether the per-unit seat provenance must be CAPTURED at seat time.
+
+    ONE reader for both mechanisms: the frontage-subset version (its own
+    flag, default OFF) and the §2 DEM-last bias both consume the unit's
+    node set and its band box, and the capture is the only place either
+    can get them.  With both gates off nothing is captured and the build
+    is byte-identical to the pre-spec one.
+    """
+    return pad_seat_consistency_enabled() or dem_last_seat_bias_enabled()
+
 
 def pad_seat_consistency_enabled() -> bool:
     """THE reader for :data:`ENV_FLAG` (default **OFF**; ``"1"`` enables).
@@ -80,13 +125,28 @@ def pad_seat_consistency_enabled() -> bool:
 
 
 def record_budget_m(rec: Mapping[str, Any]) -> Optional[float]:
-    """The consistency half-width for one frontage band record.
+    """The consistency half-width for one record.
 
-    ``route_m`` is the band's own cap-weighted route cost to the governing
-    attachment (elevation metres, see the module docstring);
-    ``off_mask_m`` is the off-pavement leg the band prices at
-    ``APRON_MAX_GRADE``.  ``None`` when the record carries no provenance.
+    TWO RECORD SHAPES, ONE INTERVAL MATH (the point of re-aiming a chassis
+    rather than forking one):
+
+      * a §1 ANCHOR-NEIGHBOURHOOD record carries ``budget_m`` outright —
+        the chord's own ``cap x dist``, computed where the chord was
+        MINTED (``UnifiedGraph.anchor_chords``).  It is read first because
+        it is the law's own budget for that very chord;
+      * a FRONTAGE BAND record carries ``route_m`` — the band's own
+        cap-weighted route cost to the governing attachment (elevation
+        metres, see the module docstring) — plus ``off_mask_m``, the
+        off-pavement leg the band prices at ``APRON_MAX_GRADE``.
+
+    ``None`` when the record carries neither.
     """
+    if "budget_m" in rec:
+        try:
+            b = float(rec["budget_m"])
+        except (TypeError, ValueError):                     # pragma: no cover
+            return None
+        return b if math.isfinite(b) and b >= 0.0 else None
     if "route_m" not in rec:
         return None
     from auto_patch.config import APRON_MAX_GRADE
@@ -156,6 +216,163 @@ def consistency_interval(
     return lo, hi, used, binding
 
 
+def anchor_neighborhood_records(unit_nodes: Iterable[int],
+                                anchor_chords: Iterable[Sequence[Any]],
+                                solved_nodes: Optional[set] = None
+                                ) -> List[Dict[str, Any]]:
+    """The pad unit's §1 ANCHOR NEIGHBOURHOOD, as consistency records.
+
+    "The pads/centerlines its ring vertices now chord to under the
+    nearest-anchor enumeration" (spec §2.1): every published anchor chord
+    with ONE endpoint among this unit's own nodes contributes a record
+    naming the OTHER endpoint as the anchor and the chord's own
+    ``cap x dist`` as the budget.
+
+    A chord with BOTH ends inside the unit is dropped: a pad is one flat
+    level, so such a chord is satisfied at zero residual by construction
+    and carries no information about where that level should be.
+
+    ``solved_nodes`` — THE ANCHORS THAT CARRY A SOLVED VALUE AT THIS SLOT
+    (arm-2 correction, measured; see below).  An anchor outside it is
+    dropped and counted, exactly as an out-of-range anchor already is.
+
+    WHY THE FILTER, AND WHY IT IS NOT A NEW POPULATION.  This slot runs
+    after ``_solve_spine_profile`` and BEFORE the body fill, so ``elev``
+    holds a solved value only at the phase-A set (the corridor) and at the
+    seat nodes phase A stamped hard.  Everywhere else it still holds the
+    DEM SEED.  A "residual" measured against a seeded node is therefore a
+    residual against DEM — which is the exact quantity this ruling demotes
+    to last, so counting it would make the mechanism pull the way the
+    ruling forbids.  The module's own contract already says this in words
+    ("``elev`` — read AFTER ``_solve_spine_profile`` (the SOLVED
+    corridor)"); the filter is that contract enforced instead of assumed.
+
+    Measured (HECA, arm 1, without the filter): 44 units, 37 of them with
+    CONTRADICTORY anchors, worst residual left 196.6 m and seats moving up
+    to 7.08 m — and the census read 1,949 airside against §1's 1,735.  The
+    contradictions were between solved corridor values and un-solved seeds
+    sitting metres away.
+
+    The records are the shape :func:`consistency_interval` already
+    consumes — no second interval math, and no re-derivation of the
+    neighbourhood (the chords come from the ONE enumeration, minted in the
+    solve's own node space).
+    """
+    nodes = {int(i) for i in unit_nodes}
+    out: List[Dict[str, Any]] = []
+    if not nodes:
+        return out
+    for ch in anchor_chords or ():
+        try:
+            a, b, budget = int(ch[0]), int(ch[1]), float(ch[2])
+        except (TypeError, ValueError, IndexError):        # pragma: no cover
+            continue
+        kind = str(ch[3]) if len(ch) > 3 else ""
+        a_in, b_in = a in nodes, b in nodes
+        if a_in == b_in:
+            continue                       # neither end, or a within-pad chord
+        anchor = b if a_in else a
+        if solved_nodes is not None and anchor not in solved_nodes:
+            out.append({"anchor_nodes": [], "budget_m": budget,
+                        "kind": kind, "unsolved": True})
+            continue
+        out.append({"anchor_nodes": [anchor],
+                    "budget_m": budget, "kind": kind})
+    return out
+
+
+def chord_residual_m(level: float, records: Iterable[Mapping[str, Any]],
+                     elev: Sequence[float], n: int) -> float:
+    """Σ over the neighbourhood of ``max(0, |level - anchor| - budget)``.
+
+    THE QUANTITY §2 MINIMISES.  Each term is exactly the excess the census
+    would price on that chord if the pad sat at ``level`` — zero while the
+    chord is lawful, then growing metre for metre.  The sum is convex and
+    piecewise linear in ``level``, which is what makes
+    :func:`dem_last_seat_level` exact rather than a search.
+    """
+    total = 0.0
+    for rec in records or ():
+        budget = record_budget_m(rec)
+        if budget is None:
+            continue
+        for a in (rec.get("anchor_nodes") or ()):
+            try:
+                ai = int(a)
+            except (TypeError, ValueError):                # pragma: no cover
+                continue
+            if not (0 <= ai < n) or ai >= len(elev):
+                continue
+            v = float(elev[ai])
+            if not math.isfinite(v):                       # pragma: no cover
+                continue
+            total += max(0.0, abs(float(level) - v) - budget)
+    return total
+
+
+def dem_last_seat_level(seat_m: float, box_lo: float, box_hi: float,
+                        records: Iterable[Mapping[str, Any]],
+                        elev: Sequence[float], n: int
+                        ) -> Tuple[float, float, int]:
+    """``(level, residual_m, candidates)`` — the level inside the pad's own
+    band box that MINIMISES :func:`chord_residual_m`, with the DEM-biased
+    seat as the LAST tiebreaker (owner ruling RULINGS 2026-08-25 §2.1).
+
+    THE BAND REMAINS THE FEASIBILITY AUTHORITY.  The search is confined to
+    ``[box_lo, box_hi]`` — the interval ``build_building_seats`` chose the
+    seat from, widened to hold it — so the §2 seat can never leave the
+    pad's lawful band.  That is the v4 lesson made structural: the refuted
+    mechanism took its level from a scaffold instead of from the band and
+    put 22 of 22 CYXY pads down a mean 9.07 m.
+
+    EXACTNESS.  The residual is convex and piecewise linear with
+    breakpoints at ``anchor ± budget``, so its minimum over an interval is
+    attained at a breakpoint or at an interval end.  Evaluating those
+    candidates is therefore the answer, not an approximation of it.
+
+    THE TIEBREAK IS THE RULING.  Among levels of equal residual — which is
+    the whole intersection whenever the neighbourhood is consistent — the
+    one NEAREST THE CURRENT SEAT wins, and that seat is the band's
+    DEM-biased choice.  So anchor-consistency decides first and DEM decides
+    last, which is the ruling in one comparison.  A further tie (the seat
+    exactly between two candidates) breaks on the LOWER level so two
+    readers cannot disagree.
+    """
+    lo, hi = float(box_lo), float(box_hi)
+    if hi < lo:
+        lo, hi = hi, lo
+    seat = min(max(float(seat_m), lo), hi)
+    cands = {lo, hi, seat}
+    for rec in records or ():
+        budget = record_budget_m(rec)
+        if budget is None:
+            continue
+        for a in (rec.get("anchor_nodes") or ()):
+            try:
+                ai = int(a)
+            except (TypeError, ValueError):                # pragma: no cover
+                continue
+            if not (0 <= ai < n) or ai >= len(elev):
+                continue
+            v = float(elev[ai])
+            if not math.isfinite(v):                       # pragma: no cover
+                continue
+            for edge in (v - budget, v + budget):
+                if lo <= edge <= hi:
+                    cands.add(float(edge))
+    best = seat
+    best_r = chord_residual_m(seat, records, elev, n)
+    for c in sorted(cands):
+        r = chord_residual_m(c, records, elev, n)
+        if (r < best_r - 1e-9
+                or (abs(r - best_r) <= 1e-9
+                    and (abs(c - seat) < abs(best - seat) - 1e-12
+                         or (abs(abs(c - seat) - abs(best - seat)) <= 1e-12
+                             and c < best)))):
+            best, best_r = float(c), r
+    return best, best_r, len(cands)
+
+
 def narrow_seat(seat_m: float, box_lo: float, box_hi: float,
                 cons_lo: float, cons_hi: float
                 ) -> Tuple[float, float, float, bool, float]:
@@ -206,7 +423,9 @@ def _narrow_box(store_boxes: Dict[Any, Any], key: Any,
 
 
 def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
-                               stamped=(), yield_idx=()) -> Dict[str, Any]:
+                               stamped=(), yield_idx=(),
+                               anchor_chords=None,
+                               solved_nodes=None) -> Dict[str, Any]:
     """Bind the consistency interval in the post-phase-A / pre-phase-B slot.
 
     ``elev`` — the solve's elevation array, read AFTER ``_solve_spine_profile``
@@ -221,6 +440,12 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
     guard refused.  They are NOT ``base_hard`` and enter the projections
     free, so narrowing their STARTING value is consistent — they are
     counted separately in the report.
+    ``anchor_chords`` — ``UnifiedGraph.anchor_chords``, THE §1 enumeration's
+    own output.  Present ⇒ the DEM-LAST SEAT BIAS runs (spec §2): the
+    unit's interval source is its §1 anchor neighbourhood and the level is
+    the residual-minimising one inside the band box, DEM last.  ``None`` ⇒
+    the frontage-subset narrowing of the earlier round, unchanged and still
+    behind its own (default-OFF) flag.
 
     Returns the report dict (also published on ``layout``).
     """
@@ -230,11 +455,18 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
         "yield_units": 0, "worst_move_m": 0.0, "worst_residual_m": 0.0,
         "inconsistent": 0, "worst_inversion_m": 0.0,
         "moves": [], "empties": [], "inconsistents": [],
+        "dem_last": anchor_chords is not None, "anchor_chords": 0,
+        "worst_residual_left_m": 0.0, "residual_cut_m": 0.0,
+        "unsolved_anchors": 0,
     }
     prov = getattr(layout, "_pad_seat_consistency_units", None) or []
     report["units"] = len(prov)
     if not prov:
         return report
+    dem_last = anchor_chords is not None
+    if dem_last:
+        anchor_chords = list(anchor_chords)
+        report["anchor_chords"] = len(anchor_chords)
     from auto_patch.elevation_per_surface.node_space import store_of
     try:
         boxes = store_of(layout).raw("seat_boxes")
@@ -244,8 +476,26 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
     yield_idx = set(yield_idx)
 
     for u in prov:
-        recs = u.get("records") or []
+        if dem_last:
+            # ── §2: THE INTERVAL SOURCE IS THE §1 NEIGHBOURHOOD ────────
+            # Re-aimed, not re-derived: the chords come from the ONE
+            # enumeration that also prices the census's rows, so the level
+            # this pad seats at is chosen against exactly the chords it
+            # will be judged on.  The frontage-attachment records the
+            # earlier round narrowed against are NOT consulted (spec §2.3
+            # — that version stays off under its own flag).
+            recs = anchor_neighborhood_records(u.get("nodes") or (),
+                                               anchor_chords, solved_nodes)
+            _uns = sum(1 for r in recs if r.get("unsolved"))
+            report["unsolved_anchors"] += _uns
+            recs = [r for r in recs if not r.get("unsolved")]
+        else:
+            recs = u.get("records") or []
         if not recs:
+            # AN UNANCHORED PAD KEEPS ITS DEM SOFT-SEED (spec §2.1's own
+            # clause).  No anchor reaches it, so there is no consistency
+            # to prefer and the band's DEM-biased seat is still the best
+            # available authority — byte-identically where it was.
             report["no_provenance"] += 1
             continue
         clo, chi, used, binding = consistency_interval(recs, elev, n)
@@ -254,7 +504,61 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
             report["no_anchor"] += 1
             continue
         level = float(u["level"])
-        if clo > chi:
+        # The stored box is the interval the seat was chosen from, WIDENED
+        # to include the seat (``build_building_seats``' own construction).
+        box_lo = min(float(u["lo"]), level)
+        box_hi = max(float(u["hi"]), level)
+        if dem_last:
+            # ── §2: ANCHOR-CONSISTENCY FIRST, DEM LAST ────────────────
+            # The level is the one INSIDE THE BAND BOX that minimises the
+            # chord residual against this pad's §1 neighbourhood; among
+            # equal-residual levels the DEM-biased band seat wins, which
+            # is the ruling's "DEM is the LAST tiebreaker" in one
+            # comparison.  The box is never left, so the band stays the
+            # feasibility authority (the v4 lesson).
+            #
+            # AN INVERTED CONSISTENCY INTERVAL IS NOT A DEAD END HERE.
+            # The frontage-subset version had to KEEP the seat when a
+            # pad's own anchors contradicted each other, because its
+            # interval math had no way to choose between them without a
+            # silent pick.  A residual MINIMUM is not a pick: it is the
+            # level that prices least against ALL of them, it is
+            # well-defined when no zero-residual level exists, and it is
+            # reported with the residual it could not remove.
+            resid_was = chord_residual_m(level, recs, elev, n)
+            new, resid_left, _ncand = dem_last_seat_level(
+                level, box_lo, box_hi, recs, elev, n)
+            nlo, nhi = max(box_lo, float(clo)), min(box_hi, float(chi))
+            if nlo > nhi:
+                # No level satisfies every anchor: the box is not narrowed
+                # (there is nothing lawful to narrow it TO), only the seat
+                # inside it moves.
+                nlo, nhi = box_lo, box_hi
+            empty, resid = False, 0.0
+            report["worst_residual_left_m"] = max(
+                report["worst_residual_left_m"], resid_left)
+            report["residual_cut_m"] += max(0.0, resid_was - resid_left)
+            if clo > chi:
+                inv = float(clo) - float(chi)
+                report["inconsistent"] += 1
+                report["worst_inversion_m"] = max(report["worst_inversion_m"],
+                                                  inv)
+                report["inconsistents"].append({
+                    "ref": u.get("ref", "?"), "seat_m": level,
+                    "seat_now_m": float(new), "dem_last": True,
+                    "consist_floor_m": float(clo),
+                    "consist_ceiling_m": float(chi),
+                    "inversion_m": inv,
+                    "floor_anchor": binding.get("floor_anchor"),
+                    "floor_value_m": binding.get("floor_value"),
+                    "floor_route_m": binding.get("floor_route_m"),
+                    "ceil_anchor": binding.get("ceil_anchor"),
+                    "ceil_value_m": binding.get("ceil_value"),
+                    "ceil_route_m": binding.get("ceil_route_m"),
+                    "residual_left_m": float(resid_left),
+                    "records": len(recs),
+                })
+        elif clo > chi:
             # THE CONSISTENCY INTERSECTION IS ITSELF EMPTY — the pad's own
             # frontage records name corridor anchors whose SOLVED values
             # differ by more than the sum of their route budgets, so NO
@@ -290,12 +594,9 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
                 "records": len(recs),
             })
             continue
-        # The stored box is the interval the seat was chosen from, WIDENED
-        # to include the seat (``build_building_seats``' own construction).
-        box_lo = min(float(u["lo"]), level)
-        box_hi = max(float(u["hi"]), level)
-        new, nlo, nhi, empty, resid = narrow_seat(level, box_lo, box_hi,
-                                                  clo, chi)
+        else:
+            new, nlo, nhi, empty, resid = narrow_seat(level, box_lo, box_hi,
+                                                      clo, chi)
         report["narrowed"] += 1
         nodes = [int(i) for i in (u.get("nodes") or ())]
         is_yield = any(i in yield_idx for i in nodes)
@@ -379,7 +680,46 @@ def apply_pad_seat_consistency(layout, elev, building_seats, n, *,
 def format_report(icao: str, report: Mapping[str, Any],
                   limit: int = 20) -> str:
     """The seat-move TABLE (one line per moved pad) + the one-line summary."""
-    lines: List[str] = [
+    tag = "dem-last-seat" if report.get("dem_last") else "pad-seat-consistency"
+    if report.get("dem_last"):
+        lines: List[str] = [
+            f"  [{tag}] {icao}: {report['narrowed']} of {report['units']} pad "
+            f"unit(s) aimed at their §1 anchor neighbourhood "
+            f"({report.get('anchor_chords', 0)} anchor chord(s) published); "
+            f"{report['moved']} moved (worst "
+            f"{report['worst_move_m']:.3f} m), residual removed "
+            f"{report.get('residual_cut_m', 0.0):.3f} m total, worst residual "
+            f"LEFT {report.get('worst_residual_left_m', 0.0):.3f} m, "
+            f"{report.get('inconsistent', 0)} unit(s) with contradictory "
+            f"anchors (seated at the residual MINIMUM, worst inversion "
+            f"{report.get('worst_inversion_m', 0.0):.3f} m), "
+            f"{report['yield_units']} unit(s) yield-hard, "
+            f"{report['no_provenance']} unanchored (DEM soft-seed kept), "
+            f"{report['no_anchor']} with no usable anchor, "
+            f"{report.get('unsolved_anchors', 0)} chord(s) dropped as "
+            f"NOT-YET-SOLVED at this slot (their elev is still the DEM "
+            f"seed, and a residual against DEM is what this ruling "
+            f"demotes to last)."]
+        for r in report.get("moves", ())[:limit]:
+            lines.append(
+                f"  [{tag}]   {r['ref']}: {r['seat_was_m']:.3f} -> "
+                f"{r['seat_now_m']:.3f} ({r['move_m']:+.3f} m) against "
+                f"{r['anchors_used']} anchor(s); box "
+                f"[{r['box_lo_m']:.3f},{r['box_hi_m']:.3f}] -> narrowed "
+                f"[{r['narrowed_lo_m']:.3f},{r['narrowed_hi_m']:.3f}]"
+                f"{'  YIELD-HARD' if r['yield_hard'] else ''}")
+        for r in report.get("inconsistents", ())[:limit]:
+            lines.append(
+                f"  [{tag}]   CONTRADICTORY {r['ref']}: anchor "
+                f"{r['floor_anchor']} demands >= {r['consist_floor_m']:.3f} "
+                f"while anchor {r['ceil_anchor']} admits <= "
+                f"{r['consist_ceiling_m']:.3f} ({r['inversion_m']:.3f} m "
+                f"inverted) — NO level satisfies both, so the seat takes the "
+                f"residual MINIMUM inside its band box: "
+                f"{r['seat_m']:.3f} -> {r['seat_now_m']:.3f}, residual left "
+                f"{r.get('residual_left_m', 0.0):.3f} m")
+        return "\n".join(lines)
+    lines = [
         f"  [pad-seat-consistency] {icao}: {report['narrowed']} of "
         f"{report['units']} pad unit(s) narrowed to "
         f"band ∩ [corridor ± route budget]; {report['moved']} moved "

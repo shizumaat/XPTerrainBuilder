@@ -3764,35 +3764,46 @@ _CHORD_LIMIT_ROLES = (ROLE_GROUNDSIDE_PAVEMENT,
 # carrying a bore's below-grade geometry, WHATEVER its role, and that is
 # exactly what R14-1's claim already names.
 #
-# THE RULE IS ROAD-PRECEDENCE EXEMPTION (spec AMENDMENT 2, 2026-08-25),
-# and it is what it is because two narrower rules were BUILT AND
-# MEASURED first — the ledger, so neither is retried:
+# THE RULE IS A CLAIM-SCOPED **ROLE** EXCLUSION (spec AMENDMENT 3 /
+# OPTION A, owner-ordered 2026-08-25): a ROAD-ROLE ring — service_road or
+# service_junction — that touches the open-cut claim LEAVES
+# _CHORD_LIMIT_ROLES for the pass.  It mints no key, consumes none, and
+# is not clamped here; groundside_pavement rings stay in the pass
+# EVERYWHERE, and road rings that touch no claim keep cce9da6f's full
+# behaviour.  That is exactly the role-set revert's regime AT TUNNEL
+# SITES with the limiter intact everywhere else.
 #
-#   * EXCLUDING THE RING from the book gave a perfect bore floor and
-#     stripped lawful limiting from a boundary-spanning ring's lot half
-#     (OTHH -12221: lot worst 1.03 m off the reference, retreat walls
-#     5 of 10);
-#   * PRIVATE KEYS for in-cut NODES closed the direct weld channel but
-#     left the TWO-STEP path open — the road's value still won at the
+# It is that rule and not a narrower one because THREE narrower ones were
+# BUILT AND MEASURED first — the spec's do-not-retry ledger:
+#
+#   * EXCLUDING THE CLAIM-TOUCHING RING (v1, 4e0a7e3c — merged for the
+#     sim bundle and RETIRED by this change) gave a perfect bore floor
+#     and stripped lawful limiting from a boundary-spanning GROUNDSIDE
+#     ring's lot half (OTHH -12221: lot worst 1.03 m off the reference,
+#     retreat walls 5 of 10);
+#   * PRIVATE KEYS for in-cut NODES (v2) closed the direct weld channel
+#     but left the TWO-STEP path open — the road's value still won at the
 #     SAME ring's out-of-cut welds (cce9da6f's design), and the ring's
 #     own chord law then carried it across the cut boundary without ever
-#     minting a key inside it (bore recaptured, walls 2 of 10).
+#     minting a key inside it (bore recaptured, walls 2 of 10);
+#   * DEMOTING THE ROAD'S PRECEDENCE at a claim-touching ring's welds
+#     (v3) held the bore floor — and then the weld, still a SHARED KEY,
+#     wrote that same value into the road's ring, so the two claimants
+#     AGREED and no retreat face was minted (walls 2 of 10).
 #
-# So the thing to withhold is neither the key nor the clamp: it is the
-# ROAD'S PRECEDENCE.  A claim-touching ring participates in the node
-# book exactly as pre-cce9da6f groundside — it mints and consumes shared
-# keys, stays fully in the clamp — but no road-role value WINS at any of
-# its welds, on either half.  Rings that touch no claim keep cce9da6f's
-# full precedence, so the limiter's road/lot purpose is untouched
-# everywhere else.
+# THAT LAST ONE IS THE STRUCTURAL FINDING (spec "finding 2"): a retreat
+# face and a shared key are MUTUALLY EXCLUSIVE — a face exists only where
+# claimants DISAGREE at a node.  So the road family cannot merely lose
+# its precedence at a tunnel site; it has to leave the shared key space
+# there, which is what this rule does.
 _TUNNEL_CORRIDOR_EXCLUSION_ENV = "O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION"
 
-#: Seeding rank for a road value the exemption demotes.  Worse than every
-#: real ``authority_rank``, so the ordinary precedence arithmetic below
-#: needs no branch of its own: a groundside claimant at a real rank wins
-#: outright, and where only demoted road values meet, the existing
-#: equal-rank ``min`` picks the lower (the bore's own depth).
-_ROAD_PRECEDENCE_EXEMPT_RANK = 1 << 30
+#: The ROAD half of :data:`_CHORD_LIMIT_ROLES` — the family cce9da6f
+#: added and the only one the claim-scoped exclusion removes.  Derived
+#: from the role set itself, so a role added there lands here with no
+#: second list to keep in sync.
+_CHORD_LIMIT_ROAD_ROLES = tuple(r for r in _CHORD_LIMIT_ROLES
+                                if r != ROLE_GROUNDSIDE_PAVEMENT)
 
 
 def _tunnel_corridor_claim(layout):
@@ -3851,12 +3862,12 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         import O4_UI_Utils as UI
         by = ", ".join(f"{c} {role}" for role, c in sorted(by_role.items()))
         UI.vprint(1,
-                  f"  [pav-builder] tunnel-corridor exemption: {n} ring(s) "
-                  f"touching the R14-1 open-cut claim ({by}) are "
-                  f"ROAD-PRECEDENCE-EXEMPT — they key, weld and clamp "
-                  f"normally, but no road value wins at any of their "
-                  f"{stats.get('tunnel_corridor_exempt_nodes', 0)} weld "
-                  f"node(s); the portal walk owns the cut, not the road.")
+                  f"  [pav-builder] tunnel-corridor exclusion: {n} ROAD "
+                  f"ring(s) touching the R14-1 open-cut claim ({by}) left "
+                  f"the chord-limit role set for this pass — "
+                  f"{stats.get('tunnel_corridor_exempt_nodes', 0)} node(s) "
+                  f"neither minted nor consumed, and no clamp; the portal "
+                  f"walk owns the cut, not the road.")
     except (ImportError, AttributeError, TypeError):    # pragma: no cover
         return
     try:
@@ -3874,10 +3885,10 @@ def _ring_touches_tunnel_claim(ring, prepared, bounds) -> bool:
     partner way shares with it.  Those shared vertices ARE the channel
     the capture travelled through, so the boundary must count.
 
-    Under AMENDMENT 2 this predicate no longer removes anything: it
-    selects the rings at which the ROAD'S PRECEDENCE is exempt.  It is
-    attempt 1's predicate verbatim (4e0a7e3c) — one membership notion for
-    the whole feature, as the spec's one-authority clause requires.
+    Under AMENDMENT 3 it selects the ROAD-role rings that leave the pass
+    (groundside rings are never removed).  The body is attempt 1's
+    predicate VERBATIM (4e0a7e3c, spec Amendment 3 §2) — one membership
+    notion for the whole feature, as the one-authority clause requires.
     """
     minx, miny, maxx, maxy = bounds
     for (x, y) in ring:
@@ -4070,15 +4081,18 @@ def _grade_limit_groundside_chords(layout) -> int:
 
     ``tunnel_ramp`` is untouched: its law is the portal walk.
 
-    THE TUNNEL-CORRIDOR EXEMPTION touches exactly one of those two rules
-    (spec ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``,
-    AMENDMENT 2): a ring touching R14-1's open-cut claim keys, welds and
-    clamps exactly as before, but NO ROAD VALUE WINS at any of its weld
-    nodes — precedence there falls back to the pre-``cce9da6f``
-    groundside regime.  Nothing is removed from the book and nothing is
-    removed from the clamp; the two narrower rules that did (whole-ring
-    exclusion, per-node private keys) were built and measured first and
-    are on the spec's do-not-retry ledger.
+    THE TUNNEL-CORRIDOR EXCLUSION scopes the FIRST of those two rules by
+    role (spec ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``,
+    AMENDMENT 3 / option A): a ROAD-role ring touching R14-1's open-cut
+    claim leaves ``_CHORD_LIMIT_ROLES`` for this pass — no key minted, no
+    key consumed, no clamp — so at a tunnel site the book is the
+    pre-``cce9da6f`` groundside book and the two claimants keep the
+    DISAGREEMENT the retreat faces are made of.  ``groundside_pavement``
+    rings stay in the pass everywhere (v1's per-ring exclusion, which did
+    remove them, is retired here — it stripped lawful limiting from a
+    boundary-spanning ring's lot half), and a road ring touching no claim
+    is untouched.  The three narrower rules that were built and measured
+    first are on the spec's do-not-retry ledger, above.
     """
     node_alt: dict = {}
     node_cap: dict = {}
@@ -4089,18 +4103,16 @@ def _grade_limit_groundside_chords(layout) -> int:
     rings: dict = {}
     ring_role: dict = {}
     ring_cap: dict = {}
-    _pending: list = []
-    _exempt_rings: set = set()
     stats: dict = {
         "rings": {}, "changed": {}, "caps": {}, "nodes": 0,
         "shared_road_lot_nodes": 0,
         "shared_rect_junction_nodes": 0,
         "stricter_cap_nodes": 0,
         "road_nodes_near_miss": 0,
-        # Spec ``tunnel-corridor-node-book-exclusion-spec.md`` §2 as
-        # AMENDED 2: the rings touching the tunnel open-cut claim (all of
-        # which key, weld and clamp normally) and the weld nodes at which
-        # a road value was DEMOTED because one of them claims it.
+        # Spec ``tunnel-corridor-node-book-exclusion-spec.md`` §1 as
+        # AMENDED 3: the ROAD rings that left the role set because they
+        # touch the tunnel open-cut claim, and how many of their nodes
+        # therefore never reached the book.
         "tunnel_corridor_exempt_rings": {},
         "tunnel_corridor_exempt_nodes": 0,
     }
@@ -4165,6 +4177,21 @@ def _grade_limit_groundside_chords(layout) -> int:
         if any(a is None for a in alts):
             continue
         keys = [(round(x, 2), round(y, 2)) for x, y in ring]
+        # ── THE TUNNEL-CORRIDOR EXCLUSION, AND ITS ONLY CHANGE POINT ──
+        # (spec AMENDMENT 3 §1).  A ROAD ring touching R14-1's open-cut
+        # claim leaves the role set for this pass: it is not collected,
+        # so it mints no key, consumes none and is not clamped — the
+        # role-set revert's regime, scoped to the claim.  A
+        # ``groundside_pavement`` ring is NEVER removed (v1's retired
+        # rule): the bore floor is one, and excluding it stripped lawful
+        # limiting from its out-of-cut half.
+        if (_claim_prep is not None and role in _CHORD_LIMIT_ROAD_ROLES
+                and _ring_touches_tunnel_claim(ring, _claim_prep,
+                                               _claim_bounds)):
+            _by = stats["tunnel_corridor_exempt_rings"]
+            _by[role] = _by.get(role, 0) + 1
+            stats["tunnel_corridor_exempt_nodes"] += len(set(keys))
+            continue
         # THE CANONICAL SECOND READING of the airside pin (see
         # ``_airside_claimed_keys``): a vertex the emitter will merge into
         # an airside node is airside DATA even when its 2-dp bucket
@@ -4183,43 +4210,12 @@ def _grade_limit_groundside_chords(layout) -> int:
         ring_cap[i] = cap
         stats["rings"][role] = stats["rings"].get(role, 0) + 1
         stats["caps"][role] = cap
-        # AMENDMENT 2 — WHICH RINGS ARE ROAD-PRECEDENCE-EXEMPT.  Nothing
-        # is removed here: the ring keys, welds and clamps exactly as
-        # before.  Its keys join ``claim_nodes``, and the seeding pass
-        # below demotes any ROAD value offered at one of them.
-        if _claim_prep is not None and _ring_touches_tunnel_claim(
-                ring, _claim_prep, _claim_bounds):
-            _exempt_rings.add(i)
-            _by = stats["tunnel_corridor_exempt_rings"]
-            _by[role] = _by.get(role, 0) + 1
-        _pending.append((i, keys, alts, role, cap))
-    # THE EXEMPT WELD SET.  Seeding is a SECOND pass because the rule is
-    # about the node, not the ring offering the value: a road ring that
-    # touches no claim itself is still demoted at a weld a claim-touching
-    # ring holds — that weld is the two-step carrier's entry (the
-    # measured v2 failure), and closing it is the whole point.
-    claim_nodes: set = set()
-    for _i, _keys, _alts, _role, _cap in _pending:
-        if _i in _exempt_rings:
-            claim_nodes.update(_keys)
-    _demoted: set = set()
-    for i, keys, alts, role, cap in _pending:
         rank = authority_rank(role)
         is_road = role != ROLE_GROUNDSIDE_PAVEMENT
         for kxy, a in zip(keys, alts):
             v = float(a)
-            eff_rank = rank
-            if is_road and kxy in claim_nodes:
-                # THE EXEMPTION, and the ONLY change point (spec
-                # AMENDMENT 2 §2): this road value does not WIN here.  It
-                # is demoted below every real rank rather than dropped —
-                # where a weld is road-only the book must still be seeded,
-                # and the equal-rank ``min`` then takes the lower value,
-                # which is the bore's own depth.
-                eff_rank = _ROAD_PRECEDENCE_EXEMPT_RANK
-                _demoted.add(kxy)
             prev = node_rank.get(kxy)
-            if prev is None or eff_rank < prev:
+            if prev is None or rank < prev:
                 # PRECEDENCE ACROSS ROLES, min WITHIN one.
                 # ``layout.AUTHORITY_PRECEDENCE`` is a TOTAL order and it
                 # is airside-first: ``service_road`` and
@@ -4231,8 +4227,8 @@ def _grade_limit_groundside_chords(layout) -> int:
                 # road shapes never leaves the ``rank == prev`` branch, so
                 # it keys exactly as it did before the family grew.
                 node_alt[kxy] = v
-                node_rank[kxy] = eff_rank
-            elif eff_rank == prev:
+                node_rank[kxy] = rank
+            elif rank == prev:
                 node_alt[kxy] = min(node_alt[kxy], v)
             prev_cap = node_cap.get(kxy)
             if prev_cap is None:
@@ -4252,7 +4248,6 @@ def _grade_limit_groundside_chords(layout) -> int:
     _chord_limit_shared_node_census(stats, node_roles, node_cap,
                                     node_cap_max, node_road_shapes)
     stats["nodes"] = len(node_alt)
-    stats["tunnel_corridor_exempt_nodes"] = len(_demoted)
     stats["airside_pinned_nodes"] = sum(1 for k in node_alt
                                         if k in pinned_keys)
     # R7c: CUT **AND** FILL, through the ONE kernel the single-ring

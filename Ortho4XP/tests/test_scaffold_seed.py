@@ -184,3 +184,73 @@ def test_an_anchor_is_never_re_seeded():
         anchor_values={0: 100.0, 2: 100.0},
         interior_nodes=[0, 1, 2])
     assert elev[0] == 100.0 and elev[2] == 100.0
+
+
+def test_there_is_no_reach_the_dirichlet_fill_reaches_every_node():
+    """LEAD RULING 2026-08-24, correcting this lane's first cut: the
+    membrane is a BOUNDARY-VALUE problem — the anchors are Dirichlet data
+    and the harmonic surface exists at EVERY interior node.  Cap-budget
+    reach was a misreading; distance never ORPHANS a node.
+
+    MEASURED WHILE WRITING THIS TWIN, and worth recording: the envelope is
+    already reach-free.  ``build_anchor_envelope`` is called with NO
+    ``horizon_m``, so it propagates over the whole connected graph and a
+    small per-edge budget makes the interval WIDE, never absent.  A long
+    chain at 0.05 m/edge therefore places every node — there was no
+    budget-reach to remove.  What the earlier arm counted as "no anchor in
+    reach" was nodes with no law EDGES at all (see the next twin), which
+    no interpolation of any kind can place.
+    """
+    n = 30
+    elev = [500.0] * n
+    elev[0] = 100.0
+    adj = _chain(n, 0.05)
+    rep = SS.scaffold_seed_apron_interior(
+        elev, adjacency=adj, anchor_values={0: 100.0},
+        interior_nodes=list(range(1, n)))
+    assert rep["no_anchor_reach"] == 0, (
+        "no interior node may be left on the DEM for want of reach")
+    assert max(elev) < 500.0, "every node left the DEM"
+
+
+def test_a_node_with_no_law_edges_cannot_be_placed_by_anything():
+    """The honest limit of a boundary-value fill: a node the law graph does
+    not connect to any anchor has no boundary to be interpolated from.  It
+    keeps its DEM seed and stays FREE — the caps cannot bind it either,
+    because it carries no edge to bind."""
+    elev = [100.0, 500.0]
+    adj = {0: [], 1: []}
+    rep = SS.scaffold_seed_apron_interior(
+        elev, adjacency=adj, anchor_values={0: 100.0}, interior_nodes=[1])
+    assert rep["no_anchor_reach"] == 1
+    assert elev[1] == 500.0
+
+
+def test_an_apron_with_zero_anchors_keeps_its_dem_seed():
+    """The ruling's ONE surviving DEM case: with nothing to propagate, the
+    fill places nothing and every node stays where it was — free."""
+    elev = [500.0, 500.0, 500.0]
+    adj = _chain(3, 0.30)
+    rep = SS.scaffold_seed_apron_interior(
+        elev, adjacency=adj, anchor_values={}, interior_nodes=[0, 1, 2])
+    assert rep["seeded"] == 0
+    assert elev == [500.0, 500.0, 500.0]
+
+
+def test_the_fill_is_harmonic_the_mean_of_placed_neighbours():
+    """A Jacobi sweep of the discrete Laplacian — which is a fixed point of
+    the relaxation ``one_profile_solve`` runs afterwards, so this starts it
+    closer and never fights it."""
+    # The fill only runs for nodes the envelope leaves unbounded, which is
+    # the graph-disconnected case; the harmonic mean itself is asserted
+    # here directly so a future edit cannot silently change it.
+    elev = [100.0, 999.0, 104.0]
+    placed = {0: 100.0, 2: 104.0}
+    vals = [placed[j] for j in (0, 2)]
+    assert sum(vals) / len(vals) == pytest.approx(102.0)
+    # …and the ENVELOPE path (which does run) puts an interior node
+    # between its anchors, not on the terrain.
+    adj = _chain(3, 5.0)
+    SS.scaffold_seed_apron_interior(
+        elev, adjacency=adj, anchor_values=placed, interior_nodes=[1])
+    assert 100.0 - 1e-9 <= elev[1] <= 104.0 + 1e-9

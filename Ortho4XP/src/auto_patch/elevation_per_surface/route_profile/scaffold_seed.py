@@ -58,6 +58,13 @@ APRON_SCAFFOLD_SEED = (
 #: the seed it replaces is counted as unmoved rather than reported.
 _SEED_MOVE_TOL_M = 0.01
 
+#: Jacobi sweeps for the Dirichlet fill of nodes the envelope cannot bound.
+#: The fill propagates one graph ring per sweep, so this is a REACH IN
+#: HOPS, not in metres — and it is bounded only so a pathological graph
+#: cannot spin.  Anything still unfilled after it belongs to an apron with
+#: no anchors at all.
+_FILL_SWEEPS = 64
+
 
 def scaffold_anchor_values(anchor_nodes, elev, building_seats=None,
                            n: Optional[int] = None) -> Dict[int, float]:
@@ -147,7 +154,8 @@ def scaffold_seed_apron_interior(elev, *, adjacency, anchor_values,
     Returns a report dict; nothing is printed here.
     """
     report = {"seeded": 0, "no_anchor_reach": 0, "contradicted": 0,
-              "band_clamped": 0, "worst_move_m": 0.0, "anchors": 0}
+              "band_clamped": 0, "worst_move_m": 0.0, "anchors": 0,
+              "dirichlet_filled": 0}
     if not APRON_SCAFFOLD_SEED or not interior_nodes:
         return report
     env = build_anchor_envelope(adjacency, anchor_values,
@@ -155,17 +163,25 @@ def scaffold_seed_apron_interior(elev, *, adjacency, anchor_values,
     if env is None:
         return report
     report["anchors"] = env.anchor_count
+    unreached = []
     for i in interior_nodes:
         k = int(i)
         if k in anchor_values or not (0 <= k < len(elev)):
             continue
         box = env.box(k)
         if box is None:
-            # NO ANCHOR IN REACH — the owner's addendum, exactly: this node
-            # keeps the seed it already has (the DEM one, for a pad-less
-            # apron's far edge) and stays FREE, so the caps pull it off the
-            # terrain wherever the terrain exceeds grade.
-            report["no_anchor_reach"] += 1
+            # ── NO "REACH" (lead ruling 2026-08-24, correcting this
+            # lane's first cut) ─────────────────────────────────────────
+            # The membrane is a BOUNDARY-VALUE problem: the anchors are
+            # DIRICHLET data and the harmonic surface exists at EVERY
+            # interior node.  Cap-budget reach was a misreading — the
+            # owner's "cut into hills or raise fills" says distance never
+            # ORPHANS a node.  So a node the envelope cannot bound is not
+            # abandoned to the DEM; it is collected and filled below by
+            # relaxation from its own neighbours.  DEM survives only for
+            # an apron with ZERO anchors, where the fill has nothing to
+            # propagate and every node stays where it was.
+            unreached.append(k)
             continue
         lvl = taut_level(box)
         if lvl is None:
@@ -186,6 +202,47 @@ def scaffold_seed_apron_interior(elev, *, adjacency, anchor_values,
             report["seeded"] += 1
             if move > report["worst_move_m"]:
                 report["worst_move_m"] = move
+
+    # ── THE DIRICHLET FILL: every remaining interior node ─────────────
+    # Jacobi relaxation of the discrete Laplacian over the law graph, with
+    # the anchors and the already-placed nodes as the boundary — the
+    # harmonic surface the ruling names, and the same relaxation
+    # ``one_profile_solve`` runs afterwards (it is a fixed point of that
+    # sweep, so this only starts it closer).  A node with no placed
+    # neighbour yet simply waits for a later sweep; one that never gets a
+    # neighbour belongs to an apron with no anchors at all and keeps its
+    # DEM seed, which is the ruling's one surviving DEM case.
+    if unreached:
+        placed = {k for k in interior_nodes
+                  if int(k) not in unreached} | set(anchor_values)
+        pending = set(unreached)
+        for _sweep in range(_FILL_SWEEPS):
+            if not pending:
+                break
+            updates = {}
+            for k in pending:
+                vals = [float(elev[j]) for (j, _b) in adjacency.get(k, ())
+                        if j in placed and 0 <= j < len(elev)]
+                if vals:
+                    updates[k] = sum(vals) / len(vals)
+            if not updates:
+                break
+            for k, v in updates.items():
+                if node_band is not None and k < len(node_band):
+                    nb = node_band[k]
+                    if nb is not None and nb[0] is not None \
+                            and nb[1] is not None and nb[0] <= nb[1]:
+                        v = min(max(v, float(nb[0])), float(nb[1]))
+                move = abs(v - float(elev[k]))
+                elev[k] = v
+                if move > _SEED_MOVE_TOL_M:
+                    report["seeded"] += 1
+                    if move > report["worst_move_m"]:
+                        report["worst_move_m"] = move
+            placed |= set(updates)
+            pending -= set(updates)
+        report["no_anchor_reach"] = len(pending)
+        report["dirichlet_filled"] = len(unreached) - len(pending)
     return report
 
 
@@ -196,8 +253,10 @@ def format_report(icao: str, report: dict) -> str:
             f"node(s) re-seated on the centerline scaffold from "
             f"{report['anchors']} anchor(s) (worst move "
             f"{report['worst_move_m']:.2f} m); "
-            f"{report['no_anchor_reach']} node(s) kept their DEM seed with "
-            f"no anchor in reach (FREE, never pinned — owner addendum); "
+            f"{report.get('dirichlet_filled', 0)} filled by Dirichlet "
+            f"relaxation; {report['no_anchor_reach']} node(s) on "
+            f"anchor-less aprons kept their DEM seed (FREE, never pinned "
+            f"— owner addendum); "
             f"{report['band_clamped']} clamped into the reach band, "
             f"{report['contradicted']} left alone on contradicting anchors "
             f"— RULINGS 2026-08-24c")

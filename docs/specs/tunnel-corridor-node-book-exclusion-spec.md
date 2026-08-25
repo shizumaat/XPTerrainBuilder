@@ -173,3 +173,37 @@ elsewhere.
    adjudicated delta vs revert's +17; tunnel families/airside
    byte-stable; limiter's own tests pass. Attempt cap 2; a miss goes
    to the owner with the ledger.
+
+## Amendment 4 (Fable, 2026-08-25 — owner-approved: v2 + BOUNDARY
+## SEVERANCE; supersedes Amendment 3 / option A)
+
+Finding 3 (measured): the bench carriers are the bore ring's welded
+partners OUTSIDE the claim (14 welds at zero claim coverage vs 3
+claimed) — no claim-membership rule can name them. But v2's failure
+had exactly ONE proven channel: the ring's own chord law carrying the
+out-of-claim road seed across the cut boundary. Close that channel and
+v2's key exclusion does the rest.
+
+1. REINSTATE v2's per-node key scope (d83379a8): a node inside the
+   open-cut claim mints NO shared key and accepts NO cross-ring
+   import (ring-private book key), every ring stays in the clamp.
+2. BOUNDARY SEVERANCE: within-ring chord pairs whose endpoints
+   STRADDLE the claim boundary (one in, one out) are withheld from the
+   clamp's own chord law. In-claim internal pairs keep the ring's law
+   among themselves (bore smoothness); out-of-claim internal pairs
+   likewise (the limiter's purpose). The severed pairs' surface
+   continuity is owned by the portal walk's solved geometry, exactly
+   as GOOD behaved.
+3. Applies to every clamped role's rings (the carriers are junction
+   rings; the bore floor is groundside). v1's per-ring exclusion
+   (main 9194b83f) retires when this lands. Same flag, OFF =
+   pre-round cce9da6f in full.
+4. Twins: v2's key twins reinstated + (new) a boundary-spanning ring
+   with a road seed on its lot half keeps the bore half at portal
+   depth (the within-ring carrier is dead) while the lot half stays
+   clamped; claimants disagree at boundary welds and retreat faces
+   emit; OFF = pre-round.
+5. Acceptance = Amendment 3 §5 unchanged (stations ≤0.15 of GOOD,
+   walls ≥9/10 footprint, subgrade ≤ revert 9/6, adjudicated vs +17,
+   airside/families byte-stable, limiter tests). Attempt count resets,
+   cap 2; a miss goes to the owner with the six-arm ledger.

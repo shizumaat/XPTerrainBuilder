@@ -839,6 +839,48 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             return None
         return (min(flo, fhi) if flo is not None else -_INF, fhi)
 
+    def _frontage_band_records(shape, ring):
+        """THE BAND, AT THIS PAD'S FRONTAGE POINTS — evidence for the owner
+        (lead order 2026-08-24), read from the band the SOLVE is using.
+
+        ``band.attachment_at`` is the raster band's OWN read-only
+        provenance accessor: it hands out the lookup that ran rather than
+        re-deriving one, which is precisely the "never a replay" clause —
+        a tool that re-derives a lookup is a second engine.
+
+        One record per APRON-SHARED edge centre — the same points
+        ``_frontage_box`` samples to choose the seat, so the exported
+        interval is the one the seat was actually chosen from.
+        """
+        out = []
+        n = len(ring)
+        for i in range(n):
+            a = (round(ring[i][0], 2), round(ring[i][1], 2))
+            b = (round(ring[(i + 1) % n][0], 2), round(ring[(i + 1) % n][1], 2))
+            if a not in apron_keys or b not in apron_keys:
+                continue
+            cx = 0.5 * (ring[i][0] + ring[(i + 1) % n][0])
+            cy = 0.5 * (ring[i][1] + ring[(i + 1) % n][1])
+            bc = band(cx, cy)
+            if bc is None:
+                continue
+            rec = {"pad": shape.ref or "?",
+                   "ll": list(layout.m_to_ll(cx, cy)),
+                   "floor": float(min(bc)), "ceiling": float(max(bc))}
+            at = getattr(band, "attachment_at", None)
+            info = at(cx, cy) if at is not None else None
+            if info:
+                rec["anchor_nodes"] = [int(v) for v in
+                                       (info.get("attachment_nodes") or ())]
+                rec["route_m"] = float(info.get("leg_m") or 0.0)
+                rec["off_mask_m"] = float(info.get("off_mask_m") or 0.0)
+                rec["floor_at_anchor"] = float(info["floor_at_attachment"])
+                rec["ceiling_at_anchor"] = float(info["ceiling_at_attachment"])
+            out.append(rec)
+        return out
+
+    _frontage_band_ll: list = []
+
     # ── Per-pad independent target + feasible box ────────────────────────────
     # target = the legacy independent seat (DEM biased into the frontage band);
     # box    = the reach-band interval the seat may move within when the JOINT
@@ -909,6 +951,11 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 else:
                     lo = hi = level                  # off-network: immovable
         pads.append((s, ring, float(level), lo, hi))
+        # THE BAND EVIDENCE for this pad (lead order 2026-08-24), recorded
+        # with the seat so a reader can put the two side by side.
+        for _fr in _frontage_band_records(s, ring):
+            _fr["seat_m"] = float(level)
+            _frontage_band_ll.append(_fr)
         # ── PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c)
         # "A pad seat that cannot reach its governing centerline anchor
         # within 1 % x chord is a SEAT DEFECT caught at seating time
@@ -945,6 +992,17 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                              float(s.polygon.centroid.y)),
                 "area_m2": float(s.polygon.area),
             })
+
+    # THE BAND EVIDENCE, published for the census (lead order 2026-08-24):
+    # the interval the SOLVE's own band offered at each pad frontage point,
+    # beside the seat that was chosen from it.  Evidence, never law.
+    setattr(layout, "_frontage_band_ll", _frontage_band_ll)
+    if _frontage_band_ll:
+        _n_pads = len({r["pad"] for r in _frontage_band_ll})
+        _report(f"  [frontage-band] {len(_frontage_band_ll)} band "
+                f"interval(s) recorded at the frontage points of "
+                f"{_n_pads} pad(s) — evidence for the seat adjudication "
+                f"(the band the solve used, not a replay)")
 
     # THE GATE'S READ-OUT.  Loud, named, and published for the census —
     # a seat defect is not surface debt and must never be read as one.

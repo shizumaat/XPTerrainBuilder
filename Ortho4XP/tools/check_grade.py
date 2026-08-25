@@ -5874,6 +5874,9 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # SEATING time and is not surface debt, so it is reported beside the
     # census and never adjudicated as a law family — which is also what
     # keeps this round's acceptance counts comparable with the last.
+    # THE BAND AT PAD FRONTAGE POINTS (lead order 2026-08-24) — evidence
+    # for the seat adjudication, reported and never adjudicated.
+    "frontage_band",
     "pad_seat_infeasible",
     "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
                                   # partition per apron ring node (spec

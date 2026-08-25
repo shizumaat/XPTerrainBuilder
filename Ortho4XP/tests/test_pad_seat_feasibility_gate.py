@@ -112,3 +112,48 @@ def test_the_key_is_registered_as_CENSUS_EVIDENCE_not_law():
     import check_grade as CG
     assert "pad_seat_infeasible" in CG.SIDECAR_EVIDENCE_KEYS
     assert "pad_seat_infeasible" not in CG.SIDECAR_LAW_KEYS
+
+
+# ── THE FRONTAGE-BAND EXPORT (lead order 2026-08-24) ──────────────────
+
+def test_the_frontage_band_key_is_registered_as_evidence():
+    """The band interval at pad frontage points is EVIDENCE for the seat
+    adjudication — reported by the census, never adjudicated as law, so
+    exporting it cannot move an acceptance count."""
+    import check_grade as CG
+    assert "frontage_band" in CG.SIDECAR_EVIDENCE_KEYS
+    assert "frontage_band" not in CG.SIDECAR_LAW_KEYS
+
+
+def test_the_export_reads_the_solves_own_band_never_a_replay():
+    """"From the band the SOLVE actually used, never a replay."  The
+    recorder calls ``band.attachment_at`` — the raster band's OWN
+    read-only provenance accessor, which hands out the lookup that ran
+    rather than re-deriving one.  Asserted on the source because that is
+    the property a future edit would break."""
+    src = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
+           / "route_profile" / "anchors.py").read_text()
+    assert 'getattr(band, "attachment_at", None)' in src
+    assert "_frontage_band_records" in src
+    # …and the accessor it depends on still exists on the band it reads.
+    rb = (_ROOT / "src" / "auto_patch" / "elevation_per_surface"
+          / "raster_reach_band.py").read_text()
+    assert "band.attachment_at = attachment_at" in rb
+
+
+def test_the_record_round_trips_through_the_sidecar():
+    """Every field the adjudication needs survives JSON: pad id, frontage
+    point, floor/ceiling, governing anchor and its route leg."""
+    import json
+    rec = {"pad": "building12", "ll": [30.1, 31.4],
+           "floor": 62.793, "ceiling": 71.850, "seat_m": 72.356,
+           "anchor_nodes": [4211, 4212], "route_m": 143.2,
+           "off_mask_m": 6.0, "floor_at_anchor": 63.0,
+           "ceiling_at_anchor": 71.0}
+    back = json.loads(json.dumps([rec]))[0]
+    assert back == rec
+    for k in ("pad", "ll", "floor", "ceiling", "seat_m",
+              "anchor_nodes", "route_m"):
+        assert k in back, f"{k} must survive the sidecar round trip"
+    # the seat's position within its own interval is derivable from it
+    assert back["seat_m"] > back["ceiling"]

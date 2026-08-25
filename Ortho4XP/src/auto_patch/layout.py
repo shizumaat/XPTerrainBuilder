@@ -3586,6 +3586,14 @@ class PavementLayout:
             # never surface debt, so the census REPORTS it and does not
             # adjudicate it.  Report-first by order — no seat is moved
             # this round, and the fix policy is the next ruling.
+            # THE BAND AT PAD FRONTAGE POINTS (lead order 2026-08-24).
+            # EVIDENCE: the interval the SOLVE's own reach band offered
+            # where each pad's seat was chosen, with the governing
+            # attachment and its route leg, so the seat-vs-band question
+            # is adjudicated on the engine's own numbers instead of a
+            # tool's replay.  Never law input; the census reports it.
+            "frontage_band": list(
+                getattr(self, "_frontage_band_ll", None) or []),
             "pad_seat_infeasible": [
                 {**_r, "ll": list(self.m_to_ll(*_r["centroid"]))}
                 for _r in (getattr(self, "_pad_seat_infeasible", None) or [])],

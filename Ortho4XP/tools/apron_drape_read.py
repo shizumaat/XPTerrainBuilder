@@ -34,6 +34,29 @@ surface that tool and a build see and never composes, densifies, fetches
 or writes anything.  The metre frame for the 50 m window is
 ``check_grade._ll_to_m_factory`` about the sidecar's own anchor.
 
+THE CLIFF METRIC — A PROPOSAL, NOT A GATE (lead order 2026-08-24).
+The owner's in-sim report names "harsh cliffs", and an acceptance gate on
+that class needs its definition PINNED before it can be used.  Two
+candidate definitions were on the table; neither reproduces the "145"
+figure quoted from the earlier visual-findings producer, so that number
+is NOT this metric under either reading and must not be carried forward
+as a baseline.
+
+  (A) NODE-PAIR CONTACTS — nodes of two DIFFERENT shapes within 3.0 m
+      horizontally whose elevations differ by >= 0.30 m; count the pairs.
+      Readings: Aug-12 patch 31,810 contacts; lane v3 1,260.
+  (B) SHAPE-PAIR SITES — the same predicate, but counting the distinct
+      pairs of SHAPES involved, so one long mismatched boundary is one
+      cliff rather than hundreds.
+      Readings: Aug-12 patch 2,213 shape pairs; lane v3 532.
+
+(B) is the one worth gating on: (A) AMPLIFIES with vertex density exactly
+as row counts do against site counts (the census's own amplification
+lesson), so two arms with different decimation are not comparable under
+it.  Both fell sharply from Aug-12 to v3, so neither currently reads as a
+regression — which is also why neither should be adopted as a gate
+without the owner pinning it first.
+
 NUMBERS FROM THIS TOOL ARE NOT DEFECT COUNTS and never adjudicate: they
 are a SHAPE reading, comparable ARM TO ARM on identical options and
 nowhere else (the DEM source, the window and the percentiles are all

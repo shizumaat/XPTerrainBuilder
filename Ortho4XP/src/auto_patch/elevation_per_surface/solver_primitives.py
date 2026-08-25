@@ -2196,18 +2196,31 @@ def eat_scoping_bounds():
     return (float(EAT_MIN_CROSSING_DIST_M), float(EAT_CORRIDOR_HALF_WIDTH_M))
 
 
-def eat_scoping_far_bound(end_spec) -> float:
-    """The THIRD scoping value — ``D_clear``, the corridor's far bound
-    for one runway end (owner ruling 2026-08-25c clause 2).
+def eat_scoping_far_bound(end_spec) -> tuple:
+    """The corridor's FAR BOUND for one runway end —
+    ``(bound_m, which)``, where ``which`` names the rule that set it.
 
-    The sibling of :func:`eat_scoping_bounds`'s near bound, kept apart
-    from it because it is NOT a config constant: it is
-    ``grade_law.eat_ceiling_clear_distance`` evaluated on THIS end's own
-    region slope / setback / tail height — the distance at which the
-    regulation surface has risen a whole tail above the runway end and
-    therefore binds nothing.  Recognition beyond it is vacuous by the
-    regulation's own geometry, so no new tuning constant exists to
-    tune.
+    TWO far bounds compose as a MINIMUM; the stricter governs.
+
+    * ``D_clear`` — ``grade_law.eat_ceiling_clear_distance`` on THIS
+      end's own region slope / setback / tail height (owner ruling
+      2026-08-25c clause 2).  NOT a tunable: it is the distance at which
+      the regulation surface has risen a whole tail above the runway
+      end, so recognition beyond it is vacuous *by the regulation's own
+      geometry*.
+    * ``EAT_MAX_CROSSING_DIST_M`` — the RECOGNITION cap (owner ruling
+      2026-08-25d), 600 m, set from the measured feature: real EATs
+      cross at 439-482 m.  This one IS a constant, and it exists
+      because 25c's three clauses all passed LEMD's genuine routed wrap
+      at D = 1066 m — which the owner rules is not an end-around
+      taxiway but the airport's own taxi network crossing a projected
+      line.
+
+    ``which`` is ``"D_clear"`` or ``"EAT_MAX_CROSSING_DIST_M"`` so the
+    refusal line can say WHICH bound fired — with two rules in play, a
+    refusal that named neither would be unattributable.  Ties go to
+    ``D_clear``: where they coincide the regulation's own geometry is
+    the more fundamental statement.
 
     ``eat_ceiling_offset`` and ``verification.check_eat_ceiling`` are
     deliberately NOT far-bounded: the audit is a report-only reader of
@@ -2215,10 +2228,15 @@ def eat_scoping_far_bound(end_spec) -> float:
     end — pavement up there that still penetrates it is a genuine
     finding worth printing, even though no rect is pinned for it.
     """
+    from auto_patch.config import EAT_MAX_CROSSING_DIST_M
     from auto_patch.grade_law import eat_ceiling_clear_distance
-    return float(eat_ceiling_clear_distance(
+    d_clear = float(eat_ceiling_clear_distance(
         float(end_spec["slope"]), float(end_spec["setback_m"]),
         float(end_spec["tail_height_m"])))
+    cap = float(EAT_MAX_CROSSING_DIST_M)
+    if d_clear <= cap:
+        return (d_clear, "D_clear")
+    return (cap, "EAT_MAX_CROSSING_DIST_M")
 
 
 def eat_wrap_crossing_stations(layout, end_spec) -> list:
@@ -2526,7 +2544,8 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
         # region constants, and CLAUSE 1's crossing stations, resolved
         # ONCE per end (the route sweep is O(centreline vertices) per
         # runway end, a handful of thousand points on a large airport).
-        d_clear = eat_scoping_far_bound(spec) if v2 else float("inf")
+        d_far, d_far_rule = (eat_scoping_far_bound(spec) if v2
+                             else (float("inf"), "none"))
         cross_s = eat_wrap_crossing_stations(layout, spec) if v2 else ()
         end_label = str(spec.get("end_id") or "?")
         members: list[tuple[float, int, float]] = []   # (s, node, q)
@@ -2613,22 +2632,33 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
                 d_mid, spec["slope"], spec["setback_m"],
                 spec["tail_height_m"]))
             if v2:
-                # ── CLAUSE 2 — VACUOUS-SURFACE FAR BOUND ───────────
+                # ── CLAUSE 2 — THE FAR BOUND ───────────────────────
                 # Judged RECT-LEVEL on the rect's NEAR edge: a rect
-                # lying WHOLLY beyond ``D_clear`` is under a surface
-                # that has already cleared the tallest tail, so the
-                # regulation binds nothing there and recognition is
-                # vacuous.  A rect that straddles the bound keeps its
-                # geometry and is judged by clause 3 instead — its
-                # value is then within a tail of the runway end, which
-                # is exactly the case the cut test decides.
-                if seg[0][0] > d_clear:
+                # lying WHOLLY beyond the far bound is not recognised.
+                # TWO rules set that bound and the stricter governs —
+                # the vacuous-surface distance ``D_clear`` (2026-08-25c,
+                # the regulation's own geometry: past it the surface has
+                # cleared the tallest tail and binds nothing) and the
+                # RECOGNITION cap ``EAT_MAX_CROSSING_DIST_M``
+                # (2026-08-25d, 600 m: a wrap a kilometre out is the
+                # taxi network crossing a projected line, not a loop
+                # built to take aircraft around a runway end).  The
+                # refusal names which one fired.  A rect that straddles
+                # the bound keeps its geometry and is judged by clause 3
+                # instead — its value is then within a tail of the
+                # runway end, which is exactly what the cut test
+                # decides.
+                if seg[0][0] > d_far:
+                    _why = (f"beyond D_clear={d_far:.0f} m (the surface "
+                            f"has cleared the "
+                            f"{float(spec['tail_height_m']):.1f} m tail)"
+                            if d_far_rule == "D_clear" else
+                            f"beyond the recognition cap "
+                            f"EAT_MAX_CROSSING_DIST_M={d_far:.0f} m "
+                            f"(real EATs cross at 439-482 m)")
                     scope_refusals.append((
                         end_label, d_mid,
-                        f"beyond D_clear={d_clear:.0f} m "
-                        f"(rect starts at {seg[0][0]:.0f} m; the "
-                        f"surface has cleared the "
-                        f"{float(spec['tail_height_m']):.1f} m tail)"))
+                        f"{_why} — rect starts at {seg[0][0]:.0f} m"))
                     _refuse(seg, d_mid)
                     continue
                 # ── CLAUSE 1 — ROUTED WRAP (geometry half) ─────────
@@ -2678,7 +2708,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
                 # (LEMD: the owner rules the airport has no EATs at
                 # all, so a survivor is evidence, not noise).
                 scope_accepted.append((end_label, d_mid, len(seg),
-                                       float(value)))
+                                       float(value), d_far, d_far_rule))
             for (_sv, i, qv) in seg:
                 if is_hard[i]:
                     n_hard_skip += 1
@@ -2714,12 +2744,13 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
             f"across the node-list rebuild).")
     if scope_accepted:
         import O4_UI_Utils as _UI_eata
-        for (_lbl, _d, _n, _v) in sorted(scope_accepted,
-                                         key=lambda r: (r[0], r[1])):
+        for (_lbl, _d, _n, _v, _fb, _fr) in sorted(
+                scope_accepted, key=lambda r: (r[0], r[1])):
             _UI_eata.vprint(1,
                 f"    [eat-scope]   end {_lbl}: rect at D={_d:.0f} m "
                 f"RECOGNISED — {_n} vertex read(s) at {_v:.2f} m "
-                f"(routed wrap, inside D_clear, and it cuts)")
+                f"(routed wrap, inside the far bound {_fr}={_fb:.0f} m, "
+                f"and it cuts)")
     if scope_refusals:
         # LOUD, one line per refused rect, naming the clause — the
         # acceptance evidence for this round is "every former rect

@@ -23,10 +23,22 @@ The three clauses, one twin apiece plus the gate:
   (b) an apron ring in the corridor with no through-centreline: no rect;
   (c) a crossing whose route binds on ONE side only (a dead-end spur):
       no rect — priced at the guard site on the law graph;
-  (d) a wrap beyond ``D_clear = setback + tail/slope``: no rect;
+  (d) a wrap beyond the FAR BOUND: no rect.  Two rules set that bound
+      and the stricter governs — ``D_clear = setback + tail/slope``
+      (2026-08-25c) and the 600 m recognition cap
+      ``EAT_MAX_CROSSING_DIST_M`` (2026-08-25d);
   (e) a wrap whose regulation sits ABOVE the reference everywhere: the
       rect is refused whole and says so out loud;
   (f) gate OFF: the 2026-07-27 recognition exactly.
+
+AMENDED by owner ruling 2026-08-25d.  25c's three clauses all PASSED
+LEMD's 14R wrap at D = 1066 m — a taxi centreline genuinely crosses the
+extended centreline there, inside the 1280 m vacuous bound, and the
+regulation value genuinely cuts — so it was the one rect left standing
+of the original ten.  The owner rules that is not an end-around taxiway
+but the airport's own taxi network crossing a projected line: **nothing
+is recognised beyond 600 m**, the measured band of real EATs being
+439-482 m.
 
 Hermetic: hand-built layouts, no DEM files, no X-Plane, no network.
 """
@@ -76,8 +88,14 @@ def _end_spec():
 
 
 #: FAA 40:1, no setback, code-E tail ⇒ the surface has cleared the tail
-#: 804 m past the DER.  KCLT's real crossing is at 439-482 m.
+#: 804 m past the DER.  Under the 2026-08-25d recognition cap (600 m)
+#: THAT is the stricter of the two far bounds at this end, so 600 m is
+#: what actually governs here.  KCLT's real crossing is at 439-482 m,
+#: comfortably inside both.
 _D_CLEAR = 804.0
+_D_CAP = 600.0
+#: The bound that actually fires at ``_end_spec()``.
+_D_FAR = min(_D_CLEAR, _D_CAP)
 
 
 def _layout(*taxi_polys, crossings=(), role=ROLE_PRIMARY_PARALLEL):
@@ -177,17 +195,44 @@ class TestTheVacuousBoundIsTheLawsOwnGeometry:
         assert eat_ceiling_clear_distance(0.0, 0.0, 20.1) == float("inf")
 
     def test_the_far_bound_helper_reads_the_ends_own_constants(self):
-        assert SP.eat_scoping_far_bound(_end_spec()) == \
-            pytest.approx(_D_CLEAR)
+        """At a code-E FAA end the RECOGNITION CAP (600 m) is stricter
+        than ``D_clear`` (804 m), so the cap governs — and the helper
+        says which rule set the number it returned."""
+        bound, rule = SP.eat_scoping_far_bound(_end_spec())
+        assert bound == pytest.approx(_D_CAP)
+        assert rule == "EAT_MAX_CROSSING_DIST_M"
+
+    def test_the_vacuous_bound_still_bites_where_it_is_stricter(self):
+        """The two far bounds compose as a MINIMUM.  A code-A tail under
+        FAA 40:1 clears at 6.1/0.025 = 244 m — well inside the 600 m
+        cap — so there the regulation's own geometry governs and the
+        helper names ``D_clear``."""
+        spec = dict(_end_spec(), code_letter="A",
+                    tail_height_m=cfg.TAIL_HEIGHT_BY_CODE_LETTER["A"])
+        bound, rule = SP.eat_scoping_far_bound(spec)
+        assert bound == pytest.approx(244.0)
+        assert rule == "D_clear"
+        assert bound < _D_CAP
 
     def test_the_bound_is_not_a_tuning_constant(self):
-        """No ``EAT_*_FAR_*`` knob was born this round — the number is
-        computed from slope / setback / tail, which already exist."""
+        """``D_clear`` itself is still computed from slope / setback /
+        tail — the 2026-08-25d cap is a SEPARATE, explicitly named
+        recognition constant, not a knob bolted onto the law function."""
         import re
         from pathlib import Path
         src = Path(cfg.__file__).read_text(encoding="utf-8")
-        assert not re.search(r"^EAT_\w*(FAR|CLEAR|MAX_CROSSING)\w*\s*=",
-                             src, re.M)
+        # No ``D_clear`` knob: the vacuous bound has no config value.
+        assert not re.search(r"^EAT_\w*(FAR|CLEAR)\w*\s*=", src, re.M)
+        # The cap IS a constant, and it lives in config with the other
+        # rule values — never hard-coded at the call site.
+        assert re.search(r"^EAT_MAX_CROSSING_DIST_M\s*=", src, re.M)
+        # …and the helper READS it rather than restating the number.
+        import inspect
+        body = inspect.getsource(SP.eat_scoping_far_bound)
+        body = body.split('"""')[2]          # code only, not the prose
+        assert "EAT_MAX_CROSSING_DIST_M" in body
+        assert "600" not in body, (
+            "the cap's VALUE must come from config, not the helper")
 
 
 # ── the crossing-station reader (clause 1, geometry half) ───────────
@@ -373,8 +418,8 @@ class TestNothingIsRecognisedBeyondTheVacuousBound:
     by the regulation's own geometry."""
 
     def test_a_wrap_beyond_d_clear_builds_no_rect(self, monkeypatch):
-        far = _rect(_D_CLEAR + 60.0, _D_CLEAR + 80.0)
-        layout = _layout(far, crossings=(_D_CLEAR + 70.0,))
+        far = _rect(_D_FAR + 60.0, _D_FAR + 80.0)
+        layout = _layout(far, crossings=(_D_FAR + 70.0,))
         pins, counts, _r, _s, _b2i = _build(
             layout, reference=_END_ELEV, monkeypatch=monkeypatch)
         assert pins == {}
@@ -384,8 +429,8 @@ class TestNothingIsRecognisedBeyondTheVacuousBound:
         """The bound is a bound, not a margin: 30 m inside it the rect
         still stands (and its value is still a cut against a reference
         at the runway-end level)."""
-        near = _rect(_D_CLEAR - 40.0, _D_CLEAR - 20.0)
-        layout = _layout(near, crossings=(_D_CLEAR - 30.0,))
+        near = _rect(_D_FAR - 40.0, _D_FAR - 20.0)
+        layout = _layout(near, crossings=(_D_FAR - 30.0,))
         pins, counts, _r, _s, _b2i = _build(
             layout, reference=_END_ELEV, monkeypatch=monkeypatch)
         assert counts[0] == 1
@@ -395,11 +440,83 @@ class TestNothingIsRecognisedBeyondTheVacuousBound:
         """A rect that STRADDLES the bound keeps its geometry and is
         left to clause 3 — its value is then within a tail of the
         runway end, which is exactly the case the cut test decides."""
-        strad = _rect(_D_CLEAR - 20.0, _D_CLEAR + 20.0)
-        layout = _layout(strad, crossings=(_D_CLEAR,))
+        strad = _rect(_D_FAR - 20.0, _D_FAR + 20.0)
+        layout = _layout(strad, crossings=(_D_FAR,))
         _p, counts, _r, _s, _b2i = _build(
             layout, reference=_END_ELEV + 40.0, monkeypatch=monkeypatch)
         assert counts[0] == 1
+
+
+# ── (d2) THE 600 m RECOGNITION CAP (owner 2026-08-25d) ─────────────
+class TestTheRecognitionCap:
+    """(d2) The clause-2 companion the LEMD survivor forced.  25c's
+    three clauses ALL passed LEMD's 14R wrap at D = 1066 m — a taxi
+    centreline really does cross the extended centreline there, inside
+    the 1280 m vacuous bound, and its regulation value really does cut.
+    The owner rules that is not an end-around taxiway: **no rect is
+    recognised beyond 600 m**, because real EATs cross at 439-482 m."""
+
+    def test_the_cap_is_the_owners_measured_value(self):
+        assert cfg.EAT_MAX_CROSSING_DIST_M == 600.0
+        assert "EAT_MAX_CROSSING_DIST_M" in cfg.__all__
+
+    def test_a_wrap_at_700_m_builds_no_rect(self, monkeypatch):
+        """The spec's own case: a perfectly good routed wrap, cutting,
+        inside ``D_clear`` = 804 m — and refused, because it is past the
+        cap."""
+        rect = _rect(690.0, 710.0)
+        layout = _layout(rect, crossings=(700.0,))
+        pins, counts, _r, _s, _b2i = _build(
+            layout, reference=_END_ELEV, monkeypatch=monkeypatch)
+        assert 700.0 < _D_CLEAR, "this twin must sit INSIDE D_clear"
+        assert pins == {}
+        assert counts[0] == 0
+
+    def test_the_lemd_survivor_distance_is_refused(self, monkeypatch):
+        """D = 1066 m — the one rect 25c left standing at LEMD."""
+        rect = _rect(1056.0, 1076.0)
+        layout = _layout(rect, crossings=(1066.0,))
+        pins, _c, _r, _s, _b2i = _build(
+            layout, reference=_END_ELEV, monkeypatch=monkeypatch)
+        assert pins == {}
+
+    @pytest.mark.parametrize("d", [439.0, 460.0, 482.0])
+    def test_the_kclt_crossing_band_is_untouched(self, d, monkeypatch):
+        """THE FEATURE THIS LAW MUST NOT EAT.  KCLT's 18C-end loop
+        crosses at 439-482 m; every station in that band still pins."""
+        rect = _rect(d - 10.0, d + 10.0)
+        layout = _layout(rect, crossings=(d,))
+        pins, counts, _r, _s, _b2i = _build(
+            layout, reference=_END_ELEV, monkeypatch=monkeypatch)
+        assert counts[0] == 1
+        want = _END_ELEV + eat_pavement_ceiling(
+            d, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
+            cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])
+        for v in pins.values():
+            assert v == pytest.approx(want)
+
+    def test_the_refusal_line_names_the_cap_not_d_clear(
+            self, monkeypatch, capsys):
+        """With two far bounds in play, a refusal that named neither
+        would be unattributable — and naming the WRONG one would send
+        the next reader to the regulation table for a number the
+        regulation did not set."""
+        import O4_UI_Utils as UI
+        monkeypatch.setattr(UI, "verbosity", 3, raising=False)
+        _build(_layout(_rect(690.0, 710.0), crossings=(700.0,)),
+               reference=_END_ELEV, monkeypatch=monkeypatch)
+        out = capsys.readouterr().out
+        assert "EAT_MAX_CROSSING_DIST_M=600 m" in out
+        assert "D_clear" not in out
+
+    def test_gate_off_ignores_the_cap(self, monkeypatch):
+        """The cap is recognition, so it rides the same gate: OFF is
+        still the 2026-07-27 recognition exactly."""
+        make = (lambda: _layout(_rect(690.0, 710.0), crossings=(700.0,)))
+        assert _build(make(), reference=_END_ELEV, v2=True,
+                      monkeypatch=monkeypatch)[0] == {}
+        assert _build(make(), reference=_END_ELEV, v2=False,
+                      monkeypatch=monkeypatch)[0] != {}
 
 
 # ── (e) THE PIN ONLY CUTS ──────────────────────────────────────────
@@ -509,15 +626,17 @@ class TestTheRecognitionVerdictIsCarried:
         the next pass the pin this one just made."""
         rect = _rect(440.0, 460.0)
         layout = _layout(rect, crossings=(450.0,))
-        # A second end 200 m behind the first, 40 m lower: its surface
-        # at D = 650 is the more restrictive one and it CUTS.
-        far = dict(_end_spec(), p0=(-200.0, 0.0), end_id="27",
-                   anchor_xy=(-200.0, -22.0))
+        # A second end 100 m behind the first, 40 m lower: its surface
+        # at D = 550 is the more restrictive one and it CUTS — and 550 m
+        # is INSIDE the 600 m recognition cap, so the cap does not
+        # decide this twin.
+        far = dict(_end_spec(), p0=(-100.0, 0.0), end_id="27",
+                   anchor_xy=(-100.0, -22.0))
         layout.eat_ceiling_presolve = [_end_spec(), far]
         layout.shapes.append(BuiltShape(
             role=ROLE_RUNWAY,
-            polygon=Polygon([(-1200.0, -22.0), (-200.0, -22.0),
-                             (-200.0, 22.0), (-1200.0, 22.0)]),
+            polygon=Polygon([(-1100.0, -22.0), (-100.0, -22.0),
+                             (-100.0, 22.0), (-1100.0, 22.0)]),
             altitude_high=60.0, altitude_low=60.0))
         nodes, b2i = SP._build_node_list(layout)
         cps = layout.canonical_points
@@ -526,7 +645,7 @@ class TestTheRecognitionVerdictIsCarried:
         for (x, y) in _ring(_RWY):
             i = b2i[cps.get_or_add(float(x), float(y))]
             elev[i], is_hard[i], have[i] = _END_ELEV, True, True
-        i_far = b2i[cps.get_or_add(-200.0, -22.0)]
+        i_far = b2i[cps.get_or_add(-100.0, -22.0)]
         elev[i_far], is_hard[i_far], have[i_far] = 60.0, True, True
         for (x, y) in _ring(rect):
             i = b2i[cps.get_or_add(float(x), float(y))]
@@ -542,7 +661,7 @@ class TestTheRecognitionVerdictIsCarried:
             "the near end must actually refuse, or this twin is vacuous")
         assert pins, "the far end's surface cuts and must pin"
         far_value = 60.0 + eat_pavement_ceiling(
-            650.0, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
+            550.0, cfg.EAT_FAA_DEPARTURE_SLOPE, cfg.EAT_FAA_SETBACK_M,
             cfg.TAIL_HEIGHT_BY_CODE_LETTER["E"])
         for v in pins.values():
             assert v == pytest.approx(far_value)
@@ -582,7 +701,9 @@ class TestEveryRefusalIsLoudAndNamesItsClause:
 
     @pytest.mark.parametrize("case,needle", [
         ("no-route", "no through-centerline"),
-        ("far", "beyond D_clear"),
+        # At this code-E FAA end the 600 m CAP is the stricter of the
+        # two far bounds, so that is the rule the line must name.
+        ("far", "beyond the recognition cap"),
         ("above", "regulation above reference"),
     ])
     def test_the_refusal_line_names_the_clause(self, case, needle,
@@ -592,8 +713,8 @@ class TestEveryRefusalIsLoudAndNamesItsClause:
         if case == "no-route":
             layout, ref = _layout(_rect(440.0, 460.0)), _END_ELEV
         elif case == "far":
-            layout = _layout(_rect(_D_CLEAR + 60.0, _D_CLEAR + 80.0),
-                             crossings=(_D_CLEAR + 70.0,))
+            layout = _layout(_rect(_D_FAR + 60.0, _D_FAR + 80.0),
+                             crossings=(_D_FAR + 70.0,))
             ref = _END_ELEV
         else:
             layout, ref = _layout(_rect(440.0, 460.0),
@@ -626,8 +747,8 @@ class TestTheGate:
             make, ref = (lambda: _layout(_rect(440.0, 460.0))), _END_ELEV
         elif case == "far":
             make = (lambda: _layout(
-                _rect(_D_CLEAR + 60.0, _D_CLEAR + 80.0),
-                crossings=(_D_CLEAR + 70.0,)))
+                _rect(_D_FAR + 60.0, _D_FAR + 80.0),
+                crossings=(_D_FAR + 70.0,)))
             ref = _END_ELEV
         else:
             make = (lambda: _layout(_rect(440.0, 460.0),

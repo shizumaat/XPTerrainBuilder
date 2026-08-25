@@ -258,6 +258,7 @@ __all__ = [
     "EAT_EASA_TAKEOFF_CLIMB_SLOPE",
     "EAT_EASA_SETBACK_M",
     "EAT_MIN_CROSSING_DIST_M",
+    "EAT_MAX_CROSSING_DIST_M",
     "EAT_CORRIDOR_HALF_WIDTH_M",
     "EAT_RECT_SEGMENT_GAP_M",
     "EAT_MIN_RUNWAY_CODE_NUMBER",
@@ -5112,6 +5113,27 @@ EAT_EASA_SETBACK_M = 60.0
 # below the runway end).  A real EAT crosses the extended centreline
 # hundreds of metres out — KCLT's 18C-end loop crosses at 439–482 m.
 EAT_MIN_CROSSING_DIST_M = 300.0
+
+# SCOPING GUARD — MAXIMUM along-centreline distance beyond the runway end
+# at which an end-around taxiway is RECOGNISED (owner ruling 2026-08-25d,
+# closing the survivor 2026-08-25c left standing).
+#
+# Unlike ``grade_law.eat_ceiling_clear_distance`` — which is the
+# regulation's own geometry and therefore not a tunable — this IS a
+# recognition constant, and the owner set its value from the measured
+# feature: real end-around taxiways cross at 439-482 m (KCLT's 18C-end
+# loop, the reference EAT).  LEMD's 14R corridor carries a genuine
+# ROUTED WRAP at D = 1066 m — a taxi centreline crosses the extended
+# centreline there, inside the 1280 m vacuous bound, and its regulation
+# value cuts — so the three 25c clauses all pass it and it was the one
+# rect that survived.  The owner rules LEMD HAS NO EATs: a wrap a
+# kilometre out is the airport's own taxi network crossing a projected
+# line, not a loop built to take aircraft around a runway end.
+#
+# The two far bounds compose as a MINIMUM (the stricter governs): the
+# vacuous bound can still bite first where a low tail or a steep surface
+# clears inside 600 m (FAA code A: 0 + 6.1/0.025 = 244 m).
+EAT_MAX_CROSSING_DIST_M = 600.0
 
 # Lateral half-width (m) of the corridor about the extended centreline
 # inside which the ceiling binds.  Deliberately a single conservative

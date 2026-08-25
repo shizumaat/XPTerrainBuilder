@@ -442,6 +442,15 @@ class ShapeConstraints:
     #: partition the LAW's answer rather than a cap-value guess (a blended
     #: pair can sit at 5 % without being interior).
     edge_interior: list[bool] = field(default_factory=list)
+    #: APRON ring keys inside the RUNWAY STRIP footprint (spec AMENDMENT
+    #: A4.2).  Those pairs are SKIPPED by the law, so the node never
+    #: appears on an edge and the seniority partition — whose domain is
+    #: built from edges — could not see it at all.  Recording it HERE, at
+    #: the same place the flags are computed for the law, is what lets
+    #: ``grade_law.apron_node_seniority`` report ``excluded`` instead of
+    #: silently dropping the node (owner ruling RULINGS 2026-08-21d,
+    #: wired 2026-08-24).
+    strip_excluded: set = field(default_factory=set)
 
 
 def _open_ring(coords):
@@ -1277,10 +1286,28 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     frontage_keys = (GL.frontage_vertex_keys(bld_key_rings, soft_front_keys)
                      if soft_front_keys else set())
 
+    # ── THE RUNWAY-STRIP KEEP-OUT (spec AMENDMENT A4.2; owner ruling
+    # RULINGS 2026-08-21d, WIRED 2026-08-24) ─────────────────────────────
+    # ``GradeContext.strip_keepout`` existed and was documented from the
+    # day A4.2 landed, but NOTHING EVER ASSIGNED IT — so
+    # ``strip_excluded_flags`` read ``None`` on every production build,
+    # ``is_apron_in_strip`` answered False for every pair, and the ruling's
+    # acceptance counts came from a re-derivation rather than from the
+    # law.  One geometry, one function: the SAME prepared union
+    # ``adjacent_ground`` and ``groundside`` read.  ``require_gate=False``
+    # because A4.2 is not the retaining-wall gate's clause — the footprint
+    # is a law function regardless of whether walls are enabled.
+    strip_keepout = None
+    try:
+        from .adjacent_ground import runway_strip_wall_keepout as _rswk
+        strip_keepout = _rswk(layout, require_gate=False)
+    except Exception:                                         # pragma: no cover
+        strip_keepout = None
     ctx = GradeContext(centerlines=cls, routes=routes,
                        inherited_junction_cap=_inherited,
                        building_keys=frozenset(bld_keys), road_zone=road_zone,
                        route_zone=route_zone,
+                       strip_keepout=strip_keepout,
                        frontage_keys=frozenset(frontage_keys),
                        corridor_lines=centerline_geometries(cls),
                        building_polys=tuple(
@@ -2531,6 +2558,12 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     vis = None if ring_only else _visibility_predicate(ring)
     if shape.role == APRON_ROLE:
         strip_vert = strip_excluded_flags(ring, ctx)
+        # A4.2's excluded nodes, published for the seniority partition:
+        # the law SKIPS their pairs, so nothing downstream would ever see
+        # them if they were not recorded at the flag.
+        if any(strip_vert):
+            sc.strip_excluded.update(
+                k for k, f in zip(keys, strip_vert) if f)
         near_spine = nearest_spine_pairs(ring, keys, ctx, vis=vis)
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
@@ -3007,6 +3040,15 @@ class UnifiedGraph:
     #: Index-parallel to :attr:`edges`: True for an APRON INTERIOR pair
     #: (the apron staged solve's partition input, spec §§1-3).
     edge_interior: list = field(default_factory=list)
+    #: APRON NODES INSIDE THE RUNWAY STRIP (spec AMENDMENT A4.2; owner
+    #: ruling RULINGS 2026-08-21d, wired 2026-08-24).  Their pairs are
+    #: SKIPPED by ``grade_law.classify_pair``, so they carry no edge and
+    #: the seniority partition's edge-derived domain cannot see them.
+    #: Accumulated at mint from ``ShapeConstraints.strip_excluded`` and
+    #: handed to ``grade_law.apron_node_seniority`` as ``excluded_nodes``,
+    #: which is what makes the sidecar's third value (``excluded``) real
+    #: rather than merely declared.
+    apron_excluded_nodes: set = field(default_factory=set)
     #: MINT-TIME STAGE per NODE (staged-solve S1b): ``{node_idx: stage}``,
     #: stamped as each shape registers its ring positions.  AIRSIDE WINS a
     #: shared node — a service-road mouth vertex on an apron ring is
@@ -3409,6 +3451,12 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
                             s, "adopted_taxi_letter", None),
                         lateral_cap=getattr(s, "lateral_cap", None))
         sc = shape_constraints_cached(id(s.polygon), gs, ctx)
+        # A4.2 EXCLUDED APRON NODES, accumulated as the shapes are walked
+        # (their pairs never reach ``G.edges``, so this is the only place
+        # the graph can learn about them).
+        if sc.strip_excluded:
+            G.apron_excluded_nodes.update(
+                int(k) for k in sc.strip_excluded if isinstance(k, int))
         spine_pairs = set()
         for chain in sc.spine_chains:
             for u, v in zip(chain, chain[1:]):

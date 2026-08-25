@@ -1505,6 +1505,27 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         except Exception:
             route_zone = None
 
+    # ── THE RUNWAY-STRIP KEEP-OUT (spec AMENDMENT A4.2; owner ruling
+    # RULINGS 2026-08-21d, WIRED 2026-08-24) — the census half.
+    # SAME LAW FUNCTION as the solver's (``grade_law.runway_strip_wall_
+    # keepout_rings``, reached here through ``_runway_strip_keepout_rings``
+    # over the EMITTED runway rings grouped by ref), so both readers
+    # exclude the identical ground.  Neither side had it assigned before
+    # today: the field was declared, documented and never filled.
+    strip_keepout = None
+    try:
+        _sk_rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
+        if _sk_rings:
+            from shapely.geometry import Polygon as _SkPoly
+            from shapely.ops import unary_union as _sk_union
+            from shapely.prepared import prep as _sk_prep
+            _sk_block = _sk_union([_SkPoly(r) for r in _sk_rings
+                                   if len(r) >= 3])
+            if _sk_block is not None and not _sk_block.is_empty:
+                strip_keepout = _sk_prep(_sk_block)
+    except Exception:
+        strip_keepout = None
+
     return GG.GradeContext(
         centerlines=centerlines,
         routes=routes,
@@ -1512,6 +1533,7 @@ def _grade_context_from_osm(ways, nodes, ll_to_m, taxi_axes, seam_nids,
         inherited_junction_cap=_inherited,
         building_keys=frozenset(bld_keys),
         frontage_keys=frozenset(frontage_keys),
+        strip_keepout=strip_keepout,
         corridor_lines=GG.centerline_geometries(centerlines),
         road_zone=road_zone,
         route_zone=route_zone,

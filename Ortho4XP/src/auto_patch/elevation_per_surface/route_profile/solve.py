@@ -8576,6 +8576,9 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                                   env_band=_fp_env_band,
                                   family_of=_fp_family_of,
                                   apron_interior_pairs=_fp_interior,
+                                  apron_excluded_nodes=set(
+                                      getattr(G, "apron_excluded_nodes",
+                                              None) or ()),
                                   staged_report=_fp_staged_report,
                                   forensics=_fp_forensics,
                                   witness_limited=_fp_witness_limited,
@@ -8627,10 +8630,31 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         # a DIFFERENT partition from the one that ran — 2,395/751 against
         # the runtime's 2,962/83.  A partition nobody solved is not
         # evidence about the solve.
+        # A4.2's EXCLUDED nodes (owner ruling RULINGS 2026-08-21d, wired
+        # 2026-08-24): an apron node inside the runway strip has NO apron
+        # law, so its pairs never reach ``G.edges`` and the edge-derived
+        # domain above cannot contain it.  The graph accumulated them at
+        # mint; they enter the partition here as the third seniority value.
+        _excl = set(getattr(G, "apron_excluded_nodes", None) or ())
+        _ap_nodes |= _excl
         _sen = dict(_fp_staged_report.get("seniority") or {}) \
             if isinstance(_fp_staged_report, dict) else {}
         if not _sen:
-            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes)
+            _sen = _GLsen.apron_node_seniority(_ap_nodes, _strict, _tx_nodes,
+                                               excluded_nodes=_excl)
+        elif _excl:
+            # The RUNTIME partition is the one that ran (ONE PARTITION
+            # INPUT), but the staged pass only ever sees nodes that carry
+            # law edges.  Re-run THE ONE FUNCTION over the runtime answer
+            # so the excluded value is applied by the law, not spelled
+            # again here: senior/interior nodes keep their runtime verdict
+            # (they enter as strict pairs / transect nodes accordingly).
+            _sen = _GLsen.apron_node_seniority(
+                set(_sen) | _excl,
+                [(k, k) for k, v in _sen.items()
+                 if v == _GLsen.APRON_SENIOR],
+                (),
+                excluded_nodes=_excl)
         setattr(layout, "_apron_seniority_ll", [
             [*layout.m_to_ll(float(nodes[_i][0]), float(nodes[_i][1])), _v]
             for _i, _v in sorted(_sen.items()) if 0 <= _i < len(nodes)])

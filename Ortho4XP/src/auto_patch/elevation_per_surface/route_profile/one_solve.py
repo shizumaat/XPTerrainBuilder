@@ -3015,7 +3015,7 @@ class _StagedFlag:
 _APRON_STAGED_SOLVE = _StagedFlag()
 
 
-def _apron_seniority_for(g_senior, g_interior):
+def _apron_seniority_for(g_senior, g_interior, excluded=()):
     """``(seniority, movers)`` for the staged apron partition, computed from
     the SAME inputs the law classified — the strict pairs still carrying
     senior law after the split, plus the bound transect rows.
@@ -3043,7 +3043,15 @@ def _apron_seniority_for(g_senior, g_interior):
                 tx.update(int(i) for i in h[0])
             except Exception:
                 pass
-    seniority = _GL.apron_node_seniority(cand, strict_p, tx)
+    # A4.2 EXCLUDED NODES (owner ruling RULINGS 2026-08-21d, wired
+    # 2026-08-24): an apron node inside the runway strip carries no apron
+    # law, so its pairs are skipped and it never enters ``cand`` above.
+    # It joins the DOMAIN here and the law gives it ``excluded`` — which
+    # also keeps it OUT of ``movers``, so the A2 interior pass never
+    # treats strip ground as an apron variable.
+    _ex = {int(i) for i in (excluded or ())}
+    seniority = _GL.apron_node_seniority(cand | _ex, strict_p, tx,
+                                         excluded_nodes=_ex)
     movers = {i for i, v in seniority.items() if v == _GL.APRON_INTERIOR}
     return seniority, movers
 
@@ -3215,7 +3223,8 @@ def _withhold_road_pair_law(givers, receivers):
 def feasibility_project_partitioned(elev, shape_constraints, hard, *,
                                     receiver_nodes=None, n_nodes=None,
                                     flat_groups=None, group_bounds=None,
-                                    forensics=None, probe_out=None, **kw):
+                                    forensics=None, probe_out=None,
+                                    apron_excluded_nodes=(), **kw):
     """THE PROJECTION PARTITIONS — airside first, groundside after
     (docs/specs/cycle8-one-graph-spec.md ADDENDUM; derives from the
     owner's receiver-only law, RULINGS 2026-08-06 "ONE graph" clause 2 and
@@ -3370,7 +3379,8 @@ def feasibility_project_partitioned(elev, shape_constraints, hard, *,
         # population its freeze is built for.
         # The seniority partition therefore has to be known BEFORE A1 runs;
         # it is the same call, on the same inputs, just hoisted.
-        _seniority, _movers = _apron_seniority_for(g_senior, g_interior)
+        _seniority, _movers = _apron_seniority_for(
+            g_senior, g_interior, excluded=apron_excluded_nodes)
         # ONE PARTITION INPUT (lead 2026-08-23).  The sidecar used to
         # RECOMPUTE seniority in solve.py from a NARROWER population (only
         # ``unified:apron`` families counted as strict), so the exported

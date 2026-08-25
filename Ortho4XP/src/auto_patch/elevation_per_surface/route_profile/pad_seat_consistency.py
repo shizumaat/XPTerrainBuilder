@@ -91,14 +91,30 @@ ENV_FLAG_DEM_LAST = "O4_DEM_LAST_SEAT_BIAS"
 
 
 def dem_last_seat_bias_enabled() -> bool:
-    """THE reader for :data:`ENV_FLAG_DEM_LAST` (default **ON** in-lane —
-    the owner ordered §2 forward after the §1 acceptance read).
+    """THE reader for :data:`ENV_FLAG_DEM_LAST` (default **OFF** since the
+    2026-08-25 lead ruling — the two-attempt acceptance miss below; only an
+    explicit ``O4_DEM_LAST_SEAT_BIAS=1`` turns the mechanism on).
 
-    ``O4_DEM_LAST_SEAT_BIAS=0`` ⇒ the build is byte-identical to §1-only:
-    no neighbourhood is captured, no seat moves, and the DEM-biased band
-    seat stays exactly where ``build_building_seats`` put it.
+    THE MISS (both arms, law-true ``airside_for_acceptance``): HECA 1,972
+    against the §1 baseline of 1,735; SPJC 440 against 175; CYXY 32
+    against 31.  Arm 2's solved-anchor filter did what it claimed —
+    contradictory units 37 -> 10, worst residual left 196.6 -> 60.7 m — and
+    moved the census not at all, which is what says the regression is not
+    an artifact of bad anchor VALUES but a question about the anchor
+    POPULATION.  That question (a pad-kind anchor is another pad's
+    provisional seat, chosen in the same pass — circular under
+    creation-order seniority, so a spine-only SENIOR neighbourhood may be
+    the right population) is RECORDED, NOT RULED, and goes to the next
+    design round.  It is deliberately NOT implemented here.
+
+    With the flag off the build is byte-identical to §1-only: no
+    neighbourhood is captured, no seat moves, and the DEM-biased band seat
+    stays exactly where ``build_building_seats`` put it.  The mechanism,
+    the report and the twins are all intact behind it — the same
+    disposition, and the same precedent, as the frontage-subset version
+    this chassis came from.
     """
-    return os.environ.get(ENV_FLAG_DEM_LAST, "1") != "0"
+    return os.environ.get(ENV_FLAG_DEM_LAST, "0") != "0"
 
 
 def seat_provenance_wanted() -> bool:

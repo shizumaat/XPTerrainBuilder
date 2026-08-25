@@ -20,6 +20,16 @@ The spec's twins (§2 "Twins"):
       stays the feasibility authority (the v4 lesson: a scaffold-derived
       seat source put 22 of 22 CYXY pads down a mean 9.07 m).
 
+GATE STATE: ``O4_DEM_LAST_SEAT_BIAS`` is DEFAULT OFF (2026-08-25 lead
+ruling, after the two-attempt acceptance miss — HECA 1,972 against the §1
+baseline of 1,735, SPJC 440 against 175).  The mechanism, its report and
+these twins are intact behind it and ``=1`` still enables it; the twins
+therefore drive the functions DIRECTLY rather than through the gate, so
+they keep testing the law whatever the default is.  The open question —
+whether a pad-kind anchor, being another pad's provisional seat chosen in
+the same pass, belongs in the neighbourhood at all — is RECORDED for the
+next design round and is deliberately not implemented here.
+
 Synthetic and headless: the bias is interval arithmetic over the anchor
 chords the ONE enumeration published, so the twins construct those chords
 directly rather than building an airport.  ``elev`` is a plain list — the
@@ -206,14 +216,29 @@ def test_flag_off_is_byte_identical_to_section_one_only(monkeypatch):
     assert psc.seat_provenance_wanted() is True
 
 
-def test_the_default_is_on_and_the_two_flags_are_separate(monkeypatch):
-    """§2.2: the gates mean different things.  §2's default is ON in-lane;
-    the refuted frontage-subset version stays OFF under ITS flag and this
-    one does not re-enable it."""
+def test_both_defaults_are_off_and_the_two_flags_stay_separate(monkeypatch):
+    """§2.2: the gates mean different things, and NEITHER is on by
+    default.
+
+    §2's default was flipped to OFF by the 2026-08-25 lead ruling after
+    the two-attempt acceptance miss (HECA 1,972 against the §1 baseline
+    1,735; SPJC 440 against 175) — the same disposition the frontage-
+    subset version got, and for the same reason.  An unset environment
+    must therefore leave BOTH mechanisms off and capture nothing, which is
+    §1-only; and turning one on must never turn the other on."""
     monkeypatch.delenv(psc.ENV_FLAG_DEM_LAST, raising=False)
     monkeypatch.delenv(psc.ENV_FLAG, raising=False)
+    assert psc.dem_last_seat_bias_enabled() is False
+    assert psc.pad_seat_consistency_enabled() is False
+    assert psc.seat_provenance_wanted() is False
+    # …and each flag still enables ONLY its own mechanism.
+    monkeypatch.setenv(psc.ENV_FLAG_DEM_LAST, "1")
     assert psc.dem_last_seat_bias_enabled() is True
     assert psc.pad_seat_consistency_enabled() is False
+    monkeypatch.delenv(psc.ENV_FLAG_DEM_LAST, raising=False)
+    monkeypatch.setenv(psc.ENV_FLAG, "1")
+    assert psc.pad_seat_consistency_enabled() is True
+    assert psc.dem_last_seat_bias_enabled() is False
 
 
 def test_no_anchor_chords_argument_runs_the_frontage_version_unchanged():

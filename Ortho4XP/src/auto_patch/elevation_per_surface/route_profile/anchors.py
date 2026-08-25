@@ -894,7 +894,8 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # ONE READER for both consumers of this capture (spec
     # ``apron-chord-anchor-target-spec.md`` §2): the frontage-subset
     # narrowing (its own flag, default OFF) and the §2 DEM-LAST SEAT BIAS
-    # (default ON in-lane) both need the unit's node set and its band box,
+    # (its own flag, also default OFF after the 2026-08-25 acceptance
+    # miss) both need the unit's node set and its band box,
     # and this is the only place either can get them.  The FRONTAGE
     # records keep being captured beside them and stay unread by §2 —
     # capture is provenance, not law.

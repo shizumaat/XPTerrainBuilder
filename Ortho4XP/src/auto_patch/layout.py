@@ -3392,6 +3392,7 @@ class PavementLayout:
                                    junction_mesh_edges_ll)
         from .elevation_per_surface.route_profile.apron_terrace import (
             fan_ramp_zones_sidecar as _fan_ramp_zones_sidecar,
+            interior_zones_sidecar as _interior_zones_sidecar,
             terrace_certificates_sidecar as _terrace_certs_sidecar,
             terrace_joints_sidecar as _terrace_joints_sidecar)
         from .grade_law import ruleset_of as _grade_law_ruleset_of
@@ -3569,6 +3570,15 @@ class PavementLayout:
             # where the ramp is.  Written unconditionally, so a
             # reader can tell "no zones" from "predates the law".
             "fan_ramp_zones": _fan_ramp_zones_sidecar(self),
+            # THE BACK-EDGE ZONES the apron law priced this build with
+            # (owner ruling RULINGS 2026-08-24).  LAW INPUT, not a
+            # declaration: the ruling says the zones need not be
+            # declared, and nothing splits an apron at them — but the
+            # census must price the IDENTICAL ground, so the very rings
+            # ``grade_graph.build_context`` handed the law are exported
+            # here.  Written unconditionally, so a reader can tell "no
+            # adjacent-pad pair" from "predates the rescope".
+            "interior_zones": _interior_zones_sidecar(self),
             # THE DISCONNECTED GROUNDSIDE RINGS (owner RULINGS
             # 2026-08-06, "ONE graph": *"Anything truly disconnected, we
             # don't really have to do anything at all — it just gets left

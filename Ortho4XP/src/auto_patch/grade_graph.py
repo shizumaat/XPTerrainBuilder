@@ -389,6 +389,20 @@ class GradeContext:
     # ``corridor_cover_prepared``): a layout with no building frontage never
     # pays for it, and ``build_context`` is called several times per solve.
     corridor_lines: tuple = ()
+    # ── THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24) ───────────
+    # ``interior_zones``: the fan-ramp BACK-EDGE zone polygons, as OPEN
+    # ``((x, y), ...)`` rings in this context's metre frame.  Geometry, not
+    # keys — "is this chord wholly inside one zone" is a geometric
+    # question, exactly like ``building_polys``.  The SOLVER fills it from
+    # ``apron_terrace.plan_fan_ramp_zones`` (the ruling's own predicate,
+    # computed live — the zones need not be DECLARED); the CENSUS fills it
+    # from the sidecar's ``interior_zones`` export of those same polygons,
+    # so both readers price the identical ground.  Empty ⇒ no pair is a
+    # back-edge pair and the apron body is strict throughout, which is the
+    # conservative direction.
+    interior_zones: tuple = ()
+    _interior_zones_prep: object = None
+    _interior_zones_built: bool = False
     _corridor_cover_prep: object = None
     _corridor_cover_built: bool = False
     _spine_nodes_built: bool = False
@@ -624,6 +638,91 @@ def strip_excluded_flags(ring, ctx) -> list:
         return [False] * len(ring)
     from shapely.geometry import Point as _P
     return [bool(ko.intersects(_P(x, y))) for (x, y) in ring]
+
+
+def interior_zones_prepared(ctx: "GradeContext"):
+    """THE BACK-EDGE ZONE INDEX of this context, built once: a list of
+    ``(bounds, prepared_polygon)`` over ``ctx.interior_zones``.
+
+    Same shape (and same reason) as ``FanRampPlan._index``: the pair
+    predicate is asked tens of thousands of times per airport and a raw
+    shapely predicate is ~10 us, so the bbox prefilter plus a PREPARED
+    geometry is what keeps the rescope off the build budget.  Empty /
+    absent zones ⇒ ``[]``, and the predicate below then answers False
+    without touching shapely at all."""
+    if ctx._interior_zones_built:
+        return ctx._interior_zones_prep
+    ctx._interior_zones_built = True
+    ctx._interior_zones_prep = []
+    if not ctx.interior_zones:
+        return ctx._interior_zones_prep
+    try:
+        from shapely.geometry import Polygon as _IzPoly
+        from shapely.prepared import prep as _iz_prep
+        idx = []
+        for ring in ctx.interior_zones:
+            pts = [(float(x), float(y)) for (x, y) in ring]
+            if len(pts) < 3:
+                continue
+            poly = _IzPoly(pts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly is None or poly.is_empty or poly.geom_type != "Polygon":
+                continue
+            idx.append((poly.bounds, _iz_prep(poly)))
+        ctx._interior_zones_prep = idx
+    except Exception:                                     # pragma: no cover
+        ctx._interior_zones_prep = []
+    return ctx._interior_zones_prep
+
+
+def interior_zone_of(ctx: "GradeContext", x, y) -> int:
+    """The index of the back-edge zone containing ``(x, y)``, or ``-1``.
+
+    ``FanRampPlan.zone_of``'s predicate, over the context's own copy of the
+    polygons — ONE spelling for both readers because both readers reach
+    THIS function through ``shape_constraints``."""
+    for k, (bb, pre) in enumerate(interior_zones_prepared(ctx)):
+        if not (bb[0] <= x <= bb[2] and bb[1] <= y <= bb[3]):
+            continue
+        try:
+            from shapely.geometry import Point as _IzPt
+            if pre.intersects(_IzPt(x, y)):
+                return k
+        except Exception:                                 # pragma: no cover
+            continue
+    return -1
+
+
+def interior_zone_flags(ring, ctx) -> list:
+    """Per-ring-vertex back-edge ZONE INDEX (``-1`` outside every zone).
+
+    Computed ONCE per shape and handed to the law as the cheap half of
+    ``in_interior_zone`` — the same "membership is the reader's, the
+    verdict is the law's" split as ``strip_excluded_flags``."""
+    if not ring or not interior_zones_prepared(ctx):
+        return [-1] * len(ring)
+    return [interior_zone_of(ctx, x, y) for (x, y) in ring]
+
+
+def interior_zone_pair(ctx, zi: int, zj: int, xa, ya, xb, yb) -> bool:
+    """Is this pair WHOLLY inside ONE back-edge zone (RULINGS 2026-08-24)?
+
+    ``FanRampPlan.pair_cap``'s predicate verbatim: both ends in the SAME
+    zone (the cheap test, already answered by ``interior_zone_flags``) AND
+    the CHORD between them covered by it.  A chord that leaves the zone
+    crosses ground the zone does not own, and that ground holds the strict
+    apron cap always."""
+    if zi < 0 or zi != zj:
+        return False
+    idx = interior_zones_prepared(ctx)
+    if zi >= len(idx):                                    # pragma: no cover
+        return False
+    try:
+        from shapely.geometry import LineString as _IzLine
+        return bool(idx[zi][1].covers(_IzLine([(xa, ya), (xb, yb)])))
+    except Exception:                                     # pragma: no cover
+        return False
 
 
 def corridor_cover_prepared(ctx: "GradeContext"):
@@ -1303,11 +1402,36 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
         strip_keepout = _rswk(layout, require_gate=False)
     except Exception:                                         # pragma: no cover
         strip_keepout = None
+    # ── THE BACK-EDGE ZONES (owner ruling RULINGS 2026-08-24) ────────────
+    # Computed LIVE from ``plan_fan_ramp_zones``' predicate — the ruling is
+    # explicit that the zones need NOT be declared, so nothing here splits
+    # an apron, mints a shape or touches the terrace pass (fan ZONES stay
+    # retired under W2).  This is a pure read of the pad-adjacency geometry
+    # for the LAW's use, cached on the LAYOUT because ``build_context`` is
+    # called several times per solve and the answer is a function of the
+    # geometry alone.
+    interior_zones = getattr(layout, "_interior_zone_rings", None)
+    if interior_zones is None:
+        interior_zones = ()
+        try:
+            from .elevation_per_surface.route_profile.apron_terrace import (
+                plan_fan_ramp_zones as _pfrz)
+            _plan = _pfrz(layout, icao=getattr(layout, "icao", "") or "")
+            interior_zones = tuple(
+                tuple(_open_ring(list(z["polygon"].exterior.coords)))
+                for z in _plan.zones
+                if z.get("polygon") is not None
+                and not z["polygon"].is_empty
+                and z["polygon"].geom_type == "Polygon")
+        except Exception:                                     # pragma: no cover
+            interior_zones = ()
+        setattr(layout, "_interior_zone_rings", interior_zones)
     ctx = GradeContext(centerlines=cls, routes=routes,
                        inherited_junction_cap=_inherited,
                        building_keys=frozenset(bld_keys), road_zone=road_zone,
                        route_zone=route_zone,
                        strip_keepout=strip_keepout,
+                       interior_zones=interior_zones,
                        frontage_keys=frozenset(frontage_keys),
                        corridor_lines=centerline_geometries(cls),
                        building_polys=tuple(
@@ -2556,6 +2680,10 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # A5 chord selection and the pair loop's own visibility gate — the same
     # predicate, so "can this vertex reach that one" has one answer here.
     vis = None if ring_only else _visibility_predicate(ring)
+    # ── THE BACK-EDGE ZONES (RULINGS 2026-08-24): per-vertex zone index,
+    # computed ONCE per shape.  Only the 5 % class needs it, so it is
+    # built only for aprons and only when the context carries zones.
+    zone_vert = None
     if shape.role == APRON_ROLE:
         strip_vert = strip_excluded_flags(ring, ctx)
         # A4.2's excluded nodes, published for the seniority partition:
@@ -2565,6 +2693,10 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             sc.strip_excluded.update(
                 k for k, f in zip(keys, strip_vert) if f)
         near_spine = nearest_spine_pairs(ring, keys, ctx, vis=vis)
+        if ctx.interior_zones:
+            zone_vert = interior_zone_flags(ring, ctx)
+            if not any(z >= 0 for z in zone_vert):
+                zone_vert = None
     if apron_pop:
         front_vert = ([k in ctx.frontage_keys for k in keys]
                       if ctx.frontage_keys else [False] * n)
@@ -2787,7 +2919,19 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                     ((ki, kj) if str(ki) <= str(kj) else (kj, ki))
                     in near_spine),
                 a_in_strip=bool(strip_vert) and strip_vert[i],
-                b_in_strip=bool(strip_vert) and strip_vert[j])
+                b_in_strip=bool(strip_vert) and strip_vert[j],
+                # THE BACK-EDGE PREDICATE (RULINGS 2026-08-24).  Both
+                # endpoints in the SAME zone is the cheap half and is
+                # tested FIRST, so the chord containment (a shapely
+                # ``covers``) is only ever paid by the handful of pairs
+                # that could pass it — ``FanRampPlan.pair_cap``'s own
+                # ordering, for its own reason.
+                in_interior_zone=(
+                    zone_vert is not None
+                    and zone_vert[i] >= 0
+                    and zone_vert[i] == zone_vert[j]
+                    and interior_zone_pair(ctx, zone_vert[i], zone_vert[j],
+                                           xi, yi, xj, yj)))
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

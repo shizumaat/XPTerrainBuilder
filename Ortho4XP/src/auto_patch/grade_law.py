@@ -2521,6 +2521,11 @@ APRON_INTERIOR_RAMP_CAP = (
 
 #: The interior apron pair's cap (spec A1 §1a).  ONE constant, both readers
 #: — the census reaches it through ``classify_pair`` like every other cap.
+#:
+#: RESCOPED, RULINGS 2026-08-24: the cap is unchanged (5 %, the fan-ramp
+#: constant) but the CLASS that earns it shrank to the fan-ramp BACK-EDGE
+#: ZONES plus the pairs the 60 m body gate has always held out of the
+#: strict chain — see :func:`is_apron_interior`.
 APRON_INTERIOR_CAP = FAN_RAMP_CAP
 
 #: The soft-pavement roles whose ring vertices make a BUILDING ring edge a
@@ -2737,6 +2742,19 @@ class PairContext:
     nearest_spine: bool = False
     a_in_strip: bool = False
     b_in_strip: bool = False
+    # ── THE BACK-EDGE RESCOPE (owner ruling RULINGS 2026-08-24) ─────────
+    # ``in_interior_zone``: this pair lies WHOLLY inside ONE fan-ramp
+    # back-edge zone — the ground between two adjacent building pads, cut
+    # clear of every movement surface (``apron_terrace.plan_fan_ramp_zones``
+    # and its ``FanRampPlan.pair_cap`` predicate: both ends in the SAME
+    # zone AND the chord covered by it).  It is the ONLY class that still
+    # earns the 5 % interior cap.  Membership is the reader's, the verdict
+    # is the law's — exactly like ``a_in_strip`` above.
+    #
+    # DEFAULT FALSE IS THE STRICT DIRECTION: a reader that supplies no
+    # zones prices every non-strict apron pair inside the 60 m body gate
+    # at the shape's own cap, never looser than the law.
+    in_interior_zone: bool = False
 
 
 SKIP: Optional[Allowance] = None
@@ -3020,15 +3038,48 @@ def is_apron_interior(p: "PairContext") -> bool:
     domain and a 148 % ring edge still mints its row.
 
     Scoped to ``APRON_ROLE``: runway / taxiway / junction within-shape laws are
-    UNCHANGED (ruling 2026-08-21b clause 4, unamended)."""
+    UNCHANGED (ruling 2026-08-21b clause 4, unamended).
+
+    ── AMENDED, RULINGS 2026-08-24: THE 5 % CLASS IS ONLY THE BACK-EDGE
+    ZONES BETWEEN BUILDINGS.  Owner, verbatim: the interior 5 % cap applies
+    ONLY between adjacent buildings at the apron's back edge — the fan-ramp
+    geometry of 2026-08-05, computed from pad adjacency.  Everywhere else
+    the apron body holds the STRICT cap: 1 % between pads and centerlines,
+    1.5 % along taxiway corridors (the blend/spine credit).
+
+    Measured basis for the amendment (owner's HECA in-sim review): the
+    broad 5 % interior let whole rings DRAPE onto the DEM — apron median
+    height-above-DEM 2.92 → 1.99 m, ring relief +19 %, the owner's site
+    -10682 down 7.3 m.  The plateau had no authority.
+
+    THE 60 m BODY GATE IS THE OTHER HALF OF THE AMENDMENT, and it is the
+    ruling's own wording ("non-back-edge interior pairs return to the
+    strict cap UNDER THE EXISTING 60 m BODY GATE").  A pair LONGER than
+    ``APRON_BODY_CHORD_MAX_M`` that still reaches this predicate is one the
+    gate has always excluded from the strict chain, and A3 / 2026-08-21d
+    measured what happens when it is not: HECA's -10612 ring edges of
+    650-857 m at 1.36-1.64 % over an 11.7 m terrain fall that 1 % can span
+    8.4 m of (A3), and the 53-chord 118-847 m fan from one -10612 pad
+    vertex, 5,050 long pairs pulled to 1 % through the pad clamp (A4/21d).
+    Both are REFUTED classes, both stay at the interior cap here; nothing
+    about them is re-opened by the back-edge rescope, whose subject is the
+    SHORT interior pair the strict chain can actually hold.
+    """
     if not (APRON_INTERIOR_RAMP_CAP and p.role == APRON_ROLE):
         return False
-    # AMENDED BY A4.1: interior is simply "not one of the three strict
-    # classes".  A2/A3's frontage-edge and corridor-crossing clauses are
-    # subsumed by (iii) — a ring edge inside the body gate — so they are no
-    # longer asked separately; ``is_apron_corridor_crossing`` survives as the
-    # spine/cover reader the strict predicate and the reports still use.
-    return not is_apron_strict_chord(p)
+    # AMENDED BY A4.1: the strict classes are the three A4.1 names.
+    # A2/A3's frontage-edge and corridor-crossing clauses are subsumed by
+    # (iii) — a ring edge inside the body gate — so they are no longer asked
+    # separately; ``is_apron_corridor_crossing`` survives as the spine/cover
+    # reader the strict predicate and the reports still use.
+    if is_apron_strict_chord(p):
+        return False
+    # BEYOND THE BODY GATE: the refuted A3 / 21d classes above.
+    if not _within_body_chord_gate(p):
+        return True
+    # WITHIN IT: 5 % only in a back-edge zone (2026-08-24); everything else
+    # falls through to the STRICT cap chain in ``classify_pair``.
+    return bool(p.in_interior_zone)
 
 
 def classify_pair(p: PairContext) -> Optional[Allowance]:
@@ -3148,6 +3199,14 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     # are the heaviest constraint" (user 2026-07-02) is a statement about the
     # chords a building is GRADED TO — the strict classes — not about every
     # chord that happens to touch a pad.
+    #
+    # RESCOPED, RULINGS 2026-08-24: the branch now fires only for a
+    # BACK-EDGE-ZONE pair, or for one beyond the 60 m body gate (the A3 /
+    # 21d refuted classes).  Every OTHER former-interior pair falls
+    # through to the cap chain below and takes the strict apron cap —
+    # which is the whole amendment: the apron plateau gets its authority
+    # back.  Nothing about the fall-through is new code; those pairs take
+    # the same chain a ring edge has always taken.
     if is_apron_interior(p):
         return Allowance.flat(APRON_INTERIOR_CAP)
 

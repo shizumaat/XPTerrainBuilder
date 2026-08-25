@@ -26,20 +26,25 @@ def _cap_of(sc, a, b):
 
 
 def test_apron_body_is_one_percent_no_spine():
-    """AMENDED by RULINGS 2026-08-21c (spec A1 section 1a): a bare square
-    apron with no spine and no frontage is entirely INTERIOR, so its body
-    chords are priced at ``APRON_INTERIOR_CAP`` (5 %) and only its physical
-    RING EDGES keep ``APRON_MAX_GRADE``.  Before the ruling every pair read
-    1 %; that is the assertion this twin used to make."""
+    """RE-AMENDED by RULINGS 2026-08-24: a bare square apron with no spine,
+    no frontage AND NO BACK-EDGE ZONE is strict throughout — every pair
+    inside the 60 m body gate reads ``APRON_MAX_GRADE``.
+
+    The history this twin has tracked: pre-2026-08-21c every pair was 1 %;
+    A1c/A2 raised the whole interior to ``APRON_INTERIOR_CAP`` (5 %); the
+    2026-08-24 back-edge rescope returns everything OUTSIDE a fan-ramp
+    back-edge zone to the strict cap, and this fixture declares no zone.
+    The 5 % half now lives in ``test_backedge_rescope``, on a fixture that
+    actually has a zone."""
     ring, keys = _square()
     s = GG.GradeShape(role="apron", ring=ring, keys=keys)
     ctx = GG.GradeContext(centerlines=[])
     sc = GG.shape_constraints(s, ctx)
     assert sc.edges, "apron must produce body edges"
     caps = {round(cap.flat_cap(), 9) for (_a, _b, cap) in sc.edges}
-    assert caps <= {round(APRON_MAX_GRADE, 9), round(GL.APRON_INTERIOR_CAP, 9)}
-    assert round(GL.APRON_INTERIOR_CAP, 9) in caps, (
-        "the interior class must be priced at the ramp cap")
+    assert caps == {round(APRON_MAX_GRADE, 9)}, (
+        "with no back-edge zone declared the apron body is STRICT "
+        "(RULINGS 2026-08-24)")
     # with the rule OFF the pre-ruling all-strict reading is restored.
     saved = GL.APRON_INTERIOR_RAMP_CAP
     try:
@@ -103,10 +108,10 @@ def test_apron_with_spine_taxi_on_spine_one_percent_body():
     # that when A2 first landed.
     assert _cap_of(sc, 4, 5) == pytest.approx(TAXI_MAX_GRADE)
     # A body RING EDGE (corner 0 to corner 1), 40 m from the spine, fronting
-    # nothing and outside the corridor: INTERIOR, so the 5 % ramp cap (spec
-    # AMENDMENT A2 correcting A1 section 1a).  Before A2 every ring-adjacent
-    # pair was strict and this read the flat apron 1 %.
-    assert _cap_of(sc, 0, 1) == pytest.approx(GL.APRON_INTERIOR_CAP)
+    # nothing, outside the corridor AND OUTSIDE ANY BACK-EDGE ZONE: STRICT,
+    # the flat apron cap (RULINGS 2026-08-24 rescoping A1c/A2's blanket 5 %
+    # interior to the fan-ramp back-edge geometry alone).
+    assert _cap_of(sc, 0, 1) == pytest.approx(APRON_MAX_GRADE)
     # ...and with the rule off it still reads the pre-ruling 1 %.
     saved = GL.APRON_INTERIOR_RAMP_CAP
     try:

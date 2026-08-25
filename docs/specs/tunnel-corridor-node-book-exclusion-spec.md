@@ -93,3 +93,39 @@ excluded whole, stripping lawful chord limiting from its non-bore half
 3. This amendment is a Fable-adjudicated design change: the attempt
    count RESETS — the implementer runs the amended design as attempt 1
    of 2 under this section.
+
+## Amendment 2 (Fable, 2026-08-25 — after Amendment 1's measured
+## refutation; supersedes both prior granularity rules)
+
+The measured mechanism ledger (do not retry): per-RING exclusion gives a
+perfect bore floor but strips lawful limiting from a boundary-spanning
+ring's lot half (v1: walls 5/10, lot worst 1.03). Per-NODE private keys
+close the direct weld channel but leave the TWO-STEP path open — road
+value → the same ring's out-of-cut shared welds (road precedence, by
+cce9da6f's design) → the ring's own chord law → the bore floor (v2:
+bore recaptured, walls 2/10). The role-set revert arm reads near-GOOD at
+the site (stations ≤0.13, walls 9/10, adjudicated +17) but surrenders
+the limiter's purpose airport-wide.
+
+1. THE RULE: a CLAIM-TOUCHING RING IS ROAD-PRECEDENCE-EXEMPT. A ring
+   with any node inside the open-cut claim set participates in the node
+   book exactly as pre-cce9da6f groundside: it mints and consumes shared
+   keys normally, stays fully in the clamp, but ROAD-ROLE VALUES DO NOT
+   WIN at any of its welds (neither on the bore half nor the lot half —
+   the lot-half weld is the two-step carrier's entry). Rings not
+   touching a claim keep cce9da6f's full precedence — the limiter's
+   road/lot purpose is untouched everywhere else.
+2. Reuse attempt 1's ring predicate (`_ring_touches_tunnel_claim`,
+   4e0a7e3c) verbatim; the change point is the precedence decision at
+   the weld, not key-minting and not clamp membership. The v2 private-
+   key machinery is retired (keep the twins' census helpers if useful).
+3. Expected read = the revert arm AT TUNNEL SITES with the limiter
+   intact elsewhere. Acceptance: site-1 stations within 0.15 m of GOOD;
+   retreat walls ≥ 9/10 by footprint (a 10th shortfall attributed and
+   reported, not iterated); movers reported against the revert arm's
+   envelope; subgrade_by_role arm-relative (not worse than revert 9/6);
+   adjudicated delta reported vs revert's +17; tunnel families and
+   airside byte-stable as before; limiter's own tests pass.
+4. Attempt count resets under this section, cap 2. If THIS design
+   misses, there is no fourth design from the lane or the lead: the
+   options ledger goes to the owner.

@@ -3535,3 +3535,12 @@ SKIPPED (pre-ship mode): full pytest suite; blast-radius suites for
 `bridges.py` / `groundside.py` / `finalize.py`; the five-airport battery and
 its censuses; any gate-off byte-identity build arm (the flag's OFF path is
 proven at unit level only — twin (d) — never by a second OTHH build).
+
+### 2026-08-25 addendum — lane/tunnelfix ran THREE designs, one build each
+
+Amendment 1 (per-NODE private keys, `OTHH_20260825T115339`) and Amendment 2
+(claim-touching rings are road-precedence-exempt, `OTHH_20260825T121357`)
+each got one OTHH build and the same test selection as the base commit; both
+are measured refutations, recorded in their commit messages.  Still skipped
+for all three: the full pytest suite, the blast-radius suites, the
+five-airport battery, and any gate-off byte-identity build arm.

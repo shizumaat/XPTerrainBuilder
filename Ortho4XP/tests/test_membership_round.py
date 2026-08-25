@@ -597,39 +597,43 @@ class TestTheRoadFamilyIsChordLimited:
         assert list(ramp.node_altitudes) == before
         assert "tunnel_ramp" not in gs._CHORD_LIMIT_ROLES
 
-    def test_a_below_grade_node_inside_a_tunnel_cut_mints_no_shared_key(
-            self):
+    def test_a_ring_touching_a_tunnel_cut_is_road_precedence_exempt(self):
         """§4 EXTENSION (spec
         ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``, the
-        2026-08-25 owner-ordered fix, at AMENDMENT 1's granularity).
+        2026-08-25 owner-ordered fix, at AMENDMENT 2's rule).
 
         The role exemption above is the WRONG AXIS on its own: OTHH's
         site-1 bore floor is a ``groundside_pavement`` ring, not a
         ``tunnel_ramp``, and the unified node book handed it the
         surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
-        floor).  The exemption that matters is by AUTHORITY, and it is
-        scoped to KEY-MINTING: a node inside R14-1's OWN open-cut claim
-        rides a ring-private key — no shared key, no cross-ring import —
-        while the ring itself stays in this pass under its own
-        within-ring law.  Full battery of twins:
+        floor).  The exemption that matters is by AUTHORITY, and what it
+        withholds is the ROAD'S PRECEDENCE: a ring touching R14-1's OWN
+        open-cut claim keys, welds and clamps in this pass exactly as
+        before, but no road value WINS at any of its welds.  Two narrower
+        rules (dropping the ring from the book; ring-private keys for
+        in-cut nodes) were built, measured and refuted first — the spec's
+        do-not-retry ledger.  Full battery of twins:
         ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
         floor = _dem_lot(0, 0, 40, 10, z=-1.1)
-        road = _svc(40, 0, 60, 10, z=2.3, role="service_junction")
+        road = _svc(40, 0, 140, 10, z=2.3, role="service_junction")
         layout = _layout([floor, road])
         layout.tunnel_open_cut_claim_polys = [floor.polygon]
         before = list(floor.node_altitudes)
-        assert gs._grade_limit_groundside_chords(layout) == 0
+        assert gs._grade_limit_groundside_chords(layout) == 1
         assert list(floor.node_altitudes) == before
         stats = layout._chord_limit_stats
-        # 4 + 4 vertices, the two welds NOT collapsed (8, not 6)
-        assert stats["nodes"] == 8
-        assert stats["shared_road_lot_nodes"] == 0
-        assert stats["tunnel_corridor_private_nodes"] == 6
+        # the weld is STILL a shared key — precedence is what changed
+        assert stats["shared_road_lot_nodes"] == 2
+        assert stats["tunnel_corridor_exempt_rings"] == {
+            "groundside_pavement": 1, "service_junction": 1}
         # …and BOTH rings are still in the clamp
         assert stats["rings"] == {"groundside_pavement": 1,
                                   "service_junction": 1}
+        # the groundside value won the shared weld, so the ROAD ring
+        # reads it back there (the approach descends to the bore)
+        assert list(road.node_altitudes)[0] == pytest.approx(-1.1)
 
 
 class TestTheCorridorChainIsOneLawObject:

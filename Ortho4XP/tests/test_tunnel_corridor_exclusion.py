@@ -1,8 +1,9 @@
 """THE TUNNEL-CORRIDOR EXCLUSION from the unified node book.
 
 Spec: ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``
-(owner-ordered fix, 2026-08-25) at AMENDMENT 4 — v2's per-NODE key scope
-PLUS boundary severance.  Owner law it rests on: ``docs/RULINGS.md``
+(owner-ordered fix, 2026-08-25) at AMENDMENT 4's mechanics on
+AMENDMENT 5's region — v2's per-NODE key scope PLUS boundary severance,
+keyed on the portal walk's OPEN CUT rather than on R14-1's claim set.  Owner law it rests on: ``docs/RULINGS.md``
 2026-08-11 "Roads serve tunnels — the paved area IS the corridor"
 (R14-1, the claim these twins reuse) and the 2026-08-07 tunnel-portal
 fidelity rulings.
@@ -17,9 +18,20 @@ six road rings, took ``tunnel_road`` bench values (+2.28/+2.96 against a
 −1.1 m floor), and 9 of the bore's 10 ``authority_retreat_wall`` faces
 stopped being emitted.
 
+THE REGION IS THE OPEN CUT, NOT THE CLAIM (Amendment 5, and finding 4
+is why).  ``tunnel_open_cut_claim_polys`` names the ROAD SURFACES R14-1
+re-profiled; the bore's descending FLOOR is a groundside ring beside
+them, 0-2 of its 33 nodes in-claim.  Keyed on the claim, the two halves
+below restored exactly the two stations the claim covered and left the
+other seven at broken values — mechanics proven, region refuted.  The
+node book now reads ``tunnel_open_cut_polys``: the portal walk's own
+level and approach zones, published by
+``bridges.publish_tunnel_open_cut_regions`` from the same records the
+"N AIRSIDE shape(s) lie inside a tunnel open cut" report consumes.
+
 THE RULE HAS TWO HALVES, and the ledger says why each is needed:
 
-  1. PER-NODE KEY SCOPE — an in-claim vertex takes a RING-PRIVATE book
+  1. PER-NODE KEY SCOPE — an in-cut vertex takes a RING-PRIVATE book
      key, minting no shared key and importing none.  Every ring stays in
      the clamp (v1 removed rings and stripped a boundary-spanning ring's
      lot half of lawful limiting: 1.03 m off, walls 5/10).
@@ -31,17 +43,20 @@ THE RULE HAS TWO HALVES, and the ledger says why each is needed:
      walls 2/10).
 
 The other two measured refutations, so neither is retried: v3 demoted the
-road's PRECEDENCE at claim-touching rings — the bore held, but the weld
+road's PRECEDENCE at cut-touching rings — the bore held, but the weld
 stayed a shared key, so the claimants AGREED and no retreat face was
 minted (finding 2: a face and a shared key are mutually exclusive);
-option A took claim-touching ROAD rings out of the role set — the bench
+option A took cut-touching ROAD rings out of the role set — the bench
 carriers are the bore ring's partners OUTSIDE the claim, 14 welds to 3,
 so no membership rule over roles can name them (finding 3).
 
 The twins Amendment 4 §4 names:
 
-(a) the in-claim NODES leave the shared key space while both rings stay
+(a) the in-cut NODES leave the shared key space while both rings stay
     in the clamp; OFF reproduces the capture;
+(a2) THE TWO REGIONS DIFFER on the measured class — a bore ring outside
+    the road claim but inside the cut is protected, and publishing the
+    claim alone protects nothing;
 (b) a road ring OUTSIDE any claim keeps the limiter AND its precedence
     (the ``cce9da6f`` purpose, unregressed);
 (c) THE BOUNDARY CARRIER IS DEAD — a boundary-spanning ring with a road
@@ -86,16 +101,21 @@ def _shape(poly, role, z):
                       node_altitudes=[z] * len(poly.exterior.coords))
 
 
-def _layout(shapes, claim_polys=None):
-    """A minimal layout carrying R14-1's PUBLISHED claim set.
+def _layout(shapes, cut_polys=None, claim_polys=None):
+    """A minimal layout carrying the PUBLISHED regions.
 
-    ``tunnel_open_cut_claim_polys`` is exactly what
-    ``bridges.publish_tunnel_open_cut_claim_set`` writes — the claimed
-    road surfaces themselves.  Nothing here re-derives a cut zone; a
-    second geometric notion of "inside the cut" is what the spec
-    forbids.
+    ``tunnel_open_cut_polys`` is exactly what
+    ``bridges.publish_tunnel_open_cut_regions`` writes — the portal
+    walk's own level and approach zones, the region the node book reads
+    under Amendment 5.  ``tunnel_open_cut_claim_polys`` is the sibling
+    publisher's CLAIM SET (the re-profiled road surfaces), carried here
+    only so a twin can assert the node book does NOT read it.  Nothing
+    re-derives a cut zone; a second geometric notion of "inside the cut"
+    is what the spec forbids.
     """
     lay = types.SimpleNamespace(shapes=list(shapes), anchor=(0.0, 0.0))
+    if cut_polys:
+        lay.tunnel_open_cut_polys = list(cut_polys)
     if claim_polys:
         lay.tunnel_open_cut_claim_polys = list(claim_polys)
     return lay
@@ -131,16 +151,16 @@ def _bore_scene(claimed=True):
     floor = _shape(_rect(0, 0, 40, 10), ROLE_GROUNDSIDE_PAVEMENT, FLOOR_Z)
     road = _shape(_rect(40, 0, 140, 10), ROLE_SERVICE_JUNCTION, BENCH_Z)
     lay = _layout([floor, road],
-                  claim_polys=[floor.polygon] if claimed else None)
+                  cut_polys=[floor.polygon] if claimed else None)
     return lay, floor, road
 
 
 # ═════════════════════════════════════════════════════════════════════
-# (a) half 1 — the in-claim nodes leave the shared key space
+# (a) half 1 — the in-cut nodes leave the shared key space
 # ═════════════════════════════════════════════════════════════════════
 
-class TestInClaimNodesMintNoSharedKey:
-    """Spec AMENDMENT 4 §1 — the in-claim NODES leave the shared key
+class TestInCutNodesMintNoSharedKey:
+    """Spec AMENDMENT 4 §1 — the in-cut NODES leave the shared key
     space; the RINGS do not leave the clamp."""
 
     def test_off_reproduces_the_capture(self, monkeypatch):
@@ -165,8 +185,8 @@ class TestInClaimNodesMintNoSharedKey:
             "the road moved — the floor may not export across the cut "
             "either")
 
-    def test_on_the_in_claim_nodes_mint_no_shared_key(self, monkeypatch):
-        """The whole of half 1, as a number.  Both rings' in-claim
+    def test_on_the_in_cut_nodes_mint_no_shared_key(self, monkeypatch):
+        """The whole of half 1, as a number.  Both rings' in-cut
         vertices ride RING-PRIVATE keys, so the two welds do NOT collapse
         into one book entry: 4 + 4 vertices key as 8, not the 6 the
         shared book makes of them — and the road↔lot weld census reads
@@ -196,7 +216,7 @@ class TestInClaimNodesMintNoSharedKey:
         assert stats["tunnel_corridor_rings_touched"] == {
             ROLE_GROUNDSIDE_PAVEMENT: 1, ROLE_SERVICE_JUNCTION: 1}
         # the ROAD carries both sides of the boundary, so its chord law
-        # is severed; the floor is wholly in-claim and has nothing to
+        # is severed; the floor is wholly in-cut and has nothing to
         # sever, which is why this reads 1 and not 2
         assert stats["tunnel_corridor_severed_rings"] == 1
 
@@ -228,7 +248,7 @@ class TestARoadOutsideAnyClaimKeepsTheLimiter:
                           node_altitudes=[10.0, 14.0, 14.0, 10.0, 10.0])
         lot = _shape(_rect(500, 20, 540, 60), ROLE_GROUNDSIDE_PAVEMENT, 10.0)
         return _layout([bore, road, lot],
-                       claim_polys=[bore.polygon]), bore, road, lot
+                       cut_polys=[bore.polygon]), bore, road, lot
 
     def test_the_far_road_is_still_clamped(self, monkeypatch):
         """A road ring over its own cap is still pulled inside it — the
@@ -295,7 +315,7 @@ class TestTheBoundaryCarrierIsDead:
         road = _shape(_rect(80, 0, 100, 10), ROLE_SERVICE_JUNCTION, 12.0)
         # the cut covers the ring's x≈0 end only — the -12221 class
         lay = _layout([span, road],
-                      claim_polys=[_rect(-5, -5, 5, 15)] if claim else None)
+                      cut_polys=[_rect(-5, -5, 5, 15)] if claim else None)
         return lay, span, road
 
     def test_the_bore_half_holds_portal_depth(self, monkeypatch):
@@ -304,13 +324,13 @@ class TestTheBoundaryCarrierIsDead:
         gs._grade_limit_groundside_chords(lay)
         after = _alts(span)
         assert after[0] == FLOOR_Z and after[3] == FLOOR_Z, (
-            f"the in-claim vertices moved to {after[0]}/{after[3]} — the "
+            f"the in-cut vertices moved to {after[0]}/{after[3]} — the "
             f"within-ring carrier is still open, which is exactly v2's "
             f"measured failure")
 
     def test_the_lot_half_is_still_clamped_among_itself(self, monkeypatch):
         """Severance withholds the STRADDLING pairs, not the ring: the
-        out-of-claim vertices keep the ring's law among themselves and
+        out-of-cut vertices keep the ring's law among themselves and
         still take the road's seed at their weld."""
         monkeypatch.setenv(FLAG, "1")
         lay, span, road = self._scene()
@@ -323,10 +343,10 @@ class TestTheBoundaryCarrierIsDead:
             "withholds pairs, never keys")
         after = _alts(span)
         cap = cfg.GROUNDSIDE_MAX_GRADE
-        # the surviving pair law, on the out-of-claim side only
+        # the surviving pair law, on the out-of-cut side only
         worst = abs(after[1] - after[2]) / max(1e-9, _dist(span, 1, 2))
         assert worst <= cap + 5e-3, (
-            "the out-of-claim half is over its own cap — each side must "
+            "the out-of-cut half is over its own cap — each side must "
             "keep the ring's law among its own vertices")
 
     def test_off_the_carrier_drags_the_bore_half_up(self, monkeypatch):
@@ -390,11 +410,11 @@ class TestTheRetreatWallsFollowTheRestoredRamp:
         lay.shapes.append(_shape(_rect(110, 2, 130, 12),
                                  ROLE_TUNNEL_RAMP, BENCH_Z - 6.0))
         if claimed:
-            lay.tunnel_open_cut_claim_polys = [floor.polygon]
+            lay.tunnel_open_cut_polys = [floor.polygon]
         return lay, floor, road
 
     def test_on_the_claimants_DISAGREE_and_the_faces_emit(self, monkeypatch):
-        """Finding 2, satisfied: the in-claim weld is ring-private, so
+        """Finding 2, satisfied: the in-cut weld is ring-private, so
         the bore's below-grade value and the road's bench both survive at
         the shared coordinate — and the loser retreats behind a face."""
         from auto_patch import adjacent_ground as AG
@@ -543,4 +563,94 @@ class TestTheKernelSeversOnlyStraddlingPairs:
             "severance did not spare the far side from the near side's "
             "law")
         assert vals_sev[0] == pytest.approx(0.0, abs=1e-9), (
-            "the in-claim side moved — a severed pair may not price it")
+            "the in-cut side moved — a severed pair may not price it")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# (a2) THE TWO REGIONS ARE NOT THE SAME REGION
+# ═════════════════════════════════════════════════════════════════════
+
+class TestTheCutIsNotTheClaim:
+    """Spec AMENDMENT 5 §1-2, and finding 4 as a twin.
+
+    THE MEASURED CLASS, at unit scale: OTHH ring ``-12180``/``-12221`` —
+    a ``groundside_pavement`` bore floor lying INSIDE the portal walk's
+    open cut and OUTSIDE R14-1's claim set, whose welded road partners
+    are outside the claim too (14 welds at zero claim coverage against
+    3 claimed).  Every claim-keyed round reached two of its nine
+    stations; the cut reaches all of them.  If these two regions ever
+    collapse into one read, this twin fails.
+    """
+
+    def _scene(self):
+        """The bore floor sits in the cut; the CLAIM names only the road
+        strip beyond it, exactly as R14-1 publishes claimed road
+        surfaces."""
+        floor = _shape(_rect(0, 0, 40, 10), ROLE_GROUNDSIDE_PAVEMENT,
+                       FLOOR_Z)
+        road = _shape(_rect(40, 0, 140, 10), ROLE_SERVICE_JUNCTION,
+                      BENCH_Z)
+        cut = _rect(-5, -5, 45, 15)        # the walk's own footprint
+        claim = _rect(40, 0, 140, 10)      # the re-profiled road surface
+        return floor, road, cut, claim
+
+    def test_the_cut_protects_the_bore_the_claim_does_not(self,
+                                                          monkeypatch):
+        monkeypatch.setenv(FLAG, "1")
+        floor, road, cut, claim = self._scene()
+        on_cut = _layout([floor, road], cut_polys=[cut], claim_polys=[claim])
+        gs._grade_limit_groundside_chords(on_cut)
+        assert _alts(floor) == [FLOOR_Z] * 5, (
+            "the bore floor moved even though it is INSIDE the cut")
+        stats = on_cut._chord_limit_stats
+        assert stats["tunnel_corridor_rings_touched"].get(
+            ROLE_GROUNDSIDE_PAVEMENT) == 1, (
+            "the cut did not name the bore ring — Amendment 5's whole "
+            "premise")
+
+    def test_the_claim_alone_protects_nothing_here(self, monkeypatch):
+        """The control, one variable: publish ONLY the claim (what four
+        rounds read) and the same scene reproduces the capture."""
+        monkeypatch.setenv(FLAG, "1")
+        floor, road, _cut, claim = self._scene()
+        claim_only = _layout([floor, road], claim_polys=[claim])
+        gs._grade_limit_groundside_chords(claim_only)
+        assert claim_only._chord_limit_stats[
+            "tunnel_corridor_private_nodes"] == 0, (
+            "the node book read the CLAIM — under Amendment 5 it must "
+            "read the open cut and nothing else")
+        assert max(_alts(floor)) > FLOOR_Z + 0.5, (
+            "the capture did not reproduce on the claim-only layout")
+
+    def test_the_cut_is_published_by_the_portal_walk_not_re_derived(self):
+        """ONE AUTHORITY: the publisher flattens the walk's OWN region
+        records — level zone and approach zone — skips the empty ones,
+        and ACCUMULATES across tunnel systems.  It derives nothing."""
+        from auto_patch import bridges
+        lay = types.SimpleNamespace(shapes=[], anchor=(0.0, 0.0))
+        level, approach = _rect(0, 0, 10, 10), _rect(10, 0, 30, 10)
+        assert bridges.publish_tunnel_open_cut_regions(
+            lay, [(level, approach, -1.1)]) == 2
+        assert lay.tunnel_open_cut_polys == [level, approach]
+        # a portal whose walk could not buffer publishes its level only
+        second = _rect(50, 50, 60, 60)
+        assert bridges.publish_tunnel_open_cut_regions(
+            lay, [(second, None, 2.0)]) == 1
+        assert lay.tunnel_open_cut_polys == [level, approach, second]
+        # nothing to publish ⇒ no attribute ⇒ no exclusion downstream
+        empty = types.SimpleNamespace(shapes=[], anchor=(0.0, 0.0))
+        assert bridges.publish_tunnel_open_cut_regions(empty, []) == 0
+        assert not hasattr(empty, "tunnel_open_cut_polys")
+
+    def test_the_claim_publisher_still_serves_its_own_consumers(self):
+        """Spec AMENDMENT 5 §2: only the node-book predicate re-keys.
+        The claim set is still published, separately, for the stand-down
+        and the R14-1 report."""
+        from auto_patch import bridges
+        lay = types.SimpleNamespace(shapes=[], anchor=(0.0, 0.0))
+        a = _rect(0, 0, 10, 10)
+        assert bridges.publish_tunnel_open_cut_claim_set(lay, [a]) == 1
+        assert lay.tunnel_open_cut_claim_polys == [a]
+        assert not hasattr(lay, "tunnel_open_cut_polys"), (
+            "the claim publisher wrote the CUT attribute — the two "
+            "regions must stay two")

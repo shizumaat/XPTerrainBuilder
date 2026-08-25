@@ -3782,22 +3782,32 @@ _CHORD_LIMIT_ROLES = (ROLE_GROUNDSIDE_PAVEMENT,
 # that is exactly what R14-1's claim already names.
 #
 # THE RULE HAS TWO HALVES (spec AMENDMENT 4, owner-approved 2026-08-25),
-# and it needs both because each half alone was BUILT AND MEASURED and
-# each alone failed:
+# ON ONE REGION — the portal walk's OPEN CUT (AMENDMENT 5).  It needs
+# both halves because each alone was BUILT AND MEASURED and each alone
+# failed, and it needs that region because the CLAIM SET is a different
+# one and reached almost none of the surface (finding 4, below):
 #
-#   1. PER-NODE KEY SCOPE.  A vertex inside the open-cut claim takes a
+#   1. PER-NODE KEY SCOPE.  A vertex inside the open cut takes a
 #      RING-PRIVATE book key, so it mints no shared key and imports no
 #      cross-ring value.  Every ring stays in the clamp, in-cut nodes
 #      included — removing whole rings is what stripped a boundary-
 #      spanning ring's lot half of lawful limiting (v1).
 #   2. BOUNDARY SEVERANCE.  Within one ring, a CHORD PAIR whose endpoints
-#      STRADDLE the claim boundary is withheld from the clamp's chord
-#      law.  In-claim vertices keep the ring's law among themselves (bore
-#      smoothness) and out-of-claim vertices keep it among themselves
-#      (the limiter's purpose); what no longer exists is a chord that
-#      prices a below-grade node against an at-grade one.  The severed
-#      pairs' continuity belongs to the portal walk's solved geometry,
-#      exactly as GOOD behaved.
+#      STRADDLE the cut boundary is withheld from the clamp's chord law.
+#      In-cut vertices keep the ring's law among themselves (bore
+#      smoothness) and out-of-cut vertices keep it among themselves (the
+#      limiter's purpose); what no longer exists is a chord that prices a
+#      below-grade node against an at-grade one.  The severed pairs'
+#      continuity belongs to the portal walk's solved geometry, exactly
+#      as GOOD behaved.
+#
+# THE REGION IS NOT THE CLAIM SET, and that distinction is the whole of
+# AMENDMENT 5.  ``tunnel_open_cut_claim_polys`` names the ROAD SURFACES
+# R14-1 re-profiled; ``tunnel_open_cut_polys`` names the ground the bore
+# occupies.  OTHH's descending floor is a groundside ring BESIDE the
+# claimed roads — 0-2 of its 33 nodes in-claim — so on the claim these
+# same two halves restored exactly the two stations the claim covered
+# and left the other seven at broken values (finding 4).
 #
 # THE LEDGER THE TWO HALVES COME FROM — four measured mechanisms, none
 # to be retried:
@@ -3816,36 +3826,50 @@ _CHORD_LIMIT_ROLES = (ROLE_GROUNDSIDE_PAVEMENT,
 #     value into the road's ring, so the claimants AGREED and no retreat
 #     face was minted (finding 2: a retreat face and a shared key are
 #     MUTUALLY EXCLUSIVE, which is why half 1 withholds the key);
-#   * option A, CLAIM-SCOPED ROLE EXIT (615a70ea, retired by this
-#     change): the bench carriers are the bore ring's welded partners
-#     OUTSIDE the claim — 14 welds at zero claim coverage against 3
-#     claimed — so no claim-membership rule over ROLES can name them
-#     (finding 3).  Which is why the rule is about NODES and PAIRS.
+#   * option A, CLAIM-SCOPED ROLE EXIT (615a70ea, retired): the bench
+#     carriers are the bore ring's welded partners OUTSIDE the claim —
+#     14 welds at zero claim coverage against 3 claimed — so no
+#     claim-membership rule over ROLES can name them (finding 3).  Which
+#     is why the rule is about NODES and PAIRS;
+#   * AMENDMENT 4 ON THE CLAIM (e37963bc): both halves as they stand
+#     here, keyed on claim membership — the carrier died (the two
+#     in-claim stations came back exactly, the bore ring went 7/9 to 9/9
+#     present, retreat faces 1 to 6) and the other seven stations never
+#     moved, because the claim covered 0-2 of the ring's 33 nodes.
+#     Mechanics proven, region refuted: hence AMENDMENT 5's re-key.
 _TUNNEL_CORRIDOR_EXCLUSION_ENV = "O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION"
 
 
-def _tunnel_corridor_claim(layout):
-    """``(prepared_claim, bounds)`` for THE tunnel open-cut claim set, or
+def _tunnel_open_cut(layout):
+    """``(prepared_cut, bounds)`` for THE tunnel OPEN CUT, or
     ``(None, None)`` when there is nothing to exclude.
 
-    ONE AUTHORITY (spec §2).  The claim set is R14-1's own — the road
-    surfaces ``bridges._claim_road_pavement`` re-profiled as the tunnel
-    corridor and published verbatim on ``layout.tunnel_open_cut_claim_
-    polys`` (the same list that stands the synthetic rectangles down, and
-    the same computation behind the build log's "claimed N road
-    surface(s) as the tunnel corridor").  Nothing here re-derives a zone:
-    a second geometric notion of "inside the cut" is what the spec
-    forbids, so no claim ⇒ no exclusion.
+    ONE AUTHORITY (spec §2 as AMENDED 5).  The region is the portal
+    walk's own: ``bridges._tunnel_open_cut_regions``' level and approach
+    zones, published verbatim on ``layout.tunnel_open_cut_polys`` by
+    ``bridges.publish_tunnel_open_cut_regions`` — the SAME records
+    ``_claim_road_pavement`` judges every shape against and the same ones
+    behind the build log's "N AIRSIDE shape(s) lie inside a tunnel open
+    cut".  Nothing here re-derives a zone: a second geometric notion of
+    "inside the cut" is what the spec forbids, so no cut ⇒ no exclusion.
 
-    ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0`` restores the pre-fix
-    behaviour byte-for-byte (spec §5) for attribution arms.
+    IT IS NOT THE CLAIM SET, and the difference is measured (finding 4).
+    ``tunnel_open_cut_claim_polys`` names the road surfaces the cut
+    CAPTURED, and OTHH's descending bore floor is a groundside ring
+    BESIDE those roads — 0-2 of its 33 nodes inside the claim, which is
+    why four claim-keyed rounds reached two of the nine stations that
+    needed protecting.  The claim keeps every one of its own consumers
+    (the stand-down, the report); only this predicate re-keys.
+
+    ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0`` restores the pre-round
+    behaviour byte-for-byte (spec §3) for attribution arms.
     """
     if _os.environ.get(_TUNNEL_CORRIDOR_EXCLUSION_ENV, "1") != "1":
         return None, None
-    polys = getattr(layout, "tunnel_open_cut_claim_polys", None)
+    polys = getattr(layout, "tunnel_open_cut_polys", None)
     if not polys:
         return None, None
-    cached = getattr(layout, "_tunnel_claim_prepared_cache", None)
+    cached = getattr(layout, "_tunnel_cut_prepared_cache", None)
     if cached is not None and cached[0] == len(polys):
         return cached[1], cached[2]
     try:
@@ -3858,14 +3882,14 @@ def _tunnel_corridor_claim(layout):
     except (_GEOM_EXC, ImportError, ValueError):       # pragma: no cover
         return None, None
     try:
-        layout._tunnel_claim_prepared_cache = (len(polys), prepared, bounds)
+        layout._tunnel_cut_prepared_cache = (len(polys), prepared, bounds)
     except (AttributeError, TypeError):                # pragma: no cover
         pass
     return prepared, bounds
 
 
 def _report_tunnel_corridor_exclusion(layout, stats) -> None:
-    """Say out loud what the claim owns — once per changed count.
+    """Say out loud what the CUT owns — once per changed count.
 
     The pass runs three times (finalize, then two idempotent pipeline
     re-limits) and the claim only exists from the second onward, so the
@@ -3881,11 +3905,11 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         by = ", ".join(f"{c} {role}" for role, c in sorted(by_role.items()))
         UI.vprint(1,
                   f"  [pav-builder] tunnel-corridor exclusion: {n} node(s) "
-                  f"inside the R14-1 open-cut claim mint NO shared key and "
+                  f"inside the portal walk's OPEN CUT mint NO shared key and "
                   f"import no cross-ring value, across "
                   f"{sum(by_role.values())} ring(s) ({by}); "
                   f"{stats.get('tunnel_corridor_severed_rings', 0)} ring(s) "
-                  f"also SEVER their boundary-straddling chord pairs, so no "
+                  f"also SEVER their cut-boundary-straddling chord pairs, so no "
                   f"chord prices a below-grade node against an at-grade one. "
                   f"Every ring stays in the clamp under its own within-ring "
                   f"law — the portal walk owns the cut, not this book.")
@@ -3897,14 +3921,14 @@ def _report_tunnel_corridor_exclusion(layout, stats) -> None:
         pass
 
 
-def _node_inside_tunnel_claim(x, y, prepared, bounds) -> bool:
-    """Spec §2 membership at AMENDMENT 4's granularity: does this VERTEX
-    lie inside the tunnel open-cut claim set?
+def _node_inside_tunnel_cut(x, y, prepared, bounds) -> bool:
+    """Spec §2 membership at AMENDMENT 5's region: does this VERTEX lie
+    inside the tunnel OPEN CUT?
 
-    ``covers`` — not ``contains`` — because a claimed shape's OWN ring
-    vertices lie exactly ON the claim boundary, and so do the vertices a
-    partner way shares with it.  Those shared vertices ARE the channel
-    the capture travelled through, so the boundary must count.
+    ``covers`` — not ``contains`` — because a shape's OWN ring vertices
+    can lie exactly ON the cut boundary, and so do the vertices a partner
+    way shares with it.  Those shared vertices ARE the channel the
+    capture travelled through, so the boundary must count.
 
     ONE MEMBERSHIP NOTION serves BOTH halves of the rule: the same answer
     decides whether a vertex's book key is ring-private (half 1) and
@@ -4103,11 +4127,11 @@ def _grade_limit_groundside_chords(layout) -> int:
     THE TUNNEL-CORRIDOR EXCLUSION touches this pass in two places and
     removes NOTHING from it (spec
     ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``,
-    AMENDMENT 4).  A vertex inside R14-1's open-cut claim takes a
-    RING-PRIVATE book key, so it neither mints a shared key nor imports
-    one; and a chord pair STRADDLING the claim boundary is withheld from
-    the ring's own chord law, so the at-grade half of a boundary-spanning
-    ring cannot price the below-grade half.  Every ring stays in the
+    AMENDMENT 4 on AMENDMENT 5's region).  A vertex inside the portal
+    walk's OPEN CUT takes a RING-PRIVATE book key, so it neither mints a
+    shared key nor imports one; and a chord pair STRADDLING the cut
+    boundary is withheld from the ring's own chord law, so the at-grade
+    half of a boundary-spanning ring cannot price the below-grade half.  Every ring stays in the
     clamp and every vertex keeps its own side's law.  The four narrower
     rules that removed rings, roles or precedence instead were built and
     measured first and are on the spec's do-not-retry ledger, above.
@@ -4131,15 +4155,15 @@ def _grade_limit_groundside_chords(layout) -> int:
         "stricter_cap_nodes": 0,
         "road_nodes_near_miss": 0,
         # Spec ``tunnel-corridor-node-book-exclusion-spec.md`` as
-        # AMENDED 4: the NODES the tunnel open-cut claim owns (which mint
+        # AMENDED 4/5: the NODES inside the tunnel OPEN CUT (which mint
         # no shared key), the rings they sit on — every one of which
         # stays in the clamp — and the rings whose chord law is SEVERED
-        # at the claim boundary because they carry both sides of it.
+        # at the cut boundary because they carry both sides of it.
         "tunnel_corridor_private_nodes": 0,
         "tunnel_corridor_rings_touched": {},
         "tunnel_corridor_severed_rings": 0,
     }
-    _claim_prep, _claim_bounds = _tunnel_corridor_claim(layout)
+    _cut_prep, _cut_bounds = _tunnel_open_cut(layout)
     # THE WELDS ARE NOT PINNED HERE, and that is MEASURED, not assumed.
     # Holding them (``law_anchor_values`` keyed to this pass's 2-decimal
     # node key) is the literal reading of R7c's "[weld − cap·d,
@@ -4204,7 +4228,7 @@ def _grade_limit_groundside_chords(layout) -> int:
         # ``_airside_claimed_keys``): a vertex the emitter will merge into
         # an airside node is airside DATA even when its 2-dp bucket
         # differs by millimetres.  The pin is read on the PUBLIC xy key
-        # for every vertex, in-claim ones included — airside-is-king is a
+        # for every vertex, in-cut ones included — airside-is-king is a
         # different law from the tunnel claim and outranks it.
         if _pin_tol is not None:
             for _k, (_vx, _vy) in enumerate(ring):
@@ -4215,20 +4239,21 @@ def _grade_limit_groundside_chords(layout) -> int:
                 if _ck is not None and _ck in _airside_canon:
                     pinned_keys.add(xy_keys[_k])
         # ── THE TUNNEL-CORRIDOR EXCLUSION, HALF 1: KEY SCOPE ─────────
-        # (spec AMENDMENT 4 §1).  A vertex inside R14-1's open-cut claim
-        # takes a RING-PRIVATE book key, so the bench value of a road
-        # welded to the bore boundary cannot reach the bore floor and the
-        # floor cannot reach the road.  Nothing is removed: the ring
-        # stays in the clamp and its own law still limits every vertex it
-        # owns.  The membership answers are kept as the ring's SIDE
-        # labels, which half 2 severs on — one predicate, two uses.
-        if _claim_prep is not None:
+        # (spec AMENDMENT 4 §1 on AMENDMENT 5's region).  A vertex inside
+        # the portal walk's OPEN CUT takes a RING-PRIVATE book key, so
+        # the bench value of a road welded to the bore boundary cannot
+        # reach the bore floor and the floor cannot reach the road.
+        # Nothing is removed: the ring stays in the clamp and its own law
+        # still limits every vertex it owns.  The membership answers are
+        # kept as the ring's SIDE labels, which half 2 severs on — one
+        # predicate, two uses.
+        if _cut_prep is not None:
             keys = []
             sides = []
             _n_priv = 0
             for _k, (_vx, _vy) in enumerate(ring):
-                if _node_inside_tunnel_claim(_vx, _vy, _claim_prep,
-                                             _claim_bounds):
+                if _node_inside_tunnel_cut(_vx, _vy, _cut_prep,
+                                           _cut_bounds):
                     kx, ky = xy_keys[_k]
                     keys.append((kx, ky, i))     # ring-private, never shared
                     sides.append(True)
@@ -4286,12 +4311,12 @@ def _grade_limit_groundside_chords(layout) -> int:
                 node_cap_max[kxy] = max(node_cap_max[kxy], cap)
             if len(kxy) == 2:
                 # THE SHARED-NODE CENSUS COUNTS SHARED NODES ONLY.  A
-                # ring-private in-claim key is by construction owned by
+                # ring-private in-cut key is by construction owned by
                 # one ring and one role, so entering it here would
                 # inflate every "unified" number the road-limiter spec
                 # asks for by name — and the near-miss walk is a
                 # UNIFICATION instrument, which is precisely what an
-                # in-claim node is withheld from.
+                # in-cut node is withheld from.
                 node_roles.setdefault(kxy, set()).add(role)
                 if is_road:
                     node_road_shapes.setdefault(kxy, set()).add(i)
@@ -4303,7 +4328,7 @@ def _grade_limit_groundside_chords(layout) -> int:
     _chord_limit_shared_node_census(stats, node_roles, node_cap,
                                     node_cap_max, node_road_shapes)
     stats["nodes"] = len(node_alt)
-    # Pinning is read through the PUBLIC key so an in-claim node an
+    # Pinning is read through the PUBLIC key so an in-cut node an
     # airside ring also claims is still counted (and still held) — the
     # private key withholds SHARING, never the airside-is-king pin.
     stats["airside_pinned_nodes"] = sum(
@@ -4318,7 +4343,7 @@ def _grade_limit_groundside_chords(layout) -> int:
             m = len(keys)
             # THE BOOK KEY AND THE GEOMETRY ARE TWO THINGS.  The kernel
             # measures CHORDS, so it always gets the ring's public 2-dp
-            # coordinates (``ring_xy``) — an in-claim vertex is withheld
+            # coordinates (``ring_xy``) — an in-cut vertex is withheld
             # from SHARING, never from its own ring's geometry, which is
             # what "within-ring limiting continues everywhere" means.
             # Without a claim the two lists carry the same values and the

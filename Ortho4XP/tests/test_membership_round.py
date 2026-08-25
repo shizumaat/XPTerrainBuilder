@@ -597,36 +597,37 @@ class TestTheRoadFamilyIsChordLimited:
         assert list(ramp.node_altitudes) == before
         assert "tunnel_ramp" not in gs._CHORD_LIMIT_ROLES
 
-    def test_in_claim_nodes_are_private_and_the_boundary_is_severed(self):
+    def test_in_cut_nodes_are_private_and_the_boundary_is_severed(self):
         """§4 EXTENSION (spec
         ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``, the
-        2026-08-25 owner-ordered fix, at AMENDMENT 4).
+        2026-08-25 owner-ordered fix, at AMENDMENT 4's mechanics on
+        AMENDMENT 5's region).
 
         The role exemption above is the WRONG AXIS on its own: OTHH's
         site-1 bore floor is a ``groundside_pavement`` ring, not a
         ``tunnel_ramp``, and the unified node book handed it the
         surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
         floor).  The rule that fixes it keeps every ring in this pass and
-        withholds two things instead: an in-claim NODE's shared key, and
-        a within-ring chord pair that STRADDLES the claim boundary.  Four
-        narrower rules (dropping the claim-touching ring; private keys
-        alone; demoting the road's precedence; taking claim-touching ROAD
-        rings out of the role set) were built, measured and refuted first
-        — the spec's do-not-retry ledger.  Full battery of twins:
-        ``tests/test_tunnel_corridor_exclusion.py``.
+        withholds two things instead: an in-cut NODE's shared key, and a
+        within-ring chord pair that STRADDLES the cut boundary.  The
+        region is the portal walk's OPEN CUT — R14-1's CLAIM SET is a
+        different region (it names the re-profiled ROAD surfaces, and the
+        bore floor lies beside them), which is what refuted the four
+        narrower rules on the spec's do-not-retry ledger.  Full battery
+        of twins: ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
         floor = _dem_lot(0, 0, 40, 10, z=-1.1)
         road = _svc(40, 0, 140, 10, z=2.3, role="service_junction")
         layout = _layout([floor, road])
-        layout.tunnel_open_cut_claim_polys = [floor.polygon]
+        layout.tunnel_open_cut_polys = [floor.polygon]
         before = list(floor.node_altitudes)
         road_before = list(road.node_altitudes)
         gs._grade_limit_groundside_chords(layout)
         assert list(floor.node_altitudes) == before
         assert list(road.node_altitudes) == road_before
         stats = layout._chord_limit_stats
-        # the in-claim weld vertices are RING-PRIVATE: no shared key…
+        # the in-cut weld vertices are RING-PRIVATE: no shared key…
         assert stats["shared_road_lot_nodes"] == 0
         assert stats["nodes"] == 8, "the weld collapsed into one key"
         assert stats["tunnel_corridor_private_nodes"] == 6

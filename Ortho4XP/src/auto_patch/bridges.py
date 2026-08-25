@@ -5859,6 +5859,15 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         portal_data, facing_pairs, wall_gap_m)
     if not _regions:
         return 0, []
+    # THE OPEN CUT ITSELF is published here — beside the claim, from the
+    # SAME records this function is about to judge every shape against
+    # (spec ``tunnel-corridor-node-book-exclusion-spec.md`` AMENDMENT 5).
+    # The claim set names the road surfaces the cut CAPTURED; the cut
+    # names the ground the bore actually occupies, and the two are not
+    # the same region — OTHH's bore floor is a groundside ring BESIDE
+    # the claimed roads (0-2 of its 33 nodes in-claim, measured).  One
+    # authority either way: nothing downstream re-derives a cut zone.
+    publish_tunnel_open_cut_regions(layout, _regions)
 
     def _claimable(shape):
         _poly = getattr(shape, "polygon", None)
@@ -6091,6 +6100,53 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         except _GEOM_EXC:
             pass
     return _n, _claimed_polys
+
+
+def publish_tunnel_open_cut_regions(layout: "PavementLayout",
+                                    regions: list) -> int:
+    """Publish THE OPEN CUT — the portal walk's own plan-space extent —
+    on the layout, for every downstream consumer.
+
+    Spec ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``
+    AMENDMENT 5.  The sibling publisher below hands on the CLAIM SET:
+    the road surfaces R14-1 re-profiled.  That answers "which pavement
+    did the cut capture", and the node book asked it for four rounds on
+    the strength of the two regions being the same.  They are not:
+    OTHH's descending bore FLOOR is a ``groundside_pavement`` ring
+    beside the claimed roads, 0-2 of its 33 nodes inside the claim, so
+    every claim-keyed rule reached two vertices of the nine that needed
+    protecting (finding 4, measured).
+
+    THE REGION PUBLISHED HERE IS NOT DERIVED HERE.  It is
+    :func:`_tunnel_open_cut_regions`' own output — the same records
+    :func:`_claim_road_pavement` judges every shape against and the same
+    ones behind the "N AIRSIDE shape(s) lie inside a tunnel open cut"
+    report — flattened to the plan-space polygons (``level_zone`` and
+    ``approach_zone``; the elevations stay with the regions, which is
+    where the R14-3 grade lives).  A second geometric notion of "inside
+    the cut" computed anywhere else is the spec violation this pattern
+    exists to prevent.
+
+    ACCUMULATES, never replaces: a tile has many tunnel systems and each
+    one publishes its own.  Returns the number of polygons published.
+    """
+    _polys: list = []
+    for _rec in (regions or ()):
+        for _zone in (_rec[0] if len(_rec) > 0 else None,
+                      _rec[1] if len(_rec) > 1 else None):
+            if _zone is None or getattr(_zone, "is_empty", True):
+                continue
+            _polys.append(_zone)
+    if not _polys:
+        return 0
+    try:
+        _existing = list(
+            getattr(layout, "tunnel_open_cut_polys", None) or [])
+        _existing.extend(_polys)
+        layout.tunnel_open_cut_polys = _existing
+    except (AttributeError, TypeError):                # pragma: no cover
+        return 0
+    return len(_polys)
 
 
 def publish_tunnel_open_cut_claim_set(layout: "PavementLayout",

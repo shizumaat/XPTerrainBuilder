@@ -1242,12 +1242,23 @@ class _StructureFrame:
     :class:`_FrameTriangle` list LAZILY for the record-building paths
     that walk small frames (tunnel/bridge component frames) — a KBNA
     mega-pool frame holds 6.2 million triangles and must never pay for
-    six million Python objects it will not read."""
+    six million Python objects it will not read.
+
+    ``solid_floor_witness_y_m`` is ``minimum_effective_height_m`` with the
+    DECAL EXCLUSION applied (spec ``docs/specs/
+    tunnel-trench-law-and-basin-floor-spec.md`` §2.1): a pooled part whose
+    own authored bbox height is below
+    :data:`config.MIN_SOLID_PART_THICKNESS_M` has no vertical extent, so
+    it is a ground decal and cannot be a structure's floor.  It is the
+    BASIN FLOOR LAW's key and nothing else's —
+    ``minimum_effective_height_m`` keeps every part, so the ground-contact
+    and cosmetic-bridge tests read exactly what they always read."""
 
     __slots__ = (
         "origin_latitude",
         "origin_longitude",
         "minimum_effective_height_m",
+        "solid_floor_witness_y_m",
         "grounded_vertices_xz",
         "vertex_columns",
         "triangle_count",
@@ -1271,6 +1282,7 @@ class _StructureFrame:
         origin_latitude: float,
         origin_longitude: float,
         minimum_effective_height_m: float,
+        solid_floor_witness_y_m: float,
         grounded_vertices_xz: list[tuple[float, float, str]],
         vertex_columns: dict[
             tuple[int, int], tuple[float, float, frozenset[str]]
@@ -1290,6 +1302,7 @@ class _StructureFrame:
         self.origin_latitude = origin_latitude
         self.origin_longitude = origin_longitude
         self.minimum_effective_height_m = minimum_effective_height_m
+        self.solid_floor_witness_y_m = solid_floor_witness_y_m
         self.grounded_vertices_xz = grounded_vertices_xz
         self.vertex_columns = vertex_columns
         self.triangle_corner_x_m = triangle_corner_x_m
@@ -1789,6 +1802,13 @@ def _build_structure_frame(
     grounded_vertices_xz: list[tuple[float, float, str]] = []
     column_accumulator: dict[tuple[int, int], list] = {}
     minimum_effective_height = math.inf
+    # A DECAL IS NOT A SOLID (spec §2.1): the FLOOR WITNESS minimum skips
+    # every part with no vertical extent of its own.  Tracked beside the
+    # full minimum, never instead of it.  (Local import, the
+    # ``BRIDGE_ROAD_CLEARANCE_MINIMUM_M`` idiom of this module, hoisted out
+    # of the placement loop.)
+    from .config import MIN_SOLID_PART_THICKNESS_M
+    solid_floor_witness = math.inf
     corner_x_parts: list[numpy.ndarray] = []
     corner_y_parts: list[numpy.ndarray] = []
     corner_z_parts: list[numpy.ndarray] = []
@@ -1826,6 +1846,16 @@ def _build_structure_frame(
         placement_minimum = float(used_effective_y.min())
         if placement_minimum < minimum_effective_height:
             minimum_effective_height = placement_minimum
+        # THE FLOOR WITNESS (spec §2.1).  The part's OWN authored bbox
+        # height — max_y − min_y over its used vertices; the placement's
+        # AGL offset is a constant added to both, so the extent is the
+        # authored one either way.  Below MIN_SOLID_PART_THICKNESS_M the
+        # part is a flat ground decal (LEMD's 4-vertex VOR quads at
+        # y = −48.244, extent exactly 0.0) and cannot witness a floor.
+        if (float(used_effective_y.max()) - placement_minimum
+                >= MIN_SOLID_PART_THICKNESS_M
+                and placement_minimum < solid_floor_witness):
+            solid_floor_witness = placement_minimum
         grounded = used[used_effective_y <= GROUND_CONTACT_TOLERANCE_M]
         if grounded.size:
             resource = placement.resource_path
@@ -1921,6 +1951,12 @@ def _build_structure_frame(
         )
     if minimum_effective_height is math.inf:
         minimum_effective_height = 0.0
+    if solid_floor_witness is math.inf:
+        # No part with vertical extent anywhere in the pool: there is no
+        # solid to witness a floor, and the same 0.0 the full minimum
+        # falls back to says exactly that (the basin floor then derives
+        # from the deck-face population — spec §2.2).
+        solid_floor_witness = 0.0
     if corner_x_parts:
         corner_x_all = numpy.concatenate(corner_x_parts)
         corner_y_all = numpy.concatenate(corner_y_parts)
@@ -1941,6 +1977,7 @@ def _build_structure_frame(
         origin_latitude=origin_latitude,
         origin_longitude=origin_longitude,
         minimum_effective_height_m=minimum_effective_height,
+        solid_floor_witness_y_m=solid_floor_witness,
         grounded_vertices_xz=grounded_vertices_xz,
         vertex_columns={
             key: (values[0], values[1], frozenset(values[2]))
@@ -3855,7 +3892,11 @@ def _classify_structure_ground_interface(
         # The frame already carries the deepest SOLID vertex it saw (raw
         # vertex set, so vertical liner walls that collapse out of the
         # triangle list still count) — the basin floor law's own key.
-        solid_minimum_y_m=float(frame.minimum_effective_height_m),
+        # THE FLOOR WITNESS, not the bare minimum (spec §2.1): a pooled
+        # part with no vertical extent is a ground decal and never digs a
+        # facility's floor (LEMD's VOR quads at −50.0 effective, which
+        # keyed a 51.5 m trench under a 7.02 m body).
+        solid_minimum_y_m=float(frame.solid_floor_witness_y_m),
     )
 
 

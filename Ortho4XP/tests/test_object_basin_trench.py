@@ -1968,3 +1968,193 @@ class TestTrueDeepestSolidPlumbing:
         assert facilities
         # y_true_min is what item 7's clearance check consumes.
         assert facilities[0].solid_minimum_y_m == pytest.approx(-4.201)
+
+
+# ---------------------------------------------------------------------------
+# A DECAL IS NOT A SOLID — facility floor integrity (spec docs/specs/
+# tunnel-trench-law-and-basin-floor-spec.md §2)
+# ---------------------------------------------------------------------------
+
+def _ground_decal(y: float, half_span_m: float = 20.0) -> ObjectGeometry:
+    """A GROUND DECAL the way a pack ships one: a single flat 4-vertex
+    quad, no vertical extent at all.  LEMD's
+    ``AESlite-LEMD-VOR-15-T4S-{1,2}.obj`` are exactly this, authored at
+    y = −48.244."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(
+        -half_span_m, half_span_m, -half_span_m, half_span_m, y)
+    return builder.build()
+
+
+class TestDecalIsNotASolid:
+    """§2.1.  The LEMD class: two 4-vertex VOR ground decals authored at
+    −48.244 m (−50.0 effective) pooled with the airport's own objects by
+    the 2.0 m chain join, and ``_StructureFrame.minimum_effective_height_m``
+    — a plain min over the pooled placements — handed −50.0 to the basin
+    floor law.  The trench came out 51.5 m below its own rim under a
+    7.02 m body, and 90.7 % of LEMD's census rows were the wall of it.
+
+    Pooling itself is NOT changed by this round (spec §2.3): the floor
+    witness is made immune to the pool's worst member instead.
+    """
+
+    def test_the_threshold_is_the_specced_one(self):
+        assert config.MIN_SOLID_PART_THICKNESS_M == pytest.approx(0.3)
+
+    def test_a_flat_decal_never_witnesses_the_floor(self):
+        """(a) The decal is pooled — it stays in the pool for every other
+        purpose — but the floor comes from the REAL solids."""
+        geometry = dict(_open_pit_pair(depth_m=4.0))
+        geometry["Decals/vor_ground_decal.obj"] = _ground_decal(-48.244)
+        classification = _classify(geometry)
+        interfaces = [
+            interface for interface in classification.ground_interfaces
+            if otf.is_carved_basin_interface(interface)
+        ]
+        assert interfaces, "fixture no longer classifies as a carved basin"
+        assert "Decals/vor_ground_decal.obj" in \
+            interfaces[0].object_resources, (
+            "the decal is not in the pool — the fixture would prove "
+            "nothing about the exclusion")
+        frame = otf._build_structure_frame(
+            [_placement(resource) for resource in geometry], geometry)
+        assert frame.minimum_effective_height_m == pytest.approx(-48.244), (
+            "the frame's full minimum must still SEE the decal — this is "
+            "the value that dug LEMD's basin, and the counterfactual this "
+            "twin turns on")
+        assert interfaces[0].solid_minimum_y_m == pytest.approx(-4.0), (
+            f"the floor witness reads "
+            f"{interfaces[0].solid_minimum_y_m} — a flat quad with no "
+            f"vertical extent dug the facility's floor")
+
+    def test_a_genuine_deep_solid_still_sets_the_floor(self):
+        """(b) The scope guard: a part WITH vertical extent is a solid
+        whatever its depth, and the deepest one is still the witness (the
+        Drainage_06 sibling-shell class, at 8 m)."""
+        geometry = {
+            "Buildings/Drainage/basin_000.obj": _pit_shell(
+                30.0, 6.0, -3.859, 0.0),
+            "Buildings/Drainage/basin_001.obj": _pit_shell(
+                28.5, 6.0, -8.0, 0.06),
+        }
+        interfaces = [
+            interface
+            for interface in _classify(geometry).ground_interfaces
+            if otf.is_carved_basin_interface(interface)
+        ]
+        assert interfaces
+        assert interfaces[0].solid_minimum_y_m == pytest.approx(-8.0)
+
+    def test_the_full_minimum_still_sees_every_part(self):
+        """The exclusion is the FLOOR WITNESS only.  Ground contact and
+        the cosmetic-bridge test read
+        ``minimum_effective_height_m``, which keeps every part —
+        narrowing that too would change classifications this round never
+        measured."""
+        placements = [_placement("Decals/vor_ground_decal.obj")]
+        geometry = {"Decals/vor_ground_decal.obj": _ground_decal(-48.244)}
+        frame = otf._build_structure_frame(placements, geometry)
+        assert frame.minimum_effective_height_m == pytest.approx(-48.244)
+        assert frame.solid_floor_witness_y_m == pytest.approx(0.0), (
+            "a pool of decals witnesses NO floor; the fallback says so")
+
+
+class TestBasinFloorDisagreementGate:
+    """§2.2.  Two instruments described one bottom and the 43 m
+    disagreement between them rode the same log line unchecked
+    (``body_depth_m 7.02`` beside ``floor_m 545.52``)."""
+
+    def test_the_threshold_is_the_specced_one(self):
+        assert config.BASIN_FLOOR_DISAGREEMENT_M == pytest.approx(2.0)
+
+    def test_the_gate_fires_on_the_lemd_disagreement(self):
+        """(c) The floor derives from the deck-face population and the
+        discarded witness comes back for the caller to NAME."""
+        record = _tunnel_record(body_depth_m=7.016)
+        object.__setattr__(record, "solid_minimum_y_m", -50.0)
+        deck_reference_y, discarded = (
+            assembly.basin_facility_deck_reference_y(record))
+        assert deck_reference_y == pytest.approx(-7.016)
+        assert discarded == pytest.approx(-50.0)
+
+    def test_an_agreeing_facility_is_byte_identical(self):
+        """(d) The OTHH class — every basin there agrees within 0.4 m, and
+        an EGLL-class shell wall ~2 m below its deck is the case this
+        must NOT catch: the deeper reading still wins, nothing is
+        discarded."""
+        for body_depth, solid_minimum, expected in (
+            (3.859, -4.201, -4.201),      # OTHH Drainage_06, 0.342 m
+            (13.082, -13.199, -13.199),   # OTHH AuxBuilding_17, 0.117 m
+            (3.816, -3.816, -3.816),      # exact agreement
+            (2.0, -3.9, -3.9),            # EGLL-class 1.9 m liner wall
+        ):
+            record = _tunnel_record(body_depth_m=body_depth)
+            object.__setattr__(record, "solid_minimum_y_m", solid_minimum)
+            assert assembly.basin_facility_deck_reference_y(record) == (
+                pytest.approx(expected), None)
+
+    def test_the_threshold_constant_moves_the_gate(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_FLOOR_DISAGREEMENT_M", 0.2)
+        record = _tunnel_record(body_depth_m=3.859)
+        object.__setattr__(record, "solid_minimum_y_m", -4.201)
+        deck_reference_y, discarded = (
+            assembly.basin_facility_deck_reference_y(record))
+        assert deck_reference_y == pytest.approx(-3.859)
+        assert discarded == pytest.approx(-4.201)
+
+    def test_the_emitter_names_the_resource_out_loud(self, capsys):
+        """The whole point of the gate: the discarded witness is HEARD.
+        The emitted floor is the one the body depth evidences, and the
+        line carries the resource and the y it claimed."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = _FakeLayout()
+        _emit_basin(
+            layout,
+            [_interface(floor_y_m=-7.016, solid_minimum_y_m=-50.0,
+                        resources=("Decals/vor_ground_decal.obj",))],
+            _FakeDem(8.0))
+        line = "".join(
+            row for row in capsys.readouterr().out.splitlines(keepends=True)
+            if "BASIN FLOOR DISAGREEMENT" in row)
+        assert line, "the discarded witness was DISCARDED SILENTLY"
+        assert "vor_ground_decal.obj" in line
+        assert "-50.000" in line
+        record = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        assert record["floor_m"] == pytest.approx(
+            grade_law.basin_trench_floor_elevation_m(8.0, -7.016))
+        assert record["solid_minimum_y_m"] == pytest.approx(-7.016)
+
+    def test_an_agreeing_facility_prints_no_gate_line(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = _FakeLayout()
+        _emit_basin(layout,
+                    [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
+                    _FakeDem(8.0))
+        assert "BASIN FLOOR DISAGREEMENT" not in capsys.readouterr().out
+        record = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        assert record["floor_m"] == pytest.approx(
+            grade_law.basin_trench_floor_elevation_m(8.0, -4.201))
+
+    def test_the_seating_predictor_reads_the_same_floor_key(self):
+        """ONE implementation, both readers: the rim-flush seating
+        predictor mirrors the emitter's grouping character for character,
+        so it must mirror its floor key too — otherwise a facility is cut
+        to one floor and seated against another."""
+        classification = _Classification(ground_interfaces=[
+            _interface(floor_y_m=-7.016, solid_minimum_y_m=-50.0)])
+        facilities = assembly.basin_rim_flush_facilities(classification)
+        assert facilities
+        assert facilities[0].solid_minimum_y_m == pytest.approx(-7.016)
+
+
+class TestClassificationCacheVersionCoversTheFloorWitness:
+    """The version-14 lesson, again: the FIELD did not change, its
+    MEANING did, and a pickle's fingerprint covers the PACK, not the
+    classifier's rules.  A v18 LEMD result still carries −50.0 m."""
+
+    def test_the_cache_version_retires_pre_witness_pickles(self):
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 19

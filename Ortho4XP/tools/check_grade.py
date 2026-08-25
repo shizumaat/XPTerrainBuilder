@@ -200,6 +200,14 @@ try:
         BUILDING_FRONTAGE_NEAR_MISS_M as _BUILDING_FRONTAGE_NEAR_MISS_M,
         NEAR_MISS_FRONTAGE_SOFT_ROLES as _NEAR_MISS_FRONTAGE_SOFT_ROLES,
         near_miss_frontage_budget as _near_miss_frontage_budget,
+        # THE TUNNEL-TRENCH DECLARED-STEP LAW (spec docs/specs/
+        # tunnel-trench-law-and-basin-floor-spec.md §1): the declared
+        # plate roles, the facility join tolerance and the emitter's own
+        # floor-disagreement threshold — read HERE verbatim so the census
+        # and the trench emitter judge one law.
+        DECLARED_TERRAIN_PLATE_ROLES as _DECLARED_PLATE_ROLES,
+        BASIN_DECLARED_FLOOR_MATCH_TOL_M as _BASIN_FLOOR_MATCH_TOL_M,
+        BASIN_FLOOR_DISAGREEMENT_M as _BASIN_FLOOR_DISAGREEMENT_M,
     )
 except Exception:
     _runway_axis_and_width = None
@@ -229,6 +237,11 @@ except Exception:
     _BUILDING_FRONTAGE_NEAR_MISS_M = 0.0
     _NEAR_MISS_FRONTAGE_SOFT_ROLES = ()
     _near_miss_frontage_budget = None
+    # No-engine fallback for the bare-patch CLI (the ``_GROUNDSIDE_ROLES``
+    # pattern below); ``tests/test_harness.py`` twins the values.
+    _DECLARED_PLATE_ROLES = frozenset({"tunnel_trench"})
+    _BASIN_FLOOR_MATCH_TOL_M = 0.15
+    _BASIN_FLOOR_DISAGREEMENT_M = 2.0
     _DRAINAGE_SPINE_PARENT_ROLES = frozenset({
         "runway", "runway_crossing", "primary_parallel",
         "secondary_parallel", "stub", "cross_connector", "junction",
@@ -1696,6 +1709,20 @@ def iter_shape_grade_constraints(
             _pair_cap_map[_pk] = _pcap
     _SOFT_ROLES = _GG.SOFT_VISIBILITY_ROLES
     for w in ways:
+        # DECLARED TERRAIN PLATES (spec docs/specs/
+        # tunnel-trench-law-and-basin-floor-spec.md §1.2): a basin/tunnel
+        # trench floor or rim plate is FLAT-BY-LAW TERRAIN whose
+        # elevations the trench law set from the facility's own declared
+        # floor and rim.  It carries no taxiway cap, so its within-shape
+        # pairs price at None — the declared geometry, not the 1.5 %
+        # fall-through this role reached only because it has no
+        # ``ROLE_GRADE_LIMITS`` entry.  The plate stays fully visible to
+        # the CROSS-SHAPE step law, which prices its contacts against the
+        # facility's declared floor→rim drop (``_basin_declared_drop``) —
+        # that is why this is not a ``ROLE_GRADE_LIMITS[role] = None``
+        # entry, which would take it off the step checks too.
+        if law_role(w) in _DECLARED_PLATE_ROLES:
+            continue
         grade_cap = _role_grade_limit(w, max_grade)
         if grade_cap is None:
             continue  # skip ROLE_GRADE_LIMITS[role] is None
@@ -4185,6 +4212,134 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     return total
 
 
+# ── THE TUNNEL-TRENCH DECLARED-STEP LAW — the census half ───────────
+# Spec ``docs/specs/tunnel-trench-law-and-basin-floor-spec.md`` §1.
+#
+# A basin/tunnel trench is an open pit: the R2 node-split wall between its
+# FLOOR plate and its RIM plate is a step BY LAW, and so is the wall
+# between its floor and the pavement it cut.  With no ``ROLE_GRADE_LIMITS``
+# entry the role fell through to the default cap and every one of those
+# contacts priced as a defect — 90.7 % of LEMD's 12,253 census rows and
+# 95.7 % of OTHH's 5,871.
+#
+# THE ONE READER, exactly as the terrace joints above: the facilities
+# arrive through the ``basin_facilities`` sidecar key, so the emitter and
+# the census price the IDENTICAL declared population.  The allowance is
+# the facility's own DECLARED floor→rim drop and only the EXCESS beyond
+# it reports — NOT a blanket exemption, which would blind the census to a
+# trench born 51 m too deep (LEMD's, 51.5 m below its own rim under a
+# 7.02 m body).  That defect gets its own family below instead.
+#
+# THE JOIN IS THE DECLARED NUMBER, never proximity: the floor plate is
+# emitted AT ``floor_m``, so a step row whose LOWER elevation reads back
+# that floor (within ``BASIN_DECLARED_FLOOR_MATCH_TOL_M``, the 1-decimal
+# emit-rounding step) belongs to that facility.  Where two facilities
+# declare the same floor the MOST FAVOURABLE declared drop applies — the
+# crown-declaration-gap idiom: a row over cap under EVERY compatible
+# declaration still reports in full, so nothing is blinded.
+
+def _basin_facilities_declared(basin_facilities) -> list:
+    """Sidecar rows → ``[(floor_m, declared_drop_m, resources,
+    body_depth_m, solid_minimum_y_m, lat, lon), …]``.
+
+    A patch built before the basin law carries no key, reads ``None`` and
+    is judged exactly as before."""
+    out = []
+    for row in (basin_facilities or []):
+        try:
+            floor_m = float(row["floor_m"])
+            rim_m = float(row["rim_law_m"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        anchor = row.get("anchor_longitude_latitude") or (None, None)
+        try:
+            lon, lat = float(anchor[0]), float(anchor[1])
+        except (TypeError, ValueError, IndexError):
+            lon = lat = None
+        body_depth = row.get("body_depth_m")
+        solid_minimum = row.get("solid_minimum_y_m")
+        out.append((
+            floor_m,
+            rim_m - floor_m,
+            tuple(row.get("resources") or ()),
+            None if body_depth is None else float(body_depth),
+            None if solid_minimum is None else float(solid_minimum),
+            lat, lon))
+    return out
+
+
+def _basin_declared_drop(basin_declared, way_a, way_b,
+                         elev_a: float, elev_b: float) -> float:
+    """The DECLARED floor→rim drop this trench contact is priced against.
+
+    Zero unless one side is a DECLARED TERRAIN PLATE and the contact's
+    LOWER elevation reads back a declared facility floor — a pavement↔
+    pavement pair, a rim↔rim pair on the DEM band and every patch with no
+    basin at all are untouched, so their counts are byte-identical."""
+    if not basin_declared:
+        return 0.0
+    if (law_role(way_a) not in _DECLARED_PLATE_ROLES
+            and law_role(way_b) not in _DECLARED_PLATE_ROLES):
+        return 0.0
+    lower = elev_a if elev_a < elev_b else elev_b
+    best = 0.0
+    for (floor_m, drop_m, _res, _bd, _sm, _la, _lo) in basin_declared:
+        if abs(lower - floor_m) <= _BASIN_FLOOR_MATCH_TOL_M and drop_m > best:
+            best = drop_m
+    return best
+
+
+# The synthetic way a basin-facility finding prints and sides through (the
+# ``_TERRACE_JOINT_WAY`` pattern: ``_label``/``row_side`` read a Way, and a
+# bare ``None`` would crash the reporter on a class that must be heard).
+_BASIN_FACILITY_WAY = Way("basin_facility", "tunnel_trench",
+                          "basin_facility", "", [], [],
+                          {"role": "tunnel_trench"})
+
+
+def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
+    """THE DECLARATION ITSELF, judged (spec §1.1 + §2.2).
+
+    The step law above prices every trench contact against the facility's
+    OWN declared floor→rim drop — so a facility that declared an absurd
+    drop would exempt its own absurdity.  This is the check that stops
+    that: the record carries TWO instruments for one bottom, the deepest
+    SOLID witness (``solid_minimum_y_m``) and the deck-face body depth
+    (``body_depth_m``), and where they disagree by more than
+    ``config.BASIN_FLOOR_DISAGREEMENT_M`` the floor this facility was cut
+    to is not evidenced by its own geometry.
+
+    ONE THRESHOLD, both halves: the emitter's §2.2 gate refuses that
+    witness at cut time and this reports any that still reach a patch —
+    an old artifact, a build with the gate's law changed underneath it, or
+    a facility the gate did not cover.  A LEMD-class facility (floor 51.5 m
+    below its declared rim under a 7.02 m body) reports one row of 42.98 m;
+    every OTHH basin agrees within 0.4 m and reports nothing."""
+    out: List[Violation] = []
+    for (floor_m, drop_m, res, body_depth, solid_minimum,
+         lat, lon) in (basin_declared or []):
+        if body_depth is None or solid_minimum is None:
+            continue
+        disagreement = abs(solid_minimum + body_depth)
+        if disagreement <= _BASIN_FLOOR_DISAGREEMENT_M:
+            continue
+        way = Way("basin_facility", "tunnel_trench",
+                  ",".join(str(r).split("/")[-1] for r in res)
+                  or "basin_facility",
+                  "", [], [], {"role": "tunnel_trench"})
+        v = Violation(
+            grade_pct=0.0,
+            excess_pct=0.0,
+            distance_m=0.0,
+            de_m=disagreement,
+            way_a=way, way_b=way,
+            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
+            elev_a=floor_m, elev_b=floor_m + drop_m)
+        v.lat, v.lon = lat, lon
+        out.append(v)
+    return out
+
+
 # ── THE FAN-RAMP LAW, VALIDATOR HALF (owner RULINGS 21f0980) ────────
 # THE ONE READER: the zones arrive through the ``fan_ramp_zones`` sidecar
 # key, exactly as the joints arrive through ``terrace_joints`` — so the
@@ -4952,6 +5107,7 @@ def _check_vertex_to_edge_step(
     contact_tol_m: Optional[float] = None,
     pair_ok=None,
     terrace_joints_m: Optional[list] = None,
+    basin_declared: Optional[list] = None,
 ) -> List[EdgeStep]:
     """For each vertex, find the closest edge of ANY OTHER way
     within ``edge_search_m``.  Project the vertex onto the edge,
@@ -5032,6 +5188,12 @@ def _check_vertex_to_edge_step(
         if terrace_joints_m:
             allow_step += _terrace_step_allowance(
                 terrace_joints_m, v.x, v.y, px, py)
+        # THE TUNNEL-TRENCH DECLARED STEP (spec §1.1): a contact with a
+        # declared trench plate is lawful down to the facility's OWN
+        # declared floor→rim drop; only the EXCESS beyond it reports.
+        if basin_declared:
+            allow_step += _basin_declared_drop(
+                basin_declared, way_v, ways[e.way_idx], v.elev, e_proj)
         if step > allow_step + 1e-5:
             out.append(EdgeStep(
                 step_m=step,
@@ -5054,6 +5216,7 @@ def _check_edge_midpoint_step(
     contact_tol_m: Optional[float] = None,
     pair_ok=None,
     terrace_joints_m: Optional[list] = None,
+    basin_declared: Optional[list] = None,
 ) -> List[EdgeStep]:
     """For every edge, sample at ``samples_per_edge`` points
     (including the midpoint), compute the edge's interpolated
@@ -5149,6 +5312,13 @@ def _check_edge_midpoint_step(
             if terrace_joints_m:
                 allow_step += _terrace_step_allowance(
                     terrace_joints_m, sx, sy, px, py)
+            # THE TUNNEL-TRENCH DECLARED STEP (see
+            # ``_check_vertex_to_edge_step``): the facility's declared
+            # floor→rim drop, and only the excess beyond it.
+            if basin_declared:
+                allow_step += _basin_declared_drop(
+                    basin_declared, way_e1, ways[e2.way_idx],
+                    s_elev, e2_elev)
             if step > allow_step + 1e-5:
                 out.append(EdgeStep(
                     step_m=step,
@@ -5335,6 +5505,8 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("terrace_actual_step", "APRON TERRACE ACTUAL step past its DECLARED step",
      "within"),
+    ("basin_floor_declaration",
+     "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
     ("adjacent_ground_tear", "ADJACENT-GROUND graded-strip TEAR", "within"),
     ("strip_seam_tear", "ADJACENT-GROUND strip SEAM tear", "within"),
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
@@ -5852,6 +6024,16 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # back-edge pair strict and invent violations the law never had.
     "interior_zones": "interior_zones_ll",
     "disconnected_rings": "disconnected_rings_ll",
+    # THE DECLARED BASIN FACILITIES (spec docs/specs/
+    # tunnel-trench-law-and-basin-floor-spec.md §1).  LAW INPUT since this
+    # round — it was EVIDENCE while nothing read it, and the census then
+    # priced every by-law trench wall as a step (LEMD 11,110 rows of
+    # 12,253, OTHH 5,616 of 5,871).  The floor→rim drop each facility
+    # declares is the allowance its own contacts are judged against, and
+    # its two bottom instruments are the ``basin_floor_declaration``
+    # family — so a census without this key would judge a law the build
+    # never ran under, in both directions.
+    "basin_facilities": "basin_facilities",
     "ruleset": "ruleset",
     # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec section 11 +
     # AMENDMENT A1 section 8b).  LAW INPUT, not evidence: the census
@@ -5895,16 +6077,10 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # here so "did this patch ship with vertices outside their band?" is
     # answerable from the artifacts instead of only from a pytest run.
     "band_excess",
-    # THE BASIN FACILITY RECORDS (spec docs/specs/
-    # basin-rim-flush-seating-spec.md section 2.1e item E2; owner ruling
-    # 2026-08-09 "the basin experiment").  Per open-pit facility: the rim
-    # estimate R_est the floor law keyed on, the floor and rim it born,
-    # the EMITTED rim band range (which is NOT the law value — the band
-    # samples the DEM per part) and the elevation a draped object is
-    # predicted to seat at.  EVIDENCE for the integration report; the
-    # basin cut is a plate population the grade law already judges
-    # through its emitted geometry, so nothing here is law input.
-    "basin_facilities",
+    # (``basin_facilities`` was here — an EVIDENCE key nothing read —
+    # until the tunnel-trench declared-step law made it LAW INPUT; it now
+    # lives in ``SIDECAR_LAW_KEYS`` above.  Its own spec is
+    # basin-rim-flush-seating-spec.md section 2.1e item E2.)
     # SERVICE-CORRIDOR FREE-END DEM TIES (corridor-joins round, spec
     # ``docs/specs/corridor-joins-round-spec.md`` rulings 3 + 4(b)).  One
     # record per anchored corridor terminus: its lat/lon, the AMBIENT DEM
@@ -5986,6 +6162,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
+    ctx["basin_facilities"] = data.get("basin_facilities") or None
     ctx["ruleset"] = data.get("ruleset") or None
     if announce:
         print(f"  (axes sidecar loaded: {len(ctx['taxi_axes_ll'] or [])} axes"
@@ -6007,6 +6184,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
               + (f", {len(ctx['disconnected_rings_ll'])} disconnected "
                  f"groundside ring(s)"
                  if ctx["disconnected_rings_ll"] else "")
+              + (f", {len(ctx['basin_facilities'])} declared basin "
+                 f"facility(ies)" if ctx["basin_facilities"] else "")
               + f", ruleset={ctx['ruleset']!r}"
               + " — law-true check)")
     return ctx
@@ -6052,6 +6231,13 @@ def sidecar_evidence(osm_path) -> dict:
     out["terrace_joint_count"] = len(data.get("terrace_joints") or [])
     out["terrace_certificate_count"] = len(data.get("terrace_certificates")
                                            or [])
+    # LAW-KEY COUNTS beside the evidence (the ``seam_pin_count`` /
+    # ``terrace_joint_count`` idiom): the KEY is law input, but how big its
+    # declared population was is what a reader needs to judge the counts
+    # above — ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06, binding
+    # point 2).  A patch with no basin declares nothing and exempts
+    # nothing, and this is where that is visible.
+    out["basin_facility_count"] = len(data.get("basin_facilities") or [])
     return out
 
 
@@ -6172,6 +6358,7 @@ def run_checks(
     fan_ramp_zones_ll: Optional[list] = None,
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
+    basin_facilities: Optional[list] = None,
     ruleset: Optional[str] = None,
     xsection_spans: Optional[list] = None,
     family_out: Optional[dict] = None,
@@ -6316,6 +6503,19 @@ def run_checks(
               f"joint(s) (within-pairs crossing one are judged by the "
               f"step law)")
 
+    # THE DECLARED BASIN FACILITIES (spec ``docs/specs/
+    # tunnel-trench-law-and-basin-floor-spec.md`` §1): the floor→rim drop
+    # each open pit declares, which its own trench contacts are priced
+    # against.  Empty for every patch built without the basin law, so
+    # every count below is byte-identical on one.
+    basin_declared = _basin_facilities_declared(basin_facilities)
+    if basin_declared and not quiet:
+        print(f"  basin facilities: {len(basin_declared)} declared "
+              f"(floor→rim drops "
+              f"{', '.join(f'{d:.2f}' for _f, d, *_r in basin_declared[:6])}"
+              f"{' …' if len(basin_declared) > 6 else ''} m; trench "
+              f"contacts price against their OWN declared drop)")
+
     # THE FAN-RAMP LAW (owner RULINGS 21f0980), in this audit's metre
     # frame.  Empty for every patch built without the law.
     fan_ramp_zones_m = _fan_ramp_zones_to_m(fan_ramp_zones_ll, ll_to_m)
@@ -6451,6 +6651,17 @@ def run_checks(
         "joint face — never the sidecar's own report fields)",
         joint_actual, top_n)
     within = within + joint_actual
+
+    basin_declaration = _fam(
+        "basin_floor_declaration",
+        _check_basin_floor_declaration(basin_declared))
+    _pv(f"BASIN FACILITY floor DISAGREES with its own body depth (the "
+        f"deepest-solid witness against the deck-face population, "
+        f"> {_BASIN_FLOOR_DISAGREEMENT_M:.1f} m — the declared floor→rim "
+        f"drop this facility's own trench contacts are priced against is "
+        f"not evidenced by its geometry)",
+        basin_declaration, top_n)
+    within = within + basin_declaration
 
     adjacent_edges = _fam("adjacent_ground_tear",
                           _check_adjacent_ground_edges(ways, nodes, ll_to_m))
@@ -6651,10 +6862,12 @@ def run_checks(
 
     steps = _fam("vertex_to_edge_step", _check_vertex_to_edge_step(
         vertices, edges, ways, edge_search_m, edge_step_m,
-        terrace_joints_m=terrace_joints_m))
+        terrace_joints_m=terrace_joints_m,
+        basin_declared=basin_declared))
     mid_steps = _fam("mid_edge_step", _check_edge_midpoint_step(
         edges, ways, edge_search_m, edge_step_m,
-        terrace_joints_m=terrace_joints_m))
+        terrace_joints_m=terrace_joints_m,
+        basin_declared=basin_declared))
     # The step split went with the rest of the break machinery (§2): a
     # step near a solver-declared break node used to be dropped from both
     # step checks (at a 2.0 m tolerance, wider than the vertex-pair

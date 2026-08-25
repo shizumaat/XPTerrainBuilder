@@ -52,6 +52,14 @@
 #   list on owner's own call): (1) further OTHH tunnel issues beyond
 #   the v1-restored site-1 (unspecified — collect sites at next sim
 #   pass); (2) DRAINAGE OBJECTS set too low (new class, no sites yet).
+# LEMD GROUND TRUTH (owner 2026-08-25): the airport REALLY HAS several
+#   tunnel mouths AND a large open sunken circle ~5+ m below the
+#   surrounding apron with the CONTROL TOWER inside it — the object-
+#   basin machinery is modelling a real feature; the POOLING docket's
+#   acceptance shape is that circle (post-fix depth ~8.5 m is
+#   plausible; the 1.56M m2 / 4 km extent is the pooling defect).
+#   LEMD's mouths will exercise the portal-corridor-claim law
+#   (RULINGS 2026-08-25e) beyond OTHH.
 # IN-FLIGHT at session close of this block: LEMD confirmation build;
 #   HECA roads attribution (missing spines + floor-clamp author +
 #   exit_over_budget, site 30.102344,31.3951157); HECA apron

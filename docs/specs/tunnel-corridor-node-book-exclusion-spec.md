@@ -68,3 +68,28 @@ so the fix is scope, not revert.
   out of scope — do not touch them.
 - Attempt cap 2, materiality 0.01 m, STOP-and-report on a second miss.
   No shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — after attempt 1's STOP; supersedes §2's
+## per-RING clause)
+
+Measured defect of the per-ring rule (attempt 1, OTHH ring `-12221`): a
+ring carrying BOTH the bore floor and lot area outside the cut was
+excluded whole, stripping lawful chord limiting from its non-bore half
+(0.6-1.0 m off GOOD; 4 retreat faces lost; the 21-mover residual).
+
+1. GRANULARITY IS PER NODE, SCOPED TO KEY-MINTING: a node inside the
+   open-cut claim set mints NO shared key and accepts NO cross-ring
+   import; nodes outside the claim participate exactly as today. Rings
+   are NOT removed from the clamp — within-ring limiting continues for
+   every ring, in-cut nodes included (GOOD's own regime: the pre-cce9da6f
+   pass limited the bore ring as pure groundside with zero cross-ring
+   welds, and read correctly). The defect was only ever the cross-role
+   SHARED keys.
+2. Acceptance amendments: (a) `subgrade_by_role` is judged ARM-RELATIVE
+   on this tree — not worse than the role-set revert arm (which reads
+   9/6 here); the 2/3 figure was Aug-14-tree provenance and is retired
+   as a bar. (b) Retreat-wall target stays ALL TEN of GOOD's faces by
+   footprint coverage; extras still reported, not iterated.
+3. This amendment is a Fable-adjudicated design change: the attempt
+   count RESETS — the implementer runs the amended design as attempt 1
+   of 2 under this section.

@@ -597,19 +597,21 @@ class TestTheRoadFamilyIsChordLimited:
         assert list(ramp.node_altitudes) == before
         assert "tunnel_ramp" not in gs._CHORD_LIMIT_ROLES
 
-    def test_a_below_grade_ring_inside_a_tunnel_cut_keeps_its_values(self):
+    def test_a_below_grade_node_inside_a_tunnel_cut_mints_no_shared_key(
+            self):
         """§4 EXTENSION (spec
         ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``, the
-        2026-08-25 owner-ordered fix).
+        2026-08-25 owner-ordered fix, at AMENDMENT 1's granularity).
 
         The role exemption above is the WRONG AXIS on its own: OTHH's
         site-1 bore floor is a ``groundside_pavement`` ring, not a
         ``tunnel_ramp``, and the unified node book handed it the
         surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
-        floor).  The exemption that matters is by AUTHORITY — any ring
-        with a node inside R14-1's OWN open-cut claim belongs to the
-        portal walk and leaves this book entirely, keeping its values and
-        minting no shared key.  Full battery of twins:
+        floor).  The exemption that matters is by AUTHORITY, and it is
+        scoped to KEY-MINTING: a node inside R14-1's OWN open-cut claim
+        rides a ring-private key — no shared key, no cross-ring import —
+        while the ring itself stays in this pass under its own
+        within-ring law.  Full battery of twins:
         ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
@@ -620,9 +622,14 @@ class TestTheRoadFamilyIsChordLimited:
         before = list(floor.node_altitudes)
         assert gs._grade_limit_groundside_chords(layout) == 0
         assert list(floor.node_altitudes) == before
-        assert layout._chord_limit_stats["nodes"] == 0
-        assert (layout._chord_limit_stats["tunnel_corridor_excluded_rings"]
-                == 2)
+        stats = layout._chord_limit_stats
+        # 4 + 4 vertices, the two welds NOT collapsed (8, not 6)
+        assert stats["nodes"] == 8
+        assert stats["shared_road_lot_nodes"] == 0
+        assert stats["tunnel_corridor_private_nodes"] == 6
+        # …and BOTH rings are still in the clamp
+        assert stats["rings"] == {"groundside_pavement": 1,
+                                  "service_junction": 1}
 
 
 class TestTheCorridorChainIsOneLawObject:

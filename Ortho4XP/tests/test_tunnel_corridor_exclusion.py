@@ -20,11 +20,25 @@ from ROLE (``tunnel_ramp``, which this bore's floor is not) to
 AUTHORITY: a ring inside R14-1's OWN open-cut claim belongs to the
 portal walk, whatever its role.
 
-The four twins the spec names:
+AMENDMENT 1 (Fable, 2026-08-25) narrows the granularity to PER NODE,
+scoped to key-minting.  The first implementation excluded whole RINGS and
+OTHH ring ``-12221`` measured why that is wrong: one ring carries BOTH
+the bore floor and lot area outside the cut, so removing it whole
+stripped lawful chord limiting from its non-bore half (0.6-1.0 m off the
+reference, four ``authority_retreat_wall`` faces lost).  An in-cut NODE
+now takes a RING-PRIVATE book key — it mints no shared key and imports no
+cross-ring value — while every ring stays in the clamp under its own
+within-ring law, in-cut nodes included.  That is the pre-``cce9da6f``
+regime the reference patch was built in; the defect was only ever the
+cross-role SHARED keys.
 
-(a) a groundside ring inside a tunnel claim welded to a road ring —
-    exclusion ON, the ring's below-grade values survive the clamp and no
-    shared key is minted; OFF reproduces the capture;
+The four twins the spec names, at the amended granularity:
+
+(a) a groundside ring inside a tunnel claim welded to a road ring — ON,
+    the in-cut nodes mint no shared key and the below-grade values
+    survive the cross-ring import, while the ring's OWN limiting still
+    applies (and a boundary-spanning ring keeps it on its out-of-cut
+    half); OFF reproduces the capture;
 (b) a road ring OUTSIDE any claim still takes the limiter's precedence
     (the ``cce9da6f`` purpose, unregressed);
 (c) retreat-wall derivation: with the restored ramp the retreat faces
@@ -106,9 +120,9 @@ def _bore_scene(claimed=True):
 # (a) the exclusion itself
 # ═════════════════════════════════════════════════════════════════════
 
-class TestAClaimedBoreFloorIsExcludedFromTheNodeBook:
-    """Spec §2 — the ring keeps its own solved values and contributes NO
-    key to the shared space."""
+class TestInCutNodesMintNoSharedKey:
+    """Spec §2 as AMENDED — the in-cut NODES leave the shared key space;
+    the rings do not leave the clamp."""
 
     def test_off_reproduces_the_capture(self, monkeypatch):
         """The pre-fix world, on purpose: the road's bench value wins at
@@ -122,42 +136,82 @@ class TestAClaimedBoreFloorIsExcludedFromTheNodeBook:
             f"OFF arm must show the defect the fix removes")
 
     def test_on_the_below_grade_values_survive(self, monkeypatch):
-        """The ruled behaviour: the portal walk owns the bore floor, so
-        the clamp may not touch a single one of its vertices."""
+        """The ruled behaviour: no cross-ring import reaches the bore
+        floor, so its own (already lawful) field stands."""
         monkeypatch.setenv(FLAG, "1")
         lay, floor, road = self._scene()
         before = _alts(floor)
         gs._grade_limit_groundside_chords(lay)
         assert _alts(floor) == before == [FLOOR_Z] * len(before), (
-            "the bore floor moved — its authority is the portal walk")
+            "the bore floor moved — nothing may import across the cut")
+        assert _alts(road) == [BENCH_Z] * 5, (
+            "the road moved — the floor may not export across the cut "
+            "either")
 
-    def test_on_the_excluded_ring_mints_no_shared_key(self, monkeypatch):
-        """"…and contributes no keys to the shared space" — the second
-        half of §2, and the half that stops a partner way importing a
-        value ACROSS the cut boundary."""
+    def test_on_the_in_cut_nodes_mint_no_shared_key(self, monkeypatch):
+        """The whole mechanism, as a number.  Both rings' in-cut vertices
+        ride RING-PRIVATE keys, so the two welds do NOT collapse into one
+        book entry: 4 + 4 vertices key as 8, not the 6 the shared book
+        makes of them — and the road↔lot weld census reads zero."""
         monkeypatch.setenv(FLAG, "1")
         lay, floor, road = self._scene()
         gs._grade_limit_groundside_chords(lay)
         stats = lay._chord_limit_stats
-        assert stats["nodes"] == 0, (
-            f"the excluded rings still minted {stats['nodes']} node "
-            f"key(s) in the unified book")
-        assert ROLE_GROUNDSIDE_PAVEMENT not in (stats["rings"] or {})
+        assert stats["nodes"] == 8, (
+            f"the two welds collapsed into the shared book "
+            f"({stats['nodes']} keys, expected 8)")
+        assert stats["shared_road_lot_nodes"] == 0
+        # …and both rings are STILL IN the clamp (Amendment 1's point)
+        assert stats["rings"] == {ROLE_GROUNDSIDE_PAVEMENT: 1,
+                                  ROLE_SERVICE_JUNCTION: 1}
 
-    def test_the_partner_road_ring_is_excluded_too(self, monkeypatch):
-        """Membership is ANY node inside the claim, and exclusion is per
-        RING — so the road welded to the cut boundary leaves the book as
-        well.  That is the mechanism: a shared key is exactly how a value
-        crosses the boundary, so neither side may mint one."""
+    def test_the_census_counts_nodes_and_the_rings_they_sit_on(
+            self, monkeypatch):
         monkeypatch.setenv(FLAG, "1")
         lay, floor, road = self._scene()
-        before = _alts(road)
         gs._grade_limit_groundside_chords(lay)
         stats = lay._chord_limit_stats
-        assert stats["tunnel_corridor_excluded_rings"] == 2
-        assert stats["tunnel_corridor_excluded_by_role"] == {
+        # 4 floor vertices (the claim IS the floor's own ring) + the 2
+        # road vertices welded onto that boundary
+        assert stats["tunnel_corridor_private_nodes"] == 6
+        assert stats["tunnel_corridor_rings_touched"] == {
             ROLE_GROUNDSIDE_PAVEMENT: 1, ROLE_SERVICE_JUNCTION: 1}
-        assert _alts(road) == before
+
+    def test_a_boundary_spanning_ring_keeps_limiting_outside_the_cut(
+            self, monkeypatch):
+        """AMENDMENT 1's motivating case (OTHH ring ``-12221``).
+
+        One ring carries the bore floor AND lot area outside the cut.
+        Removing it whole — the first implementation — left its non-bore
+        half unlimited.  Under the per-NODE rule the ring stays in the
+        pass: its out-of-cut weld still unifies with the road, and its
+        own chord law still binds the whole ring.
+        """
+        monkeypatch.setenv(FLAG, "1")
+        span = BuiltShape(
+            polygon=_rect(0, 0, 80, 10), role=ROLE_GROUNDSIDE_PAVEMENT,
+            node_altitudes=[FLOOR_Z, 10.0, 10.0, FLOOR_Z, FLOOR_Z])
+        road = _shape(_rect(80, 0, 100, 10), ROLE_SERVICE_JUNCTION, 12.0)
+        # the cut covers only the ring's x≈0 end
+        lay = _layout([span, road], claim_polys=[_rect(-5, -5, 5, 15)])
+        assert gs._grade_limit_groundside_chords(lay) >= 1
+        stats = lay._chord_limit_stats
+        assert stats["tunnel_corridor_private_nodes"] == 2
+        assert stats["tunnel_corridor_rings_touched"] == {
+            ROLE_GROUNDSIDE_PAVEMENT: 1}
+        assert stats["shared_road_lot_nodes"] == 2, (
+            "the OUT-OF-CUT weld left the shared book — the exclusion "
+            "reached past the cut")
+        after = _alts(span)
+        assert after[1] < 10.0, (
+            "the ring's out-of-cut half was not limited — this is the "
+            "per-RING defect Amendment 1 exists to remove")
+        cap = cfg.GROUNDSIDE_MAX_GRADE
+        worst = max(abs(after[i] - after[j]) / max(1e-9, _dist(span, i, j))
+                    for i in range(4) for j in range(i + 1, 4))
+        assert worst <= cap + 5e-3, (
+            "the ring is over its own cap — within-ring limiting must "
+            "continue for every vertex, in-cut ones included")
 
     def test_no_claim_means_no_exclusion(self, monkeypatch):
         """No second notion of "inside the cut": with nothing published
@@ -165,7 +219,7 @@ class TestAClaimedBoreFloorIsExcludedFromTheNodeBook:
         monkeypatch.setenv(FLAG, "1")
         lay, floor, road = self._scene(claimed=False)
         gs._grade_limit_groundside_chords(lay)
-        assert lay._chord_limit_stats["tunnel_corridor_excluded_rings"] == 0
+        assert lay._chord_limit_stats["tunnel_corridor_private_nodes"] == 0
         assert max(_alts(floor)) > FLOOR_Z + 0.5
 
     @staticmethod
@@ -215,7 +269,9 @@ class TestARoadOutsideAnyClaimKeepsTheLimiter:
         stats = lay._chord_limit_stats
         assert stats["shared_road_lot_nodes"] == 2, (
             "the road↔lot weld left the unified book")
-        assert stats["tunnel_corridor_excluded_rings"] == 1
+        assert stats["tunnel_corridor_private_nodes"] == 4
+        assert stats["tunnel_corridor_rings_touched"] == {
+            ROLE_GROUNDSIDE_PAVEMENT: 1}
         # one value per shared node, both rings
         shared = {}
         for shape in (road, lot):
@@ -245,8 +301,8 @@ class TestTheRetreatWallsFollowTheRestoredRamp:
     The faces are derived from the below-grade geometry retreating from
     a higher-precedence claimant: they exist only while the two
     claimants DISAGREE at the shared node.  The capture erased the
-    disagreement (the clamp wrote one value into both rings), which is
-    why 9 of OTHH site-1's 10 faces stopped being emitted.  Walls are
+    disagreement (the shared key wrote one value into both rings), which
+    is why 9 of OTHH site-1's 10 faces stopped being emitted.  Walls are
     lawful here because this is a CARVE STRUCTURE (owner 2026-08-07:
     "walls are lawful ONLY at tunnel/bridge carve structures").
     """
@@ -327,7 +383,7 @@ class TestTheFlagOffIsTodaysBehaviour:
         assert (with_claim._chord_limit_stats
                 == without._chord_limit_stats)
         assert (with_claim._chord_limit_stats[
-            "tunnel_corridor_excluded_rings"] == 0)
+            "tunnel_corridor_private_nodes"] == 0)
 
     def test_the_flag_defaults_ON(self, monkeypatch):
         """Default ON (spec §5): the production build carries the fix."""

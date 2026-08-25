@@ -48,6 +48,17 @@
 #   bar -> tunnel option A on owner go -> §2 spine-only design if
 #   aprons still read wrong at pads -> LEMD confirmation build ->
 #   battery + SPLP/KAFW/KDFW arms + worktree cleanup still owed.
+# OWNER BACKLOG (2026-08-25 in-sim, deferred behind the current bug
+#   list on owner's own call): (1) further OTHH tunnel issues beyond
+#   the v1-restored site-1 (unspecified — collect sites at next sim
+#   pass); (2) DRAINAGE OBJECTS set too low (new class, no sites yet).
+# IN-FLIGHT at session close of this block: LEMD confirmation build;
+#   HECA roads attribution (missing spines + floor-clamp author +
+#   exit_over_budget, site 30.102344,31.3951157); HECA apron
+#   attribution (cut-centerline cliff 30.1289374,31.4052385 ->
+#   30.1311876,31.4048029 owner-hypothesis stand-route end clipping;
+#   back-edge ripples 30.1274109,31.3970477 + 30.1141206,31.4095574 —
+#   possibly 24c DEM-soft-seed vs the DEM-last ruling).
 # ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # 20260824 (APRON MEMBRANE ROUND — owner in-sim review + JOSM ground

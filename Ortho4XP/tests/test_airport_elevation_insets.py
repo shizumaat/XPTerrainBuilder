@@ -2280,11 +2280,181 @@ def _stub_wcs_open(monkeypatch, open_calls=None):
     return opened_dataset
 
 
+def _stub_wcs_translate(
+    monkeypatch, calls, grid_error_on_call=None, returns_dataset=True
+):
+    """Replace ``gdal.Translate`` with a network-free stub for WCS tests.
+
+    ``grid_error_on_call`` (1-based) raises the GDAL WCS driver's
+    returned-grid refusal on that call -- the live failure the explicit
+    window size cures -- and ``returns_dataset=False`` models a driver
+    that answers ``None`` (the strategy then falls back to the direct
+    warp, the behaviour every already-cached inset was fetched with).
+    """
+    def _fake_translate(destination, source, **keyword_arguments):
+        calls.append(dict(keyword_arguments, destination=destination,
+                          source=source))
+        if grid_error_on_call is not None and len(calls) == grid_error_on_call:
+            raise RuntimeError(
+                "Returned tile does not match expected configuration.\n"
+                "Got 1111x823 instead of 1112x824."
+            )
+        if not returns_dataset:
+            return None
+        with open(destination, "wb") as handle:
+            handle.write(b"")
+        return object()
+
+    monkeypatch.setattr(INSETS.gdal, "Translate", _fake_translate)
+
+
+@requires_gdal
+def test_wcs_window_is_read_with_an_explicit_size(tmp_path, monkeypatch):
+    # THE Spanish-server defect (measured live 2026-08-24, tile +40-004):
+    # handing the open WCS dataset to the warp makes GDAL read the window
+    # 1:1, and a 1:1 read states no size in the request -- so the server's
+    # own grid arithmetic decides the cell count and the driver refuses
+    # the answer when it differs by one row.  The strategy must state the
+    # size it wants and warp the materialised window.
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    _stub_wcs_open(monkeypatch)
+    translate_calls = []
+    _stub_wcs_translate(monkeypatch, translate_calls)
+    warp_calls = {}
+
+    def _fake_warp(inputs, bounding_box, resolution, destination,
+                   **keyword_arguments):
+        warp_calls["inputs"] = list(inputs)
+        (west, south, east, north) = bounding_box
+        _write_constant_geotiff(destination, west, south, east, north, 7.0)
+        return True
+
+    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    destination = str(tmp_path / "EGLL_testwcs.tif")
+    provenance = INSETS.fetch_inset(
+        _wcs_definition(), (-0.49, 51.44, -0.41, 51.49), 1.0, destination
+    )
+    assert provenance is not None
+    assert len(translate_calls) == 1
+    call = translate_calls[0]
+    # The airport window, and an explicit cell count at the effective
+    # 1 m posting (pinned: 0.08 deg of longitude at 51.465 N and 0.05 deg
+    # of latitude, in metres).
+    assert call["projWin"] == [-0.49, 51.49, -0.41, 51.44]
+    assert call["projWinSRS"] == "EPSG:4326"
+    assert (call["width"], call["height"]) == (5548, 5566)
+    # ... and the warp reads the materialised window, not the connection.
+    assert warp_calls["inputs"] == [destination + ".getcoverage.tif"]
+    # The scratch file never survives the fetch.
+    assert not os.path.exists(destination + ".getcoverage.tif")
+
+
+@requires_gdal
+def test_wcs_window_read_retries_once_with_one_extra_cell(
+    tmp_path, monkeypatch
+):
+    # A stated size that happens to equal the source window is a 1:1 read
+    # again -- the one shape that carries no size.  One extra cell per
+    # axis can never be 1:1 and never asks the server to downsample.
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    _stub_wcs_open(monkeypatch)
+    translate_calls = []
+    _stub_wcs_translate(monkeypatch, translate_calls, grid_error_on_call=1)
+
+    def _fake_warp(inputs, bounding_box, resolution, destination,
+                   **keyword_arguments):
+        (west, south, east, north) = bounding_box
+        _write_constant_geotiff(destination, west, south, east, north, 7.0)
+        return True
+
+    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    provenance = INSETS.fetch_inset(
+        _wcs_definition(),
+        (-0.49, 51.44, -0.41, 51.49),
+        1.0,
+        str(tmp_path / "EGLL_testwcs.tif"),
+    )
+    assert provenance is not None
+    assert len(translate_calls) == 2
+    assert (translate_calls[0]["width"], translate_calls[0]["height"]) == (
+        5548, 5566
+    )
+    assert (translate_calls[1]["width"], translate_calls[1]["height"]) == (
+        5549, 5567
+    )
+
+
+@requires_gdal
+def test_wcs_window_read_failure_falls_back_to_direct_warp(
+    tmp_path, monkeypatch
+):
+    # A driver that cannot serve the explicit window must not lose the
+    # provider: the fetch falls back to the driver's own windowing, the
+    # behaviour every inset already in the cache was fetched with.
+    monkeypatch.setattr(INSETS, "has_gdal", True)
+    opened_dataset = _stub_wcs_open(monkeypatch)
+    translate_calls = []
+    _stub_wcs_translate(monkeypatch, translate_calls, returns_dataset=False)
+    warp_calls = {}
+
+    def _fake_warp(inputs, bounding_box, resolution, destination,
+                   **keyword_arguments):
+        warp_calls["inputs"] = list(inputs)
+        (west, south, east, north) = bounding_box
+        _write_constant_geotiff(destination, west, south, east, north, 7.0)
+        return True
+
+    monkeypatch.setattr(INSETS, "warp_vsicurl_sources_to_geotiff", _fake_warp)
+    provenance = INSETS.fetch_inset(
+        _wcs_definition(),
+        (-0.49, 51.44, -0.41, 51.49),
+        1.0,
+        str(tmp_path / "EGLL_testwcs.tif"),
+    )
+    assert provenance is not None
+    assert warp_calls["inputs"] == [opened_dataset]
+
+
+def test_grid_configuration_classifier_matches_the_driver_refusal():
+    # The exact GDAL WCS driver text from the shipped app's Spanish
+    # fetches; a coverage answer ("no data here") must stay durable.
+    classify = INSETS.error_message_indicates_grid_configuration_failure
+    assert classify(
+        "Returned tile does not match expected configuration.\n"
+        "Got 1111x823 instead of 1112x824."
+    )
+    assert classify("Returned tile does not match expected band count.")
+    assert not classify("HTTP error code : 404")
+    assert not classify("Unsupported band data type")
+
+
+@requires_gdal
+def test_grid_configuration_warp_failure_is_transient(tmp_path, monkeypatch):
+    # It says NOTHING about coverage, so it must never be recorded as a
+    # durable no-coverage negative (the poisoning that took SPAIN5M off
+    # all thirteen airports of tile +40-004, Madrid Barajas included).
+    def _grid_mismatch_warp(*arguments, **keyword_arguments):
+        raise RuntimeError(
+            "Returned tile does not match expected configuration.\n"
+            "Got 1111x823 instead of 1112x824."
+        )
+
+    monkeypatch.setattr(INSETS.gdal, "Warp", _grid_mismatch_warp)
+    with pytest.raises(INSETS.TransientFetchError):
+        INSETS.warp_vsicurl_sources_to_geotiff(
+            ["/vsicurl/https://example.test/tile.tif"],
+            (-3.38, 40.74, -3.33, 40.78),
+            5.0,
+            str(tmp_path / "out.tif"),
+        )
+
+
 @requires_gdal
 def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
     monkeypatch.setattr(INSETS, "has_gdal", True)
     open_calls = []
-    opened_dataset = _stub_wcs_open(monkeypatch, open_calls)
+    _stub_wcs_open(monkeypatch, open_calls)
+    _stub_wcs_translate(monkeypatch, [])
     warp_calls = {}
 
     def _fake_warp(inputs, bounding_box, resolution, destination, **keyword_arguments):
@@ -2306,7 +2476,7 @@ def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
     assert provenance is not None
     assert os.path.isfile(destination)
     # The strategy opens the coverage itself (to pass the request-timeout
-    # open option) and hands the OPENED dataset to the warp.
+    # open option) and warps the window it materialised from it.
     assert open_calls[0]["dataset_name"] == (
         "WCS:https://example.test/wcs"
         "?version=2.0.1&coverage=national__DTM_1m"
@@ -2314,7 +2484,7 @@ def test_wcs_fetch_writes_inset_and_provenance(tmp_path, monkeypatch):
     assert open_calls[0]["open_options"] == [
         "TIMEOUT=%d" % INSETS.WCS_REQUEST_TIMEOUT_SECONDS
     ]
-    assert warp_calls["inputs"] == [opened_dataset]
+    assert warp_calls["inputs"] == [destination + ".getcoverage.tif"]
     assert provenance["provider"] == "TESTWCS"
     assert provenance["access_strategy"] == "wcs"
     assert provenance["wcs_coverage"] == "national__DTM_1m"

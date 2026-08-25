@@ -263,3 +263,78 @@ def test_groundside_rows_are_kept_only_for_airside_families(tmp_path):
     rep = TO.build(patch, rows, tmp_path / "out", icao="MINI")
     assert rep["rows"] == 2, (
         "a groundside-only family must not reach the file")
+
+
+# ── the VISUAL layer (--visual, 2026-08-24) ──────────────────────────
+
+def _findings(tmp_path):
+    """A findings file exercising every kind and one geometry-less row."""
+    p = tmp_path / "F_visual_findings.json"
+    p.write_text(json.dumps({
+        "icao": "MINI",
+        "generator": "twin",
+        "arms": {"wk": "week-ago arm", "a5": "merged arm"},
+        "findings": [
+            {"cls": "owner_site", "kind": "node", "lat": 30.11, "lon": 31.41,
+             "tags": {"owner": "NAMED IN SIM", "step_m": 2.56,
+                      "changed": "this-round"}},
+            {"cls": "interior_bump", "kind": "node", "lat": 30.12,
+             "lon": 31.42, "tags": {"amp50_m": 2.1, "way_ref": "-10555"}},
+            {"cls": "cliff_step", "kind": "edge", "lat": 30.13, "lon": 31.43,
+             "lat2": 30.1301, "lon2": 31.4301, "tags": {"step_m": 9.13}},
+            {"cls": "context_apron", "kind": "ring", "ll": [
+                [30.14, 31.44], [30.1401, 31.44], [30.1401, 31.4401]],
+             "tags": {"way_ref": "-10555", "role": "apron"}},
+            {"cls": "road_break", "kind": "node", "tags": {"way_ref": "-1"}},
+        ]}))
+    return p
+
+
+def test_visual_writes_every_kind_and_reports_the_geometryless(tmp_path):
+    rep = TO.build_visual(_findings(tmp_path), tmp_path / "out")
+    assert rep["icao"] == "MINI"
+    assert rep["path"].endswith("MINI_visual.osm")
+    assert rep["written"] == 4 and rep["skipped"] == 1, (
+        "a finding with no geometry is REPORTED, never silently dropped")
+    root = ET.parse(rep["path"]).getroot()
+    assert root.find("bounds") is not None
+    ways = root.findall("way")
+    assert len(ways) == 2, "one edge + one ring"
+    assert sorted(len(w.findall("nd")) for w in ways) == [2, 3]
+    nid = {n.get("id") for n in root.findall("node")}
+    assert all(d.get("ref") in nid for w in ways for d in w.findall("nd"))
+    assert len({n.get("id") for n in root.findall("node")}) == \
+        len(root.findall("node"))
+
+
+def test_visual_writes_values_verbatim_and_stamps_the_arms(tmp_path):
+    """It MEASURES NOTHING: every tag is the producer's own value, and the
+    arms the numbers came from ride on every element."""
+    rep = TO.build_visual(_findings(tmp_path), tmp_path / "out", icao="ZZZZ")
+    assert rep["icao"] == "ZZZZ"
+    root = ET.parse(rep["path"]).getroot()
+    site = [n for n in root.findall("node")
+            if any(t.get("k") == "owner" for t in n.findall("tag"))]
+    assert len(site) == 1
+    tags = {t.get("k"): t.get("v") for t in site[0].findall("tag")}
+    assert tags["step_m"] == "2.56", "verbatim — never re-formatted"
+    assert tags["class"] == "owner_site" and tags["trouble"] == "visual"
+    assert tags["arm_wk"] == "week-ago arm" and tags["arm_a5"] == "merged arm"
+    assert float(site[0].get("lat")) == 30.11
+    for el in list(root.findall("node")) + list(root.findall("way")):
+        kk = {t.get("k") for t in el.findall("tag")}
+        if kk:
+            assert "arm_wk" in kk and "source" in kk, (
+                "no element may lose which arms its numbers came from")
+
+
+def test_visual_classes_are_declared(tmp_path):
+    rep = TO.build_visual(_findings(tmp_path), tmp_path / "out")
+    assert set(rep["classes"]) <= set(TO.VISUAL_CLASSES)
+
+
+def test_visual_cli_refuses_a_missing_findings_file(tmp_path):
+    assert TO.main(["--visual", str(tmp_path / "nope.json"),
+                    "--out", str(tmp_path / "out")]) == 2
+    assert TO.main(["--out", str(tmp_path / "out")]) == 2, (
+        "without --visual the row-map inputs are required")

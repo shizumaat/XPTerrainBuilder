@@ -5,11 +5,43 @@
         [--sidecar P.osm.axes.json] [--icao ICAO] --out DIR \
         [--cluster LAT LON] [--context-ways N] [--no-seniority]
 
+    venv/bin/python tools/trouble_osm.py --visual FINDINGS.json --out DIR \
+        [--icao ICAO]                       # the VISUAL-DEFECT layer
+
 THE QUESTION IT ANSWERS is the owner's, not an instrument's: *show me where
 the trouble is, in context, in something I can open*.  A census table names
 counts, ``census_rows_diff`` names moved rows and ``arm_site_read`` answers
 one coordinate — none of them puts a chord on a map next to the pavement it
 crosses, which is what deciding between remedies needs.
+
+THE VISUAL LAYER (``--visual``, added 2026-08-24) answers the OTHER half of
+that question, the half a census cannot reach at all: *the law says this
+patch is clean and the owner says it looks wrong — show me WHERE*.  A defect
+the law no longer prices emits no row, so the row-driven map above is blind
+to it by construction.  ``--visual`` therefore takes a FINDINGS file instead
+of a rows dump — the same verbatim contract, a different producer — and
+writes ``<ICAO>_visual.osm``.  Its classes are VISUAL, not legal:
+
+  interior_bump   an apron whose ring acquired relief a movement-surface cap
+                  would not have permitted (amplitude over a 50 m window,
+                  p95 ring slope, the raw DEM under the worst bump).
+  cliff_step      a step a viewer reads as a wall: two shapes meeting within
+                  metres at different values, a band-clamped node beside an
+                  un-clamped neighbour, or a short ring edge carrying a
+                  metre-class drop.
+  road_break      a road ring edge or road shape carrying a break, and the
+                  spine-less road pieces where nothing holds a profile.
+  owner_site      a place the OWNER named in an in-sim report, carrying the
+                  read that was done there.
+  context_apron   a ring drawn as geometry only, so a class above is read
+                  against the pavement it sits on.  Carries no measurement.
+
+Every finding is a dict with ``cls``, ``kind`` (``node`` / ``edge`` /
+``ring``), its coordinates, and a free ``tags`` map written through
+unchanged.  This file still MEASURES NOTHING: it neither computes an
+amplitude nor decides a class — the producer does, and names itself in the
+file's ``generator``/``arms`` header, which is copied onto every element so
+a reader can never lose which arms a number came from.
 
 **IT MEASURES NOTHING AND DERIVES NO LAW.**  Every row, grade, cap, side and
 site is read VERBATIM out of a ``harness/census.py --rows-json`` dump;
@@ -76,6 +108,11 @@ FRONTAGE_HOT_GRADE_PCT = 5.0
 CLASSES = ("long_spine_chord", "long_ring_edge", "short_strict",
            "frontage_chord", "frontage_gt5pct", "weld_cluster",
            "transverse", "other")
+
+#: The VISUAL classes (``--visual``).  A reading aid for a defect the law
+#: does not price, never a law verdict — see the module docstring.
+VISUAL_CLASSES = ("owner_site", "interior_bump", "cliff_step", "road_break",
+                  "context_apron")
 
 
 # ── frame ────────────────────────────────────────────────────────────
@@ -375,12 +412,71 @@ def _num(v):
     return f"{f:.4f}".rstrip("0").rstrip(".") or "0"
 
 
+# ── the VISUAL layer ─────────────────────────────────────────────────
+
+def build_visual(findings_json: Path, out_dir: Path, icao: str = "") -> dict:
+    """``<ICAO>_visual.osm`` from a VISUAL FINDINGS file.
+
+    The findings file is ``{"icao", "generator", "arms": {...},
+    "findings": [{"cls", "kind", "lat", "lon", ["lat2","lon2"|"ll"],
+    "tags": {...}}, ...]}``.  Every value is written through VERBATIM —
+    this function decides no class and computes no number; ``arms`` and
+    ``generator`` are stamped onto each element so a reader cannot lose
+    which arms a number was measured between."""
+    doc = json.loads(findings_json.read_text())
+    findings = doc.get("findings") or []
+    name = (icao or doc.get("icao") or findings_json.stem.split("_")[0]).upper()
+    arms = doc.get("arms") or {}
+    arm_tags = {f"arm_{k}": v for k, v in arms.items()}
+    gen = doc.get("generator") or findings_json.name
+
+    w = OsmWriter()
+    counts: Dict[str, int] = {}
+    skipped = 0
+    for f in findings:
+        cls = str(f.get("cls") or "other")
+        kind = str(f.get("kind") or "node")
+        tags = dict(f.get("tags") or {})
+        tags.update({"trouble": "visual", "class": cls, "source": gen})
+        tags.update(arm_tags)
+        if kind == "ring":
+            ll = f.get("ll") or []
+            if len(ll) < 2:
+                skipped += 1
+                continue
+            ids = [w.node(float(a), float(b)) for a, b in ll]
+            w.way(ids, tags)
+        elif kind == "edge":
+            if f.get("lat") is None or f.get("lat2") is None:
+                skipped += 1
+                continue
+            a = w.node(float(f["lat"]), float(f["lon"]))
+            b = w.node(float(f["lat2"]), float(f["lon2"]))
+            w.way([a, b], tags)
+        else:
+            if f.get("lat") is None:
+                skipped += 1
+                continue
+            w.node(float(f["lat"]), float(f["lon"]), tags)
+        counts[cls] = counts.get(cls, 0) + 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"{name}_visual.osm"
+    dest.write_text(w.dumps(f"trouble_osm.py --visual {findings_json.name}"))
+    return {"icao": name, "path": str(dest), "findings": len(findings),
+            "written": sum(counts.values()), "skipped": skipped,
+            "classes": counts, "arms": arms, "generator": gen}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Law-true rows of a built patch as a JOSM-readable .osm")
-    ap.add_argument("--patch", required=True, type=Path)
-    ap.add_argument("--rows", required=True, type=Path,
+    ap.add_argument("--patch", type=Path)
+    ap.add_argument("--rows", type=Path,
                     help="a harness/census.py --rows-json dump of THAT patch")
+    ap.add_argument("--visual", type=Path,
+                    help="a VISUAL FINDINGS json — writes <ICAO>_visual.osm "
+                         "instead of the row map (see the module docstring)")
     ap.add_argument("--sidecar", type=Path,
                     help="default: <patch>.axes.json")
     ap.add_argument("--out", required=True, type=Path)
@@ -391,6 +487,23 @@ def main(argv=None) -> int:
     ap.add_argument("--context-ways", type=int, default=5)
     ap.add_argument("--no-seniority", action="store_true")
     a = ap.parse_args(argv)
+    if a.visual is not None:
+        if not a.visual.exists():
+            print(f"trouble_osm: no such findings file {a.visual}")
+            return 2
+        rep = build_visual(a.visual, a.out, icao=a.icao)
+        print(f"  [trouble/visual] {rep['icao']}: {rep['written']} finding(s)"
+              f" -> {rep['path']}")
+        print("    classes: "
+              + ", ".join(f"{k}={v}" for k, v in rep["classes"].items()))
+        for k, v in (rep["arms"] or {}).items():
+            print(f"    arm {k}: {v}")
+        if rep["skipped"]:
+            print(f"    SKIPPED {rep['skipped']} finding(s) with no geometry")
+        return 0
+    if a.patch is None or a.rows is None:
+        print("trouble_osm: --patch and --rows are required without --visual")
+        return 2
     if not a.patch.exists():
         print(f"trouble_osm: no such patch {a.patch}")
         return 2

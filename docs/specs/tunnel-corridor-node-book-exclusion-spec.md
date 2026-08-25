@@ -129,3 +129,14 @@ the limiter's purpose airport-wide.
 4. Attempt count resets under this section, cap 2. If THIS design
    misses, there is no fourth design from the lane or the lead: the
    options ledger goes to the owner.
+
+## Owner disposition (2026-08-25)
+
+v1 (per-RING exclusion, 4e0a7e3c) ACCEPTED for the sim bundle — ramp
+floor exact, walls 7/10, adjudicated +30. Amendments 1 and 2 are
+measured-refuted mechanisms (lane/tunnelfix d83379a8, b9ef30c9 — kept
+unmerged as the ledger). Option A (claim-scoped ROLE exclusion: road
+rings touching a claim leave `_CHORD_LIMIT_ROLES` for the pass) is the
+queued next design, owner-gated; finding 2 (a retreat face and a shared
+key are mutually exclusive) is the structural constraint any future
+design must satisfy.

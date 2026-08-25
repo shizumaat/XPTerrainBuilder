@@ -68,8 +68,10 @@
 #   cutout to apron level, so a connection out of the hole is real
 #   geometry (the -3.3/-2.8 LEMD37 pieces are that exit ramp) — the
 #   pooling chain-break must key on RETURNING TO GRADE, not bare
-#   adjacency. Pooling spec acceptance: basin ~= this bbox at ~7 m
-#   with the ramp connection intact.
+#   adjacency. OWNER SIMPLIFICATION: the pack objects most likely
+#   model the ramp themselves — the terrain owes only a SIMPLE
+#   RECTANGULAR CUT ~= this bbox at ~7 m; no ramp modelling in the
+#   terrain. Pooling spec acceptance: that cut, nothing more.
 #   LEMD's mouths will exercise the portal-corridor-claim law
 #   (RULINGS 2026-08-25e) beyond OTHH.
 # IN-FLIGHT at session close of this block: LEMD confirmation build;

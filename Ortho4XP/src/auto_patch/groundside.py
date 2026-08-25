@@ -3745,6 +3745,117 @@ _CHORD_LIMIT_ROLES = (ROLE_GROUNDSIDE_PAVEMENT,
                       ROLE_SERVICE_ROAD,
                       ROLE_SERVICE_JUNCTION)
 
+# ── THE TUNNEL-CORRIDOR EXCLUSION ───────────────────────────────────
+# Spec ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md``
+# (owner-ordered fix for the OTHH site-1 regression, 2026-08-25).
+#
+# The role set above put the road family in ONE node key space with the
+# lot, and the road's value wins at a weld (authority precedence).  At a
+# mapped tunnel bore whose DESCENDING FLOOR is a ``groundside_pavement``
+# ring, that unification imported the surrounding road's at-grade bench
+# values onto the bore floor: OTHH's site-1 ring gained 17 shared nodes
+# across six road rings, took +2.28/+2.96 against a −1.1 m floor (a
+# 3.3 m mid-ramp step), and 9 of the bore's 10 ``authority_retreat_wall``
+# faces stopped being emitted.
+#
+# THE EXEMPTION AXIS IS AUTHORITY, NOT ROLE (spec §1).  ``tunnel_ramp``
+# was already excluded by role, and that is the wrong axis — this bore's
+# floor is not a ``tunnel_ramp``.  What must not be captured is a ring
+# carrying a bore's below-grade geometry, WHATEVER its role, and that is
+# exactly what R14-1's claim already names.
+_TUNNEL_CORRIDOR_EXCLUSION_ENV = "O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION"
+
+
+def _tunnel_corridor_claim(layout):
+    """``(prepared_claim, bounds)`` for THE tunnel open-cut claim set, or
+    ``(None, None)`` when there is nothing to exclude.
+
+    ONE AUTHORITY (spec §2).  The claim set is R14-1's own — the road
+    surfaces ``bridges._claim_road_pavement`` re-profiled as the tunnel
+    corridor and published verbatim on ``layout.tunnel_open_cut_claim_
+    polys`` (the same list that stands the synthetic rectangles down, and
+    the same computation behind the build log's "claimed N road
+    surface(s) as the tunnel corridor").  Nothing here re-derives a zone:
+    a second geometric notion of "inside the cut" is what the spec
+    forbids, so no claim ⇒ no exclusion.
+
+    ``O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION=0`` restores the pre-fix
+    behaviour byte-for-byte (spec §5) for attribution arms.
+    """
+    if _os.environ.get(_TUNNEL_CORRIDOR_EXCLUSION_ENV, "1") != "1":
+        return None, None
+    polys = getattr(layout, "tunnel_open_cut_claim_polys", None)
+    if not polys:
+        return None, None
+    cached = getattr(layout, "_tunnel_claim_prepared_cache", None)
+    if cached is not None and cached[0] == len(polys):
+        return cached[1], cached[2]
+    try:
+        from shapely.prepared import prep
+        union = unary_union([p for p in polys
+                             if p is not None and not p.is_empty])
+        if union is None or union.is_empty:
+            return None, None
+        prepared, bounds = prep(union), union.bounds
+    except (_GEOM_EXC, ImportError, ValueError):       # pragma: no cover
+        return None, None
+    try:
+        layout._tunnel_claim_prepared_cache = (len(polys), prepared, bounds)
+    except (AttributeError, TypeError):                # pragma: no cover
+        pass
+    return prepared, bounds
+
+
+def _report_tunnel_corridor_exclusion(layout, stats) -> None:
+    """Say out loud what the claim owns — once per changed count.
+
+    The pass runs three times (finalize, then two idempotent pipeline
+    re-limits) and the claim only exists from the second onward, so the
+    report lives HERE rather than at one call site: one implementation,
+    every caller, no silent exclusion.
+    """
+    n = stats.get("tunnel_corridor_excluded_rings") or 0
+    if not n or getattr(layout, "_chord_limit_excl_reported", None) == n:
+        return
+    try:
+        import O4_UI_Utils as UI
+        by = ", ".join(f"{c} {role}" for role, c in
+                       sorted((stats.get("tunnel_corridor_excluded_by_role")
+                               or {}).items()))
+        UI.vprint(1,
+                  f"  [pav-builder] tunnel-corridor exclusion: {n} ring(s) "
+                  f"inside the R14-1 open-cut claim kept their own "
+                  f"below-grade values and minted NO shared node key "
+                  f"({by}) — the portal walk owns them, not this clamp.")
+    except (ImportError, AttributeError, TypeError):    # pragma: no cover
+        return
+    try:
+        layout._chord_limit_excl_reported = n
+    except (AttributeError, TypeError):                 # pragma: no cover
+        pass
+
+
+def _ring_touches_tunnel_claim(ring, prepared, bounds) -> bool:
+    """Spec §2 membership: does ANY node of ``ring`` lie inside the
+    tunnel open-cut claim set?
+
+    ``covers`` — not ``contains`` — because a claimed shape's OWN ring
+    vertices lie exactly ON the claim boundary, and so do the vertices a
+    partner way shares with it.  Per-ring membership is the point: it is
+    what stops a partner way importing a value across the cut boundary
+    through a shared key.
+    """
+    minx, miny, maxx, maxy = bounds
+    for (x, y) in ring:
+        if x < minx or x > maxx or y < miny or y > maxy:
+            continue
+        try:
+            if prepared.covers(Point(x, y)):
+                return True
+        except _GEOM_EXC:                              # pragma: no cover
+            return False
+    return False
+
 
 def _chord_limit_cap_for_role(role: str) -> float:
     """The cap :func:`_grade_limit_groundside_chords` shapes ``role`` to.
@@ -3940,7 +4051,12 @@ def _grade_limit_groundside_chords(layout) -> int:
         "shared_rect_junction_nodes": 0,
         "stricter_cap_nodes": 0,
         "road_nodes_near_miss": 0,
+        # Spec ``tunnel-corridor-node-book-exclusion-spec.md`` §2: the
+        # rings the tunnel open-cut claim owns, which mint NO key here.
+        "tunnel_corridor_excluded_rings": 0,
+        "tunnel_corridor_excluded_by_role": {},
     }
+    _claim_prep, _claim_bounds = _tunnel_corridor_claim(layout)
     # THE WELDS ARE NOT PINNED HERE, and that is MEASURED, not assumed.
     # Holding them (``law_anchor_values`` keyed to this pass's 2-decimal
     # node key) is the literal reading of R7c's "[weld − cap·d,
@@ -4000,6 +4116,20 @@ def _grade_limit_groundside_chords(layout) -> int:
             continue
         if any(a is None for a in alts):
             continue
+        if _claim_prep is not None and _ring_touches_tunnel_claim(
+                ring, _claim_prep, _claim_bounds):
+            # THE TUNNEL-CORRIDOR EXCLUSION (spec §2).  This ring carries
+            # a bore's below-grade geometry — its authority is the portal
+            # walk, not this clamp.  It is excluded from the unified node
+            # book ENTIRELY: it keeps its own solved values (no clamp)
+            # and contributes NO key to the shared space (so no partner
+            # ring can read a bench value out of it, and it can read none
+            # in).  Exclusion is per RING, which is what stops a value
+            # crossing the cut boundary through a shared key.
+            stats["tunnel_corridor_excluded_rings"] += 1
+            _by = stats["tunnel_corridor_excluded_by_role"]
+            _by[role] = _by.get(role, 0) + 1
+            continue
         keys = [(round(x, 2), round(y, 2)) for x, y in ring]
         # THE CANONICAL SECOND READING of the airside pin (see
         # ``_airside_claimed_keys``): a vertex the emitter will merge into
@@ -4050,6 +4180,11 @@ def _grade_limit_groundside_chords(layout) -> int:
             if is_road:
                 node_road_shapes.setdefault(kxy, set()).add(i)
     if not rings:
+        # The exclusion census is published even when nothing is left to
+        # clamp — a layout whose only groundside rings are the bore's is
+        # a real case and its count must still be readable.
+        layout._chord_limit_stats = stats
+        _report_tunnel_corridor_exclusion(layout, stats)
         return 0
     _chord_limit_shared_node_census(stats, node_roles, node_cap,
                                     node_cap_max, node_road_shapes)
@@ -4098,6 +4233,7 @@ def _grade_limit_groundside_chords(layout) -> int:
             _r = ring_role[i]
             stats["changed"][_r] = stats["changed"].get(_r, 0) + 1
     layout._chord_limit_stats = stats
+    _report_tunnel_corridor_exclusion(layout, stats)
     # THE SERVICE-NODE WELD RE-ADOPTION — DELETED 2026-08-05 (constant-DEM
     # oracle, fix lane 2 item 2).  It ADOPTED this pass's limited GROUNDSIDE
     # values onto coincident ``service_road`` / ``service_junction`` nodes at

@@ -6093,6 +6093,37 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
     return _n, _claimed_polys
 
 
+def publish_tunnel_open_cut_claim_set(layout: "PavementLayout",
+                                      claimed_polys: list) -> int:
+    """Publish R14-1's OWN claim set on the layout — ``THE`` tunnel
+    open-cut claim set, for every downstream consumer.
+
+    Spec ``docs/specs/tunnel-corridor-node-book-exclusion-spec.md`` §2:
+    the exclusion is defined by AUTHORITY, and the authority is this
+    claim — the very shapes :func:`_claim_road_pavement` just re-profiled
+    and logged as "claimed N road surface(s) as the tunnel corridor",
+    the same list :func:`_stand_down_synthetic_over_claimed` consumes.
+    ONE authority: a second geometric notion of "inside the cut"
+    computed anywhere else is a spec violation, so this publishes the
+    list verbatim and derives nothing.
+
+    Returns the number of polygons published (0 when there is no claim —
+    and no claim means no exclusion anywhere downstream).
+    """
+    _polys = [p for p in (claimed_polys or ())
+              if p is not None and not getattr(p, "is_empty", True)]
+    if not _polys:
+        return 0
+    try:
+        _existing = list(
+            getattr(layout, "tunnel_open_cut_claim_polys", None) or [])
+        _existing.extend(_polys)
+        layout.tunnel_open_cut_claim_polys = _existing
+    except (AttributeError, TypeError):                # pragma: no cover
+        return 0
+    return len(_polys)
+
+
 def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                                        claimed_polys: list,
                                        pre_emit_shape_ids: set) -> int:
@@ -6583,6 +6614,13 @@ def _emit_tunnel_portals(
     # (so the R10-2 cuts and the pavement clip see the claim).
     _n_claim, _claimed = _claim_road_pavement(
         layout, portal_data, _facing_pairs, wall_gap_m)
+    # THE CLAIM SET IS PUBLISHED, NOT RE-DERIVED (spec
+    # ``tunnel-corridor-node-book-exclusion-spec.md`` §2): the
+    # finalize-stage chord limiter excludes every ring with a node
+    # inside THIS set from its unified node book, so a road ring's
+    # bench value cannot travel across the cut boundary into the bore's
+    # own below-grade floor.
+    publish_tunnel_open_cut_claim_set(layout, _claimed)
     if _claimed:
         _stand_down_synthetic_over_claimed(
             layout, _claimed, _pre_emit_ids)

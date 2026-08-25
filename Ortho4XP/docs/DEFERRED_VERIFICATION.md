@@ -3514,3 +3514,24 @@ UNPAID / OWED:
   is 69 within_shape rows of which 25 are the sub-5 m seat/weld class (17 in
   the declared cluster) — the parallel read's territory, not apron law.
 - SPLP / KAFW / KDFW still have no arm under this tree.
+
+## 2026-08-25 — lane/tunnelfix (tunnel-corridor exclusion from the unified node book)
+
+Change: `O4_TUNNEL_CORRIDOR_NODE_BOOK_EXCLUSION` (default ON) — rings with a
+node inside R14-1's published open-cut claim set leave the finalize-stage
+chord limiter's node book (spec
+`docs/specs/tunnel-corridor-node-book-exclusion-spec.md`).
+
+RUN: 12 new twins (`tests/test_tunnel_corridor_exclusion.py`) + the extended
+`test_membership_round` limiter twin + the directly-covering files
+(membership / owner-constants / authority-retreat-walls / round10-tunnel /
+portal-faces / implied-tunnel / single-authority-emit / tunnel-portal-
+acceptance / object-tunnel-terrain / tunnel-dem-cut-portals / groundside-law-
+authority / kill-prep / one-graph-groundside / free-road-scoping /
+classification) — 328 tests, all pass.  ONE OTHH acceptance build
+(`OTHH_20260825T113152`, body `a670eec907c7`, shared repo unchanged).
+
+SKIPPED (pre-ship mode): full pytest suite; blast-radius suites for
+`bridges.py` / `groundside.py` / `finalize.py`; the five-airport battery and
+its censuses; any gate-off byte-identity build arm (the flag's OFF path is
+proven at unit level only — twin (d) — never by a second OTHH build).

@@ -2420,6 +2420,7 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
     # centimetre is not cutting, it is rounding.
     cut_tol = 0.01
     scope_refusals: list = []          # (end_label, d_mid, reason)
+    scope_accepted: list = []          # (end_label, d_mid, n, value)
     n_scope_pins_lost = 0
     # ── THE SCOPE VERDICT IS CARRIED, BY CANONICAL POINT ─────────────
     # ``final_grade_projection`` re-runs this seeder with NO dem (it
@@ -2669,6 +2670,15 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
                     _refuse(seg, d_mid)
                     continue
             n_seg += 1
+            if v2:
+                # THE ACCEPTED RECTS ARE NAMED TOO.  A refusal list on
+                # its own says what recognition took away and leaves
+                # what it KEPT as a bare count — and "which rect
+                # survived" is the question the next adjudication asks
+                # (LEMD: the owner rules the airport has no EATs at
+                # all, so a survivor is evidence, not noise).
+                scope_accepted.append((end_label, d_mid, len(seg),
+                                       float(value)))
             for (_sv, i, qv) in seg:
                 if is_hard[i]:
                     n_hard_skip += 1
@@ -2702,6 +2712,14 @@ def _build_eat_anchor_rect_pins(layout, bucket_to_idx, elev, is_hard,
             f"on the CARRIED recognition verdict (rects refused on an "
             f"earlier, DEM-bearing pass; carried by canonical point "
             f"across the node-list rebuild).")
+    if scope_accepted:
+        import O4_UI_Utils as _UI_eata
+        for (_lbl, _d, _n, _v) in sorted(scope_accepted,
+                                         key=lambda r: (r[0], r[1])):
+            _UI_eata.vprint(1,
+                f"    [eat-scope]   end {_lbl}: rect at D={_d:.0f} m "
+                f"RECOGNISED — {_n} vertex read(s) at {_v:.2f} m "
+                f"(routed wrap, inside D_clear, and it cuts)")
     if scope_refusals:
         # LOUD, one line per refused rect, naming the clause — the
         # acceptance evidence for this round is "every former rect

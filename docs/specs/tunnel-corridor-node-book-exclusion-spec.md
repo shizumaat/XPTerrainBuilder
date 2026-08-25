@@ -207,3 +207,33 @@ v2's key exclusion does the rest.
    walls ≥9/10 footprint, subgrade ≤ revert 9/6, adjudicated vs +17,
    airside/families byte-stable, limiter tests). Attempt count resets,
    cap 2; a miss goes to the owner with the six-arm ledger.
+
+## Amendment 5 (Fable, 2026-08-25 — the approved mechanics on the
+## CORRECT region: the portal walk's OPEN-CUT footprint; supersedes
+## Amendment 4's region only)
+
+Finding 4 (measured): R14-1's claim names claimed ROAD surfaces; the
+bore's descending floor is a groundside ring BESIDE them (0-2 of 33
+nodes in-claim). Amendment 4's halves restored exactly the two
+stations its region covered — mechanics proven, region refuted. The
+engine already computes the true region: the OPEN CUT (R14-1's own
+"N AIRSIDE shape(s) lie inside a tunnel open cut" report reads it).
+
+1. Amendment 4's two halves stand UNCHANGED — per-node ring-private
+   keys + boundary severance — keyed on OPEN-CUT membership instead
+   of claim membership. ONE region authority: the portal walk's own
+   open-cut geometry (the same one the R14-1 airside-is-king report
+   consumes); publishing it beside the claim polys follows the
+   existing publisher pattern. Never a second derivation.
+2. The claim polys keep their existing consumers (stand-down etc.)
+   untouched; only the node-book predicate re-keys.
+3. Expected coverage: the bore floor's nine stations are inside the
+   cut; the lot half is at grade, outside — both halves reach their
+   whole populations.
+4. Twins: Amendment 4's set re-pointed at the open-cut predicate, plus
+   one asserting the two regions DIFFER on the measured class (a
+   groundside bore ring outside the road claim but inside the cut).
+5. Acceptance unchanged (Amendment 3 §5 bars, seven-arm ledger
+   context). Attempt count resets, cap 2. A miss here exhausts the
+   node-book design space: the remaining options ledger (reopen the
+   limiter's road seeding, or accept v1) goes to the owner.

@@ -44,8 +44,13 @@ the second term the band's own off-mask slack (``raster_reach_band.band``:
 ``slack = apron_cap * off``).  ``APRON_MAX_GRADE`` is the config constant —
 never a literal.
 
-Gate: ``O4_PAD_SEAT_CONSISTENCY`` (default ON; "0" disables capture AND
-narrowing, byte-identical to the pre-spec build).
+Gate: ``O4_PAD_SEAT_CONSISTENCY`` (default **OFF** since the 2026-08-25
+acceptance miss — HECA censused 2,249 against a ≤1,487 bar; lead ruling).
+The mechanism, the provenance capture, the sidecar keys and the report are
+all intact behind the flag: ``O4_PAD_SEAT_CONSISTENCY=1`` enables capture
+AND narrowing exactly as authored, and with the flag unset the build is
+byte-identical to the pre-spec build.  The default awaits the
+chord-origin-population design round.
 """
 
 from __future__ import annotations
@@ -64,8 +69,14 @@ ENV_FLAG = "O4_PAD_SEAT_CONSISTENCY"
 
 
 def pad_seat_consistency_enabled() -> bool:
-    """THE reader for :data:`ENV_FLAG` (default ON; ``"0"`` disables)."""
-    return os.environ.get(ENV_FLAG, "1") != "0"
+    """THE reader for :data:`ENV_FLAG` (default **OFF**; ``"1"`` enables).
+
+    Flipped to OFF by the 2026-08-25 lead ruling after the acceptance miss;
+    only an explicit ``O4_PAD_SEAT_CONSISTENCY=1`` turns the mechanism on.
+    The truthiness convention is unchanged (``"0"`` is the only OFF value);
+    the DEFAULT moved from ``"1"`` to ``"0"``.
+    """
+    return os.environ.get(ENV_FLAG, "0") != "0"
 
 
 def record_budget_m(rec: Mapping[str, Any]) -> Optional[float]:

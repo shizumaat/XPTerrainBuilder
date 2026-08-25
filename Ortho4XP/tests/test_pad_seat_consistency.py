@@ -263,9 +263,12 @@ def test_anchor_outside_the_node_space_is_skipped_never_mapped():
 
 # ── twin (d): the flag ──────────────────────────────────────────────────
 
-def test_twin_d_flag_default_on_and_zero_disables(monkeypatch):
+def test_twin_d_flag_default_off_and_one_enables(monkeypatch):
+    """DEFAULT OFF (lead ruling 2026-08-25, after the HECA acceptance miss:
+    2,249 censused against a ≤1,487 bar).  Flag unset ⇒ byte-identical to
+    today's build; an explicit ``"1"`` still enables the whole mechanism."""
     monkeypatch.delenv(psc.ENV_FLAG, raising=False)
-    assert psc.pad_seat_consistency_enabled() is True
+    assert psc.pad_seat_consistency_enabled() is False
     monkeypatch.setenv(psc.ENV_FLAG, "1")
     assert psc.pad_seat_consistency_enabled() is True
     monkeypatch.setenv(psc.ENV_FLAG, "0")

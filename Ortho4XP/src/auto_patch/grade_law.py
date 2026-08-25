@@ -3050,13 +3050,15 @@ def apron_pair_class(p: "PairContext") -> str:
          per-letter cap.  First, because raising a running taxiway to any
          apron cap would legalise a grade along the route itself — the
          catch ``is_apron_corridor_crossing`` was written for.
-      2. STAND.  The pad↔centerline chord: the vertex's VISIBLE nearest
-         spine node (A4.1(i), one per vertex) or a building FRONTAGE
-         chord.  "The 1 % strict cap belongs to the pad↔centerline (stand)
-         chords" — this is the only class that keeps 1 %, and it keeps it
-         at any length, which is A4.1 and 2026-08-21d agreeing (21d
-         refuted the blanket PAD CLAMP on arbitrary long pairs, never the
-         one nearest-spine chord a vertex is owed).
+      2. STAND.  The PAD↔centerline chord: a building FRONTAGE chord, or
+         the VISIBLE nearest-spine chord (A4.1(i), one per vertex) OF A
+         PAD-ANCHORED VERTEX.  "The 1 % stand chords are the PAD-ANCHORED
+         vertex→centerline chords; non-pad vertices take the corridor cap"
+         (RULINGS 2026-08-24c).  This is the only class that keeps 1 %, and
+         it keeps it at any length, which is A4.1 and 2026-08-21d agreeing
+         (21d refuted the blanket PAD CLAMP on arbitrary long pairs, never
+         the one nearest-spine chord a pad vertex is owed).  A NON-pad
+         vertex's nearest-spine chord falls to CORRIDOR.
       3. BACK_EDGE.  Wholly inside one fan-ramp back-edge zone
          (2026-08-24), or beyond ``APRON_BODY_CHORD_MAX_M`` — the latter
          being the A3 / 21d classes the 60 m body gate has always held out
@@ -3075,8 +3077,34 @@ def apron_pair_class(p: "PairContext") -> str:
     """
     if p.spine_caps:
         return APRON_CLASS_SPINE
-    if p.nearest_spine or is_frontage_chord(p):
+    if is_frontage_chord(p):
         return APRON_CLASS_STAND
+    if p.nearest_spine:
+        # ── STAND SCOPE IS PAD-ANCHORED (owner ruling RULINGS 2026-08-24c,
+        # confirming the proposal this lane measured) ────────────────────
+        # A4.1(i) assigns a nearest-spine chord to EVERY apron ring vertex,
+        # pad or not.  The owner's 1 % is the PAD↔CENTERLINE (stand) chord:
+        # "non-pad vertices take the corridor cap".  So the A4.1(i)
+        # population SPLITS here — the chord is still one per vertex and
+        # still has no length gate (that is A4.1 and 2026-08-21d agreeing);
+        # only its CAP depends on whether the vertex it starts from is a
+        # pad vertex.
+        #
+        # PAD-ANCHORED reuses the FRONTAGE-VERTEX predicate
+        # (``frontage_vertex_keys``, production's own ``anchors._frontage_
+        # box``) — the same set that already decides ``a_frontage`` — plus
+        # a raw building-ring endpoint.  No new notion of "on a pad".
+        #
+        # MEASURED BASIS (this lane, v2, HECA): the stand class carried
+        # 1,751 of 1,752 apron airside rows and ~40 % of them started from
+        # a vertex that fronts no building at all.
+        if (p.a_frontage or p.b_frontage
+                or p.a_building or p.b_building):
+            return APRON_CLASS_STAND
+        # A non-pad vertex's chord to its centerline IS corridor travel,
+        # so it takes the corridor cap directly — it reaches a spine by
+        # construction, which is what corridor-connectedness means.
+        return APRON_CLASS_CORRIDOR
     if not _within_body_chord_gate(p) or p.in_interior_zone:
         return APRON_CLASS_BACK_EDGE
     if p.corridor_connected:

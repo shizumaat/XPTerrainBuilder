@@ -251,8 +251,13 @@ def test_the_four_apron_classes_are_exhaustive_and_ordered():
     import auto_patch.config as CFG
     cases = [
         (_pair(spine_caps=(0.015,)), GL.APRON_CLASS_SPINE, 0.015),
-        (_pair(nearest_spine=True, corridor_connected=True),
+        (_pair(nearest_spine=True, a_frontage=True,
+               corridor_connected=True),
          GL.APRON_CLASS_STAND, CFG.BUILDING_FRONTAGE_MAX_GRADE),
+        # …and the SAME chord from a NON-pad vertex is corridor travel
+        # (RULINGS 2026-08-24c stand scope).
+        (_pair(nearest_spine=True, corridor_connected=True),
+         GL.APRON_CLASS_CORRIDOR, CFG.TAXI_MAX_GRADE),
         (_pair(a_frontage=True, b_corridor=True, dist=20.0,
                corridor_connected=True),
          GL.APRON_CLASS_STAND, CFG.BUILDING_FRONTAGE_MAX_GRADE),
@@ -278,7 +283,8 @@ def test_the_rulings_own_three_acceptance_chords():
         "an interior chord in a corridor region passes at 1.3 % and "
         "fails at 1.7 %")
     stand = GL.classify_pair(
-        _pair(nearest_spine=True, corridor_connected=True)).flat_cap()
+        _pair(nearest_spine=True, a_frontage=True,
+              corridor_connected=True)).flat_cap()
     assert 0.013 > stand, "a stand chord at 1.3 % must FAIL"
     back = GL.classify_pair(
         _pair(in_interior_zone=True, corridor_connected=True)).flat_cap()
@@ -358,3 +364,30 @@ def test_corridor_connected_comes_from_the_readers_existing_notions():
         "an apron carrying a spine is corridor-connected")
     assert caps_without == {round(APRON_MAX_GRADE, 9)}, (
         "an apron with no corridor in its context inherits nothing")
+
+
+def test_the_stand_class_is_pad_anchored_only():
+    """RULINGS 2026-08-24c stand scope: A4.1(i) hands EVERY apron ring
+    vertex a nearest-spine chord, but only the PAD-ANCHORED ones are stand
+    chords at 1 %; a non-pad vertex's chord to its centerline is corridor
+    travel at the corridor cap.
+
+    Measured basis (this lane, v2, HECA): the stand class carried 1,751 of
+    1,752 apron airside rows and ~40 % started from a vertex fronting no
+    building.  Same chord, same length, one fact different."""
+    import auto_patch.config as CFG
+    for pad_kw in (dict(a_frontage=True), dict(b_frontage=True),
+                   dict(a_building=True), dict(b_building=True)):
+        p = _pair(nearest_spine=True, corridor_connected=True, **pad_kw)
+        assert GL.apron_pair_class(p) == GL.APRON_CLASS_STAND
+        assert GL.classify_pair(p).flat_cap() == pytest.approx(
+            CFG.BUILDING_FRONTAGE_MAX_GRADE)
+    bare = _pair(nearest_spine=True, corridor_connected=True)
+    assert GL.apron_pair_class(bare) == GL.APRON_CLASS_CORRIDOR
+    assert GL.classify_pair(bare).flat_cap() == pytest.approx(
+        CFG.TAXI_MAX_GRADE)
+    # THE SPLIT KEEPS A4.1's NO-LENGTH-GATE PROPERTY: it changes the CAP a
+    # nearest-spine chord takes, never whether the vertex is owed one.
+    long_pad = _pair(nearest_spine=True, a_frontage=True, dist=300.0,
+                     corridor_connected=True)
+    assert GL.apron_pair_class(long_pad) == GL.APRON_CLASS_STAND

@@ -108,10 +108,14 @@ def test_apron_with_spine_taxi_on_spine_one_percent_body():
     # that when A2 first landed.
     assert _cap_of(sc, 4, 5) == pytest.approx(TAXI_MAX_GRADE)
     # A body RING EDGE (corner 0 to corner 1), 40 m from the spine, fronting
-    # nothing, outside the corridor AND OUTSIDE ANY BACK-EDGE ZONE: STRICT,
-    # the flat apron cap (RULINGS 2026-08-24 rescoping A1c/A2's blanket 5 %
-    # interior to the fan-ramp back-edge geometry alone).
-    assert _cap_of(sc, 0, 1) == pytest.approx(APRON_MAX_GRADE)
+    # nothing and outside any back-edge zone.  THIS APRON CARRIES A SPINE,
+    # so it is CORRIDOR-CONNECTED and the edge inherits the corridor's own
+    # cap (RULINGS 2026-08-24b, "no plateaus": an apron spanning between
+    # two lawful 1.5 % taxiways lawfully runs ~1.5 % itself).  The history:
+    # pre-A2 this read the flat apron 1 %, A2 raised it to the 5 % interior
+    # cap, 2026-08-24 cut that back to 1 %, and 24b settled it at the
+    # corridor cap.
+    assert _cap_of(sc, 0, 1) == pytest.approx(TAXI_MAX_GRADE)
     # ...and with the rule off it still reads the pre-ruling 1 %.
     saved = GL.APRON_INTERIOR_RAMP_CAP
     try:

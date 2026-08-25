@@ -229,3 +229,132 @@ def test_production_build_context_computes_the_back_edge_zones_live():
     # times per solve).
     assert ctx.interior_zones == tuple(L._interior_zone_rings)
     assert GG.build_context(L).interior_zones is ctx.interior_zones
+
+
+# ── NO PLATEAUS: the 2026-08-24b cap chain ────────────────────────────
+
+def _pair(**kw):
+    base = dict(role="apron", dist=30.0, ring_adjacent=True,
+                a_seam=False, b_seam=False, a_building=False,
+                b_building=False, spine_caps=(),
+                body_cap=APRON_MAX_GRADE)
+    base.update(kw)
+    return GL.PairContext(**base)
+
+
+def test_the_four_apron_classes_are_exhaustive_and_ordered():
+    """The owner's acceptance sentence IS a taxonomy: "any apron row is
+    either a stand chord over 1 %, a corridor-region chord over 1.5 %, a
+    back-edge chord over 5 %, or solver sag to fix — there is no lawful
+    fourth class".  ONE classifier answers it, and the cap chain is that
+    answer turned into numbers."""
+    import auto_patch.config as CFG
+    cases = [
+        (_pair(spine_caps=(0.015,)), GL.APRON_CLASS_SPINE, 0.015),
+        (_pair(nearest_spine=True, corridor_connected=True),
+         GL.APRON_CLASS_STAND, CFG.BUILDING_FRONTAGE_MAX_GRADE),
+        (_pair(a_frontage=True, b_corridor=True, dist=20.0,
+               corridor_connected=True),
+         GL.APRON_CLASS_STAND, CFG.BUILDING_FRONTAGE_MAX_GRADE),
+        (_pair(in_interior_zone=True, corridor_connected=True),
+         GL.APRON_CLASS_BACK_EDGE, GL.APRON_INTERIOR_CAP),
+        (_pair(corridor_connected=True),
+         GL.APRON_CLASS_CORRIDOR, CFG.TAXI_MAX_GRADE),
+        (_pair(), GL.APRON_CLASS_BODY, APRON_MAX_GRADE),
+    ]
+    for p, klass, cap in cases:
+        assert GL.apron_pair_class(p) == klass
+        got = GL.classify_pair(p)
+        assert got is not None, f"{klass} must stay in the law"
+        assert got.flat_cap() == pytest.approx(cap), (
+            f"{klass} priced {got.flat_cap()} not {cap}")
+
+
+def test_the_rulings_own_three_acceptance_chords():
+    """Stated exactly as the ruling states them."""
+    import auto_patch.config as CFG
+    corridor = GL.classify_pair(_pair(corridor_connected=True)).flat_cap()
+    assert 0.013 <= corridor and 0.017 > corridor, (
+        "an interior chord in a corridor region passes at 1.3 % and "
+        "fails at 1.7 %")
+    stand = GL.classify_pair(
+        _pair(nearest_spine=True, corridor_connected=True)).flat_cap()
+    assert 0.013 > stand, "a stand chord at 1.3 % must FAIL"
+    back = GL.classify_pair(
+        _pair(in_interior_zone=True, corridor_connected=True)).flat_cap()
+    assert 0.03 <= back, "a back-edge chord at 3 % must PASS"
+    assert stand < corridor < back, (
+        "the three caps must stay strictly ordered — a stand chord is "
+        "never looser than the corridor it grades to")
+    assert corridor == pytest.approx(CFG.TAXI_MAX_GRADE)
+
+
+def test_a_spine_pair_is_never_relaxed_by_the_apron_chain():
+    """The pair IS the corridor: it keeps its ROUTE's own per-letter cap,
+    and no apron class may raise it.  A 1 % route stays 1 % even though the
+    corridor CLASS is 1.5 %."""
+    p = _pair(spine_caps=(0.01,), corridor_connected=True,
+              in_interior_zone=True)
+    assert GL.apron_pair_class(p) == GL.APRON_CLASS_SPINE
+    assert GL.classify_pair(p).flat_cap() == pytest.approx(0.01)
+    assert not GL.is_apron_interior(p)
+
+
+def test_a_disconnected_apron_has_no_corridor_cap_to_inherit():
+    """DEFAULT FALSE IS THE STRICT DIRECTION: a reader that cannot show the
+    apron is joined to the corridor network keeps the shape's own body
+    cap, never the looser corridor one."""
+    assert GL.classify_pair(_pair()).flat_cap() == pytest.approx(
+        APRON_MAX_GRADE)
+
+
+def test_the_kill_switch_restores_the_all_strict_chain():
+    """``O4_APRON_INTERIOR_RAMP_CAP=0`` promises the pre-ruling all-strict
+    reading, so it must gate the WHOLE chain — a flag that disabled only
+    the 5 % branch would leave the corridor cap live and half-honour its
+    own documentation."""
+    saved = GL.APRON_INTERIOR_RAMP_CAP
+    try:
+        GL.APRON_INTERIOR_RAMP_CAP = False
+        for kw in (dict(corridor_connected=True),
+                   dict(in_interior_zone=True, corridor_connected=True),
+                   dict(nearest_spine=True, corridor_connected=True)):
+            assert GL.classify_pair(_pair(**kw)).flat_cap() == pytest.approx(
+                APRON_MAX_GRADE)
+    finally:
+        GL.APRON_INTERIOR_RAMP_CAP = saved
+
+
+def test_corridor_connected_comes_from_the_readers_existing_notions():
+    """The predicate is the reader's spine membership OR its corridor-cover
+    containment — both already computed per shape, neither a new notion.
+
+    THE RING IS WELDED, which is what production emits: the engine welds
+    route centerline geometry into the apron ring pre-emit (the same fact
+    ``nearest_spine_pairs`` is built on), so a taxiway crossing a wide
+    apron leaves ring vertices ON the centerline even though the apron's
+    CORNERS are far from it.  An unwelded synthetic ring is not a shape
+    this engine produces, and testing against one would measure the
+    fixture rather than the law.
+    """
+    ring = [(0.0, 0.0), (40.0, 0.0), (40.0, 20.0), (40.0, 40.0),
+            (0.0, 40.0), (0.0, 20.0)]
+    keys = list(range(len(ring)))
+    cl = GG.Centerline(pts=[(0.0, 20.0), (40.0, 20.0)], seg_caps=[0.015])
+    # ``corridor_lines`` is what the corridor COVER is built from, and both
+    # production context builders fill it beside ``centerlines`` — so this
+    # arm is the shape of a real context, not a hand-made one.
+    with_spine = GG.shape_constraints(
+        GG.GradeShape(role="apron", ring=ring, keys=keys),
+        GG.GradeContext(centerlines=[cl],
+                        corridor_lines=GG.centerline_geometries([cl])))
+    without = GG.shape_constraints(
+        GG.GradeShape(role="apron", ring=ring, keys=keys),
+        GG.GradeContext(centerlines=[]))
+    caps_with = {round(c.flat_cap(), 9) for (_a, _b, c) in with_spine.edges}
+    caps_without = {round(c.flat_cap(), 9)
+                    for (_a, _b, c) in without.edges}
+    assert round(0.015, 9) in caps_with, (
+        "an apron carrying a spine is corridor-connected")
+    assert caps_without == {round(APRON_MAX_GRADE, 9)}, (
+        "an apron with no corridor in its context inherits nothing")

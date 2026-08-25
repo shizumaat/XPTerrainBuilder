@@ -2710,6 +2710,27 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         if cover is not None:
             from shapely.geometry import Point as _CoPt
             cover_vert = [cover.intersects(_CoPt(x, y)) for (x, y) in ring]
+    # ── NO PLATEAUS (owner ruling RULINGS 2026-08-24b) ───────────────────
+    # IS THIS APRON JOINED TO THE CORRIDOR NETWORK?  A SHAPE-level fact, and
+    # the ruling's reason is shape-level: "an apron spanning between two
+    # lawful 1.5 % taxiways lawfully runs ~1.5 % itself".
+    #
+    # TWO EXISTING NOTIONS, BOTH ALREADY COMPUTED FOR THIS SHAPE — no new
+    # geometry, no new radius, nothing that can drift from the cover the
+    # frontage chords and the back-edge zones are cut against:
+    #   * ``membership``  — a ring vertex lies ON a spine centerline
+    #     (``_spine_membership``, the engine's own ``SPINE_PERP_TOL_M``
+    #     notion).  This is the load-bearing half, and it works on a WIDE
+    #     apron that a taxiway crosses through the middle BECAUSE THE
+    #     ENGINE WELDS route geometry into the apron ring pre-emit — the
+    #     same fact ``nearest_spine_pairs`` is built on.  ``near_spine`` is
+    #     therefore not asked here: it is strictly narrower than
+    #     ``membership`` (same on-the-spine test, plus visibility and
+    #     reach), so it would add nothing.
+    #   * ``cover_vert``  — a ring vertex lies inside the corridor cover;
+    #     the apron abuts a corridor it has no welded vertex on.
+    corridor_connected = (bool(membership)
+                          or bool(cover_vert and any(cover_vert)))
     # JUNCTION MESH CONSTRAINTS (O4_JUNCTION_MESH_CONSTRAINTS): the RULE — a
     # junction's only real grade paths are the spine + the triangle-mesh edges,
     # the remaining body chords are phantom — lives in ``grade_law.classify_pair``
@@ -2931,7 +2952,8 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                     and zone_vert[i] >= 0
                     and zone_vert[i] == zone_vert[j]
                     and interior_zone_pair(ctx, zone_vert[i], zone_vert[j],
-                                           xi, yi, xj, yj)))
+                                           xi, yi, xj, yj)),
+                corridor_connected=corridor_connected)
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

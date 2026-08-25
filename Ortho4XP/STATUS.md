@@ -63,8 +63,13 @@
 #   .obj base_y -6.99..-4.04 (134 parts in-box) + Ground-FSX-LEMD36/
 #   37/85 floor pieces at -7.0 = the REAL basin members (~7 m deep);
 #   Ground-FSX-LEMD03 (the -6.75 decal-chain culprit) touches the box
-#   with ONE part — the bridge the pool escaped through. Pooling spec
-#   acceptance: basin ~= this bbox at ~7 m.
+#   with ONE part — the bridge the pool escaped through. OWNER: a
+#   road+ramp legitimately leads UP out of the MOSTLY-RECTANGULAR
+#   cutout to apron level, so a connection out of the hole is real
+#   geometry (the -3.3/-2.8 LEMD37 pieces are that exit ramp) — the
+#   pooling chain-break must key on RETURNING TO GRADE, not bare
+#   adjacency. Pooling spec acceptance: basin ~= this bbox at ~7 m
+#   with the ramp connection intact.
 #   LEMD's mouths will exercise the portal-corridor-claim law
 #   (RULINGS 2026-08-25e) beyond OTHH.
 # IN-FLIGHT at session close of this block: LEMD confirmation build;

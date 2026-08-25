@@ -2145,11 +2145,6 @@ def _footprint_radius(poly, centroid):
     return radius
 
 
-from auto_patch.config import PAD_SEAT_SCAFFOLD           # noqa: E402
-from auto_patch.elevation_per_surface.route_profile.scaffold_seed import (
-    taut_level as _taut_level)                              # noqa: E402
-
-
 def building_feasible_levels(
         layout,
         runway_pts_xyz: List[Tuple[float, float, float]],
@@ -2281,34 +2276,13 @@ def building_feasible_levels(
         if b is None:
             continue
         floor, ceil = b
-        if floor > ceil:                        # infeasible → midpoint (adjust)
-            out[id(s)] = 0.5 * (floor + ceil)
-            continue
-        # ── THE SEAT IS SCAFFOLD-DERIVED (owner rulings RULINGS
-        # 2026-08-24c + the 2026-08-08 seat-is-the-weld ruling) ─────────
-        # "Pads seated at the elevation that enables the 1 % cap to the
-        # centerlines", and a fronting building has NO independent seat
-        # authority.  So the seat is the CHEBYSHEV CENTRE of the band its
-        # governing centerline permits — the level furthest from both
-        # bounds — and NOT the DEM pulled into that band.
-        #
-        # Why this mattered: the old ``clamp(DEM, floor, ceiling)`` made
-        # every pad a DEM-VALUED anchor of the apron membrane, which is how
-        # the DEM re-entered a surface RULINGS 2026-08-24c had just cleared
-        # it out of.  Measured at HECA: seats 0.23 m BELOW terrain against
-        # a corridor 1.66 m above it.
-        #
-        # ONE function, shared with the apron membrane, so a pad and the
-        # apron around it are seated by the same arithmetic.
-        if PAD_SEAT_SCAFFOLD:
-            lvl = _taut_level((floor, ceil))
-            if lvl is not None:
-                out[id(s)] = lvl
-                continue
         de = dem_sampler(c.x, c.y)
         if de is None:
             continue
-        out[id(s)] = min(max(de, floor), ceil)
+        if floor > ceil:                        # infeasible → midpoint (adjust)
+            out[id(s)] = 0.5 * (floor + ceil)
+        else:
+            out[id(s)] = min(max(de, floor), ceil)
     # One per-airport certificate summary line (spec §2 item 7), printed once —
     # after the building-seat pass, so rect/apron/junction counts from the
     # preceding constraint build and the seat counts here are all present.

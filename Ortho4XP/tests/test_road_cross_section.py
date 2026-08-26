@@ -58,6 +58,32 @@ from auto_patch import grade_graph as GG                    # noqa: E402
 from auto_patch import lateral_contiguity as LC             # noqa: E402
 
 
+#: EVERY module that captures a law object at IMPORT, in dependency order.
+#: The gate tests below reload the law under a changed environment, and a
+#: reload REBINDS the function objects — so a module that imported
+#: ``grade_law.pair_is_transverse`` by value (``grade_graph``,
+#: ``groundside``, ``lateral_contiguity``) is left holding the PREVIOUS
+#: one unless it is reloaded too.  Restoring only three of the five left
+#: ``groundside._long_axis_of_points is grade_law.long_axis_of_points``
+#: false for whatever ran next in the same xdist worker: a test-isolation
+#: leak that reads exactly like the two-copies defect the identity twin
+#: exists to catch.  Reload the whole set, always, in this order.
+_LAW_MODULES = ("auto_patch.config", "auto_patch.grade_law",
+                "auto_patch.grade_graph", "auto_patch.lateral_contiguity",
+                "auto_patch.groundside")
+
+
+def _reload_the_law():
+    """Re-read every law module, in dependency order.  A module absent
+    from ``sys.modules`` was never imported in this worker and has no
+    stale binding to restore."""
+    import auto_patch.groundside            # noqa: F401  (force the import)
+    for name in _LAW_MODULES:
+        mod = sys.modules.get(name)
+        if mod is not None:
+            importlib.reload(mod)
+
+
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -179,9 +205,7 @@ def test_the_gate_off_restores_the_pre_ruling_solve(monkeypatch):
         assert caps == {round(C.SERVICE_ROAD_MAX_GRADE, 6)}
     finally:
         monkeypatch.delenv("O4_ROAD_CROSS_SECTION_LAW", raising=False)
-        importlib.reload(C)
-        importlib.reload(GL)
-        importlib.reload(GG)
+        _reload_the_law()
 
 
 def test_a_taxiway_ring_is_untouched_by_the_road_law():
@@ -318,9 +342,7 @@ def test_the_gate_off_empties_the_family(cg, tmp_path, monkeypatch):
     # binds to have to be re-read under it too — otherwise this would
     # test a census wired to an already-armed law and pass for the wrong
     # reason.
-    for m in ("auto_patch.config", "auto_patch.grade_law",
-              "auto_patch.grade_graph"):
-        importlib.reload(sys.modules[m])
+    _reload_the_law()
     cg2 = _load("xsec_twin_check_grade_off", ROOT / "tools" / "check_grade.py")
     try:
         assert cg2._ROAD_XSECTION_LAW is False
@@ -329,9 +351,7 @@ def test_the_gate_off_empties_the_family(cg, tmp_path, monkeypatch):
         assert fam["road_cross_section"] == []
     finally:
         monkeypatch.delenv("O4_ROAD_CROSS_SECTION_LAW", raising=False)
-        for m in ("auto_patch.config", "auto_patch.grade_law",
-                  "auto_patch.grade_graph"):
-            importlib.reload(sys.modules[m])
+        _reload_the_law()
 
 
 # ══════════════════════════════════════════════════════════════════════

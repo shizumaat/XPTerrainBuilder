@@ -28,7 +28,8 @@ from typing import Optional
 from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import LineString, Point
 
-from .grade_law import lateral_contiguity_cap
+from .grade_law import (ROAD_ROLES as _LAW_ROAD_ROLES,
+                        lateral_contiguity_cap, long_axis_of_points)
 
 _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
@@ -52,7 +53,10 @@ GAP_TOL_M = 0.05
 # a probe grazing the corner of a neighbour is not a shared flank.  (The
 # station's OWN shape always counts, whatever its width.)
 MIN_MEMBER_M = 0.5
-ROAD_ROLES = frozenset({"service_road", "service_junction"})
+# THE ROAD FAMILY, from THE LAW (RULINGS 2026-08-25g put the road
+# cross-section limit on this same set, so a second spelling here would be
+# two laws over two populations).  Re-exported, not re-typed.
+ROAD_ROLES = _LAW_ROAD_ROLES
 
 # ── EDGE-SHARING CONTACT (owner RULINGS 2026-08-25b) ─────────────────────
 # "A ROAD SHARING AN EDGE WITH AN APRON CONFORMS TO THE STRICTEST GRADE — IT
@@ -100,36 +104,20 @@ def long_axis(poly):
     answer, which is what the law needs (a shared convention), and the
     cross-section is then measured across the shape's short dimension —
     exactly where a laterally-touching neighbour lies.
+
+    THE BODY MOVED TO THE LAW (RULINGS 2026-08-25g): the road
+    CROSS-SECTION classifier needs the same "which way does this road
+    run" answer this walk uses, and it reaches it from the solver's bare
+    ring lists where no shapely polygon exists.  ``grade_law`` — which
+    this module already imports for the cap — holds the one
+    implementation; this stays the shapely-shaped door onto it, so every
+    caller here is unchanged.
     """
     try:
         pts = list(poly.exterior.coords)[:-1]
     except _GEOM_EXC:
         return None
-    if len(pts) < 3:
-        return None
-    best = None
-    for i in range(len(pts)):
-        ax, ay = pts[i]
-        bx, by = pts[(i + 1) % len(pts)]
-        dx, dy = bx - ax, by - ay
-        L = math.hypot(dx, dy)
-        if L < 1e-9:
-            continue
-        ux, uy = dx / L, dy / L
-        us = [p[0] * ux + p[1] * uy for p in pts]
-        vs = [-p[0] * uy + p[1] * ux for p in pts]
-        w = max(us) - min(us)
-        h = max(vs) - min(vs)
-        if best is not None and w * h >= best[0]:
-            continue
-        umid = 0.5 * (max(us) + min(us))
-        vmid = 0.5 * (max(vs) + min(vs))
-        mid = (umid * ux - vmid * uy, umid * uy + vmid * ux)
-        best = ((w * h), (ux, uy), w, mid) if w >= h else \
-               ((w * h), (-uy, ux), h, mid)
-    if best is None or best[2] <= 0.0:
-        return None
-    return best[1], best[2], best[3]
+    return long_axis_of_points(pts)
 
 
 def cross_section_roles(px, py, nx, ny, tree, polys, roles, own_index):

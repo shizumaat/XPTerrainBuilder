@@ -183,6 +183,16 @@ try:
         transverse_minimum_for_role as _transverse_minimum_for_role,
         transverse_minimum_binds as _transverse_minimum_binds,
         transverse_span_budget_m as _transverse_span_budget_law,
+        # ── THE ROAD CROSS-SECTION LAW (owner RULINGS 2026-08-25g).
+        # The ring-axis reader, the ≥45 ° classifier and the cap
+        # resolver, read HERE verbatim: ``grade_graph.shape_constraints``
+        # flags the solve's pairs with these same three, so the surface
+        # we build and the surface we census cannot classify one pair two
+        # ways.  ``ROAD_ROLES`` comes from the law too — a fourth
+        # hand-written road-role list is the census-wrapper defect.
+        long_axis_of_points as _long_axis_of_points,
+        pair_is_transverse as _pair_is_transverse,
+        road_cross_section_cap as _road_xsection_cap,
         drainage_minimum_grade as _drainage_minimum_grade,
         drainage_minimum_shortfall as _drainage_minimum_shortfall,
         _ADJACENT_APRON_ROLES as _LAW_DRAIN_MIN_APRON_ROLES,
@@ -208,8 +218,22 @@ try:
         DECLARED_TERRAIN_PLATE_ROLES as _DECLARED_PLATE_ROLES,
         BASIN_DECLARED_FLOOR_MATCH_TOL_M as _BASIN_FLOOR_MATCH_TOL_M,
         BASIN_FLOOR_DISAGREEMENT_M as _BASIN_FLOOR_DISAGREEMENT_M,
+        ROAD_CROSS_SECTION_LAW as _ROAD_XSECTION_LAW,
     )
 except Exception:
+    # THE LAW IS UNREACHABLE ⇒ THE LAW DOES NOT RUN, and says so.  The
+    # road cross-section has no standalone fallback ON PURPOSE: a second
+    # copy of the classifier here is exactly the drift this lane's law
+    # module exists to prevent, and a census that silently priced roads
+    # against its own private 45 ° / 2 % would be the census-wrapper
+    # defect in its usual costume.  Every soft-shape path this reaches
+    # already imports ``auto_patch.grade_graph`` unconditionally, so a
+    # frame that cannot import the law cannot census within-shape pairs
+    # at all.
+    _long_axis_of_points = None
+    _pair_is_transverse = None
+    _road_xsection_cap = None
+    _ROAD_XSECTION_LAW = False
     _runway_axis_and_width = None
     _runway_strip_wall_keepout_rings = None
     _runway_strip_longitudinal_runs = None
@@ -1009,7 +1033,16 @@ def _is_groundside(way: "Way") -> bool:
     return law_role(way) in _GROUNDSIDE_ROLES
 
 
-_ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
+# THE ROAD FAMILY, from THE LAW (``grade_law.ROAD_ROLES``).  RULINGS
+# 2026-08-25g puts the road CROSS-SECTION limit on this exact set, so a
+# second spelling here would be two laws over two populations — the
+# census-wrapper defect.  The literal is the no-engine fallback only, and
+# ``tests/test_road_cross_section.py`` asserts the two agree.
+try:                                                   # pragma: no cover
+    from auto_patch.grade_law import ROAD_ROLES as _LAW_ROAD_ROLES
+    _ROAD_FAMILY_ROLES = set(_LAW_ROAD_ROLES)
+except Exception:                                      # pragma: no cover
+    _ROAD_FAMILY_ROLES = {"service_road", "service_junction"}
 
 # ══════════════════════════════════════════════════════════════════════
 # ROLE-LESS FEATURE WAYS SIDE WITH THEIR HOST
@@ -1326,6 +1359,15 @@ class ShapePairConstraint:
     # (``grade_law.crown_pair_offset`` over the sidecar drop field); the
     # law is ``|(ea − eb) − offset| ≤ allowance``.  0 for uncrowned pairs.
     offset: float = 0.0
+    # THE ROAD CROSS-SECTION (owner ruling RULINGS 2026-08-25g): this pair
+    # is a road ring's cross-section (``grade_law.pair_is_transverse``
+    # against the ring's own long axis), so its ``cap`` is the road's
+    # TRANSVERSE limit and the census reports it in the
+    # ``road_cross_section`` family rather than ``within_shape``.  Carried
+    # ON the constraint rather than re-derived from ``cap``: a 2 % cap is
+    # reachable by other routes through the chain (a narrow-taxi rate, a
+    # tightened frontage), so a guess would mint or lose rows either way.
+    transverse_road: bool = False
 
 
 _WELD_HUB_ROLES = frozenset({"junction", "service_junction"})
@@ -1745,6 +1787,46 @@ def iter_shape_grade_constraints(
             continue
         # ── SOFT airside shapes → THE LAW (one shared within-shape rule set) ──
         role0 = w.tags.get("role")
+        # ── THE ROAD CROSS-SECTION (owner ruling RULINGS 2026-08-25g) ────
+        # THIS RING'S OWN AXIS, once per way, through THE law's reader
+        # (``grade_law.long_axis_of_points`` — the same function the
+        # solver's ``shape_constraints`` and the lateral-contiguity
+        # station walk read a road's direction with).  ``None`` for every
+        # non-road way and with the law gated off, which is what makes
+        # every branch below a no-op on those.
+        _road_axis = None
+        if _ROAD_XSECTION_LAW and law_role(w) in _ROAD_FAMILY_ROLES:
+            _ax = _long_axis_of_points([(p[0], p[1]) for p in pts])
+            _road_axis = _ax[0] if _ax else None
+
+        def _xsec(ia: int, ib: int) -> bool:
+            """Is the pair ``pts[ia] → pts[ib]`` this road's cross-section?"""
+            if _road_axis is None:
+                return False
+            return _pair_is_transverse(_road_axis,
+                                       pts[ib][0] - pts[ia][0],
+                                       pts[ib][1] - pts[ia][1])
+
+        def _xsec_allowance(ia: int, ib: int, d: float):
+            """``(cap, allowance)`` for a CROSS-SECTION pair.
+
+            THE BAKED BUDGET DOES NOT APPLY ACROSS A ROAD, and that is
+            the whole of the 25g fix on this side.  Every other pair's
+            allowance is ``max(baked, cap·dist)`` — "never TIGHTER than
+            the flat cap" — because the baked budget is an anisotropic
+            TRAVEL credit: a pair spanning a curve earns its along-route
+            arc.  On a pair that runs ACROSS the road there is no travel
+            to credit, and that ``max`` against the 8 % longitudinal cap
+            is exactly why the 2 % cross-section limit was generated and
+            never held (the KAFW N-1 population: 2-8 % transverse rows,
+            under the chord cap, over the cross-section limit, priced by
+            nothing).  So a cross-section pair is judged at ``cT·dist``
+            plus the shape's own emit/weld quantization envelope — the
+            same envelope every other family gets, no more and no less.
+            """
+            cap = _road_xsection_cap(_role_grade_limit(w, max_grade))
+            return cap, cap * d + _pair_quant_noise_m(w)
+
         if role0 in _SOFT_ROLES and _pair_cap_map:
             # LOCKSTEP CONSUMPTION: constrain exactly the solver-baked
             # pairs of this ring (matched by rounded lat/lon endpoint
@@ -1776,13 +1858,19 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[_ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                    _tv = _xsec(_ia, _ib)
+                    if _tv:
+                        _pcap, _pallow = _xsec_allowance(_ia, _ib, d)
+                    else:
+                        _pcap = grade_cap
+                        _pallow = (max(_cap_m, grade_cap * d)
+                                   + _pair_quant_noise_m(w))
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[_ia], nid_b=pnids[_ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
-                        dist=d, cap=grade_cap,
-                        allowance=(max(_cap_m, grade_cap * d)
-                                   + _pair_quant_noise_m(w)),
-                        offset=_off))
+                        dist=d, cap=_pcap,
+                        allowance=_pallow,
+                        offset=_off, transverse_road=_tv))
                 # ── RING-EDGE FLOOR (R19-5) ─────────────────────────
                 # The bake is a PAIR SELECTION, not a domain: a vertex
                 # absent from it (post-projection insert, weld) used to
@@ -1823,12 +1911,18 @@ def iter_shape_grade_constraints(
                         crown_by_nid.get(pnids[ib]), ei - ej)
                     if _unk:
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                    _tv = _xsec(ia, ib)
+                    if _tv:
+                        _pcap, _pallow = _xsec_allowance(ia, ib, d)
+                    else:
+                        _pcap = cap.flat_cap()
+                        _pallow = _pair_grade_allowance(cap, d, w)
                     out.append(ShapePairConstraint(
                         way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                         xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
-                        dist=d, cap=cap.flat_cap(),
-                        allowance=_pair_grade_allowance(cap, d, w),
-                        offset=_off))
+                        dist=d, cap=_pcap,
+                        allowance=_pallow,
+                        offset=_off, transverse_road=_tv))
                 continue
         if role0 in _SOFT_ROLES:
             gs = _soft_grade_shape(w, role0, pts, pnids)
@@ -1854,12 +1948,18 @@ def iter_shape_grade_constraints(
                     ei - ej)
                 if _unk:
                     _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
+                _tv = _xsec(ia, ib)
+                if _tv:
+                    _pcap, _pallow = _xsec_allowance(ia, ib, d)
+                else:
+                    _pcap = cap.flat_cap()
+                    _pallow = _pair_grade_allowance(cap, d, w)
                 out.append(ShapePairConstraint(
                     way=w, nid_a=pnids[ia], nid_b=pnids[ib],
                     xa=xi, ya=yi, ea=ei, xb=xj, yb=yj, eb=ej,
-                    dist=d, cap=cap.flat_cap(),
-                    allowance=_pair_grade_allowance(cap, d, w),
-                    offset=_off))
+                    dist=d, cap=_pcap,
+                    allowance=_pallow,
+                    offset=_off, transverse_road=_tv))
             continue
         # PLANE shapes (rects / runway / terminal) → the SAME law: all vertex
         # pairs at the role cap, via grade_graph.plane_constraints (the single
@@ -4750,6 +4850,7 @@ def _check_within_shape(ways: List[Way],
                         terrace_joints_m: Optional[list] = None,
                         fan_ramp_zones_m: Optional[list] = None,
                         interior_zones_m: Optional[list] = None,
+                        transverse_road_out: Optional[List] = None,
                         ) -> List[Violation]:
     """Grade check between vertex pairs on the same way.  Consumes
     ``iter_shape_grade_constraints`` (the single source of constrained pairs)
@@ -4758,7 +4859,19 @@ def _check_within_shape(ways: List[Way],
     ``_pair_grade_allowance`` — the flat-cap floor mirrors the plane-gradient
     law's ``cap*dist + noise``, and ``quant_noise`` is the shape's emit/weld
     envelope; crown offset is 0 for uncrowned pairs) so emit rounding and
-    weld-insert micro-steps don't produce spurious sub-metre flags."""
+    weld-insert micro-steps don't produce spurious sub-metre flags.
+
+    ``transverse_road_out``: when a list is passed, ROAD CROSS-SECTION
+    rows (owner ruling RULINGS 2026-08-25g) are appended THERE instead of
+    to the return value — they are their own law family
+    (``road_cross_section``), priced at the road's transverse limit
+    rather than its longitudinal chord cap.  A row lands in exactly one
+    of the two lists, never both: the ruling says the cross-section
+    prices at the cross-section limit, *not* at the chord cap, so
+    counting it under both caps would be pricing one pair twice.  With no
+    list passed (a caller that predates the family) every row returns as
+    before.
+    """
     out: List[Violation] = []
     for c in iter_shape_grade_constraints(
             ways, nodes, ll_to_m, max_grade, seam_nids, taxi_axes, routes_ll,
@@ -4815,7 +4928,10 @@ def _check_within_shape(ways: List[Way],
         if _lla is not None and _llb is not None:
             v.lat = (_lla[0] + _llb[0]) / 2.0
             v.lon = (_lla[1] + _llb[1]) / 2.0
-        out.append(v)
+        if transverse_road_out is not None and c.transverse_road:
+            transverse_road_out.append(v)
+        else:
+            out.append(v)
     return out
 
 
@@ -5497,6 +5613,13 @@ def _check_spine_curvature(ways, nodes, ll_to_m, taxi_axes,
 # position — the twin fails otherwise.
 LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("within_shape", "WITHIN-SHAPE vertex-pair grade", "within"),
+    # THE ROAD CROSS-SECTION (owner ruling RULINGS 2026-08-25g, "ROADS ARE
+    # LATERALLY FLAT").  Emitted immediately after ``within_shape``
+    # because it is the same pair walk: a road ring's pairs partition by
+    # angle to the ring axis, the ALONG ones staying in ``within_shape``
+    # at the chord cap and the ACROSS ones landing here at the road's
+    # transverse limit.  One pair, one family, never both.
+    ("road_cross_section", "ROAD CROSS-SECTION (lateral) grade", "within"),
     ("plane_gradient", "PLANE GRADIENT (triangle surface)", "within"),
     ("runway_end_skirt", "RUNWAY-END SKIRT edge grade", "within"),
     ("terrace_joint_route", "APRON TERRACE JOINT crossing a taxi ROUTE",
@@ -6544,6 +6667,10 @@ def run_checks(
     interior_zones_m = [
         [ll_to_m(float(la), float(lo)) for (la, lo) in ring]
         for ring in (interior_zones_ll or []) if len(ring) >= 3]
+    # THE ROAD CROSS-SECTION (RULINGS 2026-08-25g) rides the SAME pair
+    # walk: one enumeration, split by the law's own classifier into the
+    # along-road rows (``within_shape``) and the across-road rows.
+    _road_xsec_rows: List[Violation] = []
     within = _fam("within_shape", _check_within_shape(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,
         taxi_axes=taxi_axes, routes_ll=routes_ll,
@@ -6551,7 +6678,8 @@ def run_checks(
         crown_centerline_nids=crown_centerline_nids,
         pair_caps_ll=pair_caps_ll, terrace_joints_m=terrace_joints_m,
         fan_ramp_zones_m=fan_ramp_zones_m,
-        interior_zones_m=interior_zones_m))
+        interior_zones_m=interior_zones_m,
+        transverse_road_out=_road_xsec_rows))
     # THE BREAK-REGION SPLIT IS DELETED (spec ``docs/specs/kill-half-
     # spec.md`` §2, 2026-08-04).  Pairs touching a solver-declared broken
     # node used to be moved out of the actionable within-shape count into
@@ -6577,6 +6705,12 @@ def run_checks(
               f"arm whose raw grades were all under cap. A rising count is a "
               f"DECLARATION gap (crown.extend_field_to_new_ring_nodes not "
               f"reaching a post-solve insert), not a surface defect")
+
+    # ── THE ROAD CROSS-SECTION FAMILY (RULINGS 2026-08-25g) ───────────
+    road_xsec = _fam("road_cross_section", _road_xsec_rows)
+    _pv(f"ROAD CROSS-SECTION (lateral) grade > "
+        f"{SERVICE_ROAD_MAX_TRANSVERSE * 100:g}%", road_xsec, top_n)
+    within = within + road_xsec
 
     plane = _fam("plane_gradient", _check_plane_gradient(
         ways, nodes, ll_to_m, max_grade, seam_nids=seam_nids,

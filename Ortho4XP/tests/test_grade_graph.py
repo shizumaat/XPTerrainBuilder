@@ -172,12 +172,28 @@ def test_seam_endpoint_drops_pair():
 
 
 def test_service_junction_four_percent():
+    """The road family's LONGITUDINAL cap is the service-road limit.
+
+    AMENDED BY RULINGS 2026-08-25g ("ROADS ARE LATERALLY FLAT"): a road
+    ring's pairs partition by angle to the ring's own long axis — the
+    ACROSS ones are the road's CROSS-SECTION and price at
+    ``SERVICE_ROAD_MAX_TRANSVERSE``.  So the assertion is per CLASS, and
+    the class is the law's own verdict (``edge_transverse_road``,
+    recorded at mint) rather than a guess from the cap value.  The
+    pre-ruling reading — every pair at the longitudinal cap — is what
+    ``O4_ROAD_CROSS_SECTION_LAW=0`` restores, twinned in
+    ``tests/test_road_cross_section.py``.
+    """
+    from auto_patch.config import SERVICE_ROAD_MAX_TRANSVERSE
     ring, keys = _square()
     s = GG.GradeShape(role="service_junction", ring=ring, keys=keys)
     ctx = GG.GradeContext(centerlines=[])
     sc = GG.shape_constraints(s, ctx)
-    assert all(abs(cap.flat_cap() - SERVICE_ROAD_MAX_GRADE) < 1e-9
-               for (_a, _b, cap) in sc.edges)
+    assert sc.edges and len(sc.edge_transverse_road) == len(sc.edges)
+    for (_a, _b, cap), across in zip(sc.edges, sc.edge_transverse_road):
+        want = (SERVICE_ROAD_MAX_TRANSVERSE if across
+                else SERVICE_ROAD_MAX_GRADE)
+        assert abs(cap.flat_cap() - want) < 1e-9
 
 
 def _deseg_runway_ring(length=800.0, width=40.0, stations=5):

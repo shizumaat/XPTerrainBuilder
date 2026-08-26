@@ -34,6 +34,7 @@ its precomputed budget so the solver and validator share one decomposition.
 """
 from __future__ import annotations
 
+import math as _math
 import os
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -57,6 +58,7 @@ from .config import (
     OLS_STRIP_HALF_WIDTH_INSTRUMENT_BY_CODE,
     OLS_TRANSITIONAL_EMIT_REACH_M, OLS_TRANSITIONAL_SLOPE,
     OLS_TRANSITIONAL_SLOPE_STEEP,
+    ROAD_CROSS_SECTION_LAW, ROAD_TRANSVERSE_AXIS_MIN_DEG,
     RUNWAY_END_CLEARANCE_LENGTH_BY_CODE, RUNWAY_END_RESA_MAX_SLOPE,
     ROLE_GRADE_LIMITS,
     RUNWAY_STRIP_BAND_MIN_DOWN_SLOPE,
@@ -116,6 +118,15 @@ APRON_ROLE = "apron"
 # to.  Defined HERE (the law) and re-exported by ``grade_graph`` so the law and
 # its readers share one definition.
 JUNCTION_ROLES = ("junction", "service_junction")
+# ── THE ROAD FAMILY, and its CROSS-SECTION law (RULINGS 2026-08-25g) ─────
+# The roles the road cross-section limit is defined over.  Defined HERE
+# (the law), because THREE readers need it and a fourth hand-written copy
+# is the census-wrapper defect: ``grade_graph.shape_constraints`` (which
+# flags the pairs), ``tools/check_grade`` (which censuses them) and
+# ``lateral_contiguity.ROAD_ROLES`` (which walks their stations).
+# ``groundside_pavement`` is deliberately NOT here — the ruling names the
+# ROAD, and a car park is not a road cross-section.
+ROAD_ROLES = frozenset({"service_road", "service_junction"})
 
 # THE single reach/grade rules, surfaced here so every site refers to ONE value
 # and cannot drift into local copies (user 2026-06-29).
@@ -2706,6 +2717,121 @@ def transverse_span_budget_m(cap_l: float, width_m: float) -> float:
     return transverse_cap_for_longitudinal_cap(cap_l) * float(width_m)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# THE ROAD CROSS-SECTION LAW (owner ruling RULINGS 2026-08-25g)
+# ══════════════════════════════════════════════════════════════════════
+# "ROADS ARE LATERALLY FLAT — THE CROSS-SECTION LIMIT IS LAW."  A road
+# ring's WITHIN-RING pairs split in two by geometry: the ones that run
+# ALONG the road (priced at its longitudinal cap, as today) and the ones
+# that run ACROSS it — the CROSS-SECTION — which price at the road's
+# transverse cap.  The two functions below are that split's ONE
+# implementation: the ring's own axis, and the pair test against it.
+#
+# WHY THIS IS NEW LAW AND NOT A CAP CHANGE.  The transverse cap was
+# already generation-binding through the anisotropic bake
+# (``grade_graph._bake_one_route`` resolves ``cT`` for every road pair
+# that finds a route).  It did not HOLD, for two measured reasons:
+#   (1) the validator's allowance is ``max(baked, cap_l · dist)`` — "never
+#       TIGHTER than the flat cap" — so on a pair running ACROSS the road
+#       the 8 % longitudinal term always won and the 2 % budget was
+#       unreachable.  That is the KAFW N-1 population: 164 rows at 2-8 %
+#       transverse, under the chord cap, over the cross-section limit,
+#       with no family pricing them.
+#   (2) a road pair whose endpoints find NO route at all stays isotropic
+#       at the 8 % cap by construction (``_bake_edge``'s own last branch).
+# Stating the split as LAW — one classifier, consulted by both readers —
+# closes both, and is why §1 of the spec lands census and solve together.
+
+
+def long_axis_of_points(pts) -> "Optional[tuple]":
+    """``((ux, uy), length, (mx, my))`` — the unit long axis, length and
+    mid-point of the minimum-area rectangle of ``pts``, or ``None``.
+
+    THE ROAD'S OWN DIRECTION, and THE one implementation of it: the
+    station walk (``lateral_contiguity.long_axis``) and the pair
+    classifier below must not each have their own idea of which way a
+    road runs, or the law would price one set of pairs and the walk would
+    describe another (this repo's 'two instruments, one assumed
+    population').  Geometry-library free — it takes bare ``(x, y)`` — so
+    the solver's ring lists and the validator's OSM rings both reach it
+    without building a polygon.
+
+    A blobby service JUNCTION has no natural axis; the minimum-area
+    rectangle still gives every reader the SAME answer, which is what a
+    shared convention is for, and the cross-section is then measured
+    across the shape's short dimension — exactly where a laterally
+    touching neighbour lies.
+    """
+    pts = [(float(x), float(y)) for (x, y) in pts]
+    if len(pts) < 3:
+        return None
+    best = None
+    for i in range(len(pts)):
+        ax, ay = pts[i]
+        bx, by = pts[(i + 1) % len(pts)]
+        dx, dy = bx - ax, by - ay
+        L = _math.hypot(dx, dy)
+        if L < 1e-9:
+            continue
+        ux, uy = dx / L, dy / L
+        us = [p[0] * ux + p[1] * uy for p in pts]
+        vs = [-p[0] * uy + p[1] * ux for p in pts]
+        w = max(us) - min(us)
+        h = max(vs) - min(vs)
+        if best is not None and w * h >= best[0]:
+            continue
+        umid = 0.5 * (max(us) + min(us))
+        vmid = 0.5 * (max(vs) + min(vs))
+        mid = (umid * ux - vmid * uy, umid * uy + vmid * ux)
+        best = ((w * h), (ux, uy), w, mid) if w >= h else \
+               ((w * h), (-uy, ux), h, mid)
+    if best is None or best[2] <= 0.0:
+        return None
+    return best[1], best[2], best[3]
+
+
+def pair_is_transverse(axis, dx: float, dy: float) -> bool:
+    """Is the pair ``(dx, dy)`` the road's CROSS-SECTION rather than a run
+    along it?  ``axis`` is the ``(ux, uy)`` of :func:`long_axis_of_points`.
+
+    True when the pair's own axis stands at or beyond
+    ``ROAD_TRANSVERSE_AXIS_MIN_DEG`` (45 °) to the road axis — the angle
+    at which a pair stops being more along the road than across it.  The
+    test is on the UNSIGNED angle (a chord and its reverse are the same
+    chord), and the partition is EXHAUSTIVE: every pair is on one side of
+    it, so no pair falls between the two laws.
+
+    ``axis`` ``None`` (a degenerate ring the axis reader could not read)
+    ⇒ False: with no road direction there is no cross-section to price,
+    and the pair keeps its longitudinal cap — the pre-ruling reading, and
+    never a tighter cap asserted on geometry we could not measure.
+    """
+    if axis is None:
+        return False
+    ux, uy = float(axis[0]), float(axis[1])
+    d = _math.hypot(float(dx), float(dy))
+    if d < 1e-9:
+        return False
+    # |cos θ| against the axis; θ ≥ 45 ° ⟺ |cos θ| ≤ cos 45 °.
+    cos_t = abs(float(dx) * ux + float(dy) * uy) / d
+    return cos_t <= _math.cos(_math.radians(ROAD_TRANSVERSE_AXIS_MIN_DEG))
+
+
+def road_cross_section_cap(cap_l: float) -> float:
+    """The cap a TRANSVERSE road pair prices at, given the longitudinal
+    cap ``cap_l`` the rest of the chain selected for it.
+
+    Delegates to ``config.transverse_cap_for_longitudinal_cap`` — the ONE
+    law source the solver's anisotropic ``cT``, the emitter's
+    cross-section pair budget and the transverse validator all resolve
+    through.  Never a literal (the spec's own words), and never LOOSER
+    than what came in: for every cap that is not a road/narrow-taxi rate
+    the function is the identity, so a pair the rest of the law already
+    tightened (a building frontage at 1 %) is untouched.
+    """
+    return min(float(cap_l), transverse_cap_for_longitudinal_cap(cap_l))
+
+
 @dataclass(frozen=True)
 class PairContext:
     """Everything the law needs about ONE vertex pair, computed by the reader
@@ -2819,6 +2945,18 @@ class PairContext:
     # show is joined to a corridor has no corridor cap to inherit and
     # keeps its own body cap.
     corridor_connected: bool = False
+    # ── THE ROAD CROSS-SECTION (owner ruling RULINGS 2026-08-25g) ───────
+    # ``transverse_road``: this pair is a ROAD ring's CROSS-SECTION — its
+    # own axis stands at or beyond 45 ° to the ring's long axis
+    # (:func:`pair_is_transverse` over :func:`long_axis_of_points`).  The
+    # ring axis is computed ONCE PER SHAPE by the reader and the verdict
+    # is the law's, exactly like ``a_in_strip`` / ``in_interior_zone``
+    # above.
+    #
+    # DEFAULT FALSE IS TODAY'S READING: a reader that does not supply it
+    # — or one running with ``O4_ROAD_CROSS_SECTION_LAW=0`` — prices
+    # every road pair at its longitudinal cap, exactly as before 25g.
+    transverse_road: bool = False
 
 
 SKIP: Optional[Allowance] = None
@@ -3460,6 +3598,20 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     if (p.both_road and SERVICE_ROAD_MAX_GRADE > cap
             and not p.a_building and not p.b_building):
         cap = SERVICE_ROAD_MAX_GRADE
+
+    # ── THE ROAD CROSS-SECTION IS LAW (owner ruling RULINGS 2026-08-25g).
+    # LAST, and deliberately so: the cap this prices against is the
+    # LONGITUDINAL cap the whole chain above just settled on (the road
+    # rate, the frontage 1 %, a seam-pinned body cap), and the transverse
+    # cap is a pure function OF THAT cap — never of a role re-read here.
+    # ``road_cross_section_cap`` is ``min``-shaped, so this branch can
+    # only ever TIGHTEN: a frontage chord across a road keeps its 1 %,
+    # and every relaxation above that the law meant to grant survives
+    # longitudinally.  Crown declarations exempt exactly as elsewhere —
+    # the crown offset re-centres the pair's Δz before either reader
+    # compares it to this budget, and nothing here touches that offset.
+    if p.transverse_road:
+        cap = road_cross_section_cap(cap)
 
     return Allowance.flat(cap)
 

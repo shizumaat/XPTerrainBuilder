@@ -965,15 +965,26 @@ def road_report(cg, census, tmp_path_factory):
 
 
 def test_the_road_family_is_SEEN_by_the_within_shape_law(road_report):
-    """WITHIN_SHAPE = 2.  R1's cap is the service-road limit (8 %), so a
-    20 m edge allows 8 %·20 + 0.03 = 1.63 m and the 28.284 m diagonal
-    allows 2.29 m.  Its 2.0 m corner breaches both edges that touch it
-    (b-c, c-d) and neither diagonal (a-c carries 1.9 m, b-d carries 0).
-    R2 and R3 lie flat.
+    """WITHIN_SHAPE + ROAD_CROSS_SECTION = 2.  R1's longitudinal cap is
+    the service-road limit (8 %), so a 20 m edge allows 8 %·20 + 0.03 =
+    1.63 m and the 28.284 m diagonal allows 2.29 m.  Its 2.0 m corner
+    breaches both edges that touch it (b-c, c-d) and neither diagonal
+    (a-c carries 1.9 m, b-d carries 0).  R2 and R3 lie flat.
 
-    Not a new law — the point is the DOMAIN: these are the roles the
-    corridor round created, and they are read."""
-    assert _fam(road_report, "within_shape")["n"] == 2
+    THE SPLIT (owner ruling RULINGS 2026-08-25g, "ROADS ARE LATERALLY
+    FLAT"): R1's two breaching edges are perpendicular to each other, so
+    whichever way its ring axis falls, exactly ONE of them runs ALONG the
+    ring and one runs ACROSS it — the across one is the road's
+    CROSS-SECTION and is priced at the road's transverse limit in its own
+    family.  The pair COUNT is what this twin is about (the domain: these
+    are the roles the corridor round created, and they are read), and the
+    count is unchanged — the ruling re-prices rows, it does not mint or
+    drop them."""
+    assert (_fam(road_report, "within_shape")["n"]
+            + _fam(road_report, "road_cross_section")["n"]) == 2
+    # ...and it really is one of each, not two of one: the cross-section
+    # is a PARTITION of the ring's pairs by angle.
+    assert _fam(road_report, "road_cross_section")["n"] == 1
 
 
 def test_the_road_family_is_SEEN_by_the_step_laws(road_report):
@@ -1079,7 +1090,13 @@ def test_the_road_fixtures_drainage_rows_are_GONE_by_LAW(road_report, cg):
 
     The register is the record of which zero this is."""
     assert _fam(road_report, "drainage_minimum")["n"] == 0
-    assert _fam(road_report, "within_shape")["n"] == 2
+    # The within-shape PAIR POPULATION is untouched; RULINGS 2026-08-25g
+    # splits it between two families by angle (see
+    # ``test_the_road_family_is_SEEN_by_the_within_shape_law``), which is
+    # a re-pricing, not a domain change — and the domain is what this
+    # twin is the record of.
+    assert (_fam(road_report, "within_shape")["n"]
+            + _fam(road_report, "road_cross_section")["n"]) == 2
     entry = cg.RETIRED_LAWS["drainage_minimum::groundside"]
     assert not (set(entry["roles"]) & set(cg._DRAINAGE_MIN_ROLES))
 

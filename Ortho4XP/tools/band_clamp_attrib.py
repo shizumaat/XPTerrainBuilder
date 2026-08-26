@@ -27,6 +27,18 @@ its ``.axes.json`` sidecar:
     ``--near-miss-m`` of airside pavement that share no edge.  The ruling's
     boundary is edge-sharing; near-misses are for the owner to rule on.
 
+``--site LAT,LON --road-profile``
+    RULINGS 2026-08-25g: *roads are laterally flat — the cross-section
+    limit is law*.  The owner's two in-sim complaints, as numbers, for
+    every road ring near a named site: LONGITUDINAL BUMPS (the change in
+    edge grade from one station to the next — a bump is a KINK, not a
+    slope) and LATERAL TILT (every ring pair running ≥45 ° across the
+    ring axis, quoted against ``SERVICE_ROAD_MAX_TRANSVERSE``).  The axis
+    reader and the ≥45 ° classifier are imported from ``grade_law``, the
+    same two the ``road_cross_section`` census family is built on, so
+    this before/after evidence and that acceptance number describe one
+    population.
+
 It measures no law and counts no defects: the census
 (``tools/harness/census.py``) is the law instrument.  Read-only — opens
 the patch and the sidecar and writes nothing.
@@ -34,6 +46,8 @@ the patch and the sidecar and writes nothing.
     venv/bin/python tools/band_clamp_attrib.py PATCH.osm
     venv/bin/python tools/band_clamp_attrib.py PATCH.osm --contact-rings
     venv/bin/python tools/band_clamp_attrib.py PATCH.osm --site LAT,LON
+    venv/bin/python tools/band_clamp_attrib.py PATCH.osm \\
+        --site LAT,LON --road-profile [--radius-m 200]
 """
 
 from __future__ import annotations
@@ -343,6 +357,110 @@ def _to_ll(p: _Patch, x, y):
     return f"{lat:.7f},{lon:.7f}"
 
 
+# ──────────────────────────────────────────────────────────────────
+# Mode 3 — the ROAD STATION PROFILE (RULINGS 2026-08-25g)
+# ──────────────────────────────────────────────────────────────────
+def report_road_profile(p: _Patch, site, radius_m: float, worst_n: int = 8):
+    """The owner's two complaints, as numbers, for every road ring near
+    a named site: LONGITUDINAL BUMPS and LATERAL TILT.
+
+    The owner's 1.0.259 in-sim read was "roads improved but still have a
+    lot of bumps and laterally not flat".  Neither half is a defect COUNT
+    — the census is the law instrument and this tool measures no law — so
+    what is printed here is the SURFACE, at stations, in the two
+    directions the complaint names:
+
+    * LONGITUDINAL — walking the ring, the grade of each edge that runs
+      ALONG the ring axis, and the KINK (the change in that grade from
+      one edge to the next).  A bump is a kink, not a slope: a road that
+      climbs 6 % steadily is not what the owner is looking at.
+    * LATERAL — every ring pair that runs ACROSS the axis, at its own
+      grade, quoted against ``SERVICE_ROAD_MAX_TRANSVERSE``.  The worst
+      one is the answer to "how not-flat is it".
+
+    THE AXIS AND THE ≥45 ° SPLIT ARE THE LAW'S (``grade_law.
+    long_axis_of_points`` / ``pair_is_transverse``), imported, never
+    re-typed: this report and the ``road_cross_section`` census family
+    have to be talking about the same pairs or the before/after evidence
+    is about a different population than the acceptance number.
+    """
+    from auto_patch.config import SERVICE_ROAD_MAX_TRANSVERSE
+    from auto_patch.grade_law import (long_axis_of_points,
+                                      pair_is_transverse)
+    sx, sy = p.to_m(*site)
+    print(f"patch          : {p.path}")
+    print(f"site           : {site[0]:.7f},{site[1]:.7f}  "
+          f"radius {radius_m:.0f} m")
+    print(f"lateral law    : SERVICE_ROAD_MAX_TRANSVERSE = "
+          f"{SERVICE_ROAD_MAX_TRANSVERSE * 100:g} %   "
+          f"longitudinal: SERVICE_ROAD_MAX_GRADE = "
+          f"{SERVICE_ROAD_MAX_GRADE * 100:g} %")
+    near = [(w, nids, pts, elevs)
+            for (w, nids, pts, elevs, poly) in p.rings
+            if w.role in ROAD_ROLES
+            and min(math.hypot(x - sx, y - sy) for (x, y) in pts) <= radius_m]
+    if not near:
+        print("  no road ring within the radius.")
+        return
+    print(f"road rings     : {len(near)} within the radius\n")
+    all_lat, all_kink = [], []
+    for (w, nids, pts, elevs) in sorted(
+            near, key=lambda r: min(math.hypot(x - sx, y - sy)
+                                    for (x, y) in r[2])):
+        ax = long_axis_of_points(pts)
+        if ax is None:
+            continue
+        (ux, uy), axlen, _mid = ax
+        n = len(pts)
+        lon_rows, lat_rows = [], []
+        for k in range(n):
+            a, b = elevs[k], elevs[(k + 1) % n]
+            if a is None or b is None:
+                continue
+            (x1, y1), (x2, y2) = pts[k], pts[(k + 1) % n]
+            d = math.hypot(x2 - x1, y2 - y1)
+            if d < 0.5:
+                continue
+            g = (float(b) - float(a)) / d
+            row = (k, d, g, (x1 + x2) / 2.0, (y1 + y2) / 2.0)
+            (lat_rows if pair_is_transverse((ux, uy), x2 - x1, y2 - y1)
+             else lon_rows).append(row)
+        # STATIONS: the along-axis coordinate of each longitudinal edge's
+        # midpoint, so the profile reads in road order rather than ring
+        # order (a corridor ring walks UP one flank and BACK the other).
+        lon_rows.sort(key=lambda r: r[3] * ux + r[4] * uy)
+        kinks = [abs(lon_rows[i + 1][2] - lon_rows[i][2])
+                 for i in range(len(lon_rows) - 1)]
+        all_kink += kinks
+        all_lat += [abs(r[2]) for r in lat_rows]
+        wl = max((abs(r[2]) for r in lat_rows), default=0.0)
+        print(f"  way {w.wid:<8s} {w.role:<17s} axis "
+              f"{math.degrees(math.atan2(uy, ux)):6.1f}deg len "
+              f"{axlen:7.1f} m  {n} vertex(es)")
+        print(f"           longitudinal: {len(lon_rows)} edge(s), worst "
+              f"{max((abs(r[2]) for r in lon_rows), default=0.0) * 100:6.2f} %"
+              f"   BUMPS: worst kink "
+              f"{max(kinks, default=0.0) * 100:6.2f} pp over "
+              f"{len(kinks)} station step(s)")
+        print(f"           lateral     : {len(lat_rows)} pair(s), worst "
+              f"{wl * 100:6.2f} %"
+              + ("  <= limit" if wl <= SERVICE_ROAD_MAX_TRANSVERSE + 1e-9
+                 else f"  OVER the {SERVICE_ROAD_MAX_TRANSVERSE * 100:g} % "
+                      f"limit by {(wl - SERVICE_ROAD_MAX_TRANSVERSE) * 100:.2f} pp"))
+    def _p(v, q):
+        return sorted(v)[min(len(v) - 1, int(len(v) * q))] if v else 0.0
+    print(f"\nSITE TOTALS    : lateral pairs {len(all_lat)}  p90 "
+          f"{_p(all_lat, 0.9) * 100:.2f} %  WORST "
+          f"{max(all_lat, default=0.0) * 100:.2f} % (limit "
+          f"{SERVICE_ROAD_MAX_TRANSVERSE * 100:g} %);  "
+          f"station kinks {len(all_kink)}  p90 "
+          f"{_p(all_kink, 0.9) * 100:.2f} pp  WORST "
+          f"{max(all_kink, default=0.0) * 100:.2f} pp")
+    over = sum(1 for v in all_lat if v > SERVICE_ROAD_MAX_TRANSVERSE + 1e-9)
+    print(f"                 lateral pairs OVER the limit: {over} of "
+          f"{len(all_lat)}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -355,11 +473,24 @@ def main(argv=None):
                     help="near-miss horizon in metres (default 1.0)")
     ap.add_argument("--site", default=None,
                     help="LAT,LON — the ring profile at one named site")
+    ap.add_argument("--road-profile", action="store_true",
+                    help="with --site: the road STATION PROFILE there — "
+                         "longitudinal bumps (station kinks) and lateral "
+                         "tilt vs the cross-section limit (RULINGS "
+                         "2026-08-25g)")
+    ap.add_argument("--radius-m", type=float, default=200.0,
+                    help="--road-profile: site radius in metres "
+                         "(default 200)")
     args = ap.parse_args(argv)
     p = _Patch(Path(args.patch))
     site = None
     if args.site:
         site = tuple(float(v) for v in args.site.split(","))
+    if args.road_profile:
+        if site is None:
+            ap.error("--road-profile needs --site LAT,LON")
+        report_road_profile(p, site, args.radius_m)
+        return 0
     if args.contact_rings:
         report_contact_rings(p, args.near_miss_m)
         if site:

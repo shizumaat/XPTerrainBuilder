@@ -486,6 +486,17 @@ class ShapeConstraints:
     #: which is which from a cap value would be guessing — a 1 % row is a
     #: stand row whatever its target.
     edge_anchor_kind: list[str] = field(default_factory=list)
+    #: INDEX-PARALLEL to :attr:`edges`: True where the pair is a ROAD
+    #: ring's CROSS-SECTION (owner ruling RULINGS 2026-08-25g — the pair
+    #: axis stands ≥ 45 ° to the ring's long axis, ``grade_law.
+    #: pair_is_transverse`` on the very ``PairContext`` ``classify_pair``
+    #: judged).  Recorded at MINT for the same reason
+    #: :attr:`edge_interior` is: the census reports the cross-section as
+    #: its OWN law family, and re-deriving which rows those are from a
+    #: 2 %-looking cap value would be a guess — the road cap chain can
+    #: reach 2 % by other routes (a narrow-taxi blend, a tightened
+    #: frontage), and a guess would mint or lose rows either way.
+    edge_transverse_road: list[bool] = field(default_factory=list)
     #: APRON ring keys inside the RUNWAY STRIP footprint (spec AMENDMENT
     #: A4.2).  Those pairs are SKIPPED by the law, so the node never
     #: appears on an edge and the seniority partition — whose domain is
@@ -2896,6 +2907,25 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 c for c in ctx.centerlines if c.cap < _SVC_CAP_BL - 1e-9]
         near = [_nearest_centerline(x, y, _blend_ctx) for (x, y) in ring]
 
+    # ── THE ROAD CROSS-SECTION (owner ruling RULINGS 2026-08-25g) ────────
+    # THIS RING'S OWN AXIS, computed ONCE per shape (O(n) over the ring
+    # edges) and handed to THE LAW as a per-pair fact, exactly like the
+    # frontage / strip / zone memberships above.  The verdict is the
+    # law's (``grade_law.pair_is_transverse``); the axis is the reader's,
+    # and it is THE axis — ``grade_law.long_axis_of_points`` is the same
+    # function the lateral-contiguity station walk reads a road's
+    # direction with, so the law cannot price a cross-section the walk
+    # would call longitudinal.
+    #
+    # Scoped to the ROAD FAMILY: the ruling names the road, and a taxiway
+    # or apron ring's long axis is not a cross-section notion (their
+    # transverse law is the ROUTE-frame one ``_bake_one_route`` already
+    # applies).  Gate off ⇒ ``None`` ⇒ every pair keeps its longitudinal
+    # cap, byte-identical to the pre-ruling build.
+    road_axis = None
+    if GL.ROAD_CROSS_SECTION_LAW and shape.role in GL.ROAD_ROLES:
+        _ax = GL.long_axis_of_points(ring)
+        road_axis = _ax[0] if _ax else None
     # Per-vertex service-road-carve membership (O(n) once; the pair rule is then
     # ``both endpoints on a carve`` → road cap, via grade_law.classify_pair).
     road_vert = None
@@ -3079,7 +3109,12 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                     and zone_vert[i] == zone_vert[j]
                     and interior_zone_pair(ctx, zone_vert[i], zone_vert[j],
                                            xi, yi, xj, yj)),
-                corridor_connected=corridor_connected)
+                corridor_connected=corridor_connected,
+                # THE ROAD CROSS-SECTION (RULINGS 2026-08-25g).
+                transverse_road=(
+                    road_axis is not None
+                    and GL.pair_is_transverse(road_axis,
+                                              xj - xi, yj - yi)))
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue
@@ -3095,7 +3130,27 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             # 2-3× the flat 1 %·d — the SPJC residual-178 class: the solver
             # graph was satisfied at the baked budgets while the validator's
             # flat reading (correctly) flagged the same chords.
-            if vert_route is not None and not (ki_bld or kj_bld):
+            # A CROSS-SECTION IS NOT A TRAVEL PATH (RULINGS 2026-08-25g).
+            # Every pricing below this line converts a pair's budget from
+            # its chord to a ROUTE measure: the anisotropic bake spends
+            # the along-route component at ``cL``, and the route-leg /
+            # route-metric floors spend the airside TRAVEL distance
+            # between the endpoints, which on a road cross-section is the
+            # whole way round the block.  Applied to the pair that runs
+            # ACROSS a road, each of them re-opens exactly the budget the
+            # ruling closes.  The law already priced this pair at the
+            # cross-section cap; it exits the chain holding it.
+            #
+            # This is a TIGHTENING and only that: the bake's own verdict
+            # for a transverse pair is ``hypot(cL·Δs∥, cT·Δs⊥)`` with
+            # Δs∥ ≈ 0, i.e. ≈ ``cT·d`` — the same number the flat
+            # allowance carries — so on the pairs that HAD a route
+            # nothing measurable changes, and the pairs that had none
+            # (``_bake_edge``'s off-network branch, isotropic at the 8 %
+            # road cap) are the population the ruling is about.
+            _road_xsec = _pc.transverse_road
+            if (vert_route is not None and not (ki_bld or kj_bld)
+                    and not _road_xsec):
                 allow = _bake_edge(allow, shape.role, (xi, yi), (xj, yj),
                                    shared, ctx, vert_route[i], vert_route[j])
             # ROUTE-LEG FLOOR / ROUTE-METRIC FAR PAIRS (owner rulings
@@ -3106,6 +3161,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             # smoothness law and stay tight.
             if (SPINE_FRAME_PAIRS
                     and not ring_adjacent and not (ki_bld or kj_bld)
+                    and not _road_xsec
                     # CHORD GATE (``ROUTE_LEG_EXACT``, owner field report
                     # 2026-08-02): a LOCAL pair is priced on its chord,
                     # exactly as ``_route_metric_far_pair`` still is and as
@@ -3120,7 +3176,8 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 if allow is None:
                     continue
             elif (ROUTE_METRIC_PAIRS and d > PAIR_CHORD_LOCAL_M
-                    and not ring_adjacent and not (ki_bld or kj_bld)):
+                    and not ring_adjacent and not (ki_bld or kj_bld)
+                    and not _road_xsec):
                 allow = _route_metric_far_pair(
                     allow, (xi, yi), (xj, yj), d, ctx)
                 if allow is None:
@@ -3128,6 +3185,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             sc.edges.append((ki, kj, allow))
             sc.edge_interior.append(_is_interior)
             sc.edge_anchor_kind.append(_anchor_kind or "")
+            sc.edge_transverse_road.append(_road_xsec)
 
     sc.spine_chains = _build_spine_chains(shape, ctx, membership)
     return sc

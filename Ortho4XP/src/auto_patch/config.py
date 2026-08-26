@@ -166,6 +166,8 @@ __all__ = [
     "SERVICE_ROAD_MAX_GRADE",
     "SVC_PROFILE_REVERSAL_MIN_M",
     "SERVICE_ROAD_MAX_TRANSVERSE",
+    "ROAD_TRANSVERSE_AXIS_MIN_DEG",
+    "ROAD_CROSS_SECTION_LAW",
     "SERVICE_ROAD_CROWN_TRANSVERSE",
     "SVC_SPINE_FIRST",
     "SVC_SPINE_EDGE_COUPLE",
@@ -903,6 +905,30 @@ CROWN_SPINE_SEAM_WELD = (
 # legally tilt at its 5 % LONGITUDINAL cap (25 cm across a 5 m road —
 # the user-visible ridge/valley budget this replaces).
 SERVICE_ROAD_MAX_TRANSVERSE = 0.020
+# ── THE ROAD CROSS-SECTION IS LAW (owner RULINGS 2026-08-25g) ────────────
+# "ROADS ARE LATERALLY FLAT — THE CROSS-SECTION LIMIT IS LAW", resolving
+# the KAFW N-1 open question of 2026-08-20.  The cap above was already
+# GENERATION-BINDING through the anisotropic bake
+# (``grade_graph._bake_one_route``), and it did not hold: the validator's
+# allowance is ``max(baked, cap_l · dist)`` — "never TIGHTER than the flat
+# cap" — so the 8 % LONGITUDINAL cap always won and a road pair could tilt
+# 2-8 % across its own width with nothing to price it (164 KAFW rows, 254
+# at KDFW).  The classifier that says WHICH pairs are the cross-section is
+# the angle between the pair's own axis and the ROAD RING's long axis;
+# ``grade_law.pair_is_transverse`` is its ONE implementation, and this is
+# the only number it needs.
+#
+# 45 ° IS THE PARTITION, NOT A TUNING KNOB: it is the angle at which a
+# pair stops being more along the road than across it.  Every pair is on
+# one side of it, so the classification is exhaustive and no pair falls
+# between the two laws.
+ROAD_TRANSVERSE_AXIS_MIN_DEG = 45.0
+#: ONE KILL SWITCH for the whole 25g reading (census AND solve — they are
+#: one law and land together).  OFF restores the pre-ruling frame exactly:
+#: every road pair prices at its longitudinal cap and the
+#: ``road_cross_section`` family censuses zero.
+ROAD_CROSS_SECTION_LAW = (
+    _os_early.environ.get("O4_ROAD_CROSS_SECTION_LAW", "1") == "1")
 # Aprons + building pads grade at 1% (user 2026-06-18: "both builds and aprons
 # should be 1%") — flat is preferred 99% of the time, the cap is the fallback.
 # JUNCTIONS stay at the TAXI rate (1.5%): they are part of the moving network

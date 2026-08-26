@@ -502,7 +502,7 @@ def _discover_sibling_road_networks(
 # result still carries −50.0 m from two 4-vertex VOR ground decals and
 # still cuts the basin 51.5 m below its own rim.  The version is what
 # retires it.
-_CLASSIFICATION_CACHE_VERSION = 19
+_CLASSIFICATION_CACHE_VERSION = 20
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -588,6 +588,12 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # carved open pit joins those exclusions.
         digest.update(
             f"basin-trench:{config.OBJECT_BASIN_TRENCH}".encode()
+        )
+        # ...and the pool-scoping gate: it decides which resources SEED an
+        # open-pit component, so a flip changes the classification itself
+        # (LEMD: a 2,078,883 m² basin against a 12,251 m² one).
+        digest.update(
+            f"basin-pool-scoping:{config.BASIN_POOL_SCOPING}".encode()
         )
         dsf_stat = os.stat(dsf_path)
         digest.update(

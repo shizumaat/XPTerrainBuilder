@@ -4821,6 +4821,40 @@ TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M = float(
 # above a flat quad's exact 0.0.
 MIN_SOLID_PART_THICKNESS_M = 0.3
 
+# BASIN POOL SCOPING (2026-08-25, LEMD pooling docket).  DEFAULT ON.
+#
+# The SAME "a decal is not a solid" notion as §2.1 above, applied one
+# step earlier: a part with no vertical extent cannot SEED an open-pit
+# component either, so it contributes neither footprint nor chain
+# propagation to a basin.  §2.1 made the pool's FLOOR immune to its
+# worst member and §2.3 deliberately left pooling itself for a later
+# docket — this is that docket.
+#
+# MEASURED (LEMD, ``_open_pit_components``): the five
+# ``AESlite-LEMD-VOR-*.obj`` decals are each a SINGLE 4-vertex quad
+# 1.4–1.6 km on a side (1.98–2.62 million m²) authored at exactly
+# y = −50.0 (bbox height 0.000).  They qualify as pit seeds under
+# PIT_SEED_MIN_DEPTH_M/PIT_SEED_MAX_ABOVE_GRADE_Y_M, and because a seed
+# contributes its FULL footprint the emitted basin became 2,078,883 m²
+# spanning 1.4 km — with the real member, the 11,705 m²
+# ``LEMD_OBJ-Ground-FSX-LEMD36.obj`` tower cutout, and a second
+# 0-thickness quad 300 m away that could only have joined through them.
+# Excluding the decals from SEEDING confines the basin to 12,251 m² at
+# 40.4910641,−3.5700533 … 40.4922537,−3.5681585 — inside the owner's
+# JOSM bbox for the real sunken tower cutout — at an UNCHANGED floor.
+#
+# SCOPE IS THE SEED SET, NOT THE FRAME (measured, do not widen): thin
+# parts stay in the structure frame, because
+# ``_agl_tunnel_seed_resources`` judges its above-grade cap on the WHOLE
+# structure (owner ruling 2026-07-31) — dropping them from the frame
+# re-seeded OTHH ``Bridge_04`` as a tunnel, the exact defect that ruling
+# closed.  Nor does this touch ``_below_grade_drivable_components``.
+#
+# With O4_BASIN_POOL_SCOPING=0 the seed set is the pre-fix one and the
+# emitted patch is byte-identical.
+BASIN_POOL_SCOPING = (
+    _os.environ.get("O4_BASIN_POOL_SCOPING", "1") == "1")
+
 # §2.2 — THE BASIN FLOOR DISAGREEMENT GATE (m).  Two independent
 # instruments describe one facility's bottom: ``solid_minimum_y_m`` (the
 # deepest solid vertex the frame saw) and ``body_depth_m`` (the median of

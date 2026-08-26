@@ -1089,6 +1089,26 @@ def is_carved_basin_interface(interface: StructureGroundInterface) -> bool:
     return interface.floor_y_m is not None and interface.floor_y_m < 0.0
 
 
+def part_has_solid_thickness(minimum_y: float, maximum_y: float) -> bool:
+    """THE "a decal is not a solid" predicate (spec ``docs/specs/
+    tunnel-trench-law-and-basin-floor-spec.md`` §2.1), in ONE place.
+
+    A part with vertical extent below
+    :data:`config.MIN_SOLID_PART_THICKNESS_M` is PAINT: a flat authored
+    quad, not a structure.  Both readers of that notion go through this
+    function so a second spelling of it cannot drift into existence —
+    the FLOOR WITNESS in :func:`_build_structure_frame` (§2.1) and the
+    open-pit SEED set in :func:`_open_pit_components`
+    (``config.BASIN_POOL_SCOPING``).
+
+    ``minimum_y``/``maximum_y`` are the part's OWN authored bbox bounds.
+    A placement's AGL offset is a constant added to both, so the extent
+    is the authored one whichever frame the caller measured in.
+    """
+    from .config import MIN_SOLID_PART_THICKNESS_M
+    return (maximum_y - minimum_y) >= MIN_SOLID_PART_THICKNESS_M
+
+
 def is_open_pit_interface(interface: StructureGroundInterface) -> bool:
     """Is this carved basin an OPEN pit — a hole with nothing of the
     pack's own standing over it?
@@ -1804,10 +1824,9 @@ def _build_structure_frame(
     minimum_effective_height = math.inf
     # A DECAL IS NOT A SOLID (spec §2.1): the FLOOR WITNESS minimum skips
     # every part with no vertical extent of its own.  Tracked beside the
-    # full minimum, never instead of it.  (Local import, the
-    # ``BRIDGE_ROAD_CLEARANCE_MINIMUM_M`` idiom of this module, hoisted out
-    # of the placement loop.)
-    from .config import MIN_SOLID_PART_THICKNESS_M
+    # full minimum, never instead of it.  The predicate is
+    # :func:`part_has_solid_thickness` — the ONE spelling of the notion,
+    # shared with the open-pit seed set.
     solid_floor_witness = math.inf
     corner_x_parts: list[numpy.ndarray] = []
     corner_y_parts: list[numpy.ndarray] = []
@@ -1847,13 +1866,12 @@ def _build_structure_frame(
         if placement_minimum < minimum_effective_height:
             minimum_effective_height = placement_minimum
         # THE FLOOR WITNESS (spec §2.1).  The part's OWN authored bbox
-        # height — max_y − min_y over its used vertices; the placement's
-        # AGL offset is a constant added to both, so the extent is the
-        # authored one either way.  Below MIN_SOLID_PART_THICKNESS_M the
-        # part is a flat ground decal (LEMD's 4-vertex VOR quads at
-        # y = −48.244, extent exactly 0.0) and cannot witness a floor.
-        if (float(used_effective_y.max()) - placement_minimum
-                >= MIN_SOLID_PART_THICKNESS_M
+        # height — max_y − min_y over its used vertices.  Below
+        # MIN_SOLID_PART_THICKNESS_M the part is a flat ground decal
+        # (LEMD's 4-vertex VOR quads at y = −48.244, extent exactly 0.0)
+        # and cannot witness a floor.
+        if (part_has_solid_thickness(
+                placement_minimum, float(used_effective_y.max()))
                 and placement_minimum < solid_floor_witness):
             solid_floor_witness = placement_minimum
         grounded = used[used_effective_y <= GROUND_CONTACT_TOLERANCE_M]
@@ -3953,13 +3971,37 @@ def _open_pit_components(
     basement never seeds: its roof is far above the band.  Seeds are then
     joined into components by footprint proximity, the same union-find and
     the same buffer the tunnel components use.
+
+    A DECAL IS NOT A SOLID, AND SO IS NOT A PIT
+    (``config.BASIN_POOL_SCOPING``, default ON): a seed contributes its
+    FULL footprint and chains every other seed within the join buffer to
+    it, so a flat authored quad with no vertical extent is the one shape
+    that can make a basin arbitrarily large.  It measured exactly that at
+    LEMD — five ``AESlite-LEMD-VOR-*.obj`` decals, each a single
+    4-vertex quad 1.4–1.6 km on a side at y = −50.0 (bbox height 0.000),
+    seeded three pit components of 2.0–2.6 million m² and dragged the
+    real 11,705 m² tower cutout into a 2,078,883 m² basin.  The
+    predicate is :func:`part_has_solid_thickness`, the same one §2.1
+    uses for the floor witness — paint is not structure, in either law.
+
+    SCOPE IS THE SEED SET, NOT THE FRAME (measured; see
+    ``config.BASIN_POOL_SCOPING``): thin parts stay in the pool and in
+    the structure frame.  ``_agl_tunnel_seed_resources`` reads its
+    above-grade cap off the WHOLE structure (owner ruling 2026-07-31),
+    so dropping them from the frame re-seeded OTHH ``Bridge_04`` as a
+    tunnel — the very defect that ruling closed.
     """
+    from .config import BASIN_POOL_SCOPING
     pit_resources: set[str] = set()
     for placement in placements:
         _has_hard, has_solid, minimum_vertex_y, maximum_vertex_y = (
             cache.evidence(placement.resource_path)
         )
         if not has_solid:
+            continue
+        if BASIN_POOL_SCOPING and not part_has_solid_thickness(
+            minimum_vertex_y, maximum_vertex_y
+        ):
             continue
         offset = placement.above_ground_level_metres
         if offset + maximum_vertex_y > PIT_SEED_MAX_ABOVE_GRADE_Y_M:

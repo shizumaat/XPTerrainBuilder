@@ -10919,6 +10919,10 @@ def _taut_graded_strip(elev, chains, adopted, k_rate, *, frozen=None,
     # Gathered ACROSS rows by host station: the rows are the band's
     # lateral samples of one transverse section, and the section is what
     # has to be a plane.
+    # Keyed by (host, KIND): a FILL row and a CUT row are opposite
+    # regimes (DEM below the floor vs DEM above the ceiling) and are not
+    # samples of one transverse section, so they are never interleaved
+    # into one ramp.
     by_host: dict = {}
     for chain in chains:
         for pos, i in enumerate(chain["idx"]):
@@ -10928,10 +10932,10 @@ def _taut_graded_strip(elev, chains, adopted, k_rate, *, frozen=None,
             if not spec:
                 continue
             j = spec[0][0]
-            by_host.setdefault(j, []).append(
+            by_host.setdefault((j, chain["kind"]), []).append(
                 (float(chain["depth"][pos]), i, spec))
     n_transverse = 0
-    for j, members in by_host.items():
+    for (j, _kind), members in by_host.items():
         if j is None or j >= n_elev or len(members) < 2:
             continue                 # a two-point section is already a line
         members.sort(key=lambda m: m[0])

@@ -3544,3 +3544,27 @@ each got one OTHH build and the same test selection as the base commit; both
 are measured refutations, recorded in their commit messages.  Still skipped
 for all three: the full pytest suite, the blast-radius suites, the
 five-airport battery, and any gate-off byte-identity build arm.
+
+### 2026-08-25 addendum 2 — lane/tunnelmerge (the branch that merges)
+
+The node-book round produced SIX designs on lane/tunnelfix (v1 per-ring
+exclusion — the one MERGED on main; v2 per-node keys; v3 road-precedence
+demotion; option A claim-scoped role exit; Amendment 4 keys+severance on the
+claim; Amendment 5 the same on the open cut), each with one OTHH build and
+the covering test selection, never the full suite.  Five are measured
+refutations recorded in their commit messages; this branch carries NONE of
+them — its node book is byte-identical to main's v1 by construction
+(`git checkout main -- groundside.py`), so the merged behaviour is the one
+the owner accepted and flew.
+
+What this branch DOES carry, and what is deferred on it:
+
+* the per-piece named-refusal instrument and the portal corridor claim
+  (RULINGS 2026-08-25e) — verified by one OTHH build and 603 covering
+  tests; DEFERRED: the full pytest suite, the blast-radius suites for
+  `bridges.py`, the five-airport battery and its censuses, and any
+  `O4_PORTAL_CORRIDOR_CLAIM=0` byte-identity build arm (the gate's OFF
+  path is proven at unit level only);
+* the open-cut region publisher, which has NO consumer on this branch —
+  its twin asserts faithfulness and that the two regions stay two;
+  DEFERRED: nothing measures it in a build, by construction.

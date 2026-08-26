@@ -282,3 +282,105 @@ class TestOneClaimAuthority:
         n = bridges._stand_down_synthetic_over_claimed(lay, claimed, set())
         assert n == 1
         assert rect not in lay.shapes
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE PHANTOM CLAIM (mouth D's real blocker, measured 2026-08-25)
+# ═════════════════════════════════════════════════════════════════════
+
+class TestTheStandDownJudgesTheCorridorNotTheShape:
+    """THE MOUTH-D MECHANISM, and the fix RULINGS 2026-08-25e requires
+    ("mouth D must emit").
+
+    MEASURED, from the §1 instrument's first run: mouth D's four ramp
+    pieces (919.5, 934.5, 934.5, 817.6 m²) were deleted at share=1.000
+    by ONE claimant — 19,461.6 m², 1,525 m of perimeter, centroid 147 to
+    258 m away.  A long service lot covers the open cut at one end and
+    blankets a DIFFERENT mouth's approach at the other, where it sits at
+    grade and carries no tunnel surface at all.  The claim was not
+    mis-anchored and it had not outlived its road: it was JUDGED WHOLE.
+
+    ``_claim_road_pavement`` re-profiles a claimed road IN PLACE and
+    hands its consumers the shape's own polygon.  For the node book —
+    "is this ring the bore's own geometry" — that is the right list and
+    it is untouched (main's merged v1 rule reads exactly it).  For the
+    stand-down — "does claimed road carry the corridor HERE" — it is
+    not: the question is about the ground under the piece, so the answer
+    is the claim ∩ THE CUT, the same region the claim was judged against
+    in the first place.
+    """
+
+    def _scene(self):
+        """A claimable road lot 500 m long: its west end lies in the
+        cut, its east end is a plain lot — and a synthetic ramp sits on
+        the east end, 300 m from anything the bore touches."""
+        lot = BuiltShape(
+            polygon=_rect(-20, -6, 480, 6),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="",
+            node_altitudes=[10.0] * 5)
+        lay = _layout([lot])
+        pre = {id(s) for s in lay.shapes}
+        far_ramp = BuiltShape(polygon=_rect(400, -4, 460, 4),
+                              role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                              node_altitudes=[9.0] * 5)
+        near_ramp = BuiltShape(polygon=_rect(-15, -4, 20, 4),
+                               role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                               node_altitudes=[2.0] * 5)
+        lay.shapes.extend([far_ramp, near_ramp])
+        portal = _portal([(0.0, 0.0), (60.0, 0.0)], width=8.0, grade=2.0)
+        return lay, lot, far_ramp, near_ramp, [portal]
+
+    def test_the_claim_returns_its_corridor_footprint(self, monkeypatch):
+        """The claim hands on BOTH: the whole shapes (the node book's
+        list, unchanged) and their corridor footprints."""
+        monkeypatch.setenv(CLAIM_FLAG, "1")
+        lay, lot, _far, _near, portals = self._scene()
+        n, whole, corridor = bridges._claim_road_pavement(
+            lay, portals, [], 0.6)
+        assert n >= 1, "the lot was not claimed at all"
+        assert whole and corridor
+        assert whole[0].area == pytest.approx(500 * 12)
+        assert corridor[0].area < 0.5 * whole[0].area, (
+            "the corridor footprint is the whole shape again — the "
+            "mouth-D phantom is back")
+
+    def test_a_ramp_far_from_the_cut_survives(self, monkeypatch):
+        """Mouth D's case in one assertion: a ramp over the claimed
+        shape but NOT over the corridor is not redundant to anything, so
+        it stays."""
+        monkeypatch.setenv(CLAIM_FLAG, "1")
+        lay, lot, far, near, portals = self._scene()
+        _n, whole, corridor = bridges._claim_road_pavement(
+            lay, portals, [], 0.6)
+        pre = {id(s) for s in lay.shapes if s is lot}
+        bridges._stand_down_synthetic_over_claimed(lay, corridor, pre)
+        assert far in lay.shapes, (
+            "the far ramp was stood down by a claim 300 m away — that "
+            "is the mouth-D deletion")
+        assert near not in lay.shapes, (
+            "the ramp INSIDE the cut was kept — the stand-down's own "
+            "purpose (no synthetic rectangle beside claimed road) must "
+            "survive the fix")
+
+    def test_the_whole_shape_list_reproduces_the_phantom(self,
+                                                         monkeypatch):
+        """The control, one variable: judged against the WHOLE claimed
+        shape — today's behaviour, and the flag's OFF path — the far
+        ramp dies."""
+        monkeypatch.setenv(CLAIM_FLAG, "1")
+        lay, lot, far, near, portals = self._scene()
+        _n, whole, _corridor = bridges._claim_road_pavement(
+            lay, portals, [], 0.6)
+        pre = {id(s) for s in lay.shapes if s is lot}
+        bridges._stand_down_synthetic_over_claimed(lay, whole, pre)
+        assert far not in lay.shapes
+
+    def test_the_node_books_list_is_UNTOUCHED(self):
+        """The merged v1 rule reads ``tunnel_open_cut_claim_polys`` and
+        must keep reading whole claimed shapes — the fix changes which
+        list the STAND-DOWN consumes, nothing else."""
+        import inspect
+        src = inspect.getsource(bridges._emit_tunnel_portals)
+        assert "publish_tunnel_open_cut_claim_set(layout, _claimed)" in src, (
+            "the publisher stopped receiving the whole-shape claim set — "
+            "that would change the merged node-book rule")

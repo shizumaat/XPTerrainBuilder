@@ -6185,7 +6185,39 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
                 f"it.")
         except _GEOM_EXC:
             pass
-    return _n, _claimed_polys
+    # ── THE CORRIDOR FOOTPRINT OF THE CLAIM (mouth-D fix, RULINGS
+    # 2026-08-25e) ───────────────────────────────────────────────────
+    # ``_claimed_polys`` are WHOLE SHAPES: a claimed road is re-profiled
+    # in place, and the list its consumers get is the shape's own
+    # polygon.  For the node book (which asks "is this ring the bore's
+    # own geometry") that is the right list and it stays untouched.
+    #
+    # For the STAND-DOWN it is not, and the cost is measured: OTHH mouth
+    # D's four ramp pieces were deleted at share=1.000 by ONE claimant of
+    # 19,461.6 m² with a 1,525 m perimeter, whose centroid lies 147-258 m
+    # away — a long service lot that covers the cut at one end and blankets
+    # a DIFFERENT mouth's approach at the other, where it sits at grade and
+    # carries no corridor at all.  "A claimed road carries the corridor
+    # HERE" is a question about the ground under the piece, so the answer
+    # is the claim ∩ THE CUT: the region the claim was judged against in
+    # the first place, never a new geometric notion.
+    _corridor_polys: list = []
+    try:
+        _cut_parts = [_z for _l, _a, _f in _regions
+                      for _z in (_l, _a)
+                      if _z is not None and not _z.is_empty]
+        _cut_u = unary_union(_cut_parts) if _cut_parts else None
+    except _GEOM_EXC:                                  # pragma: no cover
+        _cut_u = None
+    if _cut_u is not None and not _cut_u.is_empty:
+        for _cp in _claimed_polys:
+            try:
+                _part = _cp.intersection(_cut_u)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if _part is not None and not _part.is_empty:
+                _corridor_polys.append(_part)
+    return _n, _claimed_polys, _corridor_polys
 
 
 #: Spec ``docs/specs/portal-corridor-claim-spec.md`` §2 gate.  Default
@@ -6404,6 +6436,53 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
     return _n
 
 
+def log_tunnel_claimant_cover(layout, piece, claimed_members) -> None:
+    """Name the CLAIM POLYGON that covered a stood-down piece.
+
+    RULINGS 2026-08-25e requires every remover to name what it deletes;
+    a stand-down is a removal justified by ANOTHER shape, so the
+    justification is named too.  Without this the mouth-D log said "N
+    rectangles stood down" and nothing about the claimant, and the
+    lane's offline read found the nearest surviving ``tunnel_road``
+    surface 702.7 m away — a claim covering a mouth whose road is not
+    there.  This line is what tells those two facts apart: an OVERSIZED
+    claimant (a whole road shape reaching far past the cut) reads as a
+    huge area with a distant centroid, and a claim that outlived its
+    road reads as a member with no surviving surface under it.
+    """
+    try:
+        _best = None
+        for _m in (claimed_members or ()):
+            try:
+                _ov = piece.polygon.intersection(_m).area
+            except (*_GEOM_EXC,):
+                continue
+            if _ov <= 0.0:
+                continue
+            if _best is None or _ov > _best[0]:
+                _best = (_ov, _m)
+        if _best is None:
+            UI.vprint(1,
+                      "  [tunnel-claimant] (none: the union covered it "
+                      "but no single member does)")
+            return
+        _ov, _m = _best
+        _, _to_ll = _local_meter_projections(layout.anchor)
+        _c = _m.centroid
+        _lat, _lon = _to_ll(_c.x, _c.y)
+        _pc = piece.polygon.centroid
+        _plat, _plon = _to_ll(_pc.x, _pc.y)
+        _dist = math.hypot(_c.x - _pc.x, _c.y - _pc.y)
+        UI.vprint(1,
+                  f"  [tunnel-claimant] covered by claim @"
+                  f"{_lat:.7f},{_lon:.7f} area={_m.area:.1f}m2 "
+                  f"span={_m.length:.0f}m centroid_dist={_dist:.0f}m "
+                  f"share={_ov / max(1e-9, piece.polygon.area):.3f} "
+                  f"(piece @{_plat:.7f},{_plon:.7f})")
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return
+
+
 def log_tunnel_corridor_claim(layout, strip, host_role: str,
                               host_index: int) -> None:
     """The §1 instrument's positive twin: name every strip the corridor
@@ -6523,6 +6602,16 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
         _claimed = unary_union(claimed_polys)
     except _GEOM_EXC:
         return 0
+    # THE CLAIMANT IS NAMED, NOT JUST THE VICTIM (RULINGS 2026-08-25e's
+    # instrument clause, applied to the other side of this predicate).
+    # A stood-down ramp is deleted because SOME claim polygon covers it,
+    # and "which one, and how big is it" is the question the mouth-D
+    # attribution could not answer from the log: the summary line said
+    # only how many rectangles went.
+    _members = [_p for _p in (claimed_polys
+                              if isinstance(claimed_polys, (list, tuple))
+                              else [claimed_polys])
+                if _p is not None and not getattr(_p, "is_empty", True)]
     _kept, _n = [], 0
     for _s in layout.shapes:
         if (id(_s) not in pre_emit_shape_ids
@@ -6536,6 +6625,7 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                     log_tunnel_piece_removal(
                         layout, _s, "R14-1 stand-down over claimed road",
                         coverage=_ovc / max(1e-9, _s.polygon.area))
+                    log_tunnel_claimant_cover(layout, _s, _members)
                     continue
             except _GEOM_EXC:
                 pass
@@ -6997,7 +7087,7 @@ def _emit_tunnel_portals(
     # stand down the synthetic rectangles it replaces.  Runs after the
     # cluster/corridor emit (the regions are known) and before finalize
     # (so the R10-2 cuts and the pavement clip see the claim).
-    _n_claim, _claimed = _claim_road_pavement(
+    _n_claim, _claimed, _claim_corridor = _claim_road_pavement(
         layout, portal_data, _facing_pairs, wall_gap_m)
     # THE CLAIM SET IS PUBLISHED, NOT RE-DERIVED (spec
     # ``tunnel-corridor-node-book-exclusion-spec.md`` §2): the
@@ -7007,8 +7097,15 @@ def _emit_tunnel_portals(
     # own below-grade floor.
     publish_tunnel_open_cut_claim_set(layout, _claimed)
     if _claimed:
+        # THE STAND-DOWN JUDGES THE CORRIDOR, NOT THE SHAPE (mouth-D
+        # fix, RULINGS 2026-08-25e; gated with the rest of that round).
         _stand_down_synthetic_over_claimed(
-            layout, _claimed, _pre_emit_ids)
+            layout,
+            (_claim_corridor
+             if (_claim_corridor
+                 and os.environ.get(_PORTAL_CORRIDOR_CLAIM_ENV, "1") == "1")
+             else _claimed),
+            _pre_emit_ids)
     # RULINGS 2026-08-25e / spec ``portal-corridor-claim-spec.md`` §2.
     # R14-1 has now claimed every ROAD surface it may.  What remains is
     # the mouth-D class: a corridor landing on pavement R14-1 may not

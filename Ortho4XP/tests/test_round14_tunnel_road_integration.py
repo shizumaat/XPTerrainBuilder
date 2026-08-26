@@ -195,7 +195,7 @@ class TestTheClaim:
 
     def test_a_covering_road_is_claimed_and_levelled(self):
         layout, rows, floor = _claim_scene()
-        n, claimed = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
+        n, claimed, _corr = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
         assert n == 1 and len(claimed) == 1
         shape = layout.shapes[0]
         assert shape.ref == bridges.TUNNEL_ROAD_REF
@@ -227,7 +227,7 @@ class TestTheClaim:
 
     def test_an_apron_inside_the_open_cut_is_never_sunk(self):
         layout, rows, _floor = _claim_scene(road_role=ROLE_APRON)
-        n, claimed = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
+        n, claimed, _corr = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
         assert n == 0 and claimed == []
         assert layout.shapes[0].ref == "", "airside is king"
         assert all(v == pytest.approx(AMBIENT_M)
@@ -260,7 +260,7 @@ class TestTheClaim:
 
     def test_a_transit_shape_inside_the_open_cut_is_never_sunk(self):
         layout, rows, _floor = _claim_scene(road_role=ROLE_JUNCTION)
-        n, _claimed = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
+        n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, [(0, 1)], 0.6)
         assert n == 0
         assert getattr(layout, "tunnel_airside_conflict", [])
 

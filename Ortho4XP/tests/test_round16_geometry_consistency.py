@@ -230,7 +230,7 @@ def test_r16_3_connected_claimed_plates_share_the_joint_depth():
     this reads a 0.11 m spread (KCLT's 210.87 / 210.98).
     """
     layout, rows, pairs = _two_plate_scene()
-    n, _claimed = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
+    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
     assert n == 2, f"both plates must be claimed, got {n}"
     values = [v for shape in layout.shapes for v in shape.node_altitudes]
     assert max(values) - min(values) <= 0.10, (
@@ -245,7 +245,7 @@ def test_r16_3_disconnected_plates_keep_their_own_floors():
     that do not touch answer with their own depths — joining them would
     sink pavement no bore runs under."""
     layout, rows, pairs = _two_plate_scene(separate=True)
-    n, _claimed = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
+    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
     assert n == 2
     floors = sorted(round(min(s.node_altitudes), 2) for s in layout.shapes)
     assert floors == [round(_FLOOR_DEEP, 2), round(_FLOOR_SHALLOW, 2)], (

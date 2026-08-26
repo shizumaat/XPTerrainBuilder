@@ -153,6 +153,16 @@ def _carry_claimed_corridor(source, part):
     _new = BuiltShape(polygon=part, role=getattr(source, "role", ""),
                       ref=getattr(source, "ref", ""), node_altitudes=na)
     setattr(_new, _LAW_SEATED_ATTR, True)
+    # THE VERIFICATION RIDES TOO.  ``bridges.audit_tunnel_claim_drift``
+    # reads the claim depth off the shape, so a rebuilt piece that
+    # dropped the attribute would be INVISIBLE to the audit — an
+    # instrument hole that reads as "no drift".  Carry it with the field.
+    _claim = getattr(source, "_tunnel_claim_depth", None)
+    if _claim is not None:
+        try:
+            setattr(_new, "_tunnel_claim_depth", _claim)
+        except (AttributeError, TypeError):            # pragma: no cover
+            pass
     return _new
 
 
@@ -5853,6 +5863,28 @@ def _clip_shape_yielding_to(ys, kept_polygon, snap_tol: float = 0.25):
     old_ring = list(ys.polygon.exterior.coords)
     old_alts = list(ys.node_altitudes or [])
     ys.polygon = new_poly
+    if claimed_tunnel_corridor(ys) and old_alts:
+        # AMENDMENT 2, THE SERVICE CHAIN.  The nearest-vertex carry below
+        # is right for a flat-ish service ring welded along its contact —
+        # and wrong for a CLAIMED CORRIDOR, whose ring runs from bore
+        # depth to ambient: a re-shaped vertex snaps to whichever ORIGINAL
+        # CORNER is closest, so a clip near the shallow end lifts the deep
+        # end with it.  Measured at OTHH: claims authored at -1.14 m came
+        # back at 1.50/1.60/4.00 m on the clipped pieces while the
+        # untouched ones kept -1.00.  The corridor is carried by the
+        # module's own EDGE-INTERPOLATING resampler instead — the same one
+        # the groundside clip uses, so there is one carrier, not two.
+        from .elevation import _resample_node_altitudes_nn
+        _open = (old_ring[:-1] if (old_ring and old_ring[0] == old_ring[-1])
+                 else old_ring)
+        try:
+            _na = _resample_node_altitudes_nn(
+                new_poly, _open, old_alts, interior_edge_project=True)
+        except _GEOM_EXC:                              # pragma: no cover
+            _na = None
+        if _na is not None:
+            ys.node_altitudes = _na
+            return new_poly
     if old_alts and len(old_alts) >= len(old_ring) - 1:
         out_ring = list(new_poly.exterior.coords)
         new_alts = []
@@ -6015,6 +6047,14 @@ def _deconflict_service_overlaps_once(
                 # a 100 %-area self-overlap.  Drop the redundant yielder: the
                 # kept shape already covers its footprint at the same role, so
                 # removing it loses no coverage and kills the overlap.
+                if claimed_tunnel_corridor(ys):
+                    # …EXCEPT a claimed corridor (AMENDMENT 2).  "The kept
+                    # shape already covers its footprint at the same role"
+                    # is true of the FOOTPRINT and false of the SURFACE:
+                    # the corridor carries authored bore depth and the
+                    # shape covering it does not, so dropping it deletes
+                    # the bore and leaves the mouth at grade.
+                    continue
                 drop_ids.add(id(ys))
                 n_clipped += 1
                 continue

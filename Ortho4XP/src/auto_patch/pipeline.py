@@ -6385,8 +6385,11 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             # clipped — AFTER the finalize-stage chord limiter ran, so a
             # rebuilt hillside piece reads >4 % across its interior again
             # (CYXY #207: 8 % over 7.8 m).  Re-limit (idempotent).
+            from .bridges import audit_tunnel_claim_drift
+            audit_tunnel_claim_drift(layout, "post-solve law seats")
             from .groundside import _grade_limit_groundside_chords
             _grade_limit_groundside_chords(layout)
+            audit_tunnel_claim_drift(layout, "after the chord limiter")
         except _GEOM_EXC:
             pass
         _rod_ckpt(layout, "14_groundside_separation")

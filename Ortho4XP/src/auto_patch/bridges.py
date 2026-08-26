@@ -6102,6 +6102,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         # ring so the stand-down can ask "does this claimant carry bore
         # depth HERE" per footprint (spec AMENDMENT 1).
         _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
+        _stash_tunnel_claim_depth(_shape, _new)
         log_tunnel_road_claim(layout, _shape, _new, "levelled")
         _n += 1
     # ── PASS 2: THE GRADED APPROACHES ────────────────────────────────
@@ -6165,6 +6166,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _shape.ref = TUNNEL_ROAD_REF
         _claimed_polys.append(_shape.polygon)
         _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
+        _stash_tunnel_claim_depth(_shape, _new)
         log_tunnel_road_claim(layout, _shape, _new, "graded")
         _n += 1
     if _airside:
@@ -6470,6 +6472,69 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
     except _GEOM_EXC:                                  # pragma: no cover
         pass
     return _n
+
+
+#: The claim's own depth, stashed on the shape it authored.  Spec
+#: ``portal-corridor-claim-spec.md`` AMENDMENT 2: the fields ride the
+#: shape, so the shape is also where the VERIFICATION rides.
+_TUNNEL_CLAIM_DEPTH_ATTR = "_tunnel_claim_depth"
+
+
+def _stash_tunnel_claim_depth(shape, alts) -> None:
+    _zs = [float(_a) for _a in (alts or ()) if _a is not None]
+    if not _zs:
+        return
+    try:
+        setattr(shape, _TUNNEL_CLAIM_DEPTH_ATTR, (min(_zs), max(_zs)))
+    except (AttributeError, TypeError):                # pragma: no cover
+        return
+
+
+def audit_tunnel_claim_drift(layout, where: str,
+                             tol_m: float = 0.10) -> int:
+    """Has any claimed corridor DRIFTED off the depth R14-1 gave it?
+
+    The claim's verification rides the shape beside the claim itself, so
+    a pass that moves an authored corridor is named WHERE it happened
+    rather than inferred from the emitted patch three hours later — the
+    archaeology this round paid for twice (mouth D, then the service
+    residual).  Reports only; never fails a build.
+
+    Returns the number of drifted shapes.
+    """
+    _rows = []
+    for _s in (getattr(layout, "shapes", None) or ()):
+        _claim = getattr(_s, _TUNNEL_CLAIM_DEPTH_ATTR, None)
+        if not _claim:
+            continue
+        _alts = [float(_a) for _a in (getattr(_s, "node_altitudes", None)
+                                      or ()) if _a is not None]
+        if not _alts:
+            _flat = getattr(_s, "altitude", None)
+            _alts = [] if _flat is None else [float(_flat)]
+        if not _alts:
+            _rows.append((_s, None, _claim))
+            continue
+        if abs(min(_alts) - _claim[0]) > tol_m:
+            _rows.append((_s, min(_alts), _claim))
+    if not _rows:
+        return 0
+    try:
+        _, _to_ll = _local_meter_projections(layout.anchor)
+        for _s, _now, _claim in _rows:
+            _c = _s.polygon.centroid
+            _lat, _lon = _to_ll(_c.x, _c.y)
+            UI.vprint(1,
+                      f"  [tunnel-claim-drift] at {where}: "
+                      f"role={getattr(_s, 'role', '') or '-'} "
+                      f"ref={getattr(_s, 'ref', '') or '-'} "
+                      f"@{_lat:.7f},{_lon:.7f} "
+                      f"area={_s.polygon.area:.1f}m2 claimed "
+                      f"{_claim[0]:.2f} m -> "
+                      + ("NO FIELD" if _now is None else f"{_now:.2f} m"))
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        pass
+    return len(_rows)
 
 
 def log_tunnel_road_claim(layout, shape, alts, how: str) -> None:
@@ -7317,6 +7382,7 @@ def _emit_tunnel_portals(
     # The ramp claims that corridor's own FOOTPRINT instead — the host
     # is cut, keeps its role and the rest of its area, and stops
     # covering the alignment.
+    audit_tunnel_claim_drift(layout, "portal-emit (right after the claim)")
     _n_corr = _claim_portal_corridor_footprint(
         layout, portal_data, _facing_pairs, wall_gap_m, _pre_emit_ids)
     if _n_corr:

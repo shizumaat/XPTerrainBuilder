@@ -39,7 +39,8 @@ from shapely.geometry import Polygon
 from auto_patch import groundside as gs
 from auto_patch.layout import (BuiltShape, PavementLayout, ROLE_APRON,
                                ROLE_GROUNDSIDE_PAVEMENT,
-                               ROLE_SERVICE_JUNCTION, TUNNEL_ROAD_REF)
+                               ROLE_SERVICE_JUNCTION, ROLE_SERVICE_ROAD,
+                               TUNNEL_ROAD_REF)
 
 BORE_Z = -0.92
 GRADE_Z = 3.96
@@ -231,3 +232,98 @@ class TestNoReStampingPass:
             "the claim predicate is not consulted at every re-derivation")
         for banned in ("re_stamp", "restamp", "reapply_claim"):
             assert banned not in src
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE SERVICE CHAIN — the same rule, the same carrier (AMENDMENT 2,
+# service-side extension)
+# ═════════════════════════════════════════════════════════════════════
+
+class TestTheServiceChainCarriesTheClaim:
+    """MEASURED (OTHH, 2026-08-25): on the service side the claim's REF
+    rides fine — every surviving piece kept ``tunnel_road`` — and the
+    DEPTH did not: claims authored at −1.14 m came back at 1.50/1.60/
+    4.00 m on the pieces a clip re-shaped, while pieces the clip never
+    touched kept −1.00.
+
+    The carrier was the difference.  ``_clip_shape_yielding_to`` takes
+    each new vertex's altitude from the NEAREST ORIGINAL VERTEX — right
+    for a flat-ish service ring welded along its contact, wrong for a
+    corridor whose ring runs from bore depth to ambient, because a clip
+    near the shallow end snaps the deep end's vertices to a shallow
+    corner.  A claimed corridor is carried by the module's own
+    EDGE-INTERPOLATING resampler instead: one carrier, not two.
+    """
+
+    def _claimed_service(self):
+        """A corridor ring GRADED along its run — bore depth at one end,
+        ambient at the other.  A flat test ring cannot tell the two
+        carriers apart, which is how this survived a round."""
+        return BuiltShape(
+            polygon=_rect(0, 0, 100, 10), role=ROLE_SERVICE_JUNCTION,
+            ref=TUNNEL_ROAD_REF,
+            node_altitudes=[-1.14, GRADE_Z, GRADE_Z, -1.14, -1.14])
+
+    def test_a_clipped_claimed_ring_keeps_its_PROFILE(self):
+        claimed = self._claimed_service()
+        # a larger partner overlapping the ring's SHALLOW end only
+        partner = BuiltShape(polygon=_rect(80, -5, 300, 15),
+                             role=ROLE_SERVICE_ROAD, ref="service",
+                             node_altitudes=[GRADE_Z] * 5)
+        lay = _layout([claimed, partner])
+        n = gs._deconflict_service_overlaps(lay)
+        assert n >= 1, "the lens clip did not fire — inert scene"
+        assert claimed in lay.shapes and claimed.ref == TUNNEL_ROAD_REF
+        assert min(_alts(claimed)) <= -1.10, (
+            f"the clipped corridor's deep end came back at "
+            f"{min(_alts(claimed))} m — the nearest-vertex carry lifted "
+            f"it (the measured service-side loss)")
+
+    def test_a_claimed_ring_wholly_inside_another_is_NOT_dropped(self):
+        """The drop path: "the kept shape already covers its footprint at
+        the same role" is true of the FOOTPRINT and false of the
+        SURFACE — the corridor carries bore depth and the cover does
+        not."""
+        claimed = BuiltShape(polygon=_rect(10, 2, 30, 8),
+                             role=ROLE_SERVICE_JUNCTION,
+                             ref=TUNNEL_ROAD_REF,
+                             node_altitudes=[-1.14] * 5)
+        cover = BuiltShape(polygon=_rect(0, 0, 200, 10),
+                           role=ROLE_SERVICE_ROAD, ref="service",
+                           node_altitudes=[GRADE_Z] * 5)
+        lay = _layout([claimed, cover])
+        gs._deconflict_service_overlaps(lay)
+        assert claimed in lay.shapes, (
+            "a claimed corridor wholly inside a service shape was "
+            "dropped — that deletes the bore and leaves the mouth at "
+            "grade")
+
+    def test_an_unclaimed_service_ring_still_yields_and_still_drops(self):
+        """The pass keeps its own behaviour everywhere else."""
+        plain = BuiltShape(polygon=_rect(10, 2, 30, 8),
+                           role=ROLE_SERVICE_JUNCTION, ref="service",
+                           node_altitudes=[GRADE_Z] * 5)
+        cover = BuiltShape(polygon=_rect(0, 0, 200, 10),
+                           role=ROLE_SERVICE_ROAD, ref="service",
+                           node_altitudes=[GRADE_Z] * 5)
+        lay = _layout([plain, cover])
+        gs._deconflict_service_overlaps(lay)
+        assert plain not in lay.shapes
+
+
+class TestTheAuditSeesRebuiltPieces:
+    """The instrument hole this round found in its own instrument: the
+    drift audit reads the claim depth OFF THE SHAPE, so a rebuilt piece
+    that dropped the attribute is invisible to it — and invisible reads
+    as "no drift".  The verification rides with the field."""
+
+    def test_a_carried_piece_keeps_the_claim_depth_attribute(self):
+        from shapely.geometry import Polygon as _P
+        source = _claimed()
+        setattr(source, "_tunnel_claim_depth", (BORE_Z, GRADE_Z))
+        part = _P([(0, 0), (20, 0), (20, 10), (0, 10)])
+        piece = gs._carry_claimed_corridor(source, part)
+        assert piece is not None
+        assert getattr(piece, "_tunnel_claim_depth", None) == (BORE_Z,
+                                                               GRADE_Z)
+        assert piece.ref == TUNNEL_ROAD_REF

@@ -6398,6 +6398,19 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # for the seat adjudication, reported and never adjudicated.
     "frontage_band",
     "pad_seat_infeasible",
+    # THE ALTERNATION INSTRUMENT (owner ruling RULINGS 2026-08-25h, spec
+    # ``service-road-apron-spine-spec.md`` §3.2).  EVIDENCE, deliberately
+    # and by the spec's own word ("report-first"): a shared apron/road
+    # edge should carry ONE solved value series, and this counts the
+    # adjacent station pairs whose authorship alternates past the
+    # tolerance.  It is watched, never adjudicated — making it a law
+    # family would re-found the acceptance bar, which is the owner's call
+    # and not this round's.
+    "edge_alternation",
+    # How many service sub-segments were recognised as APRON SPINES in
+    # this build (§1).  Evidence for reading the line above: an
+    # alternation count means something different at 0 spines than at 200.
+    "apron_spine_segments",
     "apron_seniority",            # the apron staged solve's SENIOR/INTERIOR
                                   # partition per apron ring node (spec
                                   # apron-staged-solve-spec.md section 3):

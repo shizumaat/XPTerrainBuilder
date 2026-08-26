@@ -174,6 +174,8 @@ __all__ = [
     "SVC_PROFILE_REVERSAL_MIN_M",
     "SERVICE_ROAD_MAX_TRANSVERSE",
     "ROAD_TRANSVERSE_AXIS_MIN_DEG",
+    "SERVICE_APRON_SPINE",
+    "EDGE_ALTERNATION_TOL_M",
     "ROAD_CROSS_SECTION_LAW",
     "SERVICE_ROAD_CROWN_TRANSVERSE",
     "SVC_SPINE_FIRST",
@@ -929,6 +931,27 @@ SERVICE_ROAD_MAX_TRANSVERSE = 0.020
 # pair stops being more along the road than across it.  Every pair is on
 # one side of it, so the classification is exhaustive and no pair falls
 # between the two laws.
+# ── SERVICE-ROAD APRON SPINES (owner ruling RULINGS 2026-08-25h) ────────
+# "A truck route along/through an apron is a SPINE at the apron's cap —
+# like a taxiway, but 1%."
+#
+# THE GAP THIS CLOSES.  Free-road scoping (2026-07-27 + R7a) cuts a
+# service centerline at the stations where it stops being a free road and
+# feeds only the FREE stretches to the slice; the apron-contact stretches
+# "grade with the apron" — but they were dropped ENTIRELY, so those roads
+# reached the grade graph with NO CENTERLINE AT ALL.  With nothing to
+# anchor them, the apron chain and the road family solved the same welded
+# stations independently, which is the alternating apron-vs-service
+# sawtooth at the owner's back-edge ripple sites.
+#
+# The recognition set is therefore the COMPLEMENT of the free-road
+# predicate — its own answer, never a third contact test (spec §1.1).
+SERVICE_APRON_SPINE = (
+    _os_early.environ.get("O4_SERVICE_APRON_SPINE", "1") == "1")
+#: §3.2 alternation instrument: adjacent stations along a shared
+#: apron/road edge whose AUTHORSHIP alternates by more than this are
+#: reported (report-first, census-visible via the sidecar count).
+EDGE_ALTERNATION_TOL_M = 0.25
 ROAD_TRANSVERSE_AXIS_MIN_DEG = 45.0
 #: ONE KILL SWITCH for the whole 25g reading (census AND solve — they are
 #: one law and land together).  OFF restores the pre-ruling frame exactly:

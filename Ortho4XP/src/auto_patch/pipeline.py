@@ -3594,14 +3594,37 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # evidence is not evidence: genuine DSF apron routinely carries no
     # OSM aeroway and no apt.dat name at all.
     if _cn_svc and _cn_pav is not None and not _cn_pav.is_empty:
-        from .groundside import free_road_subsegments
+        from .groundside import (free_road_subsegments,
+                                 apron_spine_subsegments)
         from .pavement_classification import landside_evidence_layer
         _n_svc_lines_in = len(_cn_svc)
         _svc_len_in = sum(ln.length for ln in _cn_svc)
+        _cn_svc_all = list(_cn_svc)
         _cn_land_ev = landside_evidence_layer(layout, pav_union=_cn_pav)
         _cn_svc = free_road_subsegments(
             _cn_svc, _cn_pav, landside_evidence=_cn_land_ev)
         _svc_len_out = sum(ln.length for ln in _cn_svc)
+        # APRON SPINES (owner ruling RULINGS 2026-08-25h).  The stretches
+        # the free-road walk just REMOVED are the ones that run inside or
+        # along an apron, and until now they were dropped entirely — those
+        # roads reached the grade graph with no centerline, so the apron
+        # chain and the road family solved the same welded stations
+        # independently (the back-edge sawtooth).  They come back as
+        # SPINES AT THE APRON'S CAP.  Recognition is the free-road
+        # predicate's own complement, never a third contact test.
+        from .config import SERVICE_APRON_SPINE as _APRON_SPINE_ON
+        layout._apron_spine_subsegments = (
+            apron_spine_subsegments(_cn_svc_all, _cn_svc)
+            if _APRON_SPINE_ON else [])
+        if layout._apron_spine_subsegments:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: apron spines — "
+                f"{len(layout._apron_spine_subsegments)} service "
+                f"sub-segment(s), "
+                f"{sum(l.length for l in layout._apron_spine_subsegments):,.0f} m "
+                f"running inside/along apron pavement now carry a SPINE at "
+                f"the apron cap (RULINGS 2026-08-25h); they stay OUT of the "
+                f"reachability band (REACH_NO_SERVICE_SPINES stands).")
         UI.vprint(1,
             f"  [pav-builder] {icao}: free-road landside evidence layer "
             f"carries {len(_cn_land_ev.parts)} piece(s) "
@@ -3646,6 +3669,8 @@ def build_airport_pavement(icao: str, xplane_root: str,
     # (severance debugging needs to see WHERE the free intervals
     # actually ended — the full centerlines can't show that).
     layout._slice_service_subsegments = list(_cn_svc)
+    if not hasattr(layout, "_apron_spine_subsegments"):
+        layout._apron_spine_subsegments = []
     _cn_dbg_pts = None
     _cp_spec = os.environ.get("O4_COVERAGE_PROBE")
     if _cp_spec:
@@ -7482,6 +7507,24 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                          f"failed ({_seal_exc!r}) — emitted values kept, "
                          f"and the clamp is NOT the last author on this "
                          f"build.")
+    # §3.2 ALTERNATION INSTRUMENT (RULINGS 2026-08-25h).  Measured on the
+    # FINAL surface, after every writer, and stashed for the sidecar so the
+    # census can surface it.  Report-first: it gates nothing.
+    try:
+        from .groundside import count_edge_alternation as _alt_n
+        layout._edge_alternation_n = _alt_n(layout)
+        layout._apron_spine_n = len(
+            getattr(layout, "_apron_spine_subsegments", None) or [])
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: edge alternation — "
+            f"{layout._edge_alternation_n} adjacent station pair(s) along a "
+            f"shared apron/road edge alternate authorship by more than the "
+            f"tolerance ({layout._apron_spine_n} apron-spine segment(s) in "
+            f"this build).  Report-first, gates nothing (RULINGS 2026-08-25h "
+            f"spec section 3.2).")
+    except Exception as _alt_exc:                          # pragma: no cover
+        UI.vprint(1, f"  [pav-builder] {icao}: edge-alternation instrument "
+                     f"FAILED: {_alt_exc!r}")
     _rod_ckpt(layout, "26_band_seal")
 
 

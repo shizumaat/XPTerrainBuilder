@@ -2319,6 +2319,145 @@ def _svc_contiguous_width(line, arc, pav_union, probe: float = 60.0):
     return None if part is None else part.length
 
 
+def count_edge_alternation(layout, tol_m=None) -> int:
+    """§3.2's ALTERNATION INSTRUMENT — how many adjacent station pairs
+    along a shared apron/road edge alternate AUTHORSHIP by more than
+    ``tol_m`` (``config.EDGE_ALTERNATION_TOL_M``).
+
+    A shared apron/road edge should carry ONE solved value series (§3.1).
+    The sawtooth the owner sees is the two families writing the same
+    welded stations independently, so the signal is a SIGN CHANGE in the
+    station-to-station delta whose amplitude clears the tolerance —
+    up-down-up, not a steady ramp.  Counting sign changes rather than raw
+    deltas is what separates a ripple from a road that is simply climbing.
+
+    REPORT-FIRST, never a gate (the spec's own word): it is written to the
+    sidecar and surfaced by the census so the number can be watched.
+    Contact is the 25b notion — a road ring sharing an EDGE with an apron
+    by canonical identity — reused, not re-derived.
+    """
+    from .config import EDGE_ALTERNATION_TOL_M
+    from .layout import ROLE_APRON
+    tol = float(EDGE_ALTERNATION_TOL_M if tol_m is None else tol_m)
+    apron_edges: dict = {}
+    for s_ in (getattr(layout, "shapes", None) or ()):
+        if getattr(s_, "role", None) != ROLE_APRON:
+            continue
+        poly = getattr(s_, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring_xy(poly)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        n = len(ring)
+        for k in range(n):
+            apron_edges[_edge_key(ring[k], ring[(k + 1) % n])] = True
+    if not apron_edges:
+        return 0
+    total = 0
+    for s_ in (getattr(layout, "shapes", None) or ()):
+        if getattr(s_, "role", None) not in _LAW_ROAD_ROLES:
+            continue
+        poly = getattr(s_, "polygon", None)
+        alts = list(getattr(s_, "node_altitudes", None) or [])
+        if poly is None or getattr(poly, "is_empty", True) or not alts:
+            continue
+        try:
+            ring = _open_ring_xy(poly)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        n = len(ring)
+        if len(alts) == n + 1:
+            alts = alts[:-1]
+        if len(alts) != n or any(a is None for a in alts):
+            continue
+        # The CONTACT run of this ring: consecutive vertices whose edge is
+        # shared with an apron.
+        shared = [k for k in range(n)
+                  if _edge_key(ring[k], ring[(k + 1) % n]) in apron_edges]
+        if len(shared) < 3:
+            continue
+        prev_d = None
+        for i in range(len(shared) - 1):
+            a, b = shared[i], shared[i + 1]
+            if (b - a) % n != 1:
+                prev_d = None            # a break in the run
+                continue
+            d = float(alts[(b + 1) % n]) - float(alts[b])
+            if (prev_d is not None and d * prev_d < 0.0
+                    and abs(d) > tol and abs(prev_d) > tol):
+                total += 1
+            prev_d = d
+    return total
+
+
+def _open_ring_xy(poly):
+    ring = list(poly.exterior.coords)
+    if ring and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    return ring
+
+
+def _edge_key(a, b):
+    ka = (round(float(a[0]), 2), round(float(a[1]), 2))
+    kb = (round(float(b[0]), 2), round(float(b[1]), 2))
+    return (ka, kb) if ka <= kb else (kb, ka)
+
+
+def apron_spine_subsegments(lines_in, free_lines, tol_m: float = 0.05):
+    """THE APRON-SPINE set (owner ruling RULINGS 2026-08-25h, spec
+    ``service-road-apron-spine-spec.md`` §1) — the stretches of
+    ``lines_in`` that are NOT free road.
+
+    "A service-road CENTERLINE segment that runs INSIDE an apron or ALONG
+    an apron edge is an APRON-SPINE segment."  That is exactly the
+    COMPLEMENT of :func:`free_road_subsegments`, so this takes ITS answer
+    and subtracts it — never a third contact test (the spec's own words:
+    "reuse their predicates").  Segmentation is by contact for free: the
+    same centerline yields apron-spine pieces inside contact and free-road
+    pieces outside it, because the free-road walk already cut it at those
+    stations.
+
+    WHY THE COMPLEMENT WAS MISSING.  Free-road scoping feeds only the FREE
+    stretches to the slice and the rest "grades with the apron" — but the
+    contact stretches were DROPPED, so those roads reached the grade graph
+    with no centerline at all.  Nothing anchored them, so the apron chain
+    and the road family solved the same welded stations independently:
+    the alternating sawtooth at the owner's back-edge ripple sites.
+
+    ``tol_m`` is a spelling tolerance for the subtraction (the free pieces
+    are substrings of the inputs), not a contact tolerance.
+    """
+    out: list = []
+    try:
+        from shapely.ops import unary_union
+    except Exception:                                      # pragma: no cover
+        return out
+    free = [ln for ln in (free_lines or [])
+            if ln is not None and not getattr(ln, "is_empty", True)]
+    cover = unary_union([ln.buffer(tol_m, cap_style=2, join_style=2)
+                         for ln in free]) if free else None
+    for ln in (lines_in or []):
+        if ln is None or getattr(ln, "is_empty", True):
+            continue
+        try:
+            rest = ln if cover is None else ln.difference(cover)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        if rest is None or getattr(rest, "is_empty", True):
+            continue
+        parts = ([rest] if rest.geom_type == "LineString"
+                 else list(getattr(rest, "geoms", ())))
+        for part in parts:
+            # A sliver shorter than the subtraction tolerance is spelling
+            # noise from the difference, not a contact stretch.
+            if (part.geom_type == "LineString" and part.length > tol_m * 4.0
+                    and len(part.coords) >= 2):
+                out.append(part)
+    return out
+
+
 def free_road_subsegments(lines, pav_union, *,
                           landside_evidence=None,
                           narrow_width_m: float = 25.0,

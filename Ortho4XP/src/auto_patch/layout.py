@@ -3585,6 +3585,17 @@ class PavementLayout:
             "crown_drops": [[la, lo, c] for (la, lo, c) in
                             (getattr(self, "_crown_drop_ll", None)
                              or [])],
+            # EDGE ALTERNATION (owner ruling RULINGS 2026-08-25h, spec
+            # ``service-road-apron-spine-spec.md`` §3.2).  Adjacent
+            # stations along a shared apron/road edge whose AUTHORSHIP
+            # alternates by more than ``EDGE_ALTERNATION_TOL_M``.
+            # REPORT-FIRST: a count the census surfaces, never a gate —
+            # the spine regime is supposed to drive it to zero, and a
+            # number that moves is how we can tell.
+            "edge_alternation": int(
+                getattr(self, "_edge_alternation_n", 0) or 0),
+            "apron_spine_segments": int(
+                getattr(self, "_apron_spine_n", 0) or 0),
             # CROWN CENTERLINE nodes (Phase 0 hotfix, user 2026-07-07):
             # the lat/lon of every centerline vertex the interior runway
             # cross-edge crown inserted at profile level.  A node on the

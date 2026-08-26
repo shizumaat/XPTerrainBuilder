@@ -1211,6 +1211,38 @@ def _centerline_specs_uncached(layout) -> list:
             # law downstream of that cut is the apron's, not this road's.
             specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
                           ("svc", id(ln)), pts))
+    # ── APRON SPINES (owner ruling RULINGS 2026-08-25h, spec
+    # ``service-road-apron-spine-spec.md`` §2) ────────────────────────────
+    # "A truck route along/through an apron is a SPINE at the apron's cap —
+    # like a taxiway, but 1 %."  These are the stretches free-road scoping
+    # REMOVED (``groundside.apron_spine_subsegments``, its own complement):
+    # until now they reached the grade graph with no centerline at all, so
+    # nothing anchored the apron chain and the road family at the same
+    # welded stations.
+    #
+    # THEY ARE CENTERLINES, so they enter phase A / the scaffold anchor set
+    # and the chord-anchor law's CENTERLINE targets for free — the target
+    # set grows, the mechanics do not change (§2.1).
+    #
+    # ``is_service`` STAYS TRUE, and that is the load-bearing half of §2.2:
+    # ``REACH_NO_SERVICE_SPINES`` gates the reachability BAND off these
+    # edges, and a spine that joined the band's route graph would be the
+    # airside-contamination regression class.  The cap changes; the band
+    # membership does not.
+    from .config import (APRON_MAX_GRADE as _APRON_CAP,
+                         SERVICE_APRON_SPINE as _APRON_SPINE_ON)
+    if _APRON_SPINE_ON:
+        for ln in (getattr(layout, "_apron_spine_subsegments", None) or []):
+            if ln is None or getattr(ln, "is_empty", True):
+                continue
+            try:
+                pts = list(ln.coords)
+            except Exception:                             # pragma: no cover
+                continue
+            if len(pts) < 2:
+                continue
+            specs.append((pts, [_APRON_CAP] * (len(pts) - 1), True,
+                          ("apron_spine", id(ln)), pts))
     return specs
 
 

@@ -1686,6 +1686,7 @@ def print_report(rep: dict, top: int) -> None:
     print(f"  sidecar evidence: seam_pins={ev.get('seam_pin_count')} "
           f"terrace_joints={ev.get('terrace_joint_count')} "
           f"terrace_certificates={ev.get('terrace_certificate_count')} "
+          f"basin_facilities={ev.get('basin_facility_count')} "
           f"triangle_plane_unresolved="
           f"{ev.get('triangle_plane_unresolved')}")
     be = ev.get("band_excess")

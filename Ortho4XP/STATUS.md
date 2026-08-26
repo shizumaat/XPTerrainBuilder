@@ -52,6 +52,28 @@
 #   list on owner's own call): (1) further OTHH tunnel issues beyond
 #   the v1-restored site-1 (unspecified — collect sites at next sim
 #   pass); (2) DRAINAGE OBJECTS set too low (new class, no sites yet).
+# LEMD GROUND TRUTH (owner 2026-08-25): the airport REALLY HAS several
+#   tunnel mouths AND a large open sunken circle ~5+ m below the
+#   surrounding apron with the CONTROL TOWER inside it — the object-
+#   basin machinery is modelling a real feature; the POOLING docket's
+#   acceptance shape is that circle (post-fix depth ~8.5 m is
+#   plausible; the 1.56M m2 / 4 km extent is the pooling defect).
+#   OWNER BBOX for the circle: 40.4910364,-3.5681856 to
+#   40.4923786,-3.5703743. Pack probe: T4STower_(c)_Sim-wings-SWbaume
+#   .obj base_y -6.99..-4.04 (134 parts in-box) + Ground-FSX-LEMD36/
+#   37/85 floor pieces at -7.0 = the REAL basin members (~7 m deep);
+#   Ground-FSX-LEMD03 (the -6.75 decal-chain culprit) touches the box
+#   with ONE part — the bridge the pool escaped through. OWNER: a
+#   road+ramp legitimately leads UP out of the MOSTLY-RECTANGULAR
+#   cutout to apron level, so a connection out of the hole is real
+#   geometry (the -3.3/-2.8 LEMD37 pieces are that exit ramp) — the
+#   pooling chain-break must key on RETURNING TO GRADE, not bare
+#   adjacency. OWNER SIMPLIFICATION: the pack objects most likely
+#   model the ramp themselves — the terrain owes only a SIMPLE
+#   RECTANGULAR CUT ~= this bbox at ~7 m; no ramp modelling in the
+#   terrain. Pooling spec acceptance: that cut, nothing more.
+#   LEMD's mouths will exercise the portal-corridor-claim law
+#   (RULINGS 2026-08-25e) beyond OTHH.
 # IN-FLIGHT at session close of this block: LEMD confirmation build;
 #   HECA roads attribution (missing spines + floor-clamp author +
 #   exit_over_budget, site 30.102344,31.3951157); HECA apron

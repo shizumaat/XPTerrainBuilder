@@ -252,11 +252,13 @@ __all__ = [
     "TAIL_HEIGHT_BY_CODE_LETTER",
     "TAXIWAY_WINGTIP_MARGIN_M",
     "EAT_SURFACE_CEILING_ENABLED",
+    "EAT_SCOPING_V2_ENABLED",
     "EAT_FAA_DEPARTURE_SLOPE",
     "EAT_FAA_SETBACK_M",
     "EAT_EASA_TAKEOFF_CLIMB_SLOPE",
     "EAT_EASA_SETBACK_M",
     "EAT_MIN_CROSSING_DIST_M",
+    "EAT_MAX_CROSSING_DIST_M",
     "EAT_CORRIDOR_HALF_WIDTH_M",
     "EAT_RECT_SEGMENT_GAP_M",
     "EAT_MIN_RUNWAY_CODE_NUMBER",
@@ -4778,6 +4780,70 @@ TUNNEL_FLOOR_BELOW_OBJECT_DECK_M = 0.5
 TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M = float(
     _os.environ.get("O4_TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M", "1.0"))
 
+# ── A DECAL IS NOT A SOLID (spec docs/specs/
+# tunnel-trench-law-and-basin-floor-spec.md §2) ─────────────────────
+#
+# §2.1 — MINIMUM SOLID PART THICKNESS (m).  A pooled part contributes to
+# the facility's FLOOR WITNESS (``_StructureFrame.solid_floor_witness_y_m``,
+# the "deepest solid" the basin floor law keys on) only if it has vertical
+# extent of its own: a part whose authored bbox height (max_y − min_y) is
+# below this is a GROUND DECAL, not a structure floor, and is excluded
+# from the witness minimum.  It stays in the pool for every other purpose
+# (ground contact, triangle passes, footprints) — the exclusion is the
+# floor witness only.
+#
+# MEASURED: LEMD's two ``AESlite-LEMD-VOR-15-T4S-*.obj`` VOR ground
+# decals are 4-vertex FLAT quads (bbox height 0.0) authored at
+# y = −48.244 with OBJECT_AGL −1.756, i.e. −50.0 effective.  Pooled with
+# the real airport objects by the 2.0 m chain join, they set the whole
+# facility's floor witness and dug LEMD's basin to 545.52 m — 51.5 m
+# below its own rim, against a body depth of 7.02 m.  0.3 m is an order
+# of magnitude below any modelled shell wall and an order of magnitude
+# above a flat quad's exact 0.0.
+MIN_SOLID_PART_THICKNESS_M = 0.3
+
+# §2.2 — THE BASIN FLOOR DISAGREEMENT GATE (m).  Two independent
+# instruments describe one facility's bottom: ``solid_minimum_y_m`` (the
+# deepest solid vertex the frame saw) and ``body_depth_m`` (the median of
+# the deck-face population).  Where they disagree by more than this, the
+# witness is NOT believed: the floor derives from ``body_depth_m`` and the
+# discarded witness is reported LOUDLY with its resource name and authored
+# y.  Never a silent 43 m disagreement printed on one log line.
+#
+# CALIBRATION (measured 2026-08-25): every OTHH basin agrees within
+# 0.4 m (Drainage_06 −4.201 vs −3.859 = 0.342 m is the worst; EGLL-class
+# shell walls reach ~2 m below their deck, which is the case this
+# threshold must NOT catch).  LEMD's pooled decal disagrees by 42.98 m.
+BASIN_FLOOR_DISAGREEMENT_M = 2.0
+
+# ── DECLARED TERRAIN PLATES (spec §1.2) ─────────────────────────────
+#
+# Roles emitted as FLAT-BY-LAW TERRAIN, not as pavement: the basin/tunnel
+# trench floor and rim plates, whose elevations are set by the trench law
+# from the facility's own declared floor and rim.  A declared plate
+# carries NO within-shape taxiway cap — pricing a by-law flat terrain
+# plate at 1.5 % is judging it under a law it was never built to.
+#
+# DELIBERATELY NOT a ``ROLE_GRADE_LIMITS[role] = None`` entry: that
+# spelling makes ``check_grade._role_grade_limit`` return None, which
+# takes the role off the CROSS-SHAPE STEP checks as well — and those are
+# exactly the checks that must keep seeing a trench, so a trench born
+# 51 m too deep still reports (the LEMD class).  The step law prices a
+# trench contact against the facility's OWN DECLARED floor→rim drop
+# instead (``check_grade._basin_declared_drop``).
+DECLARED_TERRAIN_PLATE_ROLES = frozenset({"tunnel_trench"})
+
+# The tolerance (m) the census joins a step row to its basin facility
+# with: the row's LOWER elevation against the facility's DECLARED
+# ``floor_m``.  A DECLARED-VALUE identity join, never a proximity join —
+# the floor plate is emitted AT the declared floor, so the number itself
+# is the identity.  0.15 m is the emit-rounding step at a shared node
+# (1-decimal altitudes), the same figure ``check_grade``'s shared-node
+# tolerance uses.  MEASURED (2026-08-25): OTHH's eight facilities declare
+# floors −10.737 / −10.680 / −1.739 / −1.354 and every emitted floor
+# plate reads back within 0.005 m of one of them.
+BASIN_DECLARED_FLOOR_MATCH_TOL_M = 0.15
+
 # Vertical clearance (m) the ``grade_law.bridge_crossing_floor`` law adds
 # above a road surface for a TERRAIN/PROFILE_CARRIED span that must RISE
 # (the EDDF class, where WE choose the vertical split — spec section 3.2).
@@ -5059,6 +5125,38 @@ TAIL_HEIGHT_BY_CODE_LETTER = {
 EAT_SURFACE_CEILING_ENABLED = (
     _os.environ.get("O4_EAT_SURFACE_CEILING", "1") == "1")
 
+# ── EAT RECOGNITION SCOPING v2 (owner ruling 2026-08-25c) ────────────
+# DEFAULT ON.  The anchor-rect MECHANISM (the rect, the value formula,
+# the region table, the contradiction guard) is untouched by this gate —
+# what it changes is WHICH pavement is recognised as an end-around
+# taxiway at all, in three clauses:
+#
+#   1. ROUTED WRAP — the corridor must be crossed by a TAXI CENTRELINE
+#      (the engine's own route set, service routes excluded) whose two
+#      sides both reach a runway anchor on the law graph.  An apron or
+#      junction ring lying under the projected centreline with no
+#      through-centreline is NOT an EAT, whatever its geometry.
+#   2. VACUOUS-SURFACE FAR BOUND — nothing is recognised beyond
+#      ``grade_law.eat_ceiling_clear_distance`` (setback + tail/slope),
+#      where the regulation surface has cleared the tallest tail and so
+#      binds nothing.  No new tuning constant: it is the law's own root.
+#   3. CUT-ONLY PIN — the regulation is a CEILING, so a rect pins only
+#      where it CUTS.  A rect whose value sits ABOVE its pavement's
+#      unconstrained reference EVERYWHERE pins nothing (rect-level, per
+#      the 2026-08-21 rect-refusal ruling); pavement is never LIFTED
+#      into the air to meet the surface.
+#
+# Measured basis (LEMD +40-004, 2026-08-25): 149 pins over 10 crossing
+# segments on plain apron/junction rings at 1.0-4.6 km, 59-66 m above
+# the adjacent DEM-seeded pavement; every one of the 12 contradictory
+# final-band anchor pairs was EAT-pin vs EAT-pin, and the build died on
+# the final-band inversion assert.  The owner rules LEMD HAS NO EATs.
+#
+# OFF ⇒ the 2026-07-27 recognition exactly, byte-identical (the
+# attribution arm).
+EAT_SCOPING_V2_ENABLED = (
+    _os.environ.get("O4_EAT_SCOPING_V2", "1") == "1")
+
 # FAA (North America).  AC 150/5300-13B §4.12 + FAA Order 8260.3 (TERPS)
 # departure surface: 40:1 (2.5 %) rising FROM the departure end of runway
 # (DER) AT the DER elevation — no setback.
@@ -5079,6 +5177,27 @@ EAT_EASA_SETBACK_M = 60.0
 # below the runway end).  A real EAT crosses the extended centreline
 # hundreds of metres out — KCLT's 18C-end loop crosses at 439–482 m.
 EAT_MIN_CROSSING_DIST_M = 300.0
+
+# SCOPING GUARD — MAXIMUM along-centreline distance beyond the runway end
+# at which an end-around taxiway is RECOGNISED (owner ruling 2026-08-25d,
+# closing the survivor 2026-08-25c left standing).
+#
+# Unlike ``grade_law.eat_ceiling_clear_distance`` — which is the
+# regulation's own geometry and therefore not a tunable — this IS a
+# recognition constant, and the owner set its value from the measured
+# feature: real end-around taxiways cross at 439-482 m (KCLT's 18C-end
+# loop, the reference EAT).  LEMD's 14R corridor carries a genuine
+# ROUTED WRAP at D = 1066 m — a taxi centreline crosses the extended
+# centreline there, inside the 1280 m vacuous bound, and its regulation
+# value cuts — so the three 25c clauses all pass it and it was the one
+# rect that survived.  The owner rules LEMD HAS NO EATs: a wrap a
+# kilometre out is the airport's own taxi network crossing a projected
+# line, not a loop built to take aircraft around a runway end.
+#
+# The two far bounds compose as a MINIMUM (the stricter governs): the
+# vacuous bound can still bite first where a low tail or a steep surface
+# clears inside 600 m (FAA code A: 0 + 6.1/0.025 = 244 m).
+EAT_MAX_CROSSING_DIST_M = 600.0
 
 # Lateral half-width (m) of the corridor about the extended centreline
 # inside which the ceiling binds.  Deliberately a single conservative

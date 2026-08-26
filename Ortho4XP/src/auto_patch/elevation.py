@@ -79,6 +79,7 @@ _GEOM_EXC = (OSError, ValueError,
              GEOSException, TopologicalError)
 
 from . import apt_dat_reader as APR
+from .geom_safe import safe_difference
 
 from .config import (
     APRON_MAX_GRADE,
@@ -3079,9 +3080,22 @@ def _drop_overlap_against_fixed_shapes(
 
     def _clip_pieces(p: Polygon, c: Polygon) -> list[Polygon]:
         """``p.difference(c)`` as polygons sorted by area DESC (largest
-        first).  Empty list = nothing usable survives the clip."""
+        first).  Empty list = nothing usable survives the clip.
+
+        The difference goes through ``geom_safe.safe_difference``: GEOS
+        can return an INVALID polygon for two VALID inputs (KDFW
+        2026-08-25, two edge-sharing junctions — the result carried a
+        2 952 m² hole lying entirely outside its own shell), and this
+        loop writes what it gets straight back into ``layout.shapes``.
+        An invalid polygon parked there does not fail here; it kills a
+        later ``unary_union`` (that KDFW build died in
+        ``pavement_scoring._reach_zone``).  ``safe_difference`` either
+        returns a valid result or raises ``GeomSafeError`` — which is
+        deliberately NOT in ``_GEOM_EXC``, so an overlay no precision
+        grid can rescue fails the build loudly at the mint point
+        instead of poisoning the layout."""
         try:
-            d = p.difference(c)
+            d = safe_difference(p, c)
         except _GEOM_EXC:
             return [p]
         if d.is_empty:

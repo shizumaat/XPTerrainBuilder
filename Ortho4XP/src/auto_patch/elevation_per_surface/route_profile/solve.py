@@ -1146,6 +1146,8 @@ _PROBE_ABSENT = object()
 _PROBE_PUBLISHED_ATTRS = ("_seam_pin_idx", "_seam_pin_ll",
                           "_seam_pin_residuals", "_eat_anchor_pin_idx",
                           "_eat_anchor_pin_prev", "_eat_anchor_pin_rect",
+                          "_eat_anchor_pin_side",
+                          "_eat_scope_refused_keys",
                           "_object_bridge_pin_idx",
                           "_object_bridge_pin_prev",
                           "_terrain_host_yield_first_index",
@@ -2419,10 +2421,19 @@ def solve_route_profile(layout, icao: str,
         _n_rects_pre = len({_eat_rects.get(int(_i), -int(_i) - 1)
                             for _i in _eat_pins_route})
         _n_route_pre = len(_eat_pins_route)
+        # SCOPING v2 clause 1, connectivity half: the WRAP must route on
+        # BOTH sides of the extended centreline.  The side map is the
+        # pin builder's own publication (``_eat_anchor_pin_side``); with
+        # the gate off it is absent and the law is exactly the standing
+        # single-side one.
+        from auto_patch.config import EAT_SCOPING_V2_ENABLED as _EAT_V2
+        _eat_sides = (getattr(layout, "_eat_anchor_pin_side", None) or {}) \
+            if _EAT_V2 else None
         _route_refused = eat_unroutable_rect_refusals(
             _eat_pins_route, _eat_rects,
             eat_pin_taxi_bound(_eat_pins_route, u_spine_adj_airside,
-                               G.runway_anchor))
+                               G.runway_anchor),
+            side_of=_eat_sides or None)
         if _route_refused:
             _n_route_rel = release_refused_eat_pins(
                 layout, _route_refused, elev, base_hard, _have_initial)
@@ -5780,7 +5791,8 @@ def solve_route_profile(layout, icao: str,
     # must not republish anything in it.
     _pub_names = ("_seam_pin_idx", "_seam_pin_ll", "_seam_pin_residuals",
                   "_eat_anchor_pin_idx", "_eat_anchor_pin_prev",
-                  "_eat_anchor_pin_rect")
+                  "_eat_anchor_pin_rect", "_eat_anchor_pin_side",
+                  "_eat_scope_refused_keys")
     _pub_saved = {_pn: getattr(layout, _pn, None) for _pn in _pub_names}
     try:
         _published, _, _ = _seed_elevations(layout, nodes, bucket_to_idx,
@@ -6343,7 +6355,9 @@ def _capture_projection_snapshot(layout, fairing_moved_keys=None,
                   for attr in ("_seam_pin_idx", "_seam_pin_ll",
                                "_eat_anchor_pin_idx",
                                "_eat_anchor_pin_prev",
-                               "_eat_anchor_pin_rect")]
+                               "_eat_anchor_pin_rect",
+                               "_eat_anchor_pin_side",
+                               "_eat_scope_refused_keys")]
     values: dict = {}
     try:
         nodes, bucket_to_idx = _build_node_list(layout)
@@ -9469,7 +9483,7 @@ def eat_pin_taxi_bound(pins, spine_adj, runway_anchor):
     return {int(i) for i in pins if int(i) in seen}
 
 
-def eat_unroutable_rect_refusals(pins, pin_rect, bound):
+def eat_unroutable_rect_refusals(pins, pin_rect, bound, side_of=None):
     """THE UNROUTABLE-EAT LAW (owner ruling 2026-08-12, "CANYON ROOT
     FIELD-CONFIRMED"; r17d law 1) — ``{node: rect}`` for every pin of
     every anchor rect NO node of which can taxi to a runway anchor.
@@ -9497,12 +9511,72 @@ def eat_unroutable_rect_refusals(pins, pin_rect, bound):
     ``pin_rect`` — ``layout._eat_anchor_pin_rect``, the segmentation the
     pin builder already did.  A pin with no rect identity is treated as
     its own rect, so a missing publication can only ever refuse less.
+
+    ``side_of`` — ``layout._eat_anchor_pin_side`` (scoping v2, owner
+    ruling 2026-08-25c clause 1): the side of the extended centreline
+    (``+1`` / ``-1``) each pin sits on, in the frame of the end whose
+    value won.  When it is supplied, the law is STRENGTHENED from "some
+    node of the rect routes" to **A WRAP ROUTES ON BOTH SIDES** — an
+    end-around taxiway leaves the airside network, crosses the extended
+    centreline, and rejoins it, so a rect that connects on one side
+    only is a dead-end spur under the corridor, not a wrap.  This
+    subsumes the standing single-side guard: both-sides implies
+    some-side, so nothing this refused before survives now.
+
+    THE MISSING WITNESS IS HONEST, NOT A REFUSAL.  The strengthening
+    applies only to a rect that HAS pins on both sides to speak for.  A
+    rect all of whose pinned vertices sit on one side cannot witness
+    the far side at all — the pinned population is a decimated ring,
+    not a survey — and refusing on an absent witness is a silent
+    refusal, exactly what the unpriceable-pin round (:func:`eat_rect_
+    value_refusals`) was fought over.  Such a rect keeps the
+    single-side reading it has always had.
     """
     if not pins:
         return {}
     rect_of = {int(i): (pin_rect or {}).get(int(i), -int(i) - 1)
                for i in pins}
-    routable_rects = {rect_of[int(i)] for i in bound if int(i) in rect_of}
+    if not side_of:
+        routable_rects = {rect_of[int(i)] for i in bound
+                          if int(i) in rect_of}
+        return {int(i): rect_of[int(i)] for i in pins
+                if rect_of[int(i)] not in routable_rects}
+    # BOTH-SIDES: per rect, the sides that EXIST and the sides that BIND.
+    # A pin the side map does not name is UNKNOWN, never assumed onto a
+    # side — an assumed side would manufacture the very witness this
+    # law refuses to invent — and a rect carrying any unknown pin falls
+    # back to the single-side reading.
+    sides_present: dict = {}
+    sides_bound: dict = {}
+    unknown_rects: set = set()
+    for i in pins:
+        i = int(i)
+        r = rect_of[i]
+        sides_present.setdefault(r, set())
+        s = (side_of or {}).get(i)
+        if s is None:
+            unknown_rects.add(r)
+        else:
+            sides_present[r].add(1 if float(s) >= 0.0 else -1)
+    for i in bound:
+        i = int(i)
+        if i not in rect_of:
+            continue
+        s = (side_of or {}).get(i)
+        got = sides_bound.setdefault(rect_of[i], set())
+        if s is not None:
+            got.add(1 if float(s) >= 0.0 else -1)
+    routable_rects = set()
+    for r, have in sides_present.items():
+        if r not in sides_bound:
+            continue                  # nothing routes: the old law
+        got = sides_bound[r]
+        # Both sides must bind where both sides are represented; a
+        # one-sided (or unknown-side) pin population keeps the
+        # one-sided reading.
+        if r not in unknown_rects and len(have) > 1 and got != have:
+            continue
+        routable_rects.add(r)
     return {int(i): rect_of[int(i)] for i in pins
             if rect_of[int(i)] not in routable_rects}
 

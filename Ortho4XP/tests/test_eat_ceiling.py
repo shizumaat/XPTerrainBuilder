@@ -219,6 +219,21 @@ def _layout(*taxi_polys, roles=None, specs=None):
                       for role, poly in zip(roles, taxi_polys)]
     layout.eat_ceiling_presolve = ([_end_spec()] if specs is None
                                    else list(specs))
+    # A TAXI CENTRELINE crossing the extended centreline at each taxi
+    # shape's own station.  Recognition scoping v2 (owner ruling
+    # 2026-08-25c clause 1) asks whether a taxi ROUTE wraps the runway
+    # end, not merely whether pavement lies in the corridor — and every
+    # rect built here is MEANT to be an end-around taxiway, so each one
+    # gets its through-route.  Adds no solver node (verified: the node
+    # list is unchanged), so the mechanism these tests pin is measured
+    # on exactly the geometry it always was.
+    from shapely.geometry import LineString
+
+    from auto_patch.apt_dat_reader import TaxiCenterline
+    layout.apt_taxi_centerlines = [
+        TaxiCenterline(line=LineString([(poly.centroid.x, -120.0),
+                                        (poly.centroid.x, 120.0)]))
+        for poly in taxi_polys]
     return layout
 
 

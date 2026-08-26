@@ -5251,7 +5251,7 @@ def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
 
 def log_tunnel_piece_removal(layout, shape, predicate: str, *,
                              coverage=None, cluster=None,
-                             index=None) -> None:
+                             index=None, verdict=None) -> None:
     """ONE LINE PER PIECE a post-emit pass removes or clips.
 
     Spec ``docs/specs/portal-corridor-claim-spec.md`` §1 (RULINGS
@@ -5293,12 +5293,13 @@ def log_tunnel_piece_removal(layout, shape, predicate: str, *,
                 _cl = ""
         _area = (f" area={_poly.area:.1f}m2"
                  if _poly is not None and not _poly.is_empty else "")
+        _vd = "" if not verdict else f" [{verdict}]"
         UI.vprint(1,
                   f"  [tunnel-remove] {predicate}: "
                   f"ref={getattr(shape, 'ref', '') or '-'} "
                   f"role={getattr(shape, 'role', '') or '-'} "
                   f"way={'-' if index is None else index} "
-                  f"@{_where}{_cov}{_area}{_cl}")
+                  f"@{_where}{_cov}{_area}{_cl}{_vd}")
     except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
         # An instrument may never take a build down.
         return
@@ -6078,6 +6079,9 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
                 pass
 
     _claimed_polys: list = []
+    #: ``(polygon, ring, altitudes)`` per claimed surface — the depth the
+    #: claim gave it, which AMENDMENT 1's stand-down needs per footprint.
+    _claimed_depth: list = []
     _n = 0
     for _shape, _ring, _alts, _floor in _level_members:
         _new = [round(min(float(_alts[_v]), _floor), 2)
@@ -6091,6 +6095,10 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _shape.altitude_low = None
         _shape.ref = TUNNEL_ROAD_REF
         _claimed_polys.append(_shape.polygon)
+        # THE DEPTH THE CLAIM ACTUALLY GAVE THIS SURFACE, kept with its
+        # ring so the stand-down can ask "does this claimant carry bore
+        # depth HERE" per footprint (spec AMENDMENT 1).
+        _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
         _n += 1
     # ── PASS 2: THE GRADED APPROACHES ────────────────────────────────
     for _shape in _shapes:
@@ -6152,6 +6160,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _shape.altitude_low = None
         _shape.ref = TUNNEL_ROAD_REF
         _claimed_polys.append(_shape.polygon)
+        _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
         _n += 1
     if _airside:
         try:
@@ -6210,13 +6219,35 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
     except _GEOM_EXC:                                  # pragma: no cover
         _cut_u = None
     if _cut_u is not None and not _cut_u.is_empty:
-        for _cp in _claimed_polys:
+        for _cp, _cring, _calts in _claimed_depth:
             try:
                 _part = _cp.intersection(_cut_u)
             except _GEOM_EXC:                          # pragma: no cover
                 continue
-            if _part is not None and not _part.is_empty:
-                _corridor_polys.append(_part)
+            if _part is None or _part.is_empty:
+                continue
+            # THE DEPTH AT THIS FOOTPRINT, not the shape's global
+            # minimum: a claimed lot can run from the cut (deep) to open
+            # ground (at grade), and "does the claimant carry bore depth"
+            # is a question about the ground under the piece.  Vertices
+            # inside the footprint answer it; a footprint with none of
+            # its own (a sliver between vertices) falls back to the
+            # shape's minimum, which is the conservative answer — it
+            # keeps today's stand-down behaviour rather than inventing a
+            # keep.
+            _here: list = []
+            try:
+                for _xy, _a in zip(_cring, _calts):
+                    if _a is None:
+                        continue
+                    if _part.covers(Point(_xy)):
+                        _here.append(float(_a))
+            except _GEOM_EXC:                          # pragma: no cover
+                _here = []
+            _depth = (min(_here) if _here
+                      else min((float(_a) for _a in _calts
+                                if _a is not None), default=None))
+            _corridor_polys.append((_part, _depth))
     return _n, _claimed_polys, _corridor_polys
 
 
@@ -6436,6 +6467,37 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
     return _n
 
 
+def log_tunnel_piece_kept(layout, shape, predicate: str, *,
+                          coverage=None, verdict=None) -> None:
+    """A REFUSAL TO REMOVE is a verdict too (spec
+    ``portal-corridor-claim-spec.md`` AMENDMENT 1 §2).
+
+    The §1 instrument names every piece a pass deletes; a pass that
+    decides NOT to delete one on a new rule must say so with the same
+    identity, or the next reader cannot tell "the rule fired and kept
+    it" from "the rule never ran".
+    """
+    try:
+        _poly = getattr(shape, "polygon", None)
+        _where = "?"
+        if _poly is not None and not _poly.is_empty:
+            _, _to_ll = _local_meter_projections(layout.anchor)
+            _c = _poly.centroid
+            _lat, _lon = _to_ll(_c.x, _c.y)
+            _where = f"{_lat:.7f},{_lon:.7f}"
+        _cov = "" if coverage is None else f" coverage={coverage:.3f}"
+        _vd = "" if not verdict else f" [{verdict}]"
+        _area = (f" area={_poly.area:.1f}m2"
+                 if _poly is not None and not _poly.is_empty else "")
+        UI.vprint(1,
+                  f"  [tunnel-keep] {predicate}: "
+                  f"ref={getattr(shape, 'ref', '') or '-'} "
+                  f"role={getattr(shape, 'role', '') or '-'} "
+                  f"@{_where}{_cov}{_area}{_vd}")
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return
+
+
 def log_tunnel_claimant_cover(layout, piece, claimed_members) -> None:
     """Name the CLAIM POLYGON that covered a stood-down piece.
 
@@ -6585,6 +6647,72 @@ def publish_tunnel_open_cut_claim_set(layout: "PavementLayout",
     return len(_polys)
 
 
+#: How close a claimant's surface must come to a below-grade piece
+#: before the two count as THE SAME SURFACE (spec
+#: ``portal-corridor-claim-spec.md`` AMENDMENT 1).  Half a metre is the
+#: scale the emit already works at — ``SHARED_VERTEX_TOL_M`` merges
+#: vertices at 0.5 m — so a claimant within it is carrying the piece's
+#: own depth, and anything higher is a different surface standing above
+#: the bore.
+_STAND_DOWN_BORE_DEPTH_TOL_M = 0.5
+
+
+def _piece_min_altitude(shape) -> float | None:
+    """The lowest altitude a tunnel piece carries, whichever convention
+    it uses (per-vertex, flat, or an end-pair rect)."""
+    _alts = [float(_a) for _a in (getattr(shape, "node_altitudes", None)
+                                  or ()) if _a is not None]
+    if _alts:
+        return min(_alts)
+    for _attr in ("altitude", "altitude_low", "altitude_high"):
+        _v = getattr(shape, _attr, None)
+        if _v is not None:
+            _alts.append(float(_v))
+    return min(_alts) if _alts else None
+
+
+def _claimant_carries_bore_depth(piece, pairs) -> tuple:
+    """``(carries, verdict_text)`` — does the claim under ``piece``
+    actually carry the piece's own depth?
+
+    Spec ``portal-corridor-claim-spec.md`` AMENDMENT 1.  The comparison
+    is local and it is between the two surfaces the stand-down is
+    choosing among: the piece's lowest altitude, and the lowest depth
+    any COVERING claim footprint was actually given.  A claimant within
+    ``_STAND_DOWN_BORE_DEPTH_TOL_M`` of the piece is the same surface
+    (duplicate geometry — stand the piece down, which is what this pass
+    is for); one standing above it is the ground the bore is cut into,
+    and deleting the piece would leave the mouth with no bore geometry
+    at all — the measured mouth-D deletion.
+
+    A caller that supplies no depths (the whole-shape list every
+    pre-Amendment caller passes) gets ``True``: unknown depth keeps the
+    pass exactly as it behaved, so this amendment can only ever SAVE a
+    piece it can prove is alone.
+    """
+    _pz = _piece_min_altitude(piece)
+    if _pz is None:
+        return True, "piece depth unknown"
+    _best = None
+    _any_known = False
+    for _poly, _depth in pairs:
+        if _depth is None:
+            continue
+        try:
+            if not piece.polygon.intersects(_poly):
+                continue
+        except _GEOM_EXC:                              # pragma: no cover
+            continue
+        _any_known = True
+        if _best is None or float(_depth) < _best:
+            _best = float(_depth)
+    if not _any_known or _best is None:
+        return True, "claimant depth unknown"
+    _carries = _best <= _pz + _STAND_DOWN_BORE_DEPTH_TOL_M
+    return _carries, (f"claimant {_best:.2f} m vs piece {_pz:.2f} m "
+                      f"({'carries bore depth' if _carries else 'AT GRADE'})")
+
+
 def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                                        claimed_polys: list,
                                        pre_emit_shape_ids: set) -> int:
@@ -6595,11 +6723,46 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
     beside it is the cliff's other half — it goes.  Judged by AREA
     COVERED (>= half), so a piece merely clipping a claimed edge stays
     and is welded by the ordinary cuts.
+
+    THE CLAIMANT MUST CARRY BORE DEPTH (spec
+    ``docs/specs/portal-corridor-claim-spec.md`` AMENDMENT 1, resolving
+    the mouth-D fork).  This pass exists to stop DUPLICATE corridor
+    geometry — a synthetic rectangle beside a claimed road that already
+    carries the bore.  It was doing something else: at OTHH the R14-1
+    line reads "claimed 12 road surface(s) (0 LEVELLED AT BORE DEPTH,
+    the rest graded out at the 5 % cap)", so no claimed surface carried
+    the corridor anywhere on the field — and the pass deleted mouth D's
+    four ramp pieces, which were the ONLY below-grade geometry there.
+    An at-grade claimant standing above a below-grade piece is not a
+    duplicate of it; it is the ground the piece is cut into.  So a
+    below-grade piece now stands down only where its claimant comes
+    within ``_STAND_DOWN_BORE_DEPTH_TOL_M`` of the piece's own depth,
+    and every verdict — stand-down or keep — is named per piece.
+
+    ``claimed_polys`` members may be a bare polygon (the whole-shape
+    list, and what every pre-Amendment caller passes: no depth known, so
+    the pass behaves exactly as it did) or a ``(polygon, depth)`` pair
+    from the corridor-footprint list, where ``depth`` is the altitude
+    the claim actually gave that footprint.
     """
     if not claimed_polys:
         return 0
+    _raw = (claimed_polys if isinstance(claimed_polys, (list, tuple))
+            else [claimed_polys])
+    #: ``[(polygon, depth_or_None)]`` — one normal form for both callers.
+    _pairs = []
+    for _m in _raw:
+        if isinstance(_m, tuple):
+            _poly, _depth = (_m + (None,))[:2]
+        else:
+            _poly, _depth = _m, None
+        if _poly is None or getattr(_poly, "is_empty", True):
+            continue
+        _pairs.append((_poly, _depth))
+    if not _pairs:
+        return 0
     try:
-        _claimed = unary_union(claimed_polys)
+        _claimed = unary_union([_poly for _poly, _d in _pairs])
     except _GEOM_EXC:
         return 0
     # THE CLAIMANT IS NAMED, NOT JUST THE VICTIM (RULINGS 2026-08-25e's
@@ -6608,10 +6771,7 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
     # and "which one, and how big is it" is the question the mouth-D
     # attribution could not answer from the log: the summary line said
     # only how many rectangles went.
-    _members = [_p for _p in (claimed_polys
-                              if isinstance(claimed_polys, (list, tuple))
-                              else [claimed_polys])
-                if _p is not None and not getattr(_p, "is_empty", True)]
+    _members = [_poly for _poly, _d in _pairs]
     _kept, _n = [], 0
     for _s in layout.shapes:
         if (id(_s) not in pre_emit_shape_ids
@@ -6621,10 +6781,24 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
             try:
                 _ovc = _s.polygon.intersection(_claimed).area
                 if _ovc >= 0.5 * _s.polygon.area:
+                    _cov = _ovc / max(1e-9, _s.polygon.area)
+                    _carries, _verdict = _claimant_carries_bore_depth(
+                        _s, _pairs)
+                    if not _carries:
+                        # AMENDMENT 1: the claimant stands ABOVE this
+                        # piece, so the piece is the bore geometry here
+                        # and deleting it would leave the mouth with
+                        # none.  Named, like every other verdict.
+                        log_tunnel_piece_kept(
+                            layout, _s,
+                            "R14-1 stand-down REFUSED — claimant at grade",
+                            coverage=_cov, verdict=_verdict)
+                        _kept.append(_s)
+                        continue
                     _n += 1
                     log_tunnel_piece_removal(
                         layout, _s, "R14-1 stand-down over claimed road",
-                        coverage=_ovc / max(1e-9, _s.polygon.area))
+                        coverage=_cov, verdict=_verdict)
                     log_tunnel_claimant_cover(layout, _s, _members)
                     continue
             except _GEOM_EXC:

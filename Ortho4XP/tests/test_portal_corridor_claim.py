@@ -340,7 +340,11 @@ class TestTheStandDownJudgesTheCorridorNotTheShape:
         assert n >= 1, "the lot was not claimed at all"
         assert whole and corridor
         assert whole[0].area == pytest.approx(500 * 12)
-        assert corridor[0].area < 0.5 * whole[0].area, (
+        # corridor members are ``(polygon, depth)``: the footprint AND
+        # the depth the claim gave it (Amendment 1 needs both)
+        _cpoly, _cdepth = corridor[0]
+        assert _cdepth is not None
+        assert _cpoly.area < 0.5 * whole[0].area, (
             "the corridor footprint is the whole shape again — the "
             "mouth-D phantom is back")
 
@@ -357,10 +361,10 @@ class TestTheStandDownJudgesTheCorridorNotTheShape:
         assert far in lay.shapes, (
             "the far ramp was stood down by a claim 300 m away — that "
             "is the mouth-D deletion")
-        assert near not in lay.shapes, (
-            "the ramp INSIDE the cut was kept — the stand-down's own "
-            "purpose (no synthetic rectangle beside claimed road) must "
-            "survive the fix")
+        # (the NEAR ramp's fate is Amendment 1's question, not this
+        # one's: this lot was graded out at the 5 % cap and never
+        # levelled, so it does not carry bore depth — see
+        # TestTheStandDownNeedsABoreDepthClaimant below.)
 
     def test_the_whole_shape_list_reproduces_the_phantom(self,
                                                          monkeypatch):
@@ -384,3 +388,92 @@ class TestTheStandDownJudgesTheCorridorNotTheShape:
         assert "publish_tunnel_open_cut_claim_set(layout, _claimed)" in src, (
             "the publisher stopped receiving the whole-shape claim set — "
             "that would change the merged node-book rule")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 1 — an AT-GRADE claimant never stands down a below-grade
+# piece (the mouth-D fork, ruled)
+# ═════════════════════════════════════════════════════════════════════
+
+class TestTheStandDownNeedsABoreDepthClaimant:
+    """Spec ``portal-corridor-claim-spec.md`` AMENDMENT 1.
+
+    MEASURED (lane/tunnelmerge, OTHH): with the phantom whole-shape
+    claim fixed to corridor footprints, mouth D's claimant is legitimate
+    at share ~0.62 — and R14-1's own line reads "claimed 12 road
+    surface(s) (0 LEVELLED AT BORE DEPTH, the rest graded out at the 5 %
+    cap)".  No claimed surface carried the corridor anywhere on the
+    field, so the pass was deleting the ONLY below-grade geometry the
+    mouth had.  The pass exists to stop DUPLICATE corridor geometry; a
+    claimant standing above the piece is not a duplicate of it, it is
+    the ground the bore is cut into.
+    """
+
+    def _scene(self, lot_x0, ramp_z):
+        """A claimable lot from ``lot_x0`` to +480 m and a synthetic ramp
+        at the mouth.  With the lot's west edge AT the mouth its claimed
+        vertices take the bore floor; set back 20 m they take the 5 %
+        approach grade instead — the two cases the amendment separates,
+        one scene, one variable.
+        """
+        lot = BuiltShape(
+            polygon=_rect(lot_x0, -6, 480, 6),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="",
+            node_altitudes=[10.0] * 5)
+        lay = _layout([lot])
+        ramp = BuiltShape(polygon=_rect(2, -4, 30, 4),
+                          role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                          node_altitudes=[ramp_z] * 5)
+        lay.shapes.append(ramp)
+        portal = _portal([(0.0, 0.0), (60.0, 0.0)], width=8.0, grade=2.0)
+        _n, _whole, corridor = bridges._claim_road_pavement(
+            lay, [portal], [], 0.6)
+        pre = {id(s) for s in lay.shapes if s is lot}
+        return lay, lot, ramp, corridor, pre
+
+    def test_an_at_grade_claimant_keeps_the_piece_and_NAMES_the_keep(
+            self, capsys):
+        """Mouth D's case: the claimant was graded out, not levelled, so
+        it stands ABOVE the ramp — and the ramp is the only bore
+        geometry there."""
+        lay, lot, ramp, corridor, pre = self._scene(lot_x0=-20,
+                                                    ramp_z=-1.1)
+        n = bridges._stand_down_synthetic_over_claimed(lay, corridor, pre)
+        assert n == 0
+        assert ramp in lay.shapes, (
+            "an at-grade claimant deleted the only below-grade geometry "
+            "at the mouth — the measured mouth-D deletion")
+        out = capsys.readouterr().out
+        assert "[tunnel-keep] R14-1 stand-down REFUSED" in out
+        assert "AT GRADE" in out, "the keep verdict was not named"
+
+    def test_a_bore_depth_claimant_still_stands_the_piece_down(self,
+                                                               capsys):
+        """The other half, unregressed: where the claimed road really
+        does carry the corridor, the synthetic rectangle beside it is
+        still duplicate geometry and still goes — with its verdict."""
+        lay, lot, ramp, corridor, pre = self._scene(lot_x0=0, ramp_z=2.0)
+        n = bridges._stand_down_synthetic_over_claimed(lay, corridor, pre)
+        assert n == 1, "the stand-down's own purpose did not survive"
+        assert ramp not in lay.shapes
+        out = capsys.readouterr().out
+        assert "[tunnel-remove] R14-1 stand-down over claimed road" in out
+        assert "carries bore depth" in out
+
+    def test_an_unknown_depth_behaves_exactly_as_before(self):
+        """A caller passing the WHOLE-SHAPE list (no depths) is every
+        pre-Amendment caller: the pass must behave as it always did, so
+        this amendment can only ever SAVE a piece it can prove is
+        alone."""
+        lay, lot, ramp, corridor, pre = self._scene(lot_x0=-20,
+                                                    ramp_z=-1.1)
+        whole = [_poly for _poly, _d in corridor]
+        n = bridges._stand_down_synthetic_over_claimed(lay, whole, pre)
+        assert n == 1 and ramp not in lay.shapes
+
+    def test_the_tolerance_is_the_emits_own_scale(self):
+        """Not a tuning knob: a claimant within the vertex-merge
+        tolerance of the piece IS the piece's surface."""
+        from auto_patch.layout import SHARED_VERTEX_TOL_M
+        assert bridges._STAND_DOWN_BORE_DEPTH_TOL_M == pytest.approx(
+            float(SHARED_VERTEX_TOL_M))

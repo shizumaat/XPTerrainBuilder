@@ -1,4 +1,40 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260825b (SECOND SHIP OF THE DAY: app 1.0.259, embedded==dist.
+# Six lanes merged on top of the 20260825 block's work.)
+# IN 1.0.259 (all owner-ruled, all twinned): road band-seal scoped
+#   airside-only + road-apron edge conformance as pricing+seeding
+#   (RULINGS 25b; HECA 1,679 / SPJC 174; owner road site = continuous
+#   <=8% descent, was 201.5% step); EAT recognition v2 (RULINGS 25c/d:
+#   routed wrap + vacuous bound + 600 m cap + cut-only pin — LEMD
+#   builds, zero pins, KCLT byte-identical); tunnel-trench declared-
+#   step law + basin floor integrity (OTHH census 5,871->255 — 96%
+#   was the missing law entry; LEMD floor 545.5->588.5); basin pool
+#   scoping (thin parts cannot SEED a pit — LEMD 7,331->894, basin
+#   confined to the owner bbox at 8.53 m; VOR decals were the
+#   seeders, LEMD03 exonerated); portal corridor claim (RULINGS 25e:
+#   per-piece named refusals ungated, bore-depth stand-down guard,
+#   claim fields RIDE the shape + drift audit — OTHH mouth D emits at
+#   -0.90 m, was 727.6 m of nothing); KDFW GEOS fix (safe_difference
+#   precision-grid retry — valid inputs, invalid GEOS output class).
+#   Node book stays v1 (nine-arm ledger on lane/tunnelfix: findings
+#   2-5 — retreat face XOR shared key; carriers outside every
+#   publishable region; owner disposition pending, accept-v1
+#   recommended; residual = 3 walls + 1.03 m lot half).
+# LEMD DAY ARC: fatal assert -> 12,252 -> 894 (airside 155).
+# OWNER RULINGS PENDING: (1) node-book disposition (accept v1 vs
+#   reopen road-chord-limiter seeding); (2) building8 vs the basin
+#   cut (a 33,447 m2 pack pad covers the real sunken tower circle;
+#   R13 cuts pavement never pads — does the cutout pierce it?);
+#   (3) R16-2b ramp-wall inset (owner checks in-sim first).
+# DOCKETS RECORDED: emit-authority at claimed-corridor shared nodes;
+#   silent emitter when body_floor_born==0 (25e class); post-limiter
+#   road authors (roadseal §1.3 audit: 4 passes); spain5m integer
+#   quantization (WCS refetch as Float32?); OTHH mouth A site_reach
+#   89.8 vs 60 bar; 229 post-projection weld insertions; §2 DEM-last
+#   spine-only-anchors design; HECA bar re-founding; sites 2/3 OTHH
+#   pre-existing tickets; battery + SPLP arms + worktree cleanup.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260825 (RULINGS ROUND: apron chord anchor targets + DEM-last;
 # tunnel-corridor fix; LEMD attribution; app 1.0.258 / engine
 # 1.50.1701 SHIPPED for owner sim test, embedded==dist hash-verified)

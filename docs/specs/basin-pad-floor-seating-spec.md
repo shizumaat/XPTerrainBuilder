@@ -85,3 +85,31 @@ three shared canonical nodes ([seat-rigid] {building8, building18}
    600.4, building18 unmoved; the basin reads as a hole in-sim
    (floor + walls + sunken pad piece); census delta reported; OTHH/
    controls byte-identical as measured. Attempt cap 2 resets.
+
+## Amendment 3 (owner 2026-08-25 — supersedes Amendment 2's pad cut:
+## "a simple 7 m deep cutout for the whole area should work without
+## having to sever the buildings")
+
+1. OPEN-PIT FLOOR DEPTH: an open-pit facility's floor is the pooled
+   solids' deck-face median (body_depth_m, ~7.016 at LEMD) with ZERO
+   tunnel margins — `TUNNEL_FLOOR_BELOW_OBJECT_DECK_M` and
+   `TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M` apply only to true bore basins
+   (a deck you pass under). LEMD floor moves 584.50 → ≈586.01
+   (593.03 − 7.02).
+2. NO SEVERING, NO SEATING: pads are neither split nor seated by this
+   feature (Amendment 2's cut is retired; §1's whole-pad seating and
+   the withdrawal machinery stay only as the loud-report path). A pad
+   overlapping the facility keeps its authored grade, geometry, welds
+   and identity everywhere — and its FLATTENING AUTHORITY YIELDS to
+   the facility floor within the footprint: the floor plates and R2
+   walls own the interior; the pad's interior claim is clipped to
+   outside the facility (authority clip, not geometry edit).
+3. Twin: pad spanning a facility → floor plates emit through at the
+   deck-face depth, walls at the boundary, the pad's ring and level
+   untouched, its rigid partner untouched; a true bore basin keeps
+   its margins.
+4. Acceptance: LEMD floor ≈586.0 across the owner bbox; building8 AND
+   building18 unmoved (~600.3/599.3 era values); walls at the bbox
+   boundary; the hole reads complete in-sim; OTTH/controls
+   byte-identical (OTHH's basins are bore-class — margins retained).
+   Attempt cap 2 resets.

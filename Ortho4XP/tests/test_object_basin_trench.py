@@ -788,12 +788,22 @@ class TestOpenPitPavementCut:
         assert self._emit(layout, [_interface()]) == (0, 0)
         assert self._apron_area(layout) == pytest.approx(before)
 
-    def test_a_cut_that_seats_no_floor_is_put_back(self):
+    def test_a_cut_that_seats_no_floor_is_put_back(self, monkeypatch):
         """Pavement removed with no trench under it is a HOLE in the
         drivable surface — strictly worse than the buried pit.  Here a
         building pad owns the whole body, so the floor pan is eaten after
-        the cut and the apron must be restored."""
+        the cut and the apron must be restored.
+
+        RE-PINNED WITH ``BASIN_PAD_FLOOR_SEAT`` OFF (owner RULINGS
+        2026-08-25f).  A pad covering the whole body is now precisely the
+        case the pad-floor-seating law reverses: the pad seats at the
+        floor and the cut emits THROUGH it (see
+        ``TestBasinPadFloorSeating``).  The restore guard itself is
+        unchanged and still law for every other way a floor can be eaten
+        — this is the same re-pinning the §2.1 twin took when the pool
+        scoping gate landed: the premise lives with the gate off."""
         from auto_patch.layout import ROLE_BUILDING
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
         layout = self._layout_with_apron()
         layout.shapes.append(bridges.BuiltShape(
             polygon=Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)]),
@@ -2343,3 +2353,200 @@ class TestClassificationCacheVersionCoversTheFloorWitness:
 
     def test_the_cache_version_retires_pre_witness_pickles(self):
         assert assembly._CLASSIFICATION_CACHE_VERSION >= 20
+
+
+# ---------------------------------------------------------------------------
+# A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR (owner RULINGS 2026-08-25f)
+# spec docs/specs/basin-pad-floor-seating-spec.md §1 + §2
+# ---------------------------------------------------------------------------
+
+class TestBasinPadFloorSeating:
+    """The building8 disposition, twins (a)-(d).
+
+    LEMD ships ``building8`` — a 33,447 m² flat pad at 600.28 m — over
+    the whole 12,251 m² sunken tower circle.  The floor pan is
+    differenced against every earlier-born shape, so the pad ERASED it
+    and the classified, scoped, floor-agreed basin emitted nothing.  The
+    owner: "building8 should be below apron grade."
+
+    The criterion is EITHER-SIDE and the spec states both limbs: §1.1
+    against the PAD's area (a small pad wholly inside a big basin) and
+    §2's twin against the FACILITY's ("synthetic facility fully covered
+    by a pad → §1 ON: floor emits + pad seats at floor").  ``building8``
+    only ever satisfies the second — it is ~37 % inside the basin while
+    covering 100 % of it — and it is the covering that erases the floor.
+    """
+
+    APRON = Polygon([(-90, -90), (90, -90), (90, 90), (-90, 90)])
+    #: 120 x 120 m, comfortably larger than the 50 x 50 m default body —
+    #: the ``building8`` class: a pad LARGER than the facility it covers.
+    COVERING_PAD = Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)])
+    #: 20 x 20 m, wholly inside the same body — the §1.1 limb.
+    INSIDE_PAD = Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])
+    #: 20 x 20 m straddling the body's +x rim: 50 % of the PAD is inside
+    #: and it covers 8 % of the FACILITY — under threshold BOTH ways.
+    STRADDLING_PAD = Polygon([(15, -10), (35, -10), (35, 10), (15, 10)])
+    #: 20 x 20 m clear of the body altogether.
+    OUTSIDE_PAD = Polygon([(60, -10), (80, -10), (80, 10), (60, 10)])
+
+    def _layout(self, *pads, apron=False):
+        from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
+        layout = _FakeLayout()
+        if apron:
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=self.APRON, role=ROLE_APRON, ref="apron",
+                altitude=8.0))
+        for index, polygon in enumerate(pads):
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=polygon, role=ROLE_BUILDING,
+                ref=f"building{index}", altitude=8.0))
+        return layout
+
+    def _pads(self, layout):
+        from auto_patch.layout import ROLE_BUILDING
+        return {shape.ref: shape for shape in layout.shapes
+                if shape.role == ROLE_BUILDING}
+
+    def _expected_floor(self, dem_m=8.0, floor_y=-4.0):
+        return grade_law.basin_trench_floor_elevation_m(dem_m, floor_y)
+
+    # ── twin (a): the pad is INSIDE the facility ────────────────────
+    def test_a_pad_wholly_inside_the_facility_seats_at_the_floor(self):
+        layout = self._layout(self.INSIDE_PAD)
+        floors, rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1, "the cut must emit through the pad"
+        assert self._pads(layout)["building0"].basin_floor_seat_m == \
+            pytest.approx(self._expected_floor())
+        # ...and the wall band is at the FACILITY rim, not the pad's.
+        assert rims >= 1
+
+    def test_the_floor_plate_covers_the_ground_the_pad_owned(self):
+        """§1.2, measured: the floor is NOT differenced against a seated
+        pad.  With the pad still owning the ground the floor pan is a
+        20 x 20 m hole; without it the pan is whole."""
+        layout = self._layout(self.INSIDE_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        seated_area = sum(plate.polygon.area
+                          for plate in _basin_plates(layout, "trench"))
+        bare = _FakeLayout()
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        bare_area = sum(plate.polygon.area
+                        for plate in _basin_plates(bare, "trench"))
+        assert seated_area == pytest.approx(bare_area, rel=1e-9)
+
+    # ── §2's twin / the building8 limb: the pad COVERS the facility ──
+    def test_a_pad_covering_the_facility_seats_at_the_floor(self):
+        """The exemplar's own geometry: a pad LARGER than the basin,
+        covering 100 % of it.  Under §1.1's pad-side reading alone this
+        pad is only 17 % inside and would never seat — and §2's twin
+        would be unsatisfiable."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        assert self._pads(layout)["building0"].basin_floor_seat_m == \
+            pytest.approx(self._expected_floor())
+
+    def test_the_covering_pad_case_keeps_the_r13_cut(self):
+        """The cut is no longer restored: it bought a floor."""
+        from auto_patch.layout import ROLE_APRON
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        before = sum(shape.polygon.area for shape in layout.shapes
+                     if shape.role == ROLE_APRON)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        after = sum(shape.polygon.area for shape in layout.shapes
+                    if shape.role == ROLE_APRON)
+        assert after == pytest.approx(
+            before - _interface().below_grade_footprint.area, rel=0.02)
+
+    # ── twin (b): outside, and the rim straddler ────────────────────
+    def test_a_pad_outside_the_facility_is_untouched(self):
+        layout = self._layout(self.OUTSIDE_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+    def test_a_rim_straddler_is_not_seated_and_IS_reported(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = self._layout(self.STRADDLING_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+        line = "".join(
+            row for row in capsys.readouterr().out.splitlines(keepends=True)
+            if "BASIN RIM STRADDLER" in row)
+        assert line, "a straddler was sorted out SILENTLY"
+        assert "building0" in line
+
+    def test_the_straddler_still_differences_the_floor(self):
+        """Today's behaviour, kept: only a SEATED pad leaves the owned
+        ground."""
+        layout = self._layout(self.STRADDLING_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        straddled = sum(plate.polygon.area
+                        for plate in _basin_plates(layout, "trench"))
+        bare = _FakeLayout()
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        bare_area = sum(plate.polygon.area
+                        for plate in _basin_plates(bare, "trench"))
+        assert straddled < bare_area - 1.0
+
+    # ── twin (d): the flag ──────────────────────────────────────────
+    def test_flag_off_reproduces_the_erasure(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert (floors, rims) == (0, 0)
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+    def test_flag_off_still_reports_the_pad(self, capsys):
+        """The BEHAVIOUR rides the flag; the INSTRUMENT never does."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        import unittest.mock as _mock
+        with _mock.patch.object(config, "BASIN_PAD_FLOOR_SEAT", False):
+            layout = self._layout(self.COVERING_PAD, apron=True)
+            _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        out = capsys.readouterr().out
+        assert "BASIN PAD" in out and "building0" in out
+        assert "O4_BASIN_PAD_FLOOR_SEAT=0" in out
+
+    # ── the withdrawal guard: no floor, no seat ─────────────────────
+    def test_a_seat_with_no_floor_plate_is_withdrawn(self, monkeypatch):
+        """A facility that seats no plate anywhere has no floor for a pad
+        to sit on.  Forced here by a plate-area floor no pan can clear."""
+        layout = self._layout(self.COVERING_PAD)
+        monkeypatch.setattr(assembly, "_TUNNEL_WALL_SETBACK_M", 30.0)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors == 0
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+    # ── §2: THE SILENCE DIES ────────────────────────────────────────
+    def test_zero_floor_plates_names_the_facility_and_its_differencers(
+            self, capsys, monkeypatch):
+        """§2.1, UNGATED.  ``body_floor_born == 0`` used to ``continue``
+        without a word — the silence that let LEMD ship a basin that
+        emitted nothing.  The line names the facility, its floor, and
+        every shape the floor was differenced against, with role and
+        area."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors == 0
+        out = capsys.readouterr().out
+        assert "NO FLOOR PLATE BORN" in out, "zero plates shipped SILENTLY"
+        assert "basin.obj" in out
+        assert f"{self._expected_floor():.2f} m" in out
+        # the differencer itself, by role and ref
+        assert "building 'building0'" in out
+
+    def test_the_named_line_is_ungated(self, capsys, monkeypatch):
+        """Instrument is law: the line does not ride
+        ``OBJECT_BASIN_TRENCH``'s sibling flag, and it fires for a floor
+        eaten by anything — here a pad the seating rule never touches."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        monkeypatch.setattr(assembly, "_TUNNEL_WALL_SETBACK_M", 30.0)
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert "NO FLOOR PLATE BORN" in capsys.readouterr().out

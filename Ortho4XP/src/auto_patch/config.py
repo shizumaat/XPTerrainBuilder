@@ -4897,6 +4897,49 @@ DECLARED_TERRAIN_PLATE_ROLES = frozenset({"tunnel_trench"})
 # plate reads back within 0.005 m of one of them.
 BASIN_DECLARED_FLOOR_MATCH_TOL_M = 0.15
 
+# ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ────────────────────
+# (owner RULINGS 2026-08-25f, the building8 disposition; spec
+# ``docs/specs/basin-pad-floor-seating-spec.md`` §1.)  DEFAULT ON.
+#
+# A building pad whose footprint lies within a basin facility's
+# footprint is BELOW the surrounding grade: it SEATS AT THE FACILITY
+# FLOOR, and the basin cut emits THROUGH it (the facility floor is
+# never differenced away against such a pad).  The owner, on LEMD's
+# real sunken tower circle: "building8 should be below apron grade."
+#
+# MEASURED (LEMD, the basinpool round's finding 1): the basin is
+# confined to the owner's bbox (12,251 m², floor 584.5 m, 8.53 m below
+# the surrounding grade) but NO terrain cut emitted — the pack's own
+# ``building8`` pad (way -10008, 33,447 m², flat at 600.28 m) covers
+# 100 % of the facility, the floor pan is differenced against every
+# earlier-born shape (``_TUNNEL_FLOOR_OWNED_CLEARANCE_M``) and nothing
+# survived.  R13's pit cut only ever cut PAVEMENT, never a pad.
+#
+# With O4_BASIN_PAD_FLOOR_SEAT=0 no pad is seated and no floor
+# differencing is skipped — the emitted patch is byte-identical to the
+# pre-fix engine.  The REPORT lines (both the seated pads and the
+# partial-coverage ones) are UNGATED: the instrument is law.
+BASIN_PAD_FLOOR_SEAT = (
+    _os.environ.get("O4_BASIN_PAD_FLOOR_SEAT", "1") == "1")
+
+# The coverage threshold.  EITHER-SIDE, and the spec states both limbs:
+# §1.1 reads it against the PAD's own area (a small pad wholly inside a
+# big basin), §2's twin states the other limb as normative acceptance —
+# "synthetic facility FULLY COVERED BY A PAD → §1 ON: floor emits + pad
+# seats at floor".  Only the second limb reaches the exemplar: LEMD's
+# ``building8`` is 33,447 m² over a 12,251 m² facility, so it is ~37 %
+# INSIDE the basin while covering 100 % OF it — and it is the covering
+# that erases the floor.  ONE constant reads on whichever side is asked;
+# a second threshold would be a number no ruling set.  (Same shape as
+# the bridge never-stack either-side criterion, for the same measured
+# reason: a pack's own pad is routinely LARGER than the structure box.)
+#
+# A pad below it on BOTH sides straddles the basin rim — a real design
+# case this rule is not about — and keeps today's behaviour, REPORTED
+# by name so a straddler is never silently mistaken for either class.
+BASIN_PAD_COVERAGE_MIN = float(
+    _os.environ.get("O4_BASIN_PAD_COVERAGE_MIN", "0.8"))
+
 # Vertical clearance (m) the ``grade_law.bridge_crossing_floor`` law adds
 # above a road surface for a TERRAIN/PROFILE_CARRIED span that must RISE
 # (the EDDF class, where WE choose the vertical split — spec section 3.2).

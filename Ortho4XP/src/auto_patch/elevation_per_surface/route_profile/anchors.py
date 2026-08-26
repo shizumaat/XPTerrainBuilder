@@ -1368,6 +1368,55 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     f"after the corridor profiles solve")
     else:
         setattr(layout, "_pad_seat_consistency_units", [])
+
+    # ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ────────────────
+    # (owner RULINGS 2026-08-25f; spec ``basin-pad-floor-seating-spec``
+    # §1.1: "its flat level is the facility's floor elevation, not the
+    # surrounding grade; downstream consumers (seats, chords, strip
+    # adoption) see the floor value".)
+    #
+    # The declaration is made PRE-SOLVE, by the same pass that births
+    # the floor pan and from the same ``floor_elevation``
+    # (``object_terrain_assembly.build_tunnel_layout_shapes`` →
+    # ``BuiltShape.basin_floor_seat_m``).  It is DECLARED TERRAIN, in
+    # exactly the sense the trench floor pan is — not a route-
+    # reachability choice — so it OVERRIDES whatever the frontage /
+    # whole-ring band chose above rather than being intersected with
+    # it: a pit floor is not reachable at ≤ 1 % from a taxiway, and
+    # that is the point of the pit.
+    #
+    # THE BOX IS A POINT.  ``seat_boxes`` is the bounded-yield registry
+    # every later freeing pass clamps into (owner ruling 2026-07-29);
+    # a declared floor that any pass may yield 8 m upward is not
+    # declared.  The node set is published for the solve's seat guards
+    # (``solve.py``), which must not send a declared floor into
+    # yield-hard for being outside the airside band — it is outside the
+    # airside band BY CONSTRUCTION.
+    _basin_seat_idx: set = set()
+    _basin_seat_pads = 0
+    for s in layout.shapes:
+        _decl = getattr(s, "basin_floor_seat_m", None)
+        if _decl is None or s.polygon is None or s.polygon.is_empty:
+            continue
+        try:
+            _ring = _open_ring(list(s.polygon.exterior.coords))
+        except (ValueError, TypeError):
+            continue
+        _basin_seat_pads += 1
+        _lv = float(_decl)
+        for (x, y) in _ring:
+            k = cps.get_or_add(float(x), float(y))
+            i = bucket_to_idx.get(k)
+            if i is not None:
+                seats[i] = _lv
+                _basin_seat_idx.add(i)
+            seat_boxes[k] = (_lv, _lv)
+    setattr(layout, "_basin_pad_seat_idx", _basin_seat_idx)
+    if _basin_seat_pads:
+        _report(f"  [seats] {_basin_seat_pads} building pad(s) inside a "
+                f"basin facility seated at the DECLARED facility floor "
+                f"({len(_basin_seat_idx)} ring node(s)); the airside band "
+                f"does not bind a pad in a pit")
     return seats
 
 
@@ -6151,6 +6200,15 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     for (s, group) in groups:
         if s.polygon is None or s.polygon.is_empty:
             _cen["no_level"] += 1
+            continue
+        if getattr(s, "basin_floor_seat_m", None) is not None:
+            # A PAD INSIDE A BASIN DOES NOT ADOPT ITS HOST (owner
+            # RULINGS 2026-08-25f).  This pass exists to lift a pad the
+            # DEM-biased frontage seat left in a PIT while its host
+            # humped around it — and a pad inside a basin is in a pit
+            # BY DECLARATION.  Adopting the host's grade here is
+            # precisely the erasure this ruling reverses.
+            _cen["refused"] += 1
             continue
         cur = _building_flat_level(s)
         if cur is None:

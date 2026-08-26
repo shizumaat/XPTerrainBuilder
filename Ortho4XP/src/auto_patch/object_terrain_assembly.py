@@ -2366,7 +2366,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         tunnel_trench_floor_elevation_m,
         tunnel_trench_rim_elevation_m,
     )
-    from .layout import ROLE_TUNNEL_TRENCH
+    from .layout import ROLE_BUILDING, ROLE_TUNNEL_TRENCH
 
     to_meters, _meters_to_lat_lon = _local_meter_projections(layout.anchor)
 
@@ -2408,8 +2408,15 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     # Kept as (bounds, polygon) entries and bbox-filtered per body — a
     # whole-layout unary_union costs seconds at an EGLL-sized airport
     # (HARD-LAW budget) and only the shapes beside each trench matter.
+    #
+    # Each entry carries its SHAPE as well as its bounds and polygon: the
+    # basin-pad floor seating (spec ``basin-pad-floor-seating-spec.md``
+    # §1.2) excludes named shapes from the differencing, and the §2 named
+    # line reports each differencing shape's ROLE and AREA — both need the
+    # shape, not just its geometry.
     owned_entries = [
-        (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
+        (shape.polygon.bounds, shape.polygon, shape)
+        for shape in layout.shapes
         if shape.polygon is not None and not shape.polygon.is_empty
     ]
 
@@ -2422,7 +2429,8 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         pavement this function has already removed.  Bounds only, no
         geometry ops: this runs after every cut."""
         owned_entries[:] = [
-            (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
+            (shape.polygon.bounds, shape.polygon, shape)
+            for shape in layout.shapes
             if shape.polygon is not None and not shape.polygon.is_empty
         ]
 
@@ -2468,14 +2476,25 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             pavement_union = None
         _reindex_open_pit_union()
 
-    def _owned_near(bounds):
+    def _owned_entries_near(bounds, exclude_ids=()):
+        """The owned-ground entries whose bbox meets ``bounds``.
+
+        ``exclude_ids`` is a set of ``id(shape)`` the caller has taken OUT
+        of the owned ground — the basin-pad floor seating's one and only
+        mechanism (spec §1.2: "the facility floor is NOT differenced
+        against such a pad").  Bounds-filtered, never a whole-layout
+        union: see ``owned_entries``."""
         minimum_x, minimum_y, maximum_x, maximum_y = bounds
-        candidates = [
-            polygon for (bounds_x0, bounds_y0, bounds_x1, bounds_y1), polygon
-            in owned_entries
-            if bounds_x0 <= maximum_x and bounds_x1 >= minimum_x
-            and bounds_y0 <= maximum_y and bounds_y1 >= minimum_y
+        return [
+            entry for entry in owned_entries
+            if entry[0][0] <= maximum_x and entry[0][2] >= minimum_x
+            and entry[0][1] <= maximum_y and entry[0][3] >= minimum_y
+            and id(entry[2]) not in exclude_ids
         ]
+
+    def _owned_near(bounds, exclude_ids=()):
+        candidates = [
+            entry[1] for entry in _owned_entries_near(bounds, exclude_ids)]
         if not candidates:
             return None
         try:
@@ -2731,6 +2750,129 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # restore guard has already run — a cut that was put back must
         # never be logged as one that happened.)
 
+        # ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ─────────────
+        # (owner RULINGS 2026-08-25f, the building8 disposition; spec
+        # ``basin-pad-floor-seating-spec.md`` §1.)
+        #
+        # A ROLE_BUILDING pad whose footprint lies INSIDE this basin's
+        # footprint — ``config.BASIN_PAD_COVERAGE_MIN`` of the PAD's own
+        # area — is below the surrounding grade.  Two consequences, and
+        # they are one law read twice:
+        #
+        #   (1) the pad SEATS AT THE FACILITY FLOOR: its declared flat
+        #       level is ``floor_elevation``, which the seat producers
+        #       stamp onto its ring (``BuiltShape.basin_floor_seat_m``);
+        #   (2) the FLOOR IS NOT DIFFERENCED against it — the cut emits
+        #       THROUGH the pad, at the same elevation the pad now
+        #       carries, instead of being erased by it.
+        #
+        # WHY BOTH.  LEMD's pack ships ``building8`` (33,447 m²) flat at
+        # 600.28 m over the whole 12,251 m² sunken tower circle; the
+        # floor pan is differenced against every earlier-born shape, so
+        # the pad erased it completely and the basin emitted NOTHING
+        # (basinpool round, finding 1).  Seating the pad without the
+        # exclusion would leave the basin with a pad but no floor;
+        # excluding without seating would leave an 8 m pad-vs-floor
+        # z-fight over the same ground.
+        #
+        # A PARTIAL-COVERAGE PAD IS A DIFFERENT DESIGN CASE and is NOT
+        # this rule's: a pad straddling a basin rim keeps today's
+        # behaviour (it differences the floor as before, it is not
+        # seated) and is REPORTED by name — never silently sorted into
+        # either class.  Both reports are UNGATED; only the BEHAVIOUR
+        # rides ``config.BASIN_PAD_FLOOR_SEAT``.
+        floor_seated_pad_ids: set = set()
+        if is_basin_facility:
+            try:
+                facility_geometry = unary_union(body_parts)
+            except Exception:
+                facility_geometry = None
+            if facility_geometry is not None \
+                    and not facility_geometry.is_empty:
+                facility_area = float(facility_geometry.area)
+                for pad in layout.shapes:
+                    if (pad.role != ROLE_BUILDING or pad.polygon is None
+                            or pad.polygon.is_empty):
+                        continue
+                    pad_area = float(pad.polygon.area)
+                    if pad_area <= 0.0:
+                        continue
+                    try:
+                        overlap = float(
+                            pad.polygon.intersection(facility_geometry).area)
+                    except Exception:
+                        continue
+                    if overlap <= 0.0:
+                        continue
+                    pad_coverage = overlap / pad_area
+                    facility_coverage = (
+                        overlap / facility_area if facility_area > 0.0
+                        else 0.0)
+                    # ── THE CRITERION IS EITHER-SIDE, AND THE SPEC SAYS
+                    # SO TWICE ─────────────────────────────────────────
+                    # §1.1 states the threshold against the PAD's own
+                    # area — the small pad wholly inside a big basin.
+                    # §2's twin states the other limb as normative
+                    # acceptance: "synthetic facility FULLY COVERED BY A
+                    # PAD → §1 ON: floor emits + pad seats at floor".
+                    # Only the second limb reaches the exemplar the
+                    # ruling is about: LEMD's ``building8`` is 33,447 m²
+                    # over a 12,251 m² facility, so it is ~37 % INSIDE
+                    # the basin while covering 100 % OF it — and it is
+                    # the covering that erases the floor.  A pad-side
+                    # test alone would leave §2's own twin unsatisfiable.
+                    #
+                    # ONE CONSTANT, BOTH LIMBS.  A second threshold would
+                    # be a number the spec never ruled; the same
+                    # ``BASIN_PAD_COVERAGE_MIN`` reads on whichever side
+                    # is being asked.  Same shape as the bridge
+                    # never-stack precedent's either-side criterion
+                    # (``bridges.build_bridge_layout_shapes``), for the
+                    # same measured reason: a pack's own pad is routinely
+                    # LARGER than the structure box it was extracted
+                    # from.
+                    if max(pad_coverage, facility_coverage) \
+                            >= config.BASIN_PAD_COVERAGE_MIN:
+                        if not config.BASIN_PAD_FLOOR_SEAT:
+                            UI.vprint(
+                                1,
+                                f"   [{log_tag}] BASIN PAD {pad.ref!r} "
+                                f"({pad_area:.0f} m2) is "
+                                f"{100.0 * pad_coverage:.0f} % inside "
+                                f"{resources} and covers "
+                                f"{100.0 * facility_coverage:.0f} % of it "
+                                f"— NOT seated at the floor "
+                                f"{floor_elevation:.2f} m "
+                                "(O4_BASIN_PAD_FLOOR_SEAT=0)",
+                            )
+                            continue
+                        pad.basin_floor_seat_m = float(floor_elevation)
+                        floor_seated_pad_ids.add(id(pad))
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN PAD SEATED AT THE "
+                            f"FLOOR: {pad.ref!r} ({pad_area:.0f} m2) is "
+                            f"{100.0 * pad_coverage:.0f} % inside "
+                            f"{resources} and covers "
+                            f"{100.0 * facility_coverage:.0f} % of it — "
+                            f"its flat level is the facility floor "
+                            f"{floor_elevation:.2f} m and the cut emits "
+                            "through it",
+                        )
+                    else:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN RIM STRADDLER: pad "
+                            f"{pad.ref!r} ({pad_area:.0f} m2) is only "
+                            f"{100.0 * pad_coverage:.0f} % inside "
+                            f"{resources} (< "
+                            f"{100.0 * config.BASIN_PAD_COVERAGE_MIN:.0f} "
+                            f"%) and covers "
+                            f"{100.0 * facility_coverage:.0f} % of it — "
+                            "NOT seated at the floor; today's behaviour "
+                            "kept",
+                        )
+
         # ANCHOR SEAT (user 2026-07-18f, "object sitting below terrain"):
         # every shell of the facility drapes at terrain(anchor), and the
         # classifier's whole depth model assumed that value is the DATUM
@@ -2834,6 +2976,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # collinear with its terminal's building-pad ring, and the
             # un-inset floor edge minted a mm-jittered constraint mess
             # (125 nodes in half a metre) that killed segment recovery.
+            floor_owned_entries: list = []
             try:
                 floor_geometry = body.buffer(
                     -_TUNNEL_WALL_SETBACK_M, join_style=2, mitre_limit=2.0)
@@ -2841,7 +2984,14 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M
                     + 1.0)
                 body_bounds = envelope.bounds
-                owned_near_floor = _owned_near(body_bounds)
+                # THE FLOOR-SEATED PADS ARE NOT OWNED GROUND (spec §1.2):
+                # a pad seated AT this floor cannot also erase it.  The
+                # entries are kept for the §2 named line below, which
+                # reports what the floor WAS differenced against.
+                floor_owned_entries = _owned_entries_near(
+                    body_bounds, floor_seated_pad_ids)
+                owned_near_floor = _owned_near(
+                    body_bounds, floor_seated_pad_ids)
                 if owned_near_floor is not None \
                         and not owned_near_floor.is_empty:
                     floor_geometry = floor_geometry.difference(
@@ -2891,6 +3041,56 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # negative-AGL shells, or fully pavement-yielded bodies) is
                 # left at grade rather than emitting a floorless rim ring —
                 # the rim is meaningless without a floor to wall down to.
+                #
+                # ── THE SILENCE DIES (spec §2, the 2026-08-25e named-line
+                # class).  UNGATED — instrument is law.  This branch used
+                # to ``continue`` in complete silence, and that silence is
+                # what let LEMD ship a classified, scoped, floor-agreed
+                # basin that emitted NOTHING: the build log said the
+                # facility's floor was 584.5 m and nothing said no plate
+                # was ever born, let alone what erased it.  Name the
+                # facility, its floor, and EVERY shape the floor was
+                # differenced against, with role and area — the shape at
+                # the top of that list IS the answer.
+                _diff_rows = []
+                for _entry in floor_owned_entries:
+                    _shape = _entry[2]
+                    try:
+                        _hit = float(_entry[1].intersection(body).area)
+                    except Exception:
+                        _hit = 0.0
+                    if _hit <= 0.0:
+                        continue
+                    _diff_rows.append(
+                        (_hit, _shape.role, _shape.ref or "?",
+                         float(_entry[1].area)))
+                _diff_rows.sort(reverse=True)
+                _body_area = float(getattr(body, "area", 0.0) or 0.0)
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] NO FLOOR PLATE BORN for {resources}: "
+                    f"the {_body_area:.0f} m2 body at floor "
+                    f"{floor_elevation:.2f} m seated ZERO plates — the "
+                    f"floor was differenced against "
+                    f"{len(_diff_rows)} earlier-born shape(s)"
+                    + (":" if _diff_rows else " (none: the body's own "
+                       "inset left nothing above the 4 m2 plate floor)"),
+                )
+                for (_hit, _role, _ref, _area) in _diff_rows[:10]:
+                    _pct = (f" ({100.0 * _hit / _body_area:.0f} %)"
+                            if _body_area > 0.0 else "")
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}]     {_role} {_ref!r}: "
+                        f"{_area:.0f} m2 shape covering {_hit:.0f} m2"
+                        f"{_pct} of the body",
+                    )
+                if len(_diff_rows) > 10:
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}]     ... and "
+                        f"{len(_diff_rows) - 10} more.",
+                    )
                 continue
             floor_plate_count += body_floor_born
             facility_floor_born += body_floor_born
@@ -2929,6 +3129,25 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     rim_plate_count += 1
                     emitted_rim_values.append(float(part_elevation))
 
+        if floor_seated_pad_ids and not facility_floor_born:
+            # NO FLOOR, NO SEAT (spec §1.1's premise).  A facility that
+            # seated no plate anywhere has no emitted floor for a pad to
+            # sit on, and a pad declared 8 m down with nothing cut around
+            # it is a pit with no basin — strictly worse than the buried
+            # pad it was meant to expose.  Withdrawn, and SAID SO: the
+            # §2 named line above has already reported why no plate was
+            # born.
+            for _pad in layout.shapes:
+                if id(_pad) in floor_seated_pad_ids:
+                    _pad.basin_floor_seat_m = None
+            UI.vprint(
+                1,
+                f"   [{log_tag}] BASIN PAD SEAT WITHDRAWN for "
+                f"{resources}: {len(floor_seated_pad_ids)} pad(s) were "
+                "seated at the facility floor but no floor plate was "
+                "born — nothing to sit on",
+            )
+            floor_seated_pad_ids = set()
         if cut_shape_count and not facility_floor_born:
             # RULING R13's GUARD: the cut bought nothing, so PUT IT BACK.
             # Pavement removed with no trench under it is a hole in the

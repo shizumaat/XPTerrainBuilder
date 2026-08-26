@@ -253,3 +253,60 @@ def test_pads_that_only_come_close_are_not_merged(monkeypatch, capsys):
     cps = layout.canonical_points
     assert _level_of(seats, b2i, cps, d) != _level_of(seats, b2i, cps, e)
     assert "MERGED RIGID unit(s)" not in capsys.readouterr().out
+
+
+# ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ──────────────────────
+# owner RULINGS 2026-08-25f; spec basin-pad-floor-seating-spec.md §1.1:
+# "its flat level is the facility's floor elevation, not the surrounding
+# grade; downstream consumers (seats, chords, strip adoption) see the
+# floor value."
+
+def test_a_declared_basin_floor_overrides_the_band_chosen_seat(monkeypatch):
+    """The declaration is DECLARED TERRAIN — the same value, from the same
+    pass, as the trench floor pan beside it — so it OVERRIDES the band's
+    choice rather than being intersected with it.  A pit floor is not
+    reachable at <= 1 % from a taxiway, and that is the point of a pit
+    (LEMD: 8.53 m below the surrounding apron grade)."""
+    layout, apron, pad = _big_pad_layout()
+    pad.basin_floor_seat_m = 95.5
+    b2i = _register(layout, [apron, pad])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0}, monkeypatch)
+    got = _level_of(seats, b2i, layout.canonical_points, pad)
+    assert got == pytest.approx(95.5), (
+        "a declared basin floor must not be clamped into the airside band")
+    # EVERY ring node carries it — a pad is one flat level.
+    cps = layout.canonical_points
+    for (x, y) in list(pad.polygon.exterior.coords)[:-1]:
+        assert seats[b2i[cps.get(float(x), float(y))]] == pytest.approx(95.5)
+
+
+def test_the_declared_seat_publishes_its_nodes_and_pins_its_box(monkeypatch):
+    """Two consumers of the same declaration: the solve's seat guards read
+    the node set (they must not send a declared floor into yield-hard for
+    being outside the airside band), and the bounded-yield registry holds
+    a POINT box — a declared floor any later pass may yield 8 m upward is
+    not declared."""
+    layout, apron, pad = _big_pad_layout()
+    pad.basin_floor_seat_m = 95.5
+    b2i = _register(layout, [apron, pad])
+    _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+           {id(pad): 108.0}, monkeypatch)
+    cps = layout.canonical_points
+    published = getattr(layout, "_basin_pad_seat_idx")
+    boxes = AN._store_of(layout).raw("seat_boxes")
+    for (x, y) in list(pad.polygon.exterior.coords)[:-1]:
+        k = cps.get(float(x), float(y))
+        assert b2i[k] in published
+        assert boxes[k] == (pytest.approx(95.5), pytest.approx(95.5))
+
+
+def test_an_undeclared_pad_is_untouched_by_the_basin_law(monkeypatch):
+    """The control: same geometry, no declaration, band clamp as before."""
+    layout, apron, pad = _big_pad_layout()
+    b2i = _register(layout, [apron, pad])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0}, monkeypatch)
+    assert _level_of(seats, b2i, layout.canonical_points, pad) == \
+        pytest.approx(104.0)
+    assert not getattr(layout, "_basin_pad_seat_idx")

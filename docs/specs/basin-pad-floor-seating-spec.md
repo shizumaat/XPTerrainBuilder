@@ -58,3 +58,30 @@ apron grade." Second finding: the emitter is SILENT when
 - HECA/SPJC/CYXY: artifact re-census unchanged (no basins).
 - Attempt cap 2, materiality 0.01 m, STOP on second miss. No
   shared-repo writes, no timing claims.
+
+## Amendment 2 (Fable, 2026-08-25 — the pad CUTS at the facility
+## boundary; ratifies the either-side coverage criterion)
+
+Measured (lane/basinpad): the floor plates emit (2 plates, 11,805 m²,
+584.50 across the owner bbox) but building8 cannot SEAT at the floor —
+it rigidly couples to building18 (75,885 m², outside the basin) through
+three shared canonical nodes ([seat-rigid] {building8, building18}
+599.345), so seating the unit sinks a terminal complex 16 m.
+
+1. A pad PARTIALLY covering a basin facility (either-side criterion —
+   the implementer's reading is RATIFIED: pad-side OR facility-side
+   coverage ≥ BASIN_PAD_COVERAGE_MIN triggers the rule) is CUT at the
+   facility boundary, exactly as R13 cuts pavement: the in-facility
+   piece becomes its own pad seated at the facility floor; the
+   out-of-facility remainder keeps its grade, its welds (building18
+   survives untouched) and its identity. The R2 node-split wall class
+   owns the boundary.
+2. A pad FULLY inside the facility seats whole (the original §1.1).
+   The loud withdrawal stays for any pad the cut cannot express.
+3. Twin: partially-covering rigid-coupled pad → in-basin piece at the
+   floor, remainder at grade, neighbour unmoved; the walls emit at
+   the cut line.
+4. Acceptance: LEMD building8's in-basin piece ≈ 584.5, remainder ≈
+   600.4, building18 unmoved; the basin reads as a hole in-sim
+   (floor + walls + sunken pad piece); census delta reported; OTHH/
+   controls byte-identical as measured. Attempt cap 2 resets.

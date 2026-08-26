@@ -331,6 +331,15 @@ ROLE_BRIDGE_CAUSEWAY = "bridge_causeway"
 # of EGLL airside pavement down, up to 8 m near tunnels; this role fixes it.)
 ROLE_TUNNEL_TRENCH = "tunnel_trench"
 
+#: THE R14-1 CLAIM VERDICT, carried on the SHAPE.  ``bridges``'
+#: ``_claim_road_pavement`` stamps it on pavement it re-profiles as the
+#: tunnel corridor ("the paved area IS the corridor"), and it lives here
+#: — not in ``bridges`` — because the groundside passes must be able to
+#: recognise a claimed corridor without importing the module that
+#: imports them (spec ``docs/specs/portal-corridor-claim-spec.md``
+#: AMENDMENT 2: the authored fields ride the shape to ``to_osm``).
+TUNNEL_ROAD_REF = "tunnel_road"
+
 # THE GROUNDSIDE SIDE OF THE LAW'S OWN PARTITION (cycle 8, the
 # projection-partition round).  These are the roles ``tools/check_grade``
 # calls groundside when it decides a census row's SIDE — the partition

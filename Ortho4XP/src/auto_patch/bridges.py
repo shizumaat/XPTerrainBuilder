@@ -624,7 +624,10 @@ TUNNEL_APPROACH_GRADE = 0.05
 # registers it in ``groundside.BELOW_GRADE_REFS`` so the unchanged R5
 # transition law grades the surrounding surface toward it, and what puts
 # it in this module's tunnel-pavement union so no wall may cover it.
-TUNNEL_ROAD_REF = "tunnel_road"
+# ``TUNNEL_ROAD_REF`` now lives in ``layout`` (one home, so the
+# groundside passes can recognise a claimed corridor without a
+# circular import); re-exported here for every existing reader.
+from .layout import TUNNEL_ROAD_REF  # noqa: E402,F401
 
 # R14-2/A-3 — AIRCRAFT-TRANSIT PAVEMENT A CUT NEVER INTERRUPTS.  The
 # runway family was already never cut; A-3 adds the taxiway family.
@@ -6099,6 +6102,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         # ring so the stand-down can ask "does this claimant carry bore
         # depth HERE" per footprint (spec AMENDMENT 1).
         _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
+        log_tunnel_road_claim(layout, _shape, _new, "levelled")
         _n += 1
     # ── PASS 2: THE GRADED APPROACHES ────────────────────────────────
     for _shape in _shapes:
@@ -6161,6 +6165,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         _shape.ref = TUNNEL_ROAD_REF
         _claimed_polys.append(_shape.polygon)
         _claimed_depth.append((_shape.polygon, list(_ring), list(_new)))
+        log_tunnel_road_claim(layout, _shape, _new, "graded")
         _n += 1
     if _airside:
         try:
@@ -6465,6 +6470,31 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
     except _GEOM_EXC:                                  # pragma: no cover
         pass
     return _n
+
+
+def log_tunnel_road_claim(layout, shape, alts, how: str) -> None:
+    """Name every surface R14-1 CLAIMS, with the depth it gave it.
+
+    The third face of the same instrument (RULINGS 2026-08-25e §1): the
+    removals are named, the refusals are named, and so is the claim that
+    justifies a removal.  Without it "claimed 12 road surface(s)" was
+    the only record, and answering "which shape, and did its corridor
+    ever ship" took a geometric re-derivation off the emitted patch.
+    """
+    try:
+        _poly = getattr(shape, "polygon", None)
+        _, _to_ll = _local_meter_projections(layout.anchor)
+        _c = _poly.centroid
+        _lat, _lon = _to_ll(_c.x, _c.y)
+        _zs = [float(_a) for _a in (alts or ()) if _a is not None]
+        UI.vprint(1,
+                  f"  [tunnel-claim] road {how}: "
+                  f"role={getattr(shape, 'role', '') or '-'} "
+                  f"@{_lat:.7f},{_lon:.7f} area={_poly.area:.1f}m2"
+                  + (f" depth={min(_zs):.2f}..{max(_zs):.2f}m" if _zs
+                     else ""))
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return
 
 
 def log_tunnel_piece_kept(layout, shape, predicate: str, *,

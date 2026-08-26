@@ -103,6 +103,59 @@ def dem_world_label(dem) -> str:
     return f"{type(dem).__name__}:{src if src else '?'}"
 
 
+def claimed_tunnel_corridor(shape) -> bool:
+    """Is this shape a CLAIMED TUNNEL CORRIDOR — pavement R14-1
+    re-profiled to carry a bore ("the paved area IS the corridor")?
+
+    Spec ``docs/specs/portal-corridor-claim-spec.md`` AMENDMENT 2, and
+    the reason it is a predicate rather than a pass: the claim verdict
+    RIDES THE SHAPE (``layout.TUNNEL_ROAD_REF``), so every downstream
+    re-derivation can recognise it and leave its authored field alone.
+    No re-stamping pass exists or may be added — a field that has to be
+    restored after the fact is a field that was already lost.
+
+    MEASURED (OTHH mouth D, 2026-08-25): R14-1 lowered the claimant to
+    -0.92 m and marked it; the post-solve groundside/service law seats
+    then re-seated it onto the surrounding law and it shipped FLAT at
+    3.96 m, so the corridor the stand-down had lawfully trusted was
+    never written and the mouth emitted no bore geometry at all.  The
+    seats are not wrong in general — they exist to rescue rings still on
+    their pre-solve DEM seed — but a claimed corridor is not on a seed:
+    its field is authored by the portal walk, which outranks them.
+    """
+    from .layout import TUNNEL_ROAD_REF
+    return getattr(shape, "ref", "") == TUNNEL_ROAD_REF
+
+
+def _carry_claimed_corridor(source, part):
+    """A rebuilt PIECE of a claimed corridor, carrying the verdict and
+    the authored profile — or ``None`` when the profile cannot be
+    carried (in which case the caller does what it always did).
+
+    Spec ``portal-corridor-claim-spec.md`` AMENDMENT 2 §1: no
+    re-stamping pass; the fields ride the shape through the rebuild
+    itself.  The altitudes come from the module's OWN carrier
+    (``elevation._resample_node_altitudes_nn``, edge-interpolated), the
+    same one every other tunnel clip uses — never a second convention.
+    """
+    from .elevation import _resample_node_altitudes_nn
+    ring, alts = _ring_and_altitudes(source)
+    if ring is None or not alts:
+        return None
+    open_ring = ring[:-1] if (ring and ring[0] == ring[-1]) else ring
+    try:
+        na = _resample_node_altitudes_nn(part, open_ring, list(alts),
+                                         interior_edge_project=True)
+    except _GEOM_EXC:                                  # pragma: no cover
+        return None
+    if na is None:
+        return None
+    _new = BuiltShape(polygon=part, role=getattr(source, "role", ""),
+                      ref=getattr(source, "ref", ""), node_altitudes=na)
+    setattr(_new, _LAW_SEATED_ATTR, True)
+    return _new
+
+
 def _dem_sampler(layout, dem, tile_lat, tile_lon):
     """Return ``_dem_at(x, y) -> Optional[float]`` sampling ``dem`` in
     layout-metre space (anchored at ``layout.anchor``).
@@ -1459,6 +1512,13 @@ def seat_groundside_on_law(layout, dem, tile_lat: int = 0,
     for s in layout.shapes:
         if s.role != ROLE_GROUNDSIDE_PAVEMENT:
             continue
+        if claimed_tunnel_corridor(s):
+            # AMENDMENT 2: the portal walk authored this ring's field.
+            # This pass rescues rings still on their pre-solve DEM seed;
+            # a claimed corridor is not on a seed, and re-seating it onto
+            # the surrounding law is what buried OTHH mouth D.
+            _skip("claimed_tunnel_corridor")
+            continue
         stats["candidates"] = stats.get("candidates", 0) + 1
         poly = getattr(s, "polygon", None)
         if poly is None or poly.is_empty or poly.geom_type != "Polygon":
@@ -1719,6 +1779,12 @@ def seat_service_pavement_on_law(layout, dem, tile_lat: int = 0,
     for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
         for s in layout.shapes:
             if getattr(s, "role", "") != role:
+                continue
+            if claimed_tunnel_corridor(s):
+                # AMENDMENT 2, same rule on the service side: a claimed
+                # corridor's field is the portal walk's, not this seat's.
+                skips["claimed_tunnel_corridor"] = skips.get(
+                    "claimed_tunnel_corridor", 0) + 1
                 continue
             poly = getattr(s, "polygon", None)
             if poly is None or poly.is_empty or poly.geom_type != "Polygon":
@@ -5371,7 +5437,15 @@ def _merge_touching_groundside(
     from shapely.strtree import STRtree
     gs = [s for s in layout.shapes
           if s.role == ROLE_GROUNDSIDE_PAVEMENT and s.polygon is not None
-          and not s.polygon.is_empty and s.polygon.geom_type == "Polygon"]
+          and not s.polygon.is_empty and s.polygon.geom_type == "Polygon"
+          # AMENDMENT 2: a claimed corridor is NOT "DEM-following
+          # pavement with no internal structure" — this pass's own
+          # premise — so it is never a merge member.  Merging it re-mints
+          # the union through ``_dem_follow_polygon`` with ref
+          # "groundside", which drops both the claim verdict and the
+          # authored bore profile (measured, unit probe).  Its
+          # neighbours still merge around it.
+          and not claimed_tunnel_corridor(s)]
     if len(gs) < 2:
         return 0
     polys = [s.polygon for s in gs]
@@ -5677,6 +5751,21 @@ def _separate_groundside_from_airside(
             # simplified at emit, and re-simplifying would move the
             # boundary back across the clearance gap.  The mitre-buffered
             # clip above already yields clean straight edges.
+            if claimed_tunnel_corridor(s):
+                # AMENDMENT 2 — THE FIELDS RIDE THE SHAPE.  The clearance
+                # clip is a real invariant (groundside shares no node with
+                # airside), so a claimed corridor IS clipped — but the
+                # rebuilt piece is still the portal walk's surface: it
+                # keeps the claim verdict and the authored bore profile,
+                # resampled onto the new ring through the module's own
+                # carrier.  Re-following the DEM here is what shipped OTHH
+                # mouth D's claimant FLAT at 3.96 m with ref "groundside"
+                # after R14-1 had lowered it to -0.92 m.
+                _rebuilt = _carry_claimed_corridor(s, part)
+                if _rebuilt is not None:
+                    kept.append(_rebuilt)
+                    changed = True
+                    continue
             _seat_out = {}
             built = _dem_follow_polygon(part, _dem_at, simplify_tol=0.0,
                                         law_anchors=_law_anchors,

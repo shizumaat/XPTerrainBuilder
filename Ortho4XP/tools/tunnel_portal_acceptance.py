@@ -150,6 +150,9 @@ class Thresholds:
     #: makes ``claim_names_the_bore`` a REPORT (SKIPPED), which is how
     #: the attribution arms read it
     claim_cover_min: Optional[int] = None
+    #: A claimed corridor answers a mouth only where it is BELOW GRADE by
+    #: this much — it must carry a bore, not merely be claimed.
+    claimed_bore_max_m: float = 0.0
 
 
 @dataclass
@@ -243,8 +246,20 @@ def _bore_lines(profile: Profile, osm_data_dir: Optional[Path], to_m):
 # ──────────────────────────────────────────────────────────────────
 def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
                       ) -> List[Check]:
-    """A ``tunnel_ramp`` surface within reach of every named site, and a
-    ramp VERTEX within ``mouth_max_m`` of the mouth (the first site)."""
+    """BORE GEOMETRY within reach of every named site, and a vertex of it
+    within ``mouth_max_m`` of the mouth (the first site).
+
+    "Bore geometry" is a ``tunnel_ramp`` surface OR A BELOW-GRADE CLAIMED
+    CORRIDOR (``ref=tunnel_road``), because R14-1's law is "the paved
+    area IS the corridor": where mapped road pavement covers a mouth's
+    approach it is re-profiled to carry the bore and the synthetic ramp
+    is stood down as duplicate geometry.  Measured 2026-08-25 on the
+    mapped-mouth arm of the tunnel round: the corridor emitted at
+    -0.90 m as a claimed road and this check read 727.6 m — the mouth
+    was answered, and the instrument was looking for the wrong object.  A claimed surface counts only where
+    it is actually BELOW GRADE (it carries a bore, not an at-grade
+    approach that happens to be claimed).
+    """
     from shapely.geometry import LineString, Point
     if not profile.sites:
         return [Check("site_reach", SKIP, None, None,
@@ -254,6 +269,13 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
         pts = patch.pts(w)
         if len(pts) >= 2:
             geoms.append((w.wid, LineString(pts)))
+    n_ramp = len(geoms)
+    for w in patch.ref_ways("tunnel_road"):
+        pts = patch.pts(w)
+        elevs = [e for e in (w.elevs or ()) if e is not None]
+        if len(pts) >= 2 and elevs and min(elevs) < thr.claimed_bore_max_m:
+            geoms.append((w.wid, LineString(pts)))
+    n_claim = len(geoms) - n_ramp
     if not geoms:
         return [Check("site_reach", FAIL, 0, len(profile.sites),
                       "the patch emitted no tunnel_ramp geometry at all")]
@@ -268,7 +290,8 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
         "site_reach", PASS if worst_d <= thr.site_max_m else FAIL,
         round(worst_d, 1), thr.site_max_m,
         f"worst site {worst_name!r} at {worst_d:.1f} m over "
-        f"{len(profile.sites)} site(s)"))
+        f"{len(profile.sites)} site(s) — bore geometry: {n_ramp} "
+        f"tunnel_ramp + {n_claim} below-grade claimed corridor(s)"))
     mouth = next(iter(profile.sites.items()))
     mp = Point(patch.ll_to_m(*mouth[1]))
     vd = min((mp.distance(Point(v)) for _wid, g in geoms
@@ -276,7 +299,8 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
     checks.append(Check(
         "mouth_vertex_reach", PASS if vd <= thr.mouth_max_m else FAIL,
         round(vd, 1), thr.mouth_max_m,
-        f"nearest ramp VERTEX to {mouth[0]!r}"))
+        f"nearest BORE VERTEX to {mouth[0]!r} (ramp or claimed "
+        f"corridor)"))
     return checks
 
 
@@ -751,7 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", help="write the results to this path")
     for name, default in (("mouth-max-m", 15.0), ("site-max-m", 60.0),
                           ("needle-spread-m", 8.0), ("drift-floor-m", 0.5),
-                          ("retreat-wall-radius-m", 2.0)):
+                          ("retreat-wall-radius-m", 2.0),
+                          ("claimed-bore-max-m", 0.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     for name in ("drift-max", "retreat-wall-max", "over-cap-ramp-max",
                  "actionable-sites-max", "claim-cover-min"):
@@ -776,7 +801,8 @@ def main(argv=None) -> int:
         over_cap_ramp_max=args.over_cap_ramp_max,
         adjudicated_delta_max=args.adjudicated_delta_max,
         actionable_sites_max=args.actionable_sites_max,
-        claim_cover_min=args.claim_cover_min)
+        claim_cover_min=args.claim_cover_min,
+        claimed_bore_max_m=args.claimed_bore_max_m)
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

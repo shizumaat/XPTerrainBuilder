@@ -319,3 +319,65 @@ def test_the_claim_read_uses_the_patchs_own_parser(tpa):
     src = inspect.getsource(tpa._check_claim_names_the_bore)
     assert "ElementTree" not in src and "iterparse" not in src
     assert "patch.pts(" in src and "patch.coordset(" in src
+
+
+# ──────────────────────────────────────────────────────────────────
+# §6 A CLAIMED CORRIDOR ANSWERS A MOUTH (added 2026-08-25)
+# ──────────────────────────────────────────────────────────────────
+def _claimed_corridor_scene(directory: Path, corridor_alt: float) -> Path:
+    """A mouth with NO tunnel_ramp near it, answered instead by a
+    claimed road surface at ``corridor_alt`` — R14-1's "the paved area
+    IS the corridor", which stands the synthetic ramp down."""
+    def node(i, lat, lon, a):
+        return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                f"<tag k='alt_abs' v='{a}'/></node>")
+    parts = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6'>"]
+    coords = [(25.0000, 51.0000), (25.0000, 51.0004),
+              (25.0003, 51.0004), (25.0003, 51.0000)]
+    for i, (la, lo) in enumerate(coords, start=1):
+        parts.append(node(i, la, lo, corridor_alt))
+    parts.append("<way id='-301'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
+                 "<nd ref='-4'/><nd ref='-1'/>"
+                 "<tag k='role' v='groundside_pavement'/>"
+                 "<tag k='ref' v='tunnel_road'/><tag k='shapeID' v='1'/></way>")
+    # a tunnel_ramp far away, so the ramp-only reading is a long distance
+    rc = [(25.0300, 51.0000), (25.0300, 51.0002),
+          (25.0303, 51.0002), (25.0303, 51.0000)]
+    for i, (la, lo) in enumerate(rc, start=11):
+        parts.append(node(i, la, lo, -2.0))
+    parts.append("<way id='-302'><nd ref='-11'/><nd ref='-12'/>"
+                 "<nd ref='-13'/><nd ref='-14'/><nd ref='-11'/>"
+                 "<tag k='role' v='tunnel_ramp'/>"
+                 "<tag k='ref' v='tunnel_ramp'/><tag k='shapeID' v='2'/></way>")
+    parts.append("</osm>")
+    osm = directory / f"corr{corridor_alt}.osm"
+    osm.write_text("\n".join(parts))
+    (directory / (osm.name + ".axes.json")).write_text(json.dumps(
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+    return osm
+
+
+def test_a_below_grade_claimed_corridor_answers_the_mouth(tpa, tmp_path):
+    """MEASURED (OTHH mouth D, 2026-08-25): the corridor emitted at
+    -0.90 m as a CLAIMED ROAD and this check read 727.6 m, because it
+    looked only for ``tunnel_ramp``.  The mouth was answered; the
+    instrument was looking for the wrong object."""
+    osm = _claimed_corridor_scene(tmp_path, -0.90)
+    checks = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=tpa.Profile(name="x",
+                                       sites={"D": (25.00003, 51.00003)}))}
+    assert checks["mouth_vertex_reach"].verdict == tpa.PASS
+    assert checks["site_reach"].measured < 60.0
+    assert "claimed corridor" in checks["site_reach"].detail
+
+
+def test_an_AT_GRADE_claimed_road_does_not_answer_a_mouth(tpa, tmp_path):
+    """A claimed surface counts only where it CARRIES a bore: an
+    at-grade approach that happens to be claimed is not bore geometry,
+    and the check must still report the distance to real ramp."""
+    osm = _claimed_corridor_scene(tmp_path, 4.0)
+    checks = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=tpa.Profile(name="x",
+                                       sites={"D": (25.00003, 51.00003)}))}
+    assert checks["mouth_vertex_reach"].verdict == tpa.FAIL
+    assert checks["site_reach"].measured > 1000.0

@@ -334,6 +334,97 @@ def test_the_gate_off_empties_the_family(cg, tmp_path, monkeypatch):
             importlib.reload(sys.modules[m])
 
 
+# ══════════════════════════════════════════════════════════════════════
+# §6 THE LAW RUN LATE — the chord limiter knows the cross-section
+# ══════════════════════════════════════════════════════════════════════
+# Spec ``road-surface-quality-spec.md`` §2.2, remedy shape (a): "the road
+# chord+cross-section law re-clamps road nodes AFTER pass 20 (a final
+# road conformance pass reusing the SAME law objects — one law, run
+# late)".  ``groundside._grade_limit_groundside_chords`` IS that late
+# pass; its band was ISOTROPIC at the role cap, so it permitted — and
+# re-created — any lateral tilt under 8 %.
+#
+# MEASURED (this lane, CYXY, the seam ledger, with the solve already
+# enforcing §1): the limiter's two runs were the two seams that MINTED
+# lateral defects back — +8 lateral pairs over the 2 % limit at
+# ``14_groundside_separation`` and +10 at
+# ``20_post_projection_conformance``, on a final population of 171.
+
+def _tilted_road_ring():
+    """6 m x 120 m, 0.30 m across = 5.0 % LATERAL, 0.25 % along.  Under
+    the 8 % chord cap and well over the 2 % cross-section limit — the
+    N-1 class, as a ring the limiter can clamp."""
+    return ([(0.0, 0.0), (120.0, 0.0), (120.0, 6.0), (0.0, 6.0)],
+            [10.00, 10.30, 10.60, 10.30])
+
+
+def _lateral_pct(ring, vals):
+    from auto_patch import groundside as G
+    ax = G._long_axis_of_points(ring)[0]
+    worst = 0.0
+    n = len(ring)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = ring[j][0] - ring[i][0]
+            dy = ring[j][1] - ring[i][1]
+            if not GL.pair_is_transverse(ax, dx, dy):
+                continue
+            d = math.hypot(dx, dy)
+            worst = max(worst, abs(vals[j] - vals[i]) / d)
+    return worst * 100.0
+
+
+def test_the_late_limiter_clamps_the_cross_section():
+    from auto_patch import groundside as G
+    ring, vals = _tilted_road_ring()
+    axis = G._long_axis_of_points(ring)[0]
+    live = free = list(range(len(ring)))
+    aware = list(vals)
+    G._chord_cut_and_fill(ring, aware, live, free,
+                          C.SERVICE_ROAD_MAX_GRADE, axis=axis)
+    assert _lateral_pct(ring, aware) <= (
+        C.SERVICE_ROAD_MAX_TRANSVERSE * 100.0 + 1e-6)
+
+
+def test_without_the_axis_the_late_limiter_is_byte_identical():
+    """The pre-ruling arithmetic, for every non-road ring and for the
+    whole pass with the gate off: the isotropic band permits the tilt,
+    so the values come back untouched."""
+    from auto_patch import groundside as G
+    ring, vals = _tilted_road_ring()
+    live = free = list(range(len(ring)))
+    iso = list(vals)
+    G._chord_cut_and_fill(ring, iso, live, free, C.SERVICE_ROAD_MAX_GRADE)
+    assert iso == vals
+    assert _lateral_pct(ring, iso) == pytest.approx(5.0, abs=1e-6)
+
+
+def test_the_late_limiter_reaches_the_laws_own_objects():
+    """One law, run late — not a second copy of a 45 deg test living in
+    the limiter (which would be two laws over two populations)."""
+    from auto_patch import groundside as G
+    assert G._long_axis_of_points is GL.long_axis_of_points
+    assert G._pair_is_transverse is GL.pair_is_transverse
+    assert G._road_cross_section_cap is GL.road_cross_section_cap
+    assert G._LAW_ROAD_ROLES is GL.ROAD_ROLES
+
+
+def test_the_late_limiter_never_loosens_a_longitudinal_budget():
+    """The cross-section term may only TIGHTEN.  A road that is steep
+    ALONG its axis is still clamped by the longitudinal cap — the axis
+    must not have become a licence for the along direction."""
+    from auto_patch import groundside as G
+    ring = [(0.0, 0.0), (120.0, 0.0), (120.0, 6.0), (0.0, 6.0)]
+    vals = [10.0, 40.0, 40.0, 10.0]        # 25 % ALONG, laterally flat
+    axis = G._long_axis_of_points(ring)[0]
+    live = free = list(range(4))
+    out = list(vals)
+    G._chord_cut_and_fill(ring, out, live, free, C.SERVICE_ROAD_MAX_GRADE,
+                          axis=axis)
+    worst = max(abs(out[1] - out[0]), abs(out[2] - out[3])) / 120.0
+    assert worst <= C.SERVICE_ROAD_MAX_GRADE + 1e-6
+
+
 def test_the_family_is_registered_in_its_emission_position(cg):
     """``LAW_FAMILIES`` order IS the emission order (``test_harness.py``
     asserts the returned lists rebuild from it).  The cross-section rides

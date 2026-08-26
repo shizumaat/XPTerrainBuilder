@@ -1807,8 +1807,18 @@ def iter_shape_grade_constraints(
                                        pts[ib][0] - pts[ia][0],
                                        pts[ib][1] - pts[ia][1])
 
-        def _xsec_allowance(ia: int, ib: int, d: float):
-            """``(cap, allowance)`` for a CROSS-SECTION pair.
+        def _xsec_allowance(d: float, cap_l: float):
+            """``(cap, allowance)`` for a CROSS-SECTION pair whose
+            LONGITUDINAL cap is ``cap_l``.
+
+            ``cap_l`` is the caller's — the law's own ``flat_cap()`` where
+            the pair went through ``classify_pair``, the role cap on the
+            sidecar-lockstep path where it did not.  It is never re-read
+            from the role here: the cross-section cap is a pure function
+            OF the longitudinal cap (``grade_law.road_cross_section_cap``,
+            which is ``min``-shaped), so a pair the chain already
+            tightened — a frontage chord at 1 % inside a road ring — keeps
+            its own cap and is never LOOSENED to 2 % by this branch.
 
             THE BAKED BUDGET DOES NOT APPLY ACROSS A ROAD, and that is
             the whole of the 25g fix on this side.  Every other pair's
@@ -1824,7 +1834,7 @@ def iter_shape_grade_constraints(
             plus the shape's own emit/weld quantization envelope — the
             same envelope every other family gets, no more and no less.
             """
-            cap = _road_xsection_cap(_role_grade_limit(w, max_grade))
+            cap = _road_xsection_cap(cap_l)
             return cap, cap * d + _pair_quant_noise_m(w)
 
         if role0 in _SOFT_ROLES and _pair_cap_map:
@@ -1860,7 +1870,7 @@ def iter_shape_grade_constraints(
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                     _tv = _xsec(_ia, _ib)
                     if _tv:
-                        _pcap, _pallow = _xsec_allowance(_ia, _ib, d)
+                        _pcap, _pallow = _xsec_allowance(d, grade_cap)
                     else:
                         _pcap = grade_cap
                         _pallow = (max(_cap_m, grade_cap * d)
@@ -1913,7 +1923,7 @@ def iter_shape_grade_constraints(
                         _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                     _tv = _xsec(ia, ib)
                     if _tv:
-                        _pcap, _pallow = _xsec_allowance(ia, ib, d)
+                        _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
                     else:
                         _pcap = cap.flat_cap()
                         _pallow = _pair_grade_allowance(cap, d, w)
@@ -1950,7 +1960,7 @@ def iter_shape_grade_constraints(
                     _CROWN_UNKNOWN_PAIRS[w.tags.get("role") or "?"] += 1
                 _tv = _xsec(ia, ib)
                 if _tv:
-                    _pcap, _pallow = _xsec_allowance(ia, ib, d)
+                    _pcap, _pallow = _xsec_allowance(d, cap.flat_cap())
                 else:
                     _pcap = cap.flat_cap()
                     _pallow = _pair_grade_allowance(cap, d, w)

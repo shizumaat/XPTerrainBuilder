@@ -425,6 +425,25 @@ def test_the_late_limiter_never_loosens_a_longitudinal_budget():
     assert worst <= C.SERVICE_ROAD_MAX_GRADE + 1e-6
 
 
+def test_the_cross_section_never_loosens_a_pair_the_chain_tightened(cg,
+                                                                    tmp_path):
+    """A pair whose LONGITUDINAL cap is already stricter than 2 % — a
+    building frontage chord inside a road ring — must keep it.  The
+    cross-section cap is a pure function OF the cap the chain settled
+    on, and it is ``min``-shaped; re-reading the ROLE cap here instead
+    would hand such a pair a 2 % licence it never had."""
+    for cap in (0.01, 0.015, 0.005, C.SERVICE_ROAD_MAX_TRANSVERSE):
+        assert GL.road_cross_section_cap(cap) == pytest.approx(cap)
+    # And the census's own branch is wired to the pair's cap, not the
+    # role's: every emitted cross-section row reports a cap no looser
+    # than its family's limit.
+    fam: dict = {}
+    cg.run_checks(_n1_patch(cg, tmp_path), top_n=0, quiet=True,
+                  family_out=fam)
+    assert all(r.cap_pct <= C.SERVICE_ROAD_MAX_TRANSVERSE * 100 + 1e-9
+               for r in fam["road_cross_section"])
+
+
 def test_the_family_is_registered_in_its_emission_position(cg):
     """``LAW_FAMILIES`` order IS the emission order (``test_harness.py``
     asserts the returned lists rebuild from it).  The cross-section rides

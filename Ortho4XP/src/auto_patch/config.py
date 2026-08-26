@@ -133,6 +133,13 @@ __all__ = [
     "ROLE_GRADE_LIMITS",
     "FLAT_SITE_FAST_PATH",
     "FLAT_SITE_FAST_PATH_QUANTUM_M",
+    # HECA apron round 2 (docs/specs/heca-apron-round2-spec.md)
+    "GAP_SPINE_MAX_M",
+    "GAP_SPINE_BRIDGE_ENABLED",
+    "APRON_NODELESS_RADIUS_M",
+    "APRON_LATTICE_SPACING_M",
+    "APRON_INTERIOR_LATTICE",
+    "TAUT_GRADED_STRIP",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -4923,6 +4930,81 @@ DECLARED_TERRAIN_PLATE_ROLES = frozenset({"tunnel_trench"})
 # plate reads back within 0.005 m of one of them.
 BASIN_DECLARED_FLOOR_MATCH_TOL_M = 0.15
 
+# ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ────────────────────
+# (owner RULINGS 2026-08-25f, the building8 disposition; spec
+# ``docs/specs/basin-pad-floor-seating-spec.md`` §1.)  DEFAULT ON.
+#
+# A building pad whose footprint lies within a basin facility's
+# footprint is BELOW the surrounding grade: it SEATS AT THE FACILITY
+# FLOOR, and the basin cut emits THROUGH it (the facility floor is
+# never differenced away against such a pad).  The owner, on LEMD's
+# real sunken tower circle: "building8 should be below apron grade."
+#
+# MEASURED (LEMD, the basinpool round's finding 1): the basin is
+# confined to the owner's bbox (12,251 m², floor 584.5 m, 8.53 m below
+# the surrounding grade) but NO terrain cut emitted — the pack's own
+# ``building8`` pad (way -10008, 33,447 m², flat at 600.28 m) covers
+# 100 % of the facility, the floor pan is differenced against every
+# earlier-born shape (``_TUNNEL_FLOOR_OWNED_CLEARANCE_M``) and nothing
+# survived.  R13's pit cut only ever cut PAVEMENT, never a pad.
+#
+# With O4_BASIN_PAD_FLOOR_SEAT=0 no pad is seated and no floor
+# differencing is skipped — the emitted patch is byte-identical to the
+# pre-fix engine.  The REPORT lines (both the seated pads and the
+# partial-coverage ones) are UNGATED: the instrument is law.
+BASIN_PAD_FLOOR_SEAT = (
+    _os.environ.get("O4_BASIN_PAD_FLOOR_SEAT", "1") == "1")
+
+# ── AMENDMENT 3 (owner 2026-08-25): NO SEVERING, NO SEATING ─────────
+# "a simple 7 m deep cutout for the whole area should work without
+# having to sever the buildings."
+#
+# A pad overlapping a basin facility keeps its authored grade, geometry,
+# welds and identity EVERYWHERE.  What yields is its FLATTENING
+# AUTHORITY inside the footprint: the floor plates and the R2 wall band
+# own the facility interior, and the pad's interior claim is clipped to
+# OUTSIDE the facility.  An authority clip, not a geometry edit — the
+# ring the pack authored is the ring that ships.
+#
+# The two mechanisms below are the RETIRED predecessors, kept per the
+# keep-work rule and gated OFF.  Neither is reachable in a default
+# build; both are complete, twinned, and revivable by a future ruling.
+#
+#   BASIN_PAD_WHOLE_SEAT — §1.1's whole-pad SEAT: a pad inside the
+#     facility takes the floor as its declared flat level
+#     (``BuiltShape.basin_floor_seat_m``, stamped by
+#     ``anchors.build_building_seats``).  COMPLETE.  Retired by
+#     Amendment 3 item 2 ("pads are neither split nor seated").  Its
+#     loud-report and withdrawal paths remain live and unconditional.
+#
+#   BASIN_PAD_SEVER — Amendment 2's boundary CUT: split the pad at the
+#     facility boundary, seat the in-facility piece, keep the remainder
+#     at grade.  COMPLETE and measured on synthetic twins; never built
+#     at an airport.  Retired by Amendment 3, which supersedes
+#     Amendment 2 outright.
+BASIN_PAD_WHOLE_SEAT = (
+    _os.environ.get("O4_BASIN_PAD_WHOLE_SEAT", "0") == "1")
+BASIN_PAD_SEVER = (
+    _os.environ.get("O4_BASIN_PAD_SEVER", "0") == "1")
+
+# The coverage threshold.  EITHER-SIDE, and the spec states both limbs:
+# §1.1 reads it against the PAD's own area (a small pad wholly inside a
+# big basin), §2's twin states the other limb as normative acceptance —
+# "synthetic facility FULLY COVERED BY A PAD → §1 ON: floor emits + pad
+# seats at floor".  Only the second limb reaches the exemplar: LEMD's
+# ``building8`` is 33,447 m² over a 12,251 m² facility, so it is ~37 %
+# INSIDE the basin while covering 100 % OF it — and it is the covering
+# that erases the floor.  ONE constant reads on whichever side is asked;
+# a second threshold would be a number no ruling set.  (Same shape as
+# the bridge never-stack either-side criterion, for the same measured
+# reason: a pack's own pad is routinely LARGER than the structure box.)
+#
+# A pad below it on BOTH sides straddles the basin rim — a real design
+# case this rule is not about — and keeps today's behaviour, REPORTED
+# by name so a straddler is never silently mistaken for either class.
+BASIN_PAD_COVERAGE_MIN = float(
+    _os.environ.get("O4_BASIN_PAD_COVERAGE_MIN", "0.8"))
+
 # Vertical clearance (m) the ``grade_law.bridge_crossing_floor`` law adds
 # above a road surface for a TERRAIN/PROFILE_CARRIED span that must RISE
 # (the EDDF class, where WE choose the vertical split — spec section 3.2).
@@ -9240,3 +9322,73 @@ FLAT_SITE_FAST_PATH = (
 # from Z0 by more than this is not provably constant, so the whole shape
 # falls back to the full solve.
 FLAT_SITE_FAST_PATH_QUANTUM_M = 0.01
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HECA APRON ROUND 2 (docs/specs/heca-apron-round2-spec.md, 2026-08-25)
+# ══════════════════════════════════════════════════════════════════════
+# Three constants and two flags, one per spec section.  The evidence is
+# the 2026-08-25 HECA apron attribution: the same-spot cliff (a FEED GAP
+# in the apt.dat taxi-route graph — taxiway J ends at node 462 and the
+# next route starts 254 m north at node 470, no edge between and OSM
+# empty there, so the slice cuts NO interior vertices and the patch
+# carries a 215 x 430 m NODELESS region) and the back-edge ripples (the
+# ``graded_strip`` band was a per-node DEM clamp with no coupling and no
+# fairing, so terrain bumps passed straight through at 0.5-1.1 m).
+
+# §1 — THE GAP-BRIDGING SPINE.  Where two taxi-route ENDS lie
+# unconnected across continuous APRON pavement, one synthesized bridging
+# centerline joins them: for each dead end, the nearest VISIBLE route end
+# across apron-only pavement, within this reach.  300 m covers the
+# measured HECA feed gap (254 m) with margin and stays well short of the
+# apron diagonals that are genuinely two separate taxi systems.
+GAP_SPINE_MAX_M = float(_os.environ.get("O4_GAP_SPINE_MAX_M", "300"))
+
+# §1 flag, DEFAULT ON.  ``O4_GAP_SPINE_BRIDGE=0`` synthesizes no bridge
+# and is byte-identical to the pre-ruling build.
+GAP_SPINE_BRIDGE_ENABLED = (
+    _os.environ.get("O4_GAP_SPINE_BRIDGE", "1") != "0")
+
+# §2 — THE NODELESS-INTERIOR INSTRUMENT (ungated, report-first).  An
+# apron-role polygon carrying an interior disk of at least this radius
+# with ZERO emitted vertices has an UNCONTROLLED membrane: the census is
+# structurally blind there (no nodes -> no rows), which is exactly how
+# the HECA cliff survived three rounds of censuses at 1,679.  80 m is
+# half the 215 m minor axis of the measured HECA void — a disk that big
+# cannot be an artefact of ordinary decimation (the emit decimators cap
+# chords at 60 m).
+APRON_NODELESS_RADIUS_M = float(
+    _os.environ.get("O4_APRON_NODELESS_RADIUS_M", "80"))
+
+# §3 flag, DEFAULT ON — the TAUT graded strip (DEM-last applied to the
+# band).  ``O4_TAUT_GRADED_STRIP=0`` restores the per-node DEM clamp with
+# no coupling and no fairing, byte-identical to the pre-ruling build.
+TAUT_GRADED_STRIP = (
+    _os.environ.get("O4_TAUT_GRADED_STRIP", "1") != "0")
+
+
+# §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).
+# §1's route-synthesis premise was REFUTED at HECA by measurement: nodes
+# 462/470 are CONNECTED (560.6 m network path against 252.7 m straight, a
+# 2.2x detour) and neither is a leaf — the routes go AROUND the apron, so
+# there is no feed gap to bridge and synthesizing one would invent taxi
+# geometry the airport does not have.  The VOID is real all the same: 10
+# nodeless interiors, worst 175.4 m empty radius, and 247 m of the owner's
+# cliff line with NO emitted station at all, dropping 6.06 m, pricing ZERO
+# census rows.  What that ground needs is ANCHORS, not routes.
+#
+# So an apron whose §2 empty-disk radius exceeds APRON_NODELESS_RADIUS_M
+# gains a sparse interior vertex LATTICE at this spacing: free solver
+# nodes carrying within-shape law edges to their lattice/ring neighbours,
+# priced by the apron's OWN caps, seeded by the scaffold interpolation
+# between the ring's anchors (24c; DEM-last).  50 m is comfortably inside
+# the 80 m radius that defines the defect (so a flagged void always
+# receives several nodes) and comfortably outside the 60 m chord the emit
+# decimators already guarantee (so a lawful apron gains nothing).
+APRON_LATTICE_SPACING_M = float(
+    _os.environ.get("O4_APRON_LATTICE_SPACING_M", "50"))
+
+# §1b flag, DEFAULT ON.  ``O4_APRON_INTERIOR_LATTICE=0`` mints no lattice
+# and is byte-identical to the pre-amendment build.
+APRON_INTERIOR_LATTICE = (
+    _os.environ.get("O4_APRON_INTERIOR_LATTICE", "1") != "0")

@@ -3,7 +3,9 @@
 
     venv/bin/python tools/arm_site_read.py CTL.osm ARM.osm \\
         [--site NAME=LAT,LON ...] [--radius M] \\
-        [--rows CTL.rows.json ARM.rows.json] [--seats] [--welds] [--json OUT]
+        [--rows CTL.rows.json ARM.rows.json] [--seats] [--welds] \\
+        [--profile [--profile-roles ROLE,ROLE]] \\
+        [--line NAME=LAT,LON:LAT,LON [--line-corridor-m M]] [--json OUT]
 
 Run it from ``Ortho4XP/``.
 
@@ -36,6 +38,22 @@ the node ids shared between the two families, the worst altitude difference
 carried at a shared node, the nearest unwelded approach when there are none,
 and the retaining walls standing at the site.
 
+``--profile`` / ``--line`` answer the THIRD question a place can be asked —
+WHAT SHAPE IS THE SURFACE HERE?  A round whose acceptance is written as "no
+unlawful step along the owner line" or "the ripple is faired, report the
+amplitude before and after" (docs/specs/heca-apron-round2-spec.md) needs the
+emitted elevation itself, and neither a row count nor a weld table carries
+it.  ``--profile`` walks every ring of ``--profile-roles`` reaching a site
+and reports its worst consecutive EDGE and its RIPPLE AMPLITUDE — the
+peak-to-peak inside a 50 m run along the ring, the same window
+``apron_drape_read`` calls ``amp50``.  ``--line`` orders every emitted
+vertex in a corridor about an owner-named segment by its station along that
+segment, with the step between consecutive stations: the reading that shows
+an unlawful step AND the reading that shows a NODELESS VOID, because there
+an empty station list is itself the finding.  Neither prices a law — the
+census remains the only defect instrument — so quote them ARM TO ARM on
+identical options, never as a verdict.
+
 THE FRAMES, both stated on the report:
 * rows are located by the census's own row lat/lon, which for a within-shape
   pair is the PAIR's position — a long chord's row can therefore sit far from
@@ -55,7 +73,19 @@ import sys
 from pathlib import Path
 
 __all__ = ["rows_near", "seat_moves", "seam_welds", "load_rows",
-           "SiteReadRefusal", "ROAD_FAMILY_ROLES", "AIRSIDE_SEAM_ROLES"]
+           "station_profiles", "line_profile",
+           "SiteReadRefusal", "ROAD_FAMILY_ROLES", "AIRSIDE_SEAM_ROLES",
+           "PROFILE_ROLES", "AMP_WINDOW_M"]
+
+#: ``--profile`` default role scope: the surfaces the 2026-08-25 HECA
+#: apron round is written about — the apron itself and the graded strip
+#: that carries its back edge.
+PROFILE_ROLES = ("apron", "graded_strip")
+
+#: The window the ripple AMPLITUDE is measured in, along the ring.  Same
+#: 50 m ``apron_drape_read`` uses for its ``amp50`` — one spelling of
+#: "the local uneven hills and valleys" reading across the two tools.
+AMP_WINDOW_M = 50.0
 
 #: The two families a corridor MOUTH joins.  Road side: the census's own
 #: ``check_grade._ROAD_FAMILY_ROLES``, read from it at call time (never a
@@ -296,6 +326,204 @@ def seam_welds(cg, patch, lat=None, lon=None, radius_m=None) -> dict:
     }
 
 
+def _fmt(v, nd=2):
+    """A missing reading prints as ``—``, never as 0.00."""
+    return "—" if v is None else f"{v:.{nd}f}"
+
+
+def _patch_frame(cg, patch):
+    """``(nodes, ways, to_m)`` — the harness library's own parser and the
+    metre frame about the SIDECAR ANCHOR (the builder's own projection
+    origin; the node-mean fallback differs from it in x-scale by
+    ``cos(lat0)``, which is millimetres over a chord and enough to move a
+    contact predicate).  A patch with no sidecar falls back to the node
+    mean, which ``_ll_to_m_factory`` already implements."""
+    feats: dict = {}
+    nodes, ways = cg._parse_osm(Path(patch), feature_out=feats)
+    # OPEN CONSTRAINED BREAKLINES are not rings, so ``_parse_osm`` routes
+    # them to ``feature_out`` and they never appear in ``ways``.  They
+    # carry REAL EMITTED STATIONS all the same — the apron interior
+    # lattice is exactly that — and a profile that could not see them
+    # would report a void the patch no longer has.  Their role tag is
+    # empty by design, so they are addressed by their ``o4_feature``
+    # class name (``--profile-roles apron_lattice``).
+    for _cls, _fways in (feats or {}).items():
+        for _w in _fways:
+            try:
+                _w.role = _w.role or _cls
+            except Exception:                             # pragma: no cover
+                continue
+        ways = list(ways) + list(_fways)
+    anchor = None
+    side = Path(str(patch) + ".axes.json")
+    if side.exists():
+        try:
+            anchor = json.loads(side.read_text()).get("anchor")
+        except Exception:
+            anchor = None
+    return nodes, ways, cg._ll_to_m_factory(nodes, anchor)
+
+
+def _ring_geometry(cg, patch, roles):
+    """``[(way, [(x, y)], [alt])]`` for every ring of the named roles, in
+    the sidecar's own metre frame — the same parser and the same frame
+    the census reads the file with."""
+    nodes, ways, to_m = _patch_frame(cg, patch)
+    out = []
+    for w in ways:
+        if w.role not in roles:
+            continue
+        pts, elevs = [], []
+        for nid, a in zip(w.nids, (w.elevs or [None] * len(w.nids))):
+            p = nodes.get(nid)
+            if p is None:
+                continue
+            pts.append(to_m(p[0], p[1]))
+            elevs.append(None if a is None else float(a))
+        if len(pts) >= 2:
+            out.append((w, pts, elevs))
+    return out
+
+
+def _amp_in_window(cum, alts, window_m):
+    """Max peak-to-peak elevation inside any ``window_m`` run of the
+    station sequence — the RIPPLE amplitude.  ``None`` when the run is
+    shorter than the window (a reading a window cannot support is not a
+    reading)."""
+    best = None
+    n = len(cum)
+    for i in range(n):
+        j = i
+        while j + 1 < n and cum[j + 1] - cum[i] <= window_m:
+            j += 1
+        if cum[j] - cum[i] < window_m * 0.5:
+            continue
+        vals = [a for a in alts[i:j + 1] if a is not None]
+        if len(vals) < 2:
+            continue
+        amp = max(vals) - min(vals)
+        if best is None or amp > best:
+            best = amp
+    return best
+
+
+def station_profiles(cg, patch, lat, lon, radius_m, *, roles=PROFILE_ROLES,
+                     window_m=AMP_WINDOW_M, max_rings=6):
+    """The STATION PROFILE of every ring of ``roles`` reaching within
+    ``radius_m`` of one site.
+
+    Per ring: the worst consecutive EDGE inside the neighbourhood
+    (``|dz|``, its length, its grade) and the ripple AMPLITUDE — the
+    peak-to-peak elevation inside a ``window_m`` run ALONG THE RING.
+    Both are STATEMENTS ABOUT A SURFACE, not defect counts: the census
+    remains the only instrument that prices a law.
+    """
+    _n, _w, to_m = _patch_frame(cg, patch)
+    sx, sy = to_m(lat, lon)
+    out = []
+    for (w, pts, elevs) in _ring_geometry(cg, patch, set(roles)):
+        near = [k for k, (x, y) in enumerate(pts)
+                if math.hypot(x - sx, y - sy) <= radius_m]
+        if not near:
+            continue
+        lo, hi = min(near), max(near)
+        seg_pts, seg_alts = pts[lo:hi + 1], elevs[lo:hi + 1]
+        if len(seg_pts) < 2:
+            continue
+        cum = [0.0]
+        for k in range(len(seg_pts) - 1):
+            cum.append(cum[-1] + math.hypot(seg_pts[k + 1][0]
+                                            - seg_pts[k][0],
+                                            seg_pts[k + 1][1]
+                                            - seg_pts[k][1]))
+        worst = None
+        for k in range(len(seg_pts) - 1):
+            a, b = seg_alts[k], seg_alts[k + 1]
+            L = cum[k + 1] - cum[k]
+            if a is None or b is None or L <= 1e-9:
+                continue
+            dz = abs(b - a)
+            if worst is None or dz / L > worst[2]:
+                worst = (dz, L, dz / L)
+        vals = [a for a in seg_alts if a is not None]
+        out.append({
+            "way": w.wid, "role": w.role, "ref": getattr(w, "ref", "") or "",
+            "n_stations": len(seg_pts),
+            "run_m": round(cum[-1], 2),
+            "alt_min": round(min(vals), 3) if vals else None,
+            "alt_max": round(max(vals), 3) if vals else None,
+            "worst_step_m": None if worst is None else round(worst[0], 3),
+            "worst_step_len_m": None if worst is None else round(worst[1], 2),
+            "worst_step_pct": (None if worst is None
+                               else round(100.0 * worst[2], 2)),
+            "amp_window_m": window_m,
+            "amp_m": (lambda v: None if v is None else round(v, 3))(
+                _amp_in_window(cum, seg_alts, window_m)),
+            "stations": [[round(c, 2), a]
+                         for c, a in zip(cum, seg_alts)][:60],
+        })
+    out.sort(key=lambda r: -(r["amp_m"] or 0.0))
+    return out[:max_rings]
+
+
+def line_profile(cg, patch, a_ll, b_ll, *, corridor_m=15.0,
+                 roles=PROFILE_ROLES):
+    """The emitted elevation ALONG an owner-named LINE.
+
+    Every emitted vertex of ``roles`` within ``corridor_m`` of the
+    segment ``a_ll``→``b_ll``, ordered by its station along that
+    segment, with the step between consecutive stations.  This is the
+    reading the cliff acceptance is written in — "the emitted elevation
+    along the owner line has no step > the local law" — and it is also
+    the only reading that shows whether INTERIOR VERTICES EXIST in a
+    former void at all: an empty station list IS the finding.
+    """
+    _n, _w, to_m = _patch_frame(cg, patch)
+    ax, ay = to_m(*a_ll)
+    bx, by = to_m(*b_ll)
+    dx, dy = bx - ax, by - ay
+    L = math.hypot(dx, dy)
+    if L <= 1e-6:
+        raise SiteReadRefusal("--line wants two distinct coordinates")
+    ux, uy = dx / L, dy / L
+    seen: set = set()
+    hits: list = []
+    for (w, pts, elevs) in _ring_geometry(cg, patch, set(roles)):
+        for (x, y), alt in zip(pts, elevs):
+            s = (x - ax) * ux + (y - ay) * uy
+            q = abs((x - ax) * uy - (y - ay) * ux)
+            if s < -corridor_m or s > L + corridor_m or q > corridor_m:
+                continue
+            key = (round(x, 3), round(y, 3))
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append((round(s, 2), alt, round(q, 2), w.wid, w.role))
+    hits.sort()
+    steps = []
+    for k in range(len(hits) - 1):
+        s0, a0 = hits[k][0], hits[k][1]
+        s1, a1 = hits[k + 1][0], hits[k + 1][1]
+        ds = s1 - s0
+        if a0 is None or a1 is None or ds <= 1e-6:
+            continue
+        steps.append((abs(a1 - a0), ds, abs(a1 - a0) / ds, s0))
+    worst = max(steps, key=lambda t: t[2]) if steps else None
+    vals = [h[1] for h in hits if h[1] is not None]
+    return {
+        "line_m": round(L, 2), "corridor_m": corridor_m,
+        "n_stations": len(hits),
+        "alt_min": round(min(vals), 3) if vals else None,
+        "alt_max": round(max(vals), 3) if vals else None,
+        "worst_step_m": None if worst is None else round(worst[0], 3),
+        "worst_step_len_m": None if worst is None else round(worst[1], 2),
+        "worst_step_pct": (None if worst is None
+                           else round(100.0 * worst[2], 2)),
+        "worst_step_at_m": None if worst is None else worst[3],
+        "stations": [[h[0], h[1], h[2], h[3], h[4]] for h in hits][:120],
+    }
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("control", help="control arm patch .osm")
@@ -309,6 +537,20 @@ def main(argv=None) -> int:
     ap.add_argument("--welds", action="store_true",
                     help="per site, the road↔airside seam-weld table "
                          "(shared nodes, max seam |Δalt|, walls)")
+    ap.add_argument("--profile", action="store_true",
+                    help="per site, the emitted STATION PROFILE of the "
+                         "rings reaching it (worst edge + ripple "
+                         "amplitude in a 50 m window along the ring)")
+    ap.add_argument("--profile-roles", default=",".join(PROFILE_ROLES),
+                    metavar="ROLE[,ROLE]",
+                    help="roles the profile walks (default "
+                         f"{','.join(PROFILE_ROLES)})")
+    ap.add_argument("--line", action="append", default=[],
+                    metavar="NAME=LAT,LON:LAT,LON",
+                    help="the emitted elevation ALONG an owner line — "
+                         "every vertex in the corridor, by station, with "
+                         "the step; an EMPTY station list is the finding")
+    ap.add_argument("--line-corridor-m", type=float, default=15.0)
     ap.add_argument("--json", dest="json_out")
     args = ap.parse_args(argv)
 
@@ -371,6 +613,68 @@ def main(argv=None) -> int:
                       f"({r['mouths_ge2_nodes']} with ≥2)  max seam |Δalt| "
                       f"{r['max_seam_dalt_m']:6.3f} m  nearest unwelded "
                       f"{gap:>9s}  walls {r['walls']:3d}")
+    if args.profile and sites:
+        cg = _check_grade()
+        roles = tuple(r.strip() for r in args.profile_roles.split(",")
+                      if r.strip())
+        out["profiles"] = {}
+        print(f"  STATION PROFILES (roles {'/'.join(roles)}, r="
+              f"{args.radius:g} m, amplitude window {AMP_WINDOW_M:g} m "
+              f"along the ring).  NOT defect counts — arm to arm only.")
+        for name, (lat, lon) in sites.items():
+            c = station_profiles(cg, args.control, lat, lon, args.radius,
+                                 roles=roles)
+            a = station_profiles(cg, args.arm, lat, lon, args.radius,
+                                 roles=roles)
+            out["profiles"][name] = {"control": c, "arm": a}
+            print(f"    {name}")
+            if not c and not a:
+                print("      (no ring of these roles reaches this site "
+                      "in EITHER arm)")
+            for label, rows in (("ctl", c), ("arm", a)):
+                if not rows:
+                    print(f"      {label}  (no ring reaches the site)")
+                for r in rows:
+                    print(f"      {label}  way {r['way']:<9} "
+                          f"{r['role']:<13} n={r['n_stations']:<4} "
+                          f"run {r['run_m']:7.1f} m  worst edge "
+                          f"{_fmt(r['worst_step_m'])} m over "
+                          f"{_fmt(r['worst_step_len_m'])} m = "
+                          f"{_fmt(r['worst_step_pct'])} %  amp"
+                          f"{AMP_WINDOW_M:g} {_fmt(r['amp_m'])} m")
+    elif args.profile:
+        print("  SKIPPED profiles: --profile needs at least one --site")
+    if args.line:
+        cg = _check_grade()
+        roles = tuple(r.strip() for r in args.profile_roles.split(",")
+                      if r.strip())
+        out["lines"] = {}
+        print(f"  OWNER LINES (roles {'/'.join(roles)}, corridor ±"
+              f"{args.line_corridor_m:g} m).  An EMPTY station list is "
+              f"the finding: no emitted vertex lies along the line.")
+        for spec in args.line:
+            try:
+                name, coords = spec.split("=", 1)
+                p, q = coords.split(":", 1)
+                a_ll = tuple(float(v) for v in p.split(","))
+                b_ll = tuple(float(v) for v in q.split(","))
+            except ValueError:
+                print("REFUSED: --line wants NAME=LAT,LON:LAT,LON",
+                      file=sys.stderr)
+                return 2
+            c = line_profile(cg, args.control, a_ll, b_ll,
+                             corridor_m=args.line_corridor_m, roles=roles)
+            a = line_profile(cg, args.arm, a_ll, b_ll,
+                             corridor_m=args.line_corridor_m, roles=roles)
+            out["lines"][name] = {"control": c, "arm": a}
+            print(f"    {name}  ({c['line_m']:.1f} m)")
+            for label, r in (("ctl", c), ("arm", a)):
+                print(f"      {label}  stations {r['n_stations']:4d}  alt "
+                      f"{_fmt(r['alt_min'])}..{_fmt(r['alt_max'])} m  "
+                      f"worst step {_fmt(r['worst_step_m'])} m over "
+                      f"{_fmt(r['worst_step_len_m'])} m = "
+                      f"{_fmt(r['worst_step_pct'])} %  at station "
+                      f"{_fmt(r['worst_step_at_m'])} m")
     if args.seats:
         cg = _check_grade()
         out["seats"] = seat_moves(cg, args.control, args.arm)

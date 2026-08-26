@@ -46,7 +46,7 @@ import json
 import math
 import os
 import pickle
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dataclass_replace
 from statistics import median
 
 import O4_UI_Utils as UI
@@ -1467,6 +1467,26 @@ _TUNNEL_RIM_BAND_WIDTH_M = 0.6
 #   collinear with a building ring minted the EGKR mm-jitter Triangle
 #   failure).
 _TUNNEL_FLOOR_OWNED_CLEARANCE_M = 0.7
+# * THE BASIN-PAD CUT LINE (spec ``basin-pad-floor-seating-spec.md``
+#   Amendment 2, owner-ratified 2026-08-25).  A pad that only PARTIALLY
+#   covers a basin facility is CUT at the facility boundary: the
+#   in-facility piece seats at the floor, the remainder keeps grade.
+#   The sunken piece is inset from the cut line by exactly the three
+#   margins the wall needs, and by no more:
+#     * one ``_TUNNEL_WALL_SETBACK_M`` — the node split against the
+#       REMAINDER's inner ring, which lies ON the cut line (two rows a
+#       split apart at a 15.9 m drop ARE the R2 wall; sharing the ring
+#       would weld the two halves into one level and undo the cut);
+#     * ``_TUNNEL_FLOOR_OWNED_CLEARANCE_M`` + one more setback — the
+#       clearance the floor pan keeps from every earlier-born shape,
+#       so a FLOOR-PAN RING survives between the wall and the sunken
+#       piece instead of the pan being differenced away to nothing.
+#   The pan and the piece are both AT the floor, so that ring carries no
+#   step; what it buys is that the two never overlap (a coincident twin
+#   ring is the round-16 geometry-consistency defect class) and the
+#   basin still emits floor plates of its own.
+_BASIN_PAD_CUT_INSET_M = (2.0 * _TUNNEL_WALL_SETBACK_M
+                          + _TUNNEL_FLOOR_OWNED_CLEARANCE_M)
 # A Global-Airports tile DSF covers EVERY airport on the tile, so each
 # airport's classifier sees every other airport's objects — without a
 # proximity gate, twelve airports each emitted a jittered copy of the
@@ -1801,10 +1821,30 @@ class BasinRimFlushFacility:
         )
 
 
-def basin_facility_deck_reference_y(record) -> "tuple[float, float | None]":
-    """THE FLOOR KEY of one facility member, and the witness it discarded.
+#: ``basin_facility_deck_reference_y`` key sources.  Which instrument won
+#: is LAW, not diagnostics: the trench law's two margins clear a modelled
+#: SOLID, so they apply to a solid-witness key and NOT to a deck-face one
+#: (owner Amendment 3, 2026-08-25; ``grade_law.
+#: basin_trench_floor_elevation_m``'s ``bore_class``).
+BASIN_FLOOR_KEY_SOLID_WITNESS = "solid_witness"
+BASIN_FLOOR_KEY_DECK_FACE = "deck_face"
 
-    Returns ``(deck_reference_y, discarded_solid_minimum_y)``.  The floor
+
+def basin_facility_deck_reference_y(
+        record, *, open_pit: bool = False
+) -> "tuple[float, float | None, str]":
+    """THE FLOOR KEY of one facility member, the witness it discarded, and
+    WHICH INSTRUMENT the key came from.
+
+    Returns ``(deck_reference_y, discarded_solid_minimum_y, key_source)``,
+    ``key_source`` one of :data:`BASIN_FLOOR_KEY_SOLID_WITNESS` /
+    :data:`BASIN_FLOOR_KEY_DECK_FACE`.  The source is returned because it
+    is a LAW INPUT (owner Amendment 3): the trench law's two margins
+    exist to clear a modelled SOLID, so a key that IS a solid witness
+    keeps them and a key that is the pooled solids' DECK-FACE MEDIAN —
+    the pit bottom the pack modelled, with nothing below it to clear —
+    takes none.  Deriving that a second time at the call site would be
+    the census-wrapper defect in miniature.  The floor
     key is the deeper of the modelled body depth and the structure's TRUE
     deepest solid — the reading the trench law has always taken — EXCEPT
     where the two disagree by more than
@@ -1833,13 +1873,32 @@ def basin_facility_deck_reference_y(record) -> "tuple[float, float | None]":
     """
     deck_reference_y = -float(record.body_depth_m)
     solid_minimum_y = getattr(record, "solid_minimum_y_m", None)
-    if solid_minimum_y is None or solid_minimum_y != solid_minimum_y:
-        return deck_reference_y, None
-    solid_minimum_y = float(solid_minimum_y)
-    if (abs(solid_minimum_y - deck_reference_y)
-            > config.BASIN_FLOOR_DISAGREEMENT_M):
-        return deck_reference_y, solid_minimum_y
-    return min(deck_reference_y, solid_minimum_y), None
+    if solid_minimum_y is not None and solid_minimum_y == solid_minimum_y:
+        solid_minimum_y = float(solid_minimum_y)
+        disagrees = (abs(solid_minimum_y - deck_reference_y)
+                     > config.BASIN_FLOOR_DISAGREEMENT_M)
+    else:
+        solid_minimum_y = None
+        disagrees = False
+    if open_pit:
+        # ── AN OPEN PIT KEYS ON ITS DECK FACE (owner Amendment 3,
+        # 2026-08-25) ─────────────────────────────────────────────────
+        # "an open-pit facility's floor is the pooled solids' deck-face
+        # median (body_depth_m)".  A hole with nothing of the pack's own
+        # standing over it has no solid BELOW that face to clear — the
+        # face IS the bottom the pack modelled — so the deepest-solid
+        # reading never deepens it here.  The §2.2 disagreement witness
+        # is still RETURNED so the caller names it out loud.
+        return (deck_reference_y,
+                solid_minimum_y if disagrees else None,
+                BASIN_FLOOR_KEY_DECK_FACE)
+    if solid_minimum_y is None:
+        return deck_reference_y, None, BASIN_FLOOR_KEY_DECK_FACE
+    if disagrees:
+        return deck_reference_y, solid_minimum_y, BASIN_FLOOR_KEY_DECK_FACE
+    if solid_minimum_y < deck_reference_y:
+        return solid_minimum_y, None, BASIN_FLOOR_KEY_SOLID_WITNESS
+    return deck_reference_y, None, BASIN_FLOOR_KEY_DECK_FACE
 
 
 def basin_rim_flush_facilities(classification) -> list:
@@ -1893,8 +1952,8 @@ def basin_rim_flush_facilities(classification) -> list:
             # deepest solid, under the §2.2 disagreement gate.  ONE
             # implementation with the emitter (the discarded witness is
             # named there, at the cut, not twice).
-            deck_reference_y, _discarded = basin_facility_deck_reference_y(
-                record)
+            deck_reference_y, _discarded, _key_source = (
+                basin_facility_deck_reference_y(record))
             deck_reference_values.append(deck_reference_y)
             if anchor_longitude_latitude is None:
                 anchor_longitude_latitude = (
@@ -2366,7 +2425,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         tunnel_trench_floor_elevation_m,
         tunnel_trench_rim_elevation_m,
     )
-    from .layout import ROLE_TUNNEL_TRENCH
+    from .layout import ROLE_BUILDING, ROLE_TUNNEL_TRENCH
 
     to_meters, _meters_to_lat_lon = _local_meter_projections(layout.anchor)
 
@@ -2408,8 +2467,15 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     # Kept as (bounds, polygon) entries and bbox-filtered per body — a
     # whole-layout unary_union costs seconds at an EGLL-sized airport
     # (HARD-LAW budget) and only the shapes beside each trench matter.
+    #
+    # Each entry carries its SHAPE as well as its bounds and polygon: the
+    # basin-pad floor seating (spec ``basin-pad-floor-seating-spec.md``
+    # §1.2) excludes named shapes from the differencing, and the §2 named
+    # line reports each differencing shape's ROLE and AREA — both need the
+    # shape, not just its geometry.
     owned_entries = [
-        (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
+        (shape.polygon.bounds, shape.polygon, shape)
+        for shape in layout.shapes
         if shape.polygon is not None and not shape.polygon.is_empty
     ]
 
@@ -2422,7 +2488,8 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         pavement this function has already removed.  Bounds only, no
         geometry ops: this runs after every cut."""
         owned_entries[:] = [
-            (shape.polygon.bounds, shape.polygon) for shape in layout.shapes
+            (shape.polygon.bounds, shape.polygon, shape)
+            for shape in layout.shapes
             if shape.polygon is not None and not shape.polygon.is_empty
         ]
 
@@ -2468,14 +2535,25 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             pavement_union = None
         _reindex_open_pit_union()
 
-    def _owned_near(bounds):
+    def _owned_entries_near(bounds, exclude_ids=()):
+        """The owned-ground entries whose bbox meets ``bounds``.
+
+        ``exclude_ids`` is a set of ``id(shape)`` the caller has taken OUT
+        of the owned ground — the basin-pad floor seating's one and only
+        mechanism (spec §1.2: "the facility floor is NOT differenced
+        against such a pad").  Bounds-filtered, never a whole-layout
+        union: see ``owned_entries``."""
         minimum_x, minimum_y, maximum_x, maximum_y = bounds
-        candidates = [
-            polygon for (bounds_x0, bounds_y0, bounds_x1, bounds_y1), polygon
-            in owned_entries
-            if bounds_x0 <= maximum_x and bounds_x1 >= minimum_x
-            and bounds_y0 <= maximum_y and bounds_y1 >= minimum_y
+        return [
+            entry for entry in owned_entries
+            if entry[0][0] <= maximum_x and entry[0][2] >= minimum_x
+            and entry[0][1] <= maximum_y and entry[0][3] >= minimum_y
+            and id(entry[2]) not in exclude_ids
         ]
+
+    def _owned_near(bounds, exclude_ids=()):
+        candidates = [
+            entry[1] for entry in _owned_entries_near(bounds, exclude_ids)]
         if not candidates:
             return None
         try:
@@ -2555,8 +2633,16 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # 2026-07-18: EGLL shell walls reach up to ~2 m below the
             # road deck — a deck-median floor left the object bottoms
             # buried), falling back to the deck median for older records.
-            deck_reference_y, discarded_witness = (
-                basin_facility_deck_reference_y(tunnel))
+            # THE OPEN-PIT LIMB (owner Amendment 3): a hole with nothing
+            # of the pack's own over it keys on its DECK FACE and takes
+            # no bore margins.  ``cuts_pavement`` IS
+            # ``object_terrain_features.is_open_pit_interface`` read off
+            # the record (R13's own predicate) — one notion, one
+            # spelling, never re-derived.
+            _member_open_pit = bool(getattr(tunnel, "cuts_pavement", False))
+            deck_reference_y, discarded_witness, floor_key_source = (
+                basin_facility_deck_reference_y(
+                    tunnel, open_pit=_member_open_pit))
             if discarded_witness is not None:
                 # LOUD, NEVER SILENT (spec §2.2): the resource whose
                 # authored geometry claimed the floor, the y it claimed
@@ -2589,15 +2675,18 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 continue
             member_records.append(
                 (tunnel, float(datum), member_floor, member_rim,
-                 deck_reference_y, member_parts))
+                 deck_reference_y, member_parts, floor_key_source))
         if not member_records:
             continue
         resources = sorted({
             resource for tunnel, *_rest in member_records
             for resource in tunnel.object_resources})
         datum = min(record[1] for record in member_records)
+        # Indexed, not star-unpacked: the record grew a seventh field
+        # (the floor KEY SOURCE, owner Amendment 3) and ``*_head, parts``
+        # would silently have bound ``parts`` to it.
         body_parts = [
-            part for *_head, parts in member_records for part in parts]
+            part for record in member_records for part in record[5]]
         # ── THE BASIN RIM REFERENCE (spec section 2.1 item 2) ──
         # For a BASIN facility the point datum above is replaced, for the
         # floor and rim LAWS, by ``R_est``: the median DEM elevation
@@ -2625,9 +2714,48 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     f"the anchor datum {float(datum):.2f} m",
                 )
         if basin_rim_estimate is not None:
+            # ── THE MARGINS ARE A BORE'S, NOT A PIT'S (owner Amendment
+            # 3, 2026-08-25: "a simple 7 m deep cutout for the whole area
+            # should work without having to sever the buildings") ──────
+            # "An open-pit facility's floor is the pooled solids'
+            # deck-face median (body_depth_m) with ZERO tunnel margins —
+            # TUNNEL_FLOOR_BELOW_OBJECT_DECK_M and
+            # TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M apply only to true bore
+            # basins (a deck you pass under)."
+            #
+            # THE DISCRIMINATOR IS THE ENGINE'S OWN NOTION OF A DECK YOU
+            # PASS UNDER: ``is_open_pit_interface`` — "a hole with
+            # nothing of the pack's own standing over it" — read off the
+            # record as ``cuts_pavement``, the same predicate R13 keys
+            # on.  Its docstring names the bore cases in the owner's own
+            # terms: a BOWL_UNDER_DECK with a drum floating over it, a
+            # TRENCH_SPINE with halls at grade over it.  Nothing is
+            # re-derived here.
+            #
+            # This reproduces the amendment's own arithmetic exactly:
+            # LEMD R_est 593.029 − body 7.0159 = 586.013 ("≈586.01",
+            # "593.03 − 7.02"), against today's 584.499.
+            #
+            # ⚠ MEASURED CONFLICT WITH THE AMENDMENT'S OTHH CLAUSE — see
+            # the commit message.  Item 4 asserts "OTHH's basins are
+            # bore-class"; the classification says otherwise for six of
+            # its eight facilities.  OTHH's Drainage_01/02/03/04/05/06
+            # are BOWL_UNDER_DECK, ``is_open_pit_interface`` TRUE,
+            # ``elevated_deck_above`` FALSE, above-grade fraction 0.000 —
+            # structurally IDENTICAL to LEMD's LEMD36 on every axis, and
+            # numerically inseparable from it too (solid witness within
+            # 0.014-0.34 m of the deck face at BOTH airports).  Only
+            # AuxBuilding_13/17 are genuine bores (TRENCH_SPINE, deck
+            # above, above-grade 0.24-0.36) and those are unchanged.  So
+            # the rule as ruled moves the six Drainage floors +1.5 m and
+            # OTHH is NOT byte-identical; there is no predicate that
+            # separates LEMD from them.  Ruled law implemented, conflict
+            # reported with the numbers rather than silently scoped away.
+            facility_is_bore = not facility_cuts_pavement
             floor_elevation = min(
                 basin_trench_floor_elevation_m(
-                    basin_rim_estimate, record[4])
+                    basin_rim_estimate, record[4],
+                    bore_class=facility_is_bore)
                 for record in member_records)
             rim_elevation = tunnel_trench_rim_elevation_m(basin_rim_estimate)
         else:
@@ -2730,6 +2858,240 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # (the cut is REPORTED at the end of the facility, where its
         # restore guard has already run — a cut that was put back must
         # never be logged as one that happened.)
+
+        # ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ─────────────
+        # (owner RULINGS 2026-08-25f, the building8 disposition; spec
+        # ``basin-pad-floor-seating-spec.md`` §1.)
+        #
+        # A ROLE_BUILDING pad whose footprint lies INSIDE this basin's
+        # footprint — ``config.BASIN_PAD_COVERAGE_MIN`` of the PAD's own
+        # area — is below the surrounding grade.  Two consequences, and
+        # they are one law read twice:
+        #
+        #   (1) the pad SEATS AT THE FACILITY FLOOR: its declared flat
+        #       level is ``floor_elevation``, which the seat producers
+        #       stamp onto its ring (``BuiltShape.basin_floor_seat_m``);
+        #   (2) the FLOOR IS NOT DIFFERENCED against it — the cut emits
+        #       THROUGH the pad, at the same elevation the pad now
+        #       carries, instead of being erased by it.
+        #
+        # WHY BOTH.  LEMD's pack ships ``building8`` (33,447 m²) flat at
+        # 600.28 m over the whole 12,251 m² sunken tower circle; the
+        # floor pan is differenced against every earlier-born shape, so
+        # the pad erased it completely and the basin emitted NOTHING
+        # (basinpool round, finding 1).  Seating the pad without the
+        # exclusion would leave the basin with a pad but no floor;
+        # excluding without seating would leave an 8 m pad-vs-floor
+        # z-fight over the same ground.
+        #
+        # A PARTIAL-COVERAGE PAD IS A DIFFERENT DESIGN CASE and is NOT
+        # this rule's: a pad straddling a basin rim keeps today's
+        # behaviour (it differences the floor as before, it is not
+        # seated) and is REPORTED by name — never silently sorted into
+        # either class.  Both reports are UNGATED; only the BEHAVIOUR
+        # rides ``config.BASIN_PAD_FLOOR_SEAT``.
+        floor_seated_pad_ids: set = set()
+        # THE AUTHORITY CLIP's own set (owner Amendment 3): the pads whose
+        # FLATTENING AUTHORITY yields inside this facility.  They are not
+        # seated and not cut — only taken out of the owned ground the pan
+        # and the wall band are differenced against, so both are born
+        # THROUGH them.
+        authority_yield_pad_ids: set = set()
+        if is_basin_facility:
+            try:
+                facility_geometry = unary_union(body_parts)
+            except Exception:
+                facility_geometry = None
+            if facility_geometry is not None \
+                    and not facility_geometry.is_empty:
+                facility_area = float(facility_geometry.area)
+                # SNAPSHOT.  The Amendment-2 cut below REPLACES pad shapes
+                # in ``layout.shapes``; iterating the live list while
+                # mutating it is the classic way to miss one.
+                pad_snapshot = [
+                    s for s in layout.shapes
+                    if s.role == ROLE_BUILDING and s.polygon is not None
+                    and not s.polygon.is_empty]
+                for pad in pad_snapshot:
+                    pad_area = float(pad.polygon.area)
+                    if pad_area <= 0.0:
+                        continue
+                    try:
+                        overlap = float(
+                            pad.polygon.intersection(facility_geometry).area)
+                    except Exception:
+                        continue
+                    if overlap <= 0.0:
+                        continue
+                    pad_coverage = overlap / pad_area
+                    facility_coverage = (
+                        overlap / facility_area if facility_area > 0.0
+                        else 0.0)
+                    where = (f"{pad.ref!r} ({pad_area:.0f} m2) is "
+                             f"{100.0 * pad_coverage:.0f} % inside "
+                             f"{resources} and covers "
+                             f"{100.0 * facility_coverage:.0f} % of it")
+                    if max(pad_coverage, facility_coverage) \
+                            < config.BASIN_PAD_COVERAGE_MIN:
+                        # A pad under threshold on BOTH sides straddles the
+                        # basin RIM — a real design case this rule is not
+                        # about.  Today's behaviour, and REPORTED by name so
+                        # a straddler is never silently sorted into either
+                        # class.
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN RIM STRADDLER: pad "
+                            f"{where} (both under "
+                            f"{100.0 * config.BASIN_PAD_COVERAGE_MIN:.0f} "
+                            "%) — its flattening authority is KEPT over "
+                            "the facility; today's behaviour",
+                        )
+                        continue
+                    if not config.BASIN_PAD_FLOOR_SEAT:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN PAD {where} — its "
+                            f"flattening authority is NOT yielded over "
+                            f"the floor {floor_elevation:.2f} m "
+                            "(O4_BASIN_PAD_FLOOR_SEAT=0)",
+                        )
+                        continue
+                    # ── AMENDMENT 3 (owner 2026-08-25): THE AUTHORITY
+                    # CLIP — no severing, no seating ──────────────────
+                    # "a simple 7 m deep cutout for the whole area
+                    # should work without having to sever the
+                    # buildings."
+                    #
+                    # The pad keeps its authored grade, geometry, welds
+                    # and identity EVERYWHERE — nothing about the shape
+                    # is touched.  What yields is its FLATTENING
+                    # AUTHORITY inside the facility: the pad stops
+                    # counting as owned ground there, so the floor pan
+                    # and the R2 wall band are born THROUGH it and the
+                    # facility interior is theirs.  Outside the
+                    # footprint the pad's claim stands untouched, and
+                    # the mesh interpolates the pad's own ring level
+                    # across the ground between (``O4_Vector_Map``'s
+                    # INTERP_ALT faces are cut by every patch ring, the
+                    # plates' included).
+                    #
+                    # BOTH ``_owned_near`` reads yield, not just the
+                    # floor's: the WALL is the band a node-split
+                    # OUTSIDE the body at surrounding grade against the
+                    # pan at the floor.  With only the floor yielding,
+                    # the band still fell to the pad and the hole
+                    # ramped out to the pad's distant ring instead of
+                    # walling at the boundary (LEMD arm 1: "no rim band
+                    # emitted").
+                    #
+                    # WHY NOT SEAT OR SEVER — both measured, both kept
+                    # and gated off (``config.BASIN_PAD_WHOLE_SEAT`` /
+                    # ``config.BASIN_PAD_SEVER``).  Seating the whole
+                    # pad cannot bind: LEMD's ``building8`` rigidly
+                    # couples to ``building18`` (75,885 m², outside the
+                    # basin) through three shared canonical ring nodes,
+                    # so the seat either sinks a terminal complex 16 m
+                    # or is silently discarded (arm 1 measured the
+                    # second).  Severing works but edits the pack's
+                    # authored geometry, which the owner ruled out.
+                    authority_yield_pad_ids.add(id(pad))
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] BASIN PAD AUTHORITY YIELDED: "
+                        f"{where} — the pad is UNTOUCHED (grade, "
+                        f"geometry, welds, identity) and its flattening "
+                        f"authority is clipped to OUTSIDE the facility; "
+                        f"the floor plates at {floor_elevation:.2f} m "
+                        "and the R2 walls own the interior",
+                    )
+                    if config.BASIN_PAD_WHOLE_SEAT \
+                            and pad_coverage >= config.BASIN_PAD_COVERAGE_MIN:
+                        # RETIRED (Amendment 3 item 2), kept and gated
+                        # off: §1.1's whole-pad seat.
+                        pad.basin_floor_seat_m = float(floor_elevation)
+                        floor_seated_pad_ids.add(id(pad))
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN PAD SEATED AT THE "
+                            f"FLOOR: {where} — its flat level is the "
+                            f"facility floor {floor_elevation:.2f} m "
+                            "(O4_BASIN_PAD_WHOLE_SEAT=1, retired path)",
+                        )
+                        continue
+                    if not (config.BASIN_PAD_SEVER
+                            and pad_coverage
+                            < config.BASIN_PAD_COVERAGE_MIN):
+                        continue
+                    # ── RETIRED (Amendment 3 supersedes Amendment 2),
+                    # kept and gated off: the boundary CUT.  The
+                    # in-facility piece became its own pad seated at the
+                    # floor; the remainder kept grade, welds and
+                    # identity through ``dataclasses.replace``; the
+                    # inset was the R2 node split against the cut line.
+                    try:
+                        inside_geometry = pad.polygon.intersection(
+                            facility_geometry)
+                        sunken_geometry = inside_geometry.buffer(
+                            -_BASIN_PAD_CUT_INSET_M,
+                            join_style=2, mitre_limit=2.0)
+                        remainder_geometry = pad.polygon.difference(
+                            facility_geometry)
+                    except Exception:
+                        sunken_geometry = None
+                        remainder_geometry = None
+
+                    def _pieces(geometry):
+                        if geometry is None or geometry.is_empty:
+                            return []
+                        parts = (list(geometry.geoms)
+                                 if geometry.geom_type == "MultiPolygon"
+                                 else [geometry])
+                        return [part for part in parts
+                                if part.geom_type == "Polygon"
+                                and not part.is_empty
+                                and part.area >= config.PAD_MIN_AREA_M2]
+
+                    sunken_parts = _pieces(sunken_geometry)
+                    remainder_parts = _pieces(remainder_geometry)
+                    if not sunken_parts:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN PAD CUT WITHDRAWN: "
+                            f"{where}, but its in-facility piece does not "
+                            f"survive the {_BASIN_PAD_CUT_INSET_M:.1f} m "
+                            f"wall inset at "
+                            f"{config.PAD_MIN_AREA_M2:.0f} m2",
+                        )
+                        continue
+                    replacements = []
+                    for part in remainder_parts:
+                        replacements.append(_dataclass_replace(
+                            pad, polygon=part, node_altitudes=None,
+                            basin_floor_seat_m=None))
+                    for part in sunken_parts:
+                        replacements.append(_dataclass_replace(
+                            pad, polygon=part, node_altitudes=None,
+                            ref=f"{pad.ref}_basin",
+                            basin_floor_seat_m=float(floor_elevation)))
+                    layout.shapes = [
+                        replacement
+                        for shape in layout.shapes
+                        for replacement in (replacements if shape is pad
+                                            else [shape])]
+                    authority_yield_pad_ids.discard(id(pad))
+                    _reindex_owned_ground()
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] BASIN PAD CUT AT THE FACILITY "
+                        f"BOUNDARY: {where} — "
+                        f"{sum(p.area for p in sunken_parts):.0f} m2 in "
+                        f"{len(sunken_parts)} piece(s) seat at the floor "
+                        f"{floor_elevation:.2f} m as "
+                        f"{pad.ref + '_basin'!r}; "
+                        f"{sum(p.area for p in remainder_parts):.0f} m2 in "
+                        f"{len(remainder_parts)} piece(s) keep grade as "
+                        f"{pad.ref!r} (O4_BASIN_PAD_SEVER=1, retired path)",
+                    )
 
         # ANCHOR SEAT (user 2026-07-18f, "object sitting below terrain"):
         # every shell of the facility drapes at terrain(anchor), and the
@@ -2834,6 +3196,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # collinear with its terminal's building-pad ring, and the
             # un-inset floor edge minted a mm-jittered constraint mess
             # (125 nodes in half a metre) that killed segment recovery.
+            floor_owned_entries: list = []
             try:
                 floor_geometry = body.buffer(
                     -_TUNNEL_WALL_SETBACK_M, join_style=2, mitre_limit=2.0)
@@ -2841,7 +3204,16 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M
                     + 1.0)
                 body_bounds = envelope.bounds
-                owned_near_floor = _owned_near(body_bounds)
+                # THE FLOOR-SEATED PADS ARE NOT OWNED GROUND (spec §1.2):
+                # a pad seated AT this floor cannot also erase it.  The
+                # entries are kept for the §2 named line below, which
+                # reports what the floor WAS differenced against.
+                _yielded_pad_ids = (floor_seated_pad_ids
+                                    | authority_yield_pad_ids)
+                floor_owned_entries = _owned_entries_near(
+                    body_bounds, _yielded_pad_ids)
+                owned_near_floor = _owned_near(
+                    body_bounds, _yielded_pad_ids)
                 if owned_near_floor is not None \
                         and not owned_near_floor.is_empty:
                     floor_geometry = floor_geometry.difference(
@@ -2852,9 +3224,18 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     _TUNNEL_RIM_BAND_WIDTH_M,
                     join_style=2, mitre_limit=2.0).difference(body)
                 band_bounds = band_geometry.bounds
+                # THE WALL YIELDS TOO (owner Amendment 3).  The R2 wall
+                # is this band — a node split OUTSIDE the body at the
+                # surrounding grade, against the pan at the floor.  A pad
+                # that owns the ground here takes the band with it and
+                # the hole ramps out to the pad's distant ring instead of
+                # walling at the facility boundary (LEMD arm 1, measured:
+                # "no rim band emitted").  The pad's authority is clipped
+                # to outside the facility, and the band is inside it.
                 owned_near = _owned_near((
                     band_bounds[0] - 1.0, band_bounds[1] - 1.0,
-                    band_bounds[2] + 1.0, band_bounds[3] + 1.0))
+                    band_bounds[2] + 1.0, band_bounds[3] + 1.0),
+                    _yielded_pad_ids)
                 if owned_near is not None and not owned_near.is_empty:
                     # Yield the band to every already-born shape WITH a
                     # setback margin: a band edge cut exactly on another
@@ -2891,6 +3272,56 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # negative-AGL shells, or fully pavement-yielded bodies) is
                 # left at grade rather than emitting a floorless rim ring —
                 # the rim is meaningless without a floor to wall down to.
+                #
+                # ── THE SILENCE DIES (spec §2, the 2026-08-25e named-line
+                # class).  UNGATED — instrument is law.  This branch used
+                # to ``continue`` in complete silence, and that silence is
+                # what let LEMD ship a classified, scoped, floor-agreed
+                # basin that emitted NOTHING: the build log said the
+                # facility's floor was 584.5 m and nothing said no plate
+                # was ever born, let alone what erased it.  Name the
+                # facility, its floor, and EVERY shape the floor was
+                # differenced against, with role and area — the shape at
+                # the top of that list IS the answer.
+                _diff_rows = []
+                for _entry in floor_owned_entries:
+                    _shape = _entry[2]
+                    try:
+                        _hit = float(_entry[1].intersection(body).area)
+                    except Exception:
+                        _hit = 0.0
+                    if _hit <= 0.0:
+                        continue
+                    _diff_rows.append(
+                        (_hit, _shape.role, _shape.ref or "?",
+                         float(_entry[1].area)))
+                _diff_rows.sort(reverse=True)
+                _body_area = float(getattr(body, "area", 0.0) or 0.0)
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] NO FLOOR PLATE BORN for {resources}: "
+                    f"the {_body_area:.0f} m2 body at floor "
+                    f"{floor_elevation:.2f} m seated ZERO plates — the "
+                    f"floor was differenced against "
+                    f"{len(_diff_rows)} earlier-born shape(s)"
+                    + (":" if _diff_rows else " (none: the body's own "
+                       "inset left nothing above the 4 m2 plate floor)"),
+                )
+                for (_hit, _role, _ref, _area) in _diff_rows[:10]:
+                    _pct = (f" ({100.0 * _hit / _body_area:.0f} %)"
+                            if _body_area > 0.0 else "")
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}]     {_role} {_ref!r}: "
+                        f"{_area:.0f} m2 shape covering {_hit:.0f} m2"
+                        f"{_pct} of the body",
+                    )
+                if len(_diff_rows) > 10:
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}]     ... and "
+                        f"{len(_diff_rows) - 10} more.",
+                    )
                 continue
             floor_plate_count += body_floor_born
             facility_floor_born += body_floor_born
@@ -2929,6 +3360,25 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     rim_plate_count += 1
                     emitted_rim_values.append(float(part_elevation))
 
+        if floor_seated_pad_ids and not facility_floor_born:
+            # NO FLOOR, NO SEAT (spec §1.1's premise).  A facility that
+            # seated no plate anywhere has no emitted floor for a pad to
+            # sit on, and a pad declared 8 m down with nothing cut around
+            # it is a pit with no basin — strictly worse than the buried
+            # pad it was meant to expose.  Withdrawn, and SAID SO: the
+            # §2 named line above has already reported why no plate was
+            # born.
+            for _pad in layout.shapes:
+                if id(_pad) in floor_seated_pad_ids:
+                    _pad.basin_floor_seat_m = None
+            UI.vprint(
+                1,
+                f"   [{log_tag}] BASIN PAD SEAT WITHDRAWN for "
+                f"{resources}: {len(floor_seated_pad_ids)} pad(s) were "
+                "seated at the facility floor but no floor plate was "
+                "born — nothing to sit on",
+            )
+            floor_seated_pad_ids = set()
         if cut_shape_count and not facility_floor_born:
             # RULING R13's GUARD: the cut bought nothing, so PUT IT BACK.
             # Pavement removed with no trench under it is a hole in the
@@ -3032,6 +3482,27 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     float(max(emitted_rim_values))
                     if emitted_rim_values else None),
                 "emitted_rim_part_count": len(emitted_rim_values),
+                # ── THE PER-PART WALL ALLOWANCE (trench-law spec
+                # Amendment 1, 2026-08-25) ───────────────────────────
+                # The band is TERRAIN-TRUE: each part takes its own DEM
+                # sample, so on sloping ground one facility declares ONE
+                # floor and MANY rims.  A census that prices every wall
+                # contact against the flat ``rim_law_m`` therefore
+                # reports the terrain's own relief as excess — measured
+                # at LEMD_a4: emitted rim 592.64-595.24 against a
+                # 593.03 law value, +930 lawful wall rows, worst 9.23 m.
+                # OTHH never showed it because its DEM is flat there
+                # (emitted rim 3.96-3.96 == the law value exactly).
+                #
+                # So the parts are PUBLISHED, sorted, and the census
+                # joins a wall row to its own part BY VALUE — the
+                # declared-number join, never proximity
+                # (``check_grade._basin_declared_drop``).  min/max/count
+                # stay: they are the human-readable summary the log line
+                # prints, and an older artifact that carries only those
+                # falls back to the flat drop, exactly as before.
+                "emitted_rim_parts_m": sorted(
+                    float(value) for value in emitted_rim_values),
                 "predicted_drape_elevation_m": float(floor_elevation),
                 "predicted_rim_elevation_m": float(rim_elevation),
                 "solid_minimum_y_m": min(

@@ -79,3 +79,23 @@ one line, unchecked.
   no tunnel_trench; re-census existing artifacts, no rebuilds).
 - Attempt cap 2, materiality 0.01 m, STOP on second miss. No
   shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — per-part wall allowance; the flat
+## declared drop misprices walls on sloping ground)
+
+Measured (lane/basinpad, LEMD_a4): the pan↔rim wall on sloping ground
+emits per-part (rim 592.64-595.24) while `_basin_declared_drop` prices
+the FLAT declared drop (593.03 − 586.01), so every part shipping more
+than the flat drop by its terrain relief reports — +930 rows, worst
+9.23 m, all lawful walls. OTHH never exposed it (flat DEM).
+
+1. The §1 allowance at a wall contact is PER PART: that part's own
+   published `emitted_rim` − the facility `floor_m` (the sidecar
+   already carries both). Excess beyond the part's own drop still
+   reports in full — a floor 50 m below its rim remains visible.
+2. The declared-number join discipline stands (join on published
+   sidecar values, never proximity).
+3. Twin: sloping-ground facility → zero rows at lawful walls; a part
+   emitted 1 m deeper than its published rim → 1 m excess row.
+4. Acceptance: LEMD wall rows collapse (+930 → ≈0 lawful; report);
+   OTHH/controls unchanged.

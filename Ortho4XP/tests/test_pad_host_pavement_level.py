@@ -1016,3 +1016,29 @@ class TestAdoptionIsContinuous:
         ramp = src.split("AMENDMENT 1", 1)[1]
         assert "if not object_pads:" in ramp, (
             "the continuous ramp must be scoped to BUILDING pads")
+
+
+def test_a_basin_floor_seated_pad_does_not_adopt_its_host(monkeypatch):
+    """A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR (owner RULINGS
+    2026-08-25f; spec ``basin-pad-floor-seating-spec.md`` §1.1).
+
+    This pass exists to lift a pad the DEM-biased frontage seat left in a
+    PIT while its host humped around it — and a pad inside a basin is in
+    a pit BY DECLARATION, at the same value, from the same pass, as the
+    trench floor pan beside it.  Adopting the host's grade here is
+    exactly the erasure the ruling reverses (LEMD ``building8``, which
+    the owner ruled "should be below apron grade")."""
+    monkeypatch.setenv("O4_PAD_HOST_PAVEMENT_LEVEL", "1")
+    apron = _apron_with_lip()
+    pad = _pad(20.0, 10.0, 30.0, 18.0, PIT)
+    pad.basin_floor_seat_m = PIT
+    layout = _FakeLayout([apron, pad])
+
+    assert relevel_pads_to_host_pavement(layout) == 0
+    assert pad.altitude == pytest.approx(PIT, abs=1e-9)
+    # ...and the control: the SAME geometry without the declaration is
+    # the adopting case above, so the refusal is the declaration's.
+    twin = _pad(20.0, 10.0, 30.0, 18.0, PIT)
+    assert relevel_pads_to_host_pavement(
+        _FakeLayout([_apron_with_lip(), twin])) == 1
+    assert twin.altitude == pytest.approx(BODY, abs=0.01)

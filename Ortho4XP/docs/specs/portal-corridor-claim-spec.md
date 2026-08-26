@@ -76,3 +76,29 @@ cannot see more, because absence is all there is to see.
   report the class table; no bar yet for the new class).
 - Attempt cap 2, materiality 0.01 m; STOP on second miss. No
   shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — the stand-down requires a
+## bore-depth claimant; resolves the mouth-D fork)
+
+Measured (lane/tunnelmerge): with the phantom whole-shape claim fixed
+to corridor footprints, mouth D's claimant is legitimate at share
+~0.62 — but R14-1's own line reads "0 levelled at bore depth": the
+level pass claims nothing at OTHH, so no claimed surface ever carries
+the corridor, and the stand-down was deleting the ONLY below-grade
+geometry (the synthetic ramp).
+
+1. `_stand_down_synthetic_over_claimed` may stand a below-grade piece
+   down ONLY when its claimant CARRIES BORE DEPTH — the claimed
+   surface was actually levelled below grade at that footprint. An
+   at-grade claimant never stands down a below-grade piece; the
+   synthetic ramp IS the bore geometry there, exactly the case the
+   stand-down exists to avoid duplicating, not deleting.
+2. The refusal/keep decision is per-piece and named (§1's line gains
+   the claimant's bore-depth verdict).
+3. Twin: at-grade claimant + synthetic ramp → ramp survives, line
+   names the keep; bore-depth claimant → stand-down fires as today.
+4. Acceptance: mouth D EMITS (ramp pieces within 80 m of 25.2789456,
+   51.5994543; portal-acceptance distance collapses from 806.1 m —
+   report the number); the other stood-down clusters re-read; no
+   double geometry where a claimant genuinely carries bore depth;
+   site-1 and airside byte-stable vs the branch's current arm.

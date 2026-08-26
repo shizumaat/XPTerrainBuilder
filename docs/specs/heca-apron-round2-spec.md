@@ -82,3 +82,38 @@ apart at 7% local grade).
   interiors.
 - Attempt cap 2, materiality 0.01 m, STOP on second miss. No
   shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — §1's premise refuted at HECA;
+## §1b interior lattice replaces route synthesis for this class)
+
+Measured (lane/apronfix): nodes 462/470 are CONNECTED (560.6 m network
+path, 2.2x detour); HECA has 15 leaf nodes and no leaf pair matching
+the site. The void is real — 10 nodeless interiors, worst 175.4 m
+empty radius; the cliff line has 247 m with no stations, dropping
+6.06 m, zero census rows — but no feed gap exists: the routes go
+AROUND the apron. Synthesizing a route there would invent taxi
+geometry the airport does not have. §1 stays as landed (inert at
+HECA, correct for true feed gaps elsewhere, twinned).
+
+1. §1b INTERIOR LATTICE: an apron polygon whose §2 empty-disk radius
+   exceeds `APRON_NODELESS_RADIUS_M` gains a sparse interior vertex
+   lattice (spacing `APRON_LATTICE_SPACING_M = 50`, clipped to the
+   polygon, deterministic from the shape's local frame) minted as
+   FREE solver nodes: within-shape law edges to their lattice/ring
+   neighbours (priced by the apron's own caps — the census sees the
+   membrane), seeded by the scaffold interpolation between the ring's
+   anchors (24c; DEM-last — the seed is the taut plane, DEM only if
+   no anchor reaches).
+2. The lattice enters the slice's node set for THIS shape only; no
+   new roles, no routes, no frontage semantics. Sidecar provenance
+   `apron_lattice` per node.
+3. Flag `O4_APRON_INTERIOR_LATTICE`, default ON; OFF byte-identical.
+4. Twin: synthetic 300 m apron with 6 m of ring-value spread → lattice
+   minted, interior chords priced, solved membrane ≤ the apron cap
+   (the solve reconciles), census rows exist where before there were
+   none; small apron below the radius → no lattice.
+5. Acceptance addendum: the cliff-site line gains stations (no 247 m
+   nodeless run); the census PRICES the former void (rows may
+   APPEAR — report them honestly as un-blinding, not regression;
+   airside delta explained row-for-row at the site); nodeless_
+   interiors HECA 10 → 0. Attempt count resets for §1b, cap 2.

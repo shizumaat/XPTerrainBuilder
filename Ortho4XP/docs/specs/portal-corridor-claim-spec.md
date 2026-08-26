@@ -102,3 +102,28 @@ geometry (the synthetic ramp).
    report the number); the other stood-down clusters re-read; no
    double geometry where a claimant genuinely carries bore depth;
    site-1 and airside byte-stable vs the branch's current arm.
+
+## Amendment 2 (Fable, 2026-08-25 — the claimed corridor's authored
+## fields survive to emit; completes 25e's "claim and lower")
+
+Measured (lane/tunnelmerge b656f3a9): mouth D's claimant way -12170
+(19,325 m²) is lowered to -0.92 m and marked tunnel_road by R14-1 —
+and ships as role=groundside_pavement ref=groundside with alt_abs on
+0 of 66 nodes. A downstream groundside pass re-creates or
+re-classifies the claimed shape and drops both the ref and every
+authored altitude, so the corridor the stand-down lawfully trusted is
+never written.
+
+1. ATTRIBUTE the dropping pass (which rebuild/re-classification
+   consumes the claimed shape and loses its fields), then fix AT
+   SOURCE: a shape carrying an R14-1 claim verdict keeps its claimed
+   ref and its authored corridor altitudes through every downstream
+   rebuild to to_osm. No post-hoc re-stamping pass — the fields ride
+   the shape.
+2. Twin: a claimed-and-lowered shape survives a downstream rebuild
+   with ref + altitudes intact; an unclaimed groundside shape is
+   untouched.
+3. Acceptance: mouth D's corridor emits below grade (portal-acceptance
+   distance collapses from 727.6 m — report the number); the other
+   claimed roads' emitted altitudes match their claim depths; site-1
+   and airside byte-stable. Attempt cap 2 under this amendment.

@@ -99,6 +99,7 @@ __all__ = [
     "SCORER_CORRIDOR_WIDTH",
     "SCORER_CORRIDOR_WIDTH_MIN_FRAC",
     "LATERAL_CONTIGUITY_LAW_ENABLED",
+    "ROAD_APRON_EDGE_CONFORMANCE",
     "PAVEMENT_SCORE_WEIGHTS",
     "PAVEMENT_SCORE_RELIABILITY",
     "PAVEMENT_SCORE_MIN_AREA_M2",
@@ -2550,6 +2551,24 @@ LATERAL_CONTIGUITY_LAW_ENABLED = True
 # STANDING LAW (owner 2026-08-05, no gates): Lateral-contiguity absorption is class-universal (owner 2026-08-03).
 # The ``O4_SERVICE_LOT_ABSORPTION`` gate and its env override are DELETED.
 SERVICE_LOT_ABSORPTION = True
+# ROAD↔APRON EDGE CONFORMANCE (owner RULINGS 2026-08-25b; spec
+# ``docs/specs/road-band-seal-scope-spec.md`` §2).  "A ROAD SHARING AN EDGE
+# WITH AN APRON CONFORMS TO THE STRICTEST GRADE — IT BECOMES PART OF THE
+# APRON."  The lateral-contiguity law is the enforcement point and its walk
+# is a PERPENDICULAR probe that, by construction, cannot see a road dying
+# INTO an apron; ``lateral_contiguity.edge_shared_roles`` asks for the
+# contact directly (canonical vertex identity, never proximity) and folds
+# the apron into the ring's cross-section class set, so the ring takes the
+# apron cap and the EXISTING clause-(4)/(5) machinery decides — exactly as
+# it does for lateral contact — whether it absorbs or carries the cap.
+# Measured escape population (HECA, patch body 27292e8e62ed): 272 road
+# rings edge-share with airside, 135 with an apron; 162 of the 469 shared
+# edges are PERPENDICULAR to the road axis (the end connection an earlier
+# closure deliberately excluded), 197 parallel but under the free-road
+# width test's 25 m "the pavement IS the road" rule.
+# ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law exactly.
+ROAD_APRON_EDGE_CONFORMANCE = (
+    _os.environ.get("O4_ROAD_APRON_EDGE_CONFORM", "1") == "1")
 # TRIANGLE-PLANE DEMOTION (spec docs/specs/kill-prep-round-spec.md §2).
 # ``route_profile.solve._project_triangle_planes`` clamps a 3-vertex shape
 # whose PLANE tilts past its role cap by moving its freest vertex; where no

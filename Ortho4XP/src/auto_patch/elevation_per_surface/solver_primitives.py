@@ -4279,6 +4279,48 @@ SEAL_HARD_ROLES = frozenset({
     ROLE_BRIDGE_CAUSEWAY,
 })
 
+#: Gate for the AIRSIDE-ONLY seal scope (owner-approved option (a), spec
+#: ``docs/specs/road-band-seal-scope-spec.md`` §1).  Default ON; ``0``
+#: restores the historic scope byte-identically.
+SEAL_AIRSIDE_ONLY_FLAG = "O4_SEAL_AIRSIDE_ONLY"
+
+
+def seal_role_scope():
+    """The roles :func:`seal_pavement_to_band` may clamp — and why.
+
+    THE SEAL SEALS ONLY WHAT THE BAND LEGISLATES (owner-approved option
+    (a), spec ``road-band-seal-scope-spec.md`` §1; measured evidence: the
+    2026-08-25 HECA roads attribution, 110 band-clamp records of which 92
+    were road-family, every floor-side road clamp inside the raster band's
+    30 m off-net radius and none outside it).
+
+    The band of record is the AIRCRAFT-reachability band.  Road roles are
+    absent from its propagation domain
+    (``raster_reach_band.band_domain_roles``), the road cap is painted
+    nowhere in its leg-cost grid (``_local_cap_grids`` skips
+    ``is_service``), and an off-mask road point is priced at
+    ``APRON_MAX_GRADE`` × straight-line offset with a hard 30 m horizon.
+    Clamping a road to that interval applied an interval computed under a
+    law the road is not under — and, because the seal runs AFTER
+    ``pipeline._grade_limit_groundside_chords``, it did so as the LAST
+    author, shipping the owner's 30.102344, 31.3951157 site as a +5.05 m
+    step.  The road family keeps its own authorities: the mouth-fed
+    ``groundside_reach_band`` seating and the road chord limiter at the
+    road cap.
+
+    The airside set is derived — never re-typed — from
+    ``raster_reach_band.band_domain_roles()`` minus
+    :data:`SEAL_HARD_ROLES` (values that are hard by law and which a late
+    clamp could only fight).  ``O4_SEAL_AIRSIDE_ONLY=0`` restores the
+    historic scope (``PAVEMENT_ROLES`` minus the hard roles), which is
+    byte-identical to the pre-spec build.
+    """
+    if _os.environ.get(SEAL_AIRSIDE_ONLY_FLAG, "1") != "1":
+        return frozenset(PAVEMENT_ROLES) - SEAL_HARD_ROLES
+    from auto_patch.elevation_per_surface.raster_reach_band import (
+        band_domain_roles)
+    return band_domain_roles() - SEAL_HARD_ROLES
+
 
 def _shape_ring_and_values(shape):
     """``(open ring, per-vertex values, form)`` for an emitted shape.
@@ -4337,10 +4379,16 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
     NOTHING is clamped and the pass says so: a band-less airport is not a
     reason to invent one here.
 
-    ROLE_RUNWAY is not clamped (CIFP-hard, "airside is king"), and the
-    write-back form is preserved per shape.  Every material clamp is a
-    counted, logged finding on ``layout.band_clamp_findings``, exactly as
-    at the writeback — a clamp is EVIDENCE, never silence.
+    ONE BAND, ONE SCOPE.  The seal clamps exactly the roles the band
+    states a law for — :func:`seal_role_scope`, derived from
+    ``raster_reach_band.band_domain_roles()`` — so the road family, which
+    the band's domain and cap grid both exclude, is NOT clamped to it
+    (owner-approved option (a), spec ``road-band-seal-scope-spec.md`` §1;
+    gate ``O4_SEAL_AIRSIDE_ONLY``, default ON).  ROLE_RUNWAY is not
+    clamped either (CIFP-hard, "airside is king"), and the write-back
+    form is preserved per shape.  Every material clamp is a counted,
+    logged finding on ``layout.band_clamp_findings``, exactly as at the
+    writeback — a clamp is EVIDENCE, never silence.
 
     Returns the number of shapes changed, and seals the result: see
     :func:`verify_band_seal`.
@@ -4351,9 +4399,10 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
         band = band_of_record(layout)
     findings: list = []
     n_shapes = 0
+    scope = seal_role_scope()
     if band is not None:
         for s in getattr(layout, "shapes", ()) or ():
-            if s.role not in PAVEMENT_ROLES or s.role in SEAL_HARD_ROLES:
+            if s.role not in scope:
                 continue
             ring, vals, form = _shape_ring_and_values(s)
             if ring is None:
@@ -4418,7 +4467,10 @@ def seal_pavement_to_band(layout, icao: str = "", band=None):
             _UI.vprint(1, f"  [band-seal] {icao}: the band clamp is the "
                           f"LAST elevation author — {n_shapes} shape(s) "
                           f"re-clamped after every post-solve pass "
-                          f"({len(findings)} vertex finding(s)).")
+                          f"({len(findings)} vertex finding(s)); scope "
+                          f"{sorted(scope)} "
+                          f"(O4_SEAL_AIRSIDE_ONLY="
+                          f"{_os.environ.get(SEAL_AIRSIDE_ONLY_FLAG, '1')}).")
     except Exception:                                      # pragma: no cover
         pass
     _seal_pavement(layout)

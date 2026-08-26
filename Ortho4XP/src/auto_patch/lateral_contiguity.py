@@ -34,7 +34,8 @@ _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
 __all__ = [
     "STATION_STEP_M", "PROBE_M", "GAP_TOL_M", "MIN_MEMBER_M", "ROAD_ROLES",
-    "long_axis", "cross_section_roles", "station_caps",
+    "APRON_CONTACT_ROLES", "EDGE_IDENTITY_TOL_M",
+    "long_axis", "cross_section_roles", "edge_shared_roles", "station_caps",
 ]
 
 # Station spacing and cross-section probe: the SAME numbers
@@ -52,6 +53,42 @@ GAP_TOL_M = 0.05
 # station's OWN shape always counts, whatever its width.)
 MIN_MEMBER_M = 0.5
 ROAD_ROLES = frozenset({"service_road", "service_junction"})
+
+# ── EDGE-SHARING CONTACT (owner RULINGS 2026-08-25b) ─────────────────────
+# "A ROAD SHARING AN EDGE WITH AN APRON CONFORMS TO THE STRICTEST GRADE — IT
+# BECOMES PART OF THE APRON."  This is a CONTACT term, and the walk above is
+# a LATERAL one: both this module (``cross_section_roles``: "a road dying
+# INTO an apron — the apron is ahead of the station, not beside it — can
+# never pick the apron up") and ``groundside.free_road_subsegments`` cast a
+# perpendicular probe, and ``station_caps`` deliberately never samples the
+# road's END FACE.  That end connection was an EARLIER owner exclusion; the
+# 2026-08-25b ruling sharpens it away, and this is the term that does it.
+#
+# MEASURED (HECA, patch body 27292e8e62ed, the roads round's build): 272
+# road rings share at least one edge with an airside ring, 135 of them with
+# an apron.  Of the 469 shared edges, 197 run PARALLEL to the road's own
+# axis (lateral contact the width test priced as "road-width" because the
+# whole contiguous cross-section is under 25 m) and 162 run PERPENDICULAR
+# to it (the road dies INTO the apron — invisible to any lateral probe, by
+# construction).  Neither class is reachable by widening a probe; the
+# contact has to be asked for directly.
+#
+# THE APRON, not "any airside surface": the ruling names the apron.  Contact
+# with a building pad, a runway or a taxi junction is reported by the
+# attribution tool and ruled on separately — this term never widens itself.
+APRON_CONTACT_ROLES = frozenset({"apron"})
+
+# CANONICAL IDENTITY, NEVER PROXIMITY (the ruling's own words).  Two rings
+# share an edge when they carry the SAME two consecutive vertices.  The
+# tolerance here is a spelling tolerance, not a gap tolerance: it is 500×
+# tighter than ``GAP_TOL_M`` (itself "emitted-coordinate noise") and 10,000×
+# tighter than the 1 m near-miss horizon the ruling excludes, so no pair of
+# genuinely distinct vertices can meet under it.  Both readers reach the
+# same answer for a different reason: the emitter's shapes hold literally
+# shared coordinates after the T-vertex weld, and the validator's rings come
+# from OSM nodes that ``layout.to_osm`` already deduplicated by their
+# 11-decimal spelling.
+EDGE_IDENTITY_TOL_M = 1e-4
 
 
 def long_axis(poly):
@@ -146,6 +183,82 @@ def cross_section_roles(px, py, nx, ny, tree, polys, roles, own_index):
     return None
 
 
+def _edge_conformance_on() -> bool:
+    """Is the 2026-08-25b edge-conformance term armed?  Default ON.
+
+    Read at CALL time (not import) so a test — and the twin that proves the
+    gate off is the pre-ruling law — can flip it without reloading the
+    module, and so both readers of the law see the same answer within one
+    process.
+    """
+    from . import config as _cfg
+    return bool(getattr(_cfg, "ROAD_APRON_EDGE_CONFORMANCE", True))
+
+
+def _edge_keys(poly, tol=EDGE_IDENTITY_TOL_M):
+    """The ring's undirected consecutive-vertex-pair keys, or ``None``.
+
+    A key is a ``frozenset`` of two quantised vertices — see
+    :data:`EDGE_IDENTITY_TOL_M` for why quantising is identity here and not
+    proximity.  Interior rings are included: a road threaded through a hole
+    in an apron shares that hole's boundary and is as much "inside the
+    apron" as one beside it.
+    """
+    q = 1.0 / tol
+    out = set()
+    try:
+        rings = [list(poly.exterior.coords)]
+        rings += [list(r.coords) for r in poly.interiors]
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None
+    for coords in rings:
+        if len(coords) > 1 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+        n = len(coords)
+        if n < 2:
+            continue
+        pts = [(round(x * q), round(y * q)) for (x, y) in coords]
+        for k in range(n):
+            a, b = pts[k], pts[(k + 1) % n]
+            if a != b:
+                out.add(frozenset((a, b)))
+    return out
+
+
+def edge_shared_roles(poly, tree, polys, roles, own_index,
+                      only_roles=APRON_CONTACT_ROLES):
+    """The roles of the shapes this one SHARES AN EDGE with (2026-08-25b).
+
+    ``{"apron"}`` when the ring holds at least one edge in common with an
+    apron ring, else an empty set.  Restricted to ``only_roles`` — the
+    ruling names the apron, and the term never widens itself (see
+    :data:`APRON_CONTACT_ROLES`).
+
+    RING-LEVEL, deliberately.  The ruling puts *the road ring* under the
+    apron's law — "it becomes part of the apron" — not the two stations
+    nearest the shared edge, so every station of a contact ring reads the
+    apron in its cross-section and the ring takes one cap end to end.  A
+    ring priced apron at one end and road at the other is the step this
+    ruling exists to remove.
+    """
+    own = _edge_keys(poly)
+    if not own:
+        return set()
+    found = set()
+    try:
+        cand = tree.query(poly)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return set()
+    for k in cand:
+        k = int(k)
+        if k == own_index or roles[k] not in only_roles:
+            continue
+        keys = _edge_keys(polys[k])
+        if keys and (own & keys):
+            found.add(roles[k])
+    return found
+
+
 def station_caps(poly, tree, polys, roles, own_index, keepout=None):
     """``(stations, caps)`` for one road shape — THE census both readers run.
 
@@ -155,17 +268,28 @@ def station_caps(poly, tree, polys, roles, own_index, keepout=None):
     (the runway-strip footprint — clause 5, whose own law supersedes there),
     or an unmeasurable cross-section.
 
-    Stations sit at interval CENTRES, never on the road's END FACE: a road
-    butting an apron SHARES that face, and a probe cast exactly along it
-    reads the apron's whole span as "beside" the road.  That is the end
-    connection the owner excluded from the closure, so the law never samples
-    there.
+    Stations sit at interval CENTRES, never on the road's END FACE: a probe
+    cast exactly along a shared end face reads the apron's whole span as
+    "beside" the road, which is a different (and wrong) measurement.  The
+    end connection is not thereby exempt — RULINGS 2026-08-25b puts an
+    edge-sharing road under the apron's law — it is priced by
+    :func:`edge_shared_roles` instead, which asks for the contact directly
+    rather than trying to see it down a perpendicular probe.
     """
     axis = long_axis(poly)
     if axis is None:
         return [], []
     (ux, uy), length, mid = axis
     nx, ny = -uy, ux
+    # THE CONTACT TERM (RULINGS 2026-08-25b) — one query per shape, folded
+    # into every station's cross-section so the ring takes ONE cap.  Gate
+    # ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law exactly.
+    contact = set()
+    own_role = (roles[own_index]
+                if own_index is not None and 0 <= own_index < len(roles)
+                else None)
+    if own_role in ROAD_ROLES and _edge_conformance_on():
+        contact = edge_shared_roles(poly, tree, polys, roles, own_index)
     n_st = max(1, int(length / STATION_STEP_M))
     stations = []
     caps: list[Optional[float]] = []
@@ -191,6 +315,13 @@ def station_caps(poly, tree, polys, roles, own_index, keepout=None):
                 pass
         present = cross_section_roles(px, py, nx, ny, tree, polys, roles,
                                       own_index)
+        if contact:
+            # The contact is part of THIS cross-section's class set: the
+            # apron the road shares an edge with is one surface with it.
+            # A station with no measurable cross-section at all keeps its
+            # ``None`` verdict — the contact term prices a station, it
+            # does not manufacture one where the walk found no pavement.
+            present = set(present) | contact if present else present
         stations.append((px, py))
         caps.append(lateral_contiguity_cap(present) if present else None)
     return stations, caps

@@ -68,6 +68,36 @@ import numpy as np
 _INF = float("inf")
 
 
+def band_domain_roles():
+    """THE role set the band of record states a law for — ONE source.
+
+    The band is the AIRCRAFT-reachability band: its propagation domain
+    (:func:`_domain_geom`) is airside pavement, the runway and its
+    crossings, and building pads.  The road family (``service_road``,
+    ``service_junction``) and ``groundside_pavement`` are absent by
+    construction — ``REACH_NO_SERVICE_SPINES``, and the leg cap grid
+    (:func:`_local_cap_grids`) never paints the road cap either.
+
+    Every consumer that needs "the roles whose law this band states" —
+    the propagation domain here, and the final seal
+    (``solver_primitives.seal_pavement_to_band``) — reads THIS function.
+    A second hand-written copy of the list is the census-wrapper defect
+    (project CLAUDE.md): two lists that look identical and drift.
+
+    Imported lazily (``auto_patch.layout`` is a heavy import and this
+    module is deliberately import-light); the result is a plain
+    ``frozenset`` of role literals.
+    """
+    from auto_patch.layout import (
+        ROLE_APRON, ROLE_BUILDING, ROLE_CROSS_CONNECTOR, ROLE_JUNCTION,
+        ROLE_PRIMARY_PARALLEL, ROLE_RUNWAY, ROLE_RUNWAY_CROSSING,
+        ROLE_SECONDARY_PARALLEL, ROLE_STUB)
+    return frozenset({
+        ROLE_APRON, ROLE_JUNCTION, ROLE_PRIMARY_PARALLEL,
+        ROLE_SECONDARY_PARALLEL, ROLE_STUB, ROLE_CROSS_CONNECTOR,
+        ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_BUILDING})
+
+
 def resolve_seed_cell(members, cxs, cys, cap):
     """The seed interval of ONE cell from its coincident attachments —
     ``(ceiling, floor, collapsed)`` (spec kill-prep §3, gate
@@ -195,14 +225,9 @@ def _domain_geom(layout):
     from shapely.ops import unary_union
     from shapely.prepared import prep
     from auto_patch.elevation_per_surface.building_feasibility import _VIS_BUFFER_M
-    from auto_patch.layout import (
-        ROLE_APRON, ROLE_BUILDING, ROLE_CROSS_CONNECTOR, ROLE_JUNCTION,
-        ROLE_PRIMARY_PARALLEL, ROLE_RUNWAY, ROLE_RUNWAY_CROSSING,
-        ROLE_SECONDARY_PARALLEL, ROLE_STUB)
-    domain_roles = frozenset({
-        ROLE_APRON, ROLE_JUNCTION, ROLE_PRIMARY_PARALLEL,
-        ROLE_SECONDARY_PARALLEL, ROLE_STUB, ROLE_CROSS_CONNECTOR,
-        ROLE_RUNWAY, ROLE_RUNWAY_CROSSING, ROLE_BUILDING})
+    # ONE source for the role list — :func:`band_domain_roles`; the seal
+    # reads the same function (spec ``road-band-seal-scope-spec`` §1.2).
+    domain_roles = band_domain_roles()
     polys = [s.polygon for s in layout.shapes
              if s.role in domain_roles and s.polygon is not None
              and not s.polygon.is_empty]

@@ -99,3 +99,13 @@ operative words are "conform to the strictest grade".
 4. The §1.3 ordering audit's four post-limiter road authors
    (19_final_projection 2084@5.83 m et al.) are RECORDED as the next
    docket — out of scope here.
+
+DISPOSITION (lead, 2026-08-25): PASS with named residue on lane/roadseal
+(HECA airside 1,679, SPJC 174, CYXY 32 against its matched control; zero
+apron|junction rows; owner site continuous at 7.5%).  The clamp table
+reads 92 → 61, not attempt 1's 92 → 14: that fall came from the
+reclassification this amendment forbids, and the 61 are WRITEBACK-stage
+records, not seal records — the seal's scope carries no road role, it
+clamped 3 airside shapes and reported SEAL INTACT.  Residue ACCEPTED and
+assigned to the post-limiter road-authors docket at clause 4, not to this
+round.

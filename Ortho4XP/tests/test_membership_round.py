@@ -149,15 +149,41 @@ class TestRetainedContextFootprint:
                                                         absorption_on):
         """Conservation is unconditional on WHICH class hosted the merge.
         A conservation that applied to the lot arm only would itself be a
-        context difference between the two arms of the round's own A/B."""
-        apron = BuiltShape(polygon=_rect(0, 0, 100, 60), role="apron")
+        context difference between the two arms of the round's own A/B.
+
+        The airside host here is a JUNCTION.  It used to be an apron, and
+        RULINGS 2026-08-25b (spec ``road-band-seal-scope-spec.md``
+        Amendment 1) took the apron out of the absorption path entirely —
+        a road sharing an edge with an APRON now conforms to its law and
+        stays road-family population, so there is no apron-hosted merge
+        left to conserve.  The invariant this twin exists for is about the
+        HOST'S CLASS, not about aprons, and a junction is airside; the
+        apron's new behaviour is pinned just below."""
+        junction = BuiltShape(polygon=_rect(0, 0, 100, 60), role="junction")
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([apron, road])
+        layout = _layout([junction, road])
         summary = absorption_on.apply_lateral_contiguity_law(layout, "TEST")
         assert summary["absorbed"] == 1
         assert summary["context_retained"] == 1
         assert summary["context_retained_dem_host"] == 0
         assert len(absorbed_road_context_polys(layout)) == 1
+
+    def test_an_apron_host_conforms_instead_of_absorbing(self,
+                                                         absorption_on):
+        """RULINGS 2026-08-25b as amended: the edge-sharing road takes the
+        apron's cap and KEEPS its own role, geometry and population — so
+        there is nothing to conserve, because nothing was consumed."""
+        apron = BuiltShape(polygon=_rect(0, 0, 100, 60), role="apron")
+        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
+        layout = _layout([apron, road])
+        summary = absorption_on.apply_lateral_contiguity_law(layout, "TEST")
+        assert summary["absorbed"] == 0
+        assert summary["apron_contact"] == 1
+        assert summary["context_retained"] == 0
+        assert absorbed_road_context_polys(layout) == []
+        assert road in layout.shapes and road.role == "service_road"
+        assert road.lateral_cap == 0.01
+        assert apron.polygon.area == pytest.approx(100 * 60, rel=1e-6)
 
     def test_the_road_carve_zone_is_absorption_invariant(self,
                                                          absorption_on):

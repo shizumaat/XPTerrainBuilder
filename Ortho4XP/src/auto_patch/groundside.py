@@ -2471,6 +2471,8 @@ from .lateral_contiguity import (          # noqa: E402
     GAP_TOL_M as _LATERAL_GAP_TOL_M,
     MIN_MEMBER_M as _LATERAL_MIN_MEMBER_M,
     PROBE_M as _LATERAL_PROBE_M,
+    _edge_conformance_on,
+    edge_shared_roles as _lateral_edge_shared_roles,
     station_caps as _lateral_station_caps,
     station_normal as _lateral_station_normal,
 )
@@ -2547,7 +2549,13 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
                # spec §V2.A): absorbed stretches whose FOOTPRINT was
                # retained for the solve's context sets, split by whether
                # the host was a DEM-followed (groundside) one.
-               "context_retained": 0, "context_retained_dem_host": 0}
+               "context_retained": 0, "context_retained_dem_host": 0,
+               # EDGE-CONFORMANCE (RULINGS 2026-08-25b + Amendment 1):
+               # rings sharing an edge with an apron.  They CONFORM (apron
+               # cap, apron-datum seeding) and are never absorbed, cut or
+               # reclassified — so this counter and ``absorbed`` can never
+               # both count the same ring.
+               "apron_contact": 0}
     if not LATERAL_CONTIGUITY_LAW_ENABLED:
         return summary
     from shapely.strtree import STRtree
@@ -2593,6 +2601,31 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
             s.polygon, tree, polys, roles, pos.get(i), keepout=strip)
         if not stations:
             continue
+        # ── EDGE CONFORMANCE IS PRICING, NEVER POPULATION ─────────────
+        # (RULINGS 2026-08-25b as amended: spec ``road-band-seal-scope-
+        # spec.md`` Amendment 1.)  A ring that SHARES AN EDGE with an
+        # apron conforms to the apron's law — it does not become the
+        # apron.  Attempt 1 routed these rings into clause (4) and
+        # MEASURED the cost: absorbing them moved HECA airside
+        # 1,735 → 1,948 (+53,530 m² of new apron, new 6 m apron|junction
+        # steps at ways -12160/-12167) and SPJC 175 → 178, which is the
+        # airside-contamination direction "airside is king" forbids.
+        # So the contact is stamped here and the ring is held to the
+        # CAP path below: no absorb, no mouth cut, no role change — its
+        # rows stay in the groundside families and the conformance shows
+        # as a tighter cap.  ``station_caps`` has already folded the
+        # apron into every station's class set, so the cap this shape
+        # carries is the apron's, end to end.
+        # Gate ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law
+        # EXACTLY — the stamp is read here as well as in ``station_caps``,
+        # so the absorption path below is not silently kept out of reach on
+        # an arm that is supposed to be byte-identical to the old one.
+        s.apron_contact = bool(_edge_conformance_on()
+                               and _lateral_edge_shared_roles(
+                                   s.polygon, tree, polys, roles,
+                                   pos.get(i)))
+        if s.apron_contact:
+            summary["apron_contact"] += 1
         summary["strip_skipped"] += sum(
             1 for st, cap in zip(stations, caps)
             if st is not None and cap is None and strip is not None
@@ -2622,8 +2655,11 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         # A road that carries PER-VERTEX altitudes (a DEM-followed piece) is
         # never cut or rebuilt — its ``node_altitudes`` align 1:1 with the
         # ring it has.  It still takes the law: the STRICTEST cap any of its
-        # stations saw, carried in place.
-        if s.node_altitudes is not None:
+        # stations saw, carried in place.  An APRON-CONTACT ring takes the
+        # same path for the different reason above (Amendment 1): the ring
+        # must survive as road-family population, so the cap is carried and
+        # the geometry is left exactly as it is.
+        if s.node_altitudes is not None or s.apron_contact:
             s.lateral_cap = min(r[2] for r in binding)
             summary["capped"] += 1
             continue
@@ -2793,7 +2829,9 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
         f"{summary['roads']} road shape(s) walked, {summary['cut']} cut at "
         f"segment boundaries, {summary['absorbed']} stretch(es) ABSORBED "
         f"into the adjacent surface, {summary['capped']} carrying the "
-        f"strictest cap.")
+        f"strictest cap; {summary['apron_contact']} APRON-CONTACT ring(s) "
+        f"conform at the apron cap WITHOUT absorption (RULINGS 2026-08-25b, "
+        f"Amendment 1: pricing and seeding, never population).")
     if summary["context_retained"]:
         UI.vprint(1,
             f"  [pav-builder] {icao}: context-conservative absorption — "

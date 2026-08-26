@@ -6103,6 +6103,25 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # re-judges none of it; it is here so "did this patch ship from a
     # site whose DEM was pure noise?" is answerable from the artifact.
     "site_class",
+    # THE NODELESS-INTERIOR INSTRUMENT (spec docs/specs/
+    # heca-apron-round2-spec.md section 2).  One record per apron-role
+    # polygon carrying an interior disk of radius >
+    # ``config.APRON_NODELESS_RADIUS_M`` with ZERO emitted vertices.
+    # EVIDENCE, and the most important kind: this is the census's own
+    # BLIND SPOT reported by the build.  The census prices PAIRS OF
+    # EMITTED NODES, so a region with no nodes yields no rows and reads
+    # as compliant however wrong it is — HECA's 215 x 430 m void passed
+    # three rounds of censuses at 1,679 while carrying a visible cliff.
+    # Printed at ZERO too (zero-of-zero is not a pass).
+    "nodeless_interiors",
+    # THE GAP-BRIDGING SPINE's provenance (same spec, section 1.2): one
+    # record per synthesized bridging centerline — the two route ends it
+    # joins (apt.dat 1201 node ids where nameable), its length and its
+    # inherited size letter.  EVIDENCE: the census judges the bridge's
+    # emitted pavement by the ordinary grade families like any other
+    # route; this exists so a reader can NAME a centerline that is in
+    # the patch but in no upstream feed.
+    "gap_spine_bridges",
 )
 
 
@@ -6238,6 +6257,14 @@ def sidecar_evidence(osm_path) -> dict:
     # point 2).  A patch with no basin declares nothing and exempts
     # nothing, and this is where that is visible.
     out["basin_facility_count"] = len(data.get("basin_facilities") or [])
+    # THE CENSUS'S OWN BLIND SPOT, counted (spec heca-apron-round2 §2).
+    # A nodeless apron interior contributes ZERO census rows however
+    # wrong its surface is, so this count is the only thing standing
+    # between "no violations" and "no evidence".  Reported at zero.
+    out["nodeless_interior_count"] = len(
+        data.get("nodeless_interiors") or [])
+    out["gap_spine_bridge_count"] = len(data.get("gap_spine_bridges")
+                                        or [])
     return out
 
 

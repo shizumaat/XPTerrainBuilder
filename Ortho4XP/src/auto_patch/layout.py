@@ -3374,6 +3374,31 @@ class PavementLayout:
             lines.append("  </relation>")
         lines.append("</osm>")
         _atomic_write_text(path, "\n".join(lines) + "\n")
+        # ── THE NODELESS-INTERIOR INSTRUMENT (spec heca-apron-round2
+        # §2, ungated, REPORT-FIRST) ──────────────────────────────────
+        # HERE and nowhere else: this is the only point in the build
+        # where the ACTUALLY EMITTED node set exists (``referenced_nids``
+        # is precisely the orphan filter the node loop above applied).
+        # A shape-ring lattice would be a different population and would
+        # miss exactly the interior vertices the instrument asks about.
+        # Report-only: wrapped so a measurement can never take an emit
+        # down, and loud at zero so an absent line means "did not run".
+        try:
+            from .nodeless_interior import report_nodeless_interiors
+            _emitted_xy = []
+            for _nid in referenced_nids:
+                _ll = node_id_to_ll.get(_nid)
+                if _ll is None:
+                    continue
+                try:
+                    _emitted_xy.append(self.ll_to_m(_ll[0], _ll[1]))
+                except Exception:
+                    continue
+            report_nodeless_interiors(self, _emitted_xy,
+                                      icao=getattr(self, "icao", "") or "")
+        except Exception as _nli_exc:
+            UI.vprint(1, f"  [nodeless-interior] instrument FAILED "
+                         f"({type(_nli_exc).__name__}: {_nli_exc})")
         self._write_axes_sidecar(path)
 
     def _write_axes_sidecar(self, path: str) -> None:
@@ -3662,6 +3687,29 @@ class PavementLayout:
             # ran and found no anchor" (``null``) from "this patch
             # predates the detector" (key absent).
             "site_class": getattr(self, "site_class", None),
+            # THE NODELESS-INTERIOR INSTRUMENT (docs/specs/
+            # heca-apron-round2-spec.md §2, ungated and REPORT-FIRST).
+            # One record per apron-role polygon carrying an interior disk
+            # of radius > ``config.APRON_NODELESS_RADIUS_M`` with ZERO
+            # emitted vertices: the shape, the disk centre (lat/lon) and
+            # its radius.  Such a region's membrane is UNCONTROLLED and,
+            # worse, INVISIBLE to the census — no nodes means no rows, so
+            # HECA's 215 x 430 m void read as compliant through three
+            # rounds of censuses.  EVIDENCE, never law input: the census
+            # prints the count and re-judges nothing.  Written
+            # unconditionally so a reader can tell "the instrument ran
+            # and found none" (``[]``) from "this patch predates the
+            # instrument" (key absent).
+            "nodeless_interiors": list(
+                getattr(self, "_nodeless_interiors", None) or []),
+            # THE GAP-BRIDGING SPINE's provenance (spec §1.2): one record
+            # per synthesized bridging centerline — its two route ends
+            # (apt.dat 1201 node ids where they could be named), its
+            # length and its inherited size letter — so the census and a
+            # reader can NAME the centerline that is in the patch but in
+            # no upstream feed.  Written unconditionally.
+            "gap_spine_bridges": list(
+                getattr(self, "gap_spine_bridges", None) or []),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

@@ -3381,6 +3381,37 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _cn_pav = _cn_pav.difference(terminal_union)
         except _GEOM_EXC:
             pass
+    # ── THE GAP-BRIDGING SPINE (spec heca-apron-round2 §1) ───────────
+    # A FEED GAP is two taxi-route ends sitting unconnected on ONE piece
+    # of continuous apron pavement: real, taxiable pavement the apt.dat
+    # route graph never joined (HECA taxiway J, node 462 -> node 470,
+    # 254 m, no 1202 edge and no OSM way).  The slice cuts along
+    # CENTERLINES, so with no centerline there the emitted apron carries
+    # a NODELESS region whose membrane is uncontrolled and which the
+    # census cannot even see (no nodes -> no rows).  Synthesize the
+    # missing centerline HERE — before the feed loop below — so it is a
+    # first-class route: it cuts the slice, it gets a profile, and the
+    # nearest-anchor chords price against it.
+    #
+    # ``_cn_pav`` is the slice's OWN pavement input, so the visibility
+    # population is exactly the pavement the faces will be cut from;
+    # the runway union is removed because a runway is not apron.
+    if _cn_pav is not None and not _cn_pav.is_empty:
+        from .gap_spine_bridge import synthesize_gap_spine_bridges
+        _apron_pav = _cn_pav
+        if (layout.runway_union is not None
+                and not layout.runway_union.is_empty):
+            try:
+                _apron_pav = _apron_pav.difference(layout.runway_union)
+            except _GEOM_EXC:
+                pass
+        try:
+            synthesize_gap_spine_bridges(layout, _apron_pav,
+                                         airport=apt, to_m=to_m)
+        except Exception as _gsb_exc:                     # report, never gate
+            UI.vprint(1, f"  [gap-spine-bridge] {icao}: synthesis "
+                         f"FAILED ({type(_gsb_exc).__name__}: "
+                         f"{_gsb_exc}) — no bridge this build")
     _cn_cls, _cn_svc, _cn_seen = [], [], set()
     for _it in (getattr(layout, "apt_taxi_centerlines", []) or []):
         _ln = getattr(_it, "chained_line", None) or getattr(_it, "line", None)

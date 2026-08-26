@@ -2913,6 +2913,97 @@ def _build_adjacent_ground_zone_constraints(layout, bucket_to_idx):
     return sc_out, zone_idx, (n_pavement_adopted, n_cross_claimed)
 
 
+def build_adjacent_ground_band_chains(layout, bucket_to_idx):
+    """The LONGITUDINAL CHAIN VIEW of the adjacent-ground band — one
+    chain per zone ROW, in exactly the record shape
+    ``_build_gap_spine_constraints`` returns for the B2 gap spines, so
+    the ONE fairing implementation (``route_profile.solve.
+    _fair_gap_spine_chains``) serves both families (spec
+    docs/specs/heca-apron-round2-spec.md §3.1 "extend, never fork").
+
+    A zone ROW is the band's row of stations at ONE lateral depth
+    (``adjacent_ground._make_zone_collector``), ordered ALONG the host
+    frontage — so a row IS the longitudinal chain, and the second-
+    difference law reads along it exactly as it reads along a spine.
+
+    THE OFFSETS ARE CARRIED, NEVER RE-DERIVED.  Each row point's law
+    corridor is looked up from the entry's own ``zone_boxes`` supply by
+    the millimetre vertex identity (``emit_decimate._key``, the one
+    identity convention) — the same numbers
+    ``_build_adjacent_ground_zone_constraints`` turns into interval
+    edges.  A second derivation of the envelope here would be the fourth
+    copy the corridor-box docstring in ``adjacent_ground`` names (which
+    is why the twin greps this function's source for the derivation
+    spellings and fails if one appears).
+
+    Returns ``(chains, adopted_idx)``:
+      * ``chains`` — per row ``{"idx", "xy", "specs", "host", "depth",
+        "kind", "shape"}``; ``idx[k] is None`` for an unresolvable point
+        (splits the chain, as it does for a spine).
+      * ``adopted_idx`` — the set of chain node indices that resolved to
+        a PRE-EXISTING pavement/spine variable (index below
+        ``layout._adjacent_ground_first_zone_index``).  Those are the
+        WELDED nodes of §3.2: the identity-adoption rule still holds AT
+        them (pavement value wins at a pavement node), so the caller
+        FREEZES them and fairs only between them.
+    """
+    from auto_patch.emit_decimate import _key as _vkey
+    entries = getattr(layout, "adjacent_ground_presolve", None) or []
+    first_zone = getattr(layout, "_adjacent_ground_first_zone_index", 0)
+    cps = layout.canonical_points
+    chains: list[dict] = []
+    adopted: set[int] = set()
+    for entry in entries:
+        boxes = entry.get("zone_boxes") or ()
+        if not boxes:
+            continue
+        law_of: dict = {}
+        for box in boxes:
+            k = box.get("key")
+            if k is None:
+                xy = box.get("xy")
+                if xy is None:
+                    continue
+                k = _vkey(float(xy[0]), float(xy[1]))
+            law_of[k] = (box.get("floor_off"), box.get("ceil_off"),
+                         box.get("host"))
+        host_id = id(entry.get("shape"))
+        for row in (entry.get("zone_rows") or ()):
+            pts = row.get("pts") or ()
+            if len(pts) < 3:
+                continue                  # no triple: nothing to fair
+            depths = row.get("depths") or [row.get("d0", 0.0)] * len(pts)
+            idx: list = []
+            xy: list = []
+            specs: list = []
+            hosts: list = []
+            for pos, (px, py) in enumerate(pts):
+                px, py = float(px), float(py)
+                i = zone_node_index(layout, bucket_to_idx, (px, py),
+                                    host_id)
+                xy.append((px, py))
+                law = law_of.get(_vkey(px, py))
+                j = None
+                floor_off = ceil_off = None
+                if law is not None:
+                    floor_off, ceil_off, hxy = law
+                    if hxy is not None:
+                        j = bucket_to_idx.get(
+                            cps.get_or_add(float(hxy[0]), float(hxy[1])))
+                if i is not None and i < first_zone:
+                    adopted.add(i)
+                idx.append(i)
+                hosts.append(j)
+                specs.append([] if (j is None or j == i)
+                             else [(j, floor_off, ceil_off)])
+            if not any(i is not None for i in idx):
+                continue
+            chains.append({"idx": idx, "xy": xy, "specs": specs,
+                           "host": hosts,
+                           "depth": [float(d) for d in depths],
+                           "kind": row.get("kind"),
+                           "shape": entry.get("shape")})
+    return chains, adopted
 
 
 def _runway_edge_pts(layout, elev, bucket_to_idx, step_m=10.0):

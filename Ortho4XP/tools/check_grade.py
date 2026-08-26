@@ -4240,10 +4240,14 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
 
 def _basin_facilities_declared(basin_facilities) -> list:
     """Sidecar rows → ``[(floor_m, declared_drop_m, resources,
-    body_depth_m, solid_minimum_y_m, lat, lon), …]``.
+    body_depth_m, solid_minimum_y_m, lat, lon, emitted_rim_parts), …]``.
 
-    A patch built before the basin law carries no key, reads ``None`` and
-    is judged exactly as before."""
+    ``emitted_rim_parts`` is the facility's PUBLISHED per-part rim
+    elevations, sorted (trench-law Amendment 1) — the numbers
+    :func:`_basin_declared_drop` joins a wall row to.  A patch built
+    before the basin law carries no key, reads ``None`` and is judged
+    exactly as before; one built before Amendment 1 carries no per-part
+    list and falls back to the flat declared drop, likewise unchanged."""
     out = []
     for row in (basin_facilities or []):
         try:
@@ -4258,34 +4262,88 @@ def _basin_facilities_declared(basin_facilities) -> list:
             lon = lat = None
         body_depth = row.get("body_depth_m")
         solid_minimum = row.get("solid_minimum_y_m")
+        try:
+            rim_parts = tuple(sorted(
+                float(value)
+                for value in (row.get("emitted_rim_parts_m") or ())))
+        except (TypeError, ValueError):
+            rim_parts = ()
         out.append((
             floor_m,
             rim_m - floor_m,
             tuple(row.get("resources") or ()),
             None if body_depth is None else float(body_depth),
             None if solid_minimum is None else float(solid_minimum),
-            lat, lon))
+            lat, lon, rim_parts))
     return out
 
 
 def _basin_declared_drop(basin_declared, way_a, way_b,
                          elev_a: float, elev_b: float) -> float:
-    """The DECLARED floor→rim drop this trench contact is priced against.
+    """The DECLARED drop this trench contact is priced against.
 
     Zero unless one side is a DECLARED TERRAIN PLATE and the contact's
     LOWER elevation reads back a declared facility floor — a pavement↔
     pavement pair, a rim↔rim pair on the DEM band and every patch with no
-    basin at all are untouched, so their counts are byte-identical."""
+    basin at all are untouched, so their counts are byte-identical.
+
+    ── THE ALLOWANCE IS PER PART (trench-law spec Amendment 1,
+    2026-08-25) ────────────────────────────────────────────────────────
+    A facility declares ONE floor and, because the rim band is
+    TERRAIN-TRUE (each part samples the DEM at its own centroid), MANY
+    rims.  Pricing every wall contact against the flat ``rim_law_m``
+    charges the ground's own relief as excess: measured at LEMD_a4, an
+    emitted rim of 592.64-595.24 against a 593.03 law value reported
+    +930 lawful wall rows, worst 9.23 m, every one of them
+    ``tunnel_trench|tunnel_trench``.  OTHH never exposed it — its DEM is
+    flat there and the emitted rim IS the law value.
+
+    So the allowance is THAT PART's own published rim minus the
+    facility's floor: the greatest published part at or below the row's
+    HIGHER elevation (within the emit-rounding tolerance).  The join is
+    the DECLARED NUMBER on both sides — the part rims and the floor are
+    what the emitter published in the sidecar, and the row's own
+    elevations are what it emitted; nothing is matched by proximity.
+
+    EXCESS BEYOND THE PART'S OWN DROP STILL REPORTS IN FULL.  A contact
+    a metre deeper than the deepest rim the facility published is a
+    metre over, and a floor 50 m below its rim is still fully visible —
+    the allowance can never exceed what was declared for that part.
+    A facility that published no parts (an older artifact, or one whose
+    cut seated no band) keeps the flat declared drop, so every such
+    patch is judged exactly as before."""
     if not basin_declared:
         return 0.0
     if (law_role(way_a) not in _DECLARED_PLATE_ROLES
             and law_role(way_b) not in _DECLARED_PLATE_ROLES):
         return 0.0
     lower = elev_a if elev_a < elev_b else elev_b
+    higher = elev_a if elev_a > elev_b else elev_b
     best = 0.0
-    for (floor_m, drop_m, _res, _bd, _sm, _la, _lo) in basin_declared:
-        if abs(lower - floor_m) <= _BASIN_FLOOR_MATCH_TOL_M and drop_m > best:
-            best = drop_m
+    for (floor_m, drop_m, _res, _bd, _sm, _la, _lo,
+         rim_parts) in basin_declared:
+        if abs(lower - floor_m) > _BASIN_FLOOR_MATCH_TOL_M:
+            continue
+        allowance = drop_m
+        if rim_parts:
+            # The greatest published part this contact can belong to.
+            # ``rim_parts`` is sorted, so the last one at or below the
+            # row's high side (plus the emit-rounding step) is it.
+            part = None
+            for value in rim_parts:
+                if value <= higher + _BASIN_FLOOR_MATCH_TOL_M:
+                    part = value
+                else:
+                    break
+            if part is not None:
+                # REPLACES the flat drop, never max'd with it: the part's
+                # own published rim IS the law at this contact
+                # (Amendment 1 item 1).  A facility whose parts all sit
+                # BELOW its law rim is therefore held to what it actually
+                # emitted, which is the point.
+                allowance = part - floor_m
+        if allowance > best:
+            best = allowance
     return best
 
 
@@ -4317,7 +4375,7 @@ def _check_basin_floor_declaration(basin_declared) -> List[Violation]:
     every OTHH basin agrees within 0.4 m and reports nothing."""
     out: List[Violation] = []
     for (floor_m, drop_m, res, body_depth, solid_minimum,
-         lat, lon) in (basin_declared or []):
+         lat, lon, _rim_parts) in (basin_declared or []):
         if body_depth is None or solid_minimum is None:
             continue
         disagreement = abs(solid_minimum + body_depth)

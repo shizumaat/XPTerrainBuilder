@@ -3482,6 +3482,27 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     float(max(emitted_rim_values))
                     if emitted_rim_values else None),
                 "emitted_rim_part_count": len(emitted_rim_values),
+                # ── THE PER-PART WALL ALLOWANCE (trench-law spec
+                # Amendment 1, 2026-08-25) ───────────────────────────
+                # The band is TERRAIN-TRUE: each part takes its own DEM
+                # sample, so on sloping ground one facility declares ONE
+                # floor and MANY rims.  A census that prices every wall
+                # contact against the flat ``rim_law_m`` therefore
+                # reports the terrain's own relief as excess — measured
+                # at LEMD_a4: emitted rim 592.64-595.24 against a
+                # 593.03 law value, +930 lawful wall rows, worst 9.23 m.
+                # OTHH never showed it because its DEM is flat there
+                # (emitted rim 3.96-3.96 == the law value exactly).
+                #
+                # So the parts are PUBLISHED, sorted, and the census
+                # joins a wall row to its own part BY VALUE — the
+                # declared-number join, never proximity
+                # (``check_grade._basin_declared_drop``).  min/max/count
+                # stay: they are the human-readable summary the log line
+                # prints, and an older artifact that carries only those
+                # falls back to the flat drop, exactly as before.
+                "emitted_rim_parts_m": sorted(
+                    float(value) for value in emitted_rim_values),
                 "predicted_drape_elevation_m": float(floor_elevation),
                 "predicted_rim_elevation_m": float(rim_elevation),
                 "solid_minimum_y_m": min(

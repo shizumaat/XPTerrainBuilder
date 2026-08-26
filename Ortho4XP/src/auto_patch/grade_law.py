@@ -3754,7 +3754,9 @@ def object_pad_blend_elevation(target_elevation_m: float,
 
 def basin_trench_floor_elevation_m(
         rim_estimate_elevation_m: float,
-        solid_minimum_y_m: float) -> float:
+        solid_minimum_y_m: float,
+        *,
+        bore_class: bool = True) -> float:
     """THE OPEN-PIT (basin) trench floor elevation — the basin limb of the
     trench law (spec ``docs/specs/basin-rim-flush-seating-spec.md``
     section 2.1 item 3; owner ruling 2026-08-09, docs/RULINGS.md "the
@@ -3786,16 +3788,48 @@ def basin_trench_floor_elevation_m(
     Both offsets are SUBTRACTED, so the floor always sits strictly below
     the modelled bottom; the extra depth is under the object and
     invisible from above.
+
+    ── ``bore_class`` — THE MARGINS ARE A BORE'S, NOT A PIT'S ─────────
+    (owner Amendment 3, 2026-08-25: "a simple 7 m deep cutout for the
+    whole area should work without having to sever the buildings".)
+
+    BOTH margins exist to clear a MODELLED SOLID the mesh would
+    otherwise poke through: ``TUNNEL_FLOOR_BELOW_OBJECT_DECK_M`` drops
+    the pan below the deck you pass UNDER, and
+    ``TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M`` covers ``R_est``'s estimate
+    error against that same solid.  Where the floor key is the
+    structure's own deepest SOLID WITNESS that is exactly right — a
+    bore, an EGLL-class shell wall, every OTHH basin.
+
+    Where the key is the pooled solids' DECK-FACE MEDIAN, there is no
+    solid below it to clear: the deck face IS the pit bottom the pack
+    modelled, and the terrain belongs AT it.  Subtracting 1.5 m there
+    digs 1.5 m of invisible extra hole and moves the wall the owner
+    reads in-sim.  ``bore_class=False`` is that case, and the caller
+    that knows which key won is
+    ``object_terrain_assembly.basin_facility_deck_reference_y`` — the
+    ONE reader of the two instruments (this is why it returns its key
+    SOURCE, not just the value).
+
+    MEASURED: LEMD's facility keys on the deck face (its −50 m decal
+    witness is discarded by the §2.2 disagreement gate), so its floor
+    moves 584.50 → 586.01 = R_est 593.03 − 7.016.  Every OTHH basin
+    keys on its solid witness and is byte-identical.  The default is
+    ``True`` so a two-argument call — every validator and twin that
+    reproduces a BORE floor — is unchanged.
     """
     from .config import (
         TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M,
         TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
     )
+    margins = (
+        float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+        + float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+    ) if bore_class else 0.0
     return (
         float(rim_estimate_elevation_m)
         + float(solid_minimum_y_m)
-        - float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
-        - float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        - margins
     )
 
 

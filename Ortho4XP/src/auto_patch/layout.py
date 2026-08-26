@@ -749,6 +749,25 @@ class BuiltShape:
     # ``o4_grade_law='fan_ramp'`` for ``tools/check_grade`` — one law,
     # two readers, resolved by ``config.fan_ramp_law_cap``.
     fan_ramp_zone: bool = False
+    # A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR (owner RULINGS
+    # 2026-08-25f; spec ``basin-pad-floor-seating-spec.md`` §1).  This
+    # ROLE_BUILDING pad lies INSIDE a basin facility's footprint
+    # (``config.BASIN_PAD_COVERAGE_MIN`` of the PAD's own area), so its
+    # flat level is the facility's DECLARED FLOOR — not the surrounding
+    # grade, not a route-reachability envelope.  Written pre-solve by
+    # ``object_terrain_assembly.build_tunnel_layout_shapes`` (the same
+    # pass that births the floor pan, from the same
+    # ``floor_elevation``), read by the seat producers
+    # (``route_profile.anchors.build_building_seats``, which stamps the
+    # pad's ring nodes at this value, and
+    # ``relevel_pads_to_host_pavement``, which leaves a declared pad
+    # alone — a pad in a pit must NOT adopt the host's grade).
+    #
+    # It is a DECLARED value in exactly the sense the trench floor pan
+    # is: the census joins the resulting walls to the facility through
+    # ``config.BASIN_DECLARED_FLOOR_MATCH_TOL_M`` and exempts them as
+    # declared steps.  None ⇒ an ordinary pad.
+    basin_floor_seat_m: float | None = None
 
 
 

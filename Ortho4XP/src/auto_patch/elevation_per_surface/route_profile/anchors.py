@@ -1368,6 +1368,117 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     f"after the corridor profiles solve")
     else:
         setattr(layout, "_pad_seat_consistency_units", [])
+
+    # ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ────────────────
+    # (owner RULINGS 2026-08-25f; spec ``basin-pad-floor-seating-spec``
+    # §1.1: "its flat level is the facility's floor elevation, not the
+    # surrounding grade; downstream consumers (seats, chords, strip
+    # adoption) see the floor value".)
+    #
+    # The declaration is made PRE-SOLVE, by the same pass that births
+    # the floor pan and from the same ``floor_elevation``
+    # (``object_terrain_assembly.build_tunnel_layout_shapes`` →
+    # ``BuiltShape.basin_floor_seat_m``).  It is DECLARED TERRAIN, in
+    # exactly the sense the trench floor pan is — not a route-
+    # reachability choice — so it OVERRIDES whatever the frontage /
+    # whole-ring band chose above rather than being intersected with
+    # it: a pit floor is not reachable at ≤ 1 % from a taxiway, and
+    # that is the point of the pit.
+    #
+    # THE BOX IS A POINT.  ``seat_boxes`` is the bounded-yield registry
+    # every later freeing pass clamps into (owner ruling 2026-07-29);
+    # a declared floor that any pass may yield 8 m upward is not
+    # declared.  The node set is published for the solve's seat guards
+    # (``solve.py``), which must not send a declared floor into
+    # yield-hard for being outside the airside band — it is outside the
+    # airside band BY CONSTRUCTION.
+    _basin_seat_idx: set = set()
+    _basin_seat_pads = 0
+    # ── A DECLARED PAD WELDED TO AN UNDECLARED ONE CANNOT SEAT ──────
+    # (measured at LEMD, 2026-08-25, arm 1 of this round.)  The MERGED
+    # RIGID UNIT law is standing law: pads sharing a ring vertex are ONE
+    # flat body at ONE level, transitively.  A rigid body cannot be at
+    # two levels — so a declared pad welded to an UNDECLARED neighbour
+    # has exactly two consistent outcomes, and BOTH are wrong here:
+    # either the neighbour sinks to the basin floor with it, or the
+    # declaration is discarded.
+    #
+    # LEMD is the exemplar and the numbers are the argument.
+    # ``building8`` (33,237 m², the declared pad) shares its WHOLE east
+    # edge — three canonical ring nodes — with ``building18``
+    # (75,885 m²), which is outside the basin entirely; the build's own
+    # rigid-unit report reads "{building8, building18} target 599.345 m".
+    # Seating the unit would put a 16 m cliff through a terminal complex
+    # and sink a 75,885 m² pad for the sake of an 11,805 m² basin.  Arm 1
+    # made the declaration anyway and the projection SILENTLY discarded
+    # it (both pads emitted 600.40 m) — the exact silent class §2 of this
+    # spec exists to kill.
+    #
+    # So the seat is WITHDRAWN, LOUDLY, naming both pads and the
+    # neighbour's area — the same disposition R13's restore guard gives a
+    # cut that bought nothing.  THE FLOOR EXCLUSION IS UNAFFECTED: the
+    # basin still cuts through the pad's ground and the floor pan still
+    # emits (LEMD: 11,805 m² at 584.50 m).  What is withdrawn is only the
+    # claim that the PAD moves.  Which resolution the ruling wants —
+    # sink the whole rigid unit, or CUT the pad at the facility
+    # footprint the way R13 cuts pavement — is a design decision, and
+    # this line is what puts the numbers in front of it.
+    _decl_pads = [s for s in layout.shapes
+                  if getattr(s, "basin_floor_seat_m", None) is not None
+                  and s.polygon is not None and not s.polygon.is_empty]
+    if _decl_pads:
+        _decl_ids = {id(s) for s in _decl_pads}
+        _undecl_by_key: dict = {}
+        for s in layout.shapes:
+            if (s.role != ROLE_BUILDING or id(s) in _decl_ids
+                    or s.polygon is None or s.polygon.is_empty):
+                continue
+            try:
+                _r = _open_ring(list(s.polygon.exterior.coords))
+            except (ValueError, TypeError):
+                continue
+            for (x, y) in _r:
+                _undecl_by_key.setdefault(
+                    cps.get_or_add(float(x), float(y)), s)
+    for s in _decl_pads:
+        _decl = getattr(s, "basin_floor_seat_m", None)
+        try:
+            _ring = _open_ring(list(s.polygon.exterior.coords))
+        except (ValueError, TypeError):
+            continue
+        _keys = [cps.get_or_add(float(x), float(y)) for (x, y) in _ring]
+        _welded = {}
+        for k in _keys:
+            _n = _undecl_by_key.get(k)
+            if _n is not None:
+                _welded.setdefault(id(_n), [_n, 0])[1] += 1
+        if _welded:
+            for (_n, _shared) in _welded.values():
+                _report(
+                    f"  [seats] BASIN PAD SEAT WITHDRAWN: {s.ref!r} "
+                    f"({s.polygon.area:.0f} m2) is declared at its basin "
+                    f"floor {float(_decl):.2f} m but shares {_shared} ring "
+                    f"node(s) with UNDECLARED pad {_n.ref!r} "
+                    f"({_n.polygon.area:.0f} m2) — one rigid flat body "
+                    f"cannot be at two levels, and seating the unit would "
+                    f"take the neighbour down with it.  The basin floor "
+                    f"still cuts and emits; the PAD stays at grade.")
+            s.basin_floor_seat_m = None
+            continue
+        _basin_seat_pads += 1
+        _lv = float(_decl)
+        for k in _keys:
+            i = bucket_to_idx.get(k)
+            if i is not None:
+                seats[i] = _lv
+                _basin_seat_idx.add(i)
+            seat_boxes[k] = (_lv, _lv)
+    setattr(layout, "_basin_pad_seat_idx", _basin_seat_idx)
+    if _basin_seat_pads:
+        _report(f"  [seats] {_basin_seat_pads} building pad(s) inside a "
+                f"basin facility seated at the DECLARED facility floor "
+                f"({len(_basin_seat_idx)} ring node(s)); the airside band "
+                f"does not bind a pad in a pit")
     return seats
 
 
@@ -6151,6 +6262,15 @@ def relevel_pads_to_host_pavement(layout, *, pad_role=None):
     for (s, group) in groups:
         if s.polygon is None or s.polygon.is_empty:
             _cen["no_level"] += 1
+            continue
+        if getattr(s, "basin_floor_seat_m", None) is not None:
+            # A PAD INSIDE A BASIN DOES NOT ADOPT ITS HOST (owner
+            # RULINGS 2026-08-25f).  This pass exists to lift a pad the
+            # DEM-biased frontage seat left in a PIT while its host
+            # humped around it — and a pad inside a basin is in a pit
+            # BY DECLARATION.  Adopting the host's grade here is
+            # precisely the erasure this ruling reverses.
+            _cen["refused"] += 1
             continue
         cur = _building_flat_level(s)
         if cur is None:

@@ -3074,9 +3074,25 @@ def solve_route_profile(layout, icao: str,
     # the node's starting elevation and enters YIELD-HARD.  Kill
     # switch ``O4_BAND_SEAT_GUARD=0`` for attribution arms.
     _band_guard_on = _os.environ.get("O4_BAND_SEAT_GUARD", "1") != "0"
+    # DECLARED BASIN-FLOOR SEATS ARE NOT ROUTE SEATS (owner RULINGS
+    # 2026-08-25f; spec ``basin-pad-floor-seating-spec.md`` §1.1).  A pad
+    # inside a basin is seated at the facility's DECLARED floor — the same
+    # value, from the same pass, as the trench floor pan beside it.  Both
+    # guards below refuse a seat for being outside the airside reach band,
+    # and a pit floor is outside it BY CONSTRUCTION (LEMD: 8.53 m below
+    # the surrounding apron grade).  Sending a declared floor into
+    # yield-hard would let the sweeps lift the pad straight back to apron
+    # grade, which is the erasure this ruling reverses.  Declared terrain
+    # is stamped hard, exactly like the plate it sits on.
+    _basin_seat_idx = set(getattr(layout, "_basin_pad_seat_idx", None) or ())
     for i, lv in building_seats.items():
         if i < n and lv is not None and i in u_spine_adj \
                 and i not in _seam_pin_idx:
+            if i in _basin_seat_idx:
+                elev[i] = float(lv)
+                base_hard[i] = True
+                _hard_cat.setdefault(i, "basin_pad_floor_seat")
+                continue
             if _seat_guard_on:
                 _v = _anchor_envelope.violation(i, float(lv), tol=0.01)
                 if _v is not None:

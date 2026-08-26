@@ -357,6 +357,18 @@ def _basin_plates(layout, suffix):
     ]
 
 
+def _open_pit_floor(rim_estimate_m, body_depth_m):
+    """AMENDMENT 3 (owner 2026-08-25): an OPEN-PIT facility's floor is
+    the pooled solids' DECK-FACE MEDIAN with ZERO tunnel margins — the
+    two margins clear a deck you pass UNDER, and a hole with nothing of
+    the pack's own over it has no such deck.  Every fixture in this file
+    is an open pit (``BOWL_UNDER_DECK``, zero above-grade area), so this
+    is the law they are judged by; the BORE twins call the law function
+    directly with its default ``bore_class=True``."""
+    return grade_law.basin_trench_floor_elevation_m(
+        rim_estimate_m, -abs(body_depth_m), bore_class=False)
+
+
 @pytest.fixture(autouse=True)
 def basin_gate_on(monkeypatch):
     """Default-on in production; pinned here so a config edit cannot make
@@ -641,9 +653,9 @@ class TestBasinTrenchBirth:
         assert floors >= 1
         assert rims >= 1
         # The BASIN limb of the trench law (spec 2.1 item 3): a flat DEM
-        # makes R_est == the anchor datum, so the only difference from
-        # the old datum-keyed value is the seat-estimate margin.
-        expected_floor = grade_law.basin_trench_floor_elevation_m(8.0, -3.81)
+        # makes R_est == the anchor datum.  AMENDMENT 3: this fixture is
+        # an OPEN pit, so the floor is its deck face with no margins.
+        expected_floor = _open_pit_floor(8.0, 3.81)
         for plate in _basin_plates(layout, "trench"):
             assert plate.node_altitudes
             assert all(altitude == pytest.approx(expected_floor)
@@ -653,14 +665,21 @@ class TestBasinTrenchBirth:
             assert all(altitude == pytest.approx(8.0)
                        for altitude in plate.node_altitudes)
 
-    def test_floor_sits_strictly_below_the_modelled_basin_floor(self):
-        """The whole point: the mesh must clear the object so the basin
-        is visible, never sit at or above its floor."""
+    def test_an_open_pit_floor_sits_AT_the_modelled_basin_floor(self):
+        """AMENDMENT 3 (owner 2026-08-25), re-pinning the clearance rule
+        by CLASS.  The mesh must clear a deck you pass UNDER — that is
+        what the two margins are for, and a BORE still gets them (see
+        ``TestBasinFloorLaw``).  An OPEN pit has no such deck: its deck
+        face IS the bottom the pack modelled, and 1.5 m of extra invisible
+        hole only moves the wall the owner reads in-sim.  So the floor
+        sits AT the modelled bottom, never above it."""
         layout = _FakeLayout()
         self._emit(layout, [_interface(floor_y_m=-3.81)], datum_m=8.0)
         object_floor_world = 8.0 - 3.81
-        for plate in _basin_plates(layout, "trench"):
-            assert all(altitude < object_floor_world
+        plates = _basin_plates(layout, "trench")
+        assert plates
+        for plate in plates:
+            assert all(altitude == pytest.approx(object_floor_world)
                        for altitude in plate.node_altitudes)
 
     def test_plates_are_named_for_the_classifier_that_produced_them(self):
@@ -788,12 +807,22 @@ class TestOpenPitPavementCut:
         assert self._emit(layout, [_interface()]) == (0, 0)
         assert self._apron_area(layout) == pytest.approx(before)
 
-    def test_a_cut_that_seats_no_floor_is_put_back(self):
+    def test_a_cut_that_seats_no_floor_is_put_back(self, monkeypatch):
         """Pavement removed with no trench under it is a HOLE in the
         drivable surface — strictly worse than the buried pit.  Here a
         building pad owns the whole body, so the floor pan is eaten after
-        the cut and the apron must be restored."""
+        the cut and the apron must be restored.
+
+        RE-PINNED WITH ``BASIN_PAD_FLOOR_SEAT`` OFF (owner RULINGS
+        2026-08-25f).  A pad covering the whole body is now precisely the
+        case the pad-floor-seating law reverses: the pad seats at the
+        floor and the cut emits THROUGH it (see
+        ``TestBasinPadFloorSeating``).  The restore guard itself is
+        unchanged and still law for every other way a floor can be eaten
+        — this is the same re-pinning the §2.1 twin took when the pool
+        scoping gate landed: the premise lives with the gate off."""
         from auto_patch.layout import ROLE_BUILDING
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
         layout = self._layout_with_apron()
         layout.shapes.append(bridges.BuiltShape(
             polygon=Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)]),
@@ -981,7 +1010,7 @@ class TestBasinFloorLaw:
         layout = _FakeLayout()
         dem = _SpikeDem(8.0, 30.0)
         _emit_basin(layout, [_interface(floor_y_m=-3.81)], dem)
-        expected = grade_law.basin_trench_floor_elevation_m(8.0, -3.81)
+        expected = _open_pit_floor(8.0, 3.81)
         plates = _basin_plates(layout, "trench")
         assert plates
         for plate in plates:
@@ -1000,22 +1029,51 @@ class TestBasinFloorLaw:
         assert record["rim_law_m"] == pytest.approx(8.0)
         assert record["anchor_datum_m"] == pytest.approx(30.0)
 
-    def test_the_floor_keys_on_the_true_deepest_solid(self):
+    def test_the_floor_keys_on_the_true_deepest_solid_for_a_BORE(self):
         """OTHH Drainage_06: the clustered interface level is -3.859 m and
         the deepest solid is -4.201 m.  Keying on the level spent 0.342 m
-        of the promised 0.5 m clearance before the floor was even cut."""
+        of the promised 0.5 m clearance before the floor was even cut.
+
+        AMENDMENT 3 re-pins this BY CLASS: the deepest-solid key and both
+        margins are the BORE law — a deck you pass under — so they are
+        pinned here on the law function and on the key reader, which is
+        where they live.  An OPEN pit keys on its deck face instead (the
+        emitted twin below)."""
+        from auto_patch import object_terrain_assembly as _A
+        record = assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[
+                _interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)]))[0]
+        assert _A.basin_facility_deck_reference_y(record) == (
+            pytest.approx(-4.201), None, _A.BASIN_FLOOR_KEY_SOLID_WITNESS)
+        assert grade_law.basin_trench_floor_elevation_m(
+            8.0, -4.201) == pytest.approx(
+                8.0 - 4.201
+                - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
+                - config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        # ...and the OPEN-pit reader on the SAME record takes the deck
+        # face and no margins.
+        assert _A.basin_facility_deck_reference_y(
+            record, open_pit=True) == (
+                pytest.approx(-3.859), None, _A.BASIN_FLOOR_KEY_DECK_FACE)
+
+    def test_the_emitted_open_pit_floor_is_its_deck_face(self):
+        """Every fixture here is an OPEN pit (BOWL_UNDER_DECK, zero
+        above-grade area) — the LEMD class exactly."""
         layout = _FakeLayout()
         _emit_basin(
             layout,
             [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
             _FakeDem(8.0))
-        expected = grade_law.basin_trench_floor_elevation_m(8.0, -4.201)
+        # AMENDMENT 3: this fixture is an OPEN pit, so its key is the
+        # DECK FACE (-3.859) and it takes no margins.  The deepest-solid
+        # key is the BORE law and is pinned on the law function below.
+        expected = _open_pit_floor(8.0, 3.859)
         plates = _basin_plates(layout, "trench")
         assert plates
         for plate in plates:
             # ``abs``, not ``rel``: emitted plate altitudes are quantised
-            # to the millimetre, and the law value here is 2.299 m.
-            assert all(altitude == pytest.approx(expected, abs=1e-3)
+            # to the millimetre, so the tolerance is one quantum.
+            assert all(altitude == pytest.approx(expected, abs=2e-3)
                        for altitude in plate.node_altitudes)
 
     def test_the_adapter_carries_the_true_minimum(self):
@@ -1045,19 +1103,29 @@ class TestBasinFloorLaw:
         assert carved
         assert carved[0].solid_minimum_y_m == pytest.approx(-4.0)
 
-    def test_the_floor_still_clears_the_modelled_bottom(self):
-        """The acceptance property the margin exists to protect."""
-        layout = _FakeLayout()
-        _emit_basin(
-            layout,
-            [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
-            _FakeDem(8.0))
+    def test_a_BORE_floor_still_clears_the_modelled_bottom(self):
+        """The acceptance property the margins exist to protect, pinned
+        where the margins now live: the BORE limb of the law.  A deck you
+        pass under must be cleared; an open pit has no deck to clear."""
         modelled_bottom_world = 8.0 - 4.201
-        for plate in _basin_plates(layout, "trench"):
-            assert all(altitude
-                       <= modelled_bottom_world
-                       - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1e-9
-                       for altitude in plate.node_altitudes)
+        assert grade_law.basin_trench_floor_elevation_m(8.0, -4.201) <= (
+            modelled_bottom_world
+            - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1e-9)
+
+    def test_the_open_pit_limb_takes_NO_margins(self):
+        """AMENDMENT 3 item 1, on the law function itself."""
+        assert grade_law.basin_trench_floor_elevation_m(
+            593.0288, -7.0159, bore_class=False) == pytest.approx(586.0129)
+        assert grade_law.basin_trench_floor_elevation_m(
+            593.0288, -7.0159) == pytest.approx(584.5129)
+
+    def test_the_bore_default_keeps_every_two_argument_caller(self):
+        """``bore_class`` defaults True so every validator and twin that
+        reproduces a BORE floor with two arguments is unchanged."""
+        for rim, key in ((12.0, -4.201), (8.0, -3.81), (0.0, -13.199)):
+            assert grade_law.basin_trench_floor_elevation_m(rim, key) == \
+                pytest.approx(grade_law.basin_trench_floor_elevation_m(
+                    rim, key, bore_class=True))
 
 
 class TestBasinInstrumentation:
@@ -1076,7 +1144,7 @@ class TestBasinInstrumentation:
         assert record["anchor_seat_emitted"] is False
         assert record["rim_estimate_m"] == pytest.approx(8.0)
         assert record["floor_m"] == pytest.approx(
-            grade_law.basin_trench_floor_elevation_m(8.0, -3.81))
+            _open_pit_floor(8.0, 3.81))
         # The draped object seats on the terrain at its anchor, and with
         # the seat gone that terrain IS the floor pan.
         assert record["predicted_drape_elevation_m"] == pytest.approx(
@@ -2257,10 +2325,11 @@ class TestBasinFloorDisagreementGate:
         discarded witness comes back for the caller to NAME."""
         record = _tunnel_record(body_depth_m=7.016)
         object.__setattr__(record, "solid_minimum_y_m", -50.0)
-        deck_reference_y, discarded = (
+        deck_reference_y, discarded, key_source = (
             assembly.basin_facility_deck_reference_y(record))
         assert deck_reference_y == pytest.approx(-7.016)
         assert discarded == pytest.approx(-50.0)
+        assert key_source == assembly.BASIN_FLOOR_KEY_DECK_FACE
 
     def test_an_agreeing_facility_is_byte_identical(self):
         """(d) The OTHH class — every basin there agrees within 0.4 m, and
@@ -2276,13 +2345,16 @@ class TestBasinFloorDisagreementGate:
             record = _tunnel_record(body_depth_m=body_depth)
             object.__setattr__(record, "solid_minimum_y_m", solid_minimum)
             assert assembly.basin_facility_deck_reference_y(record) == (
-                pytest.approx(expected), None)
+                pytest.approx(expected), None,
+                assembly.BASIN_FLOOR_KEY_SOLID_WITNESS
+                if expected != -body_depth
+                else assembly.BASIN_FLOOR_KEY_DECK_FACE)
 
     def test_the_threshold_constant_moves_the_gate(self, monkeypatch):
         monkeypatch.setattr(config, "BASIN_FLOOR_DISAGREEMENT_M", 0.2)
         record = _tunnel_record(body_depth_m=3.859)
         object.__setattr__(record, "solid_minimum_y_m", -4.201)
-        deck_reference_y, discarded = (
+        deck_reference_y, discarded, _ks = (
             assembly.basin_facility_deck_reference_y(record))
         assert deck_reference_y == pytest.approx(-3.859)
         assert discarded == pytest.approx(-4.201)
@@ -2308,7 +2380,7 @@ class TestBasinFloorDisagreementGate:
         record = getattr(
             layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
         assert record["floor_m"] == pytest.approx(
-            grade_law.basin_trench_floor_elevation_m(8.0, -7.016))
+            _open_pit_floor(8.0, 7.016))
         assert record["solid_minimum_y_m"] == pytest.approx(-7.016)
 
     def test_an_agreeing_facility_prints_no_gate_line(self, capsys):
@@ -2322,7 +2394,7 @@ class TestBasinFloorDisagreementGate:
         record = getattr(
             layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
         assert record["floor_m"] == pytest.approx(
-            grade_law.basin_trench_floor_elevation_m(8.0, -4.201))
+            _open_pit_floor(8.0, 3.859))
 
     def test_the_seating_predictor_reads_the_same_floor_key(self):
         """ONE implementation, both readers: the rim-flush seating
@@ -2343,3 +2415,286 @@ class TestClassificationCacheVersionCoversTheFloorWitness:
 
     def test_the_cache_version_retires_pre_witness_pickles(self):
         assert assembly._CLASSIFICATION_CACHE_VERSION >= 20
+
+
+# ---------------------------------------------------------------------------
+# A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR (owner RULINGS 2026-08-25f)
+# spec docs/specs/basin-pad-floor-seating-spec.md §1 + §2
+# ---------------------------------------------------------------------------
+
+class TestBasinPadFloorSeating:
+    """The building8 disposition, through THREE owner amendments.
+
+    LEMD ships ``building8`` — a 33,237 m² flat pad — over the whole
+    11,805 m² sunken tower circle.  The floor pan was differenced against
+    every earlier-born shape, so the pad ERASED it and a classified,
+    scoped, floor-agreed basin emitted nothing.
+
+    AMENDMENT 3 (owner 2026-08-25) is the landed law: "a simple 7 m deep
+    cutout for the whole area should work without having to sever the
+    buildings".  NO SEVERING, NO SEATING — the pad keeps its authored
+    grade, geometry, welds and identity everywhere, and only its
+    FLATTENING AUTHORITY yields inside the facility: the floor plates and
+    the R2 wall band are born THROUGH it and own the interior.
+
+    Amendment 1's whole-pad SEAT and Amendment 2's boundary CUT are kept
+    and gated OFF (``config.BASIN_PAD_WHOLE_SEAT`` /
+    ``config.BASIN_PAD_SEVER``); their twins live at the foot of this
+    class so a revival is not a rewrite.
+    """
+
+    APRON = Polygon([(-90, -90), (90, -90), (90, 90), (-90, 90)])
+    #: 120 x 120 m, comfortably larger than the 50 x 50 m default body —
+    #: the ``building8`` class: a pad LARGER than the facility it covers.
+    COVERING_PAD = Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)])
+    #: 20 x 20 m, wholly inside the same body — the §1.1 limb.
+    INSIDE_PAD = Polygon([(-10, -10), (10, -10), (10, 10), (-10, 10)])
+    #: 20 x 20 m straddling the body's +x rim: 50 % of the PAD is inside
+    #: and it covers 8 % of the FACILITY — under threshold BOTH ways.
+    STRADDLING_PAD = Polygon([(15, -10), (35, -10), (35, 10), (15, 10)])
+    #: 20 x 20 m clear of the body altogether.
+    OUTSIDE_PAD = Polygon([(60, -10), (80, -10), (80, 10), (60, 10)])
+    #: welded to COVERING_PAD's +x edge, wholly outside the basin — the
+    #: ``building18`` class (rigidly coupled, must never move).
+    RIGID_NEIGHBOUR = Polygon([(60, -60), (200, -60), (200, 60), (60, 60)])
+
+    def _layout(self, *pads, apron=False):
+        from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
+        layout = _FakeLayout()
+        if apron:
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=self.APRON, role=ROLE_APRON, ref="apron",
+                altitude=8.0))
+        for index, polygon in enumerate(pads):
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=polygon, role=ROLE_BUILDING,
+                ref=f"building{index}", altitude=8.0))
+        return layout
+
+    def _pads(self, layout):
+        from auto_patch.layout import ROLE_BUILDING
+        return {shape.ref: shape for shape in layout.shapes
+                if shape.role == ROLE_BUILDING}
+
+    def _expected_floor(self, dem_m=8.0, body_depth=4.0):
+        return _open_pit_floor(dem_m, body_depth)
+
+    # ── AMENDMENT 3: the authority clip ─────────────────────────────
+    def test_a_pad_spanning_the_facility_is_UNTOUCHED(self):
+        """Item 2, the whole of it: grade, geometry, welds, identity."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        pad = self._pads(layout)["building0"]
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        assert self._pads(layout) == {"building0": pad}
+        assert pad.polygon.equals(self.COVERING_PAD)
+        assert pad.altitude == pytest.approx(8.0)
+        assert pad.basin_floor_seat_m is None
+
+    def test_the_floor_plates_emit_THROUGH_the_pad(self):
+        """The authority clip, measured against its own control: with the
+        pad owning the ground the basin emitted NOTHING (that is the
+        reported defect); with its interior claim clipped the pan is
+        exactly the pan of an unobstructed facility."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        clipped = sum(plate.polygon.area
+                      for plate in _basin_plates(layout, "trench"))
+        # The control is the SAME layout without the pad — apron and all,
+        # so the only difference between the two arms is the pad.
+        bare = self._layout(apron=True)
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        bare_area = sum(plate.polygon.area
+                        for plate in _basin_plates(bare, "trench"))
+        assert clipped == pytest.approx(bare_area, rel=1e-9)
+        assert clipped > 0.0
+
+    def test_the_WALL_band_emits_through_the_pad_too(self):
+        """The R2 wall is the rim band — a node split OUTSIDE the body at
+        surrounding grade against the pan at the floor.  LEMD arm 1
+        measured what happens when only the FLOOR yields: "no rim band
+        emitted", and the hole ramped out to the pad's distant ring
+        instead of walling at the facility boundary."""
+        # No apron: R13's cut leaves the apron's remainder ON the body
+        # boundary, and THAT owned ground yields the band on its own —
+        # unchanged, and not what this twin is about.  Here the pad is
+        # the band's only competitor.
+        layout = self._layout(self.COVERING_PAD)
+        _floors, rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert rims >= 1
+        band = _basin_plates(layout, "rim")
+        assert band
+        # the wall: band at grade, pan at the floor, a node split apart
+        for plate in band:
+            assert all(altitude == pytest.approx(8.0)
+                       for altitude in plate.node_altitudes)
+        for plate in _basin_plates(layout, "trench"):
+            assert all(altitude == pytest.approx(self._expected_floor())
+                       for altitude in plate.node_altitudes)
+
+    def test_a_rigid_coupled_neighbour_is_UNMOVED(self):
+        """Amendment 3 item 3, the LEMD shape in miniature.  Amendment 1
+        measured that seating ``building8`` either sinks its 75,885 m²
+        rigid partner 16 m or is silently discarded; the authority clip
+        touches neither pad."""
+        layout = self._layout(self.COVERING_PAD, self.RIGID_NEIGHBOUR,
+                              apron=True)
+        pads_before = dict(self._pads(layout))
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        pads_after = self._pads(layout)
+        assert pads_after == pads_before
+        for pad in pads_after.values():
+            assert pad.basin_floor_seat_m is None
+            assert pad.altitude == pytest.approx(8.0)
+        assert pads_after["building1"].polygon.equals(self.RIGID_NEIGHBOUR)
+
+    def test_a_pad_wholly_inside_yields_its_authority_too(self):
+        """Item 2 is unconditional — INSIDE or SPANNING, the pad is
+        neither split nor seated and the interior is the plates'."""
+        layout = self._layout(self.INSIDE_PAD)
+        pad = self._pads(layout)["building0"]
+        floors, rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1 and rims >= 1
+        assert pad.basin_floor_seat_m is None
+        assert pad.polygon.equals(self.INSIDE_PAD)
+        clipped = sum(plate.polygon.area
+                      for plate in _basin_plates(layout, "trench"))
+        bare = _FakeLayout()
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        assert clipped == pytest.approx(
+            sum(plate.polygon.area
+                for plate in _basin_plates(bare, "trench")), rel=1e-9)
+
+    def test_the_yield_is_reported_by_name(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        out = "".join(
+            row for row in capsys.readouterr().out.splitlines(keepends=True)
+            if "BASIN PAD AUTHORITY YIELDED" in row)
+        assert out, "the authority clip was applied SILENTLY"
+        assert "building0" in out
+
+    # ── twin (b): outside, and the rim straddler ────────────────────
+    def test_a_pad_outside_the_facility_is_untouched(self):
+        layout = self._layout(self.OUTSIDE_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+    def test_a_rim_straddler_keeps_its_authority_and_IS_reported(
+            self, capsys):
+        """A pad under threshold on BOTH sides straddles the basin RIM —
+        a real design case this rule is not about.  Its authority is
+        KEPT (it still differences the floor) and it is named."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = self._layout(self.STRADDLING_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        line = "".join(
+            row for row in capsys.readouterr().out.splitlines(keepends=True)
+            if "BASIN RIM STRADDLER" in row)
+        assert line, "a straddler was sorted out SILENTLY"
+        assert "building0" in line
+
+    def test_the_straddler_still_differences_the_floor(self):
+        layout = self._layout(self.STRADDLING_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        straddled = sum(plate.polygon.area
+                        for plate in _basin_plates(layout, "trench"))
+        bare = _FakeLayout()
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        bare_area = sum(plate.polygon.area
+                        for plate in _basin_plates(bare, "trench"))
+        assert straddled < bare_area - 1.0
+
+    # ── the flag ────────────────────────────────────────────────────
+    def test_flag_off_reproduces_the_erasure(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert (floors, rims) == (0, 0)
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+    def test_flag_off_still_reports_the_pad(self, capsys):
+        """The BEHAVIOUR rides the flag; the INSTRUMENT never does."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        import unittest.mock as _mock
+        with _mock.patch.object(config, "BASIN_PAD_FLOOR_SEAT", False):
+            layout = self._layout(self.COVERING_PAD, apron=True)
+            _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        out = capsys.readouterr().out
+        assert "BASIN PAD" in out and "building0" in out
+        assert "O4_BASIN_PAD_FLOOR_SEAT=0" in out
+
+    # ── §2: THE SILENCE DIES ────────────────────────────────────────
+    def test_zero_floor_plates_names_the_facility_and_its_differencers(
+            self, capsys, monkeypatch):
+        """§2.1, UNGATED.  ``body_floor_born == 0`` used to ``continue``
+        without a word — the silence that let LEMD ship a basin that
+        emitted nothing.  The line names the facility, its floor, and
+        every shape the floor was differenced against, with role and
+        area."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        monkeypatch.setattr(config, "BASIN_PAD_FLOOR_SEAT", False)
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors == 0
+        out = capsys.readouterr().out
+        assert "NO FLOOR PLATE BORN" in out, "zero plates shipped SILENTLY"
+        assert "basin.obj" in out
+        assert f"{self._expected_floor():.2f} m" in out
+        assert "building 'building0'" in out
+
+    def test_the_named_line_is_ungated(self, capsys, monkeypatch):
+        """Instrument is law: it fires for a floor eaten by anything."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        monkeypatch.setattr(assembly, "_TUNNEL_WALL_SETBACK_M", 30.0)
+        layout = _FakeLayout()
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert "NO FLOOR PLATE BORN" in capsys.readouterr().out
+
+    # ── RETIRED, KEPT, GATED OFF (the keep-work rule) ───────────────
+    def test_the_whole_pad_SEAT_is_retired_but_revivable(self, monkeypatch):
+        """Amendment 1's §1.1 seat: COMPLETE, retired by Amendment 3
+        item 2 ("pads are neither split nor seated"), kept behind
+        ``O4_BASIN_PAD_WHOLE_SEAT``."""
+        assert config.BASIN_PAD_WHOLE_SEAT is False
+        monkeypatch.setattr(config, "BASIN_PAD_WHOLE_SEAT", True)
+        layout = self._layout(self.INSIDE_PAD)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert self._pads(layout)["building0"].basin_floor_seat_m == \
+            pytest.approx(self._expected_floor())
+
+    def test_the_boundary_CUT_is_retired_but_revivable(self, monkeypatch):
+        """Amendment 2's cut: COMPLETE and twinned, never built at an
+        airport, superseded outright by Amendment 3, kept behind
+        ``O4_BASIN_PAD_SEVER``.  The in-facility piece became its own pad
+        at the floor; the remainder kept grade, welds and identity."""
+        assert config.BASIN_PAD_SEVER is False
+        monkeypatch.setattr(config, "BASIN_PAD_SEVER", True)
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        pads = self._pads(layout)
+        assert pads["building0"].basin_floor_seat_m is None
+        assert pads["building0_basin"].basin_floor_seat_m == \
+            pytest.approx(self._expected_floor())
+        outer = {(round(x, 3), round(y, 3))
+                 for (x, y) in pads["building0"].polygon.exterior.coords}
+        inner = {(round(x, 3), round(y, 3))
+                 for (x, y) in
+                 pads["building0_basin"].polygon.exterior.coords}
+        assert not (outer & inner), "the two halves share a ring vertex"
+
+    def test_a_seat_with_no_floor_plate_is_withdrawn(self, monkeypatch):
+        """The withdrawal path stays live for the retired seat."""
+        monkeypatch.setattr(config, "BASIN_PAD_WHOLE_SEAT", True)
+        monkeypatch.setattr(assembly, "_TUNNEL_WALL_SETBACK_M", 30.0)
+        layout = self._layout(self.INSIDE_PAD)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors == 0
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None

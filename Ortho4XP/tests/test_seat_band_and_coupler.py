@@ -253,3 +253,117 @@ def test_pads_that_only_come_close_are_not_merged(monkeypatch, capsys):
     cps = layout.canonical_points
     assert _level_of(seats, b2i, cps, d) != _level_of(seats, b2i, cps, e)
     assert "MERGED RIGID unit(s)" not in capsys.readouterr().out
+
+
+# ── A PAD INSIDE A BASIN SITS AT THE BASIN FLOOR ──────────────────────
+# owner RULINGS 2026-08-25f; spec basin-pad-floor-seating-spec.md §1.1:
+# "its flat level is the facility's floor elevation, not the surrounding
+# grade; downstream consumers (seats, chords, strip adoption) see the
+# floor value."
+
+def test_a_declared_basin_floor_overrides_the_band_chosen_seat(monkeypatch):
+    """The declaration is DECLARED TERRAIN — the same value, from the same
+    pass, as the trench floor pan beside it — so it OVERRIDES the band's
+    choice rather than being intersected with it.  A pit floor is not
+    reachable at <= 1 % from a taxiway, and that is the point of a pit
+    (LEMD: 8.53 m below the surrounding apron grade)."""
+    layout, apron, pad = _big_pad_layout()
+    pad.basin_floor_seat_m = 95.5
+    b2i = _register(layout, [apron, pad])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0}, monkeypatch)
+    got = _level_of(seats, b2i, layout.canonical_points, pad)
+    assert got == pytest.approx(95.5), (
+        "a declared basin floor must not be clamped into the airside band")
+    # EVERY ring node carries it — a pad is one flat level.
+    cps = layout.canonical_points
+    for (x, y) in list(pad.polygon.exterior.coords)[:-1]:
+        assert seats[b2i[cps.get(float(x), float(y))]] == pytest.approx(95.5)
+
+
+def test_the_declared_seat_publishes_its_nodes_and_pins_its_box(monkeypatch):
+    """Two consumers of the same declaration: the solve's seat guards read
+    the node set (they must not send a declared floor into yield-hard for
+    being outside the airside band), and the bounded-yield registry holds
+    a POINT box — a declared floor any later pass may yield 8 m upward is
+    not declared."""
+    layout, apron, pad = _big_pad_layout()
+    pad.basin_floor_seat_m = 95.5
+    b2i = _register(layout, [apron, pad])
+    _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+           {id(pad): 108.0}, monkeypatch)
+    cps = layout.canonical_points
+    published = getattr(layout, "_basin_pad_seat_idx")
+    boxes = AN._store_of(layout).raw("seat_boxes")
+    for (x, y) in list(pad.polygon.exterior.coords)[:-1]:
+        k = cps.get(float(x), float(y))
+        assert b2i[k] in published
+        assert boxes[k] == (pytest.approx(95.5), pytest.approx(95.5))
+
+
+def test_an_undeclared_pad_is_untouched_by_the_basin_law(monkeypatch):
+    """The control: same geometry, no declaration, band clamp as before."""
+    layout, apron, pad = _big_pad_layout()
+    b2i = _register(layout, [apron, pad])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0}, monkeypatch)
+    assert _level_of(seats, b2i, layout.canonical_points, pad) == \
+        pytest.approx(104.0)
+    assert not getattr(layout, "_basin_pad_seat_idx")
+
+
+def test_a_declared_pad_welded_to_an_undeclared_pad_withdraws(monkeypatch,
+                                                              capsys):
+    """MEASURED AT LEMD, arm 1 (2026-08-25).  The MERGED RIGID UNIT law is
+    standing: pads sharing a ring vertex are ONE flat body at ONE level.
+    A declared pad welded to an UNDECLARED neighbour therefore has two
+    consistent outcomes and both are wrong — the neighbour sinks with it,
+    or the declaration is discarded.  Arm 1 made the declaration anyway
+    and the projection SILENTLY discarded it (``building8`` 33,237 m² and
+    ``building18`` 75,885 m², three shared ring nodes, both emitting
+    600.40 m against a declared 584.50).  The seat is now WITHDRAWN,
+    loudly, naming both pads."""
+    apron = _shape([(0.0, 0.0), (200.0, 0.0), (200.0, 40.0),
+                    (100.0, 40.0), (40.0, 40.0), (0.0, 40.0)],
+                   ROLE_APRON, "apron1")
+    pad = _shape([(40.0, 40.0), (100.0, 40.0), (100.0, 100.0),
+                  (40.0, 100.0)], ROLE_BUILDING, "big1")
+    # shares the (100,40)-(100,100) edge with ``pad``
+    neighbour = _shape([(100.0, 40.0), (160.0, 40.0), (160.0, 100.0),
+                        (100.0, 100.0)], ROLE_BUILDING, "big2")
+    pad.basin_floor_seat_m = 95.5
+    layout = _FakeLayout([apron, pad, neighbour])
+    b2i = _register(layout, [apron, pad, neighbour])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0, id(neighbour): 108.0}, monkeypatch)
+    assert _level_of(seats, b2i, layout.canonical_points, pad) != \
+        pytest.approx(95.5)
+    assert not getattr(layout, "_basin_pad_seat_idx")
+    # the declaration is CLEARED, so no later pass acts on a withdrawn one
+    assert pad.basin_floor_seat_m is None
+    out = capsys.readouterr().out
+    assert "BASIN PAD SEAT WITHDRAWN" in out, "the seat was lost SILENTLY"
+    assert "big1" in out and "big2" in out
+
+
+def test_two_declared_pads_welded_together_still_seat(monkeypatch):
+    """The scope guard: the withdrawal is about an UNDECLARED neighbour.
+    Two pads inside the same basin, welded, are one rigid body at ONE
+    level — and that level is the floor both of them declare."""
+    apron = _shape([(0.0, 0.0), (200.0, 0.0), (200.0, 40.0),
+                    (100.0, 40.0), (40.0, 40.0), (0.0, 40.0)],
+                   ROLE_APRON, "apron1")
+    pad = _shape([(40.0, 40.0), (100.0, 40.0), (100.0, 100.0),
+                  (40.0, 100.0)], ROLE_BUILDING, "big1")
+    neighbour = _shape([(100.0, 40.0), (160.0, 40.0), (160.0, 100.0),
+                        (100.0, 100.0)], ROLE_BUILDING, "big2")
+    pad.basin_floor_seat_m = 95.5
+    neighbour.basin_floor_seat_m = 95.5
+    layout = _FakeLayout([apron, pad, neighbour])
+    b2i = _register(layout, [apron, pad, neighbour])
+    seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
+                   {id(pad): 108.0, id(neighbour): 108.0}, monkeypatch)
+    assert _level_of(seats, b2i, layout.canonical_points, pad) == \
+        pytest.approx(95.5)
+    assert _level_of(seats, b2i, layout.canonical_points, neighbour) == \
+        pytest.approx(95.5)

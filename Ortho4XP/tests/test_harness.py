@@ -401,6 +401,98 @@ def test_a_trench_born_below_its_own_body_still_reports(cg, tmp_path):
         "the row must name the resource that claimed the floor")
 
 
+# ── AMENDMENT 1 (2026-08-25): THE ALLOWANCE IS PER PART ─────────────
+# The band is TERRAIN-TRUE — each part samples the DEM at its own
+# centroid — so a facility declares ONE floor and MANY rims.  Pricing
+# every wall contact against the flat ``rim_law_m`` charges the ground's
+# own relief as excess: measured at LEMD_a4, an emitted rim of
+# 592.64-595.24 against a 593.03 law value reported +930 lawful wall
+# rows, worst 9.23 m.  OTHH never exposed it (flat DEM there: the
+# emitted rim IS the law value).
+
+def test_a_wall_on_SLOPING_ground_prices_no_row(cg, tmp_path):
+    """Amendment 1 item 3, first half.  The pavement side stands 2.2 m
+    ABOVE the facility's flat law rim — lawful, because that is where the
+    ground is and the part published exactly that.  Under the flat drop
+    it reported; under the per-part allowance it prices zero."""
+    facility = _facility(floor_m=0.0, drop_m=12.0,
+                         body_depth_m=12.0, solid_minimum_y_m=-12.0)
+    facility["emitted_rim_parts_m"] = [11.4, 12.0, 14.2]
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=14.2, facility=facility))
+    steps = fo["vertex_to_edge_step"] + fo["mid_edge_step"]
+    assert steps == [], (
+        f"a 14.2 m wall against a PUBLISHED 14.2 m rim part priced "
+        f"{len(steps)} row(s) — the per-part allowance did not bind")
+
+
+def test_a_part_past_its_own_published_rim_prices_the_excess(cg, tmp_path):
+    """Amendment 1 item 3, second half, and item 1's second sentence:
+    excess beyond the part's OWN drop still reports in full.  Here the
+    contact emits 1 m deeper than the deepest rim this facility ever
+    published, so the row is back — the allowance can never exceed what
+    was declared for that part."""
+    facility = _facility(floor_m=0.0, drop_m=12.0,
+                         body_depth_m=12.0, solid_minimum_y_m=-12.0)
+    facility["emitted_rim_parts_m"] = [11.4, 12.0, 14.2]
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=15.2, facility=facility))
+    steps = fo["vertex_to_edge_step"] + fo["mid_edge_step"]
+    assert steps, (
+        "a 15.2 m contact against a deepest published part of 14.2 m "
+        "must report — the per-part allowance is not a blanket exemption")
+    assert all(abs(step.step_m - 15.2) < 0.05 for step in steps), (
+        "the row carries the MEASURED step; the allowance is not "
+        "subtracted from the measurement")
+    excess = 15.2 - 14.2
+    assert abs(excess - 1.0) < 1e-9
+
+
+def test_the_per_part_allowance_never_widens_the_flat_one(cg, tmp_path):
+    """A part BELOW the facility's law rim holds the facility to what it
+    actually emitted there: the published part replaces the flat drop, it
+    is not max'd with it."""
+    facility = _facility(floor_m=0.0, drop_m=12.0,
+                         body_depth_m=12.0, solid_minimum_y_m=-12.0)
+    facility["emitted_rim_parts_m"] = [8.0]
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=10.0, facility=facility))
+    steps = fo["vertex_to_edge_step"] + fo["mid_edge_step"]
+    assert steps, (
+        "a 10.0 m contact against a single published 8.0 m part must "
+        "report, even though the facility's FLAT declared drop is 12.0 m")
+
+
+def test_a_facility_that_published_no_parts_keeps_the_flat_drop(cg,
+                                                                tmp_path):
+    """The no-op half of Amendment 1: an artifact built before it — or a
+    cut that seated no band — carries no per-part list and is judged
+    exactly as before."""
+    facility = _facility(floor_m=0.0, drop_m=12.0,
+                         body_depth_m=12.0, solid_minimum_y_m=-12.0)
+    assert "emitted_rim_parts_m" not in facility
+    fo = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=12.0, facility=facility))
+    assert fo["vertex_to_edge_step"] + fo["mid_edge_step"] == []
+    facility_empty = dict(facility)
+    facility_empty["emitted_rim_parts_m"] = []
+    fo_empty = _families(cg, _trench_patch(
+        tmp_path, pavement_elev=12.0, facility=facility_empty,
+        name="TRENCH2"))
+    assert fo_empty["vertex_to_edge_step"] + fo_empty["mid_edge_step"] == []
+
+
+def test_the_emitter_publishes_the_parts_the_census_joins_on(cg):
+    """ONE population, both readers (the census-wrapper lesson): the key
+    the emitter writes is the key the census reads."""
+    import inspect
+    from auto_patch import object_terrain_assembly as assembly
+    source = inspect.getsource(assembly.build_tunnel_layout_shapes)
+    assert '"emitted_rim_parts_m"' in source
+    assert "emitted_rim_parts_m" in inspect.getsource(
+        cg._basin_facilities_declared)
+
+
 def test_a_patch_with_no_basin_reads_exactly_as_before(cg):
     """The no-op half: the fixture patch declares no basin, so the law
     keyword changes nothing about what it measures."""

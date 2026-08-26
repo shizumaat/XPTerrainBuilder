@@ -1,4 +1,41 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260825c (THIRD SHIP: app 1.0.260, embedded==dist — the round-2
+# fixes from the owner's 1.0.259 sim read, all merged to main.)
+# IN 1.0.260 (on top of 20260825b): APRON ROUND 2 — interior LATTICE
+#   for nodeless apron voids (HECA cliff: 247 m nodeless run -> 12
+#   stations, monotone; nodeless_interiors 10->0; census un-blinded
+#   +523/-87; new family apron_lattice_membrane), gap-spine bridge
+#   (inert at HECA — the "feed gap" was a 2.2x detour, premise
+#   corrected), taut strip where band-authored. ROADS — cross-section
+#   law (25g, transverse road pairs at the cross-section limit; owner
+#   site worst lateral 7.68%->2.11%), late-limiter repair confirmed,
+#   BuildingClaim one-notion consolidation, and SERVICE-ROAD APRON
+#   SPINES (25h): free-road scoping was DROPPING the contact
+#   stretches entirely — restored as 1% spines; HECA airside
+#   2,177->918 on the post-lattice frame, alternation class 0.
+#   LEMD BASIN — open-pit floor at authored depth (586.01, no tunnel
+#   margins), authority clip (no pad severing/seating; building8+18
+#   unmoved), per-part wall allowance (926/930 rows retire; +4 honest
+#   rim-rim rows); OTHH bowls to authored depth (+1.5-1.8 m — likely
+#   closes the owner's deferred "drainage too low" item; bores keep
+#   margins).
+# DEFERRED (pre-ship ledger, owner-pending): CYXY spine-zero gate
+#   FAILS at 3 rows (14.6/14.6/10.2% vs 8% longitudinal, induced by
+#   cross-section constraining pinned junction neighbours — the
+#   joint-caps ruling); site-B single ~6.3 m step (apron -10582)
+#   = the apron-chain docket; HECA groundside transverse +454
+#   residue; the frontage-pin BuildingClaim machinery kept
+#   (law-correct, doesn't fix site B).
+# ALL RULINGS 2026-08-25 a-h in RULINGS.md; all specs amended with
+#   measured dispositions. LEMD day arc: fatal assert -> 894 ->
+#   (lattice/basin re-frame) -> current frame in the specs.
+# NEXT: owner sim pass on 1.0.260 (HECA cliff/ripples/roads, OTHH
+#   basins+tunnels+inset ruling, LEMD hole) -> joint-caps + apron
+#   -10582 rulings -> bar re-founding -> battery + SPLP/KAFW/KDFW ->
+#   worktree cleanup (apronfix/roads/tunattr/othhtun/eatscope/
+#   kdfwfix/eatctl/backedge standing) -> deferred OTHH round-2 sites.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260825b (SECOND SHIP OF THE DAY: app 1.0.259, embedded==dist.
 # Six lanes merged on top of the 20260825 block's work.)
 # IN 1.0.259 (all owner-ruled, all twinned): road band-seal scoped

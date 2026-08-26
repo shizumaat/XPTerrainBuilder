@@ -117,3 +117,27 @@ HECA, correct for true feed gaps elsewhere, twinned).
    APPEAR — report them honestly as un-blinding, not regression;
    airside delta explained row-for-row at the site); nodeless_
    interiors HECA 10 → 0. Attempt count resets for §1b, cap 2.
+
+## Amendment 2 (Fable, 2026-08-25 — §1b's census leg; from the
+## interior-node recon: no within-shape precedent exists for
+## non-ring nodes, so the lattice prices through its own family)
+
+1. SOLVER: the lattice admits via the gap-spine precedent
+   (solver_primitives.py:1650-1672 block shape), placed BEFORE
+   `_terrain_host_yield_first_index`; law edges built through
+   `_grade_graph_edges`/`classify_pair` so the apron's own cap
+   applies (one law); constraints entry appended beside `_gap_scs`;
+   store built in the pipeline freeze window slot (1), before
+   `_gfreeze.freeze`. Scaffold seed: lattice nodes join the
+   `interior_nodes` set the scaffold seed re-seats.
+2. EMISSION: the valued-node triple (`node_id_to_ll` /
+   `node_id_to_consensus` / `node_alt_abs_nids`), lattice polylines as
+   `o4_feature` ways ref `apron_lattice`.
+3. CENSUS: a NEW REGISTERED FAMILY `apron_lattice_membrane` (the
+   `drainage_spine` pattern): a sidecar law key publishes the lattice
+   EDGES (node pairs + the budget `classify_pair` priced at bake);
+   the family prices each emitted edge against its declared budget.
+   Registered in `LAW_FAMILIES` with the register/parity twins —
+   the test_harness twins make omission structurally impossible.
+4. The spec file itself must exist in the lane tree (the merge left
+   it absent there — restore from d7e21227 and commit with the work).

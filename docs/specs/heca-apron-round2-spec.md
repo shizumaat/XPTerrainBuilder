@@ -82,3 +82,62 @@ apart at 7% local grade).
   interiors.
 - Attempt cap 2, materiality 0.01 m, STOP on second miss. No
   shared-repo writes, no timing claims.
+
+## Amendment 1 (Fable, 2026-08-25 — §1's premise refuted at HECA;
+## §1b interior lattice replaces route synthesis for this class)
+
+Measured (lane/apronfix): nodes 462/470 are CONNECTED (560.6 m network
+path, 2.2x detour); HECA has 15 leaf nodes and no leaf pair matching
+the site. The void is real — 10 nodeless interiors, worst 175.4 m
+empty radius; the cliff line has 247 m with no stations, dropping
+6.06 m, zero census rows — but no feed gap exists: the routes go
+AROUND the apron. Synthesizing a route there would invent taxi
+geometry the airport does not have. §1 stays as landed (inert at
+HECA, correct for true feed gaps elsewhere, twinned).
+
+1. §1b INTERIOR LATTICE: an apron polygon whose §2 empty-disk radius
+   exceeds `APRON_NODELESS_RADIUS_M` gains a sparse interior vertex
+   lattice (spacing `APRON_LATTICE_SPACING_M = 50`, clipped to the
+   polygon, deterministic from the shape's local frame) minted as
+   FREE solver nodes: within-shape law edges to their lattice/ring
+   neighbours (priced by the apron's own caps — the census sees the
+   membrane), seeded by the scaffold interpolation between the ring's
+   anchors (24c; DEM-last — the seed is the taut plane, DEM only if
+   no anchor reaches).
+2. The lattice enters the slice's node set for THIS shape only; no
+   new roles, no routes, no frontage semantics. Sidecar provenance
+   `apron_lattice` per node.
+3. Flag `O4_APRON_INTERIOR_LATTICE`, default ON; OFF byte-identical.
+4. Twin: synthetic 300 m apron with 6 m of ring-value spread → lattice
+   minted, interior chords priced, solved membrane ≤ the apron cap
+   (the solve reconciles), census rows exist where before there were
+   none; small apron below the radius → no lattice.
+5. Acceptance addendum: the cliff-site line gains stations (no 247 m
+   nodeless run); the census PRICES the former void (rows may
+   APPEAR — report them honestly as un-blinding, not regression;
+   airside delta explained row-for-row at the site); nodeless_
+   interiors HECA 10 → 0. Attempt count resets for §1b, cap 2.
+
+## Amendment 2 (Fable, 2026-08-25 — §1b's census leg; from the
+## interior-node recon: no within-shape precedent exists for
+## non-ring nodes, so the lattice prices through its own family)
+
+1. SOLVER: the lattice admits via the gap-spine precedent
+   (solver_primitives.py:1650-1672 block shape), placed BEFORE
+   `_terrain_host_yield_first_index`; law edges built through
+   `_grade_graph_edges`/`classify_pair` so the apron's own cap
+   applies (one law); constraints entry appended beside `_gap_scs`;
+   store built in the pipeline freeze window slot (1), before
+   `_gfreeze.freeze`. Scaffold seed: lattice nodes join the
+   `interior_nodes` set the scaffold seed re-seats.
+2. EMISSION: the valued-node triple (`node_id_to_ll` /
+   `node_id_to_consensus` / `node_alt_abs_nids`), lattice polylines as
+   `o4_feature` ways ref `apron_lattice`.
+3. CENSUS: a NEW REGISTERED FAMILY `apron_lattice_membrane` (the
+   `drainage_spine` pattern): a sidecar law key publishes the lattice
+   EDGES (node pairs + the budget `classify_pair` priced at bake);
+   the family prices each emitted edge against its declared budget.
+   Registered in `LAW_FAMILIES` with the register/parity twins —
+   the test_harness twins make omission structurally impossible.
+4. The spec file itself must exist in the lane tree (the merge left
+   it absent there — restore from d7e21227 and commit with the work).

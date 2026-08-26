@@ -1689,6 +1689,22 @@ def print_report(rep: dict, top: int) -> None:
           f"basin_facilities={ev.get('basin_facility_count')} "
           f"triangle_plane_unresolved="
           f"{ev.get('triangle_plane_unresolved')}")
+    # THE CENSUS'S OWN BLIND SPOT, printed beside its counts (spec
+    # docs/specs/heca-apron-round2-spec.md §2).  Every family table below
+    # prices PAIRS OF EMITTED NODES: an apron interior with no nodes
+    # yields no rows and reads as compliant however wrong its surface is.
+    # Printed at ZERO too — a line that appears only on a finding cannot
+    # distinguish "the instrument found nothing" from "the instrument did
+    # not run", and this key is absent on any patch predating it.
+    _nli = ev.get("nodeless_interior_count")
+    _gsb = ev.get("gap_spine_bridge_count")
+    print(f"  nodeless apron interiors: "
+          f"{'(not measured)' if _nli is None else _nli}"
+          f"   gap-spine bridges: "
+          f"{'(not measured)' if _gsb is None else _gsb}")
+    if _nli:
+        print("    ^ these regions contribute ZERO rows to every table "
+              "below — no emitted nodes, no pairs, no census")
     be = ev.get("band_excess")
     if isinstance(be, dict) and not be.get("error"):
         s = be.get("by_side") or {}

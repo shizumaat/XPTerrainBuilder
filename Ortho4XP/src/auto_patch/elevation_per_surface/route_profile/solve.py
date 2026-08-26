@@ -2161,6 +2161,31 @@ def solve_route_profile(layout, icao: str,
             print(f"    [gap-spine] {len(_gap_scs)} chain(s), "
                   f"{len(_gap_spine_idx)} free spine node(s), "
                   f"{_n_int_edges} envelope interval edge(s)")
+    # ── APRON INTERIOR LATTICE constraints (spec heca-apron-round2
+    # Amendment 1 §1b, Amendment 2 clause 1) ──────────────────────────
+    # Beside the gap spines above and for the same reason: the lattice
+    # points were admitted by ``_build_node_list`` as FREE interior
+    # variables and now get their law.  The edges are built through
+    # ``_grade_graph_edges``/``classify_pair`` on the apron's ring PLUS
+    # its lattice, so every lattice pair is priced by the APRON'S OWN
+    # CAP — one law, the same one its ring pairs obey.  The EDGE RECORDS
+    # are published for the sidecar so the census can price the emitted
+    # membrane against the budget the solve actually built to.  Flag
+    # OFF (or no store): empty everything — byte-inert.
+    _lattice_idx: set = set()
+    _lattice_edges: list = []
+    if getattr(layout, "apron_lattice_presolve", None):
+        from auto_patch.apron_lattice import (
+            build_apron_lattice_constraints as _build_lat_scs)
+        _lat_scs, _lattice_idx, _lattice_edges = _build_lat_scs(
+            layout, bucket_to_idx, _gg_ctx)
+        shape_constraints.extend(_lat_scs)
+        layout._apron_lattice_edges_ll = _lattice_edges
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [apron-lattice] {len(_lat_scs)} apron(s), "
+                  f"{len(_lattice_idx)} free lattice node(s), "
+                  f"{len(_lattice_edges)} within-shape law edge(s) at "
+                  f"the apron's own cap")
     # ── RUNWAY-END RESA CUT constraints (arc R slice R1, gated) ───────
     # The owner ruling: the runway-end envelope is LAW THE SOLVER
     # ENFORCES.  The cut rings were emitted PRE-SOLVE (inside the B1
@@ -2782,6 +2807,17 @@ def solve_route_profile(layout, icao: str,
         layout, bucket_to_idx, band, dem_fn,
         anchor_envelope=_anchor_envelope, icao=icao)
     apron_body = apron_body_nodes(layout, bucket_to_idx)
+    # APRON INTERIOR LATTICE joins the scaffold's INTERIOR set (spec
+    # heca-apron-round2 Amendment 1 §1b, Amendment 2 clause 1).  A
+    # lattice node IS apron interior — it is the interior the apron had
+    # no vertices for — so it is re-seated by the same 24c scaffold
+    # interpolation between the ring's anchors, DEM-last: the seed is
+    # the taut plane, and a lattice node no anchor reaches keeps its DEM
+    # seed and stays free (the pad-less-apron case, unchanged).  Empty
+    # store: ``apron_body`` is untouched — byte-inert.
+    if _lattice_idx:
+        apron_body = set(apron_body) | {i for i in _lattice_idx
+                                        if i < len(elev)}
 
     # NO-BUILDING APRON FILL (user 2026-06-26): a no-building apron has no pad to
     # anchor it, so where the DEM is wrong-low it sags below the level its feeder
@@ -5532,6 +5568,31 @@ def solve_route_profile(layout, icao: str,
             if _os.environ.get("O4_STEP_DEBUG") == "1":
                 print(f"    [gap-spine] fairing residual "
                       f"kinks={_n_gap_kink}")
+        # ── THE TAUT BACK EDGE (spec heca-apron-round2 §3) ───────────
+        # The band's own law is a per-vertex DEM clamp with no coupling
+        # and no fairing, so the projection above left every terrain
+        # bump inside the corridor on the emitted back edge and left the
+        # identity-adoption ladder sawtoothing.  DEM-last (RULINGS
+        # 2026-08-25): anchors first, DEM tiebreak.  Flag OFF (or no
+        # admitted zone nodes) => no chains, byte-inert.
+        from auto_patch import config as _cfg_taut
+        if _zone_idx and getattr(_cfg_taut, "TAUT_GRADED_STRIP", False):
+            from ..solver_primitives import (
+                build_adjacent_ground_band_chains as _band_chains_fn)
+            from auto_patch.config import (
+                TAXIWAY_MAX_GRADE_CHANGE_PER_M as _K_BAND)
+            import O4_UI_Utils as _UI_taut
+            _band_chains, _band_adopted = _band_chains_fn(
+                layout, bucket_to_idx)
+            if _band_chains:
+                _n_tr, _n_weld, _n_bkink = _taut_graded_strip(
+                    elev, _band_chains, _band_adopted, _K_BAND,
+                    frozen=base_hard)
+                _UI_taut.vprint(
+                    1, f"  [taut-strip] {len(_band_chains)} band row(s), "
+                       f"{len(_band_adopted)} welded node(s) held; "
+                       f"{_n_tr} transverse, {_n_weld} between-weld "
+                       f"move(s); fairing residual kinks={_n_bkink}")
         # ── PROBE A, TAIL BOUNDARY 4: gap_spine_fairing ──────────────
         # Unconditional (a no-op diff when there were no chains) so the
         # ledger's last boundary is always the same statement.
@@ -5909,6 +5970,34 @@ def solve_route_profile(layout, icao: str,
                 _zone_vals[_mm_key(float(_zx), float(_zy))] = float(
                     _elev_emit[_zi])
             _zone_entry["zone_values"] = _zone_vals
+    # ── APRON INTERIOR LATTICE writeback (spec heca-apron-round2
+    # Amendment 1 §1b, Amendment 2 clause 2) ──────────────────────────
+    # The solved lattice polylines, in the CROWNED emit frame
+    # (``_elev_emit``, the same array every pavement writeback reads) —
+    # so the emitted membrane and the emitted ring are one surface.
+    # Published as ``(pts_ll, alts)`` pairs, the shape ``to_osm``'s
+    # valued-node triple consumes.  Empty store: nothing published.
+    if getattr(layout, "apron_lattice_presolve", None):
+        _cps_lat = layout.canonical_points
+        _lat_emit: list = []
+        for _lat_entry in layout.apron_lattice_presolve:
+            for _line in _lat_entry.get("lines", ()) or ():
+                _pts_ll: list = []
+                _alts: list = []
+                for (_lx, _ly) in _line:
+                    _li = bucket_to_idx.get(
+                        _cps_lat.get_or_add(float(_lx), float(_ly)))
+                    if _li is None or _li >= n:
+                        continue
+                    try:
+                        _lla = layout.m_to_ll(float(_lx), float(_ly))
+                    except Exception:              # pragma: no cover
+                        continue
+                    _pts_ll.append((float(_lla[0]), float(_lla[1])))
+                    _alts.append(float(_elev_emit[_li]))
+                if len(_pts_ll) >= 2:
+                    _lat_emit.append((_pts_ll, _alts))
+        layout.apron_lattice_emit = _lat_emit
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.
@@ -10803,6 +10892,172 @@ def _fair_gap_spine_chains(elev, chains, k_rate, *,
                 if abs(g2 - g1) - k_rate * 0.5 * (l1 + l2) > 1e-4:
                     n_over += 1
     return n_over
+
+
+def _taut_graded_strip(elev, chains, adopted, k_rate, *, frozen=None,
+                       materiality=0.01):
+    """THE TAUT BACK EDGE — DEM-last applied to the adjacent-ground band
+    (spec docs/specs/heca-apron-round2-spec.md §3; RULINGS 2026-08-25
+    "DEM demoted to last priority — straight planes between anchors,
+    never drape").
+
+    Until this pass the band was what its own constraint docstring says:
+    ``value = clamp(dem, edge + floor(d), edge + ceiling(d))`` per
+    vertex, "with NO neighbour coupling of any kind" — so every terrain
+    bump inside the corridor passed straight through to the emitted back
+    edge (measured 2026-08-25 at HECA ways -13257 / -13411: 0.5-1.1 m of
+    ripple at 7 % local grade), and where the band's ring welded two
+    pavement families in turn it sawtoothed between them ~1.6 m apart
+    (the IDENTITY-ADOPTION LADDER).
+
+    Three sub-passes, in order, EVERY move clamped back into the node's
+    own law interval so nothing here can exit the corridor the interval
+    edges enforce:
+
+      T1 TRANSVERSE COUPLING (§3.1).  At each host station the band's
+         zone nodes are gathered by lateral depth and made a straight
+         line between the strip's two ends — the HOST-EDGE ANCHOR at
+         depth 0 (``elev[host]``, a pavement variable, never moved) and
+         the OUTERMOST row, where the graded width ends and raw DEM
+         legitimately resumes (the adjacent-ground zone law: zones 1-2
+         graded, beyond -> raw DEM).  The interior depths take the
+         host-anchored ramp instead of their independent DEM clamp:
+         anchors first, DEM only at the ends it still owns.
+
+      T2 THE ADOPTION LADDER DIES (§3.2).  Along each row, the WELDED
+         nodes — the ones whose canonical bucket resolved to a
+         pre-existing pavement/spine variable — keep their adopted value
+         (the identity-adoption rule still holds AT them: pavement value
+         wins at a pavement node).  BETWEEN two consecutive welds the
+         free nodes take the arc-length interpolation of the two weld
+         values, so a row welding a low road and a high apron in turn
+         ramps monotonically between them instead of laddering.
+
+      T3 LONGITUDINAL FAIRING (§3.1).  The SAME second-difference law
+         the B2 gap-fill spines already run, through the SAME
+         implementation (``_fair_gap_spine_chains`` — extended to a
+         second family, never forked), with welds and hard nodes frozen.
+
+    ``chains`` / ``adopted``: ``solver_primitives.
+    build_adjacent_ground_band_chains`` output.  ``frozen`` (indexable of
+    bool, e.g. ``base_hard``): hard nodes never move, on top of the
+    welds.  ``materiality``: moves below this (the 0.01 m solver
+    quantum) are not made at all — a taut pass that rewrites values by
+    less than the quantum is churn, not law.
+
+    Mutates ``elev``; returns ``(n_transverse, n_weld_span, n_kinks)``
+    — nodes moved by T1, nodes moved by T2, and T3's honest residual."""
+    import math
+    n_elev = len(elev)
+
+    def _is_frozen(i):
+        if i is None or i >= n_elev:
+            return True
+        if i in adopted:
+            return True
+        return bool(frozen is not None and i < len(frozen) and frozen[i])
+
+    def _clamped(i, spec, value):
+        """``value`` pushed back into the node's own law interval, read
+        at the CURRENT host elevation (the interval edges' own frame)."""
+        lo = hi = None
+        for (j, floor_off, ceil_off) in spec:
+            if j is None or j >= n_elev:
+                continue
+            zj = elev[j]
+            if floor_off is not None:
+                b = zj + floor_off
+                lo = b if lo is None else max(lo, b)
+            if ceil_off is not None:
+                b = zj + ceil_off
+                hi = b if hi is None else min(hi, b)
+        if lo is not None and hi is not None and lo > hi:
+            return elev[i]                      # empty: leave it alone
+        if lo is not None:
+            value = max(value, lo)
+        if hi is not None:
+            value = min(value, hi)
+        return value
+
+    # ── T1: transverse coupling to the host-edge anchor ──────────────
+    # Gathered ACROSS rows by host station: the rows are the band's
+    # lateral samples of one transverse section, and the section is what
+    # has to be a plane.
+    # Keyed by (host, KIND): a FILL row and a CUT row are opposite
+    # regimes (DEM below the floor vs DEM above the ceiling) and are not
+    # samples of one transverse section, so they are never interleaved
+    # into one ramp.
+    by_host: dict = {}
+    for chain in chains:
+        for pos, i in enumerate(chain["idx"]):
+            if i is None or i >= n_elev:
+                continue
+            spec = chain["specs"][pos]
+            if not spec:
+                continue
+            j = spec[0][0]
+            by_host.setdefault((j, chain["kind"]), []).append(
+                (float(chain["depth"][pos]), i, spec))
+    n_transverse = 0
+    for (j, _kind), members in by_host.items():
+        if j is None or j >= n_elev or len(members) < 2:
+            continue                 # a two-point section is already a line
+        members.sort(key=lambda m: m[0])
+        d_out, i_out, _spec_out = members[-1]
+        if d_out <= 0.0:
+            continue
+        z_host = elev[j]
+        z_out = elev[i_out]
+        for (d, i, spec) in members[:-1]:
+            if _is_frozen(i) or d <= 0.0:
+                continue
+            target = z_host + (d / d_out) * (z_out - z_host)
+            target = _clamped(i, spec, target)
+            if abs(target - elev[i]) > materiality:
+                elev[i] = target
+                n_transverse += 1
+
+    # ── T2: interpolate between the welds, along the run ─────────────
+    n_weld = 0
+    for chain in chains:
+        idx = chain["idx"]
+        xy = chain["xy"]
+        specs = chain["specs"]
+        anchors = [p for p, i in enumerate(idx)
+                   if i is not None and i < n_elev and _is_frozen(i)]
+        for a, b in zip(anchors, anchors[1:]):
+            if b - a < 2:
+                continue
+            za, zb = elev[idx[a]], elev[idx[b]]
+            cum = [0.0]
+            for p in range(a, b):
+                cum.append(cum[-1] + math.hypot(xy[p + 1][0] - xy[p][0],
+                                                xy[p + 1][1] - xy[p][1]))
+            span = cum[-1]
+            if span <= 0.0:
+                continue
+            for p in range(a + 1, b):
+                i = idx[p]
+                if i is None or i >= n_elev or _is_frozen(i):
+                    continue
+                target = za + (cum[p - a] / span) * (zb - za)
+                target = _clamped(i, specs[p], target)
+                if abs(target - elev[i]) > materiality:
+                    elev[i] = target
+                    n_weld += 1
+
+    # ── T3: the B2 longitudinal fairing, second family ───────────────
+    band_frozen = [False] * n_elev
+    if frozen is not None:
+        for i in range(min(n_elev, len(frozen))):
+            if frozen[i]:
+                band_frozen[i] = True
+    for i in adopted:
+        if i < n_elev:
+            band_frozen[i] = True
+    n_kinks = _fair_gap_spine_chains(elev, chains, k_rate,
+                                     frozen=band_frozen)
+    return n_transverse, n_weld, n_kinks
 
 
 def _fair_ring_edges(layout, elev, bucket_to_idx, anchors, node_band,

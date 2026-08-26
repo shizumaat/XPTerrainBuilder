@@ -3381,6 +3381,37 @@ def build_airport_pavement(icao: str, xplane_root: str,
             _cn_pav = _cn_pav.difference(terminal_union)
         except _GEOM_EXC:
             pass
+    # ── THE GAP-BRIDGING SPINE (spec heca-apron-round2 §1) ───────────
+    # A FEED GAP is two taxi-route ends sitting unconnected on ONE piece
+    # of continuous apron pavement: real, taxiable pavement the apt.dat
+    # route graph never joined (HECA taxiway J, node 462 -> node 470,
+    # 254 m, no 1202 edge and no OSM way).  The slice cuts along
+    # CENTERLINES, so with no centerline there the emitted apron carries
+    # a NODELESS region whose membrane is uncontrolled and which the
+    # census cannot even see (no nodes -> no rows).  Synthesize the
+    # missing centerline HERE — before the feed loop below — so it is a
+    # first-class route: it cuts the slice, it gets a profile, and the
+    # nearest-anchor chords price against it.
+    #
+    # ``_cn_pav`` is the slice's OWN pavement input, so the visibility
+    # population is exactly the pavement the faces will be cut from;
+    # the runway union is removed because a runway is not apron.
+    if _cn_pav is not None and not _cn_pav.is_empty:
+        from .gap_spine_bridge import synthesize_gap_spine_bridges
+        _apron_pav = _cn_pav
+        if (layout.runway_union is not None
+                and not layout.runway_union.is_empty):
+            try:
+                _apron_pav = _apron_pav.difference(layout.runway_union)
+            except _GEOM_EXC:
+                pass
+        try:
+            synthesize_gap_spine_bridges(layout, _apron_pav,
+                                         airport=apt, to_m=to_m)
+        except Exception as _gsb_exc:                     # report, never gate
+            UI.vprint(1, f"  [gap-spine-bridge] {icao}: synthesis "
+                         f"FAILED ({type(_gsb_exc).__name__}: "
+                         f"{_gsb_exc}) — no bridge this build")
     _cn_cls, _cn_svc, _cn_seen = [], [], set()
     for _it in (getattr(layout, "apt_taxi_centerlines", []) or []):
         _ln = getattr(_it, "chained_line", None) or getattr(_it, "line", None)
@@ -5965,6 +5996,25 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             except _GEOM_EXC as _gappre_exc:
                 UI.vprint(1, f"  [pav-builder] {icao}: pre-solve gap-fill "
                              f"spine construction FAILED: {_gappre_exc!r}")
+
+        # (1b) APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment
+        # 1 §1b).  The same slot and the same reason as the gap spines
+        # above: these are FREE interior solver variables that must
+        # exist before the plan is frozen and the ONE node list is
+        # built.  An apron whose largest EMPTY interior disk exceeds
+        # APRON_NODELESS_RADIUS_M has an uncontrolled membrane the
+        # census cannot even see (no nodes -> no pairs -> no rows);
+        # the lattice gives that ground anchors priced by the apron's
+        # own caps.  Flag OFF: empty store, every leg vacuous.  A
+        # construction failure degrades loudly and the build continues
+        # exactly as it did before the amendment.
+        try:
+            from .apron_lattice import construct_apron_lattice_presolve
+            construct_apron_lattice_presolve(layout)
+        except _GEOM_EXC as _lat_exc:
+            layout.apron_lattice_presolve = []
+            UI.vprint(1, f"  [apron-lattice] {icao}: pre-solve lattice "
+                         f"construction FAILED: {_lat_exc!r}")
 
         # (2) THE FREEZE POINT.
         _gfreeze.freeze(layout, icao=icao)

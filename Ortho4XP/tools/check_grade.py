@@ -330,7 +330,8 @@ def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
         # against real interior nodes.
         if tags.get("o4_feature") in ("crown_spine",
                                       "gap_drainage_spine",
-                                      "gap_interior_ring"):
+                                      "gap_interior_ring",
+                                      "apron_lattice"):
             if feature_out is not None:
                 feature_out.setdefault(tags["o4_feature"], []).append(Way(
                     wid=wid, role=tags.get("role", ""),
@@ -1093,6 +1094,14 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     "gap_interior_ring",
     "gap_drainage_spine",
     "crown_spine",
+    # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
+    # §1b): open constrained breakline ways carrying interior apron
+    # anchors as per-node ``alt_abs``.  Role-less like the spines, and
+    # for the same reason — a phantom closing pseudo-edge across the
+    # apron would mint artifact pairs the solver never constrained.
+    # Its real law is the ``apron_lattice_membrane`` family, which
+    # prices each published edge against the solve's own budget.
+    "apron_lattice",
 )
 
 #: The subset of :data:`ROLE_LESS_FEATURE_CLASSES` whose members are judged
@@ -3178,6 +3187,132 @@ def _spine_handoff_here(near, family_by_wid, bench_slope):
         # An intersecting (or one-sided) interval — no handoff was composed.
         return None, 0.0
     return hi, float(residual)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# APRON LATTICE MEMBRANE (spec heca-apron-round2 Amendment 1 §1b)
+# ══════════════════════════════════════════════════════════════════════
+# THE FAMILY THAT MAKES A VOID PRICEABLE.  Every other within-shape
+# family reaches its pairs through RING ADJACENCY or a proximity sweep
+# over emitted ring vertices.  A lattice node lies on NO ring — it is an
+# interior anchor minted precisely because the apron's interior had no
+# vertices — so no existing family can discover its pairs, and a region
+# with no pairs contributes no rows however wrong its surface is.  That
+# blindness is the defect this whole round was written for: HECA shipped
+# 247 m of cliff dropping 6.06 m at ZERO census rows.
+#
+# THE BUDGET IS THE SOLVER'S OWN, CARRIED.  The solve priced each lattice
+# edge through ``classify_pair`` at the APRON'S own cap and published the
+# pair with that budget in the sidecar.  This family checks the EMITTED
+# membrane against that number rather than re-deriving a cap from a role
+# table — a second derivation here is exactly the census-wrapper defect,
+# and it could not be right anyway: the lattice's cap depends on the
+# apron's own fan-ramp/lateral context, which only the solve holds.
+#
+# A published edge whose endpoints are not both emitted is SKIPPED and
+# counted, never silently dropped: the emit decimators can remove a
+# lattice vertex, and an unmatched edge is a missing measurement, not a
+# pass.
+
+#: How close an emitted node must be to a published lattice endpoint to
+#: BE it.  The canonical registry interns within ``SHARED_VERTEX_TOL_M``
+#: and emit rounds lat/lon, so this is the same identity every other
+#: sidecar-joined family uses.
+_LATTICE_JOIN_TOL_M = SHARED_VERTEX_TOL_M
+
+
+def _check_apron_lattice_membrane(
+        lattice_edges_ll, lattice_ways, ways, nodes, ll_to_m
+) -> Tuple[List[Violation], int, int]:
+    """``(violations, n_checked, n_unmatched)``.
+
+    A violation is an emitted lattice edge whose |Δz| exceeds the budget
+    the SOLVE priced it at.  ``n_unmatched`` counts published edges an
+    endpoint of which no emitted node carries — reported beside the
+    count, because a dropped vertex is a lost measurement.
+    """
+    if not lattice_edges_ll:
+        return [], 0, 0
+    # Emitted nodes that carry a value, indexed in metres.
+    # The join population is the LATTICE WAYS FIRST (the open constrained
+    # breaklines the emitter wrote — ``_parse_osm`` routes them to
+    # ``feature_out``, never to ``ways``, so a ring-only population would
+    # find none of them) and then every ordinary emitted ring, so a
+    # lattice vertex that interned into a ring is still found.
+    pts: List[Tuple[float, float, float, str]] = []
+    alt_of: Dict[str, float] = {}
+    way_of: Dict[str, "Way"] = {}
+    for w in list(lattice_ways or []) + list(ways):
+        for nid, a in zip(w.nids, (w.elevs or [None] * len(w.nids))):
+            if a is None or nid not in nodes:
+                continue
+            alt_of.setdefault(nid, float(a))
+            way_of.setdefault(nid, w)
+    for nid, a in alt_of.items():
+        lat, lon = nodes[nid]
+        x, y = ll_to_m(lat, lon)
+        pts.append((x, y, a, nid))
+    if not pts:
+        return [], 0, len(lattice_edges_ll)
+
+    cell = max(1.0, _LATTICE_JOIN_TOL_M * 2.0)
+    grid: Dict[Tuple[int, int], List[int]] = {}
+    for k, (x, y, _a, _n) in enumerate(pts):
+        grid.setdefault((int(x // cell), int(y // cell)), []).append(k)
+
+    def _find(x, y):
+        best = None
+        cx, cy = int(x // cell), int(y // cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for k in grid.get((cx + dx, cy + dy), ()):
+                    px, py, _a, _n = pts[k]
+                    d = math.hypot(px - x, py - y)
+                    if d <= _LATTICE_JOIN_TOL_M and (best is None
+                                                     or d < best[0]):
+                        best = (d, k)
+        return None if best is None else best[1]
+
+    out: List[Violation] = []
+    n_checked = 0
+    n_unmatched = 0
+    for rec in lattice_edges_ll:
+        try:
+            a_ll = rec["a"]
+            b_ll = rec["b"]
+            budget = float(rec["budget_m"])
+        except (KeyError, TypeError, ValueError):        # pragma: no cover
+            n_unmatched += 1
+            continue
+        ax, ay = ll_to_m(float(a_ll[0]), float(a_ll[1]))
+        bx, by = ll_to_m(float(b_ll[0]), float(b_ll[1]))
+        ka, kb = _find(ax, ay), _find(bx, by)
+        if ka is None or kb is None:
+            n_unmatched += 1
+            continue
+        n_checked += 1
+        za, zb = pts[ka][2], pts[kb][2]
+        dz = abs(zb - za)
+        excess = dz - budget
+        if excess <= 0.0:
+            continue
+        dist = math.hypot(bx - ax, by - ay)
+        grade = (100.0 * dz / dist) if dist > 1e-9 else 0.0
+        cap = (100.0 * budget / dist) if dist > 1e-9 else None
+        wa = way_of.get(pts[ka][3])
+        wb = way_of.get(pts[kb][3])
+        v = Violation(
+            grade_pct=grade,
+            excess_pct=(100.0 * excess / dist) if dist > 1e-9 else 0.0,
+            distance_m=dist, de_m=dz,
+            way_a=wa, way_b=wb,
+            pt_a=(float(a_ll[0]), float(a_ll[1])),
+            pt_b=(float(b_ll[0]), float(b_ll[1])),
+            elev_a=za, elev_b=zb, cap_pct=cap)
+        v.lat = 0.5 * (float(a_ll[0]) + float(b_ll[0]))
+        v.lon = 0.5 * (float(a_ll[1]) + float(b_ll[1]))
+        out.append(v)
+    return out, n_checked, n_unmatched
 
 
 def _check_drainage_spine_below_pavement(
@@ -5512,6 +5647,8 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("transverse", "TRANSVERSE (cross-corridor) grade", "within"),
     ("drainage_spine", "DRAINAGE SPINE at or above its LOWER pavement",
      "within"),
+    ("apron_lattice_membrane",
+     "APRON LATTICE MEMBRANE pair over the apron's own budget", "within"),
     ("lateral_contiguity", "LATERAL CONTIGUITY (road vs strictest class)",
      "within"),
     ("strip_longitudinal", "STRIP ABEAM-LONGITUDINAL grade", "within"),
@@ -6017,6 +6154,16 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "pair_caps": "pair_caps_ll",
     "terrace_joints": "terrace_joints_ll",
     "fan_ramp_zones": "fan_ramp_zones_ll",
+    # THE APRON INTERIOR LATTICE's own law edges (spec
+    # heca-apron-round2 Amendment 1 section 1b, Amendment 2 clause 3).
+    # LAW INPUT, and the only possible kind: a lattice edge joins two
+    # INTERIOR nodes that lie on no ring, so no ring-adjacency rule can
+    # discover it and no cap table can re-derive its budget.  The solve
+    # priced each edge through classify_pair at the apron's own cap and
+    # publishes the pair WITH that budget, so the family below checks
+    # the emitted membrane against the law the solver actually built to
+    # — one law, one number, no second opinion.
+    "apron_lattice_edges": "apron_lattice_edges_ll",
     # THE BACK-EDGE ZONES the apron 5 % class was priced with (owner
     # ruling RULINGS 2026-08-24).  LAW INPUT: the census reaches
     # ``grade_law.is_apron_interior`` through the SAME context field the
@@ -6103,6 +6250,25 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # re-judges none of it; it is here so "did this patch ship from a
     # site whose DEM was pure noise?" is answerable from the artifact.
     "site_class",
+    # THE NODELESS-INTERIOR INSTRUMENT (spec docs/specs/
+    # heca-apron-round2-spec.md section 2).  One record per apron-role
+    # polygon carrying an interior disk of radius >
+    # ``config.APRON_NODELESS_RADIUS_M`` with ZERO emitted vertices.
+    # EVIDENCE, and the most important kind: this is the census's own
+    # BLIND SPOT reported by the build.  The census prices PAIRS OF
+    # EMITTED NODES, so a region with no nodes yields no rows and reads
+    # as compliant however wrong it is — HECA's 215 x 430 m void passed
+    # three rounds of censuses at 1,679 while carrying a visible cliff.
+    # Printed at ZERO too (zero-of-zero is not a pass).
+    "nodeless_interiors",
+    # THE GAP-BRIDGING SPINE's provenance (same spec, section 1.2): one
+    # record per synthesized bridging centerline — the two route ends it
+    # joins (apt.dat 1201 node ids where nameable), its length and its
+    # inherited size letter.  EVIDENCE: the census judges the bridge's
+    # emitted pavement by the ordinary grade families like any other
+    # route; this exists so a reader can NAME a centerline that is in
+    # the patch but in no upstream feed.
+    "gap_spine_bridges",
 )
 
 
@@ -6160,6 +6326,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
+    ctx["apron_lattice_edges_ll"] = data.get("apron_lattice_edges") or None
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
@@ -6238,6 +6405,14 @@ def sidecar_evidence(osm_path) -> dict:
     # point 2).  A patch with no basin declares nothing and exempts
     # nothing, and this is where that is visible.
     out["basin_facility_count"] = len(data.get("basin_facilities") or [])
+    # THE CENSUS'S OWN BLIND SPOT, counted (spec heca-apron-round2 §2).
+    # A nodeless apron interior contributes ZERO census rows however
+    # wrong its surface is, so this count is the only thing standing
+    # between "no violations" and "no evidence".  Reported at zero.
+    out["nodeless_interior_count"] = len(
+        data.get("nodeless_interiors") or [])
+    out["gap_spine_bridge_count"] = len(data.get("gap_spine_bridges")
+                                        or [])
     return out
 
 
@@ -6356,6 +6531,7 @@ def run_checks(
     pair_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
     fan_ramp_zones_ll: Optional[list] = None,
+    apron_lattice_edges_ll: Optional[list] = None,
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
@@ -6727,6 +6903,22 @@ def run_checks(
               f"PROVISIONAL {_DRAINAGE_SPINE_MIN_FALL_M:.2f} m fall — "
               f"reported, not failed)")
     within = within + spine_dams
+
+    lattice_rows, n_lat_checked, n_lat_unmatched = (
+        _check_apron_lattice_membrane(
+            apron_lattice_edges_ll,
+            open_features.get("apron_lattice", []),
+            ways, nodes, ll_to_m))
+    _fam("apron_lattice_membrane", lattice_rows)
+    _pv("APRON LATTICE MEMBRANE pair over the budget the SOLVE priced it "
+        "at (spec heca-apron-round2 Amendment 1 section 1b)",
+        lattice_rows, top_n)
+    if not quiet and (n_lat_checked or n_lat_unmatched):
+        print(f"  ({n_lat_checked} published lattice edge(s) checked"
+              + (f"; {n_lat_unmatched} SKIPPED — an endpoint is not an "
+                 f"emitted node, so the pair is a LOST MEASUREMENT, not "
+                 f"a pass" if n_lat_unmatched else "") + ")")
+    within = within + lattice_rows
 
     lateral, n_lat_stations, n_lat_shapes = _check_lateral_contiguity(
         ways, nodes, ll_to_m)

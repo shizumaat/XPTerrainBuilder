@@ -3203,6 +3203,39 @@ class PavementLayout:
                          {"o4_feature": "gap_interior_ring"}))
                     next_wid[0] -= 1
 
+        # APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
+        # §1b, Amendment 2 clause 2): the solved lattice polylines,
+        # emitted through the SAME valued-node triple as the drainage
+        # spines above — ``node_id_to_ll`` / ``node_id_to_consensus`` /
+        # ``node_alt_abs_nids`` — as open constrained ways.
+        #
+        # THIS IS WHAT MAKES THE MEMBRANE VISIBLE.  Until these nodes
+        # reach the patch the interior of a big apron has no emitted
+        # vertex at all, so the mesh interpolates it freely AND the
+        # census — which prices PAIRS OF EMITTED NODES — has nothing to
+        # price: HECA shipped 247 m of cliff at ZERO rows.  New census
+        # rows appearing here are the void being SEEN for the first
+        # time, not a surface getting worse.
+        _lat_lines = getattr(self, "apron_lattice_emit", None) or []
+        if _lat_lines:
+            _next_al_nid = (min(node_id_to_ll) - 1
+                            if node_id_to_ll else -1)
+            for _pts_ll, _alts in _lat_lines:
+                _anids: list[int] = []
+                for (_ala, _alo), _aa in zip(_pts_ll, _alts):
+                    if _aa is None:
+                        continue
+                    node_id_to_ll[_next_al_nid] = (_ala, _alo)
+                    node_id_to_consensus[_next_al_nid] = float(_aa)
+                    node_alt_abs_nids.add(_next_al_nid)
+                    _anids.append(_next_al_nid)
+                    _next_al_nid -= 1
+                if len(_anids) >= 2:
+                    way_blocks.append(
+                        (next_wid[0], _anids,
+                         {"o4_feature": "apron_lattice"}))
+                    next_wid[0] -= 1
+
         # Shape INTERIOR RINGS as closed constrained ways (see the
         # emit-model note above the shape loop).  Same mechanism as the
         # gap interior rings, and deliberately AFTER them so a ring that
@@ -3374,6 +3407,31 @@ class PavementLayout:
             lines.append("  </relation>")
         lines.append("</osm>")
         _atomic_write_text(path, "\n".join(lines) + "\n")
+        # ── THE NODELESS-INTERIOR INSTRUMENT (spec heca-apron-round2
+        # §2, ungated, REPORT-FIRST) ──────────────────────────────────
+        # HERE and nowhere else: this is the only point in the build
+        # where the ACTUALLY EMITTED node set exists (``referenced_nids``
+        # is precisely the orphan filter the node loop above applied).
+        # A shape-ring lattice would be a different population and would
+        # miss exactly the interior vertices the instrument asks about.
+        # Report-only: wrapped so a measurement can never take an emit
+        # down, and loud at zero so an absent line means "did not run".
+        try:
+            from .nodeless_interior import report_nodeless_interiors
+            _emitted_xy = []
+            for _nid in referenced_nids:
+                _ll = node_id_to_ll.get(_nid)
+                if _ll is None:
+                    continue
+                try:
+                    _emitted_xy.append(self.ll_to_m(_ll[0], _ll[1]))
+                except Exception:
+                    continue
+            report_nodeless_interiors(self, _emitted_xy,
+                                      icao=getattr(self, "icao", "") or "")
+        except Exception as _nli_exc:
+            UI.vprint(1, f"  [nodeless-interior] instrument FAILED "
+                         f"({type(_nli_exc).__name__}: {_nli_exc})")
         self._write_axes_sidecar(path)
 
     def _write_axes_sidecar(self, path: str) -> None:
@@ -3662,6 +3720,41 @@ class PavementLayout:
             # ran and found no anchor" (``null``) from "this patch
             # predates the detector" (key absent).
             "site_class": getattr(self, "site_class", None),
+            # THE NODELESS-INTERIOR INSTRUMENT (docs/specs/
+            # heca-apron-round2-spec.md §2, ungated and REPORT-FIRST).
+            # One record per apron-role polygon carrying an interior disk
+            # of radius > ``config.APRON_NODELESS_RADIUS_M`` with ZERO
+            # emitted vertices: the shape, the disk centre (lat/lon) and
+            # its radius.  Such a region's membrane is UNCONTROLLED and,
+            # worse, INVISIBLE to the census — no nodes means no rows, so
+            # HECA's 215 x 430 m void read as compliant through three
+            # rounds of censuses.  EVIDENCE, never law input: the census
+            # prints the count and re-judges nothing.  Written
+            # unconditionally so a reader can tell "the instrument ran
+            # and found none" (``[]``) from "this patch predates the
+            # instrument" (key absent).
+            "nodeless_interiors": list(
+                getattr(self, "_nodeless_interiors", None) or []),
+            # THE GAP-BRIDGING SPINE's provenance (spec §1.2): one record
+            # per synthesized bridging centerline — its two route ends
+            # (apt.dat 1201 node ids where they could be named), its
+            # length and its inherited size letter — so the census and a
+            # reader can NAME the centerline that is in the patch but in
+            # no upstream feed.  Written unconditionally.
+            "gap_spine_bridges": list(
+                getattr(self, "gap_spine_bridges", None) or []),
+            # THE APRON LATTICE's own law edges (spec heca-apron-round2
+            # Amendment 1 §1b, Amendment 2 clause 3).  LAW INPUT: a
+            # lattice edge joins two INTERIOR nodes lying on no ring, so
+            # ring adjacency cannot discover the pair and no role table
+            # can re-derive its budget (the lattice's cap depends on the
+            # apron's own fan-ramp / lateral context, which only the
+            # solve holds).  Each record carries the pair AND the budget
+            # ``classify_pair`` priced it at, so the census checks the
+            # emitted membrane against the law the solver built to.
+            # Written unconditionally.
+            "apron_lattice_edges": list(
+                getattr(self, "_apron_lattice_edges_ll", None) or []),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

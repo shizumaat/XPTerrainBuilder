@@ -766,3 +766,39 @@ class TestLineProfile:
         p = _surface_patch(tmp_path, "nosite_prof.osm", [100.0] * 5)
         assert ASR.main([str(p), str(p), "--profile"]) == 0
         assert "SKIPPED profiles" in capsys.readouterr().out
+
+
+def test_open_feature_breaklines_are_visible_to_the_profile(tmp_path):
+    """OPEN CONSTRAINED BREAKLINES (the apron interior lattice, the gap
+    drainage spines) are not rings, so ``_parse_osm`` routes them to
+    ``feature_out`` and they never appear in ``ways``.  They carry REAL
+    EMITTED STATIONS, and a profile blind to them would report a void
+    the patch no longer has — which is exactly the reading this round's
+    acceptance turns on.  They are addressed by their ``o4_feature``
+    class name, their role tag being empty by design."""
+    lat = LAT0
+    txt = ["<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"]
+    for k in range(5):
+        txt.append(f"  <node id='-{200 + k}' lat='{lat:.9f}' "
+                   f"lon='{_east(k * 25.0):.9f}'>\n"
+                   f"    <tag k='alt_abs' v='{100.0 + 0.1 * k}'/>\n"
+                   "  </node>\n")
+    txt.append("  <way id='-14525'>\n"
+               + "".join(f"    <nd ref='-{200 + k}'/>\n" for k in range(5))
+               + "    <tag k='o4_feature' v='apron_lattice'/>\n"
+               "    <tag k='aeroway' v='apron'/>\n  </way>\n")
+    txt.append("</osm>\n")
+    p = tmp_path / "lattice.osm"
+    p.write_text("".join(txt))
+    (tmp_path / "lattice.osm.axes.json").write_text(
+        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}))
+    cg = ASR._check_grade()
+    # invisible under the ring roles ...
+    assert ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(100.0)),
+                            roles=("apron",))["n_stations"] == 0
+    # ... and fully visible when its own class is named
+    got = ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(100.0)),
+                           roles=("apron_lattice",))
+    assert got["n_stations"] == 5
+    assert got["alt_min"] == pytest.approx(100.0)
+    assert got["alt_max"] == pytest.approx(100.4)

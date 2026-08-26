@@ -338,7 +338,22 @@ def _patch_frame(cg, patch):
     ``cos(lat0)``, which is millimetres over a chord and enough to move a
     contact predicate).  A patch with no sidecar falls back to the node
     mean, which ``_ll_to_m_factory`` already implements."""
-    nodes, ways = cg._parse_osm(Path(patch))
+    feats: dict = {}
+    nodes, ways = cg._parse_osm(Path(patch), feature_out=feats)
+    # OPEN CONSTRAINED BREAKLINES are not rings, so ``_parse_osm`` routes
+    # them to ``feature_out`` and they never appear in ``ways``.  They
+    # carry REAL EMITTED STATIONS all the same — the apron interior
+    # lattice is exactly that — and a profile that could not see them
+    # would report a void the patch no longer has.  Their role tag is
+    # empty by design, so they are addressed by their ``o4_feature``
+    # class name (``--profile-roles apron_lattice``).
+    for _cls, _fways in (feats or {}).items():
+        for _w in _fways:
+            try:
+                _w.role = _w.role or _cls
+            except Exception:                             # pragma: no cover
+                continue
+        ways = list(ways) + list(_fways)
     anchor = None
     side = Path(str(patch) + ".axes.json")
     if side.exists():

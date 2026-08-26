@@ -535,18 +535,87 @@ def test_a_pad_pair_still_holds_the_road_longitudinal_cap():
     assert worst <= C.SERVICE_ROAD_MAX_GRADE + 1e-6
 
 
-def test_the_pad_claim_is_the_airside_pins_own_claim_notion():
-    """ONE claim walk behind both pin sets — identity in two spaces,
-    never proximity.  Two different ideas of "a ring claims this node"
-    is the drift this factoring exists to prevent."""
+def test_the_late_pass_uses_THE_LAWS_claim_set_not_a_ring_walk():
+    """THE LAW'S CLAIM SET IS THE PIN SET (owner ruling).
+
+    ``ctx.building_keys`` has TWO populations and both are the claim: a
+    building RING VERTEX, and an ON-EDGE node within
+    ``SHARED_VERTEX_TOL_M`` of a pad BOUNDARY that is not a ring vertex
+    (the pad only acquires the shared vertex later, at the nid weld).
+
+    THE MISS THIS PINS.  The first implementation re-derived the claim
+    from ring vertices alone, so the exemption no-op'd exactly where the
+    regression was — HECA site B's frontage pairs are population (2) and
+    15 rows held at 6.04 m / 37.6 % across a whole verification build.
+    """
     from auto_patch import groundside as G
+    from auto_patch import grade_graph as GG
     import inspect
-    assert "_claimed_keys" in inspect.getsource(G._airside_claimed_keys)
-    assert "_claimed_keys" in inspect.getsource(G._pad_claimed_keys)
-    # Both pad spellings the layout mints, because the frontage law is
-    # about the PAD, not about which producer made it.
-    from auto_patch.layout import ROLE_BUILDING, ROLE_OBJECT_PAD
-    assert set(G._PAD_CLAIM_ROLES) == {ROLE_BUILDING, ROLE_OBJECT_PAD}
+    # The limiter DELEGATES to the law's claim; it does not walk rings.
+    assert "building_claim" in inspect.getsource(G._pad_claim)
+    # ...and build_context uses the very same object, so the law's claim
+    # set and the pin set are one population by construction.
+    assert "BuildingClaim(" in inspect.getsource(GG.build_context)
+
+
+def test_a_proximity_zone_road_node_holds_under_the_late_pass():
+    """THE POPULATION THAT WAS MISSED, end to end through the real pass.
+
+    A road ring whose vertex is NOT a pad ring vertex but lies within
+    ``SHARED_VERTEX_TOL_M`` of a pad boundary.  Under the ring-walk
+    implementation this node was not claimed and the 2 % band pulled it;
+    with the law's own claim set it holds.
+    """
+    from shapely.geometry import Polygon
+    from auto_patch import groundside as G
+    from auto_patch.layout import SHARED_VERTEX_TOL_M as TOL
+
+    class _S:
+        def __init__(self, role, polygon):
+            self.role, self.polygon = role, polygon
+
+    class _L:
+        canonical_points = None
+
+        def __init__(self, shapes):
+            self.shapes = shapes
+
+    # A pad whose BOUNDARY runs along y = 0; the road ring's v0 sits
+    # 0.4*tol away from it and is NOT one of the pad's ring vertices.
+    pad = Polygon([(-50.0, -20.0), (200.0, -20.0), (200.0, 0.0),
+                   (-50.0, 0.0)])
+    layout = _L([_S("building", pad)])
+    claim = G._pad_claim(layout)
+    ring = [(0.0, TOL * 0.4), (120.0, 0.0), (120.0, 6.0), (0.0, 6.0)]
+    flags = [claim.contains(x, y) for (x, y) in ring]
+    assert flags[0], ("the proximity-zone node was not claimed — this is "
+                      "exactly the HECA site-B population the ring walk "
+                      "missed")
+    assert not flags[2] and not flags[3]
+
+    axis = G._long_axis_of_points(ring)[0]
+    base = [10.00, 10.30, 10.60, 10.30]
+    vals = list(base)
+    G._chord_cut_and_fill(ring, vals, list(range(4)), [1, 2, 3],
+                          C.SERVICE_ROAD_MAX_GRADE, axis=axis, pad=flags)
+    assert vals[0] == pytest.approx(base[0])
+    assert vals[3] == pytest.approx(base[3]), (
+        "the 2 % band pulled the road end of a frontage chord whose pad "
+        "contact is an ON-EDGE claim")
+
+
+def test_the_claim_covers_BOTH_populations():
+    from auto_patch.grade_graph import BuildingClaim
+    from auto_patch.layout import SHARED_VERTEX_TOL_M as TOL
+    from shapely.geometry import Polygon
+    claim = BuildingClaim([Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])],
+                          TOL)
+    assert claim
+    assert claim.contains(0.0, 0.0)          # (1) a ring VERTEX
+    assert claim.contains(10.0, 0.0)         # (2) ON-EDGE, not a vertex
+    assert claim.contains(10.0, TOL * 0.4)   # (2) within the weld tolerance
+    assert not claim.contains(10.0, -5.0)    # plainly off the pad
+    assert not claim.contains(10.0, 10.0)    # pad INTERIOR is not a claim
 
 
 def test_the_pad_is_already_pinned_by_the_airside_set():

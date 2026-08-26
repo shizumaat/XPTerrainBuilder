@@ -4084,32 +4084,27 @@ def _airside_claimed_keys(layout):
 _PAD_CLAIM_ROLES = ("building", "object_pad")
 
 
-def _pad_claimed_keys(layout):
-    """The nodes a BUILDING PAD claims, in the same two identities
-    :func:`_airside_claimed_keys` returns — ``(xy_keys, canonical_keys)``.
+def _pad_claim(layout):
+    """THE building-pad claim, from THE LAW — ``grade_graph.building_claim``.
 
-    WHY (owner ruling in the 2026-08-25g round, applying the standing
-    2026-07-03 law "buildings are the HEAVIEST constraint").  A pad node
-    is ALREADY pinned by :func:`_airside_claimed_keys` — ``building`` is
-    not in ``GROUNDSIDE_ROLES``, so the pad END of a frontage chord does
-    not move.  That was MEASURED at HECA site B: 5 of 5 pad-claimed road
-    nodes moved 0.000 m across the two arms.  What moved was the ROAD end
-    of the same chord (29 of 38 pad-less road nodes, worst 3.21 m): the
-    cross-section band pulled it, and the frontage chord the law prices
-    at ``BUILDING_FRONTAGE_MAX_GRADE`` blew out to 6.04 m at 10.66 %.
+    THE LAW'S CLAIM SET IS THE PIN SET (owner ruling, 25g round, applying
+    the standing 2026-07-03 "buildings are the HEAVIEST constraint").
+    ``ctx.building_keys`` — what makes ``grade_law.classify_pair`` price a
+    pair at ``BUILDING_FRONTAGE_MAX_GRADE`` — has TWO populations: a
+    building RING VERTEX, and an ON-EDGE node lying within
+    ``SHARED_VERTEX_TOL_M`` of a pad BOUNDARY without being one of its
+    ring vertices.  Both are the claim.
 
-    So the defect is NOT a missing pin — it is that the cross-section was
-    applied to a FRONTAGE pair at all.  ``grade_law.classify_pair`` never
-    does that: its building clamp runs BEFORE the cross-section branch
-    and that branch is ``min``-shaped, so a frontage pair's transverse
-    cap is already the identity on the solve side.  This set is what lets
-    the LATE pass reach the same verdict.
-
-    Same claim notion as the airside pin, through the same helper: a ring
-    VERTEX resolved in both the 2-decimal key space and the
-    canonical-point registry, never a proximity join.
+    MEASURED, and the reason this is a delegation and not a walk: the
+    first implementation here re-derived the claim from ring vertices
+    alone.  Site B's frontage pairs are population (2) — road nodes NEAR
+    a pad boundary — so the exemption fired elsewhere and was a no-op
+    exactly where the regression was: 15 rows held at 6.04 m / 37.6 %
+    across a whole HECA verification build.  One rule, every identity
+    space; this reader supplies plan coordinates.
     """
-    return _claimed_keys(layout, lambda r: r in _PAD_CLAIM_ROLES)
+    from .grade_graph import building_claim
+    return building_claim(layout)
 
 
 def _claimed_keys(layout, want):
@@ -4325,13 +4320,10 @@ def _grade_limit_groundside_chords(layout) -> int:
     # the cross-section may not price: a FRONTAGE chord is not a road
     # cross-section, and the 2 % band may never pull a road node off its
     # pad.  Empty with the law gated off, which keeps the pass byte-inert.
-    _pad_keys, _pad_canon = (_pad_claimed_keys(layout)
-                             if _ROAD_XSECTION_LAW else (set(), set()))
+    _pad_claim_obj = _pad_claim(layout) if _ROAD_XSECTION_LAW else None
     _cps_pin = getattr(layout, "canonical_points", None)
     _pin_tol = (getattr(_cps_pin, "tol_m", None)
                 if (_cps_pin is not None and _airside_canon) else None)
-    _pad_tol = (getattr(_cps_pin, "tol_m", None)
-                if (_cps_pin is not None and _pad_canon) else None)
     for i, s in enumerate(layout.shapes):
         role = getattr(s, "role", "")
         if role not in _CHORD_LIMIT_ROLES:
@@ -4407,14 +4399,9 @@ def _grade_limit_groundside_chords(layout) -> int:
                 # identities: the 2-decimal key, and the canonical point
                 # when the two differ by millimetres (the measured
                 # reason the pin carries both).
-                _pf = []
-                for (_pk, (_px, _py)) in zip(keys, ring):
-                    _hit = _pk in _pad_keys
-                    if not _hit and _pad_tol is not None:
-                        _ck = _cps_pin.find_nearest(float(_px), float(_py),
-                                                    _pad_tol)
-                        _hit = _ck is not None and _ck in _pad_canon
-                    _pf.append(_hit)
+                _pf = [bool(_pad_claim_obj)
+                       and _pad_claim_obj.contains(float(_px), float(_py))
+                       for (_px, _py) in ring]
                 if any(_pf):
                     ring_pad[i] = _pf
                     stats["road_xsection_frontage_rings"] += 1

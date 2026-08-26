@@ -1275,6 +1275,96 @@ def service_chain_lines(layout) -> list:
     return out
 
 
+
+# ══════════════════════════════════════════════════════════════════════
+# THE BUILDING-PAD CLAIM — one rule, every identity space
+# ══════════════════════════════════════════════════════════════════════
+# ``ctx.building_keys`` is what makes ``grade_law.classify_pair`` price a
+# pair at ``BUILDING_FRONTAGE_MAX_GRADE`` ("buildings are the HEAVIEST
+# constraint", user 2026-07-03).  It has TWO populations, and BOTH are
+# the claim:
+#   (1) a BUILDING RING VERTEX;
+#   (2) an ON-EDGE node — one lying within ``SHARED_VERTEX_TOL_M`` of a
+#       pad BOUNDARY without being one of its ring vertices, because the
+#       pad only acquires the shared vertex later at the nid-level weld.
+#
+# WHY THIS IS A SHARED OBJECT AND NOT A SECOND WALK (measured, this
+# lane).  The late chord limiter re-derived the claim from ring vertices
+# alone — population (1) — and its frontage exemption was therefore a
+# no-op exactly where the regression was: HECA site B's frontage pairs
+# come from population (2), road nodes NEAR a pad boundary.  15 rows
+# stayed at 6.04 m / 37.6 % across a whole verification build.  THE LAW'S
+# CLAIM SET IS THE PIN SET (owner ruling), so the rule lives here once
+# and every reader supplies its own key function — the same shape
+# ``grade_law.frontage_vertex_keys`` documents ("expressed on KEYS so
+# every reader can supply its own identity space").
+class BuildingClaim:
+    """Does a BUILDING PAD claim this point?  Both populations.
+
+    ``contains(x, y)`` answers in PLAN COORDINATES, so a caller keys the
+    answer however it likes (solver node indices, rounded layout metres,
+    emitted node ids).  Cheap by construction: a coarse bounding-box cell
+    prefilter, then the prepared boundary test only for points that land
+    in one — the same prefilter ``build_context`` measured at ~0.01 s per
+    call against 0.34 s for a dense perimeter walk at HECA.
+    """
+
+    _GCELL = 8.0
+
+    def __init__(self, polys, tol):
+        self.tol = float(tol)
+        self._zone = None
+        self._cells = set()
+        polys = [p for p in polys if p is not None and not p.is_empty]
+        if not polys:
+            return
+        for poly in polys:
+            x0, y0, x1, y1 = poly.bounds
+            for cx in range(int(math.floor((x0 - self.tol) / self._GCELL)),
+                            int(math.floor((x1 + self.tol) / self._GCELL)) + 1):
+                for cy in range(int(math.floor((y0 - self.tol) / self._GCELL)),
+                                int(math.floor((y1 + self.tol) / self._GCELL)) + 1):
+                    self._cells.add((cx, cy))
+        try:
+            from shapely.ops import unary_union as _uu
+            from shapely.prepared import prep as _prep
+            self._zone = _prep(_uu([p.boundary for p in polys])
+                               .buffer(self.tol))
+        except Exception:                                  # pragma: no cover
+            self._zone = None
+
+    def __bool__(self):
+        return self._zone is not None
+
+    def contains(self, x, y) -> bool:
+        """Population (2): within ``tol`` of some pad's BOUNDARY."""
+        if self._zone is None:
+            return False
+        if (int(math.floor(x / self._GCELL)),
+                int(math.floor(y / self._GCELL))) not in self._cells:
+            return False
+        try:
+            from shapely.geometry import Point as _Pt
+            return bool(self._zone.contains(_Pt(x, y)))
+        except Exception:                                  # pragma: no cover
+            return False
+
+
+def building_pad_polygons(layout):
+    """The BUILDING pads of ``layout`` — the one enumeration behind both
+    ``ctx.building_keys`` and the late limiter's pin."""
+    from .layout import ROLE_BUILDING
+    return [s.polygon for s in layout.shapes
+            if s.role == ROLE_BUILDING and s.polygon is not None
+            and not s.polygon.is_empty]
+
+
+def building_claim(layout):
+    """THE building-pad claim for ``layout`` (:class:`BuildingClaim`)."""
+    from .layout import SHARED_VERTEX_TOL_M
+    return BuildingClaim(building_pad_polygons(layout), SHARED_VERTEX_TOL_M)
+
+
 def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     """THE single shared grade-graph context (solver + spine + validator).
 
@@ -1391,37 +1481,19 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
     # already carry the welded vertex, so its coordinate keying sees it.
     if bucket_to_idx and bld_polys:
         from .layout import SHARED_VERTEX_TOL_M
-        tol = float(SHARED_VERTEX_TOL_M)
-        # Cheap spatial prefilter: mark the coarse cells each pad's BOUNDING
-        # BOX covers, then run the precise (prepared) boundary test only on
-        # nodes landing in one.  Bounding boxes, not a perimeter walk — the
-        # dense walk cost 0.34 s/call at HECA (507 k cells) and this costs
-        # ~0.01 s for the same candidate set.
-        gcell = 8.0
-        cells: set = set()
-        for poly in bld_polys:
-            x0, y0, x1, y1 = poly.bounds
-            for cx in range(int(math.floor((x0 - tol) / gcell)),
-                            int(math.floor((x1 + tol) / gcell)) + 1):
-                for cy in range(int(math.floor((y0 - tol) / gcell)),
-                                int(math.floor((y1 + tol) / gcell)) + 1):
-                    cells.add((cx, cy))
-        cand = [(c, i) for (c, i) in bucket_to_idx.items()
-                if i not in bld_keys
-                and (int(math.floor(c[0] / gcell)),
-                     int(math.floor(c[1] / gcell))) in cells]
-        if cand:
-            try:
-                from shapely.geometry import Point as _Pt
-                from shapely.ops import unary_union as _uu0
-                from shapely.prepared import prep as _prep0
-                zone = _prep0(_uu0([p.boundary for p in bld_polys])
-                              .buffer(tol))
-                for (c, i) in cand:
-                    if zone.contains(_Pt(c[0], c[1])):
-                        bld_keys.add(i)
-            except Exception:                                 # pragma: no cover
-                pass
+        # ONE RULE, delegated (see :class:`BuildingClaim` above).  This
+        # used to be an inline prefilter + prepared-boundary test; it is
+        # the SAME test, now shared with the late chord limiter so the
+        # law's claim set and the limiter's pin set cannot be two
+        # different populations (measured: they were, and the limiter's
+        # frontage exemption no-op'd on HECA site B because of it).
+        _claim = BuildingClaim(bld_polys, SHARED_VERTEX_TOL_M)
+        if _claim:
+            for (c, i) in bucket_to_idx.items():
+                if i in bld_keys:
+                    continue
+                if _claim.contains(c[0], c[1]):
+                    bld_keys.add(i)
     # Service-road carve zone — a soft-shape pair on a road carve descends at the
     # road cap (the carve corners lie on the host ring).  Built ONCE here so the
     # solver and the validator regulate it identically (the law, not a fudge).

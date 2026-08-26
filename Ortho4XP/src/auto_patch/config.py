@@ -4922,6 +4922,38 @@ BASIN_DECLARED_FLOOR_MATCH_TOL_M = 0.15
 BASIN_PAD_FLOOR_SEAT = (
     _os.environ.get("O4_BASIN_PAD_FLOOR_SEAT", "1") == "1")
 
+# ── AMENDMENT 3 (owner 2026-08-25): NO SEVERING, NO SEATING ─────────
+# "a simple 7 m deep cutout for the whole area should work without
+# having to sever the buildings."
+#
+# A pad overlapping a basin facility keeps its authored grade, geometry,
+# welds and identity EVERYWHERE.  What yields is its FLATTENING
+# AUTHORITY inside the footprint: the floor plates and the R2 wall band
+# own the facility interior, and the pad's interior claim is clipped to
+# OUTSIDE the facility.  An authority clip, not a geometry edit — the
+# ring the pack authored is the ring that ships.
+#
+# The two mechanisms below are the RETIRED predecessors, kept per the
+# keep-work rule and gated OFF.  Neither is reachable in a default
+# build; both are complete, twinned, and revivable by a future ruling.
+#
+#   BASIN_PAD_WHOLE_SEAT — §1.1's whole-pad SEAT: a pad inside the
+#     facility takes the floor as its declared flat level
+#     (``BuiltShape.basin_floor_seat_m``, stamped by
+#     ``anchors.build_building_seats``).  COMPLETE.  Retired by
+#     Amendment 3 item 2 ("pads are neither split nor seated").  Its
+#     loud-report and withdrawal paths remain live and unconditional.
+#
+#   BASIN_PAD_SEVER — Amendment 2's boundary CUT: split the pad at the
+#     facility boundary, seat the in-facility piece, keep the remainder
+#     at grade.  COMPLETE and measured on synthetic twins; never built
+#     at an airport.  Retired by Amendment 3, which supersedes
+#     Amendment 2 outright.
+BASIN_PAD_WHOLE_SEAT = (
+    _os.environ.get("O4_BASIN_PAD_WHOLE_SEAT", "0") == "1")
+BASIN_PAD_SEVER = (
+    _os.environ.get("O4_BASIN_PAD_SEVER", "0") == "1")
+
 # The coverage threshold.  EITHER-SIDE, and the spec states both limbs:
 # §1.1 reads it against the PAD's own area (a small pad wholly inside a
 # big basin), §2's twin states the other limb as normative acceptance —

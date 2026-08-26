@@ -464,6 +464,102 @@ def test_the_cross_section_never_loosens_a_pair_the_chain_tightened(cg,
                for r in fam["road_cross_section"])
 
 
+# ══════════════════════════════════════════════════════════════════════
+# §7 BUILDINGS ARE THE HEAVIEST CONSTRAINT — the frontage exemption
+# ══════════════════════════════════════════════════════════════════════
+# Owner ruling in the 25g round, applying the standing 2026-07-03 law:
+# the 2 % band may NEVER pull a road node off its pad.
+#
+# THE MEASUREMENT THAT SHAPED THIS (HECA site B, both arms).  The pad END
+# already held — 5 of 5 pad-claimed road nodes moved 0.000 m, because
+# ``building`` is not in ``GROUNDSIDE_ROLES`` and the limiter's airside
+# pin therefore already covers it.  What moved was the ROAD end of the
+# same frontage chord (29 of 38 pad-less road nodes, worst 3.21 m), and
+# the chord the law prices at BUILDING_FRONTAGE_MAX_GRADE blew out to
+# 6.04 m at 10.66 %.  So the defect was never a missing pin: it was that
+# the cross-section was applied to a FRONTAGE pair at all.
+
+def _pad_ring():
+    """A 6 m x 120 m road at 5 % lateral whose vertex 0 is a PAD weld."""
+    ring = [(0.0, 0.0), (120.0, 0.0), (120.0, 6.0), (0.0, 6.0)]
+    return ring, [10.00, 10.30, 10.60, 10.30]
+
+
+def test_the_band_never_pulls_a_road_node_off_its_pad():
+    from auto_patch import groundside as G
+    ring, base = _pad_ring()
+    axis = G._long_axis_of_points(ring)[0]
+    live = list(range(4))
+    pad = [True, False, False, False]        # v0 is the pad weld
+    free = [1, 2, 3]                         # ...and is therefore pinned
+    vals = list(base)
+    G._chord_cut_and_fill(ring, vals, live, free, C.SERVICE_ROAD_MAX_GRADE,
+                          axis=axis, pad=pad)
+    assert vals[0] == pytest.approx(base[0]), "the pad node must not move"
+    # v0-v3 is the frontage chord: it keeps the value it had, so the
+    # chord the law prices at 1 % is not blown open by the 2 % band.
+    assert vals[3] == pytest.approx(base[3]), (
+        "the 2 % band pulled the road end of a frontage chord away from "
+        "its pad — the exact HECA site-B regression this exempts")
+
+
+def test_without_a_pad_the_same_ring_still_clamps():
+    """The exemption must be scoped to the frontage pair, not a licence
+    for the ring: the identical geometry with no pad claim still clamps
+    to the cross-section limit."""
+    from auto_patch import groundside as G
+    ring, base = _pad_ring()
+    axis = G._long_axis_of_points(ring)[0]
+    live = free = list(range(4))
+    vals = list(base)
+    G._chord_cut_and_fill(ring, vals, live, free, C.SERVICE_ROAD_MAX_GRADE,
+                          axis=axis, pad=None)
+    assert _lateral_pct(ring, vals) <= (
+        C.SERVICE_ROAD_MAX_TRANSVERSE * 100.0 + 1e-6)
+
+
+def test_a_pad_pair_still_holds_the_road_longitudinal_cap():
+    """RELAXING ONLY relative to the CROSS-SECTION.  A frontage pair
+    reverts to its pre-25g longitudinal reading — never to no law at
+    all."""
+    from auto_patch import groundside as G
+    ring = [(0.0, 0.0), (120.0, 0.0), (120.0, 6.0), (0.0, 6.0)]
+    vals = [10.0, 40.0, 40.0, 10.0]          # 25 % ALONG the axis
+    axis = G._long_axis_of_points(ring)[0]
+    live = free = list(range(4))
+    pad = [True, True, True, True]           # every vertex a pad weld
+    out = list(vals)
+    G._chord_cut_and_fill(ring, out, live, free, C.SERVICE_ROAD_MAX_GRADE,
+                          axis=axis, pad=pad)
+    worst = max(abs(out[1] - out[0]), abs(out[2] - out[3])) / 120.0
+    assert worst <= C.SERVICE_ROAD_MAX_GRADE + 1e-6
+
+
+def test_the_pad_claim_is_the_airside_pins_own_claim_notion():
+    """ONE claim walk behind both pin sets — identity in two spaces,
+    never proximity.  Two different ideas of "a ring claims this node"
+    is the drift this factoring exists to prevent."""
+    from auto_patch import groundside as G
+    import inspect
+    assert "_claimed_keys" in inspect.getsource(G._airside_claimed_keys)
+    assert "_claimed_keys" in inspect.getsource(G._pad_claimed_keys)
+    # Both pad spellings the layout mints, because the frontage law is
+    # about the PAD, not about which producer made it.
+    from auto_patch.layout import ROLE_BUILDING, ROLE_OBJECT_PAD
+    assert set(G._PAD_CLAIM_ROLES) == {ROLE_BUILDING, ROLE_OBJECT_PAD}
+
+
+def test_the_pad_is_already_pinned_by_the_airside_set():
+    """The measured fact this whole exemption rests on: a pad node is
+    ALREADY pinned, because ``building`` is not a groundside role.  If
+    that ever changes, the exemption alone would stop being enough and
+    this twin says so."""
+    from auto_patch.layout import (GROUNDSIDE_ROLES, ROLE_BUILDING,
+                                   ROLE_OBJECT_PAD)
+    assert ROLE_BUILDING not in GROUNDSIDE_ROLES
+    assert ROLE_OBJECT_PAD not in GROUNDSIDE_ROLES
+
+
 def test_the_family_is_registered_in_its_emission_position(cg):
     """``LAW_FAMILIES`` order IS the emission order (``test_harness.py``
     asserts the returned lists rebuild from it).  The cross-section rides

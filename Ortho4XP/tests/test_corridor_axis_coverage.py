@@ -619,3 +619,150 @@ class TestVerticalProfile:
                 CAC.load_axes(sidecar), CAC._road_nodes(patch),
                 halo_m=CAC.DEFAULT_HALO_M, cap=CAC._road_cap())))
         assert "VERTICAL PROFILE" in capsys.readouterr().out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# arm_site_read --profile / --line — WHAT SHAPE IS THE SURFACE HERE?
+# (docs/specs/heca-apron-round2-spec.md acceptance; the round needed the
+# emitted elevation itself, which no row count or weld table carries)
+# ══════════════════════════════════════════════════════════════════════
+
+def _surface_patch(tmp_path, name, alts, *, role="graded_strip",
+                   step_m=10.0, lat_off_m=0.0):
+    """One open way marching east from the site, one vertex every
+    ``step_m``, carrying ``alts`` as per-node ``alt_abs`` — the dialect
+    production emits."""
+    lat = LAT0 + lat_off_m / M_PER_DEG
+    txt = ["<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"]
+    for k, a in enumerate(alts):
+        txt.append(f"  <node id='-{100 + k}' lat='{lat:.9f}' "
+                   f"lon='{_east(k * step_m):.9f}'>\n"
+                   f"    <tag k='alt_abs' v='{a}'/>\n  </node>\n")
+    txt.append("  <way id='-13257'>\n"
+               + "".join(f"    <nd ref='-{100 + k}'/>\n"
+                         for k in range(len(alts)))
+               + f"    <tag k='role' v='{role}'/>\n"
+               "    <tag k='aeroway' v='taxiway'/>\n  </way>\n")
+    txt.append("</osm>\n")
+    p = tmp_path / name
+    p.write_text("".join(txt))
+    (tmp_path / (name + ".axes.json")).write_text(
+        json.dumps({"anchor": [LAT0, LON0], "ruleset": "icao"}))
+    return p
+
+
+class TestStationProfiles:
+    """The RIPPLE reading: peak-to-peak inside a 50 m run along the ring."""
+
+    def test_a_rippling_ring_reports_its_amplitude(self, tmp_path):
+        cg = ASR._check_grade()
+        alts = [100.0 + (0.55 if k % 2 else -0.55) for k in range(21)]
+        p = _surface_patch(tmp_path, "ripple.osm", alts)
+        got = ASR.station_profiles(cg, p, LAT0, LON0, 250.0)
+        assert len(got) == 1
+        assert got[0]["amp_m"] == pytest.approx(1.10, abs=0.01)
+        assert got[0]["worst_step_m"] == pytest.approx(1.10, abs=0.01)
+        assert got[0]["worst_step_pct"] == pytest.approx(11.0, abs=0.1)
+
+    def test_a_faired_ring_reports_a_small_amplitude(self, tmp_path):
+        """The same ring, faired to a straight ramp: the amplitude falls
+        to what the ramp itself carries across the window."""
+        cg = ASR._check_grade()
+        alts = [100.0 + 0.01 * k for k in range(21)]
+        p = _surface_patch(tmp_path, "faired.osm", alts)
+        got = ASR.station_profiles(cg, p, LAT0, LON0, 250.0)
+        assert got[0]["amp_m"] == pytest.approx(0.05, abs=0.005)
+        assert got[0]["worst_step_pct"] == pytest.approx(0.1, abs=0.01)
+
+    def test_the_role_scope_is_a_parameter(self, tmp_path):
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "roled.osm", [100.0] * 11,
+                           role="apron")
+        assert ASR.station_profiles(cg, p, LAT0, LON0, 250.0,
+                                    roles=("graded_strip",)) == []
+        assert ASR.station_profiles(cg, p, LAT0, LON0, 250.0,
+                                    roles=("apron",))
+
+    def test_a_ring_that_does_not_reach_the_site_is_not_profiled(self,
+                                                                 tmp_path):
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "far.osm", [100.0] * 11,
+                           lat_off_m=400.0)
+        assert ASR.station_profiles(cg, p, LAT0, LON0, 25.0) == []
+
+    def test_a_window_the_run_cannot_support_reads_None_not_zero(self,
+                                                                tmp_path):
+        """A reading a window cannot support is not a reading."""
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "short.osm", [100.0, 100.9, 99.4],
+                           step_m=2.0)
+        got = ASR.station_profiles(cg, p, LAT0, LON0, 250.0)
+        assert got[0]["amp_m"] is None
+        assert got[0]["worst_step_m"] == pytest.approx(1.5, abs=0.01)
+
+
+class TestLineProfile:
+    """The CLIFF reading — and the NODELESS-VOID reading, which is the
+    same instrument answering with an empty list."""
+
+    def test_the_stations_along_the_line_carry_their_step(self, tmp_path):
+        cg = ASR._check_grade()
+        alts = [100.0] * 10 + [104.0] * 11        # a 4 m step at station 100
+        p = _surface_patch(tmp_path, "cliff.osm", alts)
+        got = ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(200.0)))
+        assert got["n_stations"] == 21
+        assert got["worst_step_m"] == pytest.approx(4.0, abs=0.01)
+        assert got["worst_step_at_m"] == pytest.approx(90.0, abs=0.5)
+
+    def test_an_empty_station_list_IS_the_finding(self, tmp_path):
+        """A NODELESS void: the line crosses real pavement and no emitted
+        vertex lies along it.  The tool reports zero stations rather than
+        a clean profile — the census's blind spot, made visible."""
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "void.osm", [100.0] * 5,
+                           lat_off_m=300.0)
+        got = ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(200.0)))
+        assert got["n_stations"] == 0
+        assert got["worst_step_m"] is None
+        assert got["alt_min"] is None            # never 0.0
+
+    def test_the_corridor_width_is_a_parameter(self, tmp_path):
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "corr.osm", [100.0] * 11,
+                           lat_off_m=20.0)
+        assert ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(100.0)),
+                                corridor_m=15.0)["n_stations"] == 0
+        assert ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, _east(100.0)),
+                                corridor_m=30.0)["n_stations"] > 0
+
+    def test_two_distinct_coordinates_are_required(self, tmp_path):
+        cg = ASR._check_grade()
+        p = _surface_patch(tmp_path, "same.osm", [100.0] * 5)
+        with pytest.raises(ASR.SiteReadRefusal):
+            ASR.line_profile(cg, p, (LAT0, LON0), (LAT0, LON0))
+
+    def test_the_cli_json_is_the_library_result(self, tmp_path, capsys):
+        p = _surface_patch(tmp_path, "cli_prof.osm",
+                           [100.0 + (0.5 if k % 2 else -0.5)
+                            for k in range(21)])
+        out = tmp_path / "prof.json"
+        assert ASR.main([
+            str(p), str(p), "--site", f"S={LAT0},{LON0}",
+            "--radius", "250", "--profile",
+            "--line", f"L={LAT0},{LON0}:{LAT0},{_east(200.0)}",
+            "--json", str(out)]) == 0
+        got = json.loads(out.read_text())
+        cg = ASR._check_grade()
+        assert got["profiles"]["S"]["arm"] == ASR.station_profiles(
+            cg, p, LAT0, LON0, 250.0)
+        assert got["lines"]["L"]["arm"] == ASR.line_profile(
+            cg, p, (LAT0, LON0), (LAT0, _east(200.0)))
+        printed = capsys.readouterr().out
+        assert "STATION PROFILES" in printed
+        assert "OWNER LINES" in printed
+
+    def test_profile_without_a_site_is_reported_as_skipped(self, tmp_path,
+                                                           capsys):
+        p = _surface_patch(tmp_path, "nosite_prof.osm", [100.0] * 5)
+        assert ASR.main([str(p), str(p), "--profile"]) == 0
+        assert "SKIPPED profiles" in capsys.readouterr().out

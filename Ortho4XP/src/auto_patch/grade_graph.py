@@ -250,6 +250,19 @@ class Centerline:
     # refuse to justify a ceiling/floor through them
     # (``building_feasibility.reach_band_unified``).
     is_service: bool = False
+    # APRON SPINE (owner ruling RULINGS 2026-08-25h): this piece runs
+    # INSIDE or ALONG an apron, so the ruling makes it THE APRON'S SPINE
+    # at the apron's cap.  It stays ``is_service`` — the reachability
+    # band must still refuse to justify a ceiling through a truck route
+    # (§2.2, REACH_NO_SERVICE_SPINES) — but the GRADING scaffold reads it
+    # like a taxi centerline, which is the whole of §2.1.
+    #
+    # TWO FLAGS BECAUSE THERE ARE TWO GUARDS, and they were never the
+    # same question: ``is_service`` gates the BAND (reachability), and
+    # ``_reads_service_spines`` gates SPINE MEMBERSHIP (grading).  The
+    # ruling moves the second for this population and leaves the first
+    # exactly where it is.
+    is_apron_spine: bool = False
 
     @property
     def cap(self) -> float:
@@ -1440,7 +1453,15 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
             routes.append(RouteChain(pts=rpts))
             route_key_to_idx[rkey] = ridx
         cls.append(Centerline(pts=pts, seg_caps=seg_caps, route_idx=ridx,
-                              is_service=_is_svc))
+                              is_service=_is_svc,
+                              # The APRON-SPINE class (RULINGS 2026-08-25h)
+                              # is carried by its route key, which
+                              # ``centerline_specs`` mints as
+                              # ``("apron_spine", ...)`` — one enumeration,
+                              # so the solver, the validator and the sidecar
+                              # mirror cannot disagree about which pieces are
+                              # the apron's spine.
+                              is_apron_spine=(rkey[0] == "apron_spine")))
         if _is_svc:
             _svc_len_m += sum(math.hypot(b[0] - a[0], b[1] - a[1])
                               for (a, b) in zip(pts, pts[1:]))
@@ -1930,7 +1951,9 @@ def _spine_membership(shape: GradeShape, ctx: GradeContext
     q_ri, q_k = tree.query(boxes)
     for ri, k in zip(q_ri.tolist(), q_k.tolist()):
         ci = idxs[k]
-        if not svc_ok and ctx.centerlines[ci].is_service:
+        _cl_m = ctx.centerlines[ci]
+        if (not svc_ok and _cl_m.is_service
+                and not getattr(_cl_m, "is_apron_spine", False)):
             continue
         x, y = ring[ri]
         a, d, _ = _project(ctx.centerlines[ci], x, y)
@@ -2032,7 +2055,8 @@ def _spine_crossing_predicate(shape: GradeShape, ctx: GradeContext,
         _svc_ok = _reads_service_spines(shape)
         geoms = []
         for cl in ctx.centerlines:
-            if not _svc_ok and cl.is_service:
+            if (not _svc_ok and cl.is_service
+                    and not getattr(cl, "is_apron_spine", False)):
                 continue
             if len(cl.pts) >= 2:
                 try:

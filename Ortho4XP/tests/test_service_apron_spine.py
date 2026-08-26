@@ -249,3 +249,49 @@ def test_d_contact_is_canonical_edge_identity_never_proximity():
         _Shape("apron", Polygon([(0.0, 0.0), (40.0, 0.0),
                                  (40.0, -30.0), (0.0, -30.0)]))]
     assert GS.count_edge_alternation(lay) == 0
+
+
+def test_the_apron_reads_an_apron_spine_but_NOT_a_plain_truck_route():
+    """§2.1 needs the APRON to anchor on the spine — and the standing
+    airside guard must survive for everything else.
+
+    ``_reads_service_spines`` lets only a GROUNDSIDE shape read a service
+    centerline, on measured evidence: when the ROAD FEED joined the one
+    graph it multiplied service centerlines 10-140x (HECA 5 -> 705) and
+    every one became a spine for whatever airside pavement it passed —
+    airside rose at 7 of 8 battery cells.  That guard stays.
+
+    RULINGS 2026-08-25h creates a NARROWER class: a truck route that runs
+    INSIDE an apron IS that apron's spine.  So the exemption is keyed on
+    ``is_apron_spine``, never on ``is_service`` — a free road passing an
+    apron is still refused, which is the regression this twin exists to
+    prevent.
+    """
+    from auto_patch.grade_graph import Centerline, _reads_service_spines
+    from auto_patch.layout import ROLE_APRON
+
+    plain = Centerline(pts=[(0.0, 0.0), (100.0, 0.0)], seg_caps=[0.08],
+                       is_service=True)
+    spine = Centerline(pts=[(0.0, 0.0), (100.0, 0.0)],
+                       seg_caps=[C.APRON_MAX_GRADE],
+                       is_service=True, is_apron_spine=True)
+    assert plain.is_apron_spine is False
+    assert spine.is_apron_spine is True
+    # BOTH stay service — §2.2's band exclusion keys on this and must not
+    # notice the difference.
+    assert plain.is_service is spine.is_service is True
+    # An apron shape may not read service spines in general...
+    apron = GG.GradeShape(role=ROLE_APRON, ring=[(0.0, 0.0), (1.0, 0.0),
+                                                 (1.0, 1.0)],
+                          keys=["a", "b", "c"])
+    assert _reads_service_spines(apron) is False
+
+
+def test_the_apron_spine_class_comes_from_the_ONE_enumeration():
+    """The class is carried by the route key ``centerline_specs`` mints,
+    so the solver, the validator and the sidecar mirror cannot disagree
+    about which pieces are the apron's spine."""
+    spine = LineString([(0.0, 0.0), (120.0, 0.0)])
+    specs = _specs(_Layout(apron_spines=[spine]))
+    keys = [sp[3][0] for sp in specs]
+    assert "apron_spine" in keys

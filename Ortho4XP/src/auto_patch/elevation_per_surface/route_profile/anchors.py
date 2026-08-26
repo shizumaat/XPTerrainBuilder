@@ -1394,18 +1394,80 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # airside band BY CONSTRUCTION.
     _basin_seat_idx: set = set()
     _basin_seat_pads = 0
-    for s in layout.shapes:
+    # ── A DECLARED PAD WELDED TO AN UNDECLARED ONE CANNOT SEAT ──────
+    # (measured at LEMD, 2026-08-25, arm 1 of this round.)  The MERGED
+    # RIGID UNIT law is standing law: pads sharing a ring vertex are ONE
+    # flat body at ONE level, transitively.  A rigid body cannot be at
+    # two levels — so a declared pad welded to an UNDECLARED neighbour
+    # has exactly two consistent outcomes, and BOTH are wrong here:
+    # either the neighbour sinks to the basin floor with it, or the
+    # declaration is discarded.
+    #
+    # LEMD is the exemplar and the numbers are the argument.
+    # ``building8`` (33,237 m², the declared pad) shares its WHOLE east
+    # edge — three canonical ring nodes — with ``building18``
+    # (75,885 m²), which is outside the basin entirely; the build's own
+    # rigid-unit report reads "{building8, building18} target 599.345 m".
+    # Seating the unit would put a 16 m cliff through a terminal complex
+    # and sink a 75,885 m² pad for the sake of an 11,805 m² basin.  Arm 1
+    # made the declaration anyway and the projection SILENTLY discarded
+    # it (both pads emitted 600.40 m) — the exact silent class §2 of this
+    # spec exists to kill.
+    #
+    # So the seat is WITHDRAWN, LOUDLY, naming both pads and the
+    # neighbour's area — the same disposition R13's restore guard gives a
+    # cut that bought nothing.  THE FLOOR EXCLUSION IS UNAFFECTED: the
+    # basin still cuts through the pad's ground and the floor pan still
+    # emits (LEMD: 11,805 m² at 584.50 m).  What is withdrawn is only the
+    # claim that the PAD moves.  Which resolution the ruling wants —
+    # sink the whole rigid unit, or CUT the pad at the facility
+    # footprint the way R13 cuts pavement — is a design decision, and
+    # this line is what puts the numbers in front of it.
+    _decl_pads = [s for s in layout.shapes
+                  if getattr(s, "basin_floor_seat_m", None) is not None
+                  and s.polygon is not None and not s.polygon.is_empty]
+    if _decl_pads:
+        _decl_ids = {id(s) for s in _decl_pads}
+        _undecl_by_key: dict = {}
+        for s in layout.shapes:
+            if (s.role != ROLE_BUILDING or id(s) in _decl_ids
+                    or s.polygon is None or s.polygon.is_empty):
+                continue
+            try:
+                _r = _open_ring(list(s.polygon.exterior.coords))
+            except (ValueError, TypeError):
+                continue
+            for (x, y) in _r:
+                _undecl_by_key.setdefault(
+                    cps.get_or_add(float(x), float(y)), s)
+    for s in _decl_pads:
         _decl = getattr(s, "basin_floor_seat_m", None)
-        if _decl is None or s.polygon is None or s.polygon.is_empty:
-            continue
         try:
             _ring = _open_ring(list(s.polygon.exterior.coords))
         except (ValueError, TypeError):
             continue
+        _keys = [cps.get_or_add(float(x), float(y)) for (x, y) in _ring]
+        _welded = {}
+        for k in _keys:
+            _n = _undecl_by_key.get(k)
+            if _n is not None:
+                _welded.setdefault(id(_n), [_n, 0])[1] += 1
+        if _welded:
+            for (_n, _shared) in _welded.values():
+                _report(
+                    f"  [seats] BASIN PAD SEAT WITHDRAWN: {s.ref!r} "
+                    f"({s.polygon.area:.0f} m2) is declared at its basin "
+                    f"floor {float(_decl):.2f} m but shares {_shared} ring "
+                    f"node(s) with UNDECLARED pad {_n.ref!r} "
+                    f"({_n.polygon.area:.0f} m2) — one rigid flat body "
+                    f"cannot be at two levels, and seating the unit would "
+                    f"take the neighbour down with it.  The basin floor "
+                    f"still cuts and emits; the PAD stays at grade.")
+            s.basin_floor_seat_m = None
+            continue
         _basin_seat_pads += 1
         _lv = float(_decl)
-        for (x, y) in _ring:
-            k = cps.get_or_add(float(x), float(y))
+        for k in _keys:
             i = bucket_to_idx.get(k)
             if i is not None:
                 seats[i] = _lv

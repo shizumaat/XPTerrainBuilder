@@ -2434,17 +2434,114 @@ class TestBasinPadFloorSeating:
                         for plate in _basin_plates(bare, "trench"))
         assert seated_area == pytest.approx(bare_area, rel=1e-9)
 
-    # ── §2's twin / the building8 limb: the pad COVERS the facility ──
-    def test_a_pad_covering_the_facility_seats_at_the_floor(self):
+    # ── AMENDMENT 2: the pad COVERS the facility → it is CUT ────────
+    def test_a_pad_covering_the_facility_is_CUT_at_the_boundary(self):
         """The exemplar's own geometry: a pad LARGER than the basin,
-        covering 100 % of it.  Under §1.1's pad-side reading alone this
-        pad is only 17 % inside and would never seat — and §2's twin
-        would be unsatisfiable."""
+        covering 100 % of it.  Amendment 2 (owner-ratified 2026-08-25):
+        such a pad is CUT at the facility boundary exactly as R13 cuts
+        pavement — the in-facility piece becomes its own pad seated at
+        the floor, the remainder keeps grade and identity."""
         layout = self._layout(self.COVERING_PAD, apron=True)
         floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
         assert floors >= 1
-        assert self._pads(layout)["building0"].basin_floor_seat_m == \
+        pads = self._pads(layout)
+        # the remainder keeps the pad's OWN ref and stays at grade
+        assert pads["building0"].basin_floor_seat_m is None
+        # ...and the in-facility piece is its own pad, at the floor
+        assert pads["building0_basin"].basin_floor_seat_m == \
             pytest.approx(self._expected_floor())
+        # the two halves partition the original pad (minus the wall inset)
+        assert pads["building0"].polygon.area + \
+            pads["building0_basin"].polygon.area < self.COVERING_PAD.area
+        assert pads["building0"].polygon.area > \
+            0.5 * self.COVERING_PAD.area
+
+    def test_the_cut_leaves_a_node_split_wall_at_the_boundary(self):
+        """The R2 wall class owns the boundary: the sunken piece is inset
+        from the cut line, so it shares NO ring vertex with the remainder
+        — two rows a split apart at the full basin drop.  A shared ring
+        would weld the halves to one level and undo the cut."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        pads = self._pads(layout)
+        outer = {(round(x, 3), round(y, 3))
+                 for (x, y) in pads["building0"].polygon.exterior.coords}
+        inner = {(round(x, 3), round(y, 3))
+                 for (x, y) in
+                 pads["building0_basin"].polygon.exterior.coords}
+        assert not (outer & inner), "the two halves share a ring vertex"
+        assert pads["building0"].polygon.distance(
+            pads["building0_basin"].polygon) == pytest.approx(
+                assembly._BASIN_PAD_CUT_INSET_M, abs=0.05)
+
+    def test_the_cut_still_leaves_a_floor_pan_ring(self):
+        """The inset is sized so the floor pan is NOT differenced away to
+        nothing by the sunken piece: a pan ring survives between the wall
+        and the piece, both AT the floor, and they never overlap (a
+        coincident twin ring is the round-16 defect class)."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        pan = _basin_plates(layout, "trench")
+        assert pan
+        piece = self._pads(layout)["building0_basin"].polygon
+        for plate in pan:
+            assert plate.polygon.intersection(piece).area == \
+                pytest.approx(0.0, abs=1e-6)
+
+    def test_a_rigid_coupled_neighbour_is_UNMOVED_by_the_cut(self):
+        """Amendment 2's twin, the LEMD shape in miniature: the pad is
+        rigidly coupled to a neighbour OUTSIDE the basin through a shared
+        ring edge.  After the cut the sunken piece shares no vertex with
+        that neighbour, so the seat binds and the neighbour never moves —
+        the whole reason Amendment 2 cuts instead of seating whole."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        # welded to the covering pad's +x edge, wholly outside the basin
+        from auto_patch.layout import ROLE_BUILDING
+        neighbour = bridges.BuiltShape(
+            polygon=Polygon([(60, -60), (200, -60), (200, 60), (60, 60)]),
+            role=ROLE_BUILDING, ref="neighbour", altitude=8.0)
+        layout.shapes.append(neighbour)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        pads = self._pads(layout)
+        assert pads["neighbour"] is neighbour
+        assert neighbour.basin_floor_seat_m is None
+        assert neighbour.altitude == pytest.approx(8.0)
+        assert neighbour.polygon.equals(
+            Polygon([(60, -60), (200, -60), (200, 60), (60, 60)]))
+        sunken = pads["building0_basin"].polygon
+        n_ring = {(round(x, 3), round(y, 3))
+                  for (x, y) in neighbour.polygon.exterior.coords}
+        s_ring = {(round(x, 3), round(y, 3))
+                  for (x, y) in sunken.exterior.coords}
+        assert not (n_ring & s_ring)
+
+    def test_the_cut_preserves_every_flag_the_pad_carried(self):
+        """Identity, not a field-by-field copy: both halves ride
+        ``dataclasses.replace``, so a flag nobody thought to list here
+        still survives."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        pad = self._pads(layout)["building0"]
+        pad.apron_contact = True
+        pad.lateral_cap = 0.012
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        pads = self._pads(layout)
+        for ref in ("building0", "building0_basin"):
+            assert pads[ref].apron_contact is True
+            assert pads[ref].lateral_cap == pytest.approx(0.012)
+
+    def test_a_cut_that_cannot_express_the_seat_is_withdrawn(self, capsys):
+        """Amendment 2 item 2: the loud withdrawal stays for anything the
+        cut cannot express.  A facility so small that nothing survives the
+        wall inset at ``PAD_MIN_AREA_M2`` leaves the pad at grade and says
+        so."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        tiny = Polygon([(-8, -8), (8, -8), (8, 8), (-8, 8)])
+        _emit_basin(layout, [_interface(footprint=tiny)], _FakeDem(8.0))
+        assert self._pads(layout)["building0"].basin_floor_seat_m is None
+        assert "BASIN PAD CUT WITHDRAWN" in capsys.readouterr().out
 
     def test_the_covering_pad_case_keeps_the_r13_cut(self):
         """The cut is no longer restored: it bought a floor."""

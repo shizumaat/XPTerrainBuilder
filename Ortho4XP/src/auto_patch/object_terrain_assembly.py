@@ -46,7 +46,7 @@ import json
 import math
 import os
 import pickle
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dataclass_replace
 from statistics import median
 
 import O4_UI_Utils as UI
@@ -1467,6 +1467,26 @@ _TUNNEL_RIM_BAND_WIDTH_M = 0.6
 #   collinear with a building ring minted the EGKR mm-jitter Triangle
 #   failure).
 _TUNNEL_FLOOR_OWNED_CLEARANCE_M = 0.7
+# * THE BASIN-PAD CUT LINE (spec ``basin-pad-floor-seating-spec.md``
+#   Amendment 2, owner-ratified 2026-08-25).  A pad that only PARTIALLY
+#   covers a basin facility is CUT at the facility boundary: the
+#   in-facility piece seats at the floor, the remainder keeps grade.
+#   The sunken piece is inset from the cut line by exactly the three
+#   margins the wall needs, and by no more:
+#     * one ``_TUNNEL_WALL_SETBACK_M`` — the node split against the
+#       REMAINDER's inner ring, which lies ON the cut line (two rows a
+#       split apart at a 15.9 m drop ARE the R2 wall; sharing the ring
+#       would weld the two halves into one level and undo the cut);
+#     * ``_TUNNEL_FLOOR_OWNED_CLEARANCE_M`` + one more setback — the
+#       clearance the floor pan keeps from every earlier-born shape,
+#       so a FLOOR-PAN RING survives between the wall and the sunken
+#       piece instead of the pan being differenced away to nothing.
+#   The pan and the piece are both AT the floor, so that ring carries no
+#   step; what it buys is that the two never overlap (a coincident twin
+#   ring is the round-16 geometry-consistency defect class) and the
+#   basin still emits floor plates of its own.
+_BASIN_PAD_CUT_INSET_M = (2.0 * _TUNNEL_WALL_SETBACK_M
+                          + _TUNNEL_FLOOR_OWNED_CLEARANCE_M)
 # A Global-Airports tile DSF covers EVERY airport on the tile, so each
 # airport's classifier sees every other airport's objects — without a
 # proximity gate, twelve airports each emitted a jittered copy of the
@@ -2790,10 +2810,14 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             if facility_geometry is not None \
                     and not facility_geometry.is_empty:
                 facility_area = float(facility_geometry.area)
-                for pad in layout.shapes:
-                    if (pad.role != ROLE_BUILDING or pad.polygon is None
-                            or pad.polygon.is_empty):
-                        continue
+                # SNAPSHOT.  The Amendment-2 cut below REPLACES pad shapes
+                # in ``layout.shapes``; iterating the live list while
+                # mutating it is the classic way to miss one.
+                pad_snapshot = [
+                    s for s in layout.shapes
+                    if s.role == ROLE_BUILDING and s.polygon is not None
+                    and not s.polygon.is_empty]
+                for pad in pad_snapshot:
                     pad_area = float(pad.polygon.area)
                     if pad_area <= 0.0:
                         continue
@@ -2808,70 +2832,159 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     facility_coverage = (
                         overlap / facility_area if facility_area > 0.0
                         else 0.0)
-                    # ── THE CRITERION IS EITHER-SIDE, AND THE SPEC SAYS
-                    # SO TWICE ─────────────────────────────────────────
-                    # §1.1 states the threshold against the PAD's own
-                    # area — the small pad wholly inside a big basin.
-                    # §2's twin states the other limb as normative
-                    # acceptance: "synthetic facility FULLY COVERED BY A
-                    # PAD → §1 ON: floor emits + pad seats at floor".
-                    # Only the second limb reaches the exemplar the
-                    # ruling is about: LEMD's ``building8`` is 33,447 m²
-                    # over a 12,251 m² facility, so it is ~37 % INSIDE
-                    # the basin while covering 100 % OF it — and it is
-                    # the covering that erases the floor.  A pad-side
-                    # test alone would leave §2's own twin unsatisfiable.
-                    #
-                    # ONE CONSTANT, BOTH LIMBS.  A second threshold would
-                    # be a number the spec never ruled; the same
-                    # ``BASIN_PAD_COVERAGE_MIN`` reads on whichever side
-                    # is being asked.  Same shape as the bridge
-                    # never-stack precedent's either-side criterion
-                    # (``bridges.build_bridge_layout_shapes``), for the
-                    # same measured reason: a pack's own pad is routinely
-                    # LARGER than the structure box it was extracted
-                    # from.
+                    where = (f"{pad.ref!r} ({pad_area:.0f} m2) is "
+                             f"{100.0 * pad_coverage:.0f} % inside "
+                             f"{resources} and covers "
+                             f"{100.0 * facility_coverage:.0f} % of it")
                     if max(pad_coverage, facility_coverage) \
-                            >= config.BASIN_PAD_COVERAGE_MIN:
-                        if not config.BASIN_PAD_FLOOR_SEAT:
-                            UI.vprint(
-                                1,
-                                f"   [{log_tag}] BASIN PAD {pad.ref!r} "
-                                f"({pad_area:.0f} m2) is "
-                                f"{100.0 * pad_coverage:.0f} % inside "
-                                f"{resources} and covers "
-                                f"{100.0 * facility_coverage:.0f} % of it "
-                                f"— NOT seated at the floor "
-                                f"{floor_elevation:.2f} m "
-                                "(O4_BASIN_PAD_FLOOR_SEAT=0)",
-                            )
-                            continue
+                            < config.BASIN_PAD_COVERAGE_MIN:
+                        # A pad under threshold on BOTH sides straddles the
+                        # basin RIM — a real design case this rule is not
+                        # about.  Today's behaviour, and REPORTED by name so
+                        # a straddler is never silently sorted into either
+                        # class.
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN RIM STRADDLER: pad "
+                            f"{where} (both under "
+                            f"{100.0 * config.BASIN_PAD_COVERAGE_MIN:.0f} "
+                            "%) — NOT seated at the floor; today's "
+                            "behaviour kept",
+                        )
+                        continue
+                    if not config.BASIN_PAD_FLOOR_SEAT:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] BASIN PAD {where} — NOT "
+                            f"seated at the floor {floor_elevation:.2f} m "
+                            "(O4_BASIN_PAD_FLOOR_SEAT=0)",
+                        )
+                        continue
+                    if pad_coverage >= config.BASIN_PAD_COVERAGE_MIN:
+                        # ── §1.1: THE PAD IS INSIDE — IT SEATS WHOLE ────
+                        # Its declared flat level is ``floor_elevation``,
+                        # which the seat producers stamp onto its ring
+                        # (``BuiltShape.basin_floor_seat_m``), and §1.2
+                        # keeps the floor pan from being differenced
+                        # against it — the cut emits THROUGH the pad, at
+                        # the elevation the pad now carries.
                         pad.basin_floor_seat_m = float(floor_elevation)
                         floor_seated_pad_ids.add(id(pad))
                         UI.vprint(
                             1,
                             f"   [{log_tag}] BASIN PAD SEATED AT THE "
-                            f"FLOOR: {pad.ref!r} ({pad_area:.0f} m2) is "
-                            f"{100.0 * pad_coverage:.0f} % inside "
-                            f"{resources} and covers "
-                            f"{100.0 * facility_coverage:.0f} % of it — "
-                            f"its flat level is the facility floor "
-                            f"{floor_elevation:.2f} m and the cut emits "
-                            "through it",
+                            f"FLOOR: {where} — it lies INSIDE the "
+                            f"facility, so its flat level is the facility "
+                            f"floor {floor_elevation:.2f} m and the cut "
+                            "emits through it",
                         )
-                    else:
+                        continue
+                    # ── AMENDMENT 2 (owner-ratified 2026-08-25): A
+                    # PARTIALLY-COVERING PAD IS CUT AT THE FACILITY
+                    # BOUNDARY, EXACTLY AS R13 CUTS PAVEMENT ────────────
+                    # The in-facility piece becomes its OWN pad, seated at
+                    # the facility floor; the out-of-facility remainder
+                    # keeps its grade, its welds and its identity; the R2
+                    # node-split wall class owns the boundary.
+                    #
+                    # WHY THE CUT AND NOT A WHOLE SEAT (measured, arm 1 of
+                    # this round).  LEMD's ``building8`` is 33,237 m² over
+                    # an 11,805 m² basin and rigidly couples to
+                    # ``building18`` (75,885 m², outside the basin)
+                    # through three shared canonical ring nodes — the
+                    # MERGED RIGID UNIT law makes them ONE flat body, so
+                    # seating the unit sinks a terminal complex 16 m and
+                    # seating the pad alone is silently discarded.  Cut,
+                    # the sunken piece shares no ring node with any pad
+                    # outside the basin, so the seat binds and building18
+                    # never moves.
+                    #
+                    # IDENTITY IS PRESERVED BY ``dataclasses.replace`` —
+                    # every flag the pad carries (apron contact, lateral
+                    # cap, fan-ramp zone, …) rides into both halves rather
+                    # than being copied field by field.  The remainder
+                    # keeps the pad's own ``ref``; the sunken piece gets
+                    # its own (``<ref>_basin``) because Amendment 2 makes
+                    # it "its own pad".
+                    try:
+                        inside_geometry = pad.polygon.intersection(
+                            facility_geometry)
+                        sunken_geometry = inside_geometry.buffer(
+                            -_BASIN_PAD_CUT_INSET_M,
+                            join_style=2, mitre_limit=2.0)
+                        remainder_geometry = pad.polygon.difference(
+                            facility_geometry)
+                    except Exception:
+                        sunken_geometry = None
+                        remainder_geometry = None
+
+                    def _pieces(geometry):
+                        if geometry is None or geometry.is_empty:
+                            return []
+                        parts = (list(geometry.geoms)
+                                 if geometry.geom_type == "MultiPolygon"
+                                 else [geometry])
+                        return [part for part in parts
+                                if part.geom_type == "Polygon"
+                                and not part.is_empty
+                                and part.area >= config.PAD_MIN_AREA_M2]
+
+                    sunken_parts = _pieces(sunken_geometry)
+                    remainder_parts = _pieces(remainder_geometry)
+                    if not sunken_parts:
+                        # THE CUT CANNOT EXPRESS IT (Amendment 2 item 2):
+                        # nothing survives the wall inset that is still an
+                        # independent seat authority.  Withdrawn, LOUDLY —
+                        # never a silently-dropped declaration.
                         UI.vprint(
                             1,
-                            f"   [{log_tag}] BASIN RIM STRADDLER: pad "
-                            f"{pad.ref!r} ({pad_area:.0f} m2) is only "
-                            f"{100.0 * pad_coverage:.0f} % inside "
-                            f"{resources} (< "
-                            f"{100.0 * config.BASIN_PAD_COVERAGE_MIN:.0f} "
-                            f"%) and covers "
-                            f"{100.0 * facility_coverage:.0f} % of it — "
-                            "NOT seated at the floor; today's behaviour "
-                            "kept",
+                            f"   [{log_tag}] BASIN PAD CUT WITHDRAWN: "
+                            f"{where}, but its in-facility piece does not "
+                            f"survive the {_BASIN_PAD_CUT_INSET_M:.1f} m "
+                            f"wall inset at "
+                            f"{config.PAD_MIN_AREA_M2:.0f} m2 — the pad is "
+                            "left at grade and the floor is differenced "
+                            "against it as before",
                         )
+                        continue
+                    replacements = []
+                    for part in remainder_parts:
+                        replacements.append(_dataclass_replace(
+                            pad, polygon=part, node_altitudes=None,
+                            basin_floor_seat_m=None))
+                    for part in sunken_parts:
+                        replacements.append(_dataclass_replace(
+                            pad, polygon=part, node_altitudes=None,
+                            ref=f"{pad.ref}_basin",
+                            basin_floor_seat_m=float(floor_elevation)))
+                    layout.shapes = [
+                        replacement
+                        for shape in layout.shapes
+                        for replacement in (replacements if shape is pad
+                                            else [shape])]
+                    # The owned-ground index is a SNAPSHOT and this pass
+                    # just replaced a shape in it (the same reason R13's
+                    # cut re-indexes).  The sunken pieces are DELIBERATELY
+                    # NOT added to ``floor_seated_pad_ids``: they are
+                    # already AT the floor, so the floor pan differencing
+                    # against them loses nothing, and the cut inset is
+                    # sized so a floor-pan ring survives between the wall
+                    # and the piece — two coplanar rings that never
+                    # overlap, instead of one coincident twin pair.
+                    _reindex_owned_ground()
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] BASIN PAD CUT AT THE FACILITY "
+                        f"BOUNDARY: {where} — "
+                        f"{sum(p.area for p in sunken_parts):.0f} m2 in "
+                        f"{len(sunken_parts)} piece(s) seat at the floor "
+                        f"{floor_elevation:.2f} m as "
+                        f"{pad.ref + '_basin'!r}; "
+                        f"{sum(p.area for p in remainder_parts):.0f} m2 in "
+                        f"{len(remainder_parts)} piece(s) keep grade as "
+                        f"{pad.ref!r}; the R2 node split at the cut line "
+                        "owns the wall",
+                    )
 
         # ANCHOR SEAT (user 2026-07-18f, "object sitting below terrain"):
         # every shell of the facility drapes at terrain(anchor), and the

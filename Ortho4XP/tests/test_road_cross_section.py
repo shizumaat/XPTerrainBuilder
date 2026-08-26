@@ -560,6 +560,36 @@ def test_the_pad_is_already_pinned_by_the_airside_set():
     assert ROLE_OBJECT_PAD not in GROUNDSIDE_ROLES
 
 
+def test_a_spine_pair_is_never_a_cross_section():
+    """THE CENTERLINE OUTRANKS THE BOUNDING BOX.
+
+    A spine pair IS the road's travel path — that is what a centerline
+    is — while the ring's minimum-area axis is only a PROXY for that
+    direction, and ``long_axis_of_points`` says so itself ("a blobby
+    service JUNCTION has no natural axis ... a shared convention").  A
+    shared convention is not an authority.
+
+    MEASURED (CYXY ``test_cyxy_spine_zero``, a zero-tolerance gate that
+    passes on main): without this clause the classifier priced 8
+    service_junction SPINE edges as cross-sections — the through-route
+    of a junction whose bounding box is wider than it is long — and the
+    solve then could not meet even the road's own LONGITUDINAL cap
+    there (two edges at 14.6 % against cap 8.0).
+    """
+    common = dict(role="service_road", dist=6.0, ring_adjacent=True,
+                  a_seam=False, b_seam=False,
+                  a_building=False, b_building=False,
+                  body_cap=C.SERVICE_ROAD_MAX_GRADE,
+                  transverse_road=True)
+    body = GL.classify_pair(GL.PairContext(spine_caps=(), **common))
+    spine = GL.classify_pair(GL.PairContext(
+        spine_caps=(C.SERVICE_ROAD_MAX_GRADE,), **common))
+    assert body.flat_cap() == pytest.approx(C.SERVICE_ROAD_MAX_TRANSVERSE)
+    assert spine.flat_cap() == pytest.approx(C.SERVICE_ROAD_MAX_GRADE), (
+        "a road's own travel direction was capped at its cross-section "
+        "rate — the bounding-box proxy overriding the centerline")
+
+
 def test_the_family_is_registered_in_its_emission_position(cg):
     """``LAW_FAMILIES`` order IS the emission order (``test_harness.py``
     asserts the returned lists rebuild from it).  The cross-section rides

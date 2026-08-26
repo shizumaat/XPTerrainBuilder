@@ -3610,7 +3610,27 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     # longitudinally.  Crown declarations exempt exactly as elsewhere —
     # the crown offset re-centres the pair's Δz before either reader
     # compares it to this budget, and nothing here touches that offset.
-    if p.transverse_road:
+    #
+    # A SPINE PAIR IS NEVER A CROSS-SECTION.  The spine IS the road's
+    # own travel path — that is what a centerline is — while the ring's
+    # minimum-area axis is only a PROXY for that direction, and
+    # ``long_axis_of_points`` says so itself: "a blobby service JUNCTION
+    # has no natural axis; the minimum-area rectangle still gives every
+    # reader the SAME answer, which is what a shared convention is for."
+    # A shared convention is not an authority.  Where the two disagree
+    # the CENTERLINE wins, because it is measured route geometry rather
+    # than a bounding-box artefact.
+    #
+    # MEASURED (CYXY, ``test_single_graph_acceptance::test_cyxy_spine_zero``,
+    # a zero-tolerance gate that passes on main): without this clause the
+    # classifier priced 8 service_junction SPINE edges as cross-sections
+    # — the through-route of a junction whose bounding box happens to be
+    # wider than it is long — and the solve then could not meet even the
+    # road's own LONGITUDINAL cap there (two edges at 14.6 % against
+    # cap 8.0).  Capping a road's travel direction at its cross-section
+    # rate is not the ruling; it is the proxy failing, and this is where
+    # it is caught.
+    if p.transverse_road and not p.spine_caps:
         cap = road_cross_section_cap(cap)
 
     return Allowance.flat(cap)

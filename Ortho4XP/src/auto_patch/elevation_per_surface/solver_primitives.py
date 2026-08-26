@@ -1670,6 +1670,45 @@ def _build_node_list(layout, *, readonly: bool = False):
                 if k not in bucket_to_idx:
                     bucket_to_idx[k] = len(nodes)
                     nodes.append((float(x), float(y)))
+    # ── APRON INTERIOR LATTICE ADMISSION (spec heca-apron-round2
+    # Amendment 1 §1b) ────────────────────────────────────────────────
+    # The SAME shape of admission as the gap-fill spines above, for the
+    # same reason: a lattice point is an INTERIOR point of an apron face
+    # and lies on no ring, so the ring iteration can never admit it.
+    #
+    # WHY THE LATTICE EXISTS.  An apron whose largest EMPTY interior disk
+    # exceeds ``APRON_NODELESS_RADIUS_M`` has an uncontrolled membrane:
+    # its elevation between ring vertices is whatever the mesh
+    # interpolates, and — worse — the census prices PAIRS OF EMITTED
+    # NODES, so a region with no nodes yields no rows and reads as
+    # compliant however wrong it is.  Measured at HECA: 10 such aprons,
+    # worst 175.4 m empty radius, and 247 m of the owner's cliff line
+    # with no emitted station at all, dropping 6.06 m at ZERO census
+    # rows.  §1's route synthesis was refuted there (the routes go
+    # AROUND the apron — nodes 462/470 are connected by a 2.2x detour),
+    # so what this ground needs is ANCHORS, not invented taxi geometry.
+    #
+    # ADMITTED ABOVE ``_terrain_host_yield_first_index`` DELIBERATELY:
+    # a lattice node is NOT a free terrain leaf yielding to a host — it
+    # is apron membrane, priced by the apron's own caps, and it may move
+    # authoritatively like any pavement variable.  Placing it below that
+    # boundary would hand it to the terrain-yield lever and freeze the
+    # very membrane this exists to control.
+    #
+    # A lattice point whose canonical bucket was already claimed ADOPTS
+    # that variable by identity (the standing rule) — the constructor
+    # already keeps lattice points a clear margin off every ring, so
+    # this is belt and braces.  Flag OFF (or no store): the loop body
+    # never runs — byte-inert.
+    for _lat_entry in (getattr(layout, "apron_lattice_presolve", None)
+                       or ()):
+        for x, y in _lat_entry.get("points", ()):
+            k = _intern(float(x), float(y))
+            if k is None:                     # readonly: unclaimed bucket
+                continue
+            if k not in bucket_to_idx:
+                bucket_to_idx[k] = len(nodes)
+                nodes.append((float(x), float(y)))
     # ── RUNWAY-END RESA CUT ADMISSION (arc R slice R1) ───────────────
     # The cut rings already exist pre-solve (they are emitted inside the
     # B1 skirt emitter's pre-solve call), so unlike the gap spines this

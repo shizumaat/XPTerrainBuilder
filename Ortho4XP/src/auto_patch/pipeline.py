@@ -5997,6 +5997,25 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                 UI.vprint(1, f"  [pav-builder] {icao}: pre-solve gap-fill "
                              f"spine construction FAILED: {_gappre_exc!r}")
 
+        # (1b) APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment
+        # 1 §1b).  The same slot and the same reason as the gap spines
+        # above: these are FREE interior solver variables that must
+        # exist before the plan is frozen and the ONE node list is
+        # built.  An apron whose largest EMPTY interior disk exceeds
+        # APRON_NODELESS_RADIUS_M has an uncontrolled membrane the
+        # census cannot even see (no nodes -> no pairs -> no rows);
+        # the lattice gives that ground anchors priced by the apron's
+        # own caps.  Flag OFF: empty store, every leg vacuous.  A
+        # construction failure degrades loudly and the build continues
+        # exactly as it did before the amendment.
+        try:
+            from .apron_lattice import construct_apron_lattice_presolve
+            construct_apron_lattice_presolve(layout)
+        except _GEOM_EXC as _lat_exc:
+            layout.apron_lattice_presolve = []
+            UI.vprint(1, f"  [apron-lattice] {icao}: pre-solve lattice "
+                         f"construction FAILED: {_lat_exc!r}")
+
         # (2) THE FREEZE POINT.
         _gfreeze.freeze(layout, icao=icao)
         if layout.anchor is not None:

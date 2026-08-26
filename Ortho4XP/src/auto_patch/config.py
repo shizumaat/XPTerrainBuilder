@@ -137,6 +137,8 @@ __all__ = [
     "GAP_SPINE_MAX_M",
     "GAP_SPINE_BRIDGE_ENABLED",
     "APRON_NODELESS_RADIUS_M",
+    "APRON_LATTICE_SPACING_M",
+    "APRON_INTERIOR_LATTICE",
     "TAUT_GRADED_STRIP",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -9262,3 +9264,30 @@ APRON_NODELESS_RADIUS_M = float(
 # no coupling and no fairing, byte-identical to the pre-ruling build.
 TAUT_GRADED_STRIP = (
     _os.environ.get("O4_TAUT_GRADED_STRIP", "1") != "0")
+
+
+# §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).
+# §1's route-synthesis premise was REFUTED at HECA by measurement: nodes
+# 462/470 are CONNECTED (560.6 m network path against 252.7 m straight, a
+# 2.2x detour) and neither is a leaf — the routes go AROUND the apron, so
+# there is no feed gap to bridge and synthesizing one would invent taxi
+# geometry the airport does not have.  The VOID is real all the same: 10
+# nodeless interiors, worst 175.4 m empty radius, and 247 m of the owner's
+# cliff line with NO emitted station at all, dropping 6.06 m, pricing ZERO
+# census rows.  What that ground needs is ANCHORS, not routes.
+#
+# So an apron whose §2 empty-disk radius exceeds APRON_NODELESS_RADIUS_M
+# gains a sparse interior vertex LATTICE at this spacing: free solver
+# nodes carrying within-shape law edges to their lattice/ring neighbours,
+# priced by the apron's OWN caps, seeded by the scaffold interpolation
+# between the ring's anchors (24c; DEM-last).  50 m is comfortably inside
+# the 80 m radius that defines the defect (so a flagged void always
+# receives several nodes) and comfortably outside the 60 m chord the emit
+# decimators already guarantee (so a lawful apron gains nothing).
+APRON_LATTICE_SPACING_M = float(
+    _os.environ.get("O4_APRON_LATTICE_SPACING_M", "50"))
+
+# §1b flag, DEFAULT ON.  ``O4_APRON_INTERIOR_LATTICE=0`` mints no lattice
+# and is byte-identical to the pre-amendment build.
+APRON_INTERIOR_LATTICE = (
+    _os.environ.get("O4_APRON_INTERIOR_LATTICE", "1") != "0")

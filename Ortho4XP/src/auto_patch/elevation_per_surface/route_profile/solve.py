@@ -2161,6 +2161,31 @@ def solve_route_profile(layout, icao: str,
             print(f"    [gap-spine] {len(_gap_scs)} chain(s), "
                   f"{len(_gap_spine_idx)} free spine node(s), "
                   f"{_n_int_edges} envelope interval edge(s)")
+    # ── APRON INTERIOR LATTICE constraints (spec heca-apron-round2
+    # Amendment 1 §1b, Amendment 2 clause 1) ──────────────────────────
+    # Beside the gap spines above and for the same reason: the lattice
+    # points were admitted by ``_build_node_list`` as FREE interior
+    # variables and now get their law.  The edges are built through
+    # ``_grade_graph_edges``/``classify_pair`` on the apron's ring PLUS
+    # its lattice, so every lattice pair is priced by the APRON'S OWN
+    # CAP — one law, the same one its ring pairs obey.  The EDGE RECORDS
+    # are published for the sidecar so the census can price the emitted
+    # membrane against the budget the solve actually built to.  Flag
+    # OFF (or no store): empty everything — byte-inert.
+    _lattice_idx: set = set()
+    _lattice_edges: list = []
+    if getattr(layout, "apron_lattice_presolve", None):
+        from auto_patch.apron_lattice import (
+            build_apron_lattice_constraints as _build_lat_scs)
+        _lat_scs, _lattice_idx, _lattice_edges = _build_lat_scs(
+            layout, bucket_to_idx, _gg_ctx)
+        shape_constraints.extend(_lat_scs)
+        layout._apron_lattice_edges_ll = _lattice_edges
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [apron-lattice] {len(_lat_scs)} apron(s), "
+                  f"{len(_lattice_idx)} free lattice node(s), "
+                  f"{len(_lattice_edges)} within-shape law edge(s) at "
+                  f"the apron's own cap")
     # ── RUNWAY-END RESA CUT constraints (arc R slice R1, gated) ───────
     # The owner ruling: the runway-end envelope is LAW THE SOLVER
     # ENFORCES.  The cut rings were emitted PRE-SOLVE (inside the B1
@@ -2782,6 +2807,17 @@ def solve_route_profile(layout, icao: str,
         layout, bucket_to_idx, band, dem_fn,
         anchor_envelope=_anchor_envelope, icao=icao)
     apron_body = apron_body_nodes(layout, bucket_to_idx)
+    # APRON INTERIOR LATTICE joins the scaffold's INTERIOR set (spec
+    # heca-apron-round2 Amendment 1 §1b, Amendment 2 clause 1).  A
+    # lattice node IS apron interior — it is the interior the apron had
+    # no vertices for — so it is re-seated by the same 24c scaffold
+    # interpolation between the ring's anchors, DEM-last: the seed is
+    # the taut plane, and a lattice node no anchor reaches keeps its DEM
+    # seed and stays free (the pad-less-apron case, unchanged).  Empty
+    # store: ``apron_body`` is untouched — byte-inert.
+    if _lattice_idx:
+        apron_body = set(apron_body) | {i for i in _lattice_idx
+                                        if i < len(elev)}
 
     # NO-BUILDING APRON FILL (user 2026-06-26): a no-building apron has no pad to
     # anchor it, so where the DEM is wrong-low it sags below the level its feeder
@@ -5934,6 +5970,34 @@ def solve_route_profile(layout, icao: str,
                 _zone_vals[_mm_key(float(_zx), float(_zy))] = float(
                     _elev_emit[_zi])
             _zone_entry["zone_values"] = _zone_vals
+    # ── APRON INTERIOR LATTICE writeback (spec heca-apron-round2
+    # Amendment 1 §1b, Amendment 2 clause 2) ──────────────────────────
+    # The solved lattice polylines, in the CROWNED emit frame
+    # (``_elev_emit``, the same array every pavement writeback reads) —
+    # so the emitted membrane and the emitted ring are one surface.
+    # Published as ``(pts_ll, alts)`` pairs, the shape ``to_osm``'s
+    # valued-node triple consumes.  Empty store: nothing published.
+    if getattr(layout, "apron_lattice_presolve", None):
+        _cps_lat = layout.canonical_points
+        _lat_emit: list = []
+        for _lat_entry in layout.apron_lattice_presolve:
+            for _line in _lat_entry.get("lines", ()) or ():
+                _pts_ll: list = []
+                _alts: list = []
+                for (_lx, _ly) in _line:
+                    _li = bucket_to_idx.get(
+                        _cps_lat.get_or_add(float(_lx), float(_ly)))
+                    if _li is None or _li >= n:
+                        continue
+                    try:
+                        _lla = layout.m_to_ll(float(_lx), float(_ly))
+                    except Exception:              # pragma: no cover
+                        continue
+                    _pts_ll.append((float(_lla[0]), float(_lla[1])))
+                    _alts.append(float(_elev_emit[_li]))
+                if len(_pts_ll) >= 2:
+                    _lat_emit.append((_pts_ll, _alts))
+        layout.apron_lattice_emit = _lat_emit
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.

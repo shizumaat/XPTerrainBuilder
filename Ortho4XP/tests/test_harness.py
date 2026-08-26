@@ -5703,7 +5703,22 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
     assert cg.ROLE_LESS_HOST_RULING in why
     assert set(cg.ROLE_LESS_FEATURE_CLASSES) == {
         "shape_interior_ring", "gap_interior_ring", "gap_drainage_spine",
-        "crown_spine"}
+        "crown_spine",
+        # THE APRON INTERIOR LATTICE (spec heca-apron-round2 Amendment 1
+        # §1b).  Role-less for the spines' reason: it is an OPEN
+        # constrained breakline inside an apron face, so a phantom
+        # closing pseudo-edge across the apron would mint artifact pairs
+        # the solver never constrained.  It is deliberately NOT in
+        # ``HOST_CAP_FEATURE_CLASSES`` — that set is interior RINGS,
+        # judged at their host's cap because they ARE the host's own
+        # hole boundary.  A lattice is not a ring and does not duplicate
+        # its host's geometry (it is the interior the host had no
+        # vertices for), so the duplicate adjudication never fires on
+        # it; its law is its own registered family,
+        # ``apron_lattice_membrane``, which prices each published edge
+        # against the budget the SOLVE priced it at.
+        "apron_lattice"}
+    assert "apron_lattice" not in cg.HOST_CAP_FEATURE_CLASSES
 
 
 def test_a_partial_host_is_not_a_duplicate(cg, tmp_path):

@@ -74,6 +74,20 @@ _GEOM_EXC = Exception
 #: chord across ground neither node controls.
 LATTICE_JOIN_SPACING_MULT = 1.5
 
+#: Sub-chords per crossing, FLOOR.  Not a spacing: the spacing is
+#: ``layout.PAVEMENT_NODE_MAX_CHORD_M`` and this only ever makes a
+#: crossing DENSER than that rule requires, never sparser.  It exists
+#: because of the emit/parse contract, measured on this round's first
+#: HECA arm: 13 of 18 crossings subdivided into two sub-chords carried
+#: ONE emitted station each side, i.e. a TWO-node way — and
+#: ``check_grade._parse_osm`` drops a way with fewer than three nodes
+#: before its open-feature route, so 761 of 853 published station pairs
+#: came back as LOST MEASUREMENTS and every site instrument reported the
+#: owner's line T as stationless while the patch in fact carried two
+#: stations on it.  Four sub-chords ⇒ three stations ⇒ the crossing is
+#: always visible to the census that must price it.
+_MIN_SUBDIVISION = 4
+
 
 def _pieces_inside(axis_pts, poly):
     """The parts of one axis polyline that run INSIDE ``poly``, as lists
@@ -114,7 +128,7 @@ def stations_on_piece(pts, spacing_m):
     total = sum(seg)
     if total <= float(spacing_m):
         return []
-    n_sub = max(3, int(math.ceil(total / float(spacing_m))))
+    n_sub = max(_MIN_SUBDIVISION, int(math.ceil(total / float(spacing_m))))
     out: list = []
     for k in range(1, n_sub):
         s = total * k / n_sub

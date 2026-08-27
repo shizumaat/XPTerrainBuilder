@@ -125,8 +125,10 @@ def test_no_sub_chord_exceeds_the_spacing():
         pts = [(0.0, 0.0), (L, 0.0)]
         st = ST.stations_on_piece(pts, PAVEMENT_NODE_MAX_CHORD_M)
         assert st, L
-        # at least TWO, so the emitted breakline exists at all
-        assert len(st) >= 2, L
+        # at least THREE: a two-node way is dropped by
+        # ``check_grade._parse_osm`` before its open-feature route, so a
+        # crossing emitted with fewer would be a LOST MEASUREMENT
+        assert len(st) >= 3, L
         xs = [0.0] + [p[0] for p in st] + [L]
         assert max(b - a for a, b in zip(xs, xs[1:])) <= \
             PAVEMENT_NODE_MAX_CHORD_M + 1e-6, L
@@ -137,9 +139,9 @@ def test_the_owner_line_length_gains_interior_stations():
     defect."""
     st = ST.stations_on_piece([(0.0, 0.0), (84.2, 0.0)],
                               PAVEMENT_NODE_MAX_CHORD_M)
-    assert len(st) == 2
-    assert abs(st[0][0] - 84.2 / 3.0) < 1e-9
-    assert abs(st[1][0] - 2 * 84.2 / 3.0) < 1e-9
+    assert len(st) == 3
+    for k in (1, 2, 3):
+        assert abs(st[k - 1][0] - k * 84.2 / 4.0) < 1e-9
 
 
 def test_stations_follow_a_bent_axis_by_ARC_length():

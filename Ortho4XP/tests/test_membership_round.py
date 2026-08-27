@@ -145,28 +145,56 @@ class TestRetainedContextFootprint:
         # …and it is a footprint, not a resurrection: no shape carries it
         assert not [s for s in layout.shapes if s.role == "service_road"]
 
-    def test_an_airside_host_absorption_is_retained_too(self,
-                                                        absorption_on):
+    def test_a_NON_DEM_host_absorption_is_retained_too(self,
+                                                       absorption_on):
         """Conservation is unconditional on WHICH class hosted the merge.
-        A conservation that applied to the lot arm only would itself be a
-        context difference between the two arms of the round's own A/B.
+        A conservation that applied to the DEM-lot arm only would itself
+        be a context difference between the two arms of the round's own
+        A/B.
 
-        The airside host here is a JUNCTION.  It used to be an apron, and
-        RULINGS 2026-08-25b (spec ``road-band-seal-scope-spec.md``
-        Amendment 1) took the apron out of the absorption path entirely —
-        a road sharing an edge with an APRON now conforms to its law and
-        stays road-family population, so there is no apron-hosted merge
-        left to conserve.  The invariant this twin exists for is about the
-        HOST'S CLASS, not about aprons, and a junction is airside; the
-        apron's new behaviour is pinned just below."""
-        junction = BuiltShape(polygon=_rect(0, 0, 100, 60), role="junction")
+        THE HOST WAS AN AIRSIDE JUNCTION UNTIL 2026-08-26b.  RULINGS
+        2026-08-25b (spec ``road-band-seal-scope-spec.md`` Amendment 1)
+        took the APRON out of the absorption path — an edge-sharing road
+        conforms to its law and stays road-family population — and
+        RULINGS 2026-08-26b item 2 (spec
+        ``road-airside-crossing-conformance-spec.md`` §1.1) widened that
+        contact term to EVERY airside neighbour, so there is no
+        airside-hosted merge left to conserve at all.  The invariant this
+        twin exists for is about the HOST'S CLASS (does the non-DEM
+        branch conserve?), so the host here is a lot carrying no
+        per-vertex altitudes; the junction's new behaviour is pinned just
+        below, beside the apron's."""
+        lot = BuiltShape(polygon=_rect(0, 0, 100, 60),
+                         role="groundside_pavement")
         road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
-        layout = _layout([junction, road])
+        layout = _layout([lot, road])
         summary = absorption_on.apply_lateral_contiguity_law(layout, "TEST")
         assert summary["absorbed"] == 1
         assert summary["context_retained"] == 1
         assert summary["context_retained_dem_host"] == 0
         assert len(absorbed_road_context_polys(layout)) == 1
+
+    def test_a_junction_host_conforms_instead_of_absorbing(self,
+                                                           absorption_on):
+        """RULINGS 2026-08-26b item 2 — the 25b contact term, widened from
+        ``{"apron"}`` to the canonical airside family.  A road sharing an
+        edge with a taxi JUNCTION now takes the junction's cap and keeps
+        its own role, geometry and population, exactly as the apron case
+        below: conformance is PRICING, never population (Amendment 1's
+        measured reason — absorbing these rings moved HECA airside
+        1,735 -> 1,948, the airside-contamination direction)."""
+        junction = BuiltShape(polygon=_rect(0, 0, 100, 60), role="junction")
+        road = BuiltShape(polygon=_rect(0, 60, 100, 70), role="service_road")
+        layout = _layout([junction, road])
+        summary = absorption_on.apply_lateral_contiguity_law(layout, "TEST")
+        assert summary["absorbed"] == 0
+        assert summary["apron_contact"] == 1
+        assert summary["context_retained"] == 0
+        assert absorbed_road_context_polys(layout) == []
+        assert road in layout.shapes and road.role == "service_road"
+        from auto_patch.config import TAXI_MAX_GRADE
+        assert road.lateral_cap == pytest.approx(TAXI_MAX_GRADE)
+        assert junction.polygon.area == pytest.approx(100 * 60, rel=1e-6)
 
     def test_an_apron_host_conforms_instead_of_absorbing(self,
                                                          absorption_on):

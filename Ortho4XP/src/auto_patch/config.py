@@ -139,7 +139,16 @@ __all__ = [
     "APRON_NODELESS_RADIUS_M",
     "APRON_LATTICE_SPACING_M",
     "APRON_INTERIOR_LATTICE",
+    # HECA apron round 3 (docs/specs/heca-apron-round3-spec.md)
+    "APRON_SPINE_STATIONS",
+    # AIRSIDE NO-STEP LAW (docs/specs/airside-no-step-law-spec.md)
+    "AIRSIDE_NO_STEP",
+    "AIRSIDE_NO_STEP_WINDOW_M",
+    "AIRSIDE_NO_STEP_K",
+    "AIRSIDE_NO_STEP_RESEED",
     "TAUT_GRADED_STRIP",
+    "ROAD_AIRSIDE_CROSSING_CONFORM",
+    "ROAD_AIRSIDE_CONTACT_WIDEN",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -9525,6 +9534,60 @@ TAUT_GRADED_STRIP = (
     _os.environ.get("O4_TAUT_GRADED_STRIP", "1") != "0")
 
 
+# ══════════════════════════════════════════════════════════════════════
+# ROAD ↔ AIRSIDE CROSSING CONFORMANCE
+# (docs/specs/road-airside-crossing-conformance-spec.md, 2026-08-26;
+#  owner sim read of 1.0.260, RULINGS 2026-08-26b item 2)
+# ══════════════════════════════════════════════════════════════════════
+# Owner: "Service roads crossing taxiways, like here: 30.104671,
+# 31.3973462, have to grade smoothly to match the apron elevation, not
+# leave a cliff."  AIRSIDE IS KING: the road takes the airside value and
+# the airside surface feels ZERO pull.
+#
+# WHY NO STANDING LAW FIRES THERE (measured, patch
+# ``/tmp/harness/HECA_20260826T213425.osm``).  Three near-misses, one
+# defect:
+#   * the 2026-08-25b edge-conformance term is scoped
+#     ``APRON_CONTACT_ROLES = {"apron"}`` AND keys on literally shared
+#     edge vertices — the road stands 1.5 m from junctions -10250/-10257
+#     with an ``adjacent_ground`` strip between and shares NO node, so it
+#     matches neither half;
+#   * the 2026-08-25h apron-spine complement derives from that same
+#     apron contact, so the spine stops at the apron edge;
+#   * the free-road width test (2026-07-27 + R7a) reads WIDTH ONLY, so
+#     the road's crossing stretch — the centerline runs at 0.00 m INSIDE
+#     junction rings -10250 / -12453 / -12452 / -12708 for tens of
+#     metres — prices as FREE road (axis 709, cap 0.08) against ambient
+#     terrain while the pavement it crosses sits ~4 m higher.
+#
+# §1.1 CONTACT POPULATION: a service-road centerline stretch whose
+# cross-section stands in AIRSIDE pavement (``enclaves.
+# ENCLAVE_AIRSIDE_ROLES`` — THE canonical register, imported, never
+# re-spelled) is a CONFORMING stretch, priced at the crossed surface's
+# cap instead of the road's.
+# §1.2 VALUES: the stretch is PINNED to the airside solved surface at
+# its entry/exit of the airside polygon; between pins it rides that
+# surface, away from it the road transitions at ``SERVICE_ROAD_MAX_GRADE``.
+# The pins are ONE-DIRECTIONAL — they READ ``elev`` at two airside ring
+# vertices and WRITE only service nodes, the 2026-08-15 proximity-mouth
+# posture, whose recipe/hold/reseat machinery they reuse verbatim.
+#
+# DEFAULT ON.  ``O4_ROAD_AIRSIDE_CROSSING_CONFORM=0`` mints no conforming
+# stretch and no pin, so every downstream reader sees the pre-ruling
+# graph byte for byte.
+ROAD_AIRSIDE_CROSSING_CONFORM = (
+    _os.environ.get("O4_ROAD_AIRSIDE_CROSSING_CONFORM", "1") != "0")
+
+# §1.1's 25b CONTACT-SET WIDENING, on its own gate (spec Amendment 2 §2).
+# Under adoption-only values the widening carries NONE of this law's
+# acceptance, and it is the last term in the arm that can still reach the
+# AIRSIDE solve — through the lateral pass's cuts, which change road ring
+# geometry and therefore ``grade_graph.build_context``'s membership sets.
+# ``O4_ROAD_AIRSIDE_CONTACT_WIDEN=0`` is the Fable-authorized diagnostic.
+ROAD_AIRSIDE_CONTACT_WIDEN = (
+    _os.environ.get("O4_ROAD_AIRSIDE_CONTACT_WIDEN", "1") != "0")
+
+
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).
 # §1's route-synthesis premise was REFUTED at HECA by measurement: nodes
 # 462/470 are CONNECTED (560.6 m network path against 252.7 m straight, a
@@ -9550,3 +9613,83 @@ APRON_LATTICE_SPACING_M = float(
 # and is byte-identical to the pre-amendment build.
 APRON_INTERIOR_LATTICE = (
     _os.environ.get("O4_APRON_INTERIOR_LATTICE", "1") != "0")
+
+# ── APRON SPINE STATIONS (docs/specs/heca-apron-round3-spec.md §1) ────
+# RULINGS 2026-08-26b items 3/4/5.  Where an AIRCRAFT taxi axis crosses
+# an apron interior, the axis gains emitted CENTERLINE stations inside
+# the apron at the standing pavement-node spacing
+# (``layout.PAVEMENT_NODE_MAX_CHORD_M``, reused — no number here).  The
+# stations are spine nodes valued by the route profile, and they carry
+# within-shape law edges to the apron's ring and lattice neighbours, so
+# the membrane conforms UP to the spine instead of sagging beside it.
+# Measured basis: the owner's 84.2 m line T at HECA carried ZERO
+# interior stations, and the junction pieces the profile does anchor
+# stood 0.7-1.2 m proud of the membrane, which itself sagged to 70.11
+# at the dip site.  DEFAULT ON; ``O4_APRON_SPINE_STATIONS=0`` mints no
+# station and every downstream leg is vacuous — byte-identical.
+APRON_SPINE_STATIONS = (
+    _os.environ.get("O4_APRON_SPINE_STATIONS", "1") != "0")
+
+# ── THE AIRSIDE NO-STEP LAW (docs/specs/airside-no-step-law-spec.md §1;
+# owner ruling RULINGS 2026-08-27 "NO STEPS IN AIRSIDE PAVEMENT") ─────
+# Owner, verbatim: *"If our laws allow a step of 1.5 m, then the law
+# needs to be updated to prevent that, as it would create an impassable
+# area for aircraft.  No steps in airside pavement are lawful."*  Refined
+# the same day: *"A 1.5 m 'dip' could be ok assuming it was spread across
+# enough area to be smooth, like the runway curvature and rate change
+# rules."*
+#
+# The gap this closes is an ACCUMULATION gap, not a pointwise one: every
+# NEIGHBOUR pair at the round-3 dip site was inside its budget, and the
+# relief still reached 1.07 m over 50-75 m because the low membrane nodes
+# were coupled to the anchored spine only through a CHAIN of 50 m x cap
+# budgets.  No family priced a NON-neighbour airside pair against its
+# DIRECT distance.  So the law gains local direct-distance pairs.
+#
+# WINDOW.  150 m is the LOCAL neighbourhood the ruling's "within a local
+# window" names: it is comfortably beyond the 50-75 m at which the dip
+# site's accumulation was already 1.07 m (spec §0) and beyond the
+# 130-137 m standoff of its low membrane nodes from the nearest station,
+# so the offending pair is inside the window; and it is short enough that
+# a pair is still a piece of ONE movement surface rather than a chord
+# across an airfield.  A pair beyond it is left to the chain.  Note that
+# the pair's own cap chain still decides whether a candidate is LAW at
+# all — the window only bounds candidate GENERATION.
+AIRSIDE_NO_STEP_WINDOW_M = float(
+    _os.environ.get("O4_AIRSIDE_NO_STEP_WINDOW_M", "150"))
+
+# K.  Per airside node, at most this many law edges to its nearest
+# airside neighbours in the window, SPATIALLY SPREAD (nearest-two in each
+# of eight compass sectors) rather than nearest-k outright — 16 nearest
+# nodes in a dense apron ring are all in the same direction and would
+# leave the node uncoupled to the surface on its other side, which is the
+# very geometry the dip has.  Bounded because the population is O(n·k):
+# an unbounded window pair set at HECA is quadratic.
+AIRSIDE_NO_STEP_K = int(
+    _os.environ.get("O4_AIRSIDE_NO_STEP_K", "16"))
+
+# THE FLAG, DEFAULT ON.  ``O4_AIRSIDE_NO_STEP=0`` builds no direct-
+# distance edge, publishes no sidecar record, demotes no DEM term and
+# preserves no node — byte-identical to the pre-ruling build.
+AIRSIDE_NO_STEP = (
+    _os.environ.get("O4_AIRSIDE_NO_STEP", "1") != "0")
+
+# §1.4's TAUT RE-SEED inside the pass-2 membrane conform — RETIRED-KEPT-
+# GATED, DEFAULT OFF, awaiting a Fable ruling.
+#
+# Amendment 2 puts the §1.4 DEM demotion in pass 2, and the mechanism
+# that expresses it is re-seeding the membrane INTERIOR (§1.4's own
+# scope: the round-2 lattice, never a shape's exterior ring) on the taut
+# scaffold of the pass-1 constants.  MEASURED at CYXY and SPJC under
+# that scope: the envelope does not reach those interiors from the
+# constants at all, so the term re-seeded ZERO nodes on both airports —
+# its benefit is UNMEASURED on this lane, and shipping an unmeasured
+# term default-ON is not a thing this repo does.  (An earlier, wider cut
+# that re-seeded every tier-4 node instead — apron RING vertices
+# included, which §1.4 does not name — moved CYXY airside 88 -> 186 with
+# `transverse` alone 4 -> 67, which is what scoped it back.)  KEPT
+# rather than deleted so the finding is not hidden:
+# ``O4_AIRSIDE_NO_STEP_RESEED=1`` restores it exactly, and that is the
+# arm a ruling would be made on.
+AIRSIDE_NO_STEP_RESEED = (
+    _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")

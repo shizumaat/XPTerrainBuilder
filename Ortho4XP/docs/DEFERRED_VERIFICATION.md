@@ -3624,3 +3624,163 @@ What this branch DOES carry, and what is deferred on it:
   expected, not proven this round.  Owed at the gate: an OTHH tile pass
   reporting per-facility G/delta sets and clearance findings, and a battery
   byte-identity spot-check.
+### 2026-08-26 addendum — lane/roadxing (road ↔ airside crossing conformance)
+
+RULINGS 2026-08-26b item 2, spec
+`docs/specs/road-airside-crossing-conformance-spec.md`.  Verified on this
+lane: the §2 twin (`tests/test_road_airside_crossing.py`, 14 cases) plus
+the directly-covering selection (`test_free_road_scoping`,
+`test_service_apron_spine`, `test_road_band_seal_scope`,
+`test_service_mouth_prox_anchor`, `test_kill_prep_round`,
+`test_membership_round`, `test_road_cross_section`, `test_solve_stage` —
+208 green), and matched same-tree flag ON/OFF build arms at HEAZ, CYXY and
+SPJC plus the one HECA acceptance build with its census.
+
+DEFERRED here:
+
+* the FULL pytest suite and the blast-radius suites for `grade_graph.py`
+  (54 importers) and `route_profile/anchors.py` (26) — only the directly
+  covering files were run, once, per PRE-SHIP MODE;
+* the five-airport battery and its censuses (KCLT / SPLP not built);
+* an `O4_ROAD_AIRSIDE_CROSSING_CONFORM=0` BYTE-IDENTITY comparison of two
+  emitted patches.  The OFF path is proven at unit level (the twin mints
+  no conforming stretch, no pin, and restores the 25b apron-only contact
+  set) and at build level by three ON/OFF arms whose logs differ only in
+  the new passes' own lines — but no two patch bodies were hashed against
+  each other;
+* build-time: only ledger-recorded walls are quoted, no `--runs N`
+  measurement (per-change timing gates remain SUSPENDED).
+
+### 2026-08-27 — lane/roadxing attempt 3 (spec Amendment 1) supersedes the above
+
+The addendum above describes attempts 1-2 (centerline registration + solver
+pins), both REVERTED.  What stands is source-frame detection, crossings-only
+scope and post-solve adoption (commit 7ff91bd7).  Verified: the 16-case twin
+and 347 covering tests; HECA acceptance build + matched flag-off control;
+CYXY / SPJC / HEAZ arms.  Still DEFERRED here: the full pytest suite, the
+blast-radius suites for `grade_graph.py` and `route_profile/anchors.py`
+(both now REVERTED to a111e080, so their blast radius is untouched by this
+lane), the five-airport battery, and a byte-identity hash of two emitted
+patch bodies across the flag (the flag-off arm's census is identical to the
+§0 reference, which is the stronger available evidence).
+
+### 2026-08-27b — lane/roadxing, Amendment 2 diagnostic arm
+
+The §1.1 25b contact-set widening now has its own gate
+(`O4_ROAD_AIRSIDE_CONTACT_WIDEN`, default ON) so the Fable-authorized
+diagnostic could run.  Measured (CYXY / SPJC / HECA, widening OFF, adoption
+kept): the crossing population and the adoption are byte-identical, the
+owner-site profile is identical, and the residual NEW airside rows SHRINK
+but do not die (HECA 28 -> 15, SPJC 4 -> 4).  Per Amendment 2 §2 that is a
+STOP: the widening is NOT retired on this lane and the gate stays default
+ON, i.e. the shipped behaviour is unchanged from attempt 3.  DEFERRED: the
+fresh attribution of the 15 HECA / 4 SPJC residual rows (needs an
+instrumented build; they sit a median 121 m from any road, far outside the
+adoption's 6.5 m reach, and are largely churn on the same aprons).
+
+### 2026-08-27c — lane/nostep, THE AIRSIDE NO-STEP LAW
+
+Spec `docs/specs/airside-no-step-law-spec.md` (owner ruling RULINGS
+2026-08-27, "NO STEPS IN AIRSIDE PAVEMENT").  Verified in-lane: the §2
+twins (`tests/test_airside_no_step.py`, 27 cases) plus the directly
+covering suites `test_harness.py` / `test_apron_lattice.py` /
+`test_apron_spine_stations.py` / `test_census_instrument.py` /
+`test_reg_families_round.py`, run once through the ledger; ONE HECA
+acceptance build with the census A/B against
+`HECA_20260827T021457`; CYXY and SPJC arms each with a matched
+`O4_AIRSIDE_NO_STEP=0` control.
+
+DEFERRED to the ship gate, per PRE-SHIP MODE:
+
+* The FULL pytest suite and the blast-radius suites for the four edited
+  production files (`config.py`, `grade_law.py`, `layout.py`,
+  `route_profile/solve.py`, `route_profile/one_solve.py`) — 232 / 82 /
+  213 / 53 / 39 direct importers respectively.
+* The five-airport battery (only HECA / CYXY / SPJC were built).
+* A BYTE-IDENTITY hash of two emitted patch bodies across the flag.  The
+  flag's contract is byte-identity when OFF; what was measured instead is
+  that the OFF arm's census reproduces the pre-law reading, which is the
+  stronger available evidence but not a hash.
+* The BUILD-TIME adjudication.  Per-change timing gates are suspended
+  (RULINGS 2026-08-04); the k-nearest edge build's cost is stated in the
+  lane report from the recorded phase-time ledger, not from an exclusive
+  timing run, and it is owed a fresh reading in the final profiling round.
+* The census twin `tests/test_census_instrument.py`'s HAND-COMPUTED family
+  counts were re-derived for the new family on the existing deliberately
+  defective fixture; the arithmetic was re-checked by hand for the rate
+  term only, not re-derived from first principles for every family.
+
+### 2026-08-27d — lane/nostep, spec Amendment 1 round
+
+Verified in-lane: the twins (`tests/test_airside_no_step.py` 30 cases,
+`tests/test_airside_pair_table.py` 8, `tests/test_no_step_term_split.py`
+8) plus the covering suites, ledgered; ONE HECA acceptance build
+(`HECA_a1`); CYXY and SPJC each with a matched `O4_AIRSIDE_NO_STEP=0`
+control, both of which reproduced their pre-Amendment control's body
+hash EXACTLY (`CYXY e8422b346ad7`, `SPJC 996afe75fa85`) — that is the
+flag-OFF byte-identity contract, measured rather than asserted.
+
+DEFERRED, additionally to the 2026-08-27c list:
+
+* A MATCHED FLAG-OFF CONTROL AT HECA.  The HECA arm is read against the
+  spec's §0 frame (`HECA_20260827T021457`, built at a different tree
+  sha), so its taxiway-family movement number carries tree drift as well
+  as this law.  CYXY and SPJC carry matched controls and are the
+  control-matched evidence; a HECA control is a third ~20-minute build
+  and was not spent.
+* THE TAXIWAY-FAMILY BYTE-IDENTITY GATE IS NOT MET (reported in the lane
+  report, mechanism named): tier-2 nodes are held constant only where
+  they are phase-A FROZEN spine nodes, because that is the only
+  preservation the one-solve graph offers; a junction RING vertex is a
+  free variable of its own within-shape law, so an imposed tier2<->tier4
+  edge can still move it.  Measured against matched controls: CYXY
+  taxiway movers 323 -> 120 (worst 0.66 -> 0.27 m), SPJC 2,666 -> 1,738
+  (worst 4.03 -> 3.65 m).  Closing it needs a Fable ruling on the
+  mechanism, not another attempt at this one.
+* THE 2 SPJC / 5 HECA RUNWAY-FAMILY MOVERS.  Every one is a node a
+  runway ring SHARES with `service_road` / `service_junction` /
+  `graded_strip` — the carve-corner class — and the emitted value at a
+  shared node is chosen by the single-authority EMIT tier, not by the
+  airside solve's runway variable (which is hard throughout).  The
+  attribution needs an instrumented build.
+
+### 2026-08-27e — lane/nostep, spec Amendment 2 (TWO-PASS CONFORM)
+
+Verified in-lane: 39 + 8 + 8 twins and the covering suites, ledgered
+(424 passed, 1 pre-existing failure); ONE HECA acceptance build
+(`HECA_final`); SPJC and CYXY with matched `O4_AIRSIDE_NO_STEP=0`
+controls, the CYXY control reproducing the same body hash
+(`e8422b346ad7`) for the FOURTH time across every code state this lane
+went through — the flag-OFF contract, measured.
+
+MET, and structurally: **zero non-tier-4 value deltas** on every airport
+— HECA 0 of 8,519 senior nodes, SPJC 0 of 5,191, CYXY 0 of 1,290.  The
+runway carve-corner movers (5 HECA / 2 SPJC in A1) are gone.
+
+DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
+
+* THE DIP-SITE TABLE IS NOT AT-OR-BETTER THAN A0.  Over-cap pairs at the
+  dip rose (74/153/332 base → 93/204/393 at 30/50/75 m) while the WORST
+  pair is byte-identical to the control — the offending pair never
+  moved, and the count rose from membrane churn elsewhere.  Mechanism:
+  the creation-order repair correctly refuses to break the membrane's
+  older laws, so a no-step pair that cannot be satisfied inside them is
+  left over cap (HECA 1,659 → 678 after the repair).  Attempt cap for
+  this target is EXHAUSTED; the next move is a ruling, not an arm.
+* PASS 2 DOES NOT RE-IMPOSE THE PUBLISHED LATTICE/STATION LAW, which
+  Amendment 2 names.  Measured deviation, reported: re-imposing it costs
+  SPJC 1,359 → 1,926 airside and CYXY 132 → 201, and
+  `apron_lattice_membrane` itself goes 24 → 47 — the family it was meant
+  to protect gets worse, because pass 2 is then asked to REPAIR
+  pre-existing violations with every senior node frozen.  The population
+  is COUNTED and printed in every build log.  Candidate fix for a
+  ruling: a DO-NO-HARM relaxation (each own-law budget raised to at
+  least its pass-1 residual).
+* §1.4's TAUT RE-SEED is gated default OFF and its benefit is
+  UNMEASURED: under §1.4's own scope (the membrane interior) the
+  envelope does not reach those nodes from the constants, so it
+  re-seeded ZERO nodes at both CYXY and SPJC.
+* A MATCHED FLAG-OFF CONTROL AT HECA is still not built; the HECA arm is
+  read against the §0 frame, and the senior population came back
+  IDENTICAL to it, which is the stronger reading in the direction that
+  matters.

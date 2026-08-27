@@ -3255,6 +3255,38 @@ class PavementLayout:
                          {"o4_feature": "apron_lattice"}))
                     next_wid[0] -= 1
 
+        # APRON SPINE STATIONS (spec heca-apron-round3 §1): the solved
+        # interior CENTERLINE stations of every aircraft taxi axis that
+        # crosses an apron, emitted through the SAME valued-node triple
+        # as the lattice above, one open constrained way per crossing.
+        #
+        # THIS IS WHAT MAKES THE CROSSING ANCHORED.  Until these nodes
+        # reach the patch, an 84.2 m taxi crossing of a HECA apron
+        # carried vertices only at its two ends (74.02 / 74.55): the
+        # junction pieces the centerline profile anchors stood 0.7-1.2 m
+        # PROUD of the membrane beside them, and the membrane sagged to
+        # 70.11 at the owner's dip site — the "disconnected T with two
+        # arcs" and the dip are one defect (RULINGS 2026-08-26b 3/5).
+        _st_lines = getattr(self, "apron_spine_station_emit", None) or []
+        if _st_lines:
+            _next_st_nid = (min(node_id_to_ll) - 1
+                            if node_id_to_ll else -1)
+            for _pts_ll, _alts in _st_lines:
+                _snids: list[int] = []
+                for (_sla, _slo), _sa in zip(_pts_ll, _alts):
+                    if _sa is None:
+                        continue
+                    node_id_to_ll[_next_st_nid] = (_sla, _slo)
+                    node_id_to_consensus[_next_st_nid] = float(_sa)
+                    node_alt_abs_nids.add(_next_st_nid)
+                    _snids.append(_next_st_nid)
+                    _next_st_nid -= 1
+                if len(_snids) >= 2:
+                    way_blocks.append(
+                        (next_wid[0], _snids,
+                         {"o4_feature": "apron_spine_station"}))
+                    next_wid[0] -= 1
+
         # Shape INTERIOR RINGS as closed constrained ways (see the
         # emit-model note above the shape loop).  Same mechanism as the
         # gap interior rings, and deliberately AFTER them so a ring that
@@ -3773,6 +3805,21 @@ class PavementLayout:
             # no upstream feed.  Written unconditionally.
             "gap_spine_bridges": list(
                 getattr(self, "gap_spine_bridges", None) or []),
+            # THE GAP-SPINE BRIDGE STAND-DOWN (owner ruling 2026-08-27
+            # "2"; gap-spine-bridge-stand-down-spec Amendment 1).  One
+            # record when this patch is the RETRY of a build the
+            # post-solve band law refused with bridges minted, and the
+            # retry without them came out clean: the bridges are the
+            # mechanism, the region they would have filled is
+            # deliberately unfilled, and the record carries the original
+            # refusal, the bridges that stood down and the inverted
+            # population that adjudicated them.  EVIDENCE, never law
+            # input: a stand-down is not a defect row and the census
+            # counts it without re-judging it.  Written unconditionally,
+            # so ``[]`` means "no stand-down happened" and a MISSING key
+            # means "this patch predates the mechanism".
+            "gap_spine_stand_down": list(
+                getattr(self, "gap_spine_stand_down", None) or []),
             # THE APRON LATTICE's own law edges (spec heca-apron-round2
             # Amendment 1 §1b, Amendment 2 clause 3).  LAW INPUT: a
             # lattice edge joins two INTERIOR nodes lying on no ring, so
@@ -3785,6 +3832,23 @@ class PavementLayout:
             # Written unconditionally.
             "apron_lattice_edges": list(
                 getattr(self, "_apron_lattice_edges_ll", None) or []),
+            # THE AIRSIDE NO-STEP LAW's own direct-distance edges (owner
+            # ruling RULINGS 2026-08-27; spec
+            # ``docs/specs/airside-no-step-law-spec.md`` §1.1/§1.6).
+            # LAW INPUT, and for the ``apron_lattice_edges`` reason
+            # squared: the pair is a DIRECT-DISTANCE neighbourhood pair
+            # that may cross a shape boundary, so neither ring adjacency
+            # nor a role table can rediscover it, and its cap depends on
+            # the pair's own frontage / corridor / back-edge / strip
+            # context, which only the solve holds.  Each record carries
+            # the pair, the DIRECT distance and the budget
+            # ``classify_pair`` priced it at, plus the two seniority
+            # tiers — so the census prices EXACTLY the population the
+            # solve built to (one law, one population).  Written
+            # unconditionally: ``[]`` says the instrument ran and found
+            # none, a missing key says the patch predates the law.
+            "airside_no_step_edges": list(
+                getattr(self, "_airside_no_step_edges_ll", None) or []),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

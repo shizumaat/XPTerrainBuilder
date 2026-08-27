@@ -4145,6 +4145,30 @@ def strip_longitudinal_breaches(stations_s, stations_z, max_slope,
     return sorted(set(hits))
 
 
+def airside_arc_rate_per_m(ruleset=None):
+    """THE AIRSIDE RATE-OF-CHANGE LAW — spec
+    ``airside-no-step-law-spec.md`` §1.2, owner ruling RULINGS 2026-08-27
+    clause 2 ("grade change per unit length limited, the vertical-curve /
+    K-factor analogue the runway and strip_arc laws already implement for
+    their families").
+
+    NO NEW NUMBER, and deliberately so: the aerodrome's vertical-curve
+    rate is ONE quantity — FAA AC 150/5300-13B §3.16.5 item 5 gives
+    ±2 % per 30.5 m and ICAO Annex 14 §3.4.14 is the qualitative "as
+    gradual as practicable" whose PROVISIONAL operationalization the
+    ruleset already carries (owner question 2).  The strip family reads
+    it through :func:`strip_longitudinal_law`; the airside pavement
+    family reads it here.  Two readers, one constant — which is the whole
+    point of extending the machinery instead of forking it.
+
+    The owner's own refinement is what this bounds: *"A 1.5 m 'dip' could
+    be ok assuming it was spread across enough area to be smooth."*  At
+    this rate a 1.5 m bowl over 200 m passes and the same bowl over 30 m
+    does not.
+    """
+    return ruleset_strip_arc_rate_per_m(ruleset)
+
+
 def strip_longitudinal_law(code_number, code_letter=None, ruleset=None):
     """``(max_slope, arc_rate_per_m)`` — the strip's complete
     longitudinal law for one runway class under one ruleset.  ONE

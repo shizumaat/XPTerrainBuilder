@@ -1,4 +1,49 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260827a (OWNER SIM-READ ROUND, RULINGS 2026-08-26b: five HECA
+# items from the 1.0.260 pass. Two lanes, both MERGED on branch
+# round3-integration — main merge held: main's tree carries the LEMD
+# session's UNCOMMITTED basin round, owner decides how it lands.)
+# ITEM 1 lattice-overlap FIXED: per-segment clip, 7 seg/89.6 m -> 0
+#   (station class 1 seg/1.1 m accepted). tools/lattice_overlap_read
+#   .py promoted (INDEX row + 11 twins).
+# ITEM 2 road-crossing cliff: crossing-conformance law landed
+#   (source-frame crossings-only detection, POST-SOLVE ADOPTION onto
+#   frozen-boundary road vertices — 0 MOVED airside rows everywhere).
+#   Owner site 3.44 -> 2.73 m: road at its 8% cap ceiling; residual
+#   ruled AIRSIDE-vs-AIRSIDE (apron -10258 at 103.2 vs junction
+#   -10250 at 108.9 over ~35 m) — needs its own attribution docket if
+#   the owner's sim still reads it. Widening kept (Amendment 3:
+#   177-row lateral_contiguity value vs 13 marginal-row cost).
+# ITEMS 3+5 (dip + disconnected "T"): ONE defect — the taxi ROUTE was
+#   never cut; the 84.2 m owner line had ZERO interior stations.
+#   APRON SPINE STATIONS landed (apron_spine_stations.py): interior
+#   stations on every aircraft axis crossing an apron, valued as
+#   INTERPOLANTS of the un-densified phase-A profile (chain
+#   byte-identical to stations-OFF — three amendments to get there:
+#   symmetric edges dragged junctions DOWN 0.22 m, chain membership
+#   re-solved the profile, unstrung axes valued from route endpoint
+#   anchors). 62/62 HECA stations valued; line-T station steps
+#   lawful; junction "T" pieces unmoved. DIP RESIDUAL STANDS
+#   (~1.5 m proud ridge): membrane within every law budget as
+#   written; the low nodes sit 130-137 m from the nearest station,
+#   outside the 75 m §3 join radius. OWNER QUESTION: widen the join /
+#   membrane tautness term (DEM-last says plane-flatness beats DEM in
+#   the lawful range) — or accept in sim.
+# ITEM 4 necessity: MEASURED — stations alone leave 8 HECA aprons
+#   with >80 m empty disks (worst 169.5 m): the lattice is NOT
+#   subsumed; stays ON.
+# COMBINED ACCEPTANCE (integ3, HECA_20260827T021457): adjudicated
+#   4652 (airside 999) vs CTL 4697 (915) — +86 airside is the newly
+#   PRICED station-pair membrane (un-blinding), rest slightly better;
+#   twins 381/1 green (1 = pre-existing near-miss-frontage register
+#   drift, chip filed); CYXY 295 adj / SPJC 348 adj compose per-lane.
+# PRE-EXISTING MAIN DEFECTS surfaced (chips filed): HEAZ
+#   BandInversionError (43/1478, flag-independent) and the red
+#   test_the_near_miss_frontage_law_is_one_authority twin.
+# NEXT: owner lands the LEMD uncommitted round -> merge
+#   round3-integration to main -> app build for owner sim pass
+#   (cliff/dip/T re-read in sim) -> dip-residual ruling.
+# ══════════════════════════════════════════════════════════════════
 # 20260827-basin-dockets (LEMD basin follow-up dockets A+B, both
 #   COMMITTED: c446edba founding, 690d0568 group seat; road feed
 #   refreshed via ledger 2026-08-27T07:08.)

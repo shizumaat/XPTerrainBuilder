@@ -4034,6 +4034,31 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         bake_store[id(s)] = (
             s.role, ring_signature, baked_edges, baked_spine)
 
+    # ── APRON SPINE STATIONS ARE NOT REGISTERED HERE, DELIBERATELY ────
+    # (spec heca-apron-round3 §1, Amendment 2 ruling 1, 2026-08-27.)
+    #
+    # A station lies exactly ON an aircraft taxi axis, so putting its
+    # position in ``G.pos`` would make ``_build_global_spine`` string it
+    # into that axis's chain — and THAT IS THE THING THE AMENDMENT
+    # FORBIDS.  Measured (lane round3spine, the A3↔A4 interventional
+    # pair): 62 interleaved collinear points changed the phase-A profile
+    # solve, and the yielding junctions then settled elsewhere — the
+    # dip-site junction pieces moved to −0.500 m against the stations-OFF
+    # arm, identically whether the station-touching membrane edges were
+    # symmetric or one-sided, which is what proved the channel was the
+    # CHAIN and not the edges.
+    #
+    # A station's value is the solved profile of its axis INTERPOLATED at
+    # its arc position — "the spine's value at that point, never a
+    # re-solve of the spine" — computed after the phase-A pass by
+    # ``apron_spine_stations.interpolate_station_values`` off this
+    # graph's own ``centerline_chains``.  So the chain, and every
+    # junction / ring / centerline value with it, is BYTE-IDENTICAL to
+    # the stations-OFF arm by construction.
+    #
+    # This comment is the only trace the feature leaves in this function
+    # on purpose: the next lane must not "fix" the omission.
+
     if include_spine:
         # ── GLOBAL spine chains: per centerline, all on-line geometry nodes
         # ordered by arc and linked consecutive (budget = cap·arc-gap).  This

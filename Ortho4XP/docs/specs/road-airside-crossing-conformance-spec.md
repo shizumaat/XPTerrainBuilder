@@ -130,3 +130,47 @@ violation); population 285 stretches / 32.1 km at HECA. Three rulings:
 4. Non-goals reaffirmed: no new welding machinery (§1.3 unchanged);
    HEAZ's BandInversionError and the red near-miss-frontage twin are
    PRE-EXISTING at a111e080 — out of scope, reported separately.
+
+## Amendment 2 (Fable, 2026-08-27 — rulings on attempt 3's three open
+## questions; one diagnostic arm authorized, then land)
+
+Attempt 3 (lane/roadxing 7ff91bd7): owner-site worst step 3.44 → 2.73 m
+with the road adopted to its cap ceiling (105.52 against a ~105.9
+ceiling set by the apron -10258 weld at 103.2); 0 MOVED airside rows on
+every airport; HECA 28 NEW airside rows at median 91.4 m from any road.
+Rulings:
+
+1. **The owner-site residual is AIRSIDE-vs-AIRSIDE and is NOT this
+   law's business.** Apron -10258 (103.2) and junction -10250 (108.9)
+   stand 5.7 m apart over ~35 m — a ~16 % spread between two airside
+   authorities. The road conforms to both as hard as its 8 % cap
+   allows; that is this law COMPLETE. The spread itself is the
+   round-3 spine-first membrane's domain (an apron interior unanchored
+   by the centerline scaffold, the same class as the dip/T sites) —
+   the owner site is RE-MEASURED after round3spine lands, and if the
+   spread survives round-3 it becomes its own attribution docket
+   (which authority set apron 103.2), never a road fix.
+2. **DIAGNOSTIC ARM AUTHORIZED, then retire the §1.1 widening if
+   confirmed.** One arm with the 25b contact-set widening OFF
+   (adoption kept): CYXY first (cheap), then HECA. If the owner-site
+   profile and the crossing adoptions are unchanged and the 28 NEW
+   HECA rows (and SPJC's 4) die, the widening is RETIRED — under
+   adoption-only values it carries none of the acceptance and mints
+   airside rows through the lateral pass's cuts. §1.1's contact-set
+   text is then superseded: the crossing law IS the adoption;
+   `APRON_CONTACT_ROLES` returns to its pre-round value. If the rows
+   do NOT die, STOP and report — the coupling is elsewhere and needs
+   fresh attribution.
+3. **Strip freezing STANDS; no re-fairing machinery.** The frozen
+   graded_strip welds are not the binding ceiling at the owner site
+   (the apron weld is), and post-adoption strip re-fairing is new
+   welding machinery §1.3 forbids. If, AFTER round-3 lands and the
+   airside spread closes, a measured site shows the strip weld as the
+   binding residual, that is a new Fable question with its own
+   measurement — not this round's.
+4. **Acceptance restated:** the airside-EXACT gate applies with the
+   widening retired (zero NEW / zero MOVED airside rows vs flag-off;
+   GONE and road-own graded_strip rows allowed). Owner-site
+   acceptance for THIS law: the road adopted to its cap ceiling with
+   no road-attributable step; the absolute step number is adjudicated
+   after round-3.

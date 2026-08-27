@@ -11,6 +11,7 @@ import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Proj_Runtime as PROJRT
 import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
 import O4_Version
@@ -783,12 +784,34 @@ def _run_triangulation_process(mesh_cmd):
     return process
 
 
+def _refuse_on_broken_proj() -> bool:
+    """Report and abort the step when the PROJ runtime failed its self-check.
+
+    A broken PROJ runtime silently degrades a tile (every elevation inset
+    fetch fails and the build continues on base DEM only), so the step
+    refuses instead — docs/specs/proj-runtime-robustness-spec.md.
+    """
+    reason = PROJRT.refuse_reason()
+    if not reason:
+        return False
+    UI.lvprint(
+        0,
+        "ERROR: PROJ runtime is broken — builds are disabled to avoid a "
+        "silently degraded tile.",
+    )
+    UI.lvprint(0, reason)
+    UI.exit_message_and_bottom_line("")
+    return True
+
+
 ################################################################################
 def build_mesh(tile):
     if UI.is_working:
         return 0
     UI.is_working = 1
     UI.red_flag = False
+    if _refuse_on_broken_proj():
+        return 0
     VECT.scalx = cos((tile.lat + 0.5) * pi / 180)
     UI.logprint(
         "Step 2 for tile lat=", tile.lat, ", lon=", tile.lon, ": starting."
@@ -1083,6 +1106,8 @@ def sort_mesh(tile):
         return 0
     UI.is_working = 1
     UI.red_flag = False
+    if _refuse_on_broken_proj():
+        return 0
     mesh_file = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
     if not os.path.isfile(mesh_file):
         UI.exit_message_and_bottom_line("\nERROR: Could not find ", mesh_file)

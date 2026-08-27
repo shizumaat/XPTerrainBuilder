@@ -33,18 +33,39 @@ if (__name__ == '__main__' and '--engine-jsonl' in sys.argv
 
 Ortho4XP_dir = '..' if getattr(sys, 'frozen', False) else '.'
 
+sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
+
+# The frozen bundle carries two independent libproj copies (pyproj's wheel and
+# GDAL's), each with its own proj.db: each must read the database it shipped
+# with, and the user's PROJ_LIB/PROJ_DATA must not redirect either
+# (docs/specs/proj-runtime-robustness-spec.md).  Runs before the first
+# pyproj/osgeo import in this process; the src path above is what makes
+# O4_Proj_Runtime importable here (frozen bundles carry the src modules).
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    _proj_data_path = os.path.join(sys._MEIPASS, "pyproj", "proj_dir", "share", "proj")
+    import O4_Proj_Runtime
+    O4_Proj_Runtime.pin_frozen_proj(sys._MEIPASS)
     _lib_path = os.path.join(sys._MEIPASS, "_internal")
-    os.environ["PROJ_DATA"] = _proj_data_path
     os.environ["DYLD_LIBRARY_PATH"] = _lib_path + ":" + os.environ.get("DYLD_LIBRARY_PATH", "")
 
-from pyproj import datadir
+# PROJ self-check as a CLI: exits 0 healthy / 1 broken, ahead of every heavy
+# import so a broken bundle is diagnosable without loading the pipeline.
+if __name__ == '__main__' and '--proj-selfcheck' in sys.argv:
+    import O4_Proj_Runtime
+    _proj_error = O4_Proj_Runtime.preflight()
+    print(_proj_error if _proj_error else "PROJ selfcheck OK")
+    sys.exit(1 if _proj_error else 0)
 
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    datadir.set_data_dir(_proj_data_path)
-
-sys.path.append(os.path.join(Ortho4XP_dir, 'src'))
+# One self-check per top-level process: multiprocessing helpers re-import this
+# module as "__mp_main__" and --engine-worker children skip it — neither runs
+# the gated pipeline-step entries, which execute only in the top-level process.
+# A failure does not stop the process (browsing and the protocol still work) —
+# the pipeline steps refuse via refuse_reason().
+if __name__ == '__main__' and '--engine-worker' not in sys.argv:
+    import O4_Proj_Runtime
+    _proj_error = O4_Proj_Runtime.preflight()
+    if _proj_error:
+        print("ERROR: PROJ runtime self-check failed", file=sys.stderr)
+        print(_proj_error, file=sys.stderr)
 
 # JSON-lines engine transport (docs/specs/engine-protocol-multi-gui.md §5):
 # a subprocess front end runs `Ortho4XP.py --engine-jsonl` and speaks the

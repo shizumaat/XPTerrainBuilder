@@ -13,6 +13,7 @@ import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 import O4_Geo_Utils as GEO
+import O4_Proj_Runtime as PROJRT
 import O4_Imagery_Utils as IMG
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
@@ -109,12 +110,35 @@ def needs_mask(tile, til_x_left, til_y_top, zl, *args):
 ################################################################################
 
 ################################################################################
+def _refuse_on_broken_proj() -> bool:
+    """Report and abort the step when the PROJ runtime failed its self-check.
+
+    A broken PROJ runtime silently degrades a tile (every elevation inset
+    fetch fails and the build continues on base DEM only), so the step
+    refuses instead — docs/specs/proj-runtime-robustness-spec.md.
+    """
+    reason = PROJRT.refuse_reason()
+    if not reason:
+        return False
+    UI.lvprint(
+        0,
+        "ERROR: PROJ runtime is broken — builds are disabled to avoid a "
+        "silently degraded tile.",
+    )
+    UI.lvprint(0, reason)
+    UI.exit_message_and_bottom_line("")
+    return True
+
+
+################################################################################
 def build_masks(tile, for_imagery=False):
-    
+
     if UI.is_working:
         return 0
     UI.is_working = 1
-    
+    if _refuse_on_broken_proj():
+        return 0
+
     # Which grey level for inland water equivalent ?
     im = Image.open(os.path.join(FNAMES.Utils_dir, "water_transition.png"))
     sea_level = im.getpixel((0, 127 * (1 - min(1, 0.1 + tile.ratio_water))))

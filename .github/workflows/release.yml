@@ -25,7 +25,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: PROJ for the spec's proj.db lookup
+      # macOS GDAL links Homebrew's libproj, and Ortho4XP.spec bundles the
+      # PROJ data directory that GDAL's own search paths report
+      # (docs/specs/proj-runtime-robustness-spec.md D2(b)).
+      - name: PROJ for GDAL's proj data lookup
         run: brew install proj
 
       # macos-15 runners default to Xcode 16.4, whose SDK predates macOS 26;
@@ -38,6 +41,15 @@ jobs:
 
       - name: Freeze engine
         run: PYTHON=python3 scripts/make_engine.sh
+
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no release.
+      - name: PROJ self-check (frozen engine, hostile environment)
+        env:
+          PROJ_LIB: /nonexistent/proj
+          PROJ_DATA: /nonexistent/proj
+        run: Ortho4XP/dist/Ortho4XP/Ortho4XP --proj-selfcheck
 
       - name: Build app
         run: scripts/make_app.sh release
@@ -106,6 +118,16 @@ jobs:
         working-directory: Ortho4XP
         run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
 
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no release.
+      - name: PROJ self-check (frozen app, hostile environment)
+        working-directory: Ortho4XP
+        env:
+          PROJ_LIB: C:\nonexistent\proj
+          PROJ_DATA: C:\nonexistent\proj
+        run: dist/Ortho4XP_Qt/Ortho4XP_Qt.exe --proj-selfcheck
+
       - name: Version
         id: ver
         run: |
@@ -165,6 +187,16 @@ jobs:
       - name: Freeze Qt app
         working-directory: Ortho4XP
         run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no release.
+      - name: PROJ self-check (frozen app, hostile environment)
+        working-directory: Ortho4XP
+        env:
+          PROJ_LIB: /nonexistent/proj
+          PROJ_DATA: /nonexistent/proj
+        run: dist/Ortho4XP_Qt/Ortho4XP_Qt --proj-selfcheck
 
       - name: Version
         id: ver

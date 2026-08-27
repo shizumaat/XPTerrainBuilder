@@ -12,6 +12,7 @@ import O4_Vector_Map as VMAP
 import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_DSF_Utils as DSF
+import O4_Proj_Runtime as PROJRT
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -297,12 +298,34 @@ def is_cached(tile) -> bool:
     return True
 
 
+def _refuse_on_broken_proj() -> bool:
+    """Report and abort the step when the PROJ runtime failed its self-check.
+
+    A broken PROJ runtime silently degrades a tile (every elevation inset
+    fetch fails and the build continues on base DEM only), so the step
+    refuses instead — docs/specs/proj-runtime-robustness-spec.md.
+    """
+    reason = PROJRT.refuse_reason()
+    if not reason:
+        return False
+    UI.lvprint(
+        0,
+        "ERROR: PROJ runtime is broken — builds are disabled to avoid a "
+        "silently degraded tile.",
+    )
+    UI.lvprint(0, reason)
+    UI.exit_message_and_bottom_line("")
+    return True
+
+
 ################################################################################
 def build_tile(tile):
     if UI.is_working:
         return 0
     UI.is_working = 1
     UI.red_flag = False
+    if _refuse_on_broken_proj():
+        return 0
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": starting."
     )
@@ -560,6 +583,8 @@ def build_tile(tile):
 
 ################################################################################
 def build_all(tile):
+    if _refuse_on_broken_proj():
+        return 0
     UI.reset_total_elapsed()
     VMAP.build_poly_file(tile)
     if UI.red_flag:

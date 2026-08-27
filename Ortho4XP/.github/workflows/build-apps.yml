@@ -63,6 +63,15 @@ jobs:
       - name: Sign (ad-hoc)
         run: codesign --force --deep --sign - dist/Ortho4XP.app
 
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no artifact.
+      - name: PROJ self-check (frozen app, hostile environment)
+        env:
+          PROJ_LIB: /nonexistent/proj
+          PROJ_DATA: /nonexistent/proj
+        run: dist/Ortho4XP.app/Contents/MacOS/Ortho4XP_Qt --proj-selfcheck
+
       - name: Zip
         run: ditto -c -k --keepParent dist/Ortho4XP.app Ortho4XP-macOS-${{ matrix.arch }}.zip
 
@@ -90,6 +99,15 @@ jobs:
 
       - name: Build Ortho4XP for Windows
         run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no artifact.
+      - name: PROJ self-check (frozen app, hostile environment)
+        env:
+          PROJ_LIB: C:\nonexistent\proj
+          PROJ_DATA: C:\nonexistent\proj
+        run: dist\Ortho4XP_Qt\Ortho4XP_Qt.exe --proj-selfcheck
 
       - name: Zip
         run: Compress-Archive -Path dist\Ortho4XP_Qt -DestinationPath Ortho4XP-Windows-x64.zip
@@ -125,6 +143,15 @@ jobs:
 
       - name: Build Ortho4XP for Linux
         run: python -m PyInstaller Ortho4XP_Qt.spec --noconfirm
+
+      # The frozen bundle must read the proj.db it shipped with, whatever the
+      # user's shell exports (docs/specs/proj-runtime-robustness-spec.md D6).
+      # Bogus PROJ paths in; exit 0 out, or no artifact.
+      - name: PROJ self-check (frozen app, hostile environment)
+        env:
+          PROJ_LIB: /nonexistent/proj
+          PROJ_DATA: /nonexistent/proj
+        run: dist/Ortho4XP_Qt/Ortho4XP_Qt --proj-selfcheck
 
       - name: Tar (preserves executable bits)
         run: tar -czf Ortho4XP-Linux-x86_64.tar.gz -C dist Ortho4XP_Qt

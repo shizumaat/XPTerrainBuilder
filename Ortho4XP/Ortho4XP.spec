@@ -1,58 +1,46 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-import subprocess
-import pyproj
 from PyInstaller.utils.hooks import collect_submodules
 
 # ---------------------------------------------------------------------------
-# Resolve the correct proj.db from the system PROJ installation (version 5+)
-# rather than letting PyInstaller pick up the outdated one bundled with pyproj.
-# Supports macOS, Linux, and Windows.
+# PROJ data: each bundled libproj gets the proj.db it shipped with
+# (docs/specs/proj-runtime-robustness-spec.md).  pyproj's own wheel data is
+# collected by PyInstaller's pyproj hook into pyproj/proj_dir/share/proj; the
+# freeze machine's system proj.db is NEVER overlaid on it (a third, unrelated
+# version).  GDAL's libproj is a SECOND runtime with its own database, so its
+# data directory is resolved here, from the freeze venv, and bundled beside it.
 # ---------------------------------------------------------------------------
-def get_system_proj_db():
-    # First, try asking the 'projinfo' CLI for its search paths (one per line).
+def get_gdal_proj_dir():
+    """Return GDAL's own PROJ data directory in the freeze venv, or None."""
     try:
-        result = subprocess.check_output(["projinfo", "--searchpaths"], stderr=subprocess.DEVNULL).decode().strip()
-        for path in result.splitlines():
-            db = os.path.join(path.strip(), "proj.db")
-            if os.path.isfile(db):
-                return os.path.dirname(db)
-    except Exception:
-        pass
+        import osgeo
+        import osgeo.osr
+    except ImportError:
+        return None
+    wheel_dir = os.path.join(os.path.dirname(osgeo.__file__), "data", "proj")
+    if os.path.isfile(os.path.join(wheel_dir, "proj.db")):
+        return wheel_dir
+    for path in osgeo.osr.GetPROJSearchPaths() or []:
+        if path and os.path.isfile(os.path.join(path, "proj.db")):
+            return path
+    raise SystemExit(
+        "ERROR: osgeo is installed in the freeze environment but no proj.db "
+        "was found in osgeo/data/proj or osr.GetPROJSearchPaths() — refusing "
+        "to ship a guessed PROJ database."
+    )
 
-    # Fallback: common install locations per platform
-    if os.name == "nt":
-        # Windows: OSGeo4W and conda are the most common PROJ providers
-        osgeo = os.environ.get("OSGEO4W_ROOT", r"C:\OSGeo4W")
-        if not os.path.exists(osgeo):
-            osgeo = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Programs", "OSGeo4W")
-        conda = os.environ.get("CONDA_PREFIX", "")
-        candidates = [
-            os.path.join(osgeo, "share", "proj"),                    # OSGeo4W
-            os.path.join(conda, "Library", "share", "proj"),         # conda on Windows
-            r"C:\Program Files\PROJ\share\proj",                     # standalone PROJ installer
-        ]
-    else:
-        candidates = [
-            "/opt/homebrew/share/proj",    # macOS Apple Silicon (Homebrew)
-            "/usr/local/share/proj",       # macOS Intel (Homebrew) / Linux manual install
-            "/usr/share/proj",             # Linux system package (apt/dnf)
-        ]
+gdal_proj_dir = get_gdal_proj_dir()
+if gdal_proj_dir is None:
+    print("NOTICE: no osgeo in the freeze environment — bundling no GDAL PROJ data.")
+else:
+    print(f"Bundling GDAL proj data from: {gdal_proj_dir}")
 
-    for candidate in candidates:
-        if candidate and os.path.isfile(os.path.join(candidate, "proj.db")):
-            return candidate
-
-    # Last resort: use pyproj's own data dir (may be version 4)
-    print("WARNING: Could not find system proj.db — falling back to pyproj's bundled version.")
-    return pyproj.datadir.get_data_dir()
-
-system_proj_dir = get_system_proj_db()
-print(f"Using proj.db from: {system_proj_dir}")
-
-# Destination inside the bundle mirrors the path Ortho4XP.py expects:
-#   sys._MEIPASS / pyproj / proj_dir / share / proj
-proj_dest = os.path.join("pyproj", "proj_dir", "share", "proj")
+# Destination inside the bundle mirrors the path O4_Proj_Runtime expects:
+#   sys._MEIPASS / osgeo / data / proj
+gdal_proj_datas = (
+    [(gdal_proj_dir, os.path.join("osgeo", "data", "proj"))]
+    if gdal_proj_dir else []
+)
 
 a = Analysis(
     ['Ortho4XP.py'],
@@ -68,10 +56,7 @@ a = Analysis(
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
-        # Explicitly bundle the system proj.db (version 5+) so the bundled
-        # app doesn't fall back to pyproj's outdated version 4 copy.
-        (os.path.join(system_proj_dir, "proj.db"), proj_dest),
-    ],
+    ] + gdal_proj_datas,
     hiddenimports=collect_submodules('PIL'),
     hookspath=[],
     hooksconfig={},

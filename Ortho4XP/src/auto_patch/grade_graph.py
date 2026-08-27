@@ -1220,36 +1220,60 @@ def _centerline_specs_uncached(layout) -> list:
         except Exception:                                 # pragma: no cover
             rpts = pts
         specs.append((pts, seg_caps, is_svc, rkey, rpts))
-    covered = None
-    if use_corridors:
-        # ONE chain per corridor course, registered whole.
-        for ln in corridors:
-            try:
-                pts = list(ln.coords)
-            except Exception:                             # pragma: no cover
-                continue
-            if len(pts) < 2:
-                continue
-            specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
-                          ("corridor", id(ln)), pts))
-        covered = _corridor_cover(corridors)
     # ── ROAD ↔ AIRSIDE CROSSING CONFORMANCE (owner RULINGS 2026-08-26b
     # item 2; spec ``road-airside-crossing-conformance-spec.md`` §1) ─────
     # The stretches whose CROSS-SECTION STANDS IN airside pavement
     # (``groundside.road_airside_crossing_contacts``) are priced at the
     # crossed surface's cap, not the road's 8 %.  They are SUBTRACTED
-    # from the free-road source first — one physical road may not be
-    # registered twice, the same rule the corridor cover applies above —
+    # from BOTH free-road sources first — one physical road may not be
+    # registered twice, the same rule the corridor cover applies below —
     # and the subtraction is ``apron_spine_subsegments``, the complement
     # operator this module's sibling already owns (extend, never fork).
+    #
+    # BOTH sources, and that is the measured point: at HECA the service
+    # centerlines arrive as CORRIDOR COURSES, so a subtraction that
+    # touched only the sliced set left the owner's own crossing (axis 709
+    # through junctions -10250/-12453) registered whole at 0.08.
     from .config import ROAD_AIRSIDE_CROSSING_CONFORM as _XCONF_ON
     _xconform = ([ln for ln in (getattr(layout,
                                         "_airside_conform_subsegments",
                                         None) or [])
                   if ln is not None and not getattr(ln, "is_empty", True)]
                  if _XCONF_ON else [])
-    if use_sliced and _xconform:
+    _complement = None
+    if _xconform:
         from .groundside import apron_spine_subsegments as _complement
+    covered = None
+    if use_corridors:
+        # ONE LAW OBJECT PER CORRIDOR COURSE (owner 2026-08-12b) survives
+        # the cut: a course whose crossing was subtracted keeps its
+        # remainders on the PARENT's route key and the parent's route
+        # points, the same ``route_line`` shape the bend-split taxi pieces
+        # use, so the course is still one chain.
+        for ln in corridors:
+            try:
+                whole = list(ln.coords)
+            except Exception:                             # pragma: no cover
+                continue
+            if len(whole) < 2:
+                continue
+            parts = ([ln] if _complement is None
+                     else _complement([ln], _xconform))
+            for part in parts:
+                try:
+                    pts = list(part.coords)
+                except Exception:                         # pragma: no cover
+                    continue
+                if len(pts) < 2:
+                    continue
+                specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
+                              ("corridor", id(ln)), whole))
+        # The COVER stays the ORIGINAL courses': it answers "does a
+        # corridor chain already carry this sliced piece", and shortening
+        # the courses first would let the pieces under a subtracted
+        # crossing be registered a second time.
+        covered = _corridor_cover(corridors)
+    if use_sliced and _complement is not None:
         sliced = _complement(list(sliced), _xconform)
     if use_sliced:
         for ln in sliced:

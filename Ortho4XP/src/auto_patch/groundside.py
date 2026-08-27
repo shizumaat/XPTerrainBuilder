@@ -2830,9 +2830,32 @@ def road_airside_crossing_contacts(layout, icao: str = "") -> dict:
     layout._airside_conform_caps = []
     if not _ON:
         return summary
-    lines = [ln for ln in (getattr(layout, "_slice_service_subsegments",
-                                   None) or [])
-             if ln is not None and not getattr(ln, "is_empty", True)]
+    # THE SOURCE IS THE ONE ``centerline_specs`` REGISTERS AS FREE ROAD —
+    # corridor COURSES first, then the sliced subsegments no course covers
+    # (``grade_graph._corridor_cover`` / ``_covered_by_corridor``, imported,
+    # never re-derived).  Reading only the sliced set was this pass's own
+    # measured defect: at HECA the service centerlines arrive as CORRIDOR
+    # CHAINS (``_service_corridor_lines``, registered end-to-end), so the
+    # owner's own crossing — axis 709 through junctions -10250/-12453 —
+    # was never examined and still priced at 0.08.  The apron SPINES
+    # (RULINGS 2026-08-25h) are deliberately NOT here: they already
+    # conform at the apron's cap and re-registering them would give one
+    # physical stretch two centerlines.
+    from .config import SERVICE_CORRIDOR_CHAINS as _CORRIDOR_CHAINS
+    from .grade_graph import _corridor_cover, _covered_by_corridor
+    _sliced = [ln for ln in (getattr(layout, "_slice_service_subsegments",
+                                     None) or [])
+               if ln is not None and not getattr(ln, "is_empty", True)]
+    _corridors = [ln for ln in (getattr(layout, "_service_corridor_lines",
+                                        None) or [])
+                  if ln is not None and not getattr(ln, "is_empty", True)
+                  and len(getattr(ln, "coords", ())) >= 2]
+    if _CORRIDOR_CHAINS and _corridors:
+        _cover = _corridor_cover(_corridors)
+        lines = list(_corridors) + [ln for ln in _sliced
+                                    if not _covered_by_corridor(ln, _cover)]
+    else:
+        lines = _sliced
     summary["lines"] = len(lines)
     if not lines:
         return summary

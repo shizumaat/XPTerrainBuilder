@@ -71,13 +71,13 @@ ROAD_NEAR_Y = TAXI_HALF_W + GAP_M         # 13.1
 
 
 class _Layout:
-    def __init__(self, shapes, service_lines=()):
+    def __init__(self, shapes, service_lines=(), corridor_lines=()):
         self.icao = "TEST"
         self.shapes = list(shapes)
         self.anchor = (0.0, 0.0)
         self.canonical_points = CanonicalPointRegistry(tol_m=0.05)
         self.apt_taxi_centerlines = []
-        self._service_corridor_lines = []
+        self._service_corridor_lines = list(corridor_lines)
         self._slice_service_subsegments = list(service_lines)
         self._apron_spine_subsegments = []
 
@@ -101,7 +101,7 @@ def _road_ring(y0, y1):
             + [(ROAD_HALF_W, y) for y in reversed(ys)])
 
 
-def _crossing_layout(with_road: bool = True):
+def _crossing_layout(with_road: bool = True, corridor: bool = False):
     """The spec's §2 geometry.
 
     The taxiway is ALREADY SOLVED at ``TAXI_Z``; the road bodies stop
@@ -122,7 +122,8 @@ def _crossing_layout(with_road: bool = True):
         south.lateral_cap = north.lateral_cap = None
         shapes += [south, north]
         lines = [LineString([(0.0, -ROAD_END), (0.0, ROAD_END)])]
-    layout = _Layout(shapes, lines)
+    layout = (_Layout(shapes, (), lines) if corridor
+              else _Layout(shapes, lines))
 
     b2i, nodes = {}, []
     for s in layout.shapes:
@@ -170,6 +171,48 @@ class TestTheCrossingIsRecognised:
         # …and it does NOT swallow the free road outside the pavement.
         assert piece.length < 2 * TAXI_HALF_W + 4 * GS.\
             AIRSIDE_CROSSING_SAMPLE_STEP_M
+
+    def test_a_CORRIDOR_COURSE_crossing_is_recognised_too(self):
+        """THE MEASURED DEFECT OF THIS PASS'S OWN FIRST ARM (HECA
+        acceptance build ``HECA_20260826T223814``).
+
+        ``centerline_specs`` has TWO free-road sources — the corridor
+        COURSES (``_service_corridor_lines``, owner 2026-08-12b "one law
+        object per corridor", registered end-to-end) and the sliced
+        subsegments no course covers.  Reading only the sliced set found
+        88 stretches at HECA and MISSED the owner's own site: the road
+        there arrives as a corridor course, so axis 709 still priced at
+        0.08 running at 0.00 m inside junctions -10250 / -12453 and the
+        3.4 m cliff survived the round.
+        """
+        layout, *_ = _crossing_layout(corridor=True)
+        assert not layout._slice_service_subsegments
+        s = _contacts(layout)
+        assert s["conforming"] == 1, (
+            "a corridor-sourced crossing was not examined — the pass reads "
+            "only ONE of centerline_specs' two free-road sources")
+        assert s["pins"] == 2
+
+    def test_a_cut_CORRIDOR_course_stays_ONE_route_chain(self):
+        """Owner 2026-08-12b: one law object per corridor course.  The
+        subtraction cuts the GEOMETRY at the crossing; the remainders keep
+        the PARENT's route key and route points, so the course is still
+        one chain (the bend-split ``route_line`` shape)."""
+        layout, *_ = _crossing_layout(corridor=True)
+        _contacts(layout)
+        specs = GG.centerline_specs(layout)
+        cor = [sp for sp in specs if sp[3][0] == "corridor"]
+        assert len(cor) == 2, "the course was not cut at the crossing"
+        assert cor[0][3] == cor[1][3], (
+            "the two remainders took different route keys — the course "
+            "became two law objects")
+        whole = 2 * ROAD_END
+        for sp in cor:
+            assert LineString(sp[4]).length == pytest.approx(whole, abs=1e-6)
+        # And the crossing itself is registered ONCE, at the taxi cap.
+        mine = [sp for sp in specs if sp[3][0] == "airside_conform"]
+        assert len(mine) == 1
+        assert all(c == pytest.approx(CFG.TAXI_MAX_GRADE) for c in mine[0][1])
 
     def test_the_free_road_outside_is_untouched(self):
         """A road that never meets airside pavement has no conforming

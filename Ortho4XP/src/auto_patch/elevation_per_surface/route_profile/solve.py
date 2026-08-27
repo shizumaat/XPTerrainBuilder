@@ -3866,8 +3866,17 @@ def solve_route_profile(layout, icao: str,
                     node_pos=G.pos, n_nodes=n,
                     tier_of=_nostep_tiers,
                     existing_pairs=_nostep_existing))
-            if _ns_scs:
-                shape_constraints.extend(_ns_scs)
+            # ── PASS 1 DOES NOT INGEST THEM (spec Amendment 2) ─────
+            # The edges are BUILT and PUBLISHED here — the census prices
+            # this list and pass 2 re-resolves it by geometry — but they
+            # are NOT extended into ``shape_constraints``.  That is what
+            # makes pass 1 byte-identical to the flag-off arm BY
+            # CONSTRUCTION rather than by argument: with no entry in the
+            # constraint set and no senior preservation, no term of this
+            # solve references the law at all.  The conform is pass 2,
+            # at the tail of ``final_grade_projection``.
+            _ = _ns_scs
+            if _nostep_edges:
                 layout._airside_no_step_edges_ll = _nostep_edges
                 import O4_UI_Utils as _UI_ns
                 _UI_ns.vprint(1, _ANS.format_report(icao, _ns_report))
@@ -3905,16 +3914,16 @@ def solve_route_profile(layout, icao: str,
             # projection, where the anchored side would otherwise be the
             # cheapest way to satisfy a station-touching edge.
             station_nodes=_station_idx,
-            # AIRSIDE NO-STEP SENIORITY (spec §1.3): the SENIOR endpoint
-            # of every cross-tier direct-distance edge.  "An edge between
-            # tiers constrains the LOWER tier only (one-sided)" — and in
-            # this graph one-sidedness IS constancy: the senior side is
-            # already ``base_hard`` after the freeze loop, so keeping it
-            # out of the yield set is what stops the projection from
-            # satisfying the edge by moving the ANCHORED side, which is
-            # the failure round-3's A2/A3 arms measured.  Empty / flag
-            # OFF ⇒ the membership is byte-identical.
-            no_step_senior_nodes=_nostep_senior)
+            # AIRSIDE NO-STEP SENIORITY is NOT expressed here any more
+            # (spec Amendment 2).  The parameter stays — it is the
+            # round-3 preservation mechanism and its twin pins it — but
+            # pass 1 passes NOTHING, because pass 1 must be the flag-off
+            # arm exactly.  Seniority is now structural instead: pass 2
+            # holds every tier-1/2/3 node CONSTANT at its pass-1 value,
+            # which is a stronger statement than preservation could make
+            # (preservation reaches only phase-A FROZEN spine nodes, and
+            # a junction ring vertex is not one — the A1 measurement).
+            no_step_senior_nodes=None)
         for i in frozen:
             if i < n:
                 # §4: a seat the hard-stamp guard refused is not
@@ -4094,34 +4103,18 @@ def solve_route_profile(layout, icao: str,
                 _UI_env.vprint(1, _scaffold.format_report(icao, _sc_report))
             setattr(layout, "_scaffold_seed_report", _sc_report)
 
-        # ── §1.4 DEM DEMOTION FOR THE AIRSIDE MEMBRANE (RULINGS
-        # 2026-08-27 clause 3) ────────────────────────────────────────
-        # The scaffold seed one statement above IS the taut membrane;
-        # without this set the body solve's warm start overwrites it with
-        # the node's DEM reading, and the whole 24c re-seed is undone
-        # silently.  Restricted to AIRSIDE by the register: a service
-        # road in ``apron_body`` is terrain-tied and keeps its DEM
-        # target.  Flag OFF ⇒ empty set ⇒ byte-identical.
-        _dem_demoted: set = set()
-        try:
-            from auto_patch.airside_no_step import (
-                dem_demoted_nodes as _dem_demote)
-            _dem_demoted = _dem_demote(
-                layout, bucket_to_idx, n, apron_body,
-                extra_interior=(set(_lattice_idx) | set(_station_idx)))
-            if _dem_demoted:
-                _UI_env.vprint(1,
-                    f"  [airside-no-step] {icao}: {len(_dem_demoted)} airside "
-                    f"membrane interior node(s) carry NO DEM-proximity term "
-                    f"— they keep the taut scaffold seed (spec §1.4)")
-        except Exception as _dd_exc:                      # pragma: no cover
-            _UI_env.vprint(1, f"  [airside-no-step] {icao}: DEM demotion "
-                              f"FAILED ({type(_dd_exc).__name__}: {_dd_exc})")
+        # ── §1.4 DEM DEMOTION HAS MOVED TO PASS 2 (spec Amendment 2)
+        # It used to run here, and that was a pass-1 term: the body
+        # solve's warm start is exactly where the DEM preference lives,
+        # so demoting it changed the flag-off surface.  Under the
+        # two-pass conform the demotion is applied where its own tier
+        # is free — ``airside_no_step.membrane_conform`` re-seeds the
+        # tier-4 membrane on the taut scaffold of the pass-1 constants
+        # before re-projecting it.  Nothing here.
         n_free = one_profile_solve(
             elev, shape_constraints, base_hard, nodes, dem_elev,
             runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
-            node_band, u_spine_floor, coupling, apron_smooth=True,
-            dem_demoted=_dem_demoted)
+            node_band, u_spine_floor, coupling, apron_smooth=True)
         _psub(0.78, "Solving elevations — body fill solved")
         # Guarantee compliance: project EVERY grade-graph edge ≤cap with the
         # spine + runway + buildings + seams HARD; only the apron/junction body
@@ -9473,6 +9466,35 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     if _crown_of:
         for _i, _v in _crown_of.items():
             elev[_i] = elev[_i] - _v
+    # ── PASS 2: THE AIRSIDE MEMBRANE CONFORM (spec
+    # ``airside-no-step-law-spec.md`` Amendment 2, 2026-08-27) ─────────
+    # THE SLOT IS THE RULING.  Everything above — the whole solve and
+    # this final projection — is PASS 1, and it has never seen a no-step
+    # edge: byte-identical to the flag-off arm by construction.  Here,
+    # with the surface settled and back in EMITTED space (after the crown
+    # transform, so the membrane's plain |Δz| budgets are read in the
+    # frame they were priced in) and one statement before ``_writeback``,
+    # every tier-1/2/3 node becomes a CONSTANT and only the tier-4
+    # membrane is free.  The no-step edges enter WITH the membrane's own
+    # existing laws and the §1.4 DEM demotion, and the membrane alone
+    # re-projects.  Senior byte-identity then needs no gate: those values
+    # are pass 1's, untouched.
+    #
+    # Flag OFF, or no published pair, or no free membrane node ⇒ vacuous.
+    try:
+        from auto_patch.airside_no_step import (
+            membrane_conform as _mc, format_conform_report as _mc_fmt)
+        _mc_rep = _mc(layout, b2i, elev, n, shape_constraints=joint,
+                      icao=icao, crown_of=_crown_of)
+        if _mc_rep.get("free") and _mc_rep.get("pairs"):
+            import O4_UI_Utils as _UI_mc
+            _UI_mc.vprint(1, _mc_fmt(icao, _mc_rep))
+        setattr(layout, "_airside_membrane_conform_report", _mc_rep)
+    except Exception as _mc_exc:                          # pragma: no cover
+        import O4_UI_Utils as _UI_mcx
+        _UI_mcx.vprint(1, f"  [membrane-conform] {icao}: PASS 2 FAILED "
+                          f"({type(_mc_exc).__name__}: {_mc_exc}) — the "
+                          f"surface is pass 1's, unconformed")
     _writeback(layout, elev, b2i)
     # Restore the runway profile the aliased writeback may have re-stamped
     # (see the RUNWAY PROFILE PRESERVE snapshot above): both runs.

@@ -462,6 +462,7 @@ def build_airside_no_step_constraints(
     by_role: dict = {}
     edge_records: list = []
     senior_idx: set = set()
+    _carry: list = []
     apron_role = GL.APRON_ROLE
     body_gate = float(getattr(GL, "APRON_BODY_CHORD_MAX_M", 0.0) or 0.0)
     for p, (a, b) in enumerate(keep_pairs):
@@ -549,6 +550,7 @@ def build_airside_no_step_constraints(
         report["by_class"][cls] = report["by_class"].get(cls, 0) + 1
         if imposed:
             by_role.setdefault(role, []).append((ia, ib, budget))
+        _carry.append((a, b, budget, imposed))
         try:
             la = layout.m_to_ll(xa, ya)
             lb = layout.m_to_ll(xb, yb)
@@ -566,6 +568,15 @@ def build_airside_no_step_constraints(
             # constraint the projection failed to meet.
             "imposed": bool(imposed),
             "provenance": PROVENANCE})
+    # THE GEOMETRY CARRY for the pass-2 membrane conform (spec
+    # Amendment 2).  Pass 2 runs in a REBUILT node space, so the pairs
+    # travel as local-metre GEOMETRY and are re-resolved through the
+    # canonical registry there — never as indices (the rod-key lesson,
+    # and the same rule the apron terrace plan is re-bound by).
+    layout._airside_no_step_pairs_m = [
+        (float(coords[a][0]), float(coords[a][1]),
+         float(coords[b][0]), float(coords[b][1]), float(bud), bool(imp))
+        for (a, b, bud, imp) in _carry]
     sc_out: list = []
     for role, edges in sorted(by_role.items()):
         if not edges:
@@ -626,3 +637,266 @@ def dem_demoted_nodes(layout, bucket_to_idx, n_nodes, apron_body,
                 if 0 <= int(i) < n_nodes}
     return {int(i) for i in apron_body
             if 0 <= int(i) < n_nodes and int(i) in airside}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PASS 2 — THE MEMBRANE CONFORM (spec Amendment 2, 2026-08-27)
+# ══════════════════════════════════════════════════════════════════════
+#
+# THE MECHANISM FINDING THIS ANSWERS.  The one-solve graph expresses
+# one-sidedness only against a CONSTANT, and a junction ring vertex is a
+# free variable of its OWN within-shape law — so an imposed tier2<->tier4
+# edge still moved it (measured A1: HECA taxiway-family movers 3,342 of
+# 6,233, worst 1.52 m).  Freezing tier 2 at phase-A values differs from
+# the flag-off arm in the OTHER direction; making tier2<->tier4
+# report-first deletes the coupling that lifts the membrane.  The staged
+# principle (round-3 Amendment 1) is the ruled answer:
+#
+#   PASS 1  the solve with NO imposed no-step edge and no DEM demotion —
+#           byte-identical to the flag-off arm BY CONSTRUCTION.  Nothing
+#           in this module touches it; that is the assertion, not an
+#           argument.
+#   PASS 2  every tier-1/2/3 node is a CONSTANT at its pass-1 value and
+#           only tier-4 membrane nodes are free.  The no-step edges
+#           (senior<->4 one-sided against the constants by construction,
+#           4<->4 symmetric) are imposed TOGETHER WITH the tier-4 nodes'
+#           own existing laws and the §1.4 DEM demotion, and the surface
+#           is re-projected.  Tier 4 emits pass-2 values; everything else
+#           emits pass-1 values, untouched.
+#
+# Senior byte-identity therefore needs no gate: the senior values ARE the
+# flag-off values.  The runway carve-corner movers vanish for the same
+# reason — a node a runway ring shares is max-tier tier 1, hence a
+# constant, so the emit author cannot flip.
+
+
+def membrane_free_nodes(layout, bucket_to_idx, n_nodes, *, crown_of=None):
+    """``(free, constants, tiers)`` for pass 2.
+
+    FREE = the airside nodes that are tier 4 under the MAX-TIER rule: the
+    apron membrane (apron ring vertices, the interior lattice) and
+    nothing else.  A node any senior shape also carries — a runway ring,
+    the taxiway family, a building pad — is a CONSTANT, which is what
+    makes every cross-tier edge one-sided without a per-edge facility.
+
+    A CROWNED node is excluded from FREE (and counted): the projection's
+    budgets are priced in the crown-lifted z' frame while this pass runs
+    in EMITTED space, so a crowned node is not ours to move (memory
+    ``crown-zprime-vs-emitted-space``).  The membrane carries no crown
+    declaration, so in practice this excludes nothing and is a guard.
+    """
+    from .elevation_per_surface.solver_primitives import (
+        _open_ring, _runway_node_set)
+    cps = layout.canonical_points
+    airside = set(_node_shapes(layout, bucket_to_idx, n_nodes))
+    tier1 = {int(i) for i in _runway_node_set(layout, bucket_to_idx)
+             if 0 <= int(i) < n_nodes}
+    tier2 = set(taxiway_family_nodes(layout, bucket_to_idx, n_nodes))
+    # The round-3 apron spine STATIONS are centerline-valued (round-3
+    # Amendment 2: a station's value is its axis profile's own), so they
+    # are tier 2 even though they live inside an apron.
+    for entry in (getattr(layout, "apron_spine_presolve", None) or ()):
+        for (x, y) in (entry.get("points") or ()):
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n_nodes:
+                tier2.add(int(i))
+    tier3: set = set()
+    from .layout import ROLE_BUILDING
+    for s in (getattr(layout, "shapes", None) or ()):
+        if (getattr(s, "role", None) or "") != ROLE_BUILDING:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except _GEOM_EXC:                                 # pragma: no cover
+            continue
+        for (x, y) in ring:
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n_nodes:
+                tier3.add(int(i))
+    senior = tier1 | tier2 | tier3
+    free = airside - senior
+    if crown_of:
+        free -= {int(i) for i in crown_of}
+    tiers = {"tier1": len(tier1), "tier2": len(tier2), "tier3": len(tier3),
+             "airside": len(airside), "free": len(free)}
+    return free, senior, tiers
+
+
+def _resolve_carried_pairs(layout, bucket_to_idx, n_nodes):
+    """The published pairs, re-resolved into THIS pass's index space
+    through the canonical registry — geometry, never an index."""
+    cps = layout.canonical_points
+    out = []
+    lost = 0
+    for (xa, ya, xb, yb, bud, imposed) in (
+            getattr(layout, "_airside_no_step_pairs_m", None) or ()):
+        ia = bucket_to_idx.get(cps.get_or_add(float(xa), float(ya)))
+        ib = bucket_to_idx.get(cps.get_or_add(float(xb), float(yb)))
+        if (ia is None or ib is None or ia == ib
+                or not (0 <= ia < n_nodes) or not (0 <= ib < n_nodes)):
+            lost += 1
+            continue
+        out.append((int(ia), int(ib), float(bud), bool(imposed)))
+    return out, lost
+
+
+def _membrane_interior_nodes(layout, bucket_to_idx, n_nodes):
+    """The airside membrane INTERIOR: the round-2 apron LATTICE points.
+
+    They exist precisely because the apron had no interior vertices
+    (spec ``heca-apron-round2`` Amendment 1 §1b), so they ARE the
+    interior §1.4 names — and nothing on a shape's exterior ring is."""
+    cps = layout.canonical_points
+    out: set = set()
+    for entry in (getattr(layout, "apron_lattice_presolve", None) or ()):
+        for (x, y) in (entry.get("points") or ()):
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n_nodes:
+                out.add(int(i))
+    return out
+
+
+def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
+                     shape_constraints, icao="", crown_of=None):
+    """PASS 2.  Mutates ``elev`` in place over the tier-4 membrane only;
+    returns a report dict.  Nothing is printed here.
+
+    Flag OFF, or no published pair, or no free membrane node ⇒ every
+    branch is vacuous and ``elev`` is untouched — byte-inert.
+    """
+    from . import config as _cfg
+    from .elevation_per_surface.route_profile.one_solve import (
+        feasibility_project, _build_adjacency)
+    from .elevation_per_surface.route_profile import scaffold_seed as _sc
+    from .solve_stage import STAGE_A, STAGE_KEY
+    report = {"free": 0, "constants": 0, "pairs": 0, "lost_pairs": 0,
+              "own_law_edges": 0, "reseeded": 0, "reseed_worst_m": 0.0,
+              "moved": 0, "worst_move_m": 0.0, "over_cap_left": 0,
+              "both_hard_left": 0, "tiers": {}, "crown_skipped": 0,
+              "interval_skipped": 0, "interior": 0}
+    if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
+        return report
+    carried, lost = _resolve_carried_pairs(layout, bucket_to_idx, n_nodes)
+    report["lost_pairs"] = lost
+    if not carried:
+        return report
+    free, senior, tiers = membrane_free_nodes(
+        layout, bucket_to_idx, n_nodes, crown_of=crown_of)
+    report["tiers"] = tiers
+    report["free"] = len(free)
+    report["constants"] = n_nodes - len(free)
+    if not free:
+        return report
+    # ── THE PASS-2 EDGE SET ──────────────────────────────────────────
+    # (a) the IMPOSED no-step pairs that touch the membrane.  A tier2 <->
+    #     tier2 pair is report-first (Amendment 1) and never enters here;
+    #     a senior <-> free pair is one-sided BY CONSTRUCTION because the
+    #     senior end is not in ``free`` and therefore is hard below.
+    ns_edges = [(a, b, bud) for (a, b, bud, imp) in carried
+                if imp and (a in free or b in free)]
+    report["pairs"] = len(ns_edges)
+    # (b) the tier-4 nodes' OWN EXISTING LAWS — every edge of this pass's
+    #     constraint set with a free endpoint (within-shape, lattice,
+    #     station, band…).  Carried VERBATIM, budgets included: pass 2
+    #     may not relax a law pass 1 built to.
+    #     A CROWNED endpoint is dropped with its edge: this pass runs in
+    #     EMITTED space and those budgets were priced in the crown-lifted
+    #     z' frame, so comparing them here would be a frame error
+    #     (memory ``crown-zprime-vs-emitted-space``).  The membrane
+    #     carries no crown, so in practice this drops nothing.
+    crowned = {int(i) for i in (crown_of or ())}
+    own: list = []
+    for entry in (shape_constraints or ()):
+        for e in (entry.get("edges") or ()):
+            try:
+                a, b = int(e[0]), int(e[1])
+            except (TypeError, ValueError):               # pragma: no cover
+                continue
+            if a in crowned or b in crowned:
+                report["crown_skipped"] += 1
+                continue
+            if len(e) != 3:
+                # A SIGNED INTERVAL edge (the B0 4-tuple) is not this
+                # pass's to re-impose: its floor/ceiling are the host
+                # law's, stated against a node this pass holds constant.
+                report["interval_skipped"] += 1
+                continue
+            if a in free or b in free:
+                own.append(tuple(e))
+    report["own_law_edges"] = len(own)
+    if not ns_edges and not own:
+        return report
+    entries = []
+    if ns_edges:
+        entries.append({"nodes": sorted({a for (a, _b, _c) in ns_edges}
+                                        | {b for (_a, b, _c) in ns_edges}),
+                        "edges": ns_edges, "flat": False, "flat_pairs": (),
+                        "area": 0.0, "role": "apron",
+                        STAGE_KEY: STAGE_A, "ref": PROVENANCE})
+    if own:
+        entries.append({"nodes": sorted({int(e[0]) for e in own}
+                                        | {int(e[1]) for e in own}),
+                        "edges": own, "flat": False, "flat_pairs": (),
+                        "area": 0.0, "role": "apron",
+                        STAGE_KEY: STAGE_A, "ref": "membrane_own_law"})
+    before = {i: float(elev[i]) for i in free}
+    # ── §1.4 DEM DEMOTION, APPLIED HERE (Amendment 2 puts it in pass 2,
+    # so pass 1 stays byte-identical) ─────────────────────────────────
+    # The membrane is re-seeded on the TAUT SCAFFOLD of the constants —
+    # the Chebyshev centre of the cap-Lipschitz envelope the law edges
+    # admit from them — instead of keeping the DEM-warm-started value
+    # pass 1 left.  ONE implementation, ``scaffold_seed``: the 24c
+    # re-seed and this one are the same statement about the same surface.
+    adjacency = _build_adjacency(entries, n_nodes)
+    anchors = {i: float(elev[i]) for i in senior
+               if 0 <= i < n_nodes and i in adjacency}
+    # SCOPE IS §1.4's OWN WORDS — "airside membrane INTERIOR free nodes".
+    # The apron RING vertices in ``free`` are not interior: they are the
+    # shape's own boundary, shaped by the ring law and by the transverse
+    # (cross-corridor) law, and re-seeding them replaces a settled
+    # boundary with an interpolation no pair budget can restore.
+    # MEASURED (this lane's first A2 cut, which re-seeded all of
+    # ``free``): CYXY airside 88 -> 186 with `transverse` alone 4 -> 67,
+    # against 88 -> 117 when only the interior moves.  The interior is
+    # the round-2 LATTICE — the nodes that exist precisely because the
+    # apron had no interior vertices — so that is the population.
+    interior = free & _membrane_interior_nodes(layout, bucket_to_idx,
+                                               n_nodes)
+    report["interior"] = len(interior)
+    if anchors and interior:
+        rep = _sc.scaffold_seed_apron_interior(
+            elev, adjacency=adjacency, anchor_values=anchors,
+            interior_nodes=interior, node_band=None)
+        report["reseeded"] = int(rep.get("seeded", 0))
+        report["reseed_worst_m"] = float(rep.get("worst_move_m", 0.0))
+    hard = {i for i in range(n_nodes) if i not in free}
+    rem, both = feasibility_project(elev, entries, hard)
+    report["over_cap_left"] = int(rem or 0)
+    report["both_hard_left"] = int(both or 0)
+    for i, v0 in before.items():
+        d = abs(float(elev[i]) - v0)
+        if d > 0.01:
+            report["moved"] += 1
+        if d > report["worst_move_m"]:
+            report["worst_move_m"] = d
+    return report
+
+
+def format_conform_report(icao: str, r: dict) -> str:
+    t = r.get("tiers") or {}
+    return (f"  [membrane-conform] {icao}: PASS 2 over {r['free']} tier-4 "
+            f"membrane node(s) ({r['constants']} constant, of "
+            f"{t.get('airside', 0)} airside: tier1 {t.get('tier1', 0)} / "
+            f"tier2 {t.get('tier2', 0)} / tier3 {t.get('tier3', 0)}); "
+            f"{r['pairs']} imposed no-step pair(s) + {r['own_law_edges']} "
+            f"of the membrane's OWN law edge(s); {r['reseeded']} node(s) "
+            f"re-seeded on the taut scaffold (worst "
+            f"{r['reseed_worst_m']:.2f} m over the {r.get('interior', 0)} "
+            f"INTERIOR of them, spec §1.4); {r['moved']} node(s) "
+            f"moved > 1 cm, worst {r['worst_move_m']:.2f} m; "
+            f"{r['over_cap_left']} edge(s) left over cap "
+            f"({r['both_hard_left']} both-hard); every non-tier-4 value is "
+            f"pass 1's, untouched (spec Amendment 2)")

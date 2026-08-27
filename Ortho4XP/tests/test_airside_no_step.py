@@ -689,3 +689,129 @@ def test_the_report_names_the_long_apron_chord_skip():
     assert rep["skipped_long_apron"] > 0, (
         "the 200 m x 100 m apron has pairs beyond the 60 m body gate")
     assert "60 m body gate" in ANS.format_report("TEST", rep)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 2 — THE TWO-PASS CONFORM
+# ═════════════════════════════════════════════════════════════════════
+
+def test_pass_1_ingests_NOTHING_from_this_law():
+    """Spec Amendment 2 ruling 1: *"Pass 1: the solve WITHOUT any imposed
+    no-step edges — byte-identical to the flag-off arm by construction
+    (assert it, don't argue it)."*  Three terms had to leave pass 1, and
+    this pins all three at the call sites."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+    # (a) the entries are BUILT and PUBLISHED but never extended in
+    assert "_airside_no_step_edges_ll = _nostep_edges" in src
+    assert "shape_constraints.extend(_ns_scs)" not in src
+    # (b) no senior preservation
+    assert "no_step_senior_nodes=None)" in src
+    # (c) no DEM demotion in the body solve's warm start
+    assert "dem_demoted=" not in src
+    assert "apron_smooth=True)" in src
+
+
+def test_pass_2_is_wired_at_the_final_projections_tail():
+    """…and AFTER the crown transform back, so the membrane's plain |Δz|
+    budgets are read in the frame they were priced in."""
+    import inspect
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.final_grade_projection)
+    assert "membrane_conform as _mc" in src
+    i_crown = src.index("crown transform back")
+    i_conf = src.index("membrane_conform as _mc")
+    i_wb = src.rindex("_writeback(layout, elev, b2i)")
+    assert i_crown < i_conf < i_wb, (
+        "pass 2 must run after the crown transform and before writeback")
+
+
+def test_only_tier4_membrane_nodes_are_free_in_pass_2():
+    """Spec Amendment 2: *"every tier-1/2/3 node is a CONSTANT at its
+    pass-1 value; only tier-4 membrane nodes are free"*, under the
+    MAX-TIER rule — which is what makes the runway carve-corner movers
+    vanish."""
+    rw = _Shape(_rect(-60.0, 40.0, 60.0, 60.0), "runway")
+    jn = _Shape(_rect(-60.0, 20.0, 60.0, 40.0), "junction")
+    ap = _Shape(_rect(-60.0, -20.0, 60.0, 20.0), "apron")
+    bl = _Shape(_rect(-10.0, -18.0, 10.0, -2.0), "building")
+    layout = _Layout([rw, jn, ap, bl])
+    bucket_to_idx, node_pos, _ctx = _wire(layout)
+    n = len(node_pos)
+    free, senior, tiers = ANS.membrane_free_nodes(layout, bucket_to_idx, n)
+    ids = {(round(px, 3), round(py, 3)): i
+           for i, (px, py) in node_pos.items()}
+
+    def _of(shape):
+        return {ids[(round(x, 3), round(y, 3))]
+                for (x, y) in list(shape.polygon.exterior.coords)[:-1]}
+    rw_ids, jn_ids, ap_ids, bl_ids = (_of(rw), _of(jn), _of(ap), _of(bl))
+    assert not (free & rw_ids), "a runway node is tier 1, never free"
+    assert not (free & jn_ids), "a taxiway-family node is tier 2"
+    assert not (free & bl_ids), "a building pad node is tier 3"
+    # the SHARED runway/junction edge is senior under max-tier
+    assert (rw_ids & jn_ids) <= senior
+    # what is left free is the apron membrane and only that
+    assert free == ap_ids - jn_ids - bl_ids
+    assert tiers["free"] == len(free)
+
+
+def test_pass_2_touches_nothing_when_there_is_no_publication():
+    """No published pair ⇒ vacuous, ``elev`` untouched — the flag-OFF and
+    no-airside cases both land here."""
+    ap = _Shape(_rect(-60.0, -20.0, 60.0, 20.0), "apron")
+    layout = _Layout([ap])
+    bucket_to_idx, node_pos, _ctx = _wire(layout)
+    n = len(node_pos)
+    elev = [10.0] * n
+    rep = ANS.membrane_conform(layout, bucket_to_idx, elev, n,
+                               shape_constraints=[])
+    assert rep["free"] == 0 and rep["pairs"] == 0
+    assert elev == [10.0] * n
+
+
+def test_pass_2_moves_the_membrane_and_NOT_the_constants():
+    """The whole point: a senior<->free pair is one-sided BY CONSTRUCTION
+    because the senior end is not in the free set, so the projection can
+    only move the membrane."""
+    jn = _Shape(_rect(-25.0, -20.0, 0.0, 20.0), "junction")
+    ap = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "apron")
+    layout = _Layout([jn, ap])
+    bucket_to_idx, node_pos, ctx = _wire(layout)
+    n = len(node_pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, bucket_to_idx,
+                                                     n))
+    sc, senior, recs, rep = ANS.build_airside_no_step_constraints(
+        layout, bucket_to_idx, ctx, node_pos=node_pos, n_nodes=n,
+        tier_of=tiers)
+    assert rep["edges"] > 0
+    assert getattr(layout, "_airside_no_step_pairs_m", None)
+    free, const, _t = ANS.membrane_free_nodes(layout, bucket_to_idx, n)
+    assert free and const
+    # the junction sits 3 m above a flat apron — far over any cap
+    elev = [10.0] * n
+    for i in const:
+        elev[i] = 13.0
+    before = list(elev)
+    conform = ANS.membrane_conform(layout, bucket_to_idx, elev, n,
+                                   shape_constraints=[], icao="TEST")
+    assert conform["pairs"] > 0
+    for i in const:
+        assert elev[i] == before[i], (
+            "a CONSTANT moved — pass 2 is not one-sided")
+    assert any(abs(elev[i] - before[i]) > 0.01 for i in free), (
+        "the membrane did not conform toward the constant")
+    assert conform["moved"] > 0
+
+
+def test_the_carried_pairs_travel_as_GEOMETRY_not_indices():
+    """Pass 2 runs in a REBUILT node space (the rod-key lesson): the
+    pairs are re-resolved through the canonical registry."""
+    src = Path(ANS.__file__).read_text()
+    assert "_airside_no_step_pairs_m" in src
+    assert "cps.get_or_add(float(xa), float(ya))" in src
+    import inspect
+    doc = inspect.getdoc(ANS._resolve_carried_pairs)
+    assert "geometry, never an index" in doc

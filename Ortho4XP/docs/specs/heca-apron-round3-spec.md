@@ -178,3 +178,39 @@ settle elsewhere. Ruling:
    ring-to-station steps re-read under the interpolated values
    (expected lawful: the CTL profile itself ran 0.63 %); station-class
    overlap residual stays accepted. Report the same tables.
+
+## Amendment 3 (Fable, 2026-08-27 — the unstrung-axis value source;
+## attempt cap RESETS for this target, cap 2)
+
+Measured (A5): reading (b) is proven — chain byte-identical to
+stations-OFF, owner sites' anchored side unmoved, SPJC/CYXY improved,
+line-T station steps lawful. But 20 of 62 HECA stations (32 %) sit on
+axis pieces that contributed no string (<2 on-line nodes), so they got
+no value — and they concentrate on exactly the empty aprons this round
+targets: the axis over dip apron −10659 is unstrung, the coupling is
+inert there, and the 1.48 m proud ridge stands. The void that motivated
+the lattice also starves the stations. Ruling:
+
+1. **AN UNSTRUNG AXIS PIECE VALUES ITS STATIONS FROM THE ROUTE'S OWN
+   ENDPOINT VALUES.** For an axis piece with fewer than two strung
+   nodes, each station interpolates between the SOLVED values at the
+   piece's route endpoints — the pavement/junction nodes the route
+   connects (at line T: ~74.01 and ~74.48) — at the station's arc
+   position. This is the straight plane between anchors the DEM-last
+   ruling (2026-08-25) already mandates for unanchored spans; no new
+   authority. One valued endpoint → clamp to it (the existing clamp
+   accounting); zero → FREE and counted (existing). Never a DEM seed
+   dressed as a spine value (A5's own rule, kept).
+2. **The patch-wide free-population re-settle is ACCEPTED AS
+   REPORTED** (3903 junction moves >1 cm, worst −0.710 m, sites
+   unmoved): those nodes are yield-free by design and the census is
+   the adjudicator; report the A/B honestly. Gate 2a stays what A5
+   made it — structural chain identity plus site-level anchored-side
+   identity.
+3. **Acceptance:** dip site — stations on the −10659 crossing VALUED,
+   membrane rises, proud ridge materially below 1.48 m (report the
+   number; the ridge's lawful floor is the junction-vs-membrane step
+   the apron cap allows over the standoff distance); line T unchanged
+   from A5 or better; unvalued-station count reported (expect ~0
+   clamped-to-nothing at HECA); SPJC/CYXY re-run (expect unchanged —
+   both had 0 unstrung).

@@ -1460,8 +1460,11 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                               # ``("apron_spine", ...)`` — one enumeration,
                               # so the solver, the validator and the sidecar
                               # mirror cannot disagree about which pieces are
-                              # the apron's spine.
-                              is_apron_spine=(rkey[0] == "apron_spine")))
+                              # the apron's spine.  Route-sharing pieces key
+                              # by ``id(route_line)`` — a plain int — so the
+                              # membership test must be tuple-guarded.
+                              is_apron_spine=(isinstance(rkey, tuple)
+                                              and rkey[0] == "apron_spine")))
         if _is_svc:
             _svc_len_m += sum(math.hypot(b[0] - a[0], b[1] - a[1])
                               for (a, b) in zip(pts, pts[1:]))

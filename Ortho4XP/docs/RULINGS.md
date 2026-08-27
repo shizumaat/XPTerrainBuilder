@@ -1694,3 +1694,59 @@ OWNER QUESTIONS raised this wave (all HELD pending the owner; nothing improvised
 
 * **APRON CHORD TARGETS ARE THE NEAREST VISIBLE ANCHOR — PAD OR CENTERLINE, WHICHEVER IS CLOSER (owner 2026-08-25, amends A4.1(i) and the 2026-08-21d strict-chord clause).** An apron ring vertex's strict chord is measured to the NEAREST VISIBLE anchor across APRON-ONLY pavement, where the anchor set is BOTH the building pads and the taxiway centerline nodes — whichever is closer wins. This supersedes vertex→nearest-spine-node-with-pad-intercept: the pad is a first-class chord target, not merely an interceptor when it happens to lie in the path. Visibility is priced across apron pavement only (a chord may not cross non-apron pavement or gaps). BUILDING FRONTAGE CHORDS ARE UNCHANGED: pad→centerline frontage chords keep their existing rules (2026-08-08 / 2026-08-21d) and caps. Consequence: the chord population near pads becomes LOCAL (vertices price against the pad they stand beside instead of a distant spine node), which is the population the 2026-08-25 pad-seat measurement showed the frontage-subset consistency interval was inconsistent with.
 * **DEM IS LAST PRIORITY — PAVEMENT NEVER DRAPES; CUT/RAISE STRAIGHT PLANES BETWEEN ANCHORS (owner 2026-08-25, strengthens 2026-08-24c).** The pavement surface between anchors (centerline profiles, seated pads) is the straight-plane/taut interpolation, cutting into hills and raised over hollows as needed. DEM participates ONLY as the lowest-priority tiebreaker: where the law leaves a choice (a seat interval, an unanchored region), anchor-consistency and plane-flatness are preferred over DEM proximity, and raw DEM authority appears only where no anchor reaches at all. This demotes the standing "DEM chooses WHERE within the lawful range" canon to LAST choice: the range is chosen from anchors first.
+
+## 2026-08-27 — OWNER QUESTION (HELD): the gap-spine bridge's route budget vs independently seated runway profiles (HEAZ build refusal)
+
+HEAZ — the only PAINTED_CENTERLINE_FALLBACK fixture — REFUSES to build on main
+(`assert_no_final_band_inversion`, 43 of 1,478 band-covered nodes), blocking
+that law family's coverage. Attributed 2026-08-27; nothing improvised, the fix
+is a law question.
+
+**Measured basis (lane heazbisect, shared corpus, all runs ledgered):**
+
+* Bisected over the full 134-commit range 0267a8f4..a111e080, both endpoints
+  verified by build: first bad commit is **c6a85e9c** (HECA apron round 2 —
+  gap-bridging spine, nodeless-interior instrument, taut graded strip,
+  lane/apronfix 2026-08-25).
+* Interventional split at a111e080: `O4_GAP_SPINE_BRIDGE=0` → rc 0, clean
+  build; `O4_TAUT_GRADED_STRIP=0` → the same refusal. The mechanism is §1,
+  the GAP-SPINE BRIDGE, alone.
+* `tools/trace_reach_route.py --inverted-pairs` on the dying build: every
+  inverted node lies ON the synthesized bridge chain itself (stations marching
+  ~20 m apart on the straight line from the 18/36-side end to the 04/22-side
+  end). The binding routes are 286–331 m long, priced at the 1.5 % taxiway cap
+  end to end (budgets 4.30–4.97 m), while the emitted anchor values they
+  connect — runway 18/36 nodes at 85.52–86.14 m vs runway 04/22 nodes at
+  81.10–81.16 m — spread 4.42–5.03 m. Shortfalls 0.01–0.66 m. Both anchors
+  are surface-lawful on every pair.
+* The refusal's own CIFP half reports the CIFP-FORCED spread FITS the budget
+  on every pair (e.g. 3.81 ≤ 4.89 m; 1.18–1.95 m of the emitted spread is
+  world-dependent seating/flex content) — feasibility-is-guaranteed HOLDS: a
+  lawful pair of profiles exists on this route. The runway profiles were
+  simply seated before/without the route the bridge later created.
+
+**Mechanism in one line:** the bridge synthesizes a centerline that becomes a
+NEW materially-shorter route between two runways' anchor regions, AFTER the
+runway profile seats (CIFP window + DEM-follow ride) were chosen without that
+route in their constraint set — the band then carries a budget the fixed seats
+cannot fit, and the post-solve law correctly refuses.
+
+**The question — who yields when a synthesized spine shortens the route
+between two runways?** Options, none assumed:
+
+1. **The seats re-solve.** The bridged route joins the constraint set the
+   runway profile seating sees (ordering fix: bridge synthesis feeds the seat
+   solve, not merely the slice). CIFP windows provably admit a solution at
+   HEAZ. Cost: runway seating gains a cross-runway coupling it never had.
+2. **The bridge stands down.** A candidate bridge whose two ends' governing
+   anchor values already spread more than `cap × bridge-route` is refused
+   loudly (the anchor-placement-law analogue: the bridge itself is the
+   misplaced object), leaving the nodeless region it was meant to fill — at
+   HEAZ this restores the pre-c6a85e9c surface exactly.
+3. **The bridge is not a 1.5 % taxiway.** The synthesized spine takes a
+   cap/profile class of its own so its route budget covers the lawful spread
+   (it is minted pavement across an apron, not an apt.dat taxi route).
+
+Until ruled, HEAZ coverage stays blocked at main tip; the one-command
+diagnostic arm is `O4_GAP_SPINE_BRIDGE=0` (byte-identical to pre-ruling per
+c6a85e9c's own contract). No fix is landed with this entry.

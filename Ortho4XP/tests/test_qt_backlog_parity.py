@@ -204,6 +204,79 @@ def test_has_foreign_sources_needs_a_current_provider(tmp_path):
     assert QTMAP.has_foreign_sources(str(tmp_path / "gone"), "BI") is False
 
 
+# ---------------------------------------------------------------------------
+# The full audit behind the cleanup offer (sizes, per-source rows)
+# ---------------------------------------------------------------------------
+def _textures(tmp_path, sizes):
+    textures = tmp_path / "textures"
+    textures.mkdir(parents=True)
+    for (name, size) in sizes.items():
+        (textures / name).write_bytes(b"x" * size)
+    return str(textures)
+
+
+def test_audit_textures_splits_sources_by_provider_and_size(tmp_path):
+    directory = _textures(tmp_path, {
+        "22528_38912_BI16.dds": 1000,
+        "22528_38916_BI17.dds": 1000,      # zones mix ZOOM LEVELS: in use
+        "22528_38912_Arc16.dds": 3000,
+        "22528_38912_USA_216.dds": 500,    # provider code ending in a digit
+        "22528_38912_BI16_mask.png": 999,  # not a texture: no evidence
+    })
+    audit = QTMAP.audit_textures(directory, "BI")
+    assert audit.provider == "BI"
+    assert audit.sources == [("BI", 2, 2000), ("Arc", 1, 3000),
+                             ("USA_2", 1, 500)]
+    assert audit.has_conflict is True
+    assert audit.current_bytes == 2000
+    assert audit.foreign_bytes == 3500
+    assert [os.path.basename(p) for p in audit.foreign_files] == [
+        "22528_38912_Arc16.dds", "22528_38912_USA_216.dds"
+    ]
+
+
+def test_audit_textures_agrees_with_the_names_only_sweep(tmp_path):
+    directory = _textures(tmp_path, {"22528_38912_BI16.dds": 10})
+    audit = QTMAP.audit_textures(directory, "bi")
+    assert audit.has_conflict is False
+    assert audit.foreign_files == []
+    assert QTMAP.has_foreign_sources(directory, "bi") is False
+
+
+def test_audit_textures_is_none_without_a_verdict_to_give(tmp_path):
+    directory = _textures(tmp_path, {"22528_38912_Arc16.dds": 10})
+    assert QTMAP.audit_textures(directory, "") is None
+    assert QTMAP.audit_textures(str(tmp_path / "gone"), "BI") is None
+
+
+def test_combined_audit_weighs_only_the_conflicted_tiles(tmp_path):
+    conflicted = QTMAP.audit_textures(_textures(tmp_path / "a", {
+        "22528_38912_BI16.dds": 1000,
+        "22528_38912_Arc16.dds": 3000,
+    }), "BI")
+    clean = QTMAP.audit_textures(_textures(tmp_path / "b", {
+        "22528_38912_Arc16.dds": 9000,
+    }), "Arc")
+    combined = QTMAP.CombinedAudit([conflicted, clean])
+    assert combined.tiles_audited == 2
+    assert combined.tiles_with_conflict == 1
+    assert combined.has_conflict is True
+    assert combined.current_providers == {"BI"}
+    assert combined.foreign_providers == {"Arc"}
+    # The clean tile's 9000 bytes are nobody's business here.
+    assert (combined.current_bytes, combined.foreign_bytes) == (1000, 3000)
+    assert len(combined.foreign_files) == 1
+
+
+def test_combined_audit_of_clean_tiles_offers_nothing(tmp_path):
+    clean = QTMAP.audit_textures(_textures(tmp_path, {
+        "22528_38912_BI16.dds": 10,
+    }), "BI")
+    combined = QTMAP.CombinedAudit([clean])
+    assert combined.has_conflict is False
+    assert combined.foreign_files == []
+
+
 # ===========================================================================
 # The window: cache round-trip and badge plumbing
 # ===========================================================================

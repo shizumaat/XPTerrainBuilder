@@ -51,6 +51,7 @@ from typing import Iterable, Iterator, List, Optional, Tuple
 __all__ = [
     "AirportEntry",
     "find_apt_dats",
+    "iter_airports",
     "build_index",
     "load_index",
     "index_count",
@@ -352,6 +353,18 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
             _airport_category(header_code, saw_icao_code))
         if entry is not None:
             yield entry
+
+
+def iter_airports(path: str) -> Iterator[AirportEntry]:
+    """Stream one ``apt.dat``'s airports — THE apt.dat parser.
+
+    :func:`build_index` drains this over the Global Airports sources.
+    Callers surveying a SINGLE pack's own ``apt.dat`` (a handful of rows,
+    no cache worth writing — see :mod:`O4_Custom_Scenery`) consume it
+    directly rather than growing a second parser: one apt.dat reader in
+    the engine, whatever the caller.
+    """
+    return _iter_airports(path)
 
 
 # ---------------------------------------------------------------------------

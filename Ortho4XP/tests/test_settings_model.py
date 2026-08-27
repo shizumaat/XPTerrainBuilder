@@ -407,3 +407,92 @@ def test_autodetect_cifp_prefers_custom_data(tmp_path):
 def test_autodetect_cifp_empty_cases(tmp_path):
     assert SM.autodetect_cifp("") == ""
     assert SM.autodetect_cifp(str(tmp_path / "nonexistent")) == ""
+
+
+# ---------------------------------------------------------------------------
+# Legacy per-tile configs (written by an older or different Ortho4XP)
+# ---------------------------------------------------------------------------
+def test_legacy_tile_settings_none_for_a_current_config(tmp_path):
+    build = _tile_dir(tmp_path)
+    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w") as f:
+        f.write("default_website=BI\ndefault_zl=17\nroad_level=2\n")
+    assert SM.legacy_tile_settings(45, 5, build) is None
+
+
+def test_legacy_tile_settings_none_without_any_config(tmp_path):
+    assert SM.legacy_tile_settings(45, 5, _tile_dir(tmp_path)) is None
+
+
+def test_legacy_tile_settings_reports_every_marker(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no global cfg: replacements are defaults
+    build = _tile_dir(tmp_path)
+    with open(os.path.join(build, "Ortho4XP.cfg"), "w") as f:
+        f.write(
+            "default_website='Arc'\n"
+            "default_zl=17\n"
+            "texture_mode=weird_mode\n"
+            "custom_dem=/nowhere/missing.tif\n"
+        )
+    legacy = SM.legacy_tile_settings(45, 5, build)
+    assert legacy["uses_legacy_name"] is True
+    assert legacy["quoted_keys"] == ["default_website"]
+    assert legacy["missing_pins"] == ["/nowhere/missing.tif"]
+    assert legacy["foreign_enums"] == [
+        ("texture_mode", "weird_mode", "full_ortho")
+    ]
+
+
+def test_legacy_tile_settings_enum_replacement_comes_from_global(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    with open(SM._default_global_cfg(), "w") as f:
+        f.write("texture_mode=airport_ortho\n")
+    build = _tile_dir(tmp_path)
+    with open(os.path.join(build, "Ortho4XP_+45+005.cfg"), "w") as f:
+        f.write("texture_mode=weird_mode\n")
+    legacy = SM.legacy_tile_settings(45, 5, build)
+    assert legacy["foreign_enums"] == [
+        ("texture_mode", "weird_mode", "airport_ortho")
+    ]
+
+
+def test_update_legacy_tile_settings_keeps_identity_only(
+    tmp_path, monkeypatch
+):
+    """Imagery source, ZL and zones survive; everything else falls back
+    to the current global defaults, and the original is kept."""
+    monkeypatch.chdir(tmp_path)
+    build = _tile_dir(tmp_path)
+    generic = os.path.join(build, "Ortho4XP.cfg")
+    with open(generic, "w") as f:
+        f.write(
+            "default_website='Arc'\n"
+            "default_zl=17\n"
+            "zone_list=[(1,2)]\n"
+            "texture_mode=weird_mode\n"
+            "road_level=3\n"
+        )
+    legacy = SM.legacy_tile_settings(45, 5, build)
+    written = SM.update_legacy_tile_settings(legacy, build)
+    assert written == os.path.join(build, "Ortho4XP_+45+005.cfg")
+    assert SM.read_tile_raw(45, 5, build) == {
+        "default_website": "Arc",   # legacy quotes gone
+        "default_zl": "17",
+        "zone_list": "[(1,2)]",
+    }
+    # The original file is kept, and nothing legacy is left to report.
+    assert os.path.isfile(generic + ".legacy")
+    assert not os.path.isfile(generic)
+    assert SM.legacy_tile_settings(45, 5, build) is None
+
+
+def test_update_legacy_tile_settings_rewrites_canonical_in_place(tmp_path):
+    build = _tile_dir(tmp_path)
+    canonical = os.path.join(build, "Ortho4XP_+45+005.cfg")
+    with open(canonical, "w") as f:
+        f.write("default_zl=16\ntexture_mode=weird_mode\n")
+    legacy = SM.legacy_tile_settings(45, 5, build)
+    assert SM.update_legacy_tile_settings(legacy, build) == canonical
+    assert SM.read_tile_raw(45, 5, build) == {"default_zl": "16"}
+    assert os.path.isfile(canonical + ".bak")   # the original, kept

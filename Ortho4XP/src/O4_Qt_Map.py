@@ -74,6 +74,35 @@ BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
 # uses, so one glance at map and panel tells the same story.
 STOPPED_COLOR = "#F29419"
 
+# Airport marks and other-scenery outlines (mac-app parity:
+# MapCanvasView.swift).  Its camera measures zoom in pixels per degree;
+# ours is a slippy zoom level, and px_per_degree = 256 * 2**zoom / 360,
+# so its 8 / 14 / 26 / 52 gates are these:
+AIRPORT_TINY_ZOOM = 3.5      # below: the smallest dot
+AIRPORT_MIN_ZOOM = 4.3       # below: no Global Airports at all
+AIRPORT_MARK_ZOOM = 5.2      # above: full-size marks, custom ICAO labels
+AIRPORT_DEFAULT_LABEL_ZOOM = 6.2   # above: Global Airports ICAO labels
+
+# Sectional convention: Global Airports gray, custom packs magenta — a
+# custom mark always draws OVER the gray one it replaces.
+DEFAULT_AIRPORT_COLOR = QColor(158, 158, 158, 190)
+CUSTOM_AIRPORT_COLOR = QColor(199, 64, 120)
+# A pack X-Plane will not load (SCENERY_PACK_DISABLED) is dimmed, not
+# hidden — the mac app's uninstalled-pack opacity.
+DIM_ALPHA = 90
+REGION_OUTLINE_COLOR = QColor(158, 158, 158, 217)
+
+# Map scenery filter: our built tiles, other installed ortho/mesh
+# packages, or both (mac-app parity: MapSceneryFilter).
+SCENERY_FILTER_ALL = "all"
+SCENERY_FILTER_BUILT = "built"
+SCENERY_FILTER_OTHERS = "others"
+SCENERY_FILTER_LABELS = (
+    (SCENERY_FILTER_ALL, "All"),
+    (SCENERY_FILTER_BUILT, "Ortho4XP tiles"),
+    (SCENERY_FILTER_OTHERS, "Other ortho"),
+)
+
 # Canonical tile key ("+48-006"): the spelling built-tile folders and the
 # console already use.  One spelling, one parser — the persisted selection
 # is written in it and nothing else.
@@ -154,6 +183,121 @@ def has_foreign_sources(textures_dir, provider):
     return False
 
 
+class TextureAudit:
+    """One built tile's textures folder, source by source, WITH sizes.
+
+    :func:`has_foreign_sources` is the names-only sweep behind the map
+    badges; this is the same grammar read exhaustively, for the one tile
+    (or the one selection) the user asked about — the numbers a cleanup
+    offer has to quote before it deletes anything.
+    """
+
+    __slots__ = ("provider", "sources", "foreign_files")
+
+    def __init__(self, provider, sources, foreign_files):
+        #: The tile config's imagery source — the one its DSF references.
+        self.provider = provider
+        #: [(provider, file_count, bytes)], most files first.
+        self.sources = sources
+        #: Absolute paths of every texture from any OTHER source.
+        self.foreign_files = foreign_files
+
+    @property
+    def has_conflict(self):
+        return bool(self.foreign_files)
+
+    def _bytes(self, foreign):
+        current = self.provider.lower()
+        return sum(
+            size
+            for (provider, _count, size) in self.sources
+            if (provider.lower() != current) is foreign
+        )
+
+    @property
+    def current_bytes(self):
+        return self._bytes(False)
+
+    @property
+    def foreign_bytes(self):
+        return self._bytes(True)
+
+
+class CombinedAudit:
+    """Several tiles' audits aggregated — the selection-wide offer.
+
+    Only the CONFLICTED tiles count towards the byte split: a clean tile
+    has nothing to weigh in on how much a cleanup would free.
+    """
+
+    __slots__ = (
+        "tiles_audited", "tiles_with_conflict", "current_providers",
+        "foreign_providers", "current_bytes", "foreign_bytes",
+        "foreign_files",
+    )
+
+    def __init__(self, audits):
+        audits = list(audits)
+        conflicted = [audit for audit in audits if audit.has_conflict]
+        self.tiles_audited = len(audits)
+        self.tiles_with_conflict = len(conflicted)
+        self.current_providers = {audit.provider for audit in conflicted}
+        self.foreign_providers = {
+            provider
+            for audit in conflicted
+            for (provider, _count, _size) in audit.sources
+            if provider.lower() != audit.provider.lower()
+        }
+        self.current_bytes = sum(a.current_bytes for a in conflicted)
+        self.foreign_bytes = sum(a.foreign_bytes for a in conflicted)
+        self.foreign_files = [
+            path for audit in conflicted for path in audit.foreign_files
+        ]
+
+    @property
+    def has_conflict(self):
+        return self.tiles_with_conflict > 0
+
+
+def audit_textures(textures_dir, provider):
+    """Full audit of ``textures_dir`` against its tile's ``provider``.
+
+    ``None`` when the folder cannot be listed or the current provider is
+    unknown — no conflict call can be made without knowing what the tile
+    is supposed to be built from, which is exactly
+    :func:`has_foreign_sources`' rule.  One stat per texture, so this is
+    for ONE tile (or one hand-sized selection), never a full sweep.
+    """
+    provider = str(provider or "").strip()
+    if not provider:
+        return None
+    try:
+        names = os.listdir(textures_dir)
+    except OSError:
+        return None
+    current = provider.lower()
+    counts = {}
+    foreign_files = []
+    for name in names:
+        found = texture_provider(name)
+        if found is None:
+            continue
+        path = os.path.join(textures_dir, name)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        (count, total) = counts.get(found, (0, 0))
+        counts[found] = (count + 1, total + size)
+        if found.lower() != current:
+            foreign_files.append(path)
+    sources = sorted(
+        ((found, count, total) for (found, (count, total)) in counts.items()),
+        key=lambda row: (-row[1], row[0]),
+    )
+    return TextureAudit(provider, sources, sorted(foreign_files))
+
+
 def provider_is_mappable(provider_code):
     """True if the provider can back the live map directly."""
     provider = IMG.providers_dict.get(provider_code)
@@ -227,6 +371,14 @@ class MapView(QGraphicsView):
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
         self._locked = False
+        # Airport marks: (code, lat, lon) for X-Plane's Global Airports,
+        # (code, lat, lon, dim) for the airports custom packs ship.
+        self._default_airports = []
+        self._default_airport_bins = {}   # 10-deg cell -> its rows
+        self._custom_airports = []
+        # Other installed ortho/mesh packages: (name, {(lat, lon)}, dim).
+        self._regions = []
+        self._scenery_filter = SCENERY_FILTER_ALL
 
         # Interaction state
         self._panning = False
@@ -343,6 +495,58 @@ class MapView(QGraphicsView):
         """Built tiles whose textures folder mixes imagery sources — the
         warning-badge set, computed off the UI thread by the window."""
         self._conflicts = set(conflicts)
+        self.viewport().update()
+
+    def set_default_airports(self, airports):
+        """X-Plane's Global Airports marks: ``(code, lat, lon)`` rows.
+
+        The window hands these in from the engine's airport index (the
+        SINGLE apt.dat parser), already stripped of every ICAO a custom
+        pack draws — a gray disc under a magenta one is only noise.
+        """
+        self._default_airports = [
+            (str(code), float(lat), float(lon))
+            for (code, lat, lon) in airports
+        ]
+        # Binned into 10-degree cells ONCE, here, so a pan frame walks
+        # the couple of cells it can see instead of all 35 000 rows: the
+        # bare viewport cull costs ~2 ms a frame, which is a seventh of
+        # a 60 Hz budget spent before a single circle is drawn.
+        bins = {}
+        for row in self._default_airports:
+            key = (int(math.floor(row[1] / 10.0)),
+                   int(math.floor(row[2] / 10.0)))
+            bins.setdefault(key, []).append(row)
+        self._default_airport_bins = bins
+        self.viewport().update()
+
+    def set_custom_airports(self, airports):
+        """Custom-pack airport marks: ``(code, lat, lon, dim)`` rows,
+        ``dim`` marking a pack X-Plane will not load."""
+        self._custom_airports = [
+            (str(code), float(lat), float(lon), bool(dim))
+            for (code, lat, lon, dim) in airports
+        ]
+        self.viewport().update()
+
+    def set_scenery_regions(self, regions):
+        """Other installed ortho/mesh packages: ``(name, tiles, dim)``
+        rows, ``tiles`` an iterable of the (lat, lon) they cover."""
+        self._regions = [
+            (str(name), {(int(la), int(lo)) for (la, lo) in tiles}, bool(dim))
+            for (name, tiles, dim) in regions
+        ]
+        self.viewport().update()
+
+    def scenery_filter(self):
+        return self._scenery_filter
+
+    def set_scenery_filter(self, mode):
+        """Which ortho layers draw: ours, the others', or both."""
+        if mode not in (SCENERY_FILTER_ALL, SCENERY_FILTER_BUILT,
+                        SCENERY_FILTER_OTHERS):
+            mode = SCENERY_FILTER_ALL
+        self._scenery_filter = mode
         self.viewport().update()
 
     def selection(self):
@@ -793,6 +997,12 @@ class MapView(QGraphicsView):
         super().paintEvent(event)
         painter = QPainter(self.viewport())
         painter.setRenderHint(QPainter.Antialiasing)
+        # Airport marks paint in VIEWPORT space: they are screen-sized by
+        # definition (a sectional dot does not grow with the map), and the
+        # scene is webmercator pixels at ZL19 — stroking hundreds of
+        # radius-1e-5 ellipses through that transform costs an order of
+        # magnitude more than stroking the same dots at screen scale.
+        self._draw_airports(painter)
         self._draw_zoom_badge(painter)
         painter.end()
 
@@ -854,8 +1064,13 @@ class MapView(QGraphicsView):
         painter.setFont(font)
 
         if (lat_hi - lat_lo) * (lon_hi - lon_lo) < 3000:
-            for tile in visible:
-                self._draw_tile_overlay(painter, tile, scale)
+            if self._scenery_filter != SCENERY_FILTER_OTHERS:
+                for tile in visible:
+                    self._draw_tile_overlay(painter, tile, scale)
+            if self._scenery_filter != SCENERY_FILTER_BUILT:
+                self._draw_scenery_regions(
+                    painter, lat_lo, lat_hi, lon_lo, lon_hi
+                )
 
         if self._locked:
             pen = QPen(QColor("#FFD60A"))
@@ -928,6 +1143,136 @@ class MapView(QGraphicsView):
 
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
+
+    def _draw_scenery_regions(self, painter, lat_lo, lat_hi, lon_lo, lon_hi):
+        """Gray boundary outlines of other installed ortho/mesh packages.
+
+        Only the OUTER edges are stroked — an edge of a covered tile whose
+        neighbour the same pack does not cover — so a pack covering half a
+        country reads as one shape instead of a grid of squares.  Our own
+        tiles never appear here: the window excludes them at scan time,
+        they are already the green squares.
+        """
+        if not self._regions:
+            return
+        for (_name, tiles, dim) in self._regions:
+            color = QColor(REGION_OUTLINE_COLOR)
+            if dim:
+                color.setAlpha(DIM_ALPHA)
+            pen = QPen(color)
+            pen.setCosmetic(True)
+            pen.setWidthF(1.5)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            for (la, lo) in tiles:
+                if not (lat_lo - 1 <= la <= lat_hi and
+                        lon_lo - 1 <= lo <= lon_hi):
+                    continue
+                r = self._tile_rect(la, lo)
+                if (la + 1, lo) not in tiles:
+                    painter.drawLine(r.topLeft(), r.topRight())
+                if (la - 1, lo) not in tiles:
+                    painter.drawLine(r.bottomLeft(), r.bottomRight())
+                if (la, lo + 1) not in tiles:
+                    painter.drawLine(r.topRight(), r.bottomRight())
+                if (la, lo - 1) not in tiles:
+                    painter.drawLine(r.topLeft(), r.bottomLeft())
+
+    def visible_bounds(self):
+        """(lat_lo, lat_hi, lon_lo, lon_hi) of the current viewport."""
+        rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        (lat_hi, lon_lo) = GEO.pix_to_wgs84(rect.left(), rect.top(), SCENE_ZL)
+        (lat_lo, lon_hi) = GEO.pix_to_wgs84(
+            rect.right(), rect.bottom(), SCENE_ZL
+        )
+        return (lat_lo, lat_hi, lon_lo, lon_hi)
+
+    def _draw_airports(self, painter):
+        """Sectional-style airport marks (mac-app parity).
+
+        Gray circles for X-Plane's Global Airports, magenta for the
+        airports custom packs ship — the custom ones last, so a magenta
+        mark always sits on top.  A mark is screen-sized by definition, so
+        this paints in VIEWPORT coordinates (see :meth:`paintEvent`).
+
+        Zoom gates come straight from the mac app: the Global Airports
+        layer waits for the 1-degree graticule (above world view a wide
+        viewport holds tens of thousands of marks), and its labels wait
+        for the tile-key zoom (at the custom-label threshold a dense
+        region would put thousands of texts in every frame).
+        """
+        if not (self._default_airports or self._custom_airports):
+            return
+        if self._zoom > AIRPORT_MARK_ZOOM:
+            radius = 5.0
+        elif self._zoom > AIRPORT_TINY_ZOOM:
+            radius = 3.5
+        else:
+            radius = 2.2
+        pen_width = max(1.4, radius * 0.4)
+        font = QFont(painter.font())
+        font.setPointSizeF(10)
+        painter.setFont(font)
+        # One-degree margin, as the mac app culls: a mark just off-screen
+        # still owns a label that reaches into it.
+        (lat_lo, lat_hi, lon_lo, lon_hi) = self.visible_bounds()
+        (lat_lo, lat_hi) = (lat_lo - 1, lat_hi + 1)
+        (lon_lo, lon_hi) = (lon_lo - 1, lon_hi + 1)
+
+        def point(lat, lon):
+            (x, y) = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
+            return self.mapFromScene(QPointF(x, y))
+
+        def label_rect(p):
+            return QRectF(p.x() - 35, p.y() - radius - 22, 70, 14)
+
+        def circle_pen(color):
+            pen = QPen(color)
+            pen.setWidthF(pen_width)
+            return pen
+
+        if self._zoom > AIRPORT_MIN_ZOOM and self._default_airport_bins:
+            # One color for all, so the pen is set once and every circle
+            # is drawn straight.  NOT batched into a QPainterPath: Qt's
+            # stroker charges ~9x for a path of hundreds of subpaths
+            # (measured 7.0 ms vs 0.8 ms for 374 marks) — the mac app's
+            # single-path reason does not survive the port.
+            labelled = []
+            label_defaults = self._zoom > AIRPORT_DEFAULT_LABEL_ZOOM
+            painter.setPen(circle_pen(DEFAULT_AIRPORT_COLOR))
+            painter.setBrush(Qt.NoBrush)
+            for lat_bin in range(int(math.floor(lat_lo / 10.0)),
+                                 int(math.floor(lat_hi / 10.0)) + 1):
+                for lon_bin in range(int(math.floor(lon_lo / 10.0)),
+                                     int(math.floor(lon_hi / 10.0)) + 1):
+                    for (code, lat, lon) in self._default_airport_bins.get(
+                            (lat_bin, lon_bin), ()):
+                        if not (lat_lo < lat < lat_hi
+                                and lon_lo < lon < lon_hi):
+                            continue
+                        p = point(lat, lon)
+                        painter.drawEllipse(QPointF(p), radius, radius)
+                        if label_defaults:
+                            labelled.append((p, code))
+            for (p, code) in labelled:
+                painter.drawText(
+                    label_rect(p), Qt.AlignHCenter | Qt.AlignBottom, code
+                )
+
+        label_custom = self._zoom > AIRPORT_MARK_ZOOM
+        for (code, lat, lon, dim) in self._custom_airports:
+            if not (lat_lo < lat < lat_hi and lon_lo < lon < lon_hi):
+                continue
+            color = QColor(CUSTOM_AIRPORT_COLOR)
+            color.setAlpha(DIM_ALPHA if dim else 242)
+            p = point(lat, lon)
+            painter.setPen(circle_pen(color))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(p), radius, radius)
+            if label_custom:
+                painter.drawText(
+                    label_rect(p), Qt.AlignHCenter | Qt.AlignBottom, code
+                )
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an

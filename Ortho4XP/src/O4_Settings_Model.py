@@ -138,6 +138,7 @@ _LAYOUT: list = [
         ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
         ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),
         ("airport_elevation_providers", "Inset providers", "tile", True),
+        ("airport_inset_water", "Detect ponds in lidar", "tile", True),
         ("apt_smoothing_pix", "Airport elevation smoothing (px)", "tile", True),
         ("apt_smoothing_auto", "Scale smoothing to data quality", "tile", True),
         ("working_grid_arc_seconds", "Working grid spacing", "tile", True),
@@ -266,12 +267,16 @@ def _strip_legacy_quotes(value: str) -> str:
     return value
 
 
-def _parse_cfg(path: str) -> dict:
+def _parse_cfg(path: str, strip_quotes: bool = True) -> dict:
     """Parse a flat ``key=value`` config file into an ordered dict.
 
     Blank lines and ``#`` comments are skipped, values have legacy quotes
     stripped.  Returns ``{}`` if the file is absent.  Later duplicate keys
     win (matching the legacy loader) while keeping first-seen order.
+
+    ``strip_quotes=False`` keeps every value EXACTLY as written — the one
+    caller that needs it is the legacy-config inspector, whose whole job
+    is to report the quoting a legacy writer left behind.
     """
     result: dict = {}
     if not os.path.isfile(path):
@@ -284,7 +289,7 @@ def _parse_cfg(path: str) -> dict:
             if "=" not in line:
                 continue
             var, value = line.split("=", 1)
-            result[var] = _strip_legacy_quotes(value)
+            result[var] = _strip_legacy_quotes(value) if strip_quotes else value
     return result
 
 
@@ -461,6 +466,113 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
             continue  # equal to inherited: no override to store
         out[var] = candidate
     _write_atomic_with_backup(path, out)
+
+
+# ---------------------------------------------------------------------------
+# Legacy per-tile configs (written by an older or different Ortho4XP)
+# ---------------------------------------------------------------------------
+#: What a modernised tile config KEEPS — the tile's identity rather than
+#: its settings: which imagery source it was built from, at which zoom
+#: level, and the zones the user drew by hand.  Everything else falls
+#: back to the current global config, exactly as for a tile created today.
+LEGACY_KEPT_KEYS = ("default_website", "default_zl", "zone_list")
+
+
+def legacy_tile_settings(lat: int, lon: int,
+                         custom_build_dir: str) -> dict | None:
+    """What an older or different Ortho4XP left in this tile's config.
+
+    Reports only what this engine INTERPRETS rather than takes literally,
+    so a front end can offer to modernise the file:
+
+    ``uses_legacy_name``
+        the config is still the pre-per-tile generic ``Ortho4XP.cfg``.
+    ``foreign_enums``
+        ``(key, value, replacement)`` for enum values this version does
+        not define; ``replacement`` is what an update would write (the
+        current global value, else the registry default).
+    ``quoted_keys``
+        keys carrying legacy quoted values (``'Arc'``).
+    ``missing_pins``
+        ``custom_dem`` pins whose file no longer exists.
+
+    ``None`` when there is nothing to say (or no config at all).
+    """
+    build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
+    canonical = _tile_cfg_path(lat, lon, custom_build_dir)
+    generic = os.path.join(build_dir, "Ortho4XP.cfg")
+    if os.path.isfile(canonical):
+        (cfg_path, uses_legacy_name) = (canonical, False)
+    elif os.path.isfile(generic):
+        (cfg_path, uses_legacy_name) = (generic, True)
+    else:
+        return None
+    raw = _parse_cfg(cfg_path, strip_quotes=False)
+    global_cfg = read_global_raw()
+    quoted_keys: list = []
+    foreign_enums: list = []
+    missing_pins: list = []
+    for (key, written) in raw.items():
+        written = written.strip()
+        bare = _strip_legacy_quotes(written)
+        if bare != written:
+            quoted_keys.append(key)
+        if key == "custom_dem":
+            for token in bare.split(";"):
+                token = token.strip()
+                if token.startswith("/") and not os.path.isfile(token):
+                    missing_pins.append(token)
+            continue
+        variable = O4_Cfg_Vars.cfg_vars.get(key)
+        if variable is None or variable.get("type") is not str:
+            continue
+        allowed = variable.get("values")
+        if allowed and bare not in allowed:
+            replacement = _strip_legacy_quotes(
+                str(global_cfg.get(key, variable["default"])).strip()
+            )
+            foreign_enums.append((key, bare, replacement))
+    if not (uses_legacy_name or foreign_enums or quoted_keys or missing_pins):
+        return None
+    return {
+        "lat": lat,
+        "lon": lon,
+        "cfg_path": cfg_path,
+        "uses_legacy_name": uses_legacy_name,
+        "foreign_enums": sorted(foreign_enums),
+        "quoted_keys": sorted(quoted_keys),
+        "missing_pins": sorted(missing_pins),
+    }
+
+
+def update_legacy_tile_settings(legacy: dict, custom_build_dir: str) -> str:
+    """Reduce a legacy tile config to the tile's IDENTITY.
+
+    Effectively "delete the tile config", except that the keys other
+    features rely on (source adoption, the imagery audit, the mismatch
+    guard) and the user's hand-drawn zones survive: everything else falls
+    back to the current global defaults.  The original file is kept —
+    ``*.cfg.bak`` when the canonical name is rewritten in place,
+    ``Ortho4XP.cfg.legacy`` when a generic-named config is superseded.
+
+    Returns the path written.  Takes the mapping
+    :func:`legacy_tile_settings` returned, never a hand-built one.
+    """
+    (lat, lon) = (int(legacy["lat"]), int(legacy["lon"]))
+    source = _parse_cfg(legacy["cfg_path"])
+    kept = {
+        key: source[key] for key in LEGACY_KEPT_KEYS if key in source
+    }
+    destination = _tile_cfg_path(lat, lon, custom_build_dir)
+    _write_atomic_with_backup(destination, kept)
+    if legacy.get("uses_legacy_name"):
+        backup = legacy["cfg_path"] + ".legacy"
+        try:
+            os.remove(backup)
+        except OSError:
+            pass
+        os.replace(legacy["cfg_path"], backup)
+    return destination
 
 
 # Tile-scope settings most commonly customized per tile (the pinned

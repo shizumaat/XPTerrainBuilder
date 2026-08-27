@@ -12,6 +12,15 @@ what breaks.
   elevation and OSM caches, masks and built tiles now sit outside the app
   folder on every platform, so updating XPTerrainBuilder is a drop-in
   replacement of the app — nothing you downloaded or built is disturbed.
+- **The Windows/Linux app catches up to the macOS app**: airport markers
+  on the map (Global Airports plus your custom packs, with install
+  status), awareness of other installed scenery (coverage outlines on the
+  map, per-tile info, a View ▸ Scenery filter), one-click cleanup of
+  mixed imagery sources (moves foreign files to the trash after
+  confirmation), a map basemap provider chosen independently of the build
+  imagery, one-click migration of legacy per-tile configs to current
+  defaults (imagery, zoom and zones kept), and an auto-install toggle
+  that installs finished tiles into X-Plane as they complete.
 
 ## What XPTerrainBuilder is
 
@@ -101,16 +110,15 @@ Pick a folder with plenty of free space — ortho tiles are large.
   this alpha.
 - **No Linux AppImage yet** — only the portable tarball.
 - **The Windows/Linux GUI is the engine's own Qt app**, maintained in
-  parallel with the macOS app and close to parity on everything that
-  matters for building: the same map-based tile picking, single-window
-  layout, searchable settings (the two UIs share one settings registry),
-  per-tile overrides, batch queueing into a live run, build ETA, secure
-  API-key storage (Credential Locker / Secret Service), and custom-airport
-  handling. It currently trails the macOS app on some newer map polish
-  (airport markers, awareness of other installed scenery, one-click
-  cleanup of mixed imagery sources) — and it has a few tools of its own
-  the macOS app doesn't (setup wizard, MSFS airport converter, coral-reef
-  bathymetry download). Zone editing is not available in either UI yet.
+  parallel with the macOS app and at feature parity on everything that
+  matters: the same map-based tile picking with airport markers and
+  scenery awareness, single-window layout, searchable settings (the two
+  UIs share one settings registry), per-tile overrides, batch queueing
+  into a live run, build ETA, secure API-key storage (Credential Locker /
+  Secret Service), custom-airport handling, imagery cleanup and
+  auto-install. It also has a few tools of its own the macOS app doesn't
+  (setup wizard, coral-reef bathymetry download, X-Plane overlay-folder
+  link). Zone editing is not available in either UI yet.
 - Alpha means alpha: builds are long-running and defect reports on the
   generated terrain are welcome.
 

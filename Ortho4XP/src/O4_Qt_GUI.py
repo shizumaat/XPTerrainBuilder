@@ -93,6 +93,21 @@ MAX_CONSOLE_LINES = 5000
 SELECTED_TILES_KEY = "selected_tiles"
 ACTIVE_TILE_KEY = "active_tile"
 
+# Prefs key for the LIVE MAP's imagery source — the mac app's
+# ``MapImageryPreview`` (MapMainView.swift).  Deliberately NOT the
+# "imagery" key: that one is the build source, and the two are
+# independent (previewing a source must not change what gets built).
+MAP_PROVIDER_KEY = "map_provider"
+DEFAULT_MAP_PROVIDER = "OSM"
+
+# Prefs key for "install finished tiles automatically" — the mac app's
+# ``OrthoLinkTiles`` (BuildModel.linkTiles), default ON.
+AUTO_INSTALL_KEY = "auto_install"
+
+# Prefs key for the map's scenery-layer filter — the mac app's
+# ``MapSceneryFilter`` (MapMainView.swift).
+SCENERY_FILTER_KEY = "scenery_filter"
+
 # Persisted tile-scan results for the optimistic launch overlay
 # (docs/specs/qt-backlog-parity2-spec.md §QB1).  A CACHE, not user state:
 # it lives beside the airport-index cache under the writable data root,
@@ -564,6 +579,11 @@ class _EngineBridge(QObject):
     # (tile, [modified_packs entry, ...]) from a worker probe of the
     # reanchor provenance sidecars in Custom Scenery.
     reanchor_ready = Signal(object)
+    # [AirportEntry, ...] once the Global Airports index has loaded.
+    airports_ready = Signal(object)
+    # (generation, [O4_Custom_Scenery.SceneryPack, ...]) from a worker
+    # survey of the OTHER packages installed in Custom Scenery.
+    packs_ready = Signal(object)
 
 
 def gui_provider_codes():
@@ -574,6 +594,18 @@ def gui_provider_codes():
     )
     codes += sorted(set(IMG.combined_providers_dict))
     return [c for c in codes if c not in ("SEA",)]
+
+
+def map_preview_codes():
+    """Provider codes the live map can actually draw.
+
+    The map-preview picker (mac-app parity: MapMainView.swift's
+    ``mapPreviewProvider``) offers only sources the map can render
+    directly — a combined or non-webmercator source silently falls back
+    to OSM, which makes for a picker whose entries lie.  Order follows
+    :func:`gui_provider_codes` so the two toolbar combos read alike.
+    """
+    return [c for c in gui_provider_codes() if QTMAP.provider_is_mappable(c)]
 
 
 def _sync_combo_to_agreed_value(combo, configured_values):
@@ -646,6 +678,8 @@ class MainWindow(QMainWindow):
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
         self._bridge.conflicts_ready.connect(self._on_conflicts_ready)
+        self._bridge.airports_ready.connect(self._on_airports_ready)
+        self._bridge.packs_ready.connect(self._on_packs_ready)
         self._session.subscribe(self._bridge.event.emit)
         self._event_handlers = {
             EV.ScanProgress: self._on_scan_progress,
@@ -671,6 +705,12 @@ class MainWindow(QMainWindow):
         # scan has already been superseded.
         self._conflict_tiles = set()
         self._conflict_generation = 0
+        # The OTHER packages installed in Custom Scenery (never ours):
+        # the map's gray coverage outlines, its magenta airport marks and
+        # the info panel's "Other scenery" rows all read this one survey.
+        # Re-armed with every scan; the generation retires a stale sweep.
+        self._scenery_packs = []
+        self._scenery_generation = 0
         self._last_run_eta = None
         # The climbing-estimate detector's window: (elapsed, remaining)
         # samples from recent RunEta events, and its verdict on whether
@@ -786,7 +826,8 @@ class MainWindow(QMainWindow):
         # "--" shows when the selected tiles' configs disagree
         # (currentIndex -1); start_build refuses to run until resolved.
         self.imagery_combo.setPlaceholderText("--")
-        self.imagery_combo.currentTextChanged.connect(self._imagery_changed)
+        # No map hookup: the BUILD source is what the next build
+        # downloads, never what the basemap draws (see the Map combo).
         toolbar.addWidget(self.imagery_combo)
         toolbar.addWidget(QLabel(" Build ZL "))
         self.zl_combo = QComboBox()
@@ -797,13 +838,23 @@ class MainWindow(QMainWindow):
         )
         toolbar.addWidget(self.zl_combo)
         toolbar.addSeparator()
-        self.zones_btn = QPushButton("✏ Zones")
-        self.zones_btn.setEnabled(False)
-        self.zones_btn.setToolTip(
-            "Zone editing arrives in the next iteration — "
-            "use the legacy UI (Ortho4XP.py) for zones meanwhile."
+        # Live map imagery source — INDEPENDENT of the build provider
+        # above (mac-app parity, MapMainView.swift's mapPreviewProvider):
+        # previewing a source must never rewrite what the next build
+        # downloads, and judging a source on the map is exactly why one
+        # looks at it.  Only mappable providers are offered; the build
+        # combo keeps the full list.
+        toolbar.addWidget(QLabel(" Map "))
+        self.map_provider_combo = QComboBox()
+        self.map_provider_combo.addItems(map_preview_codes())
+        self.map_provider_combo.setToolTip(
+            "Which imagery source the map previews — independent of the "
+            "source used for building."
         )
-        toolbar.addWidget(self.zones_btn)
+        self.map_provider_combo.currentTextChanged.connect(
+            self._map_provider_changed
+        )
+        toolbar.addWidget(self.map_provider_combo)
         spacer = QWidget()
         spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
                              spacer.sizePolicy().verticalPolicy().Preferred)
@@ -831,8 +882,28 @@ class MainWindow(QMainWindow):
         ig.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.info_title = QLabel("—")
         ig.addRow(self.info_title)
+        # Imagery row: the source, plus the mixed-sources warning button
+        # that opens the per-source breakdown and its cleanup offer
+        # (mac-app parity: BuildPane's imageryConflictPopover).
+        imagery_row = QWidget()
+        irl = QHBoxLayout(imagery_row)
+        irl.setContentsMargins(0, 0, 0, 0)
+        irl.setSpacing(4)
         self.info_provider = QLabel("—")
-        ig.addRow("Imagery:", self.info_provider)
+        irl.addWidget(self.info_provider, 1)
+        self.imagery_conflict_btn = QToolButton()
+        self.imagery_conflict_btn.setAutoRaise(True)
+        self.imagery_conflict_btn.setText("⚠")
+        self.imagery_conflict_btn.setToolTip(
+            "Multiple imagery sources are installed in this tile — "
+            "review and clean up."
+        )
+        self.imagery_conflict_btn.clicked.connect(
+            self._show_imagery_conflict_dialog
+        )
+        self.imagery_conflict_btn.setVisible(False)
+        irl.addWidget(self.imagery_conflict_btn, 0)
+        ig.addRow("Imagery:", imagery_row)
         self.info_zl = QLabel("—")
         ig.addRow("Zoom level:", self.info_zl)
         self.info_mesh = QLabel("—")
@@ -861,6 +932,34 @@ class MainWindow(QMainWindow):
         self._manual_elevation_entries = []
         self.info_size = QLabel("—")
         ig.addRow("Size on disk:", self.info_size)
+        # Legacy per-tile config affordance: a tile whose cfg an older or
+        # different Ortho4XP wrote gets an offer to modernise it (mac-app
+        # parity: BuildPane's "Update to Current Defaults" alert).
+        self.legacy_config_btn = QPushButton("⚠ Older Ortho4XP settings…")
+        self.legacy_config_btn.setFlat(True)
+        self.legacy_config_btn.setStyleSheet(
+            "QPushButton { text-align: left; color: palette(link); }"
+        )
+        self.legacy_config_btn.clicked.connect(self._show_legacy_config_dialog)
+        self.legacy_config_btn.setVisible(False)
+        self.legacy_config_btn.setToolTip(
+            "This tile's settings were written by an older or different "
+            "Ortho4XP — review and update them."
+        )
+        _never_widen(self.legacy_config_btn)
+        ig.addRow(self.legacy_config_btn)
+        self._legacy_tile_settings = None
+        # Tiles whose legacy-config offer has already been shown this
+        # session: the prompt volunteers itself ONCE per tile, then lives
+        # on in the button above.
+        self._legacy_prompted = set()
+        # Other installed ortho/mesh packages covering this tile — one
+        # row per pack, carrying that pack's DSF date for the tile.
+        self.other_scenery_row = QWidget()
+        self._other_scenery_rows = QVBoxLayout(self.other_scenery_row)
+        self._other_scenery_rows.setContentsMargins(0, 0, 0, 0)
+        self._other_scenery_rows.setSpacing(2)
+        ig.addRow("Other scenery:", self.other_scenery_row)
         # Custom airport packages whose 3-D objects the auto-patch
         # reseater modified for this tile (reanchor provenance sidecars):
         # one label, one row per pack, each with a small undo button
@@ -873,6 +972,7 @@ class MainWindow(QMainWindow):
         ig.addRow("Modified airports:", self.modified_airports_row)
         self._info_layout = ig
         self._info_layout.setRowVisible(self.modified_airports_row, False)
+        self._info_layout.setRowVisible(self.other_scenery_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -890,6 +990,20 @@ class MainWindow(QMainWindow):
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
         bg.addWidget(self.build_summary)
+        # Selection-wide mixed-sources offer (mac-app parity: BuildPane's
+        # combinedConflictPopover).  Hidden unless more than one tile is
+        # selected and at least one of them mixes sources.
+        self.selection_conflict_btn = QPushButton("")
+        self.selection_conflict_btn.setFlat(True)
+        self.selection_conflict_btn.setStyleSheet(
+            "QPushButton { text-align: left; color: palette(link); }"
+        )
+        self.selection_conflict_btn.clicked.connect(
+            self._show_selection_conflict_dialog
+        )
+        self.selection_conflict_btn.setVisible(False)
+        _never_widen(self.selection_conflict_btn)
+        bg.addWidget(self.selection_conflict_btn)
         self.chk_vector = QCheckBox("Vector, mesh && masks")
         self.chk_vector.setChecked(True)
         self.chk_imagery = QCheckBox("Imagery && DSF")
@@ -897,6 +1011,23 @@ class MainWindow(QMainWindow):
         self.chk_overlays = QCheckBox("Extract overlays")
         self.chk_skip_built = QCheckBox("Skip already-built tiles")
         self.chk_skip_built.setChecked(True)
+        # Auto-install (mac-app parity: BuildPane's "Install finished
+        # tiles automatically", BuildModel.linkTiles): every tile that
+        # finishes OK is linked into Custom Scenery as it lands, so a
+        # batch is flyable the moment it ends.  Default ON, as there.
+        # Short label by necessity: the panel is a fixed 280 px with its
+        # horizontal scrollbar off, and a checkbox cannot elide — the mac
+        # app's "Install finished tiles automatically" would clip.
+        self.chk_auto_install = QCheckBox("Auto-install finished tiles")
+        self.chk_auto_install.setChecked(
+            bool(self.prefs.get(AUTO_INSTALL_KEY, True))
+        )
+        self.chk_auto_install.setToolTip(
+            "Links each tile into X-Plane's Custom Scenery as soon as it "
+            "finishes building. Unchecked, tiles are installed by hand "
+            "with the 'Installed in X-Plane' switch above."
+        )
+        self.chk_auto_install.toggled.connect(self._auto_install_changed)
         # Global engine gate (cfg var modify_custom_airports): whether the
         # auto-patch pass may reseat 3-D objects of installed custom
         # airport packs onto the rebuilt ground.
@@ -921,6 +1052,7 @@ class MainWindow(QMainWindow):
             self.chk_imagery,
             self.chk_overlays,
             self.chk_skip_built,
+            self.chk_auto_install,
             self.chk_modify_airports,
         ):
             bg.addWidget(c)
@@ -1099,6 +1231,24 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
+        # Scenery layer filter (mac-app parity: MapSceneryFilter) — our
+        # built tiles, other installed ortho/mesh packages, or both.
+        scenery_menu = view_menu.addMenu("Scenery")
+        scenery_menu.setToolTip(
+            "Show your Ortho4XP-built tiles, other installed ortho/mesh "
+            "packages, or both"
+        )
+        self._scenery_filter_actions = {}
+        current = self.map.scenery_filter()
+        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(mode == current)
+            action.triggered.connect(
+                lambda _checked=False, m=mode: self._set_scenery_filter(m)
+            )
+            scenery_menu.addAction(action)
+            self._scenery_filter_actions[mode] = action
 
         tools_menu = self.menuBar().addMenu("&Tools")
         overlay_action = QAction("Link overlays folder in X-Plane", self)
@@ -1107,9 +1257,11 @@ class MainWindow(QMainWindow):
         coral_atlas_action = QAction("Allen Coral Atlas reef bathymetry…", self)
         coral_atlas_action.triggered.connect(self.open_coral_atlas_dialog)
         tools_menu.addAction(coral_atlas_action)
-        msfs_convert_action = QAction("Convert MSFS airport…", self)
-        msfs_convert_action.triggered.connect(self.open_msfs_convert_dialog)
-        tools_menu.addAction(msfs_convert_action)
+        # MSFS airport converter: hidden for release (owner) — the module
+        # and open_msfs_convert_dialog() stay, only the menu entry is out.
+        # msfs_convert_action = QAction("Convert MSFS airport…", self)
+        # msfs_convert_action.triggered.connect(self.open_msfs_convert_dialog)
+        # tools_menu.addAction(msfs_convert_action)
 
         help_menu = self.menuBar().addMenu("&Help")
         wizard_action = QAction("Run setup assistant…", self)
@@ -1144,7 +1296,26 @@ class MainWindow(QMainWindow):
             candidate = os.path.join(xplane, "Custom Scenery")
             if os.path.isdir(candidate):
                 CFG.custom_scenery_dir = candidate
-        self.map.set_provider(self.imagery_combo.currentText())
+        # The basemap follows its OWN picker, never the build source.
+        map_code = str(self.prefs.get(MAP_PROVIDER_KEY, DEFAULT_MAP_PROVIDER))
+        offered = [
+            self.map_provider_combo.itemText(i)
+            for i in range(self.map_provider_combo.count())
+        ]
+        if map_code not in offered:
+            map_code = (
+                DEFAULT_MAP_PROVIDER if DEFAULT_MAP_PROVIDER in offered
+                else (offered[0] if offered else "")
+            )
+        if map_code:
+            # setCurrentText only fires the slot on an actual change; the
+            # first apply must paint the map either way.
+            self.map_provider_combo.setCurrentText(map_code)
+            self.map.set_provider(map_code)
+        self._set_scenery_filter(
+            str(self.prefs.get(SCENERY_FILTER_KEY, QTMAP.SCENERY_FILTER_ALL)),
+            persist=False,
+        )
 
     def run_wizard(self):
         wizard = QTWIZ.OnboardingWizard(
@@ -1277,11 +1448,45 @@ class MainWindow(QMainWindow):
                         "Airport search index ready: %d airports." % count
                     )
                 if os.path.isfile(AIRPORT_CACHE):
-                    self._airports = APT.load_index(AIRPORT_CACHE)
+                    airports = APT.load_index(AIRPORT_CACHE)
+                    self._airports = airports
+                    # The index feeds the map's gray marks as well as the
+                    # search popup — one index, two consumers.
+                    try:
+                        self._bridge.airports_ready.emit(airports)
+                    except RuntimeError:
+                        pass  # the window went away mid-load
             except Exception as exc:
                 print("Airport index unavailable:", exc)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _on_airports_ready(self, airports):
+        """The Global Airports index landed: repaint the map's marks."""
+        self._push_airport_marks()
+
+    def _push_airport_marks(self):
+        """Hand the map its airport marks.
+
+        Every ICAO a custom pack ships is dropped from the gray layer —
+        the magenta mark replaces it rather than sitting on top of it
+        (mac-app parity: MapOverlays.withDefaultAirports).  Done here,
+        off the paint path, because it is a set difference over the whole
+        index and must never run per frame.
+        """
+        custom = []
+        custom_codes = set()
+        for pack in self._scenery_packs:
+            dim = pack.status != "enabled"
+            for airport in pack.airports:
+                custom.append((airport.icao, airport.lat, airport.lon, dim))
+                custom_codes.add(airport.icao)
+        self.map.set_custom_airports(custom)
+        self.map.set_default_airports(
+            (entry.code, entry.lat, entry.lon)
+            for entry in self._airports
+            if entry.code not in custom_codes
+        )
 
     def _update_search_popup(self, text):
         self.search_popup.clear()
@@ -1350,8 +1555,126 @@ class MainWindow(QMainWindow):
         self.map.set_built(self._built)
         self.map.set_installed(self._installed)
         # The badges are part of the overlay, not of the scan: a cached
-        # tile's textures folder is on disk and can be audited now.
+        # tile's textures folder is on disk and can be audited now — and
+        # so can Custom Scenery, which the engine never has to boot for.
         self._refresh_conflict_tiles()
+        self._refresh_scenery_packs()
+
+    # ------------------------------------------------------------------
+    # Other installed scenery (mac-app parity: MapOverlays.regions +
+    # BuildPane's "Other scenery" rows)
+    # ------------------------------------------------------------------
+    def _refresh_scenery_packs(self):
+        """Survey Custom Scenery for OTHER packages, off the UI thread.
+
+        The engine owns the survey (:mod:`O4_Custom_Scenery`); this is
+        only the thread and the exclusion list.  Our own built tiles are
+        excluded by their build dirs — under either spelling, since a
+        tile can live directly in Custom Scenery as well as be linked
+        there — so a tile of ours is never also somebody else's outline.
+        """
+        import O4_Config_Utils as CFG
+
+        self._scenery_generation += 1
+        generation = self._scenery_generation
+        scenery_dir = CFG.custom_scenery_dir
+        if not scenery_dir:
+            self._on_packs_ready((generation, []))
+            return
+        exclude = [
+            info.build_dir
+            for info in self._built.values()
+            if getattr(info, "build_dir", "")
+        ]
+        exclude.append(self.working_dir())
+
+        def _worker():
+            import O4_Custom_Scenery as PACKS
+
+            try:
+                packs = PACKS.scan_packs(scenery_dir, exclude)
+            except Exception as exc:
+                print("Installed scenery survey failed:", exc)
+                packs = []
+            if generation != self._scenery_generation:
+                return  # a newer scan owns the survey now
+            try:
+                self._bridge.packs_ready.emit((generation, packs))
+            except RuntimeError:
+                pass  # the window went away mid-survey
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_packs_ready(self, payload):
+        """A finished survey, back on the GUI thread."""
+        (generation, packs) = payload
+        if generation != self._scenery_generation:
+            return
+        self._scenery_packs = list(packs)
+        # Coverage outlines are for ORTHO and MESH packs only: they are
+        # the ones that compete with our tiles for the ground.  Airport
+        # and landmark packs say what they are with their own marks.
+        self.map.set_scenery_regions(
+            (pack.name, pack.tiles, pack.status != "enabled")
+            for pack in self._scenery_packs
+            if pack.kind in ("ortho", "mesh") and pack.tiles
+        )
+        self._push_airport_marks()
+        self._refresh_other_scenery(self.map.active_tile())
+
+    def _refresh_other_scenery(self, tile):
+        """The info panel's "Other scenery" rows for one tile.
+
+        One row per other ortho/mesh package covering it, carrying that
+        package's own DSF date for this tile — the mac app's "Other
+        scenery" / "DSF modified" pair, one row instead of two.
+        """
+        while self._other_scenery_rows.count():
+            item = self._other_scenery_rows.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        covering = []
+        if tile is not None:
+            covering = [
+                pack
+                for pack in self._scenery_packs
+                if pack.kind in ("ortho", "mesh") and pack.covers(*tile)
+            ]
+        if not covering:
+            self._info_layout.setRowVisible(self.other_scenery_row, False)
+            return
+        for pack in covering:
+            row = QWidget()
+            rl = QVBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(0)
+            name = TwoLineElidedLabel(pack.name)
+            name.setToolTip(pack.content_root)
+            rl.addWidget(name)
+            modified = pack.dsf_modified(*tile)
+            detail = "DSF modified %s" % (
+                time.strftime("%d %b %Y %H:%M", time.localtime(modified))
+                if modified else "—"
+            )
+            if pack.status != "enabled":
+                detail += " · disabled in X-Plane"
+            note = QLabel(detail)
+            note.setStyleSheet("color: gray; font-size: 11px;")
+            rl.addWidget(note)
+            self._other_scenery_rows.addWidget(row)
+        self._info_layout.setRowVisible(self.other_scenery_row, True)
+
+    def _set_scenery_filter(self, mode, persist=True):
+        """Point the map at one scenery-layer filter and tick its menu."""
+        self.map.set_scenery_filter(mode)
+        mode = self.map.scenery_filter()
+        for (key, action) in getattr(
+                self, "_scenery_filter_actions", {}).items():
+            action.setChecked(key == mode)
+        if persist and self.prefs.get(SCENERY_FILTER_KEY) != mode:
+            self.prefs[SCENERY_FILTER_KEY] = mode
+            save_prefs(self.prefs)
 
     # ------------------------------------------------------------------
     # Mixed-imagery-source badges (docs/specs/qt-backlog-parity2-spec.md
@@ -1418,6 +1741,156 @@ class MainWindow(QMainWindow):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    # --- cleanup of the unused imagery a source change left behind -----
+    def _tile_textures_dir(self, tile):
+        """The tile's textures folder, or "" when it has no build dir."""
+        info = self._built.get(tile)
+        if info is None or not info.build_dir or not info.provider:
+            return ""
+        return os.path.join(info.build_dir, "textures")
+
+    def _refresh_selection_conflict_offer(self, selection):
+        """Show the selection-wide cleanup offer when it has something to
+        say: more than one tile selected, at least one of them badged.
+
+        Reads the badge set the scan already swept — no second audit, and
+        nothing is stat'ed until the user actually opens the offer.
+        """
+        conflicted = [t for t in selection if t in self._conflict_tiles]
+        show = len(selection) > 1 and bool(conflicted)
+        self.selection_conflict_btn.setVisible(show)
+        if show:
+            text = (
+                "⚠ %d selected tile%s mix imagery sources…"
+                % (len(conflicted), "" if len(conflicted) == 1 else "s")
+            )
+            self.selection_conflict_btn.setText(text)
+            self.selection_conflict_btn.setToolTip(text)
+
+    def _show_imagery_conflict_dialog(self):
+        """The active tile's per-source breakdown, with the cleanup."""
+        tile = self.map.active_tile()
+        textures = self._tile_textures_dir(tile) if tile else ""
+        audit = (
+            QTMAP.audit_textures(textures, self._built[tile].provider)
+            if textures else None
+        )
+        if audit is None or not audit.has_conflict:
+            # The badge outlived the files (a manual deletion, a rebuild):
+            # settle it instead of opening an offer about nothing.
+            if tile is not None:
+                self._reaudit_conflict(tile)
+            return
+        lines = [
+            "Only one imagery source can be used at a time; this tile's "
+            "DSF references %s textures. Images from other sources are "
+            "left over from earlier builds and never shown."
+            % audit.provider,
+            "",
+        ]
+        current = audit.provider.lower()
+        for (provider, count, size) in audit.sources:
+            lines.append(
+                "%s — %d file%s, %s%s"
+                % (provider, count, "" if count == 1 else "s",
+                   _fmt_size(size),
+                   "  (current)" if provider.lower() == current else "")
+            )
+        self._offer_texture_cleanup(
+            "Multiple imagery sources installed",
+            "\n".join(lines),
+            audit.foreign_files,
+            audit.foreign_bytes,
+            "If this tile deliberately mixes sources through imagery "
+            "zones, keep them.",
+            [tile],
+        )
+
+    def _show_selection_conflict_dialog(self):
+        """The whole selection's breakdown, with the cleanup."""
+        tiles = [
+            t for t in sorted(self.map.selection())
+            if t in self._conflict_tiles
+        ]
+        audits = []
+        covered = []
+        for tile in tiles:
+            textures = self._tile_textures_dir(tile)
+            audit = (
+                QTMAP.audit_textures(textures, self._built[tile].provider)
+                if textures else None
+            )
+            if audit is not None:
+                audits.append(audit)
+                covered.append(tile)
+        combined = QTMAP.CombinedAudit(audits)
+        if not combined.has_conflict:
+            for tile in tiles:
+                self._reaudit_conflict(tile)
+            return
+        selected = len(self.map.selection())
+        message = "\n".join([
+            "%d of %d selected tiles carry textures from more than one "
+            "source; only each tile's current source is ever shown."
+            % (combined.tiles_with_conflict, selected),
+            "",
+            "In use: %s — %s"
+            % (_provider_label(combined.current_providers),
+               _fmt_size(combined.current_bytes)),
+            "Unused: %s — %s in %d files"
+            % (_provider_label(combined.foreign_providers),
+               _fmt_size(combined.foreign_bytes),
+               len(combined.foreign_files)),
+        ])
+        self._offer_texture_cleanup(
+            "Multiple imagery sources installed",
+            message,
+            combined.foreign_files,
+            combined.foreign_bytes,
+            "If a tile deliberately mixes sources through imagery zones, "
+            "keep them.",
+            covered,
+        )
+
+    def _offer_texture_cleanup(self, title, message, files, freed,
+                               caveat, tiles):
+        """The shared confirm-then-trash step of both cleanup offers.
+
+        Deleting is the Trash, never an unlink: the caveat above is real
+        — a tile CAN mix sources on purpose through imagery zones — so a
+        wrong answer must stay recoverable.  Every affected tile is
+        re-audited afterwards, so the badges settle without a rescan.
+        """
+        from PySide6.QtCore import QFile
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(title)
+        box.setText(title)
+        box.setInformativeText("%s\n\n%s" % (message, caveat))
+        trash = box.addButton(
+            "Move %d Unused Image%s to Trash (%s)"
+            % (len(files), "" if len(files) == 1 else "s", _fmt_size(freed)),
+            QMessageBox.DestructiveRole,
+        )
+        box.addButton("Keep", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not trash:
+            return
+        failed = 0
+        for path in files:
+            if not QFile.moveToTrash(path):
+                failed += 1
+        moved = len(files) - failed
+        print(
+            "Moved %d unused imagery file%s to the Trash%s."
+            % (moved, "" if moved == 1 else "s",
+               "" if not failed else
+               " (%d could not be moved)" % failed)
+        )
+        for tile in tiles:
+            self._reaudit_conflict(tile)
+
     def _emit_conflicts(self, generation, conflicts):
         """Hand a sweep's result to the GUI thread.
 
@@ -1446,8 +1919,10 @@ class MainWindow(QMainWindow):
             tile = self.map.active_tile()
         info = self._built.get(tile) if tile is not None else None
         if info is None:
+            self.imagery_conflict_btn.setVisible(False)
             return
         conflicted = tile in self._conflict_tiles
+        self.imagery_conflict_btn.setVisible(conflicted)
         self.info_provider.setText(
             ("%s  ⚠ mixed" % (info.provider or "?")) if conflicted
             else (info.provider or "?")
@@ -1513,6 +1988,10 @@ class MainWindow(QMainWindow):
         # Badges follow the authoritative built set, never a partial one:
         # a mid-scan sweep would audit tiles the swap is about to drop.
         self._refresh_conflict_tiles()
+        # Same rule for the other-scenery survey: its exclusion list IS
+        # the built set, so a partial one would draw our own tiles as
+        # somebody else's coverage.
+        self._refresh_scenery_packs()
 
     def _push_overlays(self):
         self.map.set_built(self._built)
@@ -1640,6 +2119,7 @@ class MainWindow(QMainWindow):
             if in_run:
                 summary_text += " · %d in current run" % in_run
             self.build_summary.setText(summary_text)
+        self._refresh_selection_conflict_offer(sel)
         self.selection_label.setText("%d selected" % n if n else "")
         if self._building and n:
             # A run is in progress: the button appends to it — counting
@@ -1677,6 +2157,12 @@ class MainWindow(QMainWindow):
         )
         info = self._built.get(tile)
         import O4_Config_Utils as CFG
+
+        # Other installed ortho/mesh packages covering this tile, and the
+        # legacy-config offer — both read state already in hand, so they
+        # render inline rather than through a probe.
+        self._refresh_other_scenery(tile)
+        self._refresh_legacy_config(tile)
 
         # Reanchor probe (worker thread: one sidecar stat per pack in
         # Custom Scenery); the row stays hidden until a result for THIS
@@ -2129,6 +2615,105 @@ class MainWindow(QMainWindow):
         dialog.resize(560, min(220 + 200 * len(entries), 640))
         dialog.exec()
 
+    # ------------------------------------------------------------------
+    # Legacy per-tile configs (mac-app parity: BuildPane's "Update to
+    # Current Defaults" alert, BuildModel.updateLegacyTileSettings)
+    # ------------------------------------------------------------------
+    def _refresh_legacy_config(self, tile):
+        """Ask the model whether this tile's config is a legacy one.
+
+        Only BUILT tiles are inspected — an unbuilt tile has no config
+        this could be about.  The offer volunteers itself once per tile
+        per session, exactly as the mac app's alert does, and stays
+        reachable afterwards through the panel button.
+        """
+        self._legacy_tile_settings = None
+        self.legacy_config_btn.setVisible(False)
+        if tile is None or tile not in self._built:
+            return
+        import O4_Settings_Model as SM
+
+        try:
+            legacy = SM.legacy_tile_settings(
+                tile[0], tile[1], self.output_dir()
+            )
+        except Exception:
+            legacy = None
+        if legacy is None:
+            return
+        self._legacy_tile_settings = legacy
+        self.legacy_config_btn.setVisible(True)
+        if tile not in self._legacy_prompted:
+            self._legacy_prompted.add(tile)
+            QTimer.singleShot(0, self._show_legacy_config_dialog)
+
+    def _legacy_config_message(self, legacy):
+        """What the offer says — one bullet per thing this engine has to
+        interpret rather than take literally."""
+        lines = [
+            "Tile %s's settings were written by an older or different "
+            "Ortho4XP:"
+            % FNAMES.short_latlon(legacy["lat"], legacy["lon"])
+        ]
+        for (key, value, replacement) in legacy["foreign_enums"]:
+            lines.append(
+                "• %s = %s — not a setting of this version; currently "
+                "interpreted conservatively. Updating sets: %s"
+                % (key, value, replacement or "default")
+            )
+        for pin in legacy["missing_pins"]:
+            lines.append(
+                "• pinned elevation file no longer exists: %s"
+                % os.path.basename(pin)
+            )
+        if legacy["quoted_keys"]:
+            count = len(legacy["quoted_keys"])
+            lines.append(
+                "• legacy quoted value format (%d setting%s)"
+                % (count, "" if count == 1 else "s")
+            )
+        if legacy["uses_legacy_name"]:
+            lines.append("• legacy config file name (Ortho4XP.cfg)")
+        lines.append(
+            "Updating keeps the tile's imagery source, zoom level and "
+            "zones, and resets everything else to your current global "
+            "defaults (the original file is kept as a backup)."
+        )
+        return "\n".join(lines)
+
+    def _show_legacy_config_dialog(self):
+        legacy = self._legacy_tile_settings
+        if legacy is None:
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Tile built with an older Ortho4XP")
+        box.setText("Tile built with an older Ortho4XP")
+        box.setInformativeText(self._legacy_config_message(legacy))
+        update = box.addButton(
+            "Update to Current Defaults", QMessageBox.AcceptRole
+        )
+        box.addButton("Keep As-Is", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not update:
+            return
+        import O4_Settings_Model as SM
+
+        try:
+            SM.update_legacy_tile_settings(legacy, self.output_dir())
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Tile settings", "Could not update the tile config: %s"
+                % exc
+            )
+            return
+        print(
+            "Tile %s: settings reset to current defaults (imagery source, "
+            "ZL and zones kept)."
+            % FNAMES.short_latlon(legacy["lat"], legacy["lon"])
+        )
+        self.refresh_tiles()
+
     def _toggle_install(self, checked):
         import O4_Config_Utils as CFG
 
@@ -2191,12 +2776,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Building
     # ------------------------------------------------------------------
-    def _imagery_changed(self, code):
+    def _map_provider_changed(self, code):
+        """The MAP PREVIEW source changed: repaint the basemap and
+        remember the choice (persisted like the mac app's
+        ``MapImageryPreview``)."""
         if not code:
-            # Unresolved ("--"): the map keeps showing its last provider.
             return
         self.map.set_provider(code)
         self._update_zoom_label()
+        if self.prefs.get(MAP_PROVIDER_KEY) != code:
+            self.prefs[MAP_PROVIDER_KEY] = code
+            save_prefs(self.prefs)
 
     def _set_activity_box_visible(self, visible):
         """Show or hide the Activity box.
@@ -2734,6 +3324,47 @@ class MainWindow(QMainWindow):
         started_at = self._tile_started_at.get(tile)
         seconds = (time.time() - started_at) if started_at else None
         self._tile_results[tile] = (event.ok, event.error, seconds)
+        if event.ok and self.chk_auto_install.isChecked():
+            self._auto_install_tile(tile)
+
+    def _auto_install_tile(self, tile):
+        """Link a just-finished tile into Custom Scenery.
+
+        The manual toggle's engine call, minus its dialogs: a batch of
+        twenty tiles must not produce twenty modal errors, so a failure
+        is reported on the console and the tile simply stays uninstalled.
+        The tile's build dir comes from the scan, which for a FIRST build
+        has not seen it yet — the folder is where this run put it, so it
+        is derived rather than looked up.
+        """
+        import O4_Config_Utils as CFG
+
+        if not CFG.custom_scenery_dir or tile in self._installed:
+            return
+        (lat, lon) = tile
+        info = self._built.get(tile)
+        build_dir = (
+            info.build_dir if info is not None and info.build_dir
+            else FNAMES.build_dir(lat, lon, self.output_dir())
+        )
+        try:
+            LINKS.install(lat, lon, build_dir, CFG.custom_scenery_dir)
+        except (OSError, ValueError) as exc:
+            print(
+                "Could not install %s in X-Plane: %s"
+                % (FNAMES.short_latlon(lat, lon), exc)
+            )
+            return
+        self._installed.add(tile)
+        self.map.set_installed(self._installed)
+        print("Installed %s in X-Plane." % FNAMES.short_latlon(lat, lon))
+        if tile == self.map.active_tile():
+            self.install_check.setChecked(True)
+
+    def _auto_install_changed(self, checked):
+        """Persist the auto-install switch (mac app: OrthoLinkTiles)."""
+        self.prefs[AUTO_INSTALL_KEY] = bool(checked)
+        save_prefs(self.prefs)
 
     def _on_run_done(self, event):
         self._building = False
@@ -3137,6 +3768,28 @@ def _fmt_remaining(seconds):
     if seconds < 3600:
         return "%d m" % round(seconds / 60.0)
     return _fmt_duration(seconds)
+
+
+def _never_widen(widget):
+    """Let *widget* clip rather than widen the fixed-width side panel.
+
+    The panel is 280 px with its horizontal scrollbar off, so a child
+    that demands more width clips SILENTLY — and a push button neither
+    wraps nor elides its label.  Ignored horizontal policy is the same
+    answer the Activity title already uses; the tooltip carries the full
+    text.
+    """
+    policy = widget.sizePolicy()
+    policy.setHorizontalPolicy(QSizePolicy.Ignored)
+    widget.setSizePolicy(policy)
+
+
+def _provider_label(providers):
+    """One source's name, or "Multiple" — the combined offer's rows."""
+    providers = sorted(providers)
+    if len(providers) == 1:
+        return providers[0]
+    return "Multiple" if providers else "—"
 
 
 def _fmt_size(nbytes):

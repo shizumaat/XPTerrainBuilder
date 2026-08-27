@@ -28,11 +28,24 @@ jobs:
       - name: PROJ for the spec's proj.db lookup
         run: brew install proj
 
+      # macos-15 runners default to Xcode 16.4, whose SDK predates macOS 26;
+      # the app needs the macOS 26 SDK.
+      - name: Select Xcode 26
+        run: |
+          ls -d /Applications/Xcode_26*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          swift --version
+
       - name: Freeze engine
         run: PYTHON=python3 scripts/make_engine.sh
 
       - name: Build app
         run: scripts/make_app.sh release
+
+      # LICENSING.md §6(d) / RELEASES-PLAN §G: every artifact carries the
+      # notices, generated from LICENSING.md so they cover what we ship.
+      - name: Generate third-party notices
+        run: python3 scripts/make_notices.py THIRD-PARTY-NOTICES.txt
 
       - name: Version
         id: ver
@@ -43,9 +56,20 @@ jobs:
             echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Zip
+      # Stage the app next to the license payload, so the artifact root
+      # carries the per-artifact checklist of RELEASES-PLAN §G (LICENSE,
+      # LICENSING.md, notices, gpl.txt, copyright.txt, Triangle sources).
+      - name: Stage and zip
         run: |
-          ditto -c -k --keepParent dist.nosync/XPTerrainBuilder.app \
+          rm -rf XPTerrainBuilder
+          mkdir -p XPTerrainBuilder/Triangle-src
+          ditto dist.nosync/XPTerrainBuilder.app \
+            XPTerrainBuilder/XPTerrainBuilder.app
+          cp LICENSE LICENSING.md THIRD-PARTY-NOTICES.txt XPTerrainBuilder/
+          cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
+            XPTerrainBuilder/
+          cp -R Ortho4XP/Utils/src/. XPTerrainBuilder/Triangle-src/
+          ditto -c -k --keepParent XPTerrainBuilder \
             "XPTerrainBuilder-${{ steps.ver.outputs.version }}-mac.zip"
 
       - uses: actions/upload-artifact@v4
@@ -97,6 +121,13 @@ jobs:
           mv XPTerrainBuilder/Ortho4XP_Qt.exe XPTerrainBuilder/XPTerrainBuilder.exe
           grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
             > XPTerrainBuilder/VERSION.txt
+          # License payload at the artifact root (RELEASES-PLAN §G).  The
+          # Triangle sources already ship inside
+          # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
+          python scripts/make_notices.py XPTerrainBuilder/THIRD-PARTY-NOTICES.txt
+          cp LICENSE LICENSING.md XPTerrainBuilder/
+          cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
+            XPTerrainBuilder/
           7z a "XPTerrainBuilder-${{ steps.ver.outputs.version }}-win.zip" XPTerrainBuilder
 
       - uses: actions/upload-artifact@v4
@@ -150,6 +181,13 @@ jobs:
           mv XPTerrainBuilder/Ortho4XP_Qt XPTerrainBuilder/XPTerrainBuilder
           grep -m1 '^version' Ortho4XP/src/O4_Version.py | cut -d= -f2 | tr -d " '\"" \
             > XPTerrainBuilder/VERSION.txt
+          # License payload at the artifact root (RELEASES-PLAN §G).  The
+          # Triangle sources already ship inside
+          # _internal/Ortho4XP_Data/Utils/src via Ortho4XP_Qt.spec.
+          python scripts/make_notices.py XPTerrainBuilder/THIRD-PARTY-NOTICES.txt
+          cp LICENSE LICENSING.md XPTerrainBuilder/
+          cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
+            XPTerrainBuilder/
           tar czf "XPTerrainBuilder-${{ steps.ver.outputs.version }}-linux.tar.gz" XPTerrainBuilder
 
       - uses: actions/upload-artifact@v4
@@ -165,14 +203,55 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checked out for the GPL v3 source offer (§G) and the release notes.
+      # Full history so `git archive HEAD` is the exact tagged tree.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # GPL v3: the source offer must survive the binaries even if the repo
+      # is renamed, moved or taken private (RELEASES-PLAN §G).
+      - name: Source archive
+        run: |
+          git archive --format=tar.gz \
+            --prefix="XPTerrainBuilder-${{ steps.ver.outputs.version }}-source/" \
+            -o "XPTerrainBuilder-${{ steps.ver.outputs.version }}-source.tar.gz" HEAD
+
+      # Downloaded into a subdirectory: merge-multiple into the checkout
+      # root would collide with the working tree.
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+          path: artifacts
+
+      # Use the tagged release notes when they exist; never fail the
+      # release because they do not.
+      - name: Release body
+        run: |
+          notes="docs/RELEASE_NOTES-${{ steps.ver.outputs.version }}.md"
+          if [[ -f "$notes" ]]; then
+            cp "$notes" RELEASE_BODY.md
+          else
+            printf 'XPTerrainBuilder %s\n' "${{ steps.ver.outputs.version }}" \
+              > RELEASE_BODY.md
+          fi
 
       - uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
+          prerelease: true
+          body_path: RELEASE_BODY.md
           files: |
-            XPTerrainBuilder-*-mac.zip
-            XPTerrainBuilder-*-win.zip
-            XPTerrainBuilder-*-linux.tar.gz
+            artifacts/XPTerrainBuilder-*-mac.zip
+            artifacts/XPTerrainBuilder-*-win.zip
+            artifacts/XPTerrainBuilder-*-linux.tar.gz
+            XPTerrainBuilder-*-source.tar.gz

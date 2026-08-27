@@ -20,6 +20,14 @@ jobs:
       - name: Swift version
         run: swift --version
 
+      # macos-15 runners default to Xcode 16.4, whose SDK predates macOS 26;
+      # the app needs the macOS 26 SDK.
+      - name: Select Xcode 26
+        run: |
+          ls -d /Applications/Xcode_26*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          swift --version
+
       - name: Build (debug)
         run: swift build
 

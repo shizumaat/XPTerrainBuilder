@@ -180,3 +180,32 @@ answer:
    A/B as before; SPJC/CYXY matched controls; build-time statement
    (pass 2 is one extra projection over the tier-4 subset — quote its
    phase cost).
+
+## Amendment 3 (Fable, 2026-08-27 — closing rulings; lane complete at
+## lane/nostep 64cacf88)
+
+1. **THE STRUCTURAL RESULT IS ACCEPTED AS THE ROUND'S LANDING.** Zero
+   non-tier-4 deltas on every airport (8,519/5,191/1,290 senior nodes,
+   0 moved), the OFF contract measured four times, the runway
+   carve-corner movers gone. The `airside_no_step` family now PRICES
+   the accumulation class honestly (HECA 1,910 §1.1 rows) — the
+   owner's instrument for the dip is the census, no longer a blind
+   spot.
+2. **DEVIATION ACCEPTED: pass 2 does NOT re-impose the published
+   lattice/station law.** Measured: re-imposition with seniors frozen
+   makes the protected family itself worse (24 → 47 at SPJC) — pass 2
+   would be repairing pre-existing violations it cannot lawfully
+   repair. The population stays counted and printed. The lane's
+   candidate design — a DO-NO-HARM RELAXATION (each own-law budget
+   raised to at least its pass-1 residual) — is CHARTERED as the next
+   round's design IF the owner's sim read still shows the dip;
+   likewise the dip-table regression vs A0 (93/204/393 over-cap vs
+   53/111/211; worst pair unchanged from base) is the recorded price
+   of structural senior identity, adjudicated by the sim pass.
+3. §1.4's re-seed stays gated OFF (`O4_AIRSIDE_NO_STEP_RESEED`) with
+   its zero-reach finding recorded; the wider cut that moved CYXY
+   airside 88 → 186 is refuted, do not retry.
+4. PROCESS: the lane exceeded the attempt cap (six iterations). The
+   work stands (owner: never throw away work) and the breach is
+   recorded here; the convergence guards remain law for every future
+   lane.

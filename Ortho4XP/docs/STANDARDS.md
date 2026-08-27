@@ -30,6 +30,31 @@ not single constants — they live in the modules noted below, and this index po
 The within-shape grade *validator* (`tools/check_grade.py`) reads `ROLE_GRADE_LIMITS`
 directly, so it always matches whatever the table says.
 
+### The AIRSIDE NO-STEP law — direct distance and rate of change (owner ruling 2026-08-27)
+
+Every cap above is a POINTWISE bound: it prices a pair against the distance
+between *that* pair's endpoints. A chain of individually-lawful neighbour
+pairs can therefore accumulate into relief no single row prices — measured at
+HECA's round-3 dip site as +0.60 m across 30 m and +1.07 m across 50–75 m,
+with every neighbour pair inside its budget. The owner ruled the law
+defective: *"No steps in airside pavement are lawful"*, refined the same day
+to *"A 1.5 m 'dip' could be ok assuming it was spread across enough area to
+be smooth, like the runway curvature and rate change rules."* So the airside
+surface gains the runway-style pair of bounds — grade AND curvature — applied
+to all airside pavement.
+
+| Rule | Value | Standard | Implemented in |
+|------|-------|----------|----------------|
+| Airside LOCAL DIRECT-DISTANCE grade: between two airside pavement nodes inside a local window, `|Δz| ≤ cap × DIRECT (euclidean) distance` — within one shape and across airside shape boundaries | the PAIR'S OWN cap; **no new value** (stand chords 1%, corridor region 1.5%, back-edge 5%) | owner ruling `docs/RULINGS.md` 2026-08-27 "NO STEPS IN AIRSIDE PAVEMENT"; the caps themselves are the rows above | `grade_law.classify_pair` (the one cap chain) via `airside_no_step.build_airside_no_step_constraints`; census family `airside_no_step` |
+| The LOCAL WINDOW for that bound | 150 m | design (owner ruling's "within a local window"); sized to contain the measured offender — the dip site's accumulation reached 1.07 m at 50–75 m and its low membrane nodes stood 130–137 m from the nearest anchored station | `config.py` `AIRSIDE_NO_STEP_WINDOW_M` (env `O4_AIRSIDE_NO_STEP_WINDOW_M`) |
+| Law edges per airside node inside that window (nearest, spatially spread over 8 compass sectors) | 16 | design; bounded because an unbounded window population is quadratic in the node count (HECA: 8,853 airside nodes, ~102 neighbours each within 150 m) | `config.py` `AIRSIDE_NO_STEP_K` (env `O4_AIRSIDE_NO_STEP_K`) |
+| Airside RATE OF CHANGE: grade change per unit length along the membrane's own polylines (lattice rows/columns, spine-station runs, ring sequences) | ±2% per 30.5 m (FAA); ICAO PROVISIONAL | FAA AC 150/5300-13B §3.16.5 item 5; ICAO Annex 14 §3.4.14 is qualitative ("as gradual as practicable") — the same provisional operationalization the strip family already carries (owner question 2) | `grade_law.airside_arc_rate_per_m`, which IS `ruleset_strip_arc_rate_per_m` — **one constant, two readers**; census term inside family `airside_no_step` |
+| DEM demotion for the airside membrane interior | no DEM-proximity term at all | owner rulings 2026-08-25 (DEM IS LAST PRIORITY) + 2026-08-27 clause 3 | `airside_no_step.dem_demoted_nodes` → `one_solve.one_profile_solve(dem_demoted=…)`; the nodes keep the taut scaffold seed (`scaffold_seed`) |
+
+Kill switch: `O4_AIRSIDE_NO_STEP=0` (`config.AIRSIDE_NO_STEP`), default ON;
+OFF is byte-identical to the pre-ruling build. Spec:
+`docs/specs/airside-no-step-law-spec.md`.
+
 The taxiway caps are **anisotropic** in the local route frame: a pair's grade
 budget is `cL·Δs∥ + cT·Δs⊥`, where `Δs∥` is the along-route spine ARC and `Δs⊥`
 the transverse offset (`grade_law.Allowance`, `grade_graph.ds_decompose`). For C–F

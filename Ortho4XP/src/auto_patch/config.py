@@ -141,6 +141,11 @@ __all__ = [
     "APRON_INTERIOR_LATTICE",
     # HECA apron round 3 (docs/specs/heca-apron-round3-spec.md)
     "APRON_SPINE_STATIONS",
+    # AIRSIDE NO-STEP LAW (docs/specs/airside-no-step-law-spec.md)
+    "AIRSIDE_NO_STEP",
+    "AIRSIDE_NO_STEP_WINDOW_M",
+    "AIRSIDE_NO_STEP_K",
+    "AIRSIDE_NO_STEP_RESEED",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9489,3 +9494,67 @@ APRON_INTERIOR_LATTICE = (
 # station and every downstream leg is vacuous — byte-identical.
 APRON_SPINE_STATIONS = (
     _os.environ.get("O4_APRON_SPINE_STATIONS", "1") != "0")
+
+# ── THE AIRSIDE NO-STEP LAW (docs/specs/airside-no-step-law-spec.md §1;
+# owner ruling RULINGS 2026-08-27 "NO STEPS IN AIRSIDE PAVEMENT") ─────
+# Owner, verbatim: *"If our laws allow a step of 1.5 m, then the law
+# needs to be updated to prevent that, as it would create an impassable
+# area for aircraft.  No steps in airside pavement are lawful."*  Refined
+# the same day: *"A 1.5 m 'dip' could be ok assuming it was spread across
+# enough area to be smooth, like the runway curvature and rate change
+# rules."*
+#
+# The gap this closes is an ACCUMULATION gap, not a pointwise one: every
+# NEIGHBOUR pair at the round-3 dip site was inside its budget, and the
+# relief still reached 1.07 m over 50-75 m because the low membrane nodes
+# were coupled to the anchored spine only through a CHAIN of 50 m x cap
+# budgets.  No family priced a NON-neighbour airside pair against its
+# DIRECT distance.  So the law gains local direct-distance pairs.
+#
+# WINDOW.  150 m is the LOCAL neighbourhood the ruling's "within a local
+# window" names: it is comfortably beyond the 50-75 m at which the dip
+# site's accumulation was already 1.07 m (spec §0) and beyond the
+# 130-137 m standoff of its low membrane nodes from the nearest station,
+# so the offending pair is inside the window; and it is short enough that
+# a pair is still a piece of ONE movement surface rather than a chord
+# across an airfield.  A pair beyond it is left to the chain.  Note that
+# the pair's own cap chain still decides whether a candidate is LAW at
+# all — the window only bounds candidate GENERATION.
+AIRSIDE_NO_STEP_WINDOW_M = float(
+    _os.environ.get("O4_AIRSIDE_NO_STEP_WINDOW_M", "150"))
+
+# K.  Per airside node, at most this many law edges to its nearest
+# airside neighbours in the window, SPATIALLY SPREAD (nearest-two in each
+# of eight compass sectors) rather than nearest-k outright — 16 nearest
+# nodes in a dense apron ring are all in the same direction and would
+# leave the node uncoupled to the surface on its other side, which is the
+# very geometry the dip has.  Bounded because the population is O(n·k):
+# an unbounded window pair set at HECA is quadratic.
+AIRSIDE_NO_STEP_K = int(
+    _os.environ.get("O4_AIRSIDE_NO_STEP_K", "16"))
+
+# THE FLAG, DEFAULT ON.  ``O4_AIRSIDE_NO_STEP=0`` builds no direct-
+# distance edge, publishes no sidecar record, demotes no DEM term and
+# preserves no node — byte-identical to the pre-ruling build.
+AIRSIDE_NO_STEP = (
+    _os.environ.get("O4_AIRSIDE_NO_STEP", "1") != "0")
+
+# §1.4's TAUT RE-SEED inside the pass-2 membrane conform — RETIRED-KEPT-
+# GATED, DEFAULT OFF, awaiting a Fable ruling.
+#
+# Amendment 2 puts the §1.4 DEM demotion in pass 2, and the mechanism
+# that expresses it is re-seeding the membrane INTERIOR (§1.4's own
+# scope: the round-2 lattice, never a shape's exterior ring) on the taut
+# scaffold of the pass-1 constants.  MEASURED at CYXY and SPJC under
+# that scope: the envelope does not reach those interiors from the
+# constants at all, so the term re-seeded ZERO nodes on both airports —
+# its benefit is UNMEASURED on this lane, and shipping an unmeasured
+# term default-ON is not a thing this repo does.  (An earlier, wider cut
+# that re-seeded every tier-4 node instead — apron RING vertices
+# included, which §1.4 does not name — moved CYXY airside 88 -> 186 with
+# `transverse` alone 4 -> 67, which is what scoped it back.)  KEPT
+# rather than deleted so the finding is not hidden:
+# ``O4_AIRSIDE_NO_STEP_RESEED=1`` restores it exactly, and that is the
+# arm a ruling would be made on.
+AIRSIDE_NO_STEP_RESEED = (
+    _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")

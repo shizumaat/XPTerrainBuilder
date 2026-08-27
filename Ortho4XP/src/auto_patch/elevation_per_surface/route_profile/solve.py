@@ -1807,7 +1807,8 @@ def _zone_law_coverage(layout, bucket_to_idx, n, first_zone, edge_nodes):
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
                             building_seats, runway_anchor, seam_pins,
-                            seat_stamp_yield=None, station_nodes=None):
+                            seat_stamp_yield=None, station_nodes=None,
+                            no_step_senior_nodes=None):
     """Split the phase-A frozen spine into ``(preserved, yield_hard)``.
 
     THE PRESERVED SET, ENUMERATED (the spec requires the enumeration, not
@@ -1840,6 +1841,19 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
       all, which is the opposite of "conform UP to the spine" and of
       airside-is-king.  Empty / ``None`` ⇒ the membership is
       byte-identical (flag OFF, or no apron crossing).
+    * ``no_step_senior_nodes`` — the SENIOR endpoints of the AIRSIDE
+      NO-STEP law's cross-tier direct-distance edges (owner ruling
+      RULINGS 2026-08-27; spec ``airside-no-step-law-spec.md`` §1.3).
+      The ladder is runway profile > centerline profile (spine stations
+      included) > seated pads > membrane free nodes, and "an edge between
+      tiers constrains the LOWER tier only".  In THIS graph a one-sided
+      edge is an edge against a CONSTANT, so the senior side is preserved
+      here for the same reason a station is: it is law rather than an
+      estimate the membrane may renegotiate.  Runway values and seats are
+      already preserved above; what this member actually adds is the
+      CENTERLINE-tier subset that would otherwise yield — the junction
+      pieces the owner saw standing proud, which must not come DOWN to
+      meet the membrane.  Empty / ``None`` ⇒ byte-identical.
 
     YIELD-HARD = ``{i in frozen : 0 <= i < n}`` minus that union.  The two
     are disjoint and together exhaust the in-range frozen set, so no spine
@@ -1861,7 +1875,7 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     frozen_in = _in(frozen)
     preserved = (_in(truth_hard) | _in(runway_nodes) | _in(building_seats)
                  | _in(runway_anchor) | _in(seam_pins)
-                 | _in(station_nodes))
+                 | _in(station_nodes) | _in(no_step_senior_nodes))
     preserved -= _in(seat_stamp_yield)
     return preserved, (frozen_in - preserved)
 
@@ -3801,6 +3815,80 @@ def solve_route_profile(layout, icao: str,
             elev, base_hard, u_spine_adj, u_spine_floor, node_band,
             nodes_xy=nodes, graph=G, probe_out=_spine_probe,
             string_pins=_string_pins)
+        # ── THE AIRSIDE NO-STEP LAW (owner ruling RULINGS 2026-08-27;
+        # spec docs/specs/airside-no-step-law-spec.md §1.1/§1.3) ───────
+        # BUILT HERE, one statement after the phase-A spine solve and one
+        # BEFORE the yield membership, because both facts it needs exist
+        # exactly in this window: the seniority tiers (runway values,
+        # centerline profile nodes, seated pads) are settled, and the
+        # preserved set — the machinery that makes a CROSS-TIER edge
+        # one-sided — has not been computed yet.  The edges themselves
+        # are GEOMETRIC (positions and caps), so building them before the
+        # freeze loop changes no value.
+        #
+        # Flag OFF (or no airside pavement): empty everything, no
+        # publication, no preservation — byte-inert.
+        _nostep_senior: set = set()
+        _nostep_edges: list = []
+        try:
+            from auto_patch import airside_no_step as _ANS
+            _nostep_tiers = _ANS.tier_of_nodes(
+                n,
+                runway_nodes=runway_nodes,
+                # THE CENTERLINE TIER IS THE WHOLE TAXIWAY-FAMILY
+                # SURFACE (spec Amendment 1 ruling 1, 2026-08-27).
+                # §1.3's "taxi centerline profile" was under-read on the
+                # first arm as the spine-ADJACENT nodes only, and 4,474
+                # of 6,072 junction nodes then moved: the taxiway
+                # surface IS that profile's transverse writeback, so a
+                # junction ring vertex carrying no centerline is tier 2
+                # exactly as the vertex under the centerline is.  The
+                # spine nodes and the round-3 apron STATIONS stay in the
+                # union — a station's value is its axis profile's own
+                # (round-3 Amendment 2), which is what tier 2 means.
+                centerline_nodes=(
+                    _ANS.taxiway_family_nodes(layout, bucket_to_idx, n)
+                    | set(u_spine_nodes) | set(_station_idx)),
+                seat_nodes=set(building_seats))
+            # ONE LAW, ONE STATEMENT: a pair the within-shape entries
+            # already carry is not restated here (two copies of one law
+            # in the POCS sweep is the round-3 station build's own
+            # reason for dropping restated pairs).
+            _nostep_existing = set()
+            for _sc_ns in shape_constraints:
+                for _e_ns in (_sc_ns.get("edges") or ()):
+                    _a_ns, _b_ns = int(_e_ns[0]), int(_e_ns[1])
+                    _nostep_existing.add((_a_ns, _b_ns) if _a_ns < _b_ns
+                                         else (_b_ns, _a_ns))
+            _ns_scs, _nostep_senior, _nostep_edges, _ns_report = (
+                _ANS.build_airside_no_step_constraints(
+                    layout, bucket_to_idx, _gg_ctx,
+                    node_pos=G.pos, n_nodes=n,
+                    tier_of=_nostep_tiers,
+                    existing_pairs=_nostep_existing))
+            # ── PASS 1 DOES NOT INGEST THEM (spec Amendment 2) ─────
+            # The edges are BUILT and PUBLISHED here — the census prices
+            # this list and pass 2 re-resolves it by geometry — but they
+            # are NOT extended into ``shape_constraints``.  That is what
+            # makes pass 1 byte-identical to the flag-off arm BY
+            # CONSTRUCTION rather than by argument: with no entry in the
+            # constraint set and no senior preservation, no term of this
+            # solve references the law at all.  The conform is pass 2,
+            # at the tail of ``final_grade_projection``.
+            _ = _ns_scs
+            if _nostep_edges:
+                layout._airside_no_step_edges_ll = _nostep_edges
+                import O4_UI_Utils as _UI_ns
+                _UI_ns.vprint(1, _ANS.format_report(icao, _ns_report))
+            setattr(layout, "_airside_no_step_report", _ns_report)
+        except Exception as _ns_exc:                      # pragma: no cover
+            # NEVER a silent degrade: a law that failed to build is
+            # reported, and the build continues under the pre-ruling law
+            # rather than pretending the population was empty.
+            import O4_UI_Utils as _UI_nsx
+            _UI_nsx.vprint(1, f"  [airside-no-step] {icao}: BUILD FAILED "
+                              f"({type(_ns_exc).__name__}: {_ns_exc}) — "
+                              f"no direct-distance edges this build")
         # ── SPINE-FREEZE ROUND: the yield-hard set and the preserved set ──
         # (STANDING LAW; see the module comment above
         # ``_spine_yield_membership``.)  Built BEFORE the freeze loop
@@ -3825,7 +3913,17 @@ def solve_route_profile(layout, icao: str,
             # ``hard -= _spine_yield_idx`` releasing them into the final
             # projection, where the anchored side would otherwise be the
             # cheapest way to satisfy a station-touching edge.
-            station_nodes=_station_idx)
+            station_nodes=_station_idx,
+            # AIRSIDE NO-STEP SENIORITY is NOT expressed here any more
+            # (spec Amendment 2).  The parameter stays — it is the
+            # round-3 preservation mechanism and its twin pins it — but
+            # pass 1 passes NOTHING, because pass 1 must be the flag-off
+            # arm exactly.  Seniority is now structural instead: pass 2
+            # holds every tier-1/2/3 node CONSTANT at its pass-1 value,
+            # which is a stronger statement than preservation could make
+            # (preservation reaches only phase-A FROZEN spine nodes, and
+            # a junction ring vertex is not one — the A1 measurement).
+            no_step_senior_nodes=None)
         for i in frozen:
             if i < n:
                 # §4: a seat the hard-stamp guard refused is not
@@ -4005,6 +4103,14 @@ def solve_route_profile(layout, icao: str,
                 _UI_env.vprint(1, _scaffold.format_report(icao, _sc_report))
             setattr(layout, "_scaffold_seed_report", _sc_report)
 
+        # ── §1.4 DEM DEMOTION HAS MOVED TO PASS 2 (spec Amendment 2)
+        # It used to run here, and that was a pass-1 term: the body
+        # solve's warm start is exactly where the DEM preference lives,
+        # so demoting it changed the flag-off surface.  Under the
+        # two-pass conform the demotion is applied where its own tier
+        # is free — ``airside_no_step.membrane_conform`` re-seeds the
+        # tier-4 membrane on the taut scaffold of the pass-1 constants
+        # before re-projecting it.  Nothing here.
         n_free = one_profile_solve(
             elev, shape_constraints, base_hard, nodes, dem_elev,
             runway_nodes, building_seats, apron_body, _body_nodes, _body_adj,
@@ -9360,6 +9466,35 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     if _crown_of:
         for _i, _v in _crown_of.items():
             elev[_i] = elev[_i] - _v
+    # ── PASS 2: THE AIRSIDE MEMBRANE CONFORM (spec
+    # ``airside-no-step-law-spec.md`` Amendment 2, 2026-08-27) ─────────
+    # THE SLOT IS THE RULING.  Everything above — the whole solve and
+    # this final projection — is PASS 1, and it has never seen a no-step
+    # edge: byte-identical to the flag-off arm by construction.  Here,
+    # with the surface settled and back in EMITTED space (after the crown
+    # transform, so the membrane's plain |Δz| budgets are read in the
+    # frame they were priced in) and one statement before ``_writeback``,
+    # every tier-1/2/3 node becomes a CONSTANT and only the tier-4
+    # membrane is free.  The no-step edges enter WITH the membrane's own
+    # existing laws and the §1.4 DEM demotion, and the membrane alone
+    # re-projects.  Senior byte-identity then needs no gate: those values
+    # are pass 1's, untouched.
+    #
+    # Flag OFF, or no published pair, or no free membrane node ⇒ vacuous.
+    try:
+        from auto_patch.airside_no_step import (
+            membrane_conform as _mc, format_conform_report as _mc_fmt)
+        _mc_rep = _mc(layout, b2i, elev, n, shape_constraints=joint,
+                      icao=icao, crown_of=_crown_of)
+        if _mc_rep.get("free") and _mc_rep.get("pairs"):
+            import O4_UI_Utils as _UI_mc
+            _UI_mc.vprint(1, _mc_fmt(icao, _mc_rep))
+        setattr(layout, "_airside_membrane_conform_report", _mc_rep)
+    except Exception as _mc_exc:                          # pragma: no cover
+        import O4_UI_Utils as _UI_mcx
+        _UI_mcx.vprint(1, f"  [membrane-conform] {icao}: PASS 2 FAILED "
+                          f"({type(_mc_exc).__name__}: {_mc_exc}) — the "
+                          f"surface is pass 1's, unconformed")
     _writeback(layout, elev, b2i)
     # Restore the runway profile the aliased writeback may have re-stamped
     # (see the RUNWAY PROFILE PRESERVE snapshot above): both runs.

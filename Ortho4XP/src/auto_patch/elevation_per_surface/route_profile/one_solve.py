@@ -5613,7 +5613,7 @@ def one_profile_solve(
         node_band, spine_floor, coupling, *,
         max_sweeps=None, tol=0.001,
         omega=None, curvature=0.25,
-        apron_smooth=None):
+        apron_smooth=None, dem_demoted=None):
     """Run the one-profile solve.  Mutates ``elev`` in place; returns #free nodes.
 
     ``base_hard`` — runway + seam HARD mask (anchors at their seeded elevation).
@@ -5625,6 +5625,20 @@ def one_profile_solve(
       sets the building levels, so building and apron/spine agree by construction)
       or ``None`` (off-network → unconstrained, the neighbour cap slabs bound it).
     ``coupling`` — rect flat-end groups (members share one elevation).
+    ``dem_demoted`` — AIRSIDE MEMBRANE INTERIOR free nodes that carry NO
+      DEM-proximity term (owner ruling RULINGS 2026-08-27 clause 3, spec
+      ``airside-no-step-law-spec.md`` §1.4; DEM-LAST, RULINGS 2026-08-25,
+      enforced for this class).  They keep the TAUT SCAFFOLD value the
+      caller seeded them with (``scaffold_seed``) instead of being
+      re-initialised at their DEM reading, and settle by the curvature
+      sweep subject to the law.  ``None``/empty ⇒ byte-identical.
+      MEASURED BASIS: the warm start below wrote ``_dem_target(i)`` over
+      EVERY free node, which silently undid the 24c scaffold seed one
+      statement after it ran — so the apron interior started as a DEM
+      tracing after all, and the sag that started there is the owner's
+      dip.  The sweep's own ``_dem_body`` branch was already inert in
+      production (``apron_smooth=True``); this warm start was the whole
+      surviving DEM preference.
     """
     n = len(elev)
     if omega is None:
@@ -5740,7 +5754,21 @@ def one_profile_solve(
 
     # INITIALISE every free node at its closest-DEM-in-envelope value (a warm
     # start near the answer; route nodes then smooth toward min curvature).
+    #
+    # ── DEM DEMOTION (RULINGS 2026-08-27 clause 3; spec §1.4) ─────────
+    # …EXCEPT the airside membrane interior, which carries no DEM term at
+    # all: it keeps the TAUT SCAFFOLD value it was seeded with, clamped
+    # into its own reach band (a warm start outside the band is a level
+    # the projection cannot honour anywhere, which is why the DEM branch
+    # clamps too).  Empty set ⇒ this loop is the loop it always was.
+    _demoted = ({int(i) for i in dem_demoted} if dem_demoted else frozenset())
     for i in free:
+        if i in _demoted:
+            lo = floor.get(i, -_INF)
+            hi = ceil.get(i, _INF)
+            if lo <= hi:
+                elev[i] = min(max(elev[i], lo), hi)
+            continue
         elev[i] = _dem_target(i)
 
     # Coupled groups (rect flat-ends) restricted to free members.
@@ -5790,7 +5818,7 @@ def one_profile_solve(
         _plan.append((i, lst, _sw, len(lst),
                       floor.get(i, -_INF), ceil.get(i, _INF), _is_spine,
                       (not _is_spine) and i in apron_body
-                      and not _apron_smooth))
+                      and not _apron_smooth and i not in _demoted))
     _one_minus_curv = 1.0 - curvature
 
     moved = _INF

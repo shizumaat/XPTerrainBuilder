@@ -3832,6 +3832,23 @@ class PavementLayout:
             # Written unconditionally.
             "apron_lattice_edges": list(
                 getattr(self, "_apron_lattice_edges_ll", None) or []),
+            # THE AIRSIDE NO-STEP LAW's own direct-distance edges (owner
+            # ruling RULINGS 2026-08-27; spec
+            # ``docs/specs/airside-no-step-law-spec.md`` §1.1/§1.6).
+            # LAW INPUT, and for the ``apron_lattice_edges`` reason
+            # squared: the pair is a DIRECT-DISTANCE neighbourhood pair
+            # that may cross a shape boundary, so neither ring adjacency
+            # nor a role table can rediscover it, and its cap depends on
+            # the pair's own frontage / corridor / back-edge / strip
+            # context, which only the solve holds.  Each record carries
+            # the pair, the DIRECT distance and the budget
+            # ``classify_pair`` priced it at, plus the two seniority
+            # tiers — so the census prices EXACTLY the population the
+            # solve built to (one law, one population).  Written
+            # unconditionally: ``[]`` says the instrument ran and found
+            # none, a missing key says the patch predates the law.
+            "airside_no_step_edges": list(
+                getattr(self, "_airside_no_step_edges_ll", None) or []),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

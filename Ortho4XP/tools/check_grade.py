@@ -6848,9 +6848,20 @@ def sidecar_evidence(osm_path) -> dict:
             # must carry a number in every report that mentions it.
             rows = v if isinstance(v, list) else []
             out[k] = {"sites": len(rows)}
+            # THE LEDGER HAS TWO PRODUCERS since the pads-as-band-variables
+            # round (spec §1.4): a NODE whose two band directions crossed,
+            # and a PAD whose flatness admits no level at every ring vertex
+            # (``source: "pad_domain"``).  Counted apart so a reader is
+            # never told a pad row's absent anchor arithmetic is a missing
+            # measurement — the pad rows have no anchors by construction.
+            out[k]["pad_domain_sites"] = sum(
+                1 for r in rows
+                if isinstance(r, dict) and r.get("source") == "pad_domain")
             if rows:
                 w = rows[0]
                 out[k].update({
+                    "worst_source": w.get("source") or "band_node",
+                    "worst_pad": w.get("pad"),
                     "worst_deficit_m": w.get("deficit_m"),
                     "worst_ll": w.get("ll"),
                     "worst_ceil_anchor_value": w.get("ceil_anchor_value"),

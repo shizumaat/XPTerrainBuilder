@@ -1786,17 +1786,37 @@ def print_report(rep: dict, top: int) -> None:
             _ll = _lbc.get("worst_ll") or []
             _where = (f"{_ll[0]:.7f},{_ll[1]:.7f}" if len(_ll) == 2
                       else "?")
-            print(f"  law-band contradictions: {_n} site(s) where the "
-                  f"NARROWED band admits NO elevation — two laws "
-                  f"disagree; REPORT-FIRST pre-ship, the build continued "
-                  f"on the PRE-BAND interval at those nodes.  Worst "
-                  f"{_lbc.get('worst_deficit_m')} m at {_where}: ceiling "
-                  f"anchor {_lbc.get('worst_ceil_anchor_value')} over "
-                  f"{_lbc.get('worst_ceil_budget_m')} m of budget vs floor "
-                  f"anchor {_lbc.get('worst_floor_anchor_value')} over "
-                  f"{_lbc.get('worst_floor_budget_m')} m.  Full rows (both "
-                  f"binding chains) in the sidecar's "
-                  f"`law_band_contradictions`.")
+            _npad = int(_lbc.get("pad_domain_sites") or 0)
+            if _lbc.get("worst_source") == "pad_domain":
+                # A PAD row carries no anchor arithmetic BY CONSTRUCTION
+                # (its two bounds come from two ring vertices, not two
+                # anchors), so printing the node line's fields would show
+                # four Nones and read as a missing measurement.
+                print(f"  law-band contradictions: {_n} site(s) "
+                      f"({_npad} of them PAD DOMAINS) where the narrowed "
+                      f"band admits NO elevation — two laws disagree; "
+                      f"REPORT-FIRST pre-ship.  Worst is pad "
+                      f"{_lbc.get('worst_pad')} at "
+                      f"{_lbc.get('worst_deficit_m')} m: no single level "
+                      f"is lawful at every ring vertex of a pad that must "
+                      f"be FLAT, so it kept its pre-spec box.  Full rows "
+                      f"in the sidecar's `law_band_contradictions`.")
+            else:
+                print(f"  law-band contradictions: {_n} site(s) "
+                      f"({_npad} of them PAD DOMAINS) where the "
+                      f"NARROWED band admits NO elevation — two laws "
+                      f"disagree; REPORT-FIRST pre-ship, the build "
+                      f"continued on the PRE-BAND interval at those "
+                      f"nodes.  Worst "
+                      f"{_lbc.get('worst_deficit_m')} m at {_where}: "
+                      f"ceiling anchor "
+                      f"{_lbc.get('worst_ceil_anchor_value')} over "
+                      f"{_lbc.get('worst_ceil_budget_m')} m of budget vs "
+                      f"floor anchor "
+                      f"{_lbc.get('worst_floor_anchor_value')} over "
+                      f"{_lbc.get('worst_floor_budget_m')} m.  Full rows "
+                      f"(both binding chains) in the sidecar's "
+                      f"`law_band_contradictions`.")
     # ── PADS AS BAND-BOUNDED VARIABLES (spec pads-as-band-variables
     # §1.3/§1.6/§1.7) ────────────────────────────────────────────────
     # Both lines print on EVERY census, present or absent, for the reason

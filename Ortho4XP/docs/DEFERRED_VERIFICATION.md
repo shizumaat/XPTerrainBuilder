@@ -3688,3 +3688,44 @@ DEFERRED, additionally to the 2026-08-27c list:
   shared node is chosen by the single-authority EMIT tier, not by the
   airside solve's runway variable (which is hard throughout).  The
   attribution needs an instrumented build.
+
+### 2026-08-27e — lane/nostep, spec Amendment 2 (TWO-PASS CONFORM)
+
+Verified in-lane: 39 + 8 + 8 twins and the covering suites, ledgered
+(424 passed, 1 pre-existing failure); ONE HECA acceptance build
+(`HECA_final`); SPJC and CYXY with matched `O4_AIRSIDE_NO_STEP=0`
+controls, the CYXY control reproducing the same body hash
+(`e8422b346ad7`) for the FOURTH time across every code state this lane
+went through — the flag-OFF contract, measured.
+
+MET, and structurally: **zero non-tier-4 value deltas** on every airport
+— HECA 0 of 8,519 senior nodes, SPJC 0 of 5,191, CYXY 0 of 1,290.  The
+runway carve-corner movers (5 HECA / 2 SPJC in A1) are gone.
+
+DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
+
+* THE DIP-SITE TABLE IS NOT AT-OR-BETTER THAN A0.  Over-cap pairs at the
+  dip rose (74/153/332 base → 93/204/393 at 30/50/75 m) while the WORST
+  pair is byte-identical to the control — the offending pair never
+  moved, and the count rose from membrane churn elsewhere.  Mechanism:
+  the creation-order repair correctly refuses to break the membrane's
+  older laws, so a no-step pair that cannot be satisfied inside them is
+  left over cap (HECA 1,659 → 678 after the repair).  Attempt cap for
+  this target is EXHAUSTED; the next move is a ruling, not an arm.
+* PASS 2 DOES NOT RE-IMPOSE THE PUBLISHED LATTICE/STATION LAW, which
+  Amendment 2 names.  Measured deviation, reported: re-imposing it costs
+  SPJC 1,359 → 1,926 airside and CYXY 132 → 201, and
+  `apron_lattice_membrane` itself goes 24 → 47 — the family it was meant
+  to protect gets worse, because pass 2 is then asked to REPAIR
+  pre-existing violations with every senior node frozen.  The population
+  is COUNTED and printed in every build log.  Candidate fix for a
+  ruling: a DO-NO-HARM relaxation (each own-law budget raised to at
+  least its pass-1 residual).
+* §1.4's TAUT RE-SEED is gated default OFF and its benefit is
+  UNMEASURED: under §1.4's own scope (the membrane interior) the
+  envelope does not reach those nodes from the constants, so it
+  re-seeded ZERO nodes at both CYXY and SPJC.
+* A MATCHED FLAG-OFF CONTROL AT HECA is still not built; the HECA arm is
+  read against the §0 frame, and the senior population came back
+  IDENTICAL to it, which is the stronger reading in the direction that
+  matters.

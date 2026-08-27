@@ -392,6 +392,12 @@ def test_rebake_decision_fields():
         # sidecar.  Empty for the generic seating law — which is what a
         # provenance entry without the key has always meant.
         "decision_kind_by_resource",
+        # The basin GROUP seat (docs/specs/basin-group-seat-spec.md §2.5,
+        # recon trap T6): the datum plane ``G`` a group member was seated
+        # onto, written to the provenance beside the applied delta so a
+        # restored pack can still be audited.  Empty for every law with
+        # no group datum to name.
+        "seat_datum_by_resource",
     )
 
 

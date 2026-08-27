@@ -639,6 +639,13 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         digest.update(
             f"basin-region-founding:{config.BASIN_REGION_FOUNDING}".encode()
         )
+        # ...and the GROUP-SEAT gate (docket B, basin-group-seat §2.6): it
+        # decides how the facility records this classification feeds are
+        # GROUPED (one per connected body component, not one per pack
+        # datum), so a flip must never be answered from a warm sidecar.
+        digest.update(
+            f"basin-group-seat:{config.BASIN_GROUP_SEAT}".encode()
+        )
         dsf_stat = os.stat(dsf_path)
         digest.update(
             f"{os.path.basename(dsf_path)}:{dsf_stat.st_size}"
@@ -960,7 +967,15 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # and reading it warm would leave a founded pit's objects unseated over
 # terrain that was nevertheless cut — the two halves of one round
 # disagreeing, which is the lockstep this producer exists to guarantee.
-_EXCLUSION_CACHE_VERSION = 9
+# v10 (2026-08-27, spec basin-group-seat §2.1 + Amendment 2): the facility
+# records are SPLIT per connected body component and degenerate components
+# are dropped, so a payload's facility LIST is a different object under
+# this round than under the last one.  MEASURED: a v9 entry for LEMD
+# carries TWO T4S facilities — the real 27,806 m² ring and a 1.6e-13 m²
+# sliver — and read warm it re-creates the double-seat the amendment
+# exists to end (the overlap backstop then refuses the sliver, which is
+# the backstop doing the amendment's job on stale data).
+_EXCLUSION_CACHE_VERSION = 10
 
 
 def _cached_post_mesh_records(
@@ -1016,6 +1031,10 @@ def _cached_post_mesh_records(
                 # ...and the founding gate: a founded basin is a FACILITY
                 # in this payload that does not exist without it.
                 config.BASIN_REGION_FOUNDING,
+                # ...and the group-seat gate (docket B): it decides how
+                # many facilities the payload carries (one per connected
+                # body component) and which body each one owns.
+                config.BASIN_GROUP_SEAT,
             )
         ).encode()
     )
@@ -2180,6 +2199,15 @@ def _found_basins_from_unmatched_regions(regions, matched_regions,
 #: post-mesh pass, the provenance writer and the tests.
 BASIN_RIM_FLUSH_DECISION_KIND = "basin_rim_flush"
 
+#: Decision kind recorded in the rebake provenance for a basin facility
+#: seated RIGIDLY AS A GROUP (docket B, docs/specs/basin-group-seat-spec.md
+#: §2.3 item 3).  ONE spelling, read by the post-mesh pass, the
+#: provenance writer and the tests.  A record carrying this kind was
+#: seated onto the group's single datum plane ``G``; a record carrying
+#: :data:`BASIN_RIM_FLUSH_DECISION_KIND` was seated by the
+#: pre-amendment interface-member law (``O4_BASIN_GROUP_SEAT=0``).
+BASIN_GROUP_SEAT_DECISION_KIND = "basin_group_seat"
+
 
 @dataclass(frozen=True)
 class BasinRimFlushFacility:
@@ -2345,6 +2373,69 @@ def basin_facility_deck_reference_y(
     return deck_reference_y, None, BASIN_FLOOR_KEY_DECK_FACE
 
 
+#: THE GEOMETRIC-VALIDITY FLOOR for a split body component (spec
+#: ``basin-group-seat`` §2.1 Amendment 2, Fable 2026-08-27).  NOT a design
+#: threshold and NOT a config knob: it separates a POLYGON from
+#: floating-point noise, nothing else.  MEASURED at LEMD (2026-08-27
+#: acceptance run): the T4S body union split into the real 27,806 m² ring
+#: AND a 1.6e-13 m² sliver — twenty orders of magnitude below the
+#: smallest thing this project models — which became a second facility
+#: with its own datum ``G`` 3.705 m away and double-seated 42 files.  Any
+#: value between "float noise" and "a square millimetre" gives the same
+#: answer on every real body, which is what makes it a validity floor.
+_DEGENERATE_BODY_COMPONENT_AREA_M2 = 1e-6
+
+
+def _admissible_body_components(components, anchor_longitude_latitude):
+    """Split body components made VALID, with degenerate noise dropped.
+
+    Each connected part goes through the region round's own repair idiom
+    (``object_terrain_features._repaired_area_polygon`` — ``buffer(0)``
+    plus the zero-area drop, ONE implementation, never a second spelling
+    of "repaired"), and a part whose area is under
+    :data:`_DEGENERATE_BODY_COMPONENT_AREA_M2` is DROPPED with a loud
+    line naming its area.  Areas are read in metres at the facility's own
+    latitude, because the rings are in degrees and a degree² threshold
+    would mean a different thing at every airport.
+    """
+    metres_per_degree_latitude = obj8_reader.METRES_PER_DEGREE_LATITUDE
+    metres_per_degree_longitude = (
+        metres_per_degree_latitude
+        * math.cos(math.radians(anchor_longitude_latitude[1]))
+    )
+    square_metres_per_square_degree = (
+        metres_per_degree_latitude * metres_per_degree_longitude)
+    admissible = []
+    for component in components:
+        repaired = object_terrain_features._repaired_area_polygon(component)
+        if repaired is None:
+            UI.vprint(
+                1,
+                "   [object-basin] DEGENERATE BODY COMPONENT dropped: a "
+                "split part of the facility body would not repair into an "
+                "area (spec basin-group-seat §2.1 Amendment 2)",
+            )
+            continue
+        for part in getattr(repaired, "geoms", [repaired]):
+            if part.geom_type != "Polygon" or part.is_empty:
+                continue
+            area_square_metres = (
+                float(part.area) * square_metres_per_square_degree)
+            if area_square_metres < _DEGENERATE_BODY_COMPONENT_AREA_M2:
+                UI.vprint(
+                    1,
+                    "   [object-basin] DEGENERATE BODY COMPONENT dropped: "
+                    f"{area_square_metres:.3e} m2 is below the "
+                    f"{_DEGENERATE_BODY_COMPONENT_AREA_M2:.0e} m2 "
+                    "geometric-validity floor — numerical noise from the "
+                    "body union, not a facility (spec basin-group-seat "
+                    "§2.1 Amendment 2)",
+                )
+                continue
+            admissible.append(part)
+    return admissible
+
+
 def basin_rim_flush_facilities(classification) -> list:
     """The section-2.2 facility records for one classification.
 
@@ -2355,6 +2446,21 @@ def basin_rim_flush_facilities(classification) -> list:
     same members dropped (no below-grade body depth, no footprint to
     cut).  A facility the emitter cut one trench for is one facility
     here; anything else would seat an object into a hole nobody dug.
+
+    ONE CONNECTED BODY = ONE FACILITY (docket B, basin-group-seat spec
+    §2.1, ``config.BASIN_GROUP_SEAT``).  The anchor key above is the
+    PACK'S DATUM, and in a shared-datum pack every below-grade structure
+    carries the same one: the grouping then unions geographically
+    unrelated pits into a single facility whose ``anchor_inside_body``
+    is judged against that union — which is how LEMD's T4S facility
+    "contained" an anchor 406 m outside its own ring.  With the gate on,
+    the grouped records' unioned body is split into its CONNECTED
+    COMPONENTS and each component becomes its own facility (members =
+    the records whose own footprint touches that component,
+    ``solid_minimum_y_m`` the min over those members).  The anchor stays
+    the records' shared datum; the emitter's trench grouping is
+    untouched (it already cuts per-part rings), so this splits seating
+    records only.
 
     Returns ``[]`` with the basin gate off — with no trench cut there is
     nothing for the rim-flush law to seat into.
@@ -2376,9 +2482,11 @@ def basin_rim_flush_facilities(classification) -> list:
 
     out: list = []
     for members in facilities.values():
-        resources: set[str] = set()
-        body_parts: list = []
-        deck_reference_values: list[float] = []
+        # One entry per ADMITTED member record: its own footprint parts,
+        # its resources and its floor key.  The per-component split below
+        # needs the member-to-footprint association, which a pooled part
+        # list throws away.
+        admitted: list[tuple[list, tuple[str, ...], float]] = []
         anchor_longitude_latitude = None
         for record in members:
             # The emitter's own member admission (a member with no
@@ -2389,8 +2497,6 @@ def basin_rim_flush_facilities(classification) -> list:
             parts = _tunnel_footprint_longitude_latitude_parts(record)
             if not parts:
                 continue
-            resources.update(record.object_resources)
-            body_parts.extend(parts)
             # ``deck_reference_y`` — the emitter's floor key, i.e. the
             # deeper of the modelled body depth and the structure's TRUE
             # deepest solid, under the §2.2 disagreement gate.  ONE
@@ -2398,12 +2504,21 @@ def basin_rim_flush_facilities(classification) -> list:
             # named there, at the cut, not twice).
             deck_reference_y, _discarded, _key_source = (
                 basin_facility_deck_reference_y(record))
-            deck_reference_values.append(deck_reference_y)
+            admitted.append(
+                (list(parts), tuple(record.object_resources),
+                 float(deck_reference_y))
+            )
             if anchor_longitude_latitude is None:
                 anchor_longitude_latitude = (
                     float(record.anchor_longitude_latitude[0]),
                     float(record.anchor_longitude_latitude[1]),
                 )
+        if not admitted or anchor_longitude_latitude is None:
+            continue
+        body_parts = [part for parts, _resources, _key in admitted
+                      for part in parts]
+        resources = {resource for _parts, member_resources, _key in admitted
+                     for resource in member_resources}
         if not resources or not body_parts:
             continue
         try:
@@ -2412,27 +2527,70 @@ def basin_rim_flush_facilities(classification) -> list:
             body = None
         if body is None or body.is_empty:
             continue
-        parts = list(getattr(body, "geoms", [body]))
-        rings = tuple(
-            tuple(
-                (float(longitude), float(latitude))
-                for longitude, latitude in part.exterior.coords
-            )
-            for part in parts
-            if part.geom_type == "Polygon" and not part.is_empty
-        )
-        if not rings:
-            continue
         anchor_point = Point(*anchor_longitude_latitude)
-        out.append(
-            BasinRimFlushFacility(
-                object_resources=tuple(sorted(resources)),
-                anchor_longitude_latitude=anchor_longitude_latitude,
-                body_rings_longitude_latitude=rings,
-                solid_minimum_y_m=min(deck_reference_values),
-                anchor_inside_body=bool(body.covers(anchor_point)),
+        components = [
+            component
+            for component in getattr(body, "geoms", [body])
+            if component.geom_type == "Polygon" and not component.is_empty
+        ]
+        if not components:
+            continue
+        if not config.BASIN_GROUP_SEAT:
+            # PRE-AMENDMENT (gate off): one facility per anchor key, its
+            # body the union of every grouped member's parts.
+            rings = tuple(
+                tuple(
+                    (float(longitude), float(latitude))
+                    for longitude, latitude in component.exterior.coords
+                )
+                for component in components
             )
-        )
+            out.append(
+                BasinRimFlushFacility(
+                    object_resources=tuple(sorted(resources)),
+                    anchor_longitude_latitude=anchor_longitude_latitude,
+                    body_rings_longitude_latitude=rings,
+                    solid_minimum_y_m=min(
+                        key for _parts, _resources, key in admitted),
+                    anchor_inside_body=bool(body.covers(anchor_point)),
+                )
+            )
+            continue
+        # §2.1: one connected body component = one facility, after the
+        # region round's own polygon repair and the GEOMETRIC-VALIDITY
+        # FLOOR below (Amendment 2, Fable 2026-08-27).
+        for component in _admissible_body_components(
+                components, anchor_longitude_latitude):
+            component_resources: set[str] = set()
+            component_keys: list[float] = []
+            for parts, member_resources, key in admitted:
+                touches = False
+                for part in parts:
+                    try:
+                        if component.intersects(part):
+                            touches = True
+                            break
+                    except Exception:
+                        continue
+                if not touches:
+                    continue
+                component_resources.update(member_resources)
+                component_keys.append(key)
+            if not component_resources or not component_keys:
+                continue
+            ring = tuple(
+                (float(longitude), float(latitude))
+                for longitude, latitude in component.exterior.coords
+            )
+            out.append(
+                BasinRimFlushFacility(
+                    object_resources=tuple(sorted(component_resources)),
+                    anchor_longitude_latitude=anchor_longitude_latitude,
+                    body_rings_longitude_latitude=(ring,),
+                    solid_minimum_y_m=min(component_keys),
+                    anchor_inside_body=bool(component.covers(anchor_point)),
+                )
+            )
     return out
 
 

@@ -157,7 +157,15 @@ OFFSET_AGREEMENT_TOLERANCE_METRES = 1e-9
 # version-7 record describes the pack in which OTHH Bridge_01 drapes
 # 3.96 m low over water, and short-circuiting on it would leave it there:
 # exactly the residual R6-3 exists to close.
-RUN_RECORD_VERSION = 8
+# 8 -> 9 (2026-08-27, docket B, THE BASIN GROUP SEAT,
+# docs/specs/basin-group-seat-spec.md): a basin facility no longer seats
+# its interface members only — the whole STRUCTURE GROUP intersecting its
+# body is seated onto one datum plane and withheld from the generic pass
+# in the same step, and the provenance entries gained the applied delta
+# and that datum.  A version-8 record describes the pack in which LEMD's
+# T4S family is split across five fates with a 1.544 m two-instrument gap
+# at one point; short-circuiting on it would leave exactly that.
+RUN_RECORD_VERSION = 9
 RUN_RECORDS_KEY = "runs"
 
 # The configuration gates whose values change what Phase 2 decides.
@@ -221,6 +229,12 @@ _GATE_NAMES = (
     # must never short-circuit a run under another.
     "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
     "TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M",
+    # THE BASIN GROUP SEAT (docket B, basin-group-seat spec §2.6): it
+    # decides WHICH structures a basin facility seats (its whole body
+    # group, or its interface members only), whether they leave the
+    # generic pass, and whether item 6's skip is topological or a
+    # threshold no-op.  No input file moves when it flips.
+    "BASIN_GROUP_SEAT",
 )
 
 # Environment gates read directly (no config constant) by the rebake
@@ -238,6 +252,21 @@ _GATE_ENVIRONMENT_NAMES = (
     # flag is a wrong answer under the other, so it must salt the
     # digest exactly like the three gates beside it.
     "O4_OBJECT_BASIN_TRENCH",
+    # THE STANDING GAP (basin-group-seat spec §2.5, found in recon T3):
+    # the four basin gates below all change the classification a post-mesh
+    # decision is derived from — the body OUTLINE (region footprint), the
+    # existence of a facility at all (region founding), the FLOOR KEY
+    # (open-pit deck key) and which resources SEED an open pit (pool
+    # scoping) — and none of them was in this list, so a run record
+    # written before the region round could short-circuit a run after it.
+    "O4_BASIN_REGION_FOOTPRINT",
+    "O4_BASIN_REGION_FOUNDING",
+    "O4_BASIN_OPEN_PIT_DECK_KEY",
+    "O4_BASIN_POOL_SCOPING",
+    # ...and the group-seat gate itself, read through its config constant
+    # above as well: both spellings are salted, because the env var is
+    # what a lane flips and the constant is what a test monkeypatches.
+    "O4_BASIN_GROUP_SEAT",
 )
 
 
@@ -1480,6 +1509,30 @@ def apply(
         ).get(resource_path)
         if decision_kind:
             provenance_entry["decision_kind"] = decision_kind
+        # THE APPLIED OFFSET AND ITS DATUM (basin-group-seat spec §2.5,
+        # trap T6).  A group seat's whole content is "every member landed
+        # on ONE plane G", and until now nothing survived the write to
+        # say so: the sidecar recorded the anchor ground and the hashes,
+        # never the delta, so a restored pack could not be audited at
+        # all.  Recorded only for a law that names a group datum — the
+        # generic arithmetic has none, and its entries are unchanged.
+        seat_datum = getattr(
+            decision, "seat_datum_by_resource", {}
+        ).get(resource_path)
+        if seat_datum is not None:
+            applied_deltas = set(elevation_delta_by_vertex.values())
+            provenance_entry["seat_datum_m"] = float(seat_datum)
+            if len(applied_deltas) == 1:
+                provenance_entry["delta_m"] = float(
+                    next(iter(applied_deltas)))
+            else:
+                # Never a single number that hides a spread: a group
+                # member is seated RIGIDLY, so more than one delta in one
+                # file is itself the finding.
+                provenance_entry["delta_m"] = None
+                provenance_entry["delta_range_m"] = [
+                    float(min(applied_deltas)), float(max(applied_deltas))
+                ]
         skipped_structures = skipped_structures_by_resource.get(
             resource_path
         )

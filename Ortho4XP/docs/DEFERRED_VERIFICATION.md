@@ -3606,3 +3606,21 @@ What this branch DOES carry, and what is deferred on it:
   corpus has an unmatched deep open region, so every founded record so far
   is synthetic; and the in-sim read of a pit cut from a founded record
   (footprint, floor, and the seating of its tight contributor list).
+
+* `docs/specs/basin-group-seat-spec.md` (rigid facility-GROUP seating for
+  shared-datum packs, follow-up docket B of the owner's 2026-08-26 LEMD T4S
+  rulings) — verified by the spec's own test file plus its four covering
+  suites run once through the ledger, and by ONE mesh-only LEMD tile run
+  (+40−004) whose provenance carries the group's single datum `G`, its
+  per-member deltas and the decision kind.  DEFERRED to the ship gate: the
+  OTHH / battery REGRESSION arm.  The group law widens who a basin facility
+  seats — every partition structure whose footprint reaches the body, not
+  only the interface members — and it withholds exactly that set from the
+  generic pass, so OTHH's six anchor-inside Drainage facilities and their
+  at-grade neighbours change hands between two laws (the anchor-outside
+  pair is expected to land on the new threshold no-op, `|delta| < 1 m`, the
+  measurement that replaced item 6's topological skip).  No battery airport
+  classifies a basin, so battery patches are expected byte-identical —
+  expected, not proven this round.  Owed at the gate: an OTHH tile pass
+  reporting per-facility G/delta sets and clearance findings, and a battery
+  byte-identity spot-check.

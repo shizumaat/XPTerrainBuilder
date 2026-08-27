@@ -46,6 +46,27 @@ min over those members). The anchor stays the records' shared datum. The
 emitter's trench grouping is untouched (it already cuts per-part rings);
 only the facility/seating records split.
 
+**Amendment 2 (Fable ruling, 2026-08-27 — degenerate components are
+noise, not facilities).** Measured at LEMD: the body union split into the
+real 27,806 m² T4S ring AND a 1.6e-13 m² sliver, which became a second
+facility with its own `G` 3.705 m away and double-seated 42 files (last
+writer wins) with a spurious clearance FINDING. Split components pass
+through the region round's polygon-repair idiom, and a component below
+1e-6 m² is DROPPED as degenerate numerical noise with a log line — a
+geometric-validity floor, not a design threshold. The implementer's
+conservative overlap refusal (a group sharing resources with an earlier
+facility's group refuses loudly) is RATIFIED and stays as the backstop.
+
+**Amendment 1 (Fable ruling, 2026-08-27 — the seat group is CLOSED over
+the file↔structure relation).** §2.3's delta is per resource FILE
+(`delta_by_resource_and_vertex`), so a file spanning structures inside
+and outside the footprint-intersection seed cannot take two deltas: the
+group closes over "same file" and "same structure" until fixed (LEMD:
+seed 26 structures / 46 files → closure 14,378 structures / 48 files).
+Closure widens only the CLAIM set — every closed-in file takes the same
+`G` it would have anyway — and the relationship invariant is asserted
+over the closed group.
+
 ### 2.2 The seat group: structures intersecting the body
 
 For each facility, the SEAT GROUP is every partition structure

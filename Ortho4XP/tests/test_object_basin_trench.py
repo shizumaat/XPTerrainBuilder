@@ -1585,7 +1585,14 @@ class TestBasinRimFlushSeat:
     is the trench floor, so the six anchor-inside OTHH facilities sank by
     the cut depth.  The dedicated law seats each facility's ``y = 0``
     plane — the authored rim plane — on the first terrain outside our own
-    plates instead."""
+    plates instead.
+
+    RETIRED-KEPT-GATED (docket B, docs/specs/basin-group-seat-spec.md
+    §2.6): the shipped law is now the GROUP seat, and this class is the
+    gate-off pin — spec §3 case 6, "old behaviour byte-identical on the
+    synthetic fixture".  Every assertion below is the PRE-AMENDMENT
+    behaviour and must keep passing with ``O4_BASIN_GROUP_SEAT=0``; the
+    group law's own arms live in ``tests/test_basin_group_seat.py``."""
 
     FLOOR_ELEVATION_M = 10.0
     RIM_ELEVATION_M = 15.0
@@ -1598,6 +1605,8 @@ class TestBasinRimFlushSeat:
         monkeypatch.setenv("O4_OBJECT_EXCLUSION_CACHE", "0")
         monkeypatch.setenv("O4_OBJECT_PARTITION_CACHE", "0")
         monkeypatch.setenv("O4_REANCHOR_SHORT_CIRCUIT", "0")
+        # THE GATE-OFF ARM (see the class docstring).
+        monkeypatch.setattr(config, "BASIN_GROUP_SEAT", False)
 
     # -- fixtures ---------------------------------------------------------
 

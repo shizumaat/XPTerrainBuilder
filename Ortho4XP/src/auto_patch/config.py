@@ -4982,6 +4982,41 @@ BASIN_REGION_FOOTPRINT = (
 BASIN_REGION_FOUNDING = (
     _os.environ.get("O4_BASIN_REGION_FOUNDING", "1") == "1")
 
+# BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
+# ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
+#
+# THE DEFECT.  A shared-datum pack (LEMD T4S: 203 placements / 184
+# resources on ONE datum) authors every inter-object vertical
+# relationship through one flat drape.  On our sloping mesh the shipped
+# machinery split that family across five fates — one member seated by
+# the ``basin_rim_flush`` law at anchor ground 595.97, its neighbours
+# generically CLUSTER-seated at 597.52 (a 1.544 m two-instrument gap at
+# one identical point), four structures A3-skipped, ~19 placements
+# I-4-skipped, 78 resources never baked — and cut an 8.95 m seam INSIDE
+# structure idx 0, the very complex whose below-grade decks must stay
+# −2/−3/−7 relative to the terminal.
+#
+# THE LAW.  One facility = one connected body component; its SEAT GROUP
+# is every partition structure whose horizontal footprint intersects
+# that body (not the interface's ``object_resources`` list); the whole
+# group is seated onto ONE datum plane ``G = R_mesh`` with
+# ``delta(member) = G − anchor_ground(member)``, every anchor ground
+# read by the facility pass's OWN sampler.  Widening is one step: a
+# seat-group member is routed to this law and removed from the generic
+# pass's population together (the LSGG starvation law — "excluded" is
+# never widened without "seated").  Item 6's topological
+# anchor-outside skip retires in favour of a THRESHOLD no-op on the
+# existing ``DSF_OBJECT_BAKE_MIN_DELTA_M``: a group whose every delta is
+# under it is a recorded no-op, which is what OTHH's anchor-outside
+# facilities measured (drape correct to ≤ 0.4 m) while LEMD's
+# drape-at-datum misses its rim by ~1.5 m.
+#
+# With O4_BASIN_GROUP_SEAT=0 the pre-amendment behaviour returns
+# byte-identically: anchor-keyed facility grouping, the topological item
+# 6 skip, and interface-member (``basin_rim_flush``) seating.
+BASIN_GROUP_SEAT = (
+    _os.environ.get("O4_BASIN_GROUP_SEAT", "1") == "1")
+
 # BASIN OPEN-PIT DECK KEY — AMENDMENT 3's clause, RETIRED-KEPT-GATED
 # (owner 2026-08-26 supersedes owner 2026-08-25).  DEFAULT OFF.
 #

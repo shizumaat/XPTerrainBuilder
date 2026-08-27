@@ -342,6 +342,16 @@ class RebakeDecision:
     # ``object_terrain_assembly.BASIN_RIM_FLUSH_DECISION_KIND``.
     decision_kind_by_resource: dict[str, str] = (
         dataclass_field(default_factory=dict))
+    # THE SEAT DATUM ``G`` each resource was seated onto, for the
+    # provenance sidecar (docs/specs/basin-group-seat-spec.md §2.5, trap
+    # T6: "today no delta survives a restore — the LEMD offsets are
+    # already unrecoverable").  Set only by a law that seats a GROUP onto
+    # one datum plane (the basin group seat); with it recorded beside the
+    # applied delta, a restored pack can still answer what the run
+    # decided and whether every member landed on one plane.  Empty for
+    # the generic seating law, which has no group datum to name.
+    seat_datum_by_resource: dict[str, float] = (
+        dataclass_field(default_factory=dict))
 
 
 @dataclass(frozen=True)

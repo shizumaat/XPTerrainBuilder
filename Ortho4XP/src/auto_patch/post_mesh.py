@@ -940,6 +940,21 @@ def _resolve_pack_geometry(
                 else DSF_OBJECT_MIN_REACH_M
             )
             if geometry.solid_reach_metres() < reach_floor_metres:
+                # SKIP-AND-REPORT, never a bare ``continue`` (basin-group-
+                # seat spec §2.4, trap T5): this drop used to be the one
+                # silent fate in Phase 2 discovery, so a resource that
+                # never reached a decision left no trace of WHY.  The
+                # entry is data for the caller's report; nothing about
+                # the drop itself changes.
+                skipped.append(
+                    (
+                        resource_path,
+                        f"solid reach {geometry.solid_reach_metres():.1f} m "
+                        f"is under the {reach_floor_metres:.1f} m floor — "
+                        "a compact object whose anchor error would not "
+                        "show is left at its authored y",
+                    )
+                )
                 continue
         # Invariant I-4, enforced at Phase 2 discovery (amendment A13):
         # a resource with several terrain-draped placements would need a
@@ -1442,6 +1457,772 @@ def _bake_basin_rim_flush_facilities(
             f"  [object-anchor] basin_rim_flush {sorted(member_resources)}: "
             + record["decision"],
         )
+
+
+def _facility_body_polygon(body_rings_longitude_latitude):
+    """The facility BODY as one shapely geometry in ``(longitude,
+    latitude)`` degrees, or ``None`` when the rings degenerate.
+
+    Degrees, not metres: the group-membership test compares this body
+    against structure hulls built in the same degree frame, and a body
+    that travelled through a metre frame and back would be a second
+    reading of the ring the classifier already fixed."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    parts = []
+    for ring in body_rings_longitude_latitude:
+        if len(ring) < 3:
+            continue
+        try:
+            polygon = Polygon([(float(longitude), float(latitude))
+                               for longitude, latitude in ring])
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+        except Exception:
+            continue
+        if polygon.is_empty:
+            continue
+        parts.append(polygon)
+    if not parts:
+        return None
+    try:
+        body = unary_union(parts)
+    except Exception:
+        return None
+    return None if body.is_empty else body
+
+
+def _bounds_overlap(first, second) -> bool:
+    """Axis-aligned ``(min_x, min_y, max_x, max_y)`` overlap test."""
+    return not (
+        first[2] < second[0]
+        or second[2] < first[0]
+        or first[3] < second[1]
+        or second[3] < first[1]
+    )
+
+
+def _structure_plan_bounds(
+    structure, geometry_by_resource, placement_by_resource
+) -> tuple[float, float, float, float] | None:
+    """A cheap SUPERSET bound of one structure's plan extent, in
+    ``(min_longitude, min_latitude, max_longitude, max_latitude)``.
+
+    Per member resource: the axis-aligned box of its local ``(x, z)``
+    vertices (pure arithmetic, no projection), whose four corners are
+    then projected through that resource's own placement.  The projected
+    corners are the corners of the ROTATED box, so their bound contains
+    every projected vertex — which is all a prefilter must guarantee.
+    Returns ``None`` when nothing projects."""
+    minimum_longitude = minimum_latitude = math.inf
+    maximum_longitude = maximum_latitude = -math.inf
+    for resource_path, triangles in structure.triangles_by_resource.items():
+        geometry = geometry_by_resource.get(resource_path)
+        placement = placement_by_resource.get(resource_path)
+        if geometry is None or placement is None or not triangles:
+            continue
+        minimum_x = minimum_z = math.inf
+        maximum_x = maximum_z = -math.inf
+        vertices = geometry.vertices
+        for triangle in triangles:
+            for vertex_index in triangle:
+                local_x, _local_y, local_z = vertices[vertex_index]
+                if local_x < minimum_x:
+                    minimum_x = local_x
+                if local_x > maximum_x:
+                    maximum_x = local_x
+                if local_z < minimum_z:
+                    minimum_z = local_z
+                if local_z > maximum_z:
+                    maximum_z = local_z
+        if minimum_x > maximum_x:
+            continue
+        for corner_x, corner_z in (
+            (minimum_x, minimum_z),
+            (maximum_x, minimum_z),
+            (maximum_x, maximum_z),
+            (minimum_x, maximum_z),
+        ):
+            latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                placement.latitude,
+                placement.longitude,
+                placement.heading_degrees,
+                corner_x,
+                corner_z,
+            )
+            minimum_longitude = min(minimum_longitude, longitude)
+            maximum_longitude = max(maximum_longitude, longitude)
+            minimum_latitude = min(minimum_latitude, latitude)
+            maximum_latitude = max(maximum_latitude, latitude)
+    if minimum_longitude > maximum_longitude:
+        return None
+    return (
+        minimum_longitude, minimum_latitude,
+        maximum_longitude, maximum_latitude,
+    )
+
+
+def _structure_reaches_body(
+    structure, geometry_by_resource, placement_by_resource, body, body_bounds
+) -> bool:
+    """Whether one partition structure's HORIZONTAL FOOTPRINT reaches the
+    facility body (basin-group-seat spec §2.2).
+
+    Two stages, and the cheap one runs first: the projected plan bound
+    above rejects the thousands of structures nowhere near the pit
+    without touching shapely, and only a surviving candidate pays for the
+    convex hull of its projected vertices — the same footprint reading
+    ``object_footprints.structure_ring`` takes by default."""
+    from shapely.geometry import MultiPoint
+
+    bounds = _structure_plan_bounds(
+        structure, geometry_by_resource, placement_by_resource)
+    if bounds is None or not _bounds_overlap(bounds, body_bounds):
+        return False
+    points: list[tuple[float, float]] = []
+    for resource_path, triangles in structure.triangles_by_resource.items():
+        geometry = geometry_by_resource.get(resource_path)
+        placement = placement_by_resource.get(resource_path)
+        if geometry is None or placement is None:
+            continue
+        seen: set[int] = set()
+        vertices = geometry.vertices
+        for triangle in triangles:
+            for vertex_index in triangle:
+                if vertex_index in seen:
+                    continue
+                seen.add(vertex_index)
+                local_x, _local_y, local_z = vertices[vertex_index]
+                latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                    placement.latitude,
+                    placement.longitude,
+                    placement.heading_degrees,
+                    local_x,
+                    local_z,
+                )
+                points.append((longitude, latitude))
+    if not points:
+        return False
+    try:
+        footprint = MultiPoint(points).convex_hull
+        return bool(body.intersects(footprint))
+    except Exception:
+        return False
+
+
+def _seat_group_structures(
+    pools,
+    structures_by_pool_index,
+    geometry_by_resource,
+    placement_by_resource,
+    body,
+    body_bounds,
+    seed_resources,
+) -> dict[int, list]:
+    """THE SEAT GROUP: ``{pool index: [structures]}`` (spec §2.2).
+
+    Seeded by every partition structure whose footprint intersects the
+    body — plus every structure carrying one of ``seed_resources``, the
+    facility's own interface members, so a member the classifier already
+    withheld from the generic pass can never end up withheld AND unseated
+    (the pre-amendment failure mode this docket exists to end).
+
+    Then CLOSED over two relations, because neither may be torn: a
+    structure is one rigid body, and a shared-datum ``.obj`` file is one
+    authored body — so a resource in the group brings ALL of its
+    structures, and a structure in the group brings all of its resources.
+    The closure is the reason "one delta per member, total" is
+    implementable at all; without it a file could take the group delta
+    over the vertices inside the pit and its authored y everywhere else,
+    which is the same tear one level down."""
+    group_by_pool: dict[int, list] = {}
+    for pool_index, pool in enumerate(pools):
+        structures = structures_by_pool_index.get(pool_index)
+        if not structures:
+            continue
+        structures_by_resource: dict[str, list] = {}
+        for structure in structures:
+            for resource_path in structure.triangles_by_resource:
+                structures_by_resource.setdefault(
+                    resource_path, []).append(structure)
+        selected: list = []
+        selected_ids: set[int] = set()
+        pending: list = []
+        for structure in structures:
+            seeded = any(
+                resource_path in seed_resources
+                for resource_path in structure.triangles_by_resource
+            )
+            if seeded or _structure_reaches_body(
+                structure, geometry_by_resource, placement_by_resource,
+                body, body_bounds,
+            ):
+                pending.append(structure)
+        seen_resources: set[str] = set()
+        while pending:
+            structure = pending.pop()
+            if id(structure) in selected_ids:
+                continue
+            selected_ids.add(id(structure))
+            selected.append(structure)
+            for resource_path in structure.triangles_by_resource:
+                if resource_path in seen_resources:
+                    continue
+                seen_resources.add(resource_path)
+                pending.extend(
+                    structures_by_resource.get(resource_path, ()))
+        if selected:
+            group_by_pool[pool_index] = selected
+    return group_by_pool
+
+
+def _bake_basin_group_seat_facilities(
+    facilities,
+    all_placements,
+    pack_root: str,
+    xplane_root: str | None,
+    mesh_path: str,
+    *,
+    epsilon_metres: float,
+    write_changes: bool,
+    measure_only: bool,
+    result: dict,
+    reserved_resources: set[str] | None = None,
+) -> set[str]:
+    """THE BASIN GROUP SEAT (docs/specs/basin-group-seat-spec.md, docket
+    B of the basin-region round; ``config.BASIN_GROUP_SEAT``).
+
+    A shared-datum pack authors every inter-object vertical relationship
+    through ONE flat drape.  The section-2.2 rim-flush law seats the
+    facility's interface members onto ``R_mesh`` and leaves everything
+    else to the generic pass, so at LEMD T4S one member seated at anchor
+    ground 595.97 while its neighbours cluster-seated at 597.52 — a
+    1.544 m two-instrument gap at one identical point — four structures
+    A3-skipped, and an 8.95 m cut seam INSIDE the fused terminal complex
+    whose below-grade decks must stay −2/−3/−7 relative to it.
+
+    The law, the R12-2 bridge seat's shape applied to basins::
+
+        SEAT GROUP = every partition structure whose horizontal footprint
+                     intersects the facility body (closed over structures
+                     and files — see :func:`_seat_group_structures`)
+        G          = R_mesh          (the §2.2 rim-band median, unchanged)
+        delta(member) = G − anchor_ground(member)
+
+    so every member ends with ``mesh(anchor) + delta == G`` exactly and
+    every authored pairwise relationship survives.  THE ONE INSTRUMENT
+    (trap T7): every ``anchor_ground`` here is read by THIS pass's
+    sampler in one pass — the generic pass's ground for those anchors is
+    never consulted, because those anchors never reach the generic pass:
+    the group is widened into SEATED and withheld-from-generic in the
+    same step (the LSGG starvation law), which is what the returned
+    claim set is for.
+
+    Item 6 is a THRESHOLD, not a topology (spec §2.3 item 2): a group
+    whose every ``|delta|`` is under ``DSF_OBJECT_BAKE_MIN_DELTA_M`` is a
+    RECORDED no-op — which reproduces the OTHH anchor-outside
+    measurement (drape correct to ≤ 0.4 m) while fixing LEMD, where the
+    drape at the datum misses the rim by ~1.5 m.
+
+    ``reserved_resources`` are the resources another dedicated law has
+    already claimed this run (the R6-3 bridge abutment seat, which runs
+    first).  They are dropped from this pass's population before
+    anything is partitioned, so no object can ever be reached by two
+    seating laws — the same disjointness the generic pass gets from the
+    claim set this function returns.
+
+    Returns the set of resource paths this law CLAIMED — seated or
+    no-op'd — for the caller to withhold from the generic pass.
+    """
+    if not facilities:
+        return set()
+
+    from dataclasses import replace
+    from statistics import median
+
+    from .config import (
+        DSF_OBJECT_BAKE_MIN_DELTA_M,
+        TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M,
+        TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
+    )
+    from .object_terrain_assembly import BASIN_GROUP_SEAT_DECISION_KIND
+
+    claimed_resources: set[str] = set()
+
+    placement_count_by_resource: dict[str, int] = {}
+    for placement in all_placements:
+        placement_count_by_resource[placement.resource_path] = (
+            placement_count_by_resource.get(placement.resource_path, 0) + 1
+        )
+    reserved = set(reserved_resources or ())
+    population = [
+        placement
+        for placement in all_placements
+        if placement.resource_path not in reserved
+    ]
+
+    # ONE discovery for the whole DSF.  The seat group is defined over
+    # partition structures, and the structures that matter here include
+    # both the R4-excluded facility members (which the generic discovery
+    # never sees) and their at-grade neighbours (which it does) — so the
+    # population is every placement, admitted by the CLASSIFIER's
+    # judgement rather than the generic law's reach floor (the helper's
+    # own docstring: a basin facility's reach says nothing about it).
+    discovery_skipped: list = []
+    (
+        resolved_paths,
+        geometry_by_resource,
+        geometry_source_by_resource,
+    ) = _resolve_pack_geometry(
+        population,
+        placement_count_by_resource,
+        pack_root,
+        xplane_root,
+        discovery_skipped,
+        apply_reach_floor=False,
+    )
+    skip_reason_by_resource = {
+        resource_path: reason for resource_path, reason in discovery_skipped
+    }
+    if not resolved_paths:
+        for facility in facilities:
+            result["basin_group_seat"].append({
+                "resources": sorted(facility.object_resources),
+                "baked": False,
+                "decision_kind": BASIN_GROUP_SEAT_DECISION_KIND,
+                "decision": (
+                    "not baked — no usable geometry resolved inside the "
+                    "pack"),
+            })
+        return claimed_resources
+
+    placement_by_resource = {
+        placement.resource_path: placement
+        for placement in population
+        if placement.resource_path in resolved_paths
+    }
+    pools = object_anchor.discover_object_pools(
+        [
+            placement
+            for placement in population
+            if placement.resource_path in resolved_paths
+        ],
+        resolved_paths,
+        geometry_by_resource,
+        epsilon_metres=epsilon_metres,
+    )
+    pool_bounds = [
+        _pool_world_bounds(
+            pool,
+            {
+                resource_path: geometry_by_resource[resource_path]
+                for resource_path in pool.resolved_paths
+            },
+        )
+        for pool in pools
+    ]
+    # Partitions are computed ONCE per pool and only for pools that can
+    # reach a body — the partition is the expensive half of Phase 2, and
+    # a pool two kilometres from every pit can be rejected on its bounds.
+    structures_by_pool_index: dict[int, list] = {}
+
+    for facility in facilities:
+        member_resources = set(facility.object_resources)
+        record = {
+            "resources": sorted(member_resources),
+            "anchor_longitude_latitude": list(
+                facility.anchor_longitude_latitude),
+            "anchor_inside_body": bool(facility.anchor_inside_body),
+            "solid_minimum_y_m": float(facility.solid_minimum_y_m),
+            "measure_only": bool(measure_only),
+            "baked": False,
+            "decision_kind": BASIN_GROUP_SEAT_DECISION_KIND,
+        }
+        result["basin_group_seat"].append(record)
+
+        # §2.4 (trap T5): an interface member the discovery dropped is
+        # LOUD and named against its facility.  A multi-placement member
+        # keeps its I-4 skip — one shared file cannot carry per-placement
+        # offsets — but it is no longer silent to the facility whose
+        # relationships it is missing from.
+        for resource_path in sorted(member_resources):
+            if resource_path in resolved_paths:
+                continue
+            reason = skip_reason_by_resource.get(
+                resource_path,
+                "no geometry resolved inside the pack")
+            UI.vprint(
+                0,
+                "  [object-anchor] BASIN GROUP SEAT: facility member "
+                f"{resource_path} is NOT in the seat group of the basin "
+                f"at {facility.anchor_longitude_latitude} — {reason}",
+            )
+
+        body = _facility_body_polygon(
+            facility.body_rings_longitude_latitude)
+        if body is None:
+            record["decision"] = (
+                "not baked — the facility body outline is degenerate, so "
+                "no seat group could be formed")
+            continue
+        body_bounds = body.bounds
+
+        for pool_index, pool in enumerate(pools):
+            if pool_index in structures_by_pool_index:
+                continue
+            if not _bounds_overlap(pool_bounds[pool_index], body_bounds):
+                continue
+            pool_geometry_by_resource = {
+                resource_path: geometry_by_resource[resource_path]
+                for resource_path in pool.resolved_paths
+            }
+            structures_by_pool_index[pool_index] = (
+                _cached_partition_structures(
+                    pool,
+                    pool_geometry_by_resource,
+                    geometry_source_by_resource,
+                    pack_root,
+                    epsilon_metres,
+                )
+            )
+
+        group_by_pool = _seat_group_structures(
+            pools,
+            {
+                pool_index: structures
+                for pool_index, structures in structures_by_pool_index.items()
+                if _bounds_overlap(pool_bounds[pool_index], body_bounds)
+            },
+            geometry_by_resource,
+            placement_by_resource,
+            body,
+            body_bounds,
+            member_resources,
+        )
+        group_resources = {
+            resource_path
+            for structures in group_by_pool.values()
+            for structure in structures
+            for resource_path in structure.triangles_by_resource
+        }
+        record["group_resource_count"] = len(group_resources)
+        record["group_structure_count"] = sum(
+            len(structures) for structures in group_by_pool.values())
+        if not group_resources:
+            record["decision"] = (
+                "not baked — no partition structure's footprint reaches "
+                "this facility body, so there is no seat group")
+            continue
+        # TWO PITS, ONE RIGID UNIT — reported, never guessed.  The §2.1
+        # split makes facility bodies disjoint, so an overlap here means
+        # one welded structure (or one shared ``.obj``) reaches into two
+        # of them and the two groups are physically the same body with
+        # two candidate datums.  Seating it twice would write the file
+        # twice and the last writer would silently win, so this facility
+        # REFUSES and says so: the correct answer (one merged group, one
+        # datum) is a design question for the spec's author, not a
+        # tie-break for this pass.
+        overlap = sorted(group_resources & claimed_resources)
+        if overlap:
+            record["decision"] = (
+                "not baked — this facility's seat group SHARES "
+                f"{len(overlap)} resource(s) with an earlier facility's "
+                "group, so one rigid unit reaches two disjoint bodies and "
+                "would be seated onto two datums: "
+                + ", ".join(overlap[:4]))
+            UI.vprint(
+                0,
+                "  [object-anchor] BASIN GROUP SEAT FINDING: the facility "
+                f"at {facility.anchor_longitude_latitude} shares "
+                f"{len(overlap)} resource(s) with an earlier facility's "
+                "seat group — REFUSED rather than seated onto a second "
+                f"datum (first shared: {overlap[0]})",
+            )
+            continue
+
+        origin_longitude, origin_latitude = (
+            facility.anchor_longitude_latitude)
+        sample_points, _body_parts = _basin_facility_rim_sample_ring(
+            facility.body_rings_longitude_latitude,
+            origin_latitude,
+            origin_longitude,
+        )
+        if not sample_points:
+            record["decision"] = (
+                "not baked — the facility body outline is degenerate, so "
+                "no rim band could be built")
+            continue
+
+        group_placements = [
+            placement_by_resource[resource_path]
+            for resource_path in sorted(group_resources)
+            if resource_path in placement_by_resource
+        ]
+        latitudes = [latitude for latitude, _longitude in sample_points]
+        longitudes = [longitude for _latitude, longitude in sample_points]
+        for placement in group_placements:
+            latitudes.append(placement.latitude)
+            longitudes.append(placement.longitude)
+        bounds = (
+            min(longitudes), min(latitudes),
+            max(longitudes), max(latitudes),
+        )
+        try:
+            sampler = MeshElevationSampler(mesh_path, bounds)
+        except (ValueError, OSError) as error:
+            # Invariant I-13: no mesh here means no answer, never a
+            # plausible one.
+            record["decision"] = (
+                f"not baked — no mesh under the facility ({error})")
+            continue
+
+        rim_samples = []
+        for latitude, longitude in sample_points:
+            elevation = sampler.elevation_at_or_none(latitude, longitude)
+            if elevation is not None and elevation == elevation:
+                rim_samples.append(float(elevation))
+        if not rim_samples:
+            record["decision"] = (
+                "not baked — the built mesh answered nowhere on the rim "
+                "band, so G is unmeasured (never guessed)")
+            continue
+        seat_datum = float(median(rim_samples))
+        record["r_mesh_m"] = seat_datum
+        record["g_m"] = seat_datum
+        record["rim_sample_count"] = len(rim_samples)
+
+        # ── ONE INSTRUMENT (spec §2.3 item 1, trap T7) ────────────
+        # Every group anchor's ground is read HERE, by this sampler, in
+        # one pass.  The 1.544 m gap the recon measured at LEMD was two
+        # instruments answering at one identical point; there is now one.
+        anchor_ground_by_resource: dict[str, float] = {}
+        anchor_by_resource: dict[str, tuple[float, float, float]] = {}
+        unmeasured_anchor = None
+        for placement in group_placements:
+            anchor_ground = sampler.elevation_at_or_none(
+                placement.latitude, placement.longitude
+            )
+            if anchor_ground is None:
+                unmeasured_anchor = placement.resource_path
+                break
+            # Amendment A18: an OBJECT_AGL placement puts y = 0 at
+            # terrain(anchor) + elevation.
+            anchor_ground_by_resource[placement.resource_path] = (
+                anchor_ground + placement.above_ground_level_metres
+            )
+            anchor_by_resource[placement.resource_path] = (
+                placement.latitude,
+                placement.longitude,
+                placement.heading_degrees,
+            )
+        if unmeasured_anchor is not None or not anchor_ground_by_resource:
+            record["decision"] = (
+                "not baked — a group member's anchor lies outside the "
+                f"built mesh ({unmeasured_anchor}); never nearest-vertex "
+                "sampled (invariant I-13)")
+            continue
+
+        delta_by_resource = {
+            resource_path: seat_datum - anchor_ground
+            for resource_path, anchor_ground
+            in anchor_ground_by_resource.items()
+        }
+        floor_elevation = min(anchor_ground_by_resource.values())
+        record["mesh_at_anchor_m"] = floor_elevation
+        record["delta_m"] = seat_datum - floor_elevation
+        record["delta_by_resource"] = {
+            resource_path: float(delta)
+            for resource_path, delta in sorted(delta_by_resource.items())
+        }
+        record["delta_min_m"] = min(delta_by_resource.values())
+        record["delta_max_m"] = max(delta_by_resource.values())
+
+        # ── ITEM 6 AS A THRESHOLD (spec §2.3 item 2) ──────────────
+        # The topological "anchor-outside facilities do not bake" retires
+        # here: what made the OTHH anchor-outside class right was that
+        # its drape was ALREADY correct (≤ 0.4 m), i.e. delta ≈ 0 — a
+        # measurement, which this says directly.  No new knob: the
+        # existing reseat threshold is the same number the generic law
+        # uses to decide that a unit is fine where its author put it.
+        worst_delta = max(
+            abs(delta) for delta in delta_by_resource.values())
+        below_threshold = worst_delta < DSF_OBJECT_BAKE_MIN_DELTA_M
+        record["threshold_no_op"] = bool(below_threshold)
+
+        # ── ITEM 7 — CLEARANCE VERIFICATION, NOT HOPE ──
+        # Unchanged check, wider membership: the group's G is what the
+        # deepest modelled solid must still clear the cut floor from.
+        true_minimum_y = float(facility.solid_minimum_y_m)
+        deck_clearance_m = float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
+        seat_margin_m = float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        clearance_metres = (
+            seat_datum + true_minimum_y
+            - (floor_elevation + deck_clearance_m)
+        )
+        rim_estimate = (
+            floor_elevation
+            + deck_clearance_m
+            + seat_margin_m
+            - true_minimum_y
+        )
+        record["clearance_m"] = clearance_metres
+        record["rim_estimate_m"] = rim_estimate
+        record["r_mesh_minus_r_est_m"] = seat_datum - rim_estimate
+        record["clearance_finding"] = clearance_metres < -0.01
+        if record["clearance_finding"]:
+            UI.vprint(
+                0,
+                "  [object-anchor] BASIN CLEARANCE FINDING "
+                f"{sorted(member_resources)}: seating at G "
+                f"{seat_datum:.2f} m leaves the deepest solid "
+                f"({true_minimum_y:.2f} m) only "
+                f"{clearance_metres + float(deck_clearance_m):.2f} m above "
+                f"the built floor {floor_elevation:.2f} m — "
+                f"{-clearance_metres:.2f} m short of the promised "
+                f"{deck_clearance_m:.2f} m.  "
+                "Measured R_mesh - R_est = "
+                f"{record['r_mesh_minus_r_est_m']:.2f} m against a "
+                f"{seat_margin_m:.2f} m "
+                "O4_TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M — the margin is too "
+                "small for this airport (reported, never re-derived).",
+            )
+
+        # THE WIDENING IS ONE STEP (trap T1, the LSGG law): the group is
+        # claimed here — withheld from the generic pass by the caller —
+        # whatever this law then decides, because "excluded" is never
+        # widened without "seated".
+        claimed_resources.update(group_resources)
+
+        baked_resources: list[str] = []
+        for pool_index, structures in sorted(group_by_pool.items()):
+            delta_by_resource_and_vertex: dict[str, dict[int, float]] = {}
+            decision_structures = []
+            for structure in structures:
+                if measure_only or below_threshold:
+                    decision_structures.append(
+                        replace(
+                            structure,
+                            skip_reason=(
+                                "modify_custom_airports is off — "
+                                "measure-only run: the basin_group_seat "
+                                "seat was computed and recorded, the "
+                                "pack is not modified"
+                                if measure_only else
+                                "basin_group_seat: every group delta is "
+                                "under DSF_OBJECT_BAKE_MIN_DELTA_M — the "
+                                "family already drapes on its own datum "
+                                "plane, so the bake is a recorded no-op "
+                                "(spec §2.3 item 2)"
+                            ),
+                        )
+                    )
+                    continue
+                decision_structures.append(structure)
+                for resource_path, triangles in (
+                    structure.triangles_by_resource.items()
+                ):
+                    if resource_path not in delta_by_resource:
+                        continue
+                    # ONE DATUM PLANE: each member's own delta measured
+                    # from its OWN anchor ground (invariant I-3), so
+                    # mesh(anchor) + delta == G for every member — and
+                    # the delta is TOTAL for the file (§2.4): no
+                    # foot-anchor, no inheritance, no per-cluster fate.
+                    delta = delta_by_resource[resource_path]
+                    resource_deltas = (
+                        delta_by_resource_and_vertex.setdefault(
+                            resource_path, {})
+                    )
+                    for triangle in triangles:
+                        for vertex_index in triangle:
+                            resource_deltas[vertex_index] = delta
+            pool_resources = set(pools[pool_index].resolved_paths)
+            decision = object_anchor.RebakeDecision(
+                structures=decision_structures,
+                delta_by_resource_and_vertex=delta_by_resource_and_vertex,
+                # Scoped to THIS pool: ``object_rebake.apply``'s
+                # reversion pass un-bakes every resource a decision
+                # "knows" but did not write.
+                anchor_ground_by_resource={
+                    resource_path: ground
+                    for resource_path, ground
+                    in anchor_ground_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                skipped=[],
+                anchor_by_resource={
+                    resource_path: anchor
+                    for resource_path, anchor
+                    in anchor_by_resource.items()
+                    if resource_path in pool_resources
+                },
+                decision_kind_by_resource={
+                    resource_path: BASIN_GROUP_SEAT_DECISION_KIND
+                    for resource_path in delta_by_resource_and_vertex
+                },
+                # §2.5 / trap T6: the datum plane travels into the
+                # provenance sidecar beside the applied delta, so a
+                # restored pack can still answer what the group decided.
+                seat_datum_by_resource={
+                    resource_path: seat_datum
+                    for resource_path in delta_by_resource_and_vertex
+                },
+            )
+            result["decisions"].append((pools[pool_index], decision))
+            if write_changes:
+                report = object_rebake.apply(decision, pack_root, mesh_path)
+                result["objects_written"].extend(report.objects_written)
+                result["vertices_offset"] += report.vertices_offset_total
+                result["structures_baked"] += report.structures_baked
+                result["structures_needing_pad"] += (
+                    report.structures_needing_pad
+                )
+                result["skipped"].extend(report.skipped)
+                result["objects_reverted"].extend(report.objects_reverted)
+                result["reversions_missing_backup"].extend(
+                    report.reversions_missing_backup
+                )
+                result["partially_baked"].extend(report.partially_baked)
+                baked_resources.extend(report.objects_written)
+            else:
+                result["structures_baked"] += sum(
+                    1
+                    for structure in decision_structures
+                    if structure.skip_reason is None
+                )
+                baked_resources.extend(
+                    sorted(delta_by_resource_and_vertex))
+        record["baked"] = bool(baked_resources) and write_changes
+        record["dry_run"] = not write_changes
+        record["objects_written"] = sorted(set(baked_resources))
+        if measure_only:
+            record["decision"] = (
+                "measure-only (modify_custom_airports off): "
+                f"basin_group_seat at G {seat_datum:.2f} m over "
+                f"{len(group_resources)} member(s) recorded, NOT written")
+        elif below_threshold:
+            record["decision"] = (
+                "basin_group_seat: recorded NO-OP — every group delta "
+                f"(max {worst_delta:.2f} m) "
+                f"is under the {DSF_OBJECT_BAKE_MIN_DELTA_M:.2f} m reseat "
+                "threshold, so the family already drapes on its datum "
+                "plane (spec §2.3 item 2)")
+        else:
+            record["decision"] = (
+                ("basin_group_seat (dry run, nothing written): would seat "
+                 if not write_changes else "basin_group_seat: seated ")
+                + f"{len(group_resources)} member(s) in "
+                f"{record['group_structure_count']} structure(s) on ONE "
+                f"datum G {seat_datum:.2f} m, deltas "
+                f"{record['delta_min_m']:.2f}..{record['delta_max_m']:.2f} m "
+                f"over {len(record['objects_written'])} object file(s)")
+        UI.vprint(
+            1,
+            "  [object-anchor] basin_group_seat "
+            f"{sorted(member_resources)}: " + record["decision"],
+        )
+    return claimed_resources
 
 
 def _candidate_grade_line_sets(candidate) -> list:
@@ -2602,6 +3383,16 @@ def discover_and_rebake_airport(
     guarantee that is for them never to enter it — and are seated
     afterwards by :func:`_bake_basin_rim_flush_facilities` instead.
 
+    Under ``config.BASIN_GROUP_SEAT`` (docket B, the default) those same
+    facility records take the GROUP law instead
+    (:func:`_bake_basin_group_seat_facilities`): it runs BEFORE the
+    generic pass, seats every partition structure whose footprint
+    reaches a facility body onto one datum plane, and reports the
+    resources it claimed so the generic pass can withhold exactly them —
+    seating and withholding in one step (trap T1).  Exactly one of the
+    two laws runs; with the gate off the pre-amendment behaviour above
+    is reproduced byte-identically.
+
     ``bridge_abutment_seat_candidates``
     (``object_terrain_assembly.BridgeAbutmentSeatCandidate`` records,
     docs/specs/round6-othh-residuals-spec.md R6-3): TERRAIN_CARRIED
@@ -2653,6 +3444,11 @@ def discover_and_rebake_airport(
         # the caller's report.  Never empty-because-silent: a facility
         # that could not be measured is in here with its reason.
         "basin_rim_flush": [],
+        # One dict per basin facility the docket-B GROUP SEAT considered
+        # (``config.BASIN_GROUP_SEAT``, the default): seated, a recorded
+        # threshold no-op, or refused with its reason.  The two lists are
+        # exclusive — a run takes one law or the other, never both.
+        "basin_group_seat": [],
         # One dict per R6-3 bridge abutment-seat CANDIDATE the law
         # considered — seated, within-threshold (left draped) or refused.
         # Same posture as the basin list: a candidate that could not be
@@ -2787,6 +3583,12 @@ def discover_and_rebake_airport(
         if facility.anchor_inside_body
         for resource in facility.object_resources
     }
+    # Filled by the docket-B group seat before the generic pass runs (it
+    # is a set the closure below READS at call time, never a snapshot):
+    # every resource the group law claimed, seated or no-op'd.  The
+    # withholding and the seating are one step — trap T1, the LSGG
+    # starvation law — and this is the withholding half.
+    basin_group_claimed: set[str] = set()
     # R6-3: the candidates are already R4-excluded, so this set only
     # RE-LABELS their skip lines — "routed to the abutment-seat law",
     # never "terrain adapted to this object, nothing more happens".
@@ -2834,6 +3636,17 @@ def discover_and_rebake_airport(
                             # is seated by the dedicated law below, and
                             # a skip line claiming otherwise would send
                             # the next reader hunting the wrong law.
+                            # Docket B: the whole seat GROUP is routed to
+                            # the group law — its interface members and
+                            # the structures around them alike — so its
+                            # skip line names that law, not the
+                            # pre-amendment one.
+                            "basin facility seat-group member — seated "
+                            "by the basin_group_seat law on the group's "
+                            "own datum plane, not the generic y-bake "
+                            "(basin-group-seat spec section 2.2)"
+                            if resource_path in basin_group_claimed
+                            else
                             "basin facility member — seated by the "
                             "basin_rim_flush law, not the generic "
                             "y-bake (spec section 2.2 item 5)"
@@ -3015,24 +3828,56 @@ def discover_and_rebake_airport(
             (pack_root or "", resource) for resource in seat_claimed
         }
 
+    # THE BASIN GROUP SEAT RUNS BEFORE THE GENERIC PASS (docket B,
+    # basin-group-seat spec §2.2).  Its group is NOT the R4 exclusion
+    # set — it is every structure whose footprint reaches the facility
+    # body, most of which the generic pass would otherwise cluster-seat
+    # against a second instrument.  Seating and withholding are one step
+    # (trap T1), so the law runs first and REPORTS what it claimed, and
+    # the generic pass excludes exactly that.
+    from .config import BASIN_GROUP_SEAT
+
+    if BASIN_GROUP_SEAT:
+        basin_group_claimed.update(
+            _bake_basin_group_seat_facilities(
+                basin_rim_flush_facilities,
+                all_placements,
+                pack_root,
+                xplane_root,
+                mesh_path,
+                epsilon_metres=epsilon_metres,
+                write_changes=write_changes,
+                measure_only=measure_only,
+                result=result,
+                reserved_resources=seat_claimed,
+            )
+        )
+        if basin_group_claimed:
+            excluded_resources = set(excluded_resources or ()) | {
+                (pack_root or "", resource)
+                for resource in basin_group_claimed
+            }
+
     _generic_pass()
 
-    # THE DEDICATED BASIN CLASS (spec section 2.2, owner's in-sim verdict
-    # 2026-08-09).  It runs AFTER the generic pass and over disjoint
-    # resources — its members were filtered out above — so no object can
-    # be reached by both laws, which is what "generic median/A3/threshold
-    # arithmetic does not run for this class" has to mean in code.
-    _bake_basin_rim_flush_facilities(
-        basin_rim_flush_facilities,
-        all_placements,
-        pack_root,
-        xplane_root,
-        mesh_path,
-        epsilon_metres=epsilon_metres,
-        write_changes=write_changes,
-        measure_only=measure_only,
-        result=result,
-    )
+    if not BASIN_GROUP_SEAT:
+        # THE PRE-AMENDMENT BASIN CLASS (spec section 2.2, owner's in-sim
+        # verdict 2026-08-09), kept byte-identical behind the gate.  It
+        # runs AFTER the generic pass and over disjoint resources — its
+        # members were filtered out above — so no object can be reached
+        # by both laws, which is what "generic median/A3/threshold
+        # arithmetic does not run for this class" has to mean in code.
+        _bake_basin_rim_flush_facilities(
+            basin_rim_flush_facilities,
+            all_placements,
+            pack_root,
+            xplane_root,
+            mesh_path,
+            epsilon_metres=epsilon_metres,
+            write_changes=write_changes,
+            measure_only=measure_only,
+            result=result,
+        )
 
     # Fingerprint this full run so the NEXT mesh build can skip it.
     # Written last, after ``object_rebake.apply`` has rewritten the pack
@@ -3345,7 +4190,9 @@ def rebake_dsf_objects(tile) -> dict:
             # the integration report reads: what was seated, where, and
             # every clearance finding (item 7 is a FINDING, so it must
             # be visible without a debug flag).
-            basin_records = airport_result.get("basin_rim_flush", ())
+            basin_records = list(
+                airport_result.get("basin_rim_flush", ())
+            ) + list(airport_result.get("basin_group_seat", ()))
             if basin_records:
                 baked_count = sum(
                     1 for record in basin_records if record.get("baked"))
@@ -3358,8 +4205,8 @@ def rebake_dsf_objects(tile) -> dict:
                     1,
                     f"  [object-anchor] {icao}: {baked_count} of "
                     f"{len(basin_records)} basin facility(ies) seated by "
-                    f"the basin_rim_flush law, {finding_count} clearance "
-                    "finding(s)",
+                    "the basin seat law, "
+                    f"{finding_count} clearance finding(s)",
                 )
                 for record in basin_records:
                     UI.vprint(

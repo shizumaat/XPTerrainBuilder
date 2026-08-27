@@ -544,3 +544,37 @@ def test_the_membrane_family_joins_station_ways_too(tmp_path):
     _r2, _c2, u2 = CG._check_apron_lattice_membrane(
         edges, list(feats.get("apron_lattice", [])), [], nodes, to_m)
     assert u2 == 1
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE §2 DISCIPLINE APPLIED TO THE SPINE'S OWN RUN
+# ═════════════════════════════════════════════════════════════════════
+
+def test_a_station_chord_that_cuts_a_corner_is_dropped(monkeypatch):
+    """Stations sit at ARC positions on a POLYLINE axis, so the straight
+    chord between two of them chords off a bend — measured on this
+    round's second HECA arm as 2 of 40 segments leaving the apron
+    (22.6 m of it through junction -10165).  Same law as the lattice's
+    (owner item 1), one implementation."""
+    from shapely.geometry import LineString
+    # An L-shaped apron whose two arms hold the axis; the axis turns the
+    # corner inside the apron, but the chord across the turn does not.
+    poly = Polygon([(0, 0), (400, 0), (400, 60), (60, 60), (60, 400),
+                    (0, 400), (0, 0)])
+    axis = [(20.0, 350.0), (20.0, 20.0), (350.0, 20.0)]
+    layout = _Layout([_Shape(poly)])
+    _patch_specs(monkeypatch, _specs(axis))
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    assert entries, "the crossing must exist at all"
+    for e in entries:
+        for run in e["lines"]:
+            for a, b in zip(run, run[1:]):
+                assert poly.contains(LineString([a, b])), (a, b)
+        in_lines = {p for run in e["lines"] for p in run}
+        assert set(e["points"]) <= in_lines, \
+            "a station in no surviving run would never be emitted"
+
+
+def test_the_clip_is_the_lattice_implementation_not_a_second_copy():
+    src = inspect.getsource(ST._clip)
+    assert "clip_lines_to_apron" in src

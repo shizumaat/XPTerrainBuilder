@@ -89,6 +89,14 @@ LATTICE_JOIN_SPACING_MULT = 1.5
 _MIN_SUBDIVISION = 4
 
 
+def _clip(*, lines_in, poly):
+    """ONE implementation of the per-segment clip: the lattice's
+    (``apron_lattice.clip_lines_to_apron``), at the ring itself.  A
+    second copy here would be the census-wrapper defect in miniature."""
+    from .apron_lattice import clip_lines_to_apron
+    return clip_lines_to_apron(lines_in, poly, margin_m=0.0)
+
+
 def _pieces_inside(axis_pts, poly):
     """The parts of one axis polyline that run INSIDE ``poly``, as lists
     of ``(x, y)`` in local metres.  Holes are respected by the geometry
@@ -242,9 +250,26 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
                 run = [(x, y) for (x, y) in stations_on_piece(piece,
                                                               spacing_m)
                        if _free(x, y)]
-                if len(run) >= 2:
-                    lines.append(run)
-                    pts_all.extend(run)
+                if len(run) < 2:
+                    continue
+                # THE §2 DISCIPLINE, APPLIED TO THE SPINE'S OWN RUN.
+                # Stations sit at ARC positions on a POLYLINE axis, so
+                # the straight chord between two consecutive stations
+                # chords off any bend — and where the axis curves around
+                # a carved junction the chord cuts straight through it.
+                # Measured on this round's second HECA arm: 2 of 40
+                # station segments left the apron footprint, 23.7 m,
+                # 22.6 m of it through junction -10165.  Same law as the
+                # lattice's (owner item 1): a SEGMENT lies inside its
+                # apron or it is dropped and the run splits.  The
+                # stations themselves are on the axis inside the apron;
+                # only the chord between them can offend, so the margin
+                # here is the ring itself, not the lattice's stand-off.
+                kept = _clip(lines_in=[run], poly=poly)
+                for sub in kept:
+                    if len(sub) >= 2:
+                        lines.append(sub)
+                        pts_all.extend(sub)
         if not pts_all:
             continue
         entries.append({"shape": s, "shapeID": idx,

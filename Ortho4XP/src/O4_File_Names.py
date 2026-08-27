@@ -33,9 +33,10 @@ def resource_path(relative_path):
 #
 # Running from a source checkout, this is the checkout directory itself, so
 # nothing changes for developers. The packaged app instead asks the user on
-# first launch and remembers the answer in a small per-user pointer file
-# (the data itself lives wherever the user chose, possibly a big external
-# drive; only the pointer lives under the home directory).
+# first launch — on EVERY platform — and remembers the answer in a small
+# per-user pointer file (the data itself lives wherever the user chose,
+# possibly a big external drive; only the pointer lives under the home
+# directory).
 # ---------------------------------------------------------------------------
 
 data_root_pointer_file = os.path.join(
@@ -44,13 +45,18 @@ data_root_pointer_file = os.path.join(
 
 
 def default_data_root():
-    """Default offered by the packaged app's first-launch folder chooser."""
-    if sys.platform == "darwin":
-        # "Next to the app" is unreliable on macOS (Gatekeeper translocation
-        # runs freshly downloaded apps from a randomized read-only mount).
-        return os.path.join(os.path.expanduser("~"), "Ortho4XP")
-    # Windows / Linux: portable layout — data folders next to the executable.
-    return os.path.dirname(os.path.abspath(sys.executable))
+    """Default offered by the packaged app's first-launch folder chooser.
+
+    ``~/XPTerrainBuilderData`` on every platform (owner ruling 2026-08-26).
+    Two reasons it is never "next to the app":
+
+    * macOS makes that unreliable outright — Gatekeeper translocation runs
+      freshly downloaded apps from a randomized read-only mount.
+    * On every platform, keeping the user's data OUT of the app folder makes
+      an update a plain folder replacement: the tens of gigabytes of
+      imagery, elevation data, caches and built tiles survive untouched.
+    """
+    return os.path.join(os.path.expanduser("~"), "XPTerrainBuilderData")
 
 
 def read_data_root_pointer():

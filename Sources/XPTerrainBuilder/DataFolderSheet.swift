@@ -12,7 +12,7 @@ struct DataFolderSheet: View {
 
     static var defaultPath: String {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("XPTerrainBuilder").path
+            .appendingPathComponent("XPTerrainBuilderData").path
     }
 
     var body: some View {

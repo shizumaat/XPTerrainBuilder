@@ -36,10 +36,11 @@ scope for the first release cycle.)
   read-only mounts survive) from a **writable data root** (downloads,
   OSM/elevation caches, masks, orthophotos, Tiles, config).
 - First-launch data-root chooser semantics: `ORTHO4XP_DATA_ROOT` env var >
-  remembered choice in `~/.ortho4xp/data_root.txt` > platform default
-  (macOS: `~/Ortho4XP`, because Gatekeeper translocation makes
-  "next to the app" unreliable; Windows/Linux: next to the executable —
-  portable layout).
+  remembered choice in `~/.ortho4xp/data_root.txt` > the default,
+  `~/XPTerrainBuilderData` on every platform (owner ruling 2026-08-26).
+  Never next to the app: macOS Gatekeeper translocation makes that
+  unreliable outright, and keeping the data out of the app folder makes an
+  update a plain folder replacement everywhere.
 - `set_data_root()` + `seed_shipped_patches()` for pointing a fresh data
   root and seeding shipped `Patches/`.
 - The JSON-lines engine transport (`--engine-jsonl`) the Mac app drives,
@@ -78,7 +79,7 @@ scope for the first release cycle.)
    executable (`OrthoEngine.bundled()` already probes there). Swapping the
    embedded source tree for the frozen engine (step 1) remains.
 3. **DONE:** First-run sheet (Swift) asks for the data folder (default
-   `~/XPTerrainBuilder`), changeable in Settings ▸ General; every engine
+   `~/XPTerrainBuilderData`), changeable in Settings ▸ General; every engine
    process gets `ORTHO4XP_DATA_ROOT`, so downloads, caches, tiles and
    `Ortho4XP.cfg` land there, never inside the bundle. Still open from the
    original plan: folding the X-Plane folder pick into the same sheet and
@@ -97,10 +98,11 @@ scope for the first release cycle.)
    title, `.ico` derived from the app icon (see E), version resource.
 2. Prune `Utils/` to `win/` at build time; verify the vendored GDAL and
    scikit-fmm wheels install in CI.
-3. Portable zip (no installer, per goal): unzip anywhere, run the exe; the
-   existing next-to-exe data-root default makes it a true portable app.
-   First launch shows the (existing) data-root chooser + an X-Plane folder
-   page (new; writes `custom_scenery_dir`).
+3. Portable zip (no installer, per goal): unzip anywhere, run the exe. The
+   data root is NOT next to the exe — first launch shows the (existing)
+   data-root chooser, defaulting to `~/XPTerrainBuilderData`, so updating
+   the app is a folder replacement that leaves the data alone. An X-Plane
+   folder page is still to add (writes `custom_scenery_dir`).
 4. Note in release notes: unsigned exe triggers SmartScreen "More info →
    Run anyway"; Authenticode signing is optional later.
 
@@ -110,9 +112,9 @@ scope for the first release cycle.)
    (ubuntu-22.04) so the glibc floor is low.
 2. Package as AppImage (single-file, double-clickable, matches the goal)
    with `.desktop` entry + icon; also upload the plain tar.gz.
-3. Prune `Utils/` to `lin/`; keep the next-to-exe portable default but
-   AppImages are read-only mounts, so the chooser must default to
-   `~/Ortho4XP` when `is_frozen_app()` and the exe dir is unwritable.
+3. Prune `Utils/` to `lin/`. AppImages are read-only mounts, which the
+   `~/XPTerrainBuilderData` default already sidesteps — the chooser never
+   proposes the exe directory.
 
 ### E. Icon for Windows/Linux
 
@@ -198,7 +200,7 @@ missing license (c).
 
 1. Launch binary. No engine/python setup ever shown.
 2. Wizard: "Where should downloads and built scenery live?" (default
-   `~/Ortho4XP`, or next-to-exe on Win/portable) + "Where is X-Plane?"
+   `~/XPTerrainBuilderData` on every platform) + "Where is X-Plane?"
    (validated folder pick).
 3. Data root is seeded (`Patches/`, folder skeleton); choice remembered
    (`~/.ortho4xp/data_root.txt` / app prefs).

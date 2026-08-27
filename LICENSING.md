@@ -94,7 +94,10 @@ Oscar Pilote's statement in `Licence/copyright.txt`:
 
 So a user's `.dsf`/mesh output is **not** GPL'd, and nothing we ship makes
 their scenery open source. The CC-BY sentence is the author asking for
-attribution when scenery is sold; honor it by crediting Ortho4XP.
+attribution when scenery is sold; honor it by crediting Ortho4XP. We ask
+the same for this project on top of it: scenery sold commercially should
+credit XPTerrainBuilder as well when it was built using our `auto_patch`
+airport terrain — the graded airport surfaces.
 
 **The binding constraint on scenery is not this license — it is the imagery
 terms of service.** `Ortho4XP/Providers/` ships tile templates for Esri

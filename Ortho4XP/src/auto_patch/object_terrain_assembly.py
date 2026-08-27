@@ -523,7 +523,16 @@ def _discover_sibling_road_networks(
 # that on every warm build).  The value LOOKS valid and the fingerprint
 # covers the PACK, not the classifier's arithmetic, so the version is
 # what retires it.
-_CLASSIFICATION_CACHE_VERSION = 22
+# 22 -> 23: each ``BelowGradeRegion`` now carries its ABOVE-GRADE
+# COVERAGE FRACTION and its contributors' clipped areas (spec
+# docs/specs/basin-region-founding-spec.md §2.1).  The version-21
+# situation once more: a v22 pickle restores the frozen dataclass from a
+# ``__dict__`` with no such keys, so the coverage reads back as the class
+# default ``None`` — which is UNKNOWN, and unknown REFUSES founding.  A
+# warm v22 sidecar would therefore silently disable the whole founding
+# limb on exactly the packs it exists for.  The version is what retires
+# it; nothing else in the fingerprint can see a new field.
+_CLASSIFICATION_CACHE_VERSION = 23
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -621,6 +630,14 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # the cut shape itself (spec basin-region-footprint §2.1).
         digest.update(
             f"basin-region-footprint:{config.BASIN_REGION_FOOTPRINT}".encode()
+        )
+        # ...and the region-FOUNDING gate beside it: it decides whether an
+        # unmatched region becomes a basin at all, i.e. whether a pit is
+        # cut where the pool partition saw no structure (spec
+        # basin-region-founding §2.4).  Salted exactly like its
+        # predecessor so a flip can never be answered from a warm sidecar.
+        digest.update(
+            f"basin-region-founding:{config.BASIN_REGION_FOUNDING}".encode()
         )
         dsf_stat = os.stat(dsf_path)
         digest.update(
@@ -937,7 +954,13 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # owner's LEMD T4S rulings.  A v7 entry seats every basin object against
 # the retired Amendment-3 floor over the pool-derived outline — read warm
 # it would silently reinstate exactly what this round retires.
-_EXCLUSION_CACHE_VERSION = 8
+# v9 (2026-08-27, spec basin-region-founding): the payload can now carry
+# basin rim-flush facilities that exist ONLY because an unmatched
+# below-grade region FOUNDED a record.  A v8 entry has no such facility
+# and reading it warm would leave a founded pit's objects unseated over
+# terrain that was nevertheless cut — the two halves of one round
+# disagreeing, which is the lockstep this producer exists to guarantee.
+_EXCLUSION_CACHE_VERSION = 9
 
 
 def _cached_post_mesh_records(
@@ -990,6 +1013,9 @@ def _cached_post_mesh_records(
                 # second its FLOOR KEY — both are in the payload.
                 config.BASIN_REGION_FOOTPRINT,
                 config.BASIN_OPEN_PIT_DECK_KEY,
+                # ...and the founding gate: a founded basin is a FACILITY
+                # in this payload that does not exist without it.
+                config.BASIN_REGION_FOUNDING,
             )
         ).encode()
     )
@@ -1802,27 +1828,15 @@ def _region_polygon_in_frame(region, frame_origin_longitude_latitude):
     inverse.  A hand-rolled frame-to-frame translation here would be a
     second projection of the same body, which is exactly what the
     body-outline reader's docstring forbids.
-    """
-    from shapely.geometry import Polygon
 
-    longitude_latitude = (
-        object_terrain_features.frame_polygon_to_longitude_latitude(
-            region.polygon, region.frame_origin_longitude_latitude))
-    origin_longitude, origin_latitude = frame_origin_longitude_latitude
-    ring = [
-        obj8_reader.lonlat_to_local_offset(
-            origin_latitude, origin_longitude, 0.0, latitude, longitude)
-        for longitude, latitude in longitude_latitude.exterior.coords
-    ]
-    if len(ring) < 3:
-        return None
-    polygon = Polygon(ring)
-    if not polygon.is_valid:
-        polygon = polygon.buffer(0)
-    if polygon.is_empty or polygon.geom_type not in (
-            "Polygon", "MultiPolygon"):
-        return None
-    return polygon
+    ONE IMPLEMENTATION, and it lives in
+    ``object_terrain_features.region_polygon_in_frame``: the
+    classifier's own PREMATCH test (spec basin-region-founding
+    Amendment 1) needs the identical projection, and two spellings of
+    "the region in someone else's frame" is the census-wrapper class.
+    """
+    return object_terrain_features.region_polygon_in_frame(
+        region, frame_origin_longitude_latitude)
 
 
 def _extend_records_with_below_grade_regions(structures, classification):
@@ -1910,25 +1924,255 @@ def _extend_records_with_below_grade_regions(structures, classification):
             solid_outline_footprint=widened,
             solid_minimum_y_m=solid_minimum_y,
         ))
+    return extended + _found_basins_from_unmatched_regions(
+        regions, matched_regions, classification)
+
+
+#: Spec ``docs/specs/basin-region-founding-spec.md`` §2.2 — a FOUNDED
+#: record's contributor list is TIGHT: a resource joins it only if its
+#: clipped below-grade area inside the region reaches this fraction of
+#: the region, or this absolute area.  The field feeds
+#: :func:`basin_rim_flush_facilities` grouping and hence SEATING, so
+#: sweeping a shared-anchor family's 350 at-grade members in would be
+#: the LSGG y-bake starvation class.  Spec'd values, not tuning knobs.
+FOUNDED_BASIN_CONTRIBUTOR_AREA_FRACTION = 0.05
+FOUNDED_BASIN_CONTRIBUTOR_AREA_M2 = 100.0
+
+
+def _region_longitude_latitude(region, point):
+    """One point of a region's own frame as ``(latitude, longitude)``."""
+    origin_longitude, origin_latitude = (
+        region.frame_origin_longitude_latitude)
+    return obj8_reader.local_offset_to_lonlat(
+        origin_latitude, origin_longitude, 0.0, point.x, point.y)
+
+
+def _region_intersects_record_footprint(region, record, footprints):
+    """Whether ``region`` reaches any of ``record``'s ``footprints``,
+    read in THAT record's own metre frame through the one converter."""
+    in_frame = _region_polygon_in_frame(
+        region, record.frame_origin_longitude_latitude)
+    if in_frame is None:
+        return False
+    for footprint in footprints:
+        if footprint is None or footprint.is_empty:
+            continue
+        try:
+            if in_frame.intersects(footprint):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _founded_basin_contributors(region) -> list:
+    """The TIGHT contributor list of a founded record (spec §2.2)."""
+    region_area = float(region.polygon.area)
+    entries = getattr(region, "contributor_area_m2_by_resource", ()) or ()
+    return sorted(
+        resource
+        for resource, contributed_area in entries
+        if contributed_area
+        >= FOUNDED_BASIN_CONTRIBUTOR_AREA_FRACTION * region_area
+        or contributed_area >= FOUNDED_BASIN_CONTRIBUTOR_AREA_M2
+    )
+
+
+def _founded_basin_record(region):
+    """One below-grade region AS a basin record (spec §2.2), or ``None``
+    when its ring will not convert.
+
+    Every field is the region's own reading, so the §2.2 floor
+    DISAGREEMENT gate is vacuous by construction: ``body_depth_m`` and
+    ``solid_minimum_y_m`` are one instrument read once
+    (``−solid_minimum_y_m`` and ``solid_minimum_y_m``).  There is no
+    deck-face population to disagree with — a founded record has no
+    interface behind it, which is the whole reason it is founded.
+    """
+    frame_origin = region.frame_origin_longitude_latitude
+    footprint = _region_polygon_in_frame(region, frame_origin)
+    if footprint is None:
+        return None
+    # A REPRESENTATIVE POINT, never the centroid: the anchor is the
+    # facility grouping key and the point a draped member seats on, and
+    # a concave pit's centroid can fall outside its own ring.
+    interior = region.polygon.representative_point()
+    anchor_latitude, anchor_longitude = _region_longitude_latitude(
+        region, interior)
+    return object_terrain_features.TunnelStructure(
+        object_resources=_founded_basin_contributors(region),
+        anchor_longitude_latitude=(anchor_longitude, anchor_latitude),
+        frame_origin_longitude_latitude=frame_origin,
+        heading_degrees=0.0,
+        placement_kind="OBJECT",
+        # Regions are already in EFFECTIVE heights (the derivation folds
+        # each placement's AGL offset into its own grade plane), so
+        # re-applying an offset here would double-count it.
+        above_ground_offset_m=0.0,
+        roof_footprint=None,
+        deck_footprint=footprint,
+        mouth_polygons=[],
+        mouth_depth_samples=[],
+        body_depth_m=-float(region.solid_minimum_y_m),
+        solid_minimum_y_m=float(region.solid_minimum_y_m),
+        solid_outline_footprint=footprint,
+        terrain_feature=object_terrain_features.TERRAIN_FEATURE_BASIN,
+        # Admission item 2 IS ruling R13's open-pit predicate, asked at
+        # region level: nothing of the pack's own stands over it.
+        cuts_pavement=True,
+    )
+
+
+def _found_basins_from_unmatched_regions(regions, matched_regions,
+                                         classification):
+    """FOUND a basin record from a below-grade region that matched
+    nothing (spec ``docs/specs/basin-region-founding-spec.md`` §2.1-§2.3;
+    follow-up docket A of the owner's 2026-08-26 LEMD T4S rulings).
+
+    Region EXTENSION can only widen a record that already exists, and
+    LEMD got one only by luck — a single fully-buried member escaped the
+    358-object shared-anchor mega-pool as its own BOWL_UNDER_DECK
+    interface.  A pack whose below-grade members ALL pool into one
+    FLAT_CONFIRMED mega-structure derives the region, matches nothing,
+    and (before this) only logged it: the pit was never cut and the
+    shell stayed buried.
+
+    Admission is all of:
+
+    1. the region intersects NO existing record footprint — basin
+       (extension has already claimed those) or feature-A TUNNEL (a
+       region under a tunnel record is that structure's business, never
+       founded twice);
+    2. DEPTH: at or below −``BOWL_MIN_BELOW_GRADE_LEVEL_DEPTH_M``.
+       Founding is inference without an interface to key on, so the
+       2.5-3.0 m band stays extension-only evidence — logged, not
+       founded;
+    3. OPENNESS (ruling R13): above-grade coverage at or under
+       ``BOWL_MAX_ABOVE_GRADE_AREA_FRACTION``.  A COVERED region is a
+       bore/tunnel candidate, not a pit.  UNKNOWN coverage (a pre-v23
+       cached classification) refuses too, naming the stale sidecar —
+       never a silent guess;
+    4. and it does not overlap a BRIDGE record: a bridge deck's
+       under-space belongs to the bridge contract (spec §2.3).
+
+    A founded record adds NO ruling-R4 exclusions — exclusions stay
+    interface-driven, and founding changes terrain, not the y-bake
+    population (spec §2.3; seating interplay is docket B).  Nothing here
+    touches them, which is how that boundary stays clean.
+
+    Every refusal keeps the loud UNMATCHED BELOW-GRADE REGION line with
+    the reading that refused it, so a pit that is not cut is always
+    attributable.
+    """
+    # The three spec'd thresholds, read from their ONE definitions.
+    depth_floor_m = (
+        object_terrain_features.BOWL_MIN_BELOW_GRADE_LEVEL_DEPTH_M)
+    coverage_cap = (
+        object_terrain_features.BOWL_MAX_ABOVE_GRADE_AREA_FRACTION)
+    area_floor_m2 = (
+        object_terrain_features.TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2)
+    founded: list = []
     for index, region in enumerate(regions):
         if index in matched_regions:
             continue
+        region_area = float(region.polygon.area)
         centroid = region.polygon.centroid
-        origin_longitude, origin_latitude = (
-            region.frame_origin_longitude_latitude)
-        latitude, longitude = obj8_reader.local_offset_to_lonlat(
-            origin_latitude, origin_longitude, 0.0, centroid.x, centroid.y)
+        latitude, longitude = _region_longitude_latitude(region, centroid)
+        coverage = getattr(region, "above_grade_area_fraction", None)
+        reported = (
+            f"{region_area:,.0f} m2 at {latitude:.7f},{longitude:.7f} "
+            f"(deepest solid {region.solid_minimum_y_m:.3f} m, "
+            "above-grade coverage "
+            + ("UNKNOWN" if coverage is None else f"{coverage:.3f}")
+            + f", {[r.split('/')[-1] for r in region.object_resources][:6]})"
+        )
+
+        def refuse(reason: str) -> None:
+            UI.vprint(
+                1,
+                "   [object-basin] UNMATCHED BELOW-GRADE REGION: "
+                f"{reported} {reason}",
+            )
+
+        if not config.BASIN_REGION_FOUNDING:
+            refuse(
+                "intersects NO basin record and founding is OFF "
+                "(O4_BASIN_REGION_FOUNDING=0) — no basin is founded "
+                "from it"
+            )
+            continue
+        tunnel_records = getattr(classification, "tunnels", None) or []
+        under_tunnel = any(
+            _region_intersects_record_footprint(
+                region, record,
+                (record.deck_footprint, record.solid_outline_footprint))
+            for record in tunnel_records
+        )
+        if under_tunnel:
+            refuse(
+                "lies under a feature-A TUNNEL record — that structure's "
+                "business, never founded twice (spec §2.1)"
+            )
+            continue
+        bridge_records = getattr(classification, "bridges", None) or []
+        under_bridge = any(
+            _region_intersects_record_footprint(
+                region, record, (record.deck_polygon,))
+            for record in bridge_records
+        )
+        if under_bridge:
+            refuse(
+                "overlaps a BRIDGE record — a bridge deck's under-space "
+                "is the bridge contract's, never founded (spec §2.3)"
+            )
+            continue
+        if coverage is None:
+            refuse(
+                "carries NO above-grade coverage reading (NOT COMPUTED) "
+                "— either the classifier PREMATCHED it to a ground "
+                "interface and the record was then dropped (spec "
+                "Amendment 1's lazy rule), or this classification came "
+                "from a STALE SIDECAR written before cache version "
+                f"{_CLASSIFICATION_CACHE_VERSION} "
+                "(o4_object_terrain_classification_*.cache); founding is "
+                "REFUSED rather than guessed"
+            )
+            continue
+        if region.solid_minimum_y_m > -depth_floor_m:
+            refuse(
+                "is SHALLOWER than the founding depth floor "
+                f"({depth_floor_m:.1f} m) — it stays extension-only "
+                "evidence, never founded (spec §2.1 item 1)"
+            )
+            continue
+        if coverage > coverage_cap:
+            refuse(
+                "is COVERED by the pack's own geometry "
+                f"({coverage:.3f} > {coverage_cap}) — a bore/tunnel "
+                "candidate, not an open pit (ruling R13, spec §2.1 "
+                "item 2)"
+            )
+            continue
+        # Spec §2.1 item 3: the area floor is the REGION instrument's own
+        # admission (``TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2``) — asserted
+        # here, never re-derived into a second gate.
+        assert region_area >= area_floor_m2, (
+            f"region of {region_area} m2 survived region admission")
+        record = _founded_basin_record(region)
+        if record is None:  # pragma: no cover - ring would not convert
+            refuse("could not be converted into a record frame")
+            continue
+        founded.append(record)
         UI.vprint(
             1,
-            "   [object-basin] UNMATCHED BELOW-GRADE REGION: "
-            f"{region.polygon.area:,.0f} m2 at "
-            f"{latitude:.7f},{longitude:.7f} (deepest solid "
-            f"{region.solid_minimum_y_m:.3f} m, "
-            f"{[r.split('/')[-1] for r in region.object_resources][:6]}) "
-            "intersects NO basin record — no basin is founded from it "
-            "this round (spec basin-region-footprint §2.2/§5)",
+            "   [object-basin] FOUNDED BASIN FROM REGION: "
+            f"{reported} matched no record and is a deep OPEN pit — "
+            "founding a basin record over it "
+            f"(floor keys on {record.solid_minimum_y_m:.3f} m; "
+            "contributors "
+            f"{[r.split('/')[-1] for r in record.object_resources]})",
         )
-    return extended
+    return founded
 
 
 #: Decision kind recorded in the rebake provenance for a basin facility

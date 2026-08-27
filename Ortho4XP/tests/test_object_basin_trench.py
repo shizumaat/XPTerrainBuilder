@@ -3116,3 +3116,466 @@ class TestBasinRegionFootprintGate:
         _path, off_digest = assembly._classification_sidecar(
             str(dsf_path), str(pack_root), None)
         assert on_digest and off_digest and on_digest != off_digest
+
+
+# ---------------------------------------------------------------------------
+# BASIN FOUNDING FROM UNMATCHED REGIONS (spec docs/specs/
+# basin-region-founding-spec.md, follow-up docket A of the owner's
+# 2026-08-26 LEMD T4S rulings)
+# ---------------------------------------------------------------------------
+
+#: The founding fixture in miniature — the LEMD defect class MINUS the
+#: luck: below-grade walls tiling a KNOWN 60 x 60 m rectangle and NO
+#: interface record anywhere (at LEMD one member happened to escape the
+#: 358-object mega-pool as its own BOWL_UNDER_DECK; a pack whose
+#: below-grade members all pool into one FLAT_CONFIRMED mega-structure
+#: gets no record at all, and before founding the pit was never cut).
+_FOUNDING_KNOWN_RECTANGLE_AREA_M2 = 60.0 * 60.0
+
+#: A contributor of ~2 m² — the tight-list probe of spec §2.2.  Well
+#: under both 5 % of the region (180 m²) and the 100 m² absolute floor.
+_FOUNDING_SPECK_AREA_M2 = 1.4 * 1.4
+
+
+def _founding_pattern(floor_y: float = -6.0, *, deck_over: bool = False):
+    geometry = {
+        "T4S/found_wall_west.obj": _region_wall(
+            -30.0, 0.0, -30.0, 30.0, floor_y),
+        "T4S/found_wall_east.obj": _region_wall(
+            0.0, 30.0, -30.0, 30.0, floor_y),
+        # The 2 m² speck: a genuine below-grade contributor that must NOT
+        # reach the founded record's membership.
+        "T4S/found_speck.obj": _region_buried_box(
+            0.0, 1.4, 0.0, 1.4, floor_y, floor_y + 1.5),
+    }
+    if deck_over:
+        # A solid deck spanning the whole region, +2 .. +12 m — the R13
+        # openness refusal: something of the pack's own stands over it.
+        geometry["T4S/found_deck.obj"] = _region_buried_box(
+            -30.0, 30.0, -30.0, 30.0, 2.0, 12.0)
+    return geometry
+
+
+def _founding_regions(geometry=None, *, ground_interfaces=(), **kwargs):
+    """The fixture's regions WITH the openness reading filled in.
+
+    Amendment 1 (2026-08-27): the coverage fraction is lazy — it is
+    taken only for regions that intersect NO ground interface's own
+    below-grade footprint.  The founding fixture's whole premise is a
+    pack with no interface record over its pit, so with no interfaces
+    every region is un-prematched and every one gets a real fraction —
+    exactly what production does for such a pack.
+    """
+    geometry = _founding_pattern(**kwargs) if geometry is None else geometry
+    placements = [_placement(resource) for resource in geometry]
+    return otf.regions_with_lazy_above_grade_coverage(
+        otf.below_grade_regions(placements, geometry),
+        ground_interfaces, placements, geometry)
+
+
+def _founding_records(regions, *, ground_interfaces=(), tunnels=(),
+                      bridges=()):
+    classification = _Classification(
+        tunnels=tunnels,
+        ground_interfaces=ground_interfaces,
+        below_grade_regions=regions)
+    classification.bridges = list(bridges)
+    return assembly.basin_trench_structures(classification)
+
+
+class TestBasinFoundingFromRegion:
+    """Spec §2.1-§2.2 / §3 test 1.  A deep OPEN region that matches no
+    record FOUNDS one — otherwise the pit is derived, logged and never
+    cut, which is the LEMD defect class minus the luck."""
+
+    def test_one_record_is_founded_over_the_known_rectangle(self):
+        records = _founding_records(_founding_regions())
+        assert len(records) == 1
+        assert records[0].deck_footprint.area == pytest.approx(
+            _FOUNDING_KNOWN_RECTANGLE_AREA_M2, rel=0.05)
+        assert records[0].solid_outline_footprint.area == pytest.approx(
+            records[0].deck_footprint.area, rel=1e-9)
+
+    def test_the_record_is_a_basin_that_cuts_pavement(self):
+        record = _founding_records(_founding_regions())[0]
+        assert record.terrain_feature == otf.TERRAIN_FEATURE_BASIN
+        assert record.cuts_pavement is True
+        assert record.placement_kind == "OBJECT"
+        assert record.heading_degrees == 0.0
+        assert record.above_ground_offset_m == 0.0
+        assert record.roof_footprint is None
+        assert record.mouth_polygons == []
+        assert record.mouth_depth_samples == []
+
+    def test_the_floor_is_the_law_over_the_regions_own_depth(self):
+        """THROUGH THE ONE LAW FUNCTION (ruling R1): rim + (−6) − the two
+        restored tunnel margins.  The record's depth bound and its solid
+        witness are ONE reading, so the §2.2 disagreement gate is vacuous
+        by construction."""
+        record = _founding_records(_founding_regions())[0]
+        assert record.solid_minimum_y_m == pytest.approx(-6.0)
+        assert record.body_depth_m == pytest.approx(6.0)
+        deck_reference_y, discarded, _key = (
+            assembly.basin_facility_deck_reference_y(record, open_pit=True))
+        assert deck_reference_y == pytest.approx(-6.0)
+        assert discarded is None
+        rim = 100.0
+        assert grade_law.basin_trench_floor_elevation_m(
+            rim, deck_reference_y) == pytest.approx(
+                rim - 6.0
+                - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
+                - config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        assert _open_pit_floor(rim, 6.0) == pytest.approx(rim - 7.5)
+
+    def test_the_contributor_list_is_TIGHT(self):
+        """Spec §2.2: this field feeds ``basin_rim_flush_facilities``
+        grouping and hence SEATING — sweeping a shared-anchor family's
+        at-grade members in would be the LSGG y-bake starvation class.
+        The 2 m² speck is a real contributor and is still absent."""
+        regions = _founding_regions()
+        areas = dict(regions[0].contributor_area_m2_by_resource)
+        assert areas["T4S/found_speck.obj"] == pytest.approx(
+            _FOUNDING_SPECK_AREA_M2, rel=0.05)
+        record = _founding_records(regions)[0]
+        assert record.object_resources == [
+            "T4S/found_wall_east.obj", "T4S/found_wall_west.obj"]
+        assert "T4S/found_speck.obj" not in record.object_resources
+        assert (
+            assembly.FOUNDED_BASIN_CONTRIBUTOR_AREA_FRACTION == 0.05
+            and assembly.FOUNDED_BASIN_CONTRIBUTOR_AREA_M2 == 100.0)
+
+    def test_the_anchor_is_INSIDE_the_region(self):
+        """A representative point, never the centroid: the anchor is the
+        facility grouping key and the point a draped member seats on."""
+        from shapely.geometry import Point
+        region = _founding_regions()[0]
+        record = _founding_records([region])[0]
+        longitude, latitude = record.anchor_longitude_latitude
+        local_x, local_z = assembly.obj8_reader.lonlat_to_local_offset(
+            region.frame_origin_longitude_latitude[1],
+            region.frame_origin_longitude_latitude[0],
+            0.0, latitude, longitude)
+        assert region.polygon.contains(Point(local_x, local_z))
+
+    def test_the_founding_is_reported_by_name(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        _founding_records(_founding_regions())
+        out = capsys.readouterr().out
+        assert "FOUNDED BASIN FROM REGION" in out
+
+    def test_the_seating_predictor_sees_the_founded_facility(self):
+        """ONE producer, both consumers — a founded record reaches the
+        rim-flush seating predictor exactly like an interface-derived
+        one, because there is only one producer."""
+        classification = _Classification(
+            below_grade_regions=_founding_regions())
+        facilities = assembly.basin_rim_flush_facilities(classification)
+        assert len(facilities) == 1
+        assert facilities[0].solid_minimum_y_m == pytest.approx(-6.0)
+
+    def test_founding_adds_NO_ruling_R4_exclusions(self, monkeypatch):
+        """Spec §2.3, deliberate boundary: exclusions stay
+        interface-driven.  A founded record changes TERRAIN, not the
+        y-bake population (seating interplay is docket B).
+
+        Two arms.  Founding a record leaves the classification's own
+        exclusion feed exactly as it found it; and the R4 feed the
+        classifier builds does not move when the founding gate flips."""
+        classification = _Classification(
+            below_grade_regions=_founding_regions())
+        assert assembly.basin_trench_structures(classification)
+        assert classification.exclusions == []
+
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", True)
+        with_founding = _classify(_founding_pattern()).exclusions
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", False)
+        without_founding = _classify(_founding_pattern()).exclusions
+        assert with_founding == without_founding
+
+
+class TestBasinFoundingDepthRefusal:
+    """Spec §3 test 2.  Founding is inference without an interface to key
+    on, so the 2.5-3.0 m band stays EXTENSION-ONLY evidence."""
+
+    def test_a_shallow_region_is_not_founded(self):
+        regions = _founding_regions(floor_y=-2.8)
+        assert regions, "the fixture no longer derives a region at all"
+        assert regions[0].solid_minimum_y_m == pytest.approx(-2.8)
+        assert _founding_records(regions) == []
+
+    def test_the_refusal_is_logged_against_the_depth_floor(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        _founding_records(_founding_regions(floor_y=-2.8))
+        out = capsys.readouterr().out
+        assert "UNMATCHED BELOW-GRADE REGION" in out
+        assert "SHALLOWER" in out
+        assert "FOUNDED BASIN FROM REGION" not in out
+
+    def test_the_floor_is_the_shared_constant(self):
+        assert otf.BOWL_MIN_BELOW_GRADE_LEVEL_DEPTH_M == pytest.approx(3.0)
+
+
+class TestBasinFoundingOpennessRefusal:
+    """Spec §3 test 3 / ruling R13.  A COVERED region is a bore/tunnel
+    candidate, not an open pit — and it stays attributable."""
+
+    def test_a_covered_region_is_not_founded(self):
+        regions = _founding_regions(deck_over=True)
+        assert regions[0].above_grade_area_fraction == pytest.approx(
+            1.0, rel=0.05)
+        assert _founding_records(regions) == []
+
+    def test_the_refusal_names_the_coverage_fraction(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        regions = _founding_regions(deck_over=True)
+        _founding_records(regions)
+        out = capsys.readouterr().out
+        assert "UNMATCHED BELOW-GRADE REGION" in out
+        assert "COVERED" in out
+        assert f"{regions[0].above_grade_area_fraction:.3f}" in out
+
+    def test_an_OPEN_region_reads_zero_coverage(self):
+        """The instrument itself: the fixture's own walls stop at grade,
+        so nothing of the pack stands over the pit."""
+        assert _founding_regions()[0].above_grade_area_fraction == \
+            pytest.approx(0.0, abs=1e-9)
+
+    def test_the_cap_is_the_shared_open_pit_constant(self):
+        assert otf.BOWL_MAX_ABOVE_GRADE_AREA_FRACTION == pytest.approx(0.02)
+
+    def test_the_clip_is_ABOVE_the_ground_band(self):
+        """A deck INSIDE the ±1 m ground band is not standing over
+        anything — the plane is +GROUND_CONTACT_BAND_HALF_WIDTH_M, the
+        module's ONE spelling of "clear of the ground"."""
+        geometry = _founding_pattern()
+        geometry["T4S/found_kerb.obj"] = _region_buried_box(
+            -30.0, 30.0, -30.0, 30.0, -0.4, 0.4)
+        assert _founding_regions(geometry)[0].above_grade_area_fraction == \
+            pytest.approx(0.0, abs=1e-9)
+        ring = otf._clip_triangle_above_plane(
+            ((0.0, -6.0, 0.0), (10.0, 4.0, 0.0), (10.0, 4.0, 10.0)), 1.0)
+        assert ring is not None and len(ring) == 4
+        assert otf._clip_triangle_above_plane(
+            ((0.0, -6.0, 0.0), (10.0, 0.0, 0.0), (10.0, 0.5, 10.0)),
+            1.0) is None
+
+
+class TestBasinFoundingNoDoubleFound:
+    """Spec §3 test 4.  A region that reaches an existing record is that
+    record's business: EXTENSION only, exactly as the landed round."""
+
+    def test_a_region_over_a_basin_record_extends_and_founds_nothing(self):
+        region = _region_at(
+            TestBasinRecordRegionExtension.OVERLAPPING_REGION,
+            solid_minimum_y_m=-7.087)
+        object.__setattr__(region, "above_grade_area_fraction", 0.0)
+        records = _founding_records(
+            [region], ground_interfaces=[_interface()])
+        assert len(records) == 1
+        assert records[0].object_resources == [
+            "Buildings/Drainage/basin.obj"]
+        assert records[0].deck_footprint.area == pytest.approx(
+            TestBasinRecordRegionExtension.OVERLAPPING_REGION.area, rel=1e-6)
+
+    def test_a_region_under_a_feature_A_TUNNEL_is_not_founded(self, capsys):
+        """A region under a tunnel record is that structure's business —
+        never founded twice (spec §2.1)."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        region = _founding_regions()[0]
+        tunnel = otf.TunnelStructure(
+            object_resources=["Tunnels/bore.obj"],
+            anchor_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            frame_origin_longitude_latitude=(
+                ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            heading_degrees=0.0,
+            placement_kind="OBJECT",
+            above_ground_offset_m=0.0,
+            roof_footprint=None,
+            deck_footprint=Polygon(
+                [(-40, -40), (40, -40), (40, 40), (-40, 40)]),
+            mouth_polygons=[],
+            mouth_depth_samples=[],
+            body_depth_m=6.0,
+        )
+        assert _founding_records([region], tunnels=[tunnel]) == []
+        assert "feature-A TUNNEL" in capsys.readouterr().out
+
+    def test_a_region_under_a_BRIDGE_record_is_not_founded(self, capsys):
+        """Spec §2.3: a bridge deck's under-space is the bridge
+        contract's — logged, never founded."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        region = _founding_regions()[0]
+
+        class _Bridge:
+            frame_origin_longitude_latitude = (
+                ANCHOR_LONGITUDE, ANCHOR_LATITUDE)
+            deck_polygon = Polygon(
+                [(-40, -40), (40, -40), (40, 40), (-40, 40)])
+
+        assert _founding_records([region], bridges=[_Bridge()]) == []
+        assert "BRIDGE record" in capsys.readouterr().out
+
+
+class TestBasinFoundingStaleSidecarRefusal:
+    """Spec §3 test 5.  UNKNOWN openness REFUSES founding and names the
+    stale sidecar — never a silent guess."""
+
+    def test_a_region_without_the_field_founds_nothing(self):
+        region = _region_at(
+            TestBasinRecordRegionExtension.DISJOINT_REGION,
+            solid_minimum_y_m=-7.087)
+        assert region.above_grade_area_fraction is None
+        assert _founding_records([region]) == []
+
+    def test_the_stale_sidecar_line_fires(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        _founding_records([_region_at(
+            TestBasinRecordRegionExtension.DISJOINT_REGION,
+            solid_minimum_y_m=-7.087)])
+        out = capsys.readouterr().out
+        assert "STALE SIDECAR" in out
+        assert "UNKNOWN" in out
+
+    def test_the_cache_version_retires_pre_coverage_pickles(self):
+        # 22 is the last version written WITHOUT the coverage fraction.
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 23
+
+
+class TestBasinFoundingGate:
+    """Spec §2.4 / §3 test 6.  ``O4_BASIN_REGION_FOUNDING=0`` → nothing
+    is founded and extension is exactly the landed round."""
+
+    def test_the_gate_defaults_on(self):
+        assert config.BASIN_REGION_FOUNDING is True
+
+    def test_gate_off_founds_nothing(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", False)
+        assert _founding_records(_founding_regions()) == []
+
+    def test_gate_off_leaves_EXTENSION_untouched(self, monkeypatch):
+        region = _region_at(
+            TestBasinRecordRegionExtension.OVERLAPPING_REGION)
+        object.__setattr__(region, "above_grade_area_fraction", 0.0)
+        control = _founding_records(
+            [region], ground_interfaces=[_interface()])[0]
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", False)
+        gated = _founding_records(
+            [region], ground_interfaces=[_interface()])[0]
+        assert gated.deck_footprint.equals(control.deck_footprint)
+        assert gated.solid_minimum_y_m == control.solid_minimum_y_m
+        assert gated.object_resources == control.object_resources
+
+    def test_gate_off_still_REPORTS_the_region(self, monkeypatch, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", False)
+        _founding_records(_founding_regions())
+        assert "UNMATCHED BELOW-GRADE REGION" in capsys.readouterr().out
+
+    def test_the_gate_salts_the_classification_sidecar(
+            self, tmp_path, monkeypatch):
+        dsf_path = tmp_path / "+40-004.dsf"
+        dsf_path.write_text("x")
+        pack_root = tmp_path / "pack"
+        pack_root.mkdir()
+        monkeypatch.setattr(
+            assembly.dsf_reader, "airport_mod_cache_dir",
+            lambda root: str(tmp_path))
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", True)
+        _path, on_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        monkeypatch.setattr(config, "BASIN_REGION_FOUNDING", False)
+        _path, off_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        assert on_digest and off_digest and on_digest != off_digest
+
+
+class TestBasinFoundingLazyCoverage:
+    """Spec §2.1 Amendment 1 (Fable 2026-08-27) — THE OPENNESS READING IS
+    LAZY, BY PREMATCH.
+
+    Coverage gates founding, and founding can only reach a region that
+    matches NO record.  A region already intersecting a ground
+    interface's own below-grade footprint will be EXTENDED onto that
+    interface's record in assembly, so its coverage is a number nobody
+    reads — and it is not free: 33.4 s CPU at LEMD eagerly (12.3 s with
+    the bbox pre-filter) against 0.65 s for the region derivation."""
+
+    def test_a_PREMATCHED_region_carries_no_reading(self):
+        """The classifier's own fixture: the walls DO form a carved-basin
+        interface, so the region is prematched and the pass is skipped."""
+        result = _classify(_founding_pattern())
+        assert result.below_grade_regions, "fixture derives no region"
+        assert any(
+            otf.is_carved_basin_interface(interface)
+            for interface in result.ground_interfaces
+        ), "fixture no longer produces an interface to prematch against"
+        assert result.below_grade_regions[0].above_grade_area_fraction \
+            is None
+
+    def test_an_UNMATCHED_region_still_gets_a_computed_fraction(self):
+        """With no interface in hand there is nothing to prematch to, so
+        the reading IS taken — this is the founding path."""
+        placements = [_placement(r) for r in _founding_pattern()]
+        geometry = _founding_pattern()
+        regions = otf.regions_with_lazy_above_grade_coverage(
+            otf.below_grade_regions(placements, geometry),
+            (), placements, geometry)
+        assert regions[0].above_grade_area_fraction == pytest.approx(
+            0.0, abs=1e-9)
+        covered = _founding_regions(deck_over=True)
+        assert covered[0].above_grade_area_fraction == pytest.approx(
+            1.0, rel=0.05)
+
+    def test_the_prematched_region_REFUSES_founding_out_loud(self, capsys):
+        """The corner Amendment 1 names: prematched here, record dropped
+        upstream.  ``None`` is NOT COMPUTED, so founding refuses and says
+        so — never a fabricated openness, never a silent skip."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        region = _classify(_founding_pattern()).below_grade_regions[0]
+        assert region.above_grade_area_fraction is None
+        assert _founding_records([region]) == []
+        out = capsys.readouterr().out
+        assert "UNMATCHED BELOW-GRADE REGION" in out
+        assert "NOT COMPUTED" in out
+        assert "PREMATCHED" in out and "STALE SIDECAR" in out
+
+    def test_the_lazy_pass_is_ONE_projection_with_the_assembly(self):
+        """The prematch test and the record-extension test read the same
+        converter — ``_region_polygon_in_frame`` delegates to it."""
+        assert assembly._region_polygon_in_frame.__module__ == \
+            "auto_patch.object_terrain_assembly"
+        region = _region_at(
+            TestBasinRecordRegionExtension.OVERLAPPING_REGION)
+        through_assembly = assembly._region_polygon_in_frame(
+            region, (ANCHOR_LONGITUDE, ANCHOR_LATITUDE))
+        through_features = otf.region_polygon_in_frame(
+            region, (ANCHOR_LONGITUDE, ANCHOR_LATITUDE))
+        assert through_assembly.equals(through_features)
+
+    def test_nothing_un_prematched_never_enters_the_machinery(
+            self, monkeypatch):
+        """When every region is prematched the above-grade union is never
+        built — that is the whole saving."""
+        calls = []
+        monkeypatch.setattr(
+            otf, "_above_grade_union_in_frame",
+            lambda *a, **k: calls.append(1))
+        placements = [_placement(r) for r in _founding_pattern()]
+        geometry = _founding_pattern()
+        regions = otf.below_grade_regions(placements, geometry)
+        interfaces = [_interface(footprint=Polygon(
+            [(-30, -30), (30, -30), (30, 30), (-30, 30)]))]
+        otf.regions_with_lazy_above_grade_coverage(
+            regions, interfaces, placements, geometry)
+        assert calls == []
+        otf.regions_with_lazy_above_grade_coverage(
+            regions, (), placements, geometry)
+        assert calls == [1]

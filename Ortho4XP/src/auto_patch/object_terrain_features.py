@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _replace_dataclass
 from statistics import median
 from typing import Iterable, NamedTuple, Sequence
 
@@ -1174,12 +1174,27 @@ class BelowGradeRegion:
       only.  Region membership deliberately does NOT widen a record's
       ``object_resources``: that field drives the ruling-R4 exclusions
       and the rim-flush seating grouping (spec §2.2, out of scope).
+    * ``above_grade_area_fraction`` — the openness reading FOUNDING keys
+      on (spec ``docs/specs/basin-region-founding-spec.md`` §2.1 item 2):
+      how much of the region the pack's OWN geometry stands over,
+      measured with the same triangle machinery as the region itself but
+      clipped ABOVE ``+GROUND_CONTACT_BAND_HALF_WIDTH_M``.  ``None``
+      means UNKNOWN (a pre-v23 cached classification), and unknown
+      REFUSES founding out loud — never a silent guess.
+    * ``contributor_area_m2_by_resource`` — each contributing resource's
+      CLIPPED below-grade area inside this region, sorted.  Measured in
+      the same pass for the same reason the coverage fraction is: §2.2's
+      founded record needs a TIGHT contributor list, and re-deriving
+      those areas in the assembly would be a second scan of the same
+      geometry (the instrument-duplication class this module refuses).
     """
 
     polygon: Polygon
     frame_origin_longitude_latitude: tuple[float, float]
     solid_minimum_y_m: float
     object_resources: tuple[str, ...] = ()
+    above_grade_area_fraction: float | None = None
+    contributor_area_m2_by_resource: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1586,6 +1601,8 @@ class _ResourceGeometryCache:
         "_local_class_unions",
         "_solid_components",
         "_below_grade_unions",
+        "_above_grade_unions",
+        "_local_xz_bounds",
     )
 
     def __init__(
@@ -1598,6 +1615,8 @@ class _ResourceGeometryCache:
         self._local_class_unions: dict[tuple, object] = {}
         self._solid_components: dict[str, list] = {}
         self._below_grade_unions: dict[tuple, object] = {}
+        self._above_grade_unions: dict[tuple, object] = {}
+        self._local_xz_bounds: dict[str, tuple | None] = {}
 
     def evidence(
         self, resource_path: str
@@ -1895,6 +1914,106 @@ class _ResourceGeometryCache:
             return None
         return union, float(minimum_y)
 
+    def local_xz_bounds(self, resource_path: str):
+        """``(min_x, min_z, max_x, max_z)`` over the resource's SOLID
+        vertices in its own authored frame, or ``None``.  Purely a
+        pre-filter datum (see :func:`_placement_frame_bounds`)."""
+        cached = self._local_xz_bounds.get(resource_path, _CACHE_MISS)
+        if cached is not _CACHE_MISS:
+            return cached
+        basis = self.basis(resource_path)
+        bounds = None
+        if basis is not None and basis.used_vertex_indices.size:
+            used = basis.vertices[basis.used_vertex_indices]
+            bounds = (
+                float(used[:, 0].min()),
+                float(used[:, 2].min()),
+                float(used[:, 0].max()),
+                float(used[:, 2].max()),
+            )
+        self._local_xz_bounds[resource_path] = bounds
+        return bounds
+
+    def above_grade_local_union(
+        self, resource_path: str, plane_local_y: float
+    ):
+        """The resource's ABOVE-``plane_local_y`` footprint in its own
+        AUTHORED frame, or ``None`` when nothing qualifies.
+
+        THE MIRROR of :meth:`below_grade_local_union`, deliberately
+        clause for clause (spec ``basin-region-founding-spec.md`` §2.1
+        item 2: "the SAME triangle machinery as the region itself...
+        decal gate identical"): the same welded solid components, the
+        same ``part_has_solid_thickness`` decal exclusion, the same
+        Sutherland-Hodgman clip — only the half-space is flipped, to
+        ``y >= plane_local_y``.  Two different instruments reading
+        "what stands over the pit" and "what the pit is" is exactly the
+        two-instruments-one-population defect class.
+
+        The caller's plane is ``+GROUND_CONTACT_BAND_HALF_WIDTH_M``
+        (less the placement's AGL offset), the module's ONE spelling of
+        "clear of the ground band" — the same plane
+        ``is_open_pit_interface``'s above-grade fraction is measured
+        against, so the region-level openness test and the
+        structure-level one ask the same question.
+        """
+        key = (resource_path, plane_local_y)
+        cached = self._above_grade_unions.get(key, _CACHE_MISS)
+        if cached is not _CACHE_MISS:
+            return cached
+        result = self._compute_above_grade_local_union(
+            resource_path, plane_local_y
+        )
+        self._above_grade_unions[key] = result
+        return result
+
+    def _compute_above_grade_local_union(
+        self, resource_path: str, plane_local_y: float
+    ):
+        geometry = self.geometry_by_resource.get(resource_path)
+        if geometry is None or not geometry.solid_triangles:
+            return None
+        vertices = geometry.vertices
+        rings_by_length: dict[int, list] = {}
+        for triangles, component_minimum_y, component_maximum_y in (
+            self.solid_components(resource_path)
+        ):
+            if component_maximum_y < plane_local_y:
+                continue
+            if not part_has_solid_thickness(
+                component_minimum_y, component_maximum_y
+            ):
+                continue
+            for triangle in triangles:
+                ring = _clip_triangle_above_plane(
+                    (
+                        vertices[triangle[0]],
+                        vertices[triangle[1]],
+                        vertices[triangle[2]],
+                    ),
+                    plane_local_y,
+                )
+                if ring is not None:
+                    rings_by_length.setdefault(len(ring), []).append(ring)
+        if not rings_by_length:
+            return None
+        parts = []
+        for rings in rings_by_length.values():
+            try:
+                part = shapely.union_all(
+                    shapely.polygons(
+                        numpy.asarray(rings, dtype=numpy.float64)
+                    )
+                )
+            except (ValueError, _GEOS_EXCEPTION):
+                continue
+            part = _repaired_area_polygon(part)
+            if part is not None:
+                parts.append(part)
+        if not parts:
+            return None
+        return _union_all_repairing(parts)
+
 
 # Distinguishes "cached None" from "not yet computed" in the cache maps.
 _CACHE_MISS = object()
@@ -1998,6 +2117,39 @@ def _clip_triangle_below_plane(
         following = corners[(index + 1) % 3]
         current_inside = current[1] <= plane_y
         following_inside = following[1] <= plane_y
+        if current_inside:
+            ring.append((current[0], current[2]))
+        if current_inside != following_inside:
+            span = following[1] - current[1]
+            if span == 0.0:  # pragma: no cover - inside flags would agree
+                continue
+            fraction = (plane_y - current[1]) / span
+            ring.append((
+                current[0] + fraction * (following[0] - current[0]),
+                current[2] + fraction * (following[2] - current[2]),
+            ))
+    return ring if len(ring) >= 3 else None
+
+
+def _clip_triangle_above_plane(
+    corners: Sequence[tuple[float, float, float]],
+    plane_y: float,
+) -> list[tuple[float, float]] | None:
+    """:func:`_clip_triangle_below_plane` with the half-space flipped to
+    ``y >= plane_y`` — the openness half of the region instrument (spec
+    ``basin-region-founding-spec.md`` §2.1 item 2).
+
+    Same reason for clipping rather than testing: a ramp panel running
+    −6 → +4 stands over the pit only where it is actually above the
+    ground band, and a whole-triangle test would report the pit covered
+    by its own access ramp.
+    """
+    ring: list[tuple[float, float]] = []
+    for index in range(3):
+        current = corners[index]
+        following = corners[(index + 1) % 3]
+        current_inside = current[1] >= plane_y
+        following_inside = following[1] >= plane_y
         if current_inside:
             ring.append((current[0], current[2]))
         if current_inside != following_inside:
@@ -2492,7 +2644,14 @@ def below_grade_regions(
        uses), everything is unioned, morphologically closed at
        :data:`AT_GRADE_FOOTPRINT_CLOSE_M`, split into connected parts and
        reduced to exterior rings (interior holes filled);
-    5. parts under :data:`TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2` are dropped.
+    5. parts under :data:`TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2` are dropped;
+    6. each surviving region records, IN THE SAME PASS, its contributors'
+       clipped areas inside it and its ABOVE-grade coverage fraction —
+       the same machinery run against the opposite half-space, clipped
+       above ``+GROUND_CONTACT_BAND_HALF_WIDTH_M`` (spec
+       ``docs/specs/basin-region-founding-spec.md`` §2.1).  Both feed
+       FOUNDING, and both are measured here so no consumer ever scans
+       this geometry a second time.
 
     VALIDATED against the pack's own shipped mesh patch (LEMD T4S,
     2026-08-26): 92.7-93.0 % IoU with the authored 27,612 m² ring across
@@ -2575,7 +2734,8 @@ def below_grade_regions(
         if union.geom_type == "MultiPolygon"
         else [union]
     )
-    regions: list[BelowGradeRegion] = []
+    # (exterior ring, thickness-gated minimum y, per-resource clipped area)
+    derived: list[tuple[object, float, dict[str, float]]] = []
     for part in parts:
         if part.geom_type != "Polygon" or part.is_empty:
             continue
@@ -2593,18 +2753,30 @@ def below_grade_regions(
         if exterior.area < TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2:
             continue
         member_minimum_y = math.inf
-        member_resources: set[str] = set()
+        member_area_m2: dict[str, float] = {}
         for polygon, minimum_y, resource_path in contributions:
             try:
                 if not polygon.intersects(exterior):
                     continue
+                # The CLIPPED area inside this region — what §2.2 of the
+                # founding spec ranks a contributor by.  Measured here,
+                # where the clipped polygons already exist.
+                inside_area = float(polygon.intersection(exterior).area)
             except (ValueError, _GEOS_EXCEPTION):
                 continue
-            member_resources.add(resource_path)
+            member_area_m2[resource_path] = (
+                member_area_m2.get(resource_path, 0.0) + inside_area
+            )
             if minimum_y < member_minimum_y:
                 member_minimum_y = minimum_y
         if member_minimum_y is math.inf:  # pragma: no cover - defensive
             continue
+        derived.append((exterior, float(member_minimum_y), member_area_m2))
+    if not derived:
+        return []
+
+    regions: list[BelowGradeRegion] = []
+    for exterior, member_minimum_y, member_area_m2 in derived:
         regions.append(
             BelowGradeRegion(
                 polygon=exterior,
@@ -2612,12 +2784,282 @@ def below_grade_regions(
                     origin_longitude,
                     origin_latitude,
                 ),
-                solid_minimum_y_m=float(member_minimum_y),
-                object_resources=tuple(sorted(member_resources)),
+                solid_minimum_y_m=member_minimum_y,
+                object_resources=tuple(sorted(member_area_m2)),
+                # THE OPENNESS READING IS NOT TAKEN HERE (spec Amendment
+                # 1, 2026-08-27): it is consumed only when a region is
+                # UNMATCHED, and paying 12-33 s at LEMD for a number no
+                # consumer reads is the eager-instrument defect.
+                # ``regions_with_lazy_above_grade_coverage`` fills it for
+                # the regions that can actually reach founding.
+                above_grade_area_fraction=None,
+                contributor_area_m2_by_resource=tuple(
+                    sorted(member_area_m2.items())
+                ),
             )
         )
     regions.sort(key=lambda region: region.polygon.area, reverse=True)
     return regions
+
+
+def region_polygon_in_frame(region, frame_origin_longitude_latitude):
+    """One :class:`BelowGradeRegion` ring in another record's metre
+    frame, or ``None``.
+
+    THE ONE PROJECTION PATH, and the ONE implementation of it
+    (``object_terrain_assembly._region_polygon_in_frame`` delegates
+    here).  The ring goes region frame → longitude/latitude through
+    :func:`frame_polygon_to_longitude_latitude` — the converter
+    ``_tunnel_footprint_longitude_latitude_parts`` uses — and then into
+    the target frame through ``obj8_reader.lonlat_to_local_offset``,
+    that converter's documented inverse.  A hand-rolled frame-to-frame
+    translation would be a second projection of the same body.
+    """
+    longitude_latitude = frame_polygon_to_longitude_latitude(
+        region.polygon, region.frame_origin_longitude_latitude)
+    origin_longitude, origin_latitude = frame_origin_longitude_latitude
+    ring = [
+        obj8_reader.lonlat_to_local_offset(
+            origin_latitude, origin_longitude, 0.0, latitude, longitude)
+        for longitude, latitude in longitude_latitude.exterior.coords
+    ]
+    if len(ring) < 3:
+        return None
+    try:
+        polygon = Polygon(ring)
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+    except (ValueError, _GEOS_EXCEPTION):
+        return None
+    if polygon.is_empty or polygon.geom_type not in (
+            "Polygon", "MultiPolygon"):
+        return None
+    return polygon
+
+
+def _region_prematched_to_an_interface(region, ground_interfaces) -> bool:
+    """Whether ``region`` reaches any ground interface's own below-grade
+    footprint — i.e. whether a basin record will EXTEND to it in
+    assembly rather than found from it (spec Amendment 1)."""
+    for interface in ground_interfaces:
+        footprint = getattr(interface, "below_grade_footprint", None)
+        if footprint is None or footprint.is_empty:
+            continue
+        frame_origin = getattr(
+            interface, "frame_origin_longitude_latitude", None)
+        if frame_origin is None:
+            continue
+        in_frame = region_polygon_in_frame(region, frame_origin)
+        if in_frame is None:
+            continue
+        try:
+            if in_frame.intersects(footprint):
+                return True
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+    return False
+
+
+def regions_with_lazy_above_grade_coverage(
+    regions: Sequence[BelowGradeRegion],
+    ground_interfaces: Sequence[object],
+    placements: Sequence[ObjectPlacement],
+    geometry_by_resource: dict[str, ObjectGeometry],
+    *,
+    cache: "_ResourceGeometryCache | None" = None,
+) -> list[BelowGradeRegion]:
+    """Fill in the openness reading — LAZILY, BY PREMATCH (spec
+    ``docs/specs/basin-region-founding-spec.md`` §2.1 Amendment 1,
+    Fable ruling 2026-08-27).
+
+    The coverage fraction gates FOUNDING, and founding can only happen
+    for a region that matches NO record.  A region that already
+    intersects a ground interface's ``below_grade_footprint`` will be
+    EXTENDED onto that interface's basin record in assembly, so its
+    coverage is a number nobody reads — and reading it is not free:
+    MEASURED at LEMD 2026-08-27, the eager pass cost 33.4 s CPU (12.3 s
+    with the bbox pre-filter) against 0.65 s for the region derivation
+    itself, all of it for the one region that was prematched anyway.
+
+    So a prematched region keeps ``above_grade_area_fraction=None``.
+    That is not a silent guess: ``None`` means NOT COMPUTED, and the
+    founding admission REFUSES on it with a loud line.  The corner that
+    matters — a region prematched here whose record is then dropped
+    upstream — therefore degrades to a reported refusal, never to a
+    fabricated openness.
+
+    Returns a new list (the regions are frozen); the un-prematched ones
+    carry a real fraction, everything else is unchanged.  When NOTHING
+    is un-prematched the above-grade machinery is never entered at all.
+    """
+    if not regions:
+        return list(regions)
+    needing = [
+        index
+        for index, region in enumerate(regions)
+        if not _region_prematched_to_an_interface(region, ground_interfaces)
+    ]
+    if not needing:
+        return list(regions)
+    if cache is None:
+        cache = _ResourceGeometryCache(geometry_by_resource)
+    placements = [
+        placement
+        for placement in placements
+        if not is_stock_library_resource(placement.resource_path)
+    ]
+    origin_longitude, origin_latitude = (
+        regions[0].frame_origin_longitude_latitude)
+    above_grade_union = _above_grade_union_in_frame(
+        placements, cache, origin_latitude, origin_longitude,
+        region_bounds=_bounds_union(
+            [regions[index].polygon.bounds for index in needing]
+        ),
+    )
+    filled = list(regions)
+    for index in needing:
+        region = regions[index]
+        region_area = float(region.polygon.area)
+        coverage = 0.0
+        if above_grade_union is not None and region_area > 0.0:
+            try:
+                coverage = float(
+                    above_grade_union.intersection(region.polygon).area
+                ) / region_area
+            except (ValueError, _GEOS_EXCEPTION):
+                coverage = 0.0
+        filled[index] = _replace_dataclass(
+            region, above_grade_area_fraction=coverage)
+    return filled
+
+
+def _bounds_union(bounds_list):
+    """``(min_x, min_z, max_x, max_z)`` over shapely ``bounds`` tuples."""
+    if not bounds_list:
+        return None
+    minimum_x = min(bounds[0] for bounds in bounds_list)
+    minimum_z = min(bounds[1] for bounds in bounds_list)
+    maximum_x = max(bounds[2] for bounds in bounds_list)
+    maximum_z = max(bounds[3] for bounds in bounds_list)
+    return (minimum_x, minimum_z, maximum_x, maximum_z)
+
+
+def _placement_frame_bounds(
+    placement: ObjectPlacement,
+    cache: "_ResourceGeometryCache",
+    origin_latitude: float,
+    origin_longitude: float,
+):
+    """Frame-space bounding box of a placement's WHOLE solid geometry, or
+    ``None``.  A SUPERSET of anything the placement can contribute, built
+    from four transformed corners — no triangle work, no GEOS."""
+    local_bounds = cache.local_xz_bounds(placement.resource_path)
+    if local_bounds is None:
+        return None
+    minimum_x, minimum_z, maximum_x, maximum_z = local_bounds
+    a, b, d, e, x_offset, z_offset = _affine_matrix_for_placement(
+        placement, origin_latitude, origin_longitude
+    )
+    corners = [
+        (a * x + b * z + x_offset, d * x + e * z + z_offset)
+        for x, z in (
+            (minimum_x, minimum_z),
+            (maximum_x, minimum_z),
+            (maximum_x, maximum_z),
+            (minimum_x, maximum_z),
+        )
+    ]
+    return (
+        min(corner[0] for corner in corners),
+        min(corner[1] for corner in corners),
+        max(corner[0] for corner in corners),
+        max(corner[1] for corner in corners),
+    )
+
+
+def _bounds_overlap(first, second) -> bool:
+    if first is None or second is None:
+        return True
+    return not (
+        first[2] < second[0]
+        or second[2] < first[0]
+        or first[3] < second[1]
+        or second[3] < first[1]
+    )
+
+
+def _above_grade_union_in_frame(
+    placements: Sequence[ObjectPlacement],
+    cache: "_ResourceGeometryCache",
+    origin_latitude: float,
+    origin_longitude: float,
+    *,
+    region_bounds=None,
+):
+    """Frame-space union of everything the pack's own solids put ABOVE
+    the ground band — the openness instrument of spec
+    ``basin-region-founding-spec.md`` §2.1 item 2, or ``None``.
+
+    Same pass, same placements, same cache, same decal gate and the same
+    per-resource PRE-SCAN as the below-grade half: a resource whose
+    highest AUTHORED vertex cannot reach ``+GROUND_CONTACT_BAND_
+    HALF_WIDTH_M`` is skipped before any triangle work.  Called only
+    when at least one region exists, so a pack with nothing below grade
+    never reaches it.
+
+    TWO SKIPS, not one.  The reading is only ever used INTERSECTED WITH
+    A REGION, so a placement whose whole geometry lies outside every
+    region's bounding box contributes nothing to it by construction and
+    is skipped on four transformed corners — no clip, no union, no GEOS.
+    Without it this pass runs the whole airport's above-grade geometry
+    to measure one pit: MEASURED at LEMD 2026-08-27, 33.4 s CPU against
+    0.65 s for the region itself, versus 12.3 s with the skip, for the
+    IDENTICAL reading (0.10008247282569119 either way — 927 placements
+    tested, 31 resources clipped).  The bounding box is a
+    SUPERSET of the placement's contribution, so the skip cannot change
+    the answer — the same argument as the below-grade pre-scan's.
+    """
+    transformed_parts = []
+    for placement in placements:
+        resource_path = placement.resource_path
+        _has_hard, has_solid, _minimum_vertex_y, maximum_vertex_y = (
+            cache.evidence(resource_path)
+        )
+        if not has_solid:
+            continue
+        if not _bounds_overlap(
+            _placement_frame_bounds(
+                placement, cache, origin_latitude, origin_longitude
+            ),
+            region_bounds,
+        ):
+            continue
+        above_ground = float(placement.above_ground_level_metres)
+        plane_local_y = GROUND_CONTACT_BAND_HALF_WIDTH_M - above_ground
+        # THE PRE-SCAN, mirrored: nothing of this resource can reach the
+        # band's top, so no triangle of it stands over anything.
+        if maximum_vertex_y < plane_local_y:
+            continue
+        local_union = cache.above_grade_local_union(
+            resource_path, plane_local_y
+        )
+        if local_union is None:
+            continue
+        try:
+            transformed = shapely_affinity.affine_transform(
+                local_union,
+                _affine_matrix_for_placement(
+                    placement, origin_latitude, origin_longitude
+                ),
+            )
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        transformed = _repaired_area_polygon(transformed)
+        if transformed is not None:
+            transformed_parts.append(transformed)
+    if not transformed_parts:
+        return None
+    return _union_all_repairing(transformed_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -5461,6 +5903,15 @@ def classify_object_terrain_features(
         if BASIN_REGION_FOOTPRINT:
             regions = below_grade_regions(
                 placements, geometry_by_resource, cache=cache
+            )
+            # The openness reading, LAZILY (spec basin-region-founding
+            # Amendment 1): only regions that intersect NO interface's
+            # own below-grade footprint can ever reach founding, and the
+            # interfaces are in hand right here.  Everything else keeps
+            # ``None`` = NOT COMPUTED, which founding refuses out loud.
+            regions = regions_with_lazy_above_grade_coverage(
+                regions, ground_interfaces, placements,
+                geometry_by_resource, cache=cache,
             )
             for region in regions:
                 centroid = region.polygon.centroid

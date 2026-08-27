@@ -4947,6 +4947,41 @@ BASIN_POOL_SCOPING = (
 BASIN_REGION_FOOTPRINT = (
     _os.environ.get("O4_BASIN_REGION_FOOTPRINT", "1") == "1")
 
+# BASIN REGION FOUNDING (2026-08-26 follow-up docket A; spec
+# ``docs/specs/basin-region-founding-spec.md``).  DEFAULT ON.
+#
+# BASIN_REGION_FOOTPRINT above can only WIDEN a basin record that already
+# exists.  LEMD got one only by luck: a single member of the 358-object
+# T4S family (``Ground-FSX-LEMD36.obj``) happens to be fully buried and
+# so escaped the shared-anchor mega-pool as its own BOWL_UNDER_DECK
+# interface.  A pack whose below-grade members ALL pool into one
+# FLAT_CONFIRMED mega-structure produces ZERO basin records — the region
+# is derived, matches nothing, and is only logged; the pit is never cut
+# and the below-grade shell stays buried.  That is the LEMD defect class
+# minus the luck.
+#
+# With this ON, ``object_terrain_assembly.basin_trench_structures``
+# FOUNDS a basin record from a below-grade region that intersects no
+# existing basin or feature-A tunnel record, provided it is DEEP
+# (``solid_minimum_y_m`` at or below −BOWL_MIN_BELOW_GRADE_LEVEL_DEPTH_M
+# — the 2.5-3.0 m band stays extension-only evidence, since founding is
+# inference without an interface to key on) and OPEN (ruling R13: the
+# region's above-grade coverage, measured by the same triangle machinery
+# clipped above +GROUND_CONTACT_BAND_HALF_WIDTH_M, at or under
+# BOWL_MAX_ABOVE_GRADE_AREA_FRACTION).  A COVERED region is a bore /
+# tunnel candidate and is refused, loudly, with its coverage fraction.
+#
+# DELIBERATE LIMITS (spec §2.3, do not widen): a founded record adds NO
+# ruling-R4 exclusions — exclusions stay interface-driven, and founding
+# changes terrain, not the y-bake population — and a region overlapping
+# a BRIDGE record is logged and never founded, because a bridge deck's
+# under-space belongs to the bridge contract.
+#
+# With O4_BASIN_REGION_FOUNDING=0 nothing is founded and the emitted
+# patch is byte-identical to the region-footprint round.
+BASIN_REGION_FOUNDING = (
+    _os.environ.get("O4_BASIN_REGION_FOUNDING", "1") == "1")
+
 # BASIN OPEN-PIT DECK KEY — AMENDMENT 3's clause, RETIRED-KEPT-GATED
 # (owner 2026-08-26 supersedes owner 2026-08-25).  DEFAULT OFF.
 #

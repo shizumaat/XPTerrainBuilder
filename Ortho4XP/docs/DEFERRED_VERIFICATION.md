@@ -3576,3 +3576,33 @@ What this branch DOES carry, and what is deferred on it:
   suite, and the basin rebuild checks for every OTHH/EGLL/LFPG basin whose
   floor lawfully deepens by the restored tunnel margins and whose footprint
   may widen to a derived below-grade region.
+
+* `docs/specs/proj-runtime-robustness-spec.md` (PROJ runtime pinning +
+  environment scrub + preflight build gate; the alpha-2 Windows "elevation
+  inset fetch failed … PROJ: proj_create_from_database" field report) —
+  verified by `tests/test_proj_runtime.py` + `tests/test_version_scheme.py`
+  run once (35 passed) and `Ortho4XP.py --proj-selfcheck` from source
+  (exit 0).  DEFERRED to the next tagged release: real FROZEN-app
+  verification on Windows/macOS/Linux — the D6 CI smoke steps (frozen
+  executable + bogus `PROJ_LIB`/`PROJ_DATA`, in `release.yml` and
+  `Ortho4XP/.github/workflows/build-apps.yml`) are the instrument; no local
+  Windows machine exists, and no freeze was run in this round, so the D1/D2
+  spec-file changes (no system `proj.db`, GDAL's own proj data bundled) are
+  unexercised until CI runs them.
+* The alpha-2 user's exact failure string (database layout-version MISMATCH
+  vs a MISSING database) was never captured un-clipped; the fix removes both
+  causes, so the distinction is not chased — the frozen-app smoke steps
+  above are what would resurface either.
+
+* `docs/specs/basin-region-founding-spec.md` (basin FOUNDING from unmatched
+  below-grade regions, follow-up docket A of the owner's 2026-08-26 LEMD T4S
+  rulings) — verified by the spec's four covering test files run once through
+  the ledger (594 passed; `tests/test_harness.py::
+  test_the_near_miss_frontage_law_is_one_authority` fails PRE-EXISTING at
+  HEAD, unrelated) and by an OFFLINE LEMD classification probe proving
+  founding INERT there (0 founded records, the T4S record and its 587.75
+  floor key unchanged, `guard blocked: []`).  DEFERRED to the ship gate:
+  acceptance of founding where it actually FIRES — no pack in the fixture
+  corpus has an unmatched deep open region, so every founded record so far
+  is synthetic; and the in-sim read of a pit cut from a founded record
+  (footprint, floor, and the seating of its tight contributor list).

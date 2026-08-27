@@ -116,6 +116,21 @@ fully constrained graph as efficiently as possible."
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat; no shared-repo writes.
 
+## is REPORT-FIRST pre-ship)
+
+The lane's §1.4 refusal surfaced exactly one contradictory anchor pair
+at HEAZ (3104 at 81.10 vs 3281 at 86.14, 5.04 m over a 4.38 m 15-hop
+budget) and would block that airport at main tip. Owner ruling: the
+§2-instrument precedent applies — pre-ship, an empty/inverted interval
+is a LOUD REPORT (the same message §1.4 specifies: lat/lon, both
+anchors, both chains, plus a sidecar record `law_band_contradictions`
+the census prints), and the build CONTINUES with the pre-band behaviour
+at the affected nodes. `O4_BAND_LAW_REFUSE=1` restores the hard
+refusal (the diagnostic/ship-gate arm; default 0 pre-ship). Promotion
+to refusal is a ship-gate ruling, adjudicated with the accumulated
+contradiction ledger. The HEAZ pair itself remains an open owner
+docket (runway seat vs chain cap), carried in DEFERRED_VERIFICATION.
+
 ## §0 ADDENDUM — the seat-side (frontage) evidence, measured
 ## (implementation lane, 2026-08-27; appended, Fable's text above unchanged)
 

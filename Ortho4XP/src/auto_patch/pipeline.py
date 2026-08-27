@@ -878,6 +878,115 @@ _WELD_BEFORE_PROJECTION = (
     os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0")
 
 
+def gap_spine_stand_down_solve(*, layout, icao, solve, rebuild):
+    """THE GAP-SPINE BRIDGE STAND-DOWN — owner ruling 2026-08-27 "2",
+    ``docs/specs/gap-spine-bridge-stand-down-spec.md`` Amendment 1.
+
+    ``solve()`` runs phases [5]+[6] on ``layout`` (and may raise
+    :class:`BandInversionError`); ``rebuild()`` re-runs the WHOLE airport
+    build, which this function first disables bridge synthesis for.
+    Returns the layout that ships.
+
+    THE TEST IS THE RETRY, not a predicted spread.  The spec's original
+    shape — refuse a bridge candidate whose two ends' governing anchor
+    values already spread more than ``cap x route`` — was measured
+    UNIMPLEMENTABLE at candidate time (lane/bridgedown probes, tree
+    594daec3).  The band's end values are phase-2 EMITTED runway
+    elevations (``_decrowned_anchor_seeds`` <- ``G.runway_anchor`` <-
+    ``_sample_runway_segment_elev``), and at the synthesis site — phase 4,
+    before the global slice — the runway shapes carry ``altitude=None``
+    and no ``node_altitudes``, so all 21 of HEAZ's runway-join contacts
+    sample ``None``.  The only phase-1-legible alternative, the CIFP
+    envelope, is a second notion of the end's value AND measures
+    non-firing (the refusal's own CIFP half reports the forced spread
+    FITS the budget on every HEAZ pair).
+
+    The same probes corrected the attribution's mechanism sentence.  HEAZ
+    mints THIRTEEN bridges (5-244 m), not one, and the binding inverted
+    chain lies 195-292 m from the nearest bridge segment: the mechanism
+    is the bridges' AGGREGATE effect on the global slice, not one
+    over-budget route.  Per-candidate refusal cannot express that; a
+    per-AIRPORT interventional re-run can, and it is what the owner's
+    "restores the pre-c6a85e9c surface exactly" describes.
+
+    ONE SHOT, never a masking loop — and the one-shot property is
+    STRUCTURAL rather than a counter: the retry runs with synthesis
+    disabled, so ITS layout carries no bridges, so this function is a
+    pass-through inside it.  A build that refuses for any other reason
+    (no bridges minted) never enters the adjudication and raises exactly
+    as before, byte-for-byte.
+
+    A retry that ALSO refuses EXONERATES the bridges: the original
+    refusal is re-raised unchanged.  A refusal is never swallowed to
+    shield a surface, the same way a dying mechanism is never kept alive
+    to shield one (no-degradation-shield).
+
+    SCOPE is the smallest sound one.  The bridge is minted in phase 4 and
+    every later phase mutates the layout in place, so there is no
+    checkpoint to resume from at the synthesis step — the sound unit is
+    the whole airport build.  It is scoped to THIS airport by
+    construction (``driver._build_write_verify_one`` builds one airport
+    per worker process) and the flag is restored in a ``finally``
+    regardless of outcome.
+    """
+    from .elevation_per_surface.building_feasibility import (
+        BandInversionError, FINAL_BAND_INVERSION_TOL_M as _tol)
+    bridges = list(getattr(layout, "gap_spine_bridges", None) or [])
+    if not bridges:
+        return solve()
+    try:
+        return solve()
+    except BandInversionError as band_exc:
+        rows = list(getattr(layout, "_final_band_inversions", None) or [])
+        over = sum(1 for r in rows
+                   if float(r.get("deficit_m", 0.0)) > _tol)
+        band_n = int(getattr(layout, "_final_band_node_count", 0) or 0)
+        refusal = (str(band_exc).splitlines() or [""])[0].strip()
+        UI.vprint(1, f"  [gap-spine] {icao}: the post-solve band law "
+                     f"REFUSED a build carrying {len(bridges)} synthesized "
+                     f"gap-spine bridge(s) — retrying the airport ONCE with "
+                     f"them stood down.  A one-shot INTERVENTIONAL test run "
+                     f"in production, never a masking loop: the retry mints "
+                     f"no bridge, so it cannot retry again.")
+        from . import config as _cfg_gsb
+        was_enabled = getattr(_cfg_gsb, "GAP_SPINE_BRIDGE_ENABLED", True)
+        try:
+            _cfg_gsb.GAP_SPINE_BRIDGE_ENABLED = False
+            retry_layout = rebuild()
+        except BandInversionError:
+            UI.vprint(1, f"  [gap-spine] {icao}: bridges EXONERATED — the "
+                         f"retry WITHOUT the {len(bridges)} bridge(s) "
+                         f"refuses too, so they are not the mechanism.  The "
+                         f"ORIGINAL refusal stands: {refusal}")
+            raise band_exc
+        finally:
+            _cfg_gsb.GAP_SPINE_BRIDGE_ENABLED = was_enabled
+        # CLEAN without them => the bridges ARE the mechanism.  The
+        # nodeless region they would have filled stays unfilled: round-3
+        # spine stations and the lattice are the anchor mechanism there,
+        # not synthesized routes.
+        try:
+            retry_layout.gap_spine_stand_down = [{
+                "icao": icao,
+                "bridge_count": len(bridges),
+                "bridges": bridges,
+                "refusal": refusal,
+                "inverted_node_count": over,
+                "band_node_count": band_n,
+                "materiality_m": float(_tol),
+            }]
+        except AttributeError:                             # pragma: no cover
+            pass
+        UI.vprint(1, f"  [gap-spine] {icao}: {len(bridges)} bridge(s) "
+                     f"STAND DOWN — the retry without them is CLEAN, so the "
+                     f"bridges are the mechanism of the refusal ({over} of "
+                     f"{band_n} band-covered node(s) inverted by more than "
+                     f"{_tol:g} m).  The nodeless region they would have "
+                     f"filled stays unfilled; this patch is the bridge-free "
+                     f"surface.  Original refusal: {refusal}")
+        return retry_layout
+
+
 def build_airport_pavement(icao: str, xplane_root: str,
                             *,
                             compute_elevations: bool = True,
@@ -3918,7 +4027,25 @@ def build_airport_pavement(icao: str, xplane_root: str,
     )
     from . import solve_capture as _solve_capture
     _solve_capture.maybe_capture(_tail)          # no-op unless armed
-    return solve_and_finalize(**_tail)
+
+    # ── THE GAP-SPINE BRIDGE STAND-DOWN ──────────────────────────────
+    # Phases [5]+[6] run through the adjudicator, which is a pass-through
+    # for every build that minted no bridge.  The law, the measurement
+    # behind its shape and the one-shot argument are in
+    # :func:`gap_spine_stand_down_solve`'s docstring — this is the ONE
+    # place that can supply both of its callables, because ``rebuild``
+    # means re-running phases 1-4 and only this function is them.
+    return gap_spine_stand_down_solve(
+        layout=layout, icao=icao,
+        solve=lambda: solve_and_finalize(**_tail),
+        rebuild=lambda: build_airport_pavement(
+            icao, xplane_root,
+            compute_elevations=compute_elevations,
+            taxiway_data=taxiway_data,
+            tile_dem=tile_dem,
+            airport_boundary=airport_boundary,
+            current_tile_lat=current_tile_lat,
+            current_tile_lon=current_tile_lon))
 
 
 def solve_and_finalize(*, layout: PavementLayout, icao: str,

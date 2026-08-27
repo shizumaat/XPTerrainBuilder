@@ -6484,6 +6484,13 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # route; this exists so a reader can NAME a centerline that is in
     # the patch but in no upstream feed.
     "gap_spine_bridges",
+    # THE STAND-DOWN (gap-spine-bridge-stand-down-spec Amendment 1): one
+    # record when this patch is the bridge-free RETRY of a build the
+    # post-solve band law refused with bridges minted.  EVIDENCE — a
+    # stand-down is not a defect row; it says the surface in this patch
+    # was adjudicated by an interventional re-run, and which refusal it
+    # answered.  Counted, never re-judged.
+    "gap_spine_stand_down",
 )
 
 
@@ -6628,6 +6635,12 @@ def sidecar_evidence(osm_path) -> dict:
         data.get("nodeless_interiors") or [])
     out["gap_spine_bridge_count"] = len(data.get("gap_spine_bridges")
                                         or [])
+    # A STAND-DOWN IS NOT A DEFECT ROW (spec Amendment 1 §2 register):
+    # the census reports the COUNT so a reader can tell a surface that
+    # was adjudicated by the bridge-free re-run from one that never had
+    # bridges at all.  Reported at zero — zero-of-zero is not a pass.
+    out["gap_spine_stand_down_count"] = len(
+        data.get("gap_spine_stand_down") or [])
     return out
 
 

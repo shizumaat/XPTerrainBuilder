@@ -4877,98 +4877,6 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                                    "stage": _sstage, "xy": (_px, _py),
                                    "edge_a": _akey, "edge_b": _bkey,
                                    "t": _tfoot})
-    # ── §1.2 CROSSING-CONFORMANCE PINS (owner RULINGS 2026-08-26b item 2;
-    # spec ``road-airside-crossing-conformance-spec.md``) ────────────────
-    # "At the stretch's entry/exit of the airside polygon the road takes
-    # the airside boundary value."  The proximity mouth seat above is the
-    # same act with a different CONTACT TEST — it asks "is this road node
-    # within 1.5 m of an airside ring edge", a number DERIVED from the
-    # corridor minter's cut-back — and at the owner's site it misses by
-    # 0.04-0.10 m (measured on ``HECA_20260826T213425``: the road's
-    # contact nodes stand 1.538-1.60 m from junction -10250's ring, with
-    # an ``adjacent_ground`` strip in the gap, and take no anchor at all
-    # while the junction sits 3.4 m above them).
-    #
-    # So this is the SAME seat asked for by the CROSSING instead of by
-    # proximity: ``groundside.road_airside_crossing_contacts`` minted one
-    # pin per entry/exit, each naming its carrier airside ring edge and
-    # the foot parameter, and the road's own CROSS-SECTION at that entry
-    # takes the edge's interpolated value.  The population is bounded by
-    # ``ROAD_CARVE_MAX_WIDTH_M / 2`` — the law's own bound on how wide a
-    # carved road may be — so the reach is derived, never new.
-    #
-    # AIRSIDE IS KING, and it is structural here: the two values read are
-    # ``elev`` at AIRSIDE canonical nodes and the only value written is
-    # ``elev[i]`` at a SERVICE node.  No airside term ever references a
-    # road variable.  Records join ``_mouth_records`` so the hold and the
-    # final-moment ``reseat_service_mouths`` re-derivation cover them
-    # without a second mechanism.
-    from auto_patch.config import (
-        ROAD_AIRSIDE_CROSSING_CONFORM as _XCONF_ON,
-        ROAD_CARVE_MAX_WIDTH_M as _XCONF_WIDTH_M)
-    _xconf_pins = (getattr(layout, "_airside_conform_pins", None) or []
-                   if _XCONF_ON else [])
-    _xconf_seated = 0
-    if _xconf_pins and svc_nodes:
-        _XR = float(_XCONF_WIDTH_M) / 2.0
-        _xcell = max(1.0, _XR)
-        _xgrid: dict = {}
-        for _i, (_px, _py) in node_pos.items():
-            _xgrid.setdefault((int(_px // _xcell), int(_py // _xcell)),
-                              []).append(_i)
-        for _pin in _xconf_pins:
-            try:
-                (_qx, _qy) = _pin["xy"]
-                (_eax, _eay) = _pin["edge_a"]
-                (_ebx, _eby) = _pin["edge_b"]
-                _t = float(_pin["t"])
-            except (KeyError, TypeError, ValueError):    # pragma: no cover
-                continue
-            _ai = bucket_to_idx.get(_key(_eax, _eay))
-            _bi = bucket_to_idx.get(_key(_ebx, _eby))
-            if (_ai is None or _bi is None
-                    or _ai >= len(elev) or _bi >= len(elev)):
-                continue
-            _za, _zb = float(elev[_ai]), float(elev[_bi])
-            _z = _za + _t * (_zb - _za)
-            _cx, _cy = int(_qx // _xcell), int(_qy // _xcell)
-            for _ox in (-1, 0, 1):
-                for _oy in (-1, 0, 1):
-                    for _i in _xgrid.get((_cx + _ox, _cy + _oy), ()):
-                        if _i in anchors or _i >= len(elev):
-                            continue
-                        (_px, _py) = node_pos[_i]
-                        _dd = _m.hypot(_px - _qx, _py - _qy)
-                        if _dd > _XR:
-                            continue
-                        _step = abs(_z - float(elev[_i]))
-                        anchors[_i] = _z
-                        # A node an airside ring CLAIMS is stage A
-                        # (``stage_of_roles``' own rule) — the carrier
-                        # edge is airside pavement by construction.
-                        if anchor_stage.get(_i) != STAGE_A:
-                            anchor_stage[_i] = STAGE_A
-                        if _step > 1e-9:
-                            elev[_i] = _z
-                            _mouth_moved.add(_i)
-                        _mouth_records.append(
-                            {"i": _i, "gap_m": round(_dd, 4),
-                             "value_m": round(_z, 4),
-                             "step_m": round(_step, 4),
-                             "stage": STAGE_A, "xy": (_px, _py),
-                             "edge_a": _key(_eax, _eay),
-                             "edge_b": _key(_ebx, _eby),
-                             "t": _t, "xconform": True})
-                        _xconf_seated += 1
-        if _xconf_seated:
-            import O4_UI_Utils as _UI_xc
-            _UI_xc.vprint(1,
-                f"  [pav-builder] road↔airside CROSSING pins (RULINGS "
-                f"2026-08-26b item 2): {_xconf_seated} road node(s) in the "
-                f"cross-section at {len(_xconf_pins)} airside entry/exit "
-                f"point(s) seated AT the airside boundary value (reach "
-                f"{_XR:.1f} m = ROAD_CARVE_MAX_WIDTH_M/2); the road ramps "
-                f"away from the pin under its own cap.")
     layout._svc_mouth_prox_idx = {r["i"] for r in _mouth_records}
     layout._svc_mouth_prox_records = _mouth_records
     # ── THE MOUTH SEAT IS HELD (adjudication 2026-08-15) ──────────────
@@ -5046,14 +4954,12 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
                 _json_mp.dump(_out, _fh, indent=1)
         except Exception:                                # pragma: no cover
             pass
-    # The PROXIMITY half only — the crossing pins report themselves above.
-    _prox_only = [r for r in _mouth_records if not r.get("xconform")]
-    if _prox_only:
+    if _mouth_records:
         import O4_UI_Utils as _UI_mp
-        _worst = max(r["step_m"] for r in _prox_only)
+        _worst = max(r["step_m"] for r in _mouth_records)
         _UI_mp.vprint(1,
             f"  [pav-builder] service mouth PROXIMITY anchors (owner law "
-            f"2026-08-15, airside is king): {len(_prox_only)} road "
+            f"2026-08-15, airside is king): {len(_mouth_records)} road "
             f"node(s) within {_MOUTH_TOL_M:.1f} m of an AIRCRAFT-PAVEMENT "
             f"ring edge seated AT that edge's interpolated solved value "
             f"and HELD through the projections ({len(_mouth_moved)} moved, "

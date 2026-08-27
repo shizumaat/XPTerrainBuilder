@@ -42,6 +42,22 @@ Usage:
     # writes <out> (default /tmp/reach_route.kml) and prints the band, the
     # serving attachment, the binding anchor, and the per-cap route lengths.
 
+    venv/bin/python tools/trace_reach_route.py --from-sidecar \
+        Patches/+30+031/HECA_auto.patch.osm --ref building25 \
+        --out /tmp/building25.kml
+    # NO BUILD.  Renders the pad BINDING ROUTES the engine PUBLISHED into
+    # the patch's ``.axes.json`` (key ``pad_binding_routes``, spec
+    # ``docs/specs/pad-binding-routes-spec.md``).
+
+``--from-sidecar`` exists because the live modes above answer "which route
+binds this pad?" only by REBUILDING the whole airport: the band is live
+solver state, and re-deriving it offline is exactly the second engine this
+tool was rewritten to stop being.  So the engine publishes, at emit time,
+the route evidence it already computed, and this mode renders it — one
+capture, N consumers.  ``--out`` picks the format by extension (``.kml``
+or ``.osm``); the OSM render is a JOSM viewer artifact and the writer
+REFUSES an ``--out`` ending in ``.patch.osm`` (the patch loader globs it).
+
 ``--dem M`` traces inside a CONSTANT-DEM oracle world (the same
 ``auto_patch.constant_dem.ConstantDEM`` ``harness/build_airport.py --dem``
 installs — one authority, not a second constant-DEM path).  It exists
@@ -108,47 +124,27 @@ def _nodespace(G):
     return f"G@{id(G):x}/n={len(getattr(G, 'pos', None) or ())}"
 
 
-def _edge_budget(G, a, b):
-    """The spine edge's own budget (metres of value it may carry), or None."""
-    for (v, budget) in G.spine_adj.get(a, ()):
-        if v == b:
-            return float(budget)
-    return None
+# ── THE WALK LIVES IN THE ENGINE ─────────────────────────────────────────
+# ``_walk_to_anchor`` / ``_edge_budget`` used to be private copies here.
+# They are now ``building_feasibility.walk_to_anchor`` /
+# ``.spine_edge_budget`` (spec ``docs/specs/pad-binding-routes-spec.md``
+# §1.1): the engine PUBLISHES pad binding routes with the same walk this
+# tool reports, and one implementation is what stops the two drifting into
+# separate opinions about which route bound a node.
+#
+# Bound lazily (PEP 562) rather than by a module-level ``from … import``:
+# ``--from-sidecar`` may not pull the solver in AT ALL (§2.1), and a
+# top-level import would do exactly that at module load.  The names are
+# production's own objects — ``trace_reach_route.walk_to_anchor is
+# building_feasibility.walk_to_anchor`` — so there is nothing to fork.
+_ENGINE_WALK_NAMES = ("walk_to_anchor", "spine_edge_budget")
 
 
-def _walk_to_anchor(G, prov_side, node, anchor, limit=100000):
-    """The recorded route ``node → anchor``, read out of the field.
-
-    ``prov_side`` is ``{node: (anchor, route_budget)}`` as
-    ``spine_value_fields`` recorded it.  Each hop must reproduce the recorded
-    budget through the edge it crosses, so this REPLAYS the winning route
-    rather than searching for one: a hop that does not reconcile stops the
-    walk and is reported, instead of a second metric quietly inventing a path.
-    """
-    path = [node]
-    u = node
-    seen = {node}
-    while u != anchor and len(path) < limit:
-        cur = prov_side.get(u)
-        if cur is None:
-            return path, False
-        best = None
-        for (v, budget) in G.spine_adj.get(u, ()):
-            if v in seen:
-                continue
-            rec = prov_side.get(v)
-            if rec is None or rec[0] != cur[0]:
-                continue
-            if abs(rec[1] + float(budget) - cur[1]) <= 1e-6:
-                if best is None or rec[1] < prov_side[best][1]:
-                    best = v
-        if best is None:
-            return path, False
-        seen.add(best)
-        path.append(best)
-        u = best
-    path.reverse()                                  # anchor → point
-    return path, (u == anchor)
+def __getattr__(name):
+    if name in _ENGINE_WALK_NAMES:
+        from auto_patch.elevation_per_surface import building_feasibility
+        return getattr(building_feasibility, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _live_band(layout, _cache={}):
@@ -185,6 +181,9 @@ def _route_sides(G, prov, node):
     Shared by the coordinate report and ``--inverted-pairs``: the SAME
     walk over the SAME recorded field, so the two modes can never disagree
     about which route binds a node."""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        walk_to_anchor as _walk_to_anchor,
+        spine_edge_budget as _edge_budget)
     anchor_value = prov.get("anchor_value") or {}
     out = {}
     for side in ("ceiling", "floor"):
@@ -897,58 +896,131 @@ def _report_inverted_pairs(layout, captured=None):
             _print_caps(s, indent="             ")
 
 
+# ── ONE KML SKELETON, TWO MODES ──────────────────────────────────────────
+# Factored out of ``_kml`` (spec ``docs/specs/pad-binding-routes-spec.md``
+# §2.2): the live mode and ``--from-sidecar`` render the same document
+# vocabulary — same styles, same LineString/Placemark spelling, same 7-dp
+# coordinates — so a reader who knows one render knows the other.  Extend
+# the near-fit, never fork (RULINGS ``7e90032``).
+#
+# The skeleton speaks LAT/LON only.  The live mode holds local metres and
+# converts on the way in (it is the only side that has a layout anchor to
+# convert with); the sidecar mode already has lat/lon and hands them
+# straight over.
+_KML_STYLES = (
+    ('r', 'ff00ffff', 5, None),        # ceiling route — yellow, fat
+    ('f', 'ff00ff00', 3, None),        # floor route — green
+    ('ap', 'ffff8800', 2, '20ff8800'),  # apron ring
+    ('bl', 'ff0000ff', 2, '300000ff'),  # building ring
+)
+
+
+def _xq(text):
+    """XML text escape for a Placemark name.
+
+    Shape refs are free text out of OSM; an unescaped ``&`` makes the
+    whole document unparseable, which is a render that silently fails in
+    the viewer rather than at the writer."""
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+class _KmlDoc:
+    """The KML document both modes build (see the block above)."""
+
+    def __init__(self):
+        self.parts = ['<?xml version="1.0"?>',
+                      '<kml xmlns="http://www.opengis.net/kml/2.2">'
+                      '<Document>']
+        for (sid, color, width, poly) in _KML_STYLES:
+            self.parts.append(
+                f'<Style id="{sid}"><LineStyle><color>{color}</color>'
+                f'<width>{width}</width></LineStyle>'
+                + ('' if poly is None else
+                   f'<PolyStyle><color>{poly}</color></PolyStyle>')
+                + '</Style>')
+
+    @staticmethod
+    def _coords(lls):
+        """KML's ``lon,lat,0`` triples from ``(lat, lon)`` pairs."""
+        return " ".join(f"{float(lo):.7f},{float(la):.7f},0"
+                        for (la, lo) in lls)
+
+    def folder(self, name):
+        self.parts.append(f'<Folder><name>{_xq(name)}</name>')
+
+    def end_folder(self):
+        self.parts.append('</Folder>')
+
+    def point(self, name, lat, lon):
+        self.parts.append(
+            f'<Placemark><name>{_xq(name)}</name><Point><coordinates>'
+            f'{float(lon):.7f},{float(lat):.7f},0'
+            f'</coordinates></Point></Placemark>')
+
+    def note(self, name):
+        """A geometry-less Placemark — the honest render of a record that
+        carries no coordinates at all (an off-network pad: the schema has
+        a seat and a verdict, and deliberately no position).  It shows in
+        the viewer's places list, which is where such an ANSWER belongs."""
+        self.parts.append(f'<Placemark><name>{_xq(name)}</name></Placemark>')
+
+    def line(self, name, style, lls):
+        self.parts.append(
+            f'<Placemark><name>{_xq(name)}</name>'
+            f'<styleUrl>#{style}</styleUrl><LineString><coordinates>'
+            f'{self._coords(lls)}</coordinates></LineString></Placemark>')
+
+    def ring(self, name, style, lls):
+        self.parts.append(
+            f'<Placemark><name>{_xq(name)}</name>'
+            f'<styleUrl>#{style}</styleUrl>'
+            f'<Polygon><outerBoundaryIs><LinearRing><coordinates>'
+            f'{self._coords(lls)}</coordinates></LinearRing>'
+            f'</outerBoundaryIs></Polygon></Placemark>')
+
+    def write(self, out_path):
+        self.parts.append('</Document></kml>')
+        with open(out_path, "w") as f:
+            f.write("\n".join(self.parts) + "\n")
+        print(f"wrote {out_path}")
+
+
 def _kml(layout, r, x, y, label, out_path):
-    from shapely.geometry import Point as _P
-    from auto_patch.grade_graph import _open_ring
-    from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
     lat0, lon0 = layout.anchor
     R = 6378137.0
     cos0 = math.cos(math.radians(lat0))
 
     def ll(px, py):
-        return (lon0 + math.degrees(px / (R * cos0)),
-                lat0 + math.degrees(py / R))
+        """Local metres → ``(lat, lon)`` — the skeleton's own vocabulary."""
+        return (lat0 + math.degrees(py / R),
+                lon0 + math.degrees(px / (R * cos0)))
 
-    def line(pts):
-        return " ".join(f"{ll(*p)[0]:.7f},{ll(*p)[1]:.7f},0" for p in pts)
+    from shapely.geometry import Point as _P
+    from auto_patch.grade_graph import _open_ring
+    from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
 
-    def pm(name, px, py):
-        lo, la = ll(px, py)
-        return (f'<Placemark><name>{name}</name><Point><coordinates>'
-                f'{lo:.7f},{la:.7f},0</coordinates></Point></Placemark>')
-
+    doc = _KmlDoc()
     band = r.get("band")
-    parts = [
-        '<?xml version="1.0"?>',
-        '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>',
-        '<Style id="r"><LineStyle><color>ff00ffff</color><width>5</width>'
-        '</LineStyle></Style>',
-        '<Style id="f"><LineStyle><color>ff00ff00</color><width>3</width>'
-        '</LineStyle></Style>',
-        '<Style id="ap"><LineStyle><color>ffff8800</color><width>2</width>'
-        '</LineStyle><PolyStyle><color>20ff8800</color></PolyStyle></Style>',
-        '<Style id="bl"><LineStyle><color>ff0000ff</color><width>2</width>'
-        '</LineStyle><PolyStyle><color>300000ff</color></PolyStyle></Style>',
-        pm(f"target {label}" + ("" if band is None else
-                                f" band [{band[0]:.2f}, {band[1]:.2f}]"), x, y),
-    ]
+    _la, _lo = ll(x, y)
+    doc.point(f"target {label}" + ("" if band is None else
+                                   f" band [{band[0]:.2f}, {band[1]:.2f}]"),
+              _la, _lo)
     for side, style in (("ceiling", "r"), ("floor", "f")):
         s = r.get(side)
         if not s or len(s["path"]) < 2:
             continue
-        parts.append(
-            f'<Placemark><name>{side} route {s["runway"]} '
-            f'{s["anchor_value"]:.2f} + {s["route_budget_m"]:.2f} m</name>'
-            f'<styleUrl>#{style}</styleUrl><LineString><coordinates>'
-            f'{line(s["path"])}</coordinates></LineString></Placemark>')
+        doc.line(f'{side} route {s["runway"]} {s["anchor_value"]:.2f} + '
+                 f'{s["route_budget_m"]:.2f} m', style,
+                 [ll(*p) for p in s["path"]])
         ap = s["anchor_pos"]
         if ap:
-            parts.append(pm(f"{side} anchor {s['runway']} "
-                            f"{s['anchor_value']:.2f}", ap[0], ap[1]))
+            doc.point(f"{side} anchor {s['runway']} {s['anchor_value']:.2f}",
+                      *ll(ap[0], ap[1]))
     pos = r.get("attachment_pos")
     if pos:
-        parts.append(pm(f"attachment node {r['attachment_node']}",
-                        pos[0], pos[1]))
+        doc.point(f"attachment node {r['attachment_node']}",
+                  *ll(pos[0], pos[1]))
     near = _P(x, y)
     for s in layout.shapes:
         if (s.polygon is None or s.polygon.is_empty
@@ -956,18 +1028,229 @@ def _kml(layout, r, x, y, label, out_path):
             continue
         if s.role in (ROLE_APRON, ROLE_BUILDING):
             ring = _open_ring(list(s.polygon.exterior.coords))
-            style = "ap" if s.role == ROLE_APRON else "bl"
-            name = (f"apron {s.polygon.area:.0f}m2"
-                    if s.role == ROLE_APRON else str(s.ref))
-            parts.append(
-                f'<Placemark><name>{name}</name><styleUrl>#{style}</styleUrl>'
-                f'<Polygon><outerBoundaryIs><LinearRing><coordinates>'
-                f'{line(ring + [ring[0]])}</coordinates></LinearRing>'
-                f'</outerBoundaryIs></Polygon></Placemark>')
-    parts.append('</Document></kml>')
+            doc.ring(f"apron {s.polygon.area:.0f}m2"
+                     if s.role == ROLE_APRON else str(s.ref),
+                     "ap" if s.role == ROLE_APRON else "bl",
+                     [ll(*p) for p in ring + [ring[0]]])
+    doc.write(out_path)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ``--from-sidecar`` — the OFFLINE render (spec §2).  NO BUILD, NO SOLVE,
+# NO LAYOUT: it reads the ``pad_binding_routes`` the engine published into
+# the patch's ``.axes.json`` and draws it.  Nothing below may import the
+# solver — that is the whole point of the mode, and the reason the live
+# modes keep their imports inside their own functions.
+# ══════════════════════════════════════════════════════════════════════
+
+#: What a sidecar without the key means, and what to do about it.
+_NO_KEY_MSG = (
+    "this patch predates route publication — its sidecar carries no "
+    "'pad_binding_routes' key.  Rebuild it (tools/harness/build_airport.py "
+    "ICAO) to get the published routes, or use the LIVE modes of this tool "
+    "(they build the airport and read the band in-process).")
+
+
+def _sidecar_path(arg):
+    """``X.osm`` → ``X.osm.axes.json``; an ``.axes.json`` path passes
+    through.  Both spellings are accepted because both are what a reader
+    has in hand (§2.1)."""
+    s = str(arg)
+    return s if s.endswith(".axes.json") else s + ".axes.json"
+
+
+def _sidecar_records(path, refs):
+    """``(records, container)`` for the requested pads, or ``sys.exit`` with
+    the fact and its remedy.
+
+    Every "nothing to draw" case is NAMED — a missing key, a capture that
+    could not run, a build with no pads, a filter that matched nothing —
+    because an empty render that says nothing is how an instrument becomes
+    untrustworthy."""
+    import json as _json
+    if not os.path.exists(path):
+        sys.exit(f"no sidecar at {path} — every emit writes one, so a "
+                 f"missing sidecar means this patch was not emitted by "
+                 f"this tree.")
+    data = _json.loads(open(path).read())
+    if "pad_binding_routes" not in data:
+        sys.exit(_NO_KEY_MSG)
+    box = data["pad_binding_routes"] or {}
+    ns = box.get("nodespace")
+    recs = list(box.get("records") or [])
+    print(f"sidecar {path}")
+    if ns is None:
+        print("pad_binding_routes: nodespace=null — the CAPTURE COULD NOT "
+              "RUN on this build (no unified graph handed to the seat pass, "
+              "a band with no attachment lookup, no recorded anchor "
+              "provenance, or the pass-identity guard refused).  Nothing to "
+              "render; this is an answer, not a failure.")
+        return [], box
+    print(f"pad_binding_routes: node space {ns}, {len(recs)} pad record(s)")
+    if not recs:
+        print("the capture RAN and recorded no pads (records: []) — this "
+              "build seated no building pad off a served frontage.")
+        return [], box
+    if refs:
+        want = set(refs)
+        got = [r for r in recs if r.get("pad") in want]
+        if not got:
+            sys.exit(f"--ref {sorted(want)} matches no published pad.  This "
+                     f"sidecar names: "
+                     f"{', '.join(sorted(str(r.get('pad')) for r in recs))}")
+        recs = got
+    return recs, box
+
+
+def _print_sidecar_records(recs):
+    """The record, in words — the render is the map, this is the answer."""
+    for r in recs:
+        print(f"\npad {r.get('pad')}  seat "
+              f"{float(r.get('seat_m', 0.0)):.4f} m")
+        if r.get("off_network"):
+            print("  OFF-NETWORK: the band serves none of this pad's "
+                  "frontage points, so no route bound its seat — the "
+                  "within-shape law governs it.  An answer, not a refusal.")
+            continue
+        for side in ("ceiling", "floor"):
+            s = (r.get("sides") or {}).get(side)
+            if not s:
+                print(f"  {side.upper():<8} not published (the binding "
+                      f"frontage point carries no {side}-side "
+                      f"provenance-known node)")
+                continue
+            print(f"  {side.upper():<8} anchor node {s['anchor_node']} @"
+                  f"{s['anchor_ll']} value {s['anchor_value_m']:.4f} m, "
+                  f"route budget {s['route_budget_m']:.4f} m over "
+                  f"{len(s['route_ll'])} node(s) / {s['plan_len_m']:.1f} m "
+                  f"of plan"
+                  + ("" if s["route_complete"] else
+                     "  [ROUTE INCOMPLETE — the recorded budgets do not "
+                     "reconcile through the graph; the anchor and budget "
+                     "are still the field's own]"))
+            print(f"           binding frontage {s['frontage_ll']} band "
+                  f"[{s['band_floor_m']:.4f}, {s['band_ceiling_m']:.4f}]")
+
+
+def _kml_from_sidecar(recs, out_path):
+    doc = _KmlDoc()
+    for r in recs:
+        pad = r.get("pad")
+        seat = float(r.get("seat_m", 0.0))
+        doc.folder(f"pad {pad} seat {seat:.2f}")
+        if r.get("off_network"):
+            doc.note(f"pad {pad} OFF-NETWORK — no frontage the band serves; "
+                     f"the within-shape law governs this seat ({seat:.2f} m)")
+            doc.end_folder()
+            continue
+        for side, style in (("ceiling", "r"), ("floor", "f")):
+            s = (r.get("sides") or {}).get(side)
+            if not s:
+                continue
+            lls = [tuple(p) for p in (s.get("route_ll") or ())]
+            if len(lls) >= 2:
+                doc.line(f"{pad} {side} route {s['route_budget_m']:.2f} m "
+                         f"over {s['plan_len_m']:.0f} m", style, lls)
+            if s.get("anchor_ll"):
+                doc.point(f"{pad} {side} anchor node {s['anchor_node']} "
+                          f"value {s['anchor_value_m']:.2f} + budget "
+                          f"{s['route_budget_m']:.2f} m over "
+                          f"{s['plan_len_m']:.0f} m, complete="
+                          f"{bool(s['route_complete'])}",
+                          s["anchor_ll"][0], s["anchor_ll"][1])
+            if s.get("frontage_ll"):
+                doc.point(f"{pad} {side} frontage band "
+                          f"[{s['band_floor_m']:.2f}, "
+                          f"{s['band_ceiling_m']:.2f}] seat {seat:.2f}",
+                          s["frontage_ll"][0], s["frontage_ll"][1])
+        doc.end_folder()
+    doc.write(out_path)
+
+
+def _osm_from_sidecar(recs, out_path):
+    """A VIEWER artifact (JOSM), never a patch (spec §2.2).
+
+    The patch loader globs ``*.patch.osm``; an ``--out`` that would land in
+    that glob is REFUSED at the writer, because a render that can be loaded
+    as scenery is a render that eventually will be.  No ``.axes.json`` is
+    written beside it for the same reason."""
+    if str(out_path).endswith(".patch.osm"):
+        sys.exit(f"refusing to write {out_path}: the patch loader globs "
+                 f"*.patch.osm, and this render is a VIEWER artifact, not "
+                 f"scenery.  Choose another name (e.g. "
+                 f"{str(out_path)[:-len('.patch.osm')]}.route.osm).")
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<osm version="0.6" generator="trace_reach_route --from-'
+             'sidecar">']
+    nid, wid = -1, -1
+    for r in recs:
+        pad = r.get("pad")
+        if r.get("off_network"):
+            continue
+        for side in ("ceiling", "floor"):
+            s = (r.get("sides") or {}).get(side)
+            if not s:
+                continue
+            lls = [tuple(p) for p in (s.get("route_ll") or ())]
+            if len(lls) < 2:
+                continue
+            ids = []
+            for (la, lo) in lls:
+                parts.append(f'  <node id="{nid}" lat="{float(la):.7f}" '
+                             f'lon="{float(lo):.7f}" version="1"/>')
+                ids.append(nid)
+                nid -= 1
+            parts.append(f'  <way id="{wid}" version="1">')
+            wid -= 1
+            for i in ids:
+                parts.append(f'    <nd ref="{i}"/>')
+            for (k, v) in (("pad_binding_route", side),
+                           ("pad", pad),
+                           ("anchor_node", s["anchor_node"]),
+                           ("route_budget_m", f"{s['route_budget_m']:.4f}"),
+                           ("plan_len_m", f"{s['plan_len_m']:.4f}"),
+                           ("route_complete",
+                            "true" if s["route_complete"] else "false"),
+                           ("band_floor_m", f"{s['band_floor_m']:.4f}"),
+                           ("band_ceiling_m", f"{s['band_ceiling_m']:.4f}")):
+                parts.append(f'    <tag k="{k}" v="{_xq(v)}"/>')
+            parts.append('  </way>')
+    parts.append('</osm>')
     with open(out_path, "w") as f:
         f.write("\n".join(parts) + "\n")
     print(f"wrote {out_path}")
+
+
+def _from_sidecar(args):
+    """The whole ``--from-sidecar`` mode: read, report, render.  No build."""
+    conflicts = [name for (name, on) in (
+        ("the ICAO positional", bool(args.icao)),
+        ("--dem", args.dem is not None),
+        ("--coord", bool(args.coord)),
+        ("--inverted-pairs", bool(args.inverted_pairs)),
+        ("--below-grade-anchors", bool(args.below_grade_anchors)),
+        ("--hard-seed-writers", args.hard_seed_writers is not None),
+    ) if on]
+    if conflicts:
+        sys.exit(f"--from-sidecar reads a published patch and never builds; "
+                 f"it is mutually exclusive with the build modes "
+                 f"({', '.join(conflicts)}).  --ref in this mode is a FILTER "
+                 f"on the published pads.")
+    out = args.out
+    if str(out).endswith(".patch.osm"):
+        sys.exit(f"refusing to write {out}: the patch loader globs "
+                 f"*.patch.osm, and this render is a VIEWER artifact, not "
+                 f"scenery.")
+    recs, _box = _sidecar_records(_sidecar_path(args.from_sidecar),
+                                  list(args.ref or []))
+    if not recs:
+        return 0
+    _print_sidecar_records(recs)
+    if str(out).endswith(".osm"):
+        _osm_from_sidecar(recs, out)
+    else:
+        _kml_from_sidecar(recs, out)
+    return 0
 
 
 def _install_seed_writer_capture(seen, thresh=0.0):
@@ -1195,8 +1478,21 @@ def _build(icao, const_dem=None, seed_writers=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("icao")
-    ap.add_argument("--ref", help="shape ref (e.g. building5)")
+    ap.add_argument("icao", nargs="?",
+                    help="the airport to BUILD and trace live (omit with "
+                         "--from-sidecar, which builds nothing)")
+    ap.add_argument("--from-sidecar", metavar="PATCH.osm",
+                    help="render the pad BINDING ROUTES an emitted patch "
+                         "published (its .axes.json 'pad_binding_routes' "
+                         "key; the .axes.json path itself is accepted too). "
+                         "NO build, NO solve — the engine already computed "
+                         "these routes and wrote them down.  --ref filters "
+                         "the pads; --out picks the format by extension "
+                         "(.kml, .osm)")
+    ap.add_argument("--ref", action="append", default=[],
+                    help="shape ref (e.g. building5).  Repeatable — in the "
+                         "live modes one trace per ref, with --from-sidecar "
+                         "a filter on the published pads (default: all)")
     ap.add_argument("--coord", action="append", default=[],
                     help="local meters 'x,y' (repeatable — one build, many "
                          "traces)")
@@ -1220,6 +1516,15 @@ def main():
                          "pass, with the writing file:line (R17c-1)")
     ap.add_argument("--out", default="/tmp/reach_route.kml")
     args = ap.parse_args()
+
+    # THE OFFLINE MODE FIRST, and before ANY engine import (spec §2.1):
+    # reading a published record must never pay for — or depend on — the
+    # solver being importable.
+    if args.from_sidecar:
+        return _from_sidecar(args)
+    if not args.icao:
+        ap.error("give an ICAO to build and trace, or --from-sidecar "
+                 "PATCH.osm to render what a patch already published")
 
     layout, band_err, captured = _build(args.icao, args.dem,
                                         seed_writers=args.hard_seed_writers)
@@ -1247,11 +1552,11 @@ def main():
     for c in args.coord:
         x, y = (float(v) for v in c.split(","))
         targets.append((x, y, c))
-    if args.ref:
-        s = next((s for s in layout.shapes if str(s.ref) == args.ref), None)
+    for ref in (args.ref or []):
+        s = next((s for s in layout.shapes if str(s.ref) == ref), None)
         if s is None or s.polygon is None:
-            sys.exit(f"ref {args.ref} not found / no polygon")
-        targets.append((s.polygon.centroid.x, s.polygon.centroid.y, args.ref))
+            sys.exit(f"ref {ref} not found / no polygon")
+        targets.append((s.polygon.centroid.x, s.polygon.centroid.y, ref))
     if not targets and not args.inverted_pairs:
         sys.exit("give --ref, --coord, --inverted-pairs or "
                  "--below-grade-anchors")

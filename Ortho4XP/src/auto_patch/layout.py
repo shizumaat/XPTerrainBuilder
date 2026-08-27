@@ -3849,6 +3849,24 @@ class PavementLayout:
             # none, a missing key says the patch predates the law.
             "airside_no_step_edges": list(
                 getattr(self, "_airside_no_step_edges_ll", None) or []),
+            # THE PAD BINDING ROUTES (spec
+            # ``docs/specs/pad-binding-routes-spec.md`` §1.4).  EVIDENCE,
+            # never law input: per pad, the RECORDED route — anchor, its
+            # value, the route budget, the plan length and every hop node
+            # in lat/lon — that bound the seat on the ceiling side and on
+            # the floor side, read out of the field the band the seat
+            # consumed recorded.  It exists so "show me the calculated
+            # route for this pad" is answerable from an emitted patch
+            # (``tools/trace_reach_route.py --from-sidecar``) instead of
+            # only from a full in-process rebuild, which is what the live
+            # band used to force.  Written unconditionally, and the
+            # container carries its own node-space stamp:
+            # ``nodespace: null`` = the capture could not run, a stamped
+            # nodespace with ``records: []`` = it ran and found no pads,
+            # an ABSENT key = the patch predates the publication.
+            "pad_binding_routes": (
+                getattr(self, "_pad_binding_routes", None)
+                or {"nodespace": None, "records": []}),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

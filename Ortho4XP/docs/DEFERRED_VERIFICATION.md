@@ -3784,3 +3784,63 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   read against the §0 frame, and the senior population came back
   IDENTICAL to it, which is the stronger reading in the direction that
   matters.
+
+- 2026-08-27 pad-binding-routes (spec `docs/specs/pad-binding-routes-spec.md`
+  — publish `pad_binding_routes` into the `.axes.json`; relocate the recorded-
+  route walk into `building_feasibility`; `trace_reach_route.py
+  --from-sidecar`). Ran ONCE: `tests/test_harness.py`,
+  `tests/test_seat_band_and_coupler.py`, `tests/test_route_metric_seat_coupling.py`,
+  `tests/test_pad_binding_routes.py`, `tests/test_r17b_below_grade_anchor_scope.py`,
+  plus one HECA acceptance build. SKIPPED and owed at the ship gate:
+  * the blast-radius suites of the four edited source files — `layout.py`
+    (219 importers), `building_feasibility.py` (39), `anchors.py` (28),
+    `solve.py`; none were run, so the relocation's inertness on the LIVE
+    modes of `trace_reach_route.py` rests on the identity twin plus source
+    inspection, never on a live `--coord` / `--inverted-pairs` /
+    `--below-grade-anchors` trace against a build.
+  * no battery: only HECA was built. SPJC / SPLP / CYXY / KCLT / HEAZ carry
+    no post-change patch, so `pad_binding_routes` is measured on ONE
+    airport's pad population and the capture's behaviour on a build with
+    NO served frontage (`records: []` with a stamped nodespace) is asserted
+    only synthetically.
+  * no BYTE-IDENTITY control on the emitted patch. The change is publication
+    only and touches no law, seat or band value, but that was not measured
+    against a matched flag-off build — there is no flag; the argument is
+    structural (nothing in the capture writes back into `levels`, `pads`,
+    `lo`/`hi` or `seats`).
+  * NO TIMING RUN (standing suspension). The build-time claim — two
+    dict-walks per pad along an already-chosen chain, no Dijkstra, no band
+    rebuild, ≪ 0.1 s at HECA scale — is a STATIC argument plus the
+    acceptance build's own phase report, never an exclusive `--runs N` A/B.
+  * the SIDECAR SIZE growth (two 7-dp chains per pad) is unmeasured against
+    the pre-change sidecar; the census streams `mesh_edges`-scale keys
+    already, so no reader was re-profiled.
+  * `sidecar_evidence` summarises the key with the generic
+    `"<N entries>"` collapse (it reports 2 — the container's own two
+    fields). Deliberate: §5 puts any census consumer beyond key
+    classification out of scope. A per-record count line is owed if a
+    reader ever needs one.
+  * PRE-EXISTING FAILURE CARRIED, not introduced and not fixed here:
+    `tests/test_harness.py::test_the_near_miss_frontage_law_is_one_authority`
+    fails (`NEAR_MISS_FRONTAGE_SOFT_ROLES == ('apron', 'junction')` vs the
+    twin's `(ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION)` — the R7b
+    sink ruling dropped `service_junction` from the solve's set and the
+    census twin was never followed). CONFIRMED PRE-EXISTING by a
+    clean-tree control: the same test fails in the MAIN tree at the same
+    base commit `1d97215c`, which touches none of this change-set's
+    files. Accepted out-of-scope by the Fable lead 2026-08-27; owed as
+    its own attribution (which of the two authorities is right is a
+    scoping question, not a test fix).
+  * LANE-MOUNT OBSERVATION (reported, not fixed here — the lead is
+    spinning it off): git placed this worktree at
+    `Ortho4XP/.claude/worktrees/<name>`, while `lane_worktree.sh`
+    resolves `WT=$MAIN_REPO/.claude/worktrees/$NAME` and so REFUSED
+    (`no worktree at ...`). The ritual was run with a relative lane name
+    that resolves to this tree; it mounted 7/7 data dirs from
+    `/Users/noah/XPTerrainBuilderData`, `venv` from the main engine, and
+    cloned `Patches`/`Ortho4XP.cfg` lane-local — the acceptance build's
+    own frame line reads `data corpus: 7/7 dir(s) mounted from
+    /Users/noah/XPTerrainBuilderData` with the write guard armed. No
+    private corpus, no copied `Elevation_data`. The script does not
+    handle a worktree outside its expected root; that is the defect to
+    close, not this lane's mount.

@@ -2805,9 +2805,15 @@ def solve_route_profile(layout, icao: str,
     # SAME list object is the point: a re-derived edge set would be the
     # second instrument that law exists to remove.  ``None`` here is a
     # WIRING DEFECT and the coupler says so rather than pricing a chord.
+    # ``unified_graph`` — THE graph ``band`` was built on, handed back by
+    # ``reach_band_for`` above.  Consumed only by the pad BINDING-ROUTE
+    # publication (spec ``docs/specs/pad-binding-routes-spec.md`` §1.2):
+    # passing the SAME object is the point, exactly as for ``law_graph`` —
+    # the routes are read out of the field THIS graph's band recorded, and
+    # a different graph would be a different node space.
     building_seats = build_building_seats(
         layout, bucket_to_idx, band, dem_fn, runway_pts,
-        law_graph=shape_constraints, n_nodes=len(elev))
+        law_graph=shape_constraints, n_nodes=len(elev), unified_graph=_G)
     # FEEDER CONVERGENCE (user directive #3): seat each NO-BUILDING apron flat at a
     # single level its feeders can all reach (the ring-band intersection, clamped to
     # DEM), so the feeders converge to it instead of arriving incompatible.  Merged

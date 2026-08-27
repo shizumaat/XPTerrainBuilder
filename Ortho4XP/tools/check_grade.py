@@ -6698,6 +6698,15 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # was adjudicated by an interventional re-run, and which refusal it
     # answered.  Counted, never re-judged.
     "gap_spine_stand_down",
+    # THE PAD BINDING ROUTES (spec docs/specs/pad-binding-routes-spec.md
+    # §1.4/§1.5).  EVIDENCE, deliberately: per pad, the recorded route
+    # that bound its seat on each side — anchor, anchor value, route
+    # budget, plan length, hop chain.  The census REPORTS it and
+    # adjudicates nothing from it; the surface those seats produced is
+    # judged by the ordinary law families, exactly as before.  It is here
+    # so an emitted patch answers "which route bound this pad?" without a
+    # rebuild (``tools/trace_reach_route.py --from-sidecar``).
+    "pad_binding_routes",
 )
 
 

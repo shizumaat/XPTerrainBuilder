@@ -1797,6 +1797,40 @@ def print_report(rep: dict, top: int) -> None:
                   f"{_lbc.get('worst_floor_budget_m')} m.  Full rows (both "
                   f"binding chains) in the sidecar's "
                   f"`law_band_contradictions`.")
+    # ── PADS AS BAND-BOUNDED VARIABLES (spec pads-as-band-variables
+    # §1.3/§1.6/§1.7) ────────────────────────────────────────────────
+    # Both lines print on EVERY census, present or absent, for the reason
+    # the contradiction ledger prints at zero: "0 groups split" is the
+    # instrument saying every authored datum SURVIVED — the preferred
+    # outcome — which is a different fact from a patch that predates the
+    # law and carries no key at all.
+    _pbr = ev.get("pad_binding_routes")
+    if isinstance(_pbr, dict):
+        print(f"  pad variables: {_pbr.get('pad_variables')} of "
+              f"{_pbr.get('pads')} published pad(s) are BAND-BOUNDED "
+              f"VARIABLES (domain = the narrowed band intersected over "
+              f"every ring vertex); {_pbr.get('on_domain_bound')} sit ON a "
+              f"domain bound — the law, not the DEM, placed those.  Per-pad "
+              f"domains, solved values and binding vertices in the "
+              f"sidecar's `pad_binding_routes`.")
+    _pgs = ev.get("pack_group_splits")
+    if isinstance(_pgs, dict):
+        _ng = int(_pgs.get("groups_split") or 0)
+        if not _ng:
+            print("  pack-group splits: 0 group(s) — every authored-datum "
+                  "pack group ACCOMMODATED without violating grade, so "
+                  "every authored vertical relationship survives (the "
+                  "preferred outcome)")
+        else:
+            print(f"  pack-group splits: {_ng} authored-datum pack group(s) "
+                  f"SPLIT — grade law outranks shared-datum preservation "
+                  f"(owner ruling 2026-08-27).  Worst: group "
+                  f"{_pgs.get('worst_group')} at {_pgs.get('worst_m')} m, "
+                  f"{_pgs.get('worst_members')} member(s) sheared into "
+                  f"{_pgs.get('worst_pieces')} piece(s) at stage "
+                  f"{_pgs.get('worst_stage')}.  A split shears AUTHORED "
+                  f"geometry: every row is for owner review, and the full "
+                  f"forcing rows are in the sidecar's `pack_group_splits`.")
     if ev.get("unknown_keys"):
         # The VERIFIED set difference, nothing more: the old line named a
         # cause (the emitter grew a field) and instructed the reader which

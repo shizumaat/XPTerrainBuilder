@@ -6614,6 +6614,22 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # on exactly this accumulated ledger, which is why it has to be
     # visible in every census rather than only in a build log.
     "law_band_contradictions",
+    # THE PACK-GROUP SPLIT LEDGER (spec pads-as-band-variables §1.3/§1.7;
+    # owner ruling RULINGS 2026-08-27 late, "GRADE LAW OUTRANKS
+    # SHARED-DATUM PRESERVATION").  EVIDENCE, by the spec's own word —
+    # "no new family: the existing frontage / no-step / within-shape
+    # families adjudicate the result; ``pack_group_splits`` is evidence".
+    # A split is not a violation and must never be counted as one; it is
+    # a SHEAR of authored pack geometry that the owner reviews site by
+    # site, and it doubles as a bad-pack detector.
+    "pack_group_splits",
+    # PER-PAD PROVENANCE (spec pads-as-band-variables §1.6): the domain
+    # each pad's flat variable lives in, the solved value, and the ring
+    # vertex binding each side — published into the SAME container the
+    # binding-route capture uses, because "why is this pad here" must
+    # stay ONE file read (extend the near-fit, never fork: RULINGS
+    # 7e90032).  Evidence, adjudicated by nothing.
+    "pad_binding_routes",
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
@@ -6842,6 +6858,46 @@ def sidecar_evidence(osm_path) -> dict:
                     "worst_ceil_budget_m": w.get("ceil_budget_m"),
                     "worst_floor_budget_m": w.get("floor_budget_m"),
                 })
+            continue
+        if k == "pack_group_splits":
+            # SUMMARISED HERE, printed by the census (spec
+            # pads-as-band-variables §1.3/§1.7).  Never collapsed to
+            # "<N entries>": a split SHEARS authored pack geometry and the
+            # owner reviews each one, so the count and the worst site have
+            # to survive into every report that mentions the ledger.
+            rows = v if isinstance(v, list) else []
+            rows = sorted(rows, key=lambda r: -float(r.get("worst_m") or 0.0))
+            out[k] = {"groups_split": len(rows)}
+            if rows:
+                w = rows[0]
+                out[k].update({
+                    "worst_group": w.get("group"),
+                    "worst_m": w.get("worst_m"),
+                    "worst_stage": w.get("stage"),
+                    "worst_members": len(w.get("members") or []),
+                    "worst_pieces": len(w.get("pieces") or []),
+                })
+            continue
+        if k == "pad_binding_routes":
+            # SUMMARISED: the container is per-pad provenance (domains,
+            # solved values, binding vertices, and — where the route
+            # capture is present — the recorded routes).  The census needs
+            # to know it RAN and over how many pads; the detail is a file
+            # read away, which is the whole point of the key.
+            rec = v if isinstance(v, dict) else {}
+            rows = rec.get("records") or []
+            out[k] = {
+                "nodespace": rec.get("nodespace"),
+                "pads": len(rows),
+                "pad_variables": sum(
+                    1 for r in rows
+                    if isinstance(r, dict) and r.get("pad_variable")),
+                "on_domain_bound": sum(
+                    1 for r in rows
+                    if isinstance(r, dict)
+                    and ((r.get("binding") or {}).get("at_ceiling")
+                         or (r.get("binding") or {}).get("at_floor"))),
+            }
             continue
         if k == "site_class":
             # ALREADY a flat record of scalars (four signals + verdict),

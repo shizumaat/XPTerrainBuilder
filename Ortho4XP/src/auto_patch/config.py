@@ -150,6 +150,9 @@ __all__ = [
     "BAND_FULL_LAW_GRAPH",
     "BAND_SEAT_ANCHORS",
     "BAND_LAW_REFUSE",
+    # PADS AS BAND-BOUNDED VARIABLES
+    # (docs/specs/pads-as-band-variables-spec.md)
+    "PADS_BAND_VARIABLES",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9789,3 +9792,29 @@ BAND_SEAT_ANCHORS = (
 # a contradiction (CLAUDE.md convergence guards).
 BAND_LAW_REFUSE = (
     _os.environ.get("O4_BAND_LAW_REFUSE", "0") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PADS AS BAND-BOUNDED VARIABLES (owner rulings RULINGS 2026-08-27 late,
+# "pads move within their band" + "GRADE LAW OUTRANKS SHARED-DATUM
+# PRESERVATION"; spec docs/specs/pads-as-band-variables-spec.md §1.5)
+# ══════════════════════════════════════════════════════════════════════
+#
+# Owner's words: *"why anchor the building pads at all, but allow them to
+# move — within their band — to accommodate the ideal pavement grade?"*
+#
+# A DERIVED AIRSIDE PAD IS ONE FREE FLAT VARIABLE whose DOMAIN is the
+# INTERSECTION of the narrowed band intervals over its RING VERTICES (the
+# pad is flat: one value must be lawful at every vertex).  The seat is no
+# longer CHOSEN ahead of the narrowing and then defended — it is the value
+# the joint pass settles on inside that domain, which is the direct answer
+# to the ``BAND_SEAT_ANCHORS`` refutation recorded above ("a rigid
+# pre-committed seat contradicts the narrowing computed after it").
+#
+# THE FLAG, DEFAULT ON.  ``O4_PADS_BAND_VARIABLES=0`` restores the
+# ring-median / frontage-box seat pass exactly — same domains, same
+# targets, same coupling, no pack-group variable, no split ledger, no
+# pad-domain contradiction row: BYTE-IDENTICAL to the pre-ruling build
+# (spec §1.5).
+PADS_BAND_VARIABLES = (
+    _os.environ.get("O4_PADS_BAND_VARIABLES", "1") != "0")

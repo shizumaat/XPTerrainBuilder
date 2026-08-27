@@ -24,6 +24,7 @@ synthetic with no ``law_graph`` couples nothing by design.
 import pytest
 from shapely.geometry import Polygon
 
+from auto_patch import config as CFG
 from auto_patch.canonical_points import CanonicalPointRegistry
 from auto_patch.config import APRON_MAX_GRADE
 from auto_patch.layout import BuiltShape, ROLE_APRON, ROLE_BUILDING
@@ -71,6 +72,22 @@ def _seats(layout, bucket_to_idx, band, dem, levels, monkeypatch):
     return AN.build_building_seats(layout, bucket_to_idx, band, dem, [])
 
 
+def _pre_ruling(monkeypatch):
+    """Pin the PRE-RULING seat pass (``O4_PADS_BAND_VARIABLES=0``).
+
+    THE §2 SEAT-vs-BAND CONSISTENCY TWINS BELOW ARE THIS PASS'S TWINS.
+    Under the 2026-08-27 pads-as-band-variables ruling a derived pad is
+    ONE flat variable whose DOMAIN is the narrowed band intersected over
+    its RING VERTICES, so the two instruments this law reconciled —
+    a selection interval sampled at the centroid/frontage, and the node
+    band at the contact nodes — collapse into ONE and there is nothing
+    left to clamp between (spec ``pads-as-band-variables`` §1.2, "the
+    ring-median seat pass RETIRES for this class").  These twins are the
+    OFF arm's statement, which §1.5 requires to stay byte-identical; the
+    ON statements live in ``tests/test_pad_variables.py``."""
+    monkeypatch.setattr(CFG, "PADS_BAND_VARIABLES", False)
+
+
 def _level_of(seats, bucket_to_idx, cps, shape):
     """The seated level stamped on a pad's first ring node."""
     x, y = list(shape.polygon.exterior.coords)[0]
@@ -111,6 +128,7 @@ def _big_band(ring_ceiling=104.0):
 def test_the_seat_clamps_into_its_node_band_by_law(monkeypatch):
     """Standing law: no env can turn the clamp off, so an unset
     environment must clamp."""
+    _pre_ruling(monkeypatch)
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
@@ -123,6 +141,7 @@ def test_the_seat_clamps_into_its_node_band_by_law(monkeypatch):
 def test_seat_clamps_into_its_own_node_band(monkeypatch, capsys):
     """The whole §2 fix: the seat may not exceed the ceiling the band the
     solve enforces gives the pad's own contact nodes."""
+    _pre_ruling(monkeypatch)
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     seats = _seats(layout, b2i, _big_band(), lambda x, y: 120.0,
@@ -135,6 +154,7 @@ def test_seat_clamps_into_its_own_node_band(monkeypatch, capsys):
 
 
 def test_a_seat_already_inside_its_node_band_never_moves(monkeypatch):
+    _pre_ruling(monkeypatch)
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
     # ring ceiling ABOVE the selected level → intersection contains it
@@ -148,6 +168,7 @@ def test_an_empty_intersection_is_reported_and_ships_todays_value(
         monkeypatch, capsys):
     """The split-level-seat trigger (RULINGS 2026-08-04): no common level
     ⇒ the value is UNCHANGED this round, but it is never silent."""
+    _pre_ruling(monkeypatch)
     layout, apron, pad = _big_pad_layout()
     b2i = _register(layout, [apron, pad])
 

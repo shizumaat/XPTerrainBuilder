@@ -2205,12 +2205,21 @@ def solve_route_profile(layout, icao: str,
     # OFF (or no store): empty everything — byte-inert.
     _lattice_idx: set = set()
     _lattice_edges: list = []
+    # ── THE APRON MEMBRANE LAW EDGES, FOR THE UNIFIED LAW BAND ───────
+    # (spec docs/specs/unified-law-band-spec.md §1.1b.)  The lattice and
+    # spine-station entries are minted here, in THIS node space, so the
+    # band's supplement takes them from their own builder's output rather
+    # than re-resolving the sidecar publication (§1.5c: build once, filter
+    # per consumer).  Empty with either flag off — byte-inert.
+    _membrane_law_edges: list = []
     if getattr(layout, "apron_lattice_presolve", None):
         from auto_patch.apron_lattice import (
             build_apron_lattice_constraints as _build_lat_scs)
         _lat_scs, _lattice_idx, _lattice_edges = _build_lat_scs(
             layout, bucket_to_idx, _gg_ctx)
         shape_constraints.extend(_lat_scs)
+        for _lat_e in _lat_scs:
+            _membrane_law_edges.extend(_lat_e.get("edges") or ())
         layout._apron_lattice_edges_ll = _lattice_edges
         if _os.environ.get("O4_STEP_DEBUG") == "1":
             print(f"    [apron-lattice] {len(_lat_scs)} apron(s), "
@@ -2238,6 +2247,8 @@ def solve_route_profile(layout, icao: str,
         _st_scs, _station_idx, _station_edges = _build_st_scs(
             layout, bucket_to_idx, _gg_ctx)
         shape_constraints.extend(_st_scs)
+        for _st_e in _st_scs:
+            _membrane_law_edges.extend(_st_e.get("edges") or ())
         if _station_edges:
             # ASSIGNED, never appended: a second call of this function
             # in one build would otherwise publish each station pair
@@ -2714,8 +2725,165 @@ def solve_route_profile(layout, icao: str,
         _truth_by_point[_key if _key is not None else (_nx, _ny)] = \
             float(elev[_i])
     layout._seed_hard_truth_values = _truth_by_point
+    # ══════════════════════════════════════════════════════════════════
+    # THE UNIFIED LAW BAND — publish the FULL law graph BEFORE the band
+    # (owner ruling RULINGS 2026-08-27 "REFINE THE REACH BAND FIRST";
+    # spec docs/specs/unified-law-band-spec.md §1.1 / §1.3 / §1.5)
+    # ══════════════════════════════════════════════════════════════════
+    #
+    # ORDERING (§1.3): geometry -> lattice/stations constructed -> THE
+    # BAND (full graph) -> seats -> solve.  The first two are already
+    # above; this block is the third's INPUT.  The owner's reason, in his
+    # words: *"seems as good or better to refine and narrow the reach
+    # bands first, then we shouldn't need nearly as much convergence
+    # later."*
+    #
+    # THE THREE POPULATIONS, EACH FROM ITS OWN BUILDER (§1.1, §1.5c):
+    #
+    #   frontage_chord  ``solver_primitives._build_shape_constraints``
+    #                   tagged them AT MINT from the very PairContext
+    #                   ``classify_pair`` judged (the 2026-08-25
+    #                   chord-anchor law's own population and caps).
+    #   membrane        the lattice / spine-station entries built ~500
+    #                   lines above, in THIS node space.
+    #   no_step         the k-NN direct-distance enumeration, MOVED here
+    #                   from its old slot after the phase-A spine solve.
+    #                   Its inputs are identical at both points
+    #                   (``_gg_ctx``, ``G.pos``, the same
+    #                   ``shape_constraints`` — nothing extends that list
+    #                   between here and there), so the enumeration is
+    #                   the same one; only the TIER arithmetic, which
+    #                   needs the placed seats, stays downstream.  ONE
+    #                   enumeration, three consumers (band, solver
+    #                   pass 2, census) — never two k-NN builds.
+    #
+    # Flag OFF (``O4_BAND_FULL_LAW_GRAPH=0``): nothing is enumerated
+    # early, nothing is published, the band's iterator gets ``{}`` and
+    # the build is byte-identical to the pre-ruling one (§1.7).
+    from auto_patch.config import BAND_FULL_LAW_GRAPH as _BFLG
+    from auto_patch import law_band as _LAWB
+    import time as _lb_time
+    # THE BAND PHASE COST, MEASURED AND PRINTED (CLAUDE.md hard law: every
+    # change carries a build-time impact statement; the per-change GATE is
+    # suspended per RULINGS 2026-08-04, the STATEMENT is not).  Three
+    # numbers, because they are three different decisions: the k-NN
+    # enumeration (which MOVED here rather than being added — it used to
+    # run after the phase-A spine solve), the publication, and the band
+    # build itself with the law edges in its iterator.
+    _lb_t0 = _lb_time.perf_counter()
+    _lb_t_enum = _lb_t_pub = 0.0
+    _law_band_report = {"enabled": False}
+    if _BFLG:
+        _ns_existing_pre = set()
+        for _sc_pre in shape_constraints:
+            for _e_pre in (_sc_pre.get("edges") or ()):
+                try:
+                    _a_pre, _b_pre = int(_e_pre[0]), int(_e_pre[1])
+                except (TypeError, ValueError):        # pragma: no cover
+                    continue
+                _ns_existing_pre.add((_a_pre, _b_pre) if _a_pre < _b_pre
+                                     else (_b_pre, _a_pre))
+        _ns_rows_pre: list = []
+        _lb_te = _lb_time.perf_counter()
+        try:
+            from auto_patch import airside_no_step as _ANS_PRE
+            _ns_rows_pre, _ns_enum_rep = (
+                _ANS_PRE.enumerate_airside_no_step_pairs(
+                    layout, bucket_to_idx, _gg_ctx,
+                    node_pos=G.pos, n_nodes=len(elev),
+                    existing_pairs=_ns_existing_pre))
+            if _ns_rows_pre:
+                import O4_UI_Utils as _UI_pre
+                _UI_pre.vprint(1, _ANS_PRE.format_enumeration_report(
+                    icao, _ns_enum_rep))
+        except Exception as _pre_exc:                  # pragma: no cover
+            # NEVER a silent degrade (the no-step build's own rule): a
+            # population that failed to enumerate is REPORTED, and the
+            # band carries the other two rather than pretending this one
+            # was empty.
+            import O4_UI_Utils as _UI_prex
+            _UI_prex.vprint(1, f"  [law-band] {icao}: the no-step "
+                               f"enumeration FAILED "
+                               f"({type(_pre_exc).__name__}: {_pre_exc}) — "
+                               f"the band carries the frontage chords and "
+                               f"the membrane only this build")
+        _lb_t_enum = _lb_time.perf_counter() - _lb_te
+        _lb_tp = _lb_time.perf_counter()
+        # THE POSITION MAP FOR PUBLICATION IS THE SOLVE'S FULL NODE LIST,
+        # not ``G.pos``.  ``build_unified_graph`` positions only the shape
+        # RING vertices it walks, and the apron LATTICE points and the
+        # round-3 spine STATIONS belong to no ring — so publishing against
+        # ``G.pos`` silently dropped every membrane edge for want of a
+        # position (measured on this lane's first CYXY arm: "membrane 0"
+        # published, the §1.1b population entirely absent from the band).
+        # ``nodes`` is the node space itself, which is what the edges are
+        # stated in.
+        _lawb_pos = {_i: (float(_p[0]), float(_p[1]))
+                     for _i, _p in enumerate(nodes)}
+        try:
+            _law_band_report = _LAWB.publish_law_band_edges(
+                layout,
+                node_pos=_lawb_pos,
+                classes={
+                    "frontage_chord": (
+                        getattr(layout, "_frontage_chord_edges", None) or ()),
+                    "membrane": _membrane_law_edges,
+                    "no_step": [(r[2], r[3], r[5]) for r in _ns_rows_pre],
+                })
+        except _LAWB.LawBandNegativeBudget:
+            # §1.2's PINNED INVARIANT.  Never swallowed, never clamped:
+            # the 2026-08-13 signed-slab Dijkstra blowup (26-56 GB, then
+            # SIGKILL) is what a negative budget does downstream of here.
+            raise
+        _lb_t_pub = _lb_time.perf_counter() - _lb_tp
+        import O4_UI_Utils as _UI_lb
+        _fcr = getattr(layout, "_frontage_chord_report", None) or {}
+        if _fcr.get("certified_shapes_ring_only"):
+            _UI_lb.vprint(1,
+                f"  [law-band] {icao}: "
+                f"{_fcr['certified_shapes_ring_only']} flatness-CERTIFIED "
+                f"shape(s) contributed ring pairs only, so their non-ring "
+                f"frontage chords sit in their lazy_expand thunk and are "
+                f"not in the band's supplement — a certified shape is "
+                f"provably near-flat over its whole body, so those are the "
+                f"loosest chords in the airport; counted, never inferred "
+                f"from silence")
+    else:
+        import O4_UI_Utils as _UI_lb0
+        _UI_lb0.vprint(1, _LAWB.format_law_band_report(icao, None))
+
+    _lb_t_band0 = _lb_time.perf_counter()
     band, dem_fn, runway_pts, _G = reach_band_for(
         layout, elev, bucket_to_idx, dem, tile_lat, tile_lon, unified_graph=G)
+    _lb_t_band = _lb_time.perf_counter() - _lb_t_band0
+    if _BFLG:
+        _UI_lb.vprint(1,
+            f"  [law-band] {icao}: band phase cost — no-step enumeration "
+            f"{_lb_t_enum:.2f} s (MOVED here, not added: it used to run "
+            f"after the phase-A spine solve), publication {_lb_t_pub:.2f} s, "
+            f"band build with the law edges in its iterator "
+            f"{_lb_t_band:.2f} s; the block from the node-space snapshot to "
+            f"the built band cost {_lb_time.perf_counter() - _lb_t0:.2f} s "
+            f"in total")
+        _UI_lb.vprint(1, _LAWB.format_law_band_report(
+            icao, _law_band_report,
+            resolved=getattr(layout, "_band_law_adj_stats", None)))
+        # ── §1.4 — EMPTY OR INVERTED INTERVAL IS A LOUD PRE-SOLVE
+        # REFUSAL ─────────────────────────────────────────────────────
+        # The narrowed band is the first instrument in this build that can
+        # SEE a contradiction between two laws at a site.  Refusing here
+        # is refusing before any patch is written, before any seat is
+        # chosen and before the solve — which is the whole point: the
+        # building146 class (contradictory pavement data) used to produce
+        # a silent bad seat and a 12.42 m chord, and under this ruling it
+        # produces a named site instead.  ``feasibility-is-guaranteed``
+        # made executable.
+        _band_residual = _LAWB.refuse_on_inverted_band(layout, icao)
+        if _band_residual:
+            _UI_lb.vprint(1,
+                f"  [law-band] {icao}: {_band_residual} node interval(s) "
+                f"crossed by less than the 0.01 m materiality floor — "
+                f"PASS-with-residual (convergence guards), not a refusal")
     # ZONE-NODE REACH-BAND SKIP (Slice B stage B3 performance lever,
     # O4_ZONE_NODE_SKIP_REACH_BAND, default ON): the adjacent-ground zone
     # nodes (index >= first-zone) are graded_strip terrain variables whose

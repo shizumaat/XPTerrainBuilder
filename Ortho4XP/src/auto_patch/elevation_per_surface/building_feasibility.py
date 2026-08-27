@@ -1010,7 +1010,43 @@ def spine_value_fields(layout, G):
         except Exception:                                  # pragma: no cover
             pass
 
-    def _field(sign):
+    # ── THE UNIFIED LAW BAND (owner ruling RULINGS 2026-08-27 "REFINE
+    # THE REACH BAND FIRST"; spec docs/specs/unified-law-band-spec.md
+    # §1.1) ────────────────────────────────────────────────────────────
+    # The band's edge set grows from "route-spine edges + the local
+    # off-route leg" to THE FULL LAW GRAPH: the pad frontage chords, the
+    # apron membrane law edges (lattice / spine-station / ring
+    # within-shape) and the airside no-step direct-distance enumeration
+    # join it, each from its OWN existing builder (spec §1.5c — build
+    # once, filter per consumer; never a fresh scan and never a second
+    # notion of any law).
+    #
+    # THIS IS AN EDGE-ITERATOR EXTENSION, NOT A SECOND ENGINE (spec
+    # §1.5b).  The two multi-source Dijkstras below are the same two;
+    # they simply relax over more edges.  ``trace_reach_route``'s history
+    # — a tool that re-derived the lookup and then disagreed with the
+    # band it was documenting — is why that sentence is in the spec.
+    #
+    # NON-NEGATIVITY is asserted at PUBLICATION (``law_band``), before
+    # any heap exists: the 2026-08-13 signed-slab blowup (negative-cycle
+    # Dijkstra, 26-56 GB SIGKILL) is one signed budget away from here.
+    #
+    # A law edge is NOT filtered by ``service_spine_pairs``.  That gate
+    # answers "may REACHABILITY ride this ROUTE" and its population is
+    # service-road centerline chains; a law edge is not a route at all —
+    # it is a statement that two SURFACE points may not differ by more
+    # than a budget, and the three published populations are airside by
+    # construction (frontage chords to airside corridors, apron membrane,
+    # airside no-step).  Flag OFF ⇒ ``{}`` ⇒ byte-identical (spec §1.7).
+    from auto_patch import law_band as _LB
+    law_adj = _LB.law_adjacency_for(layout, G)
+
+    def _field(sign, law_edges=None):
+        """``law_edges=None`` ⇒ the FULL law graph (the shipped band).
+        ``law_edges={}`` ⇒ the ROUTE-ONLY field — the pre-band behaviour,
+        which spec Amendment 1's report-first mode restores at the nodes
+        where two laws contradict each other."""
+        _law = law_adj if law_edges is None else law_edges
         best: dict = {}
         # ROUTE DISTANCE per node, write-only: the budget-metric length of
         # the winning route (spec kill-half §3 — the loud error names the
@@ -1030,11 +1066,19 @@ def spine_value_fields(layout, G):
         # write identical values and the extra tie-break cannot move a
         # number.
         via: dict = {}
-        pq = [((ae if sign > 0 else -ae), 0.0, ae, k, k)
+        # THE BINDING CHAIN, write-only (spec §1.4).  A §1.4 refusal must
+        # name "both binding CHAINS", not merely both anchors: with law
+        # edges in the graph the reader's first question is WHICH LAW
+        # bound, and the hop list answers it.  Parent sits LAST in the
+        # heap key, after ``u``, so it can only break ties between
+        # entries that are already value-identical (same ``ae``, same
+        # ``dd`` ⇒ same ``best[u]``) — provenance, never a number.
+        par: dict = {}
+        pq = [((ae if sign > 0 else -ae), 0.0, ae, k, k, -1)
               for (k, ae) in anchor_seeds.items()]
         heapq.heapify(pq)
         while pq:
-            _key, dd, ae, src, u = heapq.heappop(pq)
+            _key, dd, ae, src, u, pu = heapq.heappop(pq)
             if u in best:
                 continue
             # R17b-1.  A below-grade anchor's value is law INSIDE its own
@@ -1048,6 +1092,8 @@ def spine_value_fields(layout, G):
             best[u] = (ae + dd) if sign > 0 else (ae - dd)
             dist[u] = dd
             via[u] = src
+            if pu >= 0:
+                par[u] = pu
             for (v, budget) in G.spine_adj.get(u, ()):
                 if v in best:
                     continue
@@ -1056,11 +1102,65 @@ def spine_value_fields(layout, G):
                 nd = dd + budget
                 heapq.heappush(
                     pq, (((ae + nd) if sign > 0 else -(ae - nd)),
-                         nd, ae, src, v))
-        return best, dist, via
+                         nd, ae, src, v, u))
+            # THE LAW EDGES — the extension, and the only new statement in
+            # this loop (spec §1.1).  Same relaxation, same budget
+            # semantics (``cap x distance >= 0``), no service filter (see
+            # the block comment above ``_field``).
+            for (v, budget) in _law.get(u, ()):
+                if v in best:
+                    continue
+                nd = dd + budget
+                heapq.heappush(
+                    pq, (((ae + nd) if sign > 0 else -(ae - nd)),
+                         nd, ae, src, v, u))
+        return best, dist, via, par
 
-    ceiling, ceil_dist, ceil_via = _field(+1)
-    floor, floor_dist, floor_via = _field(-1)
+    ceiling, ceil_dist, ceil_via, ceil_par = _field(+1)
+    floor, floor_dist, floor_via, floor_par = _field(-1)
+    # Write-only provenance for the §1.4 refusal message.  Nothing in the
+    # solve reads it back, so a build that never refuses is unaffected.
+    try:
+        layout._band_ceil_parent = ceil_par
+        layout._band_floor_parent = floor_par
+        layout._band_law_adj_stats = _LB.law_adjacency_stats(G)
+    except AttributeError:                                 # pragma: no cover
+        pass
+    # ── §1.5(d) SEATS INCREMENT, NEVER RECOMPUTE ──────────────────────
+    # The field handle a placed seat joins as a new anchor.  Built from
+    # the fields THIS pass just computed (never a second Dijkstra) over a
+    # VIEW of the two adjacencies (never a merged copy).  Nothing reads
+    # it unless a consumer actually seats — with the sub-gate off, or no
+    # seat placed, the object is inert and the band is byte-identical.
+    try:
+        from auto_patch.config import BAND_SEAT_ANCHORS as _BSA
+    except Exception:                                      # pragma: no cover
+        _BSA = False
+    try:
+        layout._law_band_fields = (
+            _LB.IncrementalAnchorField(
+                _LB.MergedAdjacency(getattr(G, "spine_adj", None), law_adj),
+                ceiling, floor, anchor_seeds, ceil_via, floor_via)
+            if (_BSA and law_adj) else None)
+    except AttributeError:                                 # pragma: no cover
+        pass
+    # ── §1.4 REPORT-FIRST (spec Amendment 1, owner ruling "3") ────────
+    # An EMPTY/INVERTED interval is a contradiction between two laws at a
+    # site.  Pre-ship it is a LOUD REPORT plus a sidecar ledger, and the
+    # build CONTINUES WITH THE PRE-BAND BEHAVIOUR AT THE AFFECTED NODES —
+    # which is a substitution, not a shrug: leaving an inverted interval
+    # in the fields would hand every downstream clamp a bound with no
+    # solution in it, and the post-solve inversion law would then blow up
+    # on a state this ruling deliberately tolerates.  Only the
+    # contradicted nodes revert; the rest of the airport keeps the
+    # narrowed band.  ``O4_BAND_LAW_REFUSE=1`` skips the healing entirely
+    # so the refusal that follows in ``solve.py`` sees the raw state.
+    _LB.heal_contradictions_report_first(
+        layout, G, ceiling, floor, law_adj,
+        route_field=lambda sign: _field(sign, law_edges={}),
+        ceil_via=ceil_via, floor_via=floor_via,
+        ceil_dist=ceil_dist, floor_dist=floor_dist,
+        anchor_seeds=anchor_seeds)
     _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
                               floor_via, floor_dist)
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,

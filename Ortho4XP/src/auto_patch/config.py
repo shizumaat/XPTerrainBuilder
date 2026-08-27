@@ -146,6 +146,10 @@ __all__ = [
     "AIRSIDE_NO_STEP_WINDOW_M",
     "AIRSIDE_NO_STEP_K",
     "AIRSIDE_NO_STEP_RESEED",
+    # THE UNIFIED LAW BAND (docs/specs/unified-law-band-spec.md)
+    "BAND_FULL_LAW_GRAPH",
+    "BAND_SEAT_ANCHORS",
+    "BAND_LAW_REFUSE",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9693,3 +9697,95 @@ AIRSIDE_NO_STEP = (
 # arm a ruling would be made on.
 AIRSIDE_NO_STEP_RESEED = (
     _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE UNIFIED LAW BAND (owner ruling RULINGS 2026-08-27 "REFINE THE REACH
+# BAND FIRST"; spec docs/specs/unified-law-band-spec.md §1.7)
+# ══════════════════════════════════════════════════════════════════════
+#
+# The reach band's per-node interval becomes the projection of the FULL
+# law graph — the route-spine edges and the local off-route leg it always
+# had, PLUS the pad FRONTAGE CHORDS, the apron MEMBRANE law edges
+# (lattice / spine-station / ring within-shape) and the AIRSIDE NO-STEP
+# direct-distance enumeration.  Owner's words: *"seems as good or better
+# to refine and narrow the reach bands first, then we shouldn't need
+# nearly as much convergence later."*
+#
+# THE FLAG, DEFAULT ON.  ``O4_BAND_FULL_LAW_GRAPH=0`` publishes no law
+# edge, merges none into the value-field Dijkstras and makes no pre-solve
+# refusal — byte-identical to the pre-ruling build (spec §1.7).
+BAND_FULL_LAW_GRAPH = (
+    _os.environ.get("O4_BAND_FULL_LAW_GRAPH", "1") != "0")
+
+# §1.5(d) — A PLACED SEAT JOINS THE ANCHOR SET, incrementally.  The seat
+# level is a value the surface now carries, so every later pad's band is
+# narrowed by it through the same law graph; the update is a BOUNDED
+# multi-source Dijkstra from the new sources with early exit where no
+# bound tightens, never a field recompute (``law_band.
+# IncrementalAnchorField``, twinned in ``tests/test_law_band.py``).
+#
+# DEFAULT OFF, AND THE REASON IS MEASURED — spec §1.5's own licence
+# ("design requirements, the lane refines with measurement"), REPORTED as
+# a deviation for the Fable author's ruling.  Three SPJC arms, one tree,
+# everything else identical (census, harness):
+#
+#     band OFF                                    1,558 adjudicated
+#     band ON, seat anchors OFF                   1,540   (-18)
+#     band ON, seat anchors ON                    5,627 (+4,069)
+#
+# and +4,154 of that +4,069 is ``within_shape`` alone (66 -> 4,219), the
+# rows ``building|building`` at up to 11.1 m against a 1 % cap.  HECA
+# reproduces it (6,929 -> 13,230, ``within_shape`` 942 -> 5,427).
+#
+# THE MECHANISM.  A seat is inside its own band AT SEAT TIME.  Joining it
+# to the anchor set afterwards narrows the band at OTHER nodes — including
+# the ring nodes of pads that were already placed, and of its own rigid
+# unit — so the band of record that every POST-solve consumer reads (the
+# writeback clamp, the apron contact floors, ``final_grade_projection``'s
+# rebuilt ``node_bands``) now contradicts levels the seat pass already
+# committed.  A pad is RIGID and FLAT, so clamping some of its ring
+# vertices and not others breaks the pad's own 1 % law by metres.  The
+# narrowing is real; applying it to values already placed is what mints
+# the rows.  Making it lawful needs the seats to be CHOSEN under it (one
+# joint pass), which is a design question and therefore a Fable one.
+#
+# The facility, its twin and this gate all stay: ``O4_BAND_SEAT_ANCHORS=1``
+# is the arm a ruling would be made on, and it is one word away.
+BAND_SEAT_ANCHORS = (
+    _os.environ.get("O4_BAND_SEAT_ANCHORS", "0") != "0")
+
+# §1.4 — AN EMPTY OR INVERTED INTERVAL.  DEFAULT 0 = REPORT-FIRST
+# (spec Amendment 1, owner ruling "3", 2026-08-27).
+#
+# Two laws contradicting each other at a site is a defect in the DATA or
+# the LAW — under feasibility-is-guaranteed it is never a property of the
+# ground — and §1.4 as written made it a hard pre-solve refusal.  The
+# lane's first arm proved that too sharp for pre-ship: HEAZ carries
+# exactly ONE such pair (anchor 3104 at 81.10 vs anchor 3281 at 86.14,
+# 5.04 m apart across 4.38 m of law budget along a 15-hop chain,
+# propagated to 200 nodes at a constant 0.647-0.658 m deficit) and the
+# refusal blocked that airport at main tip.
+#
+# The owner's ruling applies the §2-instrument precedent:
+#
+#   0 (SHIPPED)  the same loud message — lat/lon, both anchors, both
+#                binding chains — plus a sidecar record
+#                ``law_band_contradictions`` the census prints, and the
+#                build CONTINUES with the PRE-BAND behaviour at exactly
+#                the affected nodes (``law_band.
+#                heal_contradictions_report_first`` puts those nodes back
+#                on the route-only interval; the rest of the airport keeps
+#                its narrowed band).
+#   1            the hard refusal, before any patch is written.  The
+#                diagnostic arm, and the ship-gate arm.
+#
+# PROMOTION OF THE DEFAULT TO 1 IS A SHIP-GATE RULING, adjudicated with
+# the accumulated contradiction ledger.  It is not a flag flip to make
+# casually and it is not any lane's call.
+#
+# The materiality floor is unchanged and still applies in BOTH modes: a
+# crossing under FINAL_BAND_INVERSION_TOL_M is PASS-with-residual, never
+# a contradiction (CLAUDE.md convergence guards).
+BAND_LAW_REFUSE = (
+    _os.environ.get("O4_BAND_LAW_REFUSE", "0") != "0")

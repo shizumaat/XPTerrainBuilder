@@ -490,6 +490,11 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
     # byte-identical with or without it.
     cell_nodes: dict = {}
     cell_rc: dict = {}
+    #: node -> its attachment cell (spec unified-law-band §1.5d): the
+    #: reverse of ``cell_nodes``, so a seat anchor that tightens a node's
+    #: bound can refresh exactly the cells that node seeds — never the
+    #: whole grid, never a rebuild.
+    node_cid: dict = {}
     for k in sorted(ceil_val):                     # sorted() for determinism
         p = G.pos.get(k)
         if p is None:
@@ -513,6 +518,7 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
             continue
         cell_nodes.setdefault(cid, []).append(int(k))
         cell_rc[cid] = (ri, ci)
+        node_cid[int(k)] = cid
         if _SEED_EXACT:
             pending.setdefault(cid, []).append(
                 (float(p[0]), float(p[1]), cv, fv, ri, ci))
@@ -633,6 +639,101 @@ def build_raster_reach_band(layout, G) -> Optional[Callable[
         }
 
     band.attachment_at = attachment_at              # type: ignore[attr-defined]
+
+    # ── §1.5(d) SEATS INCREMENT, NEVER RECOMPUTE ──────────────────────
+    # (spec docs/specs/unified-law-band-spec.md, owner ruling RULINGS
+    # 2026-08-27.)  A PLACED SEAT is a value the surface now carries, so
+    # it joins the law graph's anchor set and every later pad reads a
+    # band narrowed by it.  The update touches:
+    #
+    #   * the NODE fields — a bounded Dijkstra from the new source that
+    #     stops the instant a node's bound is not tightened
+    #     (``law_band.IncrementalAnchorField``);
+    #   * the GRID — only the attachment cells the changed nodes seed,
+    #     re-resolved through the SAME ``resolve_seed_cell`` the build
+    #     used (seed-exactness is a law of this grid, not of the initial
+    #     pass), then the cells those attachments serve.
+    #
+    # Never a field recompute and never a grid rebuild.  With the
+    # sub-gate off, no published law edge, or no seat, the whole facility
+    # is inert and the band is byte-identical.
+    seat_meta = {"anchors": 0, "nodes_tightened": 0, "cells_refreshed": 0,
+                 "relaxations": 0, "off_graph": 0}
+
+    def add_seat_anchors(seats):
+        """Join every placed seat (``{node: level}``) to the anchor set.
+
+        ONE batched statement, and that is the efficiency contract, not a
+        convenience: per-seat relaxation is one pruned Dijkstra AND one
+        grid refresh per seat, and a HECA build measured on that arm
+        passed 20 minutes inside this loop before it was killed.  The
+        ceiling is a MIN over anchors, so the whole batch is one
+        multi-source walk (``IncrementalAnchorField.add_anchors``) and one
+        grid pass.  Returns the number of grid cells refreshed.
+        """
+        fields = getattr(layout, "_law_band_fields", None)
+        if fields is None or not seats:
+            return 0
+        src: dict = {}
+        for nd, lv in seats.items():
+            nd = int(nd)
+            # A seat node the LAW GRAPH does not carry cannot anchor
+            # anything: it is off every law edge and off the spine, so it
+            # would only add an isolated source.  Counted, never silent.
+            if nd not in fields.ceiling and nd not in fields.floor:
+                seat_meta["off_graph"] += 1
+                continue
+            src[nd] = float(lv)
+        if not src:
+            return 0
+        ch = fields.add_anchors(src)
+        changed_c, changed_f = ch["ceiling"], ch["floor"]
+        seat_meta["anchors"] += len(src)
+        if not changed_c and not changed_f:
+            return 0
+        seat_meta["nodes_tightened"] += len(set(changed_c) | set(changed_f))
+        seat_meta["relaxations"] = fields.relaxations
+        touched: set = set()
+        for nd in set(changed_c) | set(changed_f):
+            cid = node_cid.get(int(nd))
+            if cid is not None:
+                touched.add(cid)
+        if not touched:
+            return 0
+        for cid in touched:
+            members = pending.get(cid)
+            if members:
+                # SEED-EXACT: re-price the intra-cell legs with the new
+                # per-node values, through the build's own resolver.
+                fresh = []
+                for (mx, my, _cv, _fv, mri, mci), k in zip(
+                        members, cell_nodes.get(cid, ())):
+                    fresh.append((mx, my,
+                                  float(fields.ceiling.get(int(k), _cv)),
+                                  float(fields.floor.get(int(k), _fv)),
+                                  mri, mci))
+                pending[cid] = fresh
+                cv, fv, _collapsed = resolve_seed_cell(fresh, cxs, cys, cap)
+            else:
+                cv, fv = _INF, -_INF
+                for k in cell_nodes.get(cid, ()):
+                    cv = min(cv, float(fields.ceiling.get(int(k), _INF)))
+                    fv = max(fv, float(fields.floor.get(int(k), -_INF)))
+                if not math.isfinite(cv):
+                    continue
+            sc[cid] = cv
+            sf[cid] = fv
+        idx_arr = np.fromiter(sorted(touched), dtype=np.int64,
+                              count=len(touched))
+        mask = have & np.isin(source, idx_arr)
+        if mask.any():
+            ceiling[mask] = sc[source[mask]] + leg[mask]
+            floor[mask] = sf[source[mask]] - leg[mask]
+        seat_meta["cells_refreshed"] += int(mask.sum())
+        return int(mask.sum())
+
+    band.add_seat_anchors = add_seat_anchors  # type: ignore[attr-defined]
+    band.seat_anchor_meta = seat_meta         # type: ignore[attr-defined]
 
     # Diagnostics on the closure (opt-in probes; also read by the profile A/B).
     # The OFF-ROUTE LEG distribution is the honest measure of how much of the

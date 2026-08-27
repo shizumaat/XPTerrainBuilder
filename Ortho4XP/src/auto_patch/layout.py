@@ -3849,6 +3849,22 @@ class PavementLayout:
             # none, a missing key says the patch predates the law.
             "airside_no_step_edges": list(
                 getattr(self, "_airside_no_step_edges_ll", None) or []),
+            # THE LAW-BAND CONTRADICTION LEDGER (spec unified-law-band
+            # Amendment 1, owner ruling "3", 2026-08-27).  Each row is a
+            # SITE where the narrowed band admitted no elevation at all —
+            # two laws contradicting each other — with its lat/lon, both
+            # binding anchors and their values, both route budgets, both
+            # binding chains, and which pre-band interval the node was put
+            # back on.  Pre-ship these REPORT rather than refuse, so the
+            # ledger is the whole instrument: promotion of
+            # ``O4_BAND_LAW_REFUSE`` to 1 is a ship-gate ruling adjudicated
+            # on exactly this accumulated list.  Written unconditionally:
+            # ``[]`` says the band ran and found no contradiction, a
+            # missing key says the patch predates the law.
+            "law_band_contradictions": list(
+                sorted((getattr(self, "_law_band_contradictions", None)
+                        or {}).values(),
+                       key=lambda r: -float(r.get("deficit_m") or 0.0))),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

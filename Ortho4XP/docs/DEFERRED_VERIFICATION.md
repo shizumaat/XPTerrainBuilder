@@ -3595,3 +3595,16 @@ DEFERRED here:
   each other;
 * build-time: only ledger-recorded walls are quoted, no `--runs N`
   measurement (per-change timing gates remain SUSPENDED).
+
+### 2026-08-27 — lane/roadxing attempt 3 (spec Amendment 1) supersedes the above
+
+The addendum above describes attempts 1-2 (centerline registration + solver
+pins), both REVERTED.  What stands is source-frame detection, crossings-only
+scope and post-solve adoption (commit 7ff91bd7).  Verified: the 16-case twin
+and 347 covering tests; HECA acceptance build + matched flag-off control;
+CYXY / SPJC / HEAZ arms.  Still DEFERRED here: the full pytest suite, the
+blast-radius suites for `grade_graph.py` and `route_profile/anchors.py`
+(both now REVERTED to a111e080, so their blast radius is untouched by this
+lane), the five-airport battery, and a byte-identity hash of two emitted
+patch bodies across the flag (the flag-off arm's census is identical to the
+§0 reference, which is the stronger available evidence).

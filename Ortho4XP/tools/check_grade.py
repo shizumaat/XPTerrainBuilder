@@ -174,6 +174,12 @@ try:
         # cannot drift (grade-law completeness, lockstep half).
         strip_longitudinal_law as _strip_longitudinal_law,
         strip_longitudinal_breaches as _strip_longitudinal_breaches,
+        # THE AIRSIDE RATE-OF-CHANGE LAW (owner ruling RULINGS
+        # 2026-08-27 clause 2; spec ``airside-no-step-law-spec.md``
+        # §1.2).  One constant, two readers — the strip family and this
+        # one both resolve the aerodrome's vertical-curve rate through
+        # ``grade_law``, never a private number here.
+        airside_arc_rate_per_m as _airside_arc_rate_per_m,
         resa_transverse_band as _resa_transverse_band,
         raoa_footprint_ring as _raoa_footprint_ring,
         raoa_applies as _raoa_applies,
@@ -244,6 +250,7 @@ except Exception:
     _DEFAULT_RULESET = "icao"
     _strip_longitudinal_law = None
     _strip_longitudinal_breaches = None
+    _airside_arc_rate_per_m = None
     _resa_transverse_band = None
     _raoa_footprint_ring = None
     _raoa_applies = None
@@ -3351,7 +3358,30 @@ def _check_apron_lattice_membrane(
     the SOLVE priced it at.  ``n_unmatched`` counts published edges an
     endpoint of which no emitted node carries — reported beside the
     count, because a dropped vertex is a lost measurement.
+
+    ONE IMPLEMENTATION, TWO FAMILIES.  The AIRSIDE NO-STEP family
+    (RULINGS 2026-08-27) prices its sidecar publication by exactly this
+    rule — "solver publishes, census prices the same list" — so the body
+    lives in :func:`_check_published_law_edges` and both families call
+    it.  A second copy would be the census-wrapper defect in miniature:
+    one law, two readers, nothing asserting they agree.
     """
+    return _check_published_law_edges(
+        lattice_edges_ll, lattice_ways, ways, nodes, ll_to_m)
+
+
+def _check_published_law_edges(
+        edges_ll, feature_ways, ways, nodes, ll_to_m
+) -> Tuple[List[Violation], int, int]:
+    """``(violations, n_checked, n_unmatched)`` for ANY sidecar-published
+    law-edge list of ``{"a", "b", "budget_m"}`` records.
+
+    A violation is an emitted pair whose |Δz| exceeds the budget the
+    SOLVE priced it at.  ``n_unmatched`` counts published edges an
+    endpoint of which no emitted node carries — reported beside the
+    count, because a dropped vertex is a lost measurement.
+    """
+    lattice_edges_ll, lattice_ways = edges_ll, feature_ways
     if not lattice_edges_ll:
         return [], 0, 0
     # Emitted nodes that carry a value, indexed in metres.
@@ -3434,6 +3464,161 @@ def _check_apron_lattice_membrane(
         v.lon = 0.5 * (float(a_ll[1]) + float(b_ll[1]))
         out.append(v)
     return out, n_checked, n_unmatched
+
+
+# ── THE AIRSIDE NO-STEP LAW (owner ruling RULINGS 2026-08-27) ────────
+# ONE REGISTER, never a hand list (spec §1.1): the same
+# ``enclaves.ENCLAVE_AIRSIDE_ROLES`` the solve enumerates its airside
+# nodes from, so the two readers cannot price different pavement.
+try:                                                    # pragma: no cover
+    from auto_patch.enclaves import (
+        ENCLAVE_AIRSIDE_ROLES as _NO_STEP_AIRSIDE_ROLES)
+except Exception:                                       # pragma: no cover
+    _NO_STEP_AIRSIDE_ROLES = frozenset()
+
+#: The role-less FEATURE classes that ARE airside membrane polylines
+#: (spec §1.2, "lattice rows/columns, spine-station runs"): the emitted
+#: open breaklines of the apron interior.  Ring sequences come from the
+#: airside ROLE ways themselves.
+_NO_STEP_POLYLINE_FEATURES: Tuple[str, ...] = (
+    "apron_lattice", "apron_spine_station",
+)
+
+
+def _check_airside_no_step(no_step_edges_ll, feature_ways, ways, nodes,
+                           ll_to_m) -> Tuple[List[Violation], int, int]:
+    """§1.1 — the LOCAL DIRECT-DISTANCE grade rows.
+
+    ``(violations, n_checked, n_unmatched)``.  The population is EXACTLY
+    the solve's own sidecar publication (spec §1.6, the
+    ``apron_lattice_membrane`` precedent: solver publishes, census prices
+    the same list — one law, one population), so this is
+    :func:`_check_published_law_edges` with the no-step list.  A pair
+    whose |Δz| exceeds ``cap x DIRECT distance`` is the step the ruling
+    forbids.
+    """
+    return _check_published_law_edges(
+        no_step_edges_ll, feature_ways, ways, nodes, ll_to_m)
+
+
+def _no_step_polylines(ways, feature_ways, nodes, ll_to_m):
+    """``[(way, [(x, y), ...], [z, ...], closed), ...]`` — the airside
+    membrane's own polylines (spec §1.2).
+
+    Three classes, all emitted geometry, none re-derived: the apron
+    LATTICE rows/columns and the spine-STATION runs (open breaklines,
+    handed in as ``feature_ways``), and the RING SEQUENCES of every
+    airside-role way.  A ring is genuinely cyclic, so its wrap-around
+    triples are stations too.
+    """
+    out = []
+    for w in list(feature_ways or []):
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(w.nids):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if ok and len(pts) >= 3:
+            out.append((w, pts, zs, False))
+    for w in list(ways or []):
+        if w.role not in _NO_STEP_AIRSIDE_ROLES:
+            continue
+        nn = list(w.nids)
+        closed = len(nn) > 1 and nn[0] == nn[-1]
+        if closed:
+            nn = nn[:-1]
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if ok and len(pts) >= 3:
+            out.append((w, pts, zs, closed))
+    return out
+
+
+def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m
+                                ) -> Tuple[List[Violation], int, int]:
+    """§1.2 — the RATE-OF-CHANGE rows: airside membrane stations whose
+    grade CHANGE per unit length outruns the aerodrome's vertical-curve
+    rate.
+
+    ``(violations, n_stations, n_ways)``.
+
+    THE MACHINERY IS THE STRIP FAMILY'S, EXTENDED — never forked (spec
+    §1.2, "extend that machinery").  The rate comes from
+    ``grade_law.airside_arc_rate_per_m`` (which IS the strip/runway
+    constant, one source); the second-difference form, the per-row
+    reader blind spot (``_rate_reader_blind_spot``) and the physical
+    ``_site_key`` dedupe are the same three the ``strip_arc`` reader
+    uses, for the same reasons.  ``max_slope`` is passed as infinite so
+    only the ARC half of ``strip_longitudinal_breaches`` fires: the
+    pointwise slope half is already every airside family's business, and
+    counting it twice would be two instruments on one population.
+
+    THE STATION COORDINATE is ARC LENGTH along the polyline — the direct
+    analogue of the strip reader's along-axis coordinate, and the one an
+    aircraft actually travels.
+    """
+    if (_strip_longitudinal_breaches is None
+            or _airside_arc_rate_per_m is None):
+        return [], 0, 0
+    rate = _airside_arc_rate_per_m(_ACTIVE_RULESET)
+    if not rate:
+        return [], 0, 0
+    out: List[Violation] = []
+    n_stations = 0
+    hit_ways: set = set()
+    seen_sites: set = set()
+    inf = float("inf")
+    for (w, pts, zs, closed) in _no_step_polylines(
+            ways, feature_ways, nodes, ll_to_m):
+        idx = list(range(len(pts)))
+        if closed:
+            # The cyclic sequence, walked once with its two wrap triples.
+            idx = idx + [0, 1]
+        s = [0.0]
+        for p in range(1, len(idx)):
+            (xa, ya) = pts[idx[p - 1]]
+            (xb, yb) = pts[idx[p]]
+            s.append(s[-1] + math.hypot(xb - xa, yb - ya))
+        z = [zs[i] for i in idx]
+        n_stations += max(0, len(idx) - 2)
+        for k in _strip_longitudinal_breaches(s, z, inf, rate):
+            if k <= 0 or k >= len(idx) - 1:
+                continue
+            a, b, c = idx[k - 1], idx[k], idx[k + 1]
+            if zs[a] is None or zs[b] is None or zs[c] is None:
+                continue
+            dp = abs(s[k] - s[k - 1])
+            dn = abs(s[k + 1] - s[k])
+            if dp < 1e-6 or dn < 1e-6:
+                continue
+            change = abs((float(zs[c]) - float(zs[b])) / dn
+                         - (float(zs[b]) - float(zs[a])) / dp)
+            allowed = rate * 0.5 * (dp + dn)
+            if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
+                continue                    # PASS-with-residual
+            site = _site_key(pts[a], pts[b], pts[c])
+            if site in seen_sites:
+                continue                    # one row per physical station
+            seen_sites.add(site)
+            hit_ways.add(w.wid)
+            span = 0.5 * (dp + dn)
+            out.append(Violation(
+                grade_pct=100.0 * change,
+                excess_pct=100.0 * (change - allowed),
+                distance_m=span, de_m=abs(float(zs[c]) - float(zs[a])),
+                way_a=w, way_b=w, pt_a=pts[a], pt_b=pts[c],
+                elev_a=float(zs[a]), elev_b=float(zs[c])))
+    out.sort(key=lambda v: -v.grade_pct)
+    return out, n_stations, len(hit_ways)
 
 
 def _check_drainage_spine_below_pavement(
@@ -5851,6 +6036,20 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("apron_lattice_membrane",
      "APRON LATTICE MEMBRANE pair over the apron's own budget", "within"),
+    # THE AIRSIDE NO-STEP LAW (owner ruling RULINGS 2026-08-27, "NO
+    # STEPS IN AIRSIDE PAVEMENT"; spec ``airside-no-step-law-spec.md``
+    # §1.6).  ONE family carrying both of the ruling's bounds: the §1.1
+    # LOCAL DIRECT-DISTANCE grade rows (priced against the solve's own
+    # sidecar publication) and the §1.2 RATE-OF-CHANGE rows (the
+    # strip_arc machinery extended to the membrane's own polylines).
+    # They are one law — the ruling states them as a pair, "the
+    # runway-style grade + curvature pair, applied to ALL airside
+    # pavement" — and the census line reports the two terms' counts
+    # separately so an A/B can still read them apart.  Emitted directly
+    # after ``apron_lattice_membrane`` because it is the same membrane
+    # seen at direct distance.
+    ("airside_no_step",
+     "AIRSIDE NO-STEP (direct-distance grade + rate of change)", "within"),
     ("lateral_contiguity", "LATERAL CONTIGUITY (road vs strictest class)",
      "within"),
     ("strip_longitudinal", "STRIP ABEAM-LONGITUDINAL grade", "within"),
@@ -6366,6 +6565,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # the emitted membrane against the law the solver actually built to
     # — one law, one number, no second opinion.
     "apron_lattice_edges": "apron_lattice_edges_ll",
+    # THE AIRSIDE NO-STEP LAW's direct-distance law edges (owner ruling
+    # RULINGS 2026-08-27; spec ``airside-no-step-law-spec.md`` §1.6).
+    # LAW INPUT of the same kind and for a stronger reason: the pair may
+    # cross a SHAPE BOUNDARY, so no within-shape rule can rediscover it,
+    # and its cap came out of the pair's own frontage / corridor /
+    # back-edge / strip context.  The solve publishes the pair with the
+    # budget it built to; the family below prices EXACTLY that list.
+    "airside_no_step_edges": "airside_no_step_edges_ll",
     # THE BACK-EDGE ZONES the apron 5 % class was priced with (owner
     # ruling RULINGS 2026-08-24).  LAW INPUT: the census reaches
     # ``grade_law.is_apron_interior`` through the SAME context field the
@@ -6542,6 +6749,8 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
     ctx["apron_lattice_edges_ll"] = data.get("apron_lattice_edges") or None
+    ctx["airside_no_step_edges_ll"] = (
+        data.get("airside_no_step_edges") or None)
     ctx["interior_zones_ll"] = data.get("interior_zones") or None
     ctx["disconnected_rings_ll"] = data.get("disconnected_rings") or None
     ctx["basin_facilities"] = data.get("basin_facilities") or None
@@ -6747,6 +6956,7 @@ def run_checks(
     terrace_joints_ll: Optional[list] = None,
     fan_ramp_zones_ll: Optional[list] = None,
     apron_lattice_edges_ll: Optional[list] = None,
+    airside_no_step_edges_ll: Optional[list] = None,
     interior_zones_ll: Optional[list] = None,
     disconnected_rings_ll: Optional[list] = None,
     basin_facilities: Optional[list] = None,
@@ -7152,6 +7362,40 @@ def run_checks(
                  f"emitted node, so the pair is a LOST MEASUREMENT, not "
                  f"a pass" if n_lat_unmatched else "") + ")")
     within = within + lattice_rows
+
+    # ── THE AIRSIDE NO-STEP LAW (owner ruling RULINGS 2026-08-27) ────
+    no_step_rows, n_ns_checked, n_ns_unmatched = _check_airside_no_step(
+        airside_no_step_edges_ll,
+        # The membrane's own emitted breaklines carry the values of every
+        # interior endpoint; a ring-only population would report each of
+        # them as a LOST measurement (the round-3 lattice/station
+        # precedent, same reason).
+        [w for cls in _NO_STEP_POLYLINE_FEATURES
+         for w in open_features.get(cls, [])],
+        ways, nodes, ll_to_m)
+    no_step_rate_rows, n_ns_st, n_ns_ways = _check_airside_no_step_rate(
+        ways,
+        [w for cls in _NO_STEP_POLYLINE_FEATURES
+         for w in open_features.get(cls, [])],
+        nodes, ll_to_m)
+    no_step_all = no_step_rows + no_step_rate_rows
+    _fam("airside_no_step", no_step_all)
+    _pv("AIRSIDE NO-STEP: a pair over cap x DIRECT distance, or a "
+        "membrane station whose grade CHANGE outruns the aerodrome's "
+        "vertical-curve rate (owner ruling RULINGS 2026-08-27 — no step "
+        "in airside pavement is lawful; relief spread smoothly is)",
+        no_step_all, top_n)
+    if not quiet and (n_ns_checked or n_ns_unmatched or n_ns_st):
+        print(f"  ({len(no_step_rows)} direct-distance row(s) over "
+              f"{n_ns_checked} published edge(s)"
+              + (f"; {n_ns_unmatched} SKIPPED — an endpoint is not an "
+                 f"emitted node, so the pair is a LOST MEASUREMENT, not "
+                 f"a pass" if n_ns_unmatched else "")
+              + f"; {len(no_step_rate_rows)} rate row(s) over {n_ns_st} "
+                f"membrane station(s) on {n_ns_ways} polyline(s) — the "
+                f"rate reader's blind spot is the strip family's own, "
+                f"derived per row at its OWN spacing)")
+    within = within + no_step_all
 
     lateral, n_lat_stations, n_lat_shapes = _check_lateral_contiguity(
         ways, nodes, ll_to_m)

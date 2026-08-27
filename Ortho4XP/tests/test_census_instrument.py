@@ -253,40 +253,59 @@ def test_the_per_family_counts_are_the_hand_computed_ones(report):
     # steps are reported AFTER the registered exemption (below)
     assert _fam(report, "vertex_to_edge_step")["n"] == 4
     assert _fam(report, "mid_edge_step")["n"] == 10
+    # AIRSIDE_NO_STEP = 15, all of them the §1.2 RATE term (owner ruling
+    # RULINGS 2026-08-27; this fixture's sidecar publishes no
+    # ``airside_no_step_edges``, so the §1.1 direct-distance term has an
+    # empty population here BY CONSTRUCTION).  Each apron square is walked
+    # as a CYCLIC ring sequence a-b-c-d-a-b at 20 m stations, and the rate
+    # allowance is ``arc_rate x 20 m`` = 0.0131 (FAA ±2 %/30.5 m, ICAO
+    # provisional) against a reader blind spot of q(1/20 + 1/20).  A
+    # square carrying ONE raised corner therefore breaches at three of its
+    # four stations — (a,b,c), (b,c,d) and (c,d,a); the fourth, (d,a,b),
+    # is flat on both sides:
+    #    A1 (corner 1.2), A4 (2.0), A5 (0.5), A6 (2.0), A7 (2.0) -> 3 each
+    #    A2 / A3 lie flat, and G1 / B1 / B2 are not airside     -> 0
+    # 5 x 3 = 15.  A5's 0.5 m corner is priced here even though the 5 %
+    # zone exempts its within-shape pairs: the ZONE relaxes the GRADE cap,
+    # and the ruling's second bound is about CURVATURE, which no zone
+    # declares away.
+    assert _fam(report, "airside_no_step")["n"] == 15
     assert [f["family"] for f in report["families"] if f["n"]] == [
-        "within_shape", "stacked_nodes",
+        "within_shape", "airside_no_step", "stacked_nodes",
         "vertex_to_edge_step", "mid_edge_step"]
 
 
 def test_the_law_true_total_and_the_within_cross_steps_split(report):
-    """14 + 2 within-bucket rows = 16; no cross-bucket row (the two
-    abutting shapes share no vertex inside the 0.5 m proximity window that
-    the law does not already exempt as a wall-separated pair); 28 raw step
-    rows of which 14 hold a registered exemption, so 14 are counted.
-    TOTAL = 16 + 0 + 14 = 30."""
+    """14 + 15 + 2 within-bucket rows = 31 (the middle term is the
+    AIRSIDE NO-STEP rate family, RULINGS 2026-08-27, derived station by
+    station above); no cross-bucket row (the two abutting shapes share no
+    vertex inside the 0.5 m proximity window that the law does not already
+    exempt as a wall-separated pair); 28 raw step rows of which 14 hold a
+    registered exemption, so 14 are counted.  TOTAL = 31 + 0 + 14 = 45."""
     lt = report["lawtrue"]
-    assert lt["within"] == 16
+    assert lt["within"] == 31
     assert lt["cross"] == 0
     assert lt["steps_raw"] == 28
     assert lt["steps"] == 14
-    assert lt["total"] == 30
+    assert lt["total"] == 45
 
 
 def test_the_side_split_and_the_airside_is_king_accounting(report):
-    """AIRSIDE 26 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
+    """AIRSIDE 41 = 12 within-shape apron rows (A1 3, A4 3, A6 3, A7 3)
+    + 15 airside no-step RATE rows (A1/A4/A5/A6/A7, 3 each)
     + 4 vertex-to-edge + 10 mid-edge apron steps.
     GROUNDSIDE 2 = G1's 2 within-shape rows (its drainage-minimum row
     left with the retired landside half of §B3).
     MIXED 2 = the two stacked-node rows, apron against groundside.
 
     ``airside_for_acceptance`` APPLIES the owner ruling the old report
-    line only stated: a mixed row counts against airside, so 26 + 2 = 28.
+    line only stated: a mixed row counts against airside, so 41 + 2 = 43.
     """
     lt = report["lawtrue"]
     assert (lt["airside"], lt["groundside"], lt["mixed"], lt["unknown"]) == (
-        26, 2, 2, 0)
+        41, 2, 2, 0)
     assert lt["airside"] + lt["groundside"] + lt["mixed"] == lt["total"]
-    assert lt["airside_for_acceptance"] == 28
+    assert lt["airside_for_acceptance"] == 43
 
 
 def test_the_registered_step_exemption_is_named_and_counted(report):
@@ -315,7 +334,7 @@ def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
     version-deferred family is ``drainage_minimum``, still REGISTERED and
     still reported under its own heading — but it now carries no row on
     this fixture (its landside half retired 2026-08-14, and its apron half
-    is an ICAO no-op).  So ADJUDICATED = 30 - 0 = 30 and the verdict is
+    is an ICAO no-op).  So ADJUDICATED = 45 - 0 = 45 and the verdict is
     FAIL (a PASS requires zero adjudicated rows).
 
     The deferral heading is printed with n=0 rather than dropped: a
@@ -325,11 +344,11 @@ def test_the_adjudication_defers_exactly_the_registered_family(report, cg):
     assert adj["ruling"] == cg.DEFERRED_ADJUDICATION_RULING
     assert adj["deferred_total"] == 0
     assert adj["deferred_families"]["drainage_minimum"]["n"] == 0
-    assert adj["adjudicated_total"] == 30
+    assert adj["adjudicated_total"] == 45
     assert adj["adjudicated_by_side"] == {
-        "airside": 26, "groundside": 2, "mixed": 2, "unknown": 0}
+        "airside": 41, "groundside": 2, "mixed": 2, "unknown": 0}
     assert adj["pass"] is False
-    assert report["adjudicated_airside_for_acceptance"] == 28
+    assert report["adjudicated_airside_for_acceptance"] == 43
     # the deferred rows are REPORTED, never dropped
     assert (adj["adjudicated_total"] + adj["deferred_total"]
             == report["lawtrue"]["total"])
@@ -365,14 +384,14 @@ def test_the_bare_minus_law_true_difference_is_the_two_frame_effects(
            them at the apron's 1 % (0.5 m > 0.23 / 0.313).
       +14  the building-to-building step rows the exemption removes.
 
-    bare 47 - law-true 30 = +17.  (A4 keeps its relief in both frames: the
+    bare 62 - law-true 45 = +17.  (A4 keeps its relief in both frames: the
     ramp cap comes from the WAY's own ``o4_grade_law`` tag, which is on the
     patch, not in the sidecar.)
     """
-    assert report["bare"]["within"] == 19     # 16 + A5's 3
+    assert report["bare"]["within"] == 34     # 31 + A5's 3
     assert report["bare"]["cross"] == 0
     assert report["bare"]["steps"] == 28      # raw, no exemption
-    assert report["bare"]["total"] == 47
+    assert report["bare"]["total"] == 62
     assert report["bare"]["total"] - report["lawtrue"]["total"] == 17
 
 
@@ -416,7 +435,7 @@ def test_a_stamped_patch_carries_the_build_frame_into_the_report(
     assert prov["built"] == "2026-08-06T12:00:00"
     assert prov["icao"] == "TEST"
     # ...and the counts are untouched by the stamp
-    assert rep["lawtrue"]["total"] == 30
+    assert rep["lawtrue"]["total"] == 45
 
 
 def test_the_reported_knobs_are_the_knobs_the_law_true_run_binds(

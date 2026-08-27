@@ -3622,3 +3622,35 @@ ON, i.e. the shipped behaviour is unchanged from attempt 3.  DEFERRED: the
 fresh attribution of the 15 HECA / 4 SPJC residual rows (needs an
 instrumented build; they sit a median 121 m from any road, far outside the
 adoption's 6.5 m reach, and are largely churn on the same aprons).
+
+### 2026-08-27c — lane/nostep, THE AIRSIDE NO-STEP LAW
+
+Spec `docs/specs/airside-no-step-law-spec.md` (owner ruling RULINGS
+2026-08-27, "NO STEPS IN AIRSIDE PAVEMENT").  Verified in-lane: the §2
+twins (`tests/test_airside_no_step.py`, 27 cases) plus the directly
+covering suites `test_harness.py` / `test_apron_lattice.py` /
+`test_apron_spine_stations.py` / `test_census_instrument.py` /
+`test_reg_families_round.py`, run once through the ledger; ONE HECA
+acceptance build with the census A/B against
+`HECA_20260827T021457`; CYXY and SPJC arms each with a matched
+`O4_AIRSIDE_NO_STEP=0` control.
+
+DEFERRED to the ship gate, per PRE-SHIP MODE:
+
+* The FULL pytest suite and the blast-radius suites for the four edited
+  production files (`config.py`, `grade_law.py`, `layout.py`,
+  `route_profile/solve.py`, `route_profile/one_solve.py`) — 232 / 82 /
+  213 / 53 / 39 direct importers respectively.
+* The five-airport battery (only HECA / CYXY / SPJC were built).
+* A BYTE-IDENTITY hash of two emitted patch bodies across the flag.  The
+  flag's contract is byte-identity when OFF; what was measured instead is
+  that the OFF arm's census reproduces the pre-law reading, which is the
+  stronger available evidence but not a hash.
+* The BUILD-TIME adjudication.  Per-change timing gates are suspended
+  (RULINGS 2026-08-04); the k-nearest edge build's cost is stated in the
+  lane report from the recorded phase-time ledger, not from an exclusive
+  timing run, and it is owed a fresh reading in the final profiling round.
+* The census twin `tests/test_census_instrument.py`'s HAND-COMPUTED family
+  counts were re-derived for the new family on the existing deliberately
+  defective fixture; the arithmetic was re-checked by hand for the rate
+  term only, not re-derived from first principles for every family.

@@ -1709,6 +1709,34 @@ def _build_node_list(layout, *, readonly: bool = False):
             if k not in bucket_to_idx:
                 bucket_to_idx[k] = len(nodes)
                 nodes.append((float(x), float(y)))
+    # ── APRON SPINE STATION ADMISSION (spec heca-apron-round3 §1) ─────
+    # The SAME admission as the lattice above, and above
+    # ``_terrain_host_yield_first_index`` for the same reason — but a
+    # station is not membrane, it is a CENTERLINE node: it lies exactly
+    # on an aircraft taxi axis, ``grade_graph._build_global_spine``
+    # strings it into that axis's chain in arc order, and phase A values
+    # it from the axis's own profile.  It must be a variable before the
+    # graph can string it, which is what this loop does.
+    #
+    # Route METRIC is untouched: stations are COLLINEAR interior points
+    # of an existing axis, so one chain budget ``cap·d`` becomes two
+    # whose arc gaps sum to ``d``.  That is the line between this and the
+    # R-a lateral-foot defect (OFF-axis feet interleaved into cross edges
+    # and shortened routes until the final band inverted).
+    #
+    # The constructor already skips any station within the registry
+    # tolerance of an existing plan vertex, so the adoption path below is
+    # belt and braces.  Flag OFF (or no store): the loop body never runs
+    # — byte-inert.
+    for _st_entry in (getattr(layout, "apron_spine_presolve", None)
+                      or ()):
+        for x, y in _st_entry.get("points", ()):
+            k = _intern(float(x), float(y))
+            if k is None:                     # readonly: unclaimed bucket
+                continue
+            if k not in bucket_to_idx:
+                bucket_to_idx[k] = len(nodes)
+                nodes.append((float(x), float(y)))
     # ── RUNWAY-END RESA CUT ADMISSION (arc R slice R1) ───────────────
     # The cut rings already exist pre-solve (they are emitted inside the
     # B1 skirt emitter's pre-solve call), so unlike the gap spines this

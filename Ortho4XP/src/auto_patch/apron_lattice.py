@@ -150,6 +150,61 @@ def _rows_and_columns(pts):
     return lines
 
 
+def clip_lines_to_apron(lines, poly, *, margin_m=LATTICE_RING_MARGIN_M):
+    """PER-SEGMENT CLIP (spec heca-apron-round3 §2; owner sim read
+    RULINGS 2026-08-26b item 1).
+
+    ``_rows_and_columns`` joins consecutive grid POINTS into straight
+    polylines with only per-POINT containment, so a segment between two
+    lawful points bridges a carved hole or a concavity and the emitted
+    breakline leaves the apron entirely.  Measured at HECA on
+    ``/tmp/harness/HECA_20260826T213425.osm``: 7 of 970 segments outside
+    the footprint, 89.5 m — 28.1 m through building shapeID 157, 23.5 +
+    8.2 m through junctions 2775/2776, the rest through graded strips.
+
+    THE LAW IS THE ONE THE POINTS ALREADY HONOUR: a SEGMENT must lie
+    inside the apron polygon (interior holes respected) buffered by
+    ``margin_m`` — the same ``LATTICE_RING_MARGIN_M`` the point test
+    uses, no new constant.  A violating segment is DROPPED and its run
+    SPLITS there; a sub-run shorter than 2 points dies (it can carry no
+    edge and would emit no way).
+
+    A convex apron whose grid rows already lie inside returns its runs
+    unchanged — byte-identical.
+    """
+    from shapely.geometry import LineString
+    try:
+        interior = poly.buffer(-float(margin_m))
+        if interior.is_empty:
+            return []
+    except _GEOM_EXC:                                     # pragma: no cover
+        return list(lines)
+    try:
+        from shapely.prepared import prep
+        keep = prep(interior)
+    except Exception:                                     # pragma: no cover
+        keep = interior
+    out: list = []
+    for run in (lines or ()):
+        cur: list = []
+        for a, b in zip(run, run[1:]):
+            try:
+                ok = keep.contains(LineString([a, b]))
+            except _GEOM_EXC:                             # pragma: no cover
+                ok = False
+            if ok:
+                if not cur:
+                    cur = [a]
+                cur.append(b)
+            else:
+                if len(cur) >= 2:
+                    out.append(cur)
+                cur = []
+        if len(cur) >= 2:
+            out.append(cur)
+    return out
+
+
 def construct_apron_lattice_presolve(layout, *, spacing_m=None,
                                      radius_m=None, roles=("apron",)):
     """Build ``layout.apron_lattice_presolve`` — one entry per apron
@@ -200,6 +255,7 @@ def construct_apron_lattice_presolve(layout, *, spacing_m=None,
         except Exception:                                 # pragma: no cover
             tree = None
     entries: list = []
+    _n_clipped = 0
     for idx, s in enumerate(getattr(layout, "shapes", None) or ()):
         if (getattr(s, "role", None) or "") not in roles:
             continue
@@ -218,10 +274,32 @@ def construct_apron_lattice_presolve(layout, *, spacing_m=None,
         grid = lattice_points(poly, spacing_m)
         if len(grid) < 1:
             continue
+        # §2 (round 3): the runs are clipped PER SEGMENT to the apron the
+        # points came from, so no emitted breakline bridges a hole or a
+        # concavity.  The points themselves are unchanged — they were
+        # already inside — so only the EMITTED/priced adjacency moves.
+        _lines_raw = _rows_and_columns(grid)
+        _lines = clip_lines_to_apron(_lines_raw, poly)
+        _n_cut_here = (sum(len(_r) - 1 for _r in _lines_raw)
+                       - sum(len(_r) - 1 for _r in _lines))
+        _n_clipped += _n_cut_here
+        # A point every one of whose incident segments was clipped away
+        # survives in NO run, so no emitted way would reference it and
+        # ``to_osm`` would never write it — a solver variable the census
+        # then reports as an unmatched (LOST) measurement.  Points and
+        # lines stay one population: the orphan is dropped with its
+        # segments.  On an unclipped apron this set is empty and the
+        # point list is the pre-round one, byte-for-byte.
+        _kept_xy = {(x, y) for _run in _lines for (x, y) in _run}
+        _pts = ([(x, y) for (_i, _j, x, y) in grid if (x, y) in _kept_xy]
+                if _n_cut_here else
+                [(x, y) for (_i, _j, x, y) in grid])
+        if len(_pts) < 1:
+            continue
         entries.append({
             "shape": s, "shapeID": idx,
-            "points": [(x, y) for (_i, _j, x, y) in grid],
-            "lines": _rows_and_columns(grid),
+            "points": _pts,
+            "lines": _lines,
             "radius_m": round(float(r), 2),
             "centre": (round(cx, 2), round(cy, 2))})
     layout.apron_lattice_presolve = entries
@@ -233,6 +311,10 @@ def construct_apron_lattice_presolve(layout, *, spacing_m=None,
                      f"interior lattice at {spacing_m:g} m: {n_pts} free "
                      f"solver node(s) in {n_lines} polyline(s) — the "
                      f"membrane the census could not see")
+        if _n_clipped:
+            UI.vprint(1, f"  [apron-lattice] round-3 §2 per-segment clip: "
+                         f"{_n_clipped} segment(s) dropped for leaving "
+                         f"their apron (holes and concavities respected)")
     return entries
 
 

@@ -2186,6 +2186,38 @@ def solve_route_profile(layout, icao: str,
                   f"{len(_lattice_idx)} free lattice node(s), "
                   f"{len(_lattice_edges)} within-shape law edge(s) at "
                   f"the apron's own cap")
+    # ── APRON SPINE STATION constraints (spec heca-apron-round3 §1.3
+    # and §3.1) ───────────────────────────────────────────────────────
+    # The stations were admitted by ``_build_node_list`` and strung into
+    # the AIRCRAFT spine by ``_build_global_spine`` (so phase A values
+    # them from the axis's own profile); here they get the WITHIN-SHAPE
+    # law that ties the apron's membrane to them — station↔ring and
+    # station↔lattice pairs, priced by the apron's own caps through the
+    # same ``_grade_graph_edges``/``classify_pair`` path the lattice
+    # uses.  That coupling is the fix for the owner's proud T and his
+    # dip: both are the two sides of its absence.  The records extend
+    # the SAME sidecar publication and therefore the SAME law family
+    # (``apron_lattice_membrane``) — one membrane, one law.  Flag OFF
+    # (or no store): empty everything — byte-inert.
+    _station_idx: set = set()
+    _station_edges: list = []
+    if getattr(layout, "apron_spine_presolve", None):
+        from auto_patch.apron_spine_stations import (
+            build_apron_spine_station_constraints as _build_st_scs)
+        _st_scs, _station_idx, _station_edges = _build_st_scs(
+            layout, bucket_to_idx, _gg_ctx)
+        shape_constraints.extend(_st_scs)
+        if _station_edges:
+            # ASSIGNED, never appended: a second call of this function
+            # in one build would otherwise publish each station pair
+            # twice and the census would price one law two ways.
+            layout._apron_lattice_edges_ll = (
+                list(_lattice_edges) + _station_edges)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [apron-spine] {len(_st_scs)} apron(s), "
+                  f"{len(_station_idx)} centerline station(s), "
+                  f"{len(_station_edges)} within-shape law edge(s) to the "
+                  f"apron's ring/lattice at the apron's own cap")
     # ── RUNWAY-END RESA CUT constraints (arc R slice R1, gated) ───────
     # The owner ruling: the runway-end envelope is LAW THE SOLVER
     # ENFORCES.  The cut rings were emitted PRE-SOLVE (inside the B1
@@ -6014,6 +6046,33 @@ def solve_route_profile(layout, icao: str,
                 if len(_pts_ll) >= 2:
                     _lat_emit.append((_pts_ll, _alts))
         layout.apron_lattice_emit = _lat_emit
+    # ── APRON SPINE STATION writeback (spec heca-apron-round3 §1) ─────
+    # The solved stations, in the CROWNED emit frame (``_elev_emit``, the
+    # array every pavement writeback reads) — so the emitted crossing and
+    # the emitted apron are one surface.  One polyline per crossing, in
+    # arc order, published as ``(pts_ll, alts)`` for ``to_osm``'s valued
+    # node triple.  Empty store: nothing published.
+    if getattr(layout, "apron_spine_presolve", None):
+        _cps_st = layout.canonical_points
+        _st_emit: list = []
+        for _st_entry in layout.apron_spine_presolve:
+            for _line in _st_entry.get("lines", ()) or ():
+                _pts_ll = []
+                _alts = []
+                for (_sx, _sy) in _line:
+                    _si = bucket_to_idx.get(
+                        _cps_st.get_or_add(float(_sx), float(_sy)))
+                    if _si is None or _si >= n:
+                        continue
+                    try:
+                        _sll = layout.m_to_ll(float(_sx), float(_sy))
+                    except Exception:              # pragma: no cover
+                        continue
+                    _pts_ll.append((float(_sll[0]), float(_sll[1])))
+                    _alts.append(float(_elev_emit[_si]))
+                if len(_pts_ll) >= 2:
+                    _st_emit.append((_pts_ll, _alts))
+        layout.apron_spine_station_emit = _st_emit
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.

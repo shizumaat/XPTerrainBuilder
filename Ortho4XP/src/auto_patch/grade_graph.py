@@ -4034,6 +4034,20 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
         bake_store[id(s)] = (
             s.role, ring_signature, baked_edges, baked_spine)
 
+    # ── APRON SPINE STATIONS (spec heca-apron-round3 §1.2) ────────────
+    # A station lies exactly ON an aircraft taxi axis, INSIDE an apron —
+    # it is on no ring, so the shape walk above can never register it,
+    # and ``_build_global_spine`` (which strings what it finds in
+    # ``G.pos``) would not see it.  Registering the positions here, one
+    # statement before the walk, IS the whole of "the stations are
+    # CENTERLINE nodes valued by the route profile": the walk orders them
+    # with the axis's other on-line nodes by arc position and links them
+    # at the axis's own cap.  Empty store (flag OFF, or no crossing):
+    # nothing registered — byte-inert.
+    if getattr(layout, "apron_spine_presolve", None):
+        from .apron_spine_stations import register_station_positions
+        register_station_positions(layout, G, bucket_to_idx)
+
     if include_spine:
         # ── GLOBAL spine chains: per centerline, all on-line geometry nodes
         # ordered by arc and linked consecutive (budget = cap·arc-gap).  This

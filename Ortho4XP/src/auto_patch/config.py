@@ -140,6 +140,8 @@ __all__ = [
     "APRON_LATTICE_SPACING_M",
     "APRON_INTERIOR_LATTICE",
     "TAUT_GRADED_STRIP",
+    "ROAD_AIRSIDE_CROSSING_CONFORM",
+    "ROAD_AIRSIDE_CONTACT_WIDEN",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -9388,6 +9390,60 @@ APRON_NODELESS_RADIUS_M = float(
 # no coupling and no fairing, byte-identical to the pre-ruling build.
 TAUT_GRADED_STRIP = (
     _os.environ.get("O4_TAUT_GRADED_STRIP", "1") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ROAD ↔ AIRSIDE CROSSING CONFORMANCE
+# (docs/specs/road-airside-crossing-conformance-spec.md, 2026-08-26;
+#  owner sim read of 1.0.260, RULINGS 2026-08-26b item 2)
+# ══════════════════════════════════════════════════════════════════════
+# Owner: "Service roads crossing taxiways, like here: 30.104671,
+# 31.3973462, have to grade smoothly to match the apron elevation, not
+# leave a cliff."  AIRSIDE IS KING: the road takes the airside value and
+# the airside surface feels ZERO pull.
+#
+# WHY NO STANDING LAW FIRES THERE (measured, patch
+# ``/tmp/harness/HECA_20260826T213425.osm``).  Three near-misses, one
+# defect:
+#   * the 2026-08-25b edge-conformance term is scoped
+#     ``APRON_CONTACT_ROLES = {"apron"}`` AND keys on literally shared
+#     edge vertices — the road stands 1.5 m from junctions -10250/-10257
+#     with an ``adjacent_ground`` strip between and shares NO node, so it
+#     matches neither half;
+#   * the 2026-08-25h apron-spine complement derives from that same
+#     apron contact, so the spine stops at the apron edge;
+#   * the free-road width test (2026-07-27 + R7a) reads WIDTH ONLY, so
+#     the road's crossing stretch — the centerline runs at 0.00 m INSIDE
+#     junction rings -10250 / -12453 / -12452 / -12708 for tens of
+#     metres — prices as FREE road (axis 709, cap 0.08) against ambient
+#     terrain while the pavement it crosses sits ~4 m higher.
+#
+# §1.1 CONTACT POPULATION: a service-road centerline stretch whose
+# cross-section stands in AIRSIDE pavement (``enclaves.
+# ENCLAVE_AIRSIDE_ROLES`` — THE canonical register, imported, never
+# re-spelled) is a CONFORMING stretch, priced at the crossed surface's
+# cap instead of the road's.
+# §1.2 VALUES: the stretch is PINNED to the airside solved surface at
+# its entry/exit of the airside polygon; between pins it rides that
+# surface, away from it the road transitions at ``SERVICE_ROAD_MAX_GRADE``.
+# The pins are ONE-DIRECTIONAL — they READ ``elev`` at two airside ring
+# vertices and WRITE only service nodes, the 2026-08-15 proximity-mouth
+# posture, whose recipe/hold/reseat machinery they reuse verbatim.
+#
+# DEFAULT ON.  ``O4_ROAD_AIRSIDE_CROSSING_CONFORM=0`` mints no conforming
+# stretch and no pin, so every downstream reader sees the pre-ruling
+# graph byte for byte.
+ROAD_AIRSIDE_CROSSING_CONFORM = (
+    _os.environ.get("O4_ROAD_AIRSIDE_CROSSING_CONFORM", "1") != "0")
+
+# §1.1's 25b CONTACT-SET WIDENING, on its own gate (spec Amendment 2 §2).
+# Under adoption-only values the widening carries NONE of this law's
+# acceptance, and it is the last term in the arm that can still reach the
+# AIRSIDE solve — through the lateral pass's cuts, which change road ring
+# geometry and therefore ``grade_graph.build_context``'s membership sets.
+# ``O4_ROAD_AIRSIDE_CONTACT_WIDEN=0`` is the Fable-authorized diagnostic.
+ROAD_AIRSIDE_CONTACT_WIDEN = (
+    _os.environ.get("O4_ROAD_AIRSIDE_CONTACT_WIDEN", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

@@ -2602,6 +2602,574 @@ def free_road_subsegments(lines, pav_union, *,
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# ROAD ↔ AIRSIDE CROSSING CONFORMANCE
+# (spec ``docs/specs/road-airside-crossing-conformance-spec.md`` §1 as
+#  AMENDED 2026-08-26 late; owner RULINGS 2026-08-26b item 2)
+# ═════════════════════════════════════════════════════════════════════════
+# Owner: "Service roads crossing taxiways have to grade smoothly to match
+# the apron elevation, not leave a cliff."  AIRSIDE IS KING: the road takes
+# the airside value and the airside surface feels ZERO pull.
+#
+# THREE THINGS AMENDMENT 1 SETTLED, each of which this lane measured the
+# hard way first:
+#
+# 1. THE FRAME IS THE SOURCE PAVEMENT.  The carve deliberately separates a
+#    road ring from the pavement it meets by ``GROUNDSIDE_CLEARANCE_M`` and
+#    fills the gap with an ``adjacent_ground`` strip, so a CONTIGUOUS-RUN
+#    test over the SETTLED arrangement finds no paved run containing a
+#    station that stands in that gap.  Attempt 1 asked the question there
+#    and the owner's own site (HECA 30.104671/31.3973462) was invisible to
+#    it through two builds.  The footprint below is therefore reopened to
+#    the source frame: the settled airside union PLUS the annulus the carve
+#    took out of it, intersected back against the source pavement.
+#
+# 2. THE SCOPE IS CROSSINGS ONLY.  A conforming stretch exists where the
+#    centerline ENTERS and EXITS airside pavement (or terminates inside
+#    it).  A road running ALONGSIDE airside pavement is the 2026-07-27 /
+#    25b / 25h case and stays under those laws untouched.  Attempt 2 read
+#    "cross-section reaches airside" and produced 285 stretches / 32.1 km
+#    at HECA — a population three orders of magnitude past the defect.
+#
+# 3. THE VALUES ARE ADOPTED, NEVER CONSTRAINED.  Attempts 1-2 registered
+#    the conforming stretches as centerlines and seated their entry/exit
+#    as solver ANCHORS.  Both are terms in the one solve, and the one
+#    solve is global: measured against a matched flag-off arm, HECA gained
+#    124 (attempt 1) and 78 (attempt 2) airside rows, and 52 % of the new
+#    ones stand MORE than 25 m from any road — 20 % more than 100 m, worst
+#    273 m — which no 6.5 m pin reach can explain.  That is the
+#    centerline-set change moving the whole solve, the class
+#    ``_retain_context`` in this module already exists to prevent.  So
+#    nothing here enters the grade graph at all: the crossing is detected
+#    pre-solve, and its values are ADOPTED POST-SOLVE onto ROAD-FAMILY
+#    NODES ONLY (:func:`adopt_road_airside_crossing_values`), which is the
+#    identity-adoption posture ``seat_service_pavement_on_law`` beside it
+#    already uses.
+#
+# The airside register is ``enclaves.ENCLAVE_AIRSIDE_ROLES``, imported and
+# never re-spelled (blast.py's role-literal hazard) — THE canonical
+# airside-pavement family, the one the 2026-08-15 proximity mouth seat
+# indexes its carrier edges from.  A ``graded_strip`` is NOT in it and must
+# never be: a strip is the road's own grading product riding at the road's
+# own level, so adopting from one pins the road at exactly the value the
+# law wants replaced.
+
+# The station step of the free-road walk, reused — this is the same walk
+# asked a further question, never a second sampling convention.
+AIRSIDE_CROSSING_SAMPLE_STEP_M = 5.0
+
+
+def airside_source_footprint(layout):
+    """The AIRSIDE pavement footprint in the SOURCE frame (Amendment 1 §1),
+    or ``None``.
+
+    The settled airside rings, reopened by the carve's own clearance and
+    clipped back to the source pavement union, so the annulus
+    ``_separate_groundside_from_airside`` and the corridor minter take out
+    from between a road and the pavement it meets is airside again — which
+    is what it is in the frame the free-road walk reads.  Both terms are
+    the standing constants; nothing new is invented.
+    """
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    polys = [s.polygon for s in (getattr(layout, "shapes", None) or ())
+             if getattr(s, "role", None) in ENCLAVE_AIRSIDE_ROLES
+             and getattr(s, "polygon", None) is not None
+             and not s.polygon.is_empty]
+    if not polys:
+        return None
+    try:
+        settled = unary_union(polys)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None
+    if settled is None or settled.is_empty:
+        return None
+    src = getattr(layout, "source_pavement_union", None)
+    if src is None or getattr(src, "is_empty", True):
+        return settled
+    try:
+        reopened = settled.buffer(GROUNDSIDE_CLEARANCE_M).intersection(src)
+        out = settled.union(reopened)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return settled
+    return None if out is None or out.is_empty else out
+
+
+def airside_crossings(lines, airside_src, *, sample_step_m: float =
+                      AIRSIDE_CROSSING_SAMPLE_STEP_M):
+    """The CROSSINGS of ``lines`` through ``airside_src`` (Amendment 1 §2).
+
+    A crossing is a maximal run of stations standing IN airside pavement
+    that the centerline ENTERS and EXITS — both mouths on non-airside
+    ground — or that runs off a line END while inside (a route terminating
+    inside the pavement).  A centerline lying wholly inside airside
+    pavement is NOT a crossing: that is the 25h apron-spine case and its
+    own law owns it.  A road merely running alongside never enters at all.
+
+    Returns ``[(enter_xy, exit_xy, mid_xy, length_m, line_index)]`` — the
+    two boundary points the values are adopted from, a point inside for
+    naming the crossed surface, and the traversal's length.  Pure
+    function over LineStrings; ``[]`` with no footprint, which is what
+    makes every synthetic caller and the flag-off arm inert.
+    """
+    out: list = []
+    if airside_src is None or getattr(airside_src, "is_empty", True):
+        return out
+    try:
+        from shapely.prepared import prep as _prep
+        inside_of = _prep(airside_src).contains
+    except Exception:                                      # pragma: no cover
+        inside_of = airside_src.contains
+    for li, line in enumerate(lines or []):
+        if line is None or line.is_empty or line.length <= 0.0:
+            continue
+        n_st = max(2, int(line.length / sample_step_m) + 1)
+        arcs = [line.length * k / (n_st - 1) for k in range(n_st)]
+        pts = [line.interpolate(a) for a in arcs]
+        try:
+            inside = [bool(inside_of(p)) for p in pts]
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        if not any(inside) or all(inside):
+            # all-out: never touches airside.  all-in: the whole route is
+            # inside the pavement — the apron-spine case, not a crossing.
+            continue
+        k = 0
+        while k < len(arcs):
+            if not inside[k]:
+                k += 1
+                continue
+            k2 = k
+            while k2 + 1 < len(arcs) and inside[k2 + 1]:
+                k2 += 1
+            # THE BOUNDARY POINTS, not the stations: the run's ends are
+            # sampled up to one step inside the polygon, and the value the
+            # road adopts is the surface's at the boundary it crosses.
+            a_in, b_in = arcs[k], arcs[k2]
+            enter = _boundary_between(line, arcs[k - 1], a_in,
+                                      airside_src) if k > 0 else \
+                line.interpolate(0.0)
+            nxt = k2 + 1
+            exit_ = _boundary_between(line, arcs[nxt], b_in,
+                                      airside_src) if nxt < len(arcs) else \
+                line.interpolate(line.length)
+            mid = line.interpolate(0.5 * (a_in + b_in))
+            if enter is not None and exit_ is not None:
+                out.append(((enter.x, enter.y), (exit_.x, exit_.y),
+                            (mid.x, mid.y), float(b_in - a_in), li))
+            k = nxt + 1
+    return out
+
+
+def _boundary_between(line, a_out, a_in, airside_src, iters: int = 12):
+    """The point where ``line`` crosses ``airside_src``'s boundary between
+    the OUTSIDE station at ``a_out`` and the INSIDE one at ``a_in``, by
+    bisection — a point ON the boundary, which is where the value the road
+    adopts is read.  ``None`` if the geometry refuses."""
+    lo, hi = float(a_out), float(a_in)
+    try:
+        for _ in range(iters):
+            mid = 0.5 * (lo + hi)
+            if airside_src.contains(line.interpolate(mid)):
+                hi = mid
+            else:
+                lo = mid
+        return line.interpolate(hi)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None
+
+
+def road_airside_crossing_contacts(layout, icao: str = "") -> dict:
+    """Spec §1.1 as AMENDED — publish the CROSSINGS, and nothing else.
+
+    Writes ``layout._airside_crossings``: one record per traversal,
+    ``{"enter", "exit", "mid", "length_m", "cap"}`` in LOCAL METRES.
+    :func:`adopt_road_airside_crossing_values` reads it POST-SOLVE.
+
+    NOTHING HERE ENTERS THE GRADE GRAPH.  No centerline is registered, no
+    free-road piece is subtracted, no solver anchor is minted — the three
+    couplings attempts 1-2 measured as a global airside disturbance.  This
+    pass reads geometry and publishes a list.
+
+    The source is the one ``grade_graph.centerline_specs`` registers as
+    free road — corridor COURSES first (owner 2026-08-12b, one law object
+    per course), then the sliced subsegments no course covers, through
+    grade_graph's own ``_corridor_cover`` / ``_covered_by_corridor``
+    (imported, never re-derived).  Reading only the sliced set was
+    attempt 1's measured defect: at HECA the roads arrive as corridor
+    chains, so the owner's own crossing was never examined.
+    """
+    from .config import (ROAD_AIRSIDE_CROSSING_CONFORM as _ON,
+                         ROLE_GRADE_LIMITS as _CAPS,
+                         SERVICE_CORRIDOR_CHAINS as _CORRIDOR_CHAINS)
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    from .grade_graph import _corridor_cover, _covered_by_corridor
+    summary = {"lines": 0, "crossings": 0, "crossing_m": 0.0,
+               "on": bool(_ON)}
+    layout._airside_crossings = []
+    if not _ON:
+        return summary
+    _sliced = [ln for ln in (getattr(layout, "_slice_service_subsegments",
+                                     None) or [])
+               if ln is not None and not getattr(ln, "is_empty", True)]
+    _corridors = [ln for ln in (getattr(layout, "_service_corridor_lines",
+                                        None) or [])
+                  if ln is not None and not getattr(ln, "is_empty", True)
+                  and len(getattr(ln, "coords", ())) >= 2]
+    if _CORRIDOR_CHAINS and _corridors:
+        _cover = _corridor_cover(_corridors)
+        lines = list(_corridors) + [ln for ln in _sliced
+                                    if not _covered_by_corridor(ln, _cover)]
+    else:
+        lines = _sliced
+    summary["lines"] = len(lines)
+    if not lines:
+        return summary
+    air = airside_source_footprint(layout)
+    if air is None:
+        return summary
+    found = airside_crossings(lines, air)
+    if not found:
+        return summary
+    # THE CAP the road transitions away at is its OWN (§1.2, "away from the
+    # contact the road transitions at its own cap"); the crossed surface's
+    # cap is recorded for the report only.  Read from ``ROLE_GRADE_LIMITS``,
+    # the one table.
+    role_polys = [(s.role, s.polygon) for s in (getattr(layout, "shapes",
+                                                        None) or ())
+                  if getattr(s, "role", None) in ENCLAVE_AIRSIDE_ROLES
+                  and getattr(s, "polygon", None) is not None
+                  and not s.polygon.is_empty]
+    try:
+        from shapely.strtree import STRtree as _STRtree
+        _tree = _STRtree([p for (_r, p) in role_polys])
+    except Exception:                                      # pragma: no cover
+        _tree = None
+    recs: list = []
+    for (enter, exit_, mid, length_m, _li) in found:
+        cap = None
+        mp = Point(mid)
+        cand = (range(len(role_polys)) if _tree is None
+                else [int(k) for k in _tree.query(mp)])
+        for k in cand:
+            (role, poly) = role_polys[k]
+            try:
+                if not poly.contains(mp):
+                    continue
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            c = _CAPS.get(role)
+            if c is not None and (cap is None or c < cap):
+                cap = float(c)
+        recs.append({"enter": enter, "exit": exit_, "mid": mid,
+                     "length_m": float(length_m), "cap": cap})
+    layout._airside_crossings = recs
+    summary["crossings"] = len(recs)
+    summary["crossing_m"] = float(sum(r["length_m"] for r in recs))
+    import O4_UI_Utils as UI
+    UI.vprint(1,
+        f"  [pav-builder] {icao}: road↔airside CROSSINGS (RULINGS "
+        f"2026-08-26b item 2, spec Amendment 1) — {len(recs)} service "
+        f"centerline traversal(s) of airside pavement, "
+        f"{summary['crossing_m']:,.0f} m, over {len(lines)} free-road "
+        f"course(s); their values are ADOPTED post-solve onto road-family "
+        f"nodes only — nothing enters the grade graph.")
+    return summary
+
+
+# ── THE ADOPTION (Amendment 1 §3) ────────────────────────────────────────
+# ROAD-FAMILY NODES ONLY, and that is enforced by CONSTRUCTION rather than
+# by care: a vertex this pass may write must belong to NO shape outside
+# ``LATERAL_CONTIGUITY_ROAD_ROLES``.  A vertex an apron, a taxiway, a
+# building pad or a graded strip also carries is FROZEN — it keeps its
+# solved value and serves as an anchor the road grades to.  So the airside
+# census cannot move: every value this pass writes is one no airside ring
+# reads.
+
+def _road_vertex_graph(layout):
+    """``(keys, xy, adj, frozen, rings)`` over the ROAD FAMILY.
+
+    ``keys[i]`` is the millimetre vertex identity (``emit_decimate._key``,
+    the one identity convention in this repo — never proximity);
+    ``adj`` is the ring-edge graph with its metre lengths, so a weld
+    between a road and the junction it feeds is ONE node by identity;
+    ``frozen`` is the subset any NON-road shape also carries.
+    """
+    from .emit_decimate import _key as _vkey
+    from .grade_law import LATERAL_CONTIGUITY_ROAD_ROLES as _ROAD
+    idx: dict = {}
+    xy: list = []
+    adj: dict = {}
+    rings: list = []          # (shape, [node index per ring vertex])
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) not in _ROAD:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring_xy(poly)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        if len(ring) < 3:
+            continue
+        ids = []
+        for (x, y) in ring:
+            k = _vkey(float(x), float(y))
+            i = idx.get(k)
+            if i is None:
+                i = len(xy)
+                idx[k] = i
+                xy.append((float(x), float(y)))
+            ids.append(i)
+        n = len(ids)
+        for t in range(n):
+            a, b = ids[t], ids[(t + 1) % n]
+            if a == b:
+                continue
+            d = math.hypot(ring[t][0] - ring[(t + 1) % n][0],
+                           ring[t][1] - ring[(t + 1) % n][1])
+            adj.setdefault(a, []).append((b, d))
+            adj.setdefault(b, []).append((a, d))
+        rings.append((s, ids))
+    frozen: set = set()
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) in _ROAD:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            coords = list(poly.exterior.coords)
+            for r in poly.interiors:
+                coords += list(r.coords)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        for (x, y) in coords:
+            i = idx.get(_vkey(float(x), float(y)))
+            if i is not None:
+                frozen.add(i)
+    return idx, xy, adj, frozen, rings
+
+
+def _airside_value_at(pt, layout):
+    """The SETTLED airside surface value at ``pt``, or ``None``.
+
+    Read off the airside ring the point stands on or nearest to: the
+    nearest ring EDGE's two endpoint altitudes, interpolated at the
+    perpendicular foot — the 2026-08-15 proximity-mouth recipe, applied
+    post-solve where the surface has stopped moving (RULINGS 2026-08-14,
+    "resolve against the surface's own final value").
+    """
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    px, py = float(pt[0]), float(pt[1])
+    reach = _adopt_read_m()
+    best = None
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) not in ENCLAVE_AIRSIDE_ROLES:
+            continue
+        poly = getattr(s, "polygon", None)
+        alts = list(getattr(s, "node_altitudes", None) or [])
+        if poly is None or getattr(poly, "is_empty", True) or not alts:
+            continue
+        try:
+            if poly.distance(Point(px, py)) > reach:
+                continue
+            ring = _open_ring_xy(poly)
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        n = len(ring)
+        if len(alts) == n + 1:
+            alts = alts[:-1]
+        if len(alts) != n or any(a is None for a in alts):
+            continue
+        for t in range(n):
+            (ax, ay) = ring[t]
+            (bx, by) = ring[(t + 1) % n]
+            dx, dy = bx - ax, by - ay
+            l2 = dx * dx + dy * dy
+            u = (0.0 if l2 <= 0.0 else
+                 max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / l2)))
+            d = math.hypot(px - (ax + u * dx), py - (ay + u * dy))
+            if best is None or d < best[0]:
+                za, zb = float(alts[t]), float(alts[(t + 1) % n])
+                best = (d, za + u * (zb - za))
+    return None if best is None else best[1]
+
+
+def _adopt_read_m() -> float:
+    """How far from a crossing mouth an airside ring may be and still be
+    the surface the road arrives at: the carve's own clearance plus the
+    weld tolerance — the two constants that mint the gap, the same
+    derivation the 2026-08-15 mouth seat uses.  Read at CALL time because
+    ``GROUNDSIDE_CLEARANCE_M`` is defined further down this module."""
+    return GROUNDSIDE_CLEARANCE_M + SHARED_VERTEX_TOL_M
+
+
+def adopt_road_airside_crossing_values(layout, icao: str = "") -> dict:
+    """POST-SOLVE: the crossing's ROAD-FAMILY values are ADOPTED from the
+    settled airside surface (spec §1.2, Amendment 1 §3).
+
+    At each mouth of a crossing the road takes the airside boundary value;
+    from there its own network carries that value outward under
+    ``SERVICE_ROAD_MAX_GRADE`` (a cap-Lipschitz envelope over the road
+    vertex graph, the ``_reach`` shape), and every road vertex is clamped
+    into the envelope its mouths and its own frozen welds allow.
+
+    AIRSIDE IS KING, BY CONSTRUCTION: a vertex ANY non-road shape also
+    carries is frozen — it keeps its solved value and anchors the road —
+    so no value this pass writes is one an airside ring reads.  The
+    acceptance gate is exactly that: airside census EXACT against the
+    flag-off arm.
+    """
+    from .config import (ROAD_AIRSIDE_CROSSING_CONFORM as _ON,
+                         ROAD_CARVE_MAX_WIDTH_M as _W,
+                         SERVICE_ROAD_MAX_GRADE as _CAP)
+    import O4_UI_Utils as UI
+    out = {"crossings": 0, "mouths": 0, "seeded": 0, "moved": 0,
+           "worst_m": 0.0, "frozen": 0}
+    recs = (getattr(layout, "_airside_crossings", None) or []) if _ON else []
+    if not recs:
+        return out
+    idx, xy, adj, frozen, rings = _road_vertex_graph(layout)
+    if not xy:
+        return out
+    out["crossings"] = len(recs)
+    out["frozen"] = len(frozen)
+    # Current values, per vertex, from the rings that carry them.
+    cur: dict = {}
+    for (s, ids) in rings:
+        alts = list(getattr(s, "node_altitudes", None) or [])
+        if not alts:
+            continue
+        if len(alts) == len(ids) + 1:
+            alts = alts[:-1]
+        if len(alts) != len(ids):
+            continue
+        for i, a in zip(ids, alts):
+            if a is not None and i not in cur:
+                cur[i] = float(a)
+    # ── THE MOUTH SEEDS ────────────────────────────────────────────────
+    # A mouth is a point ON the airside boundary; the road's cross-section
+    # there is bounded by ``ROAD_CARVE_MAX_WIDTH_M / 2``, the law's own
+    # bound on how wide a carved road may be — derived, never new.
+    R = float(_W) / 2.0
+    cell = max(1.0, R)
+    grid: dict = {}
+    for i, (x, y) in enumerate(xy):
+        grid.setdefault((int(x // cell), int(y // cell)), []).append(i)
+    seeds: dict = {}
+    for rec in recs:
+        for mouth in (rec.get("enter"), rec.get("exit")):
+            if mouth is None:
+                continue
+            z = _airside_value_at(mouth, layout)
+            if z is None:
+                continue
+            out["mouths"] += 1
+            qx, qy = float(mouth[0]), float(mouth[1])
+            cx, cy = int(qx // cell), int(qy // cell)
+            for ox in (-1, 0, 1):
+                for oy in (-1, 0, 1):
+                    for i in grid.get((cx + ox, cy + oy), ()):
+                        if i in frozen:
+                            continue        # airside/groundside reads it
+                        (px, py) = xy[i]
+                        if math.hypot(px - qx, py - qy) > R:
+                            continue
+                        prev = seeds.get(i)
+                        if prev is None or abs(z - cur.get(i, z)) < \
+                                abs(prev - cur.get(i, prev)):
+                            seeds[i] = float(z)
+    if not seeds:
+        return out
+    out["seeded"] = len(seeds)
+    # ── THE ENVELOPE ───────────────────────────────────────────────────
+    # Ceiling and floor by Dijkstra over the road graph at cap·distance,
+    # from the mouth seeds AND from every frozen weld at its own solved
+    # value — so the road grades to its airside welds exactly as before
+    # and to its new mouths as well.  Positive weights only.
+    import heapq
+
+    def _reach(sign, src):
+        best = dict(src)
+        heap = [((sign * v), i) for i, v in src.items()]
+        heapq.heapify(heap)
+        seen: set = set()
+        while heap:
+            sv, i = heapq.heappop(heap)
+            if i in seen:
+                continue
+            seen.add(i)
+            base = sign * sv
+            for (j, d) in adj.get(i, ()):
+                if j in seen:
+                    continue
+                cand = base + sign * (_CAP * d)
+                prev = best.get(j)
+                if prev is None or (sign > 0 and cand < prev) or \
+                        (sign < 0 and cand > prev):
+                    best[j] = cand
+                    heapq.heappush(heap, ((sign * cand), j))
+        return best
+
+    src = dict(seeds)
+    for i in frozen:
+        if i in cur:
+            src.setdefault(i, cur[i])
+    ceil = _reach(+1, src)
+    floor = _reach(-1, src)
+    new: dict = {}
+    for i in range(len(xy)):
+        if i in frozen:
+            continue
+        if i in seeds:
+            new[i] = seeds[i]
+            continue
+        v = cur.get(i)
+        if v is None:
+            continue
+        hi, lo = ceil.get(i), floor.get(i)
+        if hi is None or lo is None or lo > hi + 1e-9:
+            continue        # unreachable, or a genuine contradiction
+        nv = min(max(v, lo), hi)
+        if abs(nv - v) > 1e-9:
+            new[i] = nv
+    if not new:
+        return out
+    # ── WRITE BACK, values only ────────────────────────────────────────
+    for (s, ids) in rings:
+        alts = list(getattr(s, "node_altitudes", None) or [])
+        if not alts:
+            continue
+        closed = (len(alts) == len(ids) + 1)
+        body = alts[:-1] if closed else alts
+        if len(body) != len(ids):
+            continue
+        touched = False
+        for t, i in enumerate(ids):
+            nv = new.get(i)
+            if nv is None or body[t] is None:
+                continue
+            d = abs(float(nv) - float(body[t]))
+            if d <= 1e-9:
+                continue
+            out["worst_m"] = max(out["worst_m"], d)
+            body[t] = float(nv)
+            out["moved"] += 1
+            touched = True
+        if touched:
+            s.node_altitudes = (body + [body[0]]) if closed else body
+    UI.vprint(1,
+        f"  [pav-builder] {icao}: road↔airside crossing ADOPTION "
+        f"(spec Amendment 1 §3) — {out['crossings']} crossing(s), "
+        f"{out['mouths']} mouth value(s) read off the SETTLED airside "
+        f"surface, {out['seeded']} road vertex/vertices seated at them, "
+        f"{out['moved']} road vertex/vertices re-levelled under the "
+        f"{100.0 * _CAP:.0f} % road cap (worst {out['worst_m']:.3f} m); "
+        f"{out['frozen']} vertex/vertices FROZEN because a non-road shape "
+        f"also carries them — airside is king, by construction.")
+    return out
+
+# ═════════════════════════════════════════════════════════════════════════
 # LATERAL-CONTIGUITY GRADE LAW — clauses (2)-(5)
 # (owner-confirmed FINAL 2026-08-02; the law itself is
 #  ``grade_law.lateral_contiguity_cap`` / ``…_segments``)

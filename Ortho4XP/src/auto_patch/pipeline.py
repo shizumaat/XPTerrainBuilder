@@ -5872,6 +5872,22 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                              f"lateral-contiguity re-bind failed "
                              f"({_lat_exc2!r}).")
 
+        # ── ROAD ↔ AIRSIDE CROSSING CONFORMANCE (owner RULINGS
+        # 2026-08-26b item 2; spec
+        # ``docs/specs/road-airside-crossing-conformance-spec.md``) ──────
+        # HERE, and for the same reason the re-bind above is here: the
+        # arrangement is the one the solver is about to see, so the
+        # airside union the crossing test reads and the airside ring
+        # edges the pins name are the ones that will actually ship.  Read
+        # only — this pass publishes two lists and moves nothing.
+        try:
+            from .groundside import road_airside_crossing_contacts
+            road_airside_crossing_contacts(layout, icao)
+        except _GEOM_EXC as _xconf_exc:
+            UI.vprint(1, f"  [pav-builder] WARN: {icao}: road↔airside "
+                         f"crossing conformance failed "
+                         f"({_xconf_exc!r}).")
+
         # ── THE FABRIC MODEL — sparse lawful emission (owner RULINGS
         # 2026-08-08; docs/specs/fabric-model-spec.md Phase A; gate
         # O4_FABRIC_SPARSE, default OFF) ────────────────────────────────
@@ -6449,6 +6465,22 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                     f"  [groundside-law-seat] {icao}: re-seated {_n_svc} "
                     f"service road/junction shape(s) the one solve never "
                     f"reached (mouth band, road law).")
+            # ── ROAD ↔ AIRSIDE CROSSING ADOPTION (RULINGS 2026-08-26b
+            # item 2; spec Amendment 1 §3) ─────────────────────────────
+            # HERE, between the service seat and the lot seat, and for the
+            # same reason the service seat precedes the lot seat: a lot
+            # welded to a road reads that road's value, so the road has to
+            # carry its adopted law before the lot reads it.  The pass
+            # writes VALUES on ROAD-FAMILY vertices only — a vertex any
+            # non-road shape also carries is frozen — so no airside ring
+            # can move.  Nothing about it is in the grade graph.
+            try:
+                from .groundside import (
+                    adopt_road_airside_crossing_values as _adopt_xing)
+                _adopt_xing(layout, icao)
+            except _GEOM_EXC as _adopt_exc:
+                UI.vprint(1, f"  [pav-builder] WARN: {icao}: road↔airside "
+                             f"crossing adoption failed ({_adopt_exc!r}).")
             _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn,
                                                band_at=_gs_band)
             if _n_seated:

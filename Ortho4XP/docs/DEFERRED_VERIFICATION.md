@@ -3568,3 +3568,57 @@ What this branch DOES carry, and what is deferred on it:
 * the open-cut region publisher, which has NO consumer on this branch —
   its twin asserts faithfulness and that the two regions stay two;
   DEFERRED: nothing measures it in a build, by construction.
+
+### 2026-08-26 addendum — lane/roadxing (road ↔ airside crossing conformance)
+
+RULINGS 2026-08-26b item 2, spec
+`docs/specs/road-airside-crossing-conformance-spec.md`.  Verified on this
+lane: the §2 twin (`tests/test_road_airside_crossing.py`, 14 cases) plus
+the directly-covering selection (`test_free_road_scoping`,
+`test_service_apron_spine`, `test_road_band_seal_scope`,
+`test_service_mouth_prox_anchor`, `test_kill_prep_round`,
+`test_membership_round`, `test_road_cross_section`, `test_solve_stage` —
+208 green), and matched same-tree flag ON/OFF build arms at HEAZ, CYXY and
+SPJC plus the one HECA acceptance build with its census.
+
+DEFERRED here:
+
+* the FULL pytest suite and the blast-radius suites for `grade_graph.py`
+  (54 importers) and `route_profile/anchors.py` (26) — only the directly
+  covering files were run, once, per PRE-SHIP MODE;
+* the five-airport battery and its censuses (KCLT / SPLP not built);
+* an `O4_ROAD_AIRSIDE_CROSSING_CONFORM=0` BYTE-IDENTITY comparison of two
+  emitted patches.  The OFF path is proven at unit level (the twin mints
+  no conforming stretch, no pin, and restores the 25b apron-only contact
+  set) and at build level by three ON/OFF arms whose logs differ only in
+  the new passes' own lines — but no two patch bodies were hashed against
+  each other;
+* build-time: only ledger-recorded walls are quoted, no `--runs N`
+  measurement (per-change timing gates remain SUSPENDED).
+
+### 2026-08-27 — lane/roadxing attempt 3 (spec Amendment 1) supersedes the above
+
+The addendum above describes attempts 1-2 (centerline registration + solver
+pins), both REVERTED.  What stands is source-frame detection, crossings-only
+scope and post-solve adoption (commit 7ff91bd7).  Verified: the 16-case twin
+and 347 covering tests; HECA acceptance build + matched flag-off control;
+CYXY / SPJC / HEAZ arms.  Still DEFERRED here: the full pytest suite, the
+blast-radius suites for `grade_graph.py` and `route_profile/anchors.py`
+(both now REVERTED to a111e080, so their blast radius is untouched by this
+lane), the five-airport battery, and a byte-identity hash of two emitted
+patch bodies across the flag (the flag-off arm's census is identical to the
+§0 reference, which is the stronger available evidence).
+
+### 2026-08-27b — lane/roadxing, Amendment 2 diagnostic arm
+
+The §1.1 25b contact-set widening now has its own gate
+(`O4_ROAD_AIRSIDE_CONTACT_WIDEN`, default ON) so the Fable-authorized
+diagnostic could run.  Measured (CYXY / SPJC / HECA, widening OFF, adoption
+kept): the crossing population and the adoption are byte-identical, the
+owner-site profile is identical, and the residual NEW airside rows SHRINK
+but do not die (HECA 28 -> 15, SPJC 4 -> 4).  Per Amendment 2 §2 that is a
+STOP: the widening is NOT retired on this lane and the gate stays default
+ON, i.e. the shipped behaviour is unchanged from attempt 3.  DEFERRED: the
+fresh attribution of the 15 HECA / 4 SPJC residual rows (needs an
+instrumented build; they sit a median 121 m from any road, far outside the
+adoption's 6.5 m reach, and are largely churn on the same aprons).

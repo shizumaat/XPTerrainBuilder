@@ -1,15 +1,26 @@
 #!/bin/sh
 # THE LANE RITUAL — create or tear down a lane worktree, correctly.
 #
-#   tools/harness/lane_worktree.sh up   NAME [REF]
-#   tools/harness/lane_worktree.sh down NAME
-#   tools/harness/lane_worktree.sh check NAME
+#   tools/harness/lane_worktree.sh up   NAME|PATH [REF]
+#   tools/harness/lane_worktree.sh down NAME|PATH
+#   tools/harness/lane_worktree.sh check NAME|PATH
 #   tools/harness/lane_worktree.sh data          (report the shared repo)
 #
 # Run from anywhere.  Every lane sets its tree up with THIS script; a
 # hand-typed ritual is a defect (see CLAUDE.md, "The standard test harness").
 # A worktree missing any one of these pieces does not fail — it builds a
 # silently different thing and exits 0.
+#
+# NAME or PATH: worktrees do not all live under one parent — Claude Code
+# chip sessions create theirs at <repo>/Ortho4XP/.claude/worktrees/<name>,
+# not $MAIN_REPO/.claude/worktrees/<name> — so the target resolves through
+# `git worktree list` (the registry BOTH kinds live in), never a hard-coded
+# parent dir.  A PATH (anything containing a slash; absolute or relative)
+# addresses an EXISTING registered worktree — the "mount the corpus into a
+# chip worktree" case that used to need a ../../ relative-NAME workaround
+# (2026-08-27).  A bare NAME resolves to the unique registered worktree
+# with that basename wherever it lives, falling back to $WT_ROOT/NAME —
+# where `up` creates new lanes, exactly as before.
 #
 # ── ONE SHARED DATA REPO (owner ruling e9daef5, MANDATORY) ───────────
 #
@@ -124,9 +135,20 @@ INDEX_REL="tools/INDEX.md"
 die() { echo "REFUSING: $*" >&2; exit 2; }
 
 usage() {
-    echo "usage: $0 {up|down|check} NAME [REF]" >&2
+    echo "usage: $0 {up|down|check} NAME|PATH [REF]" >&2
     echo "       $0 data" >&2
+    echo "       (PATH — anything with a slash — addresses an EXISTING" >&2
+    echo "        registered worktree, e.g. a chip session's under" >&2
+    echo "        Ortho4XP/.claude/worktrees/; NAME creates/finds a lane)" >&2
     exit 64
+}
+
+# Every worktree registered on the repo, one absolute path per line —
+# the ONE registry both $WT_ROOT lanes and chip-session worktrees
+# (Ortho4XP/.claude/worktrees/*) appear in.
+registered_worktrees() {
+    git -C "$MAIN_REPO" worktree list --porcelain 2>/dev/null \
+        | sed -n 's/^worktree //p'
 }
 
 # ── which data dirs does the shared repo actually hold? ──────────────
@@ -160,7 +182,11 @@ if [ "$ACTION" = "data" ]; then
     done
     echo "  [ritual] NOT mounted (lane-local products): $NEVER_MOUNT"
     echo "  [ritual] trees and their corpus:"
-    for tree in "$MAIN_ENGINE" "$WT_ROOT"/*/Ortho4XP; do
+    # Enumerated from `git worktree list`, so chip-session worktrees
+    # (Ortho4XP/.claude/worktrees/*) are reported alongside $WT_ROOT lanes.
+    { echo "$MAIN_ENGINE"
+      registered_worktrees | grep -vFx "$MAIN_REPO" | sed 's|$|/Ortho4XP|'
+    } | while IFS= read -r tree; do
         [ -d "$tree" ] || continue
         on_shared=0; private=0
         for d in $(data_dirs); do
@@ -183,9 +209,53 @@ if [ "$ACTION" = "data" ]; then
 fi
 
 [ $# -ge 2 ] || usage
-NAME="$2"
+TARGET="$2"
 REF="${3:-HEAD}"
-WT="$WT_ROOT/$NAME"
+
+# ── NAME or PATH → the worktree, via `git worktree list` ─────────────
+case "$TARGET" in
+*/*|.|..)
+    # PATH form: an EXISTING registered worktree, wherever it lives.
+    [ $# -le 2 ] || die "a REF only applies when 'up' CREATES a new lane
+    by NAME; the PATH form addresses an existing worktree at its own
+    checkout."
+    _dir=$( (cd "$TARGET" 2>/dev/null && pwd -P) ) \
+        || die "no directory at $TARGET.  The PATH form addresses an
+    EXISTING worktree; create a new lane by NAME."
+    WT=$(registered_worktrees | while IFS= read -r _w; do
+            if [ "$( (cd "$_w" 2>/dev/null && pwd -P) )" = "$_dir" ]; then
+                printf '%s\n' "$_w"
+                break
+            fi
+         done)
+    [ -n "$WT" ] || die "$_dir is not a registered worktree of $MAIN_REPO
+    ('git worktree list' does not know it).  The ritual mounts real
+    worktrees only — a plain directory would become a second private tree."
+    ;;
+*)
+    # NAME form: the unique registered worktree with this basename —
+    # chip worktrees under Ortho4XP/.claude/worktrees/ resolve too —
+    # else $WT_ROOT/NAME, where `up` creates new lanes.
+    _hits=$(registered_worktrees | grep -vFx "$MAIN_REPO" \
+            | awk -v n="$TARGET" \
+                  'substr($0, length($0) - length(n)) == "/" n')
+    _n=$(printf '%s\n' "$_hits" | grep -c .)
+    if [ "$_n" -gt 1 ]; then
+        echo "$_hits" | sed 's/^/    /' >&2
+        die "worktree name '$TARGET' is AMBIGUOUS (the trees above all
+    carry it).  Address the one you mean by PATH."
+    elif [ "$_n" -eq 1 ]; then
+        WT="$_hits"
+    else
+        WT="$WT_ROOT/$TARGET"
+    fi
+    ;;
+esac
+_mainphys=$( (cd "$MAIN_REPO" && pwd -P) )
+[ "$( (cd "$WT" 2>/dev/null && pwd -P) )" != "$_mainphys" ] \
+    || die "$WT is the MAIN repository, not a lane worktree — the ritual
+    never mounts or tears down the main tree."
+NAME=$(basename "$WT")
 ENGINE="$WT/Ortho4XP"
 
 # ── the untracked-path audit ─────────────────────────────────────────

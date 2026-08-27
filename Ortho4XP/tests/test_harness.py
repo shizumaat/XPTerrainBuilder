@@ -1560,8 +1560,8 @@ def _tiny_repo(tmp_path):
     return main, data, env, old_ref
 
 
-def _ritual(env, *args):
-    return subprocess.run([str(RITUAL), *args], env=env,
+def _ritual(env, *args, cwd=None):
+    return subprocess.run([str(RITUAL), *args], env=env, cwd=cwd,
                           capture_output=True, text=True)
 
 
@@ -1639,6 +1639,60 @@ def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):
         "the ritual overwrote a TRACKED index — that is a lane's promotion "
         "commit destroyed by its own setup script")
     assert "DIFFERS" in again.stdout
+
+
+def test_the_ritual_accepts_an_existing_worktree_by_path(tmp_path):
+    """Worktrees do not all live under $MAIN_REPO/.claude/worktrees —
+    Claude Code chip sessions create theirs NESTED at
+    <repo>/Ortho4XP/.claude/worktrees/<name>, and on 2026-08-27 a lane
+    had to smuggle one into the ritual as a ../../ relative NAME.
+    up/check/down now resolve NAME or PATH through ``git worktree list``
+    (the registry both kinds live in), never a hard-coded parent dir.
+    The known-answer twin: mount-into-existing by relative PATH, resolve
+    the same nested tree by bare NAME, refuse a plain directory and the
+    main repo itself, tear down by absolute PATH."""
+    main, data, env, _old = _tiny_repo(tmp_path)
+    chip = main / "Ortho4XP" / ".claude" / "worktrees" / "chip-lane"
+    r = subprocess.run(
+        ["git", "-C", str(main), "worktree", "add", "-q", str(chip),
+         "HEAD"], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+    # `up` by RELATIVE PATH completes the ritual in the EXISTING worktree.
+    up = _ritual(env, "up", os.path.relpath(chip, tmp_path), cwd=tmp_path)
+    assert up.returncode == 0, up.stdout + up.stderr
+    assert "build-ready on the SHARED corpus" in up.stdout
+    assert os.path.realpath(chip / "Ortho4XP" / "OSM_data") == \
+        os.path.realpath(data / "OSM_data"), (
+        "the corpus was not mounted into the path-addressed worktree")
+
+    # bare NAME resolves the SAME nested worktree via `git worktree list`
+    # — not a fresh (missing) $WT_ROOT/chip-lane.
+    chk = _ritual(env, "check", "chip-lane")
+    assert chk.returncode == 0, chk.stdout + chk.stderr
+    assert "no worktree at" not in chk.stderr
+
+    # A directory git does not register is refused, loudly.
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    ref = _ritual(env, "check", str(plain))
+    assert ref.returncode == 2
+    assert "not a registered worktree" in ref.stderr
+
+    # The main repo is never a lane.
+    slf = _ritual(env, "check", str(main))
+    assert slf.returncode == 2
+    assert "MAIN repository" in slf.stderr
+
+    # A REF makes no sense against an existing tree at its own checkout.
+    wref = _ritual(env, "up", str(chip), "HEAD")
+    assert wref.returncode == 2
+    assert "PATH form" in wref.stderr
+
+    # `down` by ABSOLUTE PATH removes the nested worktree.
+    down = _ritual(env, "down", str(chip))
+    assert down.returncode == 0, down.stdout + down.stderr
+    assert not chip.exists()
 
 
 # ══════════════════════════════════════════════════════════════════════

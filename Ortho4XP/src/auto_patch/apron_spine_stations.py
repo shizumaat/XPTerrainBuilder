@@ -346,7 +346,8 @@ def interpolate_station_values(layout, G, ctx, bucket_to_idx, elev,
     """
     from .grade_graph import _project
     report = {"valued": 0, "no_chain": 0, "clamped": 0,
-              "worst_move_m": 0.0, "axes": 0}
+              "worst_move_m": 0.0, "axes": 0, "from_endpoints": 0,
+              "unstrung_axes": 0}
     entries = getattr(layout, "apron_spine_presolve", None) or []
     if not entries:
         return report
@@ -365,10 +366,12 @@ def interpolate_station_values(layout, G, ctx, bucket_to_idx, elev,
         if prof is not None:
             return prof
         cl = cls_list[ci] if 0 <= ci < len(cls_list) else None
-        chain = chains.get(ci) or []
-        if cl is None or len(chain) < 2:
+        if cl is None:                                    # pragma: no cover
             arc_cache[ci] = ()
             return ()
+        chain = chains.get(ci) or []
+        if len(chain) < 2:
+            return _unstrung(ci, cl)
         out = []
         for i in chain:
             p = G.pos.get(i)
@@ -377,8 +380,87 @@ def interpolate_station_values(layout, G, ctx, bucket_to_idx, elev,
             a, _d, _f = _project(cl, float(p[0]), float(p[1]))
             out.append((float(a), int(i)))
         out.sort()
-        arc_cache[ci] = tuple(out) if len(out) >= 2 else ()
-        return arc_cache[ci]
+        if len(out) >= 2:
+            arc_cache[ci] = tuple(out)
+            return arc_cache[ci]
+        return _unstrung(ci, cl)                          # pragma: no cover
+
+    def _unstrung(ci, cl):
+        # ── THE UNSTRUNG AXIS (spec Amendment 3 ruling 1) ─────────────
+        # Fewer than two on-line nodes means this axis contributed NO
+        # string, and that is not a rare corner: it is exactly the empty
+        # apron this round exists for.  Measured at HECA (A5): 20 of 62
+        # stations sat on such an axis and got no value at all, the
+        # crossing over dip apron -10659 among them, so the coupling was
+        # inert at the very site the owner named.
+        #
+        # The value source is then the ROUTE'S OWN ENDPOINT VALUES: the
+        # solved pavement/junction nodes the piece runs between, with the
+        # station on the straight plane between them.  That is the
+        # DEM-LAST ruling's own construction for an unanchored span
+        # (RULINGS 2026-08-25: "the pavement surface between anchors is
+        # the straight-plane/taut interpolation") — no new authority, and
+        # emphatically not a DEM read.
+        #
+        # "The node at this end" is asked with the engine's own
+        # centerline-contact radius, ``grade_law.RUNWAY_JOIN_NEAR_M`` —
+        # the same question ``_runway_anchors`` asks of a join contact,
+        # the same constant, no second proximity notion.
+        report["unstrung_axes"] += 1
+        ends = _axis_endpoint_values(cl)
+        arc_cache[ci] = ends
+        return ends
+
+    _node_tree = [None]           # built once, and only if an axis needs it
+
+    def _nearest_valued(x, y, radius):
+        """The nearest graph node to ``(x, y)`` carrying a solved value,
+        within ``radius``; ``None`` if the end anchors nothing."""
+        import math as _m
+        if _node_tree[0] is None:
+            items = [(i, p) for (i, p) in G.pos.items() if 0 <= i < n]
+            try:
+                from shapely.geometry import Point as _P
+                from shapely.strtree import STRtree as _T
+                _node_tree[0] = (items,
+                                 _T([_P(p[0], p[1]) for (_i, p) in items]))
+            except Exception:                             # pragma: no cover
+                _node_tree[0] = (items, None)
+        items, tree = _node_tree[0]
+        best = None
+        if tree is not None:
+            from shapely.geometry import Point as _P2
+            cand = tree.query(_P2(x, y).buffer(float(radius)))
+            it = (items[int(k)] for k in cand)
+        else:                                             # pragma: no cover
+            it = iter(items)
+        for (i, p) in it:
+            d = _m.hypot(p[0] - x, p[1] - y)
+            if d > float(radius):
+                continue
+            v = float(elev[i])
+            if v != v:                                    # pragma: no cover
+                continue
+            if best is None or d < best[0]:
+                best = (d, i)
+        return None if best is None else best[1]
+
+    def _axis_endpoint_values(cl):
+        """``((arc, node), ...)`` for the ends of ``cl`` that anchor a
+        solved node — 2, 1 or 0 of them."""
+        from .grade_law import RUNWAY_JOIN_NEAR_M as _NEAR_M
+        pts = list(cl.pts)
+        if len(pts) < 2:                                  # pragma: no cover
+            return ()
+        arcs = cl.arc()
+        out = []
+        for (px, py), a in ((pts[0], arcs[0]), (pts[-1], arcs[-1])):
+            i = _nearest_valued(float(px), float(py), _NEAR_M)
+            if i is not None:
+                out.append((float(a), int(i)))
+        if len(out) == 2 and out[0][1] == out[1][1]:
+            out = out[:1]          # both ends found the same node
+        return tuple(out)
 
     for entry in entries:
         for (x, y, ci) in entry.get("stations", ()):
@@ -391,11 +473,18 @@ def interpolate_station_values(layout, G, ctx, bucket_to_idx, elev,
                 continue
             cl = cls_list[int(ci)]
             a_st, _d, _f = _project(cl, float(x), float(y))
-            # Bracketing chain nodes by arc.  Outside the strung range the
-            # profile simply has no data further along, so the axis's own
+            if len(chains.get(int(ci)) or ()) < 2:
+                report["from_endpoints"] += 1
+            # Bracketing profile points by arc.  Outside the range the
+            # profile simply has no data further along, so the nearest
             # END value is the honest read — recorded as a clamp, not
-            # dressed up as an interpolation.
-            if a_st <= prof[0][0]:
+            # dressed up as an interpolation.  A profile of ONE point is
+            # the Amendment 3 single-valued-endpoint case and clamps for
+            # exactly the same reason.
+            if len(prof) == 1:
+                v = float(elev[prof[0][1]])
+                report["clamped"] += 1
+            elif a_st <= prof[0][0]:
                 v = float(elev[prof[0][1]])
                 report["clamped"] += 1
             elif a_st >= prof[-1][0]:
@@ -430,10 +519,13 @@ def format_station_report(icao: str, report: dict) -> str:
     return (f"  [apron-spine] {icao}: {report['valued']} station(s) valued "
             f"by INTERPOLATING the phase-A profile of {report['axes']} "
             f"axis(es) at their arc position (worst move from the seed "
-            f"{report['worst_move_m']:.2f} m; {report['clamped']} past the "
-            f"strung range took the axis's end value); "
-            f"{report['no_chain']} left FREE on an axis that contributed no "
-            f"string.  The chain is NOT densified — spec Amendment 2")
+            f"{report['worst_move_m']:.2f} m; {report['clamped']} clamped to "
+            f"an end value); {report['from_endpoints']} of them on "
+            f"{report['unstrung_axes']} UNSTRUNG axis(es), valued from the "
+            f"route's own endpoint anchors (the DEM-last straight plane, "
+            f"spec Amendment 3); {report['no_chain']} left FREE where no "
+            f"end anchors a solved node.  The chain is NOT densified — "
+            f"spec Amendment 2")
 
 
 def build_apron_spine_station_constraints(layout, bucket_to_idx, ctx):

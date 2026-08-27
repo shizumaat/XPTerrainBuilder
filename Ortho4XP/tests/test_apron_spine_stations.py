@@ -372,17 +372,87 @@ def test_a_station_past_the_strung_range_CLAMPS_and_says_so(monkeypatch):
             assert abs(elev[i] - 101.0) < 1e-9
 
 
-def test_an_axis_that_contributed_no_string_leaves_its_stations_FREE(
+def _wire_unstrung(layout, end_alts, *, ci=0,
+                   axis=((-300.0, 0.0), (300.0, 0.0))):
+    """An axis that contributed NO string: no chain at all, but the
+    piece's route ENDPOINTS anchor solved pavement nodes (Amendment 3).
+    ``end_alts`` gives the value at each end, or ``None`` for an end
+    that anchors nothing."""
+    G = _G()
+    ctx = _Ctx([_CL(axis)])
+    b2i = {}
+    elev = []
+
+    def _add(x, y, alt):
+        k = layout.canonical_points.get_or_add(x, y)
+        if k not in b2i:
+            b2i[k] = len(elev)
+            elev.append(alt)
+        return b2i[k]
+
+    G.centerline_chains[ci] = []                 # <2 on-line nodes
+    for (x, y), alt in zip(axis, end_alts):
+        if alt is None:
+            continue
+        i = _add(float(x), float(y), float(alt))
+        G.pos[i] = (float(x), float(y))
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            _add(x, y, -999.0)
+    return G, ctx, b2i, elev, [False] * len(elev)
+
+
+def test_an_UNSTRUNG_axis_values_its_stations_from_the_route_endpoints(
         monkeypatch):
-    """The void case this round exists for.  A station with no profile
-    is COUNTED and left free — never stamped with a DEM seed dressed as
-    a spine value."""
+    """AMENDMENT 3 RULING 1.  The void case this round exists for: the
+    axis contributed no string, so the value is the straight plane
+    between the SOLVED pavement/junction nodes the piece runs between —
+    the DEM-last construction, not a DEM read.  Measured at HECA (A5):
+    20 of 62 stations had no value at all, the crossing over the owner's
+    dip apron -10659 among them."""
     ap = _Shape(_square(400.0))
     layout = _Layout([ap])
     _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
     ST.construct_apron_spine_stations_presolve(layout)
-    G, ctx, b2i, elev, base_hard = _wire_profile(
-        layout, [(-300.0, 100.0)])          # one node: no string
+    G, ctx, b2i, elev, base_hard = _wire_unstrung(layout, (74.01, 74.48))
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["no_chain"] == 0
+    assert rep["valued"] > 0
+    assert rep["from_endpoints"] == rep["valued"]
+    assert rep["unstrung_axes"] == 1
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            i = b2i[layout.canonical_points.get_or_add(x, y)]
+            want = 74.01 + (74.48 - 74.01) * ((x + 300.0) / 600.0)
+            assert abs(elev[i] - want) < 1e-6, (x, elev[i], want)
+            assert base_hard[i] is True
+
+
+def test_ONE_valued_endpoint_clamps_to_it(monkeypatch):
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    G, ctx, b2i, elev, base_hard = _wire_unstrung(layout, (74.01, None))
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["valued"] > 0 and rep["clamped"] == rep["valued"]
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            i = b2i[layout.canonical_points.get_or_add(x, y)]
+            assert abs(elev[i] - 74.01) < 1e-9
+
+
+def test_an_axis_whose_ends_anchor_NOTHING_leaves_its_stations_FREE(
+        monkeypatch):
+    """No string AND no valued endpoint: COUNTED and left free — never
+    stamped with a DEM seed dressed as a spine value."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    G, ctx, b2i, elev, base_hard = _wire_unstrung(layout, (None, None))
     rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
                                         base_hard)
     assert rep["valued"] == 0 and rep["no_chain"] > 0
@@ -391,6 +461,29 @@ def test_an_axis_that_contributed_no_string_leaves_its_stations_FREE(
         for (x, y, _ci) in e["stations"]:
             i = b2i[layout.canonical_points.get_or_add(x, y)]
             assert elev[i] == -999.0, "the seed is left exactly as it was"
+
+
+def test_the_endpoint_radius_is_the_engines_own_contact_constant():
+    """No second proximity notion: the same radius
+    ``_runway_anchors`` asks a join contact with."""
+    src = inspect.getsource(ST.interpolate_station_values)
+    assert "RUNWAY_JOIN_NEAR_M" in src
+    for forbidden in ("18.0", "= 18", "25.0", "50.0"):
+        assert forbidden not in src, forbidden
+
+
+def test_a_STRUNG_axis_still_prefers_its_own_chain(monkeypatch):
+    """Amendment 3 is a FALLBACK.  Where the axis was strung, the chain
+    is the profile and the endpoint anchors are not consulted."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    G, ctx, b2i, elev, base_hard = _wire_profile(
+        layout, [(-300.0, 100.0), (300.0, 200.0)])
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["from_endpoints"] == 0 and rep["unstrung_axes"] == 0
 
 
 def test_every_station_carries_the_axis_ORDINAL_it_was_minted_from(

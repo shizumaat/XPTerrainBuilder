@@ -149,3 +149,32 @@ the spine" and of airside-is-king. Rulings:
    — the lattice remains necessary on this instrument; not gated off.
    The CYXY "byte-identical" premise in §4 is corrected: CYXY has a
    latticed apron and lawfully gains stations.
+
+## Amendment 2 (Fable, 2026-08-27 — ruling on the §1.2 reading;
+## supersedes the chain-membership wording; completion allowed)
+
+Measured (A3↔A4 interventional pair): one-sided edges fixed the
+membrane direction (dip ridge 1.48 → 1.20 m, lattice rises) but the
+anchored side still moves (dip-site junctions to −0.500 m) through the
+stations' membership in the phase-A chain itself — 62 interleaved
+collinear points change the profile solve, and the yielding junctions
+settle elsewhere. Ruling:
+
+1. **READING (b) IS THE LAW: STATION VALUES ARE INTERPOLANTS OF THE
+   PHASE-A PROFILE AS SOLVED WITHOUT THEM.** The chain is NOT
+   densified; a station is not a chain variable. Its value is the
+   solved profile of its axis, interpolated at the station's arc
+   position — still "the profile's own value", now with the chain
+   (and every junction, ring and centerline value) BYTE-IDENTICAL to
+   the stations-OFF arm by construction. §1.2's "join the phase-A
+   scaffold anchor set … exactly as junction-ring centerline nodes do"
+   is superseded: the intent was the spine's VALUE at that point,
+   never a re-solve of the spine. Everything else from Amendment 1
+   stands (constants in the membrane solve, one-sided edges,
+   preservation membership).
+2. **Acceptance:** gate 2a becomes structural — assert the junction/
+   centerline population byte-identical (or within 0.01 m) vs the
+   stations-OFF arm; membrane rises toward the stations; line-T
+   ring-to-station steps re-read under the interpolated values
+   (expected lawful: the CTL profile itself ran 0.63 %); station-class
+   overlap residual stays accepted. Report the same tables.

@@ -174,3 +174,24 @@ Rulings:
    acceptance for THIS law: the road adopted to its cap ceiling with
    no road-attributable step; the absolute step number is adjudicated
    after round-3.
+
+## Amendment 3 (Fable, 2026-08-27 — closing rulings; lane complete at
+## lane/roadxing db18e23d, shipped behaviour = attempt 3 adopt+widen)
+
+1. **THE WIDENING STAYS.** Measured trade: its value is 177 groundside
+   `lateral_contiguity` closures at HECA (281 → 104) and 111 at CYXY
+   (111 → 0); its cost is 13 of HECA's 28 residual airside rows, all
+   marginal (worst 1.78 m against a family control worst of 5.86 m,
+   net −2 as churn on the same pairs). The trade favours keeping it.
+2. **THE 15 HECA / 4 SPJC RESIDUAL ROWS ARE ACCEPTED-AND-DEFERRED.**
+   Zero MOVED everywhere; the residuals are churn far outside the
+   mechanism's reach (median 121 m from any road), net-negative, and
+   sub-materiality against the family's own control worst. Under
+   PRE-SHIP MODE the instrumented-build attribution is a
+   DEFERRED_VERIFICATION line, adjudicated at the ship gate — not an
+   attempt now. The airside-EXACT gate is amended accordingly: met by
+   zero MOVED + net non-regression + residuals attributed OUT of the
+   mechanism's reach.
+3. Owner-site standing: 3.44 → 2.73 m, road at its cap ceiling — this
+   law COMPLETE per Amendment 2 §1; the residual re-measures after
+   round3spine merges.

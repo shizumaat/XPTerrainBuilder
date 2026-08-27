@@ -79,3 +79,54 @@ step.
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat. No shared-repo writes, no timing claims;
   build-time impact statement in the report.
+
+## Amendment 1 (Fable, 2026-08-26 late — rulings on the lane's three
+## STOP questions; attempt cap RESETS for the amended targets, cap 2)
+
+The lane's report (lane/roadxing c77a8097): owner site unchanged after
+two attempts; +78 airside rows in the better arm (an airside-is-king
+violation); population 285 stretches / 32.1 km at HECA. Three rulings:
+
+1. **FRAME — contact is asked in the SOURCE pavement frame.** §1.1's
+   "cross-section stands in airside pavement" means the pavement union
+   the free-road walk itself reads (`pav_union` over source shapes),
+   NOT the settled post-slice arrangement. The carve deliberately
+   separates the road ring from airside pavement with an
+   adjacent_ground strip, so the settled arrangement NEVER contains
+   the crossing — reading it there is the mis-frame that made the
+   owner site invisible. Detection extends the free-road walk's own
+   question (same `pav_union`, same station cast, the ROLE of the
+   contiguous run) — still never a third contact test.
+
+2. **SCOPE — CROSSINGS ONLY.** A conforming stretch exists only where
+   the road's centerline ENTERS and EXITS airside source pavement (a
+   traversal with both mouths on non-airside ground, or terminating
+   inside it). A road running ALONGSIDE airside pavement without its
+   centerline entering it stays under the existing 25b/25h law
+   untouched. This kills the 32.1 km population; expect the honest
+   population at HECA to be tens of crossings, not hundreds of
+   stretches. Report the population size.
+
+3. **PINS BIND ROAD-FAMILY NODES ONLY — ADOPTION, NEVER CONSTRAINT.**
+   The measured apron movement is the predicted failure mode of
+   seating pin values at the airside boundary: an entry/exit pin that
+   constrains (or is welded into) an airside-ring node is a term in
+   the airside solve — the pull the spec forbids. The ruling: the
+   conforming stretch's values are ADOPTED from the airside solution
+   (read the airside surface where the centerline crosses its
+   boundary, after airside has settled — post-solve writeback onto
+   road-family nodes, the identity-adoption precedent), never
+   expressed as graph terms that couple into apron/taxiway nodes.
+   If the one-solve graph cannot express that one-directionality for
+   these stretches, impose the values in the writeback stage. BEFORE
+   attempt 3 lands: attribute the +78/+124 airside rows on the
+   EXISTING arms' artifacts (which term moved the aprons — pins,
+   cap re-pricing, or the corridor-complement subtraction) and state
+   it in the report; the fix must remove that term's airside coupling,
+   and the acceptance gains a hard gate — airside census EXACT vs the
+   flag-off arm (zero NEW, zero MOVED airside rows; GONE rows
+   allowed only if attributed to the road's own adjacent-ground band).
+
+4. Non-goals reaffirmed: no new welding machinery (§1.3 unchanged);
+   HEAZ's BandInversionError and the red near-miss-frontage twin are
+   PRE-EXISTING at a111e080 — out of scope, reported separately.

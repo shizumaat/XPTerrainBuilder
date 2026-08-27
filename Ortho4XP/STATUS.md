@@ -1,4 +1,36 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260827-basin-dockets (LEMD basin follow-up dockets A+B, both
+#   COMMITTED: c446edba founding, 690d0568 group seat; road feed
+#   refreshed via ledger 2026-08-27T07:08.)
+# DOCKET A (basin-region-founding-spec.md + Amendments 1-2): unmatched
+#   below-grade regions found basin records (depth <=-3.0, open sky,
+#   tight contributors, no new R4 exclusions); coverage LAZY BY
+#   PREMATCH (eager 33.4 s -> lazy 0.63 s at LEMD); gate
+#   O4_BASIN_REGION_FOUNDING ON; cache v23/exclusion v9; LEMD inert
+#   (0 founded, ON==OFF byte-identical).
+# DOCKET B (basin-group-seat-spec.md + Amendments 1-2): one connected
+#   body = one facility; seat group = partition structures ∩ body,
+#   CLOSED over file<->structure; one datum plane G=R_mesh,
+#   delta=G-anchor_ground, ONE instrument; item-6 topology -> delta
+#   threshold; provenance records delta+G; run-record v9 + gate lists
+#   gain the 4 missing O4_BASIN_* envs; degenerate split components
+#   dropped at 1e-6 m2 validity floor (LEMD 1.5e-13 sliver minted a
+#   2nd facility, double-seated 42 files); exclusion cache v10.
+# ACCEPTANCE: mesh-only +40-004 tile run + rebake replay + offline
+#   probe, guard armed, corpus UNCHANGED: ONE facility, ONE
+#   G=596.682, 48 files/14,378 structures, 5/5 named T4S objects,
+#   relationship invariant worst 0.000000 m over 48 provenance
+#   entries (owner's metric), 8.95 m structure-0 seam ABSENT, A3
+#   skips 0, clearance +1.38 m, trench unchanged (587.75).
+# NOTE pre-existing HEAD failures, NOT this round: test_harness
+#   near_miss_frontage SOFT_ROLES; test_contracts obj8_partition
+#   signature (drift from 6045e6b6) — concurrent-lane dockets.
+# OPEN: owner in-sim read of T4S; final-profiling adjudication of the
+#   region/coverage costs; OTHH/battery group-seat regression at ship
+#   gate (DEFERRED ledger).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260826-basin (LEMD T4S basin round — region footprint + solid-
 #   witness floor law. Implemented on main, NOT committed; owner
 #   in-sim read pending.)

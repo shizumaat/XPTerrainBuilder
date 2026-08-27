@@ -1807,7 +1807,7 @@ def _zone_law_coverage(layout, bucket_to_idx, n, first_zone, edge_nodes):
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
                             building_seats, runway_anchor, seam_pins,
-                            seat_stamp_yield=None):
+                            seat_stamp_yield=None, station_nodes=None):
     """Split the phase-A frozen spine into ``(preserved, yield_hard)``.
 
     THE PRESERVED SET, ENUMERATED (the spec requires the enumeration, not
@@ -1823,7 +1823,23 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     * ``building_seats`` — every seated pad / no-building-apron level;
     * ``runway_anchor`` (``G.runway_anchor``) — a subset of ``truth_hard``,
       restated because the spec names it;
-    * ``seam_pins`` (``layout._seam_pin_idx``) — likewise.
+    * ``seam_pins`` (``layout._seam_pin_idx``) — likewise;
+    * ``station_nodes`` — the APRON SPINE STATIONS (round-3 spec §1,
+      Amendment 1 ruling 1, 2026-08-27).  A station is a collinear
+      interior point of a taxi axis whose value the ROUTE PROFILE mints
+      — the phase-A pass IS its authority, not an external pin, so it is
+      preserved for the reason the runway values are: it is law rather
+      than an estimate the membrane may renegotiate.  Preserving it is
+      what makes a station-touching law edge ONE-SIDED IN PRACTICE: the
+      station is a CONSTANT in the membrane/POCS solve, so the edge can
+      only be satisfied by moving the ring / lattice side.  Measured on
+      the arm that did NOT preserve it (lane round3spine, A2/A3): the
+      projection satisfied the new edges by lowering the ANCHORED side —
+      the line-T ring vertex fell 74.02 → 73.43 and the dip-site
+      junction pieces came down 0.22 m while the lattice did not move at
+      all, which is the opposite of "conform UP to the spine" and of
+      airside-is-king.  Empty / ``None`` ⇒ the membership is
+      byte-identical (flag OFF, or no apron crossing).
 
     YIELD-HARD = ``{i in frozen : 0 <= i < n}`` minus that union.  The two
     are disjoint and together exhaust the in-range frozen set, so no spine
@@ -1844,7 +1860,8 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
 
     frozen_in = _in(frozen)
     preserved = (_in(truth_hard) | _in(runway_nodes) | _in(building_seats)
-                 | _in(runway_anchor) | _in(seam_pins))
+                 | _in(runway_anchor) | _in(seam_pins)
+                 | _in(station_nodes))
     preserved -= _in(seat_stamp_yield)
     return preserved, (frozen_in - preserved)
 
@@ -3800,7 +3817,15 @@ def solve_route_profile(layout, icao: str,
             building_seats=building_seats,
             runway_anchor=G.runway_anchor,
             seam_pins=_seam_pin_idx,
-            seat_stamp_yield=_seat_yield_idx)
+            seat_stamp_yield=_seat_yield_idx,
+            # ROUND-3 AMENDMENT 1 RULING 1: the stations are phase-A
+            # OUTPUT and constants in the membrane solve.  They are
+            # already ``base_hard`` from the freeze loop above; keeping
+            # them OUT of the yield set is what stops
+            # ``hard -= _spine_yield_idx`` releasing them into the final
+            # projection, where the anchored side would otherwise be the
+            # cheapest way to satisfy a station-touching edge.
+            station_nodes=_station_idx)
         for i in frozen:
             if i < n:
                 # §4: a seat the hard-stamp guard refused is not

@@ -578,3 +578,54 @@ def test_a_station_chord_that_cuts_a_corner_is_dropped(monkeypatch):
 def test_the_clip_is_the_lattice_implementation_not_a_second_copy():
     src = inspect.getsource(ST._clip)
     assert "clip_lines_to_apron" in src
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 1 RULING 1 — A STATION IS A CONSTANT IN THE MEMBRANE SOLVE
+#
+# The station's value is PHASE-A OUTPUT (the route profile's own solve,
+# where it is a legitimate collinear interior chain point — not a
+# mid-taxiway external pin).  In the membrane/POCS solve it must not be
+# a free variable: a station-touching law edge is then satisfiable ONLY
+# by moving the ring/lattice side.  Measured on the arm that did not do
+# this: the projection lowered the ANCHORED side instead — line-T ring
+# 74.02 → 73.43, dip-site junctions down 0.22 m, lattice unmoved.
+# ═════════════════════════════════════════════════════════════════════
+
+def test_a_station_is_preserved_from_the_spine_yield():
+    """``hard -= _spine_yield_idx`` releases the phase-A spine into the
+    final projection.  A station must not be in that set, or it is free
+    again and the anchored side becomes the cheap way out."""
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    frozen = {1, 2, 3, 4}
+    preserved, yield_idx = SV._spine_yield_membership(
+        frozen, 10, truth_hard=set(), runway_nodes=set(),
+        building_seats={}, runway_anchor=None, seam_pins=set(),
+        station_nodes={3})
+    assert 3 in preserved and 3 not in yield_idx
+    assert yield_idx == {1, 2, 4}, yield_idx
+
+
+def test_without_stations_the_membership_is_byte_identical():
+    """Flag OFF, or no apron crossing: the split is the pre-round one."""
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    args = dict(truth_hard={1}, runway_nodes=set(), building_seats={},
+                runway_anchor=None, seam_pins=set())
+    a = SV._spine_yield_membership({1, 2, 3}, 10, **args)
+    b = SV._spine_yield_membership({1, 2, 3}, 10, station_nodes=None,
+                                   **args)
+    c = SV._spine_yield_membership({1, 2, 3}, 10, station_nodes=set(),
+                                   **args)
+    assert a == b == c
+
+
+def test_the_preservation_is_WIRED_at_the_call_site():
+    """RULING 2026-08-21d was found UNIMPLEMENTED in production because
+    its context field was never populated — the ruling existed and the
+    wire did not.  This twin fails on the unwired state."""
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+    assert "station_nodes=_station_idx" in src
+    i_call = src.index("station_nodes=_station_idx")
+    i_idx = src.index("_station_idx, _station_edges = _build_st_scs")
+    assert i_idx < i_call, "the station set must exist before the split"

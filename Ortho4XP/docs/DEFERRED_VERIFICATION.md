@@ -3654,3 +3654,37 @@ DEFERRED to the ship gate, per PRE-SHIP MODE:
   counts were re-derived for the new family on the existing deliberately
   defective fixture; the arithmetic was re-checked by hand for the rate
   term only, not re-derived from first principles for every family.
+
+### 2026-08-27d — lane/nostep, spec Amendment 1 round
+
+Verified in-lane: the twins (`tests/test_airside_no_step.py` 30 cases,
+`tests/test_airside_pair_table.py` 8, `tests/test_no_step_term_split.py`
+8) plus the covering suites, ledgered; ONE HECA acceptance build
+(`HECA_a1`); CYXY and SPJC each with a matched `O4_AIRSIDE_NO_STEP=0`
+control, both of which reproduced their pre-Amendment control's body
+hash EXACTLY (`CYXY e8422b346ad7`, `SPJC 996afe75fa85`) — that is the
+flag-OFF byte-identity contract, measured rather than asserted.
+
+DEFERRED, additionally to the 2026-08-27c list:
+
+* A MATCHED FLAG-OFF CONTROL AT HECA.  The HECA arm is read against the
+  spec's §0 frame (`HECA_20260827T021457`, built at a different tree
+  sha), so its taxiway-family movement number carries tree drift as well
+  as this law.  CYXY and SPJC carry matched controls and are the
+  control-matched evidence; a HECA control is a third ~20-minute build
+  and was not spent.
+* THE TAXIWAY-FAMILY BYTE-IDENTITY GATE IS NOT MET (reported in the lane
+  report, mechanism named): tier-2 nodes are held constant only where
+  they are phase-A FROZEN spine nodes, because that is the only
+  preservation the one-solve graph offers; a junction RING vertex is a
+  free variable of its own within-shape law, so an imposed tier2<->tier4
+  edge can still move it.  Measured against matched controls: CYXY
+  taxiway movers 323 -> 120 (worst 0.66 -> 0.27 m), SPJC 2,666 -> 1,738
+  (worst 4.03 -> 3.65 m).  Closing it needs a Fable ruling on the
+  mechanism, not another attempt at this one.
+* THE 2 SPJC / 5 HECA RUNWAY-FAMILY MOVERS.  Every one is a node a
+  runway ring SHARES with `service_road` / `service_junction` /
+  `graded_strip` — the carve-corner class — and the emitted value at a
+  shared node is chosen by the single-authority EMIT tier, not by the
+  airside solve's runway variable (which is hard throughout).  The
+  attribution needs an instrumented build.

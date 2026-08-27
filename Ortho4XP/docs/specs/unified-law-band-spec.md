@@ -116,6 +116,7 @@ fully constrained graph as efficiently as possible."
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat; no shared-repo writes.
 
+## Amendment 1 (Fable, 2026-08-27 — owner ruling "3": the §1.4 refusal
 ## is REPORT-FIRST pre-ship)
 
 The lane's §1.4 refusal surfaced exactly one contradictory anchor pair

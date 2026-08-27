@@ -9755,13 +9755,37 @@ BAND_FULL_LAW_GRAPH = (
 BAND_SEAT_ANCHORS = (
     _os.environ.get("O4_BAND_SEAT_ANCHORS", "0") != "0")
 
-# §1.4's REFUSAL THRESHOLD.  An EMPTY or INVERTED per-node interval is a
-# loud PRE-SOLVE refusal (the building146 class: contradictory pavement
-# data produced a silent bad seat; under the narrowed band it produces no
-# interval at all).  The threshold is the campaign's materiality floor —
-# below it a crossing is a PASS-with-residual, never a defect (CLAUDE.md
-# convergence guards).  ``O4_BAND_LAW_REFUSE=0`` reports the rows and
-# lets the build continue, which is the arm for adjudicating a site
-# BEFORE the data is fixed; it is never the shipping default.
+# §1.4 — AN EMPTY OR INVERTED INTERVAL.  DEFAULT 0 = REPORT-FIRST
+# (spec Amendment 1, owner ruling "3", 2026-08-27).
+#
+# Two laws contradicting each other at a site is a defect in the DATA or
+# the LAW — under feasibility-is-guaranteed it is never a property of the
+# ground — and §1.4 as written made it a hard pre-solve refusal.  The
+# lane's first arm proved that too sharp for pre-ship: HEAZ carries
+# exactly ONE such pair (anchor 3104 at 81.10 vs anchor 3281 at 86.14,
+# 5.04 m apart across 4.38 m of law budget along a 15-hop chain,
+# propagated to 200 nodes at a constant 0.647-0.658 m deficit) and the
+# refusal blocked that airport at main tip.
+#
+# The owner's ruling applies the §2-instrument precedent:
+#
+#   0 (SHIPPED)  the same loud message — lat/lon, both anchors, both
+#                binding chains — plus a sidecar record
+#                ``law_band_contradictions`` the census prints, and the
+#                build CONTINUES with the PRE-BAND behaviour at exactly
+#                the affected nodes (``law_band.
+#                heal_contradictions_report_first`` puts those nodes back
+#                on the route-only interval; the rest of the airport keeps
+#                its narrowed band).
+#   1            the hard refusal, before any patch is written.  The
+#                diagnostic arm, and the ship-gate arm.
+#
+# PROMOTION OF THE DEFAULT TO 1 IS A SHIP-GATE RULING, adjudicated with
+# the accumulated contradiction ledger.  It is not a flag flip to make
+# casually and it is not any lane's call.
+#
+# The materiality floor is unchanged and still applies in BOTH modes: a
+# crossing under FINAL_BAND_INVERSION_TOL_M is PASS-with-residual, never
+# a contradiction (CLAUDE.md convergence guards).
 BAND_LAW_REFUSE = (
-    _os.environ.get("O4_BAND_LAW_REFUSE", "1") != "0")
+    _os.environ.get("O4_BAND_LAW_REFUSE", "0") != "0")

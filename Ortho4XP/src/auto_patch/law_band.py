@@ -53,6 +53,8 @@ __all__ = [
     "publish_law_band_edges", "law_adjacency_for", "law_band_report",
     "IncrementalAnchorField", "MergedAdjacency", "full_anchor_field",
     "refuse_on_inverted_band", "format_law_band_report",
+    "CONTRADICTION_STORE", "contradiction_ledger",
+    "heal_contradictions_report_first", "format_contradiction_report",
 ]
 
 #: The three populations spec §1.1 names, in report order.  A class name
@@ -574,6 +576,163 @@ def full_anchor_field(adj, anchor_values):
 # §1.4 — EMPTY OR INVERTED INTERVAL IS A LOUD PRE-SOLVE REFUSAL
 # ══════════════════════════════════════════════════════════════════════
 
+#: The contradiction LEDGER (spec Amendment 1, owner ruling "3").  One
+#: entry per contradicted SITE, keyed by its 11-dp lat/lon — the canonical
+#: identity join, never a node index (``spine_value_fields`` runs several
+#: times per build and each pass has its own node space).
+CONTRADICTION_STORE = "_law_band_contradictions"
+
+
+def contradiction_ledger(layout) -> list:
+    """The published contradiction rows, worst first."""
+    rows = list((getattr(layout, CONTRADICTION_STORE, None) or {}).values())
+    rows.sort(key=lambda r: -float(r.get("deficit_m") or 0.0))
+    return rows
+
+
+def heal_contradictions_report_first(layout, G, ceiling, floor, law_adj, *,
+                                     route_field, ceil_via=None,
+                                     floor_via=None, ceil_dist=None,
+                                     floor_dist=None, anchor_seeds=None,
+                                     tol=None):
+    """SPEC AMENDMENT 1 — pre-ship, a contradiction REPORTS and the build
+    continues WITH THE PRE-BAND BEHAVIOUR AT THE AFFECTED NODES.
+
+    Mutates ``ceiling`` / ``floor`` in place at exactly the contradicted
+    nodes, substituting the ROUTE-ONLY field there (``route_field(sign)``
+    — the same two Dijkstras with an empty law adjacency, run only when a
+    contradiction exists, so an airport with none pays nothing).  Records
+    the ledger the sidecar publishes and the census prints.
+
+    WHY THE SUBSTITUTION AND NOT A SHRUG.  An inverted interval is not a
+    tolerable state to hand downstream: every band consumer clamps INTO
+    the interval, and a clamp into ``[lo, hi]`` with ``lo > hi`` has no
+    solution — the writeback clamp, the apron contact floors and the
+    post-solve inversion law would each meet a bound this ruling
+    deliberately tolerates and none of them can. Reverting exactly those
+    nodes to what they had BEFORE this spec is the honest reading of
+    "the build continues with the pre-band behaviour at the affected
+    nodes": the contradiction is reported, not resolved, and nothing else
+    on the airport loses its narrowed band.
+
+    A node the route-only field does not reach at all (the law edges
+    EXTENDED reach to it) is dropped from both fields — off-net, which is
+    also exactly its pre-band state.
+
+    Returns the number of nodes healed.  ``O4_BAND_LAW_REFUSE=1`` (the
+    diagnostic / ship-gate arm) heals nothing, so the refusal that
+    follows sees the raw state.
+    """
+    from auto_patch.config import BAND_FULL_LAW_GRAPH, BAND_LAW_REFUSE
+    if not BAND_FULL_LAW_GRAPH or not law_adj or BAND_LAW_REFUSE:
+        return 0
+    if tol is None:
+        try:
+            from auto_patch.elevation_per_surface.building_feasibility import (
+                FINAL_BAND_INVERSION_TOL_M)
+            tol = FINAL_BAND_INVERSION_TOL_M
+        except Exception:                                  # pragma: no cover
+            tol = 0.01
+    bad = [n for (n, lo) in floor.items()
+           if (hi := ceiling.get(n)) is not None and lo - hi > tol]
+    if not bad:
+        return 0
+    # The pre-band fields, computed ONCE and only now.
+    r_ceil, _rc_dist, _rc_via, _rc_par = route_field(+1)
+    r_floor, _rf_dist, _rf_via, _rf_par = route_field(-1)
+    store = dict(getattr(layout, CONTRADICTION_STORE, None) or {})
+    pos = getattr(G, "pos", None) or {}
+    seeds = anchor_seeds or {}
+    cvia, fvia = (ceil_via or {}), (floor_via or {})
+    cdist, fdist = (ceil_dist or {}), (floor_dist or {})
+    parents_c = getattr(layout, "_band_ceil_parent", None)
+    parents_f = getattr(layout, "_band_floor_parent", None)
+    healed = 0
+    for n in bad:
+        lo, hi = float(floor[n]), float(ceiling[n])
+        xy = pos.get(n)
+        key = None
+        if xy is not None:
+            try:
+                la, lo_ = layout.m_to_ll(float(xy[0]), float(xy[1]))
+                key = (round(float(la), 11), round(float(lo_), 11))
+            except Exception:                              # pragma: no cover
+                key = None
+        if key is None:                                    # pragma: no cover
+            key = ("node", int(n))
+        ca, fa = cvia.get(n), fvia.get(n)
+        row = {
+            "ll": [key[0], key[1]] if key[0] != "node" else None,
+            "node_in_pass": int(n),
+            "floor": lo, "ceiling": hi,
+            "deficit_m": round(lo - hi, 6),
+            "ceil_anchor": (None if ca is None else int(ca)),
+            "floor_anchor": (None if fa is None else int(fa)),
+            "ceil_anchor_value": (None if ca is None
+                                  else float(seeds.get(ca, float("nan")))),
+            "floor_anchor_value": (None if fa is None
+                                   else float(seeds.get(fa, float("nan")))),
+            "ceil_budget_m": round(float(cdist.get(n, 0.0)), 4),
+            "floor_budget_m": round(float(fdist.get(n, 0.0)), 4),
+            "ceil_chain": _chain_of(parents_c, n, ca),
+            "floor_chain": _chain_of(parents_f, n, fa),
+            "healed": "route_only",
+        }
+        # THE SUBSTITUTION.
+        rc, rf = r_ceil.get(n), r_floor.get(n)
+        if rc is None or rf is None:
+            ceiling.pop(n, None)
+            floor.pop(n, None)
+            row["healed"] = "off_net"
+        else:
+            ceiling[n] = float(rc)
+            floor[n] = float(rf)
+            row["route_only_floor"] = float(rf)
+            row["route_only_ceiling"] = float(rc)
+        healed += 1
+        prev = store.get(key)
+        if prev is None or float(prev.get("deficit_m") or 0.0) < row["deficit_m"]:
+            store[key] = row
+    try:
+        setattr(layout, CONTRADICTION_STORE, store)
+    except AttributeError:                                 # pragma: no cover
+        pass
+    return healed
+
+
+def format_contradiction_report(icao, rows, *, tol=0.01) -> str:
+    """The loud line spec §1.4 specifies, in REPORT-FIRST voice."""
+    lines = []
+    for r in rows[:20]:
+        ll = r.get("ll")
+        where = (f"{ll[0]:.7f},{ll[1]:.7f}" if ll
+                 else f"node {r.get('node_in_pass')}")
+        lines.append(
+            f"    node {r.get('node_in_pass')} at {where}: floor "
+            f"{r['floor']:.3f} > ceiling {r['ceiling']:.3f} (empty by "
+            f"{r['deficit_m']:.3f} m).\n"
+            f"      CEILING binds from anchor {r.get('ceil_anchor')} at "
+            f"{r.get('ceil_anchor_value')} over {r.get('ceil_budget_m')} m of "
+            f"budget; chain {r.get('ceil_chain')}\n"
+            f"      FLOOR   binds from anchor {r.get('floor_anchor')} at "
+            f"{r.get('floor_anchor_value')} over {r.get('floor_budget_m')} m "
+            f"of budget; chain {r.get('floor_chain')}\n"
+            f"      HEALED: {r.get('healed')} — this node keeps its PRE-BAND "
+            f"interval; the rest of the airport keeps the narrowed band")
+    more = ("" if len(rows) <= 20 else f"\n    ... and {len(rows) - 20} more")
+    return (
+        f"  [law-band] {icao}: the NARROWED reach band admits NO elevation at "
+        f"{len(rows)} node(s) — REPORT-FIRST (spec unified-law-band "
+        f"Amendment 1, owner ruling 3).  Two laws contradict each other at "
+        f"these sites, and under feasibility-is-guaranteed that is a defect "
+        f"in the DATA or the LAW, never a property of the ground.  Pre-ship "
+        f"the build CONTINUES with the pre-band behaviour at exactly these "
+        f"nodes; the sites are published in the sidecar as "
+        f"`law_band_contradictions` and the census prints them.  "
+        f"O4_BAND_LAW_REFUSE=1 restores the hard refusal (the "
+        f"diagnostic / ship-gate arm).\n" + "\n".join(lines) + more)
+
+
 def _chain_of(parents, node, anchor, limit=12):
     """The binding CHAIN as a node list, source-first, truncated."""
     if parents is None:
@@ -597,17 +756,45 @@ def _chain_of(parents, node, anchor, limit=12):
 
 
 def refuse_on_inverted_band(layout, icao="", tol=None):
-    """SPEC §1.4 — raise :class:`LawBandRefusal` when the narrowed band
-    admits no elevation at some node.  Returns the number of
-    sub-materiality crossings tolerated (PASS-with-residual).
+    """SPEC §1.4, as AMENDED (Amendment 1, owner ruling "3").
 
-    Reads the rows ``building_feasibility._record_band_inversions`` has
-    just stashed for THIS band build — one instrument, not a second scan.
-    Every named row carries the node's lat/lon, both binding anchors with
-    their values, both route budgets and both binding chains.
+    TWO MODES, ONE MESSAGE.  An empty/inverted interval always produces
+    the same loud statement — the node's lat/lon, both binding anchors
+    with their values, both route budgets and both binding chains — and
+    always lands in the sidecar ledger ``law_band_contradictions``.  What
+    differs is what happens next:
+
+    * ``O4_BAND_LAW_REFUSE=0`` (the SHIPPED pre-ship default): the build
+      CONTINUES.  ``heal_contradictions_report_first`` has already put the
+      affected nodes back on their pre-band interval, so the report is a
+      docket, not a blocker.  Returns 0.
+    * ``O4_BAND_LAW_REFUSE=1`` (the diagnostic / ship-gate arm): nothing
+      was healed, and this raises :class:`LawBandRefusal` before any
+      patch is written.
+
+    Promotion of the default to refusal is a ship-gate ruling, adjudicated
+    with the accumulated ledger — not this lane's call and not a flag flip
+    anyone should make casually.
+
+    Returns the number of sub-materiality crossings tolerated
+    (PASS-with-residual) in refuse mode, 0 in report-first mode.
     """
     from auto_patch.config import (BAND_FULL_LAW_GRAPH, BAND_LAW_REFUSE)
     if not BAND_FULL_LAW_GRAPH:
+        return 0
+    if not BAND_LAW_REFUSE:
+        # REPORT-FIRST.  The ledger is the instrument; the inversion rows
+        # ``_record_band_inversions`` stashed were re-recorded AFTER the
+        # healing, so they no longer describe the contradiction and are
+        # not the source here.
+        rows = contradiction_ledger(layout)
+        if not rows:
+            return 0
+        try:
+            import O4_UI_Utils as _UI
+            _UI.vprint(1, format_contradiction_report(icao, rows))
+        except Exception:                                  # pragma: no cover
+            pass
         return 0
     try:
         from auto_patch.elevation_per_surface.building_feasibility import (
@@ -658,13 +845,6 @@ def refuse_on_inverted_band(layout, icao="", tol=None):
         f"materiality floor were tolerated.)"
         f"\n    O4_BAND_LAW_REFUSE=0 reports these and continues, which is "
         f"the arm for adjudicating a site before its data is fixed.")
-    if not BAND_LAW_REFUSE:
-        try:
-            import O4_UI_Utils as _UI
-            _UI.vprint(1, "  " + msg.replace("\n", "\n  "))
-        except Exception:                                  # pragma: no cover
-            pass
-        return residual
     raise LawBandRefusal(msg)
 
 

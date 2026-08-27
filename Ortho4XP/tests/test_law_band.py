@@ -169,10 +169,12 @@ def _contradictory_fixture():
 
 
 def test_a_contradictory_site_gives_an_empty_interval(monkeypatch):
+    """The RAW state, read in refuse mode so the report-first healing does
+    not close the very interval this asserts is empty."""
     from auto_patch import config
     monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
     monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
-    monkeypatch.setattr(config, "BAND_LAW_REFUSE", False)
+    monkeypatch.setattr(config, "BAND_LAW_REFUSE", True)
     layout, G = _contradictory_fixture()
     LB.publish_law_band_edges(
         layout, node_pos=G.pos,
@@ -184,9 +186,11 @@ def test_a_contradictory_site_gives_an_empty_interval(monkeypatch):
     assert floor[1] > ceil[1]                      # EMPTY, by 3.60 m
 
 
-def test_an_empty_interval_is_a_loud_pre_solve_refusal(monkeypatch):
-    """§1.4 — refusal, naming the node's lat/lon, both binding anchors
-    and both binding chains.  Before any patch is written."""
+def test_an_empty_interval_is_a_loud_refusal_in_refuse_mode(monkeypatch):
+    """§1.4 in the DIAGNOSTIC / SHIP-GATE arm (O4_BAND_LAW_REFUSE=1) —
+    refusal, naming the node's lat/lon, both binding anchors and both
+    binding chains.  Before any patch is written.  Nothing is healed in
+    this mode: the refusal must see the raw contradiction."""
     from auto_patch import config
     monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
     monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
@@ -196,7 +200,10 @@ def test_an_empty_interval_is_a_loud_pre_solve_refusal(monkeypatch):
         layout, node_pos=G.pos,
         classes={"frontage_chord": [(1, 2, 0.90)],
                  "membrane": [(1, 3, 0.50)]})
-    _fields(layout, G)
+    ceil, floor = _fields(layout, G)
+    # UNHEALED: the raw inversion is still in the fields.
+    assert floor[1] > ceil[1]
+    assert not getattr(layout, LB.CONTRADICTION_STORE, None)
     with pytest.raises(LB.LawBandRefusal) as exc:
         LB.refuse_on_inverted_band(layout, "TEST")
     msg = str(exc.value)
@@ -208,6 +215,111 @@ def test_an_empty_interval_is_a_loud_pre_solve_refusal(monkeypatch):
     assert "FLOOR   binds from anchor 3" in msg
     assert "chain [2, 1]" in msg
     assert "chain [3, 1]" in msg
+
+
+# ── the SHIPPED pre-ship mode (spec Amendment 1, owner ruling "3") ──────
+
+def test_report_first_keeps_the_message_and_continues(monkeypatch):
+    """Amendment 1 — the SAME loud statement, plus a sidecar ledger, and
+    NO exception.  The message must still name the site, both anchors and
+    both chains: report-first changes what happens next, never what the
+    reader is told."""
+    from auto_patch import config
+    monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
+    monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
+    monkeypatch.setattr(config, "BAND_LAW_REFUSE", False)
+    layout, G = _contradictory_fixture()
+    LB.publish_law_band_edges(
+        layout, node_pos=G.pos,
+        classes={"frontage_chord": [(1, 2, 0.90)],
+                 "membrane": [(1, 3, 0.50)]})
+    _fields(layout, G)
+    rows = LB.contradiction_ledger(layout)
+    # THREE sites, not one: the two anchors contradict each other through
+    # node 1 as well, so each of them is also a site.  That is the ledger
+    # telling the truth about one bad pair, not three bad pairs — the
+    # deficit is identical at all three.
+    assert len(rows) == 3
+    r = next(x for x in rows if x["node_in_pass"] == 1)
+    assert r["ll"] == [30.0, 31.01388541667]
+    assert r["ceil_anchor"] == 2 and r["floor_anchor"] == 3
+    assert r["ceil_anchor_value"] == pytest.approx(90.0)
+    assert r["floor_anchor_value"] == pytest.approx(95.0)
+    assert r["ceil_chain"] == [2, 1] and r["floor_chain"] == [3, 1]
+    assert r["deficit_m"] == pytest.approx(3.60)
+    # NO exception, and the same sentences.
+    assert LB.refuse_on_inverted_band(layout, "TEST") == 0
+    msg = LB.format_contradiction_report("TEST", rows)
+    assert "REPORT-FIRST" in msg
+    assert "30.0000000,31.0138854" in msg
+    assert "CEILING binds from anchor 2" in msg
+    assert "FLOOR   binds from anchor 3" in msg
+    assert "chain [2, 1]" in msg and "chain [3, 1]" in msg
+    assert "O4_BAND_LAW_REFUSE=1" in msg
+
+
+def test_report_first_restores_the_pre_band_interval_at_those_nodes(
+        monkeypatch):
+    """"the build CONTINUES with the pre-band behaviour at the affected
+    nodes" — a SUBSTITUTION, not a shrug.
+
+    An inverted interval is not a tolerable state to hand downstream:
+    every band consumer clamps INTO the interval and a clamp into
+    ``[lo, hi]`` with ``lo > hi`` has no solution.  So the contradicted
+    node goes back to exactly the interval it had before this spec — and
+    nothing else on the airport loses its narrowed band.
+    """
+    from auto_patch import config
+    monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
+    monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
+    monkeypatch.setattr(config, "BAND_LAW_REFUSE", False)
+
+    # (a) the ROUTE-ONLY reference: the same fixture with no law edge.
+    lref, Gref = _contradictory_fixture()
+    cref, fref = _fields(lref, Gref)
+
+    # (b) the contradicted arm.
+    layout, G = _contradictory_fixture()
+    LB.publish_law_band_edges(
+        layout, node_pos=G.pos,
+        classes={"frontage_chord": [(1, 2, 0.90)],
+                 "membrane": [(1, 3, 0.50)]})
+    ceil, floor = _fields(layout, G)
+
+    # node 1 contradicted -> back on its PRE-BAND interval, exactly.
+    assert ceil[1] == pytest.approx(cref[1])
+    assert floor[1] == pytest.approx(fref[1])
+    assert floor[1] <= ceil[1]                 # and it is a real interval
+    assert LB.contradiction_ledger(layout)[0]["healed"] == "route_only"
+
+
+def test_report_first_leaves_uncontradicted_nodes_narrowed(monkeypatch):
+    """The healing is SCOPED.  A node with a perfectly good narrowed
+    interval must keep it — reverting the airport because one site is
+    contradictory would throw away the whole ruling."""
+    from auto_patch import config
+    monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
+    monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
+    monkeypatch.setattr(config, "BAND_LAW_REFUSE", False)
+    layout, G = _wide_route_fixture()
+    _publish_frontage_chord(layout, G)
+    ceil, floor = _fields(layout, G)
+    assert ceil[1] == pytest.approx(90.90)     # still narrowed
+    assert not LB.contradiction_ledger(layout)
+
+
+def test_report_first_is_inert_where_nothing_contradicts(monkeypatch):
+    """No contradiction ⇒ no ledger, no second pair of Dijkstras, and the
+    census line reads "0 site(s)"."""
+    from auto_patch import config
+    monkeypatch.setattr(config, "BAND_FULL_LAW_GRAPH", True)
+    monkeypatch.setattr(config, "BAND_SEAT_ANCHORS", False)
+    monkeypatch.setattr(config, "BAND_LAW_REFUSE", False)
+    layout, G = _wide_route_fixture()
+    _publish_frontage_chord(layout, G)
+    _fields(layout, G)
+    assert LB.contradiction_ledger(layout) == []
+    assert LB.refuse_on_inverted_band(layout, "TEST") == 0
 
 
 def test_a_sub_materiality_crossing_is_a_pass_with_residual(monkeypatch):

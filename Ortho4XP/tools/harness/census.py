@@ -1767,6 +1767,36 @@ def print_report(rep: dict, top: int) -> None:
     elif isinstance(be, dict):
         print(f"  band membership: NOT MEASURED this build "
               f"({be.get('error')})")
+    # ── THE LAW-BAND CONTRADICTION LEDGER (spec unified-law-band
+    # Amendment 1, owner ruling "3") ──────────────────────────────────
+    # Printed on EVERY census, present or absent, and the absent case is
+    # the one worth spelling: "0 sites" is the instrument saying it ran
+    # and found no contradiction, which is a different fact from a patch
+    # that predates the law and carries no key at all.  Pre-ship these
+    # REPORT and the build continues on the pre-band interval at exactly
+    # those nodes; promotion to a hard refusal is a ship-gate ruling made
+    # on this accumulated ledger, so it has to be visible here.
+    _lbc = ev.get("law_band_contradictions")
+    if isinstance(_lbc, dict):
+        _n = int(_lbc.get("sites") or 0)
+        if not _n:
+            print("  law-band contradictions: 0 site(s) — the narrowed "
+                  "band admits an elevation everywhere it reaches")
+        else:
+            _ll = _lbc.get("worst_ll") or []
+            _where = (f"{_ll[0]:.7f},{_ll[1]:.7f}" if len(_ll) == 2
+                      else "?")
+            print(f"  law-band contradictions: {_n} site(s) where the "
+                  f"NARROWED band admits NO elevation — two laws "
+                  f"disagree; REPORT-FIRST pre-ship, the build continued "
+                  f"on the PRE-BAND interval at those nodes.  Worst "
+                  f"{_lbc.get('worst_deficit_m')} m at {_where}: ceiling "
+                  f"anchor {_lbc.get('worst_ceil_anchor_value')} over "
+                  f"{_lbc.get('worst_ceil_budget_m')} m of budget vs floor "
+                  f"anchor {_lbc.get('worst_floor_anchor_value')} over "
+                  f"{_lbc.get('worst_floor_budget_m')} m.  Full rows (both "
+                  f"binding chains) in the sidecar's "
+                  f"`law_band_contradictions`.")
     if ev.get("unknown_keys"):
         # The VERIFIED set difference, nothing more: the old line named a
         # cause (the emitter grew a field) and instructed the reader which

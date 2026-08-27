@@ -3805,3 +3805,31 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   unpacks 3 values from `anchors.reach_band_for`, which returns 4).  The
   §0 addendum's numbers come from the sidecar's own `frontage_band`
   publication instead; the tool fix is a separate chip.
+- **HEAZ law-band contradiction pair — OPEN OWNER DOCKET, ATTRIBUTED TO
+  THE GAP-SPINE BRIDGES** (spec unified-law-band Amendment 1, owner
+  ruling "3").  Measured at the shipped defaults, `lawband_a3_heaz`:
+
+  * **Attempt 1**, carrying the 13 synthesized gap-spine bridges: 24,011
+    law edges, and the narrowed band admits NO elevation at 200 nodes.
+    One anchor pair does all of it — `3104` at **81.10** against `3281`
+    at **86.14**, 5.04 m apart across **4.38 m** of law budget on a
+    15-hop chain (`3104 → 5096 → 5098 → 5100 → 5106 → 5108 … 5282 →
+    5278 → 3281`), first at `30.0874589,31.3593189`, constant
+    0.647–0.658 m deficit.  Reported, healed to the pre-band interval,
+    build continued — and then the POST-SOLVE band law refused it
+    anyway (43 of 5,002 nodes).
+  * **Attempt 2**, the stand-down retry with those bridges withheld:
+    22,378 law edges and **zero contradictions**.  That is the shipped
+    patch (`body_sha 52ef2bbb0f79`, sidecar `law_band_contradictions:
+    []`).
+
+  So the contradiction is not a property of HEAZ's surface: it lives in
+  the bridge-carrying arm, and the narrowed band names the same
+  mechanism the 2026-08-27 stand-down ruling already blames — 4.38 m of
+  budget on a chain whose hops include bridge-minted route edges.  The
+  band is now an INDEPENDENT, PRE-SOLVE instrument for that ruling,
+  which the post-solve inversion law could only see afterwards.
+  Owner-pending: whether the two anchor values are both right (in which
+  case the bridge edges' caps are the defect) — adjudicate with the
+  bridge docket, not separately.  Promotion of `O4_BAND_LAW_REFUSE` to 1
+  is the ship-gate ruling on the accumulated ledger, not a lane decision.

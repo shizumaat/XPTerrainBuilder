@@ -1041,7 +1041,12 @@ def spine_value_fields(layout, G):
     from auto_patch import law_band as _LB
     law_adj = _LB.law_adjacency_for(layout, G)
 
-    def _field(sign):
+    def _field(sign, law_edges=None):
+        """``law_edges=None`` ⇒ the FULL law graph (the shipped band).
+        ``law_edges={}`` ⇒ the ROUTE-ONLY field — the pre-band behaviour,
+        which spec Amendment 1's report-first mode restores at the nodes
+        where two laws contradict each other."""
+        _law = law_adj if law_edges is None else law_edges
         best: dict = {}
         # ROUTE DISTANCE per node, write-only: the budget-metric length of
         # the winning route (spec kill-half §3 — the loud error names the
@@ -1102,7 +1107,7 @@ def spine_value_fields(layout, G):
             # this loop (spec §1.1).  Same relaxation, same budget
             # semantics (``cap x distance >= 0``), no service filter (see
             # the block comment above ``_field``).
-            for (v, budget) in law_adj.get(u, ()):
+            for (v, budget) in _law.get(u, ()):
                 if v in best:
                     continue
                 nd = dd + budget
@@ -1139,6 +1144,23 @@ def spine_value_fields(layout, G):
             if (_BSA and law_adj) else None)
     except AttributeError:                                 # pragma: no cover
         pass
+    # ── §1.4 REPORT-FIRST (spec Amendment 1, owner ruling "3") ────────
+    # An EMPTY/INVERTED interval is a contradiction between two laws at a
+    # site.  Pre-ship it is a LOUD REPORT plus a sidecar ledger, and the
+    # build CONTINUES WITH THE PRE-BAND BEHAVIOUR AT THE AFFECTED NODES —
+    # which is a substitution, not a shrug: leaving an inverted interval
+    # in the fields would hand every downstream clamp a bound with no
+    # solution in it, and the post-solve inversion law would then blow up
+    # on a state this ruling deliberately tolerates.  Only the
+    # contradicted nodes revert; the rest of the airport keeps the
+    # narrowed band.  ``O4_BAND_LAW_REFUSE=1`` skips the healing entirely
+    # so the refusal that follows in ``solve.py`` sees the raw state.
+    _LB.heal_contradictions_report_first(
+        layout, G, ceiling, floor, law_adj,
+        route_field=lambda sign: _field(sign, law_edges={}),
+        ceil_via=ceil_via, floor_via=floor_via,
+        ceil_dist=ceil_dist, floor_dist=floor_dist,
+        anchor_seeds=anchor_seeds)
     _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
                               floor_via, floor_dist)
     _record_band_inversions(layout, G, ceiling, floor, ceil_dist, floor_dist,

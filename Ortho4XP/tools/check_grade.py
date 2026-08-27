@@ -6603,6 +6603,17 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # THE LAW-BAND CONTRADICTION LEDGER (spec unified-law-band Amendment
+    # 1, owner ruling "3", 2026-08-27).  EVIDENCE, deliberately: a row
+    # here is a site where the narrowed band admitted NO elevation at all
+    # — two laws contradicting each other — which is a defect in the DATA
+    # or the LAW, not surface debt, so it is reported beside the census
+    # and never adjudicated as a law family.  Pre-ship the build CONTINUES
+    # at those nodes on their pre-band interval; promotion of
+    # ``O4_BAND_LAW_REFUSE`` to a hard refusal is a ship-gate ruling made
+    # on exactly this accumulated ledger, which is why it has to be
+    # visible in every census rather than only in a build log.
+    "law_band_contradictions",
     "axes",                       # legacy per-size-split axes
     "routes",                     # legacy chained routes
     "triangle_plane_unresolved",  # count of unresolved triangle vertices
@@ -6812,6 +6823,25 @@ def sidecar_evidence(osm_path) -> dict:
             # worst-row list is dropped; the numbers are kept.
             out[k] = (None if not isinstance(v, dict) else
                       {kk: vv for kk, vv in v.items() if kk != "worst"})
+            continue
+        if k == "law_band_contradictions":
+            # SUMMARISED HERE, printed in full by the census: the count
+            # plus the worst site's arithmetic, which is what a reader
+            # needs to know whether to open the sidecar.  Never collapsed
+            # to "<N entries>" — a ledger the ship gate is adjudicated on
+            # must carry a number in every report that mentions it.
+            rows = v if isinstance(v, list) else []
+            out[k] = {"sites": len(rows)}
+            if rows:
+                w = rows[0]
+                out[k].update({
+                    "worst_deficit_m": w.get("deficit_m"),
+                    "worst_ll": w.get("ll"),
+                    "worst_ceil_anchor_value": w.get("ceil_anchor_value"),
+                    "worst_floor_anchor_value": w.get("floor_anchor_value"),
+                    "worst_ceil_budget_m": w.get("ceil_budget_m"),
+                    "worst_floor_budget_m": w.get("floor_budget_m"),
+                })
             continue
         if k == "site_class":
             # ALREADY a flat record of scalars (four signals + verdict),

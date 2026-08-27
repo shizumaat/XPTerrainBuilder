@@ -22,8 +22,14 @@ and PRINTS the sorted ring ceilings with the whole-ring median (what is used
 today) vs the frontage-only median/min (the candidate fix), so you can see
 whether the median is being taken over the wrong part of the building.
 
-Uses the SAME cost model as the band (shared ``trace_reach_route._binding_route``)
-so the numbers match production.
+BAND SOURCE: the ring ceilings are read from THE band of record — the object
+the solve itself published (``publish_band_of_record``, RULINGS 2026-08-11b:
+one band construction per solve, every consumer reads THAT band) and the one
+``build_building_seats`` actually seated the pad from.  Only a layout that
+never solved gets a rebuild, and then through ``trace_reach_route._live_band``
+so this report and the route section share ONE construction.  The route
+section (``trace_reach_route._binding_route``) reads that tool's own live-band
+walk, which on a solved layout is a REBUILT frame — stated in the output.
 
 Usage:
     venv/bin/python tools/trace_building_frontage.py CYXY --ref building15
@@ -49,6 +55,39 @@ def _open_ring(coords):
     return p
 
 
+#: The keys this tool reads out of ``trace_reach_route._binding_route``'s
+#: report dict, and out of each per-side route record it carries.  Pinned by
+#: ``tests/test_forensic_tools_instrument.py`` against the producer, so the
+#: next contract change over there fails a TEST instead of a trace (the way
+#: ``reach_band_for``'s tuple widening broke this tool on 2026-08-27).
+BINDING_ROUTE_KEYS = ("band", "attachment_node", "attachment_pos",
+                      "ceiling_at_node", "ceiling", "why_none", "error")
+ROUTE_SIDE_KEYS = ("runway", "anchor_pos", "anchor_value", "path",
+                   "cap_len", "plan_len_m")
+
+
+def acquire_band(layout):
+    """``(band, source)`` — THE live band, with its frame stated.
+
+    ``source == "band-of-record"``: the solve's own construction
+    (``band_of_record``), i.e. the very object ``build_building_seats``
+    seated the pads from — never a rebuild (one-band-construction law,
+    RULINGS 2026-08-11b).  ``source == "rebuilt"``: the layout never
+    solved (a probe / hermetic fixture), so the FIRST construction is
+    made — through ``trace_reach_route._live_band``, which caches per
+    layout, so the route section below reads the SAME rebuild rather
+    than minting a second one.  ``band`` may be ``None`` (no solver
+    nodes)."""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        band_of_record)
+    band = band_of_record(layout)
+    if band is not None:
+        return band, "band-of-record"
+    from tools.trace_reach_route import _live_band
+    _g, band, _prov = _live_band(layout)
+    return band, "rebuilt"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("icao")
@@ -64,10 +103,6 @@ def main():
     from auto_patch.elevation import _load_airport_dem, _sample_dem
     from auto_patch.elevation_per_surface.building_feasibility import (
         _nearest_visible_centerline, _pavement_visibility)
-    from auto_patch.elevation_per_surface.route_profile.anchors import (
-        reach_band_for)
-    from auto_patch.elevation_per_surface.solver_primitives import (
-        _build_node_list, _seed_elevations)
     from tools.trace_reach_route import _binding_route
 
     layout = build_airport_pavement(args.icao, xplane_root(),
@@ -80,27 +115,36 @@ def main():
     lat0, lon0 = layout.anchor
     tl, tn = int(math.floor(lat0)), int(math.floor(lon0))
     dem = _load_airport_dem(lat0, lon0)
-    nodes, b2i = _build_node_list(layout)
-    elev, _bh, _ = _seed_elevations(layout, nodes, b2i, dem=dem,
-                                    tile_lat=tl, tile_lon=tn)
-    band, _dfn, _rw = reach_band_for(layout, elev, b2i, dem, tl, tn)
+    band, band_src = acquire_band(layout)
+    if band is None:
+        sys.exit(f"{args.icao}: no reach band — the layout carries no band "
+                 "of record and the rebuild found no solver nodes (empty "
+                 "G.pos).  A solved build publishes its band; a layout that "
+                 "cannot produce one has nothing this tool can trace.")
+    print(f"[band] source: {band_src}"
+          + ("  (the solve's own construction — the one that seated the pads)"
+             if band_src == "band-of-record" else
+             "  (layout never solved; first construction, shared with the "
+             "route section)"))
 
     # The serving centerline EXACTLY as the seat logic picks it (nearest VISIBLE
-    # centerline to the centroid, not the geometric nearest).
-    cls = [ln for (ln, n) in (getattr(layout, "apt_taxi_centerlines", None) or [])
-           if ln is not None and not ln.is_empty
-           and not str(n or "").upper().startswith("SVC")]
+    # centerline to the centroid, not the geometric nearest).  The filter is
+    # production's own (anchors.py seat path): ``TaxiCenterline.is_service``,
+    # never the retired SVC name-prefix test — the name is a label only.
+    tcls = [cl for cl in (getattr(layout, "apt_taxi_centerlines", None) or [])
+            if cl.line is not None and not cl.line.is_empty
+            and not cl.is_service]
+    if not tcls:
+        sys.exit(f"{args.icao}: no non-service taxi centerlines — nothing "
+                 "serves this building")
+    cls = [cl.line for cl in tcls]
     vis = _pavement_visibility(layout) if VISIBLE_CHORD_CONNECT else None
     c = s.polygon.centroid
     serving = (_nearest_visible_centerline(c, cls, vis) if vis is not None
                else min(cls, key=lambda L: L.distance(c)))
 
     # full centerline list WITH names, for per-vertex nearest-route reporting.
-    cls_named = [(ln, str(n or "?"))
-                 for (ln, n) in (getattr(layout, "apt_taxi_centerlines", None)
-                                 or [])
-                 if ln is not None and not ln.is_empty
-                 and not str(n or "").upper().startswith("SVC")]
+    cls_named = [(cl.line, str(cl.name or "?")) for cl in tcls]
 
     def _nearest_named(px, py):
         P = Point(px, py)
@@ -188,6 +232,10 @@ def main():
     else:
         print("  (no apron shares a node with this building)")
 
+    # Route forensics: trace_reach_route's OWN live-band walk.  On a solved
+    # layout this is a REBUILT frame (different node space from the band of
+    # record above) — a route detail here is a direction, not the build's
+    # own number; the ceilings above ARE the build's own.
     r = _binding_route(layout, *fmid)
 
     # ---- KML ----
@@ -265,22 +313,44 @@ def main():
         nm = f'v{i} {"n/a" if v is None else f"{v:.1f}"}'
         parts.append(f'<Placemark><name>{nm}</name><Point><coordinates>'
                      f'{lo:.7f},{la:.7f},0</coordinates></Point></Placemark>')
-    # binding reach route to the frontage midpoint
-    if r is not None:
-        ceil, floor, cxy, ae, rwy_ref, path, foot, cap_len = r
-        print(f"\nbinding route to FRONTAGE midpoint: runway {rwy_ref} "
-              f"contact ({cxy[0]:.0f},{cxy[1]:.0f}) elev {ae:.1f}  "
-              f"ceiling={ceil:.1f}")
+    # binding reach route to the frontage midpoint (rebuilt-frame forensics —
+    # see the note at the _binding_route call above)
+    if r.get("error"):
+        print(f"\nroute section unavailable: {r['error']}")
+    elif r.get("band") is None:
+        print(f"\nno band at the FRONTAGE midpoint: "
+              f"{r.get('why_none', 'off-net (within-shape law governs)')}")
+    elif r.get("attachment_node") is None or not r.get("ceiling"):
+        print("\nband present at the FRONTAGE midpoint but no recorded "
+              "ceiling route to walk (no attachment / provenance side)")
+    else:
+        side = r["ceiling"]
+        apos = side.get("anchor_pos") or (float("nan"), float("nan"))
+        aval = side.get("anchor_value")
+        ceil_at = r.get("ceiling_at_node")
+        cap_len = side.get("cap_len") or {}
+        print(f"\nbinding CEILING route to FRONTAGE midpoint "
+              f"[rebuilt frame]: runway {side.get('runway', '?')} "
+              f"anchor ({apos[0]:.0f},{apos[1]:.0f}) "
+              f"value {'n/a' if aval is None else f'{aval:.1f}'}  "
+              f"ceiling@attachment="
+              f"{'n/a' if ceil_at is None else f'{ceil_at:.1f}'}")
         print(f"  per-cap length (m): "
               f"{{{', '.join(f'{k}%: {v:.0f}' for k, v in sorted(cap_len.items()))}}}")
-        parts.append(
-            f'<Placemark><name>reach route -> frontage (ceil {ceil:.1f})</name>'
-            f'<styleUrl>#route</styleUrl><LineString><coordinates>'
-            f'{line_coords(path)}</coordinates></LineString></Placemark>')
-        lo, la = ll(*foot)
-        parts.append(f'<Placemark><name>frontage foot</name><Point>'
-                     f'<coordinates>{lo:.7f},{la:.7f},0</coordinates>'
-                     '</Point></Placemark>')
+        path = side.get("path") or []
+        if len(path) >= 2:
+            nm_ceil = "n/a" if ceil_at is None else f"{ceil_at:.1f}"
+            parts.append(
+                f'<Placemark><name>reach route -> frontage '
+                f'(ceil {nm_ceil})</name>'
+                f'<styleUrl>#route</styleUrl><LineString><coordinates>'
+                f'{line_coords(path)}</coordinates></LineString></Placemark>')
+        foot = r.get("attachment_pos")
+        if foot is not None:
+            lo, la = ll(*foot)
+            parts.append(f'<Placemark><name>frontage foot (attachment)</name>'
+                         f'<Point><coordinates>{lo:.7f},{la:.7f},0'
+                         '</coordinates></Point></Placemark>')
 
     parts.append('</Document></kml>')
     with open(out, "w") as f:

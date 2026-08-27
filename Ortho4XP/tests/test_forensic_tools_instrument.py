@@ -65,6 +65,12 @@ def trr():
     return _load("twin_trace_reach_route", TOOLS / "trace_reach_route.py")
 
 
+@pytest.fixture(scope="module")
+def tbf():
+    return _load("twin_trace_building_frontage",
+                 TOOLS / "trace_building_frontage.py")
+
+
 # ══════════════════════════════════════════════════════════════════════
 # interval_reach_replay — the arm that went dead in 092af7f
 # ══════════════════════════════════════════════════════════════════════
@@ -492,3 +498,96 @@ def test_the_pad_rigidity_knife_REFUSES_when_there_are_no_pads(irr):
         irr._apply_arm("no-pad-groups", st["entries"], st["hard"],
                        st["node_bounds"], st["group_bounds"], st)
     assert "REFUSING --arm no-pad-groups" in str(excinfo.value)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# trace_building_frontage — the band is the SOLVE'S OWN, and the tool is
+# pinned to the contracts it consumes (2026-08-27: ``reach_band_for``
+# widened its return tuple from 3 to 4 and this tool crashed at the
+# unpack; its own rebuild also read an empty graph — NO FIELD — because
+# the signature had grown a ``unified_graph`` the tool never passed.
+# Neither failure may come back as a trace.)
+# ══════════════════════════════════════════════════════════════════════
+
+class _Layout:
+    """Attribute bag standing in for a layout — publishable, never solved."""
+
+
+def test_the_ring_ceilings_come_from_the_band_of_record(tbf):
+    """KNOWN ANSWER: a layout whose solve published a band must hand back
+    that IDENTICAL object (one-band-construction law, RULINGS 2026-08-11b)
+    — never a rebuild, which is a different field in a different node
+    space (the vhhh17 finding)."""
+    from auto_patch.elevation_per_surface import building_feasibility as BF
+    layout = _Layout()
+    sentinel = lambda x, y: (0.0, 1.0)          # noqa: E731 — any callable
+    BF.publish_band_of_record(layout, sentinel)
+    band, src = tbf.acquire_band(layout)
+    assert band is sentinel, "must be the solve's own object, not a rebuild"
+    assert src == "band-of-record"
+
+
+def test_a_never_solved_layout_gets_ONE_shared_rebuild(tbf, monkeypatch):
+    """A layout with no band of record falls back to trace_reach_route's
+    ``_live_band`` — the SAME cached construction the route section reads,
+    so the report never mixes two rebuilds."""
+    import types
+    calls = []
+    fake_band = object()
+
+    def _fake_live_band(layout):
+        calls.append(layout)
+        return (None, fake_band, {})
+
+    fake_mod = types.SimpleNamespace(_live_band=_fake_live_band)
+    monkeypatch.setitem(sys.modules, "tools.trace_reach_route", fake_mod)
+    layout = _Layout()
+    band, src = tbf.acquire_band(layout)
+    assert band is fake_band and src == "rebuilt"
+    assert calls == [layout]
+
+
+def test_the_tool_no_longer_calls_reach_band_for(tbf):
+    """THE REGRESSION LOCK for the 2026-08-27 crash class.  The tool reads
+    the published band; it must not re-enter ``reach_band_for``, whose
+    return tuple is the solver's private plumbing and widens without
+    notice (3 → 4 on the unified-graph round)."""
+    src = (TOOLS / "trace_building_frontage.py").read_text()
+    code = [ln.split("#", 1)[0] for ln in src.splitlines()]
+    assert not any("reach_band_for" in ln for ln in code), (
+        "reach_band_for may appear in comments only — never imported or "
+        "called")
+    assert not any("_seed_elevations" in ln for ln in code), (
+        "seeding was only ever input plumbing for reach_band_for; its "
+        "return shape is the same private-contract hazard")
+    assert "band_of_record" in src
+    # Same round, third break: ``apt_taxi_centerlines`` holds
+    # ``TaxiCenterline`` objects (``.line``/``.name``/``.is_service``),
+    # not ``(line, name)`` tuples, and the service filter is the
+    # ``is_service`` flag — the SVC name-prefix test is retired.
+    assert ".is_service" in src
+    assert 'startswith("SVC")' not in src, (
+        "the SVC name-prefix service test is retired; filter on "
+        "TaxiCenterline.is_service, production's own predicate")
+
+
+def test_every_binding_route_key_this_tool_reads_is_produced(tbf, trr):
+    """CONTRACT PIN, producer side executed for real: the per-side route
+    record from ``_route_sides`` must carry every side key the tool reads
+    (``runway`` is stamped on afterwards by ``_binding_route`` itself —
+    pinned in source), and every top-level key must appear verbatim in
+    the producer's source.  A rename over there fails HERE."""
+    g = _G()
+    prov = {"anchor_value": {0: 5.0},
+            "ceiling": {0: (0, 0.0), 1: (0, 1.0), 2: (0, 2.0), 3: (0, 3.0)},
+            "floor": {0: (0, 0.0), 1: (0, 1.0), 2: (0, 2.0), 3: (0, 3.0)}}
+    side = trr._route_sides(g, prov, 3)["ceiling"]
+    produced = set(side) | {"runway"}
+    assert set(tbf.ROUTE_SIDE_KEYS) <= produced, (
+        f"tool reads {set(tbf.ROUTE_SIDE_KEYS) - produced} which "
+        f"_route_sides no longer produces")
+    src = (TOOLS / "trace_reach_route.py").read_text()
+    assert '"runway"' in src, "_binding_route must still stamp the runway"
+    for k in tbf.BINDING_ROUTE_KEYS:
+        assert f'"{k}"' in src, (
+            f"_binding_route's report no longer spells key {k!r}")

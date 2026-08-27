@@ -145,6 +145,7 @@ __all__ = [
     "AIRSIDE_NO_STEP",
     "AIRSIDE_NO_STEP_WINDOW_M",
     "AIRSIDE_NO_STEP_K",
+    "AIRSIDE_NO_STEP_RESEED",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9537,3 +9538,24 @@ AIRSIDE_NO_STEP_K = int(
 # preserves no node — byte-identical to the pre-ruling build.
 AIRSIDE_NO_STEP = (
     _os.environ.get("O4_AIRSIDE_NO_STEP", "1") != "0")
+
+# §1.4's TAUT RE-SEED inside the pass-2 membrane conform — RETIRED-KEPT-
+# GATED, DEFAULT OFF, awaiting a Fable ruling.
+#
+# Amendment 2 puts the §1.4 DEM demotion in pass 2, and the mechanism
+# that expresses it is re-seeding the membrane INTERIOR on the taut
+# scaffold of the pass-1 constants.  MEASURED at SPJC, with every other
+# pass-2 ingredient identical: with the re-seed reaching (170 interior
+# nodes, worst 3.97 m) the arm comes back at airside 1,920 —
+# ``within_shape`` 309, ``transverse`` 132, ``apron_lattice_membrane``
+# 168, and 594 no-step edges still over cap after the creation-order
+# repair; with it inert, airside 1,359 — ``within_shape`` 9,
+# ``transverse`` 40, 24 edges left.  Clamping the taut level into the
+# interval the node's own law edges admit did not change the reading.
+# The re-seed is therefore the measured offender, and shipping it
+# default-ON would trade a 561-row airside regression for a term whose
+# benefit this lane could not measure.  It is KEPT (deleting it would
+# hide the finding) and GATED: ``O4_AIRSIDE_NO_STEP_RESEED=1`` restores
+# it exactly, which is the arm a ruling would be made on.
+AIRSIDE_NO_STEP_RESEED = (
+    _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")

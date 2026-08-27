@@ -815,3 +815,42 @@ def test_the_carried_pairs_travel_as_GEOMETRY_not_indices():
     import inspect
     doc = inspect.getdoc(ANS._resolve_carried_pairs)
     assert "geometry, never an index" in doc
+
+
+def test_the_pass_2_reseed_is_gated_OFF_with_its_measurement():
+    """§1.4's taut re-seed is RETIRED-KEPT-GATED (default OFF) on this
+    lane's own measurement — the repo's retired-kept-gated idiom, so the
+    finding is not hidden and a ruling has an arm to be made on."""
+    import auto_patch.config as CFG
+    assert CFG.AIRSIDE_NO_STEP_RESEED is False
+    src = Path(CFG.__file__).read_text()
+    i = src.index("AIRSIDE_NO_STEP_RESEED = (")
+    note = src[max(0, i - 1800):i]
+    assert "O4_AIRSIDE_NO_STEP_RESEED=1" in note
+    assert "1,920" in note and "1,359" in note, (
+        "a gated-off mechanism must carry the measurement that gated it")
+
+
+def test_pass_2_reimposes_the_published_lattice_and_station_law():
+    """Spec Amendment 2 names them: *"the tier-4 nodes' own existing laws
+    (within-shape, lattice, station edges)"*.  Their entries are minted
+    inside the solve, so ``final_grade_projection``'s rebuilt constraint
+    set does NOT carry them — pass 2 resolves them from their own sidecar
+    publication, the same list the census prices."""
+    import inspect
+    src = inspect.getsource(ANS.membrane_conform)
+    assert "_apron_lattice_edges_ll" in src
+    doc = inspect.getdoc(ANS._resolve_published_ll_pairs)
+    assert "canonical registry" in doc
+
+
+def test_the_creation_order_repair_runs_after_the_conform():
+    """RULINGS 2026-08-21e: anything created later defers to what exists
+    before it.  The membrane is re-projected against its OWN laws alone
+    so the newer law can never break the older one."""
+    import inspect
+    src = inspect.getsource(ANS.membrane_conform)
+    i_conf = src.index("rem, both = feasibility_project(elev, entries, hard)")
+    i_rep = src.index("own_only = [e for e in entries")
+    assert i_conf < i_rep
+    assert 'e.get("ref") != PROVENANCE' in src

@@ -759,6 +759,74 @@ def _membrane_interior_nodes(layout, bucket_to_idx, n_nodes):
     return out
 
 
+def _resolve_published_ll_pairs(layout, bucket_to_idx, n_nodes, records):
+    """``[(i, j, budget), ...]`` for a sidecar-published law-edge list
+    (``{a: [lat, lon], b: [...], budget_m}``), re-resolved into THIS
+    pass's index space through the canonical registry.
+
+    The APRON LATTICE and the round-3 SPINE STATIONS publish their law
+    this way and their entries are minted inside ``solve_route_profile``
+    — ``final_grade_projection`` rebuilds ``shape_constraints`` from the
+    layout and therefore does NOT carry them.  Pass 2 must, because
+    Amendment 2 names them: "the tier-4 nodes' own existing laws
+    (within-shape, lattice, station edges)".  Measured on the arm that
+    omitted them: SPJC ``apron_lattice_membrane`` 25 -> 84 airside rows,
+    the membrane conforming at the cost of a budget nothing re-imposed.
+    """
+    cps = layout.canonical_points
+    out = []
+    for rec in (records or ()):
+        try:
+            a_ll, b_ll = rec["a"], rec["b"]
+            bud = float(rec["budget_m"])
+        except (KeyError, TypeError, ValueError):         # pragma: no cover
+            continue
+        try:
+            xa, ya = layout.ll_to_m(float(a_ll[0]), float(a_ll[1]))
+            xb, yb = layout.ll_to_m(float(b_ll[0]), float(b_ll[1]))
+        except Exception:                                 # pragma: no cover
+            return []
+        ia = bucket_to_idx.get(cps.get_or_add(float(xa), float(ya)))
+        ib = bucket_to_idx.get(cps.get_or_add(float(xb), float(yb)))
+        if (ia is None or ib is None or ia == ib
+                or not (0 <= ia < n_nodes) or not (0 <= ib < n_nodes)):
+            continue
+        out.append((int(ia), int(ib), bud))
+    return out
+
+
+def _own_law_band(elev, adjacency, nodes, n_nodes):
+    """``[(lo, hi) | None] * n`` — the interval each node's OWN law
+    edges admit from its neighbours' CURRENT (pass-1) values.
+
+    This is the engine's own neighbour cap slab, the one
+    ``one_profile_solve``'s sweep computes per node; it is written here
+    as a BAND so ``scaffold_seed`` can clamp into it with no second
+    notion of what the law permits."""
+    inf = float("inf")
+    band = [None] * n_nodes
+    for i in nodes:
+        lo, hi = -inf, inf
+        for (j, lim) in adjacency.get(i, ()):
+            if not (0 <= j < n_nodes) or lim is None:
+                continue
+            try:
+                zj = float(elev[j])
+                b = float(lim)
+            except (TypeError, ValueError):               # pragma: no cover
+                continue
+            if b < 0:                                     # pragma: no cover
+                continue
+            if zj - b > lo:
+                lo = zj - b
+            if zj + b < hi:
+                hi = zj + b
+        if lo <= hi and (lo > -inf or hi < inf):
+            band[i] = (lo if lo > -inf else float(elev[i]),
+                       hi if hi < inf else float(elev[i]))
+    return band
+
+
 def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
                      shape_constraints, icao="", crown_of=None):
     """PASS 2.  Mutates ``elev`` in place over the tier-4 membrane only;
@@ -776,7 +844,9 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
               "own_law_edges": 0, "reseeded": 0, "reseed_worst_m": 0.0,
               "moved": 0, "worst_move_m": 0.0, "over_cap_left": 0,
               "both_hard_left": 0, "tiers": {}, "crown_skipped": 0,
-              "interval_skipped": 0, "interior": 0}
+              "interval_skipped": 0, "interior": 0,
+              "own_law_over_cap_left": 0,
+              "membrane_published_edges": 0}
     if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
         return report
     carried, lost = _resolve_carried_pairs(layout, bucket_to_idx, n_nodes)
@@ -826,6 +896,18 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
                 continue
             if a in free or b in free:
                 own.append(tuple(e))
+    # …and the LATTICE / STATION law, which ``final_grade_projection``'s
+    # rebuilt constraint set does not carry (their entries are minted
+    # inside the solve).  Resolved from their own sidecar publication —
+    # the same list the census prices — so pass 2 re-imposes exactly the
+    # budget the solve built to.
+    lat_edges = _resolve_published_ll_pairs(
+        layout, bucket_to_idx, n_nodes,
+        getattr(layout, "_apron_lattice_edges_ll", None))
+    lat_edges = [(a, b, bud) for (a, b, bud) in lat_edges
+                 if a in free or b in free]
+    report["membrane_published_edges"] = len(lat_edges)
+    own = own + lat_edges
     report["own_law_edges"] = len(own)
     if not ns_edges and not own:
         return report
@@ -866,16 +948,48 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
     interior = free & _membrane_interior_nodes(layout, bucket_to_idx,
                                                n_nodes)
     report["interior"] = len(interior)
-    if anchors and interior:
+    if anchors and interior and getattr(_cfg, 'AIRSIDE_NO_STEP_RESEED',
+                                        False):
+        # …AND "SUBJECT TO LAW" IS §1.4's OWN SENTENCE.  The taut level
+        # is CLAMPED into the interval this node's own law edges already
+        # admit from its settled neighbours — the newest authority in the
+        # build yields to every older one (creation-order seniority,
+        # RULINGS 2026-08-21e), so the re-seed can never hand the repair
+        # below a surface it has to undo.  MEASURED on the unclamped arm:
+        # SPJC re-seeded 170 interior nodes by up to 3.97 m and the arm
+        # came back at airside 1,920 with ``within_shape`` 309 and 594
+        # edges still over cap after the repair, against 1,359 / 9 / 24
+        # when the re-seed could not reach.
+        band = _own_law_band(elev, adjacency, interior, n_nodes)
         rep = _sc.scaffold_seed_apron_interior(
             elev, adjacency=adjacency, anchor_values=anchors,
-            interior_nodes=interior, node_band=None)
+            interior_nodes=interior, node_band=band)
         report["reseeded"] = int(rep.get("seeded", 0))
         report["reseed_worst_m"] = float(rep.get("worst_move_m", 0.0))
     hard = {i for i in range(n_nodes) if i not in free}
     rem, both = feasibility_project(elev, entries, hard)
     report["over_cap_left"] = int(rem or 0)
     report["both_hard_left"] = int(both or 0)
+    # ── CREATION-ORDER SENIORITY, ENFORCED (owner ruling RULINGS
+    # 2026-08-21e: "anything created later defers to what exists before
+    # it") ─────────────────────────────────────────────────────────────
+    # Where the two laws CONFLICT — a membrane the no-step edges pull
+    # toward constants its own ring cap cannot reach — the projection
+    # above has no priority and splits the excess, breaking the OLDER
+    # law.  Measured on the arm without this repair: SPJC apron
+    # ``within_shape`` 8 -> 1,537 airside rows, 1,531 of them NEW
+    # ``apron|apron``, beside 1,869 no-step edges still over cap — i.e.
+    # it broke the pre-existing law AND did not satisfy the new one.
+    # So the membrane is re-projected against its OWN LAWS ALONE,
+    # starting from the conformed surface: the conform survives wherever
+    # it is compatible, and the older law is restored wherever it is
+    # not.  A no-step pair left over cap after this is the honest
+    # report-first residual the census prices — never a licence to break
+    # a law that predates it.
+    if own and ns_edges:
+        own_only = [e for e in entries if e.get("ref") != PROVENANCE]
+        rem2, both2 = feasibility_project(elev, own_only, hard)
+        report["own_law_over_cap_left"] = int(rem2 or 0)
     for i, v0 in before.items():
         d = abs(float(elev[i]) - v0)
         if d > 0.01:
@@ -892,11 +1006,14 @@ def format_conform_report(icao: str, r: dict) -> str:
             f"{t.get('airside', 0)} airside: tier1 {t.get('tier1', 0)} / "
             f"tier2 {t.get('tier2', 0)} / tier3 {t.get('tier3', 0)}); "
             f"{r['pairs']} imposed no-step pair(s) + {r['own_law_edges']} "
-            f"of the membrane's OWN law edge(s); {r['reseeded']} node(s) "
+            f"of the membrane's OWN law edge(s) "
+            f"({r.get('membrane_published_edges', 0)} of them the published "
+            f"lattice/station law); {r['reseeded']} node(s) "
             f"re-seeded on the taut scaffold (worst "
             f"{r['reseed_worst_m']:.2f} m over the {r.get('interior', 0)} "
             f"INTERIOR of them, spec §1.4); {r['moved']} node(s) "
             f"moved > 1 cm, worst {r['worst_move_m']:.2f} m; "
-            f"{r['over_cap_left']} edge(s) left over cap "
-            f"({r['both_hard_left']} both-hard); every non-tier-4 value is "
+            f"{r['over_cap_left']} edge(s) left over cap after the "
+            f"conform, {r.get('own_law_over_cap_left', 0)} after the "
+            f"creation-order repair (2026-08-21e); every non-tier-4 value is "
             f"pass 1's, untouched (spec Amendment 2)")

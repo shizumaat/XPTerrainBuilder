@@ -1,4 +1,51 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260826-basin (LEMD T4S basin round — region footprint + solid-
+#   witness floor law. Implemented on main, NOT committed; owner
+#   in-sim read pending.)
+# GROUND TRUTH: the pack's own mesh patch (Aerosoft LEMD - 2 - Mesh
+#   .../LEMD.patch.osm): T4S pit ring 87 verts 27,612 m2, rim flush at
+#   the pack's flat 594.625 datum, floor datum-18.0 (a ~10.9 m overcut;
+#   family's deepest genuine solid is -7.09). All pack placements are
+#   draped OBJECT on a flat TIN; T4S = 358 objects on ONE anchor.
+# RULINGS 2026-08-26 (docs/RULINGS.md, same-day canon): (1) floor keys
+#   on the thickness-gated deepest solid + restored tunnel margins,
+#   open pits included (supersedes Amendment 3 deck-face clause,
+#   retire-gated O4_BASIN_OPEN_PIT_DECK_KEY); (2) trench senior to
+#   pad/building authority inside the region (building8 docket
+#   RESOLVED — its footprint CONTAINS the whole pit); (3) cut shape
+#   derived region-level from object geometry (independent of the
+#   pool/structure partition), pack patches = validation only.
+# SPEC: docs/specs/basin-region-footprint-spec.md (incl. post-impl
+#   floor-prediction correction: lawful floor 587.75, not 584.44 —
+#   R_est moves with the full outline; invariant = clears seated
+#   solid bottom 588.95 by 1.20 m).
+# LANDED (Opus lane): below_grade_regions() in object_terrain_features
+#   (plane-clip below TRENCH_SPINE_MIN_DEPTH_M, MIN_SOLID_PART_
+#   THICKNESS_M decal gate, close 2 m), record extension in
+#   basin_trench_structures, grade_law margins restored, gates
+#   BASIN_REGION_FOOTPRINT (ON) / BASIN_OPEN_PIT_DECK_KEY (OFF),
+#   classification cache v22 + exclusion v8 (v21 could hold a
+#   poisoned empty-region sidecar), 28 new test cases. DEFECT FIXED
+#   EN ROUTE: shapely union_all TopologyException on a walls-only
+#   resource (0 m2 clip) was swallowed -> whole ring silently [] —
+#   now buffer(0) repair + loud one-at-a-time fallback.
+# ACCEPTANCE (one harness LEMD build, degraded-dem frame — road-feed
+#   sidecar STALE blocked a shared-repo write, corpus UNCHANGED,
+#   KCLT-precedent class; owner may --refresh-data osm_roadfeed):
+#   trench 27,346.5 m2 (99.0% of authored; was 11,845.6/36.5%),
+#   floor 587.75 law-true, bbox covers authored, building8 authority
+#   yield fires over the full ring; 1.8% emit shrink = the lawful
+#   0.6 m wall setback. Tests 650 pass / 1 PRE-EXISTING fail
+#   (test_harness near_miss_frontage SOFT_ROLES vs ROLE_SERVICE_
+#   JUNCTION — byte-identical at HEAD, likely the concurrent HECA
+#   lane's docket).
+# OPEN: founding basins from unmatched regions (no interface record);
+#   shared-anchor rigid group seating (relationship preservation)
+#   design; zero-area sliver reaching the NO-FLOOR-PLATE named line
+#   (cosmetic); road-feed refresh decision (owner).
+# ══════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════
 # 20260825c (THIRD SHIP: app 1.0.260, embedded==dist — the round-2
 # fixes from the owner's 1.0.259 sim read, all merged to main.)
 # IN 1.0.260 (on top of 20260825b): APRON ROUND 2 — interior LATTICE

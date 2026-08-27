@@ -3961,43 +3961,52 @@ def basin_trench_floor_elevation_m(
     the modelled bottom; the extra depth is under the object and
     invisible from above.
 
-    ── ``bore_class`` — THE MARGINS ARE A BORE'S, NOT A PIT'S ─────────
-    (owner Amendment 3, 2026-08-25: "a simple 7 m deep cutout for the
-    whole area should work without having to sever the buildings".)
+    ── THE MARGINS APPLY TO EVERY BASIN (owner 2026-08-26) ───────────
+    docs/RULINGS.md "LEMD T4S basin": "the floor keys on the facility's
+    deepest genuine solid, WITH THE TUNNEL MARGINS RESTORED, for open
+    pits as for bores."  ``bore_class`` therefore changes nothing under
+    the default law — both margins are subtracted either way.
 
     BOTH margins exist to clear a MODELLED SOLID the mesh would
     otherwise poke through: ``TUNNEL_FLOOR_BELOW_OBJECT_DECK_M`` drops
     the pan below the deck you pass UNDER, and
     ``TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M`` covers ``R_est``'s estimate
-    error against that same solid.  Where the floor key is the
-    structure's own deepest SOLID WITNESS that is exactly right — a
-    bore, an EGLL-class shell wall, every OTHH basin.
+    error against that same solid.
 
-    Where the key is the pooled solids' DECK-FACE MEDIAN, there is no
-    solid below it to clear: the deck face IS the pit bottom the pack
-    modelled, and the terrain belongs AT it.  Subtracting 1.5 m there
-    digs 1.5 m of invisible extra hole and moves the wall the owner
-    reads in-sim.  ``bore_class=False`` is that case, and the caller
-    that knows which key won is
-    ``object_terrain_assembly.basin_facility_deck_reference_y`` — the
-    ONE reader of the two instruments (this is why it returns its key
-    SOURCE, not just the value).
+    MEASURED BASIS for restoring them on open pits, against the pack's
+    own shipped mesh patch (LEMD T4S, 2026-08-26): Amendment 3's
+    zero-margin deck-face floor came out at 586.01 = R_est 593.03 −
+    7.016, which is 0.07 m ABOVE the family's deepest genuine solid
+    (−7.087) — the mesh pokes through the modelled walls — while the
+    pack cuts its own pit to 576.62, 10.9 m below its own deepest solid.
+    The loss is asymmetric: extra depth is occluded by the modelled
+    shell and costs nothing, shallowness is the visible poke-through.
+    So err deep.  Under the new law LEMD's floor is R_est 593.03 +
+    (−7.087) − 1.5 = 584.44, and the OTHH Drainage floors lawfully
+    deepen by the restored margins.
 
-    MEASURED: LEMD's facility keys on the deck face (its −50 m decal
-    witness is discarded by the §2.2 disagreement gate), so its floor
-    moves 584.50 → 586.01 = R_est 593.03 − 7.016.  Every OTHH basin
-    keys on its solid witness and is byte-identical.  The default is
-    ``True`` so a two-argument call — every validator and twin that
-    reproduces a BORE floor — is unchanged.
+    ── ``bore_class=False`` — RETIRED-KEPT-GATED ─────────────────────
+    Amendment 3 (2026-08-25) exempted an open pit from both margins, on
+    the reasoning that a hole with nothing over it has no solid below
+    its deck face to clear.  That arm now fires ONLY under
+    ``config.BASIN_OPEN_PIT_DECK_KEY`` (``O4_BASIN_OPEN_PIT_DECK_KEY=1``)
+    — the same gate that restores the deck-face KEY in
+    ``object_terrain_assembly.basin_facility_deck_reference_y``, because
+    the key and its margins are one law read twice.  The caller that
+    knows which key won is that function, the ONE reader of the two
+    instruments (this is why it returns its key SOURCE, not just the
+    value).  The default is ``True`` so a two-argument call — every
+    validator and twin that reproduces a floor — is unchanged.
     """
     from .config import (
+        BASIN_OPEN_PIT_DECK_KEY,
         TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M,
         TUNNEL_FLOOR_BELOW_OBJECT_DECK_M,
     )
     margins = (
         float(TUNNEL_FLOOR_BELOW_OBJECT_DECK_M)
         + float(TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
-    ) if bore_class else 0.0
+    ) if (bore_class or not BASIN_OPEN_PIT_DECK_KEY) else 0.0
     return (
         float(rim_estimate_elevation_m)
         + float(solid_minimum_y_m)

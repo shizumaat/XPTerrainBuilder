@@ -3568,3 +3568,11 @@ What this branch DOES carry, and what is deferred on it:
 * the open-cut region publisher, which has NO consumer on this branch —
   its twin asserts faithfulness and that the two regions stay two;
   DEFERRED: nothing measures it in a build, by construction.
+
+* `docs/specs/basin-region-footprint-spec.md` (basin region footprint +
+  solid-witness floor key, owner rulings 2026-08-26 "LEMD T4S basin") —
+  verified by the spec's six covering test files run once (648 passed) and
+  ONE LEMD acceptance build; DEFERRED to the ship gate: the full pytest
+  suite, and the basin rebuild checks for every OTHH/EGLL/LFPG basin whose
+  floor lawfully deepens by the restored tunnel margins and whose footprint
+  may widen to a derived below-grade region.

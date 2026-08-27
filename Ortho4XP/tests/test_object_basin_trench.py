@@ -23,6 +23,7 @@ the repository.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -297,12 +298,14 @@ class _FakeLayout:
 class _Classification:
     """Just enough of ``ClassificationResult`` for the emitter."""
 
-    def __init__(self, *, tunnels=(), ground_interfaces=()) -> None:
+    def __init__(self, *, tunnels=(), ground_interfaces=(),
+                 below_grade_regions=()) -> None:
         self.bridges: list = []
         self.tunnels = list(tunnels)
         self.ground_interfaces = list(ground_interfaces)
         self.exclusions: list = []
         self.refusals: list = []
+        self.below_grade_regions = list(below_grade_regions)
 
 
 def _interface(
@@ -357,16 +360,21 @@ def _basin_plates(layout, suffix):
     ]
 
 
-def _open_pit_floor(rim_estimate_m, body_depth_m):
-    """AMENDMENT 3 (owner 2026-08-25): an OPEN-PIT facility's floor is
-    the pooled solids' DECK-FACE MEDIAN with ZERO tunnel margins — the
-    two margins clear a deck you pass UNDER, and a hole with nothing of
-    the pack's own over it has no such deck.  Every fixture in this file
-    is an open pit (``BOWL_UNDER_DECK``, zero above-grade area), so this
-    is the law they are judged by; the BORE twins call the law function
-    directly with its default ``bore_class=True``."""
+def _open_pit_floor(rim_estimate_m, floor_key_depth_m):
+    """The OPEN-PIT floor, THROUGH THE ONE LAW FUNCTION — never a
+    hand-typed number (ruling R1; the census-wrapper defect in
+    miniature).
+
+    ``floor_key_depth_m`` is the facility's FLOOR KEY depth, positive
+    down, i.e. what ``assembly.basin_facility_deck_reference_y`` returns
+    negated.  Owner 2026-08-26 retired Amendment 3's zero-margin
+    deck-face clause: an open pit now keys on its deepest genuine solid
+    and takes BOTH tunnel margins, exactly like a bore, so this helper
+    calls the law with its default.  The Amendment-3 arithmetic is kept
+    behind ``O4_BASIN_OPEN_PIT_DECK_KEY`` and pinned in
+    ``TestBasinRegionFloorKey``."""
     return grade_law.basin_trench_floor_elevation_m(
-        rim_estimate_m, -abs(body_depth_m), bore_class=False)
+        rim_estimate_m, -abs(floor_key_depth_m))
 
 
 @pytest.fixture(autouse=True)
@@ -665,22 +673,25 @@ class TestBasinTrenchBirth:
             assert all(altitude == pytest.approx(8.0)
                        for altitude in plate.node_altitudes)
 
-    def test_an_open_pit_floor_sits_AT_the_modelled_basin_floor(self):
-        """AMENDMENT 3 (owner 2026-08-25), re-pinning the clearance rule
-        by CLASS.  The mesh must clear a deck you pass UNDER — that is
-        what the two margins are for, and a BORE still gets them (see
-        ``TestBasinFloorLaw``).  An OPEN pit has no such deck: its deck
-        face IS the bottom the pack modelled, and 1.5 m of extra invisible
-        hole only moves the wall the owner reads in-sim.  So the floor
-        sits AT the modelled bottom, never above it."""
+    def test_an_open_pit_floor_clears_the_modelled_basin_floor(self):
+        """OWNER 2026-08-26 (docs/RULINGS.md "LEMD T4S basin"), replacing
+        Amendment 3's by-class exemption: the mesh must clear the
+        modelled bottom for an OPEN PIT too, so both margins apply.  ERR
+        DEEP — extra depth is occluded by the modelled shell and free,
+        shallowness is the visible poke-through (LEMD's deck-face floor
+        sat 0.07 m ABOVE the family's deepest solid).  The property, not
+        a number: the plate is never above the object's own floor."""
         layout = _FakeLayout()
         self._emit(layout, [_interface(floor_y_m=-3.81)], datum_m=8.0)
         object_floor_world = 8.0 - 3.81
         plates = _basin_plates(layout, "trench")
         assert plates
         for plate in plates:
-            assert all(altitude == pytest.approx(object_floor_world)
-                       for altitude in plate.node_altitudes)
+            assert all(
+                altitude == pytest.approx(_open_pit_floor(8.0, 3.81))
+                and altitude <= object_floor_world
+                - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1e-9
+                for altitude in plate.node_altitudes)
 
     def test_plates_are_named_for_the_classifier_that_produced_them(self):
         layout = _FakeLayout()
@@ -1034,11 +1045,10 @@ class TestBasinFloorLaw:
         the deepest solid is -4.201 m.  Keying on the level spent 0.342 m
         of the promised 0.5 m clearance before the floor was even cut.
 
-        AMENDMENT 3 re-pins this BY CLASS: the deepest-solid key and both
-        margins are the BORE law — a deck you pass under — so they are
-        pinned here on the law function and on the key reader, which is
-        where they live.  An OPEN pit keys on its deck face instead (the
-        emitted twin below)."""
+        OWNER 2026-08-26 re-pins this for EVERY basin: the deepest-solid
+        key and both margins are now the law for open pits as for bores
+        (Amendment 3's deck-face clause is retired-kept-gated), so the
+        two readers below agree."""
         from auto_patch import object_terrain_assembly as _A
         record = assembly.basin_trench_structures(_Classification(
             ground_interfaces=[
@@ -1050,24 +1060,25 @@ class TestBasinFloorLaw:
                 8.0 - 4.201
                 - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
                 - config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
-        # ...and the OPEN-pit reader on the SAME record takes the deck
-        # face and no margins.
+        # ...and the OPEN-pit reader on the SAME record now takes the
+        # SAME path (the retired clause is pinned under its gate in
+        # ``TestBasinRegionFloorKey``).
         assert _A.basin_facility_deck_reference_y(
             record, open_pit=True) == (
-                pytest.approx(-3.859), None, _A.BASIN_FLOOR_KEY_DECK_FACE)
+                pytest.approx(-4.201), None,
+                _A.BASIN_FLOOR_KEY_SOLID_WITNESS)
 
-    def test_the_emitted_open_pit_floor_is_its_deck_face(self):
+    def test_the_emitted_open_pit_floor_keys_on_its_deepest_solid(self):
         """Every fixture here is an OPEN pit (BOWL_UNDER_DECK, zero
-        above-grade area) — the LEMD class exactly."""
+        above-grade area) — the LEMD class exactly — and under the
+        2026-08-26 law that keys on the deepest genuine solid (-4.201),
+        not on the deck face (-3.859)."""
         layout = _FakeLayout()
         _emit_basin(
             layout,
             [_interface(floor_y_m=-3.859, solid_minimum_y_m=-4.201)],
             _FakeDem(8.0))
-        # AMENDMENT 3: this fixture is an OPEN pit, so its key is the
-        # DECK FACE (-3.859) and it takes no margins.  The deepest-solid
-        # key is the BORE law and is pinned on the law function below.
-        expected = _open_pit_floor(8.0, 3.859)
+        expected = _open_pit_floor(8.0, 4.201)
         plates = _basin_plates(layout, "trench")
         assert plates
         for plate in plates:
@@ -1112,12 +1123,17 @@ class TestBasinFloorLaw:
             modelled_bottom_world
             - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + 1e-9)
 
-    def test_the_open_pit_limb_takes_NO_margins(self):
-        """AMENDMENT 3 item 1, on the law function itself."""
+    def test_the_open_pit_limb_takes_THE_MARGINS_TOO(self, monkeypatch):
+        """OWNER 2026-08-26 on the law function itself: ``bore_class``
+        no longer exempts anything by default — the Amendment-3
+        zero-margin arm fires only under its gate."""
         assert grade_law.basin_trench_floor_elevation_m(
-            593.0288, -7.0159, bore_class=False) == pytest.approx(586.0129)
+            593.0288, -7.0159, bore_class=False) == pytest.approx(584.5129)
         assert grade_law.basin_trench_floor_elevation_m(
             593.0288, -7.0159) == pytest.approx(584.5129)
+        monkeypatch.setattr(config, "BASIN_OPEN_PIT_DECK_KEY", True)
+        assert grade_law.basin_trench_floor_elevation_m(
+            593.0288, -7.0159, bore_class=False) == pytest.approx(586.0129)
 
     def test_the_bore_default_keeps_every_two_argument_caller(self):
         """``bore_class`` defaults True so every validator and twin that
@@ -2393,8 +2409,10 @@ class TestBasinFloorDisagreementGate:
         assert "BASIN FLOOR DISAGREEMENT" not in capsys.readouterr().out
         record = getattr(
             layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        # The agreeing witness (-4.201) is the key under the 2026-08-26
+        # law, deck face (-3.859) or not.
         assert record["floor_m"] == pytest.approx(
-            _open_pit_floor(8.0, 3.859))
+            _open_pit_floor(8.0, 4.201))
 
     def test_the_seating_predictor_reads_the_same_floor_key(self):
         """ONE implementation, both readers: the rim-flush seating
@@ -2698,3 +2716,403 @@ class TestBasinPadFloorSeating:
         floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
         assert floors == 0
         assert self._pads(layout)["building0"].basin_floor_seat_m is None
+
+
+# ---------------------------------------------------------------------------
+# THE BELOW-GRADE REGION (spec docs/specs/basin-region-footprint-spec.md,
+# owner rulings 2026-08-26 "LEMD T4S basin")
+# ---------------------------------------------------------------------------
+
+def _region_wall(x0, x1, z0, z1, floor_y):
+    """A below-grade WALL object of the T4S class: a floor slab at
+    ``floor_y`` with vertical walls rising to grade.  The slab carries
+    the horizontal footprint, the walls give the welded component its
+    vertical EXTENT — without them the slab is a flat quad and the
+    thickness gate would (correctly) read it as ground paint."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(x0, x1, z0, z1, floor_y)
+    builder.add_vertical_wall(x0, z0, z1, floor_y, 0.0)
+    builder.add_vertical_wall(x1, z0, z1, floor_y, 0.0)
+    return builder.build()
+
+
+def _region_buried_box(x0, x1, z0, z1, y0, y1):
+    """A fully-buried box — the ``LEMD_OBJ-Ground-FSX-LEMD36.obj`` class,
+    the ONE member of the real T4S family that escapes the mega-pool."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(x0, x1, z0, z1, y0)
+    builder.add_horizontal_rectangle(x0, x1, z0, z1, y1)
+    builder.add_vertical_wall(x0, z0, z1, y0, y1)
+    builder.add_vertical_wall(x1, z0, z1, y0, y1)
+    return builder.build()
+
+
+def _region_decal(half_span_m, y):
+    """A 0-thickness quad — the ``AESlite-LEMD-VOR-15-T4S-*.obj`` class,
+    1.4 km on a side at −50 m.  Without the thickness gate it takes the
+    LEMD union to 2.08 M m²."""
+    builder = _GeometryBuilder()
+    builder.add_horizontal_rectangle(
+        -half_span_m, half_span_m, -half_span_m, half_span_m, y)
+    return builder.build()
+
+
+#: The T4S pattern in miniature: two below-grade walls tiling a KNOWN
+#: 60 x 60 m rectangle, one fully-buried box inside it, an at-grade hall
+#: over it, and a huge 0-thickness decal at −50 m.  Every object shares
+#: one placement anchor, exactly like the real 358-object family.
+_T4S_KNOWN_RECTANGLE_AREA_M2 = 60.0 * 60.0
+
+
+def _t4s_pattern():
+    return {
+        "T4S/wall_west.obj": _region_wall(-30.0, 0.0, -30.0, 30.0, -7.0),
+        "T4S/wall_east.obj": _region_wall(0.0, 30.0, -30.0, 30.0, -7.0),
+        "T4S/buried_cutout.obj": _region_buried_box(
+            -10.0, 10.0, -10.0, 10.0, -6.0, -3.0),
+        "T4S/hall.obj": _at_grade_building_geometry(),
+        "T4S/vor_decal.obj": _region_decal(200.0, -50.0),
+    }
+
+
+def _t4s_regions(geometry=None):
+    geometry = _t4s_pattern() if geometry is None else geometry
+    placements = [_placement(resource) for resource in geometry]
+    return otf.below_grade_regions(placements, geometry)
+
+
+class TestBelowGradeRegionRecipe:
+    """Spec §2.1 / §3 test 1.  THE CUT SHAPE IS DERIVED FROM THE OBJECTS
+    THEMSELVES, region-level and pool-independent — the instrument that
+    sees LEMD's four below-grade shells inside a FLAT_CONFIRMED
+    358-object mega-pool."""
+
+    def test_the_region_is_the_known_rectangle(self):
+        regions = _t4s_regions()
+        assert len(regions) == 1, [r.polygon.area for r in regions]
+        assert regions[0].polygon.area == pytest.approx(
+            _T4S_KNOWN_RECTANGLE_AREA_M2, rel=0.02)
+
+    def test_the_decal_contributes_nothing(self):
+        """The gate is ``config.MIN_SOLID_PART_THICKNESS_M`` — ONE
+        notion, shared with the floor witness and the pit seed set.
+        Without it the region would be the decal's 160,000 m²."""
+        regions = _t4s_regions()
+        assert regions[0].polygon.area < 160000.0
+        assert "T4S/vor_decal.obj" not in regions[0].object_resources
+        # ...and the decal is excluded because it is THIN, not because it
+        # is deep: give it thickness and it joins.
+        with_thickness = dict(_t4s_pattern())
+        with_thickness["T4S/vor_decal.obj"] = _region_buried_box(
+            -200.0, 200.0, -200.0, 200.0, -50.0, -40.0)
+        thick_regions = _t4s_regions(with_thickness)
+        assert thick_regions[0].polygon.area > 100000.0
+
+    def test_the_region_carries_the_deepest_gated_solid(self):
+        regions = _t4s_regions()
+        assert regions[0].solid_minimum_y_m == pytest.approx(-7.0)
+
+    def test_the_at_grade_hall_contributes_nothing(self):
+        regions = _t4s_regions()
+        assert "T4S/hall.obj" not in regions[0].object_resources
+
+    def test_a_wall_only_member_cannot_kill_the_region(self):
+        """REGRESSION (measured at LEMD 2026-08-26).  A resource of pure
+        VERTICAL faces clips to polygons with no horizontal extent (0 m²).
+        Unioned beside the real rings those made ``shapely.union_all``
+        raise ``TopologyException: side location conflict``, the
+        derivation caught it, and the WHOLE 27,857 m² T4S ring came back
+        as "no regions" — in silence.  A zero-area member contributes
+        nothing by construction, so the region must be unchanged."""
+        geometry = dict(_t4s_pattern())
+        walls = _GeometryBuilder()
+        for x in (-30.0, -15.0, 0.0, 15.0, 30.0):
+            walls.add_vertical_wall(x, -30.0, 30.0, -7.0, 0.0)
+        geometry["T4S/wall_only.obj"] = walls.build()
+        regions = _t4s_regions(geometry)
+        assert len(regions) == 1, "a 0 m² member erased the region"
+        assert regions[0].polygon.area == pytest.approx(
+            _T4S_KNOWN_RECTANGLE_AREA_M2, rel=0.02)
+        assert "T4S/wall_only.obj" not in regions[0].object_resources
+
+    def test_the_union_helper_repairs_rather_than_returning_nothing(self):
+        """The helper itself: an invalid bow-tie and a zero-area sliver
+        beside a real square still union to the square."""
+        from shapely.geometry import Polygon as _P
+        square = _P([(0, 0), (10, 0), (10, 10), (0, 10)])
+        bowtie = _P([(20, 0), (30, 10), (30, 0), (20, 10)])
+        sliver = _P([(0, 0), (10, 0), (0, 0)])
+        union = otf._union_all_repairing([square, bowtie, sliver])
+        assert union is not None and union.is_valid
+        assert union.area >= square.area
+        assert otf._repaired_area_polygon(sliver) is None
+        assert otf._union_all_repairing([]) is None
+
+    def test_a_region_under_the_area_floor_is_dropped(self):
+        """``TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2`` (1,000 m²) — scattered
+        below-grade pockets are not a region."""
+        geometry = {"T4S/pocket.obj": _region_wall(
+            -10.0, 10.0, -10.0, 10.0, -7.0)}
+        assert otf.below_grade_regions(
+            [_placement("T4S/pocket.obj")], geometry) == []
+
+    def test_a_pack_with_nothing_below_grade_derives_nothing(self):
+        geometry = {"T4S/hall.obj": _at_grade_building_geometry()}
+        assert otf.below_grade_regions(
+            [_placement("T4S/hall.obj")], geometry) == []
+
+    def test_the_classifier_carries_the_regions(self):
+        """END TO END: the field is on ``ClassificationResult`` and the
+        classifier fills it under the basin gate."""
+        result = _classify(_t4s_pattern())
+        assert len(result.below_grade_regions) == 1
+        assert result.below_grade_regions[0].polygon.area == pytest.approx(
+            _T4S_KNOWN_RECTANGLE_AREA_M2, rel=0.02)
+
+    def test_an_old_result_reads_back_as_no_regions(self):
+        """The field is DEFAULTED, so a hand-built or pre-version-21
+        pickled result cannot raise — the cache VERSION is what retires a
+        stale sidecar."""
+        assert otf.ClassificationResult(
+            tunnels=[], bridges=[]).below_grade_regions == []
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 21
+
+
+class TestBelowGradeRegionTriangleClip:
+    """Spec §2.1 / §3 test 2.  TRIANGLES ARE CLIPPED, NEVER KEPT WHOLE:
+    a long ramp panel must contribute only its below-threshold portion."""
+
+    #: +1 m at x = −50 falling to −6 m at x = +50, 60 m wide.  It crosses
+    #: −TRENCH_SPINE_MIN_DEPTH_M (−2.5) at exactly x = 0, so half of its
+    #: 6,000 m² projection is below the plane.
+    FULL_PROJECTION_M2 = 100.0 * 60.0
+    BELOW_PORTION_M2 = 50.0 * 60.0
+
+    def _ramp(self):
+        builder = _GeometryBuilder()
+        builder.add_sloped_rectangle(-50.0, 50.0, -30.0, 30.0, 1.0, -6.0)
+        return {"T4S/ramp.obj": builder.build()}
+
+    def test_only_the_below_threshold_portion_contributes(self):
+        regions = otf.below_grade_regions(
+            [_placement("T4S/ramp.obj")], self._ramp())
+        assert len(regions) == 1
+        assert regions[0].polygon.area == pytest.approx(
+            self.BELOW_PORTION_M2, rel=0.02)
+        assert regions[0].polygon.area < 0.75 * self.FULL_PROJECTION_M2
+
+    def test_the_clip_crossing_point_is_the_law_threshold(self):
+        """The crossing is at −``TRENCH_SPINE_MIN_DEPTH_M``, the constant
+        the spec reuses — never a private number."""
+        assert otf.TRENCH_SPINE_MIN_DEPTH_M == pytest.approx(2.5)
+        minimum_x = otf.below_grade_regions(
+            [_placement("T4S/ramp.obj")], self._ramp()
+        )[0].polygon.bounds[0]
+        # x = 0 is where the panel reaches −2.5; the morphological close
+        # can only round the corner outward by AT_GRADE_FOOTPRINT_CLOSE_M.
+        assert minimum_x == pytest.approx(
+            0.0, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+
+    def test_the_clip_primitive_returns_the_sub_polygon(self):
+        """The primitive itself: one corner above the plane leaves a
+        4-point ring, never the whole triangle."""
+        ring = otf._clip_triangle_below_plane(
+            ((0.0, 1.0, 0.0), (10.0, -6.0, 0.0), (10.0, -6.0, 10.0)), -2.5)
+        assert ring is not None and len(ring) == 4
+        assert all(x >= 5.0 - 1e-9 for x, _z in ring)
+        assert otf._clip_triangle_below_plane(
+            ((0.0, 1.0, 0.0), (10.0, 2.0, 0.0), (10.0, 3.0, 10.0)),
+            -2.5) is None
+
+
+def _region_at(polygon, *, solid_minimum_y_m=-7.087):
+    return otf.BelowGradeRegion(
+        polygon=polygon,
+        frame_origin_longitude_latitude=(ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+        solid_minimum_y_m=solid_minimum_y_m,
+        object_resources=("T4S/wall_west.obj",),
+    )
+
+
+class TestBasinRecordRegionExtension:
+    """Spec §2.2 / §3 test 3.  The record's FOOTPRINT is widened to the
+    region; nothing else about the record moves."""
+
+    #: The interface's own below-grade footprint (``_interface``'s
+    #: default): 50 x 50 m about the anchor.
+    RECORD_FOOTPRINT = Polygon([(-25, -25), (25, -25), (25, 25), (-25, 25)])
+    #: A region CONTAINING it, the LEMD relation exactly (the record's
+    #: 12,434 m² member inside the 27,612 m² authored ring).
+    OVERLAPPING_REGION = Polygon(
+        [(-60, -60), (60, -60), (60, 60), (-60, 60)])
+    #: 400 m away — a region no basin record reaches.
+    DISJOINT_REGION = Polygon(
+        [(400, -60), (520, -60), (520, 60), (400, 60)])
+
+    def _records(self, regions, **interface_kwargs):
+        return assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[_interface(**interface_kwargs)],
+            below_grade_regions=regions))
+
+    def test_the_footprint_becomes_the_union(self):
+        record = self._records([_region_at(self.OVERLAPPING_REGION)])[0]
+        assert record.deck_footprint.area == pytest.approx(
+            self.OVERLAPPING_REGION.area, rel=1e-6)
+        assert record.solid_outline_footprint.area == pytest.approx(
+            self.OVERLAPPING_REGION.area, rel=1e-6)
+
+    def test_the_solid_minimum_takes_the_deeper_reading(self):
+        record = self._records(
+            [_region_at(self.OVERLAPPING_REGION, solid_minimum_y_m=-7.087)],
+            floor_y_m=-4.0, solid_minimum_y_m=-4.2)[0]
+        assert record.solid_minimum_y_m == pytest.approx(-7.087)
+        # ...and never the SHALLOWER one.
+        shallow = self._records(
+            [_region_at(self.OVERLAPPING_REGION, solid_minimum_y_m=-3.0)],
+            floor_y_m=-4.0, solid_minimum_y_m=-4.2)[0]
+        assert shallow.solid_minimum_y_m == pytest.approx(-4.2)
+
+    def test_membership_and_the_depth_bound_are_untouched(self):
+        """Spec §2.2, explicit scope: ``object_resources`` drives the R4
+        exclusions and the rim-flush grouping, and widening it is a
+        separate docket."""
+        plain = self._records([])[0]
+        extended = self._records([_region_at(self.OVERLAPPING_REGION)])[0]
+        assert extended.object_resources == plain.object_resources
+        assert extended.cuts_pavement == plain.cuts_pavement
+        assert extended.anchor_longitude_latitude == \
+            plain.anchor_longitude_latitude
+        assert extended.body_depth_m == pytest.approx(plain.body_depth_m)
+
+    def test_a_disjoint_region_extends_nothing_and_is_REPORTED(self, capsys):
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        record = self._records([_region_at(self.DISJOINT_REGION)])[0]
+        assert record.deck_footprint.area == pytest.approx(
+            self.RECORD_FOOTPRINT.area, rel=1e-6)
+        out = capsys.readouterr().out
+        assert "UNMATCHED BELOW-GRADE REGION" in out, \
+            "an unfounded region was passed over SILENTLY"
+
+    def test_the_seating_predictor_sees_the_SAME_widened_body(self):
+        """ONE producer, both consumers: the emitter and the rim-flush
+        seating predictor read ``basin_trench_structures``, so they
+        cannot disagree about where the body is."""
+        classification = _Classification(
+            ground_interfaces=[_interface()],
+            below_grade_regions=[_region_at(self.OVERLAPPING_REGION)])
+        facility = assembly.basin_rim_flush_facilities(classification)[0]
+        ring = facility.body_rings_longitude_latitude[0]
+        longitudes = [point[0] for point in ring]
+        east_metres = max(
+            abs(longitude - ANCHOR_LONGITUDE) for longitude in longitudes
+        ) * 111120.0 * math.cos(math.radians(ANCHOR_LATITUDE))
+        assert east_metres > 50.0, "the facility kept the narrow body"
+
+
+class TestBasinRegionFloorKey:
+    """Spec §2.3 / §3 test 4.  Owner 2026-08-26: the floor keys on the
+    facility's deepest genuine solid WITH the tunnel margins restored,
+    for open pits as for bores.  Both arms asserted through the ONE law
+    function — never a hand-typed constant (ruling R1)."""
+
+    #: LEMD, measured 2026-08-26: R_est, the family's deepest genuine
+    #: solid, and Amendment 3's deck-face body depth.
+    REST_M = 593.0288
+    SOLID_WITNESS_Y = -7.087
+    DECK_FACE_Y = -7.0159
+
+    def test_the_open_pit_floor_is_r_est_plus_solid_min_less_the_margins(
+            self):
+        expected = (
+            self.REST_M + self.SOLID_WITNESS_Y
+            - config.TUNNEL_FLOOR_BELOW_OBJECT_DECK_M
+            - config.TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M)
+        assert grade_law.basin_trench_floor_elevation_m(
+            self.REST_M, self.SOLID_WITNESS_Y,
+            bore_class=False) == pytest.approx(expected)
+        assert grade_law.basin_trench_floor_elevation_m(
+            self.REST_M, self.SOLID_WITNESS_Y) == pytest.approx(expected)
+
+    def test_the_key_reader_takes_the_solid_witness_for_an_open_pit(self):
+        record = assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[_interface(
+                floor_y_m=self.DECK_FACE_Y,
+                solid_minimum_y_m=self.SOLID_WITNESS_Y)]))[0]
+        assert assembly.basin_facility_deck_reference_y(
+            record, open_pit=True) == (
+                pytest.approx(self.SOLID_WITNESS_Y), None,
+                assembly.BASIN_FLOOR_KEY_SOLID_WITNESS)
+
+    def test_the_gate_reproduces_the_amendment_3_value(self, monkeypatch):
+        """RETIRED, KEPT, GATED (the keep-work rule):
+        ``O4_BASIN_OPEN_PIT_DECK_KEY=1`` restores the deck-face key AND
+        its zero margins — they are one law read twice, so one gate."""
+        assert config.BASIN_OPEN_PIT_DECK_KEY is False
+        monkeypatch.setattr(config, "BASIN_OPEN_PIT_DECK_KEY", True)
+        record = assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[_interface(
+                floor_y_m=self.DECK_FACE_Y,
+                solid_minimum_y_m=self.SOLID_WITNESS_Y)]))[0]
+        deck_reference_y, _discarded, key_source = (
+            assembly.basin_facility_deck_reference_y(record, open_pit=True))
+        assert deck_reference_y == pytest.approx(self.DECK_FACE_Y)
+        assert key_source == assembly.BASIN_FLOOR_KEY_DECK_FACE
+        assert grade_law.basin_trench_floor_elevation_m(
+            self.REST_M, deck_reference_y,
+            bore_class=False) == pytest.approx(
+                self.REST_M + self.DECK_FACE_Y)
+
+    def test_the_disagreement_gate_is_unchanged(self):
+        """Spec §2.3: the §2.2 gate stays — an absurd witness that
+        survives the thickness gate is still discarded."""
+        record = _tunnel_record(body_depth_m=7.016)
+        object.__setattr__(record, "solid_minimum_y_m", -50.0)
+        assert assembly.basin_facility_deck_reference_y(
+            record, open_pit=True)[0] == pytest.approx(-7.016)
+
+
+class TestBasinRegionFootprintGate:
+    """Spec §2.4 / §3 test 5.  ``O4_BASIN_REGION_FOOTPRINT=0`` → the
+    records are what they were before this round, object for object."""
+
+    def _records(self, regions):
+        return assembly.basin_trench_structures(_Classification(
+            ground_interfaces=[_interface()], below_grade_regions=regions))
+
+    def test_the_gate_defaults_on(self):
+        assert config.BASIN_REGION_FOOTPRINT is True
+
+    def test_gate_off_leaves_the_footprint_byte_identical(self, monkeypatch):
+        region = _region_at(
+            TestBasinRecordRegionExtension.OVERLAPPING_REGION)
+        control = self._records([])[0]
+        monkeypatch.setattr(config, "BASIN_REGION_FOOTPRINT", False)
+        gated = self._records([region])[0]
+        assert gated.deck_footprint.equals(control.deck_footprint)
+        assert gated.solid_outline_footprint.equals(
+            control.solid_outline_footprint)
+        assert gated.solid_minimum_y_m == control.solid_minimum_y_m
+
+    def test_gate_off_derives_no_region_at_all(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_REGION_FOOTPRINT", False)
+        assert _classify(_t4s_pattern()).below_grade_regions == []
+
+    def test_the_gate_salts_the_classification_sidecar(
+            self, tmp_path, monkeypatch):
+        """A gate flip must MISS the cache — the classification it
+        changes is the cut shape itself."""
+        dsf_path = tmp_path / "+40-004.dsf"
+        dsf_path.write_text("x")
+        pack_root = tmp_path / "pack"
+        pack_root.mkdir()
+        monkeypatch.setattr(
+            assembly.dsf_reader, "airport_mod_cache_dir",
+            lambda root: str(tmp_path))
+        monkeypatch.setattr(config, "BASIN_REGION_FOOTPRINT", True)
+        _path, on_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        monkeypatch.setattr(config, "BASIN_REGION_FOOTPRINT", False)
+        _path, off_digest = assembly._classification_sidecar(
+            str(dsf_path), str(pack_root), None)
+        assert on_digest and off_digest and on_digest != off_digest

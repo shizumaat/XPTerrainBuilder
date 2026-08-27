@@ -502,7 +502,28 @@ def _discover_sibling_road_networks(
 # result still carries −50.0 m from two 4-vertex VOR ground decals and
 # still cuts the basin 51.5 m below its own rim.  The version is what
 # retires it.
-_CLASSIFICATION_CACHE_VERSION = 20
+# 20 -> 21: ``ClassificationResult`` grew ``below_grade_regions`` (spec
+# docs/specs/basin-region-footprint-spec.md §2.1, owner ruling
+# 2026-08-26).  The version-14 situation exactly: a v20 pickle restores
+# a frozen dataclass from its recorded ``__dict__``, which has no such
+# key, so the result reads back with the CLASS DEFAULT ``[]`` — the
+# basin records would then keep their pool-derived footprints and LEMD
+# would go on cutting 36.5 % of its own authored pit on a warm cache,
+# with nothing in the log to say why.  Adding a field to a PICKLED
+# record is a cache-version event; nothing else in the fingerprint can
+# see it.
+# 21 -> 22: the region UNION was repaired (``object_terrain_features.
+# _union_all_repairing`` / ``_repaired_area_polygon``).  The version-19
+# situation, and the sharpest instance of it yet: a v21 result has the
+# ``below_grade_regions`` FIELD and it reads back EMPTY, because
+# ``shapely.union_all`` raised ``TopologyException: side location
+# conflict`` on a set containing one zero-area wall-only member and the
+# derivation caught it into "no regions" (measured at LEMD 2026-08-26 —
+# the whole 27,857 m² T4S ring vanished, and a v21 sidecar reproduces
+# that on every warm build).  The value LOOKS valid and the fingerprint
+# covers the PACK, not the classifier's arithmetic, so the version is
+# what retires it.
+_CLASSIFICATION_CACHE_VERSION = 22
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -594,6 +615,12 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # (LEMD: a 2,078,883 m² basin against a 12,251 m² one).
         digest.update(
             f"basin-pool-scoping:{config.BASIN_POOL_SCOPING}".encode()
+        )
+        # ...and the region-footprint gate: it decides whether the
+        # classification carries below-grade REGIONS at all, which is
+        # the cut shape itself (spec basin-region-footprint §2.1).
+        digest.update(
+            f"basin-region-footprint:{config.BASIN_REGION_FOOTPRINT}".encode()
         )
         dsf_stat = os.stat(dsf_path)
         digest.update(
@@ -903,7 +930,14 @@ def _raw_route_lines_layout_meters(layout) -> list:
 # pair at all.  A v6 entry hands the seat the mega-rect chord (175 m,
 # canal-parallel at OTHH), which is the instrument this amendment
 # retires; read warm it would silently restore it.
-_EXCLUSION_CACHE_VERSION = 7
+# v8 (2026-08-26, spec basin-region-footprint): the basin rim-flush
+# FACILITY records carry ``solid_minimum_y_m`` = the emitter's floor key,
+# and both the key (open pits now key on the deepest genuine solid) and
+# the body outline (widened to the below-grade region) changed under the
+# owner's LEMD T4S rulings.  A v7 entry seats every basin object against
+# the retired Amendment-3 floor over the pool-derived outline — read warm
+# it would silently reinstate exactly what this round retires.
+_EXCLUSION_CACHE_VERSION = 8
 
 
 def _cached_post_mesh_records(
@@ -951,6 +985,11 @@ def _cached_post_mesh_records(
                 # Bridge-terrain gate (R6-3): decides whether the
                 # abutment-seat candidate list is populated at all.
                 config.OBJECT_BRIDGE_TERRAIN,
+                # The two LEMD T4S gates (2026-08-26): the first decides
+                # the basin BODY OUTLINE the facilities carry, the
+                # second its FLOOR KEY — both are in the payload.
+                config.BASIN_REGION_FOOTPRINT,
+                config.BASIN_OPEN_PIT_DECK_KEY,
             )
         ).encode()
     )
@@ -1746,7 +1785,150 @@ def basin_trench_structures(classification) -> list:
                         interface)),
             )
         )
-    return structures
+    return _extend_records_with_below_grade_regions(structures,
+                                                    classification)
+
+
+def _region_polygon_in_frame(region, frame_origin_longitude_latitude):
+    """One :class:`object_terrain_features.BelowGradeRegion` ring in
+    another record's metre frame.
+
+    THE ONE PROJECTION PATH.  The ring goes region frame →
+    longitude/latitude through
+    ``object_terrain_features.frame_polygon_to_longitude_latitude`` — the
+    same converter ``_tunnel_footprint_longitude_latitude_parts`` uses —
+    and then into the record's frame through
+    ``obj8_reader.lonlat_to_local_offset``, that converter's documented
+    inverse.  A hand-rolled frame-to-frame translation here would be a
+    second projection of the same body, which is exactly what the
+    body-outline reader's docstring forbids.
+    """
+    from shapely.geometry import Polygon
+
+    longitude_latitude = (
+        object_terrain_features.frame_polygon_to_longitude_latitude(
+            region.polygon, region.frame_origin_longitude_latitude))
+    origin_longitude, origin_latitude = frame_origin_longitude_latitude
+    ring = [
+        obj8_reader.lonlat_to_local_offset(
+            origin_latitude, origin_longitude, 0.0, latitude, longitude)
+        for longitude, latitude in longitude_latitude.exterior.coords
+    ]
+    if len(ring) < 3:
+        return None
+    polygon = Polygon(ring)
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    if polygon.is_empty or polygon.geom_type not in (
+            "Polygon", "MultiPolygon"):
+        return None
+    return polygon
+
+
+def _extend_records_with_below_grade_regions(structures, classification):
+    """Widen each basin record's FOOTPRINT to the below-grade region it
+    sits in (spec ``docs/specs/basin-region-footprint-spec.md`` §2.2;
+    owner ruling 2026-08-26).
+
+    ``deck_footprint`` and ``solid_outline_footprint`` become (region ∪
+    the record's own footprint) and ``solid_minimum_y_m`` becomes the
+    deeper of the two readings.  EVERYTHING ELSE IS UNTOUCHED —
+    ``object_resources``, ``cuts_pavement``, the anchor, the depth bound.
+    Membership drives the ruling-R4 exclusions and the rim-flush seating
+    grouping, and widening it is a separate docket (spec §5).
+
+    WHY HERE.  :func:`basin_trench_structures` is the ONE producer both
+    :func:`build_tunnel_layout_shapes` and
+    :func:`basin_rim_flush_facilities` group from, so extending at this
+    single point keeps the emitted trench and the seated object in
+    lockstep BY CONSTRUCTION — they cannot disagree about where the body
+    is because there is only one body.
+
+    A region matching NO record is NOT founded as a basin this round
+    (there is no interface record to found one from): it is reported
+    loudly with its area and centroid and left alone — founding is the
+    follow-up docket in spec §5.
+    """
+    regions = getattr(classification, "below_grade_regions", None) or []
+    if not regions or not config.BASIN_REGION_FOOTPRINT:
+        return structures
+    from shapely.ops import unary_union
+
+    matched_regions: set[int] = set()
+    extended = []
+    for record in structures:
+        footprint = record.deck_footprint
+        if footprint is None or footprint.is_empty:
+            extended.append(record)
+            continue
+        region_parts = []
+        region_minimum_y = None
+        for index, region in enumerate(regions):
+            in_frame = _region_polygon_in_frame(
+                region, record.frame_origin_longitude_latitude)
+            if in_frame is None:
+                continue
+            try:
+                if not in_frame.intersects(footprint):
+                    continue
+            except Exception:
+                continue
+            matched_regions.add(index)
+            region_parts.append(in_frame)
+            region_minimum_y = (
+                float(region.solid_minimum_y_m) if region_minimum_y is None
+                else min(region_minimum_y,
+                         float(region.solid_minimum_y_m)))
+        if not region_parts:
+            extended.append(record)
+            continue
+        try:
+            widened = unary_union(region_parts + [footprint])
+        except Exception:
+            extended.append(record)
+            continue
+        if widened.is_empty:
+            extended.append(record)
+            continue
+        solid_minimum_y = record.solid_minimum_y_m
+        if solid_minimum_y is None or solid_minimum_y != solid_minimum_y:
+            solid_minimum_y = region_minimum_y
+        elif region_minimum_y is not None:
+            solid_minimum_y = min(float(solid_minimum_y), region_minimum_y)
+        UI.vprint(
+            1,
+            "   [object-basin] REGION FOOTPRINT: "
+            f"{[r.split('/')[-1] for r in record.object_resources]} "
+            f"{footprint.area:,.0f} m2 -> {widened.area:,.0f} m2 "
+            f"(the below-grade region the pack's own objects describe); "
+            f"deepest solid {record.solid_minimum_y_m} -> "
+            f"{solid_minimum_y}",
+        )
+        extended.append(_dataclass_replace(
+            record,
+            deck_footprint=widened,
+            solid_outline_footprint=widened,
+            solid_minimum_y_m=solid_minimum_y,
+        ))
+    for index, region in enumerate(regions):
+        if index in matched_regions:
+            continue
+        centroid = region.polygon.centroid
+        origin_longitude, origin_latitude = (
+            region.frame_origin_longitude_latitude)
+        latitude, longitude = obj8_reader.local_offset_to_lonlat(
+            origin_latitude, origin_longitude, 0.0, centroid.x, centroid.y)
+        UI.vprint(
+            1,
+            "   [object-basin] UNMATCHED BELOW-GRADE REGION: "
+            f"{region.polygon.area:,.0f} m2 at "
+            f"{latitude:.7f},{longitude:.7f} (deepest solid "
+            f"{region.solid_minimum_y_m:.3f} m, "
+            f"{[r.split('/')[-1] for r in region.object_resources][:6]}) "
+            "intersects NO basin record — no basin is founded from it "
+            "this round (spec basin-region-footprint §2.2/§5)",
+        )
+    return extended
 
 
 #: Decision kind recorded in the rebake provenance for a basin facility
@@ -1838,17 +2020,31 @@ def basin_facility_deck_reference_y(
 
     Returns ``(deck_reference_y, discarded_solid_minimum_y, key_source)``,
     ``key_source`` one of :data:`BASIN_FLOOR_KEY_SOLID_WITNESS` /
-    :data:`BASIN_FLOOR_KEY_DECK_FACE`.  The source is returned because it
-    is a LAW INPUT (owner Amendment 3): the trench law's two margins
-    exist to clear a modelled SOLID, so a key that IS a solid witness
-    keeps them and a key that is the pooled solids' DECK-FACE MEDIAN —
-    the pit bottom the pack modelled, with nothing below it to clear —
-    takes none.  Deriving that a second time at the call site would be
-    the census-wrapper defect in miniature.  The floor
-    key is the deeper of the modelled body depth and the structure's TRUE
-    deepest solid — the reading the trench law has always taken — EXCEPT
-    where the two disagree by more than
-    :data:`config.BASIN_FLOOR_DISAGREEMENT_M`.
+    :data:`BASIN_FLOOR_KEY_DECK_FACE`.  The floor key is the deeper of
+    the modelled body depth and the structure's TRUE deepest solid — the
+    reading the trench law has always taken — EXCEPT where the two
+    disagree by more than :data:`config.BASIN_FLOOR_DISAGREEMENT_M`.
+
+    ── THE LAW (owner 2026-08-26, docs/RULINGS.md "LEMD T4S basin") ───
+    "A PACK'S AUTHORED PIT DEPTH IS NEVER THE FLOOR KEY; THE FLOOR KEYS
+    ON THE FACILITY'S DEEPEST GENUINE SOLID, WITH THE TUNNEL MARGINS
+    RESTORED — for open pits as for bores."  ``open_pit`` therefore
+    changes NOTHING under the default law: both take the path below, and
+    ``grade_law.basin_trench_floor_elevation_m`` subtracts both margins
+    in both cases.  MEASURED BASIS: LEMD's Amendment-3 deck-face floor
+    586.01 sat 0.07 m ABOVE the family's deepest genuine solid (−7.087),
+    while the pack's own mesh patch cuts 10.9 m BELOW its own deepest
+    solid.  The loss is asymmetric — extra depth is occluded by the
+    modelled shell and free, shallowness is the visible poke-through —
+    so err deep.
+
+    Amendment 3 (2026-08-25) is RETIRED-KEPT-GATED behind
+    ``config.BASIN_OPEN_PIT_DECK_KEY`` (``O4_BASIN_OPEN_PIT_DECK_KEY=1``),
+    which restores the deck-face key for open pits here and the
+    zero-margin arm in the law function.  The two ride ONE gate because
+    they are one law read twice; ``key_source`` is still returned
+    because it is that law's input, and deriving it a second time at the
+    call site would be the census-wrapper defect in miniature.
 
     THE DISAGREEMENT GATE (spec ``docs/specs/
     tunnel-trench-law-and-basin-floor-spec.md`` §2.2).  ``body_depth_m``
@@ -1880,15 +2076,19 @@ def basin_facility_deck_reference_y(
     else:
         solid_minimum_y = None
         disagrees = False
-    if open_pit:
-        # ── AN OPEN PIT KEYS ON ITS DECK FACE (owner Amendment 3,
-        # 2026-08-25) ─────────────────────────────────────────────────
-        # "an open-pit facility's floor is the pooled solids' deck-face
-        # median (body_depth_m)".  A hole with nothing of the pack's own
-        # standing over it has no solid BELOW that face to clear — the
-        # face IS the bottom the pack modelled — so the deepest-solid
-        # reading never deepens it here.  The §2.2 disagreement witness
-        # is still RETURNED so the caller names it out loud.
+    if open_pit and config.BASIN_OPEN_PIT_DECK_KEY:
+        # ── RETIRED-KEPT-GATED (owner 2026-08-26 supersedes Amendment
+        # 3 of 2026-08-25); ``O4_BASIN_OPEN_PIT_DECK_KEY=1`` ──────────
+        # Amendment 3: "an open-pit facility's floor is the pooled
+        # solids' deck-face median (body_depth_m)" — a hole with nothing
+        # of the pack's own standing over it has no solid BELOW that
+        # face to clear, so the deepest-solid reading never deepens it.
+        # MEASURED AGAINST THE PACK'S OWN MESH PATCH (LEMD, 2026-08-26):
+        # that floor is 586.01, which is 0.07 m ABOVE the family's
+        # deepest genuine solid (−7.087) — the mesh pokes through the
+        # modelled walls.  Under the new law an open pit takes the same
+        # path as a bore (below).  The §2.2 disagreement witness is
+        # still RETURNED so the caller names it out loud.
         return (deck_reference_y,
                 solid_minimum_y if disagrees else None,
                 BASIN_FLOOR_KEY_DECK_FACE)

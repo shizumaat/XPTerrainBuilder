@@ -1147,6 +1147,42 @@ def is_open_pit_interface(interface: StructureGroundInterface) -> bool:
 
 
 @dataclass(frozen=True)
+class BelowGradeRegion:
+    """One connected BELOW-GRADE REGION of a pack's placement population
+    (spec ``docs/specs/basin-region-footprint-spec.md`` §2.1; owner
+    ruling 2026-08-26 "the cut shape is derived from the objects
+    themselves — region-level, not structure-level").
+
+    Region-level means POOL-INDEPENDENT: this is derived from every
+    placement's solid triangles directly, so it sees a below-grade wall
+    whether or not the pool that wall belongs to classified as anything.
+    That is the whole point — LEMD's 358-object T4S mega-pool classifies
+    FLAT_CONFIRMED and hides four below-grade shells inside itself.
+
+    * ``polygon`` — the region's EXTERIOR ring, in the classification's
+      own metre frame (the module docstring's ``(x, z)`` convention),
+      with interior holes filled.
+    * ``frame_origin_longitude_latitude`` — that frame's origin, so the
+      ring can be converted with
+      :func:`frame_polygon_to_longitude_latitude` exactly like every
+      other record's geometry.  A second projection is a second region.
+    * ``solid_minimum_y_m`` — the THICKNESS-GATED minimum solid
+      effective y over the clipped geometry inside the region (LEMD:
+      −7.087).  Decal components never witness it, for the same reason
+      they never witness a structure floor (``part_has_solid_thickness``).
+    * ``object_resources`` — the contributing resources, for LOGGING
+      only.  Region membership deliberately does NOT widen a record's
+      ``object_resources``: that field drives the ruling-R4 exclusions
+      and the rim-flush seating grouping (spec §2.2, out of scope).
+    """
+
+    polygon: Polygon
+    frame_origin_longitude_latitude: tuple[float, float]
+    solid_minimum_y_m: float
+    object_resources: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ClassificationResult:
     """The classifier's whole output for one pack (spec section 3.1).
 
@@ -1168,6 +1204,14 @@ class ClassificationResult:
         default_factory=list
     )
     portal_faces: list[PortalFaceStructure] = field(default_factory=list)
+    # The section-2.1 below-grade REGIONS (spec basin-region-footprint).
+    # DEFAULTED so an old cached/hand-built result reads back as "no
+    # regions" rather than raising — the cache VERSION is what retires
+    # a stale sidecar (``object_terrain_assembly.
+    # _CLASSIFICATION_CACHE_VERSION``), never a missing attribute.
+    below_grade_regions: list[BelowGradeRegion] = field(
+        default_factory=list
+    )
 
     def terrain_material_resources(self) -> set[str]:
         """Every resource the classifier RECOGNIZED as tunnel / bridge /
@@ -1540,6 +1584,8 @@ class _ResourceGeometryCache:
         "_basis",
         "_face_tables",
         "_local_class_unions",
+        "_solid_components",
+        "_below_grade_unions",
     )
 
     def __init__(
@@ -1550,6 +1596,8 @@ class _ResourceGeometryCache:
         self._basis: dict[str, _ResourceTriangleBasis | None] = {}
         self._face_tables: dict[str, _ResourceFaceTable | None] = {}
         self._local_class_unions: dict[tuple, object] = {}
+        self._solid_components: dict[str, list] = {}
+        self._below_grade_unions: dict[tuple, object] = {}
 
     def evidence(
         self, resource_path: str
@@ -1727,9 +1775,241 @@ class _ResourceGeometryCache:
             return None
         return None if union.is_empty else union
 
+    # ── the below-grade REGION instrument's per-resource half ────────
+    # (spec docs/specs/basin-region-footprint-spec.md §2.1)
+
+    def solid_components(self, resource_path: str) -> list:
+        """The resource's SOLID CONNECTED COMPONENTS as ``(triangles,
+        minimum_authored_y, maximum_authored_y)``, in the authored frame.
+
+        Connectivity is ``obj8_partition.weld_parts`` — THE repo's one
+        spelling of "connected solid component" (position-welded, so an
+        exporter's per-seam duplicate vertices do not shatter a wall).
+        Only ever called for a resource that survived the region
+        pre-scan, so the union-find never runs on a pack's at-grade bulk.
+        """
+        cached = self._solid_components.get(resource_path)
+        if cached is not None:
+            return cached
+        geometry = self.geometry_by_resource.get(resource_path)
+        if geometry is None or not geometry.solid_triangles:
+            self._solid_components[resource_path] = []
+            return []
+        from .obj8_partition import weld_parts
+
+        vertices = geometry.vertices
+        components = []
+        for triangles in weld_parts(vertices, geometry.solid_triangles):
+            heights = [
+                vertices[index][1]
+                for triangle in triangles
+                for index in triangle
+            ]
+            if not heights:
+                continue
+            components.append((triangles, min(heights), max(heights)))
+        self._solid_components[resource_path] = components
+        return components
+
+    def below_grade_local_union(
+        self, resource_path: str, plane_local_y: float
+    ):
+        """The resource's below-``plane_local_y`` footprint in its own
+        AUTHORED frame, as ``(union polygon, minimum authored y)``, or
+        ``None`` when nothing qualifies.
+
+        TRIANGLES ARE CLIPPED, NEVER KEPT WHOLE (spec §2.1, explicit): a
+        long ramp panel running +1 → −6 contributes only the part of
+        itself that is actually below the plane, so its at-grade half
+        never joins the cut.  A min-vertex test on whole triangles would
+        claim the whole panel.
+
+        DECAL COMPONENTS ARE EXCLUDED FIRST — a connected solid component
+        whose own vertical extent is under
+        ``config.MIN_SOLID_PART_THICKNESS_M`` has no vertical extent of
+        its own and is ground paint (:func:`part_has_solid_thickness`,
+        the ONE spelling).  Measured at LEMD: without the gate the two
+        ``AESlite-LEMD-VOR-15-T4S-*.obj`` −50 m quads take the union to
+        2.08 M m².
+        """
+        key = (resource_path, plane_local_y)
+        cached = self._below_grade_unions.get(key, _CACHE_MISS)
+        if cached is not _CACHE_MISS:
+            return cached
+        result = self._compute_below_grade_local_union(
+            resource_path, plane_local_y
+        )
+        self._below_grade_unions[key] = result
+        return result
+
+    def _compute_below_grade_local_union(
+        self, resource_path: str, plane_local_y: float
+    ):
+        geometry = self.geometry_by_resource.get(resource_path)
+        if geometry is None or not geometry.solid_triangles:
+            return None
+        vertices = geometry.vertices
+        rings_by_length: dict[int, list] = {}
+        minimum_y = math.inf
+        for triangles, component_minimum_y, component_maximum_y in (
+            self.solid_components(resource_path)
+        ):
+            if component_minimum_y > plane_local_y:
+                continue
+            if not part_has_solid_thickness(
+                component_minimum_y, component_maximum_y
+            ):
+                continue
+            if component_minimum_y < minimum_y:
+                minimum_y = component_minimum_y
+            for triangle in triangles:
+                ring = _clip_triangle_below_plane(
+                    (
+                        vertices[triangle[0]],
+                        vertices[triangle[1]],
+                        vertices[triangle[2]],
+                    ),
+                    plane_local_y,
+                )
+                if ring is not None:
+                    rings_by_length.setdefault(len(ring), []).append(ring)
+        if not rings_by_length or minimum_y is math.inf:
+            return None
+        parts = []
+        for rings in rings_by_length.values():
+            try:
+                part = shapely.union_all(
+                    shapely.polygons(
+                        numpy.asarray(rings, dtype=numpy.float64)
+                    )
+                )
+            except (ValueError, _GEOS_EXCEPTION):
+                continue
+            part = _repaired_area_polygon(part)
+            if part is not None:
+                parts.append(part)
+        if not parts:
+            return None
+        union = _union_all_repairing(parts)
+        if union is None:
+            return None
+        return union, float(minimum_y)
+
 
 # Distinguishes "cached None" from "not yet computed" in the cache maps.
 _CACHE_MISS = object()
+
+
+def _repaired_area_polygon(geometry):
+    """``geometry`` made VALID and non-degenerate, or ``None``.
+
+    The module's standard repair (``buffer(0)``, as in
+    :func:`_close_and_reduce_union`), plus the drop of ZERO-AREA results.
+    Both matter to the region union: a wall-only resource clips to
+    polygons with no horizontal extent (LEMD's ``Terminal4sBlue-LEMD35``
+    is exactly this — 0 m² of pure vertical faces), and feeding those
+    into ``union_all`` beside real rings is what produced the measured
+    ``TopologyException: side location conflict`` at LEMD.  They also
+    contribute nothing by construction, so dropping them changes no
+    footprint.
+    """
+    if geometry is None or geometry.is_empty:
+        return None
+    try:
+        if not geometry.is_valid:
+            geometry = geometry.buffer(0)
+        if geometry.is_empty or geometry.area <= 0.0:
+            return None
+        if geometry.geom_type not in ("Polygon", "MultiPolygon"):
+            return None
+    except (ValueError, _GEOS_EXCEPTION):
+        return None
+    return geometry
+
+
+def _union_all_repairing(polygons):
+    """``shapely.union_all`` that cannot fail SILENTLY.
+
+    GEOS raises ``TopologyException`` on a set whose members are
+    individually valid but jointly degenerate, and the region derivation
+    used to catch that and return "no regions" — which is the silent-zero
+    failure mode this project treats as a defect in its own right
+    (measured at LEMD 2026-08-26: the whole T4S ring vanished, and the
+    only trace was an absent log line).  So the bulk union is tried
+    first, and on a topology failure the parts are accumulated ONE AT A
+    TIME with a repair between, which is slower and cannot hit the joint
+    degeneracy.  A part that still refuses is DROPPED BY NAME at
+    verbosity 1, never in silence.
+    """
+    if not polygons:
+        return None
+    try:
+        return _repaired_area_polygon(shapely.union_all(polygons))
+    except (ValueError, _GEOS_EXCEPTION):
+        pass
+    _vprint(
+        1,
+        "   [object-terrain] below-grade region union: the bulk union "
+        f"refused {len(polygons)} part(s) (GEOS topology) — accumulating "
+        "them one at a time with a repair between",
+    )
+    accumulated = None
+    dropped = 0
+    for polygon in polygons:
+        repaired = _repaired_area_polygon(polygon)
+        if repaired is None:
+            continue
+        if accumulated is None:
+            accumulated = repaired
+            continue
+        try:
+            accumulated = _repaired_area_polygon(
+                shapely.union_all([accumulated, repaired])
+            )
+        except (ValueError, _GEOS_EXCEPTION):
+            dropped += 1
+    if dropped:
+        _vprint(
+            1,
+            f"   [object-terrain] below-grade region union: {dropped} "
+            "part(s) could not be unioned even singly and are DROPPED — "
+            "the region is that much smaller than the objects describe",
+        )
+    return accumulated
+
+
+def _clip_triangle_below_plane(
+    corners: Sequence[tuple[float, float, float]],
+    plane_y: float,
+) -> list[tuple[float, float]] | None:
+    """Sutherland-Hodgman clip of one triangle against the half-space
+    ``y <= plane_y``, returned as the sub-polygon's ``(x, z)`` ring (3 or
+    4 points), or ``None`` when the triangle is wholly above the plane
+    or its below-part degenerates.
+
+    THE CLIP, NOT A TEST (spec §2.1): keeping a whole triangle on a
+    min-vertex test would hand a ramp panel's at-grade half to the cut.
+    Purely local arithmetic — no shapely, because this runs once per
+    below-grade triangle of every qualifying resource.
+    """
+    ring: list[tuple[float, float]] = []
+    for index in range(3):
+        current = corners[index]
+        following = corners[(index + 1) % 3]
+        current_inside = current[1] <= plane_y
+        following_inside = following[1] <= plane_y
+        if current_inside:
+            ring.append((current[0], current[2]))
+        if current_inside != following_inside:
+            span = following[1] - current[1]
+            if span == 0.0:  # pragma: no cover - inside flags would agree
+                continue
+            fraction = (plane_y - current[1]) / span
+            ring.append((
+                current[0] + fraction * (following[0] - current[0]),
+                current[2] + fraction * (following[2] - current[2]),
+            ))
+    return ring if len(ring) >= 3 else None
 
 
 def _class_footprints_by_resource(
@@ -2174,6 +2454,170 @@ def frame_polygon_to_longitude_latitude(
             ]
         )
     return Polygon(_convert_ring(polygon.exterior.coords))
+
+
+# ---------------------------------------------------------------------------
+# The below-grade REGION instrument (spec docs/specs/
+# basin-region-footprint-spec.md §2.1; owner ruling 2026-08-26)
+# ---------------------------------------------------------------------------
+
+def below_grade_regions(
+    placements: Sequence[ObjectPlacement],
+    geometry_by_resource: dict[str, ObjectGeometry],
+    *,
+    cache: "_ResourceGeometryCache | None" = None,
+) -> list[BelowGradeRegion]:
+    """The pack's connected BELOW-GRADE REGIONS — pure, pool-independent.
+
+    "We should be able to determine the exact shape needed from the
+    objects" (owner 2026-08-26).  The recipe, in full:
+
+    1. stock-library resources are dropped, exactly as
+       :func:`classify_object_terrain_features` drops them;
+    2. per placement, the grade plane in the resource's AUTHORED frame is
+       ``−TRENCH_SPINE_MIN_DEPTH_M − above_ground_level_metres`` (the
+       module's effective-height convention: ``effective_y = agl +
+       authored_y``).  A resource whose deepest authored vertex is at or
+       above that plane contributes nothing and is skipped before ANY
+       triangle work — the perf guard, and the reason a pack with no
+       below-grade geometry pays essentially zero;
+    3. every solid triangle of every non-decal connected component is
+       CLIPPED to its below-plane sub-polygon
+       (:func:`_clip_triangle_below_plane`); decal components — vertical
+       extent under ``config.MIN_SOLID_PART_THICKNESS_M`` — are excluded
+       before the clip;
+    4. the per-resource authored-frame union is affine-transformed once
+       per placement into the classification frame (the same
+       union-once-per-resource hoist :func:`_class_footprints_by_resource`
+       uses), everything is unioned, morphologically closed at
+       :data:`AT_GRADE_FOOTPRINT_CLOSE_M`, split into connected parts and
+       reduced to exterior rings (interior holes filled);
+    5. parts under :data:`TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2` are dropped.
+
+    VALIDATED against the pack's own shipped mesh patch (LEMD T4S,
+    2026-08-26): 92.7-93.0 % IoU with the authored 27,612 m² ring across
+    depth thresholds 1.5-3.0 m — the recipe is insensitive to the
+    threshold, which is what makes ``TRENCH_SPINE_MIN_DEPTH_M`` the right
+    constant to reuse rather than a new knob.
+
+    Returns the regions largest-first.  Empty list when nothing is below
+    grade — the common case for an ordinary pack.
+    """
+    placements = [
+        placement
+        for placement in placements
+        if not is_stock_library_resource(placement.resource_path)
+    ]
+    if not placements:
+        return []
+    if cache is None:
+        cache = _ResourceGeometryCache(geometry_by_resource)
+    origin_latitude, origin_longitude = _placements_mean_origin(placements)
+
+    # (transformed frame polygon, minimum effective y, resource path)
+    contributions: list[tuple[object, float, str]] = []
+    for placement in placements:
+        resource_path = placement.resource_path
+        _has_hard, has_solid, minimum_vertex_y, _maximum_vertex_y = (
+            cache.evidence(resource_path)
+        )
+        if not has_solid:
+            continue
+        above_ground = float(placement.above_ground_level_metres)
+        plane_local_y = -TRENCH_SPINE_MIN_DEPTH_M - above_ground
+        # THE PRE-SCAN (perf guard): the resource's deepest AUTHORED
+        # vertex cannot reach the plane, so no triangle of it can.
+        if minimum_vertex_y > plane_local_y:
+            continue
+        local = cache.below_grade_local_union(resource_path, plane_local_y)
+        if local is None:
+            continue
+        local_union, local_minimum_y = local
+        try:
+            transformed = shapely_affinity.affine_transform(
+                local_union,
+                _affine_matrix_for_placement(
+                    placement, origin_latitude, origin_longitude
+                ),
+            )
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        # REPAIR AT THE CONTRIBUTION, not only at the end: the affine
+        # transform carries a resource's own self-touching seams into the
+        # shared frame, and one invalid member is enough to make the bulk
+        # union of the whole set refuse (LEMD, measured).
+        transformed = _repaired_area_polygon(transformed)
+        if transformed is None:
+            continue
+        contributions.append(
+            (transformed, above_ground + local_minimum_y, resource_path)
+        )
+    if not contributions:
+        return []
+
+    union = _union_all_repairing(
+        [contribution[0] for contribution in contributions]
+    )
+    if union is None:
+        return []
+    try:
+        union = union.buffer(AT_GRADE_FOOTPRINT_CLOSE_M).buffer(
+            -AT_GRADE_FOOTPRINT_CLOSE_M
+        )
+    except (ValueError, _GEOS_EXCEPTION):
+        return []
+    union = _repaired_area_polygon(union)
+    if union is None:
+        return []
+
+    parts = (
+        list(union.geoms)
+        if union.geom_type == "MultiPolygon"
+        else [union]
+    )
+    regions: list[BelowGradeRegion] = []
+    for part in parts:
+        if part.geom_type != "Polygon" or part.is_empty:
+            continue
+        # EXTERIOR RING ONLY: a pit's interior columns and plinths punch
+        # holes in the union, and terrain must not be left standing in
+        # them ("we don't want any terrain poking up in the middle").
+        try:
+            exterior = Polygon(part.exterior)
+            if not exterior.is_valid:
+                exterior = exterior.buffer(0)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if exterior.geom_type != "Polygon" or exterior.is_empty:
+            continue
+        if exterior.area < TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2:
+            continue
+        member_minimum_y = math.inf
+        member_resources: set[str] = set()
+        for polygon, minimum_y, resource_path in contributions:
+            try:
+                if not polygon.intersects(exterior):
+                    continue
+            except (ValueError, _GEOS_EXCEPTION):
+                continue
+            member_resources.add(resource_path)
+            if minimum_y < member_minimum_y:
+                member_minimum_y = minimum_y
+        if member_minimum_y is math.inf:  # pragma: no cover - defensive
+            continue
+        regions.append(
+            BelowGradeRegion(
+                polygon=exterior,
+                frame_origin_longitude_latitude=(
+                    origin_longitude,
+                    origin_latitude,
+                ),
+                solid_minimum_y_m=float(member_minimum_y),
+                object_resources=tuple(sorted(member_resources)),
+            )
+        )
+    regions.sort(key=lambda region: region.polygon.area, reverse=True)
+    return regions
 
 
 # ---------------------------------------------------------------------------
@@ -5004,6 +5448,45 @@ def classify_object_terrain_features(
     # face height; whether or not a pair is later matched, seating a
     # terrain-feature face is the terrain's job, never the bake's.
     portal_faces = _detect_portal_faces(placements, geometry_by_resource)
+
+    # The section-2.1 BELOW-GRADE REGIONS (spec basin-region-footprint).
+    # Derived from the placement population, never from the pools — see
+    # :func:`below_grade_regions`.  Computed only when the adapter that
+    # consumes them is on AND the feature gate is on, so a gate-off build
+    # pays nothing and emits a byte-identical patch.
+    regions: list[BelowGradeRegion] = []
+    if basin_trench_enabled:
+        from .config import BASIN_REGION_FOOTPRINT
+
+        if BASIN_REGION_FOOTPRINT:
+            regions = below_grade_regions(
+                placements, geometry_by_resource, cache=cache
+            )
+            for region in regions:
+                centroid = region.polygon.centroid
+                origin_longitude, origin_latitude = (
+                    region.frame_origin_longitude_latitude
+                )
+                latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                    origin_latitude,
+                    origin_longitude,
+                    0.0,
+                    centroid.x,
+                    centroid.y,
+                )
+                names = [
+                    resource.split("/")[-1]
+                    for resource in region.object_resources
+                ]
+                _vprint(
+                    1,
+                    "   [object-terrain] below-grade region "
+                    f"{region.polygon.area:,.0f} m² at "
+                    f"{latitude:.7f},{longitude:.7f}, deepest solid "
+                    f"{region.solid_minimum_y_m:.3f} m, from "
+                    f"{len(names)} resource(s): {names[:6]}",
+                )
+
     excluded_resources = {resource for _root, resource in exclusions}
     for face in portal_faces:
         for resource in face.object_resources:
@@ -5018,4 +5501,5 @@ def classify_object_terrain_features(
         refusals=refusals,
         ground_interfaces=ground_interfaces,
         portal_faces=portal_faces,
+        below_grade_regions=regions,
     )

@@ -4911,6 +4911,71 @@ MIN_SOLID_PART_THICKNESS_M = 0.3
 BASIN_POOL_SCOPING = (
     _os.environ.get("O4_BASIN_POOL_SCOPING", "1") == "1")
 
+# BASIN REGION FOOTPRINT (2026-08-26, LEMD T4S basin rulings; spec
+# ``docs/specs/basin-region-footprint-spec.md`` §2.1/§2.2/§2.4).
+# DEFAULT ON.
+#
+# THE CUT SHAPE IS DERIVED FROM THE OBJECTS THEMSELVES, REGION-LEVEL
+# (owner 2026-08-26).  The pool/structure partition is the wrong unit
+# for a basin FOOTPRINT: LEMD's T4S family is 358 objects on ONE
+# placement anchor, the mega-pool classifies FLAT_CONFIRMED, and only
+# the single fully-buried ``LEMD_OBJ-Ground-FSX-LEMD36.obj`` escapes as
+# BOWL_UNDER_DECK — so the basin record's footprint was that one member
+# (12,434 m², 44.9 % of the pack's own authored 27,612 m² pit ring) and
+# the below-grade walls of LEMD37/85/03 (−7.09/−7.03/−6.75) and
+# Terminal4sBlue-LEMD35 (−5.86) were invisible inside the mega-structure.
+#
+# With this ON, ``object_terrain_features.below_grade_regions`` derives
+# the below-grade REGIONS from the placement population directly (every
+# solid triangle CLIPPED to its portion below −TRENCH_SPINE_MIN_DEPTH_M,
+# decal components excluded by MIN_SOLID_PART_THICKNESS_M, closed at
+# AT_GRADE_FOOTPRINT_CLOSE_M, regions under
+# TRENCH_SPINE_MIN_FOOTPRINT_AREA_M2 dropped) and
+# ``object_terrain_assembly.basin_trench_structures`` widens each basin
+# record's footprint to (region ∪ its own footprint).  MEASURED: the
+# recipe reproduces the authored T4S ring at 92.7–93.0 % IoU across
+# thresholds 1.5–3.0 m (insensitive), 27.6–28.2k m².
+#
+# MEMBERSHIP IS NOT WIDENED (scope, do not extend): ``object_resources``,
+# ``cuts_pavement``, the anchor and the depth bound are untouched — they
+# drive the R4 exclusions and the rim-flush seating grouping, and a
+# region matching NO record is reported, never founded as a new basin.
+#
+# With O4_BASIN_REGION_FOOTPRINT=0 no region is derived, no record is
+# widened and the emitted patch is byte-identical (same pattern as
+# BASIN_POOL_SCOPING above).
+BASIN_REGION_FOOTPRINT = (
+    _os.environ.get("O4_BASIN_REGION_FOOTPRINT", "1") == "1")
+
+# BASIN OPEN-PIT DECK KEY — AMENDMENT 3's clause, RETIRED-KEPT-GATED
+# (owner 2026-08-26 supersedes owner 2026-08-25).  DEFAULT OFF.
+#
+# Amendment 3 (2026-08-25) ruled that an OPEN pit keys its floor on the
+# pooled solids' DECK-FACE MEDIAN (``body_depth_m``) with ZERO tunnel
+# margins, on the reasoning that a hole with nothing over it has no
+# solid below the face to clear.  MEASURED AGAINST THE PACK'S OWN MESH
+# PATCH (LEMD, 2026-08-26): that floor came out at 586.01 = R_est 593.03
+# − 7.016, which is 0.07 m ABOVE the family's deepest genuine solid
+# (−7.087) — the mesh would have poked through the modelled walls —
+# while the pack's own patch cuts 576.62, 10.9 m below its own deepest
+# solid.  The loss is asymmetric: extra depth is occluded by the shell
+# and free, shallowness is the visible poke-through.
+#
+# So the owner retired the clause: EVERY basin, open pit or bore, keys
+# on the (thickness-gated) deepest genuine solid with
+# TUNNEL_FLOOR_BELOW_OBJECT_DECK_M + TUNNEL_BASIN_FLOOR_SEAT_MARGIN_M
+# restored.  The §2.2 disagreement gate is unchanged.  OTHH's Drainage
+# floors lawfully deepen by the restored margins ("err deep").
+#
+# With O4_BASIN_OPEN_PIT_DECK_KEY=1 the Amendment-3 clause comes back:
+# ``object_terrain_assembly.basin_facility_deck_reference_y``'s
+# ``open_pit`` limb takes the deck face again and
+# ``grade_law.basin_trench_floor_elevation_m``'s ``bore_class=False``
+# arm takes no margins again.  The two ride ONE gate because they are
+# one law read twice.
+BASIN_OPEN_PIT_DECK_KEY = (
+    _os.environ.get("O4_BASIN_OPEN_PIT_DECK_KEY", "0") == "1")
+
 # §2.2 — THE BASIN FLOOR DISAGREEMENT GATE (m).  Two independent
 # instruments describe one facility's bottom: ``solid_minimum_y_m`` (the
 # deepest solid vertex the frame saw) and ``body_depth_m`` (the median of

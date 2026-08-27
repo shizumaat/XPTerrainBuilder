@@ -185,7 +185,16 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
         return []
     # AIRCRAFT axes only: a service centerline is a truck route, never an
     # aircraft spine (``grade_graph._reads_service_spines``).
-    axes = [pts for (pts, _caps, is_svc, _rkey, _rpts) in specs
+    #
+    # THE INDEX TRAVELS WITH THE AXIS.  ``ci`` is the axis's position in
+    # ``centerline_specs`` — the SAME ordinal ``grade_graph.build_context``
+    # gives ``ctx.centerlines`` and ``_build_global_spine`` keys
+    # ``G.centerline_chains`` by, because all three walk that one
+    # enumeration in that one order.  It is what lets a station read its
+    # own axis's solved profile later (Amendment 2) instead of guessing
+    # which axis it belongs to by proximity.
+    axes = [(ci, pts)
+            for ci, (pts, _caps, is_svc, _rkey, _rpts) in enumerate(specs)
             if not is_svc and len(pts or ()) >= 2]
     entries: list = []
     if not axes:
@@ -245,7 +254,8 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
             continue
         lines: list = []
         pts_all: list = []
-        for axis in axes:
+        stations: list = []
+        for (ci, axis) in axes:
             for piece in _pieces_inside(axis, poly):
                 run = [(x, y) for (x, y) in stations_on_piece(piece,
                                                               spacing_m)
@@ -270,10 +280,12 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
                     if len(sub) >= 2:
                         lines.append(sub)
                         pts_all.extend(sub)
+                        stations.extend((x, y, ci) for (x, y) in sub)
         if not pts_all:
             continue
         entries.append({"shape": s, "shapeID": idx,
-                        "points": pts_all, "lines": lines})
+                        "points": pts_all, "lines": lines,
+                        "stations": stations})
     layout.apron_spine_presolve = entries
     if entries:
         n_pts = sum(len(e["points"]) for e in entries)
@@ -299,39 +311,129 @@ def station_node_indices(layout, bucket_to_idx):
     return out
 
 
-def register_station_positions(layout, G, bucket_to_idx):
-    """Put every station in ``G.pos`` so ``_build_global_spine`` strings
-    it into the aircraft spine (spec §1.2).
+def interpolate_station_values(layout, G, ctx, bucket_to_idx, elev,
+                               base_hard):
+    """VALUE EVERY STATION FROM THE PHASE-A PROFILE — spec Amendment 2
+    ruling 1 (2026-08-27), the law that replaces §1.2's chain membership.
 
-    THIS IS THE WHOLE OF "the stations are CENTERLINE nodes".  The
-    global-spine walk orders every ``G.pos`` node within
-    ``SPINE_PERP_TOL_M`` of a centerline by arc position and links
-    consecutive ones at the centerline's own cap; a station lies ON its
-    axis, so it joins that chain and phase A values it exactly as it
-    values a junction-ring centerline node.
+    A station is NOT a chain variable.  Its value is the solved profile
+    of its OWN AXIS, interpolated at its arc position: still "the
+    profile's own value", but with the chain — and therefore every
+    junction, ring and centerline value — byte-identical to the
+    stations-OFF arm by construction.
 
-    Called from ``build_unified_graph`` BEFORE the spine walk.  Empty
-    store: nothing registered — byte-inert.
+    ONE SOURCE FOR THE PROFILE, and it is the graph's own.
+    ``G.centerline_chains[ci]`` is the ARC-ORDERED on-line node list
+    ``_build_global_spine`` authored while it strung that centerline —
+    the same walk, the same tolerance, the same order.  Re-deriving "the
+    nodes on this axis" here would be the census-wrapper defect in
+    miniature, and it would drift the moment the walk's eligibility
+    rules changed.  Arc positions come from ``grade_graph._project``,
+    the projection the walk itself used.
+
+    Called ONCE, in the slot Amendment 1 named: after the phase-A pass
+    has solved and frozen the spine, before the membrane/POCS pass — so
+    the value is a phase-A OUTPUT and a CONSTANT downstream, never a
+    post-hoc rewrite of a solved surface.  ``base_hard`` is stamped here
+    because that constancy is the whole ruling.
+
+    A station whose axis contributed NO string (fewer than two on-line
+    nodes — the very void this round exists for) has no profile to read.
+    It is left FREE at whatever the seeder gave it and COUNTED, never
+    silently stamped with a DEM value dressed as a spine value.
+
+    Returns a report dict; nothing is printed here.
     """
+    from .grade_graph import _project
+    report = {"valued": 0, "no_chain": 0, "clamped": 0,
+              "worst_move_m": 0.0, "axes": 0}
+    entries = getattr(layout, "apron_spine_presolve", None) or []
+    if not entries:
+        return report
     cps = getattr(layout, "canonical_points", None)
-    if cps is None or bucket_to_idx is None:              # pragma: no cover
-        return 0
-    n = 0
-    for entry in (getattr(layout, "apron_spine_presolve", None) or ()):
-        stage = None
-        for (x, y) in entry.get("points", ()):
-            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
-            if i is None or i in G.pos:
+    cls_list = list(getattr(ctx, "centerlines", None) or ())
+    chains = getattr(G, "centerline_chains", None) or {}
+    if cps is None or not cls_list:                       # pragma: no cover
+        return report
+    n = len(elev)
+    # Arc position of every chain node, per axis, computed ONCE for the
+    # axes that actually carry a station.
+    arc_cache: dict = {}
+
+    def _profile(ci):
+        prof = arc_cache.get(ci)
+        if prof is not None:
+            return prof
+        cl = cls_list[ci] if 0 <= ci < len(cls_list) else None
+        chain = chains.get(ci) or []
+        if cl is None or len(chain) < 2:
+            arc_cache[ci] = ()
+            return ()
+        out = []
+        for i in chain:
+            p = G.pos.get(i)
+            if p is None or not (0 <= i < n):             # pragma: no cover
                 continue
-            G.pos[i] = (float(x), float(y))
-            if stage is None:
-                from .elevation_per_surface.solver_primitives import (
-                    _stage_of_shape)
-                stage = _stage_of_shape(entry.get("shape"))
-            if G.node_stage.get(i) != "A":
-                G.node_stage[i] = stage
-            n += 1
-    return n
+            a, _d, _f = _project(cl, float(p[0]), float(p[1]))
+            out.append((float(a), int(i)))
+        out.sort()
+        arc_cache[ci] = tuple(out) if len(out) >= 2 else ()
+        return arc_cache[ci]
+
+    for entry in entries:
+        for (x, y, ci) in entry.get("stations", ()):
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is None or not (0 <= i < n):             # pragma: no cover
+                continue
+            prof = _profile(int(ci))
+            if not prof:
+                report["no_chain"] += 1
+                continue
+            cl = cls_list[int(ci)]
+            a_st, _d, _f = _project(cl, float(x), float(y))
+            # Bracketing chain nodes by arc.  Outside the strung range the
+            # profile simply has no data further along, so the axis's own
+            # END value is the honest read — recorded as a clamp, not
+            # dressed up as an interpolation.
+            if a_st <= prof[0][0]:
+                v = float(elev[prof[0][1]])
+                report["clamped"] += 1
+            elif a_st >= prof[-1][0]:
+                v = float(elev[prof[-1][1]])
+                report["clamped"] += 1
+            else:
+                v = None
+                for (a0, i0), (a1, i1) in zip(prof, prof[1:]):
+                    if a0 <= a_st <= a1:
+                        span = a1 - a0
+                        t = 0.0 if span <= 1e-9 else (a_st - a0) / span
+                        v = ((1.0 - t) * float(elev[i0])
+                             + t * float(elev[i1]))
+                        break
+                if v is None:                             # pragma: no cover
+                    report["no_chain"] += 1
+                    continue
+            move = abs(v - float(elev[i]))
+            elev[i] = v
+            base_hard[i] = True
+            report["valued"] += 1
+            if move > report["worst_move_m"]:
+                report["worst_move_m"] = move
+    report["axes"] = len([k for k, v in arc_cache.items() if v])
+    return report
+
+
+def format_station_report(icao: str, report: dict) -> str:
+    """The build log's one line — named so a reader can tell an
+    interpolated station from a re-solved chain without opening the
+    patch."""
+    return (f"  [apron-spine] {icao}: {report['valued']} station(s) valued "
+            f"by INTERPOLATING the phase-A profile of {report['axes']} "
+            f"axis(es) at their arc position (worst move from the seed "
+            f"{report['worst_move_m']:.2f} m; {report['clamped']} past the "
+            f"strung range took the axis's end value); "
+            f"{report['no_chain']} left FREE on an axis that contributed no "
+            f"string.  The chain is NOT densified — spec Amendment 2")
 
 
 def build_apron_spine_station_constraints(layout, bucket_to_idx, ctx):

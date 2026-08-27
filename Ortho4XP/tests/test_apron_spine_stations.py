@@ -249,37 +249,177 @@ def test_two_aprons_on_one_axis_each_get_their_own_stations(monkeypatch):
 # ═════════════════════════════════════════════════════════════════════
 
 class _G:
+    """The one graph, reduced to what the interpolation reads."""
+
     def __init__(self):
         self.pos = {}
         self.node_stage = {}
+        self.centerline_chains = {}
 
 
-def test_stations_are_registered_in_G_pos(monkeypatch):
-    """``_build_global_spine`` strings what it finds in ``G.pos``.  A
-    station that is not there is not a centerline node at all."""
+class _CL:
+    """``grade_graph._project``'s contract: ``.pts`` + ``.arc()``."""
+
+    def __init__(self, pts):
+        self.pts = [(float(x), float(y)) for (x, y) in pts]
+
+    def arc(self):
+        out = [0.0]
+        for a, b in zip(self.pts, self.pts[1:]):
+            out.append(out[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+        return out
+
+
+class _Ctx:
+    def __init__(self, centerlines):
+        self.centerlines = list(centerlines)
+
+
+def test_a_station_is_NEVER_registered_in_G_pos():
+    """AMENDMENT 2 RULING 1.  A station in ``G.pos`` is a station
+    ``_build_global_spine`` strings into its axis's chain — and a
+    densified chain re-solves the profile, which is what moved the
+    junctions.  The registration must not exist, and the next lane must
+    not restore it."""
+    import auto_patch.grade_graph as GG
+    src = inspect.getsource(GG.build_unified_graph)
+    assert "register_station_positions" not in src
+    assert not hasattr(ST, "register_station_positions")
+    assert "APRON SPINE STATIONS ARE NOT REGISTERED HERE" in src, \
+        "the deliberate omission must be stated where a reader will look"
+    assert "interpolate_station_values" in src, \
+        "and it must name where the value does come from"
+
+
+def _wire_profile(layout, chain_alts, *, ci=0,
+                  axis=((-300.0, 0.0), (300.0, 0.0))):
+    """A solved phase-A profile on one axis: chain nodes at the given
+    (x, alt) pairs, in the graph's own ``centerline_chains``."""
+    G = _G()
+    ctx = _Ctx([_CL(axis)])
+    b2i = {}
+    elev = []
+
+    def _add(x, y, alt):
+        k = layout.canonical_points.get_or_add(x, y)
+        if k not in b2i:
+            b2i[k] = len(elev)
+            elev.append(alt)
+        return b2i[k]
+
+    chain = []
+    for (x, alt) in chain_alts:
+        i = _add(x, 0.0, alt)
+        G.pos[i] = (x, 0.0)
+        chain.append(i)
+    G.centerline_chains[ci] = chain
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            _add(x, y, -999.0)          # a seed the profile must replace
+    base_hard = [False] * len(elev)
+    return G, ctx, b2i, elev, base_hard
+
+
+def test_a_station_takes_the_LINEAR_INTERPOLANT_of_its_axis_profile(
+        monkeypatch):
+    """"the solved profile of its axis, interpolated at the station's
+    arc position" — the value is arithmetic on the chain's own solved
+    elevations, not a re-solve and not a DEM read."""
     ap = _Shape(_square(400.0))
     layout = _Layout([ap])
     _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
     ST.construct_apron_spine_stations_presolve(layout)
-    b2i = {}
+    # profile: 100 m at arc 0 (x=-300), 200 m at arc 600 (x=+300)
+    G, ctx, b2i, elev, base_hard = _wire_profile(
+        layout, [(-300.0, 100.0), (300.0, 200.0)])
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["valued"] > 0 and rep["no_chain"] == 0
     for e in layout.apron_spine_presolve:
-        for (x, y) in e["points"]:
-            k = layout.canonical_points.get_or_add(x, y)
-            b2i.setdefault(k, len(b2i))
-    G = _G()
-    n = ST.register_station_positions(layout, G, b2i)
-    assert n == len(b2i) > 0
-    assert set(G.pos) == set(b2i.values())
+        for (x, y, _ci) in e["stations"]:
+            i = b2i[layout.canonical_points.get_or_add(x, y)]
+            want = 100.0 + 100.0 * ((x + 300.0) / 600.0)
+            assert abs(elev[i] - want) < 1e-6, (x, elev[i], want)
+            assert base_hard[i] is True
 
 
-def test_the_registration_runs_BEFORE_the_global_spine_walk():
-    """Order is the mechanism: registering after the walk would leave
-    every station off the spine, silently."""
-    import auto_patch.grade_graph as GG
-    src = inspect.getsource(GG.build_unified_graph)
-    i_reg = src.index("register_station_positions")
-    i_walk = src.index("_build_global_spine(")
-    assert i_reg < i_walk
+def test_the_profile_source_is_the_graphs_own_centerline_chains():
+    """ONE source for "which nodes are on this axis": the arc-ordered
+    list ``_build_global_spine`` authored while it strung the axis.
+    Re-deriving it here is the census-wrapper defect in miniature."""
+    src = inspect.getsource(ST.interpolate_station_values)
+    assert "centerline_chains" in src
+    assert "_project" in src
+
+
+def test_a_station_past_the_strung_range_CLAMPS_and_says_so(monkeypatch):
+    """Beyond the last strung node the profile has no data; the axis's
+    own end value is the honest read, and it is counted as a clamp
+    rather than dressed up as an interpolation."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    # the strung range covers only the far negative end
+    G, ctx, b2i, elev, base_hard = _wire_profile(
+        layout, [(-300.0, 100.0), (-250.0, 101.0)])
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["clamped"] == rep["valued"] > 0
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            i = b2i[layout.canonical_points.get_or_add(x, y)]
+            assert abs(elev[i] - 101.0) < 1e-9
+
+
+def test_an_axis_that_contributed_no_string_leaves_its_stations_FREE(
+        monkeypatch):
+    """The void case this round exists for.  A station with no profile
+    is COUNTED and left free — never stamped with a DEM seed dressed as
+    a spine value."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    G, ctx, b2i, elev, base_hard = _wire_profile(
+        layout, [(-300.0, 100.0)])          # one node: no string
+    rep = ST.interpolate_station_values(layout, G, ctx, b2i, elev,
+                                        base_hard)
+    assert rep["valued"] == 0 and rep["no_chain"] > 0
+    assert not any(base_hard)
+    for e in layout.apron_spine_presolve:
+        for (x, y, _ci) in e["stations"]:
+            i = b2i[layout.canonical_points.get_or_add(x, y)]
+            assert elev[i] == -999.0, "the seed is left exactly as it was"
+
+
+def test_every_station_carries_the_axis_ORDINAL_it_was_minted_from(
+        monkeypatch):
+    """``ci`` is the position in ``centerline_specs`` — the ordinal
+    ``ctx.centerlines`` and ``G.centerline_chains`` share, because all
+    three walk that one enumeration in that one order.  Joining by
+    proximity instead would pick the wrong axis wherever two cross."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    svc = _specs([(-300.0, 40.0), (300.0, 40.0)], service=True)
+    air = _specs([(-300.0, 0.0), (300.0, 0.0)])
+    _patch_specs(monkeypatch, svc + air)     # the aircraft axis is ci=1
+    ST.construct_apron_spine_stations_presolve(layout)
+    got = {ci for e in layout.apron_spine_presolve
+           for (_x, _y, ci) in e["stations"]}
+    assert got == {1}, got
+
+
+def test_the_interpolation_is_WIRED_between_the_two_passes():
+    """The slot IS the ruling: after the phase-A freeze, before the body
+    solve.  Written later it would be a post-hoc rewrite of a settled
+    surface, which Amendment 1 forbids by name."""
+    from auto_patch.elevation_per_surface.route_profile import solve as SV
+    src = inspect.getsource(SV.solve_route_profile)
+    i_freeze = src.index("for i in frozen:")
+    i_interp = src.index("interpolate_station_values")
+    i_body = src.index("apron_smooth=True")
+    assert i_freeze < i_interp < i_body
 
 
 def test_stations_are_admitted_above_the_terrain_yield_boundary():

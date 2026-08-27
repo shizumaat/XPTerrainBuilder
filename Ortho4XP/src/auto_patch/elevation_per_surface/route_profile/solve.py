@@ -3835,6 +3835,28 @@ def solve_route_profile(layout, icao: str,
                 if i in _seat_yield_idx:
                     continue
                 base_hard[i] = True
+        # ── APRON SPINE STATIONS: VALUED HERE, FROM THE PROFILE JUST
+        # SOLVED (spec heca-apron-round3 Amendment 2 ruling 1) ─────────
+        # THE SLOT IS THE RULING.  A station is not a chain variable —
+        # ``build_unified_graph`` deliberately never registers it, so the
+        # chain above, and every junction / ring / centerline value with
+        # it, is byte-identical to the stations-OFF arm.  Its value is
+        # that chain's own solved profile INTERPOLATED at the station's
+        # arc position, written between the spine pass and the membrane
+        # pass so it is phase-A OUTPUT and a CONSTANT downstream — never
+        # a post-hoc rewrite of a settled surface.  ``base_hard`` is
+        # stamped inside, which with the preservation below is what makes
+        # every station-touching membrane edge one-sided.
+        if getattr(layout, "apron_spine_presolve", None):
+            from auto_patch.apron_spine_stations import (
+                interpolate_station_values as _interp_st,
+                format_station_report as _fmt_st)
+            _st_report = _interp_st(layout, G, _gg_ctx, bucket_to_idx,
+                                    elev, base_hard)
+            if _st_report["valued"] or _st_report["no_chain"]:
+                import O4_UI_Utils as _UI_st
+                _UI_st.vprint(1, _fmt_st(icao, _st_report))
+            setattr(layout, "_apron_station_value_report", _st_report)
         if _spine_yield_idx:
             # THE phase-A values, snapshotted for the FORENSIC movement
             # report (they are no longer an authority — nothing downstream

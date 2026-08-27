@@ -6057,6 +6057,30 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             UI.vprint(1, f"  [apron-lattice] {icao}: pre-solve lattice "
                          f"construction FAILED: {_lat_exc!r}")
 
+        # (1c) APRON SPINE STATIONS (spec heca-apron-round3 §1; RULINGS
+        # 2026-08-26b items 3/4/5).  The same slot and the same reason
+        # as (1) and (1b): a station is PLAN GEOMETRY that must exist
+        # before the plan is frozen and the ONE node list is built.
+        # Where an aircraft taxi axis crosses an apron interior the axis
+        # gains emitted CENTERLINE stations there — the anchored surface
+        # the owner's 84.2 m line T did not have, which is why the
+        # junction pieces the profile anchors stood 0.7-1.2 m proud of
+        # the membrane beside them and the membrane itself sagged.
+        # AFTER the lattice deliberately: the station constraint builder
+        # reads the lattice store to join the two into ONE membrane
+        # (§3), and a station that lands on an existing plan vertex is
+        # skipped — both need the lattice points to exist first.  Flag
+        # OFF: empty store, every leg vacuous.  A construction failure
+        # degrades loudly and the build continues as before the round.
+        try:
+            from .apron_spine_stations import (
+                construct_apron_spine_stations_presolve)
+            construct_apron_spine_stations_presolve(layout)
+        except _GEOM_EXC as _st_exc:
+            layout.apron_spine_presolve = []
+            UI.vprint(1, f"  [apron-spine] {icao}: pre-solve station "
+                         f"construction FAILED: {_st_exc!r}")
+
         # (2) THE FREEZE POINT.
         _gfreeze.freeze(layout, icao=icao)
         if layout.anchor is not None:

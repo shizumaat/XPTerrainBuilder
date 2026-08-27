@@ -139,6 +139,8 @@ __all__ = [
     "APRON_NODELESS_RADIUS_M",
     "APRON_LATTICE_SPACING_M",
     "APRON_INTERIOR_LATTICE",
+    # HECA apron round 3 (docs/specs/heca-apron-round3-spec.md)
+    "APRON_SPINE_STATIONS",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9471,3 +9473,19 @@ APRON_LATTICE_SPACING_M = float(
 # and is byte-identical to the pre-amendment build.
 APRON_INTERIOR_LATTICE = (
     _os.environ.get("O4_APRON_INTERIOR_LATTICE", "1") != "0")
+
+# ── APRON SPINE STATIONS (docs/specs/heca-apron-round3-spec.md §1) ────
+# RULINGS 2026-08-26b items 3/4/5.  Where an AIRCRAFT taxi axis crosses
+# an apron interior, the axis gains emitted CENTERLINE stations inside
+# the apron at the standing pavement-node spacing
+# (``layout.PAVEMENT_NODE_MAX_CHORD_M``, reused — no number here).  The
+# stations are spine nodes valued by the route profile, and they carry
+# within-shape law edges to the apron's ring and lattice neighbours, so
+# the membrane conforms UP to the spine instead of sagging beside it.
+# Measured basis: the owner's 84.2 m line T at HECA carried ZERO
+# interior stations, and the junction pieces the profile does anchor
+# stood 0.7-1.2 m proud of the membrane, which itself sagged to 70.11
+# at the dip site.  DEFAULT ON; ``O4_APRON_SPINE_STATIONS=0`` mints no
+# station and every downstream leg is vacuous — byte-identical.
+APRON_SPINE_STATIONS = (
+    _os.environ.get("O4_APRON_SPINE_STATIONS", "1") != "0")

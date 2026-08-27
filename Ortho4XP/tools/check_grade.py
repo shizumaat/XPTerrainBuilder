@@ -355,7 +355,8 @@ def _parse_osm(path: Path, feature_out: "Optional[Dict[str, List[Way]]]" = None
         if tags.get("o4_feature") in ("crown_spine",
                                       "gap_drainage_spine",
                                       "gap_interior_ring",
-                                      "apron_lattice"):
+                                      "apron_lattice",
+                                      "apron_spine_station"):
             if feature_out is not None:
                 feature_out.setdefault(tags["o4_feature"], []).append(Way(
                     wid=wid, role=tags.get("role", ""),
@@ -1135,6 +1136,16 @@ ROLE_LESS_FEATURE_CLASSES: Tuple[str, ...] = (
     # Its real law is the ``apron_lattice_membrane`` family, which
     # prices each published edge against the solve's own budget.
     "apron_lattice",
+    # APRON SPINE STATIONS (spec heca-apron-round3 §1): the interior
+    # CENTERLINE stations of an aircraft taxi axis crossing an apron,
+    # one open way per crossing.  Role-less and open for the lattice's
+    # reason — a phantom closing pseudo-edge back across the apron would
+    # mint artifact pairs the solver never constrained.  Its law is the
+    # SAME registered family as the lattice's,
+    # ``apron_lattice_membrane``: the station edges extend the same
+    # sidecar publication, because the lattice and the stations are ONE
+    # membrane (RULINGS 2026-08-26b item 4, "join seamlessly").
+    "apron_spine_station",
 )
 
 #: The subset of :data:`ROLE_LESS_FEATURE_CLASSES` whose members are judged
@@ -7122,7 +7133,14 @@ def run_checks(
     lattice_rows, n_lat_checked, n_lat_unmatched = (
         _check_apron_lattice_membrane(
             apron_lattice_edges_ll,
-            open_features.get("apron_lattice", []),
+            # ONE MEMBRANE, ONE JOIN POPULATION (round 3 §1/§3): the
+            # sidecar's ``apron_lattice_edges`` now carries the SPINE
+            # STATION pairs too, and a station's value lives on an
+            # ``apron_spine_station`` way — a lattice-only population
+            # would fail to match those endpoints and report every one
+            # of them as a LOST measurement.
+            list(open_features.get("apron_lattice", []))
+            + list(open_features.get("apron_spine_station", [])),
             ways, nodes, ll_to_m))
     _fam("apron_lattice_membrane", lattice_rows)
     _pv("APRON LATTICE MEMBRANE pair over the budget the SOLVE priced it "

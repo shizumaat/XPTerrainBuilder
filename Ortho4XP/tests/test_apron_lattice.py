@@ -129,6 +129,144 @@ def test_the_polylines_are_rows_and_columns_of_the_lattice():
 
 
 # ═════════════════════════════════════════════════════════════════════
+# ROUND-3 §2: A LATTICE SEGMENT CLIPS TO ITS OWN APRON
+#
+# RULINGS 2026-08-26b item 1 (owner sim read): the lattice OVERLAPS
+# other shapes.  Measured on /tmp/harness/HECA_20260826T213425.osm — 7
+# of 970 segments leave the apron footprint, 89.5 m: 28.1 m through
+# building shapeID 157, 23.5 + 8.2 m through junctions 2775/2776, the
+# rest through graded strips.  ``_rows_and_columns`` joins consecutive
+# grid POINTS with only per-POINT containment, so a segment between two
+# lawful points bridges a hole or a concavity.
+# ═════════════════════════════════════════════════════════════════════
+
+def _grid_gap(poly, spacing=50.0):
+    """Two INDEX-ADJACENT lattice points of ``poly`` and the midpoint
+    between them.  The defect lives exactly here: ``_rows_and_columns``
+    keeps a run whose indices are consecutive, so an obstruction that
+    fits BETWEEN two grid points never breaks the run and the segment
+    bridges it — which is what the 7 HECA segments do."""
+    pts = AL.lattice_points(poly, spacing)
+    by_i = {}
+    for (i, j, x, y) in pts:
+        by_i.setdefault(i, []).append((j, x, y))
+    for i in sorted(by_i):
+        row = sorted(by_i[i])
+        for (j0, x0, y0), (j1, x1, y1) in zip(row, row[1:]):
+            if j1 == j0 + 1:
+                return (x0, y0), (x1, y1), ((x0 + x1) / 2.0,
+                                            (y0 + y1) / 2.0)
+    raise AssertionError("no index-adjacent lattice pair")
+
+
+def _blocker(mid, half=8.0):
+    """A small obstruction centred between two adjacent grid points and
+    small enough that neither point — nor the ring margin around it —
+    reaches it."""
+    cx, cy = mid
+    return Polygon([(cx - half, cy - half), (cx + half, cy - half),
+                    (cx + half, cy + half), (cx - half, cy + half),
+                    (cx - half, cy - half)])
+
+
+def _all_segments(lines):
+    return [(a, b) for run in lines for a, b in zip(run, run[1:])]
+
+
+def _carved(base, mid):
+    """``base`` with a HOLE at ``mid`` (a building carved out of the
+    apron — the measured HECA case, 28.1 m of lattice through building
+    shapeID 157)."""
+    return base.difference(_blocker(mid))
+
+
+def _notched(base, mid):
+    """``base`` with a narrow SLOT cut in from the nearest edge (a
+    concavity — the junctions 2775/2776 case)."""
+    cx, cy = mid
+    minx, miny, maxx, maxy = base.bounds
+    slot = Polygon([(cx - 8.0, cy - 8.0), (cx + 8.0, cy - 8.0),
+                    (cx + 8.0, maxy + 10.0), (cx - 8.0, maxy + 10.0),
+                    (cx - 8.0, cy - 8.0)])
+    return base.difference(slot)
+
+
+def test_no_lattice_segment_crosses_a_carved_hole():
+    """A building carved out of an apron is an interior HOLE.  The
+    points either side of it are lawful and index-adjacent, so only a
+    per-SEGMENT test can see the bridge."""
+    from shapely.geometry import LineString
+    base = _square(400.0)
+    _a, _b, mid = _grid_gap(base)
+    poly = _carved(base, mid)
+    raw = AL._rows_and_columns(AL.lattice_points(poly, 50.0))
+    assert any(not poly.contains(LineString([a, b]))
+               for (a, b) in _all_segments(raw)), \
+        "the unclipped output must actually bridge the hole"
+    for (a, b) in _all_segments(AL.clip_lines_to_apron(raw, poly)):
+        assert poly.contains(LineString([a, b])), (a, b)
+
+
+def test_no_lattice_segment_crosses_a_concave_notch():
+    """The two arms either side of a narrow slot both hold grid points,
+    and an unclipped row joins them straight across ground the apron
+    does not own."""
+    from shapely.geometry import LineString
+    base = _square(400.0)
+    _a, _b, mid = _grid_gap(base)
+    poly = _notched(base, mid)
+    raw = AL._rows_and_columns(AL.lattice_points(poly, 50.0))
+    assert any(not poly.contains(LineString([a, b]))
+               for (a, b) in _all_segments(raw)), \
+        "the unclipped output must actually contain the defect"
+    for (a, b) in _all_segments(AL.clip_lines_to_apron(raw, poly)):
+        assert poly.contains(LineString([a, b])), (a, b)
+
+
+def test_a_convex_apron_is_byte_identical_under_the_clip():
+    """The clip is a REFUSAL, not a re-layout: where nothing leaves the
+    footprint the runs are the ones the pre-round build emitted."""
+    poly = _square(300.0)
+    raw = AL._rows_and_columns(AL.lattice_points(poly, 50.0))
+    assert AL.clip_lines_to_apron(raw, poly) == raw
+
+
+def test_a_clipped_run_SPLITS_and_a_sub_run_under_two_points_dies():
+    base = _square(400.0)
+    _a, _b, mid = _grid_gap(base)
+    poly = _carved(base, mid)
+    raw = AL._rows_and_columns(AL.lattice_points(poly, 50.0))
+    clipped = AL.clip_lines_to_apron(raw, poly)
+    assert all(len(run) >= 2 for run in clipped)
+    assert len(_all_segments(clipped)) < len(_all_segments(raw))
+
+
+def test_the_margin_is_the_one_the_points_already_honour():
+    """No new constant (spec section 2.2)."""
+    src = inspect_source(AL.clip_lines_to_apron)
+    assert "LATTICE_RING_MARGIN_M" in src
+
+
+def test_a_point_orphaned_by_the_clip_is_dropped_with_its_segments():
+    """A point in NO surviving run is referenced by no emitted way, so
+    ``to_osm`` never writes it — the census would then report its law
+    edges as LOST measurements.  Points and lines stay one population."""
+    base = _square(400.0)
+    _a, _b, mid = _grid_gap(base)
+    layout = _Layout([_Shape(_carved(base, mid))])
+    entries = AL.construct_apron_lattice_presolve(layout)
+    assert entries
+    for e in entries:
+        in_lines = {(x, y) for run in e["lines"] for (x, y) in run}
+        assert set(e["points"]) <= in_lines
+
+
+def inspect_source(fn):
+    import inspect
+    return inspect.getsource(fn)
+
+
+# ═════════════════════════════════════════════════════════════════════
 # TRIGGER: the §2 measurement, not a second notion
 # ═════════════════════════════════════════════════════════════════════
 

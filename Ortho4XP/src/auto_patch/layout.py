@@ -3255,6 +3255,38 @@ class PavementLayout:
                          {"o4_feature": "apron_lattice"}))
                     next_wid[0] -= 1
 
+        # APRON SPINE STATIONS (spec heca-apron-round3 §1): the solved
+        # interior CENTERLINE stations of every aircraft taxi axis that
+        # crosses an apron, emitted through the SAME valued-node triple
+        # as the lattice above, one open constrained way per crossing.
+        #
+        # THIS IS WHAT MAKES THE CROSSING ANCHORED.  Until these nodes
+        # reach the patch, an 84.2 m taxi crossing of a HECA apron
+        # carried vertices only at its two ends (74.02 / 74.55): the
+        # junction pieces the centerline profile anchors stood 0.7-1.2 m
+        # PROUD of the membrane beside them, and the membrane sagged to
+        # 70.11 at the owner's dip site — the "disconnected T with two
+        # arcs" and the dip are one defect (RULINGS 2026-08-26b 3/5).
+        _st_lines = getattr(self, "apron_spine_station_emit", None) or []
+        if _st_lines:
+            _next_st_nid = (min(node_id_to_ll) - 1
+                            if node_id_to_ll else -1)
+            for _pts_ll, _alts in _st_lines:
+                _snids: list[int] = []
+                for (_sla, _slo), _sa in zip(_pts_ll, _alts):
+                    if _sa is None:
+                        continue
+                    node_id_to_ll[_next_st_nid] = (_sla, _slo)
+                    node_id_to_consensus[_next_st_nid] = float(_sa)
+                    node_alt_abs_nids.add(_next_st_nid)
+                    _snids.append(_next_st_nid)
+                    _next_st_nid -= 1
+                if len(_snids) >= 2:
+                    way_blocks.append(
+                        (next_wid[0], _snids,
+                         {"o4_feature": "apron_spine_station"}))
+                    next_wid[0] -= 1
+
         # Shape INTERIOR RINGS as closed constrained ways (see the
         # emit-model note above the shape loop).  Same mechanism as the
         # gap interior rings, and deliberately AFTER them so a ring that

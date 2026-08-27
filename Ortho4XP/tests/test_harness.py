@@ -5809,8 +5809,16 @@ def test_the_duplicate_class_is_in_the_out_of_scope_register(cg):
         # it; its law is its own registered family,
         # ``apron_lattice_membrane``, which prices each published edge
         # against the budget the SOLVE priced it at.
-        "apron_lattice"}
+        "apron_lattice",
+        # APRON SPINE STATIONS (spec heca-apron-round3 §1).  Role-less
+        # and open for the lattice's reason, and NOT a host-cap class
+        # for the same reason: a station is the interior of a taxi
+        # crossing the apron never had a vertex for, not a copy of any
+        # host's geometry.  Its law is the lattice's own registered
+        # family — one membrane, one family.
+        "apron_spine_station"}
     assert "apron_lattice" not in cg.HOST_CAP_FEATURE_CLASSES
+    assert "apron_spine_station" not in cg.HOST_CAP_FEATURE_CLASSES
 
 
 def test_a_partial_host_is_not_a_duplicate(cg, tmp_path):

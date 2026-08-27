@@ -1807,7 +1807,7 @@ def _zone_law_coverage(layout, bucket_to_idx, n, first_zone, edge_nodes):
 
 def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
                             building_seats, runway_anchor, seam_pins,
-                            seat_stamp_yield=None):
+                            seat_stamp_yield=None, station_nodes=None):
     """Split the phase-A frozen spine into ``(preserved, yield_hard)``.
 
     THE PRESERVED SET, ENUMERATED (the spec requires the enumeration, not
@@ -1823,7 +1823,23 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
     * ``building_seats`` — every seated pad / no-building-apron level;
     * ``runway_anchor`` (``G.runway_anchor``) — a subset of ``truth_hard``,
       restated because the spec names it;
-    * ``seam_pins`` (``layout._seam_pin_idx``) — likewise.
+    * ``seam_pins`` (``layout._seam_pin_idx``) — likewise;
+    * ``station_nodes`` — the APRON SPINE STATIONS (round-3 spec §1,
+      Amendment 1 ruling 1, 2026-08-27).  A station is a collinear
+      interior point of a taxi axis whose value the ROUTE PROFILE mints
+      — the phase-A pass IS its authority, not an external pin, so it is
+      preserved for the reason the runway values are: it is law rather
+      than an estimate the membrane may renegotiate.  Preserving it is
+      what makes a station-touching law edge ONE-SIDED IN PRACTICE: the
+      station is a CONSTANT in the membrane/POCS solve, so the edge can
+      only be satisfied by moving the ring / lattice side.  Measured on
+      the arm that did NOT preserve it (lane round3spine, A2/A3): the
+      projection satisfied the new edges by lowering the ANCHORED side —
+      the line-T ring vertex fell 74.02 → 73.43 and the dip-site
+      junction pieces came down 0.22 m while the lattice did not move at
+      all, which is the opposite of "conform UP to the spine" and of
+      airside-is-king.  Empty / ``None`` ⇒ the membership is
+      byte-identical (flag OFF, or no apron crossing).
 
     YIELD-HARD = ``{i in frozen : 0 <= i < n}`` minus that union.  The two
     are disjoint and together exhaust the in-range frozen set, so no spine
@@ -1844,7 +1860,8 @@ def _spine_yield_membership(frozen, n, *, truth_hard, runway_nodes,
 
     frozen_in = _in(frozen)
     preserved = (_in(truth_hard) | _in(runway_nodes) | _in(building_seats)
-                 | _in(runway_anchor) | _in(seam_pins))
+                 | _in(runway_anchor) | _in(seam_pins)
+                 | _in(station_nodes))
     preserved -= _in(seat_stamp_yield)
     return preserved, (frozen_in - preserved)
 
@@ -2186,6 +2203,38 @@ def solve_route_profile(layout, icao: str,
                   f"{len(_lattice_idx)} free lattice node(s), "
                   f"{len(_lattice_edges)} within-shape law edge(s) at "
                   f"the apron's own cap")
+    # ── APRON SPINE STATION constraints (spec heca-apron-round3 §1.3
+    # and §3.1) ───────────────────────────────────────────────────────
+    # The stations were admitted by ``_build_node_list`` and strung into
+    # the AIRCRAFT spine by ``_build_global_spine`` (so phase A values
+    # them from the axis's own profile); here they get the WITHIN-SHAPE
+    # law that ties the apron's membrane to them — station↔ring and
+    # station↔lattice pairs, priced by the apron's own caps through the
+    # same ``_grade_graph_edges``/``classify_pair`` path the lattice
+    # uses.  That coupling is the fix for the owner's proud T and his
+    # dip: both are the two sides of its absence.  The records extend
+    # the SAME sidecar publication and therefore the SAME law family
+    # (``apron_lattice_membrane``) — one membrane, one law.  Flag OFF
+    # (or no store): empty everything — byte-inert.
+    _station_idx: set = set()
+    _station_edges: list = []
+    if getattr(layout, "apron_spine_presolve", None):
+        from auto_patch.apron_spine_stations import (
+            build_apron_spine_station_constraints as _build_st_scs)
+        _st_scs, _station_idx, _station_edges = _build_st_scs(
+            layout, bucket_to_idx, _gg_ctx)
+        shape_constraints.extend(_st_scs)
+        if _station_edges:
+            # ASSIGNED, never appended: a second call of this function
+            # in one build would otherwise publish each station pair
+            # twice and the census would price one law two ways.
+            layout._apron_lattice_edges_ll = (
+                list(_lattice_edges) + _station_edges)
+        if _os.environ.get("O4_STEP_DEBUG") == "1":
+            print(f"    [apron-spine] {len(_st_scs)} apron(s), "
+                  f"{len(_station_idx)} centerline station(s), "
+                  f"{len(_station_edges)} within-shape law edge(s) to the "
+                  f"apron's ring/lattice at the apron's own cap")
     # ── RUNWAY-END RESA CUT constraints (arc R slice R1, gated) ───────
     # The owner ruling: the runway-end envelope is LAW THE SOLVER
     # ENFORCES.  The cut rings were emitted PRE-SOLVE (inside the B1
@@ -3768,7 +3817,15 @@ def solve_route_profile(layout, icao: str,
             building_seats=building_seats,
             runway_anchor=G.runway_anchor,
             seam_pins=_seam_pin_idx,
-            seat_stamp_yield=_seat_yield_idx)
+            seat_stamp_yield=_seat_yield_idx,
+            # ROUND-3 AMENDMENT 1 RULING 1: the stations are phase-A
+            # OUTPUT and constants in the membrane solve.  They are
+            # already ``base_hard`` from the freeze loop above; keeping
+            # them OUT of the yield set is what stops
+            # ``hard -= _spine_yield_idx`` releasing them into the final
+            # projection, where the anchored side would otherwise be the
+            # cheapest way to satisfy a station-touching edge.
+            station_nodes=_station_idx)
         for i in frozen:
             if i < n:
                 # §4: a seat the hard-stamp guard refused is not
@@ -3778,6 +3835,28 @@ def solve_route_profile(layout, icao: str,
                 if i in _seat_yield_idx:
                     continue
                 base_hard[i] = True
+        # ── APRON SPINE STATIONS: VALUED HERE, FROM THE PROFILE JUST
+        # SOLVED (spec heca-apron-round3 Amendment 2 ruling 1) ─────────
+        # THE SLOT IS THE RULING.  A station is not a chain variable —
+        # ``build_unified_graph`` deliberately never registers it, so the
+        # chain above, and every junction / ring / centerline value with
+        # it, is byte-identical to the stations-OFF arm.  Its value is
+        # that chain's own solved profile INTERPOLATED at the station's
+        # arc position, written between the spine pass and the membrane
+        # pass so it is phase-A OUTPUT and a CONSTANT downstream — never
+        # a post-hoc rewrite of a settled surface.  ``base_hard`` is
+        # stamped inside, which with the preservation below is what makes
+        # every station-touching membrane edge one-sided.
+        if getattr(layout, "apron_spine_presolve", None):
+            from auto_patch.apron_spine_stations import (
+                interpolate_station_values as _interp_st,
+                format_station_report as _fmt_st)
+            _st_report = _interp_st(layout, G, _gg_ctx, bucket_to_idx,
+                                    elev, base_hard)
+            if _st_report["valued"] or _st_report["no_chain"]:
+                import O4_UI_Utils as _UI_st
+                _UI_st.vprint(1, _fmt_st(icao, _st_report))
+            setattr(layout, "_apron_station_value_report", _st_report)
         if _spine_yield_idx:
             # THE phase-A values, snapshotted for the FORENSIC movement
             # report (they are no longer an authority — nothing downstream
@@ -6014,6 +6093,33 @@ def solve_route_profile(layout, icao: str,
                 if len(_pts_ll) >= 2:
                     _lat_emit.append((_pts_ll, _alts))
         layout.apron_lattice_emit = _lat_emit
+    # ── APRON SPINE STATION writeback (spec heca-apron-round3 §1) ─────
+    # The solved stations, in the CROWNED emit frame (``_elev_emit``, the
+    # array every pavement writeback reads) — so the emitted crossing and
+    # the emitted apron are one surface.  One polyline per crossing, in
+    # arc order, published as ``(pts_ll, alts)`` for ``to_osm``'s valued
+    # node triple.  Empty store: nothing published.
+    if getattr(layout, "apron_spine_presolve", None):
+        _cps_st = layout.canonical_points
+        _st_emit: list = []
+        for _st_entry in layout.apron_spine_presolve:
+            for _line in _st_entry.get("lines", ()) or ():
+                _pts_ll = []
+                _alts = []
+                for (_sx, _sy) in _line:
+                    _si = bucket_to_idx.get(
+                        _cps_st.get_or_add(float(_sx), float(_sy)))
+                    if _si is None or _si >= n:
+                        continue
+                    try:
+                        _sll = layout.m_to_ll(float(_sx), float(_sy))
+                    except Exception:              # pragma: no cover
+                        continue
+                    _pts_ll.append((float(_sll[0]), float(_sll[1])))
+                    _alts.append(float(_elev_emit[_si]))
+                if len(_pts_ll) >= 2:
+                    _st_emit.append((_pts_ll, _alts))
+        layout.apron_spine_station_emit = _st_emit
     # ── RUNWAY-END RESA CUT writeback (arc R slice R2) ────────────
     # THE FOOT RE-REFERENCE DISCIPLINE, the B3 zone twin: identical
     # law, exact reference frame, SOLVED values only.

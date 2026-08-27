@@ -76,6 +76,48 @@ def airside_shape_roles():
     return ENCLAVE_AIRSIDE_ROLES
 
 
+def taxiway_family_roles():
+    """THE TIER-2 SURFACE (spec Amendment 1 ruling 1, 2026-08-27).
+
+    *"Every node of taxiway-family pavement (taxiway, junction, stub,
+    primary_parallel — ring or interior) is tier 2: that surface is the
+    centerline profile's TRANSVERSE WRITEBACK, and letting the no-step
+    edges renegotiate it re-creates the round-3 anchored-side disease."*
+
+    The register is the solve's OWN taxi-route role set
+    (``route_profile.anchors._ROUTE_ROLES`` — the set
+    ``apron_body_nodes`` already partitions "route" from "DEM-follow
+    body" with), imported and never re-spelled: a second hand list here
+    is the census-wrapper defect in miniature, and the blast index's
+    role-literal hazard on top of it.
+    """
+    from .elevation_per_surface.route_profile.anchors import _ROUTE_ROLES
+    return _ROUTE_ROLES
+
+
+def taxiway_family_nodes(layout, bucket_to_idx, n_nodes):
+    """Every solver node carried by a TAXIWAY-FAMILY shape (tier 2)."""
+    from .elevation_per_surface.solver_primitives import _open_ring
+    roles = taxiway_family_roles()
+    cps = layout.canonical_points
+    out: set = set()
+    for s in (getattr(layout, "shapes", None) or ()):
+        if (getattr(s, "role", None) or "") not in roles:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except _GEOM_EXC:                                 # pragma: no cover
+            continue
+        for (x, y) in ring:
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n_nodes:
+                out.add(int(i))
+    return out
+
+
 def _airside_shapes(layout):
     roles = airside_shape_roles()
     out = []
@@ -157,9 +199,16 @@ def tier_of_nodes(n_nodes, *, runway_nodes=None, centerline_nodes=None,
                   seat_nodes=None):
     """``{node_idx: tier}`` for the SENIOR tiers (spec §1.3).
 
-    A node absent from the result is free-tier.  Precedence is the
-    ladder's own: runway profile beats centerline profile beats a seated
-    pad — a node that is two of those is the more senior of them.
+    A node absent from the result is free-tier.
+
+    THE MAX-TIER RULE (spec Amendment 1 ruling 1): *"a node shared
+    between shapes takes the SENIOR tier"* — the ladder's own
+    precedence, runway profile over centerline profile over a seated
+    pad.  It is what closes the runway+service-road CARVE CORNERS the
+    first arm moved (measured: 5 at HECA, worst 1.03 m; 4 at SPJC,
+    worst 1.44 m — every one of them a node a runway ring shares with
+    another role).  Written by ASSIGNING in ladder order, most junior
+    first, so the senior write always lands last.
     """
     out: dict = {}
     for src, tier in ((seat_nodes, TIER_SEAT),
@@ -356,7 +405,8 @@ def build_airside_no_step_constraints(
     report = {"airside_nodes": 0, "candidates": 0, "already_stated": 0,
               "not_visible": 0, "skipped_by_law": 0, "edges": 0,
               "cross_tier": 0, "senior_nodes": 0, "by_class": {},
-              "skipped_long_apron": 0}
+              "skipped_long_apron": 0, "tier2_census_only": 0,
+              "published": 0}
     if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
         return [], set(), [], report
     if window_m is None:
@@ -479,12 +529,26 @@ def build_airside_no_step_constraints(
             continue
         ta = int(tier_of.get(ia, TIER_FREE))
         tb = int(tier_of.get(ib, TIER_FREE))
-        if ta != tb:
+        # ── TIER2 <-> TIER2 IS CENSUS-PRICED, NOT SOLVER-IMPOSED (spec
+        # Amendment 1 ruling 1, report-first) ────────────────────────
+        # Both endpoints are the taxiway-family surface, i.e. the
+        # CENTERLINE PROFILE's own transverse writeback.  A violating
+        # pair there is a PROFILE-LAW docket — two authorities
+        # disagreeing — and imposing it here would make the membrane
+        # law a third authority arbitrating between them, which is the
+        # solver tug-of-war the ruling forbids.  The record is still
+        # PUBLISHED, so the census prices it and the docket has a
+        # number; it simply never becomes a constraint entry.
+        imposed = not (ta == TIER_CENTERLINE and tb == TIER_CENTERLINE)
+        if not imposed:
+            report["tier2_census_only"] += 1
+        elif ta != tb:
             report["cross_tier"] += 1
             senior_idx.add(ia if ta < tb else ib)
         cls = GL.apron_pair_class(pc) if role == apron_role else role
         report["by_class"][cls] = report["by_class"].get(cls, 0) + 1
-        by_role.setdefault(role, []).append((ia, ib, budget))
+        if imposed:
+            by_role.setdefault(role, []).append((ia, ib, budget))
         try:
             la = layout.m_to_ll(xa, ya)
             lb = layout.m_to_ll(xb, yb)
@@ -496,6 +560,11 @@ def build_airside_no_step_constraints(
             "budget_m": round(budget, 6),
             "dist_m": round(d, 4),
             "tier_a": ta, "tier_b": tb,
+            # Whether the SOLVE built to this pair or only the census
+            # prices it (spec Amendment 1 ruling 1).  Published so a
+            # reader can never mistake a report-first tier2 pair for a
+            # constraint the projection failed to meet.
+            "imposed": bool(imposed),
             "provenance": PROVENANCE})
     sc_out: list = []
     for role, edges in sorted(by_role.items()):
@@ -508,13 +577,17 @@ def build_airside_no_step_constraints(
                        STAGE_KEY: STAGE_A, "ref": PROVENANCE})
         report["edges"] += len(edges)
     report["senior_nodes"] = len(senior_idx)
+    report["published"] = len(edge_records)
     return sc_out, senior_idx, edge_records, report
 
 
 def format_report(icao: str, report: dict) -> str:
     """The build log's one line."""
-    return (f"  [airside-no-step] {icao}: {report['edges']} direct-distance "
-            f"law edge(s) over {report['airside_nodes']} airside node(s) "
+    return (f"  [airside-no-step] {icao}: {report['published']} "
+            f"direct-distance pair(s) published, {report['edges']} of them "
+            f"SOLVER-IMPOSED ({report['tier2_census_only']} tier2<->tier2 "
+            f"pair(s) census-priced only — a profile-law docket, spec "
+            f"Amendment 1) over {report['airside_nodes']} airside node(s) "
             f"from {report['candidates']} k-nearest candidate(s) "
             f"({report['already_stated']} already stated by a within-shape "
             f"entry, {report['not_visible']} crossing a pavement GAP, "

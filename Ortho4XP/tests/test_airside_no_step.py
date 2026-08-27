@@ -364,6 +364,81 @@ def test_a_cross_tier_edge_names_its_SENIOR_endpoint():
         "a FREE-tier node was named senior — the ladder is inverted")
 
 
+def test_tier2_is_the_whole_taxiway_family_register():
+    """Spec Amendment 1 ruling 1: tier 2 is every node of taxiway-family
+    pavement, and the register is the solve's OWN ``_ROUTE_ROLES`` —
+    imported, never re-spelled (the blast role-literal hazard)."""
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        _ROUTE_ROLES)
+    assert ANS.taxiway_family_roles() is _ROUTE_ROLES
+    assert {"junction", "stub", "primary_parallel"} <= set(_ROUTE_ROLES)
+    assert "apron" not in _ROUTE_ROLES
+    assert "runway" not in _ROUTE_ROLES
+
+    jn = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "junction")
+    ap = _Shape(_rect(-25.0, -20.0, 0.0, 20.0), "apron")
+    layout = _Layout([jn, ap])
+    bucket_to_idx, node_pos, _ctx = _wire(layout)
+    n = len(node_pos)
+    ids = {(round(px, 3), round(py, 3)): i
+           for i, (px, py) in node_pos.items()}
+    jn_ids = {ids[(round(x, 3), round(y, 3))]
+              for (x, y) in list(jn.polygon.exterior.coords)[:-1]}
+    got = ANS.taxiway_family_nodes(layout, bucket_to_idx, n)
+    assert got == jn_ids, (
+        "every junction RING vertex is tier 2, not only the ones a "
+        "centerline runs through")
+
+
+def test_a_shared_node_takes_the_SENIOR_tier():
+    """Spec Amendment 1 ruling 1, the max-tier rule — what closes the
+    runway+service-road CARVE CORNERS the first arm moved (5 at HECA
+    worst 1.03 m, 4 at SPJC worst 1.44 m, every one shared)."""
+    tiers = ANS.tier_of_nodes(10, runway_nodes={7}, centerline_nodes={7, 8},
+                              seat_nodes={7, 8, 9})
+    assert tiers[7] == ANS.TIER_RUNWAY
+    assert tiers[8] == ANS.TIER_CENTERLINE
+    assert tiers[9] == ANS.TIER_SEAT
+
+
+def test_tier2_to_tier2_pairs_are_published_but_NOT_imposed():
+    """Spec Amendment 1 ruling 1: *"Tier2<->tier2 no-step pairs are
+    CENSUS-PRICED but NOT solver-imposed this round"* — a violating pair
+    there is a PROFILE-LAW docket, never a solver tug-of-war between two
+    authorities.  The record is still published, so the docket has a
+    number."""
+    j1 = _Shape(_rect(-25.0, -20.0, 0.0, 20.0), "junction")
+    j2 = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "stub")
+    layout = _Layout([j1, j2])
+    bucket_to_idx, node_pos, ctx = _wire(layout)
+    n = len(node_pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(
+            layout, bucket_to_idx, n))
+    sc, senior, recs, rep = ANS.build_airside_no_step_constraints(
+        layout, bucket_to_idx, ctx, node_pos=node_pos, n_nodes=n,
+        tier_of=tiers)
+    assert recs, "the pairs must still be PUBLISHED for the census"
+    assert rep["tier2_census_only"] == len(recs)
+    assert rep["published"] == len(recs)
+    assert sc == [], "a tier2<->tier2 pair must not become a constraint"
+    assert rep["edges"] == 0
+    assert senior == set()
+    assert all(r["imposed"] is False for r in recs)
+    # …while a tier2 <-> FREE pair still is imposed.
+    ap = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "apron")
+    layout2 = _Layout([j1, ap])
+    b2, pos2, ctx2 = _wire(layout2)
+    n2 = len(pos2)
+    tiers2 = ANS.tier_of_nodes(
+        n2, centerline_nodes=ANS.taxiway_family_nodes(layout2, b2, n2))
+    sc2, senior2, recs2, rep2 = ANS.build_airside_no_step_constraints(
+        layout2, b2, ctx2, node_pos=pos2, n_nodes=n2, tier_of=tiers2)
+    assert rep2["edges"] > 0
+    assert rep2["cross_tier"] > 0
+    assert senior2, "the tier-2 side of a cross-tier edge is named senior"
+
+
 def test_free_tier_edges_are_symmetric():
     """"an edge within the free tier is symmetric" — it names no senior
     endpoint, so nothing is preserved on its account."""

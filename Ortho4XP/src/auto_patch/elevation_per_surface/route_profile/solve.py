@@ -3835,12 +3835,20 @@ def solve_route_profile(layout, icao: str,
             _nostep_tiers = _ANS.tier_of_nodes(
                 n,
                 runway_nodes=runway_nodes,
-                # THE CENTERLINE TIER: every taxi-spine node, the round-3
-                # apron spine STATIONS included — Amendment 2 made a
-                # station's value the axis profile's own, so it is
-                # centerline-valued in exactly the sense this ladder
-                # means (spec §1.3 says so verbatim).
-                centerline_nodes=(set(u_spine_nodes) | set(_station_idx)),
+                # THE CENTERLINE TIER IS THE WHOLE TAXIWAY-FAMILY
+                # SURFACE (spec Amendment 1 ruling 1, 2026-08-27).
+                # §1.3's "taxi centerline profile" was under-read on the
+                # first arm as the spine-ADJACENT nodes only, and 4,474
+                # of 6,072 junction nodes then moved: the taxiway
+                # surface IS that profile's transverse writeback, so a
+                # junction ring vertex carrying no centerline is tier 2
+                # exactly as the vertex under the centerline is.  The
+                # spine nodes and the round-3 apron STATIONS stay in the
+                # union — a station's value is its axis profile's own
+                # (round-3 Amendment 2), which is what tier 2 means.
+                centerline_nodes=(
+                    _ANS.taxiway_family_nodes(layout, bucket_to_idx, n)
+                    | set(u_spine_nodes) | set(_station_idx)),
                 seat_nodes=set(building_seats))
             # ONE LAW, ONE STATEMENT: a pair the within-shape entries
             # already carry is not restated here (two copies of one law

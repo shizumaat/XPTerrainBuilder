@@ -827,19 +827,26 @@ def test_the_pass_2_reseed_is_gated_OFF_with_its_measurement():
     i = src.index("AIRSIDE_NO_STEP_RESEED = (")
     note = src[max(0, i - 1800):i]
     assert "O4_AIRSIDE_NO_STEP_RESEED=1" in note
-    assert "1,920" in note and "1,359" in note, (
+    assert "re-seeded ZERO nodes" in note, (
         "a gated-off mechanism must carry the measurement that gated it")
+    assert "88 -> 186" in note, (
+        "…including the wider cut that scoped it back")
 
 
-def test_pass_2_reimposes_the_published_lattice_and_station_law():
-    """Spec Amendment 2 names them: *"the tier-4 nodes' own existing laws
-    (within-shape, lattice, station edges)"*.  Their entries are minted
-    inside the solve, so ``final_grade_projection``'s rebuilt constraint
-    set does NOT carry them — pass 2 resolves them from their own sidecar
-    publication, the same list the census prices."""
+def test_the_published_lattice_law_is_COUNTED_but_NOT_reimposed():
+    """Spec Amendment 2 names lattice/station edges among the tier-4
+    nodes' own laws, and this lane does NOT re-impose them — a measured
+    deviation, reported rather than improvised.  Pass 2 has every senior
+    node frozen, so re-imposing a budget the MAIN solve already failed
+    asks it to REPAIR a pre-existing violation and it pays out of the
+    membrane's other laws (SPJC airside 1,359 -> 1,926; CYXY's own
+    ``apron_lattice_membrane`` 24 -> 47).  The population is still
+    COUNTED, so the deviation is visible in every build log."""
     import inspect
     src = inspect.getsource(ANS.membrane_conform)
-    assert "_apron_lattice_edges_ll" in src
+    assert "NOT IMPOSED THIS ROUND" in src
+    assert "do-no-harm" in src.lower()
+    assert 'report["membrane_published_edges"]' in src
     doc = inspect.getdoc(ANS._resolve_published_ll_pairs)
     assert "canonical registry" in doc
 

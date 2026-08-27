@@ -901,13 +901,25 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
     # inside the solve).  Resolved from their own sidecar publication —
     # the same list the census prices — so pass 2 re-imposes exactly the
     # budget the solve built to.
-    lat_edges = _resolve_published_ll_pairs(
-        layout, bucket_to_idx, n_nodes,
-        getattr(layout, "_apron_lattice_edges_ll", None))
-    lat_edges = [(a, b, bud) for (a, b, bud) in lat_edges
-                 if a in free or b in free]
-    report["membrane_published_edges"] = len(lat_edges)
-    own = own + lat_edges
+    # …NOT IMPOSED THIS ROUND, and the reason is measured.  Pass 2 has
+    # every senior node frozen, so re-imposing a budget the MAIN solve
+    # already failed asks this pass to REPAIR a pre-existing violation
+    # with almost no freedom — and it pays for the repair out of the
+    # membrane's other laws.  Measured, every other ingredient identical:
+    # SPJC airside 1,359 -> 1,926 (``within_shape`` 9 -> 309,
+    # ``transverse`` 40 -> 132) and CYXY 132 -> 201 (``apron_lattice_
+    # membrane`` 24 -> 47, i.e. the very family the re-imposition was
+    # meant to protect got WORSE), because the conform moved 99 nodes by
+    # up to 3.24 m instead of 13 by up to 0.08 m.  The fix a ruling would
+    # choose is a DO-NO-HARM relaxation — each own-law budget raised to
+    # at least its pass-1 residual, so pass 2 can never WORSEN a pair but
+    # is never asked to repair one — and that is a Fable question, not
+    # this lane's to decide.  Reported in the lane report; the resolver
+    # below stays, unused, so the arm is one line away.
+    report["membrane_published_edges"] = len(
+        _resolve_published_ll_pairs(
+            layout, bucket_to_idx, n_nodes,
+            getattr(layout, "_apron_lattice_edges_ll", None)))
     report["own_law_edges"] = len(own)
     if not ns_edges and not own:
         return report
@@ -1007,8 +1019,9 @@ def format_conform_report(icao: str, r: dict) -> str:
             f"tier2 {t.get('tier2', 0)} / tier3 {t.get('tier3', 0)}); "
             f"{r['pairs']} imposed no-step pair(s) + {r['own_law_edges']} "
             f"of the membrane's OWN law edge(s) "
-            f"({r.get('membrane_published_edges', 0)} of them the published "
-            f"lattice/station law); {r['reseeded']} node(s) "
+            f"({r.get('membrane_published_edges', 0)} published "
+            f"lattice/station pair(s) NOT re-imposed — see the note); "
+            f"{r['reseeded']} node(s) "
             f"re-seeded on the taut scaffold (worst "
             f"{r['reseed_worst_m']:.2f} m over the {r.get('interior', 0)} "
             f"INTERIOR of them, spec §1.4); {r['moved']} node(s) "

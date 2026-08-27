@@ -9543,19 +9543,18 @@ AIRSIDE_NO_STEP = (
 # GATED, DEFAULT OFF, awaiting a Fable ruling.
 #
 # Amendment 2 puts the §1.4 DEM demotion in pass 2, and the mechanism
-# that expresses it is re-seeding the membrane INTERIOR on the taut
-# scaffold of the pass-1 constants.  MEASURED at SPJC, with every other
-# pass-2 ingredient identical: with the re-seed reaching (170 interior
-# nodes, worst 3.97 m) the arm comes back at airside 1,920 —
-# ``within_shape`` 309, ``transverse`` 132, ``apron_lattice_membrane``
-# 168, and 594 no-step edges still over cap after the creation-order
-# repair; with it inert, airside 1,359 — ``within_shape`` 9,
-# ``transverse`` 40, 24 edges left.  Clamping the taut level into the
-# interval the node's own law edges admit did not change the reading.
-# The re-seed is therefore the measured offender, and shipping it
-# default-ON would trade a 561-row airside regression for a term whose
-# benefit this lane could not measure.  It is KEPT (deleting it would
-# hide the finding) and GATED: ``O4_AIRSIDE_NO_STEP_RESEED=1`` restores
-# it exactly, which is the arm a ruling would be made on.
+# that expresses it is re-seeding the membrane INTERIOR (§1.4's own
+# scope: the round-2 lattice, never a shape's exterior ring) on the taut
+# scaffold of the pass-1 constants.  MEASURED at CYXY and SPJC under
+# that scope: the envelope does not reach those interiors from the
+# constants at all, so the term re-seeded ZERO nodes on both airports —
+# its benefit is UNMEASURED on this lane, and shipping an unmeasured
+# term default-ON is not a thing this repo does.  (An earlier, wider cut
+# that re-seeded every tier-4 node instead — apron RING vertices
+# included, which §1.4 does not name — moved CYXY airside 88 -> 186 with
+# `transverse` alone 4 -> 67, which is what scoped it back.)  KEPT
+# rather than deleted so the finding is not hidden:
+# ``O4_AIRSIDE_NO_STEP_RESEED=1`` restores it exactly, and that is the
+# arm a ruling would be made on.
 AIRSIDE_NO_STEP_RESEED = (
     _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")

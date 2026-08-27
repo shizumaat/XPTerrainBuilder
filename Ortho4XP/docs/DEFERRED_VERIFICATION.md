@@ -3608,3 +3608,17 @@ blast-radius suites for `grade_graph.py` and `route_profile/anchors.py`
 lane), the five-airport battery, and a byte-identity hash of two emitted
 patch bodies across the flag (the flag-off arm's census is identical to the
 §0 reference, which is the stronger available evidence).
+
+### 2026-08-27b — lane/roadxing, Amendment 2 diagnostic arm
+
+The §1.1 25b contact-set widening now has its own gate
+(`O4_ROAD_AIRSIDE_CONTACT_WIDEN`, default ON) so the Fable-authorized
+diagnostic could run.  Measured (CYXY / SPJC / HECA, widening OFF, adoption
+kept): the crossing population and the adoption are byte-identical, the
+owner-site profile is identical, and the residual NEW airside rows SHRINK
+but do not die (HECA 28 -> 15, SPJC 4 -> 4).  Per Amendment 2 §2 that is a
+STOP: the widening is NOT retired on this lane and the gate stays default
+ON, i.e. the shipped behaviour is unchanged from attempt 3.  DEFERRED: the
+fresh attribution of the 15 HECA / 4 SPJC residual rows (needs an
+instrumented build; they sit a median 121 m from any road, far outside the
+adoption's 6.5 m reach, and are largely churn on the same aprons).

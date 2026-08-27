@@ -141,6 +141,7 @@ __all__ = [
     "APRON_INTERIOR_LATTICE",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
+    "ROAD_AIRSIDE_CONTACT_WIDEN",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -9434,6 +9435,15 @@ TAUT_GRADED_STRIP = (
 # graph byte for byte.
 ROAD_AIRSIDE_CROSSING_CONFORM = (
     _os.environ.get("O4_ROAD_AIRSIDE_CROSSING_CONFORM", "1") != "0")
+
+# §1.1's 25b CONTACT-SET WIDENING, on its own gate (spec Amendment 2 §2).
+# Under adoption-only values the widening carries NONE of this law's
+# acceptance, and it is the last term in the arm that can still reach the
+# AIRSIDE solve — through the lateral pass's cuts, which change road ring
+# geometry and therefore ``grade_graph.build_context``'s membership sets.
+# ``O4_ROAD_AIRSIDE_CONTACT_WIDEN=0`` is the Fable-authorized diagnostic.
+ROAD_AIRSIDE_CONTACT_WIDEN = (
+    _os.environ.get("O4_ROAD_AIRSIDE_CONTACT_WIDEN", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

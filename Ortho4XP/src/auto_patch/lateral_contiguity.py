@@ -110,6 +110,13 @@ def airside_contact_roles() -> frozenset:
     from . import config as _cfg
     if not bool(getattr(_cfg, "ROAD_AIRSIDE_CROSSING_CONFORM", True)):
         return APRON_CONTACT_ROLES
+    # THE DIAGNOSTIC GATE (spec Amendment 2 §2, Fable-authorized).  The
+    # widening carries NONE of this law's acceptance once values are
+    # ADOPTED post-solve — and it is the last term in the arm that can
+    # still reach the airside solve, through the lateral pass's cuts.
+    # ``O4_ROAD_AIRSIDE_CONTACT_WIDEN=0`` measures that directly.
+    if not bool(getattr(_cfg, "ROAD_AIRSIDE_CONTACT_WIDEN", True)):
+        return APRON_CONTACT_ROLES
     from .enclaves import ENCLAVE_AIRSIDE_ROLES
     return frozenset(APRON_CONTACT_ROLES | ENCLAVE_AIRSIDE_ROLES)
 

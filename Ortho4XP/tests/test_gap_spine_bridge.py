@@ -252,3 +252,150 @@ def test_the_visibility_predicate_is_the_shared_one():
     assert "_visibility_predicate" in src
     from auto_patch import grade_graph as GG
     assert callable(GG._visibility_predicate)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE STAND-DOWN — twins for gap-spine-bridge-stand-down-spec
+# Amendment 1 (owner ruling 2026-08-27 "2").
+#
+# The adjudication is INTERVENTIONAL: the post-solve band law refusing a
+# build in which bridges were minted triggers ONE re-run with them stood
+# down, and the two outcomes rule.  These drive
+# ``pipeline.gap_spine_stand_down_solve`` directly — it takes its two
+# expensive halves as callables precisely so the law is testable without
+# a build, and it is the ONE implementation the pipeline calls.
+# ══════════════════════════════════════════════════════════════════════
+
+class _BandLayout:
+    """A layout stub carrying only what the adjudicator reads."""
+
+    def __init__(self, bridges=(), rows=(), band_n=0):
+        if bridges:
+            self.gap_spine_bridges = list(bridges)
+        self._final_band_inversions = list(rows)
+        self._final_band_node_count = band_n
+
+
+def _stand_down_parts(*, bridges, solve_raises, retry_raises):
+    """``(pipeline, adjudicate, calls)`` — the adjudicator wired to two
+    fakes that record how often each half ran."""
+    from auto_patch import pipeline as PL
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        BandInversionError)
+    calls = {"solve": 0, "rebuild": 0}
+    minted = _BandLayout(
+        bridges=bridges,
+        rows=[{"deficit_m": 0.6582}, {"deficit_m": 0.002}],
+        band_n=1478)
+    clean = _BandLayout()                     # the retry mints no bridge
+
+    def solve():
+        calls["solve"] += 1
+        if solve_raises:
+            raise BandInversionError("ICAO: the FINAL reach band is "
+                                     "INVERTED at 43 node(s)\n  detail")
+        return minted
+
+    def rebuild():
+        calls["rebuild"] += 1
+        # The retry runs with synthesis disabled — assert that the
+        # adjudicator actually disabled it before calling us, because
+        # THAT is what makes the retry the intervention it claims.
+        from auto_patch import config as _cfg
+        assert _cfg.GAP_SPINE_BRIDGE_ENABLED is False
+        if retry_raises:
+            raise BandInversionError("ICAO: still INVERTED at 40 node(s)")
+        return clean
+
+    return PL, (lambda: PL.gap_spine_stand_down_solve(
+        layout=minted, icao="ICAO", solve=solve, rebuild=rebuild)), calls
+
+
+def test_refusal_then_clean_retry_stands_the_bridges_down():
+    """Bridges minted + refusal + clean retry ⇒ the bridge-free layout
+    ships, carrying the ``gap_spine_stand_down`` evidence record."""
+    from auto_patch import config as cfg
+    was = cfg.GAP_SPINE_BRIDGE_ENABLED
+    _PL, adjudicate, calls = _stand_down_parts(
+        bridges=[{"dist_m": 82.95}, {"dist_m": 243.87}],
+        solve_raises=True, retry_raises=False)
+    shipped = adjudicate()
+    assert calls == {"solve": 1, "rebuild": 1}     # ONE shot, never a loop
+    assert not getattr(shipped, "gap_spine_bridges", None)
+    rec = shipped.gap_spine_stand_down
+    assert len(rec) == 1
+    assert rec[0]["icao"] == "ICAO"
+    assert rec[0]["bridge_count"] == 2
+    assert len(rec[0]["bridges"]) == 2
+    assert "INVERTED at 43 node(s)" in rec[0]["refusal"]
+    # The inverted population that adjudicated them — MATERIAL rows only
+    # (the sub-materiality row is tolerated by the law, so it is not
+    # part of the count the record reports).
+    assert rec[0]["inverted_node_count"] == 1
+    assert rec[0]["band_node_count"] == 1478
+    # The flag is restored whatever happened.
+    assert cfg.GAP_SPINE_BRIDGE_ENABLED is was
+
+
+def test_refusal_then_still_refusing_retry_exonerates_the_bridges():
+    """The retry WITHOUT the bridges refuses too ⇒ they are not the
+    mechanism: the ORIGINAL refusal is re-raised unchanged and NO patch
+    ships.  A refusal is never swallowed to shield a surface."""
+    from auto_patch import config as cfg
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        BandInversionError)
+    was = cfg.GAP_SPINE_BRIDGE_ENABLED
+    _PL, adjudicate, calls = _stand_down_parts(
+        bridges=[{"dist_m": 82.95}],
+        solve_raises=True, retry_raises=True)
+    with pytest.raises(BandInversionError) as excinfo:
+        adjudicate()
+    assert "INVERTED at 43 node(s)" in str(excinfo.value)   # the ORIGINAL
+    assert "still INVERTED" not in str(excinfo.value)
+    assert calls == {"solve": 1, "rebuild": 1}
+    assert cfg.GAP_SPINE_BRIDGE_ENABLED is was
+
+
+def test_a_refusal_with_no_bridges_minted_never_retries():
+    """No bridge in the build ⇒ the adjudicator is a pass-through and the
+    refusal propagates exactly as it did before the mechanism existed."""
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        BandInversionError)
+    _PL, adjudicate, calls = _stand_down_parts(
+        bridges=(), solve_raises=True, retry_raises=False)
+    with pytest.raises(BandInversionError):
+        adjudicate()
+    assert calls == {"solve": 1, "rebuild": 0}
+
+
+def test_a_clean_build_with_bridges_is_untouched():
+    """The adjudicator costs a passing build nothing: one solve, no
+    retry, no record."""
+    _PL, adjudicate, calls = _stand_down_parts(
+        bridges=[{"dist_m": 82.95}],
+        solve_raises=False, retry_raises=False)
+    shipped = adjudicate()
+    assert calls == {"solve": 1, "rebuild": 0}
+    assert not getattr(shipped, "gap_spine_stand_down", None)
+
+
+def test_the_pipeline_routes_its_solve_through_the_one_adjudicator():
+    """``build_airport_pavement`` must not grow a second copy of the
+    law: its tail calls the adjudicator, and the adjudicator is the only
+    place ``BandInversionError`` is caught in the pipeline."""
+    import inspect
+    from auto_patch import pipeline as PL
+    tail = inspect.getsource(PL.build_airport_pavement)
+    assert "gap_spine_stand_down_solve(" in tail
+    body = inspect.getsource(PL)
+    assert body.count("except BandInversionError") == 2, (
+        "the adjudicator's two arms are the ONLY BandInversionError "
+        "handlers in pipeline.py")
+
+
+def test_the_stand_down_key_is_a_registered_evidence_key():
+    """A stand-down is EVIDENCE, counted by the census and re-judged by
+    nobody — and the sidecar contract requires it to be classified."""
+    import check_grade as cg
+    assert "gap_spine_stand_down" in cg.SIDECAR_EVIDENCE_KEYS
+    assert "gap_spine_stand_down" not in cg.SIDECAR_LAW_KEYS

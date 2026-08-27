@@ -1705,6 +1705,26 @@ def print_report(rep: dict, top: int) -> None:
     if _nli:
         print("    ^ these regions contribute ZERO rows to every table "
               "below — no emitted nodes, no pairs, no census")
+    # THE STAND-DOWN, COUNTED (gap-spine-bridge-stand-down-spec
+    # Amendment 1 §2 register).  A stand-down is NOT a defect row: it
+    # says this patch is the bridge-free RE-RUN of a build the post-solve
+    # band law refused with bridges minted, so "gap-spine bridges: 0"
+    # above means something different here than it does on an airport
+    # that never had one.  Printed only when the mechanism fired —
+    # unlike the blind-spot line above, a zero here is the ordinary case
+    # and carries no evidence, while the key's ABSENCE is already
+    # readable as "(not measured)" beside it.
+    _gsd = ev.get("gap_spine_stand_down_count")
+    if _gsd:
+        print(f"  GAP-SPINE STAND-DOWN: {_gsd} record(s) — this patch is "
+              f"the bridge-free RE-RUN of a build the post-solve band law "
+              f"refused with bridges minted, so the zero above is not the "
+              f"zero of an airport that never had one.  The region those "
+              f"bridges would have filled is deliberately unfilled.  "
+              f"COUNT ONLY: a stand-down is not a defect row and this "
+              f"census re-judges nothing about it (the record itself — "
+              f"the refusal, the withdrawn bridges, the inverted "
+              f"population — is in the sidecar).")
     be = ev.get("band_excess")
     if isinstance(be, dict) and not be.get("error"):
         s = be.get("by_side") or {}

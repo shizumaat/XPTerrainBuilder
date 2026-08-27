@@ -3805,6 +3805,21 @@ class PavementLayout:
             # no upstream feed.  Written unconditionally.
             "gap_spine_bridges": list(
                 getattr(self, "gap_spine_bridges", None) or []),
+            # THE GAP-SPINE BRIDGE STAND-DOWN (owner ruling 2026-08-27
+            # "2"; gap-spine-bridge-stand-down-spec Amendment 1).  One
+            # record when this patch is the RETRY of a build the
+            # post-solve band law refused with bridges minted, and the
+            # retry without them came out clean: the bridges are the
+            # mechanism, the region they would have filled is
+            # deliberately unfilled, and the record carries the original
+            # refusal, the bridges that stood down and the inverted
+            # population that adjudicated them.  EVIDENCE, never law
+            # input: a stand-down is not a defect row and the census
+            # counts it without re-judging it.  Written unconditionally,
+            # so ``[]`` means "no stand-down happened" and a MISSING key
+            # means "this patch predates the mechanism".
+            "gap_spine_stand_down": list(
+                getattr(self, "gap_spine_stand_down", None) or []),
             # THE APRON LATTICE's own law edges (spec heca-apron-round2
             # Amendment 1 §1b, Amendment 2 clause 3).  LAW INPUT: a
             # lattice edge joins two INTERIOR nodes lying on no ring, so

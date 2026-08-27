@@ -183,7 +183,8 @@ def test_the_sidecar_keys_are_registered_as_evidence():
     """An emitted sidecar key classified nowhere fails
     ``test_harness.test_every_emitted_sidecar_key_is_classified``."""
     import check_grade as CG
-    for key in ("nodeless_interiors", "gap_spine_bridges"):
+    for key in ("nodeless_interiors", "gap_spine_bridges",
+                "gap_spine_stand_down"):
         assert key in CG.SIDECAR_EVIDENCE_KEYS
         assert key not in CG.SIDECAR_LAW_KEYS
 
@@ -196,10 +197,12 @@ def test_the_evidence_reader_counts_them(tmp_path):
         "anchor": list(ANCHOR), "ruleset": "icao",
         "nodeless_interiors": [{"shapeID": 3, "radius_m": 107.4},
                                {"shapeID": 9, "radius_m": 88.0}],
-        "gap_spine_bridges": [{"node_a": 462, "node_b": 470}]}))
+        "gap_spine_bridges": [{"node_a": 462, "node_b": 470}],
+        "gap_spine_stand_down": [{"icao": "HEAZ", "bridge_count": 13}]}))
     ev = CG.sidecar_evidence(str(osm))
     assert ev["nodeless_interior_count"] == 2
     assert ev["gap_spine_bridge_count"] == 1
+    assert ev["gap_spine_stand_down_count"] == 1
     assert ev["unknown_keys"] == []
 
 
@@ -215,8 +218,10 @@ def test_an_empty_reading_is_not_an_absent_key(tmp_path):
                       .read_text())
     assert side["nodeless_interiors"] == []
     assert side["gap_spine_bridges"] == []
+    assert side["gap_spine_stand_down"] == []
     ev = CG.sidecar_evidence(str(patch))
     assert ev["nodeless_interior_count"] == 0
+    assert ev["gap_spine_stand_down_count"] == 0
     assert ev["unknown_keys"] == []
 
 
@@ -232,3 +237,24 @@ def test_the_records_reach_the_sidecar(tmp_path):
     assert side["gap_spine_bridges"][0]["node_a"] == 462
     # the instrument ran over an empty layout and published its zero
     assert side["nodeless_interiors"] == []
+
+
+def test_the_stand_down_record_reaches_the_sidecar(tmp_path):
+    """A patch that IS the bridge-free retry carries the record naming
+    the refusal it answered — so "why has this apron no bridge?" is
+    answerable from the artifacts, not only from the build log."""
+    from auto_patch.layout import PavementLayout
+    layout = PavementLayout(icao="HEAZ", anchor=ANCHOR)
+    layout.gap_spine_stand_down = [{
+        "icao": "HEAZ", "bridge_count": 13,
+        "bridges": [{"dist_m": 82.95}],
+        "refusal": "HEAZ: the FINAL reach band is INVERTED at 43 node(s)",
+        "inverted_node_count": 43, "band_node_count": 1478,
+        "materiality_m": 0.01}]
+    patch = tmp_path / "HEAZ_auto.patch.osm"
+    layout.to_osm(str(patch))
+    side = json.loads((tmp_path / "HEAZ_auto.patch.osm.axes.json")
+                      .read_text())
+    assert side["gap_spine_stand_down"][0]["bridge_count"] == 13
+    # the bridges are recorded as NOT in this patch
+    assert side["gap_spine_bridges"] == []

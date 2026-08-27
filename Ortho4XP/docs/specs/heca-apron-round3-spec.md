@@ -101,3 +101,51 @@ necessity is IN DOUBT ("which I'm not convinced is necessary").
   second miss, progress heartbeat. No shared-repo writes, no timing
   claims (ledger tripwire only); build-time impact statement in the
   implementation report.
+
+## Amendment 1 (Fable, 2026-08-27 — rulings on the lane's STOP items;
+## attempt cap RESETS for the amended §1/§3 targets, cap 2)
+
+Measured (lane/round3spine, arms CTL/B/C/A3, single tree): §2 clip
+COMPLETE (lattice overlap 7 → 0). §1/§3 landed but the coupling is
+SYMMETRIC: at the dip site the lattice did not move and the junction
+pieces came DOWN 0.22 m; the line-T ring vertex fell 74.02 → 73.43;
+ring-to-station steps 2.50–4.05 % against the 1.5 % cap;
+`apron_lattice_membrane` 144 → 422. The projection satisfies the new
+edges by lowering the anchored side — the opposite of "conform UP to
+the spine" and of airside-is-king. Rulings:
+
+1. **STATION VALUES ARE PHASE-A OUTPUT — CONSTANTS IN THE MEMBRANE
+   SOLVE.** A station is valued by the route profile (the spine's own
+   solve, where it is a legitimate collinear interior point of the
+   chain — this is NOT a mid-taxiway hard anchor: the value is the
+   profile's own, not an external pin). In the membrane/POCS solve the
+   station is NOT a free variable: station-touching law edges
+   constrain the NON-station side only (one-sided interval against a
+   constant), exactly the adoption-not-constraint principle the
+   road-crossing Amendment 1 §3 established. No term of the spine or
+   junction solve may reference lattice/ring membrane variables
+   through these edges. If the one-solve graph cannot express the
+   one-sidedness, fix the station values between the spine pass and
+   the membrane pass (the staged precedent), never post-hoc.
+2. **ACCEPTANCE RESTATED for §1/§3:** junction pieces and centerline
+   values at the T/dip sites within materiality (0.01 m) of the
+   stations-OFF arm (the anchored side yields NOTHING); the membrane
+   RISES toward the stations (dip-site proud ridge shrinks by the
+   membrane moving up, junction unmoved); line-T ring-to-station steps
+   lawful OR attributed to the ring's own pre-existing profile;
+   membrane family reported honestly (rows may remain — un-blinding).
+3. **Approved deviations:** the ≥3-station minimum (parse-contract
+   forced, densify-only) and the station-chord clip stand. The 1.1 m
+   station-class overlap residual through junction −12393 is ACCEPTED
+   this round (report it; the polyline-following refinement is a
+   later round if the owner's sim read ever sees it).
+4. **The overlap instrument PROMOTES** (RULINGS `7e90032`, ~8 uses):
+   land it as `tools/lattice_overlap_read.py` with an INDEX.md row and
+   a twin, reading through the patch's own parser conventions; note in
+   the row that `check_grade._parse_osm` drops <3-node ways, so the
+   tool parses features directly.
+5. **Necessity arm stands as the owner's answer:** with stations
+   alone, 8 HECA aprons still carry a >80 m empty disk (worst 169.5 m)
+   — the lattice remains necessary on this instrument; not gated off.
+   The CYXY "byte-identical" premise in §4 is corrected: CYXY has a
+   latticed apron and lawfully gains stations.

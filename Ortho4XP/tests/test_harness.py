@@ -524,15 +524,16 @@ def test_the_near_miss_frontage_law_is_one_authority(cg):
     live in ``auto_patch.config``; the solver module re-exports them.  The
     role tuple is spelled as strings there (config cannot import
     ``layout``), so a ROLE_* rename would silently un-scope the law — this
-    is what makes that loud."""
+    is what makes that loud.  ``service_junction`` is deliberately absent:
+    R7b clause 2 (RULINGS 2026-08-15, the sink ruling) removed roads from
+    the soft-role set — a road never welds to a building."""
     from auto_patch.config import (BUILDING_FRONTAGE_NEAR_MISS_M,
                                    NEAR_MISS_FRONTAGE_SOFT_ROLES,
                                    near_miss_frontage_budget, APRON_MAX_GRADE)
-    from auto_patch.layout import (ROLE_APRON, ROLE_JUNCTION,
-                                   ROLE_SERVICE_JUNCTION)
+    from auto_patch.layout import ROLE_APRON, ROLE_JUNCTION
     from auto_patch.elevation_per_surface.route_profile import anchors
     assert NEAR_MISS_FRONTAGE_SOFT_ROLES == (
-        ROLE_APRON, ROLE_JUNCTION, ROLE_SERVICE_JUNCTION), (
+        ROLE_APRON, ROLE_JUNCTION), (
         "the near-miss frontage role set no longer matches the ROLE_* "
         "constants — the solve and the census now scope the law differently")
     assert anchors.BUILDING_FRONTAGE_NEAR_MISS_M == \

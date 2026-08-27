@@ -1527,7 +1527,7 @@ def _tiny_repo(tmp_path):
     (main / ".gitignore").write_text(
         "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n")
     data = tmp_path / "data"
-    for d in ("OSM_data", "Elevation_data", "Airport_mod_cache"):
+    for d in ("OSM_data", "Elevation_data", "Airport_mod_cache", "Sessions"):
         (data / d).mkdir(parents=True)
     env = dict(os.environ,
                O4_MAIN_REPO=str(main), O4_DATA_REPO=str(data),
@@ -1553,8 +1553,13 @@ def _tiny_repo(tmp_path):
     old_ref = git("rev-parse", "HEAD")
     (main / "tools").mkdir()
     (main / "tools" / "INDEX.md").write_text("# Tool index\n\ncensus.py\n")
+    # The real repo's shape since eeca2cff: Ortho4XP/Sessions is a TRACKED
+    # symlink (mode 120000) into the shared data repo, and the repo also
+    # holds a Sessions dir — so data_dirs() enumerates a mount the
+    # checkout itself already provides.
+    (main / "Ortho4XP" / "Sessions").symlink_to(data / "Sessions")
     git("add", "-A")
-    git("commit", "-qm", "the tool index lands")
+    git("commit", "-qm", "the tool index lands; Sessions becomes tracked")
     return main, data, env, old_ref
 
 
@@ -1617,6 +1622,49 @@ def test_teardown_puts_back_the_tracked_shipped_patch(tmp_path):
     assert down.returncode == 0, (
         f"teardown refused:\n{down.stdout}\n{down.stderr}")
     assert not wt.exists(), "the worktree is still registered after down"
+
+
+def test_teardown_leaves_a_tracked_data_symlink_in_place(tmp_path):
+    """``Ortho4XP/Sessions`` is a TRACKED symlink (mode 120000, since
+    eeca2cff) into the shared data repo, and the repo also holds a
+    ``Sessions`` dir — so ``data_dirs()`` enumerates it.  `down`'s unmount
+    loop used to ``rm`` it like any mounted symlink, leaving
+    `` D Ortho4XP/Sessions`` and a ``git worktree remove`` that refuses
+    "contains modified or untracked files" every time.  Measured
+    2026-08-27 tearing down lane heazbisect.  `up` must report the
+    checkout's own symlink rather than relink it, and `down` must leave
+    it for ``worktree remove`` to take."""
+    main, data, env, old_ref = _tiny_repo(tmp_path)
+
+    up = _ritual(env, "up", "lane5", "HEAD")
+    assert up.returncode == 0, up.stdout + up.stderr
+    wt = main / ".claude" / "worktrees" / "lane5"
+    sess = wt / "Ortho4XP" / "Sessions"
+    assert sess.is_symlink() and os.readlink(sess) == str(data / "Sessions")
+    assert "tracked Sessions" in up.stdout, (
+        "`up` must report the tracked symlink as the checkout's own, "
+        "never re-mount it")
+    porcelain = subprocess.run(
+        ["git", "-C", str(wt), "status", "--porcelain"],
+        env=env, capture_output=True, text=True).stdout
+    assert " D Ortho4XP/Sessions" not in porcelain
+
+    down = _ritual(env, "down", "lane5")
+    assert down.returncode == 0, (
+        f"teardown refused (the heazbisect failure):\n"
+        f"{down.stdout}\n{down.stderr}")
+    assert not wt.exists(), "the worktree is still registered after down"
+
+    # The OLD-REF case: Sessions is untracked there, so it is ritual
+    # scaffolding again — mounted by `up`, removed by `down`.
+    up_old = _ritual(env, "up", "lane6", old_ref)
+    assert up_old.returncode == 0, up_old.stdout + up_old.stderr
+    wt_old = main / ".claude" / "worktrees" / "lane6"
+    assert (wt_old / "Ortho4XP" / "Sessions").is_symlink()
+    assert "tracked Sessions" not in up_old.stdout
+    down_old = _ritual(env, "down", "lane6")
+    assert down_old.returncode == 0, down_old.stdout + down_old.stderr
+    assert not wt_old.exists()
 
 
 def test_the_ritual_never_overwrites_a_tracked_index(tmp_path):

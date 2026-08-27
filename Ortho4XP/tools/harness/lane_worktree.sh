@@ -215,9 +215,35 @@ audit_untracked() {
     return 0
 }
 
+# Is Ortho4XP/$1 itself a TRACKED SYMLINK (mode 120000) in this
+# worktree's checkout?  Ortho4XP/Sessions is one since eeca2cff: the
+# shared repo also holds a Sessions dir, so data_dirs enumerates it —
+# but the checkout ALREADY provides the mount.  A tracked symlink is
+# the checkout's own file, not ritual scaffolding: rm'ing or relinking
+# it dirties the tree (` D Ortho4XP/Sessions`) and `git worktree
+# remove` then refuses, leaving the lane HALF torn down (measured
+# 2026-08-27, lane heazbisect).  Files tracked UNDER a real directory
+# report mode 100644 here, so this matches only the symlink case.
+tracked_symlink() {
+    [ "$(git -C "$WT" ls-files -s -- "Ortho4XP/$1" 2>/dev/null \
+         | awk 'NR==1{print $1}')" = "120000" ]
+}
+
 # One symlink, reported.  $1 = name, $2 = target.
 mount_link() {
     _name="$1"; _target="$2"
+    if tracked_symlink "$_name"; then
+        _cur=$(readlink "$ENGINE/$_name" 2>/dev/null || true)
+        if [ "$_cur" = "$_target" ]; then
+            echo "  [ritual] tracked $_name -> $_target (the checkout's own symlink; left alone)"
+            return 0
+        fi
+        die "Ortho4XP/$_name is a TRACKED symlink in this checkout but
+    points at '$_cur', not $_target.  Re-linking it would dirty the tree
+    (' T Ortho4XP/$_name') and teardown would then refuse.  Resolve the
+    divergence in git (or via O4_DATA_REPO) rather than remounting over
+    a tracked path."
+    fi
     if [ -L "$ENGINE/$_name" ]; then
         _cur=$(readlink "$ENGINE/$_name")
         if [ "$_cur" != "$_target" ]; then
@@ -383,7 +409,12 @@ check)
         else
             _real=$(cd "$ENGINE" && readlink -f "$d" 2>/dev/null)
             case "$_real" in
-                "$DATA_REPO"/*) echo "  [ritual] OK      $d -> $_real" ;;
+                "$DATA_REPO"/*)
+                    if tracked_symlink "$d"; then
+                        echo "  [ritual] OK      $d -> $_real (tracked — the checkout's own symlink)"
+                    else
+                        echo "  [ritual] OK      $d -> $_real"
+                    fi ;;
                 *) echo "  [ritual] OFF-REPO $d resolves to $_real, not under"
                    echo "                   $DATA_REPO — a DIFFERENT CORPUS"
                    rc=1 ;;
@@ -459,6 +490,12 @@ down)
     first — a removed worktree takes them with it."
     fi
     for d in $ENGINE_LINKS $(data_dirs); do
+        # A TRACKED symlink (Ortho4XP/Sessions since eeca2cff) is the
+        # checkout's own file: rm'ing it here left ` D Ortho4XP/Sessions`
+        # and `git worktree remove` refused every time — teardown failed
+        # AFTER the untracked mounts were gone (measured 2026-08-27,
+        # lane heazbisect).  Leave it; removing the worktree takes it.
+        tracked_symlink "$d" && continue
         [ -L "$ENGINE/$d" ] && rm "$ENGINE/$d"
     done
     for d in $CLONE_DIRS; do

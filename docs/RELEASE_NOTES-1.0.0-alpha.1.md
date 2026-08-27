@@ -11,13 +11,19 @@ XPTerrainBuilder builds X-Plane photoscenery ("ortho" scenery): you pick
 produces the mesh, textures and DSF files X-Plane needs.
 
 It is a fork and derivative of **[Ortho4XP](https://github.com/oscarpilote/Ortho4XP)
-by Oscar Pilote**, whose engine does the actual scenery building and is
-vendored here under `Ortho4XP/`. On top of it this project adds airport
-terrain grading (FAA/EASA/ICAO-compliant regrading of paved surfaces
-instead of draping them over raw DEM), meter-class airport elevation
-insets from ~80 national lidar and bathymetry providers, per-tile
-elevation detail levels, parallel tile builds, and a native macOS
-front end.
+by Oscar Pilote**.
+
+## Key Features
+- New UI that brings all functionality into a single window, along with a reorganized and searchable config window
+- Terrain grading (FAA/EASA/ICAO-compliant regrading of paved surfaces
+instead of draping them over raw DEM) to create highly detailed OSM patch files automatically tailored specifically to the airports installed in your X-Plane Custom Scenery. 
+- Custom airport modification: for airports with custom objects, XPTerrainBuilder will automatically split and reseat objects to try and ensure there are no floating or sunken buildings. 
+- Improved OSM data downloads and caching
+- Meter-class airport elevation insets from ~80 national lidar and bathymetry providers
+- Per-tile elevation detail levels
+- parallel tile builds
+- Native macOS app with everything included bundled for download and double-click to run.
+
 
 ## Platforms in Alpha 1
 

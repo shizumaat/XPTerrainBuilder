@@ -49,13 +49,18 @@ releases **must** carry the notices for all of it.
 | Component | License | Obligation on us |
 | --- | --- | --- |
 | **Triangle / Triangle4XP** (J. Shewchuk; 4XP mods by O. Pilote) | Custom — **no compensation may be received**; commercial distribution only by direct arrangement with the author | **Free-of-charge distribution only.** Ship source (`Utils/src/`) and object code, keep the header notice intact, state clearly that it is modified. See §6. |
-| **medit** 2.3 (Pascal Frey) | Proprietary; APP-registered (IDDN.FR.001.410023.00.R.P.2001.000.10800). Distribution authorized by the author *for Ortho4XP* | Ships in `lin/`, `win/`. **Unused by any code path** — see §6. |
-| **moulinette** (Pascal / Scratchfly) | **No stated terms** anywhere upstream | Ships in `lin/`, `win/`; absent on macOS. GUI-only mesh re-sort. See §6. |
 | **DSFTool**, **DDSTool** (Laminar Research, xptools) | MIT/X11 | Reproduce notice. Source: <http://dev.x-plane.com/cgit/cgit.cgi/xptools.git/> |
 | **7-Zip** / `7zz`, `7z.exe`, `7z.dll` (Igor Pavlov) | LGPL 2.1+, plus BSD-3 (LZFSE) and the unRAR restriction | Reproduce the full license block from `Licence/copyright.txt` verbatim in binary releases |
 | **nvcompress** / NVIDIA Texture Tools (I. Castaño, NVIDIA) | MIT | Reproduce notice |
 | **osmium-tool** 1.19.1 + libosmium, protozero, nlohmann/json, Boost, lz4 | GPL v3 (tool); Boost/MIT/BSD (deps) | Offer source. Already documented in [`Ortho4XP/Utils/osmium-tool-NOTICE.md`](Ortho4XP/Utils/osmium-tool-NOTICE.md) with exact tags and build recipe — this is the template the other components should match |
 | Bundled wheels (`numpy`, `gdal`) | BSD-3 / MIT | Reproduce notices |
+
+**Removed as of v1.0.0-alpha.1 — no longer in the tree, shipped by no
+artifact:** **medit** 2.3 (Pascal Frey — proprietary, APP-registered
+IDDN.FR.001.410023.00.R.P.2001.000.10800; its distribution authorization was
+given to Ortho4XP specifically) and **moulinette** (Pascal / Scratchfly — no
+stated terms anywhere upstream). Both were deleted on 2026-08-26; see §6 (b)
+and (c).
 
 > **Gap being tracked:** upstream `Licence/copyright.txt` predates DDSTool,
 > osmium, and the bundled wheels, and gives moulinette no terms at all. Our
@@ -116,20 +121,20 @@ Triangle in `non-free` — an inconsistency inherited from upstream Ortho4XP,
 not introduced here. It is acceptable for a free release and is a blocker
 for a paid one.
 
-**(b) medit should be dropped.** It is a mesh *viewer*, referenced by no
-Python code path in this tree, and its distribution authorization was given
-to Ortho4XP specifically — thin ground for a fork. Removing it costs nothing
-and deletes a proprietary component from the release:
+**(b) medit is dropped — RESOLVED (removed 2026-08-26).** A mesh *viewer*
+referenced by no Python code path in this tree, whose distribution
+authorization was given to Ortho4XP specifically — thin ground for a fork.
+`Utils/lin/medit-2.3-linux` and `Utils/win/medit-2.3-win.exe` were deleted;
+no proprietary component remains in the release.
 
-```bash
-git rm Ortho4XP/Utils/lin/medit-2.3-linux Ortho4XP/Utils/win/medit-2.3-win.exe
-```
-
-**(c) moulinette has no license at all.** It is invoked only by the GUI's
-per-step mesh re-sort (`O4_Mesh_Utils.sort_mesh`), never by `build_all`, and
-`Utils/mac/moulinette` does not exist — the macOS app already ships without
-it. Either obtain terms from the author, drop it and let the mac path be the
-only path, or reimplement the ZL-bucket triangle re-sort in Python.
+**(c) moulinette is dropped — RESOLVED (removed 2026-08-26).** It had no
+stated terms anywhere upstream, and was invoked only by the GUI's per-step
+mesh re-sort (`O4_Mesh_Utils.sort_mesh`), never by `build_all`;
+`Utils/mac/moulinette` never existed, so the macOS path was already the
+no-moulinette path. `Utils/lin/moulinette` and `Utils/win/moulinette.exe`
+were deleted and `sort_mesh` now refuses with an explanatory message when
+the binary is absent. Reimplementing the ZL-bucket triangle re-sort in
+Python remains open as a feature, not a licensing item.
 
 **(d) Notices must ship with binaries.** Every release artifact needs a
 `THIRD-PARTY-NOTICES` file assembled from §3 and §4, plus

@@ -1087,6 +1087,12 @@ def sort_mesh(tile):
     if not os.path.isfile(mesh_file):
         UI.exit_message_and_bottom_line("\nERROR: Could not find ", mesh_file)
         return 0
+    if not os.path.isfile(sort_mesh_cmd.strip()):
+        UI.exit_message_and_bottom_line(
+            "\nERROR: moulinette is not bundled in this build (upstream binary"
+            " has no license terms); mesh re-sort skipped."
+        )
+        return 0
     sort_mesh_cmd_list = [
         sort_mesh_cmd.strip(),
         str(tile.default_zl),

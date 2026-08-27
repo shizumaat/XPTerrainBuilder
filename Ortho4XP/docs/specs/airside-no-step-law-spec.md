@@ -98,3 +98,50 @@ The accumulation gap the ruling closes, measured twice:
   build-time impact statement (k-nearest edge build cost included).
 - Supersedes the round-3 "dip residual accepted" line: that residual
   is now the offender this law exists to price.
+
+## Amendment 1 (Fable, 2026-08-27 — rulings on the lane's two STOP
+## questions; attempt cap RESETS, cap 2)
+
+Measured (lane/nostep 89617e69): membrane direction correct (dip
+over-cap pairs 344 → 212 at 75 m, other airside families −116, line-T
+membrane rose toward the spine), but 4,474 of 6,072 junction nodes
+moved (worst 1.64 m) and the item-2 spread survived behind the lane's
+visibility gate. Rulings:
+
+1. **TIER 2 IS THE WHOLE TAXIWAY-FAMILY SURFACE, AND A NODE'S TIER IS
+   THE MAX OVER ITS CARRYING SHAPES.** "Taxi centerline profile" in
+   §1.3 was under-read as spine-adjacent nodes only. The ruling: every
+   node of taxiway-family pavement (taxiway, junction, stub,
+   primary_parallel — ring or interior) is tier 2: that surface is the
+   centerline profile's transverse writeback, and letting the no-step
+   edges renegotiate it re-creates the round-3 anchored-side disease.
+   A node shared between shapes takes the SENIOR tier (closes the 5
+   runway+road carve-corner movers: runway-shared ⇒ tier 1, frozen).
+   Tier2↔tier2 no-step pairs are CENSUS-PRICED but NOT solver-imposed
+   this round (report-first): a violating pair there is a
+   profile-law docket, never a solver tug-of-war between two
+   authorities.
+2. **THE VISIBILITY GATE IS RATIFIED — §1.1 BINDS WITHIN CONTIGUOUS
+   AIRSIDE PAVEMENT ONLY.** The lane's deviation was correct and the
+   spec's §0 framing of the item-2 pair was wrong: RULINGS 2026-08-24b
+   stands ("a step is lawful only across a pavement gap"), and the
+   2026-08-27 ruling's own basis is aircraft traversal — no aircraft
+   crosses unpaved ground between two disjoint pavements. The chord
+   must lie inside the airside pavement union (the gate as built).
+3. **ITEM-2 EXITS THIS LAW AND BECOMES AN ATTRIBUTION DOCKET.** The
+   real defect there is ROAD INFEASIBILITY between two authorities:
+   the road is welded to apron −10258 (≈102–105) and asked to meet
+   junction −10250 (≈107–109) across ~49 m — 8.04 m of spread against
+   a 3.9 m cap allowance. Under feasibility-is-guaranteed one of the
+   two authorities is mis-valued at the site; attribute WHO authors
+   apron −10258's values (ring welds? pads? DEM sag?) before any fix.
+   Separate follow-up, not this lane's attempt.
+4. **Acceptance restated:** dip-site (and whole-patch) taxiway-family
+   byte-identity is now STRUCTURAL via tier 2 — assert it; nearest-
+   pair tables over contiguous-pavement pairs only; runway-family
+   moved nodes 0 by the max-tier rule; SPJC/CYXY re-run with matched
+   controls (expect the §1.1 residual to shrink under the gate +
+   tier-2 freeze; report honestly). The two lane scratch readers
+   (nearest-pair table, family term-split) are on their second use —
+   PROMOTE both into tools/ with INDEX rows and twins per RULINGS
+   7e90032.

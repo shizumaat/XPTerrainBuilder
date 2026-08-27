@@ -3568,3 +3568,30 @@ What this branch DOES carry, and what is deferred on it:
 * the open-cut region publisher, which has NO consumer on this branch —
   its twin asserts faithfulness and that the two regions stay two;
   DEFERRED: nothing measures it in a build, by construction.
+
+### 2026-08-26 addendum — lane/roadxing (road ↔ airside crossing conformance)
+
+RULINGS 2026-08-26b item 2, spec
+`docs/specs/road-airside-crossing-conformance-spec.md`.  Verified on this
+lane: the §2 twin (`tests/test_road_airside_crossing.py`, 14 cases) plus
+the directly-covering selection (`test_free_road_scoping`,
+`test_service_apron_spine`, `test_road_band_seal_scope`,
+`test_service_mouth_prox_anchor`, `test_kill_prep_round`,
+`test_membership_round`, `test_road_cross_section`, `test_solve_stage` —
+208 green), and matched same-tree flag ON/OFF build arms at HEAZ, CYXY and
+SPJC plus the one HECA acceptance build with its census.
+
+DEFERRED here:
+
+* the FULL pytest suite and the blast-radius suites for `grade_graph.py`
+  (54 importers) and `route_profile/anchors.py` (26) — only the directly
+  covering files were run, once, per PRE-SHIP MODE;
+* the five-airport battery and its censuses (KCLT / SPLP not built);
+* an `O4_ROAD_AIRSIDE_CROSSING_CONFORM=0` BYTE-IDENTITY comparison of two
+  emitted patches.  The OFF path is proven at unit level (the twin mints
+  no conforming stretch, no pin, and restores the 25b apron-only contact
+  set) and at build level by three ON/OFF arms whose logs differ only in
+  the new passes' own lines — but no two patch bodies were hashed against
+  each other;
+* build-time: only ledger-recorded walls are quoted, no `--runs N`
+  measurement (per-change timing gates remain SUSPENDED).

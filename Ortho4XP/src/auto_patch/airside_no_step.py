@@ -372,43 +372,49 @@ class _PairFacts:
         return best
 
 
-def build_airside_no_step_constraints(
+#: Where the ONE enumeration lives between its two consumers (unified
+#: law band §1.5c: "the no-step k-NN edge build (cKDTree, 8-sector) moves
+#: BEFORE the band and its one enumeration is shared by band, solver
+#: pass-2 and census").  Keyed by the node space it was built in, so a
+#: stale enumeration can never be served to a different one.
+_ENUM_STORE = "_airside_no_step_enumeration"
+
+
+def enumerate_airside_no_step_pairs(
         layout, bucket_to_idx, ctx, *, node_pos, n_nodes,
-        tier_of=None, existing_pairs=None, window_m=None, k=None):
-    """THE §1.1 / §1.3 EDGE BUILD.
+        existing_pairs=None, window_m=None, k=None):
+    """THE §1.1 ENUMERATION — the k-nearest-in-window airside pairs and
+    their ``classify_pair`` budgets, WITHOUT any tier arithmetic.
 
-    Returns ``(sc_entries, senior_idx, edge_records, report)``.
+    Split out of :func:`build_airside_no_step_constraints` by the unified
+    law band spec §1.5(c).  The reason is ordering, not tidiness: the
+    BAND is now the projection of the full law graph and must see this
+    population, and the band is built BEFORE the seats — while the
+    seniority tiers (which need the placed seats) are only settled
+    after the phase-A spine solve.  Everything in this function is
+    tier-free and geometric, so it can run at the earlier point; the
+    tier arithmetic stays exactly where it was and consumes what this
+    produced.  ONE enumeration, two consumers — never two k-NN builds.
 
-    * ``sc_entries`` — within-shape-shaped constraint entries carrying the
-      new law edges, ready to EXTEND ``shape_constraints``.  They are
-      stage A by construction (every endpoint is airside pavement).
-    * ``senior_idx`` — the SENIOR endpoints of every cross-tier edge.
-      The caller preserves them out of the spine-yield set, which is what
-      makes those edges one-sided in practice (spec §1.3, the round-3
-      Amendment 1 mechanism).
-    * ``edge_records`` — the sidecar publication the census prices
-      (spec §1.6: "prices exactly the sidecar-published §1.3 edge
-      enumeration" — solver publishes, census prices the same list).
-    * ``report`` — population arithmetic, printed by the caller.
-
-    ``node_pos`` is ``G.pos`` (the solve's OWN positions); no second
-    coordinate frame is built here.
-
-    ``existing_pairs`` is the set of ``(min, max)`` node pairs already
-    carried by ``shape_constraints``.  A pair stated twice would hand the
-    POCS sweep two copies of one law — the round-3 station build drops
-    restated pairs for exactly this reason.
+    Returns ``(rows, report)``; ``rows`` is a list of
+    ``(a, b, ia, ib, d, budget, role, cls)`` with ``a``/``b`` the local
+    ordinals into the enumeration's own ``node_ids``/``coords``.
+    The result is CACHED on the layout under the node-space it was built
+    in and served back by ``build_airside_no_step_constraints``.
     """
     from . import config as _cfg
     from . import grade_law as GL
-    from .solve_stage import STAGE_A, STAGE_KEY
     report = {"airside_nodes": 0, "candidates": 0, "already_stated": 0,
               "not_visible": 0, "skipped_by_law": 0, "edges": 0,
               "cross_tier": 0, "senior_nodes": 0, "by_class": {},
               "skipped_long_apron": 0, "tier2_census_only": 0,
-              "published": 0}
+              "published": 0, "enumerated": 0}
+    _ekey = _enum_key(n_nodes, existing_pairs)
+    empty = {"rows": [], "node_ids": [], "coords": [], "report": report,
+             "key": _ekey}
     if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
-        return [], set(), [], report
+        _stash_enumeration(layout, empty)
+        return [], report
     if window_m is None:
         window_m = float(getattr(_cfg, "AIRSIDE_NO_STEP_WINDOW_M", 150.0))
     if k is None:
@@ -416,7 +422,8 @@ def build_airside_no_step_constraints(
     node_shapes = _node_shapes(layout, bucket_to_idx, n_nodes)
     node_ids = [i for i in sorted(node_shapes) if i in node_pos]
     if len(node_ids) < 2:
-        return [], set(), [], report
+        _stash_enumeration(layout, empty)
+        return [], report
     report["airside_nodes"] = len(node_ids)
     import numpy as np
     coords = [(float(node_pos[i][0]), float(node_pos[i][1]))
@@ -425,10 +432,12 @@ def build_airside_no_step_constraints(
     cand = _spread_candidates(pts, window_m, k)
     report["candidates"] = len(cand)
     if not cand:
-        return [], set(), [], report
+        empty["node_ids"] = node_ids
+        empty["coords"] = coords
+        _stash_enumeration(layout, empty)
+        return [], report
 
     existing = existing_pairs or frozenset()
-    tier_of = tier_of or {}
     facts = _PairFacts(layout, ctx, node_ids, coords, node_shapes)
 
     # ── VISIBILITY, BATCHED ──────────────────────────────────────────
@@ -459,12 +468,9 @@ def build_airside_no_step_constraints(
     else:
         visible = [True] * len(keep_pairs)
 
-    by_role: dict = {}
-    edge_records: list = []
-    senior_idx: set = set()
-    _carry: list = []
     apron_role = GL.APRON_ROLE
     body_gate = float(getattr(GL, "APRON_BODY_CHORD_MAX_M", 0.0) or 0.0)
+    rows: list = []
     for p, (a, b) in enumerate(keep_pairs):
         if not visible[p]:
             report["not_visible"] += 1
@@ -528,6 +534,124 @@ def build_airside_no_step_constraints(
         if budget <= 0.0:                                 # pragma: no cover
             report["skipped_by_law"] += 1
             continue
+        cls = GL.apron_pair_class(pc) if role == apron_role else role
+        rows.append((a, b, int(ia), int(ib), float(d), float(budget),
+                     role, cls))
+    report["enumerated"] = len(rows)
+    _stash_enumeration(layout, {"rows": rows, "node_ids": node_ids,
+                                "coords": coords, "report": report,
+                                "key": _ekey})
+    return rows, report
+
+
+def _enum_key(n_nodes, existing_pairs):
+    """The enumeration's IDENTITY: the node space it was built in AND the
+    already-stated pair set it was filtered against.
+
+    Both are inputs to the population, so both belong in the key.  Keying
+    on ``n_nodes`` alone would serve a cached enumeration to a caller
+    filtering against a DIFFERENT within-shape set and silently restate
+    pairs the law already carries — two copies of one law in the POCS
+    sweep, which is the round-3 station build's own reason for dropping
+    restated pairs.  ``tests/test_airside_no_step.py`` pins it.
+    """
+    ex = existing_pairs or ()
+    return (int(n_nodes), len(ex),
+            hash(frozenset(ex)) if ex else 0)
+
+
+def _stash_enumeration(layout, payload):
+    try:
+        setattr(layout, _ENUM_STORE, payload)
+    except AttributeError:                                # pragma: no cover
+        pass
+
+
+def _cached_enumeration(layout, n_nodes, existing_pairs=None):
+    got = getattr(layout, _ENUM_STORE, None)
+    if not got or got.get("key") != _enum_key(n_nodes, existing_pairs):
+        return None
+    return got
+
+
+def format_enumeration_report(icao: str, report: dict) -> str:
+    """The build log's line for the PRE-BAND enumeration."""
+    return (f"  [airside-no-step] {icao}: enumerated "
+            f"{report.get('enumerated', 0)} direct-distance law pair(s) "
+            f"over {report.get('airside_nodes', 0)} airside node(s) from "
+            f"{report.get('candidates', 0)} k-nearest candidate(s) BEFORE "
+            f"the band (unified law band §1.5c — ONE enumeration, shared "
+            f"by band, solver pass-2 and census)")
+
+
+def build_airside_no_step_constraints(
+        layout, bucket_to_idx, ctx, *, node_pos, n_nodes,
+        tier_of=None, existing_pairs=None, window_m=None, k=None):
+    """THE §1.1 / §1.3 EDGE BUILD.
+
+    Returns ``(sc_entries, senior_idx, edge_records, report)``.
+
+    * ``sc_entries`` — within-shape-shaped constraint entries carrying the
+      new law edges, ready to EXTEND ``shape_constraints``.  They are
+      stage A by construction (every endpoint is airside pavement).
+    * ``senior_idx`` — the SENIOR endpoints of every cross-tier edge.
+      The caller preserves them out of the spine-yield set, which is what
+      makes those edges one-sided in practice (spec §1.3, the round-3
+      Amendment 1 mechanism).
+    * ``edge_records`` — the sidecar publication the census prices
+      (spec §1.6: "prices exactly the sidecar-published §1.3 edge
+      enumeration" — solver publishes, census prices the same list).
+    * ``report`` — population arithmetic, printed by the caller.
+
+    ``node_pos`` is ``G.pos`` (the solve's OWN positions); no second
+    coordinate frame is built here.
+
+    ``existing_pairs`` is the set of ``(min, max)`` node pairs already
+    carried by ``shape_constraints``.  A pair stated twice would hand the
+    POCS sweep two copies of one law — the round-3 station build drops
+    restated pairs for exactly this reason.
+    """
+    from . import config as _cfg
+    from .solve_stage import STAGE_A, STAGE_KEY
+    report = {"airside_nodes": 0, "candidates": 0, "already_stated": 0,
+              "not_visible": 0, "skipped_by_law": 0, "edges": 0,
+              "cross_tier": 0, "senior_nodes": 0, "by_class": {},
+              "skipped_long_apron": 0, "tier2_census_only": 0,
+              "published": 0, "enumerated": 0}
+    if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
+        return [], set(), [], report
+    # ── THE ONE ENUMERATION (unified law band §1.5c) ─────────────────
+    # The k-NN / visibility / ``classify_pair`` work now runs BEFORE the
+    # band (``enumerate_airside_no_step_pairs``) and is cached on the
+    # layout for this node space.  This function does the TIER
+    # arithmetic on it — the half that needs the placed seats and the
+    # settled centerline profile, which is why it still stands here, one
+    # statement after the phase-A spine solve.  A caller that reaches
+    # this point without a cached enumeration (a test, a tool, a lane
+    # that has not moved its call) still gets exactly ONE build: it is
+    # enumerated here and cached the same way.
+    got = _cached_enumeration(layout, n_nodes, existing_pairs)
+    if got is None:
+        enumerate_airside_no_step_pairs(
+            layout, bucket_to_idx, ctx, node_pos=node_pos, n_nodes=n_nodes,
+            existing_pairs=existing_pairs, window_m=window_m, k=k)
+        got = _cached_enumeration(layout, n_nodes, existing_pairs) or {}
+    rows = list(got.get("rows") or ())
+    coords = list(got.get("coords") or ())
+    for _k, _v in (got.get("report") or {}).items():
+        report[_k] = _v
+    report["by_class"] = {}
+    tier_of = tier_of or {}
+    if not rows:
+        layout._airside_no_step_pairs_m = []
+        return [], set(), [], report
+
+    by_role: dict = {}
+    edge_records: list = []
+    senior_idx: set = set()
+    _carry: list = []
+    for (a, b, ia, ib, d, budget, role, cls) in rows:
+        (xa, ya), (xb, yb) = coords[a], coords[b]
         ta = int(tier_of.get(ia, TIER_FREE))
         tb = int(tier_of.get(ib, TIER_FREE))
         # ── TIER2 <-> TIER2 IS CENSUS-PRICED, NOT SOLVER-IMPOSED (spec
@@ -546,7 +670,9 @@ def build_airside_no_step_constraints(
         elif ta != tb:
             report["cross_tier"] += 1
             senior_idx.add(ia if ta < tb else ib)
-        cls = GL.apron_pair_class(pc) if role == apron_role else role
+        # The pair CLASS was decided by the law at enumeration time, from
+        # the very ``PairContext`` ``classify_pair`` judged; it rides in
+        # the row rather than being re-derived here (ONE enumeration).
         report["by_class"][cls] = report["by_class"].get(cls, 0) + 1
         if imposed:
             by_role.setdefault(role, []).append((ia, ib, budget))

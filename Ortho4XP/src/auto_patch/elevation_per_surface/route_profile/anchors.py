@@ -1479,6 +1479,49 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 f"basin facility seated at the DECLARED facility floor "
                 f"({len(_basin_seat_idx)} ring node(s)); the airside band "
                 f"does not bind a pad in a pit")
+
+    # ── §1.5(d) — A PLACED SEAT JOINS THE ANCHOR SET, INCREMENTALLY ────
+    # (spec docs/specs/unified-law-band-spec.md §1.5d; owner ruling
+    # RULINGS 2026-08-27 "REFINE THE REACH BAND FIRST".)
+    #
+    # WHY HERE AND NOT INSIDE THE PER-PAD LOOP.  A pad's level is not
+    # PLACED until the joint coupler has run: the per-pad pass computes a
+    # target and a box, and the POCS projection above reconciles the
+    # units against each other ON THE SAME LAW GRAPH.  Anchoring a target
+    # mid-loop would seed the band with a value the coupler is about to
+    # overwrite — a second authority on the seat, which is precisely what
+    # this ruling removes.  The seats that exist HERE are the placed ones.
+    #
+    # WHY IT IS AN INCREMENT AND NEVER A RECOMPUTE.  The fields are a min
+    # over anchors of ``v_a + d_law(a, .)``; a new anchor adds one term,
+    # so the answer is ``min(old, v_s + d(s, .))`` — a bounded Dijkstra
+    # from the new source that stops the moment a node's bound is not
+    # tightened (non-negative budgets mean nothing beyond it can tighten
+    # either).  ``tests/test_law_band.py`` pins incremental == full
+    # recompute on a fixture.
+    #
+    # Sub-gate OFF, band without the facility, or no seat ⇒ inert.
+    _add_seats = getattr(band, "add_seat_anchors", None)
+    if _add_seats is not None and seats:
+        try:
+            # ONE statement for the whole placed-seat set: the ceiling is
+            # a MIN over anchors, so the batch is one multi-source pruned
+            # walk and one grid refresh.  Per-seat calls are the arm that
+            # cost a killed 20-minute HECA build.
+            _add_seats({int(_i): float(_lv) for _i, _lv in seats.items()})
+        except Exception as _sa_exc:                   # pragma: no cover
+            _report(f"  [law-band] the placed-seat anchors FAILED "
+                    f"({type(_sa_exc).__name__}: {_sa_exc}) — the band "
+                    f"keeps its pre-seat values")
+        _sm = getattr(band, "seat_anchor_meta", None) or {}
+        if _sm.get("anchors"):
+            _report(f"  [law-band] {_sm['anchors']} placed seat node(s) "
+                    f"joined the band's anchor set incrementally (spec "
+                    f"§1.5d): {_sm['nodes_tightened']} node bound(s) "
+                    f"tightened over {_sm['relaxations']} relaxation(s), "
+                    f"{_sm['cells_refreshed']} grid cell(s) refreshed, "
+                    f"{_sm['off_graph']} seat node(s) not on the law graph "
+                    f"— no field recompute")
     return seats
 
 

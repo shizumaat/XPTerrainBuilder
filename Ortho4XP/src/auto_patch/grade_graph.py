@@ -510,6 +510,18 @@ class ShapeConstraints:
     #: reach 2 % by other routes (a narrow-taxi blend, a tightened
     #: frontage), and a guess would mint or lose rows either way.
     edge_transverse_road: list[bool] = field(default_factory=list)
+    #: INDEX-PARALLEL to :attr:`edges`: True where the pair is a PAD
+    #: FRONTAGE CHORD (``grade_law.is_frontage_chord`` on the very
+    #: ``PairContext`` ``classify_pair`` judged) — the 2026-08-25
+    #: chord-anchor law's own population.  Recorded at MINT for the third
+    #: time and the same reason the three flags above are: the UNIFIED
+    #: LAW BAND (owner ruling RULINGS 2026-08-27, spec
+    #: ``docs/specs/unified-law-band-spec.md`` §1.1a) needs exactly this
+    #: population in its edge iterator, and re-deriving "which apron
+    #: pairs are frontage chords" from cap values downstream would be a
+    #: guess — the 1 % stand cap is reached by several other routes.
+    #: This is the population, from its own builder, with its own caps.
+    edge_frontage_chord: list[bool] = field(default_factory=list)
     #: APRON ring keys inside the RUNWAY STRIP footprint (spec AMENDMENT
     #: A4.2).  Those pairs are SKIPPED by the law, so the node never
     #: appears on an edge and the seniority partition — whose domain is
@@ -3314,6 +3326,8 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             sc.edge_interior.append(_is_interior)
             sc.edge_anchor_kind.append(_anchor_kind or "")
             sc.edge_transverse_road.append(_road_xsec)
+            # THE SAME PairContext, a third time (unified law band §1.1a).
+            sc.edge_frontage_chord.append(GL.is_frontage_chord(_pc))
 
     sc.spine_chains = _build_spine_chains(shape, ctx, membership)
     return sc
@@ -3413,6 +3427,11 @@ def plane_constraints(shape: GradeShape, ctx: GradeContext,
             # what stops a silent misalignment if it ever carries an apron.
             sc.edge_interior.append(GL.is_apron_interior(_pc))
             sc.edge_anchor_kind.append("")
+            # Same construction rule as the two lists above: this path is
+            # the PLANE (runway) one and its pairs carry no building
+            # endpoint, so the answer is always False — but the lists stay
+            # the same length BY CONSTRUCTION rather than by luck.
+            sc.edge_frontage_chord.append(GL.is_frontage_chord(_pc))
     return sc
 
 
@@ -3912,6 +3931,15 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
     if ctx is None:
         ctx = build_context(layout, bucket_to_idx)
     G = UnifiedGraph()
+    # THE NODE SPACE THIS GRAPH WAS BUILT IN, carried with it (unified law
+    # band §1.1).  ``G.pos`` holds only the SHAPE RING vertices this
+    # assembly walks, so it is not the node space: the apron lattice
+    # points and the round-3 spine STATIONS are interior constructs with
+    # no ring to be walked from, and a law edge that touches one could not
+    # be resolved into this graph at all without the registry map.  A
+    # plain attribute, not a dataclass field: it is the caller's own
+    # object, carried for identity, and nothing in the assembly reads it.
+    G.bucket_to_idx = bucket_to_idx                # type: ignore[attr-defined]
 
     def _idx(x, y):
         return bucket_to_idx.get(cps.get_or_add(float(x), float(y)))

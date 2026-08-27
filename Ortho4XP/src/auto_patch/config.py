@@ -146,6 +146,10 @@ __all__ = [
     "AIRSIDE_NO_STEP_WINDOW_M",
     "AIRSIDE_NO_STEP_K",
     "AIRSIDE_NO_STEP_RESEED",
+    # THE UNIFIED LAW BAND (docs/specs/unified-law-band-spec.md)
+    "BAND_FULL_LAW_GRAPH",
+    "BAND_SEAT_ANCHORS",
+    "BAND_LAW_REFUSE",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9693,3 +9697,71 @@ AIRSIDE_NO_STEP = (
 # arm a ruling would be made on.
 AIRSIDE_NO_STEP_RESEED = (
     _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE UNIFIED LAW BAND (owner ruling RULINGS 2026-08-27 "REFINE THE REACH
+# BAND FIRST"; spec docs/specs/unified-law-band-spec.md §1.7)
+# ══════════════════════════════════════════════════════════════════════
+#
+# The reach band's per-node interval becomes the projection of the FULL
+# law graph — the route-spine edges and the local off-route leg it always
+# had, PLUS the pad FRONTAGE CHORDS, the apron MEMBRANE law edges
+# (lattice / spine-station / ring within-shape) and the AIRSIDE NO-STEP
+# direct-distance enumeration.  Owner's words: *"seems as good or better
+# to refine and narrow the reach bands first, then we shouldn't need
+# nearly as much convergence later."*
+#
+# THE FLAG, DEFAULT ON.  ``O4_BAND_FULL_LAW_GRAPH=0`` publishes no law
+# edge, merges none into the value-field Dijkstras and makes no pre-solve
+# refusal — byte-identical to the pre-ruling build (spec §1.7).
+BAND_FULL_LAW_GRAPH = (
+    _os.environ.get("O4_BAND_FULL_LAW_GRAPH", "1") != "0")
+
+# §1.5(d) — A PLACED SEAT JOINS THE ANCHOR SET, incrementally.  The seat
+# level is a value the surface now carries, so every later pad's band is
+# narrowed by it through the same law graph; the update is a BOUNDED
+# multi-source Dijkstra from the new sources with early exit where no
+# bound tightens, never a field recompute (``law_band.
+# IncrementalAnchorField``, twinned in ``tests/test_law_band.py``).
+#
+# DEFAULT OFF, AND THE REASON IS MEASURED — spec §1.5's own licence
+# ("design requirements, the lane refines with measurement"), REPORTED as
+# a deviation for the Fable author's ruling.  Three SPJC arms, one tree,
+# everything else identical (census, harness):
+#
+#     band OFF                                    1,558 adjudicated
+#     band ON, seat anchors OFF                   1,540   (-18)
+#     band ON, seat anchors ON                    5,627 (+4,069)
+#
+# and +4,154 of that +4,069 is ``within_shape`` alone (66 -> 4,219), the
+# rows ``building|building`` at up to 11.1 m against a 1 % cap.  HECA
+# reproduces it (6,929 -> 13,230, ``within_shape`` 942 -> 5,427).
+#
+# THE MECHANISM.  A seat is inside its own band AT SEAT TIME.  Joining it
+# to the anchor set afterwards narrows the band at OTHER nodes — including
+# the ring nodes of pads that were already placed, and of its own rigid
+# unit — so the band of record that every POST-solve consumer reads (the
+# writeback clamp, the apron contact floors, ``final_grade_projection``'s
+# rebuilt ``node_bands``) now contradicts levels the seat pass already
+# committed.  A pad is RIGID and FLAT, so clamping some of its ring
+# vertices and not others breaks the pad's own 1 % law by metres.  The
+# narrowing is real; applying it to values already placed is what mints
+# the rows.  Making it lawful needs the seats to be CHOSEN under it (one
+# joint pass), which is a design question and therefore a Fable one.
+#
+# The facility, its twin and this gate all stay: ``O4_BAND_SEAT_ANCHORS=1``
+# is the arm a ruling would be made on, and it is one word away.
+BAND_SEAT_ANCHORS = (
+    _os.environ.get("O4_BAND_SEAT_ANCHORS", "0") != "0")
+
+# §1.4's REFUSAL THRESHOLD.  An EMPTY or INVERTED per-node interval is a
+# loud PRE-SOLVE refusal (the building146 class: contradictory pavement
+# data produced a silent bad seat; under the narrowed band it produces no
+# interval at all).  The threshold is the campaign's materiality floor —
+# below it a crossing is a PASS-with-residual, never a defect (CLAUDE.md
+# convergence guards).  ``O4_BAND_LAW_REFUSE=0`` reports the rows and
+# lets the build continue, which is the arm for adjudicating a site
+# BEFORE the data is fixed; it is never the shipping default.
+BAND_LAW_REFUSE = (
+    _os.environ.get("O4_BAND_LAW_REFUSE", "1") != "0")

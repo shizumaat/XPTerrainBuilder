@@ -737,7 +737,8 @@ def _visible_grade_edges(coords, idx, cap, polygon, container=None,
     return out
 
 
-def _grade_graph_edges(s, coords, idx, ctx, ring_only=False):
+def _grade_graph_edges(s, coords, idx, ctx, ring_only=False,
+                       frontage_out=None):
     """Adapter: the single grade graph's per-edge ``(key, key, cap)`` for one
     apron/junction shape, converted to the solver's ``(i, j, cap*dist)`` edge
     contract.  Keys are node indices; a ring vertex with no index gets a unique
@@ -745,7 +746,15 @@ def _grade_graph_edges(s, coords, idx, ctx, ring_only=False):
 
     ``ring_only`` (user 2026-07-05 flatness tier): ring-adjacent pairs only —
     the eager O(n) share of a flatness-certified shape; the full set is the
-    shape's ``lazy_expand`` thunk (this same call without ``ring_only``)."""
+    shape's ``lazy_expand`` thunk (this same call without ``ring_only``).
+
+    ``frontage_out`` (unified law band §1.1a): an optional list the PAD
+    FRONTAGE CHORD subset is appended to, in the same ``(i, j, budget)``
+    form.  The flag is the one recorded AT MINT
+    (``ShapeConstraints.edge_frontage_chord``) from the very
+    ``PairContext`` ``classify_pair`` judged — this adapter only carries
+    it across, it never re-decides membership.  ``None`` (every existing
+    caller) ⇒ byte-identical."""
     from auto_patch import grade_graph as GG
     keys = [i if i is not None else ("_n", p) for p, i in enumerate(idx)]
     # ``lateral_cap`` (LATERAL-CONTIGUITY LAW, owner FINAL 2026-08-02) must
@@ -772,13 +781,17 @@ def _grade_graph_edges(s, coords, idx, ctx, ring_only=False):
                                      ring_only=ring_only)
     pos = {i: coords[p] for p, i in enumerate(idx) if i is not None}
     out = []
-    for (a, b, cap) in sc.edges:
+    _fc = sc.edge_frontage_chord if frontage_out is not None else ()
+    for _ei, (a, b, cap) in enumerate(sc.edges):
         pa, pb = pos.get(a), pos.get(b)
         if pa is None or pb is None:
             continue
         d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
         # cap is a grade_law.Allowance → budget = cL·Δs∥ + cT·Δs⊥ (today Δs∥=d).
-        out.append((a, b, cap.at(d, 0.0)))
+        edge = (a, b, cap.at(d, 0.0))
+        out.append(edge)
+        if frontage_out is not None and _ei < len(_fc) and _fc[_ei]:
+            frontage_out.append(edge)
     return out
 
 
@@ -1222,6 +1235,19 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
     flat_safety_factor = FLATNESS_CERTIFICATE_RATE_FACTOR
     flat_certified_count = 0
     flat_candidate_count = 0
+    # ── THE PAD FRONTAGE CHORDS (unified law band §1.1a) ──────────────
+    # Collected AS THE LAW MINTS THEM (``ShapeConstraints.
+    # edge_frontage_chord``), never re-scanned: the band's edge iterator
+    # needs this population and "build once, filter per consumer" (spec
+    # §1.5c) means it rides out of the builder that already made it.
+    # Published on the layout for the band publication in ``solve.py``.
+    # A FLATNESS-CERTIFIED shape contributes only its RING pairs eagerly,
+    # so its non-ring frontage chords live in its ``lazy_expand`` thunk
+    # and are not here; that shape is provably near-flat over its whole
+    # body, so the chords it withholds are the loosest in the airport —
+    # counted below so the omission is never inferred from silence.
+    _frontage_chords: list = []
+    _frontage_chords_certified_shapes = 0
     # Per-airport certificate tally (spec §2 item 7): a fresh constraint build
     # re-counts each soft class, so zero the apron/junction/rect classes here
     # (expansions accrued during any prior solve pass are preserved) and let the
@@ -1358,7 +1384,9 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                 flat_certified_count += 1
                 _record_flat_certificate(layout, _cert_class, "certified")
                 edges.extend(_grade_graph_edges(s, coords, idx, _gg_ctx,
-                                                ring_only=True))
+                                                ring_only=True,
+                                                frontage_out=_frontage_chords))
+                _frontage_chords_certified_shapes += 1
                 lazy_node_indices = []
                 lazy_node_seeds = []
                 seen_node_indices = set()
@@ -1383,7 +1411,9 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
                     "lazy_certified": True,
                 }
             else:
-                edges.extend(_grade_graph_edges(s, coords, idx, _gg_ctx))
+                edges.extend(_grade_graph_edges(
+                    s, coords, idx, _gg_ctx,
+                    frontage_out=_frontage_chords))
         elif s.role == ROLE_BUILDING:
             # In-pavement VISIBILITY graph for GRADED terminals (when
             # TERMINAL_MAX_GRADE > 0 — large near-flat pads, same as an apron).
@@ -1462,6 +1492,17 @@ def _build_shape_constraints(layout, bucket_to_idx, ctx=None, dem=None,
         if lazy_extras is not None:
             entry.update(lazy_extras)
         out.append(entry)
+    # The frontage-chord population, published for the UNIFIED LAW BAND
+    # (§1.1a).  ASSIGNED, never appended: a second constraint build in one
+    # solve must REPLACE the list, or the band would carry one law twice.
+    try:
+        layout._frontage_chord_edges = list(_frontage_chords)
+        layout._frontage_chord_report = {
+            "edges": len(_frontage_chords),
+            "certified_shapes_ring_only": _frontage_chords_certified_shapes,
+        }
+    except AttributeError:                                 # pragma: no cover
+        pass
     if flat_lazy_enabled and _os.environ.get("O4_STEP_DEBUG") == "1":
         print(f"  [flat-lazy] certified {flat_certified_count} of "
               f"{flat_candidate_count} apron/junction shape(s) "

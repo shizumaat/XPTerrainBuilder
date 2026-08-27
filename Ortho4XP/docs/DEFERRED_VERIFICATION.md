@@ -3784,3 +3784,24 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   read against the §0 frame, and the senior population came back
   IDENTICAL to it, which is the stronger reading in the direction that
   matters.
+
+## Unified law band (lane/lawband, 2026-08-27)
+
+- **Per-airport MATCHED flag-off control not built for HECA.** The HECA
+  A/B is against the round's frame of record
+  (`/tmp/harness/HECA_20260827T113319.osm`), not against a same-tree
+  `O4_BAND_FULL_LAW_GRAPH=0` arm.  CYXY / SPJC / HEAZ each have their
+  matched same-tree control; HECA's would be a second ~21-minute build.
+  Consequence: HECA's -385 adjudicated is measured against a patch built
+  at a slightly earlier tree, so a few rows of it may not be this lane's.
+- **`membrane_conform` residual has no HECA baseline.** §1.6 asks whether
+  the conform passes approach no-op on the narrowed band; the SPJC pair
+  is matched and reported, HECA's ON-arm numbers are reported without one.
+- **`O4_BAND_SEAT_ANCHORS=1` (spec §1.5d as literally wired) is measured
+  but not resolved.** Three SPJC arms + one HECA arm are in the lane
+  report; the design question it raises (seats must be CHOSEN under the
+  narrowing, not narrowed after placement) is a Fable one.
+- **`tools/trace_building_frontage.py` is still broken on main** (it
+  unpacks 3 values from `anchors.reach_band_for`, which returns 4).  The
+  §0 addendum's numbers come from the sidecar's own `frontage_band`
+  publication instead; the tool fix is a separate chip.

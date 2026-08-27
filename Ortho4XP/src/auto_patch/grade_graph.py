@@ -263,6 +263,17 @@ class Centerline:
     # ruling moves the second for this population and leaves the first
     # exactly where it is.
     is_apron_spine: bool = False
+    # THE CROSSING-CONFORMANCE CLASS (RULINGS 2026-08-26b item 2, spec
+    # ``road-airside-crossing-conformance-spec.md`` §1).  A service
+    # centerline stretch that STANDS IN airside pavement is priced at the
+    # crossed surface's cap.  Unlike ``is_apron_spine`` this flag moves
+    # NEITHER guard: the stretch stays out of the reachability band
+    # (``is_service``) AND out of every airside shape's spine membership
+    # (``_reads_service_spines``), because §1.2's pins are ONE-DIRECTIONAL
+    # — the road reads the airside surface and the airside surface must
+    # not read the road.  The flag exists so the census, the sidecar and
+    # the twins can name the population.
+    is_airside_conforming: bool = False
 
     @property
     def cap(self) -> float:
@@ -1140,6 +1151,21 @@ def _cls_specs_key(layout):
         h.update(b"\x00corridor\x00")
         for ln in (getattr(layout, "_service_corridor_lines", None) or []):
             h.update(_cls_geom_bytes(ln))
+        # THE CROSSING-CONFORMANCE READ SET (spec §1.1).  Walked, never
+        # assumed — a conforming stretch changes both which pieces the
+        # free-road source still carries and what they are capped at, so
+        # a memo that did not see it would serve a stale partition.
+        h.update(b"\x00xconform\x00")
+        _xc = getattr(layout, "_airside_conform_subsegments", None)
+        if _xc is None:
+            h.update(b"absent")
+        else:
+            h.update(b"present")
+            for ln in _xc:
+                h.update(_cls_geom_bytes(ln))
+            h.update(repr(tuple(
+                getattr(layout, "_airside_conform_caps", None) or ()
+            )).encode())
     except Exception:
         return None
     return h.hexdigest()
@@ -1207,6 +1233,24 @@ def _centerline_specs_uncached(layout) -> list:
             specs.append((pts, [_SVC_CAP] * (len(pts) - 1), True,
                           ("corridor", id(ln)), pts))
         covered = _corridor_cover(corridors)
+    # ── ROAD ↔ AIRSIDE CROSSING CONFORMANCE (owner RULINGS 2026-08-26b
+    # item 2; spec ``road-airside-crossing-conformance-spec.md`` §1) ─────
+    # The stretches whose CROSS-SECTION STANDS IN airside pavement
+    # (``groundside.road_airside_crossing_contacts``) are priced at the
+    # crossed surface's cap, not the road's 8 %.  They are SUBTRACTED
+    # from the free-road source first — one physical road may not be
+    # registered twice, the same rule the corridor cover applies above —
+    # and the subtraction is ``apron_spine_subsegments``, the complement
+    # operator this module's sibling already owns (extend, never fork).
+    from .config import ROAD_AIRSIDE_CROSSING_CONFORM as _XCONF_ON
+    _xconform = ([ln for ln in (getattr(layout,
+                                        "_airside_conform_subsegments",
+                                        None) or [])
+                  if ln is not None and not getattr(ln, "is_empty", True)]
+                 if _XCONF_ON else [])
+    if use_sliced and _xconform:
+        from .groundside import apron_spine_subsegments as _complement
+        sliced = _complement(list(sliced), _xconform)
     if use_sliced:
         for ln in sliced:
             if ln is None or getattr(ln, "is_empty", True):
@@ -1256,6 +1300,24 @@ def _centerline_specs_uncached(layout) -> list:
                 continue
             specs.append((pts, [_APRON_CAP] * (len(pts) - 1), True,
                           ("apron_spine", id(ln)), pts))
+    # The conforming stretches themselves (spec §1.1 pricing).  Cap = the
+    # crossed surface's own, minted beside the geometry so the solver,
+    # the validator and the sidecar mirror read ONE number.  ``is_service``
+    # stays TRUE and the piece never becomes an apron spine: §1.2's pins
+    # are one-directional, so no airside shape may read this centerline.
+    if _xconform:
+        _xcaps = list(getattr(layout, "_airside_conform_caps", None) or ())
+        for _k, ln in enumerate(_xconform):
+            try:
+                pts = list(ln.coords)
+            except Exception:                             # pragma: no cover
+                continue
+            if len(pts) < 2:
+                continue
+            _cap = _xcaps[_k] if _k < len(_xcaps) else None
+            _cap = float(_APRON_CAP if _cap is None else _cap)
+            specs.append((pts, [_cap] * (len(pts) - 1), True,
+                          ("airside_conform", id(ln)), pts))
     return specs
 
 
@@ -1461,7 +1523,13 @@ def build_context(layout, bucket_to_idx=None) -> "GradeContext":
                               # so the solver, the validator and the sidecar
                               # mirror cannot disagree about which pieces are
                               # the apron's spine.
-                              is_apron_spine=(rkey[0] == "apron_spine")))
+                              is_apron_spine=(rkey[0] == "apron_spine"),
+                              # RULINGS 2026-08-26b item 2 — same one
+                              # enumeration, same discipline: the class
+                              # travels on the route key, so no reader
+                              # re-derives which pieces cross airside.
+                              is_airside_conforming=(
+                                  rkey[0] == "airside_conform")))
         if _is_svc:
             _svc_len_m += sum(math.hypot(b[0] - a[0], b[1] - a[1])
                               for (a, b) in zip(pts, pts[1:]))

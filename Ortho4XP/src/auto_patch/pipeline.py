@@ -5872,6 +5872,22 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                              f"lateral-contiguity re-bind failed "
                              f"({_lat_exc2!r}).")
 
+        # ── ROAD ↔ AIRSIDE CROSSING CONFORMANCE (owner RULINGS
+        # 2026-08-26b item 2; spec
+        # ``docs/specs/road-airside-crossing-conformance-spec.md``) ──────
+        # HERE, and for the same reason the re-bind above is here: the
+        # arrangement is the one the solver is about to see, so the
+        # airside union the crossing test reads and the airside ring
+        # edges the pins name are the ones that will actually ship.  Read
+        # only — this pass publishes two lists and moves nothing.
+        try:
+            from .groundside import road_airside_crossing_contacts
+            road_airside_crossing_contacts(layout, icao)
+        except _GEOM_EXC as _xconf_exc:
+            UI.vprint(1, f"  [pav-builder] WARN: {icao}: road↔airside "
+                         f"crossing conformance failed "
+                         f"({_xconf_exc!r}).")
+
         # ── THE FABRIC MODEL — sparse lawful emission (owner RULINGS
         # 2026-08-08; docs/specs/fabric-model-spec.md Phase A; gate
         # O4_FABRIC_SPARSE, default OFF) ────────────────────────────────

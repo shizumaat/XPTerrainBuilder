@@ -35,7 +35,7 @@ _GEOM_EXC = (ValueError, GEOSException, TopologicalError)
 
 __all__ = [
     "STATION_STEP_M", "PROBE_M", "GAP_TOL_M", "MIN_MEMBER_M", "ROAD_ROLES",
-    "APRON_CONTACT_ROLES", "EDGE_IDENTITY_TOL_M",
+    "APRON_CONTACT_ROLES", "EDGE_IDENTITY_TOL_M", "airside_contact_roles",
     "long_axis", "cross_section_roles", "edge_shared_roles", "station_caps",
 ]
 
@@ -77,10 +77,41 @@ ROAD_ROLES = _LAW_ROAD_ROLES
 # construction).  Neither class is reachable by widening a probe; the
 # contact has to be asked for directly.
 #
-# THE APRON, not "any airside surface": the ruling names the apron.  Contact
-# with a building pad, a runway or a taxi junction is reported by the
-# attribution tool and ruled on separately — this term never widens itself.
+# THE APRON, not "any airside surface": the 25b ruling names the apron.
+# Contact with a building pad, a runway or a taxi junction was reported by
+# the attribution tool and ruled on separately — this term never widened
+# itself, and this is still the 25b set.
 APRON_CONTACT_ROLES = frozenset({"apron"})
+
+# ── …AND THE RULING THAT WIDENED IT (owner RULINGS 2026-08-26b item 2,
+# spec ``road-airside-crossing-conformance-spec.md`` §1.1) ───────────────
+# "A service-road stretch whose cross-section stands in AIRSIDE pavement
+# is a CONFORMING stretch … the non-free complement now carries
+# conformance against ANY airside neighbour, not only aprons."  §0 of that
+# spec names this constant as one of the two reasons no standing law fires
+# at the owner's site: the road there shares its edge with taxi JUNCTIONS
+# -10250 / -10257, which the 25b set does not contain.
+#
+# The register is ``enclaves.ENCLAVE_AIRSIDE_ROLES`` — THE canonical
+# airside-pavement family, imported at call time rather than re-spelled
+# here (blast.py's role-literal hazard), the same one the 2026-08-15
+# proximity mouth seat indexes its carrier edges from.  Buildings and
+# ``graded_strip``s stay OUT, on that seat's own measured grounds: a strip
+# is the road's own grading product at the road's own level, and a
+# building is a stage-B seat, not a surface a truck arrives at.
+def airside_contact_roles() -> frozenset:
+    """The roles a road ring CONFORMS to on edge contact.
+
+    Read at CALL time, like :func:`_edge_conformance_on`, so a twin can
+    flip the gate without reloading and both readers of the law agree
+    within one process.  Gate off ⇒ exactly the 25b set, so the
+    pre-ruling arm is byte-identical.
+    """
+    from . import config as _cfg
+    if not bool(getattr(_cfg, "ROAD_AIRSIDE_CROSSING_CONFORM", True)):
+        return APRON_CONTACT_ROLES
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    return frozenset(APRON_CONTACT_ROLES | ENCLAVE_AIRSIDE_ROLES)
 
 # CANONICAL IDENTITY, NEVER PROXIMITY (the ruling's own words).  Two rings
 # share an edge when they carry the SAME two consecutive vertices.  The
@@ -214,13 +245,14 @@ def _edge_keys(poly, tol=EDGE_IDENTITY_TOL_M):
 
 
 def edge_shared_roles(poly, tree, polys, roles, own_index,
-                      only_roles=APRON_CONTACT_ROLES):
-    """The roles of the shapes this one SHARES AN EDGE with (2026-08-25b).
+                      only_roles=None):
+    """The roles of the shapes this one SHARES AN EDGE with (2026-08-25b,
+    widened to every airside neighbour by RULINGS 2026-08-26b item 2).
 
-    ``{"apron"}`` when the ring holds at least one edge in common with an
-    apron ring, else an empty set.  Restricted to ``only_roles`` — the
-    ruling names the apron, and the term never widens itself (see
-    :data:`APRON_CONTACT_ROLES`).
+    The set of neighbour roles the ring holds at least one edge in common
+    with, restricted to ``only_roles`` — which defaults to
+    :func:`airside_contact_roles`, read at call time so the 2026-08-26b
+    gate can restore the 25b apron-only set exactly.
 
     RING-LEVEL, deliberately.  The ruling puts *the road ring* under the
     apron's law — "it becomes part of the apron" — not the two stations
@@ -229,6 +261,8 @@ def edge_shared_roles(poly, tree, polys, roles, own_index,
     ring priced apron at one end and road at the other is the step this
     ruling exists to remove.
     """
+    if only_roles is None:
+        only_roles = airside_contact_roles()
     own = _edge_keys(poly)
     if not own:
         return set()

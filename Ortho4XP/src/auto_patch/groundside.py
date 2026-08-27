@@ -2602,6 +2602,345 @@ def free_road_subsegments(lines, pav_union, *,
 
 
 # ═════════════════════════════════════════════════════════════════════════
+# ROAD ↔ AIRSIDE CROSSING CONFORMANCE
+# (spec ``docs/specs/road-airside-crossing-conformance-spec.md`` §1,
+#  owner RULINGS 2026-08-26b item 2)
+# ═════════════════════════════════════════════════════════════════════════
+# THE FREE-ROAD PREDICATE'S THIRD ANSWER.  ``free_road_subsegments``
+# splits a service centerline into FREE stations (road-width, or open
+# terrain) and a complement that "grades with the apron"
+# (``apron_spine_subsegments``).  Both read WIDTH.  A road CROSSING a
+# taxiway is narrow at the crossing — the contiguous cross-section there
+# is the taxiway's ~10-23 m, under the 25 m road-width rule — so the
+# width test answers FREE and the stretch is priced at 8 % against
+# ambient terrain while the pavement it stands in sits metres higher.
+# That is the owner's cliff (RULINGS 2026-08-26b item 2, HECA
+# 30.104671/31.3973462: axis 709 at cap 0.08 running at 0.00 m INSIDE
+# junction rings -10250 / -12453 / -12452 / -12708).
+#
+# So the predicate gains a ROLE term, exactly the shape R7a's landside
+# term has: the SAME cross-section chord the width test already
+# measures is asked whether it stands in AIRSIDE pavement.  It is not a
+# third contact test — it is the second question about one measurement.
+#
+# The register is ``enclaves.ENCLAVE_AIRSIDE_ROLES``, imported and never
+# re-spelled (blast.py's role-literal hazard): THE canonical
+# airside-pavement family, the same one the 2026-08-15 proximity mouth
+# seat indexes its carrier edges from.  A ``graded_strip`` is NOT in it
+# and must never be — a strip is the road's own grading product riding
+# at the road's own level, and pinning a road to one pins it at exactly
+# the value the law wants replaced.
+
+# A conforming stretch is a CONTACT, however short: unlike the free-road
+# walk — where a short narrow run inside an apron "is still the apron's
+# road" and is dropped by ``min_run_m`` — a road that crosses one
+# taxiway conforms over that one taxiway.  The floor is therefore one
+# station's worth of the SAME walk, never a new length law.
+AIRSIDE_CROSSING_SAMPLE_STEP_M = 5.0
+
+
+def airside_crossing_subsegments(layout, lines, *, sample_step_m: float =
+                                 AIRSIDE_CROSSING_SAMPLE_STEP_M):
+    """The stretches of ``lines`` whose CROSS-SECTION STANDS IN airside
+    pavement — spec §1.1's CONTACT POPULATION.
+
+    THE MEASUREMENT IS THE ONE INSTRUMENT, not a copy of it:
+    :func:`lateral_contiguity.cross_section_roles` — the station walk the
+    lateral-contiguity emitter and ``tools/check_grade``'s validator
+    already share — cast along the ROAD's own perpendicular at the same
+    5 m station step, returning the ROLE SET of the contiguous paved run
+    containing the station.  The new question is the ROLE one the spec
+    asks: does that run hold an ``ENCLAVE_AIRSIDE_ROLES`` member?  That is
+    the same shape R7a gave the free-road walk when it asked its landside
+    layer about the chord the width test already had — a second question
+    about one measurement, never a third contact test.
+
+    Consecutive conforming stations group into intervals and are returned
+    as ``LineString`` pieces cut from the input, so one centerline yields
+    conforming pieces inside contact and free-road pieces outside it
+    exactly as :func:`apron_spine_subsegments` does.
+
+    BUILD BUDGET.  The walk is TWICE PREFILTERED against an ``STRtree`` of
+    the airside polygons — once per LINE (bbox + probe) and once per
+    STATION — because a contiguous run can only reach airside pavement
+    that lies within the probe, so a road nowhere near aircraft pavement
+    costs one tree query for its whole length and no geometry at all.
+    """
+    from .lateral_contiguity import (PROBE_M as _XS_PROBE_M,
+                                     cross_section_roles as _xs_roles)
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    out: list = []
+    polys, roles = [], []
+    air_polys = []
+    for s in (getattr(layout, "shapes", None) or ()):
+        p = getattr(s, "polygon", None)
+        r = getattr(s, "role", None)
+        if p is None or getattr(p, "is_empty", True):
+            continue
+        polys.append(p)
+        roles.append(r)
+        if r in ENCLAVE_AIRSIDE_ROLES:
+            air_polys.append(p)
+    if not air_polys or not lines:
+        return out
+    try:
+        from shapely.strtree import STRtree
+        tree = STRtree(polys)
+        air_tree = STRtree(air_polys)
+    except Exception:                                      # pragma: no cover
+        return out
+    for line in lines:
+        if line is None or line.is_empty or line.length <= 0.0:
+            continue
+        try:
+            (lx0, ly0, lx1, ly1) = line.bounds
+            if len(air_tree.query(box(lx0 - _XS_PROBE_M, ly0 - _XS_PROBE_M,
+                                      lx1 + _XS_PROBE_M,
+                                      ly1 + _XS_PROBE_M))) == 0:
+                continue          # no airside within reach of the whole line
+        except Exception:                                  # pragma: no cover
+            pass
+        n_st = max(2, int(line.length / sample_step_m) + 1)
+        arcs = [line.length * k / (n_st - 1) for k in range(n_st)]
+        hit = []
+        for arc in arcs:
+            p = line.interpolate(arc)
+            q = line.interpolate(min(arc + 1.0, line.length))
+            dx, dy = q.x - p.x, q.y - p.y
+            dn = math.hypot(dx, dy) or 1.0
+            nx, ny = -dy / dn, dx / dn
+            try:
+                near = air_tree.query(
+                    box(p.x - _XS_PROBE_M, p.y - _XS_PROBE_M,
+                        p.x + _XS_PROBE_M, p.y + _XS_PROBE_M))
+            except Exception:                              # pragma: no cover
+                near = (0,)
+            if len(near) == 0:
+                hit.append(False)
+                continue
+            present = _xs_roles(p.x, p.y, nx, ny, tree, polys, roles, None)
+            hit.append(bool(present)
+                       and bool(set(present) & ENCLAVE_AIRSIDE_ROLES))
+        k = 0
+        while k < len(arcs):
+            if not hit[k]:
+                k += 1
+                continue
+            k2 = k
+            while k2 + 1 < len(arcs) and hit[k2 + 1]:
+                k2 += 1
+            a1, a2 = arcs[k], arcs[k2]
+            k = k2 + 1
+            if a2 - a1 <= 0.0:
+                # A single conforming station is still a contact: give it
+                # one station's worth of length centred on itself, so a
+                # road crossing a narrow taxi stub is not rounded away.
+                a1 = max(0.0, a1 - 0.5 * sample_step_m)
+                a2 = min(line.length, a2 + 0.5 * sample_step_m)
+            if a2 - a1 <= 0.0:                             # pragma: no cover
+                continue
+            try:
+                from shapely.ops import substring as _substring
+                seg = _substring(line, a1, a2)
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            if (seg is not None and not seg.is_empty
+                    and seg.geom_type == "LineString"
+                    and len(seg.coords) >= 2):
+                out.append(seg)
+    return out
+
+
+def _airside_edge_index(layout):
+    """``(segments, tree)`` over every AIRSIDE ring EDGE, or ``(None, None)``.
+
+    The edges are the pin CARRIERS: a pin's value is the airside ring
+    edge's interpolated solved elevation at the pin's foot, so the record
+    has to name the edge's two endpoints — which are canonical nodes —
+    and the foot parameter.  Same recipe shape as the 2026-08-15
+    proximity mouth seat (``svc_mouth_edge_a`` / ``…_b`` / ``…_t``), so
+    the pin inherits its hold and its final-moment re-derivation instead
+    of minting a second one.
+    """
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    segs: list = []
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) not in ENCLAVE_AIRSIDE_ROLES:
+            continue
+        p = getattr(s, "polygon", None)
+        if p is None or getattr(p, "is_empty", True):
+            continue
+        try:
+            rings = [_open_ring_xy(p)]
+            rings += [list(r.coords)[:-1] for r in p.interiors]
+        except _GEOM_EXC:                                  # pragma: no cover
+            continue
+        for ring in rings:
+            n = len(ring)
+            if n < 2:
+                continue
+            for k in range(n):
+                a, b = ring[k], ring[(k + 1) % n]
+                if a == b:
+                    continue
+                segs.append((float(a[0]), float(a[1]),
+                             float(b[0]), float(b[1])))
+    if not segs:
+        return None, None
+    try:
+        from shapely.strtree import STRtree
+        tree = STRtree([LineString([(ax, ay), (bx, by)])
+                        for (ax, ay, bx, by) in segs])
+    except Exception:                                      # pragma: no cover
+        return segs, None
+    return segs, tree
+
+
+def road_airside_crossing_contacts(layout, icao: str = "") -> dict:
+    """Spec §1.1 + §1.2 — the CONFORMING stretches and their PINS.
+
+    Publishes on the layout, for the two readers downstream:
+
+    * ``_airside_conform_subsegments`` — the conforming centerline
+      pieces (``grade_graph.centerline_specs`` prices them at the crossed
+      surface's cap instead of the road's, and subtracts them from the
+      free-road set so one physical road is never registered twice);
+    * ``_airside_conform_pins`` — one record per stretch END, i.e. per
+      entry/exit of the airside polygon: ``{"xy", "edge_a", "edge_b",
+      "t"}`` in LOCAL METRES.  ``route_profile.anchors`` seats the road's
+      cross-section there at ``elev[edge_a] + t·(elev[edge_b] −
+      elev[edge_a])``.
+
+    AIRSIDE IS KING, structurally: this pass reads airside GEOMETRY and
+    the pin reads airside VALUES; nothing here writes an airside shape,
+    and no airside term ever references a road variable.  The pin's
+    population is the ROAD's own cross-section at the entry —
+    ``config.ROAD_CARVE_MAX_WIDTH_M / 2``, the law's own bound on how
+    wide a carved road may be — so the reach is derived, never new.
+
+    Returns a summary dict (also the twins' handle).
+    """
+    from .config import (ROAD_AIRSIDE_CROSSING_CONFORM as _ON,
+                         ROLE_GRADE_LIMITS as _CAPS)
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES
+    summary = {"lines": 0, "conforming": 0, "conform_m": 0.0, "pins": 0,
+               "on": bool(_ON)}
+    layout._airside_conform_subsegments = []
+    layout._airside_conform_pins = []
+    layout._airside_conform_caps = []
+    if not _ON:
+        return summary
+    lines = [ln for ln in (getattr(layout, "_slice_service_subsegments",
+                                   None) or [])
+             if ln is not None and not getattr(ln, "is_empty", True)]
+    summary["lines"] = len(lines)
+    if not lines:
+        return summary
+    pieces = airside_crossing_subsegments(layout, lines)
+    if not pieces:
+        return summary
+    # THE CAP is the crossed surface's own, strictest first — a road
+    # riding an apron takes 1 %, one riding a junction 1.5 %.  Read from
+    # ``ROLE_GRADE_LIMITS``, the one table (auto_patch/CLAUDE.md: never a
+    # rule number at a call site).
+    role_polys = [(s.role, s.polygon) for s in (getattr(layout, "shapes",
+                                                        None) or ())
+                  if getattr(s, "role", None) in ENCLAVE_AIRSIDE_ROLES
+                  and getattr(s, "polygon", None) is not None
+                  and not s.polygon.is_empty]
+    try:
+        from shapely.strtree import STRtree as _STRtree
+        _cap_tree = _STRtree([p for (_r, p) in role_polys])
+    except Exception:                                      # pragma: no cover
+        _cap_tree = None
+    caps: list = []
+    for seg in pieces:
+        best = None
+        cand = (range(len(role_polys)) if _cap_tree is None
+                else [int(k) for k in _cap_tree.query(seg)])
+        for k in cand:
+            (role, poly) = role_polys[k]
+            try:
+                if not poly.intersects(seg):
+                    continue
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+            c = _CAPS.get(role)
+            if c is not None and (best is None or c < best):
+                best = float(c)
+        caps.append(best)
+    segs, tree = _airside_edge_index(layout)
+    pins: list = []
+    if segs:
+        for seg in pieces:
+            for end in (seg.coords[0], seg.coords[-1]):
+                rec = _pin_at(end, segs, tree)
+                if rec is not None:
+                    pins.append(rec)
+    layout._airside_conform_subsegments = list(pieces)
+    layout._airside_conform_caps = caps
+    layout._airside_conform_pins = pins
+    summary["conforming"] = len(pieces)
+    summary["conform_m"] = float(sum(p.length for p in pieces))
+    summary["pins"] = len(pins)
+    import O4_UI_Utils as UI
+    UI.vprint(1,
+        f"  [pav-builder] {icao}: road↔airside crossing conformance "
+        f"(RULINGS 2026-08-26b item 2) — {len(pieces)} service centerline "
+        f"stretch(es), {summary['conform_m']:,.0f} m, stand IN airside "
+        f"pavement and now price at the crossed surface's cap "
+        f"(caps {sorted({c for c in caps if c is not None})}); "
+        f"{len(pins)} entry/exit PIN(s) minted onto airside ring edges "
+        f"— airside is king, the pin reads and never writes them.")
+    return summary
+
+
+# The pin's search radius for its carrier edge.  A stretch END is a
+# point ON the airside boundary by construction (the walk cut it at the
+# station where the cross-section stopped reaching airside pavement), up
+# to the walk's own station step — so the carrier is looked for within
+# that step and nowhere further.  Derived, never a new number.
+_PIN_EDGE_SEARCH_M = AIRSIDE_CROSSING_SAMPLE_STEP_M
+
+
+def _pin_at(pt, segs, tree):
+    """The pin record for one stretch END, or ``None``.
+
+    ``{"xy", "edge_a", "edge_b", "t"}`` — the point, the carrier edge's
+    two endpoints in local metres, and the interpolation parameter of the
+    perpendicular foot.  Values are resolved later, at the last
+    airside-final moment; nothing is read here but geometry.
+    """
+    px, py = float(pt[0]), float(pt[1])
+    cand = range(len(segs))
+    if tree is not None:
+        try:
+            cand = [int(k) for k in tree.query(
+                box(px - _PIN_EDGE_SEARCH_M, py - _PIN_EDGE_SEARCH_M,
+                    px + _PIN_EDGE_SEARCH_M, py + _PIN_EDGE_SEARCH_M))]
+        except Exception:                                  # pragma: no cover
+            cand = range(len(segs))
+    best = None
+    for k in cand:
+        (ax, ay, bx, by) = segs[k]
+        dx, dy = bx - ax, by - ay
+        l2 = dx * dx + dy * dy
+        t = (0.0 if l2 <= 0.0
+             else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / l2)))
+        d = math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+        if d > _PIN_EDGE_SEARCH_M:
+            continue
+        if best is None or (d, k) < (best[0], best[1]):
+            best = (d, k, t)
+    if best is None:
+        return None
+    (_d, k, t) = best
+    (ax, ay, bx, by) = segs[k]
+    return {"xy": (px, py), "edge_a": (ax, ay), "edge_b": (bx, by),
+            "t": float(t)}
+
+
+# ═════════════════════════════════════════════════════════════════════════
 # LATERAL-CONTIGUITY GRADE LAW — clauses (2)-(5)
 # (owner-confirmed FINAL 2026-08-02; the law itself is
 #  ``grade_law.lateral_contiguity_cap`` / ``…_segments``)

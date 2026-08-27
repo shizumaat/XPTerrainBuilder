@@ -145,3 +145,38 @@ visibility gate. Rulings:
    (nearest-pair table, family term-split) are on their second use —
    PROMOTE both into tools/ with INDEX rows and twins per RULINGS
    7e90032.
+
+## Amendment 2 (Fable, 2026-08-27 — TWO-PASS CONFORM: senior
+## byte-identity becomes structural; attempt cap resets, cap 2)
+
+Measured (lane/nostep 459415a5, A1): tier-2 widening + max-tier cut
+taxiway-family movers 4,473 → 3,342 (HECA) but cannot reach zero —
+the one-solve graph expresses one-sidedness only against a CONSTANT,
+and a junction ring vertex is a free variable of its own within-shape
+law, so an imposed tier2↔tier4 edge still moves it. Freezing tier 2 at
+phase-A values would differ from the flag-off arm in the OTHER
+direction; making tier2↔tier4 report-first deletes the coupling that
+lifts the membrane. The staged principle (round-3 Amendment 1) is the
+answer:
+
+1. **TWO-PASS CONFORM.** Pass 1: the solve WITHOUT any imposed no-step
+   edges — byte-identical to the flag-off arm by construction (assert
+   it, don't argue it). Pass 2 (the MEMBRANE CONFORM pass): every
+   tier-1/2/3 node is a CONSTANT at its pass-1 value; only tier-4
+   membrane nodes are free; impose the no-step edges (senior↔4
+   one-sided against the constants, 4↔4 symmetric) TOGETHER WITH the
+   tier-4 nodes' own existing laws (within-shape, lattice, station
+   edges) and the §1.4 DEM demotion, and re-project. Emit pass-2
+   values for tier 4, pass-1 values for everything else.
+2. Consequences, all structural: senior byte-identity vs the flag-off
+   arm needs no gate — non-tier-4 values ARE the flag-off values; the
+   runway carve-corner movers (5 HECA / 2 SPJC) vanish (shared nodes
+   are max-tier constants, the emit author cannot flip); tier2↔tier2
+   stays report-first exactly as ruled.
+3. **Acceptance restated:** assert zero non-tier-4 value deltas vs the
+   matched flag-off arm (whole patch, all airports); dip-site table
+   expected at-or-better than A0 (the membrane now conforms to
+   unmoved seniors — report honestly); line T, overlap read, census
+   A/B as before; SPJC/CYXY matched controls; build-time statement
+   (pass 2 is one extra projection over the tier-4 subset — quote its
+   phase cost).

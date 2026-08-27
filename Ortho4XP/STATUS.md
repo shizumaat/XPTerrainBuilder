@@ -1,4 +1,34 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260827b (UNIFIED LAW BAND MERGED 16889bc9: the reach band is the
+# projection of the FULL law graph — frontage chords + membrane +
+# no-step enumeration, ONE shared list — narrowed BEFORE seating and
+# the solve; owner rulings "REFINE THE BAND FIRST" + report-first
+# contradictions + grade-law-outranks-shared-datum.)
+# MEASURED: building25 frontage band 28.6->6.3 m, seat hard against
+#   its frontage ceiling, both over-cap rows GONE; HECA census
+#   6,927->6,543 (-384); 32/51 HECA pads re-seat (worst -11.3 m,
+#   drifted-high class); SPJC/CYXY/HEAZ pads 0 moved; OFF arm
+#   byte-identical; band phase +2.38 s at HECA (~4% — statement in
+#   the lane report, gates suspended).
+# CONTRADICTION LEDGER (report-first pre-ship, O4_BAND_LAW_REFUSE=1 =
+#   ship-gate arm): law_band_contradictions in every sidecar, census
+#   prints it; 0 sites on shipped HECA/CYXY/HEAZ arms. The HEAZ pair
+#   (runways 81.10 vs 86.14 over a 4.38 m chain) lives ONLY in the
+#   bridge-carrying arm — the band now names the bridge disease
+#   PRE-solve; docket joined to the bridge docket in DEFERRED.
+# SEAT ANCHORS OFF BY MEASUREMENT (+4,069 rows ON at SPJC — post-hoc
+#   narrowing vs committed rigid seats): the founding evidence for the
+#   NEXT ROUND, pads as band-bounded variables (owner-ruled direction
+#   + group-split ruling: grade law outranks shared-datum, groups
+#   split loudly when accommodation would violate grade).
+# ALSO: pad_binding_routes sidecar publication + --from-sidecar render
+#   (c32fceaa, chip session); trace_building_frontage repaired
+#   (6d7a2c0c, chip session); band-gate twin chip in flight.
+# NEXT: pads-as-band-bounded-variables spec + lane; owner sim pass on
+#   the fresh app; conform-pass retirement question stays open (not
+#   approaching no-op: 583 residual at HECA post-repair).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260827a (OWNER SIM-READ ROUND, RULINGS 2026-08-26b: five HECA
 # items from the 1.0.260 pass. Two lanes, both MERGED on branch
 # round3-integration — main merge held: main's tree carries the LEMD

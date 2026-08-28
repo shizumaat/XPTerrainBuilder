@@ -435,7 +435,12 @@ _T5_RAMP = Polygon([(0.0, 0.0), (60.0, 0.0), (60.0, 12.0), (0.0, 12.0)])
 
 
 def _band_scene(ramp_alt=210.0):
-    """One ramp body, walled by the perimeter band with ends WRAPPED."""
+    """One ramp body, walled by the perimeter band with ends WRAPPED.
+
+    Reads whatever ``O4_RAMP_WALL_FOOT`` currently says — the twins below
+    set it explicitly, because the SHIPPED default is OFF (spec
+    Amendment 2 ruling 2, the defined fallback).
+    """
     layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
     ramp = BuiltShape(polygon=_T5_RAMP, role=bridges.ROLE_TUNNEL_RAMP,
                       ref="tunnel_ramp",
@@ -451,18 +456,20 @@ def _band_scene(ramp_alt=210.0):
     return layout, ramp, feet, faces
 
 
-def test_t5_the_perimeter_band_emits_a_foot_and_a_face():
+def test_t5_the_perimeter_band_emits_a_foot_and_a_face(monkeypatch):
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, _ramp, feet, faces = _band_scene()
     assert feet and faces, (
         f"{len(feet)} foot / {len(faces)} face piece(s) — the perimeter "
         f"band must emit both")
 
 
-def test_t5_the_face_stands_off_the_ramp_and_shares_no_node():
+def test_t5_the_face_stands_off_the_ramp_and_shares_no_node(monkeypatch):
     """RULINGS 2026-08-28c item 1: "there must be a small gap".  The
     rising ``tunnel_wall`` stands ``wall_gap`` (0.6 m) off the road
     surface and shares NOT ONE vertex with it — measured before on OTHH:
     84 node ids shared over 22 pairs at 0.0000 m."""
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, ramp, _feet, faces = _band_scene()
     ring = ramp.polygon.exterior
     for face in faces:
@@ -476,13 +483,14 @@ def test_t5_the_face_stands_off_the_ramp_and_shares_no_node():
             f"the owner read in the sim as a broken ramp")
 
 
-def test_t5_the_foot_owns_the_annulus_r16_2b_re_measured():
+def test_t5_the_foot_owns_the_annulus_r16_2b_re_measured(monkeypatch):
     """R16-2b under §T5's composition: face ∪ foot ∪ ramp leaves no
     unowned ground in the ``wall_gap + width`` annulus.
 
     Mutation-checked: delete the foot band and this reads a 0.60 m strip
     of ground no shape owns — the exact defect R16-2b was minted for.
     """
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, ramp, feet, faces = _band_scene()
     assert feet
     covered = unary_union([ramp.polygon]
@@ -504,10 +512,11 @@ def test_t5_the_foot_owns_the_annulus_r16_2b_re_measured():
             0.0, abs=1e-9)
 
 
-def test_t5_the_foot_is_flat_at_the_ramp_edge_elevation():
+def test_t5_the_foot_is_flat_at_the_ramp_edge_elevation(monkeypatch):
     """The shelf has no rise across its own width: every foot vertex
     carries the ramp-edge value, which is what lets the face rise from
     the shelf's OUTER edge alone."""
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, _ramp, feet, _faces = _band_scene(ramp_alt=210.0)
     assert feet
     for foot in feet:
@@ -519,10 +528,11 @@ def test_t5_the_foot_is_flat_at_the_ramp_edge_elevation():
         assert vals[0] == pytest.approx(210.0, abs=0.11)
 
 
-def test_t5_the_articulation_chain_is_ramp_then_foot_then_face():
+def test_t5_the_articulation_chain_is_ramp_then_foot_then_face(monkeypatch):
     """THE MESH ARTICULATION THE OWNER ASKED FOR, as one assertion:
     the face shares ZERO vertices with the ramp, reaches it ONLY THROUGH
     the foot, and the foot is the shape touching the ramp at 0 m."""
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, ramp, feet, faces = _band_scene()
     assert feet
     ring = ramp.polygon.exterior
@@ -540,10 +550,11 @@ def test_t5_the_articulation_chain_is_ramp_then_foot_then_face():
     assert foot_u.distance(ramp.polygon) == pytest.approx(0.0, abs=1e-9)
 
 
-def test_t5_the_foot_and_face_never_overlap():
+def test_t5_the_foot_and_face_never_overlap(monkeypatch):
     """``test_no_self_overlap`` has ZERO tolerance and no per-airport
     exceptions; the two bands are built from independently mitre-joined
     buffers, which do not nest exactly at a sharp corner."""
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
     _layout, _ramp, feet, faces = _band_scene()
     for foot in feet:
         for face in faces:
@@ -553,17 +564,39 @@ def test_t5_the_foot_and_face_never_overlap():
                 f"{foot.polygon.intersection(face.polygon).area:.4f} m²")
 
 
-def test_t5_off_restores_the_single_welded_band(monkeypatch):
-    """OFF is the prior emit in kind: one band, ``ref=tunnel_wall``,
-    inner edge ON the ramp and sharing its vertices, no foot."""
-    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
+def test_t5_the_shipped_default_is_the_plain_g0_standoff():
+    """THE SHIPPED CONTRACT (spec Amendment 2 ruling 2, the defined
+    fallback).  No flag set: no foot, and the band STANDS OFF the ramp by
+    ``wall_gap`` — so the owner's measured sim breakage (item 9: the ramp
+    welded to the wall, 84 shared node ids at 0.0000 m) is fixed, and the
+    older unowned-annulus defect returns as the accepted lesser defect."""
     _layout, ramp, feet, faces = _band_scene()
-    assert feet == []
+    assert feet == [], "the foot ships by default — the fallback is OFF"
     assert faces
     ring = ramp.polygon.exterior
-    assert any(ring.distance(Point(v)) <= 1e-9
-               for face in faces for v in _ring_open(face.polygon)), (
-        "the OFF band does not weld to the ramp")
+    for face in faces:
+        assert face.polygon.distance(ramp.polygon) >= _WALL_GAP_M - 0.01, (
+            f"the shipped band stands only "
+            f"{face.polygon.distance(ramp.polygon):.3f} m off the ramp")
+        assert not [v for v in _ring_open(face.polygon)
+                    if ring.distance(Point(v)) <= 1e-9], (
+            "the shipped band still WELDS to the ramp — item 9 unfixed")
+
+
+def test_t5_the_accepted_lesser_defect_is_the_unowned_annulus():
+    """Named, not hidden: with the fallback shipped, the ``wall_gap``
+    annulus is owned by NOTHING (R16-2b's defect, returned).  This twin
+    exists so the accepted cost is a measured, asserted fact rather than
+    a sentence in a ledger — and so the follow-up docket has its
+    before-number."""
+    _layout, ramp, feet, faces = _band_scene()
+    assert feet == []
+    covered = unary_union([ramp.polygon] + [f.polygon for f in faces])
+    annulus = ramp.polygon.buffer(_WALL_GAP_M).difference(ramp.polygon)
+    unowned = annulus.difference(covered).area
+    assert unowned > 1.0, (
+        f"only {unowned:.2f} m² unowned — if the annulus is covered, the "
+        f"fallback is no longer the fallback and this twin is stale")
 
 
 

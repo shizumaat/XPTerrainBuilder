@@ -3024,14 +3024,18 @@ TUNNEL_WALL_FOOT_REF = "tunnel_wall_foot"
 _TUNNEL_COVER_REFS = ("tunnel_wall", TUNNEL_WALL_FOOT_REF,
                       "tunnel_roof", "tunnel_cap")
 
-#: §T5 gate (tunnel-integrity round).  Default ON; OFF restores R16-2b's
-#: single band whose inner ring IS the ramp boundary — byte-identical to
-#: the pre-round emit.
+#: §T5 gate.  DEFAULT OFF — spec Amendment 2 ruling 2, the DEFINED
+#: FALLBACK, taken because the foot design could not be landed inside its
+#: cap: the partition is provably disjoint AT EMIT (measured 0.0000 m²
+#: overlap for all 6 SPJC pieces), but a later pass inflates each wall
+#: FACE by ~1.4 m² (343.2→344.6, 116.4→117.8, 315.7→317.3) back over its
+#: foot, and `test_no_self_overlap` has zero tolerance.  ON emits the
+#: foot+face partition and is the follow-up docket's starting point.
 _RAMP_WALL_FOOT_ENV = "O4_RAMP_WALL_FOOT"
 
 
 def ramp_wall_foot_enabled() -> bool:
-    return os.environ.get(_RAMP_WALL_FOOT_ENV, "1") == "1"
+    return os.environ.get(_RAMP_WALL_FOOT_ENV, "0") == "1"
 
 
 #: The two refs the perimeter band emits: the rising FACE and its FOOT.
@@ -4711,91 +4715,164 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             continue
     _open_u = unary_union(_openings) if _openings else None
     _foot_law = ramp_wall_foot_enabled()
+
+    # ── THE ALTITUDE SOURCES, BUILT ONCE ─────────────────────────────
+    # Ring-independent, and the partition below asks for altitudes twice
+    # per band piece instead of once — rebuilding this per ring was
+    # affordable when there was one ring and is not now.
+    try:
+        from .groundside import (
+            GROUNDSIDE_MAX_GRADE as _GS_CAP,
+            _BelowGradeIndex,
+            _nearest_source_profile as _nsp,
+            transition_law_altitudes,
+        )
+        _sources = []
+        for _sr in _sources_in:
+            if (_sr.polygon is None or _sr.polygon.is_empty
+                    or _sr.polygon.geom_type != 'Polygon'):
+                continue
+            _rr = list(_sr.polygon.exterior.coords)
+            if len(_rr) > 1 and _rr[0] == _rr[-1]:
+                _rr = _rr[:-1]
+            _ra = getattr(_sr, 'node_altitudes', None)
+            if _ra and len(_ra) >= len(_rr):
+                _rv = [a for a in _ra[:len(_rr)] if a is not None]
+                if not _rv:
+                    continue
+                _fill = sum(_rv) / len(_rv)
+                _sources.append((
+                    _sr.polygon, _rr,
+                    [float(a) if a is not None else _fill
+                     for a in _ra[:len(_rr)]]))
+            elif getattr(_sr, 'altitude', None) is not None:
+                _sources.append((
+                    _sr.polygon, _rr,
+                    [float(_sr.altitude)] * len(_rr)))
+        _idx = _BelowGradeIndex(_sources)
+    except _GEOM_EXC:                                  # pragma: no cover
+        _idx = None
+    #: The ramp-value lookup must reach the ramp from anywhere in the
+    #: structure, and the face's inner ring stands ``_g0`` off it.
+    _reach = _WALL_FACE_ON_PAVEMENT_TOL_M + 0.5 + wall_gap_m
+    #: THE PARTITION IS STRUCTURE-WIDE, not per body.  ``_ru_polys`` is
+    #: one band PER RAMP BODY and the R10-2 note below says each band
+    #: crosses its siblings' — so foot(A) ∩ face(B) is reachable even
+    #: though foot(A) ∩ face(A) is not.  Measured at SPJC: 3 pairs,
+    #: 2.9933 m², whose AREAS did not move across three within-body
+    #: fixes, which is what identified them as cross-body.  Each piece
+    #: subtracts what the structure already occupies, and — this is the
+    #: ordering Amendment 2 names — the ring and the node_altitudes are
+    #: derived AFTER that subtraction, from the final geometry.
+    _emitted_band: list = []
+
+    def _band_altitudes(ring, inner_boundary, is_foot):
+        """Node altitudes for ONE ring of the FINAL partitioned geometry.
+
+        THE CREST BAND TAKES THE TRANSITION LAW (round-4 spec R5, lead
+        ruling 2026-08-10), not a DEM sample: the crest stays the
+        surrounding-surface authority along the ramp's whole length — the
+        wall FACE spans the drop — and descends only within the
+        cap-limited run of the PORTAL.  The DEM value is the surface it
+        grades TO, never the profile itself (sampling it alone gave a
+        flat 4.00 m crest against a −4.02 m ramp).
+
+        R16-2b: the structure's INNER edge carries the RAMP's value, so
+        nothing between it and the crest is unowned.  A FOOT is FLAT —
+        every vertex takes the ramp-edge value, so the shelf has no rise
+        across its own width and the face rises from the shelf's outer
+        edge alone.
+        """
+        _surface = []
+        for _vx, _vy in ring:
+            _d = dem_at(_vx, _vy)
+            _surface.append(float(_d if _d is not None else apt_elev))
+        if _idx is None:                               # pragma: no cover
+            return _surface
+        try:
+            _vals, _n_moved = transition_law_altitudes(
+                ring, _surface, _idx, _GS_CAP)
+            for _vi, (_vx, _vy) in enumerate(ring):
+                if not is_foot:
+                    if inner_boundary is None:
+                        continue
+                    try:
+                        if (inner_boundary.distance(Point(_vx, _vy))
+                                > _WALL_FACE_ON_PAVEMENT_TOL_M):
+                            continue
+                    except _GEOM_EXC:                  # pragma: no cover
+                        continue
+                _ra, _rd, _rsi = _nsp((_vx, _vy), _idx, _reach)
+                if _ra is not None:
+                    _vals[_vi] = float(_ra)
+            return _vals
+        except _GEOM_EXC:                              # pragma: no cover
+            return _surface
+
     for _rp in _ru_polys:
         try:
-            _outer = _rp.buffer(_g1, join_style=2,
-                                mitre_limit=2.0)
-            # R16-2b: THE WALL FACE IS OWNED GEOMETRY.  The band
-            # used to start ``_g0`` (0.6 m) outboard of the ramp,
-            # leaving an annulus NO shape owned — the mesh draped
-            # it at DEM/Z0 under a crest standing 6.5-8 m above
-            # the ramp (measured OTHH: 17 wall nodes over a
-            # 0.6-1.6 m unowned gap).
+            _outer = _rp.buffer(_g1, join_style=2, mitre_limit=2.0)
+            # R16-2b: THE WALL FACE IS OWNED GEOMETRY.  The band used to
+            # start ``_g0`` (0.6 m) outboard of the ramp, leaving an
+            # annulus NO shape owned — the mesh draped it at DEM/Z0 under
+            # a crest standing 6.5-8 m above the ramp (measured OTHH: 17
+            # wall nodes over a 0.6-1.6 m unowned gap).
             #
-            # §T5 (RULINGS 2026-08-28c item 1) RECONCILES that
-            # with the owner's "the ramp must have a small gap
-            # from the wall": the FACE stands off ``_g0`` again,
-            # and the annulus it vacates is OWNED BY THE WALL
-            # STRUCTURE as its FOOT — a flat shelf at RAMP-EDGE
-            # elevation from which the face rises.  Measured
-            # before: 84 node ids shared between ``tunnel_ramp``
-            # and ``tunnel_wall`` over 22 pairs at 0.0000 m
-            # (OTHH), the weld the owner read in the sim as a
-            # broken ramp.  After: the ramp welds to the FOOT (one
-            # elevation, no tear, nothing unowned) and shares NO
-            # node with the rising face.
+            # §T5 (RULINGS 2026-08-28c item 1) reconciles that with the
+            # owner's "the ramp must have a small gap from the wall": the
+            # FACE stands off ``_g0`` again and the annulus it vacates is
+            # OWNED BY THE WALL STRUCTURE as its FOOT — a flat shelf at
+            # ramp-edge elevation from which the face rises.
             #
-            # ``_bands`` is ``(band, inner_reference_polygon, ref,
-            # is_foot)``: the inner reference is the polygon whose
-            # boundary the band's INNER ring lies on, which is
-            # what the ramp-value override below tests against.
+            # ONE BAND, ONE SLIT, THEN A BOOLEAN PARTITION (spec
+            # Amendment 2, ruling 1).  Building the foot and the face as
+            # two INDEPENDENTLY buffered bands and slitting each of them
+            # produced 3 overlapping foot∩face pairs totalling 2.99 m² at
+            # SPJC, against ``test_no_self_overlap``'s zero tolerance:
+            # mitre-joined buffers do not nest exactly at a sharp corner,
+            # and the knife moves each ring separately.  A partition of
+            # ONE post-slit polygon cannot overlap itself.
+            # The inner-offset region, built ONCE per body: the FOOT's
+            # outer edge when the foot ships, and the band's own inner
+            # edge when it does not.
+            _inner_region = _rp.buffer(_g0, join_style=2, mitre_limit=2.0)
             if _foot_law:
-                _foot_outer = _rp.buffer(_g0, join_style=2,
-                                         mitre_limit=2.0)
-                _bands = [
-                    (_foot_outer.difference(_rp), _rp,
-                     TUNNEL_WALL_FOOT_REF, True),
-                    (_outer.difference(_foot_outer), _foot_outer,
-                     "tunnel_wall", False),
-                ]
+                # The whole annulus, partitioned below into foot + face.
+                _band = _outer.difference(_rp)
+                _region = _inner_region
             else:
-                _bands = [(_outer.difference(_rp), _rp,
-                           "tunnel_wall", False)]
+                # ── THE DEFINED FALLBACK (Amendment 2 ruling 2) ──────
+                # The plain ``_g0`` STANDOFF ships alone: the face stands
+                # off the ramp, so the owner's measured sim breakage
+                # (item 9 — ramp welded to wall, 84 shared node ids at
+                # 0.0000 m) is fixed, and the older unowned-annulus
+                # defect (R16-2b) RETURNS as the accepted lesser defect
+                # pre-ship.  The owner's ruling outranks it: a broken
+                # ramp is visible in the sim, and the annulus is a
+                # draping artefact under a crest.
+                _band = _outer.difference(_inner_region)
+                _region = None
             if _open_u is not None:
-                _bands = [(_b.difference(_open_u), _ip, _rf, _ft)
-                          for _b, _ip, _rf, _ft in _bands]
-            # DISJOINT BY CONSTRUCTION.  ``_outer.difference(_foot_outer)``
-            # is disjoint from the foot in theory, but the two buffers are
-            # computed independently with mitre joins and at a sharp
-            # corner they do not nest exactly — measured at SPJC: 3
-            # foot/face pairs overlapping by 2.99 m² total, against
-            # ``test_no_self_overlap``'s ZERO tolerance, no per-airport
-            # exceptions.  Subtract the foot from the face explicitly
-            # rather than trust the nesting.
-            if len(_bands) == 2:
-                try:
-                    _bands[1] = ((_bands[1][0].difference(_bands[0][0]),)
-                                 + tuple(_bands[1][1:]))
-                except _GEOM_EXC:                      # pragma: no cover
-                    pass
-            # ONE flat piece list, so the band body below keeps
-            # its shape (and its indentation) exactly.
-            _band_pieces = [
-                (_g, _ip, _rf, _ft)
-                for _b, _ip, _rf, _ft in _bands
-                for _g in getattr(_b, 'geoms', [_b])]
+                _band = _band.difference(_open_u)
         except _GEOM_EXC:
             continue
-        for _bp, _inner_poly, _wall_ref, _is_foot in _band_pieces:
+        for _bp in getattr(_band, 'geoms', [_band]):
             if (_bp.geom_type != 'Polygon' or _bp.is_empty
                     or _bp.area < 0.5):
                 continue
-            # Slit EVERY interior hole, not just the first.  A
-            # Y-fork band has TWO holes — the central hole AND
-            # the crotch wedge between the diverging arms — so
-            # the old single-hole self-touching slit left the
-            # second hole, the ring filled into a solid disc
-            # over the ramps, and the wall-vs-ramp clip then
-            # dropped it (the fork lost its wall).  Cut a thin
-            # radial knife from each hole out to the band
-            # exterior, collapsing the multiply-connected
-            # annulus into one simply-connected hole-free ring
-            # (to_osm drops interior rings, which would fill the
-            # ramp with a disc).
+            # Slit EVERY interior hole, not just the first.  A Y-fork
+            # band has TWO holes — the central hole AND the crotch wedge
+            # between the diverging arms — so the old single-hole slit
+            # left the second hole, the ring filled into a solid disc
+            # over the ramps, and the wall-vs-ramp clip then dropped it
+            # (the fork lost its wall).  Cut a thin radial knife from
+            # each hole out to the band exterior, collapsing the
+            # multiply-connected annulus into one simply-connected
+            # hole-free ring (to_osm drops interior rings, which would
+            # fill the ramp with a disc).
             _slit = _bp
             _guard = 0
-            while (_slit is not None
-                   and _slit.geom_type == 'Polygon'
+            while (_slit is not None and _slit.geom_type == 'Polygon'
                    and _slit.interiors and _guard < 8):
                 _guard += 1
                 try:
@@ -4823,134 +4900,108 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             if (_slit is None or _slit.geom_type != 'Polygon'
                     or _slit.is_empty or _slit.interiors):
                 continue
-            _ring = list(_slit.exterior.coords)
-            if _ring and _ring[0] == _ring[-1]:
-                _ring = _ring[:-1]
-            if len(_ring) < 4:
+            _ring0 = list(_slit.exterior.coords)
+            if _ring0 and _ring0[0] == _ring0[-1]:
+                _ring0 = _ring0[:-1]
+            if len(_ring0) < 4:
                 continue
-            # THE CREST BAND TAKES THE TRANSITION LAW (round-4
-            # spec R5, lead ruling 2026-08-10), not a DEM
-            # sample.  The crest stays the SURROUNDING SURFACE
-            # authority along the ramp's whole length — the wall
-            # FACE spans the drop — and descends only within the
-            # cap-limited run of the PORTAL, measured along this
-            # ring, converging on the ramp there.  The DEM value
-            # is the surrounding surface it grades TO, never the
-            # profile itself: sampling it alone gave a flat
-            # 4.00 m crest against a −4.02 m ramp under flat
-            # mode, and it was the wrong witness on real DEM too.
-            _surface = []
-            for _vx, _vy in _ring:
-                _d = dem_at(_vx, _vy)
-                _surface.append(
-                    float(_d if _d is not None else apt_elev))
             try:
-                from .groundside import (
-                    GROUNDSIDE_MAX_GRADE as _GS_CAP,
-                    _BelowGradeIndex,
-                    transition_law_altitudes,
-                )
-                _sources = []
-                for _sr in _sources_in:
-                    if (getattr(_sr, 'ref', '') != 'tunnel_ramp'
-                            or _sr.polygon is None
-                            or _sr.polygon.is_empty
-                            or _sr.polygon.geom_type != 'Polygon'):
-                        continue
-                    _rr = list(_sr.polygon.exterior.coords)
-                    if len(_rr) > 1 and _rr[0] == _rr[-1]:
-                        _rr = _rr[:-1]
-                    _ra = getattr(_sr, 'node_altitudes', None)
-                    if _ra and len(_ra) >= len(_rr):
-                        _rv = [a for a in _ra[:len(_rr)]
-                               if a is not None]
-                        if not _rv:
-                            continue
-                        _fill = sum(_rv) / len(_rv)
-                        _sources.append((
-                            _sr.polygon, _rr,
-                            [float(a) if a is not None else _fill
-                             for a in _ra[:len(_rr)]]))
-                    elif getattr(_sr, 'altitude', None) is not None:
-                        _sources.append((
-                            _sr.polygon, _rr,
-                            [float(_sr.altitude)] * len(_rr)))
-                from .groundside import (
-                    _nearest_source_profile as _nsp)
-                _idx = _BelowGradeIndex(_sources)
-                _vals, _n_moved = transition_law_altitudes(
-                    _ring, _surface, _idx, _GS_CAP)
-                # R16-2b: the band's INNER edge carries the RAMP's
-                # value — the crest (the transition law's answer)
-                # stays on the outer edge and the face spans the
-                # drop between them.  Nothing between is unowned.
-                #
-                # §T5: which ring is "inner" now depends on the
-                # band.  For the FOOT it is the ramp's own
-                # boundary; for the FACE it is the foot's outer
-                # edge, ``_g0`` out — so the test runs against
-                # ``_inner_poly``, and the ramp-value lookup reach
-                # grows by ``_g0`` because the face's inner ring
-                # is that far from the ramp it takes its value
-                # from.  And a FOOT is FLAT: every one of its
-                # vertices takes the ramp-edge value, so the shelf
-                # has no rise across its own width and the face
-                # rises from the shelf's outer edge alone.
-                _reach = _WALL_FACE_ON_PAVEMENT_TOL_M + 0.5 + _g0
-                for _vi, (_vx, _vy) in enumerate(_ring):
-                    if not _is_foot:
-                        try:
-                            if (_inner_poly.boundary.distance(
-                                    Point(_vx, _vy))
-                                    > _WALL_FACE_ON_PAVEMENT_TOL_M):
-                                continue
-                        except _GEOM_EXC:
-                            continue
-                    _ra, _rd, _rsi = _nsp(
-                        (_vx, _vy), _idx, _reach)
-                    if _ra is not None:
-                        _vals[_vi] = float(_ra)
-            except _GEOM_EXC:
-                _vals = _surface
-            _na = [round(_v, 1) for _v in _vals]
-            _na.append(_na[0])
-            try:
-                _wp = Polygon(_ring)
-                # THE SLIT RING MAY SELF-TOUCH.  ``_ring`` traverses the
-                # band's outer boundary, the 0.02 m knife, and its inner
-                # boundary; on a thin band (the §T5 FOOT is ``wall_gap``
-                # = 0.6 m wide) that traversal can close on itself, and
-                # ``Polygon`` of a self-touching ring is INVALID — its
-                # ``area`` and ``intersection`` are then unreliable, which
-                # is how 3 foot∩face pairs read 2.99 m² of overlap at
-                # SPJC against a zero-tolerance invariant.  Repair it the
-                # way every other ring in this file is repaired.
-                if not _wp.is_valid:
-                    _wp = _wp.buffer(0)
-                    if _wp.geom_type == "MultiPolygon":
-                        _wp = max(_wp.geoms, key=lambda g: g.area)
-                if (_wp is None or _wp.is_empty
-                        or _wp.geom_type != "Polygon"):
+                _wp0 = Polygon(_ring0)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            # THE SLIT RING MAY SELF-TOUCH — repaired BEFORE the
+            # partition (Amendment 2).  On a thin band the traversal of
+            # outer boundary, 0.02 m knife and inner boundary can close
+            # on itself, and ``Polygon`` of a self-touching ring is
+            # INVALID: its ``area`` and ``intersection`` are then
+            # unreliable, so a partition of it would be too.
+            if not _wp0.is_valid:
+                _wp0 = _wp0.buffer(0)
+                if _wp0.geom_type == 'MultiPolygon':
+                    _wp0 = max(_wp0.geoms, key=lambda g: g.area)
+            if (_wp0 is None or _wp0.is_empty
+                    or _wp0.geom_type != 'Polygon'):
+                continue
+            # ── THE PARTITION ────────────────────────────────────────
+            # foot = band ∩ region, face = band − region.  Disjoint by
+            # construction; both rings AND both altitude vectors come
+            # from the FINAL geometry, never from ``_ring0`` (deriving
+            # values before the split is the ordering that desynchronised
+            # the rings from their node_altitudes).
+            _parts: list = []
+            if _region is None:
+                _parts.append((_wp0, "tunnel_wall", False, None))
+            else:
+                try:
+                    _foot_g = _wp0.intersection(_region)
+                    _face_g = _wp0.difference(_region)
+                except _GEOM_EXC:                      # pragma: no cover
                     continue
-                # R10-2: the band is buffered per ramp-union
-                # POLYGON, so it crosses sibling ramps and every
-                # earlier cluster's; cut it against the whole
-                # tunnel pavement and keep EVERY surviving arc.
-                # The exclusion zone stays the ANNULUS ``_bp``
-                # (the ring fills its own hole — carrying that
-                # into the zones would over-carve the boundary
-                # ribbon over ground the band never occupies).
-                for _piece in _tunnel_cover_pieces(
-                        BuiltShape(
-                            polygon=_wp,
-                            role=ROLE_RETAINING_WALL,
-                            ref=_wall_ref,
-                            node_altitudes=_na),
-                        _pav_u_band):
-                    layout.shapes.append(_piece)
-                exclusion_zones.append(_bp)
-            except _GEOM_EXC:
-                continue
+                _inner_b = None
+                try:
+                    _inner_b = _region.boundary
+                except _GEOM_EXC:                      # pragma: no cover
+                    _inner_b = None
+                for _g in getattr(_foot_g, 'geoms', [_foot_g]):
+                    if (_g is not None and not _g.is_empty
+                            and _g.geom_type == 'Polygon'
+                            and _g.area >= 0.05):
+                        _parts.append(
+                            (_g, TUNNEL_WALL_FOOT_REF, True, None))
+                for _g in getattr(_face_g, 'geoms', [_face_g]):
+                    if (_g is not None and not _g.is_empty
+                            and _g.geom_type == 'Polygon'
+                            and _g.area >= 0.05):
+                        _parts.append(
+                            (_g, "tunnel_wall", False, _inner_b))
+            for _wp, _wall_ref, _is_foot, _inner_b in _parts:
+                try:
+                    if _emitted_band:
+                        _wp = _wp.difference(unary_union(_emitted_band))
+                        if _wp.geom_type == 'MultiPolygon':
+                            _wp = max(_wp.geoms, key=lambda g: g.area)
+                        if (_wp is None or _wp.is_empty
+                                or _wp.geom_type != 'Polygon'
+                                or _wp.area < 0.05):
+                            continue
+                    if not _wp.is_valid:
+                        _wp = _wp.buffer(0)
+                        if _wp.geom_type == 'MultiPolygon':
+                            _wp = max(_wp.geoms, key=lambda g: g.area)
+                    if (_wp is None or _wp.is_empty
+                            or _wp.geom_type != 'Polygon'
+                            or _wp.interiors):
+                        continue
+                    _emitted_band.append(_wp)
+                    _ring = list(_wp.exterior.coords)
+                    if _ring and _ring[0] == _ring[-1]:
+                        _ring = _ring[:-1]
+                    if len(_ring) < 4:
+                        continue
+                    _vals = _band_altitudes(_ring, _inner_b, _is_foot)
+                    _na = [round(_v, 1) for _v in _vals]
+                    _na.append(_na[0])
+                    # R10-2: the band is buffered per ramp-union POLYGON,
+                    # so it crosses sibling ramps and every earlier
+                    # cluster's; cut it against the whole tunnel pavement
+                    # and keep EVERY surviving arc.
+                    for _piece in _tunnel_cover_pieces(
+                            BuiltShape(
+                                polygon=_wp,
+                                role=ROLE_RETAINING_WALL,
+                                ref=_wall_ref,
+                                node_altitudes=_na),
+                            _pav_u_band):
+                        layout.shapes.append(_piece)
+                except _GEOM_EXC:
+                    continue
+            # The exclusion zone stays the ANNULUS ``_bp`` (the ring
+            # fills its own hole — carrying that into the zones would
+            # over-carve the boundary ribbon over ground the band never
+            # occupies), and it is the WHOLE band, once, not once per
+            # partition part.
+            exclusion_zones.append(_bp)
+
 
 def _low_connector_corridors(low_connector_gaps: list) -> list:
     """Dissolve the recorded per-way gap rects into corridor polygons.

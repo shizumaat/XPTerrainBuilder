@@ -4665,6 +4665,13 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                    and not s.polygon.is_empty
                    and s.polygon.geom_type == "Polygon"]
     _cl_arm_ends = list(arm_ends or ())
+    # HOISTED, and it is invariant: this loop appends only ``tunnel_wall``
+    # / ``tunnel_wall_foot`` pieces, neither of which is in
+    # ``_TUNNEL_PAVEMENT_REFS``, so the union it cuts against cannot
+    # change while it runs.  Recomputing it per emitted piece is a union
+    # over the whole layout inside the innermost loop — affordable for a
+    # cluster's few ramp bodies, not for a claimed corridor set (§T6.1).
+    _pav_u_band = _tunnel_pavement_union(layout)
     _g0 = wall_gap_m
     _g1 = wall_gap_m + retaining_wall_width_m
     # Openings at every arm's FAR (surface) end: the annulus
@@ -4899,7 +4906,7 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                             role=ROLE_RETAINING_WALL,
                             ref=_wall_ref,
                             node_altitudes=_na),
-                        _tunnel_pavement_union(layout)):
+                        _pav_u_band):
                     layout.shapes.append(_piece)
                 exclusion_zones.append(_bp)
             except _GEOM_EXC:

@@ -271,6 +271,11 @@ _GATE_ENVIRONMENT_NAMES = (
     # the body alone but emits terrain beside it, which a run record
     # written under the other value is a wrong answer for.
     "O4_BASIN_RAMP_REACH_PLATE",
+    # ...and the PAD-AUTHORITY CARVE (spec lemd-pad-authority-carve), the
+    # corridor's other consumer: it emits the same plate under a carved
+    # authority AND scopes the post-mesh G band by the corridor, so a run
+    # record written under the other value is a wrong answer twice over.
+    "O4_BASIN_PAD_AUTHORITY_CARVE",
     # ...and the group-seat gate itself, read through its config constant
     # above as well: both spellings are salted, because the env var is
     # what a lane flips and the constant is what a test monkeypatches.

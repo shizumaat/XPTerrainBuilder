@@ -982,6 +982,7 @@ def _basin_facility_rim_sample_ring(
     body_rings_longitude_latitude,
     origin_latitude: float,
     origin_longitude: float,
+    exclusion_rings_longitude_latitude=None,
 ) -> tuple[list, list]:
     """``R_mesh``'s SAMPLE RING for one basin facility (spec section 2.2
     item 5): the facility body outline offset OUTWARD by
@@ -992,6 +993,21 @@ def _basin_facility_rim_sample_ring(
     parts are returned for the caller's diagnostics.  Pure geometry: no
     mesh is touched here, so the caller can size its sampler from the
     ring before building one.
+
+    ``exclusion_rings_longitude_latitude`` — SCOPE, and only scope (spec
+    ``docs/specs/lemd-pad-authority-carve-spec.md`` §4): stations that
+    fall inside one of these rings are DROPPED before the caller ever
+    samples the mesh.  The band's defining clause is "the first terrain
+    OUTSIDE OUR OWN PLATES", and the PAD-AUTHORITY CARVE lays a floor
+    plate in the ramp corridor, which lies beside the body and therefore
+    under this band (measured at LEMD: 8 of 70 stations).  Without the
+    exclusion the instrument would median our own 587.75 m plate and call
+    it the surrounding grade.
+
+    IT SCOPES, IT NEVER RE-BASELINES.  The ring itself, its offset, its
+    step and the order of the stations that survive are byte-identical to
+    the unscoped read; with no exclusion (the default) this function is
+    the function it was.
     """
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
@@ -1034,6 +1050,35 @@ def _basin_facility_rim_sample_ring(
     except Exception:
         return [], body_parts
 
+    # THE SCOPE (spec lemd-pad-authority-carve §4), built in the SAME
+    # frame the band is built in — through the same converter, so the
+    # exclusion and the stations can never land in two frames.
+    exclusion = None
+    exclusion_parts: list = []
+    for ring in (exclusion_rings_longitude_latitude or ()):
+        points = [
+            obj8_reader.lonlat_to_local_offset(
+                origin_latitude, origin_longitude, 0.0, latitude, longitude
+            )
+            for longitude, latitude in ring
+        ]
+        if len(points) < 3:
+            continue
+        try:
+            polygon = Polygon(points)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+        except Exception:
+            continue
+        for part in getattr(polygon, "geoms", [polygon]):
+            if part.geom_type == "Polygon" and not part.is_empty:
+                exclusion_parts.append(part)
+    if exclusion_parts:
+        try:
+            exclusion = unary_union(exclusion_parts)
+        except Exception:                                 # pragma: no cover
+            exclusion = None
+
     sample_points: list = []
     for part in getattr(band, "geoms", [band]):
         exterior = getattr(part, "exterior", None)
@@ -1047,6 +1092,12 @@ def _basin_facility_rim_sample_ring(
         )
         for index in range(step_count):
             point = exterior.interpolate(length * index / step_count)
+            if exclusion is not None:
+                try:
+                    if exclusion.covers(point):
+                        continue
+                except Exception:                         # pragma: no cover
+                    pass
             sample_points.append(
                 obj8_reader.local_offset_to_lonlat(
                     origin_latitude, origin_longitude, 0.0,
@@ -1180,6 +1231,13 @@ def _bake_basin_rim_flush_facilities(
             facility.body_rings_longitude_latitude,
             origin_latitude,
             origin_longitude,
+            # SCOPE, not a re-baseline (spec lemd-pad-authority-carve
+            # §4): the carve's own corridor plate lies under this band,
+            # and the band is defined as the first terrain OUTSIDE our
+            # own plates.  Empty when the facility carries no corridor,
+            # which is every facility in a build with the carve off.
+            getattr(facility,
+                    "carve_corridor_rings_longitude_latitude", ()),
         )
         if not sample_points:
             record["decision"] = (
@@ -1947,6 +2005,13 @@ def _bake_basin_group_seat_facilities(
             facility.body_rings_longitude_latitude,
             origin_latitude,
             origin_longitude,
+            # SCOPE, not a re-baseline (spec lemd-pad-authority-carve
+            # §4): the carve's own corridor plate lies under this band,
+            # and the band is defined as the first terrain OUTSIDE our
+            # own plates.  Empty when the facility carries no corridor,
+            # which is every facility in a build with the carve off.
+            getattr(facility,
+                    "carve_corridor_rings_longitude_latitude", ()),
         )
         if not sample_points:
             record["decision"] = (

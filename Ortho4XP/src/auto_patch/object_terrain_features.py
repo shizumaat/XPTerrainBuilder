@@ -3324,9 +3324,17 @@ def regions_with_ramp_reach_corridor(
     Returns a new list (the regions are frozen); with the gate off, or
     with no ramp to carry, the input regions come back unchanged.
     """
-    from .config import BASIN_RAMP_REACH_PLATE
+    from . import config as _config
 
-    if not regions or not BASIN_RAMP_REACH_PLATE:
+    # ONE READER for "is a corridor carried at all" (``config.
+    # basin_ramp_corridor_carried``): the retired plate arm
+    # (``BASIN_RAMP_REACH_PLATE``) and the owner-sanctioned PAD-AUTHORITY
+    # CARVE (``BASIN_PAD_AUTHORITY_CARVE``, spec
+    # ``docs/specs/lemd-pad-authority-carve-spec.md`` §1) consume the
+    # SAME corridor and differ only in what they do with it.  A second
+    # derivation for the carve would be two spellings of one ramp — the
+    # census-wrapper class this module's own docstring names.
+    if not regions or not _config.basin_ramp_corridor_carried():
         return list(regions)
     candidates, refused = _region_ramp_reach_rings(
         regions, placements, geometry_by_resource, cache=cache)

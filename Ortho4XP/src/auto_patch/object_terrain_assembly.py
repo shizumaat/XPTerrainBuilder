@@ -558,7 +558,14 @@ def _discover_sibling_road_networks(
 # the log as if freshly derived.  The fingerprint covers the PACK and
 # the GATES, never the derivation's own arithmetic; the version is the
 # only thing that can retire a ring or a corridor whose SHAPE changed.
-_CLASSIFICATION_CACHE_VERSION = 26
+# v27 (2026-08-28, the PAD-AUTHORITY CARVE): the facility payload grew
+# ``carve_corridor_rings_longitude_latitude`` — the ramp corridor the
+# post-mesh G instrument scopes its sample band by (spec
+# ``docs/specs/lemd-pad-authority-carve-spec.md`` §4).  A v26 sidecar
+# carries no such key, so a warm one would hand the instrument an
+# UNSCOPED band and call it scoped.  The version, not the gate salt, is
+# what retires a payload whose SHAPE changed.
+_CLASSIFICATION_CACHE_VERSION = 27
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -679,6 +686,16 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         digest.update(
             f"basin-ramp-reach-plate:"
             f"{config.BASIN_RAMP_REACH_PLATE}".encode()
+        )
+        # ...and the PAD-AUTHORITY CARVE gate (spec ``docs/specs/lemd-
+        # pad-authority-carve-spec.md``): it is the OTHER reader of
+        # ``basin_ramp_corridor_carried``, so it too decides whether the
+        # classification carries a ramp CORRIDOR at all — and the
+        # corridor is emitted terrain.  Salted separately from the plate
+        # gate because the two arms are distinguishable builds.
+        digest.update(
+            f"basin-pad-authority-carve:"
+            f"{config.BASIN_PAD_AUTHORITY_CARVE}".encode()
         )
         # ...and the GROUP-SEAT gate (docket B, basin-group-seat §2.6): it
         # decides how the facility records this classification feeds are
@@ -1080,6 +1097,11 @@ def _cached_post_mesh_records(
                 # the body is emitted terrain, so a flip changes what a
                 # post-mesh decision is derived from.
                 config.BASIN_RAMP_REACH_PLATE,
+                # ...and the PAD-AUTHORITY CARVE gate, the corridor's
+                # other reader: it decides whether a facility in this
+                # payload carries a carve corridor, which is exactly what
+                # the post-mesh G instrument scopes its band by.
+                config.BASIN_PAD_AUTHORITY_CARVE,
                 # ...and the group-seat gate (docket B): it decides how
                 # many facilities the payload carries (one per connected
                 # body component) and which body each one owns.
@@ -1511,6 +1533,61 @@ def _tunnel_footprint_longitude_latitude_parts(tunnel) -> list:
         if footprint_longitude_latitude.geom_type == "MultiPolygon"
         else [footprint_longitude_latitude]
     )
+
+
+def _tunnel_ramp_corridor_longitude_latitude_rings(tunnel) -> list:
+    """A facility member's RAMP CORRIDOR as exterior rings in
+    longitude/latitude, or ``[]`` (spec ``docs/specs/lemd-pad-authority-
+    carve-spec.md`` §4).
+
+    The lon/lat sibling of :func:`_tunnel_ramp_corridor_meters`, and it
+    travels the SAME road that reader travels — the record's own
+    ``ramp_reach_corridor`` through
+    ``frame_polygon_to_longitude_latitude`` — so the corridor the
+    emitter plates and the corridor the G instrument scopes by can never
+    be two different polygons.  Deliberately NOT a body reader: the
+    corridor never joins ``body_rings_longitude_latitude``.
+    """
+    from .object_terrain_features import frame_polygon_to_longitude_latitude
+
+    corridor = getattr(tunnel, "ramp_reach_corridor", None)
+    if corridor is None or corridor.is_empty:
+        return []
+    try:
+        longitude_latitude = frame_polygon_to_longitude_latitude(
+            corridor, tunnel.frame_origin_longitude_latitude)
+    except Exception:                                     # pragma: no cover
+        return []
+    if longitude_latitude is None or longitude_latitude.is_empty:
+        return []
+    rings = []
+    for part in getattr(longitude_latitude, "geoms", [longitude_latitude]):
+        exterior = getattr(part, "exterior", None)
+        if exterior is None:
+            continue
+        ring = tuple((float(x), float(y)) for (x, y) in exterior.coords)
+        if len(ring) >= 4:
+            rings.append(ring)
+    return rings
+
+
+def _ring_touches_component(ring_longitude_latitude, component) -> bool:
+    """Does a lon/lat ring meet ``component`` (a lon/lat body polygon)?
+
+    Used to give each connected body component its OWN corridors when a
+    pack's members group into several facilities.  A ring that touches
+    nothing is carried by nobody, which is right: a corridor with no body
+    to plate against was never emitted either.
+    """
+    from shapely.geometry import Polygon as _Polygon
+
+    try:
+        polygon = _Polygon(ring_longitude_latitude)
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        return bool(polygon.intersects(component))
+    except Exception:                                     # pragma: no cover
+        return False
 
 
 def _tunnel_ramp_corridor_meters(tunnel, to_meters):
@@ -2394,6 +2471,15 @@ class BasinRimFlushFacility:
     body_rings_longitude_latitude: tuple[tuple[tuple[float, float], ...], ...]
     solid_minimum_y_m: float
     anchor_inside_body: bool
+    #: THE CARVE CORRIDOR (spec ``docs/specs/lemd-pad-authority-carve-
+    #: spec.md`` §4), exterior rings in longitude/latitude, empty when
+    #: this facility carries none.  It is NOT part of the body and never
+    #: joins it — the body is the one measurement frame — but the G
+    #: instrument has to know where our own corridor plate lies so its
+    #: sample band can stay OUTSIDE it.  Carried on the facility because
+    #: the facility is what the post-mesh pass is handed.
+    carve_corridor_rings_longitude_latitude: tuple[
+        tuple[tuple[float, float], ...], ...] = ()
 
     def to_json(self) -> dict:
         """Plain-JSON form for the post-mesh records cache."""
@@ -2407,6 +2493,10 @@ class BasinRimFlushFacility:
             ],
             "solid_minimum_y_m": float(self.solid_minimum_y_m),
             "anchor_inside_body": bool(self.anchor_inside_body),
+            "carve_corridor_rings_longitude_latitude": [
+                [list(point) for point in ring]
+                for ring in self.carve_corridor_rings_longitude_latitude
+            ],
         }
 
     @classmethod
@@ -2423,6 +2513,17 @@ class BasinRimFlushFacility:
             ),
             solid_minimum_y_m=float(payload["solid_minimum_y_m"]),
             anchor_inside_body=bool(payload["anchor_inside_body"]),
+            # ABSENT is EMPTY, never a KeyError: a payload written before
+            # the carve existed carries no corridor because that build
+            # had none.  (A payload written before v27 is retired by the
+            # cache VERSION, which is the mechanism that must catch a
+            # SHAPE change — this default is for in-process records the
+            # post-mesh pass rebuilds, not a way around it.)
+            carve_corridor_rings_longitude_latitude=tuple(
+                tuple((float(point[0]), float(point[1])) for point in ring)
+                for ring in (payload.get(
+                    "carve_corridor_rings_longitude_latitude") or ())
+            ),
         )
 
 
@@ -2638,6 +2739,14 @@ def basin_rim_flush_facilities(classification) -> list:
         # needs the member-to-footprint association, which a pooled part
         # list throws away.
         admitted: list[tuple[list, tuple[str, ...], float]] = []
+        # THE CARVE CORRIDORS this facility's members carry (spec
+        # lemd-pad-authority-carve §4), in longitude/latitude — collected
+        # beside ``admitted`` and NEVER folded into ``body_parts``: the
+        # body is the one measurement frame, and Amendment 1 of the
+        # trench spec exists because a round that put the ramp in there
+        # moved the floor value, the rim value, the pad coverage test and
+        # G at once.
+        corridor_rings: list = []
         anchor_longitude_latitude = None
         for record in members:
             # The emitter's own member admission (a member with no
@@ -2659,6 +2768,8 @@ def basin_rim_flush_facilities(classification) -> list:
                 (list(parts), tuple(record.object_resources),
                  float(deck_reference_y))
             )
+            corridor_rings.extend(
+                _tunnel_ramp_corridor_longitude_latitude_rings(record))
             if anchor_longitude_latitude is None:
                 anchor_longitude_latitude = (
                     float(record.anchor_longitude_latitude[0]),
@@ -2704,6 +2815,8 @@ def basin_rim_flush_facilities(classification) -> list:
                     solid_minimum_y_m=min(
                         key for _parts, _resources, key in admitted),
                     anchor_inside_body=bool(body.covers(anchor_point)),
+                    carve_corridor_rings_longitude_latitude=tuple(
+                        corridor_rings),
                 )
             )
             continue
@@ -2740,6 +2853,12 @@ def basin_rim_flush_facilities(classification) -> list:
                     body_rings_longitude_latitude=(ring,),
                     solid_minimum_y_m=min(component_keys),
                     anchor_inside_body=bool(component.covers(anchor_point)),
+                    # ONE BODY, ONE CORRIDOR SET: a corridor belongs to
+                    # the component it touches, so a facility never
+                    # scopes G by a ramp that is not its own.
+                    carve_corridor_rings_longitude_latitude=tuple(
+                        ring_ll for ring_ll in corridor_rings
+                        if _ring_touches_component(ring_ll, component)),
                 )
             )
     return out
@@ -3280,6 +3399,20 @@ def reseat_basin_rim_plates_post_solve(layout):
 #: ``_terrace_joints_to_m``, which reads ``points`` and ``step_m`` only.
 BASIN_WALL_JOINT_KIND = "basin_trench_wall"
 
+#: ...and the PAD-AUTHORITY CARVE's own joint kind (spec
+#: ``docs/specs/lemd-pad-authority-carve-spec.md`` §2): the declared step
+#: between a carve corridor's floor plate and the PAD whose flattening
+#: authority the owner carved.  A distinct kind from the pan↔rim wall
+#: because the two sides differ — that one walls the pit's own rim band,
+#: this one walls a building pad — and an attribution that cannot tell
+#: them apart cannot say which law drew the step.
+BASIN_CARVE_WALL_JOINT_KIND = "basin_pad_carve_wall"
+
+#: Where the emitter records its carve plates for the post-solve
+#: declaration.  ONE spelling, read by the emitter, the publisher and
+#: the tests.
+BASIN_CARVE_PLATES_ATTRIBUTE = "_basin_carve_plates"
+
 
 def _republish_basin_declarations(layout, plates, report):
     """THE DECLARATION FOLLOWS THE EMISSION (spec lemd-rim-and-stations
@@ -3320,6 +3453,10 @@ def _republish_basin_declarations(layout, plates, report):
               if str(getattr(s, "ref", "") or "") == BASIN_FLOOR_PLATE_REF
               and s.polygon is not None and not s.polygon.is_empty]
     joints = list(getattr(layout, "_basin_wall_joints", None) or [])
+    # (c) THE CARVED PAD EDGE, declared FIRST so it does not ride on the
+    # rim wall's own preconditions below (a facility whose floors or
+    # records are missing still owes its carve declaration).
+    _declare_carve_walls(layout, joints, report)
     if not floors or not plates:
         layout._basin_wall_joints = joints
         return
@@ -3363,6 +3500,84 @@ def _republish_basin_declarations(layout, plates, report):
             joints.append({"points_m": pts, "step_m": float(step)})
     layout._basin_wall_joints = joints
     report["wall_joints"] = len(joints)
+
+
+def _declare_carve_walls(layout, joints, report):
+    """(c) THE PAD EDGE ALONG THE CARVE CORRIDOR IS DECLARED (spec
+    ``docs/specs/lemd-pad-authority-carve-spec.md`` §2).
+
+    The carve takes the ramp corridor out of a building pad's flattening
+    authority, so the corridor's own outer edge is a step from the pad's
+    flat level down to the facility floor.  That step is the trench law's
+    DESIGNED wall exactly as the pan↔rim step is — the difference is only
+    which surface stands on the high side — so it publishes into the SAME
+    declared-step register (``terrace_joints``), through the same rows,
+    under its own ``kind``.  An UNDECLARED step still prices in full;
+    this is a joint register, never a role-based blanket exemption.
+
+    The high side is read from the PAD ITSELF, post-solve
+    (``_shape_value_at``), never from the law: the pad is a solved
+    variable and the declaration must describe what was emitted, which is
+    exactly the honesty half (a) of this pass exists to fix.  Only the
+    stretch of the plate boundary that lies INSIDE the carved pad is
+    declared — where the plate meets the body it is the pan↔rim wall's
+    joint, already published above, and declaring one step twice would
+    let a reader believe two walls stand there.
+    """
+    records = getattr(layout, BASIN_CARVE_PLATES_ATTRIBUTE, None) or []
+    if not records:
+        return
+    declared = 0
+    for record in records:
+        try:
+            floor_m = float(record["floor_m"])
+        except (KeyError, TypeError, ValueError):         # pragma: no cover
+            continue
+        pads = [pad for pad in (record.get("pads") or ())
+                if getattr(pad, "polygon", None) is not None
+                and not pad.polygon.is_empty]
+        if not pads:
+            continue
+        for plate in (record.get("plates") or ()):
+            if plate is None or plate.is_empty:
+                continue
+            for pad in pads:
+                try:
+                    arc = plate.boundary.intersection(
+                        pad.polygon.buffer(-_TUNNEL_WALL_SETBACK_M,
+                                           join_style=2, mitre_limit=2.0))
+                except Exception:                         # pragma: no cover
+                    continue
+                if arc is None or arc.is_empty:
+                    continue
+                value = _shape_value_at(pad, plate.centroid)
+                if value is None or value != value:
+                    continue
+                step = float(value) - floor_m
+                if step <= 0.0:
+                    continue
+                parts = (list(arc.geoms)
+                         if arc.geom_type.startswith("Multi")
+                         or arc.geom_type == "GeometryCollection"
+                         else [arc])
+                for piece in parts:
+                    if getattr(piece, "geom_type", "") != "LineString":
+                        continue
+                    pts = [(float(x), float(y)) for (x, y) in piece.coords]
+                    if len(pts) < 2:
+                        continue
+                    joints.append({"points_m": pts, "step_m": step,
+                                   "kind": BASIN_CARVE_WALL_JOINT_KIND})
+                    declared += 1
+    if declared:
+        report["carve_wall_joints"] = declared
+        UI.vprint(
+            1,
+            f"  [object-basin] PAD-AUTHORITY CARVE: {declared} declared "
+            "wall joint(s) published along the carved pad edge — the "
+            "plate-to-pad step is the trench law's designed wall, "
+            "declared in the census's own register (spec §2)",
+        )
 
 
 def basin_wall_joints_sidecar(layout) -> list:
@@ -3414,7 +3629,10 @@ def basin_wall_joints_sidecar(layout) -> list:
             "step_m": round(float(joint["step_m"]), 4),
             "declared_step_m": round(float(joint["step_m"]), 4),
             "faced": True,
-            "kind": BASIN_WALL_JOINT_KIND,
+            # The joint carries its OWN kind when it has one (the
+            # PAD-AUTHORITY CARVE's plate↔pad wall); the pan↔rim wall is
+            # the default because it is the kind that predates the key.
+            "kind": joint.get("kind") or BASIN_WALL_JOINT_KIND,
             "carried": carried,
             "actual_step_m": None,
             "flank_span_m": None,
@@ -3835,7 +4053,7 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # consumed in exactly two places: it JOINS the floor pan, and the
         # rim band STANDS DOWN inside it.
         ramp_corridor = None
-        if config.BASIN_RAMP_REACH_PLATE and is_basin_facility:
+        if config.basin_ramp_corridor_carried() and is_basin_facility:
             corridor_parts = [
                 corridor for corridor in (
                     _tunnel_ramp_corridor_meters(record[0], to_meters)
@@ -4083,6 +4301,16 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # and the wall band are differenced against, so both are born
         # THROUGH them.
         authority_yield_pad_ids: set = set()
+        # ...and the CARVE's own population (spec lemd-pad-authority-
+        # carve §2): the yielding pads themselves, kept in order so the
+        # carve can ask them for their geometry and their emitted value.
+        # A SUBSET of ``authority_yield_pad_ids`` by construction — it is
+        # appended at the same decision.
+        carve_pads: list = []
+        # ...and the plates the carve actually laid, for §2's DECLARED
+        # wall (published post-solve, where the pad carries its solved
+        # value).
+        _carve_plates: list = []
         if is_basin_facility:
             try:
                 facility_geometry = unary_union(body_parts)
@@ -4181,7 +4409,16 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     # second).  Severing works but edits the pack's
                     # authored geometry, which the owner ruled out.
                     authority_yield_pad_ids.add(id(pad))
-                    # ── THE CARRIED GROUND (spec lemd-rim-and-stations
+                    # ── THE CARVE POPULATION (spec ``docs/specs/lemd-
+                    # pad-authority-carve-spec.md`` §2) ────────────────
+                    # THIS is the pad whose flattening authority the
+                    # owner carved: the ramp corridor comes out of the
+                    # authority of the very pads that already yield to
+                    # this facility, and out of NO other pad.  Recorded
+                    # off the yield population's own decision — there is
+                    # no second test of "does this pad yield here" to
+                    # drift from the one above.
+                    carve_pads.append(pad)
                     # Amendment 3, 2026-08-28) ──────────────────────
                     # THIS pad is the shell the 2026-08-26 ruling calls
                     # "a shell/bridge over the pit", and the ground it
@@ -4302,6 +4539,10 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         for replacement in (replacements if shape is pad
                                             else [shape])]
                     authority_yield_pad_ids.discard(id(pad))
+                    # ...and out of the carve population with it: the
+                    # SEVER path replaced this pad in ``layout.shapes``,
+                    # so it no longer exists to carve anything from.
+                    carve_pads[:] = [p for p in carve_pads if p is not pad]
                     _reindex_owned_ground()
                     UI.vprint(
                         1,
@@ -4464,6 +4705,70 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # adding it to each part in turn would emit the same ground once
         # per part.  Chosen by the largest overlap with the corridor's
         # own reach, never by order.
+        # ── THE CARVE CLIPS THE CORRIDOR TO ITS OWN AUTHORITY ────────
+        # (spec ``docs/specs/lemd-pad-authority-carve-spec.md`` §2.)
+        #
+        # The owner carved the ramp corridor out of the PAD's flattening
+        # authority.  So the corridor may reach exactly as far as that
+        # carved authority reaches — the facility itself, plus the pads
+        # that actually yielded to it above — and no further.  Ground the
+        # carve does not own is ground somebody else still owns, and a
+        # plate laid there would be the retired arm's collision again,
+        # only with a different neighbour.
+        #
+        # RUN HERE, after the yield loop and before the corridor is
+        # consumed: the carved population is a decision that loop makes.
+        # With the carve OFF the corridor is untouched and the retired
+        # plate arm reproduces byte-identically.
+        carve_authority = None
+        if (ramp_corridor is not None
+                and config.BASIN_PAD_AUTHORITY_CARVE):
+            _carve_pad_polygons = [
+                pad.polygon for pad in carve_pads
+                if pad.polygon is not None and not pad.polygon.is_empty]
+            if _carve_pad_polygons:
+                try:
+                    carve_authority = unary_union(
+                        _carve_pad_polygons + list(body_parts))
+                except Exception:                         # pragma: no cover
+                    carve_authority = None
+            if carve_authority is None or carve_authority.is_empty:
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] PAD-AUTHORITY CARVE: no pad yielded "
+                    f"its flattening authority to {resources}, so the "
+                    f"{ramp_corridor.area:,.0f} m2 ramp corridor has NO "
+                    "carved authority to lie in — no plate is laid and "
+                    "the rim band is untouched (spec §2)",
+                )
+                ramp_corridor = None
+            else:
+                before_area = float(ramp_corridor.area)
+                try:
+                    clipped = ramp_corridor.intersection(carve_authority)
+                except Exception:                         # pragma: no cover
+                    clipped = None
+                if clipped is None or clipped.is_empty:
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] PAD-AUTHORITY CARVE: the "
+                        f"{before_area:,.0f} m2 ramp corridor of "
+                        f"{resources} lies ENTIRELY outside the carved "
+                        "authority — no plate is laid (spec §2)",
+                    )
+                    ramp_corridor = None
+                else:
+                    ramp_corridor = clipped
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] PAD-AUTHORITY CARVE: ramp "
+                        f"corridor {before_area:,.0f} -> "
+                        f"{float(clipped.area):,.0f} m2, clipped to the "
+                        f"{len(carve_pads)} pad(s) whose flattening "
+                        f"authority yielded to {resources} plus the "
+                        "facility itself — the carve reaches exactly as "
+                        "far as the authority it carves (spec §2)",
+                    )
         ramp_corridor_body_index = None
         if ramp_corridor is not None:
             best_overlap = 0.0
@@ -4532,13 +4837,39 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # that merely reached the body OUTLINE would leave a
                 # setback-wide strip of un-plated ground between the two
                 # and the terrain would still stand in the mouth.
+                carve_plate = None
                 if (ramp_corridor is not None
                         and body_index == ramp_corridor_body_index):
                     body_ramp_corridor = ramp_corridor.union(
                         body.intersection(ramp_corridor.buffer(
                             _RAMP_CORRIDOR_BODY_BRIDGE_M,
                             join_style=2, mitre_limit=2.0)))
-                    floor_geometry = floor_geometry.union(body_ramp_corridor)
+                    if config.BASIN_PAD_AUTHORITY_CARVE:
+                        # ── THE CORRIDOR IS DIFFERENCED UNDER ITS OWN
+                        # AUTHORITY (spec lemd-pad-authority-carve §2,
+                        # clause 3) ────────────────────────────────────
+                        # The pan's yield set below also carries the §B
+                        # PAVEMENT population and the retired whole-pad
+                        # seat's — yields that were ruled INSIDE THE
+                        # FACILITY, and the corridor is outside it.
+                        # Letting them apply out here is exactly how the
+                        # retired plate arm ran into the apron (census
+                        # within_shape 35 -> 231, 212 airside, worst
+                        # 12.74 m).  So only the CARVED PADS yield in
+                        # the corridor; every other earlier-born shape
+                        # clips it under the same
+                        # ``_TUNNEL_FLOOR_OWNED_CLEARANCE_M`` law the pan
+                        # obeys.  The part INSIDE the body stays with the
+                        # pan and keeps the pan's rule — the bridge
+                        # exists to overlap the pan's own inset edge, and
+                        # judging one strip of ground two ways is the
+                        # thing this clause exists to stop.
+                        carve_plate = body_ramp_corridor.difference(body)
+                        floor_geometry = floor_geometry.union(
+                            body_ramp_corridor.intersection(body))
+                    else:
+                        floor_geometry = floor_geometry.union(
+                            body_ramp_corridor)
                     envelope = envelope.union(
                         body_ramp_corridor.buffer(
                             _TUNNEL_FLOOR_OWNED_CLEARANCE_M + 1.0))
@@ -4560,6 +4891,48 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         owned_near_floor.intersection(envelope).buffer(
                             _TUNNEL_FLOOR_OWNED_CLEARANCE_M,
                             join_style=2, mitre_limit=2.0))
+                if carve_plate is not None and not carve_plate.is_empty:
+                    # The CARVED yield set: the pads whose flattening
+                    # authority the owner carved, and nothing else.
+                    _carve_yield_ids = {id(pad) for pad in carve_pads}
+                    _carve_envelope = carve_plate.buffer(
+                        _TUNNEL_FLOOR_OWNED_CLEARANCE_M + 1.0)
+                    _owned_carve = _owned_near(
+                        _carve_envelope.bounds, _carve_yield_ids)
+                    _carve_before = float(carve_plate.area)
+                    if _owned_carve is not None and not _owned_carve.is_empty:
+                        try:
+                            carve_plate = carve_plate.difference(
+                                _owned_carve.intersection(
+                                    _carve_envelope).buffer(
+                                    _TUNNEL_FLOOR_OWNED_CLEARANCE_M,
+                                    join_style=2, mitre_limit=2.0))
+                        except Exception:                 # pragma: no cover
+                            pass
+                    if carve_plate.is_empty:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] PAD-AUTHORITY CARVE: the "
+                            f"{_carve_before:,.0f} m2 corridor plate of "
+                            f"{resources} was differenced away entirely "
+                            "by earlier-born shapes that did NOT yield "
+                            "here — no plate is laid (spec §2 clause 3)",
+                        )
+                        body_ramp_corridor = None
+                    else:
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] PAD-AUTHORITY CARVE: corridor "
+                            f"plate {_carve_before:,.0f} -> "
+                            f"{float(carve_plate.area):,.0f} m2 after "
+                            "clearance from every earlier-born shape "
+                            f"except the {len(carve_pads)} carved pad(s) "
+                            "— the carved pad is born THROUGH, everything "
+                            "else still owns its ground (spec §2 clause "
+                            "3)",
+                        )
+                        floor_geometry = floor_geometry.union(carve_plate)
+                        _carve_plates.append(carve_plate)
                 band_geometry = body.buffer(
                     _TUNNEL_RIM_BAND_WIDTH_M,
                     join_style=2, mitre_limit=2.0).difference(body)
@@ -4749,6 +5122,25 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     rim_plate_count += 1
                     emitted_rim_values.append(float(part_elevation))
 
+        if _carve_plates and carve_pads and facility_floor_born:
+            # ── THE CARVE'S DECLARATION (spec lemd-pad-authority-carve
+            # §2: "the pad edge along the corridor is a declared
+            # wall/terrace") ──────────────────────────────────────────
+            # RECORDED here, PUBLISHED post-solve
+            # (:func:`_republish_basin_declarations`), because the step
+            # is plate-to-PAD and the pad does not carry its solved
+            # value yet.  The pad shapes travel with the plates: the
+            # declaration is about the pair, and re-deriving "which pad
+            # is this plate's" later would be a second answer to a
+            # question already decided.
+            _prev = list(getattr(layout, BASIN_CARVE_PLATES_ATTRIBUTE,
+                                 None) or [])
+            _prev.append({
+                "plates": list(_carve_plates),
+                "pads": list(carve_pads),
+                "floor_m": float(floor_elevation),
+            })
+            setattr(layout, BASIN_CARVE_PLATES_ATTRIBUTE, _prev)
         if floor_seated_pad_ids and not facility_floor_born:
             # NO FLOOR, NO SEAT (spec §1.1's premise).  A facility that
             # seated no plate anywhere has no emitted floor for a pad to

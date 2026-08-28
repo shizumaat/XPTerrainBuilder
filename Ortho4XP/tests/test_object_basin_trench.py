@@ -3749,6 +3749,10 @@ class TestBasinRampReachCorridor:
     @pytest.fixture(autouse=True)
     def _the_arm_under_test(self, monkeypatch):
         monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", True)
+        # ...and the CARVE off, because this class is the RETIRED arm:
+        # the plate laid with the pad's authority still standing.  Its
+        # successor has its own class (``TestBasinPadAuthorityCarve``).
+        monkeypatch.setattr(config, "BASIN_PAD_AUTHORITY_CARVE", False)
 
     def test_the_corridor_is_the_ramp_and_the_ring_is_untouched(self):
         placements = [_placement(r) for r in _ramp_pit_pattern()]
@@ -3787,7 +3791,12 @@ class TestBasinRampReachCorridor:
                 == before.frame_origin_longitude_latitude)
 
     def test_the_gate_off_carries_no_corridor(self, monkeypatch):
+        # BOTH consumers off: the corridor is carried when EITHER the
+        # retired plate arm or the owner-sanctioned PAD-AUTHORITY CARVE
+        # wants it (``config.basin_ramp_corridor_carried``), so "the
+        # gate off" is only a real control when neither asks for it.
         monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        monkeypatch.setattr(config, "BASIN_PAD_AUTHORITY_CARVE", False)
         placements = [_placement(r) for r in _ramp_pit_pattern()]
         geometry = _ramp_pit_pattern()
         admitted = otf.below_grade_regions(placements, geometry)
@@ -4025,6 +4034,7 @@ class TestBasinRampReachCorridor:
 
     def test_the_gate_off_emits_the_control_geometry(self, monkeypatch):
         monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        monkeypatch.setattr(config, "BASIN_PAD_AUTHORITY_CARVE", False)
         assert not self._covers(self._emit_with_corridor(True), "trench")
 
     def test_an_old_classification_reads_back_as_no_corridor(self):
@@ -4046,6 +4056,382 @@ class TestBasinRampReachCorridor:
         assert otf._clip_triangle_below_plane(
             ((0.0, 1.0, 0.0), (10.0, 2.0, 0.0), (10.0, 3.0, 10.0)),
             -2.5) is None
+
+
+class TestBasinPadAuthorityCarve:
+    """THE OWNER-SANCTIONED CARVE (spec
+    ``docs/specs/lemd-pad-authority-carve-spec.md``, owner 2026-08-28
+    item 2: "identify the ramp coming down into the big pit and ensure
+    we cut away enough so the terrain is not extending above the
+    object").
+
+    The class above is the REFUSED predecessor: the same plate, laid
+    while ``building8``'s flattening authority still stood over the
+    ground it lands on — 587.75 m against 600.49 m across one boundary,
+    +196 ``within_shape`` rows, 212 of them airside.  Everything here is
+    about WHICH AUTHORITY OWNS WHICH GROUND, so the load-bearing
+    assertions are the two scope clauses: the carve reaches exactly as
+    far as the authority it carves, and inside the corridor only the
+    carved pads yield.
+
+    The gate ships ON, so the arm under test is the default and the
+    CONTROL is what has to be asked for.
+    """
+
+    #: The facility, its ramp and the probe out along it — the SAME
+    #: miniature the retired arm's emit predicate uses, imported rather
+    #: than re-spelled so the two classes cannot describe two ramps.
+    EMIT_REGION = TestBasinRampReachCorridor.EMIT_REGION
+    EMIT_CORRIDOR = TestBasinRampReachCorridor.EMIT_CORRIDOR
+    EMIT_PROBE = TestBasinRampReachCorridor.EMIT_PROBE
+    #: The ``building8`` class: a pad LARGER than the facility, covering
+    #: it whole AND containing the whole ramp corridor.
+    COVERING_PAD = Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)])
+    #: The same pad cut short at x = 35, so the corridor's far half
+    #: (x 35..45, the probe included) lies OUTSIDE the carved authority.
+    SHORT_PAD = Polygon([(-60, -60), (35, -60), (35, 60), (-60, 60)])
+    #: An apron REACHING the facility's own rim band (the strip along
+    #: y 8..20) and running out over the corridor's FAR half only
+    #: (x >= 38).  Reaching the band is what puts it in the §B PAVEMENT
+    #: yield population — the population the pan's own yield set carries
+    #: and the corridor's does not; covering only the far half is what
+    #: leaves the near half for the carve to keep, so the two clauses
+    #: are separable in one fixture.
+    FAR_APRON = Polygon([(20, 8), (38, 8), (38, -20), (90, -20),
+                         (90, 20), (20, 20)])
+
+    def _emit(self, *pads, apron=None, carry_corridor=True):
+        from auto_patch.layout import ROLE_APRON, ROLE_BUILDING
+
+        region = otf.BelowGradeRegion(
+            polygon=self.EMIT_REGION,
+            frame_origin_longitude_latitude=(
+                ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            solid_minimum_y_m=-7.087,
+            object_resources=("Buildings/Drainage/basin.obj",),
+            ramp_reach_corridor=(
+                self.EMIT_CORRIDOR if carry_corridor else None),
+        )
+        layout = _FakeLayout()
+        if apron is not None:
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=apron, role=ROLE_APRON, ref="apron", altitude=8.0))
+        for index, polygon in enumerate(pads):
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=polygon, role=ROLE_BUILDING,
+                ref=f"building{index}", altitude=8.0))
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(ground_interfaces=[_interface()],
+                                below_grade_regions=[region]))
+        assembly.build_tunnel_layout_shapes(
+            layout, _FakeDem(8.0), TILE_LATITUDE, TILE_LONGITUDE)
+        return layout
+
+    def _at(self, layout, x, y, suffix="trench"):
+        """Trench plates covering a point stated in the RECORD's frame.
+
+        Read through the same converters the emitter used — never by
+        assuming the record frame and the layout frame coincide."""
+        from shapely.geometry import Point
+        from auto_patch import obj8_reader
+
+        latitude, longitude = obj8_reader.local_offset_to_lonlat(
+            ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, x, y)
+        point = Point(*layout.ll_to_m(latitude, longitude))
+        return [shape for shape in _basin_plates(layout, suffix)
+                if shape.polygon is not None
+                and shape.polygon.covers(point)]
+
+    # ── §2 clause 1: the carved pad is born THROUGH ─────────────────
+    def test_the_plate_owns_the_ramp_inside_the_carved_pad(self):
+        """THE OWNER'S ASK.  The ramp ground lies inside the pad and
+        outside the facility; with the pad's authority carved there, the
+        floor plate owns it — at the pit's own floor, one contiguous
+        surface, not a second law."""
+        layout = self._emit(self.COVERING_PAD)
+        assert self._at(layout, *self.EMIT_PROBE), (
+            "no floor plate reaches the ramp inside the carved pad")
+        floors = {round(float(altitude), 2)
+                  for shape in _basin_plates(layout, "trench")
+                  for altitude in (shape.node_altitudes or [])}
+        assert len(floors) == 1, floors
+
+    def test_the_pad_itself_is_untouched(self):
+        """The carve is an AUTHORITY clip, never a geometry edit (owner
+        Amendment 3, unchanged here): grade, ring and identity stand."""
+        from auto_patch.layout import ROLE_BUILDING
+
+        layout = self._emit(self.COVERING_PAD)
+        pads = [s for s in layout.shapes if s.role == ROLE_BUILDING]
+        assert len(pads) == 1
+        assert pads[0].ref == "building0"
+        assert pads[0].polygon.equals(self.COVERING_PAD)
+        assert pads[0].basin_floor_seat_m is None
+
+    # ── §2 clause 2: the carve reaches only as far as it carves ─────
+    def test_the_corridor_is_clipped_to_the_carved_authority(self):
+        """Ground the carve does not own is ground somebody else still
+        owns.  With the pad cut short at x = 35 the plate holds the
+        corridor up to the pad edge and STOPS — it does not run on to
+        the probe at x = 40 on an authority nobody carved."""
+        layout = self._emit(self.SHORT_PAD)
+        assert self._at(layout, 30.0, 0.0), (
+            "the plate did not reach the ramp inside the carved pad")
+        assert not self._at(layout, *self.EMIT_PROBE), (
+            "the plate ran past the carved authority's own boundary")
+
+    def test_with_no_yielding_pad_there_is_nothing_to_carve(self, capsys):
+        """No pad yielded, so no authority was carved, so no corridor is
+        plated — and it is SAID, never dropped in silence."""
+        import O4_UI_Utils as UI
+        UI.verbosity = 1
+        layout = self._emit()
+        assert not self._at(layout, *self.EMIT_PROBE)
+        out = capsys.readouterr().out
+        assert "PAD-AUTHORITY CARVE" in out and "no pad yielded" in out
+
+    # ── §2 clause 3: inside the corridor only the carved pads yield ──
+    def test_a_shape_nobody_carved_still_clips_the_corridor_plate(self):
+        """THE REFUSED ARM'S DEFECT, as a predicate.  The pan's own
+        yield set carries the §B pavement population, ruled INSIDE the
+        facility; applied out in the corridor it let the plate run into
+        the apron (within_shape 35 -> 231, 212 airside, worst 12.74 m).
+        Under the carve the apron still owns its ground."""
+        layout = self._emit(self.COVERING_PAD, apron=self.FAR_APRON)
+        assert self._at(layout, 30.0, 0.0), (
+            "the carve lost the corridor it does own")
+        assert not self._at(layout, *self.EMIT_PROBE), (
+            "the corridor plate was born THROUGH an apron nobody carved")
+
+    def test_the_retired_arm_reproduces_the_collision(self, monkeypatch):
+        """The control for the test above, and the reason it exists: the
+        RETIRED plate arm — the corridor with the pad's authority still
+        standing — lays its plate straight through the same apron."""
+        monkeypatch.setattr(config, "BASIN_PAD_AUTHORITY_CARVE", False)
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", True)
+        layout = self._emit(self.COVERING_PAD, apron=self.FAR_APRON)
+        assert self._at(layout, *self.EMIT_PROBE), (
+            "the retired arm no longer reproduces its own finding")
+
+    # ── §2: the pad edge along the corridor is DECLARED ──────────────
+    def test_the_carved_pad_edge_is_a_declared_wall(self):
+        """Not a bare cliff and not a smoothing ramp: the plate-to-pad
+        step publishes into the census's OWN declared-step register
+        (``terrace_joints``), under its own kind."""
+        layout = self._emit(self.COVERING_PAD)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        carved = [row for row in rows
+                  if row["kind"] == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+        assert carved, "the carved pad edge was left UNDECLARED"
+        for row in carved:
+            assert row["declared_step_m"] > 0.0
+            assert row["faced"] is True
+            assert len(row["points"]) >= 2
+            for latitude, longitude in row["points"]:
+                assert -90.0 <= latitude <= 90.0
+                assert -180.0 <= longitude <= 180.0
+
+    def test_the_declared_step_is_the_pad_over_the_floor(self):
+        """The high side is read from the PAD ITSELF, never from the
+        law — the declaration describes what was emitted."""
+        layout = self._emit(self.COVERING_PAD)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        floors = {round(float(altitude), 2)
+                  for shape in _basin_plates(layout, "trench")
+                  for altitude in (shape.node_altitudes or [])}
+        assert len(floors) == 1
+        expected = 8.0 - floors.pop()
+        rows = [row for row in assembly.basin_wall_joints_sidecar(layout)
+                if row["kind"] == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+        assert rows
+        for row in rows:
+            assert row["declared_step_m"] == pytest.approx(
+                expected, abs=0.01)
+
+    def test_the_rim_wall_keeps_its_own_kind(self):
+        """ONE register, two kinds: an attribution that cannot tell the
+        pan-to-rim wall from the plate-to-pad wall cannot say which law
+        drew the step."""
+        layout = self._emit(self.COVERING_PAD)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        kinds = {row["kind"]
+                 for row in assembly.basin_wall_joints_sidecar(layout)}
+        assert assembly.BASIN_CARVE_WALL_JOINT_KIND in kinds
+        assert assembly.BASIN_WALL_JOINT_KIND != (
+            assembly.BASIN_CARVE_WALL_JOINT_KIND)
+
+    # ── §3: nothing outside the corridor moves ──────────────────────
+    def test_the_carve_moves_nothing_outside_the_corridor(self):
+        """Spec §3, the STOP clause.  Every trench plate the control
+        emits is still emitted, at the same value; the carve is PURELY
+        additive out along the ramp."""
+        carved = self._emit(self.COVERING_PAD)
+        control = self._emit(self.COVERING_PAD, carry_corridor=False)
+
+        def _values(layout, suffix):
+            return sorted(round(float(a), 2)
+                          for shape in _basin_plates(layout, suffix)
+                          for a in (shape.node_altitudes or []))
+
+        assert set(_values(carved, "trench")) == set(
+            _values(control, "trench"))
+        assert set(_values(carved, "rim")) <= set(_values(control, "rim"))
+        carved_area = sum(p.polygon.area
+                          for p in _basin_plates(carved, "trench"))
+        control_area = sum(p.polygon.area
+                           for p in _basin_plates(control, "trench"))
+        assert carved_area > control_area
+
+    # ── the gate ────────────────────────────────────────────────────
+    def test_the_gate_ships_ON(self):
+        import inspect
+        import re
+
+        default = re.search(
+            r'_os\.environ\.get\(\s*"O4_BASIN_PAD_AUTHORITY_CARVE",\s*'
+            r'"(\d)"\s*\)',
+            inspect.getsource(config),
+        )
+        assert default is not None, "the gate lost its environment read"
+        assert default.group(1) == "1"
+
+    def test_the_gate_off_is_the_control(self, monkeypatch):
+        """BYTE-IDENTICAL OFF: with the carve off and the retired plate
+        arm off, no corridor is carried, no plate is laid and no joint
+        is declared."""
+        monkeypatch.setattr(config, "BASIN_PAD_AUTHORITY_CARVE", False)
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        layout = self._emit(self.COVERING_PAD)
+        assert not self._at(layout, *self.EMIT_PROBE)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        assert not [row for row in assembly.basin_wall_joints_sidecar(layout)
+                    if row["kind"]
+                    == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+
+    def test_one_reader_decides_whether_a_corridor_is_carried(self):
+        """Two consumers, ONE predicate — a second spelling of "is there
+        a ramp here" is the census-wrapper class."""
+        import unittest.mock as _mock
+
+        for plate, carve, expected in (
+                (False, False, False), (True, False, True),
+                (False, True, True), (True, True, True)):
+            with _mock.patch.object(
+                    config, "BASIN_RAMP_REACH_PLATE", plate), \
+                    _mock.patch.object(
+                        config, "BASIN_PAD_AUTHORITY_CARVE", carve):
+                assert config.basin_ramp_corridor_carried() is expected
+
+    def test_the_gate_is_registered_and_versioned(self):
+        from auto_patch import object_rebake
+
+        assert "O4_BASIN_PAD_AUTHORITY_CARVE" in (
+            object_rebake._GATE_ENVIRONMENT_NAMES)
+        # The facility payload gained a field — a cache-VERSION event.
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 27
+
+
+class TestBasinCarveGInstrumentScope:
+    """§4 — THE G INSTRUMENT IS SCOPED, NEVER RE-BASELINED.
+
+    ``R_mesh`` is defined as "the first terrain OUTSIDE OUR OWN PLATES",
+    and the carve lays a floor plate in the ramp corridor, which lies
+    beside the body and therefore under that band (measured at LEMD: 8
+    of 70 stations).  Unscoped, the instrument would median our own
+    587.75 m plate and call it the surrounding grade.
+
+    What is lawful is dropping those stations.  What is NOT lawful is
+    moving the ring, its offset or its step — so that is what these
+    twins pin."""
+
+    RING = (((-0.0005, -0.0005), (0.0005, -0.0005),
+             (0.0005, 0.0005), (-0.0005, 0.0005), (-0.0005, -0.0005)),)
+    #: A box over the ring's whole +x side, well outside the body — the
+    #: corridor in miniature, in the same longitude/latitude spelling.
+    EXCLUSION = (((0.0004, -0.0006), (0.0009, -0.0006),
+                  (0.0009, 0.0006), (0.0004, 0.0006),
+                  (0.0004, -0.0006)),)
+
+    def _stations(self, exclusion=None):
+        from auto_patch import post_mesh
+
+        points, _parts = post_mesh._basin_facility_rim_sample_ring(
+            self.RING, 0.0, 0.0, exclusion)
+        return points
+
+    def test_no_exclusion_is_the_instrument_it_was(self):
+        """The default path is byte-identical to the unscoped read —
+        both spellings of "nothing to exclude"."""
+        assert self._stations() == self._stations(())
+        assert self._stations() == self._stations(None)
+        assert len(self._stations()) > 8
+
+    def test_the_excluded_stations_are_dropped_and_no_others(self):
+        """SCOPE, and only scope: the survivors are the unscoped
+        stations minus the excluded ones, in the same order."""
+        from shapely.geometry import Point, Polygon as _Polygon
+
+        unscoped = self._stations()
+        scoped = self._stations(self.EXCLUSION)
+        assert len(scoped) < len(unscoped)
+        assert scoped == [p for p in unscoped if p in scoped]
+        box = _Polygon(self.EXCLUSION[0])
+        dropped = [p for p in unscoped if p not in scoped]
+        assert dropped, "the fixture excludes nothing"
+        for latitude, longitude in dropped:
+            assert box.covers(Point(longitude, latitude))
+        for latitude, longitude in scoped:
+            assert not box.covers(Point(longitude, latitude))
+
+    def test_the_ring_itself_never_moves(self):
+        """The body parts the band is offset from are the same object
+        either way — the instrument is scoped at the STATION, never by
+        re-deriving the ring."""
+        from auto_patch import post_mesh
+
+        _points, bare = post_mesh._basin_facility_rim_sample_ring(
+            self.RING, 0.0, 0.0)
+        _points2, scoped = post_mesh._basin_facility_rim_sample_ring(
+            self.RING, 0.0, 0.0, self.EXCLUSION)
+        assert len(bare) == len(scoped)
+        for before, after in zip(bare, scoped):
+            assert before.equals(after)
+
+    def test_the_facility_carries_its_corridor_to_the_instrument(self):
+        """The corridor reaches the post-mesh pass on the FACILITY, in
+        longitude/latitude, and survives the records cache round-trip."""
+        facility = assembly.BasinRimFlushFacility(
+            object_resources=("r.obj",),
+            anchor_longitude_latitude=(0.0, 0.0),
+            body_rings_longitude_latitude=self.RING,
+            solid_minimum_y_m=-7.0,
+            anchor_inside_body=True,
+            carve_corridor_rings_longitude_latitude=self.EXCLUSION,
+        )
+        payload = facility.to_json()
+        assert (assembly.BasinRimFlushFacility.from_json(payload)
+                == facility)
+        # ...and an OLD payload reads back as NO corridor, never a
+        # KeyError (the version is what retires it).
+        payload.pop("carve_corridor_rings_longitude_latitude")
+        assert assembly.BasinRimFlushFacility.from_json(
+            payload).carve_corridor_rings_longitude_latitude == ()
+
+    def test_a_facility_with_no_corridor_scopes_nothing(self):
+        facility = assembly.BasinRimFlushFacility(
+            object_resources=("r.obj",),
+            anchor_longitude_latitude=(0.0, 0.0),
+            body_rings_longitude_latitude=self.RING,
+            solid_minimum_y_m=-7.0,
+            anchor_inside_body=True,
+        )
+        assert facility.carve_corridor_rings_longitude_latitude == ()
+        from auto_patch import post_mesh
+        assert post_mesh._basin_facility_rim_sample_ring(
+            self.RING, 0.0, 0.0,
+            facility.carve_corridor_rings_longitude_latitude
+        )[0] == self._stations()
 
 
 def _region_at(polygon, *, solid_minimum_y_m=-7.087):

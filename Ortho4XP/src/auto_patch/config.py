@@ -5205,6 +5205,78 @@ BASIN_REGION_RAMP_REACH = (
 BASIN_RAMP_REACH_PLATE = (
     _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "0") == "1")
 
+# ── THE PAD-AUTHORITY CARVE (spec
+# ``docs/specs/lemd-pad-authority-carve-spec.md``, OWNER-SANCTIONED
+# 2026-08-28 item 2: "How can we identify the ramp coming down into the
+# big pit and ensure we cut away enough so the terrain is not extending
+# above the object").  DEFAULT ON.
+#
+# THE DEFECT the two trench-side levers could not reach.  The pit's
+# entrance ramp lies OUTSIDE the basin facility and INSIDE
+# ``building8``'s pad ring (owner probe points 9.87 m / 3.88 m,
+# containment-measured), and ``BASIN_PAD_FLOOR_SEAT`` yields the pad's
+# flattening authority only INSIDE the facility.  So the ground under
+# the authored ramp is held at the pad's flat 600.51 m and the terrain
+# stands above the object.  Widening the facility moves the facility's
+# own measurement body (``BASIN_REGION_RAMP_REACH``, retired above);
+# laying a plate beside the facility collides with the pad
+# (``BASIN_RAMP_REACH_PLATE``, retired above, census +196 airside
+# ``within_shape`` rows at worst 12.74 m).
+#
+# THE LAW, three clauses, all of them SCOPE:
+#
+#  1. THE CORRIDOR IS THE OBJECT'S OWN GEOMETRY — the authored ramp deck
+#     between grade and the basin floor, derived by the SHARED ramp-reach
+#     derivation (``object_terrain_features._region_ramp_reach_rings`` +
+#     ``_ramp_lobes_of``).  Never hand coordinates, never the DEM.  This
+#     gate CARRIES the corridor exactly as ``BASIN_RAMP_REACH_PLATE``
+#     does — one derivation, two dispositions, never a second spelling.
+#  2. THE CARVE ONLY REACHES WHERE THE CARVED AUTHORITY REACHES.  The
+#     corridor is clipped to the facility plus the pads whose flattening
+#     authority actually yielded to this facility (the Amendment-3
+#     authority-yield population).  Ground the carve does not own is
+#     ground somebody else still owns, and the plate stops there.
+#  3. INSIDE THE CORRIDOR ONLY THE CARVED PADS YIELD.  The pan's own
+#     yield set also carries the §B pavement population and the retired
+#     whole-pad seat's; those yields were ruled INSIDE THE FACILITY and
+#     the corridor is outside it.  Using them there is what let the
+#     retired plate arm run into the apron.  So the corridor plate is
+#     differenced against every earlier-born shape except the carved
+#     pads — which is what keeps it off the apron while the pad, whose
+#     authority the owner carved, is born through.
+#
+# ...and the pad edge along the corridor is DECLARED (spec §2): the
+# plate↔pad step publishes a ``terrace_joints`` row of kind
+# ``BASIN_CARVE_WALL_JOINT_KIND``, the same declared-step register the
+# pan↔rim wall uses.  A declared wall, never a bare cliff, and never a
+# smoothing ramp.
+#
+# WHAT DOES NOT MOVE, by construction (spec §3): the admitted ring, the
+# floor value, the rim value, R_est, the pad-coverage test and the
+# post-mesh R_mesh sample band are all read from ``body_parts``, and the
+# corridor is not in them.
+#
+# With O4_BASIN_PAD_AUTHORITY_CARVE=0 no corridor is carried, no
+# authority is carved and no joint is declared; the emitted patch is
+# byte-identical to the founding round.
+BASIN_PAD_AUTHORITY_CARVE = (
+    _os.environ.get("O4_BASIN_PAD_AUTHORITY_CARVE", "1") == "1")
+
+
+def basin_ramp_corridor_carried() -> bool:
+    """Is the ramp-reach CORRIDOR derived and carried at all?
+
+    THE ONE READER of "does this build have a ramp corridor", so the two
+    consumers can never disagree about whether one exists: the retired
+    plate arm (:data:`BASIN_RAMP_REACH_PLATE`, the corridor WITHOUT the
+    carve — kept reproducible) and the owner-sanctioned carve
+    (:data:`BASIN_PAD_AUTHORITY_CARVE`, the corridor WITH it).  Read at
+    call time, never frozen into a derived constant: a test that
+    monkeypatches either gate must be seen by every consumer.
+    """
+    return bool(BASIN_RAMP_REACH_PLATE or BASIN_PAD_AUTHORITY_CARVE)
+
+
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
 #

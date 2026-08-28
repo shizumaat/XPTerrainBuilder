@@ -148,3 +148,27 @@ byte-identical). Two residuals:
    nodata. Acceptance: the §0 rim table re-measured — parts converge
    to their neighbours (~599–600.5 beside building8/apron), the
    rim-to-apron transects read level-to-level.
+
+## Amendment 2 (Fable, 2026-08-28 — the declared pit wall is
+## step-exempt BY DECLARATION; cap resets for this one change)
+
+Measured (lane/lemdrim 434ff906): §1/§2 complete (building8 one flat
+value, rim 18/18 adopted at 600.47, T_SW level-to-level). The LEMD
+census rose 3205 → 5004 entirely on mid_edge/vertex_to_edge steps at
+the pan↔rim boundary — 1,932 tunnel_trench|tunnel_trench rows pricing
+the PIT WALL ITSELF (587.75 vs 600.47), now fully emitted because §B
+put the rim on 100 % of the perimeter. Ruling:
+
+1. The pan↔rim boundary is a DECLARED WALL — the trench law's own
+   designed step, like a declared terrace. The emitter PUBLISHES each
+   pan↔rim joint into the census's existing declared-step register
+   (the terrace_joints mechanism — extend that register, never a
+   role-based blanket exemption), and the census exempts EXACTLY the
+   declared joints: an undeclared trench step still prices. The
+   building|tunnel_trench standoff rows at the pad face are the same
+   declaration (the pad abutting the pan is §1's ruled geometry).
+2. Acceptance: LEMD census re-read with the declarations in place —
+   expect ≈ the §B-lawful level (the 1,932 wall rows exempted BY
+   NAME, the residual reported honestly); the register/parity twins
+   (test_harness) extended so an unpublished joint fails a test, not
+   a sim pass.

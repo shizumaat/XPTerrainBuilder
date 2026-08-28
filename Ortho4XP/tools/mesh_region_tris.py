@@ -250,6 +250,25 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
             patch_valued.add(a - 1)
             patch_valued.add(b - 1)
     only = [i for i in range(nt) if att[i] == INTERP_ALT_BIT]
+
+    # THE EXACT FRAME.  ``snap_to_grid(9)`` and ``write_node_file``'s
+    # ``{:.9f}`` make every INPUT vertex a 9-decimal tile-relative value,
+    # and the rings are built from those same values — so a vertex ON a
+    # ring is exactly on it.  The .mesh stores ABSOLUTE lon/lat, and
+    # ``absolute - tile_origin`` does not return exactly to the 9-decimal
+    # value: at +60-136 that alone moved 2,000 on-ring vertices to the
+    # outside.  Input vertices are therefore read from the .node file;
+    # only the mesher's own Steiner points go through the mesh frame,
+    # which is why this count can differ from the ENGINE's own
+    # "Patch coverage: N of M" log line by a few tenths of a percent
+    # (16,527 here against 16,594 there at +60-136).  THE ENGINE'S LINE
+    # IS THE AUTHORITY for the scoped domain size; this one is the
+    # instrument's estimate of the same thing and is labelled as such.
+    def relative(v):
+        if v + 1 in nodes and v < len(nodes):
+            return nodes[v + 1]
+        return (vlon[v] - tile_lon, vlat[v] - tile_lat)
+
     parent = {}
 
     def find(x):
@@ -269,8 +288,7 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
         a, b, c = tri[3 * i], tri[3 * i + 1], tri[3 * i + 2]
         union(a, b); union(b, c)
         if covered is not None and not all(
-                covered.covers(geometry.Point(vlon[v] - tile_lon,
-                                              vlat[v] - tile_lat))
+                covered.covers(geometry.Point(*relative(v)))
                 for v in (a, b, c)):
             straddling += 1
     components = collections.defaultdict(list)
@@ -297,8 +315,54 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
     for r in rows[:6]:
         print(f"  {r[0]:>9,} {r[1]:>13,} {r[2]:>8.1f}   "
               f"lon {r[3]:.4f}..{r[4]:.4f} lat {r[5]:.4f}..{r[6]:.4f}")
-    print(f"  free vertices REACHING a patch-valued vertex (R18-1b would "
-          f"move these): {reached:,}; reaching none: {isolated:,}")
+    print(f"  free vertices REACHING a patch-valued vertex (the UNSCOPED "
+          f"R18-1b domain would move these): {reached:,}; reaching none: "
+          f"{isolated:,}")
+    # The same count under R18-1c, whose domain is the coverage — the
+    # red/green pair in one read, and it reproduces the engine's own
+    # "N free interior vertex(es) of M" line on both sides.
+    scoped_parent = {}
+    scoped_only = []
+    if covered is not None:
+        inside_vertex = {}
+        for i in only:
+            a, b, c = tri[3 * i], tri[3 * i + 1], tri[3 * i + 2]
+            for v in (a, b, c):
+                if v not in inside_vertex:
+                    inside_vertex[v] = covered.covers(
+                        geometry.Point(*relative(v)))
+            if inside_vertex[a] and inside_vertex[b] and inside_vertex[c]:
+                scoped_only.append(i)
+        parent = scoped_parent
+        for i in scoped_only:
+            a, b, c = tri[3 * i], tri[3 * i + 1], tri[3 * i + 2]
+            union(a, b); union(b, c)
+    scoped_components = collections.defaultdict(list)
+    for v in scoped_parent:
+        scoped_components[find(v)].append(v)
+    scoped_reached = 0
+    scoped_isolated = 0
+    scoped_span = 0.0
+    for members in scoped_components.values():
+        anchored = sum(1 for v in members if v in patch_valued)
+        if anchored:
+            scoped_reached += len(members) - anchored
+        else:
+            scoped_isolated += len(members)
+        los = [vlon[v] for v in members]
+        las = [vlat[v] for v in members]
+        scoped_span = max(scoped_span,
+                          max((max(los) - min(los)) * m_lon,
+                              (max(las) - min(las)) * m_lat) / 1000.0)
+    print(f"  under R18-1c (domain = the coverage): {len(scoped_only):,} "
+          f"triangle(s), {scoped_reached:,} free vertex(es) reach a "
+          f"patch-valued one, {scoped_isolated:,} reach none; widest "
+          f"component {scoped_span:.1f} km")
+    print("  (the scoped counts are this instrument's ESTIMATE — the "
+          "mesh file stores absolute lon/lat and cannot place an on-ring "
+          "Steiner point exactly; the ENGINE's own \"Patch coverage: N of "
+          "M\" line is the authority, and the two agree to a few tenths "
+          "of a percent)")
     return {
         "segment_markers": {str(k): v for k, v in markers.items()},
         "seed_attributes": {str(k): v for k, v in seed_attrs.items()},
@@ -316,6 +380,10 @@ def interp_alt_audit(mesh_path, prefix, tile_lat, tile_lon):
         "domain_triangles_straddling_coverage": straddling,
         "domain_free_reaching": reached,
         "domain_free_isolated": isolated,
+        "scoped_triangles": len(scoped_only),
+        "scoped_free_reaching": scoped_reached,
+        "scoped_free_isolated": scoped_isolated,
+        "scoped_widest_component_km": scoped_span,
     }
 
 

@@ -4173,9 +4173,21 @@ attribution instrument.
   implied bore(s) — no tunnel/layer tag evidence (R4)"), and
   `test_harness.py::test_the_near_miss_frontage_law_is_one_authority`
   (the standing near-miss-frontage twin failure).
-* **CYXY/SPJC control arms NOT built.**  LEMD and HECA carry ON arms and
-  LEMD an OFF arm; neither §W1 nor §W2 logged a single line at either
-  control, so both code paths were the identity there.
+* **CYXY/SPJC control arms NOT built.**  LEMD and HECA carry matched
+  ON/OFF arms.  LEMD is BYTE-IDENTICAL (`body_sha 0e181d870481` both
+  arms, 2 558 shapes; neither gate logged a line).  HECA is NOT: §W1
+  fires there (4 claimed-corridor footprints, 3 215 m² relief, 329 m²
+  held back by the covered-span mask), 3 751 → 3 763 shapes, and the
+  census moves **+261 adjudicated (7 021 → 7 282)** — `within_shape`
+  +177, `mid_edge_step` +41, `vertex_to_edge_step` +19,
+  `road_cross_section` +18, `transverse` +6.  ATTRIBUTED: every one of
+  the 1 017 new / 756 gone rows sits in ONE 0.003° × 0.002° cell around
+  `30.113,31.397` — HECA's own underpass site, which already carries the
+  patch's worst rows in BOTH arms — and every one is
+  `groundside_pavement` or `service_junction`; no airside family moves
+  (`airside_no_step`, `apron_lattice_membrane`, `strip_*`, `runway_crown`
+  all +0).  The 12 surviving `tunnel_wall` pieces re-shape the ground
+  beside them; NOT root-caused per-row, attempt cap not spent on it.
 * **`ramp_wall_gap` REGRESSES 21 → 32 at OTHH under §W1** and is NOT
   root-caused here: the metric counts node ids shared between
   `tunnel_ramp` and `tunnel_wall` ways, and §W1 takes the surviving

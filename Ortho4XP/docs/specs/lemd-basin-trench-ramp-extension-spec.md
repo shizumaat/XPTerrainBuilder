@@ -53,6 +53,29 @@ RULED design:
    pre-plate surface). If the instrument cannot exclude it, STOP and
    report — do not re-baseline G.
 
+## AMENDMENT 2 (Fable, 2026-08-28, on the lane's second STOP — round closes UNSHIPPED)
+
+Arm 2 (emit-time plate) is geometrically MET (both probes inside the pan,
+floor 587.75, HECA/SPJC byte-identical, shipped LEMD default = control) but
+REFUSED for shipping: building8's pad goes non-flat ([587.75,600.49]) and
+census +196 airside `within_shape` rows — because BOTH owner coordinates lie
+INSIDE the building8 pad ring (9.87 m / 3.88 m, containment-measured). The
+ground under the ramp BELONGS to the pad's flattening authority
+(`BASIN_PAD_FLOOR_SEAT` yields only OUTSIDE the facility); that authority,
+not the trench footprint, is what holds it at 600.51 through the ramp.
+
+RULED: both trench-side levers are exhausted and stay committed DEFAULT-OFF
+(one shared derivation, `_ramp_lobes_of` batter/ramp separation retained —
+the batter annulus is never emitted). The NEXT ROUND's lever is the PAD
+AUTHORITY BOUNDARY: carve the ramp corridor out of building8's flattening
+authority so the floor plate can own it, with (a) the pad edge along the
+corridor treated as a declared wall/terrace, and (b) a G-instrument ruling
+(8 of 70 R_mesh stations fall in the corridor; pre-plate read reproduces
+596.680, dropping them reads 596.000 — a real rebake moves G either way).
+PENDING OWNER: confirm the pad carve is wanted given it edits the committed
+basin founding's authority map. The stale-sidecar cache fix (v26) and the
+24 twins SHIP with the lane merge regardless.
+
 ## Acceptance (amended)
 
 - Both owner probes at 0.00 m ON THE EMITTED FLOOR PLATE.

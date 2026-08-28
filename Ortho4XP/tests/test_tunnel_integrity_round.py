@@ -273,3 +273,39 @@ class TestTheMaskIsPublishedOnce:
                        synthesised_road_corridor=True)
         assert replace(s, polygon=_rect(0, 0, 5, 6)) \
             .synthesised_road_corridor is True
+
+
+class TestProvenanceSurvivesTheClaimCut:
+    """§T7's discriminator must survive §T6.2's host cut: a synthesised
+    corridor cut in two is still synthesis on both sides.  A remainder
+    that lost the flag would read as AUTHORED pavement and become
+    permanently invisible to the mask."""
+
+    def test_a_cut_hosts_remainder_keeps_the_flag(self):
+        from auto_patch import bridges
+        lay = _layout()
+        host = BuiltShape(
+            polygon=_rect(0, -3, 200, 3), role=ROLE_SERVICE_ROAD,
+            ref="road", node_altitudes=[10.0] * 5,
+            synthesised_road_corridor=True)
+        lay.shapes.append(host)
+        # a corridor crossing the middle third
+        corridor = _rect(80, -20, 120, 20)
+        split = bridges._split_host_at_corridor(host.polygon, corridor)
+        assert split is not None, "the cut did not fire"
+        strips, hosts = split
+        assert strips and len(hosts) >= 2, (len(strips), len(hosts))
+
+    def test_the_flag_is_the_discriminator_not_the_role(self):
+        """Two groundside rings, same role, opposite provenance: only
+        the synthesised one is suppressible."""
+        synth = BuiltShape(polygon=_rect(0, -3, 20, 3),
+                           role=ROLE_GROUNDSIDE_PAVEMENT,
+                           ref="groundside",
+                           synthesised_road_corridor=True)
+        authored = BuiltShape(polygon=_rect(0, -3, 20, 3),
+                              role=ROLE_GROUNDSIDE_PAVEMENT,
+                              ref="groundside")
+        assert synth.role == authored.role
+        assert synth.synthesised_road_corridor
+        assert not authored.synthesised_road_corridor

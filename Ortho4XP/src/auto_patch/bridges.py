@@ -6391,9 +6391,15 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
                     interior_edge_project=True)
                 if _ea is None:
                     continue
+                # THE HOST'S PROVENANCE RIDES ITS REMAINDER: a
+                # synthesised corridor cut in two is still synthesis on
+                # both sides, and §T7's mask must still be able to see
+                # it (the flag is the discriminator, not the role).
                 _p2_minted.append(BuiltShape(
                     polygon=_extra, role=_role,
-                    ref=getattr(_shape, "ref", ""), node_altitudes=_ea))
+                    ref=getattr(_shape, "ref", ""), node_altitudes=_ea,
+                    synthesised_road_corridor=getattr(
+                        _shape, "synthesised_road_corridor", False)))
             _shape.polygon = _rest_parts[0]
             _shape.node_altitudes = _host_alts
             _shape.altitude = None
@@ -6875,9 +6881,13 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
                 interior_edge_project=True)
             if _ea is None:
                 continue
+            # Same rule as the R14-1 path: the host's provenance rides
+            # its remainder (§T7's discriminator must survive the cut).
             _minted.append(BuiltShape(
                 polygon=_extra, role=_role,
-                ref=getattr(_shape, "ref", ""), node_altitudes=_ea))
+                ref=getattr(_shape, "ref", ""), node_altitudes=_ea,
+                synthesised_road_corridor=getattr(
+                    _shape, "synthesised_road_corridor", False)))
         _shape.polygon = _rest_parts[0]
         _shape.node_altitudes = _host_alts
         _shape.altitude = None

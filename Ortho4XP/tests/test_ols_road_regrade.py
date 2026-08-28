@@ -30,6 +30,7 @@ import math
 import numpy as np
 import pytest
 from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
 
 from auto_patch import config as apc
 from auto_patch import ols
@@ -169,10 +170,17 @@ def _patch_roads(monkeypatch, ways):
                         lambda _layout: net)
 
 
-def _emit(monkeypatch, ways, knoll_h=KNOLL_H_M):
+def _emit(monkeypatch, ways, knoll_h=KNOLL_H_M, extra_knolls=(),
+          extra_shapes=()):
+    """``extra_knolls`` is ``[(x, y, r, h), ...]`` — further DEM discs;
+    ``extra_shapes`` are further ``BuiltShape``s put on the layout before
+    the emit (a SECOND runway, for the crossing twin)."""
     layout = make_layout()
+    layout.shapes.extend(extra_shapes)
     dem = FakeDEM()
     dem.raise_disc(KNOLL_X, KNOLL_Y, KNOLL_R_M, knoll_h)
+    for (kx, ky, kr, kh) in extra_knolls:
+        dem.raise_disc(kx, ky, kr, kh)
     _patch_roads(monkeypatch, ways)
     n = ols.emit_ols_cuts(layout, dem, TILE_LAT, TILE_LON, [FakeRunway()])
     return layout, dem, n
@@ -472,3 +480,156 @@ class TestNonFiniteAltitudeGuard:
         dk = decks(layout)
         assert dk
         assert all(math.isfinite(z) for s in dk for z in s.node_altitudes)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HECA ROUND 5 ITEM 1 — THE DECK STANDS DOWN OVER THE RUNWAY STRIP
+# (owner sim read of 1.0.265, spec
+#  docs/specs/heca-round5-drainage-and-ramps-spec.md §Item 1:
+#  "the runway family is aircraft-transit — NOTHING crosses it carrying
+#   its own elevation authority … at a runway crossing the ols_road /
+#   drainage corridor takes the RUNWAY's surface exactly … or STANDS
+#   DOWN OVER THE STRIP.")
+#
+# The measured defect this twin encodes (HECA, arms r5base vs r5armB):
+# the deck's profile bound is min(DEM, composed ceiling) and consults NO
+# pavement, so beside runway 05C/23C the two ols_road halves rode
+# 116.4-118.85 m over a runway surface at 109.3-111.2 — INSIDE the strip,
+# where the adjacent_ground bands weld to them and tear (5.10 m over
+# 0.19 m).  With O4_OLS_ROAD_REGRADE=0 both decks vanished and the strip
+# beside them fell 115.90 -> 110.88: the deck is the author.
+# ══════════════════════════════════════════════════════════════════════
+
+#: The HECA item-1 class: a service corridor CROSSING the runway abeam its
+#: middle, with a penetration in the transitional surface beside it, so the
+#: deck is grown right across the lateral strip and the runway.
+#: THE OWNER'S GEOMETRY, synthetically: a SECOND runway laid across the
+#: road corridor, so the graded deck runs straight through that runway's
+#: LATERAL strip — HECA's ols_road -13741/-13744 over 05C/23C.
+XING_RUNWAY_Y = RUNWAY_LEN_M + 380.0
+XING_RUNWAY_HALF_W = 0.5 * RUNWAY_WIDTH_M
+XING_RUNWAY_HALF_L = 900.0
+
+
+def _crossing_runway():
+    ring = [(-XING_RUNWAY_HALF_L, XING_RUNWAY_Y - XING_RUNWAY_HALF_W),
+            (XING_RUNWAY_HALF_L, XING_RUNWAY_Y - XING_RUNWAY_HALF_W),
+            (XING_RUNWAY_HALF_L, XING_RUNWAY_Y + XING_RUNWAY_HALF_W),
+            (-XING_RUNWAY_HALF_L, XING_RUNWAY_Y + XING_RUNWAY_HALF_W)]
+    return BuiltShape(polygon=Polygon(ring + [ring[0]]), role=ROLE_RUNWAY,
+                      ref="09/27", altitude=PAVEMENT_ALT_M,
+                      node_altitudes=[PAVEMENT_ALT_M] * 5)
+
+
+def _emit_crossing(monkeypatch):
+    return _emit(monkeypatch, THROUGH_ROAD,
+                 extra_shapes=[_crossing_runway()])
+
+
+def _strip_keepout(layout):
+    """THE law object, read the way production reads it: the LATERAL
+    strip rectangles beside the runway (the end corridors are NOT in
+    scope — the SPJC-16R approach fan lives there)."""
+    from auto_patch.adjacent_ground import runway_strip_lateral_zone
+    return runway_strip_lateral_zone(layout, require_gate=False,
+                                     prepared=False)
+
+
+def _deck_area_in_strip(layout) -> float:
+    keep = _strip_keepout(layout)
+    if keep is None:
+        return 0.0
+    return sum(s.polygon.intersection(keep).area for s in decks(layout))
+
+
+class TestRunwayStripStandDown:
+
+    def test_the_gate_is_default_on(self):
+        assert apc.OLS_ROAD_RUNWAY_STANDDOWN is True
+
+    def test_the_footprint_is_the_standing_strip_law_object(self, gate_on,
+                                                            monkeypatch):
+        """No geometry of its own: the stand-down block IS
+        ``adjacent_ground.runway_strip_wall_keepout`` — the same footprint
+        the lateral-contiguity law's clause (5) yields to."""
+        layout = make_layout()
+        block = ols._runway_strip_standdown(layout)
+        keep = _strip_keepout(layout)
+        assert block is not None and keep is not None
+        assert block.equals(keep)
+
+    def test_no_deck_survives_inside_the_runway_strip(self, gate_on,
+                                                      monkeypatch):
+        """THE LAW: nothing crosses the runway family carrying its own
+        elevation authority.  Zero deck area inside the lateral strip."""
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", True)
+        layout, _dem, _n = _emit_crossing(monkeypatch)
+        assert _deck_area_in_strip(layout) == pytest.approx(0.0, abs=1e-6), (
+            "an ols_road deck stands INSIDE the runway strip carrying its "
+            "own elevation authority — the HECA item-1 defect")
+
+    def test_the_gate_off_reproduces_the_defect(self, gate_on, monkeypatch):
+        """The OFF arm must actually put deck back in the strip, or the
+        two arms are not comparable and the gate proves nothing."""
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", False)
+        layout, _dem, _n = _emit_crossing(monkeypatch)
+        assert _deck_area_in_strip(layout) > 1.0, (
+            "the pre-round arm is expected to carry deck inside the strip")
+
+    def test_the_span_refuses_WHOLE_rather_than_ending_mid_cut(
+            self, gate_on, monkeypatch, capsys):
+        """WHY the stand-down is an INVALID STATION and not a boundary
+        clip: a deck cut off at the strip edge while still 10.6 m below
+        the DEM would be a new wall where a tear was.  Expressed as
+        invalid ground, the span growth stops at the strip and the
+        STANDING blend refusal fires whole-span — the module's own
+        refusal idiom, counted out loud."""
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", True)
+        layout, _dem, _n = _emit_crossing(monkeypatch)
+        out = capsys.readouterr().out
+        assert "STAND DOWN inside it" in out
+        assert "blend-refused" in out
+        # Nothing half-emitted: either a lawful deck or none at all.
+        assert _deck_area_in_strip(layout) == pytest.approx(0.0, abs=1e-6)
+
+    def test_the_law_only_REMOVES_deck_never_moves_it(self, gate_on,
+                                                      monkeypatch):
+        """AIRSIDE IS KING and the profile is untouched: the ON arm's
+        deck is a SUBSET of the OFF arm's — same coordinates, same
+        values, fewer of them.  The law removes deck; it never re-grades
+        the road or invents a vertex."""
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", False)
+        off, _d1, _n1 = _emit_crossing(monkeypatch)
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", True)
+        on, _d2, _n2 = _emit_crossing(monkeypatch)
+        assert decks(off), "the OFF arm must emit deck to compare against"
+        assert len(decks(on)) <= len(decks(off))
+        off_area = unary_union([s.polygon for s in decks(off)]) \
+            if decks(off) else None
+        for s in decks(on):
+            assert off_area.buffer(1e-6).covers(s.polygon), (
+                "the stand-down emitted deck the OFF arm did not have")
+        off_vals = {}
+        for s in decks(off):
+            for (x, y), z in zip(*_ring(s)):
+                off_vals[(round(x, 6), round(y, 6))] = z
+        for s in decks(on):
+            for (x, y), z in zip(*_ring(s)):
+                prev = off_vals.get((round(x, 6), round(y, 6)))
+                if prev is not None:
+                    assert z == pytest.approx(prev, abs=1e-9)
+
+    def test_a_road_clear_of_the_strip_is_untouched(self, gate_on,
+                                                    monkeypatch):
+        """SCOPE: the standing SPJC-16R fixture (a road 80 m past the
+        runway end, clear of the strip) emits exactly what it always
+        did — the law reaches only the strip."""
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", False)
+        off, _d1, _n1 = _emit(monkeypatch, THROUGH_ROAD)
+        monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", True)
+        on, _d2, _n2 = _emit(monkeypatch, THROUGH_ROAD)
+        assert len(decks(on)) == len(decks(off)) and decks(on)
+        for a, b in zip(decks(on), decks(off)):
+            assert list(a.polygon.exterior.coords) == \
+                list(b.polygon.exterior.coords)
+            assert list(a.node_altitudes) == list(b.node_altitudes)

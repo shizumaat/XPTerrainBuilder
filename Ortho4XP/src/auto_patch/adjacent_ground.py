@@ -576,16 +576,26 @@ def runway_strip_wall_keepout(layout, *, require_gate: bool = True):
     return block
 
 
-def runway_strip_lateral_zone(layout):
-    """The PREPARED LATERAL graded-strip rectangles — the §2
-    abeam-longitudinal law's domain (BETWEEN the ends; see
+def runway_strip_lateral_zone(layout, *, require_gate: bool = True,
+                              prepared: bool = True):
+    """The LATERAL graded-strip rectangles — the §2 abeam-longitudinal
+    law's domain (BETWEEN the ends; see
     ``grade_law.runway_strip_lateral_footprint_ring`` for why the end
     corridors are excluded from the CAP while §1's precedence keeps them).
     ``None`` with the gate off or with no runway.
 
     Same runway grouping and the same law function as
-    ``runway_strip_wall_keepout``; only the ring selection differs."""
-    if not STRIP_PRECEDENCE_ENABLED:
+    ``runway_strip_wall_keepout``; only the ring selection differs.
+
+    ``require_gate=False`` builds the footprint regardless — the OLS road
+    deck's RUNWAY-STRIP STAND-DOWN (HECA round 5 item 1) needs the SAME
+    geometry under its own gate, exactly as the lateral-contiguity law's
+    clause (5) takes ``runway_strip_wall_keepout`` that way.
+    ``prepared=False`` returns the raw union instead of the prepared
+    predicate, for the callers that must DIFFERENCE against it rather
+    than only ask ``covers``.  Both default to the standing behaviour, so
+    every existing caller is unchanged."""
+    if require_gate and not STRIP_PRECEDENCE_ENABLED:
         return None
     groups: dict = {}
     for s in layout.shapes:
@@ -615,7 +625,7 @@ def runway_strip_lateral_zone(layout):
         block = unary_union([Polygon(r) for r in rings])
         if block.is_empty:
             return None
-        return prep(block)
+        return prep(block) if prepared else block
     except _GEOM_EXC:
         return None
 

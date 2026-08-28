@@ -1346,7 +1346,7 @@ def emit_ols_cuts(layout: PavementLayout, dem, tile_lat: int, tile_lon: int,
         road_shapes = _emit_road_regrades(
             scene, grid, layout, admitted_tree, admitted_cells,
             cell_radius, shape_polys, deck_tree, emitted_pieces,
-            refused_block)
+            refused_block, standdown_block=_runway_strip_standdown(layout))
         emitted += len(road_shapes)
         emitted_shapes.extend(road_shapes)
     _decimate_ols_group(layout, emitted_shapes)
@@ -1626,10 +1626,55 @@ def _nonfinite_road_vals_msg(way_id, sgn, lo, hi, ss, valid, invalid_cause,
     return f"{head}  {v_lines}.  {cause}"
 
 
+def _runway_strip_standdown(layout: PavementLayout):
+    """The RUNWAY-STRIP footprint the road deck stands down over, or ``None``.
+
+    HECA round 5 item 1 (owner sim read of 1.0.265; spec
+    ``docs/specs/heca-round5-drainage-and-ramps-spec.md``): *"the runway
+    family is aircraft-transit — NOTHING crosses it carrying its own
+    elevation authority … at a runway crossing the ols_road/drainage
+    corridor takes the RUNWAY's surface exactly (weld, canonical identity,
+    zero tear rows), or STANDS DOWN OVER THE STRIP."*  This is the second
+    branch, and it needs no geometry of its own: the footprint is a
+    STANDING law object (``adjacent_ground.runway_strip_lateral_zone``,
+    rings from ``grade_law.runway_strip_lateral_footprint_ring``, grouped
+    by runway ``ref``) — the same family of footprints the
+    lateral-contiguity law's clause (5) already yields to ("the
+    runway-strip footprint law supersedes inside strips").
+    ``require_gate=False`` for the same reason clause (5) passes it: this
+    law needs the GEOMETRY, under its own gate.
+
+    THE SCOPE IS THE **LATERAL** STRIP — the rectangles BESIDE the runway,
+    between its ends (``runway_strip_lateral_zone``, the §2 abeam law's
+    own domain, built from the same law function and the same runway
+    grouping as the wall keepout).  That is where the measured defect is:
+    the deck rode over the adjacent-ground bands flanking runway 05C/23C.
+    The END corridors are deliberately NOT in it — the SPJC-16R approach
+    fan this whole emitter exists for lies past a runway END, and taking
+    the wall keepout instead (which extends 240 m beyond each end) would
+    stand the feature down at the very site it was built for.
+
+    ``None`` when the gate is off, when the layout carries no runway, or
+    when the footprint cannot be built — in every one of those the deck
+    emits exactly as it did before this round.
+    """
+    if not getattr(_config, "OLS_ROAD_RUNWAY_STANDDOWN", True):
+        return None
+    try:
+        from .adjacent_ground import runway_strip_lateral_zone
+        block = runway_strip_lateral_zone(layout, require_gate=False,
+                                          prepared=False)
+    except (_GEOM_EXC + (ImportError, AttributeError, TypeError)):
+        return None
+    if block is None or getattr(block, "is_empty", True):
+        return None
+    return block
+
+
 def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                         admitted_tree, admitted_cells, cell_radius: float,
                         shape_polys, deck_tree, emitted_pieces,
-                        refused_block):
+                        refused_block, standdown_block=None):
     """Regrade surface roads through the cut (owner direction 2026-07-28,
     SPJC 16R).  Returns the list of emitted deck shapes.
 
@@ -1707,7 +1752,36 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
     grade = float(_config.SERVICE_ROAD_MAX_GRADE)
     shapes_out: list = []
     n_ways = n_spans = n_blend_refused = n_depth_refused = 0
+    n_standdown = n_standdown_st = 0
     worst_cut = 0.0
+    # ── THE RUNWAY-STRIP STAND-DOWN (HECA round 5 item 1) ─────────────
+    # The deck already clips against every layout shape, so it never
+    # OVERLAPS the runway; what it did was ride its own DEM-derived
+    # profile right up to the runway's edge INSIDE the strip (measured at
+    # HECA: the two ols_road halves at 116.4-118.85 over a runway surface
+    # at 109.3-111.2), where the adjacent-ground bands weld to it and
+    # tear against each other (5.10 m over 0.19 m on the owner's line).
+    #
+    # TWO HALVES OF ONE LAW, and they are not redundant:
+    #   * LONGITUDINALLY the strip is an INVALID STATION (below), so the
+    #     span stops at the strip boundary and refuses whole if it cannot
+    #     blend to the DEM before it — no deck edge is ever left mid-cut;
+    #   * LATERALLY the strip joins the deck's blocker set, because a
+    #     span running just OUTSIDE the strip still buffers half a
+    #     carriageway into it.  A lateral clip only narrows the deck, and
+    #     the narrowed edge is valued by the same (s, d) blend as any
+    #     other clip vertex — continuous by construction.
+    deck_refused = refused_block
+    _strip_prep = None
+    if standdown_block is not None:
+        try:
+            _strip_prep = prep(standdown_block)
+            deck_refused = (standdown_block if refused_block is None
+                            else unary_union([refused_block,
+                                              standdown_block]))
+        except _GEOM_EXC:                                  # pragma: no cover
+            _strip_prep = None
+            deck_refused = refused_block
     # O(1) bbox prefilter before any per-way buffer: the road caches can
     # hold thousands of ways and ``buffer()`` is the expensive step of
     # the quick reject below.  40 m covers the widest carriageway the
@@ -1762,8 +1836,10 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
         near_adm = np.zeros(n_st, dtype=bool)
         # WHY each invalid station is invalid — read only by the
         # finiteness assertion below, so a NaN altitude can name its own
-        # cause instead of being guessed at offline.  The three causes are
-        # disjoint and tested in the SAME short-circuit order as before.
+        # cause instead of being guessed at offline.  The causes are
+        # disjoint and the first three are tested in the SAME short-circuit
+        # order as before; the RUNWAY-STRIP stand-down (HECA round 5 item
+        # 1) is asked LAST, so no existing cause changes hands.
         invalid_cause: list = [None] * n_st
         for i in range(n_st):
             x, y = float(xs[i]), float(ys[i])
@@ -1778,6 +1854,27 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
             if ij is not None and grid.refused[ij]:
                 invalid_cause[i] = "grid.refused"
                 continue
+            # ── THE RUNWAY-STRIP STAND-DOWN (HECA round 5 item 1) ─────
+            # Inside the runway STRIP the strip's own law owns the ground
+            # and nothing crosses the runway family carrying its own
+            # elevation authority, so the deck has no domain here.  It is
+            # expressed as an INVALID STATION — the mechanism the module
+            # already has for ground it may not grade (``grid.refused``,
+            # the tile seam) — and that is deliberate, because it makes
+            # the existing machinery do the right thing end to end: the
+            # profile never propagates across it, the span growth STOPS
+            # at the strip boundary, and the standing BLEND refusal
+            # fires whole-span if the road is still CUT when it gets
+            # there.  A boundary clip alone could have left a deck edge
+            # mid-cut — a new wall where a tear was.
+            if _strip_prep is not None:
+                try:
+                    if _strip_prep.covers(Point(x, y)):
+                        invalid_cause[i] = "runway_strip_standdown"
+                        n_standdown_st += 1
+                        continue
+                except _GEOM_EXC:                          # pragma: no cover
+                    pass
             valid[i] = True
             dem_v[i] = float(d)
             try:
@@ -1924,6 +2021,12 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                           (-1.0, sub.buffer(-half_w, single_sided=True)))
             except _GEOM_EXC:
                 continue
+            if standdown_block is not None:
+                try:
+                    if standdown_block.intersects(sub):
+                        n_standdown += 1
+                except _GEOM_EXC:                          # pragma: no cover
+                    pass
             for sgn, poly in halves:
                 try:
                     if not poly.is_valid:
@@ -1934,7 +2037,7 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                 if poly is None or poly.is_empty:
                     continue
                 for piece in _clipped_pieces(poly, shape_polys, deck_tree,
-                                             emitted_pieces, refused_block):
+                                             emitted_pieces, deck_refused):
                     coords = _open_coords(piece)
                     if len(coords) < 3:
                         continue
@@ -1978,7 +2081,12 @@ def _emit_road_regrades(scene: _Scene, grid: _Grid, layout: PavementLayout,
                          f"service-road half-shape piece(s) over "
                          f"{n_spans} span(s), worst cut {worst_cut:.2f} m; "
                          f"{n_blend_refused} blend-refused, "
-                         f"{n_depth_refused} depth-refused span(s).")
+                         f"{n_depth_refused} depth-refused span(s); "
+                         f"{n_standdown} span(s) reach the runway STRIP, "
+                         f"{n_standdown_st} station(s) STAND DOWN inside "
+                         f"it (HECA round 5 item 1 — nothing crosses the "
+                         f"runway family carrying its own elevation "
+                         f"authority).")
         except Exception:
             pass
     return shapes_out

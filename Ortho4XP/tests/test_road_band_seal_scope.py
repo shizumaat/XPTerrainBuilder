@@ -215,16 +215,67 @@ class TestEdgeSharingContactIsTheApron:
         polys, roles, tree = _contact_fixture(0.001)
         assert LC.edge_shared_roles(polys[1], tree, polys, roles, 1) == set()
 
-    def test_the_contact_ring_takes_the_apron_cap_at_every_station(self):
-        """"It becomes part of the apron": the ring takes ONE cap end to
-        end, not an apron cap at the contact and a road cap 30 m away —
-        the latter is the step the ruling exists to remove."""
+    def test_an_END_ON_contact_ring_keeps_the_FREE_ROAD_class(self):
+        """SUPERSEDED BY THE OWNER, 2026-08-28e (HECA round 5 items
+        2/3/4; spec ``heca-round5-drainage-and-ramps-spec.md`` LAW 2).
+
+        This fixture is a road running 40 m AWAY from the apron, sharing
+        only its end edge — and until this round it took the apron's 1 %
+        along that whole run.  Owner, verbatim: *"THE DEFECT IS SCOPING …
+        fix the scoping so the stretch beyond the apron prices and solves
+        at the 8 % free class."*  Contact still binds the VALUES at the
+        weld (canonical identity, and the contact-DATUM seeding below);
+        it no longer prices the cap.  Measured at HECA on the tree that
+        carried the old law: service_road 2863 held at 0.010000 over its
+        130 m run to taxiway junction -12711."""
         polys, roles, tree = _contact_fixture(0.0)
         _st, caps = LC.station_caps(polys[1], tree, polys, roles, 1)
         got = {c for c in caps if c is not None}
-        assert got == {CFG.ROLE_GRADE_LIMITS[ROLE_APRON]}
+        assert got == {CFG.ROLE_GRADE_LIMITS[ROLE_SERVICE_ROAD]}, (
+            "an END-ON contact ring is still priced at the apron cap — "
+            "the scoping defect the owner ruled on")
         assert (CFG.ROLE_GRADE_LIMITS[ROLE_APRON]
                 < CFG.ROLE_GRADE_LIMITS[ROLE_SERVICE_ROAD])
+
+    def test_the_scope_gate_off_restores_the_ring_wide_pricing(
+            self, monkeypatch):
+        """The pre-round law, byte-identically, for the A/B arm."""
+        monkeypatch.setattr(CFG, "ROAD_CONTACT_CAP_SCOPE", False)
+        polys, roles, tree = _contact_fixture(0.0)
+        _st, caps = LC.station_caps(polys[1], tree, polys, roles, 1)
+        assert {c for c in caps if c is not None} == {
+            CFG.ROLE_GRADE_LIMITS[ROLE_APRON]}
+
+    def test_a_road_ALONGSIDE_an_apron_still_takes_the_apron_cap(self):
+        """25b's SUBSTANCE is preserved where it is true: a road that
+        stands inside or alongside an apron is LATERALLY CONTIGUOUS with
+        it, so the perpendicular walk reads the apron at every station and
+        the ring prices at 1 % with no contact term at all.  Only the
+        END-ON class — 162 of HECA's 469 shared edges, this module's own
+        measurement — is released to the free class."""
+        apron = Polygon([(0.0, 0.0), (60.0, 0.0), (60.0, 10.0),
+                         (0.0, 10.0)])
+        # The road runs ALONG the apron's edge for its first 60 m and
+        # then 40 m BEYOND it — the owner's own picture ("cut each road
+        # at the stations where it stops being free").
+        road = Polygon([(0.0, 10.0), (100.0, 10.0), (100.0, 16.0),
+                        (0.0, 16.0)])
+        polys = [apron, road]
+        roles = [ROLE_APRON, ROLE_SERVICE_ROAD]
+        tree = STRtree(polys)
+        st, caps = LC.station_caps(road, tree, polys, roles, 1)
+        beside = [c for (p, c) in zip(st, caps)
+                  if p is not None and c is not None and p[0] <= 55.0]
+        beyond = [c for (p, c) in zip(st, caps)
+                  if p is not None and c is not None and p[0] >= 65.0]
+        assert beside and set(beside) == {
+            CFG.ROLE_GRADE_LIMITS[ROLE_APRON]}, (
+            "a road ALONGSIDE an apron must still price at the apron cap "
+            "— 25b's substance, carried by the lateral walk")
+        assert beyond and set(beyond) == {
+            CFG.ROLE_GRADE_LIMITS[ROLE_SERVICE_ROAD]}, (
+            "the stretch BEYOND the apron must price at the free-road "
+            "class (owner 2026-08-28e)")
 
     def test_a_free_road_keeps_its_own_cap(self):
         polys, roles, tree = _contact_fixture(2.0)
@@ -272,8 +323,11 @@ class TestEdgeSharingContactIsTheApron:
         assert survivors, "the contact ring was absorbed or replaced"
         assert road.role == ROLE_SERVICE_ROAD          # no role conversion
         assert road.apron_contact is True
-        # (a) the ring prices at the APRON'S cap, end to end.
-        assert road.lateral_cap == CFG.ROLE_GRADE_LIMITS[ROLE_APRON]
+        # (a) the ring is STAMPED as contact — the value half of the law
+        # (the identity welds and the contact-DATUM seeding) is untouched
+        # — but an END-ON ring is no longer PRICED at the apron cap
+        # (owner 2026-08-28e; see the scoping twin above).
+        assert road.lateral_cap is None
         # The apron is untouched — airside is king, and this law reads it.
         assert apron.polygon.equals(polys[0])
 

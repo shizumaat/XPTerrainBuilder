@@ -383,16 +383,27 @@ def test_one_chained_body_falls_straight_to_individual_pads():
     assert [sorted(p) for p in out.rows[0]["pieces"]] == [["0"], ["1"]]
 
 
+def test_zero_split_of_zero_declared_is_not_an_accommodation():
+    """ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06).  "0 groups split"
+    with 0 groups DECLARED is a law that was never exercised, and saying
+    "all accommodated" there would report a wiring gap as a result."""
+    line = PV.format_pack_group_splits("LEMD", [], declared=0)
+    assert "ZERO OF ZERO" in line and "NOT EXERCISED" in line
+    assert "ACCOMMODATED" not in line
+
+
 def test_the_ledger_reads_as_all_accommodated_when_nothing_split():
-    """An EMPTY ledger is the PREFERRED outcome and must say so — it is
-    never a missing result."""
-    line = PV.format_pack_group_splits("LEMD", [])
-    assert "ACCOMMODATED" in line and "no group was split" in line
+    """An EMPTY ledger over a NON-empty declaration is the PREFERRED
+    outcome and must say so — it is never a missing result."""
+    line = PV.format_pack_group_splits("LEMD", [], declared=7)
+    assert "ACCOMMODATED" in line and "all 7 declared" in line
     line = PV.format_pack_group_splits(
         "LEMD", [{"group": "packB", "members": ["a", "b"], "stage": "individual",
                   "pieces": [["a"], ["b"]], "worst_m": 28.0,
-                  "forcing_rows": [{"why": "empty_intersection"}]}])
+                  "forcing_rows": [{"why": "empty_intersection"}]}],
+        declared=3)
     assert "SPLIT" in line and "packB" in line and "28.0" in line
+    assert "1 of 3" in line
 
 
 def test_one_domain_dissolves_the_two_instrument_empty_intersection(

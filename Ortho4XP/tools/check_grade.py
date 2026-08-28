@@ -6878,6 +6878,9 @@ def sidecar_evidence(osm_path) -> dict:
             # to survive into every report that mentions the ledger.
             rows = v if isinstance(v, list) else []
             rows = sorted(rows, key=lambda r: -float(r.get("worst_m") or 0.0))
+            # THE DENOMINATOR travels in the pad_binding_routes container
+            # (one evidence container for the pads, never a second key);
+            # resolved into this summary below, after both are read.
             out[k] = {"groups_split": len(rows)}
             if rows:
                 w = rows[0]
@@ -6908,6 +6911,7 @@ def sidecar_evidence(osm_path) -> dict:
                     if isinstance(r, dict)
                     and ((r.get("binding") or {}).get("at_ceiling")
                          or (r.get("binding") or {}).get("at_floor"))),
+                "pack_groups_declared": rec.get("pack_groups_declared"),
             }
             continue
         if k == "site_class":
@@ -6921,6 +6925,13 @@ def sidecar_evidence(osm_path) -> dict:
         # megabytes of geometry, and a report that inlines them is a report
         # nobody reads.  Scalars pass through.
         out[k] = f"<{len(v)} entries>" if isinstance(v, (list, dict)) else v
+    # ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06): join the pack-group
+    # DENOMINATOR onto the split summary so "0 split" can never be read as
+    # "every declared group accommodated" when none was declared.
+    if isinstance(out.get("pack_group_splits"), dict):
+        out["pack_group_splits"]["groups_declared"] = (
+            (out.get("pad_binding_routes") or {}).get("pack_groups_declared")
+            if isinstance(out.get("pad_binding_routes"), dict) else None)
     out["unknown_keys"] = sorted(set(data) - known)
     out["seam_pin_count"] = len(data.get("seam_pins") or [])
     out["terrace_joint_count"] = len(data.get("terrace_joints") or [])

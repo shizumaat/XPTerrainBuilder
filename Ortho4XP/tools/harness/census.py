@@ -1836,13 +1836,21 @@ def print_report(rep: dict, top: int) -> None:
     _pgs = ev.get("pack_group_splits")
     if isinstance(_pgs, dict):
         _ng = int(_pgs.get("groups_split") or 0)
-        if not _ng:
-            print("  pack-group splits: 0 group(s) — every authored-datum "
-                  "pack group ACCOMMODATED without violating grade, so "
-                  "every authored vertical relationship survives (the "
-                  "preferred outcome)")
+        _nd = _pgs.get("groups_declared")
+        if not _ng and not _nd:
+            # ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06).
+            print("  pack-group splits: 0 split of 0 DECLARED — no "
+                  "authored-datum pack group reached the pad pass, so the "
+                  "accommodate-else-split law was NOT EXERCISED here.  "
+                  "This is zero-of-zero, NOT an accommodation.")
+        elif not _ng:
+            print(f"  pack-group splits: 0 of {_nd} declared group(s) — "
+                  f"every authored-datum pack group ACCOMMODATED without "
+                  f"violating grade, so every authored vertical "
+                  f"relationship survives (the preferred outcome)")
         else:
-            print(f"  pack-group splits: {_ng} authored-datum pack group(s) "
+            print(f"  pack-group splits: {_ng} of {_nd} authored-datum "
+                  f"pack group(s) "
                   f"SPLIT — grade law outranks shared-datum preservation "
                   f"(owner ruling 2026-08-27).  Worst: group "
                   f"{_pgs.get('worst_group')} at {_pgs.get('worst_m')} m, "

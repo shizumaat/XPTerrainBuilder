@@ -736,10 +736,10 @@ def _apply_authored_datum_groups(layout, units, pairs, enabled,
     not "the best available", it is a SPLIT.
     """
     if not enabled or not units:
-        return []
+        return [], 0
     decl = list(getattr(layout, "_authored_datum_groups", None) or ())
     if not decl:
-        return []
+        return [], 0
     unit_of_ref: dict = {}
     for k, u in enumerate(units):
         for r in u.get("refs") or ():
@@ -790,7 +790,7 @@ def _apply_authored_datum_groups(layout, units, pairs, enabled,
             groups.append({"key": str(g.get("key") or "?"),
                            "members": members})
     if not groups:
-        return []
+        return [], 0
     out = solve_pack_groups(groups, domains, targets, offsets=offsets,
                             weights=weights, polygons=polygons,
                             over_cap=_over_cap)
@@ -808,7 +808,7 @@ def _apply_authored_datum_groups(layout, units, pairs, enabled,
         row["members"] = [units[int(m)]["ref"] for m in row["members"]]
         row["pieces"] = [[units[int(m)]["ref"] for m in p]
                          for p in row["pieces"]]
-    return out.rows
+    return out.rows, len(groups)
 
 
 def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
@@ -1302,6 +1302,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # pavement-visibility fraction are RETIRED as predicates and survive
     # only as the census that makes each pair's tightening adjudicable.
     _pack_rows: list = []
+    _pack_declared = 0
     if len(units) >= 2:
         from auto_patch.config import APRON_MAX_GRADE
         from auto_patch.grade_law import BUILDING_REACH_CORRIDOR_M
@@ -1431,7 +1432,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # intersection is NON-empty still splits when its optimum leaves
         # any member's frontage / no-step law over cap.  Preservation is
         # the TIEBREAKER among lawful placements, never the authority.
-        _pack_rows = _apply_authored_datum_groups(
+        _pack_rows, _pack_declared = _apply_authored_datum_groups(
             layout, units, pairs, _PBV, solve_pack_groups)
         if pairs:
             targets = [u["level"] for u in units]
@@ -1529,9 +1530,11 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # under the flag so an empty list reads as "every group
     # accommodated" and never as "the pass did not run".
     if _PBV:
-        publish_pack_group_splits(layout, _pack_rows)
+        publish_pack_group_splits(layout, _pack_rows,
+                                  declared=_pack_declared)
         _report(format_pack_group_splits(
-            getattr(layout, "icao", "") or "", _pack_rows))
+            getattr(layout, "icao", "") or "", _pack_rows,
+            declared=_pack_declared))
 
     # THE UNIT'S LEVEL IS THE PAD'S LEVEL.  A merged rigid unit broadcasts
     # ONE value to every member pad — that IS the law; the box narrows to
@@ -1583,7 +1586,8 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _rec["binding"]["at_floor"] = bool(
                     abs(float(_lvl) - float(_d["lo"])) <= PAD_LAW_TOL_M)
             _prov_recs.append(_rec)
-        publish_pad_variable_provenance(layout, _prov_recs)
+        publish_pad_variable_provenance(
+            layout, _prov_recs, pack_groups_declared=_pack_declared)
         _n_at = sum(1 for r in _prov_recs
                     if (r["binding"].get("at_ceiling")
                         or r["binding"].get("at_floor")))

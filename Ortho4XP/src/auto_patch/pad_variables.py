@@ -452,7 +452,8 @@ def solve_pack_groups(groups, domains, targets, *, offsets=None,
 PAD_BINDING_ROUTES_STORE = "_pad_binding_routes"
 
 
-def publish_pad_variable_provenance(layout, records, *, nodespace=None):
+def publish_pad_variable_provenance(layout, records, *, nodespace=None,
+                                    pack_groups_declared=None):
     """MERGE the pad-variable provenance into ``pad_binding_routes``.
 
     ``records`` — ``[{"pad": ref, "domain": [lo, hi], "solved_m": v,
@@ -494,6 +495,11 @@ def publish_pad_variable_provenance(layout, records, *, nodespace=None):
                       else nodespace),
         "records": rows,
     }
+    # THE PACK-GROUP DENOMINATOR rides here rather than in a key of its
+    # own: it is per-build metadata about the same pads, and a second
+    # sidecar key for one integer is the fork the extend rule forbids.
+    if pack_groups_declared is not None:
+        container["pack_groups_declared"] = int(pack_groups_declared)
     try:
         setattr(layout, PAD_BINDING_ROUTES_STORE, container)
     except AttributeError:                                 # pragma: no cover
@@ -508,10 +514,21 @@ def pack_group_splits(layout) -> list:
     return rows
 
 
-def publish_pack_group_splits(layout, rows) -> list:
+def publish_pack_group_splits(layout, rows, *, declared=0) -> list:
+    """Publish the split rows AND the DENOMINATOR they came out of.
+
+    ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06, "Instrument truth is
+    law", binding point 2).  "0 groups split" means something completely
+    different when 40 authored-datum groups were declared and all of them
+    accommodated than when NONE reached the pad frame at all — the first
+    is the ruling's preferred outcome, the second is a wiring gap wearing
+    its costume.  The count is carried on the layout and into the
+    ``pad_binding_routes`` container so no reader can be told one and
+    shown the other."""
     rows = list(rows or ())
     try:
         setattr(layout, PACK_GROUP_SPLIT_STORE, rows)
+        setattr(layout, "_pack_groups_declared", int(declared))
     except AttributeError:                                 # pragma: no cover
         pass
     return rows
@@ -555,7 +572,7 @@ def refuse_on_empty_pad_domains(layout, rows, icao=""):
           "is the shipped pre-ship arm.")
 
 
-def format_pack_group_splits(icao, rows, *, limit=20) -> str:
+def format_pack_group_splits(icao, rows, *, limit=20, declared=0) -> str:
     """The LOUD line spec §1.3 requires — count, worst site, then the
     groups themselves.
 
@@ -564,11 +581,24 @@ def format_pack_group_splits(icao, rows, *, limit=20) -> str:
     pack on a hill reads as a many-way split), which is why the piece count
     is on the headline."""
     rows = list(rows or ())
+    if not rows and not declared:
+        # ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06).  No authored
+        # -datum group was DECLARED to this pass, so nothing was tested;
+        # saying "all accommodated" here would report a wiring gap as a
+        # law result.
+        return (f"  [pack-split] {icao}: NO authored-datum pack group was "
+                f"declared to the pad pass (0 groups), so the "
+                f"accommodate-else-split law was NOT EXERCISED on this "
+                f"airport — this is ZERO OF ZERO, not an accommodation. "
+                f"A group reaches here through "
+                f"``layout._authored_datum_groups``; nothing publishes it "
+                f"yet (spec pads-as-band-variables §1.3, open docket)")
     if not rows:
-        return (f"  [pack-split] {icao}: every authored-datum pack group "
-                f"ACCOMMODATED — no group was split, so every authored "
-                f"vertical relationship survives (the preferred outcome, "
-                f"spec pads-as-band-variables §1.3)")
+        return (f"  [pack-split] {icao}: all {declared} declared "
+                f"authored-datum pack group(s) ACCOMMODATED — none was "
+                f"split, so every authored vertical relationship survives "
+                f"(the preferred outcome, spec pads-as-band-variables "
+                f"§1.3)")
     worst = rows[0]
     lines = []
     for r in rows[:limit]:
@@ -588,8 +618,8 @@ def format_pack_group_splits(icao, rows, *, limit=20) -> str:
                          for p in (r.get("pieces") or ())[:8]))
     more = "" if len(rows) <= limit else f"\n    ... and {len(rows) - limit} more"
     return (
-        f"  [pack-split] {icao}: {len(rows)} authored-datum pack group(s) "
-        f"SPLIT because no single datum satisfied grade law — GRADE LAW "
+        f"  [pack-split] {icao}: {len(rows)} of {declared} authored-datum "
+        f"pack group(s) SPLIT because no single datum satisfied grade law — GRADE LAW "
         f"OUTRANKS SHARED-DATUM PRESERVATION (owner ruling RULINGS "
         f"2026-08-27 late).  Worst site: group {worst['group']} at "
         f"{worst.get('worst_m')} m.  A split SHEARS authored geometry: the "

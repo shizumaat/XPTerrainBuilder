@@ -325,8 +325,14 @@ def _seat_node_band(ring, band, cps, bucket_to_idx):
 
 
 def _pad_binding_route_context(layout, band, G, report):
-    """``(provenance, nodespace)`` for the binding-route capture — or
-    ``(None, None)`` when the capture cannot lawfully run (spec §1.6).
+    """``(provenance, nodespace, reason)`` for the binding-route capture —
+    ``(None, None, "degraded"|"foreign")`` when it cannot lawfully run
+    (spec §1.6).  The REASON is returned so the pad-variable domain
+    publication can share THIS verdict instead of computing a second one
+    (pads-as-band-variables Amendment 1 §3): "foreign" suppresses domains
+    too (a second engine's answer); "degraded" suppresses only routes
+    (node ids do not exist), because domains are metric intervals from
+    the band the seats actually consumed.
 
     THREE degraded contexts, all answered the same way and all
     distinguishable by a reader (``nodespace: null`` = "capture could not
@@ -345,18 +351,18 @@ def _pad_binding_route_context(layout, band, G, report):
     from auto_patch.elevation_per_surface.building_feasibility import (
         band_of_record)
     if G is None or getattr(band, "attachment_at", None) is None:
-        return None, None
+        return None, None, "degraded"
     prov = getattr(layout, "_band_anchor_provenance", None) or {}
     if not prov:
-        return None, None
+        return None, None, "degraded"
     if band is not band_of_record(layout):
         report("  [pad-routes] NOT publishing binding routes: the band the "
                "seats are reading is NOT this layout's band of record, so "
                "its node ids may belong to a foreign node space — a route "
                "published from one would be a second engine's answer. "
                "pad_binding_routes = {nodespace: null, records: []}")
-        return None, None
-    return prov, "n=%d" % len(getattr(G, "pos", None) or ())
+        return None, None, "foreign"
+    return prov, "n=%d" % len(getattr(G, "pos", None) or ()), "ok"
 
 
 def _pad_binding_route_record(layout, G, prov, ref, level, recs):
@@ -1145,7 +1151,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # band the seat consumed and the provenance THAT band recorded — never
     # a replay.  ``(None, None)`` = a degraded context (§1.6) or the
     # pass-identity guard refusing; both publish the null-nodespace shape.
-    _routes_prov, _routes_ns = _pad_binding_route_context(
+    _routes_prov, _routes_ns, _routes_reason = _pad_binding_route_context(
         layout, band, unified_graph, _report)
     _pad_routes: list = []
     # ── PAD-SEAT CONSISTENCY PROVENANCE (spec pad-seat-consistency-spec.md,
@@ -1756,8 +1762,23 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _rec["binding"]["at_floor"] = bool(
                     abs(float(_lvl) - float(_d["lo"])) <= PAD_LAW_TOL_M)
             _prov_recs.append(_rec)
-        publish_pad_variable_provenance(
-            layout, _prov_recs, pack_groups_declared=_pack_declared)
+        # PASS-IDENTITY COMPOSITION (pads-as-band-variables Amendment 1
+        # §3 merge).  Two distinct degraded cases, ruled apart: a
+        # FOREIGN band (a band of record exists and this is not it)
+        # publishes NEITHER routes nor domains — either would be a
+        # second engine's answer.  A CAPTURE-DEGRADED context (no
+        # unified graph / no attachment_at / no recorded provenance)
+        # suppresses only the ROUTES, which need that band's node ids;
+        # the DOMAINS are metric intervals read from the band the seats
+        # actually consumed, and publishing them stays honest evidence.
+        if _routes_reason == "foreign":
+            _report("  [pad-vars] NOT publishing pad-variable provenance: "
+                    "the band in hand is not this layout's band of "
+                    "record — same pass-identity guard, same verdict as "
+                    "[pad-routes] above (one check, two consumers).")
+        else:
+            publish_pad_variable_provenance(
+                layout, _prov_recs, pack_groups_declared=_pack_declared)
         _n_at = sum(1 for r in _prov_recs
                     if (r["binding"].get("at_ceiling")
                         or r["binding"].get("at_floor")))

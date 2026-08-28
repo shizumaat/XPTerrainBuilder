@@ -456,5 +456,13 @@ def test_off_publishes_no_ledger_no_provenance_and_no_contradiction(
     _seats(layout, b2i, _empty_domain_band, lambda x, y: 120.0,
            {id(pad): 100.0}, monkeypatch)
     assert not getattr(layout, PV.PACK_GROUP_SPLIT_STORE, None)
-    assert not getattr(layout, PV.PAD_BINDING_ROUTES_STORE, None)
+    # The pad-binding-routes CONTAINER may exist with its null shape —
+    # the route capture writes it unconditionally (pad-binding-routes
+    # spec §1.4: null shape = "the capture could not run"; only an
+    # ABSENT sidecar key means the patch predates the law).  What OFF
+    # must guarantee is that no pad-variable RECORD and no ledger
+    # reaches it.
+    _pbr = getattr(layout, PV.PAD_BINDING_ROUTES_STORE, None)
+    if _pbr is not None:
+        assert not _pbr.get("records")
     assert not getattr(layout, CONTRADICTION_STORE, None)

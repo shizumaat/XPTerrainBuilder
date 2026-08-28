@@ -553,14 +553,24 @@ def test_a_band_without_attachment_at_publishes_the_degraded_shape(
     captured from — and says so, rather than publishing a route it did not
     read.  The seat pass itself must not fail."""
     layout, pad = _route_seats(monkeypatch, _big_band(), graph=_RouteGraph())
-    assert layout._pad_binding_routes == {"nodespace": None, "records": []}
+    cont = layout._pad_binding_routes
+    assert cont["nodespace"] is None
+    assert all("route_m" not in r and "anchor_nodes" not in r
+               for r in cont["records"])
 
 
 def test_no_unified_graph_publishes_the_degraded_shape(monkeypatch):
     """§1.6 again, from the other direction: every test caller passes no
     graph, and none of them may publish a route."""
     layout, pad = _route_seats(monkeypatch, _RouteBand(), graph=None)
-    assert layout._pad_binding_routes == {"nodespace": None, "records": []}
+    # COMPOSED CONTRACT (pads-as-band-variables Amendment 1 §3): a
+    # capture-DEGRADED context suppresses only the ROUTES (node ids do
+    # not exist); pad-variable DOMAIN records are metric and may still
+    # publish.  The null nodespace is the degraded marker either way.
+    cont = layout._pad_binding_routes
+    assert cont["nodespace"] is None
+    assert all("route_m" not in r and "anchor_nodes" not in r
+               for r in cont["records"])
 
 
 def test_a_foreign_band_is_refused_loudly(monkeypatch, capsys):

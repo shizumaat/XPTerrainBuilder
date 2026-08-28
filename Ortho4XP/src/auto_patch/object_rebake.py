@@ -267,6 +267,10 @@ _GATE_ENVIRONMENT_NAMES = (
     # ramp-extension): it moves the body OUTLINE a post-mesh decision is
     # derived from, exactly like the region-footprint gate above it.
     "O4_BASIN_REGION_RAMP_REACH",
+    # ...and its Amendment 1 successor, the RAMP-REACH PLATE: it leaves
+    # the body alone but emits terrain beside it, which a run record
+    # written under the other value is a wrong answer for.
+    "O4_BASIN_RAMP_REACH_PLATE",
     # ...and the group-seat gate itself, read through its config constant
     # above as well: both spellings are salted, because the env var is
     # what a lane flips and the constant is what a test monkeypatches.

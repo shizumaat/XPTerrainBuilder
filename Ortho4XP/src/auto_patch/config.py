@@ -5122,6 +5122,46 @@ BASIN_REGION_FOUNDING = (
 BASIN_REGION_RAMP_REACH = (
     _os.environ.get("O4_BASIN_REGION_RAMP_REACH", "0") == "1")
 
+# BASIN RAMP-REACH FLOOR PLATE (spec
+# ``docs/specs/lemd-basin-trench-ramp-extension-spec.md`` Amendment 1
+# §2, Fable 2026-08-28).  DEFAULT ON — this is the RULED lever.
+#
+# THE DEFECT is the owner's: "the terrain is poking through the ramp at
+# 40.4923132,-3.5697896 — extend the trench/pit bottom under the ramp to
+# about 40.4924064,-3.569366."  The pit's ring stops half way up its own
+# entrance ramp because the ring is derived at a DEPTH ADMISSION plane
+# (−TRENCH_SPINE_MIN_DEPTH_M), which a ramp crosses on its way up.
+#
+# WHY NOT WIDEN THE RING: measured, and that measurement is why this gate
+# exists rather than BASIN_REGION_RAMP_REACH (which is retired-kept-gated
+# above).  The ring is the facility's ONE measurement body — floor value,
+# rim value, building-pad coverage and R_mesh's group-seat band are all
+# read off it — so widening it moved floor 587.75→588.69, rim
+# 600.51→600.47, un-flattened the building8 pad and drifted G
+# 596.682→597.492, and the widened pan was differenced away anyway.
+#
+# THE LAW.  The ramp is carried BESIDE the ring as a CORRIDOR
+# (``object_terrain_features.regions_with_ramp_reach_corridor``:
+# completed ring − admitted ring) and consumed only at EMIT
+# (``object_terrain_assembly.build_tunnel_layout_shapes``), where it
+# joins the facility's own FLOOR PAN — same role, same ref, same floor
+# elevation, one contiguous plate — and the ``object_basin_rim`` band
+# STANDS DOWN inside it (differenced there, untouched everywhere else),
+# because a wall across the corridor mouth is the thing that would keep
+# the pit from reaching its own ramp.  The corridor is clipped by the
+# SAME law the floor pan is (``_TUNNEL_FLOOR_OWNED_CLEARANCE_M`` from
+# every earlier-born shape that is not a yielded pad), which is what
+# keeps it off the apron.
+#
+# NOTHING ELSE MOVES, by construction: every law input — R_est, the floor
+# and rim values, the pad coverage test, the R_mesh sample ring — is read
+# from ``body_parts``, and the corridor is not in them.
+#
+# With O4_BASIN_RAMP_REACH_PLATE=0 no corridor is derived and no plate is
+# joined; the emitted patch is byte-identical to the founding round.
+BASIN_RAMP_REACH_PLATE = (
+    _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "1") == "1")
+
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
 #

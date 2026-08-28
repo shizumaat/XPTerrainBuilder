@@ -838,29 +838,78 @@ def test_the_pad_law_re_asserts_after_the_late_projection():
     """AUTHORSHIP ORDER, structural (task #16 amendment 1).
 
     The pad-host law's own docstring claimed "nothing re-seats the pad
-    afterwards".  Measured false: the LATE ``final_grade_projection``
-    re-runs the DEM-biased frontage seat on the final geometry and
-    re-stamped HECA building114's 85.59 back to 88.5 — the reason all
-    three R19-1 mechanisms measured exact on the artifact and missed in
-    production.  So the law runs AGAIN after that projection, and the
-    band seal is still the last elevation author (R17-1(b)).
+    afterwards".  Measured false: ``final_grade_projection`` re-runs the
+    DEM-biased frontage seat and re-stamped HECA building114's 85.59
+    back to 88.5 — the reason all three R19-1 mechanisms measured exact
+    on the artifact and missed in production.  So the law runs AGAIN
+    after the last projection call, and the band seal is still the last
+    elevation author (R17-1(b)).
 
-    Asserted on the pipeline's source, in ``test_r17_band_clamp_last_
-    author``'s own idiom: an ordering that holds "currently, by luck" is
-    exactly what this pins.
+    HISTORY: originally pinned against the LATE ``_late_fgp`` call
+    inside ``build_airport_pavement``; ``1514efae`` (S1e, 2026-08-14)
+    retired the late projection and kept the MID one, and the phase-2
+    body has since moved into ``solve_and_finalize`` — so the contract
+    is now "after the LAST surviving projection call, wherever the
+    seal's function lives".  Pinned by AST call ORDER (aliases resolved
+    from the import statements, scoped to the top-level function that
+    contains the band seal), not source-text spelling, so an argument
+    rename, alias rename, or function split cannot fake a break.
     """
+    import ast
     import inspect
     from auto_patch import pipeline as PIPE
+    # The law's symbol must exist where the pipeline imports it from.
+    from auto_patch.elevation_per_surface.route_profile.anchors import (
+        relevel_pads_to_host_pavement)
+    assert callable(relevel_pads_to_host_pavement)
 
-    source = inspect.getsource(PIPE.build_airport_pavement)
-    after_late = source.split("_late_fgp(layout, icao", 1)[1]
-    assert "relevel_pads_to_host_pavement as _relevel_late" in after_late, (
-        "no pad-host re-level after the late projection — the projection "
-        "is the last author of the pad value again")
-    # ...and it is still BEFORE the seal (the R17 guard asserts the
-    # complement: nothing after the seal).
-    before_seal = source.split("_seal_band(layout, icao)", 1)[0]
-    assert "_relevel_late(layout)" in before_seal
+    module_tree = ast.parse(inspect.getsource(PIPE))
+
+    def aliases_of(symbol, tree):
+        names = {symbol}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for a in node.names:
+                    if a.name == symbol:
+                        names.add(a.asname or a.name)
+        return names
+
+    def call_lines(symbol, tree):
+        names = aliases_of(symbol, tree)
+        return sorted(
+            node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and ((isinstance(node.func, ast.Name)
+                  and node.func.id in names)
+                 or (isinstance(node.func, ast.Attribute)
+                     and node.func.attr in names)))
+
+    # The ordering is asserted inside the ONE top-level function that
+    # holds the R17-1(b) band seal (today ``solve_and_finalize``; the
+    # name is deliberately not pinned).
+    hosts = [fn for fn in module_tree.body
+             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and call_lines("seal_pavement_to_band", fn)]
+    assert len(hosts) == 1, (
+        f"expected exactly one pipeline function calling "
+        f"seal_pavement_to_band, found "
+        f"{[getattr(f, 'name', '?') for f in hosts]} — the R17-1(b) "
+        f"last-author seal moved; re-derive the contract")
+    host = hosts[0]
+
+    projection_lines = call_lines("final_grade_projection", host)
+    relevel_lines = call_lines("relevel_pads_to_host_pavement", host)
+    seal_lines = call_lines("seal_pavement_to_band", host)
+
+    assert projection_lines, (
+        f"no final_grade_projection call in {host.name} — the ordering "
+        f"this twin pins has no subject; re-derive the contract")
+    last_projection = projection_lines[-1]
+    first_seal = seal_lines[0]
+    assert any(last_projection < ln < first_seal for ln in relevel_lines), (
+        "no pad-host re-level between the LAST final_grade_projection "
+        "call and the band seal — the projection is the last author of "
+        "the pad value again")
 
 
 # ═════════════════════════════════════════════════════════════════════

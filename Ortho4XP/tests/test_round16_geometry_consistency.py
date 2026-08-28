@@ -478,6 +478,41 @@ def test_t5_the_face_carries_the_road_value_at_its_inner_edge():
     assert spanned >= 4, spanned
 
 
+def test_t5_the_articulation_chain_is_road_then_foot_then_face():
+    """THE MESH ARTICULATION THE OWNER ASKED FOR, as one assertion.
+
+    The chain is road → foot → face, and each link is a DIFFERENT
+    shape sharing a boundary with exactly its neighbour:
+
+      * the face shares ZERO vertices with the road surface (the weld
+        that broke the ramp),
+      * the face reaches the road ONLY THROUGH the foot — every face
+        vertex within the wall gap of the road lies on the foot, and
+      * the foot is the only shape touching the road at 0 m.
+
+    Mutation-checked: emit one band again (``O4_RAMP_WALL_FOOT=0``) and
+    the first assertion fails on the shared inner ring.
+    """
+    layout, floor, walls = _corridor_scene()
+    feet = _corridor_feet(layout)
+    assert feet, "no foot emitted"
+    floor_ring = floor.polygon.exterior
+    foot_u = unary_union([f.polygon for f in feet])
+    for wall in walls:
+        for v in _ring_open(wall.polygon):
+            p = Point(v)
+            assert floor_ring.distance(p) > 1e-9, (
+                f"a face vertex at {v} sits ON the road surface — the "
+                f"ramp and the wall are welded again")
+            if floor_ring.distance(p) <= _WALL_GAP_M + 1e-6:
+                assert foot_u.covers(p) or foot_u.boundary.distance(p) \
+                    <= 1e-6, (
+                    f"a face vertex at {v} reaches into the wall gap "
+                    f"without standing on the foot — unowned ground")
+    # …and the foot IS the shape that touches the road.
+    assert foot_u.distance(floor.polygon) == pytest.approx(0.0, abs=1e-9)
+
+
 def test_t5_off_restores_the_single_welded_band(monkeypatch):
     """OFF is the prior emit, byte-for-byte in kind: one band per side,
     ``ref=tunnel_wall``, inner edge ON the floor and sharing its

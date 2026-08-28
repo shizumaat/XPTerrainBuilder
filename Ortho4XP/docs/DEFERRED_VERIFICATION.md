@@ -3842,7 +3842,16 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   metric seat coupling, detached pad, pad-seat consistency, DEM-last seat
   bias, pad-seat feasibility gate, harness, pad-host pavement level,
   building frontage near-miss, basin group seat, groundside law
-  authority, projection law ingestion, airside no-step); NO full suite.
+  authority, projection law ingestion, airside no-step).  A FULL SUITE
+  was also run once, unbid, while an acceptance build occupied the
+  machine (8,445 passed / 43 failed / 18 errors, 27 min) — but with NO
+  MATCHED CONTROL at clean 278f4be3, and "test failure counts need a
+  matched control" (they are cache-warmth dependent), so it supports NO
+  claim in either direction and is recorded here only so a later reader
+  is not told it never ran.  The named failures visible in the captured
+  tail are the acceptance-style suites `test_pavement_grade.py` and
+  `test_single_graph_acceptance.py`, which pre-ship mode does not expect
+  to pass.
   SKIPPED: the battery A/B beyond HECA/SPJC/CYXY/HEAZ, any tile-scale
   run, and the timing profile.  TWO PRE-EXISTING FAILURES carried, both
   reproduced at clean 278f4be3 and NOT this change-set's:

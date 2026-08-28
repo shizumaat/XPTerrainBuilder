@@ -3399,14 +3399,22 @@ def reseat_basin_rim_plates_post_solve(layout):
 #: ``_terrace_joints_to_m``, which reads ``points`` and ``step_m`` only.
 BASIN_WALL_JOINT_KIND = "basin_trench_wall"
 
-#: ...and the PAD-AUTHORITY CARVE's own joint kind (spec
-#: ``docs/specs/lemd-pad-authority-carve-spec.md`` §2): the declared step
-#: between a carve corridor's floor plate and the PAD whose flattening
-#: authority the owner carved.  A distinct kind from the pan↔rim wall
-#: because the two sides differ — that one walls the pit's own rim band,
-#: this one walls a building pad — and an attribution that cannot tell
-#: them apart cannot say which law drew the step.
-BASIN_CARVE_WALL_JOINT_KIND = "basin_pad_carve_wall"
+#: The PAD-AUTHORITY CARVE's joint MARKER (spec ``docs/specs/lemd-pad-
+#: authority-carve-spec.md`` §2), carried BESIDE the kind, never instead
+#: of it.
+#:
+#: The carve's plate↔pad step IS a basin trench wall — the pit's own
+#: floor on the low side, surrounding grade on the high side — so it
+#: publishes under :data:`BASIN_WALL_JOINT_KIND`, which is what §2 means
+#: by "the declared-wall exemption class": ``check_grade`` honours a
+#: joint's ``carried`` flags for THAT kind and no other, and a private
+#: kind would have declared the wall while quietly forfeiting the
+#: exemption the spec names (measured: 4 ``terrace_joint_route`` rows at
+#: one joint point, all four crossing routes that ride the ramp deck
+#: ABOVE the carved ground).  This flag keeps the two halves
+#: attributable — which arcs the carve drew, which the pan↔rim wall did
+#: — without minting a second declared-step class.
+BASIN_CARVE_WALL_JOINT_MARKER = "carve_wall"
 
 #: Where the emitter records its carve plates for the post-solve
 #: declaration.  ONE spelling, read by the emitter, the publisher and
@@ -3566,8 +3574,10 @@ def _declare_carve_walls(layout, joints, report):
                     pts = [(float(x), float(y)) for (x, y) in piece.coords]
                     if len(pts) < 2:
                         continue
-                    joints.append({"points_m": pts, "step_m": step,
-                                   "kind": BASIN_CARVE_WALL_JOINT_KIND})
+                    joints.append({
+                        "points_m": pts, "step_m": step,
+                        "kind": BASIN_WALL_JOINT_KIND,
+                        BASIN_CARVE_WALL_JOINT_MARKER: True})
                     declared += 1
     if declared:
         report["carve_wall_joints"] = declared
@@ -3633,6 +3643,8 @@ def basin_wall_joints_sidecar(layout) -> list:
             # PAD-AUTHORITY CARVE's plate↔pad wall); the pan↔rim wall is
             # the default because it is the kind that predates the key.
             "kind": joint.get("kind") or BASIN_WALL_JOINT_KIND,
+            BASIN_CARVE_WALL_JOINT_MARKER: bool(
+                joint.get(BASIN_CARVE_WALL_JOINT_MARKER)),
             "carried": carried,
             "actual_step_m": None,
             "flank_span_m": None,
@@ -5141,6 +5153,34 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 "floor_m": float(floor_elevation),
             })
             setattr(layout, BASIN_CARVE_PLATES_ATTRIBUTE, _prev)
+            # ── THE CARVED CORRIDOR IS CARRIED GROUND ────────────────
+            # The corridor IS the authored ramp deck's own footprint
+            # (spec §1), so anything crossing it in plan crosses it ON
+            # THE RAMP — the identical relation the 2026-08-26 ruling
+            # records for a pad/shell spanning the pit, with the ramp
+            # object as the carrier instead of the pad.  Recorded off
+            # the carve's OWN geometry, into the SAME register the
+            # pad's carried region uses, so the declared-wall
+            # route/strip exemption has exactly one notion of "carried".
+            #
+            # GROWN by the band's own width, for the reason the pad's
+            # region is: the declared joint line runs ALONG the plate
+            # boundary, so a region clipped exactly to the plate puts
+            # every joint point on its own edge, where ``covers`` is a
+            # coin-toss against buffer rounding.
+            for _plate in _carve_plates:
+                try:
+                    _carried = _plate.buffer(
+                        _TUNNEL_RIM_BAND_WIDTH_M + _TUNNEL_WALL_SETBACK_M,
+                        join_style=2, mitre_limit=2.0)
+                except Exception:                         # pragma: no cover
+                    continue
+                if _carried.is_empty:
+                    continue
+                _regions = list(getattr(
+                    layout, "_basin_carried_regions", None) or [])
+                _regions.append(_carried)
+                layout._basin_carried_regions = _regions
         if floor_seated_pad_ids and not facility_floor_born:
             # NO FLOOR, NO SEAT (spec §1.1's premise).  A facility that
             # seated no plate anywhere has no emitted floor for a pad to

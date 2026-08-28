@@ -352,6 +352,21 @@ def _classify(geometry_by_resource):
     )
 
 
+def _check_grade():
+    """The HARNESS LIBRARY, imported the way the grade tests import it.
+
+    ``tools/`` is not on ``sys.path`` for every test session, and a twin
+    that asserts the census honours an emitter's declaration has to ask
+    the census itself — never a local re-spelling of its rule."""
+    import sys as _sys
+    from pathlib import Path as _Path
+    tools = str(_Path(__file__).resolve().parent.parent / "tools")
+    if tools not in _sys.path:
+        _sys.path.insert(0, tools)
+    import check_grade
+    return check_grade
+
+
 def _basin_plates(layout, suffix):
     return [
         shape for shape in layout.shapes
@@ -4222,7 +4237,7 @@ class TestBasinPadAuthorityCarve:
         assembly.reseat_basin_rim_plates_post_solve(layout)
         rows = assembly.basin_wall_joints_sidecar(layout)
         carved = [row for row in rows
-                  if row["kind"] == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+                  if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
         assert carved, "the carved pad edge was left UNDECLARED"
         for row in carved:
             assert row["declared_step_m"] > 0.0
@@ -4243,23 +4258,68 @@ class TestBasinPadAuthorityCarve:
         assert len(floors) == 1
         expected = 8.0 - floors.pop()
         rows = [row for row in assembly.basin_wall_joints_sidecar(layout)
-                if row["kind"] == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+                if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
         assert rows
         for row in rows:
             assert row["declared_step_m"] == pytest.approx(
                 expected, abs=0.01)
 
-    def test_the_rim_wall_keeps_its_own_kind(self):
-        """ONE register, two kinds: an attribution that cannot tell the
-        pan-to-rim wall from the plate-to-pad wall cannot say which law
-        drew the step."""
+    def test_the_carve_wall_is_IN_the_declared_wall_exemption_class(self):
+        """§2 names the class, and ``check_grade`` honours a joint's
+        ``carried`` flags for ``basin_trench_wall`` AND NO OTHER KIND.
+
+        A private kind would have declared the wall while quietly
+        forfeiting the exemption the spec names — measured: 4
+        ``terrace_joint_route`` rows at one joint point, every one of
+        them a route that rides the ramp deck ABOVE the carved ground.
+        So the carve publishes under the SAME kind and carries a
+        MARKER beside it, which is what keeps the two halves
+        attributable without minting a second declared-step class."""
+        _cg = _check_grade()
+
         layout = self._emit(self.COVERING_PAD)
         assembly.reseat_basin_rim_plates_post_solve(layout)
-        kinds = {row["kind"]
-                 for row in assembly.basin_wall_joints_sidecar(layout)}
-        assert assembly.BASIN_CARVE_WALL_JOINT_KIND in kinds
-        assert assembly.BASIN_WALL_JOINT_KIND != (
-            assembly.BASIN_CARVE_WALL_JOINT_KIND)
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        carved = [row for row in rows
+                  if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
+        assert carved
+        for row in carved:
+            assert row["kind"] == assembly.BASIN_WALL_JOINT_KIND
+            assert row["kind"] == _cg.BASIN_WALL_JOINT_KIND
+        # ...and the pan-to-rim arcs are still there, unmarked.
+        assert [row for row in rows
+                if not row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
+
+    def test_the_carved_corridor_is_CARRIED_ground(self):
+        """The corridor IS the authored ramp deck's footprint (§1), so
+        anything crossing it in plan crosses it ON THE RAMP.  The flags
+        the census reads must say so — through the SAME register the
+        pad's carried region uses, never a second notion."""
+        layout = self._emit(self.COVERING_PAD)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        carved = [row for row in rows
+                  if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
+        assert carved
+        for row in carved:
+            assert len(row["carried"]) == len(row["points"])
+            assert all(row["carried"]), row["carried"]
+
+    def test_the_census_honours_those_flags(self):
+        """The twin that closes the loop: the harness library's own
+        reader must return the emitter's flags for these rows, not the
+        all-False default it gives an unrecognised kind."""
+        _cg = _check_grade()
+
+        layout = self._emit(self.COVERING_PAD)
+        assembly.reseat_basin_rim_plates_post_solve(layout)
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        flags = _cg._terrace_joint_carried_flags(rows)
+        marked = [index for index, row in enumerate(rows)
+                  if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
+        assert marked
+        for index in marked:
+            assert all(flags[index]), (index, flags[index])
 
     # ── §3: nothing outside the corridor moves ──────────────────────
     def test_the_carve_moves_nothing_outside_the_corridor(self):
@@ -4306,8 +4366,7 @@ class TestBasinPadAuthorityCarve:
         assert not self._at(layout, *self.EMIT_PROBE)
         assembly.reseat_basin_rim_plates_post_solve(layout)
         assert not [row for row in assembly.basin_wall_joints_sidecar(layout)
-                    if row["kind"]
-                    == assembly.BASIN_CARVE_WALL_JOINT_KIND]
+                    if row[assembly.BASIN_CARVE_WALL_JOINT_MARKER]]
 
     def test_one_reader_decides_whether_a_corridor_is_carried(self):
         """Two consumers, ONE predicate — a second spelling of "is there

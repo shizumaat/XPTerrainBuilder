@@ -2925,6 +2925,113 @@ def bridge_abutment_seat_candidates(
     return out, findings
 
 
+# ── §C: THE RIM SEATS AT THE SOLVED NEIGHBOUR, DEM LAST ──────────────
+# (spec docs/specs/lemd-rim-and-stations-spec.md §C; owner RULINGS
+# 2026-08-28 item 3, and the basin-rim-flush spec's own §1(2), which
+# recon 2026-08-09 already recorded as unimplemented: "the neighbour the
+# rim must match is the SOLVED surface, not DEM".)
+#
+# The rim band's job is to pin the wall TOP at the surface it abuts.  A
+# per-part DEM sample answers a different question — what the ground was
+# before anything was built — and at LEMD it put all 13 rim parts LOW
+# against their neighbour (median -3.84 m, worst -5.41 m against
+# building8's 600.50) with 4.14 m of self-spread between parts of one
+# band.  DEM-LAST (RULINGS 2026-08-25) says the built value comes first
+# and raw DEM appears only where nothing else reaches.
+#
+# The neighbour population is BUILT SURFACE: pavement (airside, service,
+# groundside) and pads.  Our own trench plates are excluded by
+# construction — a rim seating off the floor pan beside it would be the
+# facility grading itself.
+def _rim_neighbour_roles():
+    from .bridges import pavement_cut_roles
+    from .layout import ROLE_BUILDING, ROLE_OBJECT_PAD
+    return frozenset(pavement_cut_roles(include_groundside=True)
+                     | {ROLE_BUILDING, ROLE_OBJECT_PAD})
+
+
+def _shape_value_at(shape, point):
+    """``shape``'s own built value nearest ``point``: the ring LERP where
+    it carries per-node altitudes, its flat level where it is flat, else
+    ``None``.
+
+    A pad seated at a basin FLOOR is not a rim neighbour — its value is
+    the pit bottom, not the surrounding grade — and says so by returning
+    ``None``.
+    """
+    if getattr(shape, "basin_floor_seat_m", None) is not None:
+        return None
+    alts = getattr(shape, "node_altitudes", None)
+    poly = getattr(shape, "polygon", None)
+    if alts and poly is not None and not poly.is_empty:
+        try:
+            ring = list(poly.exterior.coords)
+        except Exception:                                 # pragma: no cover
+            ring = []
+        if len(ring) > 1 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        n = len(ring)
+        if n >= 2 and len(alts) >= n:
+            px, py = float(point.x), float(point.y)
+            best = None
+            for i in range(n):
+                ax, ay = ring[i]
+                bx, by = ring[(i + 1) % n]
+                dx, dy = bx - ax, by - ay
+                L2 = dx * dx + dy * dy
+                if L2 < 1e-12:
+                    t = 0.0
+                    qx, qy = ax, ay
+                else:
+                    t = ((px - ax) * dx + (py - ay) * dy) / L2
+                    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+                    qx, qy = ax + t * dx, ay + t * dy
+                d = math.hypot(qx - px, qy - py)
+                if best is None or d < best[0]:
+                    best = (d, i, t)
+            if best is not None:
+                _d, i, t = best
+                try:
+                    return (float(alts[i])
+                            + t * (float(alts[(i + 1) % n])
+                                   - float(alts[i])))
+                except (TypeError, ValueError):           # pragma: no cover
+                    return None
+    alt = getattr(shape, "altitude", None)
+    if alt is not None:
+        try:
+            return float(alt)
+        except (TypeError, ValueError):                   # pragma: no cover
+            return None
+    return None
+
+
+def _rim_neighbour_value(band_part, candidates, window_m):
+    """``(value, ref, distance_m)`` of the nearest ANCHORED built
+    neighbour of ``band_part`` within ``window_m``, else ``None``.
+
+    ``candidates`` is ``[(polygon, shape), ...]`` — the caller's
+    bbox-filtered population, so this never unions the layout.
+    """
+    best = None
+    for (poly, shape) in candidates:
+        try:
+            d = float(band_part.distance(poly))
+        except Exception:                                 # pragma: no cover
+            continue
+        if d > float(window_m):
+            continue
+        if best is not None and d >= best[0]:
+            continue
+        value = _shape_value_at(shape, band_part.centroid)
+        if value is None or value != value:
+            continue
+        best = (d, value, getattr(shape, "ref", None) or "?")
+    if best is None:
+        return None
+    return (best[1], best[2], best[0])
+
+
 def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     """Feature A (``O4_OBJECT_TUNNEL_TERRAIN``, spec section 3.3 + amendment
     A1, ruling R12): born pre-solve tunnel-trench terrain as FIRST-CLASS
@@ -3151,6 +3258,26 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             if entry[0][0] <= maximum_x and entry[0][2] >= minimum_x
             and entry[0][1] <= maximum_y and entry[0][3] >= minimum_y
             and id(entry[2]) not in exclude_ids
+        ]
+
+    # §C's neighbour population, read off the SAME owned-ground index —
+    # it is already maintained across every cut (``_reindex_owned_
+    # ground``), so the rim never asks a stale layout what its
+    # neighbours are, and there is no second enumeration to drift.
+    _rim_neighbour_role_set = _rim_neighbour_roles()
+
+    def _rim_neighbours_near(bounds):
+        """``[(polygon, shape), ...]`` — built-surface shapes whose bbox
+        comes within the §C window of ``bounds``."""
+        window = float(config.TUNNEL_RIM_NEIGHBOUR_WINDOW_M)
+        min_x, min_y, max_x, max_y = bounds
+        return [
+            (entry[1], entry[2]) for entry in owned_entries
+            if entry[2].role in _rim_neighbour_role_set
+            and entry[0][0] <= max_x + window
+            and entry[0][2] >= min_x - window
+            and entry[0][1] <= max_y + window
+            and entry[0][3] >= min_y - window
         ]
 
     def _owned_near(bounds, exclude_ids=()):
@@ -3437,13 +3564,32 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         pre_cut_shapes = None
         cut_pavement_area = 0.0
         cut_shape_count = 0
+        # ── §B, LEG 2 — THE CLIP (spec lemd-rim-and-stations §B.1) ────
+        # R13 cut the pavement over the BODY and stopped there, so the
+        # 0.6 m rim band — which lives OUTSIDE the body — stayed under
+        # the apron, and the apron's own ownership then erased it.
+        # Measured at LEMD: apron -10228 standing 0.70-0.89 m off the pan
+        # along a 98 m run took the floor cutback AND the whole band, and
+        # the owner walked off a 12.75 m unwalled drop at
+        # 40.4910231,-3.5688464.  The cut now reaches the rim band's
+        # OUTER edge: the pavement abuts the rim, never the pan.
+        _rim_clip_on = bool(config.TRENCH_PAVEMENT_YIELD)
         if facility_cuts_pavement:
             if open_pit_union is None:
                 _reindex_open_pit_union()
         if facility_cuts_pavement and open_pit_union is not None:
             for body in body_parts:
+                cut_footprint = body
+                if _rim_clip_on:
+                    try:
+                        cut_footprint = body.buffer(
+                            _TUNNEL_RIM_BAND_WIDTH_M,
+                            join_style=2, mitre_limit=2.0)
+                    except Exception:                     # pragma: no cover
+                        cut_footprint = body
                 try:
-                    covered_area = body.intersection(open_pit_union).area
+                    covered_area = cut_footprint.intersection(
+                        open_pit_union).area
                 except Exception:
                     covered_area = 0.0
                 if covered_area <= 0.0:
@@ -3451,10 +3597,10 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 if pre_cut_shapes is None:
                     pre_cut_shapes = list(layout.shapes)
                 body_cut_shapes = cut_pavement_over_footprint(
-                    layout, body, cut_roles=open_pit_cut_roles)
+                    layout, cut_footprint, cut_roles=open_pit_cut_roles)
                 if body_cut_shapes:
                     _reindex_owned_ground()
-                    _drop_cut_from_unions(body)
+                    _drop_cut_from_unions(cut_footprint)
                     cut_shape_count += body_cut_shapes
                     cut_pavement_area += covered_area
         # (the cut is REPORTED at the end of the facility, where its
@@ -3695,6 +3841,69 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         f"{pad.ref!r} (O4_BASIN_PAD_SEVER=1, retired path)",
                     )
 
+        # ── §B, LEG 1 — PAVEMENT JOINS THE AUTHORITY-YIELD POPULATION ─
+        # (spec lemd-rim-and-stations §B.1; owner RULINGS 2026-08-28
+        # item 2, extending the 2026-08-26 trench-seniority ruling from
+        # pads to pavement.)
+        #
+        # The 2026-08-26 implementation scoped its yield population to
+        # ``ROLE_BUILDING`` (the pad loop above).  Inside the below-grade
+        # region AND its rim band, PAVEMENT authority yields exactly as
+        # building authority does: the floor pan and the R2 wall band are
+        # born THROUGH it.  Leg 2's clip has already taken the pavement
+        # back to the band's outer edge, so what remains here is the
+        # pavement that ABUTS the band — and ``owned_near.buffer
+        # (_TUNNEL_WALL_SETBACK_M)`` would eat the band from outside
+        # exactly as the apron did before the clip.  Both legs are
+        # needed; either alone leaves the band short.
+        #
+        # Geometry, welds and identity of the surviving pavement are
+        # untouched (the Amendment-3 authority-yield mechanics, third
+        # population).  SCOPED to open pits (``facility_cuts_pavement``,
+        # R13's own predicate): a BORE runs under live pavement, and
+        # yielding there would let a floor pan be born under a drivable
+        # surface.
+        authority_yield_pavement_ids: set = set()
+        if config.TRENCH_PAVEMENT_YIELD and facility_cuts_pavement:
+            _band_reach = None
+            try:
+                _band_reach = unary_union([
+                    body.buffer(
+                        _TUNNEL_RIM_BAND_WIDTH_M + _TUNNEL_WALL_SETBACK_M,
+                        join_style=2, mitre_limit=2.0)
+                    for body in body_parts])
+            except Exception:                             # pragma: no cover
+                _band_reach = None
+            if _band_reach is not None and not _band_reach.is_empty:
+                _yield_area = 0.0
+                for shape in layout.shapes:
+                    if shape.role not in open_pit_cut_roles:
+                        continue
+                    if shape.polygon is None or shape.polygon.is_empty:
+                        continue
+                    try:
+                        if not shape.polygon.intersects(_band_reach):
+                            continue
+                    except Exception:                     # pragma: no cover
+                        continue
+                    authority_yield_pavement_ids.add(id(shape))
+                    try:
+                        _yield_area += float(shape.polygon.area)
+                    except Exception:                     # pragma: no cover
+                        pass
+                if authority_yield_pavement_ids:
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] TRENCH SENIOR TO PAVEMENT AT ITS "
+                        f"RIM: {len(authority_yield_pavement_ids)} pavement "
+                        f"shape(s) ({_yield_area:.0f} m2) reaching the "
+                        f"{_TUNNEL_RIM_BAND_WIDTH_M:.1f} m rim band of "
+                        f"{resources} yield their flattening authority "
+                        "there — the floor pan and the wall band are born "
+                        "THROUGH them; their geometry, welds and identity "
+                        "are untouched (spec lemd-rim-and-stations §B)",
+                    )
+
         # ANCHOR SEAT (user 2026-07-18f, "object sitting below terrain"):
         # every shell of the facility drapes at terrain(anchor), and the
         # classifier's whole depth model assumed that value is the DATUM
@@ -3769,6 +3978,12 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # number in the patch (recon 2026-08-09).  Collect what actually
         # went into the plates and report the range beside the law.
         emitted_rim_values: list[float] = []
+        # §C's own instrument: which RUNG each rim part took, and which
+        # neighbour it adopted.  Ungated (the instrument is law) — the
+        # 2026-08-09 recon's finding was precisely that the log printed
+        # the law value while the patch carried something else.
+        _rim_sources: dict = {}
+        _rim_refs: dict = {}
         for body in body_parts:
             # R2 accounting.  A facility that CUT (R13) has no yield left
             # to report — its pavement is already gone.
@@ -3811,7 +4026,8 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # entries are kept for the §2 named line below, which
                 # reports what the floor WAS differenced against.
                 _yielded_pad_ids = (floor_seated_pad_ids
-                                    | authority_yield_pad_ids)
+                                    | authority_yield_pad_ids
+                                    | authority_yield_pavement_ids)
                 floor_owned_entries = _owned_entries_near(
                     body_bounds, _yielded_pad_ids)
                 owned_near_floor = _owned_near(
@@ -3942,19 +4158,56 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # stays the fallback on nodata.  The FLOOR keeps the
                 # anchor datum — that is where the draped object's
                 # solids actually land (terrain(anchor) + offsets).
+                #
+                # ── §C SUPERSEDES THE PER-PART DEM SAMPLE ────────────
+                # (spec lemd-rim-and-stations §C.1; owner RULINGS
+                # 2026-08-28 item 3 + DEM-LAST.)  The paragraph above is
+                # the reason the rim must not take the ANCHOR DATUM; it
+                # is not a reason to take the DEM.  Both questions have
+                # one answer — the surface the band abuts — and with the
+                # flag ON the rungs are: nearest ANCHORED built
+                # neighbour → ``R_est`` (the law median, ``rim_
+                # elevation``) → the raw DEM sample, last.
                 part_centroid = band_part.centroid
                 part_elevation = rim_elevation
-                try:
-                    centroid_latitude, centroid_longitude = (
-                        _meters_to_lat_lon(
-                            part_centroid.x, part_centroid.y))
-                    sample = _sample_dem(
-                        dem, tile_lat, tile_lon,
-                        centroid_latitude, centroid_longitude)
-                    if sample is not None and sample == sample:
-                        part_elevation = float(sample)
-                except Exception:
-                    part_elevation = rim_elevation
+                _rim_source = "r_est"
+                _rim_ref = None
+                _neighbour = None
+                # SCOPE: basin facilities.  The basin-rim-flush spec's
+                # §2.1 froze the TUNNEL arm verbatim — "no OTHH fixture
+                # exercises them and the EGLL class must not move" — and
+                # §0's whole measured population is basin rim bands, so
+                # the tunnel rim keeps its per-part DEM sample and stays
+                # byte-identical.  Widening it is a separate ruling.
+                _rim_law_on = bool(config.RIM_SOLVED_NEIGHBOUR
+                                   and is_basin_facility)
+                if _rim_law_on:
+                    _neighbour = _rim_neighbour_value(
+                        band_part,
+                        _rim_neighbours_near(band_part.bounds),
+                        config.TUNNEL_RIM_NEIGHBOUR_WINDOW_M)
+                if _neighbour is not None:
+                    part_elevation = float(_neighbour[0])
+                    _rim_source = "neighbour"
+                    _rim_ref = _neighbour[1]
+                elif not _rim_law_on or rim_elevation != rim_elevation:
+                    try:
+                        centroid_latitude, centroid_longitude = (
+                            _meters_to_lat_lon(
+                                part_centroid.x, part_centroid.y))
+                        sample = _sample_dem(
+                            dem, tile_lat, tile_lon,
+                            centroid_latitude, centroid_longitude)
+                        if sample is not None and sample == sample:
+                            part_elevation = float(sample)
+                            _rim_source = "dem"
+                    except Exception:
+                        part_elevation = rim_elevation
+                        _rim_source = "r_est"
+                _rim_sources[_rim_source] = _rim_sources.get(
+                    _rim_source, 0) + 1
+                if _rim_ref is not None:
+                    _rim_refs[_rim_ref] = _rim_refs.get(_rim_ref, 0) + 1
                 if born_flat_solver_plate(
                         layout, band_part, ROLE_TUNNEL_TRENCH,
                         f"{plate_prefix}_rim", part_elevation,
@@ -4046,6 +4299,24 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             f"depth {facility_depth:.2f} m, "
             f"{len(member_records)} shell(s))",
         )
+        if _rim_sources:
+            _src_text = ", ".join(
+                f"{k}×{v}" for k, v in sorted(_rim_sources.items()))
+            _ref_text = ("" if not _rim_refs else "; adopted "
+                         + ", ".join(f"{k!r}×{v}" for k, v in
+                                     sorted(_rim_refs.items())[:6]))
+            UI.vprint(
+                1,
+                f"   [{log_tag}] {resources}: rim VALUE SOURCE {_src_text}"
+                f"{_ref_text} — nearest anchored built neighbour, then "
+                f"R_est {rim_elevation:.2f} m, then raw DEM last "
+                f"(spec lemd-rim-and-stations §C"
+                + ("" if (config.RIM_SOLVED_NEIGHBOUR and is_basin_facility)
+                   else ("; TUNNEL arm, per-part DEM kept verbatim"
+                         if is_basin_facility is False
+                         else "; O4_RIM_SOLVED_NEIGHBOUR=0, per-part DEM"))
+                + ")",
+            )
         if is_basin_facility:
             # THE PER-FACILITY RECORD the integration report reads (spec
             # section 2.1e item E2).  It rides the patch's own

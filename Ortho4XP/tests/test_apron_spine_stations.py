@@ -39,6 +39,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 from shapely.geometry import Point, Polygon
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +60,12 @@ class _Shape:
         self.ref = ""
         self.fan_ramp_zone = False
         self.lateral_cap = None
+        # the altitude model ``conformance._vertex_alts`` reads (the §A
+        # weld goes through that one implementation)
+        self.node_altitudes = None
+        self.altitude = None
+        self.altitude_high = None
+        self.altitude_low = None
 
 
 class _CPS:
@@ -862,3 +869,363 @@ def test_the_preservation_is_WIRED_at_the_call_site():
     i_call = src.index("station_nodes=_station_idx")
     i_idx = src.index("_station_idx, _station_edges = _build_st_scs")
     assert i_idx < i_call, "the station set must exist before the split"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# §A — STATIONS WELD INTO THE MEMBRANE, STAND DOWN ON SENIORS
+# (docs/specs/lemd-rim-and-stations-spec.md §A; owner RULINGS 2026-08-28
+# item 1 at LEMD 40.4968469,-3.5645062 and RULINGS 2026-08-28b item 4 at
+# HECA 30.109477,31.4036224)
+#
+# THE DEFECT.  ``_free`` guards candidates against plan VERTICES only —
+# a 0.5 m STRtree, no EDGE test — and an aircraft axis is routinely
+# COLLINEAR with the apron slice boundaries it crosses.  Measured at
+# 1.0.263: 144 station nodes across LEMD (76) / HECA (29) / SPJC (33) /
+# CYXY (6) sat ON a ring edge as unwelded T-vertices, EVERY one on a
+# boundary shared by two rings, worst value tear 0.907 m.  Two
+# near-collinear constrained segments ~2 cm apart are also the
+# documented mm-jitter segment-recovery killer, so a value-only patch
+# cannot fix the tear: the GEOMETRY has to become one.
+# ═════════════════════════════════════════════════════════════════════
+
+def _band(y0, y1, x0=-200.0, x1=200.0, role="apron"):
+    """A rectangle whose y0 edge can HOST a station: two shapes sharing
+    one long boundary is the measured population (every one of the 144
+    was on a two-host shared boundary)."""
+    return _Shape(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1),
+                           (x0, y0)]), role=role)
+
+
+#: The measured geometry, verbatim: the axis runs NEAR-collinear with
+#: the shared boundary — 2 cm inside it, which is the gap the lane
+#: measured between the two constrained segments and exactly the
+#: mm-jitter segment-recovery killer.  (A PERFECTLY collinear axis emits
+#: nothing at all: ``clip_lines_to_apron`` requires strict containment,
+#: so a segment ON the ring is dropped before any of this runs.)
+_NEAR_COLLINEAR_OFFSET_M = -0.02
+
+
+def _on_edge_layout(neighbour_role="apron"):
+    """Two rectangles meeting along y = 0, and an axis running 2 cm
+    inside the southern one — near-collinear with the shared boundary."""
+    south = _band(-200.0, 0.0)
+    north = _band(0.0, 200.0, role=neighbour_role)
+    return _Layout([south, north]), south, north
+
+
+def _near_edge_axis():
+    return _specs([(-300.0, _NEAR_COLLINEAR_OFFSET_M),
+                   (300.0, _NEAR_COLLINEAR_OFFSET_M)])
+
+
+def _ring_xy(shape):
+    return [(round(x, 6), round(y, 6))
+            for (x, y) in shape.polygon.exterior.coords[:-1]]
+
+
+def test_the_edge_test_is_what_free_never_had():
+    """The mechanism, named on the source: ``_free`` asks about
+    VERTICES; §A adds the EDGE question beside it."""
+    src = inspect.getsource(ST.construct_apron_spine_stations_presolve)
+    assert "_ring_edge_host" in src or "_edge_hosts" in src
+    assert "STATION_EDGE_WELD" in src
+
+
+def test_a_station_on_an_APRON_shared_edge_WELDS_into_every_host(
+        monkeypatch):
+    layout, south, north = _on_edge_layout()
+    before_s, before_n = len(_ring_xy(south)), len(_ring_xy(north))
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    pts = {(round(x, 6), round(y, 6))
+           for e in entries for (x, y) in e["points"]}
+    assert pts, "vacuous — no station minted at all"
+    ring_s, ring_n = set(_ring_xy(south)), set(_ring_xy(north))
+    assert pts <= ring_s, "the southern host did not take the T-vertex"
+    assert pts <= ring_n, "the northern host did not take the T-vertex"
+    # ONE node per station, in each ring, and nothing else moved.
+    assert len(_ring_xy(south)) == before_s + len(pts)
+    assert len(_ring_xy(north)) == before_n + len(pts)
+
+
+def test_the_welded_station_is_ONE_node_not_two(monkeypatch):
+    """The tear closes because there is ONE geometry.  Through the
+    canonical registry the station and the ring vertex resolve to the
+    same bucket — which is also why the station's phase-A constant is
+    what the membrane carries there (round-3 Amendment 1)."""
+    layout, south, _north = _on_edge_layout()
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    cps = layout.canonical_points
+    ring_buckets = {cps.get_or_add(x, y) for (x, y) in _ring_xy(south)}
+    for e in entries:
+        for (x, y) in e["points"]:
+            assert cps.get_or_add(x, y) in ring_buckets
+
+
+def test_the_weld_lands_at_the_EDGE_LERP_when_the_host_carries_values():
+    """The ``crown._weld_terminus_into_rings`` case-(b) transplant:
+    index-aligned ring + ``node_altitudes`` rebuild.  Until the solve
+    stamps the station's own constant, the inserted vertex inherits the
+    host edge's lerp — never a value invented here."""
+    shape = _band(0.0, 200.0)
+    shape.node_altitudes = [10.0, 20.0, 20.0, 10.0, 10.0]
+    assert ST._weld_station_into_ring(shape, 0.0, 0.0, 0.5)
+    ring = _ring_xy(shape)
+    i = ring.index((0.0, 0.0))
+    # x runs -200 → 200 along the hosting edge, so the midpoint lerps
+    # halfway between the edge's own endpoint values.
+    assert shape.node_altitudes[i] == pytest.approx(15.0)
+    assert len(shape.node_altitudes) == len(ring) + 1
+
+
+def test_a_station_on_a_TAXIWAY_family_edge_STANDS_DOWN(monkeypatch):
+    """That ground already carries the anchored surface the station
+    would re-state — and round-3 Amendment 2's gate 2a (taxiway-family
+    byte-identity against the stations-OFF arm) is then preserved BY
+    CONSTRUCTION."""
+    layout, _south, junction = _on_edge_layout(neighbour_role="junction")
+    before = _ring_xy(junction)
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    assert not [p for e in entries for p in e["points"]]
+    assert _ring_xy(junction) == before, "the senior ring was touched"
+    report = layout.apron_spine_edge_report
+    assert report["stood_down_taxi"] > 0
+    assert report["welded"] == 0
+
+
+def test_the_stand_down_is_MAX_TIER_over_both_hosts(monkeypatch):
+    """A shared boundary has two hosts and one disposition: the senior
+    family wins, so an apron/junction boundary stands down even though
+    one host is an apron."""
+    layout, south, junction = _on_edge_layout(neighbour_role="junction")
+    before = _ring_xy(south)
+    _patch_specs(monkeypatch, _near_edge_axis())
+    ST.construct_apron_spine_stations_presolve(layout)
+    assert _ring_xy(south) == before
+    assert junction.role == "junction"
+
+
+def test_a_host_family_this_round_has_not_measured_stands_down_too(
+        monkeypatch):
+    """§A.1's first sentence is unconditional — an on-edge candidate is
+    NEVER minted as a free node — and welding into a family the round
+    has not measured would be a law invented at a call site.  Counted
+    under its own name, never silently."""
+    layout, _south, runway = _on_edge_layout(neighbour_role="runway")
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    assert not [p for e in entries for p in e["points"]]
+    report = layout.apron_spine_edge_report
+    assert report["stood_down_other"] > 0
+    assert report["other_roles"].get("runway") == report["stood_down_other"]
+
+
+def test_an_INTERIOR_station_is_still_minted_free(monkeypatch):
+    """The control.  §A touches on-edge candidates only; a station in
+    the apron interior is exactly what it was."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    before = _ring_xy(ap)
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    assert [p for e in entries for p in e["points"]]
+    assert _ring_xy(ap) == before
+    report = layout.apron_spine_edge_report
+    assert (report["welded"], report["stood_down_taxi"],
+            report["stood_down_other"]) == (0, 0, 0)
+
+
+def test_flag_OFF_mints_the_unwelded_T_vertex_exactly_as_before(
+        monkeypatch):
+    """``O4_STATION_EDGE_WELD=0`` is the pre-ruling minter: no edge
+    test, no weld, no stand-down — the defect reproduces, which is what
+    makes the ON arm's zero mean something."""
+    from auto_patch import config as CFG
+    monkeypatch.setattr(CFG, "STATION_EDGE_WELD", False)
+    layout, south, north = _on_edge_layout()
+    before_s, before_n = _ring_xy(south), _ring_xy(north)
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    pts = [p for e in entries for p in e["points"]]
+    assert pts, "vacuous — the OFF arm minted nothing"
+    assert _ring_xy(south) == before_s
+    assert _ring_xy(north) == before_n
+    # ...and every one of them is an UNWELDED T-vertex: on the shared
+    # edge, in neither ring.
+    ring = set(before_s) | set(before_n)
+    for (x, y) in pts:
+        assert (round(x, 6), round(y, 6)) not in ring
+        assert abs(y - _NEAR_COLLINEAR_OFFSET_M) < 1e-9
+
+
+def test_the_flag_is_default_ON():
+    from auto_patch import config as CFG
+    assert CFG.STATION_EDGE_WELD is True
+
+
+# ═════════════════════════════════════════════════════════════════════
+# §A THROUGH ``to_osm`` — ONE NODE, AND THE STATION VALUE WINS
+#
+# The presolve weld puts the station INTO the host ring; two more things
+# had to be true before the emitted patch showed it, and both were
+# measured false at CYXY on the first arm:
+#
+#   * BOTH DECIMATORS must exempt it (``emit_decimate.decimate_emit_
+#     nodes`` and ``to_osm``'s own sweep).  A welded station is
+#     3D-redundant against its host edge by construction and each vote
+#     is taken over SHAPES, while the thing that needs the vertex is an
+#     emitted FEATURE way — the crown-spine ``_crown_spine_weld_xy``
+#     class exactly (SPLP -13/-77).  Arm 1: the insert landed, both
+#     decimators dropped it, the sweep still read 6 of 6 unwelded.
+#   * ``to_osm`` must REUSE the ring's interned node.  Arm 2: the vertex
+#     survived and the emitter minted a fresh nid anyway — a COORDINATE
+#     TWIN, ring 695.02 against station 695.73, a 0.71 m tear at zero
+#     horizontal distance.
+#
+# The value ruling is the OPPOSITE of the crown spine's: there the ring
+# is the authority; here round-3 Amendment 1 makes station values
+# phase-A constants and the membrane the side that yields.
+# ═════════════════════════════════════════════════════════════════════
+
+_ST_RING_V, _ST_STATION_V = 92.0, 99.0
+
+
+def _emit_and_parse(layout):
+    import re
+    import tempfile
+    with tempfile.NamedTemporaryFile(
+            mode="r", suffix=".osm", delete=False) as f:
+        path = f.name
+    try:
+        layout.to_osm(path)
+        text = Path(path).read_text()
+    finally:
+        for p in (Path(path), Path(path + ".axes.json")):
+            if p.exists():
+                p.unlink()
+    nodes = {int(m.group(1)): (float(m.group(2)), float(m.group(3)))
+             for m in re.finditer(
+                 r"""<node id='(-?\d+)'[^>]*lat='([^']+)' lon='([^']+)'""",
+                 text)}
+    node_alts = {int(m.group(1)): float(m.group(2))
+                 for m in re.finditer(
+                     r"""<node id='(-?\d+)'[^>]*?>\s*"""
+                     r"""<tag k='alt_abs' v='([^']+)'""", text, re.DOTALL)}
+    ways = []
+    for m in re.finditer(r"<way id='(-?\d+)'[^>]*>(.*?)</way>",
+                         text, re.DOTALL):
+        body = m.group(2)
+        ways.append((int(m.group(1)),
+                     [int(x) for x in re.findall(r"""<nd ref='(-?\d+)'""",
+                                                 body)],
+                     dict(re.findall(r"""<tag k='([^']+)' v='([^']+)'""",
+                                     body))))
+    return nodes, ways, node_alts
+
+
+def _station_emit_layout(*, welded=True):
+    """An apron ring with a vertex at (5, 0) — the welded station — and
+    the solved station polyline whose first point is that coordinate,
+    carrying a DIFFERENT value."""
+    from auto_patch.layout import PavementLayout, BuiltShape, ROLE_APRON
+    layout = PavementLayout(icao="KFAKE", anchor=(51.87, -0.37))
+    ring = [(5.0, -10.0), (5.0, 0.0), (5.0, 10.0),
+            (100.0, 10.0), (100.0, -10.0)]
+    # deliberately OFF the (5,-10)->(5,10) altitude chord, so the emit
+    # decimation cannot call the vertex redundant on its own
+    alts = [90.0, _ST_RING_V, 100.0, 100.0, 90.0]
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon(ring), role=ROLE_APRON, ref="apron",
+        node_altitudes=alts + [alts[0]]))
+    layout.apron_spine_station_emit = [(
+        [layout.m_to_ll(5.0, 0.0), layout.m_to_ll(30.0, 0.0),
+         layout.m_to_ll(60.0, 0.0)],
+        [_ST_STATION_V, 93.0, 94.0])]
+    if welded:
+        layout._apron_station_weld_xy = [(5.0, 0.0)]
+    return layout
+
+
+def _way_of(ways, key, value):
+    for wid, nds, tags in ways:
+        if tags.get(key) == value:
+            return wid, nds
+    raise AssertionError(f"no {key}={value} way emitted")
+
+
+def test_to_osm_reuses_the_ring_node_for_a_WELDED_station():
+    layout = _station_emit_layout()
+    nodes, ways, node_alts = _emit_and_parse(layout)
+    _swid, snds = _way_of(ways, "o4_feature", "apron_spine_station")
+    _awid, ands = _way_of(ways, "role", "apron")
+    assert snds[0] in ands, (
+        "the station must reference the apron's own node, not a twin")
+    ll = nodes[snds[0]]
+    same = [n for n, p in nodes.items()
+            if abs(p[0] - ll[0]) < 1e-9 and abs(p[1] - ll[1]) < 1e-9]
+    assert same == [snds[0]], "a coordinate twin survived"
+
+
+def test_the_STATION_value_wins_at_the_welded_node():
+    """Round-3 Amendment 1: station values are phase-A constants and the
+    membrane is what yields.  The opposite of the crown spine's ruling,
+    and deliberately so."""
+    layout = _station_emit_layout()
+    _nodes, ways, node_alts = _emit_and_parse(layout)
+    _swid, snds = _way_of(ways, "o4_feature", "apron_spine_station")
+    assert node_alts[snds[0]] == pytest.approx(_ST_STATION_V, abs=0.005)
+
+
+def test_a_station_point_that_was_NOT_welded_still_mints_its_own_node():
+    """Only coordinates the weld itself recorded are eligible.  A
+    station that merely happens to land near a ring node is not one."""
+    layout = _station_emit_layout(welded=False)
+    _nodes, ways, _alts = _emit_and_parse(layout)
+    _swid, snds = _way_of(ways, "o4_feature", "apron_spine_station")
+    _awid, ands = _way_of(ways, "role", "apron")
+    assert snds[0] not in ands
+
+
+def test_the_free_station_points_are_untouched():
+    layout = _station_emit_layout()
+    _nodes, ways, node_alts = _emit_and_parse(layout)
+    _swid, snds = _way_of(ways, "o4_feature", "apron_spine_station")
+    _awid, ands = _way_of(ways, "role", "apron")
+    assert snds[1] not in ands and snds[2] not in ands
+    assert node_alts[snds[1]] == pytest.approx(93.0, abs=0.005)
+    assert node_alts[snds[2]] == pytest.approx(94.0, abs=0.005)
+
+
+def test_BOTH_decimators_exempt_the_welded_station():
+    """The two-decimators trap, asserted on the source: an exemption in
+    one and not the other is the same as no exemption at all."""
+    import auto_patch.emit_decimate as ED
+    import auto_patch.layout as LY
+    assert "_apron_station_weld_xy" in inspect.getsource(
+        ED.decimate_emit_nodes)
+    assert "_apron_station_weld_xy" in inspect.getsource(LY.PavementLayout)
+
+
+def test_the_weld_register_is_published_by_the_minter(monkeypatch):
+    """The register must exist for BOTH decimators to read.  An INTERIOR
+    crossing welds nothing, so it publishes an EMPTY register — and every
+    downstream leg is then vacuous, which is what makes the OFF arm and
+    the no-on-edge case byte-identical."""
+    ap = _Shape(_square(400.0))
+    layout = _Layout([ap])
+    _patch_specs(monkeypatch, _specs([(-300.0, 0.0), (300.0, 0.0)]))
+    ST.construct_apron_spine_stations_presolve(layout)
+    assert layout._apron_station_weld_xy == []
+
+
+def test_the_register_carries_every_welded_coordinate(monkeypatch):
+    layout, _south, _north = _on_edge_layout()
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    pts = {(round(x, 6), round(y, 6))
+           for e in entries for (x, y) in e["points"]}
+    assert pts
+    assert {(round(x, 6), round(y, 6))
+            for (x, y) in layout._apron_station_weld_xy} == pts

@@ -884,6 +884,322 @@ class TestOpenPitPavementCut:
 
 
 # ---------------------------------------------------------------------------
+# LEMD ROUND 2 §B — the trench is SENIOR TO PAVEMENT at its rim
+# (docs/specs/lemd-rim-and-stations-spec.md §B; owner RULINGS 2026-08-28
+# item 2, extending the 2026-08-26 trench-seniority ruling from pads to
+# pavement)
+# ---------------------------------------------------------------------------
+
+
+class TestTrenchSeniorToPavementAtItsRim:
+    """MEASURED DEFECT (lane/lemd123, LEMD 1.0.263).  The 2026-08-26
+    implementation scoped its authority-yield population to
+    ``ROLE_BUILDING``, so apron -10228 — standing 0.70-0.89 m off the pan
+    along one 98 m run — consumed the floor cutback AND the whole 0.6 m
+    rim band there.  Rim coverage was 289 of 338 perimeter samples, and
+    EVERY missing sample had pavement less than 0.9 m away: a 12.75 m
+    unwalled drop at the owner's own coordinate 40.4910231,-3.5688464.
+
+    Two legs, one law, and either alone leaves the band short: pavement
+    reaching pan ∪ rim-band YIELDS its flattening authority there (the
+    pan and the wall band are born THROUGH it), and it is CLIPPED BACK by
+    the rim-band width so its edge abuts the rim's OUTER edge, never the
+    pan."""
+
+    #: comfortably larger than the 50 x 50 m default pit footprint
+    APRON = Polygon([(-90, -90), (90, -90), (90, 90), (-90, 90)])
+
+    def _layout_with_apron(self, apron=None):
+        from auto_patch.layout import ROLE_APRON
+        layout = _FakeLayout()
+        layout.shapes.append(bridges.BuiltShape(
+            polygon=self.APRON if apron is None else apron,
+            role=ROLE_APRON, ref="apron", altitude=8.0))
+        return layout
+
+    def _emit(self, layout, interfaces=None, datum_m=8.0):
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(ground_interfaces=(
+                    interfaces if interfaces is not None
+                    else [_interface(floor_y_m=-3.81)])))
+        return assembly.build_tunnel_layout_shapes(
+            layout, _FakeDem(datum_m), TILE_LATITUDE, TILE_LONGITUDE)
+
+    def _apron_polygons(self, layout):
+        from auto_patch.layout import ROLE_APRON
+        return [shape.polygon for shape in layout.shapes
+                if shape.role == ROLE_APRON]
+
+    def _band_reach(self):
+        """The pan grown by the rim-band width — the ground the band
+        occupies, which no pavement vertex may enter."""
+        return _interface().below_grade_footprint.buffer(
+            assembly._TUNNEL_RIM_BAND_WIDTH_M, join_style=2,
+            mitre_limit=2.0)
+
+    def test_the_pavement_is_clipped_back_to_the_rim_bands_outer_edge(self):
+        layout = self._layout_with_apron()
+        self._emit(layout)
+        for polygon in self._apron_polygons(layout):
+            overlap = polygon.intersection(self._band_reach()).area
+            assert overlap < 1.0, (
+                "pavement still stands over the pan or its rim band — "
+                f"{overlap:.1f} m2")
+
+    def test_no_pavement_VERTEX_lies_inside_the_pan_or_the_band(self):
+        """The acceptance the spec states, asked of the geometry: the
+        apron edge ABUTS the rim's outer edge."""
+        from shapely.geometry import Point
+        band = self._band_reach()
+        layout = self._layout_with_apron()
+        self._emit(layout)
+        inside = [
+            (x, y) for polygon in self._apron_polygons(layout)
+            for (x, y) in polygon.exterior.coords
+            if band.contains(Point(x, y))
+            and band.exterior.distance(Point(x, y)) > 0.01]
+        assert not inside, inside[:5]
+
+    def test_the_rim_band_survives_on_the_WHOLE_perimeter(self):
+        """The 289/338 coverage read, as a twin: sample the pan
+        perimeter and require a rim plate over every sample.  Without the
+        yield leg the apron's ``_TUNNEL_WALL_SETBACK_M`` collar eats the
+        band exactly where the pavement abuts it."""
+        from shapely.geometry import Point
+        pan = _interface().below_grade_footprint
+        rims = [plate.polygon for plate in _basin_plates(
+            self._pan_layout(), "rim")]
+        assert rims
+        ring = pan.exterior
+        misses = []
+        for k in range(338):
+            point = ring.interpolate(k / 338.0, normalized=True)
+            probe = Point(point.x, point.y).buffer(
+                0.5 * assembly._TUNNEL_RIM_BAND_WIDTH_M)
+            if not any(rim.intersects(probe) for rim in rims):
+                misses.append((round(point.x, 1), round(point.y, 1)))
+        assert not misses, f"{len(misses)} of 338 perimeter samples " \
+                           f"carry no rim band: {misses[:5]}"
+
+    def _pan_layout(self):
+        layout = self._layout_with_apron()
+        self._emit(layout)
+        return layout
+
+    def test_the_pavement_joins_the_authority_yield_population(self):
+        """The yield leg alone, isolated: with the CLIP disabled the band
+        must still be born, because the pavement no longer owns that
+        ground.  (Belt and braces — the spec asks for both legs.)"""
+        layout = self._layout_with_apron()
+        self._emit(layout)
+        assert _basin_plates(layout, "rim"), "no rim band emitted at all"
+
+    def test_flag_off_restores_the_body_only_cut_and_the_pad_only_yield(
+            self, monkeypatch):
+        """``O4_TRENCH_PAVEMENT_YIELD=0`` is byte-identical to the
+        pre-ruling engine: the cut stops at the body and the apron keeps
+        every square metre outside it."""
+        monkeypatch.setattr(config, "TRENCH_PAVEMENT_YIELD", False)
+        layout = self._layout_with_apron()
+        before = sum(p.area for p in self._apron_polygons(layout))
+        self._emit(layout)
+        after = sum(p.area for p in self._apron_polygons(layout))
+        pit_area = _interface().below_grade_footprint.area
+        assert after == pytest.approx(before - pit_area, rel=1e-3)
+
+    def test_the_clip_costs_exactly_the_rim_band_ring(self):
+        """The ON arm's own arithmetic, against the OFF arm's: the extra
+        pavement removed is the band ring and nothing more."""
+        layout = self._layout_with_apron()
+        before = sum(p.area for p in self._apron_polygons(layout))
+        self._emit(layout)
+        after = sum(p.area for p in self._apron_polygons(layout))
+        expected = before - self._band_reach().area
+        assert after == pytest.approx(expected, rel=0.02)
+
+    def test_a_BORE_never_yields_its_pavement(self):
+        """SCOPE.  §B rides R13's own predicate (``cuts_pavement``): a
+        bore runs UNDER live pavement, and yielding there would let a
+        floor pan be born beneath a drivable surface."""
+        layout = self._layout_with_apron()
+        before = sum(p.area for p in self._apron_polygons(layout))
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(ground_interfaces=[_interface(
+                    interface_class=otf.INTERFACE_TRENCH_SPINE,
+                    above_grade_area_fraction=0.0)]))
+        assembly.build_tunnel_layout_shapes(
+            layout, _FakeDem(8.0), TILE_LATITUDE, TILE_LONGITUDE)
+        assert sum(p.area for p in self._apron_polygons(layout)) == \
+            pytest.approx(before)
+
+
+# ---------------------------------------------------------------------------
+# LEMD ROUND 2 §C — the rim seats at the SOLVED NEIGHBOUR, DEM LAST
+# (docs/specs/lemd-rim-and-stations-spec.md §C; owner RULINGS 2026-08-28
+# item 3 + DEM-LAST 2026-08-25; the basin-rim-flush spec's own §1(2))
+# ---------------------------------------------------------------------------
+
+
+class TestRimSeatsAtTheSolvedNeighbour:
+    """MEASURED DEFECT (lane/lemd123, LEMD 1.0.263).  Every rim band part
+    seated at the RAW DEM at its own centroid, with ``R_est`` only the
+    nodata fallback: all 13 LEMD parts read LOW against their nearest
+    built neighbour — median -3.84 m, worst -5.41 m against building8's
+    600.50 — with 4.14 m of rim self-spread between parts of ONE band,
+    and a 67 m nodeless span between rim (595.2/597.8) and apron (599.98)
+    that the owner saw as a down-slope into the pit.
+
+    The rungs are: nearest ANCHORED built neighbour → ``R_est`` → raw DEM
+    LAST."""
+
+    #: An apron ringing the pit at a value the DEM does not carry, so
+    #: neighbour and DEM can never be confused for one another.
+    NEIGHBOUR_VALUE = 20.0
+
+    def _layout(self, *, with_neighbour=True, role=None, value=None):
+        from auto_patch.layout import ROLE_APRON
+        layout = _FakeLayout()
+        if with_neighbour:
+            layout.shapes.append(bridges.BuiltShape(
+                polygon=Polygon([(-90, -90), (90, -90), (90, 90),
+                                 (-90, 90)]),
+                role=role or ROLE_APRON, ref="neighbour",
+                altitude=(self.NEIGHBOUR_VALUE if value is None
+                          else value)))
+        return layout
+
+    def _emit(self, layout, dem=None):
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(ground_interfaces=[
+                    _interface(floor_y_m=-3.81)]))
+        return assembly.build_tunnel_layout_shapes(
+            layout, dem if dem is not None else _FakeDem(8.0),
+            TILE_LATITUDE, TILE_LONGITUDE)
+
+    def _rim_values(self, layout):
+        return sorted({
+            round(float(altitude), 3)
+            for plate in _basin_plates(layout, "rim")
+            for altitude in plate.node_altitudes})
+
+    # ── RUNG 1: the nearest anchored built neighbour ─────────────────
+
+    def test_the_rim_takes_its_NEIGHBOURS_value_not_the_DEM(self):
+        layout = self._layout()
+        self._emit(layout)
+        assert self._rim_values(layout) == [self.NEIGHBOUR_VALUE]
+
+    def test_every_part_of_one_band_takes_the_SAME_value(self):
+        """The 4.14 m self-spread was per-part DEM sampling.  One
+        neighbour, one value — the spread collapses to the neighbour's
+        own lawful variation."""
+        layout = self._layout()
+        self._emit(layout, dem=_SpikeDem(
+            8.0, 12.0, radius_degrees=0.0002,
+            anchor_longitude=ANCHOR_LONGITUDE + 0.00025))
+        assert len(self._rim_values(layout)) == 1
+
+    def test_a_pad_is_a_neighbour_too(self):
+        """The LEMD case verbatim: ``building8`` CONTAINS the pit, so its
+        seated value is what the rim must match."""
+        from auto_patch.layout import ROLE_BUILDING
+        layout = self._layout(role=ROLE_BUILDING, value=600.5)
+        self._emit(layout)
+        assert self._rim_values(layout) == [600.5]
+
+    def test_a_pad_seated_at_the_BASIN_FLOOR_is_not_a_rim_neighbour(self):
+        """A pad seated at the pit bottom carries the FLOOR, not the
+        surrounding grade — adopting it would sink the rim into the
+        trench it is supposed to wall."""
+        from auto_patch.layout import ROLE_BUILDING
+        layout = self._layout(role=ROLE_BUILDING, value=600.5)
+        layout.shapes[0].basin_floor_seat_m = 1.0
+        self._emit(layout)
+        assert self._rim_values(layout) == [8.0], "R_est, not the seat"
+
+    def test_our_OWN_trench_plates_are_never_the_neighbour(self):
+        """A rim seating off the floor pan beside it would be the
+        facility grading itself."""
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        floors = _basin_plates(layout, "trench")
+        assert floors, "vacuous — no floor pan to be tempted by"
+        floor_value = float(floors[0].node_altitudes[0])
+        assert floor_value not in self._rim_values(layout)
+
+    def test_a_neighbour_beyond_the_WINDOW_is_not_adopted(self):
+        """"Adjacent" has an edge to it: a surface the band does not
+        touch is not the surface the wall top must match, and beyond the
+        window the law median R_est is the honest answer."""
+        from auto_patch.layout import ROLE_APRON
+        layout = _FakeLayout()
+        far = config.TUNNEL_RIM_NEIGHBOUR_WINDOW_M + 100.0
+        layout.shapes.append(bridges.BuiltShape(
+            polygon=Polygon([(far, far), (far + 60.0, far),
+                             (far + 60.0, far + 60.0), (far, far + 60.0)]),
+            role=ROLE_APRON, ref="far", altitude=self.NEIGHBOUR_VALUE))
+        self._emit(layout)
+        assert self._rim_values(layout) == [8.0], "R_est, not the far apron"
+
+    # ── RUNG 2: R_est, the law median ────────────────────────────────
+
+    def test_with_NO_built_neighbour_the_rim_takes_R_est(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout, dem=_SpikeDem(
+            8.0, 12.0, radius_degrees=0.0002,
+            anchor_longitude=ANCHOR_LONGITUDE + 0.00025))
+        assert self._rim_values(layout) == [8.0]
+
+    # ── RUNG 3 / the OFF arm: raw DEM, last ──────────────────────────
+
+    def test_flag_off_restores_the_per_part_DEM_sample(self, monkeypatch):
+        """``O4_RIM_SOLVED_NEIGHBOUR=0`` is byte-identical to the
+        pre-ruling engine: per-part DEM samples, R_est only on nodata —
+        which is exactly the spread this section retires."""
+        monkeypatch.setattr(config, "RIM_SOLVED_NEIGHBOUR", False)
+        layout = self._layout()
+        self._emit(layout, dem=_SpikeDem(
+            8.0, 12.0, radius_degrees=0.0002,
+            anchor_longitude=ANCHOR_LONGITUDE + 0.00025))
+        values = self._rim_values(layout)
+        assert len(values) > 1, "the OFF arm must still spread"
+        assert self.NEIGHBOUR_VALUE not in values
+
+    def test_a_TUNNEL_facility_keeps_its_per_part_DEM_sample(self):
+        """SCOPE, and it is the sibling spec's own: basin-rim-flush §2.1
+        froze the tunnel arm verbatim — "no OTHH fixture exercises them
+        and the EGLL class must not move" — and §0's whole measured
+        population is basin rim bands.  A tunnel rim stays terrain-true;
+        widening §C to it is a separate ruling."""
+        layout = _FakeLayout()
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(tunnels=[_tunnel_record()]))
+        assembly.build_tunnel_layout_shapes(
+            layout, _SpikeDem(8.0, 12.0, radius_degrees=0.0002,
+                              anchor_longitude=ANCHOR_LONGITUDE + 0.00025),
+            TILE_LATITUDE, TILE_LONGITUDE)
+        rims = [shape for shape in layout.shapes
+                if shape.role == ROLE_TUNNEL_TRENCH
+                and str(shape.ref) == "object_tunnel_rim"]
+        assert rims, "vacuous — the tunnel arm emitted no rim"
+        values = {round(float(a), 3)
+                  for plate in rims for a in plate.node_altitudes}
+        assert len(values) > 1, (
+            "the tunnel rim must still be TERRAIN-TRUE: per-part DEM "
+            "samples, spreading under a spike — §C did not reach it")
+
+    def test_the_rungs_are_in_the_stated_ORDER(self):
+        """One reading of the law, asserted on the source: neighbour
+        first, R_est second, DEM last."""
+        import inspect
+        source = inspect.getsource(assembly.build_tunnel_layout_shapes)
+        neighbour = source.index("_rim_neighbour_value(")
+        r_est = source.index('_rim_source = "r_est"')
+        dem = source.index('_rim_source = "dem"')
+        assert r_est < neighbour < dem
+
+
+# ---------------------------------------------------------------------------
 # ruling R4 — carved implies excluded from the Phase 2 y-bake
 # ---------------------------------------------------------------------------
 
@@ -1169,13 +1485,25 @@ class TestBasinInstrumentation:
         assert record["shell_count"] == 1
         assert record["floor_plates"] >= 1
 
-    def test_the_record_reports_the_emitted_rim_range(self):
+    def test_the_record_reports_the_emitted_rim_range(self, monkeypatch):
         """THE GAP RECON NAMED, reproduced: the band parts take their OWN
         DEM samples and the law value is only their nodata fallback, so a
         single reported number cannot be both.  Here an off-centre rise
         lifts the eastern band parts to 12 m while the law value (the
         outline median) stays 8 m — measured at OTHH Dewatering_01 as a
-        0.71-2.96 m band behind a single 0.80 m number."""
+        0.71-2.96 m band behind a single 0.80 m number.
+
+        RE-PINNED WITH ``RIM_SOLVED_NEIGHBOUR`` OFF (spec
+        lemd-rim-and-stations §C, owner RULINGS 2026-08-28 item 3).  The
+        per-part DEM sample IS the defect §C retires: with the flag on
+        the band has ONE value source and this fixture can no longer
+        produce a range at all.  What the twin pins — that the RECORD
+        reports what was EMITTED, not what the law said — is unchanged
+        and still law; it just needs the arm where emitted and law can
+        still disagree.  The same re-pinning the pool-scoping and
+        pad-seating gates took: the premise lives with the gate off.
+        """
+        monkeypatch.setattr(config, "RIM_SOLVED_NEIGHBOUR", False)
         layout = _FakeLayout()
         dem = _SpikeDem(
             8.0, 12.0, radius_degrees=0.0002,

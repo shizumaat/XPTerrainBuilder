@@ -3930,3 +3930,34 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
     private corpus, no copied `Elevation_data`. The script does not
     handle a worktree outside its expected root; that is the defect to
     close, not this lane's mount.
+
+## 2026-08-28 — LEMD round 2 (lane/lemdrim, spec lemd-rim-and-stations)
+
+* **OTHH acceptance build NOT run.** Spec §D asks for it "if the
+  artifact ledger serves it cheaply"; at this code tree the artifact
+  ledger holds no OTHH entry, so serving it meant a full build. §C's
+  OTHH exposure is bounded by scope instead: the rim law is gated to
+  BASIN facilities and the OTHH bowls' FLOORS are untouched, and the
+  tunnel arm's byte-identity is pinned by
+  `tests/test_object_basin_trench.py::TestRimSeatsAtTheSolvedNeighbour
+  ::test_a_TUNNEL_facility_keeps_its_per_part_DEM_sample` plus the
+  pre-existing `test_object_tunnel_terrain.py` flush-wall twin.  §B DOES
+  reach the OTHH drainage bowls (they are open pits): their pavement is
+  now clipped back by the 0.6 m rim-band width and yields its authority
+  there.  Owed: one OTHH patch build with the per-facility floor / rim
+  range / R_est table.
+* **Only the directly-covering test files were run** (pre-ship mode),
+  once, through the run ledger: `test_apron_spine_stations`,
+  `test_object_basin_trench`, `test_lattice_overlap_read`,
+  `test_harness`, `test_basin_group_seat`, `test_kdfw_bridge_refusal`,
+  `test_object_bridge_terrain`, `test_object_tunnel_terrain`,
+  `test_round12_bridge_deck_datum`, plus what `blast.py` named for
+  `emit_decimate.py` (`test_crown_spine_seam_weld`,
+  `test_emit_decimate_chord_split`, `test_rod_chain_end_keep`,
+  `test_gap_fill_spine`, `test_fabric_sparse`,
+  `test_flat_site_fast_path`, `test_taut_graded_strip`).  907 passed,
+  15 failed — all 15 reproduce on a clean main tree.  `layout.py`'s 147
+  direct-importer suites were NOT run.
+* **No timing measurement.** Every build in this round ran concurrently
+  with others and through the run ledger; the wall times recorded are
+  not timing evidence and are quoted nowhere as such.

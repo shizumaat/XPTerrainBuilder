@@ -97,6 +97,133 @@ def _clip(*, lines_in, poly):
     return clip_lines_to_apron(lines_in, poly, margin_m=0.0)
 
 
+# ── §A: THE HOST FAMILIES (spec lemd-rim-and-stations §A.1) ──────────
+#
+# A station whose foot lands on a ring EDGE is never a free node.  What
+# happens instead is decided by the HOST EDGE'S ROLE, max-tier over
+# every host of that (shared) boundary:
+#
+#   TAXIWAY family — the station STANDS DOWN.  That ground already
+#   carries the anchored surface the station would re-state, and
+#   round-3 Amendment 2's gate 2a (taxiway-family byte-identity against
+#   the stations-OFF arm) is then preserved BY CONSTRUCTION.
+#   APRON family — the station WELDS: one node, inserted into every
+#   host ring at the edge lerp, and the STATION VALUE WINS.
+#
+# ``_STATION_STANDDOWN_ROLES`` is the taxi family verbatim (crown's
+# ``_TAXI_FAMILY``: junction / primary_parallel / secondary_parallel /
+# stub / cross_connector).  Any OTHER role — runway, service, boundary,
+# a plate — is neither: the station stands down there too, because §A.1's
+# first sentence is unconditional ("never minted as a free node") and
+# welding into a family this round has not measured would be a law
+# invented at a call site.  Counted separately, never silently.
+def _station_host_families():
+    from .crown import _TAXI_FAMILY
+    from .layout import ROLE_APRON
+    return frozenset(_TAXI_FAMILY), frozenset({ROLE_APRON})
+
+
+def _ring_edge_host(poly, x, y, tol):
+    """``(i, t, perp)`` for the CURRENT exterior ring edge of ``poly``
+    that hosts ``(x, y)`` strictly inside and endpoint-clear, else
+    ``None``.
+
+    Re-derived from the LIVE polygon on every call, never cached: a weld
+    into one host splits the very edge a later station may land on, and
+    an index taken before that split would insert at the wrong place.
+    """
+    try:
+        ring = list(poly.exterior.coords)
+    except _GEOM_EXC:                                     # pragma: no cover
+        return None
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    n = len(ring)
+    if n < 3:
+        return None
+    best = None
+    for i in range(n):
+        ax, ay = ring[i]
+        bx, by = ring[(i + 1) % n]
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        if L2 < 1e-12:
+            continue
+        L = math.sqrt(L2)
+        t = ((x - ax) * dx + (y - ay) * dy) / L2
+        if t <= 0.0 or t >= 1.0:
+            continue
+        if t * L < tol or (1.0 - t) * L < tol:
+            continue                    # coincident with an endpoint
+        perp = abs((x - ax) * dy - (y - ay) * dx) / L
+        if perp > tol:
+            continue
+        if best is None or perp < best[2]:
+            best = (i, t, perp)
+    return best
+
+
+def _weld_station_into_ring(shape, x, y, tol):
+    """Insert ``(x, y)`` into ``shape``'s exterior ring at the hosting
+    edge — the ``crown._weld_terminus_into_rings`` case-(b) transplant:
+    an index-aligned ring + ``node_altitudes`` rebuild that keeps the
+    interior rings (an exterior-only rebuild fills the shape's holes).
+
+    Returns True when a vertex was inserted.  The VALUE is not decided
+    here: a welded station and the ring vertex are ONE canonical node, so
+    the station's phase-A constant is what the solve carries there
+    (round-3 Amendment 1) — the ring's own lerp is only what the inserted
+    vertex inherits until then.
+    """
+    from shapely.geometry import Polygon as _Poly
+    from .conformance import _vertex_alts
+    poly = getattr(shape, "polygon", None)
+    if poly is None or getattr(poly, "is_empty", True):   # pragma: no cover
+        return False
+    hit = _ring_edge_host(poly, x, y, tol)
+    if hit is None:                                       # pragma: no cover
+        return False
+    i, t, _perp = hit
+    ring = list(poly.exterior.coords)
+    if len(ring) > 1 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    n = len(ring)
+    # ONE reading of "this shape's per-vertex altitudes": the
+    # conformance weld's own, which normalises the closing repeat and
+    # the sloped-quad model.  A second spelling here is the
+    # census-wrapper defect in miniature.
+    alts = _vertex_alts(shape, n)
+    lerp = None
+    if alts is not None:
+        try:
+            lerp = (float(alts[i])
+                    + t * (float(alts[(i + 1) % n]) - float(alts[i])))
+        except (TypeError, ValueError):                   # pragma: no cover
+            lerp = None
+    new_ring = list(ring[:i + 1]) + [(float(x), float(y))] \
+        + list(ring[i + 1:])
+    try:
+        new_poly = _Poly(new_ring, [list(r.coords)
+                                    for r in poly.interiors])
+        if new_poly.is_empty or not new_poly.is_valid:
+            return False
+    except _GEOM_EXC:                                     # pragma: no cover
+        return False
+    shape.polygon = new_poly
+    # A shape emitted with a single ``altitude`` is FLAT: the inserted
+    # vertex inherits it and the shape stays flat (crown's own rule).
+    _flat_single = (getattr(shape, "node_altitudes", None) is None
+                    and getattr(shape, "altitude_high", None) is None
+                    and getattr(shape, "altitude_low", None) is None
+                    and getattr(shape, "altitude", None) is not None)
+    if lerp is not None and not _flat_single:
+        new_alts = list(alts[:i + 1]) + [lerp] + list(alts[i + 1:])
+        shape.node_altitudes = new_alts + [new_alts[0]]
+        shape.altitude_high = None
+        shape.altitude_low = None
+    return True
+
+
 def _pieces_inside(axis_pts, poly):
     """The parts of one axis polyline that run INSIDE ``poly``, as lists
     of ``(x, y)`` in local metres.  Holes are respected by the geometry
@@ -241,6 +368,106 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
         seen.add(k)
         return True
 
+    # ── §A: THE EDGE TEST ``_free`` NEVER HAD ────────────────────────
+    # ``_free`` guards against plan VERTICES only, and an aircraft axis
+    # is routinely COLLINEAR with the apron slice boundaries it crosses:
+    # 144 stations across LEMD/HECA/SPJC/CYXY landed ON a shared ring
+    # edge as unwelded T-vertices, worst value tear 0.907 m.  A
+    # value-only patch cannot fix that — two near-collinear constrained
+    # segments ~2 cm apart are the documented mm-jitter segment-recovery
+    # killer — so the geometry is what must become ONE.
+    #
+    # The tree is a CANDIDATE FILTER over shape exteriors, nothing more:
+    # the hosting edge itself is re-derived from the LIVE ring on every
+    # query (``_ring_edge_host``), because a weld splits the very edge a
+    # later station may land on.
+    _edge_on = bool(getattr(_cfg, "STATION_EDGE_WELD", False))
+    _standdown_roles, _weld_roles = _station_host_families()
+    _host_shapes: list = []
+    _host_tree = None
+    if _edge_on:
+        try:
+            from shapely.geometry import LineString as _LS
+            from shapely.strtree import STRtree as _T2
+            for s in (getattr(layout, "shapes", None) or ()):
+                poly = getattr(s, "polygon", None)
+                if poly is None or getattr(poly, "is_empty", True):
+                    continue
+                if poly.geom_type != "Polygon":
+                    continue
+                _host_shapes.append(s)
+            _host_tree = (_T2([_LS(sh.polygon.exterior.coords)
+                               for sh in _host_shapes])
+                          if _host_shapes else None)
+        except Exception:                                 # pragma: no cover
+            _host_tree = None
+    _edge_report = {"welded": 0, "weld_rings": 0,
+                    "stood_down_taxi": 0, "stood_down_other": 0,
+                    "other_roles": {}}
+    # THE WELD IS AN INVISIBLE ANCHOR, and both decimators must be told
+    # (crown's own precedent, ``_crown_spine_weld_xy``).  A welded
+    # station sits ON its host edge, so it is exactly the 3D-redundant
+    # vertex ``emit_decimate.decimate_emit_nodes`` and ``to_osm``'s own
+    # sweep remove — and their unanimity vote is taken over SHAPES, while
+    # the thing that needs the vertex is an emitted FEATURE way.  Nothing
+    # in either vote can see that dropping it re-opens the unwelded
+    # T-vertex the weld exists to close (the SPLP -13/-77 precedent,
+    # reproduced here at CYXY: the insert landed, both decimators dropped
+    # it, and the sweep still read 6 of 6 on-edge).
+    _weld_xy: list = []
+
+    def _edge_hosts(x, y):
+        """Every shape whose CURRENT exterior ring hosts ``(x, y)`` on an
+        edge, strictly interior and endpoint-clear."""
+        if _host_tree is None:
+            return []
+        from shapely.geometry import Point as _P3
+        out = []
+        try:
+            cand = _host_tree.query(
+                _P3(x, y).buffer(SHARED_VERTEX_TOL_M * 4.0))
+        except Exception:                                 # pragma: no cover
+            return []
+        for j in cand:
+            sh = _host_shapes[int(j)]
+            if _ring_edge_host(sh.polygon, x, y,
+                               SHARED_VERTEX_TOL_M) is not None:
+                out.append(sh)
+        return out
+
+    def _admit(x, y):
+        """Is this candidate minted?  ``_free`` decides vertex
+        coincidence exactly as before; §A decides the EDGE case, and
+        performs the weld as its side effect."""
+        if not _free(x, y):
+            return False
+        if not _edge_on:
+            return True
+        hosts = _edge_hosts(x, y)
+        if not hosts:
+            return True                 # a genuinely free interior node
+        roles = {(getattr(h, "role", None) or "") for h in hosts}
+        if roles & _standdown_roles:
+            _edge_report["stood_down_taxi"] += 1
+            return False
+        if not roles <= _weld_roles:
+            _edge_report["stood_down_other"] += 1
+            for r in sorted(roles - _weld_roles):
+                _edge_report["other_roles"][r] = (
+                    _edge_report["other_roles"].get(r, 0) + 1)
+            return False
+        n_welded = 0
+        for h in hosts:
+            if _weld_station_into_ring(h, x, y, SHARED_VERTEX_TOL_M):
+                n_welded += 1
+        if not n_welded:                                  # pragma: no cover
+            _edge_report["stood_down_other"] += 1
+            return False
+        _edge_report["welded"] += 1
+        _edge_report["weld_rings"] += n_welded
+        _weld_xy.append((float(x), float(y)))
+        return True
+
     for idx, s in enumerate(getattr(layout, "shapes", None) or ()):
         if (getattr(s, "role", None) or "") not in roles:
             continue
@@ -259,7 +486,7 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
             for piece in _pieces_inside(axis, poly):
                 run = [(x, y) for (x, y) in stations_on_piece(piece,
                                                               spacing_m)
-                       if _free(x, y)]
+                       if _admit(x, y)]
                 if len(run) < 2:
                     continue
                 # THE §2 DISCIPLINE, APPLIED TO THE SPINE'S OWN RUN.
@@ -287,6 +514,23 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
                         "points": pts_all, "lines": lines,
                         "stations": stations})
     layout.apron_spine_presolve = entries
+    layout.apron_spine_edge_report = dict(_edge_report)
+    layout._apron_station_weld_xy = list(_weld_xy)
+    if _edge_on and (_edge_report["welded"] or _edge_report["stood_down_taxi"]
+                     or _edge_report["stood_down_other"]):
+        _other = ("" if not _edge_report["other_roles"] else
+                  " (" + ", ".join(f"{k}×{v}" for k, v in
+                                   sorted(_edge_report["other_roles"].items()))
+                  + ")")
+        UI.vprint(1,
+            f"  [apron-spine] ON-EDGE candidates: "
+            f"{_edge_report['welded']} WELDED as T-vertices into "
+            f"{_edge_report['weld_rings']} apron-family ring(s) (one node, "
+            f"the station value wins); "
+            f"{_edge_report['stood_down_taxi']} STOOD DOWN on a "
+            f"taxiway-family host (that ground already carries the anchored "
+            f"surface); {_edge_report['stood_down_other']} stood down on "
+            f"another family{_other} — spec lemd-rim-and-stations §A")
     if entries:
         n_pts = sum(len(e["points"]) for e in entries)
         n_lines = sum(len(e["lines"]) for e in entries)

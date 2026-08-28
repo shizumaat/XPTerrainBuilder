@@ -285,6 +285,20 @@ ROLE_OLS_CUT = "ols_cut"
 # design; ``verification.check_object_pads`` is its lockstep reader.
 ROLE_OBJECT_PAD = "object_pad"
 
+# A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD (spec
+# ``docs/specs/lemd-rim-and-stations-spec.md`` Amendment 1 §1,
+# 2026-08-28).  A building pad is ONE FLAT VALUE by definition — the
+# pads-as-band-variables §1.1 invariant — so no weld may splice a
+# FOREIGN-valued node into its ring.  Measured: LEMD's basin rim/pan
+# rings ran along ``building8``'s ring and the nid-level final weld took
+# it from 19 nodes at 600.50 to 71 nodes at three values (600.50 /
+# 596.30 / 587.75), a 12.75 m step inside a pad and 1,421
+# ``building|building`` census rows.  Read by the nid-level final weld
+# (``to_osm``) and by the ``apron_spine_stations`` §A inserter — ONE set,
+# two consumers.
+PAD_WELD_STANDDOWN_ROLES = frozenset((ROLE_BUILDING, ROLE_OBJECT_PAD))
+_PAD_WELD_STANDDOWN_ROLES = PAD_WELD_STANDDOWN_ROLES
+
 # Weld-DONOR roles (user rulings 2026-07-09/2026-07-17): the pavement
 # families a SOFT terrain strip may ADOPT a coincident authority value
 # from — at the emit consensus (``to_osm``'s strip-adoption branch) and
@@ -2250,7 +2264,32 @@ class PavementLayout:
 
         _regrid()
         _n_weld = 0
+        _n_pad_standdown = 0
         for _chain_i, (_kind, _idx, _enids) in enumerate(_weld_chains):
+            # ── A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD ────────
+            # (spec lemd-rim-and-stations Amendment 1 §1, 2026-08-28.)
+            # A building pad is ONE FLAT VALUE by definition — the
+            # pads-as-band-variables §1.1 invariant — and this splice
+            # references a FOREIGN node id, so whatever value that node
+            # carries becomes the pad's value there.  Measured at LEMD:
+            # the §B rim/pan rings ran along ``building8``'s ring and the
+            # splice took it from 19 nodes at 600.50 to 71 nodes at three
+            # values (600.50 / 596.30 / 587.75), a 12.75 m step inside a
+            # pad and 1,421 ``building|building`` census rows.
+            #
+            # The invariant is enforced HERE, at the geometry layer:
+            # foreign-valued nodes are never inserted into a pad ring.
+            # Rim/pan geometry may ABUT it — ownership of the rim band is
+            # untouched (§B stands), and ``conformance.enforce_
+            # conformance`` may still insert a vertex at the pad's OWN
+            # interpolated altitude, which is flat-preserving on a flat
+            # ring.  Only this foreign-nid splice stands down.
+            if _kind == "p":
+                _host_shape = pending[_idx][1]
+                if (getattr(_host_shape, "role", "") or "") \
+                        in _PAD_WELD_STANDDOWN_ROLES:
+                    _n_pad_standdown += 1
+                    continue
             open_nids = _enids[:-1]
             member = set(open_nids)
             out: list[int] = []
@@ -2371,6 +2410,15 @@ class PavementLayout:
         # That is the exact defect the reorder exists to close, so it is
         # REPORTED LOUDLY rather than counted quietly; the spec makes it a
         # STOP, and the fix is the disagreement, never the count.
+        if _n_pad_standdown:
+            UI.vprint(1,
+                f"  [pav-builder] nid-level final weld: "
+                f"{_n_pad_standdown} building-pad ring(s) STOOD DOWN as "
+                f"weld hosts — a pad is one flat value by definition and "
+                f"this splice references a FOREIGN node id (spec "
+                f"lemd-rim-and-stations Amendment 1 §1; the pads-as-band-"
+                f"variables §1.1 flatness invariant, enforced at the "
+                f"geometry layer).")
         if _n_weld:
             _pre_on = os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0"
             UI.vprint(1,
@@ -2632,9 +2680,20 @@ class PavementLayout:
         # that removing it re-opens the unwelded terminus (SPLP -13/-77:
         # the insert landed, both decimators dropped it, and the spine
         # end emitted mid-edge again).  Exempt those coordinates.
+        # APRON-STATION WELD protection (spec lemd-rim-and-stations §A;
+        # owner RULINGS 2026-08-28 item 1) — the SAME class, and it must
+        # be exempted in BOTH decimators or the other one drops it (the
+        # standing two-decimators-mask-each-other trap).  A station
+        # welded into its host apron rings sits ON that edge, so this
+        # sweep sees a 3D-redundant vertex; what it cannot see is the
+        # emitted ``apron_spine_station`` way that needs the shared node.
+        _weld_sources = [(True, getattr(self, "_apron_station_weld_xy",
+                                        None) or ())]
         if _spine_weld_on:
-            for (_wx, _wy) in (getattr(
-                    self, "_crown_spine_weld_xy", None) or ()):
+            _weld_sources.append(
+                (True, getattr(self, "_crown_spine_weld_xy", None) or ()))
+        for (_on, _pts) in _weld_sources:
+            for (_wx, _wy) in _pts:
                 try:
                     _wk = registry.find_nearest(float(_wx), float(_wy),
                                                 registry.tol_m)
@@ -3267,6 +3326,35 @@ class PavementLayout:
         # PROUD of the membrane beside them, and the membrane sagged to
         # 70.11 at the owner's dip site — the "disconnected T with two
         # arcs" and the dip are one defect (RULINGS 2026-08-26b 3/5).
+        #
+        # ── §A: A WELDED STATION IS ONE NODE, AND ITS VALUE WINS ─────
+        # (spec lemd-rim-and-stations §A.1(a); owner RULINGS 2026-08-28
+        # item 1.)  ``apron_spine_stations`` inserts an on-edge station
+        # into every apron-family host ring at presolve, but this block
+        # minted a FRESH nid for every station point — so the emitted
+        # patch carried a COORDINATE TWIN: two node ids at one place,
+        # with two different values (measured at CYXY: ring 695.02
+        # against station 695.73, a 0.71 m tear at zero horizontal
+        # distance).  Reuse is the crown-spine precedent above, at the
+        # emitter's OWN canonical map and tolerance.
+        #
+        # THE VALUE RULING IS THE OPPOSITE OF THE SPINE'S.  There the
+        # ring is the authority (the seam ramp has driven the crown to
+        # zero at the cut-back line).  Here round-3 Amendment 1 rules
+        # station values PHASE-A CONSTANTS and the membrane the side
+        # that yields, so a welded node takes the STATION's value —
+        # including over a resolved ring consensus.  Only coordinates
+        # the weld itself recorded are eligible; a station that merely
+        # happens to land near a ring node is not one of them.
+        _st_weld_ll: set = set()
+        for (_wx, _wy) in (getattr(self, "_apron_station_weld_xy", None)
+                           or ()):
+            try:
+                _wla, _wlo = self.m_to_ll(float(_wx), float(_wy))
+            except Exception:                       # pragma: no cover
+                continue
+            _st_weld_ll.add((round(float(_wla), 9), round(float(_wlo), 9)))
+        _st_reused = 0
         _st_lines = getattr(self, "apron_spine_station_emit", None) or []
         if _st_lines:
             _next_st_nid = (min(node_id_to_ll) - 1
@@ -3275,6 +3363,17 @@ class PavementLayout:
                 _snids: list[int] = []
                 for (_sla, _slo), _sa in zip(_pts_ll, _alts):
                     if _sa is None:
+                        continue
+                    _hit = None
+                    if (round(float(_sla), 9),
+                            round(float(_slo), 9)) in _st_weld_ll:
+                        _hit = _spine_reuse_nid(_sla, _slo)
+                    if _hit is not None:
+                        node_id_to_consensus[_hit] = float(_sa)
+                        node_alt_abs_nids.add(_hit)
+                        if not _snids or _snids[-1] != _hit:
+                            _snids.append(_hit)
+                        _st_reused += 1
                         continue
                     node_id_to_ll[_next_st_nid] = (_sla, _slo)
                     node_id_to_consensus[_next_st_nid] = float(_sa)
@@ -3286,6 +3385,12 @@ class PavementLayout:
                         (next_wid[0], _snids,
                          {"o4_feature": "apron_spine_station"}))
                     next_wid[0] -= 1
+        if _st_reused:
+            UI.vprint(1,
+                f"  [apron-spine] {_st_reused} welded station node(s) "
+                f"REUSED their host ring's emitted node — one node, and "
+                f"the STATION value is what it carries (the membrane "
+                f"yields; spec lemd-rim-and-stations §A)")
 
         # Shape INTERIOR RINGS as closed constrained ways (see the
         # emit-model note above the shape loop).  Same mechanism as the
@@ -3525,6 +3630,8 @@ class PavementLayout:
             interior_zones_sidecar as _interior_zones_sidecar,
             terrace_certificates_sidecar as _terrace_certs_sidecar,
             terrace_joints_sidecar as _terrace_joints_sidecar)
+        from .object_terrain_assembly import (
+            basin_wall_joints_sidecar as _basin_wall_joints_sidecar)
         from .grade_law import ruleset_of as _grade_law_ruleset_of
         from .groundside import (
             disconnected_rings_sidecar as _disconnected_rings_sidecar)
@@ -3692,7 +3799,15 @@ class PavementLayout:
             # twin).  Empty list with the gate off, and the key is
             # written unconditionally so a reader can tell "no
             # joints" from "patch predates the law".
-            "terrace_joints": _terrace_joints_sidecar(self),
+            # ONE DECLARED-STEP REGISTER, TWO PRODUCERS (spec
+            # lemd-rim-and-stations Amendment 2): the apron terrace
+            # plan, and the basin trench's pan<->rim WALL — the
+            # trench law's own designed step, declared by name so
+            # ``check_grade`` exempts EXACTLY the declared joints and
+            # an undeclared trench step still prices.  Never a
+            # role-based blanket exemption.
+            "terrace_joints": (_terrace_joints_sidecar(self)
+                               + _basin_wall_joints_sidecar(self)),
             # §2(a) THE CERTIFICATE: the recorded evidence
             # chain that authorised each PANELIZED apron.
             # An apron panelizes only with the full chain,

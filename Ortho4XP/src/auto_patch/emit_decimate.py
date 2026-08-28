@@ -579,6 +579,19 @@ def decimate_emit_nodes(layout, icao: str = "") -> int:
                   for (x, y) in (getattr(
                       layout, "_crown_spine_weld_xy", None) or ())}
 
+    # THE APRON-STATION WELD is the SAME class (spec lemd-rim-and-
+    # stations §A; owner RULINGS 2026-08-28 item 1).  A station that
+    # landed on an apron ring EDGE is welded into every host ring so the
+    # two share one emitted node — which makes it 3D-redundant against
+    # that edge by construction, and the vote here is taken over SHAPES
+    # while the thing that needs the vertex is an emitted FEATURE way.
+    # Measured at CYXY: the insert landed, this pass dropped it, and the
+    # ``--on-edge`` sweep still read 6 of 6 unwelded — the SPLP -13/-77
+    # precedent, reproduced exactly.
+    _weld_keys |= {_key(float(x), float(y))
+                   for (x, y) in (getattr(
+                       layout, "_apron_station_weld_xy", None) or ())}
+
     # STRING ENDS MUST NOT BE DELETED (owner ruling 2026-07-29).  The
     # taut-string rod is carried into ``final_grade_projection`` by
     # COMPOSING its links across runs of decimated vertices — a removed

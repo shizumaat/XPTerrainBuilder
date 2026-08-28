@@ -153,6 +153,11 @@ __all__ = [
     # PADS AS BAND-BOUNDED VARIABLES
     # (docs/specs/pads-as-band-variables-spec.md)
     "PADS_BAND_VARIABLES",
+    # LEMD ROUND 2 (docs/specs/lemd-rim-and-stations-spec.md §A/§B/§C)
+    "STATION_EDGE_WELD",
+    "TRENCH_PAVEMENT_YIELD",
+    "RIM_SOLVED_NEIGHBOUR",
+    "TUNNEL_RIM_NEIGHBOUR_WINDOW_M",
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
@@ -9818,3 +9823,78 @@ BAND_LAW_REFUSE = (
 # (spec §1.5).
 PADS_BAND_VARIABLES = (
     _os.environ.get("O4_PADS_BAND_VARIABLES", "1") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# LEMD ROUND 2 — stations weld or stand down; the trench outranks
+# pavement at its rim; the rim seats at the SOLVED neighbour
+# (spec docs/specs/lemd-rim-and-stations-spec.md §A/§B/§C; owner
+# RULINGS 2026-08-28 items 1-3; attribution lane/lemd123 cfae6daa)
+# ══════════════════════════════════════════════════════════════════════
+#
+# §A — THE STATION EDGE TEST.  ``apron_spine_stations._free`` guards
+# candidates against plan VERTICES only (a 0.5 m STRtree), with no EDGE
+# test, and aircraft axes are routinely collinear with the apron slice
+# boundaries — so stations land ON shared ring edges as unwelded
+# T-vertices: 144 across LEMD/HECA/SPJC/CYXY, every one on a boundary
+# SHARED by two rings, worst value tear 0.907 m (CYXY).  With the flag
+# ON a candidate whose foot lies on a ring EDGE is never minted as a
+# FREE node: on an APRON-family host it is WELDED into every host ring
+# at the edge lerp (one node, and the STATION VALUE WINS — round-3
+# Amendment 1 makes station values phase-A constants); on a
+# TAXIWAY-family host it STANDS DOWN, because that ground already
+# carries the anchored surface the station would re-state.
+#
+# ``O4_STATION_EDGE_WELD=0`` runs the pre-ruling minter exactly: no edge
+# test, no weld, no stand-down — BYTE-IDENTICAL.
+STATION_EDGE_WELD = (
+    _os.environ.get("O4_STATION_EDGE_WELD", "1") != "0")
+
+# §B — THE TRENCH IS SENIOR TO PAVEMENT AT ITS RIM.  The 2026-08-26
+# trench-seniority ruling ("inside a below-grade region the trench is
+# senior to every pad/building authority") scoped its yield population
+# to ``ROLE_BUILDING``; the owner's item 2 extends it to PAVEMENT.
+# Measured basis: LEMD apron -10228, standing 0.70-0.89 m off the pan
+# along one 98 m run, consumed the floor cutback AND the whole 0.6 m rim
+# band there — a 12.75 m unwalled drop at the owner's own coordinate,
+# and rim coverage of only 289/338 perimeter samples.
+#
+# Two legs, one law: pavement overlapping pan ∪ rim-band JOINS the
+# authority-yield population (the floor pan and the wall band are born
+# THROUGH it), and the pavement shape is CLIPPED BACK by the rim-band
+# width so the pavement edge abuts the rim's OUTER edge, never the pan.
+#
+# ``O4_TRENCH_PAVEMENT_YIELD=0`` restores the ROLE_BUILDING-only yield
+# population and the body-only R13 cut — BYTE-IDENTICAL.
+TRENCH_PAVEMENT_YIELD = (
+    _os.environ.get("O4_TRENCH_PAVEMENT_YIELD", "1") != "0")
+
+# §C — THE RIM SEATS AT THE SOLVED NEIGHBOUR, DEM LAST.  Each rim band
+# part used to seat at the RAW DEM at its own centroid, with ``R_est``
+# only the nodata fallback: all 13 LEMD rim parts read LOW against their
+# nearest built neighbour (median -3.84 m, worst -5.41 m against
+# building8's 600.50), with 4.14 m of rim self-spread from per-part DEM
+# sampling.  That collides with DEM-LAST (RULINGS 2026-08-25) and with
+# the basin-rim-flush spec's own unimplemented §1(2).
+#
+# With the flag ON a rim part's value is, in priority order: the nearest
+# ANCHORED built neighbour within ``TUNNEL_RIM_NEIGHBOUR_WINDOW_M`` (a
+# seated pad's value; a valued ring's lerp at the adjacency) → ``R_est``
+# (the law median) → the raw DEM sample, which becomes what it always
+# should have been: the LAST rung, reached only where neither a
+# neighbour nor a law median exists.
+#
+# ``O4_RIM_SOLVED_NEIGHBOUR=0`` restores the per-part DEM sample —
+# BYTE-IDENTICAL.
+RIM_SOLVED_NEIGHBOUR = (
+    _os.environ.get("O4_RIM_SOLVED_NEIGHBOUR", "1") != "0")
+
+# The §C adjacency window.  "Adjacent" for a 0.6 m rim band means the
+# surface it abuts: with §B's clip the nearest pavement edge stands
+# exactly ``_TUNNEL_RIM_BAND_WIDTH_M`` away, and a pad that CONTAINS the
+# pit (LEMD building8, 33,471 m²) is at distance zero.  The window is
+# generous enough to reach the surface across a node-split gap and short
+# enough that a rim never adopts a surface it does not touch; beyond it
+# the law median R_est is the honest answer.
+TUNNEL_RIM_NEIGHBOUR_WINDOW_M = float(
+    _os.environ.get("O4_TUNNEL_RIM_NEIGHBOUR_WINDOW_M", "30.0"))

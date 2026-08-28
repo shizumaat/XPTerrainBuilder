@@ -3930,3 +3930,57 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
     private corpus, no copied `Elevation_data`. The script does not
     handle a worktree outside its expected root; that is the defect to
     close, not this lane's mount.
+
+## 2026-08-28 — LEMD round 2 (lane/lemdrim, spec lemd-rim-and-stations)
+
+* **OTHH acceptance build NOT run.** Spec §D asks for it "if the
+  artifact ledger serves it cheaply"; at this code tree the artifact
+  ledger holds no OTHH entry, so serving it meant a full build. §C's
+  OTHH exposure is bounded by scope instead: the rim law is gated to
+  BASIN facilities and the OTHH bowls' FLOORS are untouched, and the
+  tunnel arm's byte-identity is pinned by
+  `tests/test_object_basin_trench.py::TestRimSeatsAtTheSolvedNeighbour
+  ::test_a_TUNNEL_facility_keeps_its_per_part_DEM_sample` plus the
+  pre-existing `test_object_tunnel_terrain.py` flush-wall twin.  §B DOES
+  reach the OTHH drainage bowls (they are open pits): their pavement is
+  now clipped back by the 0.6 m rim-band width and yields its authority
+  there.  Owed: one OTHH patch build with the per-facility floor / rim
+  range / R_est table.
+* **Only the directly-covering test files were run** (pre-ship mode),
+  once, through the run ledger: `test_apron_spine_stations`,
+  `test_object_basin_trench`, `test_lattice_overlap_read`,
+  `test_harness`, `test_basin_group_seat`, `test_kdfw_bridge_refusal`,
+  `test_object_bridge_terrain`, `test_object_tunnel_terrain`,
+  `test_round12_bridge_deck_datum`, plus what `blast.py` named for
+  `emit_decimate.py` (`test_crown_spine_seam_weld`,
+  `test_emit_decimate_chord_split`, `test_rod_chain_end_keep`,
+  `test_gap_fill_spine`, `test_fabric_sparse`,
+  `test_flat_site_fast_path`, `test_taut_graded_strip`).  907 passed,
+  15 failed — all 15 reproduce on a clean main tree.  `layout.py`'s 147
+  direct-importer suites were NOT run.
+* **No timing measurement.** Every build in this round ran concurrently
+  with others and through the run ledger; the wall times recorded are
+  not timing evidence and are quoted nowhere as such.
+* **Amendment 1 round (2026-08-28, same lane).** Same scope as above:
+  the directly-covering files once (1,033 passed / 15 failed, all 15
+  reproducing on clean main), plus the pad suites `test_object_pads`,
+  `test_pad_variables`, `test_pad_seat_consistency`,
+  `test_detached_pad_law_seat` for the pad-stand-down ruling.  ONE LEMD
+  acceptance build + one HECA §A re-sweep build; no OTHH, no battery, no
+  timing.
+* **Amendment 2 round (2026-08-28, same lane).** Covering files once
+  (1,100 passed / 15 failed, the same 15 that reproduce on clean main),
+  plus `test_apron_terrace_law` for the shared declared-step register.
+  ONE LEMD acceptance build; no HECA rebuild was needed — the patch BODY
+  is byte-identical to the Amendment-1 arm (`body_sha 7e77affc9f17`),
+  because Amendment 2 changes only the sidecar DECLARATION and the
+  census's reading of it, never the surface.  No OTHH, no battery, no
+  timing.
+* **Amendment 3 round (2026-08-28, same lane).** Covering files once
+  (1,111 passed / 15 failed, the same 15 that reproduce on clean main).
+  ONE LEMD acceptance build per attempt (two: the first flagged the
+  carried region at its own boundary and cleared only 4 of 11 rows).
+  No HECA rebuild — the patch BODY is byte-identical to the
+  Amendment-1/2 arms (`body_sha 7e77affc9f17`); Amendment 3 is a
+  declaration + census leg and never touches the surface.  No OTHH, no
+  battery, no timing.

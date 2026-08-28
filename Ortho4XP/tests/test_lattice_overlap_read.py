@@ -223,3 +223,158 @@ def test_the_tool_is_in_the_index():
     assert "lattice_overlap_read.py" in text
     assert "_parse_osm" in text, \
         "the row must state why the tool parses features itself"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# ``--on-edge`` — UNWELDED T-VERTICES, and the mesh needles they force
+# (promoted 2026-08-28 from the lane/lemd123 scratch sweep, RULINGS
+# ``7e90032``; spec docs/specs/lemd-rim-and-stations-spec.md §D)
+# ═════════════════════════════════════════════════════════════════════
+
+def test_a_node_ON_a_ring_edge_is_reported_as_unwelded(tmp_path):
+    """The measured class: a station 2 cm inside the apron boundary, on
+    an edge whose endpoints are 200 m away — a T-vertex with a value of
+    its own against the ring's lerp."""
+    p = _patch(tmp_path, "onedge.osm", apron=_SQUARE,
+               membrane=[(-100, -199.98), (0, -199.98), (100, -199.98)],
+               feature="apron_spine_station")
+    r = LOR.read_on_edge(p)
+    d = r["apron_spine_station"]
+    assert d["nodes"] == 3
+    assert d["shared_with_a_ring"] == 0
+    assert d["on_edge_unwelded"] == 3
+    row = d["rows"][0]
+    assert row["host_role"] == "apron"
+    assert row["perp_m"] == pytest.approx(0.02, abs=0.01)
+
+
+def test_a_WELDED_node_is_not_reported(tmp_path):
+    """The §A outcome: the station coordinate IS a ring vertex, so the
+    node id is shared and there is one geometry, not two."""
+    apron = [(-200, -200), (-100, -200), (0, -200), (100, -200),
+             (200, -200), (200, 200), (-200, 200)]
+    p = _patch(tmp_path, "welded.osm", apron=apron,
+               membrane=[(-100, -200), (0, -200), (100, -200)],
+               feature="apron_spine_station")
+    r = LOR.read_on_edge(p)
+    d = r["apron_spine_station"]
+    assert d["on_edge_unwelded"] == 0, d["rows"]
+
+
+def test_a_node_AT_an_edge_endpoint_is_that_endpoint_not_a_T_vertex(
+        tmp_path):
+    """``--vertex-tol`` is what makes an endpoint an endpoint: a node
+    within it of a ring CORNER is the corner, not a T-vertex on the edge
+    beside it."""
+    p = _patch(tmp_path, "corner.osm", apron=_SQUARE,
+               membrane=[(-199.9, -199.98), (0, 500), (100, 500)],
+               feature="apron_spine_station")
+    r = LOR.read_on_edge(p)
+    assert r["apron_spine_station"]["on_edge_unwelded"] == 0
+
+
+def test_a_node_well_INSIDE_the_apron_is_not_reported(tmp_path):
+    p = _patch(tmp_path, "inside.osm", apron=_SQUARE,
+               membrane=[(-100, 0), (0, 0), (100, 0)],
+               feature="apron_spine_station")
+    r = LOR.read_on_edge(p)
+    assert r["apron_spine_station"]["on_edge_unwelded"] == 0
+
+
+def test_the_value_TEAR_is_reported_against_the_hosts_own_lerp(tmp_path):
+    """What the node costs: the station carries its own value where the
+    ring says something else.  Worst measured at CYXY: 0.907 m."""
+    p = _patch(tmp_path, "tear.osm", apron=_SQUARE,
+               membrane=[(-100, -199.98), (0, -199.98), (100, -199.98)],
+               feature="apron_spine_station")
+    r = LOR.read_on_edge(p)
+    row = r["apron_spine_station"]["rows"][0]
+    # the fixture writes every node at 100.00, so the tear is zero — the
+    # point is that it is COMPUTED against the host's lerp, per host.
+    assert row["tears"], "no host lerp was priced at all"
+    assert row["worst_tear_m"] == pytest.approx(0.0, abs=1e-6)
+
+
+# ── the needle read (owner sim load-time regression, 2026-08-28b) ────
+
+def test_an_unwelded_run_reports_NEAR_PARALLEL_pairs(tmp_path):
+    """The mesh cost of the same defect: two constrained segments ~2 cm
+    apart and parallel force a needle fan along the whole collinear run.
+    Measured on the owner's +30+031 tile: aspect p99 43,275 against a
+    ~23 baseline, and the worst cell's 8 of 12 near-parallel pairs were
+    apron ring x apron_spine_station."""
+    p = _patch(tmp_path, "needles.osm", apron=_SQUARE,
+               membrane=[(-100, -199.98), (0, -199.98), (100, -199.98)],
+               feature="apron_spine_station")
+    np_ = LOR.read_on_edge(p)["near_parallel_pairs"]
+    assert np_["feature_x_ring"], "the needle source went unreported"
+    assert np_["by_class_and_role"].get(
+        "apron_spine_station x apron") == len(np_["feature_x_ring"])
+    assert np_["feature_x_ring"][0]["gap_m"] == pytest.approx(0.02,
+                                                              abs=0.01)
+
+
+def test_a_WELDED_run_reports_NO_near_parallel_pair(tmp_path):
+    """The acceptance: welding removes the needle source, not just the
+    value tear."""
+    apron = [(-200, -200), (-100, -200), (0, -200), (100, -200),
+             (200, -200), (200, 200), (-200, 200)]
+    p = _patch(tmp_path, "nofan.osm", apron=apron,
+               membrane=[(-100, -200), (0, -200), (100, -200)],
+               feature="apron_spine_station")
+    np_ = LOR.read_on_edge(p)["near_parallel_pairs"]
+    assert np_["feature_x_ring"] == [], np_["feature_x_ring"]
+
+
+def test_END_TO_END_collinear_segments_are_a_weld_not_a_needle():
+    """All three conditions are needed.  Two segments laid end to end
+    are at zero distance and perfectly parallel and are not a needle
+    source; only a shared RUN is."""
+    a = ((0.0, 0.0), (10.0, 0.0))
+    end_to_end = ((10.0, 0.0), (20.0, 0.0))
+    side_by_side = ((2.0, 0.02), (8.0, 0.02))
+    assert LOR._near_parallel(a, end_to_end) is None
+    assert LOR._near_parallel(a, side_by_side) is not None
+    # ...and a crossing pair is not one either
+    assert LOR._near_parallel(a, ((5.0, -5.0), (5.0, 5.0))) is None
+
+
+def test_apron_x_apron_pairs_are_reported_SEPARATELY(tmp_path):
+    """A SECOND, older needle source, named and never conflated with the
+    station class: two apron rings tracing one boundary with
+    non-identical spellings."""
+    p = _patch(tmp_path, "twin_rings.osm", apron=_SQUARE,
+               membrane=[(-100, 0), (0, 0), (100, 0)],
+               other=("apron", [(-200, -200.05), (200, -200.05),
+                                (200, -400), (-200, -400)]))
+    np_ = LOR.read_on_edge(p)["near_parallel_pairs"]
+    assert np_["apron_x_apron"], "the twin-ring boundary went unreported"
+    assert np_["feature_x_ring"] == []
+
+
+def test_the_CLI_on_edge_JSON_is_the_library_result(tmp_path, capsys):
+    p = _patch(tmp_path, "cli.osm", apron=_SQUARE,
+               membrane=[(-100, -199.98), (0, -199.98), (100, -199.98)],
+               feature="apron_spine_station")
+    out = tmp_path / "out.json"
+    assert LOR.main([str(p), "--on-edge", "--json", str(out)]) == 0
+    payload = json.loads(out.read_text())
+    assert payload[str(p)] == json.loads(json.dumps(LOR.read_on_edge(p)))
+    assert "sit ON a ring edge" in capsys.readouterr().out
+
+
+def test_the_on_edge_read_still_REFUSES_without_a_sidecar(tmp_path):
+    p = _patch(tmp_path, "nosidecar.osm", apron=_SQUARE,
+               membrane=[(-100, 0), (0, 0), (100, 0)])
+    (tmp_path / "nosidecar.osm.axes.json").unlink()
+    with pytest.raises(SystemExit):
+        LOR.main([str(p), "--on-edge"])
+
+
+def test_the_index_row_documents_the_on_edge_subcommand():
+    index = (_ROOT.parent / "tools" / "INDEX.md").read_text()
+    row = [ln for ln in index.splitlines()
+           if "lattice_overlap_read.py" in ln]
+    assert row, "the tool has no INDEX.md row"
+    assert "--on-edge" in row[0]
+    assert "144" in row[0], "the measured basis is not in the row"

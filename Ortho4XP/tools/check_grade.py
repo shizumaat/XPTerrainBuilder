@@ -4641,6 +4641,51 @@ def _terrace_joints_to_m(terrace_joints_ll, ll_to_m):
     return out
 
 
+#: ``kind`` of a declared joint that is a below-grade TRENCH WALL, not a
+#: surface terrace (the basin emitter's own literal, quoted here because
+#: a validator must not import solver state).
+BASIN_WALL_JOINT_KIND = "basin_trench_wall"
+
+
+def _terrace_joint_carried_flags(terrace_joints_ll) -> list:
+    """Per JOINT, per POINT: is this stretch of the declared step inside
+    a below-grade region a pad/shell CARRIES? (spec
+    ``docs/specs/lemd-rim-and-stations-spec.md`` Amendment 3.)
+
+    Index-aligned with :func:`_terrace_joints_to_m`'s output — a row the
+    emitter published no flags for reads all-False, so every apron
+    terrace joint and every patch built before the amendment is judged
+    exactly as before.  The flags are the EMITTER's, off the yield
+    population's own geometry; nothing here re-derives "carried".
+    """
+    out = []
+    for row in (terrace_joints_ll or []):
+        pts = row.get("points") or []
+        if len(pts) < 2:
+            continue
+        flags = row.get("carried")
+        if (row.get("kind") != BASIN_WALL_JOINT_KIND
+                or not isinstance(flags, list)
+                or len(flags) != len(pts)):
+            out.append([False] * len(pts))
+            continue
+        out.append([bool(v) for v in flags])
+    return out
+
+
+def _joint_segment_carried(carried_flags, joint_index: int,
+                           segment_index: int) -> bool:
+    """Is the crossed SEGMENT carried?  Both of its endpoints must be —
+    a wall running off the shell onto open ground severs the route at
+    exactly the point it leaves, and that severance is real."""
+    if not carried_flags or joint_index >= len(carried_flags):
+        return False
+    flags = carried_flags[joint_index]
+    if segment_index + 1 >= len(flags):
+        return False
+    return bool(flags[segment_index]) and bool(flags[segment_index + 1])
+
+
 def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     """Σ of the declared step heights of every joint this chord crosses."""
     total = 0.0
@@ -4997,7 +5042,9 @@ def _fan_ramp_pair_cap(fan_ramp_zones_m, xa, ya, xb, yb):
 
 
 def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
-                                       taxi_axes) -> List[Violation]:
+                                       taxi_axes,
+                                       carried_flags=None
+                                       ) -> List[Violation]:
     """§5(b)/(c): a declared joint intersecting a taxi ROUTE is an ERROR.
 
     The population is the sidecar's own ``routes_exact`` chains, converted
@@ -5008,7 +5055,7 @@ def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
     if not terrace_joints_m or not taxi_axes:
         return []
     out: List[Violation] = []
-    for (pts, step) in terrace_joints_m:
+    for j, (pts, step) in enumerate(terrace_joints_m):
         for entry in taxi_axes:
             poly = entry[0]
             for a in range(len(poly) - 1):
@@ -5016,6 +5063,13 @@ def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
                 for k in range(len(pts) - 1):
                     if _segments_cross(pts[k], pts[k + 1],
                                        poly[a], poly[a + 1]):
+                        # AMENDMENT 3: a below-grade trench wall under
+                        # ground a pad/shell CARRIES is not on the
+                        # movement surface — the route rides the shell
+                        # above it, so it severs nothing.  The same wall
+                        # crossing a route on OPEN ground still prices.
+                        if _joint_segment_carried(carried_flags, j, k):
+                            continue
                         hit = True
                         break
                 if not hit:
@@ -5031,7 +5085,9 @@ def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
 
 
 def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
-                                         ll_to_m) -> List[Violation]:
+                                         ll_to_m,
+                                         carried_flags=None
+                                         ) -> List[Violation]:
     """§5(d): a declared joint inside the runway-strip footprint is an
     ERROR — walls at runway edges are NEVER lawful (owner 2026-08-01), and
     a joint is a wall by construction."""
@@ -5041,10 +5097,15 @@ def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
     if not rings:
         return []
     out: List[Violation] = []
-    for (pts, step) in terrace_joints_m:
-        for (px, py) in pts:
+    for j, (pts, step) in enumerate(terrace_joints_m):
+        for i, (px, py) in enumerate(pts):
             if not any(_point_in_rect_ring(px, py, r, _WALL_STRIP_MARGIN_M)
                        for r in rings):
+                continue
+            # AMENDMENT 3, the same conditional: a wall point under
+            # carried ground is not a wall AT the runway edge.
+            if (carried_flags and j < len(carried_flags)
+                    and i < len(carried_flags[j]) and carried_flags[j][i]):
                 continue
             out.append(Violation(
                 grade_pct=100.0, excess_pct=100.0,
@@ -5613,6 +5674,30 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
     return out
 
 
+# ── ONE WALL, ONE ALLOWANCE (spec lemd-rim-and-stations Amendment 2,
+# 2026-08-28) ────────────────────────────────────────────────────────
+# Two declared-step readers can now speak about the SAME contact: the
+# joint register (``terrace_joints``, which the basin emitter publishes
+# its pan↔rim WALL into) and the facility's own declared floor→rim drop
+# (``basin_facilities``).  Summing them would hand one wall twice its
+# height in allowance — a trench born a metre too deep would go unseen,
+# which is precisely what the declared-step law exists to prevent.
+#
+# So the two are MAX'd, never added: the wall is one designed step, and
+# the allowance is the largest thing DECLARED about it.  Strictly
+# stricter than the sum, so this can only ever ADD rows, never blind
+# one; a contact only one reader knows about is unchanged.
+def _declared_step_allowance(terrace_joints_m, basin_declared,
+                             xa, ya, xb, yb, way_a, way_b,
+                             elev_a: float, elev_b: float) -> float:
+    joint = (_terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb)
+             if terrace_joints_m else 0.0)
+    facility = (_basin_declared_drop(basin_declared, way_a, way_b,
+                                     elev_a, elev_b)
+                if basin_declared else 0.0)
+    return joint if joint >= facility else facility
+
+
 def _check_vertex_to_edge_step(
     vertices: List[Vertex],
     edges: List[Edge],
@@ -5699,16 +5784,9 @@ def _check_vertex_to_edge_step(
         # the joint the pair straddles: the identical population, and the
         # identical number, the solver was bound to.  A pair crossing no
         # joint is untouched, so a gate-off patch reads exactly as before.
-        allow_step = edge_step_m
-        if terrace_joints_m:
-            allow_step += _terrace_step_allowance(
-                terrace_joints_m, v.x, v.y, px, py)
-        # THE TUNNEL-TRENCH DECLARED STEP (spec §1.1): a contact with a
-        # declared trench plate is lawful down to the facility's OWN
-        # declared floor→rim drop; only the EXCESS beyond it reports.
-        if basin_declared:
-            allow_step += _basin_declared_drop(
-                basin_declared, way_v, ways[e.way_idx], v.elev, e_proj)
+        allow_step = edge_step_m + _declared_step_allowance(
+            terrace_joints_m, basin_declared,
+            v.x, v.y, px, py, way_v, ways[e.way_idx], v.elev, e_proj)
         if step > allow_step + 1e-5:
             out.append(EdgeStep(
                 step_m=step,
@@ -5823,17 +5901,9 @@ def _check_edge_midpoint_step(
             # APRON TERRACE LOCKSTEP (see ``_check_vertex_to_edge_step``):
             # after the pre-solve split a declared joint is a cross-shape
             # pair 0.6 m apart, and its DECLARED step is the allowance.
-            allow_step = edge_step_m
-            if terrace_joints_m:
-                allow_step += _terrace_step_allowance(
-                    terrace_joints_m, sx, sy, px, py)
-            # THE TUNNEL-TRENCH DECLARED STEP (see
-            # ``_check_vertex_to_edge_step``): the facility's declared
-            # floor→rim drop, and only the excess beyond it.
-            if basin_declared:
-                allow_step += _basin_declared_drop(
-                    basin_declared, way_e1, ways[e2.way_idx],
-                    s_elev, e2_elev)
+            allow_step = edge_step_m + _declared_step_allowance(
+                terrace_joints_m, basin_declared, sx, sy, px, py,
+                way_e1, ways[e2.way_idx], s_elev, e2_elev)
             if step > allow_step + 1e-5:
                 out.append(EdgeStep(
                     step_m=step,
@@ -7229,6 +7299,9 @@ def run_checks(
     # in this audit's metre frame.  Empty for every patch built without
     # the law — every check below is then byte-identical to before.
     terrace_joints_m = _terrace_joints_to_m(terrace_joints_ll, ll_to_m)
+    # Index-aligned with ``terrace_joints_m`` (spec Amendment 3): the
+    # emitter's own per-point "is this stretch carried?" flags.
+    terrace_carried = _terrace_joint_carried_flags(terrace_joints_ll)
     if terrace_joints_m and not quiet:
         print(f"  apron terraces: {len(terrace_joints_m)} declared "
               f"joint(s) (within-pairs crossing one are judged by the "
@@ -7370,7 +7443,8 @@ def run_checks(
     # was broken: the round's STOP rule, not a tuning signal.
     joint_route = _fam("terrace_joint_route",
                        _check_terrace_joint_crosses_route(
-                           terrace_joints_m, routes_ll, taxi_axes))
+                           terrace_joints_m, routes_ll, taxi_axes,
+                           carried_flags=terrace_carried))
     _pv("APRON TERRACE JOINT crossing a taxi ROUTE (owner 2026-08-04 "
         "binding constraint — a joint may NEVER interrupt a spine "
         "aircraft travel on)", joint_route, top_n)
@@ -7378,7 +7452,8 @@ def run_checks(
 
     joint_strip = _fam("terrace_joint_strip",
                        _check_terrace_joint_in_runway_strip(
-                           terrace_joints_m, ways, nodes, ll_to_m))
+                           terrace_joints_m, ways, nodes, ll_to_m,
+                           carried_flags=terrace_carried))
     _pv("APRON TERRACE JOINT inside a RUNWAY STRIP footprint (owner "
         "2026-08-01 — walls at runway edges are NEVER lawful)",
         joint_strip, top_n)

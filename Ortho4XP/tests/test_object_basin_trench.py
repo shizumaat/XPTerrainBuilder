@@ -1188,6 +1188,110 @@ class TestRimSeatsAtTheSolvedNeighbour:
             "the tunnel rim must still be TERRAIN-TRUE: per-part DEM "
             "samples, spreading under a spike — §C did not reach it")
 
+    # ── AMENDMENT 1 §2: THE RIM RE-SEATS POST-SOLVE ──────────────
+
+    def test_the_pre_solve_plate_keeps_R_est_as_its_SEED(self):
+        """Rung 1 CANNOT fire pre-solve — no built neighbour carries a
+        value at the emitter's slot (measured at LEMD: all 18 parts took
+        R_est while the apron beside them emitted ~599.98).  The seed is
+        the law median, and the re-seat is a separate pass."""
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        assert self._rim_values(layout) == [8.0]
+
+    def _reseat(self, layout):
+        return assembly.reseat_basin_rim_plates_post_solve(layout)
+
+    def _solved_neighbour(self, layout, value=None, role=None):
+        """A neighbour carrying a SOLVED value, added AFTER the emit —
+        the post-solve world the re-seat runs in."""
+        from auto_patch.layout import ROLE_APRON
+        layout.shapes.append(bridges.BuiltShape(
+            polygon=Polygon([(-90, -90), (90, -90), (90, 90), (-90, 90)]),
+            role=role or ROLE_APRON, ref="solved",
+            altitude=(self.NEIGHBOUR_VALUE if value is None else value)))
+        return layout
+
+    def test_the_rim_RE_SEATS_at_the_solved_neighbour(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        assert self._rim_values(layout) == [8.0], "vacuous — no seed"
+        self._solved_neighbour(layout)
+        report = self._reseat(layout)
+        assert report["reseated"] == report["parts"] > 0
+        assert self._rim_values(layout) == [self.NEIGHBOUR_VALUE]
+        assert report["worst_move_m"] == pytest.approx(12.0, abs=0.01)
+
+    def test_the_ADOPTION_is_ONE_DIRECTIONAL(self):
+        """The rim moves; the neighbour never does."""
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._solved_neighbour(layout)
+        neighbour = layout.shapes[-1]
+        before = (neighbour.altitude, neighbour.node_altitudes,
+                  neighbour.polygon.wkt)
+        self._reseat(layout)
+        assert (neighbour.altitude, neighbour.node_altitudes,
+                neighbour.polygon.wkt) == before
+
+    def test_with_NO_solved_neighbour_the_R_est_seed_STANDS(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        report = self._reseat(layout)
+        assert report["kept_seed"] == report["parts"] > 0
+        assert report["reseated"] == 0
+        assert self._rim_values(layout) == [8.0]
+
+    def test_the_re_seat_never_reads_our_OWN_floor_pan(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        floors = _basin_plates(layout, "trench")
+        assert floors, "vacuous — no floor pan to be tempted by"
+        floor_value = float(floors[0].node_altitudes[0])
+        self._reseat(layout)
+        assert floor_value not in self._rim_values(layout)
+
+    def test_a_pad_seated_at_the_FLOOR_is_not_a_re_seat_neighbour(self):
+        from auto_patch.layout import ROLE_BUILDING
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._solved_neighbour(layout, value=600.5, role=ROLE_BUILDING)
+        layout.shapes[-1].basin_floor_seat_m = 1.0
+        report = self._reseat(layout)
+        assert report["reseated"] == 0
+        assert self._rim_values(layout) == [8.0]
+
+    def test_the_re_seat_leaves_the_band_FLAT(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._solved_neighbour(layout)
+        self._reseat(layout)
+        for plate in _basin_plates(layout, "rim"):
+            assert len(set(plate.node_altitudes)) == 1
+            assert plate.altitude_high is None
+            assert plate.altitude_low is None
+
+    def test_the_re_seat_is_VACUOUS_with_the_flag_off(self, monkeypatch):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._solved_neighbour(layout)
+        monkeypatch.setattr(config, "RIM_SOLVED_NEIGHBOUR", False)
+        report = self._reseat(layout)
+        assert report["parts"] == 0
+        assert self._rim_values(layout) == [8.0]
+
+    def test_the_re_seat_is_WIRED_at_the_post_solve_slot(self):
+        """RULING 2026-08-21d was found UNIMPLEMENTED in production
+        because its call site never existed.  This twin fails on the
+        unwired state, and pins that the call is AFTER the solve."""
+        import inspect
+        from auto_patch import pipeline as PL
+        source = inspect.getsource(PL)
+        assert "reseat_basin_rim_plates_post_solve" in source
+        i_call = source.index("reseat_basin_rim_plates_post_solve")
+        i_solve = source.index("per_surface_solve(layout, icao,")
+        assert i_solve < i_call, "the re-seat must run AFTER the solve"
+
     def test_the_rungs_are_in_the_stated_ORDER(self):
         """One reading of the law, asserted on the source: neighbour
         first, R_est second, DEM last."""

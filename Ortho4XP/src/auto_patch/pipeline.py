@@ -6287,6 +6287,27 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             # phase that rebuilds on mutated rings.
             _gfreeze.clear(layout)
             _rod_ckpt(layout, "00_post_solve")
+            # §C RUNG 1 (spec lemd-rim-and-stations Amendment 1 §2): the
+            # basin rim band re-seats at its nearest SOLVED anchored
+            # neighbour.  It must be HERE and nowhere earlier — the
+            # emitter runs pre-solve, where no built neighbour carries a
+            # value yet, which is why every LEMD part took R_est while
+            # the apron beside it emitted ~599.98.  One-directional
+            # adoption: the rim moves, the neighbour never does.  A rim
+            # plate is not a solver variable (record_pins=False, role
+            # outside PAVEMENT_ROLES), so this is additive exactly like
+            # the other post-solve emission passes.  Flag OFF: vacuous.
+            try:
+                from . import object_terrain_assembly as _ota_rim
+                _rim_rep = _ota_rim.reseat_basin_rim_plates_post_solve(
+                    layout)
+                if _rim_rep.get("parts"):
+                    UI.vprint(1, _ota_rim.format_rim_reseat_report(
+                        icao, _rim_rep))
+            except Exception as _rim_exc:                  # pragma: no cover
+                UI.vprint(1, f"  [object-basin] {icao}: post-solve rim "
+                             f"re-seat FAILED: {_rim_exc!r} — the R_est "
+                             f"seed stands.")
             # (Legacy junction ring-curvature smoothing removed: it was a no-op
             # under the single-grade-graph connecting solve, which produces a
             # smooth in-grade junction surface directly.)

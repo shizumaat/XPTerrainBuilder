@@ -1229,3 +1229,127 @@ def test_the_register_carries_every_welded_coordinate(monkeypatch):
     assert pts
     assert {(round(x, 6), round(y, 6))
             for (x, y) in layout._apron_station_weld_xy} == pts
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 1 §1 — A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD
+#
+# A building pad is ONE FLAT VALUE by definition (the pads-as-band-
+# variables §1.1 invariant), and the ruling enforces that at the
+# GEOMETRY layer: no weld inserts a foreign-valued node into a pad ring.
+# Measured at LEMD: the §B rim/pan rings ran along `building8`'s ring and
+# the nid-level final weld took it from 19 nodes at 600.50 to 71 nodes at
+# three values (600.50 / 596.30 / 587.75) — a 12.75 m step inside a pad
+# and 1,421 `building|building` census rows.
+#
+# Rim/pan geometry may still ABUT the pad ring: §B ownership is
+# unchanged, and only the node INSERTION stands down.
+# ═════════════════════════════════════════════════════════════════════
+
+def test_the_pad_standdown_set_is_ONE_set_read_by_both_consumers():
+    from auto_patch.layout import (PAD_WELD_STANDDOWN_ROLES, ROLE_BUILDING,
+                                   ROLE_OBJECT_PAD)
+    assert PAD_WELD_STANDDOWN_ROLES == {ROLE_BUILDING, ROLE_OBJECT_PAD}
+    # ...and the §A inserter reads THAT set, never a second spelling.
+    assert "PAD_WELD_STANDDOWN_ROLES" in inspect.getsource(
+        ST._station_host_families)
+
+
+def test_a_station_on_a_PAD_ring_edge_STANDS_DOWN(monkeypatch):
+    layout, south, pad = _on_edge_layout(neighbour_role="building")
+    before = _ring_xy(pad)
+    _patch_specs(monkeypatch, _near_edge_axis())
+    entries = ST.construct_apron_spine_stations_presolve(layout)
+    assert not [p for e in entries for p in e["points"]]
+    assert _ring_xy(pad) == before, "a foreign node entered a pad ring"
+    report = layout.apron_spine_edge_report
+    assert report["stood_down_pad"] > 0
+    assert report["welded"] == 0
+    assert report["stood_down_other"] == 0, (
+        "a pad host must be counted as a PAD stand-down, by name")
+
+
+def test_an_object_pad_ring_is_the_same_host_class(monkeypatch):
+    layout, _south, pad = _on_edge_layout(neighbour_role="object_pad")
+    _patch_specs(monkeypatch, _near_edge_axis())
+    ST.construct_apron_spine_stations_presolve(layout)
+    assert layout.apron_spine_edge_report["stood_down_pad"] > 0
+
+
+# ── the GENERIC final weld (to_osm's nid-level splice) ───────────────
+
+def _pad_weld_layout(pad_role="building"):
+    """A basin rim plate whose ring runs ALONG a flat pad's edge, at a
+    different value — the LEMD building8 geometry in miniature.  The
+    plate's own vertices sit ON the pad's long edge, which is exactly
+    what the nid-level splice reaches for."""
+    from auto_patch.layout import PavementLayout, BuiltShape
+    from auto_patch.layout import ROLE_TUNNEL_TRENCH
+    layout = PavementLayout(icao="KFAKE", anchor=(51.87, -0.37))
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon([(0.0, 0.0), (100.0, 0.0), (100.0, 60.0),
+                         (0.0, 60.0)]),
+        role=pad_role, ref="pad8", node_altitudes=[600.5] * 5))
+    # A rim plate south of the pad, its top edge lying ON the pad's y=0
+    # edge but sharing NO corner with it: every one of its vertices there
+    # is an INSERT candidate and nothing is a shared node.  (A genuinely
+    # shared CORNER is the pre-existing law-tier weld — a different
+    # class, and not what Amendment 1 §1 rules on.)
+    layout.shapes.append(BuiltShape(
+        polygon=Polygon([(10.0, 0.0), (25.0, 0.0), (50.0, 0.0),
+                         (75.0, 0.0), (90.0, 0.0), (90.0, -8.0),
+                         (10.0, -8.0)]),
+        role=ROLE_TUNNEL_TRENCH, ref="object_basin_rim",
+        node_altitudes=[596.3] * 8))
+    return layout
+
+
+def _way_full(ways, key, value):
+    for wid, nds, tags in ways:
+        if tags.get(key) == value:
+            return wid, nds, tags
+    raise AssertionError(f"no {key}={value} way emitted")
+
+
+def test_the_final_weld_never_splices_a_foreign_node_into_a_pad_ring():
+    layout = _pad_weld_layout()
+    _nodes, ways, node_alts = _emit_and_parse(layout)
+    _pwid, pnds, ptags = _way_full(ways, "ref", "pad8")
+    _rwid, rnds, _rtags = _way_full(ways, "ref", "object_basin_rim")
+    assert not (set(pnds) & set(rnds)), (
+        f"a rim node entered the pad ring: {sorted(set(pnds) & set(rnds))}")
+    # the pad's flatness SPELLING survives: one way-level altitude, or
+    # one distinct per-node value — never both a pad value and a plate's
+    values = {node_alts[n] for n in pnds if n in node_alts}
+    assert values in ({600.5}, set()), sorted(values)
+    if not values:
+        assert float(ptags["altitude"]) == pytest.approx(600.5)
+
+
+def test_the_pad_ring_keeps_its_own_vertex_count():
+    layout = _pad_weld_layout()
+    _nodes, ways, _alts = _emit_and_parse(layout)
+    _pwid, pnds = _way_of(ways, "ref", "pad8")
+    assert len(set(pnds)) == 4, sorted(set(pnds))
+
+
+def test_the_rim_plate_still_ABUTS_the_pad_untouched():
+    """§B ownership is unchanged — only the insertion stands down."""
+    layout = _pad_weld_layout()
+    _nodes, ways, node_alts = _emit_and_parse(layout)
+    _rwid, rnds = _way_of(ways, "ref", "object_basin_rim")
+    assert {node_alts[n] for n in rnds if n in node_alts} == {596.3}
+    assert len(set(rnds)) == 7, sorted(set(rnds))
+
+
+def test_a_NON_pad_host_still_welds():
+    """The control: the stand-down is scoped to pad rings, and an apron
+    host is spliced exactly as before."""
+    from auto_patch.layout import ROLE_APRON
+    layout = _pad_weld_layout()
+    layout.shapes[0].role = ROLE_APRON
+    layout.shapes[0].ref = "apron"
+    _nodes, ways, _alts = _emit_and_parse(layout)
+    _awid, ands = _way_of(ways, "role", ROLE_APRON)
+    assert len(set(ands)) > 4, (
+        "the apron host did not weld — the control is vacuous")

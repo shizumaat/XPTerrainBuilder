@@ -118,9 +118,20 @@ def _clip(*, lines_in, poly):
 # welding into a family this round has not measured would be a law
 # invented at a call site.  Counted separately, never silently.
 def _station_host_families():
+    """``(standdown, weld, pad)`` — the taxiway family, the apron family,
+    and the PAD family.
+
+    A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD (spec Amendment 1 §1,
+    2026-08-28): a building pad is ONE FLAT VALUE by definition — the
+    pads-as-band-variables §1.1 invariant — so the inserter never puts a
+    foreign-valued node into one.  It was already covered by the
+    unconditional "never minted as a free node" rule; naming it makes
+    the count legible and pins the ruling where a reader looks for it.
+    """
     from .crown import _TAXI_FAMILY
-    from .layout import ROLE_APRON
-    return frozenset(_TAXI_FAMILY), frozenset({ROLE_APRON})
+    from .layout import ROLE_APRON, PAD_WELD_STANDDOWN_ROLES
+    return (frozenset(_TAXI_FAMILY), frozenset({ROLE_APRON}),
+            PAD_WELD_STANDDOWN_ROLES)
 
 
 def _ring_edge_host(poly, x, y, tol):
@@ -382,7 +393,7 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
     # query (``_ring_edge_host``), because a weld splits the very edge a
     # later station may land on.
     _edge_on = bool(getattr(_cfg, "STATION_EDGE_WELD", False))
-    _standdown_roles, _weld_roles = _station_host_families()
+    _standdown_roles, _weld_roles, _pad_roles = _station_host_families()
     _host_shapes: list = []
     _host_tree = None
     if _edge_on:
@@ -402,8 +413,8 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
         except Exception:                                 # pragma: no cover
             _host_tree = None
     _edge_report = {"welded": 0, "weld_rings": 0,
-                    "stood_down_taxi": 0, "stood_down_other": 0,
-                    "other_roles": {}}
+                    "stood_down_taxi": 0, "stood_down_pad": 0,
+                    "stood_down_other": 0, "other_roles": {}}
     # THE WELD IS AN INVISIBLE ANCHOR, and both decimators must be told
     # (crown's own precedent, ``_crown_spine_weld_xy``).  A welded
     # station sits ON its host edge, so it is exactly the 3D-redundant
@@ -447,6 +458,10 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
         if not hosts:
             return True                 # a genuinely free interior node
         roles = {(getattr(h, "role", None) or "") for h in hosts}
+        if roles & _pad_roles:
+            # Amendment 1 §1: a pad is one flat value; never a weld host.
+            _edge_report["stood_down_pad"] += 1
+            return False
         if roles & _standdown_roles:
             _edge_report["stood_down_taxi"] += 1
             return False
@@ -516,8 +531,9 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
     layout.apron_spine_presolve = entries
     layout.apron_spine_edge_report = dict(_edge_report)
     layout._apron_station_weld_xy = list(_weld_xy)
-    if _edge_on and (_edge_report["welded"] or _edge_report["stood_down_taxi"]
-                     or _edge_report["stood_down_other"]):
+    if _edge_on and any(_edge_report[k] for k in
+                        ("welded", "stood_down_taxi", "stood_down_pad",
+                         "stood_down_other")):
         _other = ("" if not _edge_report["other_roles"] else
                   " (" + ", ".join(f"{k}×{v}" for k, v in
                                    sorted(_edge_report["other_roles"].items()))
@@ -529,7 +545,9 @@ def construct_apron_spine_stations_presolve(layout, *, spacing_m=None,
             f"the station value wins); "
             f"{_edge_report['stood_down_taxi']} STOOD DOWN on a "
             f"taxiway-family host (that ground already carries the anchored "
-            f"surface); {_edge_report['stood_down_other']} stood down on "
+            f"surface); {_edge_report['stood_down_pad']} on a building-PAD "
+            f"host (one flat value by definition, Amendment 1 §1); "
+            f"{_edge_report['stood_down_other']} stood down on "
             f"another family{_other} — spec lemd-rim-and-stations §A")
     if entries:
         n_pts = sum(len(e["points"]) for e in entries)

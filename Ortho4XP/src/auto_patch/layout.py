@@ -285,6 +285,20 @@ ROLE_OLS_CUT = "ols_cut"
 # design; ``verification.check_object_pads`` is its lockstep reader.
 ROLE_OBJECT_PAD = "object_pad"
 
+# A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD (spec
+# ``docs/specs/lemd-rim-and-stations-spec.md`` Amendment 1 §1,
+# 2026-08-28).  A building pad is ONE FLAT VALUE by definition — the
+# pads-as-band-variables §1.1 invariant — so no weld may splice a
+# FOREIGN-valued node into its ring.  Measured: LEMD's basin rim/pan
+# rings ran along ``building8``'s ring and the nid-level final weld took
+# it from 19 nodes at 600.50 to 71 nodes at three values (600.50 /
+# 596.30 / 587.75), a 12.75 m step inside a pad and 1,421
+# ``building|building`` census rows.  Read by the nid-level final weld
+# (``to_osm``) and by the ``apron_spine_stations`` §A inserter — ONE set,
+# two consumers.
+PAD_WELD_STANDDOWN_ROLES = frozenset((ROLE_BUILDING, ROLE_OBJECT_PAD))
+_PAD_WELD_STANDDOWN_ROLES = PAD_WELD_STANDDOWN_ROLES
+
 # Weld-DONOR roles (user rulings 2026-07-09/2026-07-17): the pavement
 # families a SOFT terrain strip may ADOPT a coincident authority value
 # from — at the emit consensus (``to_osm``'s strip-adoption branch) and
@@ -2250,7 +2264,32 @@ class PavementLayout:
 
         _regrid()
         _n_weld = 0
+        _n_pad_standdown = 0
         for _chain_i, (_kind, _idx, _enids) in enumerate(_weld_chains):
+            # ── A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD ────────
+            # (spec lemd-rim-and-stations Amendment 1 §1, 2026-08-28.)
+            # A building pad is ONE FLAT VALUE by definition — the
+            # pads-as-band-variables §1.1 invariant — and this splice
+            # references a FOREIGN node id, so whatever value that node
+            # carries becomes the pad's value there.  Measured at LEMD:
+            # the §B rim/pan rings ran along ``building8``'s ring and the
+            # splice took it from 19 nodes at 600.50 to 71 nodes at three
+            # values (600.50 / 596.30 / 587.75), a 12.75 m step inside a
+            # pad and 1,421 ``building|building`` census rows.
+            #
+            # The invariant is enforced HERE, at the geometry layer:
+            # foreign-valued nodes are never inserted into a pad ring.
+            # Rim/pan geometry may ABUT it — ownership of the rim band is
+            # untouched (§B stands), and ``conformance.enforce_
+            # conformance`` may still insert a vertex at the pad's OWN
+            # interpolated altitude, which is flat-preserving on a flat
+            # ring.  Only this foreign-nid splice stands down.
+            if _kind == "p":
+                _host_shape = pending[_idx][1]
+                if (getattr(_host_shape, "role", "") or "") \
+                        in _PAD_WELD_STANDDOWN_ROLES:
+                    _n_pad_standdown += 1
+                    continue
             open_nids = _enids[:-1]
             member = set(open_nids)
             out: list[int] = []
@@ -2371,6 +2410,15 @@ class PavementLayout:
         # That is the exact defect the reorder exists to close, so it is
         # REPORTED LOUDLY rather than counted quietly; the spec makes it a
         # STOP, and the fix is the disagreement, never the count.
+        if _n_pad_standdown:
+            UI.vprint(1,
+                f"  [pav-builder] nid-level final weld: "
+                f"{_n_pad_standdown} building-pad ring(s) STOOD DOWN as "
+                f"weld hosts — a pad is one flat value by definition and "
+                f"this splice references a FOREIGN node id (spec "
+                f"lemd-rim-and-stations Amendment 1 §1; the pads-as-band-"
+                f"variables §1.1 flatness invariant, enforced at the "
+                f"geometry layer).")
         if _n_weld:
             _pre_on = os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0"
             UI.vprint(1,

@@ -3961,3 +3961,10 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
 * **No timing measurement.** Every build in this round ran concurrently
   with others and through the run ledger; the wall times recorded are
   not timing evidence and are quoted nowhere as such.
+* **Amendment 1 round (2026-08-28, same lane).** Same scope as above:
+  the directly-covering files once (1,033 passed / 15 failed, all 15
+  reproducing on clean main), plus the pad suites `test_object_pads`,
+  `test_pad_variables`, `test_pad_seat_consistency`,
+  `test_detached_pad_law_seat` for the pad-stand-down ruling.  ONE LEMD
+  acceptance build + one HECA §A re-sweep build; no OTHH, no battery, no
+  timing.

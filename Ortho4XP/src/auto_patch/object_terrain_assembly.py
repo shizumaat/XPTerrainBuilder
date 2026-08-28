@@ -3032,6 +3032,111 @@ def _rim_neighbour_value(band_part, candidates, window_m):
     return (best[1], best[2], best[0])
 
 
+#: The emitted ref of a BASIN rim band part — the population §C's
+#: post-solve re-seat re-values.  A literal, and flagged as one.
+BASIN_RIM_PLATE_REF = "object_basin_rim"
+
+
+def reseat_basin_rim_plates_post_solve(layout):
+    """§C RUNG 1, IN THE ONLY SLOT WHERE IT CAN MEAN ANYTHING (spec
+    lemd-rim-and-stations Amendment 1 §2, 2026-08-28).
+
+    ``build_tunnel_layout_shapes`` runs PRE-SOLVE, and measured at LEMD
+    that is why rung 1 never fired: no built neighbour carries a value
+    there yet — pads are seated and pavement solved later — so all 18
+    parts took ``R_est`` 596.30 while the apron beside them emitted
+    ~599.98.  The pre-solve plate therefore keeps ``R_est`` as its SEED,
+    and this pass re-values each part from its nearest SOLVED anchored
+    neighbour once the solve has run.
+
+    ONE-DIRECTIONAL ADOPTION, the adoption precedent: the rim part moves
+    to its neighbour; the neighbour never moves.  A basin rim plate is
+    born ``record_pins=False`` with a role outside ``PAVEMENT_ROLES``, so
+    it is not a solver variable and nothing downstream re-derives it —
+    re-valuing it here is additive, exactly like the other post-solve
+    emission passes.
+
+    Rungs, unchanged from §C: nearest ANCHORED built neighbour within
+    ``config.TUNNEL_RIM_NEIGHBOUR_WINDOW_M`` → the pre-solve ``R_est``
+    seed → (the raw DEM already lives in that seed's own fallback).
+    Returns a report dict; nothing is printed here.
+    """
+    report = {"parts": 0, "reseated": 0, "kept_seed": 0,
+              "worst_move_m": 0.0, "refs": {}, "before": [], "after": []}
+    if not config.RIM_SOLVED_NEIGHBOUR:
+        return report
+    from .layout import ROLE_TUNNEL_TRENCH
+    shapes = list(getattr(layout, "shapes", None) or ())
+    plates = [s for s in shapes
+              if getattr(s, "role", None) == ROLE_TUNNEL_TRENCH
+              and str(getattr(s, "ref", "") or "") == BASIN_RIM_PLATE_REF
+              and s.polygon is not None and not s.polygon.is_empty]
+    if not plates:
+        return report
+    roles = _rim_neighbour_roles()
+    window = float(config.TUNNEL_RIM_NEIGHBOUR_WINDOW_M)
+    # Bounds-filtered, never a whole-layout union (the HARD-LAW budget:
+    # this is O(rim parts x neighbours near them), tens of distance
+    # calls per facility).
+    neighbours = []
+    for s in shapes:
+        if getattr(s, "role", None) not in roles:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            neighbours.append((poly.bounds, poly, s))
+        except Exception:                                 # pragma: no cover
+            continue
+    for plate in plates:
+        report["parts"] += 1
+        try:
+            seed = float(plate.node_altitudes[0])
+        except (TypeError, ValueError, IndexError):       # pragma: no cover
+            continue
+        report["before"].append(seed)
+        b = plate.polygon.bounds
+        near = [(poly, s) for (bb, poly, s) in neighbours
+                if bb[0] <= b[2] + window and bb[2] >= b[0] - window
+                and bb[1] <= b[3] + window and bb[3] >= b[1] - window]
+        hit = _rim_neighbour_value(plate.polygon, near, window)
+        if hit is None:
+            report["kept_seed"] += 1
+            report["after"].append(seed)
+            continue
+        value = float(hit[0])
+        move = abs(value - seed)
+        n = len(plate.node_altitudes or ())
+        plate.node_altitudes = [round(value, 2)] * n
+        plate.altitude = None
+        plate.altitude_high = None
+        plate.altitude_low = None
+        report["reseated"] += 1
+        report["refs"][hit[1]] = report["refs"].get(hit[1], 0) + 1
+        report["after"].append(value)
+        if move > report["worst_move_m"]:
+            report["worst_move_m"] = move
+    return report
+
+
+def format_rim_reseat_report(icao: str, report: dict) -> str:
+    """The build log's one line for the §C post-solve re-seat."""
+    before = report.get("before") or [0.0]
+    after = report.get("after") or [0.0]
+    refs = report.get("refs") or {}
+    ref_text = ("" if not refs else "; adopted " + ", ".join(
+        f"{k!r}×{v}" for k, v in sorted(refs.items())[:6]))
+    return (f"  [object-basin] {icao}: rim RE-SEAT post-solve — "
+            f"{report['reseated']} of {report['parts']} band part(s) took "
+            f"their nearest SOLVED anchored neighbour (worst move "
+            f"{report['worst_move_m']:.2f} m), {report['kept_seed']} kept "
+            f"the R_est seed; band {min(before):.2f}-{max(before):.2f} m "
+            f"-> {min(after):.2f}-{max(after):.2f} m{ref_text}.  "
+            f"One-directional adoption: the neighbour never moves "
+            f"(spec lemd-rim-and-stations Amendment 1 §2)")
+
+
 def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
     """Feature A (``O4_OBJECT_TUNNEL_TERRAIN``, spec section 3.3 + amendment
     A1, ruling R12): born pre-solve tunnel-trench terrain as FIRST-CLASS

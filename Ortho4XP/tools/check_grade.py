@@ -6711,6 +6711,14 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # airport has no tunnels" from "this airport's tunnels were all
     # refused" (measured LEMD: 37 ways in one veto).
     "tunnel_vetoes",
+    # THE DECK-CLEARANCE CORRIDOR THAT YIELDED (spec docs/specs/
+    # tunnel-integrity-round-spec.md section T1.1).  One record per
+    # object-bridge trench / causeway piece suppressed because a MAPPED
+    # bore already owns that ground.  EVIDENCE, never law input — the
+    # census counts them and re-judges nothing; a suppressed corridor
+    # emits no shape, so like a refused bore it can appear in no family
+    # table, and without this line its absence is unattributable.
+    "object_corridor_suppressions",
     # THE NODELESS-INTERIOR INSTRUMENT (spec docs/specs/
     # heca-apron-round2-spec.md section 2).  One record per apron-role
     # polygon carrying an interior disk of radius >
@@ -6992,6 +7000,10 @@ def sidecar_evidence(osm_path) -> dict:
         None if _tv is None else dict(sorted(_CounterTV(
             str((r or {}).get("refused_because") or "unknown")
             for r in (_tv or []) if isinstance(r, dict)).items())))
+    # THE YIELDED DECK-CLEARANCE CORRIDORS, counted (section T1.1).
+    _cs = data.get("object_corridor_suppressions")
+    out["object_corridor_suppression_count"] = (
+        None if _cs is None else len(_cs or []))
     return out
 
 

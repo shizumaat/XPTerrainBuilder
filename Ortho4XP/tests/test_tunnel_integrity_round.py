@@ -125,6 +125,102 @@ class TestObjectTrenchUnionComposesBridgeTrenches:
 
 
 # ═════════════════════════════════════════════════════════════════════
+# §T1.1 — THE DECK-CLEARANCE CORRIDOR YIELDS TO A MAPPED BORE
+# (Fable ruling 2026-08-28, option (c))
+# ═════════════════════════════════════════════════════════════════════
+class _ContractBridge:
+    def __init__(self, contract, resources=("objects/B.obj",)):
+        self.contract = contract
+        self.object_resources = list(resources)
+
+
+class TestDeckClearanceCorridorYieldsToAMappedBore:
+    """The deck-clearance law is for structures over OPEN GROUND.  Where
+    a mapped bore already owns the ground — LEMD's ``F|-2070`` is
+    ADMITTED and emits both portals — the object's corridor is the
+    SECOND authority, and it is the one that yields."""
+
+    def _layout_with_bore(self, monkeypatch, bore=True):
+        lay = _layout()
+        monkeypatch.setattr(
+            bridges, "_mapped_bore_ground_union",
+            lambda _l: (_rect(-15.0, -200.0, 15.0, 200.0) if bore
+                        else None))
+        return lay
+
+    @pytest.mark.parametrize("contract,yields", [
+        ("TERRAIN_CARRIED", True),   # LEMD Bridge3.obj, the item-4 site
+        ("AMBIGUOUS", True),
+        ("DECK_CARRIED", False),     # a genuine hard-deck overpass
+        ("PROFILE_CARRIED", False),
+    ])
+    def test_only_the_ambiguous_contracts_yield(self, monkeypatch,
+                                               contract, yields):
+        monkeypatch.setenv(T1_FLAG, "1")
+        lay = self._layout_with_bore(monkeypatch)
+        got = bridges._corridor_yields_to_mapped_bore(
+            _ContractBridge(contract), lay)
+        assert (got is not None) is yields
+
+    def test_over_open_ground_the_treatment_is_unchanged(self,
+                                                         monkeypatch):
+        """The preserved half of the law: no mapped bore, no
+        suppression — the deck-clearance corridor stands exactly as
+        before."""
+        monkeypatch.setenv(T1_FLAG, "1")
+        lay = self._layout_with_bore(monkeypatch, bore=False)
+        assert bridges._corridor_yields_to_mapped_bore(
+            _ContractBridge("TERRAIN_CARRIED"), lay) is None
+
+    def test_off_is_the_pre_round_treatment(self, monkeypatch):
+        monkeypatch.setenv(T1_FLAG, "0")
+        lay = self._layout_with_bore(monkeypatch)
+        assert bridges._corridor_yields_to_mapped_bore(
+            _ContractBridge("TERRAIN_CARRIED"), lay) is None
+
+    def test_a_wholly_covered_piece_is_suppressed_and_named(
+            self, monkeypatch, capsys):
+        import O4_UI_Utils as UI
+        monkeypatch.setattr(UI, "verbosity", 1, raising=False)
+        lay = _layout()
+        piece = _rect(-10.0, -10.0, 10.0, 10.0)
+        bridges._record_corridor_suppression(
+            lay, _ContractBridge("TERRAIN_CARRIED"),
+            "object_bridge_corridor", piece, piece.area, True)
+        out = capsys.readouterr().out
+        assert "[tunnel-remove]" in out
+        assert "MAPPED BORE" in out
+        rec = lay.object_corridor_suppressions
+        assert len(rec) == 1
+        assert rec[0]["suppressed"] == "whole"
+        assert rec[0]["contract"] == "TERRAIN_CARRIED"
+        assert rec[0]["lat"] is not None and rec[0]["lon"] is not None
+
+    def test_the_sidecar_carries_the_suppression_note(self, tmp_path):
+        from auto_patch.layout import PavementLayout
+        lay = PavementLayout(icao="LEMD", anchor=(40.5, -3.58))
+        lay.object_corridor_suppressions = [
+            {"object_resources": ["objects/Bridges/Bridge2/Bridge3.obj"],
+             "contract": "TERRAIN_CARRIED", "ref": "object_bridge_corridor",
+             "suppressed": "whole", "suppressed_area_m2": 1234.5,
+             "lat": 40.4982699, "lon": -3.5850514}]
+        out = tmp_path / "p.osm"
+        lay.to_osm(str(out))
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        assert data["object_corridor_suppressions"][0]["contract"] == \
+            "TERRAIN_CARRIED"
+
+    def test_an_airport_that_suppressed_nothing_still_writes_the_key(
+            self, tmp_path):
+        from auto_patch.layout import PavementLayout
+        lay = PavementLayout(icao="LEMD", anchor=(40.5, -3.58))
+        out = tmp_path / "p.osm"
+        lay.to_osm(str(out))
+        data = json.loads((tmp_path / "p.osm.axes.json").read_text())
+        assert data["object_corridor_suppressions"] == []
+
+
+# ═════════════════════════════════════════════════════════════════════
 # §T1.3 — NO IMPROVISED RETREAT WALL AT AN OBJECT TRENCH EDGE
 # ═════════════════════════════════════════════════════════════════════
 class TestObjectTrenchWallKeepout:

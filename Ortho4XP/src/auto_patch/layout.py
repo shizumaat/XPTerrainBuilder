@@ -3797,6 +3797,17 @@ class PavementLayout:
             # (key absent).
             "tunnel_vetoes": list(
                 getattr(self, "tunnel_passthrough_findings", None) or []),
+            # THE DECK-CLEARANCE CORRIDOR THAT YIELDED (docs/specs/
+            # tunnel-integrity-round-spec.md §T1.1, Fable ruling
+            # 2026-08-28 option (c)).  One record per object-bridge
+            # trench / causeway piece suppressed because a MAPPED bore
+            # already owns that ground — the object, the contract, the
+            # area given up and where.  EVIDENCE, never law input: the
+            # absence of a deck-clearance trench is exactly as invisible
+            # as the absence of a mouth was, and this is what makes it
+            # answerable from the artifact.  Written unconditionally.
+            "object_corridor_suppressions": list(
+                getattr(self, "object_corridor_suppressions", None) or []),
             # THE NODELESS-INTERIOR INSTRUMENT (docs/specs/
             # heca-apron-round2-spec.md §2, ungated and REPORT-FIRST).
             # One record per apron-role polygon carrying an interior disk

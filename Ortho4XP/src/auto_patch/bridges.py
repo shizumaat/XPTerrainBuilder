@@ -710,9 +710,160 @@ def _demcut_provenance_gate_on() -> bool:
 
 def _obj_tunnel_compose_on() -> bool:
     """``O4_OBJ_TUNNEL_COMPOSE`` — §T1's gate, default ON.  OFF keeps the
-    tunnel-only object-trench union and the pre-round retreat-wall
-    scope, byte-identically."""
+    tunnel-only object-trench union, the pre-round retreat-wall scope and
+    the unsuppressed deck-clearance corridor, byte-identically."""
     return os.environ.get("O4_OBJ_TUNNEL_COMPOSE", "1") == "1"
+
+
+#: §T1.1 (Fable ruling 2026-08-28, option (c)): how far beyond a mapped
+#: bore's own carriageway its GROUND reaches for the deck-clearance
+#: suppression.  The bore's portals and their immediate approach are the
+#: ground the OSM tunnel machinery emits its mouth and walls on; a
+#: deck-clearance corridor stamped over it is the second authority.
+_MAPPED_BORE_GROUND_MARGIN_M = 8.0
+_MAPPED_BORE_GROUND_ATTRIBUTE = "_mapped_bore_ground_union"
+
+
+def _mapped_bore_ground_union(layout):
+    """§T1.1: the GROUND every mapped bore at this airport owns, in
+    layout metres — its covered span AND its portal ground — or ``None``.
+
+    Each ``tunnel=yes``-class way in the road feed is buffered by half
+    its own carriageway width (the way's ``width=``/``lanes=`` tags beat
+    the per-type table, exactly as the portal walk sizes it) plus
+    :data:`_MAPPED_BORE_GROUND_MARGIN_M`.  A way's ENDS are its portals,
+    so the same buffer covers the portal ground without a second notion
+    of "near a portal" — one geometry, one definition.
+
+    Cached on the layout: ``build_bridge_layout_shapes`` runs pre-solve
+    and ``_emit_tunnel_portals`` in finalize, and re-reading the road
+    caches per consumer is both slow and a chance for the two to
+    disagree about what the bores are.
+    """
+    cached = getattr(layout, _MAPPED_BORE_GROUND_ATTRIBUTE, "unset")
+    if cached != "unset":
+        return cached
+    union = None
+    try:
+        nodes_r, ways_r, _big, _tags = _load_tunnel_road_network(layout)
+        to_m, _m_to_ll = _local_meter_projections(layout.anchor)
+        nodes_m = {nid: to_m(lon, lat)
+                   for nid, (lat, lon) in nodes_r.items()}
+        parts: list = []
+        for wid, refs, tags in ways_r:
+            if tags.get("tunnel") not in PORTAL_TUNNEL_VALUES:
+                continue
+            if not _tunnelable(tags):
+                continue
+            pts = [nodes_m[n] for n in refs if n in nodes_m]
+            if len(pts) < 2:
+                continue
+            width = _carriageway_width_from_tags(
+                tags.get("highway"), tags, 22.0)
+            try:
+                parts.append(LineString(pts).buffer(
+                    0.5 * float(width) + _MAPPED_BORE_GROUND_MARGIN_M))
+            except _GEOM_EXC:                            # pragma: no cover
+                continue
+        if parts:
+            union = unary_union(parts)
+            if union.is_empty:
+                union = None
+        # NAMED, because an EMPTY union silently restores the pre-round
+        # treatment: the feed merge that carries most airports' bores
+        # ("F|" namespace) needs ``layout.airport_road_network`` to be
+        # attached already, and a reader must be able to tell "no mapped
+        # bores here" from "the bores were not loaded yet".
+        UI.vprint(
+            1,
+            f"   [object-bridge] §T1.1 mapped-bore ground: "
+            f"{len(parts)} bore(s), "
+            f"{0.0 if union is None else union.area:,.0f} m2 — the "
+            f"ground a deck-clearance corridor may not be stamped over")
+    except Exception:                                    # pragma: no cover
+        # A missing road cache is "no mapped bores here", never a build
+        # failure: the suppression is a NARROWING of an existing
+        # treatment, so absent evidence leaves that treatment intact.
+        union = None
+    try:
+        setattr(layout, _MAPPED_BORE_GROUND_ATTRIBUTE, union)
+    except (AttributeError, TypeError):                  # pragma: no cover
+        pass
+    return union
+
+
+#: §T1.1: the classifier CONTRACTS whose deck-clearance corridor yields
+#: to a mapped bore.  The deck-clearance law is for structures over OPEN
+#: GROUND; a DECK_CARRIED span (a genuine hard-deck overpass whose deck
+#: carries the pavement) keeps its treatment over a mapped road tunnel
+#: like any other bridge — the ruling narrows the ambiguous cases only.
+_CORRIDOR_YIELDS_TO_BORE_CONTRACTS = ("AMBIGUOUS", "TERRAIN_CARRIED")
+
+
+def _corridor_yields_to_mapped_bore(bridge, layout):
+    """§T1.1: the mapped-bore ground this bridge's corridor must NOT be
+    stamped over, or ``None`` when its corridor stands (spec
+    tunnel-integrity-round §T1.1 as ruled by Fable 2026-08-28, option
+    (c)).
+
+    THE DEFECT, measured at LEMD: mapped bore ``F|-2070`` (tunnel=yes,
+    service, layer=-1, 224 m) is ADMITTED and emits BOTH portals — the
+    OSM tunnel machinery already owns that ground — and the pack's
+    ``Bridges/Bridge2/Bridge3.obj`` (contract TERRAIN_CARRIED) stamps a
+    deck-clearance trench at 606.96 m over the north portal anyway.  No
+    ``tunnel_ramp`` then lands within 141.8 m of the owner's item-4
+    entrance.  The corridor is the second authority, and it is the one
+    that yields: the object's pins and its causeway seating OUTSIDE the
+    overlap keep their existing treatment.
+    """
+    if not _obj_tunnel_compose_on():
+        return None
+    if str(getattr(bridge, "contract", "") or "") not in \
+            _CORRIDOR_YIELDS_TO_BORE_CONTRACTS:
+        return None
+    return _mapped_bore_ground_union(layout)
+
+
+def _record_corridor_suppression(layout, bridge, ref, polygon,
+                                 removed_area_m2, whole: bool) -> None:
+    """§T1.1's named line + sidecar note for ONE suppressed piece.
+
+    The named line is the portal-corridor-claim §1 form (one line PER
+    PIECE, with the coordinate a reviewer flies to); the sidecar note is
+    ``object_corridor_suppressions``, so "why is there no deck-clearance
+    trench here?" is answerable from the artifacts and not only from a
+    live build's log.
+    """
+    try:
+        from .layout import ROLE_BRIDGE_TRENCH as _ROLE
+        _shape = BuiltShape(polygon=polygon, role=_ROLE, ref=ref)
+        log_tunnel_piece_removal(
+            layout, _shape,
+            "object deck-clearance corridor over a MAPPED BORE "
+            "(§T1.1: the bore's own machinery owns that ground)",
+            verdict=("whole" if whole else "clipped")
+            + f", {removed_area_m2:.1f} m2 suppressed")
+        _lat = _lon = None
+        if polygon is not None and not polygon.is_empty:
+            _to_m, _to_ll = _local_meter_projections(layout.anchor)
+            _c = polygon.centroid
+            _lat, _lon = _to_ll(_c.x, _c.y)
+        _existing = list(
+            getattr(layout, "object_corridor_suppressions", None) or [])
+        _existing.append({
+            "object_resources": list(
+                getattr(bridge, "object_resources", None) or []),
+            "contract": str(getattr(bridge, "contract", "") or ""),
+            "ref": ref,
+            "suppressed": "whole" if whole else "clipped",
+            "suppressed_area_m2": round(float(removed_area_m2), 1),
+            "lat": None if _lat is None else round(_lat, 7),
+            "lon": None if _lon is None else round(_lon, 7),
+        })
+        layout.object_corridor_suppressions = _existing
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        # An instrument may never take a build down.
+        return
 
 
 def _tunnel_veto_scoped_on() -> bool:
@@ -12508,6 +12659,41 @@ def build_bridge_layout_shapes(layout, dem, tile_lat, tile_lon):
             except _GEOM_EXC:
                 pavement_kept_union = None
 
+        # ── §T1.1: THE DECK-CLEARANCE CORRIDOR YIELDS TO A MAPPED BORE
+        # (Fable ruling 2026-08-28, option (c)).  Where this structure's
+        # corridor footprint overlaps ground a MAPPED bore already owns,
+        # the trench and the causeway plates over that overlap are
+        # SUPPRESSED — the bore's own portal machinery emits the mouth,
+        # ramp and walls there.  Everything outside the overlap keeps its
+        # existing treatment, pins included: the deck-clearance law is
+        # for structures over OPEN ground, and this narrows it to that.
+        bore_ground = _corridor_yields_to_mapped_bore(bridge, layout)
+
+        def _yield_to_bore(polygon, ref, _bore=None):
+            """``polygon`` minus the mapped-bore ground, or ``None`` when
+            nothing survives.  Each removal takes its §1 named line."""
+            _bore = bore_ground if _bore is None else _bore
+            if (_bore is None or polygon is None or polygon.is_empty):
+                return polygon
+            try:
+                if not polygon.intersects(_bore):
+                    return polygon
+                _kept = polygon.difference(_bore)
+                _removed = polygon.area - (
+                    0.0 if _kept.is_empty else _kept.area)
+            except _GEOM_EXC:                            # pragma: no cover
+                return polygon
+            if _removed <= 0.0:
+                return polygon
+            _whole = _kept.is_empty or _kept.area < 1.0
+            _record_corridor_suppression(
+                layout, bridge, ref, polygon, _removed, _whole)
+            if _whole:
+                return None
+            if _kept.geom_type == "MultiPolygon":
+                _kept = max(_kept.geoms, key=lambda g: g.area)
+            return None if _kept.is_empty else _kept
+
         # Trench (born flat at the law floor) — spans the deck BOX.
         trench_polygon_emitted = None
         try:
@@ -12516,6 +12702,9 @@ def build_bridge_layout_shapes(layout, dem, tile_lat, tile_lon):
                 trench = trench.difference(pavement_kept_union)
             if trench.geom_type == "MultiPolygon" and not trench.is_empty:
                 trench = max(trench.geoms, key=lambda g: g.area)
+            trench = _yield_to_bore(trench, "object_bridge_corridor")
+            if trench is None:
+                trench = Polygon()
             if trench.geom_type == "Polygon" and not trench.is_empty:
                 vertex_count = _born_flat(
                     trench, ROLE_BRIDGE_TRENCH,
@@ -12613,6 +12802,13 @@ def build_bridge_layout_shapes(layout, dem, tile_lat, tile_lon):
                 emitted_parts = 0
                 for part in parts:
                     if (part.geom_type != "Polygon" or part.is_empty
+                            or part.area < 25.0):
+                        continue
+                    # §T1.1: a causeway plate over the mapped bore's own
+                    # ground is deck-clearance furniture on ground the
+                    # bore owns — suppressed here, kept outside.
+                    part = _yield_to_bore(part, "object_bridge_causeway")
+                    if (part is None or part.is_empty
                             or part.area < 25.0):
                         continue
                     _born_flat(part, ROLE_BRIDGE_CAUSEWAY,

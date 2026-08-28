@@ -253,3 +253,166 @@ def test_tool_is_in_the_index() -> None:
     index = (Path(__file__).resolve().parents[2] / "tools" / "INDEX.md")
     assert index.exists(), index
     assert "Ortho4XP/tools/osm_site.py" in index.read_text()
+
+
+# ── CONTAINMENT (--contains / --line) ────────────────────────────────
+#
+# The SECOND question, and the reason it exists: ``--at`` reports the
+# distance to a way's nearest NODE, so a point deep inside a big ring
+# reads tens of metres away and never 0.00 m.  A lane read "1.20 m /
+# 11.60 m outside" off exactly that, and a containment read then showed
+# both owner probes 9.87 m and 3.88 m INSIDE the pad (spec
+# ``lemd-basin-trench-ramp-extension`` Amendment 2).
+
+_CENTRE = (40.4923132, -3.5697896)
+
+
+def _square(latitude, longitude, half_metres):
+    """A closed square ring about a point, as (lat, lon) corners."""
+    import math
+    lat_step = half_metres / 111320.0
+    lon_step = half_metres / (111320.0 * math.cos(math.radians(latitude)))
+    return [
+        (latitude - lat_step, longitude - lon_step),
+        (latitude - lat_step, longitude + lon_step),
+        (latitude + lat_step, longitude + lon_step),
+        (latitude + lat_step, longitude - lon_step),
+        (latitude - lat_step, longitude - lon_step),
+    ]
+
+
+def _ring_patch(rings) -> str:
+    """An emitted-dialect patch of closed rings.
+
+    ``rings`` is ``[(way_id, role, ref, [(lat, lon), ...]), ...]``.
+    """
+    lines = ["<?xml version='1.0'?>", "<osm version='0.6'>"]
+    node_id = -1
+    way_lines = []
+    for way_id, role, ref, points in rings:
+        refs = []
+        for latitude, longitude in points[:-1]:
+            lines.append(
+                f"  <node id='{node_id}' action='modify' visible='true' "
+                f"lat='{latitude:.9f}' lon='{longitude:.9f}'>"
+                "<tag k='alt_abs' v='100.0' /></node>")
+            refs.append(node_id)
+            node_id -= 1
+        way_lines.append(
+            f"  <way id='{way_id}' action='modify' visible='true'>"
+            + "".join(f"<nd ref='{r}' />" for r in refs)
+            + f"<nd ref='{refs[0]}' />"
+            + f"<tag k='role' v='{role}' /><tag k='ref' v='{ref}' />"
+            + "<tag k='altitude' v='100.0' /></way>")
+    lines.extend(way_lines)
+    lines.append("</osm>")
+    return "\n".join(lines) + "\n"
+
+
+def _big_ring_file(tmp_path) -> Path:
+    path = tmp_path / "rings.osm"
+    path.write_text(_ring_patch([
+        ("-10008", "building", "building8",
+         _square(*_CENTRE, 60.0)),
+        ("-11774", "tunnel_trench", "object_basin_trench",
+         _square(_CENTRE[0], _CENTRE[1] - 0.002, 20.0)),
+    ]))
+    return path
+
+
+class TestContainment:
+    def test_the_nearest_node_read_is_not_the_containment_read(
+            self, tmp_path):
+        """THE TRAP, pinned: the probe is at the ring's CENTRE, so
+        ``--at`` reports ~60 m to the nearest node while containment
+        says INSIDE.  Two questions, two answers, and quoting the first
+        as the second is what had to be corrected."""
+        path = _big_ring_file(tmp_path)
+        nodes, ways = osm_site.read_osm(str(path))
+        near = osm_site.ways_near(nodes, ways, _CENTRE, 200.0, "building")
+        assert near and near[0]["distance_m"] > 50.0
+
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        groups = osm_site.contains_at(rings, (0.0, 0.0))
+        inside = {(g["role"], g["ref"]) for g in groups if g["inside"]}
+        assert ("building", "building8") in inside
+
+    def test_a_point_outside_every_ring_is_inside_nothing(self, tmp_path):
+        path = _big_ring_file(tmp_path)
+        far = (_CENTRE[0] + 0.01, _CENTRE[1])
+        rings = osm_site._library_rings(str(path), far)
+        assert not [g for g in osm_site.contains_at(rings, (0.0, 0.0))
+                    if g["inside"]]
+
+    def test_a_hole_ring_puts_the_point_OUTSIDE_its_own_group(
+            self, tmp_path):
+        """EVEN-ODD is what a hole IS.  The emitter ships an interior
+        ring as its own closed way under the same ``ref``; counting
+        "any ring covers it" would report a pad as covering ground it
+        deliberately does not."""
+        path = tmp_path / "holed.osm"
+        path.write_text(_ring_patch([
+            ("-1", "building", "b", _square(*_CENTRE, 60.0)),
+            ("-2", "building", "b", _square(*_CENTRE, 10.0)),
+        ]))
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        groups = osm_site.contains_at(rings, (0.0, 0.0))
+        assert len(groups) == 1
+        assert groups[0]["covering_rings"] == 2
+        assert groups[0]["inside"] is False
+
+    def test_the_role_filter_scopes_the_containment(self, tmp_path):
+        path = _big_ring_file(tmp_path)
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        groups = osm_site.contains_at(rings, (0.0, 0.0), "tunnel_trench")
+        assert groups == []
+
+    def test_the_stations_cover_both_ends_of_the_line(self):
+        start, end = (40.0, -3.0), (40.0, -3.0 + 0.0001)
+        length = osm_site.metres_between(start, end)
+        stations = osm_site.line_stations(start, end, 2.0)
+        assert stations[0][2] == pytest.approx(0.0)
+        assert stations[-1][2] == pytest.approx(length, abs=1e-6)
+        gaps = [b[2] - a[2] for a, b in zip(stations, stations[1:])]
+        assert all(gap <= 2.0 + 1e-9 for gap in gaps), gaps
+
+    def test_a_degenerate_line_is_one_station_not_a_crash(self):
+        assert len(osm_site.line_stations((40.0, -3.0), (40.0, -3.0),
+                                          2.0)) == 1
+
+    def test_the_cli_json_IS_the_library_result(self, tmp_path):
+        """The CLI prints what the library returns — no second read."""
+        path = _big_ring_file(tmp_path)
+        out = tmp_path / "report.json"
+        assert osm_site.main([
+            str(path), "--at", f"{_CENTRE[0]},{_CENTRE[1]}",
+            "--contains", "--json", str(out)]) == 0
+        report = json.loads(out.read_text())
+        groups = report["files"][0]["contains"]
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        assert groups == osm_site.contains_at(rings, (0.0, 0.0))
+
+    def test_the_line_sweep_reports_every_station(self, tmp_path):
+        path = _big_ring_file(tmp_path)
+        out = tmp_path / "line.json"
+        assert osm_site.main([
+            str(path),
+            "--line", f"{_CENTRE[0]},{_CENTRE[1]}:"
+                      f"{_CENTRE[0] + 0.001},{_CENTRE[1]}",
+            "--step", "2", "--json", str(out)]) == 0
+        rows = json.loads(out.read_text())["files"][0]["line"]
+        assert len(rows) > 10
+        assert rows[0]["inside"], "the first station is inside the pad"
+        assert not rows[-1]["inside"], "the last station left every ring"
+
+    def test_the_line_needs_two_points(self):
+        with pytest.raises(SystemExit):
+            osm_site.main(["x.osm", "--line", "40.0,-3.0"])
+
+    def test_the_index_row_exists(self):
+        """Tool discipline (RULINGS ``7e90032``): a tool — and a
+        question a tool newly answers — lands with its index entry."""
+        index = (Path(__file__).resolve().parent.parent.parent
+                 / "tools" / "INDEX.md").read_text()
+        assert "tools/osm_site.py" in index
+        assert "--contains" in index

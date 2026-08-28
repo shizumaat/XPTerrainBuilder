@@ -5014,12 +5014,33 @@ BASIN_REGION_FOUNDING = (
 # ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``).
 #
 # **DEFAULT OFF — BUILT, MEASURED, AND HELD ON AN OWNER RULING.**  The
-# mechanism below closes the owner's defect exactly (both of the owner's
-# coordinates land INSIDE the rebuilt floor pan) but it cannot be shipped
-# ON without moving the committed group seat, which the spec's own law
-# says is a STOP rather than a side effect.  THE MEASUREMENT, offline
-# against the built +40-004 mesh (2026-08-28), instrument controlled
-# against the committed value:
+# mechanism below does exactly what it says to the REGION (LEMD's ring
+# 27,857 -> 29,636 m2, both owner points inside it), and the built arm
+# then shows that the region is NOT the whole lever and that widening it
+# moves everything the spec said must not move.  MEASURED, LEMD arm
+# `reachon` against the aed29ba4 control, both through
+# tools/harness/build_airport.py (2026-08-28):
+#
+#   * THE ACCEPTANCE IS NOT MET.  osm_site --at the owner's poke-through
+#     reads object_basin_trench 1.21 m away on the control and 5.14 m
+#     away on the arm — FARTHER, not 0.00 m; the ramp-top point improves
+#     11.61 m -> 2.51 m but is still outside.  The emitted floor pan is
+#     not the region: it is DIFFERENCED against every earlier-born shape,
+#     and in the widened corner the apron (way -10228) and the building8
+#     pad eat it.  Region widening alone cannot deliver the owner's ask.
+#   * THE FLOOR MOVED: 587.75 -> 588.69 m (+0.94).
+#   * THE RIM MOVED: 600.51 -> 600.47 m.
+#   * building8's pad STOPPED BEING FLAT: 600.51 everywhere -> [597.67,
+#     600.47] (the §1.1 whole-pad seat's coverage test flips when the
+#     facility footprint grows past BASIN_PAD_COVERAGE_MIN).
+#   * The census total improves (2,529 -> 2,515 law-true) but the
+#     population is worse where it counts: within_shape 35 -> 53 (all
+#     +18 airside) and three NEW terrace_joint_route rows at worst
+#     11.777 m.
+#
+# ...and, separately, it moves the committed GROUP SEAT.  Offline against
+# the built +40-004 mesh, instrument controlled against the committed
+# value:
 #
 #     admitted ring  27,857 m2 -> R_mesh 596.680 m   (committed: 596.682)
 #     completed ring 29,636 m2 -> R_mesh 597.492 m   (+0.81 m)
@@ -5035,10 +5056,21 @@ BASIN_REGION_FOUNDING = (
 # one body"), so cutting the ramp and holding G at 596.682 cannot both be
 # had under the current law: decoupling them would point R_mesh's band
 # at terrain INSIDE our own extended plates, which is exactly what that
-# band is defined not to sample.  That is an owner/design ruling, not an
-# implementer's call, so the machinery lands with its twins and the gate
-# OFF.  Turn it on with O4_BASIN_REGION_RAMP_REACH=1 to reproduce the
-# arm.
+# band is defined not to sample.  The floor and rim move for the same
+# reason — R_est is read off the same ring.
+#
+# SO THE FINDING IS NOT "this needs tuning", it is that the OWNER'S ASK
+# NEEDS A DIFFERENT LEVER: the emitted floor pan's own DIFFERENCING (and
+# the pad seat's coverage test) is what leaves the ramp uncovered, and
+# the facility ring is welded to the floor value, the rim value and the
+# seat datum.  That is an owner/design ruling, not an implementer's call,
+# so the machinery lands with its twins and the gate OFF.  Turn it on
+# with O4_BASIN_REGION_RAMP_REACH=1 to reproduce the arm.
+#
+# CONTROLS on the same arm: SPJC ON == OFF BYTE-IDENTICAL (body_sha
+# 255261460924 both ways — its region grows by under 0.5 m2); OTHH's two
+# regions grow 6,203 -> 6,222 and 4,332 -> 4,339 m2 (offline read);
+# HECA derives NO below-grade region at all, so the pass cannot reach it.
 #
 # THE DEFECT.  "The rim of the pit and elevation are all perfect now,
 # just the terrain is poking through the ramp at 40.4923132,-3.5697896"

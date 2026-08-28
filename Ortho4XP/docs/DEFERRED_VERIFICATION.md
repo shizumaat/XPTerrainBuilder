@@ -4160,10 +4160,14 @@ attribution instrument.
 ## 2026-08-28 — LEMD basin trench RAMP REACH (lane/lemdtrench, gate HELD OFF)
 
 Spec `docs/specs/lemd-basin-trench-ramp-extension-spec.md`.  The
-`O4_BASIN_REGION_RAMP_REACH` machinery ships DEFAULT OFF: it closes the
-owner's poke-through exactly, and it moves the committed LEMD group seat
-`G` (596.682 → 597.492 on the built +40-004 mesh), which the spec calls a
-STOP.  What was NOT paid this round:
+`O4_BASIN_REGION_RAMP_REACH` machinery ships DEFAULT OFF.  The built arm
+shows that region widening alone does NOT deliver the owner's acceptance
+(`osm_site --at` the poke-through: 1.21 m → 5.14 m from the floor pan;
+the ramp top 11.61 m → 2.51 m; neither at 0.00 m) and DOES move every
+value the spec ring-fenced: floor 587.75 → 588.69 m, rim 600.51 →
+600.47 m, `building8`'s pad off flat (600.51 → [597.67, 600.47]), and the
+group seat `G` 596.682 → 597.492 m (offline read on the built +40-004
+mesh).  That is the spec's own STOP.  What was NOT paid this round:
 
 * **G was read OFFLINE, not through a tile rebake.**
   `post_mesh._basin_facility_rim_sample_ring` + `MeshElevationSampler`

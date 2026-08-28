@@ -5067,10 +5067,13 @@ BASIN_REGION_FOUNDING = (
 # so the machinery lands with its twins and the gate OFF.  Turn it on
 # with O4_BASIN_REGION_RAMP_REACH=1 to reproduce the arm.
 #
-# CONTROLS on the same arm: SPJC ON == OFF BYTE-IDENTICAL (body_sha
-# 255261460924 both ways — its region grows by under 0.5 m2); OTHH's two
-# regions grow 6,203 -> 6,222 and 4,332 -> 4,339 m2 (offline read);
-# HECA derives NO below-grade region at all, so the pass cannot reach it.
+# CONTROLS, both built ON and OFF through the harness and BYTE-IDENTICAL
+# either way: HECA (body_sha 0a2740ab1e88) — it derives NO below-grade
+# region at all, so the pass cannot reach it; SPJC (body_sha
+# 255261460924) — it HAS a region and the pass runs on it, and the ring
+# still grows by under 0.5 m2, which is the stronger of the two reads.
+# OTHH's two regions grow 6,203 -> 6,222 and 4,332 -> 4,339 m2 (offline);
+# OTHH was not built this round.
 #
 # THE DEFECT.  "The rim of the pit and elevation are all perfect now,
 # just the terrain is poking through the ramp at 40.4923132,-3.5697896"

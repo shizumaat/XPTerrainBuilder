@@ -70,3 +70,34 @@ def test_every_class_is_declared():
 def test_the_tool_is_in_the_index():
     idx = (_ROOT.parent / "tools" / "INDEX.md").read_text()
     assert "Ortho4XP/tools/apron_pull_attrib.py" in idx
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE --way / --site SCOPE (promoted 2026-08-28 from the hecar2 lane's
+# ``tmp/way_authority_read.py`` on its SECOND use, RULINGS 7e90032)
+# ══════════════════════════════════════════════════════════════════════
+
+def test_the_way_scope_names_the_tight_edges_and_prices_no_law():
+    """It answers "who authors the values on this way" — per node the
+    emitted value, the DEM under it, and every enforced edge with its
+    budget and whether it is TIGHT.  It derives no law: the budgets come
+    verbatim from the sidecar's ``pair_caps`` through ``load_arm``."""
+    import inspect
+    src = inspect.getsource(APA.way_authority)
+    assert 'arm["adj"]' in src, "budgets must come from the sidecar graph"
+    assert "WAY_TIGHT_TOL_M" in src
+    doc = inspect.getdoc(APA.way_authority)
+    assert "counts no defects" in doc
+    assert "census.py" in doc
+
+
+def test_the_way_scope_is_a_parameter_on_the_near_fit_not_a_fork():
+    """RULINGS 7e90032: extend a near-fit (a parameter, a subcommand);
+    never fork it.  The scope lives in ``apron_pull_attrib`` and shares
+    its ``load_arm`` — there is no second loader."""
+    import inspect
+    src = inspect.getsource(APA)
+    assert src.count("def load_arm") == 1
+    main_src = inspect.getsource(APA.main)
+    assert '"--way"' in main_src and '"--site"' in main_src
+    assert "load_arm(a.patch" in main_src

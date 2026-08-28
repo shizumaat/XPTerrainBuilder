@@ -47,6 +47,7 @@ class OsmShape:
     ref: str
     polygon: Polygon
     source: str  # "target" or "output"
+    shape_id: str = ""
 
     def label(self) -> str:
         return f"{self.role}:{self.ref or self.way_id}"
@@ -175,6 +176,7 @@ def load_shapes(path: Path, anchor: Tuple[float, float], source: str) -> List[Os
             ref=tags.get("ref", ""),
             polygon=poly,
             source=source,
+            shape_id=tags.get("shapeID", ""),
         ))
     return shapes
 
@@ -379,6 +381,54 @@ def report(target_shapes: List[OsmShape], output_shapes: List[OsmShape],
 # ----------------------------------------------------------------------
 # CLI
 
+def envelope_iou(target_shapes: List[OsmShape],
+                 output_shapes: List[OsmShape],
+                 envelope_shapes: List[OsmShape],
+                 shape_id: str) -> Optional[dict]:
+    """THE SCOPED IoU — a reference EXTENT against what a build emitted
+    inside the SAME footprint (added 2026-08-28 for the HECA round-4
+    §H3 acceptance, promoted from the hecar2 lane's ``surgery_diff``
+    scratch reader on its second use, RULINGS ``7e90032``).
+
+    ``target_shapes`` carries the REFERENCE (the owner's hand-edited
+    extent, joined by the ``shapeID`` TAG — JOSM renumbers way ids, the
+    tag is stable).  ``envelope_shapes`` carries the SAME shapeID in the
+    build the reference was cut from: its polygon is the FOOTPRINT the
+    question is asked inside, because after a severance the emitted
+    pieces carry different shapeIDs and no tag join survives.  The
+    RETAINED region is then the union of same-role output polygons
+    clipped to that footprint, and the number reported is
+    ``IoU(retained, reference)``.
+
+    Returns ``None`` when either side has no way with that shapeID.
+    """
+    ref = [s for s in target_shapes if s.shape_id == shape_id]
+    env = [s for s in envelope_shapes if s.shape_id == shape_id]
+    if not ref or not env:
+        return None
+    ref_u = unary_union([s.polygon for s in ref]).buffer(0)
+    env_u = unary_union([s.polygon for s in env]).buffer(0)
+    role = ref[0].role
+    same = [s.polygon for s in output_shapes if s.role == role]
+    if not same:
+        retained = ref_u.intersection(env_u).buffer(0)
+        retained = retained.difference(retained)
+    else:
+        retained = unary_union(same).buffer(0).intersection(env_u).buffer(0)
+    inter = retained.intersection(ref_u).area
+    union = retained.union(ref_u).area
+    return {
+        "shape_id": shape_id, "role": role,
+        "footprint_m2": env_u.area, "reference_m2": ref_u.area,
+        "retained_m2": retained.area,
+        "cut_reference_m2": env_u.area - ref_u.area,
+        "cut_built_m2": env_u.area - retained.area,
+        "iou": (inter / union) if union > 0 else 0.0,
+        "in_reference_not_retained_m2": ref_u.difference(retained).area,
+        "retained_outside_reference_m2": retained.difference(ref_u).area,
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("target", type=Path)
@@ -389,6 +439,16 @@ def main(argv=None):
     ap.add_argument("--tol", type=float, default=DEFAULT_TOL_M,
                     help="Vertex-match tolerance in meters (default 0.5)")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--iou-shape-id", action="append", default=[],
+                    help="report the SCOPED IoU for this shapeID: the "
+                         "TARGET way with that shapeID is the reference "
+                         "extent, --iou-envelope supplies the footprint "
+                         "the question is asked inside, and the retained "
+                         "region is the OUTPUT's same-role union clipped "
+                         "to it (repeatable)")
+    ap.add_argument("--iou-envelope", type=Path, default=None,
+                    help="the patch the reference was cut FROM — its way "
+                         "with the same shapeID is the footprint")
     args = ap.parse_args(argv)
 
     if args.anchor:
@@ -402,6 +462,30 @@ def main(argv=None):
     print(f"Output: {args.output} ({len(output_shapes)} shapes)")
     print(f"Anchor: lat={lat0:.6f} lon={lon0:.6f}")
     print()
+
+    if args.iou_shape_id:
+        env_path = args.iou_envelope or args.target
+        env_shapes = (target_shapes if env_path == args.target
+                      else load_shapes(env_path, (lat0, lon0), "envelope"))
+        print("=== SCOPED IoU (reference extent vs what the build kept "
+              "inside the same footprint) ===")
+        print(f"  footprint from: {env_path}")
+        for sid in args.iou_shape_id:
+            r = envelope_iou(target_shapes, output_shapes, env_shapes, sid)
+            if r is None:
+                print(f"  shapeID {sid}: NOT FOUND in target and/or "
+                      f"envelope — no join, nothing reported")
+                continue
+            print(f"  shapeID {r['shape_id']} role={r['role']}: "
+                  f"footprint {r['footprint_m2']:,.0f} m2, reference "
+                  f"{r['reference_m2']:,.0f} m2 (reference cut "
+                  f"{r['cut_reference_m2']:,.0f} m2), build retained "
+                  f"{r['retained_m2']:,.0f} m2 (build cut "
+                  f"{r['cut_built_m2']:,.0f} m2)")
+            print(f"      IoU(retained, reference) = {r['iou']:.4f}   "
+                  f"in-reference-not-retained {r['in_reference_not_retained_m2']:,.0f} m2, "
+                  f"retained-outside-reference {r['retained_outside_reference_m2']:,.0f} m2")
+        print()
 
     report(target_shapes, output_shapes, tol=args.tol, verbose=args.verbose)
 

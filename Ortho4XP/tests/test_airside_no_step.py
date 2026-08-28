@@ -833,20 +833,26 @@ def test_the_pass_2_reseed_is_gated_OFF_with_its_measurement():
         "…including the wider cut that scoped it back")
 
 
-def test_the_published_lattice_law_is_COUNTED_but_NOT_reimposed():
-    """Spec Amendment 2 names lattice/station edges among the tier-4
-    nodes' own laws, and this lane does NOT re-impose them — a measured
-    deviation, reported rather than improvised.  Pass 2 has every senior
-    node frozen, so re-imposing a budget the MAIN solve already failed
-    asks it to REPAIR a pre-existing violation and it pays out of the
-    membrane's other laws (SPJC airside 1,359 -> 1,926; CYXY's own
-    ``apron_lattice_membrane`` 24 -> 47).  The population is still
-    COUNTED, so the deviation is visible in every build log."""
+def test_the_published_lattice_law_IS_reimposed_under_do_no_harm():
+    """SUPERSEDED BY ROUND 4 §H1.2 (the no-step spec Amendment 3 §2
+    CHARTER, activated by RULINGS 2026-08-28b item 2 — the owner's sim
+    read still shows the dip).  Amendment 3 recorded a DEVIATION: pass 2
+    did not re-impose the published lattice/station law, because with
+    every senior node frozen a raw re-imposition asks pass 2 to REPAIR a
+    pre-existing violation and it pays out of the membrane's other laws
+    (SPJC airside 1,359 -> 1,926; CYXY's own ``apron_lattice_membrane``
+    24 -> 47).  The DO-NO-HARM RELAXATION is the ruled fix, so the
+    re-imposition now lands WITH it and never without it."""
     import inspect
     src = inspect.getsource(ANS.membrane_conform)
-    assert "NOT IMPOSED THIS ROUND" in src
     assert "do-no-harm" in src.lower()
     assert 'report["membrane_published_edges"]' in src
+    # the re-imposition is GATED on the relaxation: never one without
+    # the other (that pairing is the whole ruling)
+    i_relax = src.index('_relax = bool(getattr(_cfg, "PASS2_RELAXATION"')
+    i_imp = src.index("own.append((int(a), int(b), float(bud)))")
+    assert i_relax < i_imp
+    assert "if _relax:" in src
     doc = inspect.getdoc(ANS._resolve_published_ll_pairs)
     assert "canonical registry" in doc
 
@@ -861,3 +867,338 @@ def test_the_creation_order_repair_runs_after_the_conform():
     i_rep = src.index("own_only = [e for e in entries")
     assert i_conf < i_rep
     assert 'e.get("ref") != PROVENANCE' in src
+
+
+# ═════════════════════════════════════════════════════════════════════
+# HECA ROUND 4 §H1 — THE COVERAGE GUARANTEE AND THE DO-NO-HARM
+# RELAXATION (docs/specs/heca-round4-spec.md; RULINGS 2026-08-28b
+# items 1 and 2)
+# ═════════════════════════════════════════════════════════════════════
+
+def _apron_with_lattice(off_grid=True):
+    """An apron whose interior carries ONE lattice point.
+
+    ``off_grid`` reproduces the measured half of item 1 exactly: the
+    lattice point has a canonical node index but NO unified-graph
+    position, because ``build_unified_graph`` positions only the ring
+    vertices it walks.  It is therefore invisible to the k-NN — priced
+    by nothing — unless the §H1.1 floor reaches it.
+    """
+    ap = _Shape(_rect(0.0, 0.0, 60.0, 60.0), "apron")
+    layout = _Layout([ap])
+    bucket_to_idx, node_pos, ctx = _wire(layout)
+    b = layout.canonical_points.get_or_add(30.0, 30.0)
+    lat_idx = len(node_pos)
+    bucket_to_idx[b] = lat_idx
+    if not off_grid:
+        node_pos[lat_idx] = (30.0, 30.0)
+    layout.apron_lattice_presolve = [{"shape": ap, "points": [(30.0, 30.0)]}]
+    return layout, bucket_to_idx, node_pos, ctx, lat_idx
+
+
+def _touches(rows, node_id):
+    return any(r[2] == node_id or r[3] == node_id for r in rows)
+
+
+def test_H1_1_every_membrane_node_carries_law(monkeypatch):
+    """§H1.1, the STRUCTURAL INVARIANT: zero membrane nodes with no
+    priced neighbour.  Measured before the floor (item 1): 787 of HECA's
+    2,202 lattice endpoints (36 %) carried NO ``pair_caps`` edge and NO
+    ``airside_no_step`` edge, so the void pair (lattice 76.43 <-> ring
+    79.15, 18.51 m, 14.7 % against a 1.5 % cap) was priced by NOTHING."""
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "MEMBRANE_LAW_FLOOR", True, raising=False)
+    layout, b2i, pos, ctx, lat = _apron_with_lattice()
+    n = len(pos) + 1
+    rows, rep = ANS.enumerate_airside_no_step_pairs(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n)
+    assert rep["membrane_nodes"] == 1
+    assert rep["membrane_off_grid"] == 1, (
+        "the lattice point has no unified-graph position — that is half "
+        "of the measured orphan population")
+    assert rep["floor_orphans"] == 1
+    assert rep["floor_edges"] == 1
+    assert rep["floor_unpriced"] == 0
+    assert _touches(rows, lat), "the membrane node is still unpriced"
+    # THE INVARIANT, stated as arithmetic: every orphan is either given a
+    # floor edge or counted as having no lawful neighbour at all.
+    assert (rep["floor_orphans"]
+            == rep["floor_edges"] + rep["floor_unpriced"])
+
+
+def test_H1_1_the_floor_edge_goes_to_a_RING_node_not_another_membrane():
+    """"…to its NEAREST RING-OR-SENIOR node".  A membrane<->membrane
+    floor edge would couple the lattice to itself, which is the coupling
+    that already exists and the one that ACCUMULATES (the whole reason
+    this law exists)."""
+    ap = _Shape(_rect(0.0, 0.0, 60.0, 60.0), "apron")
+    layout = _Layout([ap])
+    b2i, pos, ctx = _wire(layout)
+    pts = [(28.0, 30.0), (32.0, 30.0)]
+    idx = []
+    for (x, y) in pts:
+        b = layout.canonical_points.get_or_add(x, y)
+        b2i[b] = len(pos) + len(idx)
+        idx.append(b2i[b])
+    layout.apron_lattice_presolve = [{"shape": ap, "points": pts}]
+    n = len(pos) + len(idx)
+    rows, rep = ANS.enumerate_airside_no_step_pairs(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n)
+    assert rep["floor_orphans"] == 2
+    assert rep["floor_edges"] == 2
+    mem = set(idx)
+    for r in rows:
+        if r[2] in mem or r[3] in mem:
+            assert not (r[2] in mem and r[3] in mem), (
+                "a floor edge joined two membrane nodes")
+
+
+def test_H1_1_the_floor_is_flag_gated_and_OFF_is_the_prior(monkeypatch):
+    """Flag OFF ⇒ the enumeration is exactly the round-3 population."""
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "MEMBRANE_LAW_FLOOR", False, raising=False)
+    layout, b2i, pos, ctx, lat = _apron_with_lattice()
+    n = len(pos) + 1
+    rows, rep = ANS.enumerate_airside_no_step_pairs(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n)
+    assert rep["membrane_nodes"] == 0
+    assert rep["floor_edges"] == 0
+    assert not _touches(rows, lat), (
+        "with the floor OFF the orphan must stay unpriced — that is the "
+        "byte-identical prior")
+
+
+def test_H1_1_the_floor_never_invents_a_budget():
+    """The floor prices through the SAME ``classify_pair`` chain: no new
+    cap value, no manufactured allowance (the law's founding rule)."""
+    import inspect
+    src = inspect.getsource(ANS.enumerate_airside_no_step_pairs)
+    assert "row = _price(p, b, count=False)" in src
+    assert "_chord_visible(union, coords[p], coords[b])" in src
+
+
+def test_H1_1_a_floor_chord_across_a_pavement_GAP_is_still_not_law():
+    """RULINGS 2026-08-24b stands: a step is lawful exactly across a
+    pavement gap, so the floor may not manufacture a chord that leaves
+    the airside union.  Such a node is COUNTED, never silently priced."""
+    ap = _Shape(_rect(0.0, 0.0, 40.0, 40.0), "apron")
+    far = _Shape(_rect(400.0, 400.0, 440.0, 440.0), "apron")
+    layout = _Layout([ap, far])
+    b2i, pos, ctx = _wire(layout)
+    # a lattice point inside the FAR apron, whose only ring neighbours
+    # are its own — but we place it 1000 m out so the window excludes
+    # every ring vertex.
+    ghost = _Shape(_rect(3000.0, 3000.0, 3040.0, 3040.0), "apron")
+    layout.shapes.append(ghost)
+    b = layout.canonical_points.get_or_add(3020.0, 3020.0)
+    b2i[b] = len(pos)
+    layout.apron_lattice_presolve = [{"shape": ghost,
+                                      "points": [(3020.0, 3020.0)]}]
+    n = len(pos) + 1
+    rows, rep = ANS.enumerate_airside_no_step_pairs(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n)
+    assert rep["floor_orphans"] >= 1
+    assert rep["floor_unpriced"] >= 1, (
+        "a membrane node with no lawful neighbour inside the window must "
+        "be COUNTED, never inferred from silence")
+
+
+def test_H1_2_do_no_harm_no_own_law_row_grows(monkeypatch):
+    """§H1.2's INVARIANT.  Each own-law budget is raised to AT LEAST its
+    pass-1 residual, so an own-law pair's residual after pass 2 is
+    bounded by max(budget, its pass-1 residual): a pair already over cap
+    cannot grow, and pass 2 is never ASKED to repair one."""
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "PASS2_RELAXATION", True, raising=False)
+    jn = _Shape(_rect(-25.0, -20.0, 0.0, 20.0), "junction")
+    ap = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "apron")
+    layout = _Layout([jn, ap])
+    b2i, pos, ctx = _wire(layout)
+    n = len(pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, b2i, n))
+    ANS.build_airside_no_step_constraints(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, tier_of=tiers)
+    free, const, _t = ANS.membrane_free_nodes(layout, b2i, n)
+    assert free and const
+    elev = [10.0] * n
+    for i in const:
+        elev[i] = 13.0
+    # A PRE-EXISTING own-law violation between two FREE nodes: a 1 cm
+    # budget over a pair that already stands 2 m apart.  Un-relaxed,
+    # pass 2 would have to repair it out of the membrane's other laws.
+    fl = sorted(free)
+    a, b = fl[0], fl[1]
+    elev[a] = 8.0
+    elev[b] = 10.0
+    res0 = abs(elev[a] - elev[b])
+    sc = [{"nodes": [a, b], "edges": [(a, b, 0.01)], "flat": False,
+           "flat_pairs": (), "area": 0.0, "role": "apron"}]
+    rep = ANS.membrane_conform(layout, b2i, elev, n,
+                               shape_constraints=sc, icao="TEST")
+    assert rep["own_law_relaxed"] >= 1
+    assert rep["own_law_grown"] == 0, (
+        "an own-law row grew beyond its pass-1 residual — do-no-harm is "
+        "the invariant")
+    assert abs(elev[a] - elev[b]) <= max(0.01, res0) + 1e-6
+
+
+def test_H1_2_the_relaxation_is_flag_gated(monkeypatch):
+    """Flag OFF ⇒ no budget is raised and nothing is re-imposed: the
+    Amendment-3 behaviour exactly."""
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "PASS2_RELAXATION", False, raising=False)
+    jn = _Shape(_rect(-25.0, -20.0, 0.0, 20.0), "junction")
+    ap = _Shape(_rect(0.0, -20.0, 25.0, 20.0), "apron")
+    layout = _Layout([jn, ap])
+    b2i, pos, ctx = _wire(layout)
+    n = len(pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, b2i, n))
+    ANS.build_airside_no_step_constraints(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, tier_of=tiers)
+    elev = [10.0] * n
+    free, const, _t = ANS.membrane_free_nodes(layout, b2i, n)
+    for i in const:
+        elev[i] = 13.0
+    fl = sorted(free)
+    sc = [{"nodes": [fl[0], fl[1]], "edges": [(fl[0], fl[1], 0.01)],
+           "flat": False, "flat_pairs": (), "area": 0.0, "role": "apron"}]
+    rep = ANS.membrane_conform(layout, b2i, elev, n,
+                               shape_constraints=sc, icao="TEST")
+    assert rep["own_law_relaxed"] == 0
+    assert rep["published_reimposed"] == 0
+
+
+def test_H1_the_five_round4_flags_default_ON():
+    """§Shared: five flags, all DEFAULT ON, each OFF byte-identical."""
+    import auto_patch.config as CFG
+    for name in ("MEMBRANE_LAW_FLOOR", "PASS2_RELAXATION",
+                 "ADOPT_FREEZE_AIRSIDE_ONLY", "ROAD_EVIDENCE_SEVER",
+                 "TRANSVERSE_NO_STEP"):
+        assert getattr(CFG, name) is True, name
+        assert name in CFG.__all__, f"{name} is not in the registry"
+
+
+# ═════════════════════════════════════════════════════════════════════
+# HECA ROUND 4 §H4 — THE TRANSVERSE PROFILE OBEYS NO-STEP ON ITS OWN
+# RING (RULINGS 2026-08-28b item 5(a))
+# ═════════════════════════════════════════════════════════════════════
+
+def _two_lip_junction():
+    """One junction ring carrying a ROAD-CARVE LIP pair 8 m apart — the
+    item-5(a) geometry (nodes -3531/-3532 against -3533/-3535)."""
+    ring = Polygon([(0.0, 0.0), (40.0, 0.0), (40.0, 8.0), (48.0, 8.0),
+                    (48.0, 30.0), (0.0, 30.0), (0.0, 0.0)])
+    return _Shape(ring, "junction")
+
+
+def test_H4_a_pair_within_ONE_ring_is_imposed():
+    """§H4.1: a taxiway-family shape's transverse writeback may not mint
+    a direct-distance violation between its OWN ring vertices — one
+    authority disagreeing with ITSELF, not two authorities disagreeing.
+    """
+    jn = _two_lip_junction()
+    layout = _Layout([jn])
+    b2i, pos, ctx = _wire(layout)
+    n = len(pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, b2i, n))
+    sc, senior, recs, rep = ANS.build_airside_no_step_constraints(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, tier_of=tiers)
+    assert rep["tier2_census_only"] > 0
+    assert sc == [], "tier2<->tier2 is still not imposed by the SOLVE"
+    entries, r4 = ANS.within_ring_no_step_entries(layout, b2i, n)
+    assert r4["within_ring"] > 0
+    assert entries and entries[0]["edges"]
+    assert entries[0]["ref"] == "transverse_no_step"
+    # every imposed edge joins two vertices of ONE ring
+    owners = ANS.taxiway_family_ring_owners(layout, b2i, n)
+    for (a, b, bud) in entries[0]["edges"]:
+        assert owners[a] & owners[b]
+        assert bud > 0.0
+
+
+def test_H4_a_CROSS_SHAPE_tier2_pair_stays_a_census_docket():
+    """"cross-shape senior pairs remain census-priced dockets" — §H4.1's
+    own sentence, and the no-step spec Amendment 1 ruling it preserves.
+    """
+    j1 = _Shape(_rect(-25.0, -20.0, -1.0, 20.0), "junction")
+    j2 = _Shape(_rect(1.0, -20.0, 25.0, 20.0), "stub")
+    layout = _Layout([j1, j2])
+    b2i, pos, ctx = _wire(layout)
+    n = len(pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, b2i, n))
+    sc, senior, recs, rep = ANS.build_airside_no_step_constraints(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, tier_of=tiers)
+    assert rep["tier2_census_only"] > 0
+    entries, r4 = ANS.within_ring_no_step_entries(layout, b2i, n)
+    owners = ANS.taxiway_family_ring_owners(layout, b2i, n)
+    for e in entries:
+        for (a, b, _bud) in e["edges"]:
+            assert owners[a] & owners[b], (
+                "a CROSS-SHAPE tier2 pair was imposed — that is the "
+                "solver tug-of-war Amendment 1 forbids")
+
+
+def test_H4_flag_OFF_is_vacuous(monkeypatch):
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "TRANSVERSE_NO_STEP", False, raising=False)
+    jn = _two_lip_junction()
+    layout = _Layout([jn])
+    b2i, pos, ctx = _wire(layout)
+    n = len(pos)
+    tiers = ANS.tier_of_nodes(
+        n, centerline_nodes=ANS.taxiway_family_nodes(layout, b2i, n))
+    ANS.build_airside_no_step_constraints(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, tier_of=tiers)
+    entries, r4 = ANS.within_ring_no_step_entries(layout, b2i, n)
+    assert entries == []
+    assert r4["edges"] == 0
+
+
+def test_H4_is_wired_into_the_final_projection():
+    """The clamp binds where the transverse writeback has its last word
+    — the FINAL projection — and it consumes the ALREADY-PUBLISHED
+    enumeration (one enumeration, three consumers)."""
+    src = Path(
+        _ROOT / "src/auto_patch/elevation_per_surface/route_profile/"
+        "solve.py").read_text()
+    i = src.index("within_ring_no_step_entries")
+    assert "joint.extend(_tr_entries)" in src[i:i + 2000]
+    assert "transverse_no_step" in src
+    import inspect
+    isrc = inspect.getsource(ANS.within_ring_no_step_entries)
+    assert "_resolve_carried_pairs" in isrc, (
+        "§H4 must consume the ONE enumeration, never build a second")
+
+
+def test_H1_1_a_lattice_to_lattice_edge_is_NOT_coverage():
+    """"…to its nearest RING-OR-SENIOR node."  A membrane<->membrane
+    edge IS the chain of 50 m x cap budgets this law exists to price, so
+    it can never satisfy the coverage guarantee.  MEASURED on the weaker
+    "has any priced neighbour" test: HECA, SPJC and CYXY all reported
+    ZERO orphans (every lattice node carries within-shape edges to its
+    lattice neighbours) while item 1's void pair stayed unpriced."""
+    ap = _Shape(_rect(0.0, 0.0, 60.0, 60.0), "apron")
+    layout = _Layout([ap])
+    b2i, pos, ctx = _wire(layout)
+    pts = [(29.0, 30.0), (31.0, 30.0)]
+    idx = []
+    for (x, y) in pts:
+        b = layout.canonical_points.get_or_add(x, y)
+        b2i[b] = len(pos) + len(idx)
+        idx.append(b2i[b])
+    layout.apron_lattice_presolve = [{"shape": ap, "points": pts}]
+    n = len(pos) + len(idx)
+    # the ONLY stated pair is lattice <-> lattice
+    existing = frozenset({(min(idx), max(idx))})
+    rows, rep = ANS.enumerate_airside_no_step_pairs(
+        layout, b2i, ctx, node_pos=pos, n_nodes=n, existing_pairs=existing)
+    assert rep["floor_orphans"] == 2, (
+        "a lattice<->lattice edge was counted as coverage")
+    assert rep["floor_edges"] == 2
+    mem = set(idx)
+    got = [r for r in rows if (r[2] in mem) != (r[3] in mem)]
+    assert len(got) >= 2, "no membrane<->ring edge was minted"

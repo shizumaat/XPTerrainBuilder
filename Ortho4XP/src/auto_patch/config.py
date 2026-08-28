@@ -146,6 +146,12 @@ __all__ = [
     "AIRSIDE_NO_STEP_WINDOW_M",
     "AIRSIDE_NO_STEP_K",
     "AIRSIDE_NO_STEP_RESEED",
+    # HECA ROUND 4 (docs/specs/heca-round4-spec.md §H1-§H4)
+    "MEMBRANE_LAW_FLOOR",
+    "PASS2_RELAXATION",
+    "ADOPT_FREEZE_AIRSIDE_ONLY",
+    "ROAD_EVIDENCE_SEVER",
+    "TRANSVERSE_NO_STEP",
     # THE UNIFIED LAW BAND (docs/specs/unified-law-band-spec.md)
     "BAND_FULL_LAW_GRAPH",
     "BAND_SEAT_ANCHORS",
@@ -9705,6 +9711,76 @@ AIRSIDE_NO_STEP = (
 # arm a ruling would be made on.
 AIRSIDE_NO_STEP_RESEED = (
     _os.environ.get("O4_AIRSIDE_NO_STEP_RESEED", "0") != "0")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# HECA ROUND 4 (docs/specs/heca-round4-spec.md; owner sim read RULINGS
+# 2026-08-28b items 1/2/3/5, attribution lane/hecar2 843137cb).  Five
+# flags, ALL DEFAULT ON, each OFF byte-identical.
+# ══════════════════════════════════════════════════════════════════════
+
+# §H1.1 — THE MEMBRANE COVERAGE GUARANTEE.  Measured (item 1): 787 of
+# HECA's 2,202 lattice endpoints (36 %) carry NO ``pair_caps`` edge and
+# NO ``airside_no_step`` edge — the k-NN sector selection can spend a
+# node's whole quota on its own lattice neighbours, so the void pair
+# (lattice 76.43 <-> ring 79.15, 18.51 m, 14.7 % against a 1.5 % cap) is
+# priced by NOTHING.  With the floor ON, every lattice/station node
+# carries at least one direct-distance edge to its nearest ring-or-
+# senior node inside the window.  OFF: the enumeration is exactly the
+# round-3 population.
+MEMBRANE_LAW_FLOOR = (
+    _os.environ.get("O4_MEMBRANE_LAW_FLOOR", "1") != "0")
+
+# §H1.2 — THE DO-NO-HARM RELAXATION (the no-step spec Amendment 3 §2
+# charter, ACTIVATED by RULINGS 2026-08-28b item 2: the owner's sim read
+# still shows the dip).  In pass 2 each own-law budget is raised to AT
+# LEAST its pass-1 residual, so the conform can repair no-step/membrane
+# rows without being blocked by a pre-existing hair-over-cap own-law row
+# it cannot lawfully touch (the T-site class: residuals 0.0001-0.0012 pp
+# over cap).  DO-NO-HARM is the invariant — with the relaxation in force
+# no own-law row can exceed max(its budget, its pass-1 residual), so
+# pass 2 can never make an own-law pair worse than pass 1 left it.  This
+# is also what makes re-imposing the published lattice/station law safe
+# (Amendment 3 §2 measured the un-relaxed re-imposition making the
+# protected family worse: SPJC 24 -> 47).
+PASS2_RELAXATION = (
+    _os.environ.get("O4_PASS2_RELAXATION", "1") != "0")
+
+# §H2 — THE ADOPTION FREEZE IS AIRSIDE-ONLY (the road-crossing spec
+# Amendment 4, the ruling its Amendment 2 §3 promised).  The crossing
+# adoption froze every road vertex ANY non-road shape carries; measured
+# (item 5(b)) at service_junction -10774 the graded_strip-shared pair
+# freezes at 106.74/106.87 beside the airside-shared pair at
+# 108.41/108.48 — 123.11 % ON THE ROAD RING.  A graded_strip /
+# adjacent-ground receiver is a CONFORMING PRODUCT, not an authority, so
+# its vertices are ADOPTABLE; airside-shared vertices stay frozen (the
+# freeze narrows, it never widens).  OFF: the pre-round freeze exactly.
+ADOPT_FREEZE_AIRSIDE_ONLY = (
+    _os.environ.get("O4_ADOPT_FREEZE_AIRSIDE_ONLY", "1") != "0")
+
+# §H3 — ROAD-EVIDENCE SEVERANCE.  The scorer's ONLY severance is the
+# aeroway-evidence cut (osm_taxi AND osm_apron/stand each >= the mix
+# fraction); measured (item 3), HECA's apron 582 swallows a mapped
+# SERVICE-ROAD zone that carries NO aeroway mapping at all — shape 605
+# has osm_taxi 0.0 — and the builder excavates its ground 12.71 m below
+# DEM.  The ONE cutter is extended to road/service evidence (never a
+# second cutter), with the SAME standing min-area and mix-fraction
+# constants.  OFF: the aeroway cut alone, exactly as before.
+ROAD_EVIDENCE_SEVER = (
+    _os.environ.get("O4_ROAD_EVIDENCE_SEVER", "1") != "0")
+
+# §H4 — THE TRANSVERSE PROFILE OBEYS NO-STEP ON ITS OWN RING.  A
+# taxiway-family shape's transverse writeback may not mint a direct-
+# distance violation between its OWN ring vertices (item 5(a): junction
+# -10250's road-carve lips, nodes -3531/-3532 at 109.03-109.06 against
+# -3533/-3535 at 108.37-108.44 eight metres away — 8.20 % on one ring,
+# five census rows, all junction|junction no-step).  The no-step spec
+# Amendment 1 made tier2<->tier2 census-priced-only because a
+# CROSS-SHAPE pair there is two authorities disagreeing; a pair WITHIN
+# ONE RING is one authority disagreeing with itself, which is this law.
+# OFF: those pairs stay report-first exactly as Amendment 1 left them.
+TRANSVERSE_NO_STEP = (
+    _os.environ.get("O4_TRANSVERSE_NO_STEP", "1") != "0")
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -1158,25 +1158,57 @@ def sever_mixed_aeroway(layout) -> int:
     side, and piece rings are snapped onto the parent ring so the weld
     chain sees canonical vertices.  Returns the number of shapes cut.
     """
-    if _os.environ.get("O4_PAVEMENT_SEVER_AEROWAY", "1") != "1":
+    from .config import ROAD_EVIDENCE_SEVER as _ROAD_SEVER
+    _aeroway_on = _os.environ.get("O4_PAVEMENT_SEVER_AEROWAY", "1") == "1"
+    if not _aeroway_on and not _ROAD_SEVER:
         return 0
     from .pavement_classification import evidence_sources
     ev = evidence_sources(layout)
-    if not ev.osm_taxi.parts or not (ev.osm_apron.parts
-                                     or ev.osm_stand.parts):
+    apron_parts = list(ev.osm_apron.parts) + list(ev.osm_stand.parts)
+    # ── ZONE 1: the AEROWAY-EVIDENCE zone (owner axis-A 2026-07-29) ──
+    taxi_zone = None
+    aeroway_u = None
+    if _aeroway_on and ev.osm_taxi.parts and apron_parts:
+        try:
+            taxi_u = unary_union(ev.osm_taxi.parts)
+            apron_u = unary_union(apron_parts)
+            z = taxi_u.difference(apron_u)
+            taxi_zone = None if z.is_empty else z
+        except _GEOM_EXC:
+            taxi_zone = None
+    # ── ZONE 2: the ROAD/SERVICE-EVIDENCE zone (spec heca-round4 §H3;
+    # RULINGS 2026-08-28b item 3) ────────────────────────────────────
+    # THE SAME CUTTER, A SECOND EVIDENCE LAYER — never a second cutter.
+    # Measured at HECA: apron 582 swallows 49,652 m² (17.7 %) of ground
+    # the builder then excavates 12.71 m below DEM (worst 15.17), whose
+    # source is two Tai-pack apt.dat pavements unioned into the blob.
+    # OSM maps NO apron and NO taxiway there — shape 605 reads osm_taxi
+    # 0.0 — but 5+ SERVICE ROADS, and ``road_cover`` 0.174 tracks the cut
+    # fraction almost exactly.  The aeroway cut cannot see it (its gate
+    # needs taxi evidence), so the mapped service-road zone was outvoted
+    # by the shape-wide airside 82 % and painted apron.
+    #
+    # The road zone is road/service corridor cover MINUS every aeroway-
+    # mapped area: where the aeroway layer speaks, it is the authority
+    # and zone 1 is the instrument.  This zone is what it does NOT cover.
+    road_zone = None
+    if _ROAD_SEVER and ev.road_corridors.parts:
+        try:
+            road_u = unary_union(list(ev.road_corridors.parts))
+            aeroway_u = unary_union(
+                list(ev.osm_taxi.parts) + apron_parts) if (
+                    ev.osm_taxi.parts or apron_parts) else None
+            z = (road_u if aeroway_u is None
+                 else road_u.difference(aeroway_u))
+            road_zone = None if z.is_empty else z
+        except _GEOM_EXC:
+            road_zone = None
+    if taxi_zone is None and road_zone is None:
         return 0            # distinction not expressed at this airport
-    try:
-        taxi_u = unary_union(ev.osm_taxi.parts)
-        apron_u = unary_union(list(ev.osm_apron.parts)
-                              + list(ev.osm_stand.parts))
-        taxi_zone = taxi_u.difference(apron_u)
-        if taxi_zone.is_empty:
-            return 0
-    except _GEOM_EXC:
-        return 0
     from shapely.ops import snap as _snap
     frac = PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC
     n_cut = 0
+    fired: list = []
     new_shapes: list = []
     for s in layout.shapes:
         poly = s.polygon
@@ -1188,22 +1220,92 @@ def sever_mixed_aeroway(layout) -> int:
         t_frac = ev.osm_taxi.cover_fraction(poly)
         a_frac = max(ev.osm_apron.cover_fraction(poly),
                      ev.osm_stand.cover_fraction(poly))
-        if t_frac < frac or a_frac < frac:
+        kept: list = []
+        why: list = []
+        # ZONE 1 — MIXED AEROWAY MAPPING, exactly as before.
+        if taxi_zone is not None and t_frac >= frac and a_frac >= frac:
+            try:
+                inside = poly.intersection(taxi_zone)
+                kept_taxi = [
+                    g for g in getattr(inside, "geoms", [inside])
+                    if g.geom_type == "Polygon"
+                    and g.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2]
+            except _GEOM_EXC:
+                kept_taxi = []
+            if kept_taxi:
+                kept += kept_taxi
+                why.append(f"aeroway×{len(kept_taxi)}")
+        # ZONE 2 — ROAD/SERVICE EVIDENCE ON A COHERENT SUB-REGION.  The
+        # STANDING constants, both of them: the shape must clear the same
+        # min-area, the sub-region must clear the same piece floor, and
+        # its OWN road cover must exceed the SAME mix fraction.  The
+        # shape must also be an airside-evidence blob in the first place
+        # (a_frac >= frac) — this law is about a road zone OUTVOTED by
+        # an airside majority, not about re-scoring a road-ish shape.
+        if road_zone is not None and a_frac >= frac:
+            try:
+                inside_r = poly.intersection(road_zone)
+                kept_road = [
+                    g for g in getattr(inside_r, "geoms", [inside_r])
+                    if g.geom_type == "Polygon"
+                    and g.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2
+                    and ev.road_corridors.cover_fraction(g) >= frac]
+            except _GEOM_EXC:
+                kept_road = []
+            # ── A ROAD ZONE IS A BITE, NEVER A BISECTION ─────────────
+            # MEASURED (this lane, HECA single-flag arm): with any
+            # coherent road component eligible, the cut fired on 9 big
+            # aprons and the census went 7,066 -> 12,567 — because a
+            # service road CROSSING an apron bisects it, and the two
+            # halves then grade as independent authorities that step at
+            # the cut (``within_shape`` +1,679, ``airside_no_step``
+            # +3,309).  That is the standing FREE-ROAD ruling read from
+            # the other side: "roads inside, or edge-sharing, an apron
+            # ARE the apron".  The site this law exists for is not a
+            # crossing — the owner's reference surgery removes a
+            # CONTIGUOUS BOUNDARY REGION of apron 582 (72 ring vertices
+            # removed, ONE added), a bite out of the blob's edge.  So a
+            # road piece is only severable when the AIRSIDE REMAINDER
+            # STAYS ONE PIECE.  The aeroway cut is deliberately NOT
+            # subject to this: a mapped taxiway corridor legitimately
+            # runs THROUGH a mega-apron and severing it there is the
+            # whole point of the 2026-07-29 ruling.
+            survivors = []
+            for g in kept_road:
+                try:
+                    remainder = poly.difference(unary_union(kept + [g]))
+                except _GEOM_EXC:                         # pragma: no cover
+                    continue
+                bodies = [
+                    r for r in getattr(remainder, "geoms", [remainder])
+                    if r.geom_type == "Polygon"
+                    and r.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2]
+                if len(bodies) <= 1:
+                    survivors.append(g)
+            if len(survivors) != len(kept_road):
+                why.append(f"road-bisect×{len(kept_road) - len(survivors)}")
+            kept_road = survivors
+            if kept:
+                # never hand two zones the same ground: zone 1 spoke
+                # first (the aeroway layer is the senior evidence).
+                try:
+                    taken = unary_union(kept)
+                    kept_road = [
+                        g for g in (
+                            r.difference(taken) for r in kept_road)
+                        for g in getattr(g, "geoms", [g])
+                        if g.geom_type == "Polygon"
+                        and g.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2]
+                except _GEOM_EXC:                         # pragma: no cover
+                    kept_road = []
+            if kept_road:
+                kept += kept_road
+                why.append(f"road×{len(kept_road)}")
+        if not kept:
             new_shapes.append(s)
             continue
         try:
-            inside = poly.intersection(taxi_zone)
-        except _GEOM_EXC:
-            new_shapes.append(s)
-            continue
-        kept_taxi = [g for g in getattr(inside, "geoms", [inside])
-                     if g.geom_type == "Polygon"
-                     and g.area >= PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2]
-        if not kept_taxi:
-            new_shapes.append(s)
-            continue
-        try:
-            rest = poly.difference(unary_union(kept_taxi))
+            rest = poly.difference(unary_union(kept))
         except _GEOM_EXC:
             new_shapes.append(s)
             continue
@@ -1223,14 +1325,26 @@ def sever_mixed_aeroway(layout) -> int:
                 pass
             return g
 
-        for g in kept_taxi + rest_polys:
+        for g in kept + rest_polys:
             new_shapes.append(BuiltShape(
                 polygon=_weld(g), role=s.role, ref=s.ref,
                 from_severance_cut=True))
         n_cut += 1
+        fired.append((s.role, round(poly.area, 1),
+                      round(sum(g.area for g in kept), 1), ",".join(why),
+                      round(t_frac, 3), round(a_frac, 3),
+                      round(ev.road_corridors.cover_fraction(poly), 3)))
     if n_cut:
         layout.shapes = new_shapes
         layout._pavement_score_abut_unions = None
+    layout._aeroway_sever_fired = fired
+    if fired:
+        UI.vprint(1,
+            "  [pav-score] evidence severance fired on "
+            f"{len(fired)} shape(s): " + "; ".join(
+                f"{r} {ar:.0f} m² → cut {cut:.0f} m² [{w}] "
+                f"(taxi {tf}, apron {af}, road {rf})"
+                for (r, ar, cut, w, tf, af, rf) in fired))
     return n_cut
 
 

@@ -115,3 +115,36 @@
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat; no shared-repo writes; no timing claims;
   build-time statement.
+
+## Amendment 1 (Fable, 2026-08-28 — rulings on the lane's two STOPs;
+## attempt cap resets for §B/§C, cap 2)
+
+Measured (lane/lemdrim 143d76bc): §A/§D complete (on-edge 144 → 0,
+feature×ring needle pairs 0 at all five airports, rim 338/338, OFF
+byte-identical). Two residuals:
+
+1. **A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD — a pad is ONE
+   flat value by definition.** The §B rim/pan rings ran along
+   building8's yielded pad ring and the final weld inserted their
+   nodes into it: 19 nodes at one value → 71 at three (600.50/596.30/
+   587.75), LEMD census 3205 → 4781 with 1,421 building|building rows
+   to 12.75 m. Ruling: the weld machinery (the §A inserter AND the
+   generic final weld) treats ANY building-pad ring as a stand-down
+   host — foreign-valued nodes are NEVER inserted into a pad ring
+   (this is the flatness invariant §1.1 of pads-as-band-variables
+   already states, enforced at the geometry layer). Rim/pan geometry
+   may ABUT the pad ring; ownership of the rim band stands (§B
+   unchanged); only the node insertion is forbidden. The
+   Amendment-3 wall-setback mechanics are untouched. Expected: LEMD
+   census returns to its §B-lawful level with rim coverage kept —
+   report the number honestly.
+2. **THE RIM RE-SEATS POST-SOLVE (the staged/adoption precedent).**
+   §C rung 1 cannot fire pre-solve — no neighbour carries a value
+   yet. Ruling: the pre-solve plate keeps `R_est` as its SEED; a
+   post-solve re-seat pass (beside the existing adoption/writeback
+   passes) re-values each rim part from its nearest SOLVED anchored
+   neighbour within the window (one-directional adoption — the
+   neighbour never moves), `R_est` where none reaches, DEM only as
+   nodata. Acceptance: the §0 rim table re-measured — parts converge
+   to their neighbours (~599–600.5 beside building8/apron), the
+   rim-to-apron transects read level-to-level.

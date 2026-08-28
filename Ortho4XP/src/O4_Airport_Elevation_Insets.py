@@ -127,6 +127,8 @@ try:
 
     has_gdal = True
     gdal.UseExceptions()
+    ogr.UseExceptions()
+    osr.UseExceptions()
 except Exception:
     has_gdal = False
 

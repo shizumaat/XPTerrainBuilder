@@ -53,11 +53,20 @@ LAW (owner intent stated in the read — the ramp IS the expectation):
    included) — segment-local flat solves that dump the whole climb at
    the junction are the defect.
 
+- Item 4 (owner follow-up, same read): service road at
+  30.114984,31.4107959 "drops steeply from the apron instead of grading
+  smoothly down". Measured: road -12855 (cap 0.010) spans 92.3–98.86,
+  junction -10561 spans 94.68–99.15, apron -10557 (98.05–104.47) ~10 m
+  away — the 6.6 m fall compresses at the apron edge instead of
+  distributing along the run. Same laws apply, descending direction: weld
+  at the apron/junction edge, ramp-class grade along the road's whole
+  path.
+
 Mechanism-before-fix: verify interventionally which constraint holds the
 road low (the cap, a missing junction weld, or a flat segment solve)
 before changing law constants; the cap raise applies to this class only
-(free service road climbing to a bound end), not to aprons or covered
-roads.
+(free service road climbing OR descending to/from a bound end), not to
+aprons or covered roads.
 
 ## Acceptance
 

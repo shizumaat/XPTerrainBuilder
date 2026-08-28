@@ -4301,3 +4301,39 @@ paid:
   next build, which emitted the batter annulus and logged it as freshly
   derived.  Cache version 26 retires it.  The class is generic — the
   fingerprint covers the pack and the gates, never the arithmetic.
+
+## 2026-08-28 — LEMD ramp/road fidelity round (lane/lemdfidelity)
+
+Spec `docs/specs/lemd-ramp-road-fidelity-spec.md` (committed `0040de77`).
+Laws §F1 (wall top is a function of STATION), §F2 (the portal width
+resolver also reads the per-airport road feed), §F3 (the object-corridor
+approach ramp's station profile is conformed to one monotone run).  All
+three ship DEFAULT ON behind `O4_WALL_TOP_STATION`,
+`O4_ROAD_WIDTH_FROM_FEED`, `O4_RAMP_MONOTONE`.
+
+What was NOT paid:
+
+* **No full-suite run** (pre-ship mode).  The blast-named files were run
+  once: `test_round16_geometry_consistency`, `test_object_tunnel_terrain`,
+  `test_object_bridge_terrain`, `test_round10_tunnel_emission`,
+  `test_tunnel_dem_cut_portals`, `test_tunnel_integrity_round`,
+  `test_round14_tunnel_road_integration`,
+  `test_claimed_corridor_wall_survival`, plus the round's own twins and
+  the two tool twins — 344 + 13 + 25 + 27 passed.
+* **No build-time measurement.**  §F1 REPLACES a `transition_law_altitudes`
+  call per band PIECE with one per walled BODY (a body's ring is smaller
+  than the band rings it produces, and a body may produce several), and
+  adds one `LineString.project` per band vertex; §F3 is two linear passes
+  over a chain's stations.  The expectation is neutral-to-cheaper, but no
+  `check_build_time --runs N` was run (per-change timing gates are
+  SUSPENDED, RULINGS 2026-08-04) and the ledger tripwire is the guard.
+* **§F2 and §F3 are NOT the LEMD levers** and are shipped on the lane
+  unmerged pending a ruling.  Both close measured defects of the classes
+  the spec names, both are twinned interventionally, and neither changes
+  anything at either owner site (the LEMD portal fans come from the
+  SYNTHETIC path, `_emit_portal_cluster._emit_chain`, whose profile is
+  linear per chain and whose width already reads the feed's `lanes=`).
+* **Law 2's real levers are UNBUILT and reported for a ruling** — see the
+  round report: the DSF-vs-OSM road-spelling offset at item 1 (2.75 m)
+  and the global `SERVICE_ROAD_WIDTH_M` at item 3 (6.0 m emitted against
+  a stated 14.0 m).

@@ -6179,3 +6179,110 @@ def test_both_step_checks_go_through_the_one_allowance(cg):
         assert "_declared_step_allowance(" in src, fn.__name__
         assert "_basin_declared_drop(" not in src, (
             f"{fn.__name__} still reads a declaration directly")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# AMENDMENT 3 — A BELOW-GRADE WALL UNDER CARRIED GROUND DOES NOT SEVER
+# A ROUTE (spec docs/specs/lemd-rim-and-stations-spec.md Amendment 3)
+#
+# The route/strip terrace twins exist because a SURFACE terrace crossing
+# a taxi path is impassable.  A declared ``basin_trench_wall`` arc whose
+# crossing point lies inside a below-grade region a pad/shell CARRIES is
+# not on the movement surface — the route rides the shell above it.  The
+# SAME arc on open ground still prices: that severance is real.
+# ═════════════════════════════════════════════════════════════════════
+
+_A3_JOINT_LL = [[30.0, 31.0], [30.0, 31.001], [30.0, 31.002]]
+
+
+def _a3_axes():
+    """One taxi axis crossing BOTH segments of the joint above, in the
+    metre frame ``_a3_to_m`` defines."""
+    return [([(-5.0, 0.0), (-5.0, 400.0)], None)]
+
+
+def _a3_to_m(la, lo):
+    return ((lo - 31.0) * 1e5, (la - 30.0) * 1e5)
+
+
+def _a3_row(carried, kind="basin_trench_wall"):
+    row = {"points": list(_A3_JOINT_LL), "step_m": 12.718, "kind": kind,
+           "faced": True}
+    if carried is not None:
+        row["carried"] = carried
+    return row
+
+
+def _a3_run(cg, row):
+    joints_m = cg._terrace_joints_to_m([row], _a3_to_m)
+    flags = cg._terrace_joint_carried_flags([row])
+    # the axis must actually cross, or the twin proves nothing
+    axes = [([( -5.0, joints_m[0][0][0][1]),
+              (5.0, joints_m[0][0][0][1])], None)]
+    return cg._check_terrace_joint_crosses_route(
+        joints_m, None, axes, carried_flags=flags)
+
+
+def test_a_declared_wall_under_a_CARRIED_span_severs_no_route(cg):
+    assert _a3_run(cg, _a3_row([True, True, True])) == []
+
+
+def test_the_same_wall_on_OPEN_ground_still_prices(cg):
+    rows = _a3_run(cg, _a3_row([False, False, False]))
+    assert rows, "an uncarried wall crossing a route must price in full"
+    assert rows[0].de_m == pytest.approx(12.718)
+
+
+def test_a_wall_running_OFF_the_shell_prices_at_the_segment_it_leaves(cg):
+    """Both endpoints of the crossed segment must be carried — a wall
+    that leaves the shell severs the route exactly where it leaves."""
+    rows = _a3_run(cg, _a3_row([True, False, False]))
+    assert rows, "the uncarried stretch must still price"
+
+
+def test_an_APRON_TERRACE_joint_is_never_exempted(cg):
+    """The conditional is scoped to the basin wall KIND: an apron
+    terrace carries no shell and is judged exactly as before, even if a
+    stray ``carried`` field appears on its row."""
+    rows = _a3_run(cg, _a3_row([True, True, True], kind="apron_terrace"))
+    assert rows, "an apron terrace joint must never take the exemption"
+
+
+def test_a_row_with_NO_flags_reads_all_false(cg):
+    """Every patch built before the amendment — and every apron terrace
+    row — is judged exactly as before."""
+    assert cg._terrace_joint_carried_flags([_a3_row(None)]) == [
+        [False, False, False]]
+    rows = _a3_run(cg, _a3_row(None))
+    assert rows
+
+
+def test_malformed_flags_never_grant_an_exemption(cg):
+    """A flag list that does not align with the points is not a
+    declaration; it reads all-False rather than blinding the check."""
+    assert cg._terrace_joint_carried_flags(
+        [_a3_row([True])]) == [[False, False, False]]
+    assert cg._terrace_joint_carried_flags(
+        [_a3_row("yes")]) == [[False, False, False]]
+
+
+def test_the_carried_flags_are_INDEX_ALIGNED_with_the_joints(cg):
+    """The two readers walk the same rows in the same order; a row one
+    skips and the other keeps would mis-attribute every exemption."""
+    rows = [_a3_row([True, True, True]),
+            {"points": [[30.0, 31.0]], "step_m": 1.0},   # dropped: <2 pts
+            _a3_row([False, False, False])]
+    joints = cg._terrace_joints_to_m(rows, _a3_to_m)
+    flags = cg._terrace_joint_carried_flags(rows)
+    assert len(joints) == len(flags) == 2
+    assert flags[0] == [True, True, True]
+    assert flags[1] == [False, False, False]
+
+
+def test_both_terrace_twins_take_the_flags(cg):
+    for fn in (cg._check_terrace_joint_crosses_route,
+               cg._check_terrace_joint_in_runway_strip):
+        assert "carried_flags" in inspect.signature(fn).parameters, (
+            fn.__name__)
+    src = inspect.getsource(cg.run_checks)
+    assert src.count("carried_flags=terrace_carried") == 2

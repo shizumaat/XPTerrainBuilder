@@ -3222,15 +3222,41 @@ def basin_wall_joints_sidecar(layout) -> list:
     ``check_grade`` reads the identical declared population from the
     identical key and nothing here re-derives a second notion of "a
     declared step".  Empty when no basin re-seated.
+
+    ``carried`` is the Amendment-3 flag, ONE PER POINT and aligned with
+    ``points``: is this stretch of the wall inside a below-grade region
+    a pad/shell CARRIES?  The geometry is the yield population's own
+    (``layout._basin_carried_regions``, recorded where the 2026-08-26
+    ruling yields a pad's authority over the region it spans), so there
+    is no second notion of "carried" to drift.  A carried stretch does
+    not sever a taxi route — the route rides the shell above it — and
+    the census exempts the route/strip terrace families exactly there;
+    an arc on OPEN ground prices in full.
     """
+    from shapely.geometry import Point as _Pt
+    carried_regions = [r for r in (getattr(
+        layout, "_basin_carried_regions", None) or ())
+        if r is not None and not r.is_empty]
     rows = []
     for joint in (getattr(layout, "_basin_wall_joints", None) or ()):
         try:
-            pts = [layout.m_to_ll(x, y) for (x, y) in joint["points_m"]]
+            pts_m = [(float(x), float(y)) for (x, y) in joint["points_m"]]
+            pts = [layout.m_to_ll(x, y) for (x, y) in pts_m]
         except Exception:                                 # pragma: no cover
             continue
         if len(pts) < 2:
             continue
+        carried = []
+        for (x, y) in pts_m:
+            hit = False
+            for region in carried_regions:
+                try:
+                    if region.covers(_Pt(x, y)):
+                        hit = True
+                        break
+                except Exception:                         # pragma: no cover
+                    continue
+            carried.append(hit)
         rows.append({
             "points": [[round(float(la), 11), round(float(lo), 11)]
                        for (la, lo) in pts],
@@ -3238,6 +3264,7 @@ def basin_wall_joints_sidecar(layout) -> list:
             "declared_step_m": round(float(joint["step_m"]), 4),
             "faced": True,
             "kind": BASIN_WALL_JOINT_KIND,
+            "carried": carried,
             "actual_step_m": None,
             "flank_span_m": None,
             "panel_lo": None,
@@ -3974,6 +4001,43 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                     # second).  Severing works but edits the pack's
                     # authored geometry, which the owner ruled out.
                     authority_yield_pad_ids.add(id(pad))
+                    # ── THE CARRIED GROUND (spec lemd-rim-and-stations
+                    # Amendment 3, 2026-08-28) ──────────────────────
+                    # THIS pad is the shell the 2026-08-26 ruling calls
+                    # "a shell/bridge over the pit", and the ground it
+                    # carries is exactly its footprint inside the
+                    # facility.  Recorded HERE, off the yield
+                    # population's own geometry, so the declared-wall
+                    # route/strip exemption has no second notion of
+                    # "carried" to drift from: a wall arc under this
+                    # region does not sever a taxi route (the route
+                    # rides the shell above it); the same arc on OPEN
+                    # ground still prices in full.
+                    #
+                    # THE REGION INCLUDES ITS OWN WALL BAND, and that is
+                    # not a widening: the declared joint line IS the body
+                    # outline, so clipping the carried region exactly at
+                    # ``facility_geometry`` puts every joint point on the
+                    # region's own BOUNDARY, where ``covers`` is a
+                    # coin-toss against buffer rounding.  Measured: 248 of
+                    # 462 points flagged, 0 arcs fully carried, and 7 of
+                    # 11 route rows survived an exemption that should have
+                    # cleared them.  The carrier is the PAD; the region is
+                    # the pit AND the wall that walls it.
+                    try:
+                        _carried = pad.polygon.intersection(
+                            facility_geometry.buffer(
+                                _TUNNEL_RIM_BAND_WIDTH_M
+                                + _TUNNEL_WALL_SETBACK_M,
+                                join_style=2, mitre_limit=2.0))
+                        if not _carried.is_empty:
+                            _prev = list(getattr(
+                                layout, "_basin_carried_regions", None)
+                                or [])
+                            _prev.append(_carried)
+                            layout._basin_carried_regions = _prev
+                    except Exception:                     # pragma: no cover
+                        pass
                     UI.vprint(
                         1,
                         f"   [{log_tag}] BASIN PAD AUTHORITY YIELDED: "

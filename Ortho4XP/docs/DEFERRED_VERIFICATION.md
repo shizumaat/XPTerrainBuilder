@@ -3976,3 +3976,11 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   because Amendment 2 changes only the sidecar DECLARATION and the
   census's reading of it, never the surface.  No OTHH, no battery, no
   timing.
+* **Amendment 3 round (2026-08-28, same lane).** Covering files once
+  (1,111 passed / 15 failed, the same 15 that reproduce on clean main).
+  ONE LEMD acceptance build per attempt (two: the first flagged the
+  carried region at its own boundary and cleared only 4 of 11 rows).
+  No HECA rebuild — the patch BODY is byte-identical to the
+  Amendment-1/2 arms (`body_sha 7e77affc9f17`); Amendment 3 is a
+  declaration + census leg and never touches the surface.  No OTHH, no
+  battery, no timing.

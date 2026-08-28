@@ -1417,6 +1417,58 @@ class TestRimSeatsAtTheSolvedNeighbour:
         assert cg._terrace_step_allowance([], ax, ay, bx, by) == 0.0, (
             "an UNDECLARED trench step must still price in full")
 
+    # ── AMENDMENT 3: THE CARRIED FLAG COMES FROM THE YIELD POPULATION
+
+    def test_a_pad_that_YIELDS_records_the_ground_it_CARRIES(self):
+        """No second notion of "carried": the region is the yielding
+        pad's own footprint inside the facility, recorded where the
+        2026-08-26 ruling yields its authority."""
+        from auto_patch.layout import ROLE_BUILDING
+        layout = _FakeLayout()
+        layout.shapes.append(bridges.BuiltShape(
+            polygon=Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)]),
+            role=ROLE_BUILDING, ref="shell", altitude=8.0))
+        self._emit(layout)
+        regions = getattr(layout, "_basin_carried_regions", None) or []
+        assert regions, "the yielding shell recorded no carried ground"
+        pan = _interface().below_grade_footprint
+        # the pit AND the wall band that walls it — the declared joint
+        # line IS the body outline, so a region clipped exactly there
+        # would put every joint point on its own boundary
+        band = pan.buffer(assembly._TUNNEL_RIM_BAND_WIDTH_M
+                          + assembly._TUNNEL_WALL_SETBACK_M,
+                          join_style=2, mitre_limit=2.0)
+        assert regions[0].area == pytest.approx(band.area, rel=0.05)
+        assert regions[0].area > pan.area
+        assert regions[0].covers(pan.exterior), (
+            "the body outline — where every wall joint sits — must be "
+            "strictly inside the carried region, not on its boundary")
+
+    def test_the_wall_joints_are_flagged_CARRIED_under_the_shell(self):
+        from auto_patch.layout import ROLE_BUILDING
+        layout = _FakeLayout()
+        layout.shapes.append(bridges.BuiltShape(
+            polygon=Polygon([(-60, -60), (60, -60), (60, 60), (-60, 60)]),
+            role=ROLE_BUILDING, ref="shell", altitude=8.0))
+        self._emit(layout)
+        self._solved_neighbour(layout)
+        self._reseat(layout)
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        assert rows, "no wall joint was declared"
+        for row in rows:
+            assert len(row["carried"]) == len(row["points"])
+            assert any(row["carried"]), (
+                "the wall under the shell was not flagged carried")
+
+    def test_a_basin_on_OPEN_ground_flags_NOTHING_carried(self):
+        """The other branch: no pad yields, so no ground is carried and
+        every wall arc prices against the route/strip twins in full."""
+        layout, _report = self._reseated()
+        assert not (getattr(layout, "_basin_carried_regions", None) or [])
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        assert rows
+        assert not any(any(row["carried"]) for row in rows)
+
     def test_the_rungs_are_in_the_stated_ORDER(self):
         """One reading of the law, asserted on the source: neighbour
         first, R_est second, DEM last."""

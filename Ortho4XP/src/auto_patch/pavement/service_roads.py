@@ -193,6 +193,37 @@ def _name_of(entry) -> str:
     return entry[1]
 
 
+def _width_of(entry, default: float) -> float:
+    """§F5: the corridor width THIS entry states, else ``default``.
+
+    THE PER-WAY WIDTH CHANNEL (LEMD ramp/road fidelity spec Amendment 1,
+    ruling 2).  The minter used ONE width for every route —
+    ``config.SERVICE_ROAD_WIDTH_M`` = 6.0 m — while the source states a
+    width per way: at the owner's LEMD item-3 probe the road feed's way
+    -2096 is ``highway=service lanes=4`` (14.0 m) and the emitted rect
+    measured 5.93 m, so half the real carriageway drapes on raw DEM.
+    That draped half is what the owner read as "very bumpy"; it is the
+    SAME defect as "about half the width", not a second one.
+
+    A width reaches this module the way a name already does, in whichever
+    dialect the caller speaks: a ``width_m`` attribute on a
+    ``TaxiCenterline``-like object, or a third element on the
+    ``(LineString, name)`` tuple.  Nothing else changes: an entry that
+    states NO width takes ``default``, so an untagged network emits
+    byte-identically to before this channel existed — which is the
+    ruling's own condition.
+    """
+    stated = getattr(entry, "width_m", None)
+    if stated is None and isinstance(entry, (tuple, list)) \
+            and len(entry) >= 3:
+        stated = entry[2]
+    try:
+        value = float(stated)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0.0 else default
+
+
 def dedupe_service_sources(
         apt_centerlines: list,
         osm_centerlines: list,
@@ -311,10 +342,12 @@ def mouth_fills(centerlines: list, pav_union, pav_buf, *,
         pav_prep = prep(pav_union)
     except _GEOM_EXC:                                    # pragma: no cover
         pav_prep = None
-    half = width / 2.0
     out: list[Polygon] = []
     for entry in centerlines:
         line = _line_of(entry)
+        # §F5: the fill spans the clearance at the ROUTE's own width, so
+        # a 14 m road's mouth is not carried across on a 6 m stub.
+        half = _width_of(entry, width) / 2.0
         if line is None or line.is_empty or line.length <= 0.0:
             continue
         if pav_prep is not None and not pav_prep.intersects(line):
@@ -427,8 +460,12 @@ def build_service_road_network(
     # External (off-pavement) centerline pieces.  Most service roads are
     # already entirely off aircraft pavement — skip the expensive
     # difference() unless the road actually touches it (prepared check).
-    ext: list[tuple[LineString, str]] = []
-    for line, name in ((_line_of(c), _name_of(c)) for c in centerlines):
+    # §F5: each piece carries ITS OWN width from here on.  ``width`` is
+    # the DEFAULT for a route that states none, which is every route in
+    # an untagged network — so those emit byte-identically.
+    ext: list[tuple[LineString, str, float]] = []
+    for line, name, own_w in ((_line_of(c), _name_of(c),
+                               _width_of(c, width)) for c in centerlines):
         if line is None or line.is_empty:
             continue
         if pav_buf is not None and pav_prep.intersects(line):
@@ -442,18 +479,17 @@ def build_service_road_network(
                 pass
         for piece in _as_linestrings(g):
             if piece.length >= 1.0:
-                ext.append((piece, name))
+                ext.append((piece, name, own_w))
     if not ext:
         return rects, junctions
 
-    half = width / 2.0
-
-    # Corridor = standard-width buffer of every external piece, clipped
+    # Corridor = per-route-width buffer of every external piece, clipped
     # to stay off aircraft pavement.  Flat caps / mitre joins keep it
     # tight to the routes.
     try:
         corridor = unary_union(
-            [p.buffer(half, cap_style=2, join_style=2) for p, _ in ext])
+            [p.buffer(w / 2.0, cap_style=2, join_style=2)
+             for p, _n, w in ext])
         if pav_buf is not None:
             corridor = corridor.difference(pav_buf)
         if covered is not None:
@@ -486,9 +522,10 @@ def build_service_road_network(
     # junction fill).  Skip a rect that would touch aircraft pavement or
     # an already-kept rect.
     kept_polys: list[Polygon] = []
-    for piece, name in ext:
+    for piece, name, own_w in ext:
+        half = own_w / 2.0
         coords = list(piece.coords)
-        for run in _split_at_bends(coords, width):
+        for run in _split_at_bends(coords, own_w):
             if len(run) < 2:
                 continue
             ax, ay = run[0]
@@ -501,7 +538,7 @@ def build_service_road_network(
             bx2, by2 = bx - ux * half, by - uy * half      # trim end
             if math.hypot(bx2 - ax2, by2 - ay2) < min_len:
                 continue
-            built = _rect_from_endpoints(ax2, ay2, bx2, by2, width)
+            built = _rect_from_endpoints(ax2, ay2, bx2, by2, own_w)
             if built is None:
                 continue
             rect, axis = built
@@ -894,4 +931,109 @@ def detect_road_runs(
             if rwy_prep is not None and rwy_prep.contains(mid):
                 continue
             out.append((ext, mean_w, f"{touch_name}+strip"))
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────
+# §F5 — THE STATED WIDTH, RE-ASSOCIATED TO A CORRIDOR COURSE
+# ──────────────────────────────────────────────────────────────────────
+#: §F5 gate (LEMD ramp/road fidelity spec Amendment 1, ruling 2).
+#: DEFAULT ON.  OFF attaches no width to any course, and the minter then
+#: takes ``config.SERVICE_ROAD_WIDTH_M`` for every route exactly as it did
+#: before this channel existed — the byte-identical control arm.
+_WAY_WIDTH_ENV = "O4_SERVICE_ROAD_WAY_WIDTH"
+
+#: A corridor course must run within this of a tagged way to BE that way.
+#: The courses are built from the feed's own geometry, so the match is
+#: near-exact where it exists; this is the slack for the 1206 spelling of
+#: the same road and for the linemerge that joins chains.
+_WIDTH_ASSOCIATION_M = 8.0
+
+#: Fraction of a course that must lie within :data:`_WIDTH_ASSOCIATION_M`
+#: of the way before the way's width governs it.  A course that merely
+#: touches a wide road at one end is not that road.
+_WIDTH_ASSOCIATION_COVER = 0.5
+
+
+def way_width_channel_enabled() -> bool:
+    """§F5: does a corridor course carry the width its OSM way states?"""
+    return _os.environ.get(_WAY_WIDTH_ENV, "1") == "1"
+
+
+def attach_course_widths(courses: list, network, project, *,
+                         default: float) -> list:
+    """``[(line, name, width)]`` — each course paired with the width its
+    own source way states, else ``default``.
+
+    THE SOURCE IS THE PER-AIRPORT ROAD FEED (``osm_load.AirportRoadNetwork``,
+    the same object ``bridges._load_tunnel_road_network`` merges for the
+    tunnel walk), and the tag reader is the ENGINE's own
+    ``bridges._carriageway_width_from_tags`` — imported, never re-spelled,
+    so a ``lanes=`` or ``width=`` read here and one read at a portal can
+    never disagree.  The courses themselves carry no tags (they are
+    geometry stashed by the slice), so the association is GEOMETRIC, the
+    same re-association ``bridges._mapped_osm_carriageway_width_m`` makes
+    at a portal footprint: a way governs a course when at least
+    :data:`_WIDTH_ASSOCIATION_COVER` of the course lies within
+    :data:`_WIDTH_ASSOCIATION_M` of it, and the WIDEST such way wins.
+
+    ``courses`` are ``(line, name)`` tuples in layout metres and
+    ``project`` is the layout's own ``to_m(lon, lat)`` — using the
+    layout's projection, never a private one, is what keeps the
+    association in the frame the courses were built in.
+
+    Returns the courses at ``default`` when the law is off, when there is
+    no feed, or when nothing associates — so an airport whose feed states
+    no width beyond the default emits BYTE-IDENTICALLY.
+    """
+    plain = [(line, name, default) for line, name in courses]
+    if not way_width_channel_enabled() or not courses or network is None:
+        return plain
+    ways = getattr(network, "ways", None)
+    nodes = getattr(network, "nodes", None)
+    if not ways or not nodes:
+        return plain
+    try:
+        from ..bridges import _carriageway_width_from_tags
+    except ImportError:                                  # pragma: no cover
+        return plain
+    candidates = []
+    for _wid, node_refs, tags in ways:
+        if not tags or tags.get("highway") is None:
+            continue
+        stated = _carriageway_width_from_tags(tags.get("highway"), tags, 0.0)
+        if stated <= 0.0 or abs(stated - default) < 1e-9:
+            continue          # states nothing beyond what we already use
+        pts = []
+        for ref in node_refs:
+            ll = nodes.get(ref)
+            if ll is None:
+                continue
+            pts.append(project(ll[1], ll[0]))
+        if len(pts) < 2:
+            continue
+        try:
+            line = LineString(pts)
+        except _GEOM_EXC:                                # pragma: no cover
+            continue
+        if line.is_empty:
+            continue
+        candidates.append((stated, line.buffer(
+            _WIDTH_ASSOCIATION_M, cap_style=2, join_style=2)))
+    if not candidates:
+        return plain
+    candidates.sort(key=lambda c: -c[0])                 # widest first
+    out = []
+    for line, name in courses:
+        chosen = default
+        if line is not None and not line.is_empty and line.length > 0.0:
+            for stated, region in candidates:
+                try:
+                    covered = line.intersection(region).length
+                except _GEOM_EXC:                        # pragma: no cover
+                    continue
+                if covered >= _WIDTH_ASSOCIATION_COVER * line.length:
+                    chosen = stated
+                    break                                # widest wins
+        out.append((line, name, chosen))
     return out

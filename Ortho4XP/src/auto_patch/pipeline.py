@@ -3911,6 +3911,32 @@ def build_airport_pavement(icao: str, xplane_root: str,
          (getattr(layout, "_service_corridor_lines", None) or [])
          if ln is not None and not ln.is_empty]
         if ENABLE_SERVICE_ROADS else [])
+    # ── §F5: THE WIDTH THE SOURCE STATES ─────────────────────────────
+    # (LEMD ramp/road fidelity spec Amendment 1, ruling 2.)  The minter
+    # took ONE width for every route while the feed states a width per
+    # way: at the owner's LEMD item-3 probe way -2096 is
+    # ``highway=service lanes=4`` (14.0 m) against the 6.0 m emitted, so
+    # half the carriageway draped on raw DEM — the "very bumpy" surface
+    # and the "half the width" are ONE defect.  The courses carry no
+    # tags, so the width is re-associated to them geometrically here,
+    # where the feed is in hand, and travels as the third element of the
+    # entry the minter already reads.  A course that associates with
+    # nothing keeps ``SERVICE_ROAD_WIDTH_M``.
+    if _corridor_lines:
+        from .pavement.service_roads import attach_course_widths
+        _corridor_lines = attach_course_widths(
+            _corridor_lines,
+            getattr(layout, "airport_road_network", None),
+            to_m, default=SERVICE_ROAD_WIDTH_M)
+        _n_wide = sum(1 for _e in _corridor_lines
+                      if abs(_e[2] - SERVICE_ROAD_WIDTH_M) > 1e-9)
+        if _n_wide:
+            UI.vprint(1,
+                f"  [pav-builder] {icao}: {_n_wide} of "
+                f"{len(_corridor_lines)} service corridor course(s) take "
+                f"a STATED width from their own OSM way (widths "
+                f"{sorted({round(_e[2], 1) for _e in _corridor_lines})}); "
+                f"the rest keep {SERVICE_ROAD_WIDTH_M:g} m.")
     _osm_service_lines: List[Tuple[LineString, str]] = []
     # The corridor set ALREADY carries the 1206 courses (they are its first
     # half), so it REPLACES them here rather than joining them — one

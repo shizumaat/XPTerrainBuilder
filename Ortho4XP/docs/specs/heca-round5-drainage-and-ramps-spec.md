@@ -41,14 +41,13 @@ LAW (owner intent stated in the read — the ramp IS the expectation):
 1. A service road that terminates on (or passes onto) aircraft pavement
    BINDS its end elevation to that pavement (weld at the junction — the
    cliff is never lawful).
-2. The longitudinal grade cap for a FREE service road climbing to bound
-   pavement rises to the ramp class: up to **5 %** (the standing tunnel-
-   approach ramp figure, owner 2026-08-11 "ramps should be at up to 5 %
-   grade"). Item 3's 6.4 % geometric requirement exceeds even that; the
-   solve takes the longest available run (start the climb earlier along
-   the road) before exceeding the cap, and reports honestly if the
-   binding still cannot be met within 5 % — that residual goes to the
-   owner, never into a cliff.
+2. RULED (owner 2026-08-28e): the 1 % cap applies ONLY inside an apron.
+   A FREE road (outside/having left the apron) climbs or descends at up
+   to **8 %**, distributed over its whole path, welded at each bound
+   end. (The 5 % tunnel-approach cap is a different law and unchanged.)
+   Item 3's 6.4 % requirement is therefore LAWFUL — no shortfall
+   expected; if 8 % still cannot reach a binding, report with numbers,
+   never emit a cliff.
 3. The climb distributes over the road's whole path (item 2's U-turn leg
    included) — segment-local flat solves that dump the whole climb at
    the junction are the defect.
@@ -78,8 +77,8 @@ aprons or covered roads.
   (grade ≤5 %), cliff at 30.1052938,31.3989669 gone (adjacent pavements
   meet within the step law); the U-turn leg continues the climb to the
   named end point.
-- Item 3: monotone ramp start→junction weld; if 5 % cannot reach, the
-  shortfall is REPORTED with numbers, not emitted as a cliff.
+- Item 3: monotone ramp start→junction weld at ≤8 % — fully feasible
+  under the ruled class.
 - HECA census not worsened outside the three sites; every delta at the
   sites attributed. CYXY/SPJC/LEMD/OTHH controls byte-identical or
   attributed. Twins for the weld law and the ramp-class cap.

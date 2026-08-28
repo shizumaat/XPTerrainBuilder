@@ -308,53 +308,97 @@ TUNNEL_FORK_SUSTAIN_FRACTION = 1.0
 PORTAL_ROAD_ASSOCIATION_M = 15.0
 
 
+#: §F2 gate (LEMD ramp/road fidelity spec, law 2).  DEFAULT ON.  OFF
+#: restores the big-roads-only width resolution byte for byte.
+_ROAD_WIDTH_FROM_FEED_ENV = "O4_ROAD_WIDTH_FROM_FEED"
+
+
+def road_width_from_feed_enabled() -> bool:
+    """§F2: does the width resolver also read the per-airport ROAD FEED?
+
+    THE DEFECT IT CLOSES (owner sim read of 1.0.265, LEMD).  The resolver
+    below reads ONE source, the tile's ``big_roads`` cache.  At LEMD that
+    cache is EMPTY at both tunnel sites and the tile has no small-roads
+    extract at all, so it resolved ``None`` and the ramp fell back to the
+    portal object's own face — "about half the width" of the real
+    carriageway, and off its centre.  The per-airport ROAD FEED, which
+    ``_load_tunnel_road_network`` already merges for the tunnel walk,
+    carries those very ways WITH their measurements: measured
+    2026-08-28, way -2096 at the item-3 probe is
+    ``highway=service lanes=4`` (14.0 m) and way -2070 at the item-1
+    portal is ``highway=service lanes=2 tunnel=yes`` (7.0 m).  The source
+    STATES a width; nothing read it.  (The KCLT precedent is the same
+    shape — owner 2026-07-26, the minter reading an empty small-roads
+    cache while the feed held the road.)
+    """
+    return os.environ.get(_ROAD_WIDTH_FROM_FEED_ENV, "1") == "1"
+
+
 def _mapped_osm_carriageway_width_m(layout, footprint, to_meters):
     """Widest mapped OSM carriageway (via ``_carriageway_width_from_tags``)
-    of a big-road highway way crossing — within
-    :data:`PORTAL_ROAD_ASSOCIATION_M` of — the portal ``footprint``, in
-    metres.  ``None`` when no highway way is near the footprint or the
-    big-road cache is absent.
+    of a highway way crossing — within :data:`PORTAL_ROAD_ASSOCIATION_M`
+    of — the portal ``footprint``, in metres.  ``None`` when no highway
+    way is near the footprint or no tagged road source resolves.
 
     The draped road centrelines the corridor already walks
     (``_draped_road_centerlines_meters``) come from the sibling DSF road
     network and carry NO OSM tags, and the OSM fallback
     (``_load_underpass_osm_road_lines``) drops the tags too — so the
     mapped width cannot be read off the walked lines.  It is instead
-    re-associated by geometry to the tagged big-road ways
-    (``_load_osm_big_roads``), the same cache the level-crossing veto and
-    the underpass fallback read."""
+    re-associated by geometry to the tagged ways of the two sources this
+    module already loads: the tile's big-roads cache
+    (``_load_osm_big_roads``, the same cache the level-crossing veto and
+    the underpass fallback read) and — §F2 — the per-airport ROAD FEED
+    (``layout.airport_road_network``, the source
+    ``_load_tunnel_road_network`` merges for the tunnel walk).  Neither
+    is a new parser and neither is a second opinion: the WIDEST way near
+    the footprint wins across both, exactly as it did across one.
+    """
+    sources: list = []
     try:
         from .pipeline import _load_osm_big_roads
         nodes_raw, ways_raw = _load_osm_big_roads(
             layout.anchor[0], layout.anchor[1]
         )
+        if ways_raw:
+            sources.append((nodes_raw, ways_raw))
     except Exception:
+        pass
+    if road_width_from_feed_enabled():
+        network = getattr(layout, "airport_road_network", None)
+        if (network is not None
+                and getattr(network, "source", "none") != "none"
+                and getattr(network, "ways", None)):
+            sources.append((network.nodes, network.ways))
+    if not sources:
         return None
-    if not ways_raw:
-        return None
-    nodes_meters: dict[str, tuple[float, float]] = {}
-    for node_id, (latitude, longitude) in nodes_raw.items():
-        nodes_meters[node_id] = to_meters(longitude, latitude)
     best = None
-    for _way_id, node_refs, tags in ways_raw:
-        if tags.get("highway") is None:
-            continue  # railway ways carry no carriageway width
-        points = [nodes_meters[n] for n in node_refs if n in nodes_meters]
-        if len(points) < 2:
-            continue
-        try:
-            line = LineString(points)
-            if (line.is_empty
-                    or line.distance(footprint) > PORTAL_ROAD_ASSOCIATION_M):
+    for nodes_raw, ways_raw in sources:
+        nodes_meters: dict[str, tuple[float, float]] = {}
+        for node_id, (latitude, longitude) in nodes_raw.items():
+            nodes_meters[node_id] = to_meters(longitude, latitude)
+        for _way_id, node_refs, tags in ways_raw:
+            if tags.get("highway") is None:
+                continue  # railway ways carry no carriageway width
+            points = [nodes_meters[n] for n in node_refs
+                      if n in nodes_meters]
+            if len(points) < 2:
                 continue
-        except _GEOM_EXC:
-            continue
-        # default 0.0 → an unknown highway type resolves to 0 and is
-        # skipped; width= / lanes= / a known type table entry all resolve
-        # to a positive carriageway width.
-        width = _carriageway_width_from_tags(tags.get("highway"), tags, 0.0)
-        if width > 0.0 and (best is None or width > best):
-            best = width
+            try:
+                line = LineString(points)
+                if (line.is_empty
+                        or line.distance(footprint)
+                        > PORTAL_ROAD_ASSOCIATION_M):
+                    continue
+            except _GEOM_EXC:
+                continue
+            # default 0.0 → an unknown highway type resolves to 0 and is
+            # skipped; width= / lanes= / a known type table entry all
+            # resolve to a positive carriageway width.
+            width = _carriageway_width_from_tags(
+                tags.get("highway"), tags, 0.0)
+            if width > 0.0 and (best is None or width > best):
+                best = width
     return best
 
 
@@ -3431,6 +3475,133 @@ def ramp_wall_foot_enabled() -> bool:
     return os.environ.get(_RAMP_WALL_FOOT_ENV, "0") == "1"
 
 
+#: §F1 gate (LEMD ramp/road fidelity spec, law 1).  DEFAULT ON.  OFF
+#: restores the per-vertex DEM sample the band used before, byte for
+#: byte — the control arm every claim about this law is measured
+#: against.
+_WALL_TOP_STATION_ENV = "O4_WALL_TOP_STATION"
+
+
+def wall_top_station_law_enabled() -> bool:
+    """§F1: is the wall top a function of STATION rather than of each
+    node's own DEM sample?
+
+    THE DEFECT IT CLOSES (owner sim read of 1.0.265, LEMD portal at
+    40.4984622,-3.5850476).  ``tunnel_wall`` ships as ONE thin band
+    ``retaining_wall_width_m`` across, and every one of its ring vertices
+    used to take ``dem_at`` AT ITS OWN POSITION.  The two vertices facing
+    each other across the band are ~1-1.5 m apart in plan and arbitrarily
+    far apart ALONG the ring, so nothing tied their values together: the
+    owner measured pairs differing 0.5-1.6 m (610.6/610.1, 608.3/607.7,
+    606.2/605.4) and the wall top rendered as a twisted, crumpled ribbon.
+
+    THE LAW: the crest is a function of STATION on the body being walled.
+    It is sampled and grade-limited ONCE per ramp body, on that body's own
+    exterior ring, and every band vertex reads it at the station of its
+    nearest point on that ring — so a cross-band pair, which projects to
+    ONE point, carries ONE value by construction rather than by tolerance.
+    """
+    return os.environ.get(_WALL_TOP_STATION_ENV, "1") == "1"
+
+
+class _CrestProfile:
+    """The wall crest as a function of STATION on one walled body (§F1).
+
+    ``body`` is the ramp polygon the band surrounds.  Its exterior ring
+    is the station curve: the DEM is sampled at each of its vertices, the
+    TRANSITION LAW is applied ALONG IT (so the crest still stands at
+    surrounding grade and descends only within the cap-limited run of the
+    portal — the same law the band ring used to run, on the curve that
+    actually has a run), and a lookup interpolates that profile at any
+    point's station.
+
+    Why the BODY's ring and not the band's: the band ring traverses the
+    outer boundary one way and the inner boundary back, so two vertices
+    facing each other across the band sit at opposite ends of it.  Every
+    point of the band projects onto the body ring, and a cross-band pair
+    projects onto the SAME point of it — on a straight run because both
+    offsets lie on one normal, at a mitred corner because both offsets lie
+    on one ray from that corner.  One station, one value, exactly.
+    """
+
+    __slots__ = ("line", "stations", "values", "length")
+
+    def __init__(self, body, dem_at, apt_elev: float, index, max_grade):
+        ring = list(body.exterior.coords)
+        if ring and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        self.line = None
+        self.stations: list[float] = []
+        self.values: list[float] = []
+        self.length = 0.0
+        if len(ring) < 3:
+            return
+        surface = []
+        for vertex_x, vertex_y in ring:
+            sample = dem_at(vertex_x, vertex_y)
+            surface.append(
+                float(sample if sample is not None else apt_elev))
+        values = surface
+        if index is not None:
+            try:
+                # The engine's own transition law — imported here for the
+                # same reason ``emit_wall_band`` imports it lazily
+                # (``groundside`` is a heavier module than this one needs
+                # at import time), never re-spelled.
+                from .groundside import transition_law_altitudes
+                values, _moved = transition_law_altitudes(
+                    ring, surface, index, max_grade)
+            except (_GEOM_EXC, ImportError):           # pragma: no cover
+                values = surface
+        try:
+            self.line = LineString(list(ring) + [ring[0]])
+        except _GEOM_EXC:                              # pragma: no cover
+            self.line = None
+            return
+        cumulative = 0.0
+        self.stations = [0.0]
+        for position in range(len(ring)):
+            nxt = ring[(position + 1) % len(ring)]
+            cumulative += math.hypot(nxt[0] - ring[position][0],
+                                     nxt[1] - ring[position][1])
+            self.stations.append(cumulative)
+        self.length = cumulative
+        # The closed profile: the first vertex's value repeats at the end.
+        self.values = list(values) + [values[0]]
+
+    def __bool__(self) -> bool:
+        return self.line is not None and len(self.values) >= 2
+
+    def at(self, point_xy) -> float | None:
+        """The crest value at ``point_xy``'s station, or ``None`` when the
+        profile could not be built."""
+        if not self:
+            return None
+        try:
+            station = float(self.line.project(Point(point_xy[0],
+                                                    point_xy[1])))
+        except _GEOM_EXC:                              # pragma: no cover
+            return None
+        stations = self.stations
+        if station <= stations[0]:
+            return float(self.values[0])
+        if station >= stations[-1]:
+            return float(self.values[-1])
+        low, high = 0, len(stations) - 1
+        while high - low > 1:
+            middle = (low + high) // 2
+            if stations[middle] <= station:
+                low = middle
+            else:
+                high = middle
+        span = stations[high] - stations[low]
+        if span <= 1e-12:                              # pragma: no cover
+            return float(self.values[low])
+        fraction = (station - stations[low]) / span
+        return float(self.values[low]
+                     + (self.values[high] - self.values[low]) * fraction)
+
+
 #: The two refs the perimeter band emits: the rising FACE and its FOOT.
 #: Every pass that reclips or gates "the wall" reads THIS, so the foot can
 #: never be treated as a stranger to the structure it belongs to.
@@ -5238,6 +5409,12 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
     #: ordering Amendment 2 names — the ring and the node_altitudes are
     #: derived AFTER that subtraction, from the final geometry.
     _emitted_band: list = []
+    #: §F1 (LEMD fidelity spec law 1): the crest profile of the body this
+    #: band is currently walling.  Rebound once per ``_ru_polys`` entry
+    #: below; ``None`` when the law is OFF or the profile degenerates, and
+    #: the per-vertex DEM sample then stands exactly as it did before.
+    _crest_law = wall_top_station_law_enabled()
+    _crest: "_CrestProfile | None" = None
 
     def _band_altitudes(ring, inner_boundary, is_foot):
         """Node altitudes for ONE ring of the FINAL partitioned geometry.
@@ -5256,6 +5433,36 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
         across its own width and the face rises from the shelf's outer
         edge alone.
         """
+        # ── §F1: THE CREST IS A FUNCTION OF STATION ──────────────────
+        # (LEMD ramp/road fidelity spec law 1, owner sim read of 1.0.265.)
+        # Reading ``dem_at`` per vertex gave the two vertices facing each
+        # other across a 1-1.5 m band values 0.5-1.6 m apart — nothing
+        # tied them together, because along the RING they stand at
+        # opposite ends.  With the law on, every vertex reads the profile
+        # already sampled and grade-limited along the WALLED BODY's own
+        # ring, at the station of its nearest point on it: a cross-band
+        # pair projects to ONE station and so carries ONE value.  The
+        # ramp-value overwrite below is untouched — it is the FACE's inner
+        # edge law (R16-2b), a different edge from the crest.
+        if _crest_law and _crest is not None and _crest:
+            _station_vals = [_crest.at(_v) for _v in ring]
+            if all(_sv is not None for _sv in _station_vals):
+                _vals = [float(_sv) for _sv in _station_vals]
+                if _idx is not None:
+                    for _vi, (_vx, _vy) in enumerate(ring):
+                        if not is_foot:
+                            if inner_boundary is None:
+                                continue
+                            try:
+                                if (inner_boundary.distance(Point(_vx, _vy))
+                                        > _WALL_FACE_ON_PAVEMENT_TOL_M):
+                                    continue
+                            except _GEOM_EXC:          # pragma: no cover
+                                continue
+                        _ra, _rd, _rsi = _nsp((_vx, _vy), _idx, _reach)
+                        if _ra is not None:
+                            _vals[_vi] = float(_ra)
+                return _vals
         _surface = []
         for _vx, _vy in ring:
             _d = dem_at(_vx, _vy)
@@ -5283,6 +5490,22 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             return _surface
 
     for _rp in _ru_polys:
+        # §F1: ONE crest profile per WALLED BODY, built before its band
+        # pieces so every piece of the same body reads one law.  The
+        # transition law runs here instead of per band ring, so this
+        # replaces work rather than adding it (a body's ring is smaller
+        # than the band rings it produces, and a body may produce
+        # several).
+        # ``_idx is None`` means the groundside import above failed, and
+        # with it ``_GS_CAP``; the pre-§F1 path returns the raw surface
+        # there, so the law stands down with it rather than inventing one.
+        if _crest_law and _idx is not None:
+            try:
+                _crest = _CrestProfile(_rp, dem_at, apt_elev, _idx, _GS_CAP)
+                if not _crest:
+                    _crest = None
+            except _GEOM_EXC:                          # pragma: no cover
+                _crest = None
         try:
             _outer = _rp.buffer(_g1, join_style=2, mitre_limit=2.0)
             # R16-2b: THE WALL FACE IS OWNED GEOMETRY.  The band used to

@@ -1733,3 +1733,11 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 6. SIM DEFECT — mouth expected at 40.4944689,-3.5546245; no road shapes may extend west of it.
 7. SIM DEFECT — mouth expected at 40.4901623,-3.5593036.
 8. SIM DEFECT — many road shapes emit as small DISCONNECTED RECTANGLES (e.g. 40.4900517,-3.5604841 and 40.4900901,-3.5604541 — service_road ways -10376/-10377, 5 and 9 nodes, at different levels).
+
+### 2026-08-28b — Owner sim read of 1.0.263 at HECA (five items; sites ground-read on padvars_on)
+
+1. SIM DEFECT — small cliff/step ~30.1284906,31.4120847. Ground read: ZERO emitted ways within 20 m — a nodeless area; the step lives in uncontrolled mesh (the void class, outside the current lattice/station coverage).
+2. SIM DEFECT — small rough spot 30.1287581,31.4056763: junction -12810 (the round-3 "T" piece, 73.87–74.32) against apron -13116 (72.83–80.65) — the residual membrane seam at the old dip area.
+3. DATA + ROLE — 30.1141206,31.4095574 should be GROUNDSIDE, legitimately 5+ m below the apron; apron shapeID 582 (275 nodes, 86.68–104.44 emitted) must not extend into that ground. THE OWNER HAS EDITED THE AIRPORT PACKAGE ("very rough surgery") to show the correct airside apron extent — the next HECA build reads the corrected data; verify 582 against it, and the 5 m step to groundside is a LAWFUL terrace (groundside terrace law), never to be "fixed".
+4. SIM DEFECT — same station-on-edge class as LEMD item 1, at 30.109477,31.4036224 (station way -14575) — covered by lemd-rim-and-stations-spec §A; this site joins that acceptance.
+5. SIM DEFECT — disconnected roads with a sharp cliff to the taxiway at 30.104671,31.3973462 (the STANDING apron -10258 attribution docket from the road-crossing round Amendment 2 — now due) and 30.1052938,31.3989669 (service_junction -10774 at 103.9–108.5 vs junction -12708 at 108.1–109.7).

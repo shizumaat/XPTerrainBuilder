@@ -83,6 +83,32 @@ never across it. Interventional twin required per mechanism-before-fix.
 - LEMD/HECA/CYXY control arms byte-identical or attributed.
 - The removal ledger still names every deletion (no silent aggregate lines).
 
+## AMENDMENT 2 (Fable, 2026-08-28, on lane/tunwall2's report; merged 04272e71)
+
+§W1 MET: coverage 0%→51%, mouth_vertex_reach 727.6→5.9 PASS, covered-span
+guard holds, drops 20→8, LEMD byte-identical, HECA +261 fully attributed
+(its own underpass cell gaining walls; zero airside movement).
+
+§W2 attribution CORRECTED by lane measurement: the 4.00 pins at nodes
+-965/-968 are authored by the HOST RING -10051 itself (service_road
+authority tier outranks retaining_wall in to_osm's consensus) and lie
+OUTSIDE the published open cut and ~5 m outside the claim strips — the
+spec's retreat-wall attribution was wrong. §W2 as landed is lawful
+(lower-only, 2 vertices, twinned) and stays ON. The visible humps may
+already be cured by §W1's restored wall faces hiding the bare rim — THE
+OWNER SIM READ ADJUDICATES; if humps persist, the next attribution runs
+against the walled render, host-ring authoring first.
+
+DOCKETS out of this round:
+- over-cap hole-ring rows: 173 `within_shape::tunnel_ramp|tunnel_ramp`
+  rows on ONE interior ring persist WITH walls standing — separate root
+  cause; instrument question first (does the census price a face a wall
+  now owns?).
+- ramp_wall_gap 21→32 (mechanical: more surviving walls share ramp node
+  ids) + ramp_wall_annulus_owned 56/56 unmoved → the standing R16-2b /
+  §T5 wall-foot docket.
+- site_reach worst site now B2 at 107.9 m (bar 60); site D answered.
+
 ## §Q — RULED (owner 2026-08-28d): depth stays 5.1 m
 
 Service-road bores keep `BRIDGE_ROAD_CLEARANCE_M = 5.1` m (config.py:5203);

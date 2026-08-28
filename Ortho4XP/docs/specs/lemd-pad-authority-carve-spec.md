@@ -35,11 +35,20 @@ hanging over the corridor at the rim).
 3. THE PAD STAYS FLAT OUTSIDE THE CORRIDOR at its committed value; the
    facility ring, floor (587.75), rim (600.51) and every founding read
    stay byte-untouched. Any movement outside the corridor is a STOP.
-4. G INSTRUMENT (ruled): the G=596.682 invariant is the AUTHORED
-   relationship; the R_mesh acceptance re-read EXCLUDES the carve
-   corridor and emitted plates from its sample band (8 of 70 stations
-   fall there). Scoping the instrument is lawful; re-baselining G is not.
-   If exclusion cannot be implemented in the instrument, STOP and report.
+4. G INSTRUMENT — AMENDED (Fable, 2026-08-28, on the lane's STOP: the
+   scoped 62-station read is 596.000 vs committed 596.682 on ONE surface,
+   so "exclude the corridor" and "reproduce the committed value" cannot
+   both hold as one number). RULED:
+   a. The committed G = 596.682 is a FOUNDED DATUM of the basin arc
+      (founding 690d0568) — the pack SEATS at it, carried through every
+      rebake. A rebake must NOT re-derive the seat from any mesh mean,
+      scoped or unscoped, over a surface this round deliberately carves.
+   b. The scoped (corridor-excluded, 62-station) read is the DRIFT
+      DETECTOR: acceptance = it is STABLE across the carve (596.000 in
+      both arms, tolerance 0.01 m). A moved scoped read means the carve
+      touched ambient ground it must not — a STOP, never a re-seat.
+   c. If the rebake machinery cannot carry a founded datum for this
+      pack, STOP and report — do not let a rebake move the pack.
 
 ## Acceptance
 

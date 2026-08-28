@@ -39,10 +39,15 @@ hanging over the corridor at the rim).
    scoped 62-station read is 596.000 vs committed 596.682 on ONE surface,
    so "exclude the corridor" and "reproduce the committed value" cannot
    both hold as one number). RULED:
-   a. The committed G = 596.682 is a FOUNDED DATUM of the basin arc
-      (founding 690d0568) — the pack SEATS at it, carried through every
-      rebake. A rebake must NOT re-derive the seat from any mesh mean,
-      scoped or unscoped, over a surface this round deliberately carves.
+   a. The pack seats at a FOUNDED DATUM carried in its own provenance
+      (`seat_datum_m`), never re-derived from a mesh mean over a carved
+      surface. AMENDED after lane measurement: the live datum is
+      **600.51** — written by the owner-accepted 1.0.265 build (the rim
+      re-seat wave's level-to-level value; owner in-sim: "rim and
+      elevation are all perfect now"). The historic 596.682 was the
+      2026-08-27 dev-surface value, SUPERSEDED before this round; do not
+      re-pin it. The carry law exists so no future rebake moves the
+      datum again.
    b. The scoped (corridor-excluded, 62-station) read is the DRIFT
       DETECTOR: acceptance = it is STABLE across the carve (596.000 in
       both arms, tolerance 0.01 m). A moved scoped read means the carve

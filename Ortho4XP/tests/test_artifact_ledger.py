@@ -325,6 +325,131 @@ def test_the_per_run_env_variables_never_key_an_artifact(AL, monkeypatch):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §2b THE STORE-TIME RE-CHECK (CONTAMINATED-KEY)
+#
+# The key's tree component is cut at build START.  A worker-pool child
+# that outlives its parent can finish AFTER source edits land (measured
+# 2026-08-28: a LEMD plate keyed by the clean pre-edit tree hash — a
+# poisoned entry any later lane at that hash would be served).  The store
+# re-checks tree hash + dirty flag at store time and refuses a mismatch;
+# it NEVER silently re-keys.
+# ══════════════════════════════════════════════════════════════════════
+
+def _code_state(tree="tree-1", dirty=False, root="/lane"):
+    return {"root": root, "code_tree_hash": tree, "git_dirty": dirty}
+
+
+def test_a_stable_code_state_stores_normally(AL, tmp_path, store,
+                                             monkeypatch):
+    _corpus_tree(tmp_path)
+    parts, arts = _parts(AL, tmp_path), _artifacts(tmp_path)
+    monkeypatch.setattr(AL, "code_state_now",
+                        lambda root=None: {"code_tree_hash": "tree-1",
+                                           "git_dirty": False})
+    rec = AL.store_build(_key(AL, parts), parts, arts, {"tag": "t"},
+                         store=store, code_state=_code_state())
+    assert rec["key"] == _key(AL, parts)
+    record, why = AL.lookup(_key(AL, parts), parts, store=store)
+    assert record is not None and why == "hit"
+
+
+def test_a_moved_tree_at_store_time_is_refused_never_rekeyed(AL, tmp_path,
+                                                             store,
+                                                             monkeypatch):
+    """THE LEMD PRECEDENT: the tree hash the key was cut from no longer
+    describes the code.  Refused loudly — and the store must hold NO entry
+    afterwards, under the old key or any new one (a re-key would store an
+    artifact the current tree never built)."""
+    _corpus_tree(tmp_path)
+    parts, arts = _parts(AL, tmp_path), _artifacts(tmp_path)
+    monkeypatch.setattr(AL, "code_state_now",
+                        lambda root=None: {"code_tree_hash": "tree-EDITED",
+                                           "git_dirty": False})
+    with pytest.raises(AL.ContaminatedKeyError, match="CONTAMINATED-KEY"):
+        AL.store_build(_key(AL, parts), parts, arts, {"tag": "t"},
+                       store=store, code_state=_code_state())
+    entries = store / "entries"
+    assert not (entries.is_dir() and list(entries.glob("*.json"))), \
+        "a refused store must leave NOTHING — re-keying is the same poison"
+
+
+def test_a_flipped_dirty_flag_at_store_time_is_refused(AL, tmp_path, store,
+                                                       monkeypatch):
+    """Edits that land in a file the tree hash does not cover still flip
+    the dirty flag; the flag is checked in its own right."""
+    _corpus_tree(tmp_path)
+    parts, arts = _parts(AL, tmp_path), _artifacts(tmp_path)
+    monkeypatch.setattr(AL, "code_state_now",
+                        lambda root=None: {"code_tree_hash": "tree-1",
+                                           "git_dirty": True})
+    with pytest.raises(AL.ContaminatedKeyError, match="dirty flag"):
+        AL.store_build(_key(AL, parts), parts, arts, {"tag": "t"},
+                       store=store, code_state=_code_state(dirty=False))
+
+
+def test_an_unverifiable_code_state_refuses_the_store(AL, tmp_path, store,
+                                                      monkeypatch):
+    """A key that cannot be re-checked is not stored — a git hiccup costs
+    one cache entry, never a poisoned one."""
+    _corpus_tree(tmp_path)
+    parts, arts = _parts(AL, tmp_path), _artifacts(tmp_path)
+
+    def _boom(root=None):
+        raise OSError("git went away")
+    monkeypatch.setattr(AL, "code_state_now", _boom)
+    with pytest.raises(AL.ContaminatedKeyError, match="cannot re-verify"):
+        AL.store_build(_key(AL, parts), parts, arts, {"tag": "t"},
+                       store=store, code_state=_code_state())
+
+
+def test_without_code_state_the_recheck_is_not_armed(AL, tmp_path, store):
+    """Synthetic callers (these twins included) key by literal strings; the
+    re-check only arms when the caller hands over the start snapshot."""
+    _corpus_tree(tmp_path)
+    parts, arts = _parts(AL, tmp_path), _artifacts(tmp_path)
+    AL.store_build(_key(AL, parts), parts, arts, {"tag": "t"}, store=store)
+    record, why = AL.lookup(_key(AL, parts), parts, store=store)
+    assert record is not None and why == "hit"
+
+
+def test_code_state_now_sees_edits_and_the_dirty_flag(AL, tmp_path):
+    """The real measurement, on a synthetic git repo: an edit after the
+    first read moves BOTH the tree hash and the dirty flag."""
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "x.py").write_text("A = 1\n")
+
+    def _git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t",
+                        "-c", "user.email=t@t", *args],
+                       check=True, capture_output=True)
+    _git("init")
+    _git("add", "-A")
+    _git("commit", "-m", "seed")
+    before = AL.code_state_now(repo)
+    assert before["git_dirty"] is False
+    (repo / "src" / "x.py").write_text("A = 2\n")
+    after = AL.code_state_now(repo)
+    assert after["git_dirty"] is True
+    assert after["code_tree_hash"] != before["code_tree_hash"]
+
+
+def test_the_build_entry_arms_the_recheck_and_stamps_the_frame(build_mod):
+    """The wiring twin, in the ritual-twin style: the ONE store site in
+    ``build_airport.py`` passes the start snapshot into ``store_build`` and
+    records a refusal as CONTAMINATED-KEY in the frame instead of letting
+    the blanket exception handler read it as a shrug."""
+    src = Path(build_mod.__file__).read_text()
+    store_site = src[src.index("AL.store_build"):]
+    assert "code_state=" in store_site.split("prog.note")[0], \
+        "the store site no longer arms the store-time re-check"
+    assert "except AL.ContaminatedKeyError" in src
+    handler = src[src.index("except AL.ContaminatedKeyError"):]
+    assert 'frame["contaminated_key"]' in handler.split("except Exception")[0]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # §3 EVICTION
 # ══════════════════════════════════════════════════════════════════════
 

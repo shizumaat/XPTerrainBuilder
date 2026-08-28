@@ -188,7 +188,12 @@ miss — a changed corpus is a different measurement (the KCLT road-feed
 precedent) — and the combination with ``--no-ledger`` (a timing run),
 ``--tile`` or ``--refresh-data`` is refused.  The store implementation is
 ``tools/harness/artifact_ledger.py``; a run that was authorised to refresh
-or that the write audit flagged CONTAMINATED is never stored.
+or that the write audit flagged CONTAMINATED is never stored.  The tree
+hash and dirty flag are RE-CHECKED at store time (the key was cut at
+START, and a worker-pool child that outlives its parent can finish after
+source edits land — the 2026-08-28 LEMD poisoned-key precedent): a
+mismatch refuses the store loudly, stamps ``contaminated_key`` into the
+frame, and never re-keys.
 
 Consolidated from (and replacing): ``tools/full_airport_build.py``,
 ``scratchpad/integrate/build.sh``, ``scratchpad/refpull_interim/arm.sh``
@@ -1179,17 +1184,20 @@ def env_snapshot(root: Path, cfg_diff: dict) -> dict:
                                   timeout=20).stdout.strip()
         except Exception:
             return ""
+    # ONE implementation of "what state is the code in" — the same
+    # ``code_state_now`` the artifact ledger re-runs at store time, so the
+    # start snapshot and the store-time re-check can never disagree on how
+    # the state is measured.
     try:
-        sys.path.insert(0, str(root / "tools"))
-        from run_with_ledger import code_tree_hash
-        tree_hash = code_tree_hash(str(root))
+        state = AL.code_state_now(root)
     except Exception as exc:                              # pragma: no cover
-        tree_hash = f"<unavailable: {exc!r}>"
+        state = {"code_tree_hash": f"<unavailable: {exc!r}>",
+                 "git_dirty": bool(_git("status", "--porcelain"))}
     return {
         "cwd": str(root),
         "git_head": _git("rev-parse", "HEAD"),
-        "git_dirty": bool(_git("status", "--porcelain")),
-        "code_tree_hash": tree_hash,
+        "git_dirty": state["git_dirty"],
+        "code_tree_hash": state["code_tree_hash"],
         "o4_env": {k: v for k, v in sorted(os.environ.items())
                    if k.startswith("O4_")},
         "xplane_root": os.environ.get("XPLANE_ROOT", "/Users/noah/X-Plane 12"),
@@ -2356,11 +2364,31 @@ def main(argv=None) -> int:
                      "build_seconds": result.get("build_seconds"),
                      "wall_seconds": result.get("wall_seconds"),
                      "body_sha256": result.get("body_sha256"),
-                     "shapes": result.get("shapes")})
+                     "shapes": result.get("shapes")},
+                    # THE STORE-TIME RE-CHECK: the tree was keyed at START;
+                    # a worker-pool child that outlives its parent can
+                    # finish after source edits land (LEMD, 2026-08-28) and
+                    # would key the pre-edit hash.  The ledger recomputes
+                    # and refuses the mismatch; never re-keys.
+                    code_state={"root": str(root),
+                                "code_tree_hash": snapshot["code_tree_hash"],
+                                "git_dirty": snapshot["git_dirty"]})
                 prog.note(f"artifact ledger STORED {ledger_key[:12]} "
                           f"({rec['bytes'] / 1e6:.1f} MB) — a later "
                           f"--base-arm at this tree, env and corpus serves "
                           f"this patch instead of rebuilding it")
+            except AL.ContaminatedKeyError as exc:
+                # Recorded in the frame like the corpus-write flag: the
+                # build's artifacts stand, its ledger entry does not, and a
+                # reader of the frame sees WHY without the progress log.
+                frame["contaminated_key"] = {
+                    "reason": str(exc), "key": ledger_key,
+                    "keyed_tree": snapshot["code_tree_hash"],
+                    "keyed_git_dirty": snapshot["git_dirty"],
+                    "detected_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                (out_dir / f"{tag}.frame.json").write_text(
+                    json.dumps(frame, indent=1))
+                prog.note(f"artifact ledger: REFUSED store — {exc}")
             except Exception as exc:                  # never fail a good build
                 prog.note(f"artifact ledger: NOT stored ({exc!r})")
 

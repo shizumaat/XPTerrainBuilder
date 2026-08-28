@@ -40,6 +40,17 @@ caller refuses the combination — a stored artifact has no wall time to
 report); it changes no guard semantics, because a served arm runs no engine
 code at all.
 
+THE STORE-TIME RE-CHECK.  The key's tree component is captured at build
+START; a build's code tree can MOVE before its store (measured 2026-08-28:
+a worker-pool child that outlived its parent finished after source edits
+landed and stored a LEMD plate under the clean PRE-EDIT tree hash — a
+poisoned entry any later lane at that hash would be served).  So
+``store_build`` re-checks the tree hash and dirty flag AT STORE TIME when
+the caller passes ``code_state`` and refuses on any mismatch with
+:class:`ContaminatedKeyError` — loudly, and it NEVER re-keys: a silent
+re-key would store an artifact under a tree that never built it, the same
+poison from the other side.
+
 Eviction is a size-capped LRU (``O4_ARTIFACT_LEDGER_MAX_MB``, default 4096),
 stamped into ``evictions.jsonl`` — an artifact that vanished silently would
 turn into a rebuild nobody could explain.
@@ -51,6 +62,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -96,6 +108,36 @@ def _sha256_file(path) -> str:
 def _sha_of(obj) -> str:
     return hashlib.sha256(
         json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()
+
+
+class ContaminatedKeyError(RuntimeError):
+    """The code tree moved between key time and store time.
+
+    Storing anyway would poison the PRE-move key with a post-move artifact
+    (the 2026-08-28 LEMD plate: a worker-pool child survived its parent,
+    finished after source edits landed, and keyed the entry by the clean
+    pre-edit tree).  Re-keying to the CURRENT tree is the same poison from
+    the other side — the current tree never ran this build.  The only
+    lawful outcome is a loud refusal; the run is recorded CONTAMINATED-KEY
+    by the caller and its artifacts stay on disk, un-served."""
+
+
+def code_state_now(root=None) -> dict:
+    """The code tree AS OF NOW — the run ledger's own tree hash
+    (uncommitted changes included) plus the git dirty flag.  ONE
+    implementation for the build-start snapshot and the store-time
+    re-check; a second spelling of "what state is the code in" is the
+    census-wrapper defect in a smaller costume."""
+    root = Path(root or ROOT)
+    tools = str(ROOT / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from run_with_ledger import code_tree_hash
+    dirty = bool(subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain"],
+        capture_output=True, text=True, timeout=20, check=True
+    ).stdout.strip())
+    return {"code_tree_hash": code_tree_hash(str(root)), "git_dirty": dirty}
 
 
 def key_env(environ=None) -> dict:
@@ -247,10 +289,16 @@ def load_entries(store=None) -> list:
 
 
 def store_build(key: str, key_parts: dict, artifacts: dict, meta: dict,
-                store=None) -> dict:
+                store=None, code_state=None) -> dict:
     """Record one successful patch build.  ``artifacts`` is
     ``{role: path}``; every blob is content-addressed by its own sha256, so
-    two keys that produced identical bytes cost one copy."""
+    two keys that produced identical bytes cost one copy.
+
+    ``code_state`` (``{"root", "code_tree_hash", "git_dirty"}``, the
+    build-start snapshot) arms the STORE-TIME RE-CHECK: the tree hash and
+    dirty flag are recomputed NOW and any mismatch — against the key's own
+    tree or the snapshotted flag — raises :class:`ContaminatedKeyError`
+    instead of storing.  Never re-keyed (see the class docstring)."""
     store_root, blobs, entries, _ev = _paths(store)
     missing = [r for r in REQUIRED_ROLES
                if not artifacts.get(r) or not Path(artifacts[r]).is_file()]
@@ -258,6 +306,32 @@ def store_build(key: str, key_parts: dict, artifacts: dict, meta: dict,
         raise ValueError(f"artifact ledger: refusing to store an incomplete "
                          f"build (missing {missing}) — a partial entry would "
                          f"serve a base arm that cannot be censused")
+    if code_state is not None:
+        try:
+            now = code_state_now(code_state.get("root"))
+        except Exception as exc:
+            raise ContaminatedKeyError(
+                f"CONTAMINATED-KEY: cannot re-verify the code tree at store "
+                f"time ({exc!r}) — an entry whose key cannot be re-checked "
+                f"is not stored") from exc
+        moved = []
+        if now["code_tree_hash"] != key_parts.get("tree"):
+            moved.append(f"tree hash (keyed {str(key_parts.get('tree'))[:12]}"
+                         f", now {str(now['code_tree_hash'])[:12]})")
+        if now["git_dirty"] != code_state.get("git_dirty"):
+            moved.append(f"dirty flag (snapshotted "
+                         f"{code_state.get('git_dirty')}, now "
+                         f"{now['git_dirty']})")
+        if moved:
+            raise ContaminatedKeyError(
+                f"CONTAMINATED-KEY: the code tree MOVED between key time "
+                f"and store time — {'; '.join(moved)}.  REFUSING to store "
+                f"{key[:12]}: the entry would serve a post-edit artifact to "
+                f"every later lane at the pre-edit hash (the 2026-08-28 "
+                f"LEMD worker-pool-orphan precedent), and re-keying it to "
+                f"the current tree would store an artifact that tree never "
+                f"built.  The run's artifacts stay on disk; rebuild at a "
+                f"stable tree to earn the ledger entry.")
     with _StoreLock(store_root):
         blobs.mkdir(parents=True, exist_ok=True)
         entries.mkdir(parents=True, exist_ok=True)

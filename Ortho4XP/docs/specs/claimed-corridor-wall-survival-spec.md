@@ -83,11 +83,9 @@ never across it. Interventional twin required per mechanism-before-fix.
 - LEMD/HECA/CYXY control arms byte-identical or attributed.
 - The removal ledger still names every deletion (no silent aggregate lines).
 
-## §Q — OPEN OWNER QUESTION: bore depth
+## §Q — RULED (owner 2026-08-28d): depth stays 5.1 m
 
-Current: service-road bores dig to `BRIDGE_ROAD_CLEARANCE_M = 5.1` m below
-grade (config.py:5203; OTHH floor -1.1 vs flat-site datum 3.96);
-`tunnel_depth_m = 8.0` is only the no-evidence fallback. Owner read:
-"tunnels don't appear deep enough". Options: keep 5.1 / raise to 8 / other.
-Note: at the 5% ramp cap each extra metre of depth adds ~20 m of ramp run.
-NO change ships in this round without the ruling.
+Service-road bores keep `BRIDGE_ROAD_CLEARANCE_M = 5.1` m (config.py:5203);
+`tunnel_depth_m = 8.0` stays the no-evidence fallback only. The "not deep
+enough" read is answered by §W1/§W2 (walls + mouth faces restored), not by
+digging deeper. No depth change in this round. RULINGS 2026-08-28d.

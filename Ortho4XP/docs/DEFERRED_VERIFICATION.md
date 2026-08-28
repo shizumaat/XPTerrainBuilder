@@ -4156,3 +4156,38 @@ attribution instrument.
   WidthRead::test_the_service_adjacency_feature_is_live` is FLAKY under
   xdist (1 of 3 combined runs; passes in isolation and at the base tree)
   — recorded, not attributed.
+
+## R18-1c — CYXY INTERP_ALT round (lane/cyxyleak, 2026-08-28)
+
+* **THE SPEC'S CAUSE IS REFUTED AND THE DEVIATION IS UNRULED.**
+  `docs/specs/cyxy-interp-alt-flood-leak-spec.md` names a Triangle4XP
+  plague leak; the audit measures seal 0/578 unsealed and plague 0/22,923
+  outside the arrangement, and re-attributes +60-136 to R18-1b's
+  DIRICHLET DOMAIN (the connected attr==8 sub-mesh, welded tile-wide by
+  the levelled road ribbons).  The fix follows the corrected mechanism.
+  **A Fable ruling on the deviation is owed before this merges to main.**
+* **No COASTAL control.**  R18-1c scopes the harmonic domain to the patch
+  coverage, which excludes the 0.5 m SEAWALL band outside the pavement
+  rings (`SEAWALL_MARKER`, bare INTERP_ALT).  Free vertices in that band
+  now keep their own carried altitude instead of a deck-to-wall blend.
+  Measured nowhere: VMMC is not in the battery and the round's control
+  is +30+031 (inland).  SPJC / SPLP are the airports that would show it.
+* **No full-suite run** (pre-ship mode): the directly-covering files were
+  run once — `test_r18c_interp_alt_domain.py`,
+  `test_r18_free_interior_altitudes.py`, `test_post_mesh.py`,
+  `test_mesh_degenerate_attribute.py`, `test_mesh_region_tris.py`,
+  `test_patch_pavement_is_land.py`, `test_harness.py`.
+  `test_harness.py::test_the_near_miss_frontage_law_is_one_authority`
+  fails identically at clean HEAD — pre-existing, recorded, not
+  attributed.
+* **No timing arm.**  The two shapely arrangements and the prepared
+  containment pass were measured component-wise at +60-136 (0.05 s +
+  0.09 s + ~0.3 s, under 0.2 % of the 300 s whole-tile budget); no
+  `check_build_time --runs N` A/B was run (per-change timing gates
+  SUSPENDED).
+* **The +60-136 acceptance was measured on a `run_tile_mesh_only.py`
+  frame**, which ends REFUSING on a guard-blocked
+  `N60W136_airport_insets/index.json` write.  Deterministic and
+  byte-reproducible (a step-2 replay and a full step-1+2 rebuild agree,
+  sha256 `e6bbd0ec`), but it is NOT production's frame and no number here
+  should be quoted as one.

@@ -180,6 +180,14 @@ def _carriageway_width_for(highway_type: str | None,
 # trunk standard).
 LANE_WIDTH_M = 3.5
 
+#: The carriageway width a bore falls back to when its way carries
+#: neither ``width=`` nor ``lanes=``.  ONE home: ``_emit_tunnel_portals``
+#: takes it as its parameter default and the §T7 covered-span mask reads
+#: it, so the mask's width and the bore's width can never be two numbers
+#: (this module "states no second number" — the service-road docstring's
+#: rule, and the reason that one is written down).
+TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M = 22.0
+
 
 def _carriageway_width_from_tags(highway_type: str | None,
                                  tags: dict | None,
@@ -7340,7 +7348,7 @@ def _emit_tunnel_portals(
         max_ramp_grade: float = 0.04,
         ramp_min_length_m: float = 200.0,
         arm_max_length_m: float = 500.0,
-        carriageway_width_m: float = 22.0,
+        carriageway_width_m: float = TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M,
         retaining_wall_width_m: float = 1.0,
         # ``wall_gap_m`` must exceed the OSM emit's vertex bucket
         # size (SHARED_VERTEX_TOL_M = 0.5 m) so the ramp's road-edge

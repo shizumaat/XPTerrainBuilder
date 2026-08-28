@@ -59,15 +59,24 @@ def publish(layout) -> None:
         from shapely.ops import unary_union
 
         from .bridges import (
-            _carriageway_width_from_tags, _has_tunnel_tag_evidence,
-            _load_tunnel_road_network, _local_meter_projections,
-            _tunnelable,
+            TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M, TUNNEL_VALUES,
+            _carriageway_width_from_tags, _load_tunnel_road_network,
+            _local_meter_projections, _tunnelable,
         )
         nodes_r, ways_r, _big, _ntags = _load_tunnel_road_network(layout)
         to_m, _m_to_ll = _local_meter_projections(layout.anchor)
         bodies = []
         for _wid, nrefs, tags in ways_r:
-            if not _tunnelable(tags) or not _has_tunnel_tag_evidence(tags):
+            # COVERED, not merely BELOW GRADE.  ``_has_tunnel_tag_
+            # evidence`` (the R4 admission test) also accepts ``layer<0``
+            # alone — an open cut, which has no roof and therefore no
+            # roof for a road to stand on.  §T7's subject is the COVERED
+            # stretch, so the tag test is ``tunnel=``.  Measured at LEMD:
+            # 24 of 24 bore ways carry ``tunnel=`` and 0 are layer-only,
+            # so this narrows the mask without changing it there — and it
+            # cannot widen it anywhere.
+            if not _tunnelable(tags) or tags.get("tunnel") not in \
+                    TUNNEL_VALUES:
                 continue
             pts = []
             for n in nrefs:
@@ -78,7 +87,9 @@ def publish(layout) -> None:
             if len(pts) < 2:
                 continue
             half = 0.5 * float(_carriageway_width_from_tags(
-                tags.get("highway"), tags)) + COVERED_SPAN_MARGIN_M
+                tags.get("highway"), tags,
+                TUNNEL_DEFAULT_CARRIAGEWAY_WIDTH_M)) \
+                + COVERED_SPAN_MARGIN_M
             try:
                 bodies.append(LineString(pts).buffer(
                     half, cap_style=2, join_style=2))

@@ -3293,6 +3293,55 @@ def _carve_structure_zone(layout):
         return None
 
 
+#: §T1.3 — the OBJECT-BORN trench plates.  ``object_terrain_assembly.
+#: build_tunnel_layout_shapes`` writes ``*_trench`` (object_tunnel_trench
+#: / object_basin_trench) and ``bridges.build_bridge_layout_shapes``
+#: writes ``object_bridge_corridor``; both are born flat at a law value
+#: before the solve.  Named by REF, not by role, so an OSM-derived
+#: trench sharing the role is untouched.
+_OBJECT_TRENCH_PLATE_REFS = frozenset((
+    "object_tunnel_trench", "object_basin_trench",
+    "object_bridge_corridor",
+))
+#: How far off an object trench plate's edge the improvisation keepout
+#: reaches.  The measured LEMD stubs are 0.3-4.3 m² faces standing ON
+#: the corridor's own boundary, so one metre is the neighbourhood.
+_OBJECT_TRENCH_KEEPOUT_M = 1.0
+
+
+def _object_trench_wall_keepout(layout):
+    """§T1.3: the object trench / bridge-trench EDGES where the
+    adjacent-ground machinery may not improvise a retreat wall, or
+    ``None``.
+
+    RULINGS 2026-08-07 ("the tunnel machinery walls its own cut"):
+    where a structure's own emitter owns a cut edge, the adjacent-ground
+    pass improvising retreat walls there is a SECOND authority on one
+    boundary — the ruling's whole point.  The ruling was written for the
+    OSM ramp cut; the same improvisation was measured at LEMD's item-4
+    site on an OBJECT-BRIDGE trench edge (four 0.3-4.3 m²
+    ``authority_retreat_wall`` stubs beside bridge_trench corridor
+    -11812), and an object trench is as much its own emitter's cut as a
+    ramp is.  The plate is born flat at a law value pre-solve; a wall
+    improvised at its rim is not a transition anyone designed.
+
+    Gated with §T1 (``O4_OBJ_TUNNEL_COMPOSE``); OFF returns ``None`` and
+    the pass is byte-identical.
+    """
+    if os.environ.get("O4_OBJ_TUNNEL_COMPOSE", "1") != "1":
+        return None
+    polys = [sh.polygon for sh in (getattr(layout, "shapes", ()) or ())
+             if getattr(sh, "ref", None) in _OBJECT_TRENCH_PLATE_REFS
+             and sh.polygon is not None and not sh.polygon.is_empty]
+    if not polys:
+        return None
+    try:
+        zone = unary_union(polys).buffer(_OBJECT_TRENCH_KEEPOUT_M)
+        return None if zone.is_empty else prep(zone)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return None
+
+
 def emit_authority_retreat_walls(layout) -> int:
     """CONSENSUS RETIREMENT §2 — the losing claimant RETREATS.
 
@@ -3387,6 +3436,10 @@ def emit_authority_retreat_walls(layout) -> int:
     # THE WALLS RULING (R19-4).  Carve sites keep their wall; every
     # other retreat run becomes a graded FEATHER.
     carve_zone = _carve_structure_zone(layout)
+    # §T1.3: the object trench / bridge-trench edges this pass must not
+    # improvise at — the structure's own emitter owns them.
+    object_trench_keepout = _object_trench_wall_keepout(layout)
+    n_object_trench_skipped = 0
     from .config import ROLE_GRADE_LIMITS, GROUNDSIDE_MAX_GRADE
 
     emitted = 0
@@ -3456,6 +3509,27 @@ def emit_authority_retreat_walls(layout) -> int:
                         Point(coords[i][0], coords[i][1]))
                 except _GEOM_EXC:
                     _is_carve[i] = False
+        # §T1.3 — NO IMPROVISED WALL AT AN OBJECT TRENCH EDGE.  The
+        # carve zone already contains ``bridge_trench`` /
+        # ``tunnel_trench`` by role, which is exactly why the four LEMD
+        # item-4 stubs were lawful to it; the object plates' own emitter
+        # owns those edges (RULINGS 2026-08-07 §1, extended by spec
+        # §T1.3).  Dropping the vertex from the retreat table is the
+        # weld: no run forms and ``to_osm`` emits the precedence
+        # winner's value at the shared node.
+        if object_trench_keepout is not None:
+            for i in range(n):
+                if coincident_top[i] is None:
+                    continue
+                try:
+                    if object_trench_keepout.contains(
+                            Point(coords[i][0], coords[i][1])):
+                        coincident_top[i] = None
+                        spread[i] = 0.0
+                        _is_carve[i] = False
+                        n_object_trench_skipped += 1
+                except _GEOM_EXC:                        # pragma: no cover
+                    continue
         # ── S6 · WELD OR GAP (owner 2026-08-13, RULINGS "TRANSITION
         # MACHINERY RETIRES") ──────────────────────────────────────────
         # THE FEATHER RETIRES.  The non-carve arm of ``_face_spec`` below
@@ -3501,6 +3575,12 @@ def emit_authority_retreat_walls(layout) -> int:
                   f"walls={len(walls)}", flush=True)
         new_walls.extend(walls)
         emitted += len(walls)
+    if n_object_trench_skipped:
+        UI.vprint(1,
+                  f"  [adj-ground] §T1.3: {n_object_trench_skipped} "
+                  f"retreat-wall vertex/vertices at an OBJECT TRENCH edge "
+                  f"welded instead of walled — the structure's own emitter "
+                  f"owns that cut (RULINGS 2026-08-07).")
     if new_walls:
         layout.shapes.extend(new_walls)
     return emitted

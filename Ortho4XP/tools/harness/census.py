@@ -1705,6 +1705,31 @@ def print_report(rep: dict, top: int) -> None:
     if _nli:
         print("    ^ these regions contribute ZERO rows to every table "
               "below — no emitted nodes, no pairs, no census")
+    # THE TUNNEL REFUSAL REGISTER (spec docs/specs/
+    # tunnel-integrity-round-spec.md §T3.2).  A bore the tunnel pass
+    # refused emits NO geometry, so it contributes no rows to any table
+    # below: without this line "no tunnel violations" reads identically
+    # on an airport with no tunnels and on one whose every tunnel was
+    # vetoed (measured LEMD 2026-08-27: 37 ways in one adjacent-road
+    # veto, recorded nowhere).  Printed at ZERO too; "(not measured)"
+    # is a patch predating the register.
+    _tvc = ev.get("tunnel_veto_count")
+    _tvr = ev.get("tunnel_veto_reasons") or {}
+    print(f"  tunnel bores REFUSED: "
+          f"{'(not measured)' if _tvc is None else _tvc}"
+          + (f"   by reason: {_tvr}" if _tvr else ""))
+    if _tvc:
+        print("    ^ each refused bore emits NOTHING — it cannot appear "
+              "in any family table below, at any count")
+    # THE DECK-CLEARANCE CORRIDORS THAT YIELDED (spec §T1.1).  A
+    # suppressed corridor emits no shape either, so it is invisible to
+    # every table below for the same reason a refused bore is.
+    _ocs = ev.get("object_corridor_suppression_count")
+    if _ocs:
+        print(f"  object deck-clearance corridor pieces SUPPRESSED over a "
+              f"mapped bore: {_ocs} — the bore's own portal machinery owns "
+              f"that ground (the object keeps its pins and its seating "
+              f"outside the overlap; records in the sidecar)")
     # THE STAND-DOWN, COUNTED (gap-spine-bridge-stand-down-spec
     # Amendment 1 §2 register).  A stand-down is NOT a defect row: it
     # says this patch is the bridge-free RE-RUN of a build the post-solve

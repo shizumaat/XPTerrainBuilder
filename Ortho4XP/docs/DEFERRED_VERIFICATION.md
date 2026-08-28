@@ -3984,3 +3984,45 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   Amendment-1/2 arms (`body_sha 7e77affc9f17`); Amendment 3 is a
   declaration + census leg and never touches the surface.  No OTHH, no
   battery, no timing.
+## Tunnel integrity round §T1-§T3 + §T8 (lane/tuncore, 2026-08-28)
+
+* OVER-CAP TUNNEL-RAMP GRADES — the standing RULINGS 2026-08-07 docket
+  ("Over-cap ramp grades: trace and fix", owner verbatim "Yes, trace and
+  fix"), NOT fixed in this lane by Fable ruling 2026-08-28. This round
+  restores bore geometry that the DEM-cut provenance gate (§T2.1) and the
+  scoped adjacent-road veto (§T3) had suppressed, so the docket's
+  population grows sharply and its NEW numbers are recorded here:
+    - LEMD: 30 over-cap `within_shape::tunnel_ramp` rows, worst grade
+      252.19 %, concentrated on ways -12054 (12), -12053 (6),
+      -12072/-12073 (4 each), -12071/-12070 (2 each) in the final
+      (§T1.1) arm — the same 30 rows and the same worst grade as the
+      pre-§T1.1 arm, whose way ids were one lower (-12053, -12052, ...);
+      the corridor suppression shifted the id space, not the defect.
+      Before this round LEMD emitted 22 `tunnel_ramp` pieces and 0
+      over-cap rows — the mode that suppressed the ramps also hid the
+      defect.
+    - OTHH: 220 over-cap rows, worst grade 336.67 %, with 173 of them on
+      ONE way (-13065) and the rest on -12251 (17), -12255 (10),
+      -12256 (8), -12244 (6), -12248 (3).
+      Matched OFF-arm control at the same tree: the ON arm's census is
+      1056 vs 459, and `role_less_ring_rows` reports the 173 as
+      `within_shape::tunnel_ramp|tunnel_ramp` on an interior ring.
+  The 3.5 % plan grade is lawful, so these are minted downstream of the
+  planner — attribution first, exactly as the 2026-08-07 ruling ordered.
+  Instrument: `tools/tunnel_portal_acceptance.py --over-cap-ramp-max`
+  (reports today; give it a bar when the docket is worked).
+* PRE-EXISTING REDS carried, not introduced (verified failing in the
+  clean MAIN tree at the branch point, 98ee0a88):
+  `tests/test_tunnel_portal_fidelity.py::TestMappedEndPreservation::
+  test_implied_bore_portal_unchanged_at_pavement_edge` and
+  `::TestMappedBoreInteriorIsRoofed::test_implied_bore_interior_gap_
+  still_dug_open` (both "declined N implied bore(s) — no tunnel/layer
+  tag evidence (R4)"), and `tests/test_harness.py::
+  test_the_near_miss_frontage_law_is_one_authority` (the same
+  `NEAR_MISS_FRONTAGE_SOFT_ROLES` scoping question already recorded in
+  the 2026-08-27e block above).
+* FULL SUITE not run (PRE-SHIP MODE): only the test files the blast
+  index names for `bridges.py` / `adjacent_ground.py` / `layout.py` /
+  `check_grade.py` plus the tunnel and bridge families, run once through
+  the run ledger (1013 passed at the pre-§T1.1 tree; the §T1.1 twins and
+  the bridge/harness neighbours re-run green after it).

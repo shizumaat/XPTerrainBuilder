@@ -6769,6 +6769,26 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # re-judges none of it; it is here so "did this patch ship from a
     # site whose DEM was pure noise?" is answerable from the artifact.
     "site_class",
+    # THE TUNNEL REFUSAL REGISTER (spec docs/specs/
+    # tunnel-integrity-round-spec.md section T3.2).  One record per bore
+    # the tunnel pass declined to model: the adjacent-road veto (the
+    # blocking road, whether it CROSSED, its distance, and whether the
+    # own-bore exemption applied) and R10-1's covered-at-grade
+    # passthrough refusals.  EVIDENCE, never law input — the census
+    # counts them and re-judges nothing.  A vetoed bore emits NO
+    # geometry, so it contributes no rows to any family table below; a
+    # census that does not print this number cannot distinguish "this
+    # airport has no tunnels" from "this airport's tunnels were all
+    # refused" (measured LEMD: 37 ways in one veto).
+    "tunnel_vetoes",
+    # THE DECK-CLEARANCE CORRIDOR THAT YIELDED (spec docs/specs/
+    # tunnel-integrity-round-spec.md section T1.1).  One record per
+    # object-bridge trench / causeway piece suppressed because a MAPPED
+    # bore already owns that ground.  EVIDENCE, never law input — the
+    # census counts them and re-judges nothing; a suppressed corridor
+    # emits no shape, so like a refused bore it can appear in no family
+    # table, and without this line its absence is unattributable.
+    "object_corridor_suppressions",
     # THE NODELESS-INTERIOR INSTRUMENT (spec docs/specs/
     # heca-apron-round2-spec.md section 2).  One record per apron-role
     # polygon carrying an interior disk of radius >
@@ -7037,6 +7057,23 @@ def sidecar_evidence(osm_path) -> dict:
     # bridges at all.  Reported at zero — zero-of-zero is not a pass.
     out["gap_spine_stand_down_count"] = len(
         data.get("gap_spine_stand_down") or [])
+    # THE TUNNEL REFUSAL REGISTER, counted and split by reason (spec
+    # tunnel-integrity-round §T3.2).  A refused bore emits nothing, so
+    # it is invisible to every family table; without this line "0 tunnel
+    # rows" reads the same on an airport with no tunnels and on one
+    # whose 37 tunnel ways were vetoed in a single pass.  Reported at
+    # zero — zero-of-zero is not a pass.
+    from collections import Counter as _CounterTV
+    _tv = data.get("tunnel_vetoes")
+    out["tunnel_veto_count"] = (None if _tv is None else len(_tv or []))
+    out["tunnel_veto_reasons"] = (
+        None if _tv is None else dict(sorted(_CounterTV(
+            str((r or {}).get("refused_because") or "unknown")
+            for r in (_tv or []) if isinstance(r, dict)).items())))
+    # THE YIELDED DECK-CLEARANCE CORRIDORS, counted (section T1.1).
+    _cs = data.get("object_corridor_suppressions")
+    out["object_corridor_suppression_count"] = (
+        None if _cs is None else len(_cs or []))
     return out
 
 

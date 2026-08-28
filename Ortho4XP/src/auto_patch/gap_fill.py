@@ -165,7 +165,10 @@ _OPEN_FRONTAGE_FOREIGN_STANDOFF_M = 1.0
 # 2026-08-07 HECA specimen this exemption was minted for).
 _TUNNEL_BLOCKER_ROLES = frozenset((ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH))
 # §T5 adds the wall's FOOT: same structure, same blocker verdict.
-_TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall", "tunnel_wall_foot"))
+# Its membership is the Amendment-1 ruling-2 attribution variable
+# (``O4_FOOT_IN_CARVE_REGISTERS``); see ``adjacent_ground``.
+from .adjacent_ground import _CarveStructureRefs as _T5Refs
+_TUNNEL_BLOCKER_REFS = _T5Refs({"tunnel_wall", "tunnel_wall_foot"})
 # SERVICE-ROAD BLOCKERS (owner ruling 2026-08-15): gap-fill spines and
 # drainage must STOP at a service road, never run through it.  A service
 # road / service junction inside an enclave pocket therefore stays a

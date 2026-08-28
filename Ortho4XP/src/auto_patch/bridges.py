@@ -2818,14 +2818,18 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
             # width), and the FACE rises from the foot's outer edge to
             # the crest.  The floor welds to the FOOT; it shares no
             # vertex with the rising ``tunnel_wall``.
+            # §T5 SCOPES TO THE PERIMETER BAND (spec Amendment 1,
+            # ruling 1).  This emitter keeps its PRIOR shared-node weld:
+            # its foot geometry produced 3 foot∩face overlaps totalling
+            # 2.99 m² at SPJC against ``test_no_self_overlap``'s ZERO
+            # tolerance, and the cause was not root-caused — so the foot
+            # here waits for a designed geometry (follow-up docket)
+            # rather than shipping an invariant breach.  The owner's
+            # item-9 site is a PERIMETER-BAND ramp and keeps its fix;
+            # the residual shared ids at this emitter are the docket's
+            # measured population.
             _crest = _half + wall_gap_m + retaining_wall_width_m
-            if ramp_wall_foot_enabled():
-                _bands = ((_half, _half + wall_gap_m,
-                           TUNNEL_WALL_FOOT_REF, True),
-                          (_half + wall_gap_m, _crest, "tunnel_wall",
-                           False))
-            else:
-                _bands = ((_half, _crest, "tunnel_wall", False),)
+            _bands = ((_half, _crest, "tunnel_wall", False),)
             for _inner, _outer, _wall_ref, _flat in _bands:
                 _ring = [
                     (_pa[0] + _px * _inner * _sign,
@@ -4912,7 +4916,21 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             _na.append(_na[0])
             try:
                 _wp = Polygon(_ring)
-                if _wp.is_empty:
+                # THE SLIT RING MAY SELF-TOUCH.  ``_ring`` traverses the
+                # band's outer boundary, the 0.02 m knife, and its inner
+                # boundary; on a thin band (the §T5 FOOT is ``wall_gap``
+                # = 0.6 m wide) that traversal can close on itself, and
+                # ``Polygon`` of a self-touching ring is INVALID — its
+                # ``area`` and ``intersection`` are then unreliable, which
+                # is how 3 foot∩face pairs read 2.99 m² of overlap at
+                # SPJC against a zero-tolerance invariant.  Repair it the
+                # way every other ring in this file is repaired.
+                if not _wp.is_valid:
+                    _wp = _wp.buffer(0)
+                    if _wp.geom_type == "MultiPolygon":
+                        _wp = max(_wp.geoms, key=lambda g: g.area)
+                if (_wp is None or _wp.is_empty
+                        or _wp.geom_type != "Polygon"):
                     continue
                 # R10-2: the band is buffered per ramp-union
                 # POLYGON, so it crosses sibling ramps and every

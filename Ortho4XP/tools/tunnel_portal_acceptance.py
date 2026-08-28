@@ -198,6 +198,16 @@ class Thresholds:
     #: §T4.2's population is CORRIDOR-WIDTH pieces (the synthesised
     #: 6.00 m rects), not any road surface that touches nothing.
     corridor_width_max_m: float = 8.0
+    #: §F1 (LEMD ramp/road fidelity spec law 1): two ``tunnel_wall``
+    #: vertices closer than this in PLAN are ACROSS THE BAND, not along
+    #: its run — a band is ~1 m wide and its stations stand tens of
+    #: metres apart, so this separates the two frames without needing
+    #: the walled body the patch does not carry.
+    wall_band_span_m: float = 2.0
+    #: …and the bar on the worst such delta.  ``None`` makes the check a
+    #: REPORT, which is how the attribution arms read it and how every
+    #: pre-§F1 profile keeps reading.
+    wall_top_delta_max: Optional[float] = None
 
 
 @dataclass
@@ -640,6 +650,82 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
         f"annulus is mostly unowned by the wall STRUCTURE "
         f"(R16-2b, measurable in both arms)"))
     return checks
+
+
+def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
+    """§F1 (LEMD ramp/road fidelity spec law 1): THE WALL TOP IS FLAT
+    ACROSS ITS WIDTH — at every station the band's inner and outer top
+    nodes carry ONE value.
+
+    THE FRAME, and why it needs nothing but the patch.  A ``tunnel_wall``
+    band is ~1 m across and its stations stand tens of metres apart, so
+    two of its own vertices closer than ``--wall-band-span-m`` in PLAN
+    are ACROSS the band by construction, never along its run.  The
+    reported number is the worst ``|Δalt|`` over every such pair — the
+    read the owner made by hand on the 1.0.265 patch (610.6/610.1,
+    608.3/607.7, 606.2/605.4).
+
+    Measured on the LEMD control before the round: worst 0.80 m over the
+    portal band at 40.4984622,-3.5850476.  With no ``--wall-top-delta-max``
+    this REPORTS rather than adjudicating, which is how the attribution
+    arms read it.
+    """
+    walls = patch.ref_ways("tunnel_wall") + patch.ref_ways(
+        "tunnel_wall_foot")
+    if not walls:
+        return [Check("wall_top_flat", SKIP, None, thr.wall_top_delta_max,
+                      "no wall band in this patch")]
+    span = float(thr.wall_band_span_m)
+    worst = 0.0
+    worst_at = None
+    pairs = 0
+    over = 0
+    bar = thr.wall_top_delta_max
+    for w in walls:
+        # ONE VERTEX PER NODE.  A ring closes on its first node, and a
+        # repeated coordinate is the same vertex, not a pair: counting it
+        # would put a guaranteed 0.00 into the population and let a check
+        # PASS on a band it never examined.  The canonical 11-decimal
+        # spelling is the identity (memory ``canonical-identity-join``).
+        seen: set = set()
+        rows = []
+        for nid, elev in zip(w.nids, w.elevs):
+            if elev is None or nid not in patch.nodes:
+                continue
+            key = patch.spell(nid)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append((patch.ll_to_m(*patch.nodes[nid]), elev))
+        for i in range(len(rows)):
+            (ax, ay), ae = rows[i]
+            for j in range(i + 1, len(rows)):
+                (bx, by), be = rows[j]
+                if abs(ax - bx) > span or abs(ay - by) > span:
+                    continue
+                if math.hypot(ax - bx, ay - by) > span:
+                    continue
+                pairs += 1
+                delta = abs(float(ae) - float(be))
+                if bar is not None and delta > bar:
+                    over += 1
+                if delta > worst:
+                    worst = delta
+                    worst_at = (w.wid, round(float(ae), 2),
+                                round(float(be), 2))
+    if not pairs:
+        return [Check("wall_top_flat", SKIP, None, bar,
+                      f"no cross-band vertex pair within {span:g} m — "
+                      f"nothing to measure")]
+    detail = (f"{pairs} cross-band pair(s) over {len(walls)} band way(s)"
+              + (f"; worst on way {worst_at[0]}: "
+                 f"{worst_at[1]} vs {worst_at[2]}" if worst_at else ""))
+    if bar is None:
+        return [Check("wall_top_flat", SKIP, round(worst, 3), None,
+                      detail + " (REPORT: no --wall-top-delta-max given)")]
+    return [Check("wall_top_flat", PASS if worst <= bar else FAIL,
+                  round(worst, 3), bar,
+                  detail + f"; {over} pair(s) over the bar")]
 
 
 def _check_isolated_road_rects(patch: Patch, thr: Thresholds
@@ -1148,6 +1234,7 @@ def run_acceptance(patch_path, control_path=None, *,
     checks += _check_isolated_road_rects(patch, thr)
     checks += _check_claimed_corridor_walls(patch, thr)
     checks += _check_ramp_wall_gap(patch, thr)
+    checks += _check_wall_top_flat(patch, thr)
     checks += _check_no_low_connector(patch)
     checks += _check_needle(patch, control, profile, thr)
     checks += _check_flat_pad(patch, control, profile, thr)
@@ -1209,7 +1296,8 @@ def build_parser() -> argparse.ArgumentParser:
                           ("below-grade-m", 0.50),
                           ("wall-gap-m", 0.6),
                           ("isolated-neighbour-m", 10.0),
-                          ("corridor-width-max-m", 8.0)):
+                          ("corridor-width-max-m", 8.0),
+                          ("wall-band-span-m", 2.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     p.add_argument("--datum-min-samples", type=int, default=8)
     p.add_argument("--claim-wall-cover-min", type=float, default=None,
@@ -1220,6 +1308,9 @@ def build_parser() -> argparse.ArgumentParser:
                  "isolated-rects-max"):
         p.add_argument(f"--{name}", type=int, default=None)
     p.add_argument("--adjudicated-delta-max", type=float, default=None)
+    p.add_argument("--wall-top-delta-max", type=float, default=None,
+                   help="§F1 bar: worst |Δalt| between two tunnel_wall "
+                        "vertices ACROSS the band (default: REPORT only)")
     return p
 
 
@@ -1259,7 +1350,9 @@ def main(argv=None) -> int:
         wall_gap_m=args.wall_gap_m,
         isolated_neighbour_m=args.isolated_neighbour_m,
         isolated_rects_max=args.isolated_rects_max,
-        corridor_width_max_m=args.corridor_width_max_m)
+        corridor_width_max_m=args.corridor_width_max_m,
+        wall_band_span_m=args.wall_band_span_m,
+        wall_top_delta_max=args.wall_top_delta_max)
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

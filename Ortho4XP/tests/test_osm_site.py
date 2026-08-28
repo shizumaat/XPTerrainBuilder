@@ -247,12 +247,134 @@ class TestCli:
             osm_site.main([str(feed_file)])
 
 
+class TestDsfRoadNetworkSource:
+    """THE THIRD ROAD SOURCE (2026-08-28, LEMD ramp/road fidelity round).
+
+    At LEMD the tile carries no small-roads extract and ``big_roads`` is
+    empty at both tunnel sites: the corridors derive from the X-Plane DSF
+    VECTOR ROAD NETWORK sidecar, which neither OSM dialect can read.  The
+    sidecar's record types are the ENGINE's own
+    (``auto_patch.dsf_road_network``) — these twins pin that this reader
+    unpickles them rather than growing a second road parser.
+    """
+
+    @pytest.fixture()
+    def sidecar(self, tmp_path: Path) -> Path:
+        import pickle
+
+        src = Path(__file__).resolve().parent.parent / "src"
+        if str(src) not in sys.path:
+            sys.path.insert(0, str(src))
+        from auto_patch.dsf_road_network import (
+            RoadNetwork, RoadSegment, RoadShapePoint,
+        )
+
+        def _point(lon, lat, level=0.0):
+            return RoadShapePoint(lon, lat, level, abs(level) < 0.5)
+
+        network = RoadNetwork(
+            network_definitions=["lib/g10/roads_EU.net"],
+            segments=[
+                # A long chain whose SHAPE POINTS straddle the probe: the
+                # nearest node is far, the line passes right over it.
+                RoadSegment(0, "lib/g10/roads_EU.net", 50, 18, 19, [
+                    _point(-80.9422253, 35.2100000),
+                    _point(-80.9422253, 35.2180000),
+                ]),
+                # An ELEVATED segment beside it (level 1 = a bridge).
+                RoadSegment(0, "lib/g10/roads_EU.net", 60, 20, 21, [
+                    _point(-80.9400000, 35.2130000, 1.0),
+                    _point(-80.9400000, 35.2140000, 1.0),
+                ]),
+            ],
+            skipped_line_count=0,
+        )
+        path = tmp_path / "o4_dsf_road_network_+35-081.cache"
+        with open(path, "wb") as handle:
+            pickle.dump({"fingerprint": "x", "result": network}, handle)
+        return path
+
+    def test_segments_read_as_ways_with_their_subtype(
+        self, sidecar: Path
+    ) -> None:
+        nodes, ways = osm_site.read_site_file(str(sidecar))
+        assert len(ways) == 2
+        assert len(nodes) == 4
+        tags = dict(ways[0][2])
+        assert tags["source"] == "dsf-road-network"
+        assert tags["road_subtype"] == "50"
+        assert tags["draped"] == "all"
+        assert tags["net_def"] == "lib/g10/roads_EU.net"
+        assert dict(ways[1][2])["draped"] == "none"
+
+    def test_the_level_flag_is_never_reported_as_an_altitude(
+        self, sidecar: Path
+    ) -> None:
+        """The network's third column is a DRAPING LEVEL, not metres —
+        reporting it as ``alt_abs`` would invent an elevation."""
+        nodes, _ways = osm_site.read_site_file(str(sidecar))
+        for _lat, _lon, alt, tags in nodes.values():
+            assert alt is None
+            assert "level" in tags and "draped" in tags
+
+    def test_the_polyline_frame_finds_what_the_node_frame_misses(
+        self, sidecar: Path
+    ) -> None:
+        """A DSF segment's shape points stand tens of metres apart while
+        the road passes right over the probe — the whole reason the
+        ``.cache`` container selects by POLYLINE."""
+        nodes, ways = osm_site.read_site_file(str(sidecar))
+        by_node = osm_site.ways_near(nodes, ways, PROBE, 60.0,
+                                     by_line=False)
+        by_line = osm_site.ways_near(nodes, ways, PROBE, 60.0,
+                                     by_line=True)
+        assert by_node == []
+        assert [row["way"] for row in by_line] == ["seg0"]
+        assert by_line[0]["line_distance_m"] == pytest.approx(0.0, abs=0.5)
+        assert by_line[0]["distance_m"] > 60.0
+        assert by_line[0]["selected_by"] == "line"
+
+    def test_the_cli_declares_which_frame_it_selected(
+        self, sidecar: Path, tmp_path: Path, capsys
+    ) -> None:
+        out = tmp_path / "site.json"
+        osm_site.main([str(sidecar), "--at", f"{PROBE[0]},{PROBE[1]}",
+                       "--json", str(out)])
+        printed = capsys.readouterr().out
+        assert "selected by polyline" in printed
+        entry = json.loads(out.read_text())["files"][0]
+        assert entry["selection_frame"] == "line"
+        assert entry["near"][0]["way"] == "seg0"
+
+    def test_by_node_forces_the_osm_frame_on_a_sidecar(
+        self, sidecar: Path, capsys
+    ) -> None:
+        osm_site.main([str(sidecar), "--at", f"{PROBE[0]},{PROBE[1]}",
+                       "--by-node"])
+        assert "selected by nearest node" in capsys.readouterr().out
+
+    def test_a_pickle_that_is_not_a_sidecar_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        import pickle
+
+        path = tmp_path / "not_a_network.cache"
+        with open(path, "wb") as handle:
+            pickle.dump({"fingerprint": "x", "result": 42}, handle)
+        with pytest.raises(SystemExit):
+            osm_site.read_site_file(str(path))
+
+
 def test_tool_is_in_the_index() -> None:
     """RULINGS 7e90032 rule 1: a tool absent from the index is treated as
     absent, and every new tool lands WITH its index entry."""
     index = (Path(__file__).resolve().parents[2] / "tools" / "INDEX.md")
     assert index.exists(), index
-    assert "Ortho4XP/tools/osm_site.py" in index.read_text()
+    text = index.read_text()
+    assert "Ortho4XP/tools/osm_site.py" in text
+    # The 2026-08-28 extensions land WITH their index prose: a capability
+    # absent from the index is treated as absent.
+    assert "o4_dsf_road_network" in text
 
 
 # ── CONTAINMENT (--contains / --line) ────────────────────────────────

@@ -427,3 +427,100 @@ def test_an_AT_GRADE_claimed_road_does_not_answer_a_mouth(tpa, tmp_path):
                                        sites={"D": (25.00003, 51.00003)}))}
     assert checks["mouth_vertex_reach"].verdict == tpa.FAIL
     assert checks["site_reach"].measured > 1000.0
+
+
+# ──────────────────────────────────────────────────────────────────
+# §F1 — WALL TOP IS FLAT ACROSS ITS WIDTH (LEMD ramp/road fidelity)
+# ──────────────────────────────────────────────────────────────────
+def _wall_band_patch(directory: Path, name: str, inner: float,
+                     outer: float) -> Path:
+    """A patch carrying ONE ``tunnel_wall`` band, 1.0 m across, whose two
+    long edges carry ``inner`` and ``outer``.
+
+    The two stations stand ~33 m apart in latitude and the band is ~1 m
+    across in longitude, which is the real geometry: the cross-band pair
+    is the CLOSE pair, the along-run neighbours are the far ones.
+    """
+    def node(i, lat, lon, a):
+        return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
+                f"<tag k='alt_abs' v='{a}'/></node>")
+    parts = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6'>"]
+    lon_inner, lon_outer = 51.0000000, 51.0000100      # ~1.0 m apart
+    rows = [(25.0000, lon_outer, outer), (25.0003, lon_outer, outer),
+            (25.0003, lon_inner, inner), (25.0000, lon_inner, inner)]
+    for i, (la, lo, a) in enumerate(rows, start=1):
+        parts.append(node(i, la, lo, a))
+    parts.append("<way id='-201'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
+                 "<nd ref='-4'/><nd ref='-1'/>"
+                 "<tag k='aeroway' v='building'/>"
+                 "<tag k='role' v='retaining_wall'/>"
+                 "<tag k='ref' v='tunnel_wall'/>"
+                 "<tag k='shapeID' v='9'/></way>")
+    parts.append("</osm>")
+    osm = directory / name
+    osm.write_text("\n".join(parts))
+    (directory / (name + ".axes.json")).write_text(json.dumps(
+        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
+    return osm
+
+
+class TestWallTopFlat:
+    """The check measures ACROSS the band and adjudicates only when a bar
+    is given — the two properties every threshold in this tool has."""
+
+    def _run(self, tpa, patch, **kw):
+        thr = tpa.Thresholds(**kw)
+        return {c.name: c for c in tpa._check_wall_top_flat(
+            tpa.Patch(patch, tpa.load_census().load_check_grade()), thr)}
+
+    def test_a_twisted_band_is_measured(self, tpa, tmp_path):
+        patch = _wall_band_patch(tmp_path, "twist.osm", 609.8, 610.6)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert got.measured == pytest.approx(0.8, abs=0.001)
+
+    def test_a_flat_band_measures_zero(self, tpa, tmp_path):
+        patch = _wall_band_patch(tmp_path, "flat.osm", 610.6, 610.6)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert got.measured == pytest.approx(0.0, abs=1e-9)
+
+    def test_without_a_bar_it_reports_never_adjudicates(self, tpa,
+                                                        tmp_path):
+        patch = _wall_band_patch(tmp_path, "report.osm", 609.8, 610.6)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert got.verdict == tpa.SKIP
+        assert got.threshold is None
+
+    def test_the_bar_moves_the_verdict_not_the_measurement(self, tpa,
+                                                           tmp_path):
+        patch = _wall_band_patch(tmp_path, "bar.osm", 609.8, 610.6)
+        failing = self._run(tpa, patch, wall_top_delta_max=0.01)
+        passing = self._run(tpa, patch, wall_top_delta_max=1.0)
+        assert failing["wall_top_flat"].verdict == tpa.FAIL
+        assert passing["wall_top_flat"].verdict == tpa.PASS
+        assert (failing["wall_top_flat"].measured
+                == passing["wall_top_flat"].measured)
+
+    def test_the_along_run_frame_is_not_the_cross_band_one(self, tpa,
+                                                           tmp_path):
+        """A span narrower than the band finds NO pair and reports
+        SKIPPED — never PASS over a population it did not examine."""
+        patch = _wall_band_patch(tmp_path, "span.osm", 609.8, 610.6)
+        got = self._run(tpa, patch, wall_band_span_m=0.2,
+                        wall_top_delta_max=0.01)["wall_top_flat"]
+        assert got.verdict == tpa.SKIP
+
+    def test_a_patch_with_no_wall_skips(self, tpa, tmp_path):
+        patch = _write_patch(tmp_path, "nowall.osm", 100.0)
+        got = self._run(tpa, patch, wall_top_delta_max=0.01)
+        assert got["wall_top_flat"].verdict == tpa.SKIP
+
+    def test_the_cli_carries_the_flag_into_the_thresholds(self, tpa):
+        args = tpa.build_parser().parse_args(
+            ["p.osm", "--wall-top-delta-max", "0.01",
+             "--wall-band-span-m", "2.5"])
+        assert args.wall_top_delta_max == 0.01
+        assert args.wall_band_span_m == 2.5
+
+    def test_the_check_runs_in_the_library_entry(self, tpa):
+        source = inspect.getsource(tpa.run_acceptance)
+        assert "_check_wall_top_flat" in source

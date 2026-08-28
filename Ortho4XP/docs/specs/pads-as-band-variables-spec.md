@@ -102,3 +102,29 @@ individually rather than violate grade law."
   linear; state both).
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat; no shared-repo writes; no timing claims.
+
+## Amendment 1 (Fable, 2026-08-28 — closing rulings; lane complete)
+
+1. **§1.3's vacuity is CONFIRMED and the lane's handling is APPROVED:**
+   no authored-datum group exists in the pad frame on the base tree
+   (docket-B's offsets are post-mesh; the pre-solve scalar link is
+   default-OFF). The mechanism ships complete, twinned, and honestly
+   instrumented ("0 split of 0 declared — NOT an accommodation").
+   THE DECLARATION IS ITS OWN DESIGN DOCKET: which pack-geometry
+   relation declares a group pre-solve (candidate: docket-B's own
+   connected-body/file-closure relation, computed without R_mesh) and
+   whether authored RELATIVE offsets (member-to-member, not
+   seat-datum-to-ground) are well-defined in the pad frame — a recon
+   read of the object pipeline first, then a Fable ruling, never an
+   invented join (canonical-identity-join stands).
+2. **The pre-fp#8 hard-union scoping deviation is APPROVED:** freeing
+   pads in the partitioned projections (no flat-group contraction, no
+   node bounds) would break §1.1's one-flat-variable. The published
+   `_pad_variable_idx` awaits that future ruling; nothing consumes it.
+3. **The `pad_binding_routes` collision is resolved at merge:** the
+   chip branch's `setattr` capture becomes a call through
+   `pad_variables.publish_pad_variable_provenance` (the merge-by-ref
+   idiom) — an integration edit owned by the lead at merge time.
+4. New pre-existing red twin recorded:
+   `test_the_pad_law_re_asserts_after_the_late_projection`
+   (source-inspection drift) — chipped separately, not this round's.

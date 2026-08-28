@@ -5205,6 +5205,130 @@ BASIN_REGION_RAMP_REACH = (
 BASIN_RAMP_REACH_PLATE = (
     _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "0") == "1")
 
+# ── THE PAD-AUTHORITY CARVE (spec
+# ``docs/specs/lemd-pad-authority-carve-spec.md``, OWNER-SANCTIONED
+# 2026-08-28 item 2: "How can we identify the ramp coming down into the
+# big pit and ensure we cut away enough so the terrain is not extending
+# above the object").  DEFAULT ON.
+#
+# THE DEFECT the two trench-side levers could not reach.  The pit's
+# entrance ramp lies OUTSIDE the basin facility and INSIDE
+# ``building8``'s pad ring (owner probe points 9.87 m / 3.88 m,
+# containment-measured), and ``BASIN_PAD_FLOOR_SEAT`` yields the pad's
+# flattening authority only INSIDE the facility.  So the ground under
+# the authored ramp is held at the pad's flat 600.51 m and the terrain
+# stands above the object.  Widening the facility moves the facility's
+# own measurement body (``BASIN_REGION_RAMP_REACH``, retired above);
+# laying a plate beside the facility collides with the pad
+# (``BASIN_RAMP_REACH_PLATE``, retired above, census +196 airside
+# ``within_shape`` rows at worst 12.74 m).
+#
+# THE LAW, three clauses, all of them SCOPE:
+#
+#  1. THE CORRIDOR IS THE OBJECT'S OWN GEOMETRY — the authored ramp deck
+#     between grade and the basin floor, derived by the SHARED ramp-reach
+#     derivation (``object_terrain_features._region_ramp_reach_rings`` +
+#     ``_ramp_lobes_of``).  Never hand coordinates, never the DEM.  This
+#     gate CARRIES the corridor exactly as ``BASIN_RAMP_REACH_PLATE``
+#     does — one derivation, two dispositions, never a second spelling.
+#  2. THE CARVE ONLY REACHES WHERE THE CARVED AUTHORITY REACHES.  The
+#     corridor is clipped to the facility plus the pads whose flattening
+#     authority actually yielded to this facility (the Amendment-3
+#     authority-yield population).  Ground the carve does not own is
+#     ground somebody else still owns, and the plate stops there.
+#  3. INSIDE THE CORRIDOR ONLY THE CARVED PADS YIELD.  The pan's own
+#     yield set also carries the §B pavement population and the retired
+#     whole-pad seat's; those yields were ruled INSIDE THE FACILITY and
+#     the corridor is outside it.  Using them there is what let the
+#     retired plate arm run into the apron.  So the corridor plate is
+#     differenced against every earlier-born shape except the carved
+#     pads — which is what keeps it off the apron while the pad, whose
+#     authority the owner carved, is born through.
+#
+# ...and the pad edge along the corridor is DECLARED (spec §2): the
+# plate↔pad step publishes a ``terrace_joints`` row of kind
+# ``BASIN_CARVE_WALL_JOINT_KIND``, the same declared-step register the
+# pan↔rim wall uses.  A declared wall, never a bare cliff, and never a
+# smoothing ramp.
+#
+# WHAT DOES NOT MOVE, by construction (spec §3): the admitted ring, the
+# floor value, the rim value, R_est, the pad-coverage test and the
+# post-mesh R_mesh sample band are all read from ``body_parts``, and the
+# corridor is not in them.
+#
+# MEASURED, LEMD, single tree, all arms through
+# tools/harness/build_airport.py (2026-08-28) — the carve DELIVERS the
+# owner's ask and, unlike the retired plate arm, costs nothing:
+#
+#   * THE CORRIDOR IS THE OBJECT'S.  798 m² in ONE part beside the
+#     27,855 m² body (12 batter/sliver pieces dropped by
+#     ``_ramp_lobes_of``); the admitted ring is UNTOUCHED.  Clipped to
+#     the carved authority: 798 -> 798 m² (the whole corridor lies
+#     inside ``building8``, which IS Amendment 2's finding), and the
+#     plate 798 -> 790 m² after clearance from every earlier-born shape
+#     that did NOT yield here.
+#   * THE OWNER'S TWO PROBES ARE INSIDE THE EMITTED FLOOR, by
+#     CONTAINMENT (``tools/osm_site.py --contains``; ``--at`` reports
+#     nearest-NODE distance and never reads 0.00 m inside a big ring):
+#     40.4923132,-3.5697896 and 40.4924064,-3.569366 both INSIDE
+#     ``object_basin_trench`` way -11774, in no interior ring.  Control:
+#     neither is (1.20 m / 11.60 m outside the pan).
+#   * THE DECK LINE IS COVERED END TO END: 20 of 20 stations at 2 m
+#     along the owner's own segment are inside the floor plate
+#     (control: 1 of 20, and that one is the RIM band).
+#   * NOTHING ELSE MOVED.  Floor 587.75 m, rim 600.51 m outside the
+#     corridor (14 band parts, all re-seated to 600.51 adopting
+#     ``building8``), and ``building8`` STAYS FLAT at 600.51 — which is
+#     precisely what the retired plate arm broke ([587.75, 600.49]).
+#   * CENSUS IMPROVES: 2,529 -> 2,527 law-true (within_shape 35 -> 35,
+#     apron_lattice_membrane 120 -> 117, airside_no_step 1,427 ->
+#     1,429, transverse 759 -> 758; worst row 5.13 m, the control's
+#     own).  The retired plate arm's artifact classes are ABSENT: its
+#     +196 ``within_shape`` (212 airside) at worst 12.74 m and its
+#     12.53/13.42 m boundary rows do not appear.
+#   * CONTROLS, built BOTH WAYS on this tree and BYTE-IDENTICAL either
+#     way: SPJC (body_sha 255261460924 — it HAS a below-grade region and
+#     the pass runs on it, the stronger read) and OTHH (ddb81052c695,
+#     eight facilities).  And the shipped default is byte-identical at
+#     LEMD itself: the gate-off arm reads 0e181d870481 / 2,558 shapes,
+#     the founding control exactly.
+#
+# THE G INSTRUMENT, and the one thing this round does NOT settle (§4).
+# Driven against the built 2026-08-27 ``Data+40-004.mesh``, the
+# instrument is CONTROLLED: unscoped it reads 596.682 m over 70
+# stations, the committed value to 0.000 m.  §4's ruled exclusion drops
+# the 8 stations that fall on the carve corridor and reads 596.000 m
+# (the dropped 8 read 596.26-599.33, six of them above the median, on a
+# 589.4-600.5 distribution).  So on ONE surface the scoped and unscoped
+# instruments differ by 0.682 m, and the spec's own Acceptance line
+# ("G re-read per §4 reproduces the committed value") and §4's exclusion
+# cannot both hold.  NOTHING IS RE-BASELINED HERE: the committed
+# 596.682 stands, no rebake ran this round (an airport patch build never
+# reaches ``post_mesh``), and the scoping is implemented exactly as
+# ruled and reported for the owner/design ruling — see
+# ``docs/DEFERRED_VERIFICATION.md`` 2026-08-28c.
+#
+# With O4_BASIN_PAD_AUTHORITY_CARVE=0 no corridor is carried, no
+# authority is carved and no joint is declared; the emitted patch is
+# byte-identical to the founding round.
+BASIN_PAD_AUTHORITY_CARVE = (
+    _os.environ.get("O4_BASIN_PAD_AUTHORITY_CARVE", "1") == "1")
+
+
+def basin_ramp_corridor_carried() -> bool:
+    """Is the ramp-reach CORRIDOR derived and carried at all?
+
+    THE ONE READER of "does this build have a ramp corridor", so the two
+    consumers can never disagree about whether one exists: the retired
+    plate arm (:data:`BASIN_RAMP_REACH_PLATE`, the corridor WITHOUT the
+    carve — kept reproducible) and the owner-sanctioned carve
+    (:data:`BASIN_PAD_AUTHORITY_CARVE`, the corridor WITH it).  Read at
+    call time, never frozen into a derived constant: a test that
+    monkeypatches either gate must be seen by every consumer.
+    """
+    return bool(BASIN_RAMP_REACH_PLATE or BASIN_PAD_AUTHORITY_CARVE)
+
+
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
 #

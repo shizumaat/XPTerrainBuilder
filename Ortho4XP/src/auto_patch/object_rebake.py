@@ -271,6 +271,11 @@ _GATE_ENVIRONMENT_NAMES = (
     # the body alone but emits terrain beside it, which a run record
     # written under the other value is a wrong answer for.
     "O4_BASIN_RAMP_REACH_PLATE",
+    # ...and the PAD-AUTHORITY CARVE (spec lemd-pad-authority-carve), the
+    # corridor's other consumer: it emits the same plate under a carved
+    # authority AND scopes the post-mesh G band by the corridor, so a run
+    # record written under the other value is a wrong answer twice over.
+    "O4_BASIN_PAD_AUTHORITY_CARVE",
     # ...and the group-seat gate itself, read through its config constant
     # above as well: both spellings are salted, because the env var is
     # what a lane flips and the constant is what a test monkeypatches.
@@ -1714,6 +1719,73 @@ def apply(
         reversions_missing_backup=reversions_missing_backup,
         partially_baked=partially_baked,
     )
+
+
+#: A carried datum's members must agree to this (m).  The provenance
+#: stores the group datum per RESOURCE, so "the group's founded datum" is
+#: only a number if every member recorded the same one; a spread means
+#: two bakes wrote the same group and the sidecar no longer describes one
+#: plane.  0.001 m is float round-trip through JSON, not a tolerance for
+#: real disagreement — anything a rebake could have caused is reported,
+#: never averaged (the emit-consensus precedent: a mean mints a value no
+#: law produced).
+FOUNDED_SEAT_DATUM_AGREEMENT_M = 0.001
+
+
+def founded_seat_datum(pack_root: str, resources, decision_kind: str):
+    """``(datum_m, [resources it was read from])`` — the datum this pack
+    ALREADY SEATS ``resources`` on, or ``(None, reason)``.
+
+    THE CARRIER, not a new record (spec ``docs/specs/lemd-pad-authority-
+    carve-spec.md`` §4a; the store is basin-group-seat §2.5 / trap T6,
+    which put ``seat_datum_m`` in the sidecar precisely "so a restored
+    pack can still answer what the group decided").  A rebake over ground
+    a round deliberately CARVES must not re-derive the seat from that
+    ground; it carries the datum the pack was founded on, and this is
+    where that datum lives.
+
+    ``decision_kind`` is passed IN, never spelled here: the writer above
+    takes it from the decision, so the reader takes it from the caller
+    and this module still names no seating law of its own.
+
+    READ ONLY.  Nothing about the pack is written, touched or upgraded —
+    a caller that gets ``None`` must refuse, never invent (§4c).
+    """
+    sidecar_path = _provenance_path(pack_root)
+    if not os.path.isfile(sidecar_path):
+        return None, "no provenance sidecar: this pack has never been baked"
+    try:
+        with open(sidecar_path) as handle:
+            provenance = _normalise_provenance(json.load(handle))
+    except (OSError, ValueError) as error:
+        return None, f"the provenance sidecar could not be read ({error})"
+    wanted = set(resources or ())
+    found: dict[str, float] = {}
+    for resource_path, entry in (provenance.get("objects") or {}).items():
+        if wanted and resource_path not in wanted:
+            continue
+        if entry.get("decision_kind") != decision_kind:
+            continue
+        value = entry.get("seat_datum_m")
+        if value is None:
+            continue
+        try:
+            found[resource_path] = float(value)
+        except (TypeError, ValueError):                   # pragma: no cover
+            continue
+    if not found:
+        return None, (
+            f"no {decision_kind!r} seat datum recorded for any of the "
+            f"{len(wanted)} group member(s)")
+    values = sorted(found.values())
+    spread = values[-1] - values[0]
+    if spread > FOUNDED_SEAT_DATUM_AGREEMENT_M:
+        return None, (
+            f"the {len(found)} recorded member datum(s) disagree by "
+            f"{spread:.3f} m ({values[0]:.3f}..{values[-1]:.3f}) — the "
+            "sidecar no longer describes ONE plane, so there is no "
+            "founded datum to carry")
+    return values[0], sorted(found)
 
 
 def check(pack_root: str, mesh_path: str) -> str:

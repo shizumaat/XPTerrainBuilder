@@ -118,3 +118,32 @@ standard; no shared-repo writes; no timing claims; build-time
 statement. The hecar2 lane's `way_authority_read.py` promotes into
 `tools/apron_pull_attrib.py` as a `--way`/`--site` scope (second use,
 RULINGS 7e90032).
+
+## Amendment 1 (Fable, 2026-08-28 — closing rulings; lane complete at
+## lane/hround4 08013aec)
+
+1. **§H3 SHIPS DEFAULT-OFF.** Measured: IoU 0.8221 vs the 0.90 bar
+   (the bite-never-bisection severance cuts 111 m² of the owner's
+   49,648), and +61/+37/+435 census cost at HECA/SPJC/LEMD with
+   OFF strictly better everywhere. The lane's diagnosis is adopted as
+   the docket: THE SCORER'S VERDICT ON THE SEVERED PIECE, not the
+   severance, is the missing lever — owner item 3 routes to the
+   standing scorer-v2/roles docket, machinery + twins retained behind
+   `O4_ROAD_EVIDENCE_SEVER=0` as its starting point. Interim
+   practical path, offered to the owner: splitting the Tai pack's
+   unioned apt.dat pavements (#111/#57) in the PACKAGE is the
+   data-side fix the current scorer would honour today.
+2. **§H2's receiver-plus-lot scope is APPROVED** (the pipeline's own
+   ordering justifies the lot; the literal airside-only reading —
+   5,005 more released vertices carried by real authorities — is
+   REJECTED as the airside-pull class). Item 5(b)'s unchanged site
+   is recorded as its own attribution docket: the narrowing is
+   structurally right and the site's binding is elsewhere.
+3. **§H1.1 STAYS ON.** +252 of its +396 is the un-blinding the owner's
+   item 1 exists to demand; the ~144 un-attributed surface response
+   (incl. the T-site 8/0.70 → 18/1.10) is the round's honest cost,
+   recorded in DEFERRED_VERIFICATION with an attribution docket —
+   the owner's sim pass adjudicates whether it reads. §H1.2 and §H4
+   are ACCEPTED as landed (§H4 = the round's win; item 5(a) closed).
+4. Ship configuration = the lane's `k_heca_noh3` arm: CYXY −12,
+   SPJC −266, LEMD −530, HECA +38 vs OFF-controls.

@@ -46,6 +46,7 @@ try:
     from osgeo import gdal, osr
 
     gdal.UseExceptions()
+    osr.UseExceptions()
     has_gdal = True
 except ImportError:
     has_gdal = False

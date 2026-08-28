@@ -100,6 +100,7 @@ def _diagnostic_lines() -> list[str]:
     try:
         from osgeo import gdal, osr
 
+        osr.UseExceptions()
         lines.append(f"  osgeo.gdal.__version__: {gdal.__version__}")
         lines.append(f"  osr.GetPROJSearchPaths(): {osr.GetPROJSearchPaths()}")
     except ImportError:
@@ -145,6 +146,8 @@ def preflight() -> str | None:
         failures.append(f"ERROR: pyproj transform failed: {error!r}")
     try:
         from osgeo import osr
+
+        osr.UseExceptions()
     except ImportError:
         osr = None  # type: ignore[assignment]
     except Exception as error:  # noqa: BLE001 - this is the check

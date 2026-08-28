@@ -4836,3 +4836,17 @@ What was NOT paid:
   NEW rows outside the re-roled region.  The mechanism is the airside
   solve's equilibrium moving when 264,186 m² leaves it; the bar ("zero
   same-role regressions") is not met and no fix is attempted here.
+## 2026-08-28 — GDAL osr/ogr UseExceptions opt-in (launch FutureWarning)
+
+* `osr.UseExceptions()` / `ogr.UseExceptions()` added beside the existing
+  `gdal.UseExceptions()` at every import site pulling osr/ogr
+  (`O4_Airport_Elevation_Insets`, `O4_Coral_Atlas`, `O4_Proj_Runtime`
+  ×2).  Call-site audit found NO error-code dependency: the one return
+  -code read (`O4_Proj_Runtime.preflight` `ImportFromEPSG` `code != 0`)
+  already carries a twin except-arm and is kept as the defensive dual
+  path.
+* **No full-suite run** (pre-ship mode): the three directly-covering
+  files (`test_proj_runtime`, `test_coral_atlas`,
+  `test_airport_elevation_insets`) ran once via the ledger — 197 passed.
+  Warning absence verified by importing + exercising osr/ogr under
+  `-W error::FutureWarning`.

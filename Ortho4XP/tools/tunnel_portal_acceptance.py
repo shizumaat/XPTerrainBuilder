@@ -166,6 +166,9 @@ class Thresholds:
     isolated_neighbour_m: float = 10.0
     #: …and the bar on that count.  ``None`` makes it a REPORT.
     isolated_rects_max: Optional[int] = None
+    #: §T4.2's population is CORRIDOR-WIDTH pieces (the synthesised
+    #: 6.00 m rects), not any road surface that touches nothing.
+    corridor_width_max_m: float = 8.0
 
 
 @dataclass
@@ -490,7 +493,16 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
                     f"owner read as a broken ramp")]
     # …and the annulus is still owned: no ramp edge faces open ground
     # inside the wall gap.  The FOOT is what owns it after §T5.
-    feet = patch.ref_ways("tunnel_wall_foot")
+    # THE OWNER IS THE WALL STRUCTURE, in either arm.  Measuring the
+    # annulus against the FOOT alone makes this check SKIP on a
+    # pre-§T5 patch, and a check that cannot read the control arm
+    # cannot tell a regression from a pre-existing condition — the
+    # question "did §T5 unown anything" is only answerable if both arms
+    # are measured the same way.  Before §T5 the rising wall owned the
+    # annulus; after it, the foot does; the LAW is that SOMETHING in the
+    # wall structure does.
+    feet = (patch.ref_ways("tunnel_wall_foot")
+            + patch.ref_ways("tunnel_wall"))
     def _polys(ways):
         out = []
         for w in ways:
@@ -506,7 +518,7 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
     rp = _polys(ramps)
     if not fp:
         checks.append(Check("ramp_wall_annulus_owned", SKIP, None, None,
-                            "no tunnel_wall_foot emitted (§T5 OFF?)"))
+                            "no wall structure emitted at all"))
         return checks
     try:
         foot_u = unary_union(fp)
@@ -521,8 +533,9 @@ def _check_ramp_wall_gap(patch: Patch, thr: Thresholds) -> List[Check]:
     checks.append(Check(
         "ramp_wall_annulus_owned", PASS if unowned == 0 else FAIL,
         unowned, 0,
-        f"ramp(s) whose {thr.wall_gap_m:g} m annulus is mostly unowned "
-        f"(R16-2b re-measured under §T5: the FOOT owns it)"))
+        f"of {len(rp)} ramp(s), those whose {thr.wall_gap_m:g} m "
+        f"annulus is mostly unowned by the wall STRUCTURE "
+        f"(R16-2b, measurable in both arms)"))
     return checks
 
 
@@ -570,7 +583,24 @@ def _check_isolated_road_rects(patch: Patch, thr: Thresholds
         tree = STRtree([p for _w, p in family])
     except Exception:                                    # pragma: no cover
         tree = None
+    def _corridor_width(poly) -> float:
+        """The SHORT side of the piece's minimum rotated rectangle — a
+        synthesised corridor rect is one corridor wide, and that is what
+        separates §T4.2's population from a large carved road surface
+        that merely happens to touch nothing."""
+        try:
+            mrr = poly.minimum_rotated_rectangle
+            xy = list(mrr.exterior.coords)[:-1]
+            if len(xy) != 4:
+                return float("inf")
+            import math as _m
+            sides = [_m.dist(xy[i], xy[(i + 1) % 4]) for i in range(4)]
+            return min(sides)
+        except Exception:                                # pragma: no cover
+            return float("inf")
+
     lonely, with_neighbour, sites = 0, 0, []
+    narrow_hits = 0
     for w, p in rects:
         near = []
         idxs = (range(len(family)) if tree is None
@@ -585,18 +615,32 @@ def _check_isolated_road_rects(patch: Patch, thr: Thresholds
             lonely += 1
             if near and min(near) <= thr.isolated_neighbour_m:
                 with_neighbour += 1
-                if len(sites) < 6:
-                    c = p.representative_point()
-                    sites.append(f"way {w.wid} (gap {min(near):.1f} m)")
+                # §T4.2's OWN population: a CORRIDOR-WIDTH piece whose
+                # void is a rect-trim gap.  A large carved road surface
+                # standing off a groundside ring by the clearance
+                # tolerance is a different mechanism and must not be
+                # counted here — measured at LEMD, way -10318 is
+                # 2,186 m² beside a 7,893 m² groundside ring, and
+                # counting it made the two populations one number.
+                cw = _corridor_width(p)
+                if cw <= thr.corridor_width_max_m:
+                    narrow_hits += 1
+                    if len(sites) < 6:
+                        sites.append(
+                            f"way {w.wid} (gap {min(near):.1f} m, "
+                            f"width {cw:.1f} m)")
     verdict = (SKIP if thr.isolated_rects_max is None
-               else (PASS if with_neighbour <= thr.isolated_rects_max
+               else (PASS if narrow_hits <= thr.isolated_rects_max
                      else FAIL))
-    return [Check("isolated_road_rects", verdict, with_neighbour,
+    return [Check("isolated_road_rects", verdict, narrow_hits,
                   thr.isolated_rects_max,
-                  f"{with_neighbour} of {lonely} isolated rect(s) have a "
-                  f"road neighbour within {thr.isolated_neighbour_m:.0f} m "
-                  f"(the LOST-FILL class) out of {len(rects)} "
-                  f"service_road rect(s)"
+                  f"{narrow_hits} CORRIDOR-WIDTH (<= "
+                  f"{thr.corridor_width_max_m:.0f} m) isolated rect(s) "
+                  f"with a road neighbour within "
+                  f"{thr.isolated_neighbour_m:.0f} m — §T4.2's LOST-FILL "
+                  f"class; {with_neighbour} of {lonely} isolated rect(s) "
+                  f"have such a neighbour at ANY width, out of "
+                  f"{len(rects)} service_road rect(s)"
                   + (" — e.g. " + ", ".join(sites) if sites else ""))]
 
 
@@ -1047,7 +1091,8 @@ def build_parser() -> argparse.ArgumentParser:
                           ("retreat-wall-radius-m", 2.0),
                           ("claimed-bore-max-m", 0.0),
                           ("wall-gap-m", 0.6),
-                          ("isolated-neighbour-m", 10.0)):
+                          ("isolated-neighbour-m", 10.0),
+                          ("corridor-width-max-m", 8.0)):
         p.add_argument(f"--{name}", type=float, default=default)
     p.add_argument("--claim-wall-cover-min", type=float, default=None,
                    help="§T6.1 bar: median face coverage of the "
@@ -1081,7 +1126,8 @@ def main(argv=None) -> int:
         claim_wall_cover_min=args.claim_wall_cover_min,
         wall_gap_m=args.wall_gap_m,
         isolated_neighbour_m=args.isolated_neighbour_m,
-        isolated_rects_max=args.isolated_rects_max)
+        isolated_rects_max=args.isolated_rects_max,
+        corridor_width_max_m=args.corridor_width_max_m)
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

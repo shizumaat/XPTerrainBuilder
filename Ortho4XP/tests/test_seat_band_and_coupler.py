@@ -388,3 +388,205 @@ def test_two_declared_pads_welded_together_still_seat(monkeypatch):
         pytest.approx(95.5)
     assert _level_of(seats, b2i, layout.canonical_points, neighbour) == \
         pytest.approx(95.5)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PAD BINDING ROUTES — the engine CAPTURE twin
+# (spec ``docs/specs/pad-binding-routes-spec.md`` §3.1)
+#
+# Publication only: the seat pass publishes, per pad, the RECORDED route
+# that bound its seat on each side.  The twin drives the same hermetic
+# fixture family as everything above — one synthetic layout, a hand-made
+# band, a hand-made provenance and a hand-made unified graph — and checks
+# that what is published is read out of that field rather than derived.
+# ══════════════════════════════════════════════════════════════════════
+
+#: The chain the walk must replay on the CEILING side, and its own budgets.
+#: anchor 10 --4 m--> node 6 --4 m--> node 2 (the binding attachment node).
+_CEIL_ANCHOR, _CEIL_NODE = 10, 2
+#: anchor 11 --5 m--> node 7 --8 m--> node 3.
+_FLOOR_ANCHOR, _FLOOR_NODE = 11, 3
+
+
+class _RouteBand:
+    """A band that also answers ``attachment_at`` — the raster band's own
+    read-only provenance accessor, which is what the capture reads."""
+
+    #: (floor, ceiling) at each apron-shared edge centre of the pad below.
+    #: (20,10) carries the MINIMUM ceiling and (10,20) the MAXIMUM floor,
+    #: so the two sides bind at DIFFERENT frontage points — which is the
+    #: only way a twin can tell the per-side rule from a per-pad one.
+    AT = {(10.0, 0.0): (100.0, 110.0, (1, 5)),
+          (20.0, 10.0): (101.0, 108.0, (1, _CEIL_NODE)),
+          (10.0, 20.0): (102.0, 112.0, (_FLOOR_NODE, 4)),
+          (0.0, 10.0): (100.5, 111.0, (5,))}
+
+    def __call__(self, x, y):
+        rec = self.AT.get((round(float(x), 6), round(float(y), 6)))
+        return (100.0, 112.0) if rec is None else (rec[0], rec[1])
+
+    def attachment_at(self, x, y):
+        rec = self.AT.get((round(float(x), 6), round(float(y), 6)))
+        if rec is None:
+            return None
+        return {"attachment_nodes": list(rec[2]), "leg_m": 1.0,
+                "off_mask_m": 0.0, "floor_at_attachment": rec[0],
+                "ceiling_at_attachment": rec[1]}
+
+
+class _RouteGraph:
+    """The unified-graph stand-in: ``spine_adj`` + ``pos``, the two things
+    the recorded-route walk reads."""
+
+    pos = {_CEIL_ANCHOR: (-100.0, 0.0), 6: (-60.0, 0.0),
+           _CEIL_NODE: (-20.0, 0.0),
+           _FLOOR_ANCHOR: (-100.0, 100.0), 7: (-70.0, 100.0),
+           _FLOOR_NODE: (-40.0, 100.0)}
+    spine_adj = {_CEIL_NODE: [(6, 4.0)], 6: [(_CEIL_ANCHOR, 4.0),
+                                             (_CEIL_NODE, 4.0)],
+                 _CEIL_ANCHOR: [(6, 4.0)],
+                 _FLOOR_NODE: [(7, 8.0)], 7: [(_FLOOR_ANCHOR, 5.0),
+                                              (_FLOOR_NODE, 8.0)],
+                 _FLOOR_ANCHOR: [(7, 5.0)]}
+
+
+#: The field as ``spine_value_fields._record_anchor_provenance`` writes it.
+_ROUTE_PROV = {
+    "anchor_value": {_CEIL_ANCHOR: 100.0, _FLOOR_ANCHOR: 115.0},
+    # ceiling(n) = anchor_value + budget → node 2 is 108.0, node 1 is 109.0
+    "ceiling": {_CEIL_ANCHOR: (_CEIL_ANCHOR, 0.0), 6: (_CEIL_ANCHOR, 4.0),
+                _CEIL_NODE: (_CEIL_ANCHOR, 8.0), 1: (_CEIL_ANCHOR, 9.0)},
+    # floor(n) = anchor_value − budget → node 3 is 102.0, node 4 is 101.0
+    "floor": {_FLOOR_ANCHOR: (_FLOOR_ANCHOR, 0.0), 7: (_FLOOR_ANCHOR, 5.0),
+              _FLOOR_NODE: (_FLOOR_ANCHOR, 13.0), 4: (_FLOOR_ANCHOR, 14.0)},
+}
+
+
+def _route_layout():
+    """A 20x20 pad (small-pad branch) whose FOUR edges are apron-shared."""
+    apron_s = _shape([(-40.0, -40.0), (60.0, -40.0), (60.0, 0.0),
+                      (20.0, 0.0), (0.0, 0.0), (-40.0, 0.0)],
+                     ROLE_APRON, "apronS")
+    apron_n = _shape([(0.0, 20.0), (20.0, 20.0), (20.0, 60.0),
+                      (0.0, 60.0)], ROLE_APRON, "apronN")
+    pad = _shape([(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
+                 ROLE_BUILDING, "pad1")
+    layout = _FakeLayout([apron_s, apron_n, pad])
+    return layout, [apron_s, apron_n, pad], pad
+
+
+def _route_seats(monkeypatch, band, *, graph, publish=True, prov=_ROUTE_PROV):
+    layout, shapes, pad = _route_layout()
+    b2i = _register(layout, shapes)
+    if prov is not None:
+        layout._band_anchor_provenance = prov
+    if publish:
+        BF.publish_band_of_record(layout, band)
+    monkeypatch.setattr(BF, "building_feasible_levels",
+                        lambda *a, **k: {id(pad): 105.0})
+    AN.build_building_seats(layout, b2i, band, lambda x, y: 105.0, [],
+                            unified_graph=graph)
+    return layout, pad
+
+
+def test_the_pad_binding_route_is_published_per_side(monkeypatch):
+    """(a) the record names the pad, the expected BINDING anchor per side,
+    ``route_complete=True``, and a chain whose ends are the anchor and the
+    binding attachment node."""
+    band = _RouteBand()
+    layout, pad = _route_seats(monkeypatch, band, graph=_RouteGraph())
+    box = layout._pad_binding_routes
+    assert box["nodespace"] == "n=6", "the node space must be stamped"
+    recs = box["records"]
+    assert [r["pad"] for r in recs] == ["pad1"]
+    r = recs[0]
+    assert r["off_network"] is False
+    assert r["seat_m"] == pytest.approx(105.0, abs=0.01)
+
+    ceil = r["sides"]["ceiling"]
+    assert ceil["anchor_node"] == _CEIL_ANCHOR
+    assert ceil["anchor_value_m"] == pytest.approx(100.0, abs=0.01)
+    assert ceil["route_budget_m"] == pytest.approx(8.0, abs=0.01)
+    assert ceil["route_complete"] is True
+    # the BINDING frontage point is the one with the MINIMUM ceiling
+    assert ceil["band_ceiling_m"] == pytest.approx(108.0, abs=0.01)
+    assert ceil["band_floor_m"] == pytest.approx(101.0, abs=0.01)
+
+    flo = r["sides"]["floor"]
+    assert flo["anchor_node"] == _FLOOR_ANCHOR
+    assert flo["anchor_value_m"] == pytest.approx(115.0, abs=0.01)
+    assert flo["route_budget_m"] == pytest.approx(13.0, abs=0.01)
+    assert flo["route_complete"] is True
+    # ... and the floor side binds at the MAXIMUM-floor frontage point,
+    # a DIFFERENT one — a per-pad rule could not produce this pair.
+    assert flo["band_floor_m"] == pytest.approx(102.0, abs=0.01)
+    assert flo["band_ceiling_m"] == pytest.approx(112.0, abs=0.01)
+    assert flo["frontage_ll"] != ceil["frontage_ll"]
+
+    # the chain runs ANCHOR → BINDING ATTACHMENT NODE, every hop
+    pos = _RouteGraph.pos
+    ll = layout.m_to_ll
+    for (side, anchor, node) in (("ceiling", _CEIL_ANCHOR, _CEIL_NODE),
+                                 ("floor", _FLOOR_ANCHOR, _FLOOR_NODE)):
+        chain = r["sides"][side]["route_ll"]
+        assert len(chain) == 3, "no hop may be dropped or capped"
+        for (end, n) in ((chain[0], anchor), (chain[-1], node)):
+            want = [round(v, 7) for v in ll(*pos[n])]
+            assert end == want, f"{side} chain end is not node {n}"
+        assert r["sides"][side]["anchor_ll"] == [
+            round(v, 7) for v in ll(*pos[anchor])]
+
+
+def test_the_published_plan_length_is_the_chain_length(monkeypatch):
+    """(b) ``plan_len_m`` is the hand-computable chain length — 40+40 on the
+    ceiling side, 30+30 on the floor side.  It is a PHYSICAL length, and
+    deliberately not the priced budget beside it."""
+    layout, _pad = _route_seats(monkeypatch, _RouteBand(), graph=_RouteGraph())
+    sides = layout._pad_binding_routes["records"][0]["sides"]
+    assert sides["ceiling"]["plan_len_m"] == pytest.approx(80.0, abs=0.01)
+    assert sides["floor"]["plan_len_m"] == pytest.approx(60.0, abs=0.01)
+
+
+def test_a_band_without_attachment_at_publishes_the_degraded_shape(
+        monkeypatch):
+    """(c) §1.6: a hand-made band with no ``attachment_at`` cannot be
+    captured from — and says so, rather than publishing a route it did not
+    read.  The seat pass itself must not fail."""
+    layout, pad = _route_seats(monkeypatch, _big_band(), graph=_RouteGraph())
+    assert layout._pad_binding_routes == {"nodespace": None, "records": []}
+
+
+def test_no_unified_graph_publishes_the_degraded_shape(monkeypatch):
+    """§1.6 again, from the other direction: every test caller passes no
+    graph, and none of them may publish a route."""
+    layout, pad = _route_seats(monkeypatch, _RouteBand(), graph=None)
+    assert layout._pad_binding_routes == {"nodespace": None, "records": []}
+
+
+def test_a_foreign_band_is_refused_loudly(monkeypatch, capsys):
+    """The PASS-IDENTITY GUARD (§1.2): a band that is NOT the layout's band
+    of record may carry a foreign node space, so nothing is published — and
+    the refusal is loud, never a crash."""
+    layout, pad = _route_seats(monkeypatch, _RouteBand(), graph=_RouteGraph(),
+                               publish=False)
+    assert layout._pad_binding_routes == {"nodespace": None, "records": []}
+    assert "[pad-routes]" in capsys.readouterr().out
+
+
+def test_an_off_band_pad_publishes_off_network(monkeypatch):
+    """(d) a pad the band serves at NO frontage point is an ANSWER — the
+    within-shape law governs it — and publishes ``off_network: true`` with
+    its seat and no sides."""
+
+    class _Blind(_RouteBand):
+        def __call__(self, x, y):
+            return None
+
+        def attachment_at(self, x, y):
+            return None
+
+    layout, pad = _route_seats(monkeypatch, _Blind(), graph=_RouteGraph())
+    recs = layout._pad_binding_routes["records"]
+    assert layout._pad_binding_routes["nodespace"] == "n=6"
+    assert len(recs) == 1 and recs[0]["off_network"] is True
+    assert "sides" not in recs[0]

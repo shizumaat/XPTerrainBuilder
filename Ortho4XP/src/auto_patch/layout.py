@@ -3888,6 +3888,16 @@ class PavementLayout:
             # stays a single file read.  ``nodespace: null`` with an empty
             # ``records`` list = the capture could not run; an ABSENT key =
             # the patch predates the publication.
+            # The same container also carries the BINDING-ROUTE records
+            # (spec ``docs/specs/pad-binding-routes-spec.md`` §1.4): per
+            # pad, the recorded route — anchor, value, budget, plan length
+            # and every hop in lat/lon — that bound the seat each side, so
+            # ``tools/trace_reach_route.py --from-sidecar`` renders it from
+            # the emitted patch instead of a full rebuild.  Records MERGE
+            # BY PAD REF through ``pad_variables.
+            # publish_pad_variable_provenance`` — never assignment — so
+            # neither publisher wipes the other (spec pads-as-band-
+            # variables Amendment 1 §3).
             "pad_binding_routes": (
                 getattr(self, "_pad_binding_routes", None)
                 or {"nodespace": None, "records": []}),

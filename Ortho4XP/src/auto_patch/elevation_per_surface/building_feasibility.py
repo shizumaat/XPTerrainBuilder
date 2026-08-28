@@ -58,7 +58,11 @@ __all__ = ["building_feasible_levels", "reach_band_unified",
            "BandInversionError", "assert_no_final_band_inversion",
            "FINAL_BAND_INVERSION_TOL_M",
            "below_grade_bodies", "below_grade_anchor_bodies",
-           "below_grade_governed_nodes", "BELOW_GRADE_BODY_TOL_M"]
+           "below_grade_governed_nodes", "BELOW_GRADE_BODY_TOL_M",
+           # The RECORDED-ROUTE walk (spec pad-binding-routes-spec.md
+           # §1.1) — one implementation, two consumers (the engine's pad
+           # binding-route capture and tools/trace_reach_route.py).
+           "walk_to_anchor", "spine_edge_budget"]
 
 # ── BAND-SEED COMPLETENESS — STANDING LAW ────────────────────────────────
 # (seed-fix round §2; formerly gate ``O4_BAND_SEED_COMPLETE``, retired
@@ -1403,6 +1407,61 @@ def _record_anchor_provenance(layout, anchor_seeds, ceil_via, ceil_dist,
         }
     except (AttributeError, TypeError, ValueError):         # pragma: no cover
         pass
+
+
+# ── READING THE RECORDED FIELD BACK OUT AS A ROUTE ───────────────────────
+# Moved here VERBATIM from ``tools/trace_reach_route.py`` (spec
+# ``docs/specs/pad-binding-routes-spec.md`` §1.1) so that ONE
+# implementation serves both consumers: the engine's own pad
+# binding-route publication (``route_profile/anchors.py``) and the tool,
+# which now imports these instead of carrying private copies.  Extend the
+# near-fit, never fork (owner ruling RULINGS ``7e90032``): a second walk
+# would be a second engine with its own opinion about which route bound a
+# node, which is exactly the class this repo has a law about.
+
+
+def spine_edge_budget(G, a, b):
+    """The spine edge's own budget (metres of value it may carry), or None."""
+    for (v, budget) in G.spine_adj.get(a, ()):
+        if v == b:
+            return float(budget)
+    return None
+
+
+def walk_to_anchor(G, prov_side, node, anchor, limit=100000):
+    """The recorded route ``node → anchor``, read out of the field.
+
+    ``prov_side`` is ``{node: (anchor, route_budget)}`` as
+    :func:`spine_value_fields` recorded it.  Each hop must reproduce the
+    recorded budget through the edge it crosses, so this REPLAYS the winning
+    route rather than searching for one: a hop that does not reconcile stops
+    the walk and is reported, instead of a second metric quietly inventing a
+    path.
+    """
+    path = [node]
+    u = node
+    seen = {node}
+    while u != anchor and len(path) < limit:
+        cur = prov_side.get(u)
+        if cur is None:
+            return path, False
+        best = None
+        for (v, budget) in G.spine_adj.get(u, ()):
+            if v in seen:
+                continue
+            rec = prov_side.get(v)
+            if rec is None or rec[0] != cur[0]:
+                continue
+            if abs(rec[1] + float(budget) - cur[1]) <= 1e-6:
+                if best is None or rec[1] < prov_side[best][1]:
+                    best = v
+        if best is None:
+            return path, False
+        seen.add(best)
+        path.append(best)
+        u = best
+    path.reverse()                                  # anchor → point
+    return path, (u == anchor)
 
 
 def _hard_truth_spine_seeds(layout, G):

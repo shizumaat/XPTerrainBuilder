@@ -316,6 +316,132 @@ def _seat_node_band(ring, band, cps, bucket_to_idx):
     return nlo, nhi, contacts
 
 
+# ── PAD BINDING ROUTES (spec ``docs/specs/pad-binding-routes-spec.md``) ──
+# PUBLICATION ONLY.  Everything below reads the band the seat consumed and
+# the provenance THAT band recorded; nothing is re-derived, no field is
+# rebuilt, no law is changed.  The one production consumer is
+# :func:`build_building_seats`, which captures beside its existing
+# ``_frontage_band_records`` block — ONE capture, N consumers.
+
+
+def _pad_binding_route_context(layout, band, G, report):
+    """``(provenance, nodespace)`` for the binding-route capture — or
+    ``(None, None)`` when the capture cannot lawfully run (spec §1.6).
+
+    THREE degraded contexts, all answered the same way and all
+    distinguishable by a reader (``nodespace: null`` = "capture could not
+    run", which is not "ran, no pads" and not "patch predates the key"):
+    no unified graph was handed in (every test caller), a band with no
+    ``attachment_at`` accessor (hand-made bands), or a layout carrying no
+    ``_band_anchor_provenance`` (nothing recorded a field).
+
+    THE PASS-IDENTITY GUARD (spec §1.2).  Node ids are valid only inside
+    the ``_build_node_list`` call that assigned them, and
+    ``_band_anchor_provenance`` is write-only/last-call-wins — so routes
+    are published ONLY when the band in hand IS this layout's band of
+    record.  A mismatch is reported LOUD and publishes nothing; it never
+    raises, because evidence must not kill a build the law would accept.
+    """
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        band_of_record)
+    if G is None or getattr(band, "attachment_at", None) is None:
+        return None, None
+    prov = getattr(layout, "_band_anchor_provenance", None) or {}
+    if not prov:
+        return None, None
+    if band is not band_of_record(layout):
+        report("  [pad-routes] NOT publishing binding routes: the band the "
+               "seats are reading is NOT this layout's band of record, so "
+               "its node ids may belong to a foreign node space — a route "
+               "published from one would be a second engine's answer. "
+               "pad_binding_routes = {nodespace: null, records: []}")
+        return None, None
+    return prov, "n=%d" % len(getattr(G, "pos", None) or ())
+
+
+def _pad_binding_route_record(layout, G, prov, ref, level, recs):
+    """ONE pad's published binding routes (spec §1.3 / §1.4).
+
+    ``recs`` are this pad's ``_frontage_band_records`` — the SAME frontage
+    points the seat interval was intersected over, so the route published
+    is the one the seat was actually clamped by.
+
+    THE BINDING NODE RULE, stated once and shared with
+    ``tools/trace_reach_route.py``'s ``_binding_route`` so the two can
+    never drift: the band takes the MIN ceiling over the route nodes
+    seeding a cell, so the ceiling-binding attachment node is the argmin
+    of ``anchor_value[anchor] + budget`` over the frontage point's
+    attachment nodes (ties → lowest node id); the floor mirrors with the
+    argmax of ``anchor_value[anchor] − budget``.  Per side the frontage
+    point published is the one that BINDS the pad's box — the minimum
+    ceiling / maximum floor among the pad's apron-shared edge centres.
+    One route per side per pad: bounded, and the route the question is
+    about.
+    """
+    from auto_patch.elevation_per_surface.building_feasibility import (
+        walk_to_anchor)
+    anchor_value = prov.get("anchor_value") or {}
+    pos = getattr(G, "pos", None) or {}
+    sides: dict = {}
+    for side in ("ceiling", "floor"):
+        prov_side = prov.get(side) or {}
+        if not prov_side or not recs:
+            continue
+        fr = (min(recs, key=lambda r: r["ceiling"]) if side == "ceiling"
+              else max(recs, key=lambda r: r["floor"]))
+        cands = [int(n) for n in (fr.get("anchor_nodes") or ())
+                 if int(n) in prov_side]
+        if not cands:
+            continue
+
+        def _value_at(n, _side=side, _ps=prov_side):
+            a, budget = _ps[n]
+            v = float(anchor_value.get(int(a), 0.0))
+            b = float(budget)
+            return v + b if _side == "ceiling" else v - b
+
+        node = min(cands, key=lambda n: ((_value_at(n), n) if side == "ceiling"
+                                         else (-_value_at(n), n)))
+        anchor = int(prov_side[node][0])
+        budget = float(prov_side[node][1])
+        path, complete = walk_to_anchor(G, prov_side, node, anchor)
+        route_ll: list = []
+        plan_len = 0.0
+        prev = None
+        for n in path:
+            p = pos.get(int(n))
+            if p is None:
+                continue
+            if prev is not None:
+                plan_len += math.hypot(p[0] - prev[0], p[1] - prev[1])
+            prev = p
+            la, lo = layout.m_to_ll(float(p[0]), float(p[1]))
+            route_ll.append([round(float(la), 7), round(float(lo), 7)])
+        ap = pos.get(anchor)
+        sides[side] = {
+            "anchor_node": anchor,
+            "anchor_ll": (None if ap is None else
+                          [round(float(v), 7) for v in
+                           layout.m_to_ll(float(ap[0]), float(ap[1]))]),
+            "anchor_value_m": float(anchor_value.get(anchor, 0.0)),
+            "route_budget_m": budget,
+            "plan_len_m": float(plan_len),
+            "route_complete": bool(complete),
+            "route_ll": route_ll,
+            "frontage_ll": [round(float(v), 7) for v in (fr.get("ll") or ())],
+            "band_floor_m": float(fr["floor"]),
+            "band_ceiling_m": float(fr["ceiling"]),
+        }
+    if not sides:
+        # AN ANSWER, not a refusal (the tool's own doctrine): a pad whose
+        # frontage the band does not serve — or whose attachment carries no
+        # provenance-known node — is governed by the within-shape law, and
+        # that is what ``off_network`` says.
+        return {"pad": ref, "seat_m": float(level), "off_network": True}
+    return {"pad": ref, "seat_m": float(level), "off_network": False,
+            "sides": sides}
+
+
 def _report(line):
     """One line out of a seat-law attribution, on the production channel.
 
@@ -812,7 +938,7 @@ def _apply_authored_datum_groups(layout, units, pairs, enabled,
 
 
 def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
-                         *, law_graph=None, n_nodes=None):
+                         *, law_graph=None, n_nodes=None, unified_graph=None):
     """``{pad_node_idx: flat_level}`` for every airside-touching building, seated
     at the level its FRONTAGE can reach (the band intersected over the pad ring)
     closest to DEM.
@@ -821,7 +947,15 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     node count, consumed ONLY by the route-distance coupling gate
     (:func:`seat_couple_route_metric_enabled`).  Absent, the gate cannot
     price on the law graph and says so rather than pricing on a chord in
-    silence."""
+    silence.
+
+    ``unified_graph`` — THE graph ``band`` was built on
+    (``reach_band_for``'s fourth return value).  Consumed ONLY by the pad
+    BINDING-ROUTE publication (spec
+    ``docs/specs/pad-binding-routes-spec.md`` §1.2): with it the seat pass
+    publishes, per pad, the recorded route that bound the seat; without it
+    the capture publishes the degraded ``{"nodespace": null, "records":
+    []}`` and nothing else changes.  Evidence, never law input."""
     import os as _os
     from auto_patch.layout import ROLE_APRON
     from auto_patch.elevation_per_surface.building_feasibility import (
@@ -1004,6 +1138,16 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         return out
 
     _frontage_band_ll: list = []
+    # ── PAD BINDING ROUTES (spec docs/specs/pad-binding-routes-spec.md §1)
+    # The route evidence the band ALREADY computed, published at emit time
+    # so "show me the calculated route for this pad" is answerable from a
+    # patch instead of only from a full in-process rebuild.  Read from the
+    # band the seat consumed and the provenance THAT band recorded — never
+    # a replay.  ``(None, None)`` = a degraded context (§1.6) or the
+    # pass-identity guard refusing; both publish the null-nodespace shape.
+    _routes_prov, _routes_ns = _pad_binding_route_context(
+        layout, band, unified_graph, _report)
+    _pad_routes: list = []
     # ── PAD-SEAT CONSISTENCY PROVENANCE (spec pad-seat-consistency-spec.md,
     # implementation ruling §2) ─────────────────────────────────────────
     # "Provenance is captured AT SEAT TIME, per PAD UNIT: the governing
@@ -1152,7 +1296,11 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # THE BAND EVIDENCE for this pad (lead order 2026-08-24), recorded
         # with the seat so a reader can put the two side by side.
         _prov_k: list = []
-        for _fr in _frontage_band_records(s, ring):
+        # ONE READ of the pad's frontage records, THREE consumers: the
+        # evidence export, the consistency provenance, and the binding-route
+        # publication below.  A second read would be a second sample set.
+        _fr_recs = _frontage_band_records(s, ring)
+        for _fr in _fr_recs:
             _fr["seat_m"] = float(level)
             _frontage_band_ll.append(_fr)
             # ONE capture, TWO consumers: the same record object carries the
@@ -1162,6 +1310,13 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _fr["seat_final_m"] = float(level)   # overwritten if narrowed
                 _prov_k.append(_fr)
         _pad_prov.append(_prov_k)
+        # THE BINDING ROUTE for this pad, per side (spec §1.3/§1.4) — two
+        # recorded-provenance walks along an already-chosen chain, no
+        # Dijkstra and no band rebuild.
+        if _routes_prov is not None:
+            _pad_routes.append(_pad_binding_route_record(
+                layout, unified_graph, _routes_prov, s.ref or "?", level,
+                _fr_recs))
         # ── PAD-SEAT FEASIBILITY GATE (owner ruling RULINGS 2026-08-24c)
         # "A pad seat that cannot reach its governing centerline anchor
         # within 1 % x chord is a SEAT DEFECT caught at seating time
@@ -1203,6 +1358,21 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # the interval the SOLVE's own band offered at each pad frontage point,
     # beside the seat that was chosen from it.  Evidence, never law.
     setattr(layout, "_frontage_band_ll", _frontage_band_ll)
+    # THE BINDING ROUTES, published for the sidecar (spec §1.4) — through
+    # the MERGE-BY-PAD-REF publisher, never assignment (pads-as-band-
+    # variables Amendment 1 §3): this container has two producers (the
+    # route capture here, the pad-variable domains in
+    # ``pad_variables``), and an assignment would make whichever ran
+    # second delete the other's answer.  ``nodespace: null`` says the
+    # capture could not run; ``records: []`` says it ran and found no
+    # pads; an absent sidecar key says the patch predates the law.
+    from ...pad_variables import publish_pad_variable_provenance as _pub_pbr
+    _pub_pbr(layout, _pad_routes, nodespace=_routes_ns)
+    if _pad_routes:
+        _n_off = sum(1 for r in _pad_routes if r.get("off_network"))
+        _report(f"  [pad-routes] {len(_pad_routes)} pad(s) carry a published "
+                f"binding route ({_n_off} off-network) in node space "
+                f"{_routes_ns} — the band's own recorded route, not a replay")
     if _frontage_band_ll:
         _n_pads = len({r["pad"] for r in _frontage_band_ll})
         _report(f"  [frontage-band] {len(_frontage_band_ll)} band "

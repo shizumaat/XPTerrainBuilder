@@ -4156,3 +4156,34 @@ attribution instrument.
   WidthRead::test_the_service_adjacency_feature_is_live` is FLAKY under
   xdist (1 of 3 combined runs; passes in isolation and at the base tree)
   — recorded, not attributed.
+
+## lane/tunwall2 — OTHH round 2 §W1/§W2 (2026-08-28)
+
+* **No full-suite run** (pre-ship mode).  Run once: `tests/test_tunnel_*.py`
+  + `tests/test_harness.py` (413 passed) and the retreat/claim family
+  (`test_authority_retreat_walls`, `test_single_authority_emit`,
+  `test_claimed_corridor_survives`, `test_portal_corridor_claim`,
+  `test_tunnel_corridor_exclusion`, 73 passed) plus the two new twin
+  files.  PRE-EXISTING failures, reproduced with BOTH new gates OFF and
+  therefore not attributed to this lane:
+  `test_tunnel_portal_fidelity.py::TestMappedEndPreservation::
+  test_implied_bore_portal_unchanged_at_pavement_edge`,
+  `...::TestMappedBoreInteriorIsRoofed::
+  test_implied_bore_interior_gap_still_dug_open` (both: "declined 2
+  implied bore(s) — no tunnel/layer tag evidence (R4)"), and
+  `test_harness.py::test_the_near_miss_frontage_law_is_one_authority`
+  (the standing near-miss-frontage twin failure).
+* **CYXY/SPJC control arms NOT built.**  LEMD and HECA carry ON arms and
+  LEMD an OFF arm; neither §W1 nor §W2 logged a single line at either
+  control, so both code paths were the identity there.
+* **`ramp_wall_gap` REGRESSES 21 → 32 at OTHH under §W1** and is NOT
+  root-caused here: the metric counts node ids shared between
+  `tunnel_ramp` and `tunnel_wall` ways, and §W1 takes the surviving
+  `tunnel_wall` population from 19 to 32 ways.  It belongs with
+  `ramp_wall_annulus_owned` (56/56, unmoved) in the standing R16-2b /
+  §T5 wall-foot docket.
+* **§W2's OTHH acceptance target (the humps) is NOT met** — see the lane
+  report: the pinned vertices at the owner's site are authored by the
+  corridor HOST ring itself, not by the retreat wall the spec names, and
+  they lie outside the published open cut.  Needs a Fable ruling before a
+  second attempt (attempt cap reached).

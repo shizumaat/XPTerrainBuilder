@@ -3833,3 +3833,41 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   case the bridge edges' caps are the defect) — adjudicate with the
   bridge docket, not separately.  Promotion of `O4_BAND_LAW_REFUSE` to 1
   is the ship-gate ruling on the accumulated ledger, not a lane decision.
+
+- 2026-08-27 lane/padvars (PADS AS BAND-BOUNDED VARIABLES, spec
+  `docs/specs/pads-as-band-variables-spec.md`, flag
+  `O4_PADS_BAND_VARIABLES` default ON).  Ran the §2 twins plus the test
+  files `tools/blast.py` names for `anchors.py` / `law_band.py` /
+  `layout.py` / `check_grade.py` (seat-band + coupler, law band, route-
+  metric seat coupling, detached pad, pad-seat consistency, DEM-last seat
+  bias, pad-seat feasibility gate, harness, pad-host pavement level,
+  building frontage near-miss, basin group seat, groundside law
+  authority, projection law ingestion, airside no-step).  A FULL SUITE
+  was also run once, unbid, while an acceptance build occupied the
+  machine (8,445 passed / 43 failed / 18 errors, 27 min) — but with NO
+  MATCHED CONTROL at clean 278f4be3, and "test failure counts need a
+  matched control" (they are cache-warmth dependent), so it supports NO
+  claim in either direction and is recorded here only so a later reader
+  is not told it never ran.  The named failures visible in the captured
+  tail are the acceptance-style suites `test_pavement_grade.py` and
+  `test_single_graph_acceptance.py`, which pre-ship mode does not expect
+  to pass.
+  SKIPPED: the battery A/B beyond HECA/SPJC/CYXY/HEAZ, any tile-scale
+  run, and the timing profile.  TWO PRE-EXISTING FAILURES carried, both
+  reproduced at clean 278f4be3 and NOT this change-set's:
+  `test_harness.py::test_the_near_miss_frontage_law_is_one_authority`
+  (already on this ledger) and
+  `test_pad_host_pavement_level.py::test_the_pad_law_re_asserts_after_the_late_projection`
+  (source-inspects `pipeline.build_airport_pavement` for a
+  `_late_fgp(layout, icao` call that is no longer spelled that way).
+  ALSO DEFERRED, and it is the round's open docket, not a skipped run:
+  §1.3's authored-datum PACK GROUPS are fully built and twinned but
+  reach the pad frame EMPTY — no pass publishes a shared-datum group
+  identity before the elevation solve (the docket-B group seat is
+  POST-MESH; the only pre-solve link, `BuiltShape.basin_floor_seat_m`,
+  is a per-shape scalar written only under `O4_BASIN_PAD_WHOLE_SEAT` /
+  `O4_BASIN_PAD_SEVER`, both default OFF).  So `pack_group_splits` is
+  honestly `[]` on every airport built here, the LEMD group-stress
+  acceptance is VACUOUS as run, and the wiring — which grouping key,
+  which authored offsets, and which pass declares them — is a Fable
+  design question this lane did not answer.

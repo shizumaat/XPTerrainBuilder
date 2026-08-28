@@ -13,6 +13,18 @@ construction.  This module never builds a second graph.
   so the centroid may reach higher than the apron around the pad can grade to.
 * ``node_bands`` — the per-node ``(floor, ceiling)`` the solve clamps into.
 * ``apron_body_nodes`` — apron-body vs taxi-route role split (target only).
+
+PADS ARE BAND-BOUNDED VARIABLES (spec
+``docs/specs/pads-as-band-variables-spec.md``, owner rulings RULINGS
+2026-08-27 late).  Under ``O4_PADS_BAND_VARIABLES`` (default ON) a DERIVED
+airside pad is ONE FREE FLAT VARIABLE whose DOMAIN is the INTERSECTION of
+the narrowed band intervals over its RING VERTICES, and its seat is the
+value the joint pass settles on INSIDE that domain — not a level chosen
+first (ring median / frontage box, clamped to DEM) and defended
+afterwards.  The domain arithmetic and the authored-datum group arithmetic
+live in ``auto_patch.pad_variables``; this module owns the band, the rings
+and the coupling, and calls into it.  OFF restores the pre-ruling seat pass
+byte-identically.
 """
 from __future__ import annotations
 
@@ -700,6 +712,105 @@ def _merge_rigid_units(pads, cps):
     return units, unit_of, rows
 
 
+def _apply_authored_datum_groups(layout, units, pairs, enabled,
+                                 solve_pack_groups):
+    """§1.3 — tie the units of each AUTHORED-DATUM group into ONE variable,
+    accommodate if lawful, SPLIT if not.  Returns the ledger rows.
+
+    THE DECLARATION.  ``layout._authored_datum_groups`` — a list of
+    ``{"key": str, "members": [pad ref, ...], "offsets": {ref: metres}}``
+    published by whichever pass KNOWS the pack's authoring (identity is
+    declared by the pass that has it; a proximity or equal-value join
+    would be exactly the identity guess ``canonical-identity-join``
+    forbids).  Absent ⇒ no group, and the ledger's honest answer is "every
+    authored-datum pack group ACCOMMODATED", because none reached here.
+
+    THE UNIT IS THE VARIABLE, not the pad: pads sharing a ring vertex are
+    already ONE flat body (the merged-rigid-unit law), so a group whose
+    members land in one unit is already one value and cannot shear.  A
+    group is therefore priced over the UNITS its member pads belong to.
+
+    ``over_cap`` is the ruling's second trigger, priced on the SAME pair
+    budgets the projection enforces: a candidate assignment that leaves a
+    coupled pair over its limit — or a unit outside its own domain — is
+    not "the best available", it is a SPLIT.
+    """
+    if not enabled or not units:
+        return [], 0
+    decl = list(getattr(layout, "_authored_datum_groups", None) or ())
+    if not decl:
+        return [], 0
+    unit_of_ref: dict = {}
+    for k, u in enumerate(units):
+        for r in u.get("refs") or ():
+            unit_of_ref.setdefault(str(r), k)
+    domains = {k: (float(u["lo"]), float(u["hi"]))
+               for k, u in enumerate(units)}
+    targets = {k: float(u["level"]) for k, u in enumerate(units)}
+    weights = {k: float(getattr(u.get("polygon"), "area", 0.0) or 0.0)
+               for k, u in enumerate(units)}
+    polygons = {k: u.get("polygon") for k, u in enumerate(units)}
+
+    def _over_cap(assignment):
+        rows = []
+        for (i, lvl) in assignment.items():
+            d = domains.get(i)
+            if d is None:
+                continue
+            if lvl < d[0] - 0.01 or lvl > d[1] + 0.01:
+                rows.append({"why": "member_outside_own_domain",
+                             "unit": units[i]["ref"], "level": float(lvl),
+                             "domain": [d[0], d[1]],
+                             "deficit_m": round(max(d[0] - lvl, lvl - d[1]),
+                                                6)})
+        for ((a, b), lim) in (pairs or {}).items():
+            va = assignment.get(a, targets.get(a))
+            vb = assignment.get(b, targets.get(b))
+            if va is None or vb is None:
+                continue
+            ex = abs(float(va) - float(vb)) - float(lim)
+            if ex > 0.01:
+                rows.append({"why": "coupled_pair_over_cap",
+                             "units": [units[a]["ref"], units[b]["ref"]],
+                             "limit_m": float(lim),
+                             "excess_m": round(float(ex), 6)})
+        return rows
+
+    groups = []
+    offsets: dict = {}
+    for g in decl:
+        members: list = []
+        for r in (g.get("members") or ()):
+            k = unit_of_ref.get(str(r))
+            if k is None or k in members:
+                continue
+            members.append(k)
+            offsets[k] = float((g.get("offsets") or {}).get(str(r), 0.0))
+        if members:
+            groups.append({"key": str(g.get("key") or "?"),
+                           "members": members})
+    if not groups:
+        return [], 0
+    out = solve_pack_groups(groups, domains, targets, offsets=offsets,
+                            weights=weights, polygons=polygons,
+                            over_cap=_over_cap)
+    for (k, lvl) in out.values.items():
+        units[k]["level"] = float(lvl)
+        # THE GROUP VALUE IS PLACED, so the coupling that follows may not
+        # shear it: the unit's box collapses to the value.  (A group that
+        # SPLIT has already been re-solved piece by piece in each piece's
+        # own domain, so this pins the split result, not the torn one.)
+        units[k]["lo"] = units[k]["hi"] = float(lvl)
+    # The ledger rows name UNIT labels; re-spell them as the pad refs the
+    # owner reviews (a split shears authored geometry and the review is
+    # per object, not per solver variable).
+    for row in out.rows:
+        row["members"] = [units[int(m)]["ref"] for m in row["members"]]
+        row["pieces"] = [[units[int(m)]["ref"] for m in p]
+                         for p in row["pieces"]]
+    return out.rows, len(groups)
+
+
 def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                          *, law_graph=None, n_nodes=None):
     """``{pad_node_idx: flat_level}`` for every airside-touching building, seated
@@ -767,6 +878,19 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # within (−303; ``building|building`` 440→393 AND the surrounding
     # ``apron`` 6822→6665 / ``junction`` 1856→1781 follow it down), every
     # other battery airport byte-identical.
+    # ── PADS AS BAND-BOUNDED VARIABLES (spec §1.1/§1.2) ─────────────────
+    # Read at CALL time, once per solve — the harness arms the flag per
+    # build.  OFF ⇒ every branch below is inert and this function is
+    # byte-identical to the pre-ruling pass (spec §1.5).
+    from auto_patch.pad_variables import (
+        PAD_LAW_TOL_M, clamp_into, domain_empty, format_pack_group_splits,
+        pads_band_variables_enabled, publish_pack_group_splits,
+        publish_pad_variable_provenance, record_pad_domain_contradiction,
+        refuse_on_empty_pad_domains, ring_domain_detail, solve_pack_groups)
+    _PBV = pads_band_variables_enabled()
+    _pv_domains: list = []      # index-aligned with ``pads``; None = legacy
+    _pv_empty: list = []        # pads whose DOMAIN is empty (§1.4)
+    _pv_offnet = 0
     _sb_moved: list = []
     _sb_empty: list = []
     # PAD-SEAT FEASIBILITY GATE (RULINGS 2026-08-24c) — see the check at
@@ -939,11 +1063,16 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     # LOUD, never silently shipped: the frontage band and
                     # the node band have no common level, which is
                     # precisely the split-level-seat trigger.
-                    _sb_empty.append((s.ref or "?", lo, hi, nlo, nhi,
-                                      level, _nc))
+                    # SUPERSEDED under the pad-variable law: the two
+                    # instruments become ONE domain (the ring-vertex
+                    # intersection), so this report would describe a seat
+                    # that is about to be replaced.
+                    if not _PBV:
+                        _sb_empty.append((s.ref or "?", lo, hi, nlo, nhi,
+                                          level, _nc))
                 else:
                     new = min(max(level, ilo), ihi)
-                    if new != level:
+                    if new != level and not _PBV:
                         _sb_moved.append((s.ref or "?", level, new,
                                           nlo, nhi, _nc))
                     # The box is documented as "the interval the seat was
@@ -972,6 +1101,53 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     lo, hi = min(max(blos), min(bhis)), min(bhis)
                 else:
                     lo = hi = level                  # off-network: immovable
+        # ── §1.1/§1.2 — THE DOMAIN, AND THE SEAT CHOSEN UNDER IT ────────
+        # THE RING-MEDIAN SEAT PASS RETIRES FOR THIS CLASS (spec §1.2).
+        # Everything above chose a level FIRST — the ring median, or the
+        # frontage-edge box clamped to DEM — from a SUBSET of the pad's
+        # geometry, and then defended it.  The founding refutation
+        # (``config.BAND_SEAT_ANCHORS``, +4,069 rows at SPJC) is that a
+        # rigid pre-committed seat contradicts the narrowing computed
+        # after it.  So under this law the pad is ONE FLAT VARIABLE and
+        # its DOMAIN is the intersection of the narrowed band over EVERY
+        # ring vertex — a flat pad must be lawful at all of them — and
+        # the seat is the value chosen inside that domain.  The DEM is
+        # the preference (DEM-LAST, RULINGS 2026-08-25) and the domain is
+        # the law; where they disagree the domain wins, which is the
+        # difference from ``min(de, hi)`` (bounded above and NOT below).
+        if _PBV:
+            _dd = ring_domain_detail(ring, band)
+            _dlo, _dhi, _dn = _dd["lo"], _dd["hi"], _dd["sampled"]
+            if _dn == 0:
+                # OFF-NETWORK.  The band says nothing here, which is not
+                # "nothing is lawful here" — keep the legacy fallback
+                # rather than invent a domain (the honest reading of
+                # ``ring_domain``'s ``sampled == 0``).
+                _pv_offnet += 1
+                _pv_domains.append(None)
+            elif domain_empty(_dlo, _dhi, PAD_LAW_TOL_M):
+                # §1.4 — AN EMPTY DOMAIN IS A CONTRADICTION, not a band
+                # to clamp into: no single level is lawful at every ring
+                # vertex of a pad that must be flat.  REPORT-FIRST (the
+                # unified-law-band Amendment 1 mechanics, SAME ledger):
+                # the row lands in ``law_band_contradictions`` and this
+                # pad keeps its PRE-SPEC box, so the rest of the airport
+                # still gets the narrowing.
+                _pv_empty.append((s.ref or "?", _dlo, _dhi, _dn,
+                                  float(level)))
+                try:
+                    _cll = layout.m_to_ll(float(s.polygon.centroid.x),
+                                          float(s.polygon.centroid.y))
+                except Exception:                    # pragma: no cover
+                    _cll = None
+                record_pad_domain_contradiction(
+                    layout, ref=s.ref or "?", ll=_cll,
+                    lo=_dlo, hi=_dhi, sampled=_dn, kept=float(level))
+                _pv_domains.append(None)
+            else:
+                lo, hi = float(_dlo), float(_dhi)
+                level = clamp_into(de if de is not None else level, lo, hi)
+                _pv_domains.append(_dd)
         pads.append((s, ring, float(level), lo, hi))
         # THE BAND EVIDENCE for this pad (lead order 2026-08-24), recorded
         # with the seat so a reader can put the two side by side.
@@ -1053,6 +1229,39 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                     f"{nc} contact node(s); seat kept at {lvl:.3f} "
                     f"— NOT a lawful level, needs sectioned seats")
 
+    # ── THE PAD-VARIABLE READ-OUT (spec §1.1/§1.2/§1.4) ─────────────────
+    if _PBV:
+        _n_dom = sum(1 for d in _pv_domains if d is not None)
+        _widths = sorted(d["hi"] - d["lo"]
+                         for d in _pv_domains if d is not None)
+        _wmed = (0.0 if not _widths else
+                 (_widths[len(_widths) // 2] if len(_widths) % 2 else
+                  0.5 * (_widths[len(_widths) // 2 - 1]
+                         + _widths[len(_widths) // 2])))
+        _report(
+            f"  [pad-vars] {_n_dom} derived pad(s) are BAND-BOUNDED "
+            f"VARIABLES — domain = the narrowed band intersected over "
+            f"every ring vertex, seat chosen UNDER it (median width "
+            f"{_wmed:.3f} m, narrowest {(_widths[0] if _widths else 0.0):.3f} "
+            f"m, widest {(_widths[-1] if _widths else 0.0):.3f} m); "
+            f"{_pv_offnet} pad(s) off-network keep the pre-spec box; "
+            f"{len(_pv_empty)} pad(s) have an EMPTY domain")
+        for (_ref, _dlo, _dhi, _dn, _kept) in sorted(
+                _pv_empty, key=lambda r: r[1] - r[2], reverse=True)[:12]:
+            _report(
+                f"  [pad-vars]   EMPTY DOMAIN {_ref}: floor {_dlo:.3f} > "
+                f"ceiling {_dhi:.3f} (empty by {_dlo - _dhi:.3f} m) over "
+                f"{_dn} ring vertex(es) — no single level is lawful at "
+                f"every vertex of a pad that must be FLAT.  REPORT-FIRST: "
+                f"the row is in `law_band_contradictions`, this pad keeps "
+                f"its pre-spec box at {_kept:.3f} m and the rest of the "
+                f"airport keeps the narrowing")
+        # THE REFUSE ARM (spec §1.4 / §2): the SAME sites, the same
+        # ledger, one flag apart.  Raised BEFORE any patch is written.
+        refuse_on_empty_pad_domains(
+            layout, [(r[0], r[1], r[2], r[3]) for r in _pv_empty],
+            getattr(layout, "icao", "") or "")
+
     # ── MERGED RIGID UNITS — STANDING LAW (owner; the coupling lane's
     # recorded defect class) ────────────────────────────────────────────
     # Pads that share a ring vertex are ONE flat group in the projection,
@@ -1092,6 +1301,8 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
     # reachability inside the horizon; the chord corridor and the
     # pavement-visibility fraction are RETIRED as predicates and survive
     # only as the census that makes each pair's tightening adjudicable.
+    _pack_rows: list = []
+    _pack_declared = 0
     if len(units) >= 2:
         from auto_patch.config import APRON_MAX_GRADE
         from auto_patch.grade_law import BUILDING_REACH_CORRIDOR_M
@@ -1211,6 +1422,18 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                 _report(f"  [seat-couple]   budget identity OK: worst "
                         f"disagreement {100.0 * _rdiag['ident_worst']:.4f} % "
                         f"over {len(pairs)} pair(s) (limit 1 %)")
+        # ── §1.3 AUTHORED-DATUM GROUPS: ACCOMMODATE, ELSE SPLIT ─────────
+        # (owner ruling RULINGS 2026-08-27 late, "GRADE LAW OUTRANKS
+        # SHARED-DATUM PRESERVATION — PACK GROUPS SPLIT WHEN THEY MUST";
+        # this amends basin docket-B rigid group seating.)
+        #
+        # HERE, and not before the pair pricing, because the ruling's
+        # SECOND trigger is priced on the pairs: a group whose
+        # intersection is NON-empty still splits when its optimum leaves
+        # any member's frontage / no-step law over cap.  Preservation is
+        # the TIEBREAKER among lawful placements, never the authority.
+        _pack_rows, _pack_declared = _apply_authored_datum_groups(
+            layout, units, pairs, _PBV, solve_pack_groups)
         if pairs:
             targets = [u["level"] for u in units]
             boxes = [(u["lo"], u["hi"]) for u in units]
@@ -1300,6 +1523,19 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
                         f" {'n/a' if ri is None else format(ri, '.2f')} / "
                         f"{'n/a' if rj is None else format(rj, '.2f')} m")
 
+    # THE SPLIT LEDGER, published (spec §1.3).  EVIDENCE, never law
+    # (§1.7, the contradiction-ledger precedent): the census prints the
+    # count and the worst site, and the existing frontage / no-step /
+    # within-shape families price the result.  Published UNCONDITIONALLY
+    # under the flag so an empty list reads as "every group
+    # accommodated" and never as "the pass did not run".
+    if _PBV:
+        publish_pack_group_splits(layout, _pack_rows,
+                                  declared=_pack_declared)
+        _report(format_pack_group_splits(
+            getattr(layout, "icao", "") or "", _pack_rows,
+            declared=_pack_declared))
+
     # THE UNIT'S LEVEL IS THE PAD'S LEVEL.  A merged rigid unit broadcasts
     # ONE value to every member pad — that IS the law; the box narrows to
     # the unit's box for the same reason (a member may not yield outside
@@ -1308,7 +1544,65 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
              units[unit_of[k]]["lo"], units[unit_of[k]]["hi"])
             for k, (s, ring, _t, _lo, _hi) in enumerate(pads)]
 
+    # ── §1.6 PROVENANCE — the per-pad publication EXTENDS the
+    # ``pad_binding_routes`` container (owner ruling RULINGS 7e90032,
+    # extend the near-fit, never fork): the DOMAIN the pad's variable
+    # lives in, the SOLVED value, and WHICH ring vertex binds each side of
+    # the domain, so "why is this pad here" stays a single file read
+    # beside the route that bound it.
+    if _PBV:
+        _prov_recs: list = []
+        for _pk, (s, _ring, _lvl, _blo, _bhi) in enumerate(pads):
+            _d = _pv_domains[_pk] if _pk < len(_pv_domains) else None
+            _u = units[unit_of[_pk]]
+            _rec = {
+                "pad": s.ref or "?",
+                "pad_variable": _d is not None,
+                "solved_m": float(_lvl),
+                "domain": (None if _d is None
+                           else [float(_d["lo"]), float(_d["hi"])]),
+                "binding": {
+                    "unit": _u["ref"],
+                    "unit_members": list(_u.get("refs") or ()),
+                    "ring_vertices_sampled": (0 if _d is None
+                                              else int(_d["sampled"])),
+                    "seat_box": [float(_blo), float(_bhi)],
+                },
+            }
+            if _d is not None:
+                for (_side, _vk) in (("floor", "floor_vertex"),
+                                     ("ceiling", "ceiling_vertex")):
+                    _v = _d.get(_vk)
+                    if _v is None:
+                        continue
+                    try:
+                        _rec["binding"][f"{_side}_ll"] = [
+                            round(float(_c), 7)
+                            for _c in layout.m_to_ll(_v[0], _v[1])]
+                    except Exception:                    # pragma: no cover
+                        pass
+                _rec["binding"]["at_ceiling"] = bool(
+                    abs(float(_lvl) - float(_d["hi"])) <= PAD_LAW_TOL_M)
+                _rec["binding"]["at_floor"] = bool(
+                    abs(float(_lvl) - float(_d["lo"])) <= PAD_LAW_TOL_M)
+            _prov_recs.append(_rec)
+        publish_pad_variable_provenance(
+            layout, _prov_recs, pack_groups_declared=_pack_declared)
+        _n_at = sum(1 for r in _prov_recs
+                    if (r["binding"].get("at_ceiling")
+                        or r["binding"].get("at_floor")))
+        _report(f"  [pad-vars] provenance published for {len(_prov_recs)} "
+                f"pad(s) into `pad_binding_routes` (domain, solved value, "
+                f"binding ring vertex per side); {_n_at} pad(s) sit ON a "
+                f"domain bound — those are the pads the law, not the DEM, "
+                f"placed")
+
     seats: dict = {}
+    #: The ring nodes of pads that ARE band-bounded variables (spec §1.1).
+    #: Published for the solve, which reads it to keep those nodes OUT of
+    #: the senior tier — a derived pad's law edges enter symmetrically with
+    #: the membrane, bounded by its domain through ``seat_boxes``.
+    _pv_node_idx: set = set()
     seat_boxes = _store_of(layout).raw("seat_boxes")
     # THE UNIT-KEYED CONSISTENCY PROVENANCE (spec ruling §2): a pad is one
     # flat level, so the narrowing keys per UNIT — and it must survive into
@@ -1333,12 +1627,22 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
         # shared by two pads keeps the tighter interval per side.
         blo = min(float(lo), float(level))
         bhi = max(float(hi), float(level))
+        # THE SYMMETRY MEMBERSHIP (spec §1.1): a pad that really is a
+        # band-bounded VARIABLE — it has a domain — carries no seniority
+        # over the membrane.  A pad that fell back (off-network, or an
+        # empty domain reported under §1.4) is NOT one and keeps the
+        # pre-spec disposition; naming the two apart is what stops a
+        # fallback silently inheriting a law it was never given.
+        _pv_this_is_var = bool(
+            _PBV and _pk < len(_pv_domains) and _pv_domains[_pk] is not None)
         _up = _units_prov[unit_of[_pk]] if _consist_on else None
         for (x, y) in ring:
             k = cps.get_or_add(float(x), float(y))
             i = bucket_to_idx.get(k)
             if i is not None:
                 seats[i] = float(level)
+                if _pv_this_is_var:
+                    _pv_node_idx.add(i)
                 if _up is not None:
                     _up["nodes"].append(i)
             if _up is not None:
@@ -1346,6 +1650,7 @@ def build_building_seats(layout, bucket_to_idx, band, dem_fn, runway_pts,
             prev = seat_boxes.get(k)
             seat_boxes[k] = ((blo, bhi) if prev is None
                              else (max(prev[0], blo), min(prev[1], bhi)))
+    setattr(layout, "_pad_variable_idx", _pv_node_idx)
     if _consist_on:
         for _up in _units_prov:
             _up["nodes"] = sorted(set(_up["nodes"]))

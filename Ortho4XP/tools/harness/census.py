@@ -1786,17 +1786,79 @@ def print_report(rep: dict, top: int) -> None:
             _ll = _lbc.get("worst_ll") or []
             _where = (f"{_ll[0]:.7f},{_ll[1]:.7f}" if len(_ll) == 2
                       else "?")
-            print(f"  law-band contradictions: {_n} site(s) where the "
-                  f"NARROWED band admits NO elevation — two laws "
-                  f"disagree; REPORT-FIRST pre-ship, the build continued "
-                  f"on the PRE-BAND interval at those nodes.  Worst "
-                  f"{_lbc.get('worst_deficit_m')} m at {_where}: ceiling "
-                  f"anchor {_lbc.get('worst_ceil_anchor_value')} over "
-                  f"{_lbc.get('worst_ceil_budget_m')} m of budget vs floor "
-                  f"anchor {_lbc.get('worst_floor_anchor_value')} over "
-                  f"{_lbc.get('worst_floor_budget_m')} m.  Full rows (both "
-                  f"binding chains) in the sidecar's "
-                  f"`law_band_contradictions`.")
+            _npad = int(_lbc.get("pad_domain_sites") or 0)
+            if _lbc.get("worst_source") == "pad_domain":
+                # A PAD row carries no anchor arithmetic BY CONSTRUCTION
+                # (its two bounds come from two ring vertices, not two
+                # anchors), so printing the node line's fields would show
+                # four Nones and read as a missing measurement.
+                print(f"  law-band contradictions: {_n} site(s) "
+                      f"({_npad} of them PAD DOMAINS) where the narrowed "
+                      f"band admits NO elevation — two laws disagree; "
+                      f"REPORT-FIRST pre-ship.  Worst is pad "
+                      f"{_lbc.get('worst_pad')} at "
+                      f"{_lbc.get('worst_deficit_m')} m: no single level "
+                      f"is lawful at every ring vertex of a pad that must "
+                      f"be FLAT, so it kept its pre-spec box.  Full rows "
+                      f"in the sidecar's `law_band_contradictions`.")
+            else:
+                print(f"  law-band contradictions: {_n} site(s) "
+                      f"({_npad} of them PAD DOMAINS) where the "
+                      f"NARROWED band admits NO elevation — two laws "
+                      f"disagree; REPORT-FIRST pre-ship, the build "
+                      f"continued on the PRE-BAND interval at those "
+                      f"nodes.  Worst "
+                      f"{_lbc.get('worst_deficit_m')} m at {_where}: "
+                      f"ceiling anchor "
+                      f"{_lbc.get('worst_ceil_anchor_value')} over "
+                      f"{_lbc.get('worst_ceil_budget_m')} m of budget vs "
+                      f"floor anchor "
+                      f"{_lbc.get('worst_floor_anchor_value')} over "
+                      f"{_lbc.get('worst_floor_budget_m')} m.  Full rows "
+                      f"(both binding chains) in the sidecar's "
+                      f"`law_band_contradictions`.")
+    # ── PADS AS BAND-BOUNDED VARIABLES (spec pads-as-band-variables
+    # §1.3/§1.6/§1.7) ────────────────────────────────────────────────
+    # Both lines print on EVERY census, present or absent, for the reason
+    # the contradiction ledger prints at zero: "0 groups split" is the
+    # instrument saying every authored datum SURVIVED — the preferred
+    # outcome — which is a different fact from a patch that predates the
+    # law and carries no key at all.
+    _pbr = ev.get("pad_binding_routes")
+    if isinstance(_pbr, dict):
+        print(f"  pad variables: {_pbr.get('pad_variables')} of "
+              f"{_pbr.get('pads')} published pad(s) are BAND-BOUNDED "
+              f"VARIABLES (domain = the narrowed band intersected over "
+              f"every ring vertex); {_pbr.get('on_domain_bound')} sit ON a "
+              f"domain bound — the law, not the DEM, placed those.  Per-pad "
+              f"domains, solved values and binding vertices in the "
+              f"sidecar's `pad_binding_routes`.")
+    _pgs = ev.get("pack_group_splits")
+    if isinstance(_pgs, dict):
+        _ng = int(_pgs.get("groups_split") or 0)
+        _nd = _pgs.get("groups_declared")
+        if not _ng and not _nd:
+            # ZERO OF ZERO IS NOT A PASS (RULINGS 2026-08-06).
+            print("  pack-group splits: 0 split of 0 DECLARED — no "
+                  "authored-datum pack group reached the pad pass, so the "
+                  "accommodate-else-split law was NOT EXERCISED here.  "
+                  "This is zero-of-zero, NOT an accommodation.")
+        elif not _ng:
+            print(f"  pack-group splits: 0 of {_nd} declared group(s) — "
+                  f"every authored-datum pack group ACCOMMODATED without "
+                  f"violating grade, so every authored vertical "
+                  f"relationship survives (the preferred outcome)")
+        else:
+            print(f"  pack-group splits: {_ng} of {_nd} authored-datum "
+                  f"pack group(s) "
+                  f"SPLIT — grade law outranks shared-datum preservation "
+                  f"(owner ruling 2026-08-27).  Worst: group "
+                  f"{_pgs.get('worst_group')} at {_pgs.get('worst_m')} m, "
+                  f"{_pgs.get('worst_members')} member(s) sheared into "
+                  f"{_pgs.get('worst_pieces')} piece(s) at stage "
+                  f"{_pgs.get('worst_stage')}.  A split shears AUTHORED "
+                  f"geometry: every row is for owner review, and the full "
+                  f"forcing rows are in the sidecar's `pack_group_splits`.")
     if ev.get("unknown_keys"):
         # The VERIFIED set difference, nothing more: the old line named a
         # cause (the emitter grew a field) and instructed the reader which

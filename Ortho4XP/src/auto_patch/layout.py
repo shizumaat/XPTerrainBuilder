@@ -3865,6 +3865,32 @@ class PavementLayout:
                 sorted((getattr(self, "_law_band_contradictions", None)
                         or {}).values(),
                        key=lambda r: -float(r.get("deficit_m") or 0.0))),
+            # THE PACK-GROUP SPLIT LEDGER (spec
+            # ``docs/specs/pads-as-band-variables-spec.md`` §1.3; owner
+            # ruling RULINGS 2026-08-27 late, "GRADE LAW OUTRANKS
+            # SHARED-DATUM PRESERVATION").  EVIDENCE, never law input
+            # (§1.7): one row per authored-datum pack group that could NOT
+            # be seated on a single datum without violating grade — the
+            # group, its members, the rows that forced the split and the
+            # pieces chosen.  A split visibly SHEARS authored geometry, so
+            # the owner reviews each one; the ledger is also a bad-pack
+            # detector (a flat-plane-authored pack on a hill reads as a
+            # many-way split).  Written unconditionally: ``[]`` says every
+            # group accommodated — the preferred outcome — and a missing
+            # key says the patch predates the law.
+            "pack_group_splits": list(
+                getattr(self, "_pack_group_splits", None) or []),
+            # THE PAD BINDING ROUTES / PAD VARIABLES container (spec
+            # ``pads-as-band-variables`` §1.6).  Per pad: the DOMAIN its
+            # flat variable lives in (the narrowed band intersected over
+            # every ring vertex), the SOLVED value, and which ring vertex
+            # binds each side at the optimum — so "why is this pad here"
+            # stays a single file read.  ``nodespace: null`` with an empty
+            # ``records`` list = the capture could not run; an ABSENT key =
+            # the patch predates the publication.
+            "pad_binding_routes": (
+                getattr(self, "_pad_binding_routes", None)
+                or {"nodespace": None, "records": []}),
         }
         Path(str(path) + ".axes.json").write_text(_json.dumps(data))
 

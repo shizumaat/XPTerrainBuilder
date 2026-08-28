@@ -729,6 +729,16 @@ class BuiltShape:
     # segmented form (crossing resolution, cross-edge crown tenting,
     # apron-merge whole-piece drops) key off this flag.
     from_single_poly: bool = False
+    # §T7 (tunnel-integrity round): this piece is SYNTHESISED road
+    # corridor — a ``service_road`` rect or ``service_junction`` fill the
+    # pipeline minted from a centerline, never an authored OSM/apt.dat
+    # pavement polygon.  The covered-span mask suppresses synthesis over
+    # a roofed bore and leaves DATA alone, so the two must be
+    # distinguishable, and the emitter is the only pass that knows.  The
+    # flag RIDES THE SHAPE through every clip and re-role
+    # (``dataclasses.replace``), which is what makes the groundside
+    # demotion of a rect still recognisable as synthesis.
+    synthesised_road_corridor: bool = False
     # THE FAN-RAMP LAW (owner RULINGS 21f0980): this apron piece IS a
     # declared fan-ramp zone — the ground between two adjacent building
     # frontages, clear of every aircraft-movement surface, which carries

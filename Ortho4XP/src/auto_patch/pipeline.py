@@ -56,27 +56,33 @@ from .mutation_seam_audit import checkpoint as _mutation_seam_checkpoint
 # Post-solve AIRSIDE GEOMETRY seam audit (S1e phase 1); returns immediately
 # unless O4_GEOM_SEAM_AUDIT=1, so every seam below is inert by default.
 from .geom_guard import seam_checkpoint as _geom_seam_checkpoint
+# §T4 road-piece ledger: which pass took a road-corridor / tunnel piece.
+from .road_piece_ledger import checkpoint as _road_piece_checkpoint
 
 
 def _rod_ckpt(layout, name: str) -> None:
     """ONE named post-solve pipeline seam, for the probes that need it.
 
-    Two write-only instruments hang off the same seam list — they are the
-    seams that EXIST, and neither invents one:
+    Write-only instruments hang off the same seam list — they are the
+    seams that EXIST, and none of them invents one:
 
     * the rod-carry checkpoint (gate ``O4_ROD_CARRY_AUDIT``),
     * the string mover ledger's ``final_proj_N.entry`` sub-boundary
       (round-2 spec §2; gate ``O4_STRING_MOVER_LEDGER``, which is the only
-      thing that puts a ledger on the layout), and
+      thing that puts a ledger on the layout),
     * the post-solve MUTATION SEAM audit (round 17 §R17-1(a); gate
       ``O4_MUTATION_SEAM_AUDIT``) — which pass moved the EMITTED
       pavement, the attribution the projection's mutation-set count
-      cannot give because its window spans every stage at once.
+      cannot give because its window spans every stage at once, and
+    * the ROAD-PIECE LEDGER (§T4; gate ``O4_ROAD_PIECE_LEDGER``, default
+      ON) — which pass DELETED a road-corridor or tunnel piece, the
+      question the LEMD 40-rects/78-fills loss had no instrument for.
 
     All gates off ⇒ one function call, one ``getattr`` and one env read
     per seam.
     """
     _rod_carry_checkpoint(layout, name)
+    _road_piece_checkpoint(layout, name)
     if getattr(layout, "_string_mover_ledger", None) is not None:
         from .elevation_per_surface.route_profile.solve import (
             mover_stage_boundary as _mover_stage_boundary)
@@ -3981,22 +3987,38 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     f"suppressed {_n_dedup} OSM small-road line(s) already "
                     f"spelled by an apt.dat 1206 route.")
         _service_lines.extend(_osm_service_lines)
+    # ── §T7: THE COVERED-SPAN MASK, PUBLISHED ONCE ───────────────────
+    # Derived here (the mapped bores are known from the road feed long
+    # before the roofing exists) and consumed by the minter below and by
+    # the post-mint suppression at the end of the build.  The road
+    # network it reads is memoised, so the phase-6 tunnel pass reuses
+    # this load rather than paying for a second one.
+    from . import covered_span as _covered_span
+    _covered_span.publish(layout)
     if _service_lines:
         _svc_rects, _svc_junctions = build_service_road_network(
             _service_lines, pav_union,
-            width=SERVICE_ROAD_WIDTH_M, min_len=MIN_SERVICE_STRIP_LEN_M)
+            width=SERVICE_ROAD_WIDTH_M, min_len=MIN_SERVICE_STRIP_LEN_M,
+            covered_span=_covered_span.mask_of(layout))
         for _rect, _axis, _role, _ref in _svc_rects:
             layout.shapes.append(BuiltShape(
-                polygon=_rect, role=_role, ref=_ref, source_axis=_axis))
+                polygon=_rect, role=_role, ref=_ref, source_axis=_axis,
+                synthesised_road_corridor=True))
         for _jpoly, _jrole, _jref in _svc_junctions:
             layout.shapes.append(BuiltShape(
-                polygon=_jpoly, role=_jrole, ref=_jref))
+                polygon=_jpoly, role=_jrole, ref=_jref,
+                synthesised_road_corridor=True))
         if _svc_rects or _svc_junctions:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: {len(_svc_rects)} service_road "
                 f"rect(s) + {len(_svc_junctions)} service_junction(s) "
                 f"(ground-vehicle network minted off aircraft pavement, "
                 f"cap SERVICE_ROAD_MAX_GRADE).")
+    # §T4's LEFT ENDPOINT: what the minter actually made.  Every later
+    # seam's delta is measured from HERE, so "40 rects vanished between
+    # the minter and emit" becomes a named pass instead of a difference
+    # between two log lines nobody could join.
+    _road_piece_checkpoint(layout, "00_service_road_mint")
 
 
     # ── THE SOLVE-STAGE BOUNDARY (perf P2 instrument 1) ──────────────
@@ -7824,6 +7846,26 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
     except Exception as _gs_seat_exc:
         UI.vprint(1, f"  [groundside-law-seat] {icao}: report failed "
                      f"({_gs_seat_exc!r}) — seating NOT measured.")
+
+    # §T7's POST-MINT SUPPRESSION — emitter-independent.  The minter
+    # never mints inside the mask; this catches what ANY other emitter
+    # synthesised there (and the pieces a later split moved onto a bore).
+    # Authored pavement over a bore is left alone: the flag rides the
+    # shape, so "synthesised" is provenance, not a role guess.
+    try:
+        from . import covered_span as _covspan
+        _covspan.suppress_synthesised_road_pavement(layout, icao)
+    except Exception as _cs_exc:                           # pragma: no cover
+        UI.vprint(1, f"  [covered-span] {icao}: post-mint suppression "
+                     f"FAILED ({_cs_exc!r}) — NOT applied this build.")
+    _road_piece_checkpoint(layout, "98_covered_span_suppression")
+
+    # §T4's RIGHT ENDPOINT + the block.  This is the last state before
+    # ``layout.to_osm``; the ledger prints one block naming every seam
+    # that moved a road-corridor / tunnel piece count.
+    _road_piece_checkpoint(layout, "99_end_of_build")
+    from .road_piece_ledger import report as _road_piece_report
+    _road_piece_report(layout, icao)
 
     # SHADOW pavement scoring classifier v2 (docs/specs/pavement-scoring-
     # classifier-spec.md): score every final pavement shape against all

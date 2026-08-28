@@ -371,6 +371,7 @@ def build_service_road_network(
         width: float,
         min_len: float,
         mouth_join: bool | None = None,
+        covered_span=None,
 ) -> tuple[list[tuple[Polygon, LineString, str, str]],
            list[tuple[Polygon, str, str]]]:
     """Build the ground-vehicle network from ``centerlines``
@@ -391,6 +392,15 @@ def build_service_road_network(
     MOUTH fills of :func:`mouth_fills` to the corridor before the split, so
     the corridor JOINS aircraft pavement at its mouths (ruling 1) while its
     body keeps the 1.0 m clearance.  ``False`` restores the unweldable gap.
+
+    ``covered_span`` (§T7) is the COVERED-SPAN MASK: the ground the
+    mapped bores' roofed stretches occupy.  NEITHER a rect NOR a fill is
+    minted inside it — a corridor synthesised over a roofed bore is a
+    road on the tunnel's roof, and the measured population is 22 such
+    pieces across two airports.  It is subtracted from the corridor
+    exactly as ``pav_union`` is, so this pass has ONE way of saying
+    "not here" rather than two.  Authored pavement never reaches this
+    function, so the mask can only kill synthesis.
     """
     if mouth_join is None:
         from ..config import SERVICE_CORRIDOR_MOUTH_JOIN
@@ -400,6 +410,9 @@ def build_service_road_network(
     if not centerlines:
         return rects, junctions
 
+    covered = (covered_span
+               if covered_span is not None and not covered_span.is_empty
+               else None)
     pav_buf = None
     pav_prep = None
     if pav_union is not None and not pav_union.is_empty:
@@ -422,6 +435,11 @@ def build_service_road_network(
             g = line.difference(pav_buf)
         else:
             g = line
+        if covered is not None:
+            try:
+                g = g.difference(covered)
+            except _GEOM_EXC:                            # pragma: no cover
+                pass
         for piece in _as_linestrings(g):
             if piece.length >= 1.0:
                 ext.append((piece, name))
@@ -438,6 +456,8 @@ def build_service_road_network(
             [p.buffer(half, cap_style=2, join_style=2) for p, _ in ext])
         if pav_buf is not None:
             corridor = corridor.difference(pav_buf)
+        if covered is not None:
+            corridor = corridor.difference(covered)
         if not corridor.is_valid:
             corridor = corridor.buffer(0)
     except _GEOM_EXC:
@@ -448,6 +468,9 @@ def build_service_road_network(
     # this can neither double-pave nor widen the body's clearance.
     if mouth_join and pav_buf is not None:
         fills = mouth_fills(centerlines, pav_union, pav_buf, width=width)
+        if covered is not None and fills:
+            fills = [f for f in fills
+                     if f.intersection(covered).area <= 0.0]
         if fills:
             try:
                 corridor = unary_union([corridor] + fills)
@@ -485,6 +508,9 @@ def build_service_road_network(
             try:
                 if pav_buf is not None and rect.intersects(pav_buf):
                     continue                       # pokes into aircraft pavement
+                if (covered is not None
+                        and rect.intersection(covered).area > 0.0):
+                    continue                       # stands on a bore's roof
                 if any(rect.intersection(kp).area > 1.0 for kp in kept_polys):
                     continue                       # overlaps a kept rect
             except _GEOM_EXC:

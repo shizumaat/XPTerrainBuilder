@@ -2669,7 +2669,9 @@ _CARVE_STRUCTURE_ROLES = frozenset((
     ROLE_BRIDGE_TRENCH, ROLE_BRIDGE_CAUSEWAY,
 ))
 _CARVE_STRUCTURE_REFS = frozenset((
-    "tunnel_wall", "tunnel_portal", "bridge_abutment",
+    # §T5: ``tunnel_wall_foot`` is the wall's own shelf (RULINGS
+    # 2026-08-28c item 1) — the same carve structure, not a new one.
+    "tunnel_wall", "tunnel_wall_foot", "tunnel_portal", "bridge_abutment",
 ))
 # The feather run is ``spread / cap`` with this much margin, so the
 # emitted transition lands strictly INSIDE its cap rather than exactly

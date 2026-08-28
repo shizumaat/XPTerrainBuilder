@@ -164,7 +164,8 @@ _OPEN_FRONTAGE_FOREIGN_STANDOFF_M = 1.0
 # only THAT ref is pulled out — a plain retaining wall stays exempt (the
 # 2026-08-07 HECA specimen this exemption was minted for).
 _TUNNEL_BLOCKER_ROLES = frozenset((ROLE_TUNNEL_RAMP, ROLE_TUNNEL_TRENCH))
-_TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall",))
+# §T5 adds the wall's FOOT: same structure, same blocker verdict.
+_TUNNEL_BLOCKER_REFS = frozenset(("tunnel_wall", "tunnel_wall_foot"))
 # SERVICE-ROAD BLOCKERS (owner ruling 2026-08-15): gap-fill spines and
 # drainage must STOP at a service road, never run through it.  A service
 # road / service junction inside an enclave pocket therefore stays a

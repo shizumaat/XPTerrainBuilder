@@ -309,3 +309,107 @@ class TestProvenanceSurvivesTheClaimCut:
         assert synth.role == authored.role
         assert synth.synthesised_road_corridor
         assert not authored.synthesised_road_corridor
+
+
+class TestCorridorSeniorityOverGroundsideLots:
+    """Fable ruling 2026-08-28, from RULINGS 2026-08-15 "ROADS CARRY
+    SPINES … AND SPINES PASS THROUGH PAVEMENT": one corridor is ONE
+    CONTINUOUS LAW OBJECT and a lot may not sever it.
+
+    Three cover classes, three verdicts — the ruling's own split:
+      1. road-family cover  → dedupe, the clip is CORRECT (untouched);
+      2. airside cover      → the crossing law owns the join (untouched);
+      3. groundside non-road → THE FILL WINS, the LOT is cut back.
+    """
+
+    def _fill(self, x0, y0, x1, y1):
+        return BuiltShape(polygon=_rect(x0, y0, x1, y1),
+                          role=ROLE_SERVICE_JUNCTION, ref="service",
+                          synthesised_road_corridor=True)
+
+    def test_class_3_the_lot_is_cut_and_the_fill_survives(self):
+        fill = self._fill(10, -3, 16, 3)
+        lot = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                         role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+        lay = _layout([lot, fill])
+        n = road_piece_ledger.cut_lots_back_from_corridors(lay, "ZZZZ")
+        assert n == 1
+        assert fill.polygon.area == pytest.approx(36.0), (
+            "the corridor fill was cut — it is senior on this ground")
+        assert lot.polygon.intersection(fill.polygon).area \
+            == pytest.approx(0.0, abs=1e-6), (
+            "the lot still overlaps the fill — the clip will delete it")
+        assert lot.polygon.area < 40 * 40
+
+    def test_class_1_a_road_family_cover_is_untouched(self):
+        """Another corridor piece over the fill is a DEDUPE: the
+        connection exists through the cover, so nothing is cut here."""
+        fill = self._fill(10, -3, 16, 3)
+        other = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                           role=ROLE_SERVICE_ROAD, ref="road",
+                           synthesised_road_corridor=True)
+        lay = _layout([other, fill])
+        assert road_piece_ledger.cut_lots_back_from_corridors(
+            lay, "ZZZZ") == 0
+        assert other.polygon.area == pytest.approx(40 * 40)
+
+    def test_class_2_airside_is_untouched(self):
+        """A fill under apron pavement yields to the crossing law; this
+        rule must not cut airside to save it."""
+        from auto_patch.layout import ROLE_APRON
+        fill = self._fill(10, -3, 16, 3)
+        apron = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                           role=ROLE_APRON, ref="")
+        lay = _layout([apron, fill])
+        assert road_piece_ledger.cut_lots_back_from_corridors(
+            lay, "ZZZZ") == 0
+        assert apron.polygon.area == pytest.approx(40 * 40)
+
+    def test_a_lot_that_IS_the_corridors_ground_is_left_alone(self):
+        """Cutting a lot to nothing would delete a surface to save a
+        fill; the clip decides that one, named."""
+        fill = self._fill(-5, -25, 45, 25)
+        lot = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                         role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+        lay = _layout([lot, fill])
+        assert road_piece_ledger.cut_lots_back_from_corridors(
+            lay, "ZZZZ") == 0
+        assert lot.polygon.area == pytest.approx(40 * 40)
+
+    def test_a_demoted_corridor_is_not_a_lot(self):
+        """A groundside_pavement piece that IS a demoted corridor still
+        carries the flag, so it is class 1, not class 3."""
+        fill = self._fill(10, -3, 16, 3)
+        demoted = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                             role=ROLE_GROUNDSIDE_PAVEMENT,
+                             ref="groundside",
+                             synthesised_road_corridor=True)
+        lay = _layout([demoted, fill])
+        assert road_piece_ledger.cut_lots_back_from_corridors(
+            lay, "ZZZZ") == 0
+
+    def test_off_restores_the_prior_seniority(self, monkeypatch):
+        monkeypatch.setenv("O4_CORRIDOR_SENIORITY", "0")
+        fill = self._fill(10, -3, 16, 3)
+        lot = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                         role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+        lay = _layout([lot, fill])
+        assert road_piece_ledger.cut_lots_back_from_corridors(
+            lay, "ZZZZ") == 0
+        assert lot.polygon.area == pytest.approx(40 * 40)
+
+
+def test_rule3_refuses_to_sever_a_lot_rather_than_drop_half():
+    """A corridor crossing a lot END TO END would leave two remainders;
+    keeping the larger and dropping the other is the area-loss defect
+    this round exists to stop, so the pre-pass declines and the named
+    clip decides instead."""
+    fill = BuiltShape(polygon=_rect(18, -30, 22, 30),
+                      role=ROLE_SERVICE_JUNCTION, ref="service",
+                      synthesised_road_corridor=True)
+    lot = BuiltShape(polygon=_rect(0, -20, 40, 20),
+                     role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+    lay = _layout([lot, fill])
+    assert road_piece_ledger.cut_lots_back_from_corridors(lay, "ZZZZ") == 0
+    assert lot.polygon.area == pytest.approx(40 * 40), (
+        "the lot lost area to a cut that should have been refused")

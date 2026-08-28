@@ -3195,6 +3195,14 @@ def _drop_overlap_against_fixed_shapes(
 
     # §T4.1: every removal here is NAMED, per piece.
     from .road_piece_ledger import log_removal as _rpl_removed2
+    # Fable rule 3 (2026-08-28), from RULINGS 2026-08-15's
+    # one-corridor-one-continuous-law-object: a GROUNDSIDE NON-ROAD lot
+    # yields to a road corridor.  Run as a PRE-PASS so the clip below
+    # has no overlap left to resolve — no seniority special-case inside
+    # the tier machinery, and the no-overlap invariant preserved by
+    # construction.  Road-family and airside covers are untouched.
+    from .road_piece_ledger import cut_lots_back_from_corridors
+    cut_lots_back_from_corridors(layout, icao)
     n_dropped = 0
     n_clipped = 0
     DUPLICATE_FRAC = 0.80

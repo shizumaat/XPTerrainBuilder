@@ -169,6 +169,115 @@ def joins_a_surviving_neighbour(piece, survivors, tol_m: float = 0.05
     return False
 
 
+#: Fable ruling (2026-08-28), resolving §T4's overlap-clip question from
+#: standing canon — RULINGS 2026-08-15 "ROADS CARRY SPINES … AND SPINES
+#: PASS THROUGH PAVEMENT": one corridor is ONE CONTINUOUS LAW OBJECT and
+#: a lot may not sever it (the CYXY lot-over-road precedent).  Gate;
+#: default ON, OFF is the pre-ruling seniority.
+_CORRIDOR_SENIORITY_ENV = "O4_CORRIDOR_SENIORITY"
+
+
+def corridor_seniority_enabled() -> bool:
+    return os.environ.get(_CORRIDOR_SENIORITY_ENV, "1") == "1"
+
+
+def cut_lots_back_from_corridors(layout, icao: str = "") -> int:
+    """RULE 3: a GROUNDSIDE NON-ROAD lot yields to the road corridor.
+
+    Measured at LEMD (the per-piece ledger): 129 ``service_junction``
+    fills were dropped whole at the tier-2 overlap clip, and the
+    three-way cover split of their sites is 44 groundside non-road,
+    35 road-family, 19 airside, 31 uncovered.  The 44 are this rule's
+    population — a lot lying over a corridor fill deleted the fill, which
+    is exactly the severance the 2026-08-15 ruling forbids.
+
+    Classes 1 and 2 are UNTOUCHED, per the ruling: a fill covered by
+    another road-family piece is a dedupe (the connection exists through
+    the cover), and a fill covered by airside pavement yields to the
+    crossing law (the corridor is continuous THROUGH the airside shape).
+
+    Shape of the fix: a PRE-PASS, not a change to the tier machinery.
+    Subtracting the corridor from the lot BEFORE the overlap clip runs
+    means there is no overlap left for it to resolve, so the fill
+    survives without any seniority special-case inside the clip and the
+    no-overlap invariant is preserved by construction rather than by a
+    second rule that could disagree with the first.
+
+    ``synthesised_road_corridor`` is the corridor test — provenance, not
+    role — because by this point the scorer may have re-roled the fill,
+    and a lot is "non-road" precisely when it does NOT carry that flag.
+
+    Returns the number of lots cut.
+    """
+    if not corridor_seniority_enabled():
+        return 0
+    try:
+        from shapely.ops import unary_union
+        from shapely.strtree import STRtree
+    except Exception:                                    # pragma: no cover
+        return 0
+    corridors = [s.polygon for s in getattr(layout, "shapes", None) or ()
+                 if getattr(s, "synthesised_road_corridor", False)
+                 and getattr(s, "polygon", None) is not None
+                 and not s.polygon.is_empty]
+    if not corridors:
+        return 0
+    lots = [s for s in layout.shapes
+            if getattr(s, "role", "") == "groundside_pavement"
+            and not getattr(s, "synthesised_road_corridor", False)
+            and getattr(s, "polygon", None) is not None
+            and not s.polygon.is_empty]
+    if not lots:
+        return 0
+    try:
+        tree = STRtree(corridors)
+    except Exception:                                    # pragma: no cover
+        return 0
+    n = 0
+    for lot in lots:
+        try:
+            hits = [corridors[int(h)] for h in tree.query(lot.polygon)]
+            over = [c for c in hits if lot.polygon.intersects(c)]
+            if not over:
+                continue
+            u = unary_union(over)
+            inter = lot.polygon.intersection(u)
+            if inter.is_empty or inter.area <= 0.01:
+                continue
+            rest = lot.polygon.difference(u)
+            parts = [g for g in getattr(rest, "geoms", [rest])
+                     if g is not None and not g.is_empty
+                     and g.geom_type == "Polygon" and g.area >= 1.0]
+            if len(parts) != 1:
+                # NOT ONE PIECE — leave it.  Two cases, both refused
+                # here rather than half-handled:
+                #   * nothing survives: the lot IS the corridor's
+                #     ground, and cutting it to nothing would delete a
+                #     surface to save a fill;
+                #   * the corridor SEVERS the lot: keeping the larger
+                #     half would silently drop the other one — the very
+                #     area-loss defect this round exists to stop — and
+                #     minting the far side needs an altitude resample
+                #     this pre-pass is not the place for.
+                # Either way the clip decides, named as it now is.
+                continue
+            lot.polygon = parts[0]
+            n += 1
+        except Exception:                                # pragma: no cover
+            continue
+    if n:
+        try:
+            UI.vprint(1,
+                f"  [road-piece-ledger] {icao}: corridor seniority — "
+                f"{n} groundside lot(s) CUT BACK from a road corridor "
+                f"they overlapped, so the overlap clip has nothing to "
+                f"resolve and the corridor fill survives (Fable 2026-08-28 "
+                f"rule 3; RULINGS 2026-08-15 one-corridor-one-object).")
+        except Exception:                                # pragma: no cover
+            pass
+    return n
+
+
 def _fmt_delta(delta: Counter) -> str:
     rows = sorted(delta.items(), key=lambda kv: (-abs(kv[1]), kv[0]))
     return "  ".join(

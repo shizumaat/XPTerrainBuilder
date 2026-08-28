@@ -3630,6 +3630,8 @@ class PavementLayout:
             interior_zones_sidecar as _interior_zones_sidecar,
             terrace_certificates_sidecar as _terrace_certs_sidecar,
             terrace_joints_sidecar as _terrace_joints_sidecar)
+        from .object_terrain_assembly import (
+            basin_wall_joints_sidecar as _basin_wall_joints_sidecar)
         from .grade_law import ruleset_of as _grade_law_ruleset_of
         from .groundside import (
             disconnected_rings_sidecar as _disconnected_rings_sidecar)
@@ -3797,7 +3799,15 @@ class PavementLayout:
             # twin).  Empty list with the gate off, and the key is
             # written unconditionally so a reader can tell "no
             # joints" from "patch predates the law".
-            "terrace_joints": _terrace_joints_sidecar(self),
+            # ONE DECLARED-STEP REGISTER, TWO PRODUCERS (spec
+            # lemd-rim-and-stations Amendment 2): the apron terrace
+            # plan, and the basin trench's pan<->rim WALL — the
+            # trench law's own designed step, declared by name so
+            # ``check_grade`` exempts EXACTLY the declared joints and
+            # an undeclared trench step still prices.  Never a
+            # role-based blanket exemption.
+            "terrace_joints": (_terrace_joints_sidecar(self)
+                               + _basin_wall_joints_sidecar(self)),
             # §2(a) THE CERTIFICATE: the recorded evidence
             # chain that authorised each PANELIZED apron.
             # An apron panelizes only with the full chain,

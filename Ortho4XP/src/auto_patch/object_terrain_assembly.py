@@ -3035,6 +3035,8 @@ def _rim_neighbour_value(band_part, candidates, window_m):
 #: The emitted ref of a BASIN rim band part — the population §C's
 #: post-solve re-seat re-values.  A literal, and flagged as one.
 BASIN_RIM_PLATE_REF = "object_basin_rim"
+#: ...and the FLOOR pan's, the other side of the declared wall.
+BASIN_FLOOR_PLATE_REF = "object_basin_trench"
 
 
 def reseat_basin_rim_plates_post_solve(layout):
@@ -3117,7 +3119,131 @@ def reseat_basin_rim_plates_post_solve(layout):
         report["after"].append(value)
         if move > report["worst_move_m"]:
             report["worst_move_m"] = move
+    _republish_basin_declarations(layout, plates, report)
     return report
+
+
+#: ``terrace_joints`` rows minted for a pan↔rim wall carry this kind, so
+#: a reader can tell a declared PIT WALL from a declared apron terrace
+#: without re-deriving either.  Ignored by ``check_grade``'s
+#: ``_terrace_joints_to_m``, which reads ``points`` and ``step_m`` only.
+BASIN_WALL_JOINT_KIND = "basin_trench_wall"
+
+
+def _republish_basin_declarations(layout, plates, report):
+    """THE DECLARATION FOLLOWS THE EMISSION (spec lemd-rim-and-stations
+    Amendment 2, 2026-08-28), in two halves.
+
+    (a) THE SIDECAR RECORD BECOMES HONEST.  The facility record is
+    written at the PRE-SOLVE emitter, so after the re-seat above it
+    declared ``emitted_rim_parts_m`` = R_est while the patch carried the
+    adopted value — measured at LEMD: 596.30 declared against 600.47
+    emitted.  That is the 2026-08-09 recon's own defect ("the facility
+    log line prints the law value, not what was emitted"), and it is
+    what made ``check_grade._basin_declared_drop`` allow only 8.55 m of a
+    12.72 m wall: 4.17 m of excess on every wall pair, 1,932 rows.
+
+    (b) THE PAN↔RIM JOINT IS DECLARED BY NAME.  The wall between the
+    floor pan and its rim band is the trench law's own designed step —
+    the declared-terrace class — so each part publishes a JOINT into the
+    census's existing declared-step register (the ``terrace_joints``
+    key).  The line is the BODY OUTLINE, which lies exactly between the
+    pan (``body`` inset by the wall setback) and the band (``body``
+    grown by the rim width): a pan↔rim chord crosses it, and so does the
+    pad↔pan standoff chord §1's stand-down created.  An UNDECLARED
+    trench step still prices in full — this is a joint register, never a
+    role-based blanket exemption.
+    """
+    from shapely.ops import unary_union
+    records = getattr(layout, BASIN_FACILITY_RECORDS_ATTRIBUTE, None) or []
+    values = [v for v in (report.get("after") or ()) if v == v]
+    if records and values:
+        for record in records:
+            record["emitted_rim_parts_m"] = sorted(
+                round(float(v), 4) for v in values)
+            record["emitted_rim_min_m"] = round(float(min(values)), 4)
+            record["emitted_rim_max_m"] = round(float(max(values)), 4)
+            record["emitted_rim_part_count"] = len(values)
+            record["rim_reseated_post_solve"] = bool(report.get("reseated"))
+    floors = [s.polygon for s in (getattr(layout, "shapes", None) or ())
+              if str(getattr(s, "ref", "") or "") == BASIN_FLOOR_PLATE_REF
+              and s.polygon is not None and not s.polygon.is_empty]
+    joints = list(getattr(layout, "_basin_wall_joints", None) or [])
+    if not floors or not plates:
+        layout._basin_wall_joints = joints
+        return
+    try:
+        pan = unary_union(floors)
+        wall = pan.buffer(_TUNNEL_WALL_SETBACK_M, join_style=2,
+                          mitre_limit=2.0).boundary
+    except Exception:                                     # pragma: no cover
+        layout._basin_wall_joints = joints
+        return
+    floor_m = None
+    for record in records:
+        try:
+            floor_m = float(record["floor_m"])
+        except (KeyError, TypeError, ValueError):         # pragma: no cover
+            continue
+        break
+    if floor_m is None:                                   # pragma: no cover
+        layout._basin_wall_joints = joints
+        return
+    reach = (_TUNNEL_RIM_BAND_WIDTH_M + _TUNNEL_WALL_SETBACK_M + 0.5)
+    for plate in plates:
+        try:
+            value = float(plate.node_altitudes[0])
+            arc = wall.intersection(plate.polygon.buffer(reach))
+        except Exception:                                 # pragma: no cover
+            continue
+        if arc.is_empty:
+            continue
+        step = value - floor_m
+        if step <= 0.0:
+            continue
+        parts = (list(arc.geoms) if arc.geom_type.startswith("Multi")
+                 or arc.geom_type == "GeometryCollection" else [arc])
+        for piece in parts:
+            if getattr(piece, "geom_type", "") != "LineString":
+                continue
+            pts = [(float(x), float(y)) for (x, y) in piece.coords]
+            if len(pts) < 2:
+                continue
+            joints.append({"points_m": pts, "step_m": float(step)})
+    layout._basin_wall_joints = joints
+    report["wall_joints"] = len(joints)
+
+
+def basin_wall_joints_sidecar(layout) -> list:
+    """The pan↔rim wall joints as ``terrace_joints`` rows (lat/lon at 11
+    decimals, the canonical identity spelling).
+
+    ONE REGISTER, two producers — the apron terrace plan and this — so
+    ``check_grade`` reads the identical declared population from the
+    identical key and nothing here re-derives a second notion of "a
+    declared step".  Empty when no basin re-seated.
+    """
+    rows = []
+    for joint in (getattr(layout, "_basin_wall_joints", None) or ()):
+        try:
+            pts = [layout.m_to_ll(x, y) for (x, y) in joint["points_m"]]
+        except Exception:                                 # pragma: no cover
+            continue
+        if len(pts) < 2:
+            continue
+        rows.append({
+            "points": [[round(float(la), 11), round(float(lo), 11)]
+                       for (la, lo) in pts],
+            "step_m": round(float(joint["step_m"]), 4),
+            "declared_step_m": round(float(joint["step_m"]), 4),
+            "faced": True,
+            "kind": BASIN_WALL_JOINT_KIND,
+            "actual_step_m": None,
+            "flank_span_m": None,
+            "panel_lo": None,
+            "panel_hi": None,
+        })
+    return rows
 
 
 def format_rim_reseat_report(icao: str, report: dict) -> str:

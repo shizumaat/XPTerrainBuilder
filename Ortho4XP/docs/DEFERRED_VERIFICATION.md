@@ -3968,3 +3968,11 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   `test_detached_pad_law_seat` for the pad-stand-down ruling.  ONE LEMD
   acceptance build + one HECA §A re-sweep build; no OTHH, no battery, no
   timing.
+* **Amendment 2 round (2026-08-28, same lane).** Covering files once
+  (1,100 passed / 15 failed, the same 15 that reproduce on clean main),
+  plus `test_apron_terrace_law` for the shared declared-step register.
+  ONE LEMD acceptance build; no HECA rebuild was needed — the patch BODY
+  is byte-identical to the Amendment-1 arm (`body_sha 7e77affc9f17`),
+  because Amendment 2 changes only the sidecar DECLARATION and the
+  census's reading of it, never the surface.  No OTHH, no battery, no
+  timing.

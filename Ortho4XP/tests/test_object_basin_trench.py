@@ -1292,6 +1292,131 @@ class TestRimSeatsAtTheSolvedNeighbour:
         i_solve = source.index("per_surface_solve(layout, icao,")
         assert i_solve < i_call, "the re-seat must run AFTER the solve"
 
+    # ── AMENDMENT 2: THE PAN↔RIM WALL IS DECLARED BY NAME ────────
+
+    def _reseated(self):
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._solved_neighbour(layout)
+        report = self._reseat(layout)
+        return layout, report
+
+    def test_the_sidecar_RECORD_follows_the_emission(self):
+        """The facility record is written at the PRE-SOLVE emitter, so
+        after the re-seat it declared R_est while the patch carried the
+        adopted value — measured at LEMD: 596.30 declared against 600.47
+        emitted.  That is the 2026-08-09 recon's own defect, and it is
+        what allowed only 8.55 m of a 12.72 m wall (4.17 m of excess on
+        every wall pair, 1,932 rows)."""
+        layout, _report = self._reseated()
+        record = getattr(
+            layout, assembly.BASIN_FACILITY_RECORDS_ATTRIBUTE)[0]
+        emitted = sorted({
+            round(float(a), 4)
+            for plate in _basin_plates(layout, "rim")
+            for a in plate.node_altitudes})
+        assert record["emitted_rim_parts_m"] == sorted(
+            [self.NEIGHBOUR_VALUE] * record["emitted_rim_part_count"])
+        assert emitted == [self.NEIGHBOUR_VALUE]
+        assert record["emitted_rim_min_m"] == pytest.approx(
+            self.NEIGHBOUR_VALUE)
+        assert record["emitted_rim_max_m"] == pytest.approx(
+            self.NEIGHBOUR_VALUE)
+        assert record["rim_reseated_post_solve"] is True
+
+    def test_every_rim_part_PUBLISHES_a_wall_joint(self):
+        """An UNPUBLISHED joint must fail a test, not a sim pass."""
+        layout, report = self._reseated()
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        assert rows, "the pan↔rim wall was never declared"
+        assert report["wall_joints"] == len(rows)
+        assert len(rows) >= len(_basin_plates(layout, "rim"))
+
+    def test_the_declared_step_is_the_WALL_the_patch_emitted(self):
+        layout, _report = self._reseated()
+        floors = _basin_plates(layout, "trench")
+        floor = float(floors[0].node_altitudes[0])
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        for row in rows:
+            assert row["step_m"] == pytest.approx(
+                self.NEIGHBOUR_VALUE - floor, abs=0.001)
+            assert row["kind"] == assembly.BASIN_WALL_JOINT_KIND
+            assert row["faced"] is True
+            assert len(row["points"]) >= 2
+
+    def test_the_joint_line_lies_BETWEEN_the_pan_and_the_band(self):
+        """The body outline: a pan↔rim chord crosses it, and so does the
+        pad↔pan standoff chord §1's stand-down created.  A chord wholly
+        inside the pan does not."""
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+        layout, _report = self._reseated()
+        pan = unary_union([s.polygon for s in _basin_plates(
+            layout, "trench")])
+        band = unary_union([p.polygon for p in _basin_plates(
+            layout, "rim")])
+        lines = [LineString([(x, y) for (x, y) in j["points_m"]])
+                 for j in layout._basin_wall_joints]
+        assert lines
+        for line in lines:
+            assert not pan.contains(line), "the joint is inside the pan"
+            assert not band.contains(line), "the joint is inside the band"
+
+    def test_NO_joint_is_published_when_nothing_re_seats(self, monkeypatch):
+        """The register never carries a joint the emission did not make:
+        with the flag off there is no re-seat and no declaration."""
+        monkeypatch.setattr(config, "RIM_SOLVED_NEIGHBOUR", False)
+        layout = self._layout(with_neighbour=False)
+        self._emit(layout)
+        self._reseat(layout)
+        assert assembly.basin_wall_joints_sidecar(layout) == []
+
+    def test_the_joints_reach_the_ONE_declared_step_register(self, tmp_path):
+        """END TO END through the real writer: the wall joints land in
+        the SAME ``terrace_joints`` key the apron terrace publishes into,
+        so ``check_grade`` reads one declared population."""
+        import json
+        from auto_patch.layout import PavementLayout
+        layout, _report = self._reseated()
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        assert rows
+        patch = tmp_path / "TEST_auto.patch.osm"
+        out = PavementLayout(icao="TEST", anchor=ANCHOR)
+        out._basin_wall_joints = layout._basin_wall_joints
+        out.to_osm(str(patch))
+        sidecar = json.loads(
+            (tmp_path / "TEST_auto.patch.osm.axes.json").read_text())
+        published = sidecar["terrace_joints"]
+        assert len(published) == len(rows)
+        assert all(r["kind"] == assembly.BASIN_WALL_JOINT_KIND
+                   for r in published)
+
+    def test_the_census_EXEMPTS_the_declared_wall_and_prices_an_undeclared_one(
+            self):
+        """The census leg, on the register's own reader: a chord crossing
+        a DECLARED joint is forgiven exactly its declared step, and the
+        same chord with no declaration prices in full."""
+        import sys
+        from pathlib import Path as _P
+        _tools = str(_P(__file__).resolve().parents[1] / "tools")
+        if _tools not in sys.path:
+            sys.path.insert(0, _tools)
+        import check_grade as cg
+        layout, _report = self._reseated()
+        rows = assembly.basin_wall_joints_sidecar(layout)
+        joints_m = cg._terrace_joints_to_m(
+            rows, lambda la, lo: layout.ll_to_m(la, lo))
+        assert joints_m
+        # a chord from the pan out across the wall
+        pan = _basin_plates(layout, "trench")[0].polygon
+        rim = _basin_plates(layout, "rim")[0].polygon
+        (ax, ay) = list(pan.exterior.coords)[0]
+        (bx, by) = list(rim.exterior.coords)[0]
+        allowed = cg._terrace_step_allowance(joints_m, ax, ay, bx, by)
+        assert allowed > 0.0, "the declared wall was not exempted"
+        assert cg._terrace_step_allowance([], ax, ay, bx, by) == 0.0, (
+            "an UNDECLARED trench step must still price in full")
+
     def test_the_rungs_are_in_the_stated_ORDER(self):
         """One reading of the law, asserted on the source: neighbour
         first, R_est second, DEM last."""

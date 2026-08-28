@@ -5613,6 +5613,30 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m
     return out
 
 
+# ── ONE WALL, ONE ALLOWANCE (spec lemd-rim-and-stations Amendment 2,
+# 2026-08-28) ────────────────────────────────────────────────────────
+# Two declared-step readers can now speak about the SAME contact: the
+# joint register (``terrace_joints``, which the basin emitter publishes
+# its pan↔rim WALL into) and the facility's own declared floor→rim drop
+# (``basin_facilities``).  Summing them would hand one wall twice its
+# height in allowance — a trench born a metre too deep would go unseen,
+# which is precisely what the declared-step law exists to prevent.
+#
+# So the two are MAX'd, never added: the wall is one designed step, and
+# the allowance is the largest thing DECLARED about it.  Strictly
+# stricter than the sum, so this can only ever ADD rows, never blind
+# one; a contact only one reader knows about is unchanged.
+def _declared_step_allowance(terrace_joints_m, basin_declared,
+                             xa, ya, xb, yb, way_a, way_b,
+                             elev_a: float, elev_b: float) -> float:
+    joint = (_terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb)
+             if terrace_joints_m else 0.0)
+    facility = (_basin_declared_drop(basin_declared, way_a, way_b,
+                                     elev_a, elev_b)
+                if basin_declared else 0.0)
+    return joint if joint >= facility else facility
+
+
 def _check_vertex_to_edge_step(
     vertices: List[Vertex],
     edges: List[Edge],
@@ -5699,16 +5723,9 @@ def _check_vertex_to_edge_step(
         # the joint the pair straddles: the identical population, and the
         # identical number, the solver was bound to.  A pair crossing no
         # joint is untouched, so a gate-off patch reads exactly as before.
-        allow_step = edge_step_m
-        if terrace_joints_m:
-            allow_step += _terrace_step_allowance(
-                terrace_joints_m, v.x, v.y, px, py)
-        # THE TUNNEL-TRENCH DECLARED STEP (spec §1.1): a contact with a
-        # declared trench plate is lawful down to the facility's OWN
-        # declared floor→rim drop; only the EXCESS beyond it reports.
-        if basin_declared:
-            allow_step += _basin_declared_drop(
-                basin_declared, way_v, ways[e.way_idx], v.elev, e_proj)
+        allow_step = edge_step_m + _declared_step_allowance(
+            terrace_joints_m, basin_declared,
+            v.x, v.y, px, py, way_v, ways[e.way_idx], v.elev, e_proj)
         if step > allow_step + 1e-5:
             out.append(EdgeStep(
                 step_m=step,
@@ -5823,17 +5840,9 @@ def _check_edge_midpoint_step(
             # APRON TERRACE LOCKSTEP (see ``_check_vertex_to_edge_step``):
             # after the pre-solve split a declared joint is a cross-shape
             # pair 0.6 m apart, and its DECLARED step is the allowance.
-            allow_step = edge_step_m
-            if terrace_joints_m:
-                allow_step += _terrace_step_allowance(
-                    terrace_joints_m, sx, sy, px, py)
-            # THE TUNNEL-TRENCH DECLARED STEP (see
-            # ``_check_vertex_to_edge_step``): the facility's declared
-            # floor→rim drop, and only the excess beyond it.
-            if basin_declared:
-                allow_step += _basin_declared_drop(
-                    basin_declared, way_e1, ways[e2.way_idx],
-                    s_elev, e2_elev)
+            allow_step = edge_step_m + _declared_step_allowance(
+                terrace_joints_m, basin_declared, sx, sy, px, py,
+                way_e1, ways[e2.way_idx], s_elev, e2_elev)
             if step > allow_step + 1e-5:
                 out.append(EdgeStep(
                     step_m=step,

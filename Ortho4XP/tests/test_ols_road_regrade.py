@@ -576,19 +576,21 @@ class TestRunwayStripStandDown:
         assert _deck_area_in_strip(layout) > 1.0, (
             "the pre-round arm is expected to carry deck inside the strip")
 
-    def test_the_span_refuses_WHOLE_rather_than_ending_mid_cut(
+    def test_the_span_refuses_WHOLE_rather_than_being_clipped(
             self, gate_on, monkeypatch, capsys):
-        """WHY the stand-down is an INVALID STATION and not a boundary
-        clip: a deck cut off at the strip edge while still 10.6 m below
-        the DEM would be a new wall where a tear was.  Expressed as
-        invalid ground, the span growth stops at the strip and the
-        STANDING blend refusal fires whole-span — the module's own
-        refusal idiom, counted out loud."""
+        """WHY the unit of the law is the SPAN and not the emitted piece.
+        Clipping the pieces against the strip leaves the deck's own
+        (s, d) blend cut open at the boundary: measured at HECA, that arm
+        gained a ``road_cross_section`` row of 7.330 m at 733 % INSIDE
+        deck piece -13742 plus a cluster of 7.3 m mid-edge steps against
+        service_junction -12157 — a 7 m corner where a 5 m tear was.  A
+        span that stands in a runway strip is therefore refused whole,
+        beside the standing BLEND and DEPTH refusals, and counted out
+        loud."""
         monkeypatch.setattr(apc, "OLS_ROAD_RUNWAY_STANDDOWN", True)
         layout, _dem, _n = _emit_crossing(monkeypatch)
         out = capsys.readouterr().out
-        assert "STAND DOWN inside it" in out
-        assert "blend-refused" in out
+        assert "STAND DOWN over a runway's LATERAL strip" in out
         # Nothing half-emitted: either a lawful deck or none at all.
         assert _deck_area_in_strip(layout) == pytest.approx(0.0, abs=1e-6)
 

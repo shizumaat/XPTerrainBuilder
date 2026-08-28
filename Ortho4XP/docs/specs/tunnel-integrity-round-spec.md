@@ -194,3 +194,28 @@ adjacent ground, scaling with wall count). Rulings:
    candidate → minted → emitted) in the follow-up docket. Rule 3
    (corridor seniority pre-pass, sever-refusing) lands as built,
    twin-proven; classes 1–2 confirmed lawful.
+
+## Amendment 2 (Fable, 2026-08-28 — the foot/face split is ONE boolean
+## partition, altitudes derived AFTER; defined fallback; cap resets)
+
+Measured (lane/tunwall): the 3 SPJC foot∩face pairs (2.99 m²) come
+from the PERIMETER band — Amendment 1's scoping expectation is
+falsified and its facing-corridor attribution corrected. The lane's
+subtraction attempt was the right idea failed by ORDERING
+(node_altitudes computed from `_ring` before the subtraction).
+Rulings:
+
+1. **FOOT AND FACE ARE ONE PARTITION OF ONE POLYGON.** Build the
+   inner-offset region ONCE; foot = band ∩ offset-region, face =
+   band − offset-region (disjoint BY CONSTRUCTION — a boolean
+   partition cannot overlap itself); derive BOTH rings and BOTH
+   node_altitudes FROM THE FINAL GEOMETRY, never from a pre-split
+   ring. The thin-band self-touching traversal is repaired before the
+   partition (the lane's validity fix, kept). Twin: the SPJC 3-pair
+   fixture partitions clean; `test_no_self_overlap` green everywhere.
+2. **DEFINED FALLBACK if 1 fails its cap:** `O4_RAMP_WALL_FOOT`
+   defaults OFF and the plain `_g0` standoff ships alone — the
+   owner's measured sim breakage (item 9) outranks the older unowned-
+   annulus defect, which returns and is recorded in
+   DEFERRED_VERIFICATION as the accepted lesser defect pre-ship,
+   with the designed-foot follow-up docket carrying both.

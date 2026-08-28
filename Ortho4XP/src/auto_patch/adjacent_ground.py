@@ -3371,6 +3371,131 @@ def _object_trench_wall_keepout(layout):
         return None
 
 
+#: §W2 gate (spec ``docs/specs/claimed-corridor-wall-survival-spec.md``).
+#: Default ON; OFF builds no index and every retreat run is byte-
+#: identical to the pre-round pass.
+_CLAIM_EDGE_SENIORITY_ENV = "O4_CLAIM_EDGE_SENIORITY"
+
+#: A ring is CORRIDOR geometry inside the cut only where it actually
+#: descends through it — the same discriminator ``bridges.
+#: _CLAIM_WALL_MIN_DIG_M`` uses for "is this claim a bore".  A ring that
+#: is flat inside the cut is the cut's floor or its neighbour, not a
+#: descending corridor, and nothing here is senior to anything.
+_CLAIM_EDGE_MIN_DESCENT_M = 0.25
+
+
+def claim_edge_seniority_enabled() -> bool:
+    return os.environ.get(_CLAIM_EDGE_SENIORITY_ENV, "1") == "1"
+
+
+class _ClaimEdgeProfile:
+    """§W2 — BETWEEN A CLAIM'S MOUTHS THE CORRIDOR PROFILE IS SENIOR.
+
+    ``value_at(vx, vy, skip_id)`` is the DESCENDING corridor's own
+    altitude where ``(vx, vy)`` lies on its ring — vertex-shared or
+    edge-coincident, through ``_interp_on_ring_law``, the module's one
+    edge-interpolation derivation — or ``None``.
+    """
+
+    __slots__ = ("region", "edges", "tree", "tol_m")
+
+    def __init__(self, region, edges, tree, tol_m):
+        self.region = region
+        self.edges = edges
+        self.tree = tree
+        self.tol_m = tol_m
+
+    def in_cut(self, vx, vy) -> bool:
+        try:
+            return bool(self.region.contains(Point(vx, vy)))
+        except _GEOM_EXC:                                # pragma: no cover
+            return False
+
+    def value_at(self, vx, vy, skip_id=None):
+        if self.tree is None:
+            return None
+        try:
+            idxs = self.tree.query_nearest(
+                Point(vx, vy), max_distance=self.tol_m)
+        except _GEOM_EXC:                                # pragma: no cover
+            return None
+        if idxs is None or len(idxs) == 0:
+            return None
+        best = None
+        for _i in idxs:
+            _sid, _coords, _alts = self.edges[int(_i)]
+            if skip_id is not None and _sid == skip_id:
+                continue
+            _v = _interp_on_ring_law(_coords, _alts, vx, vy, self.tol_m)
+            if _v is None:
+                continue
+            if best is None or _v < best:
+                best = _v
+        return best
+
+
+def claim_edge_profile_index(layout):
+    """The §W2 index, or ``None`` when this airport has no descending
+    claim (then the pass is byte-identical).
+
+    THE REGION IS PUBLISHED, NEVER RE-DERIVED (spec
+    ``tunnel-corridor-node-book-exclusion-spec.md`` §2 / AMENDMENT 5):
+    ``tunnel_open_cut_polys`` is the portal walk's own plan-space extent
+    and ``tunnel_open_cut_claim_polys`` is R14-1's claim set.  A second
+    geometric notion of "inside the cut" computed here would be the very
+    spec violation those publishers exist to prevent.
+
+    THE CORRIDOR RINGS are the rings that DESCEND through that region —
+    a ring whose in-cut values spread by at least
+    ``_CLAIM_EDGE_MIN_DESCENT_M``.  A flat ring inside the cut (the bore
+    FLOOR, the at-grade neighbour) is not a descending corridor and
+    publishes no seniority, which is what keeps the tunnel-corridor
+    exclusion spec's §3 retreat faces emitting unchanged.
+    """
+    if not claim_edge_seniority_enabled():
+        return None
+    cached = getattr(layout, "_claim_edge_profile_index", "unset")
+    if cached != "unset":
+        return cached
+    index = None
+    try:
+        _rp = list(getattr(layout, "tunnel_open_cut_polys", None) or [])
+        _rp.extend(
+            getattr(layout, "tunnel_open_cut_claim_polys", None) or [])
+        _rp = [p for p in _rp
+               if p is not None and not getattr(p, "is_empty", True)]
+        if _rp:
+            _region = unary_union(_rp)
+            if not _region.is_empty:
+                _edges: list = []
+                for _sh in (getattr(layout, "shapes", ()) or ()):
+                    _rv = _ring_values_for_walls(_sh)
+                    if _rv is None:
+                        continue
+                    _coords, _alts = _rv
+                    _in = [_a for (_x, _y), _a in zip(_coords, _alts)
+                           if _region.contains(Point(_x, _y))]
+                    if len(_in) < 2:
+                        continue
+                    if max(_in) - min(_in) < _CLAIM_EDGE_MIN_DESCENT_M:
+                        continue        # flat in the cut: not a corridor
+                    _edges.append((id(_sh), _coords, list(_alts)))
+                if _edges:
+                    from shapely.strtree import STRtree
+                    _tree = STRtree(
+                        [LineString(list(_c) + [_c[0]])
+                         for _sid, _c, _a in _edges])
+                    index = _ClaimEdgeProfile(
+                        _region, _edges, _tree, SHARED_VERTEX_TOL_M)
+    except (_GEOM_EXC, ImportError, ValueError):         # pragma: no cover
+        index = None
+    try:
+        layout._claim_edge_profile_index = index
+    except (AttributeError, TypeError):                  # pragma: no cover
+        pass
+    return index
+
+
 def emit_authority_retreat_walls(layout) -> int:
     """CONSENSUS RETIREMENT §2 — the losing claimant RETREATS.
 
@@ -3469,6 +3594,10 @@ def emit_authority_retreat_walls(layout) -> int:
     # improvise at — the structure's own emitter owns them.
     object_trench_keepout = _object_trench_wall_keepout(layout)
     n_object_trench_skipped = 0
+    # §W2: the DESCENDING claim's own profile, senior between its mouths.
+    claim_edge = claim_edge_profile_index(layout)
+    n_claim_edge_conformed = 0
+    claim_edge_worst = 0.0
     from .config import ROLE_GRADE_LIMITS, GROUNDSIDE_MAX_GRADE
 
     emitted = 0
@@ -3520,6 +3649,46 @@ def emit_authority_retreat_walls(layout) -> int:
                 continue        # cross-tile contract — adopt, no wall
             coincident_top[i] = top
             spread[i] = sp
+        # ── §W2 · THE CLAIM EDGE TAKES THE CORRIDOR PROFILE ───────────
+        # Spec ``claimed-corridor-wall-survival-spec.md`` §W2.  Between a
+        # claim's mouths the corridor profile is SENIOR on the claim
+        # boundary: a crossing grade-level authority takes the corridor's
+        # interpolated altitude at the shared node instead of its own
+        # at-grade value.  Measured at OTHH 1.0.264: this face's TOP row
+        # shipped ``conflict_top`` = 4.00 m at two points that lie on the
+        # descending corridor host's edge between 2.19 m and 0.99 m —
+        # emitted as a tent in the middle of the descent (patch nodes
+        # -965/-968, way -12605 crossing the ramp).  The face still
+        # emits; only the level it retreats FROM changes, so the
+        # tunnel-corridor exclusion spec's §3 faces are untouched.
+        #
+        # IT CAN ONLY LOWER, and only where a corridor ring actually
+        # passes through the vertex — the same one-directional discipline
+        # the claim itself carries ("the claim can only dig").
+        if claim_edge is not None:
+            for i in range(n):
+                if coincident_top[i] is None:
+                    continue
+                vx, vy = coords[i]
+                if not claim_edge.in_cut(vx, vy):
+                    continue
+                cv = claim_edge.value_at(vx, vy, skip_id=id(shape))
+                if cv is None:
+                    continue
+                if cv >= float(coincident_top[i]) - VERTEX_ALT_MERGE_TOL_M:
+                    continue
+                claim_edge_worst = max(
+                    claim_edge_worst,
+                    abs(float(coincident_top[i]) - float(cv)))
+                coincident_top[i] = float(cv)
+                sp = abs(float(cv) - float(alts[i]))
+                spread[i] = sp
+                n_claim_edge_conformed += 1
+                if sp <= 0.05:
+                    # the two now AGREE — nothing to retreat from, and
+                    # to_osm's single-authority emit welds them.
+                    coincident_top[i] = None
+                    spread[i] = 0.0
         # Per-vertex: is this retreat run at a CARVE STRUCTURE?  A wall
         # there is lawful and keeps today's geometry exactly; anywhere
         # else the band must be wide enough to GRADE the step at the
@@ -3604,6 +3773,15 @@ def emit_authority_retreat_walls(layout) -> int:
                   f"walls={len(walls)}", flush=True)
         new_walls.extend(walls)
         emitted += len(walls)
+    if n_claim_edge_conformed:
+        UI.vprint(1,
+                  f"  [adj-ground] §W2: {n_claim_edge_conformed} retreat "
+                  f"vertex/vertices inside a published tunnel open cut "
+                  f"took the DESCENDING corridor's own interpolated "
+                  f"altitude instead of the at-grade level they were "
+                  f"pinned to (worst {claim_edge_worst:.2f} m) — between "
+                  f"a claim's mouths the corridor profile is senior on "
+                  f"the claim boundary.")
     if n_object_trench_skipped:
         UI.vprint(1,
                   f"  [adj-ground] §T1.3: {n_object_trench_skipped} "

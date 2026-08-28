@@ -5925,6 +5925,115 @@ def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
     return None if post.is_empty else post
 
 
+#: §W1 gate (spec ``docs/specs/claimed-corridor-wall-survival-spec.md``).
+#: Default ON; OFF returns the post-cut gate object VERBATIM, so the
+#: adjudication below is byte-identical to the pre-round behaviour.
+_CLAIM_WALL_GATE_ENV = "O4_CLAIM_WALL_GATE"
+
+
+def claim_wall_gate_enabled() -> bool:
+    return os.environ.get(_CLAIM_WALL_GATE_ENV, "1") == "1"
+
+
+def _claim_wall_adjudication_gate(layout: "PavementLayout",
+                                  post_gate_u, clearance_m: float):
+    """§W1 — A WALL FOLLOWS ITS CLAIM AS IT FOLLOWS ITS RAMP.
+
+    Ruling 4 gave the wall/roof adjudication a POST-CUT pavement union:
+    a wall must not be dropped for overlapping pavement its own ramp has
+    removed (:func:`_tunnel_ramp_pavement_cut`).  Only SYNTHETIC ramp
+    footprints are cut, though.  A CLAIMED corridor lowers its host
+    WITHOUT cutting it — that is the whole of the mouth-D claim design
+    (RULINGS 2026-08-25e option (a)) — so the §2.3 walls the claim just
+    minted overlap host pavement 50-100 % and drop whole as "covered
+    stretch".  Measured at OTHH 1.0.264: "15 claimed corridor bodies
+    walled (20 wall pieces)" born, then ~20 dropped and 12 graze-clipped
+    to slivers, the owner's own site among them (way 2291
+    @25.2559488,51.6086658, coverage 0.743, area 319.4 m²).
+
+    THE CUT IS FOR ADJUDICATION ONLY.  The host shape's geometry is not
+    touched: this returns a JUDGING union, never the layout's pavement.
+    The subtracted region is the ``_CLAIMED_BORE_REGISTER`` population
+    (the very footprints :func:`_wall_claimed_corridors` walled — one
+    population, published, never re-derived) buffered by the wall band's
+    own annulus, exactly the annulus ruling 4's ramp cut uses and built
+    with the same mitred join so it can never fall short of the band's
+    outer edge.
+
+    SCOPE GUARD.  A claim stretch that is ALSO in the item-12 covered-span
+    mask stays COVERED: a genuinely roofed span (under the terminal
+    bridge) has no visible structure and its walls still drop.  The mask
+    is ``covered_span.mask_of`` — the published one, not a second
+    derivation.
+
+    Returns the union to judge wall/roof pieces against (possibly
+    ``None`` when nothing airside is left), and is a NO-OP returning
+    ``post_gate_u`` itself when the gate is off, when nothing was
+    claimed, or when the relief is empty.
+    """
+    if not claim_wall_gate_enabled() or post_gate_u is None:
+        return post_gate_u
+    _register = getattr(layout, _CLAIMED_BORE_REGISTER, None) or set()
+    if not _register:
+        return post_gate_u
+    _claims = [s.polygon for s in layout.shapes
+               if id(s) in _register
+               and getattr(s, "polygon", None) is not None
+               and not s.polygon.is_empty]
+    if not _claims:
+        return post_gate_u
+    try:
+        _relief = unary_union(_claims)
+        if clearance_m > 0.0:
+            _relief = _relief.buffer(clearance_m, join_style=2)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return post_gate_u
+    if _relief is None or _relief.is_empty:
+        return post_gate_u
+    _n_claims = len(_claims)
+    _covered_area = 0.0
+    try:
+        from . import covered_span as _covered_span
+        _mask = _covered_span.mask_of(layout)
+    except Exception:                                    # pragma: no cover
+        _mask = None
+    if _mask is not None:
+        try:
+            _covered_area = _relief.intersection(_mask).area
+            _relief = _relief.difference(_mask)
+        except _GEOM_EXC:                                # pragma: no cover
+            return post_gate_u
+        if _relief is None or _relief.is_empty:
+            try:
+                UI.vprint(1,
+                    f"  [pav-builder] §W1 claim wall gate: all "
+                    f"{_n_claims} claimed-corridor footprint(s) lie "
+                    f"inside the covered-span mask — every stretch is a "
+                    f"genuinely roofed one, so the adjudication union is "
+                    f"UNCHANGED and those walls still drop.")
+            except _GEOM_EXC:                            # pragma: no cover
+                pass
+            return post_gate_u
+    try:
+        _gate = post_gate_u.difference(_relief)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return post_gate_u
+    try:
+        UI.vprint(1,
+            f"  [pav-builder] §W1 claim wall gate: {_n_claims} claimed-"
+            f"corridor footprint(s) + the {clearance_m:.1f} m wall-band "
+            f"annulus ({_relief.area:.0f} m²) subtracted from the "
+            f"wall/roof adjudication union only "
+            f"({post_gate_u.area:.0f} → "
+            f"{0.0 if _gate is None or _gate.is_empty else _gate.area:.0f} "
+            f"m²; {_covered_area:.0f} m² held back by the covered-span "
+            f"mask) — a wall follows its CLAIM as it follows its ramp.  "
+            f"No host geometry is touched.")
+    except _GEOM_EXC:                                    # pragma: no cover
+        pass
+    return None if (_gate is None or _gate.is_empty) else _gate
+
+
 def _sloped_rect_clipped_altitudes(orig_poly, alt_high, alt_low,
                                    new_poly):
     """Per-vertex altitudes for a clipped ``altitude_high/low`` rect.
@@ -6208,6 +6317,13 @@ def _finalize_tunnel_emission(
         _post_gate_u = _tunnel_ramp_pavement_cut(
             layout, airside_gate_union, pre_emit_shape_ids, ramp_way_ids,
             clearance_m=ramp_cut_clearance_m)
+        # §W1: the CLAIM variant of ruling 4's cut — a claimed corridor
+        # never cuts its host, so the walls §2.3 just minted for it are
+        # judged against a union that still contains the pavement they
+        # are the visible structure of.  Adjudication only; the covered-
+        # span mask holds genuinely roofed stretches back.
+        _wall_gate_u = _claim_wall_adjudication_gate(
+            layout, _post_gate_u, ramp_cut_clearance_m)
         _gate_bufs: dict[int, object] = {}
         _kept9 = []
         _n_clip = 0
@@ -6250,7 +6366,7 @@ def _finalize_tunnel_emission(
                         continue
                 _kept9.append(s9)
                 continue
-            _gate9 = (_post_gate_u
+            _gate9 = (_wall_gate_u
                       if _ref9 in ("tunnel_wall", TUNNEL_WALL_FOOT_REF,
                                    "tunnel_roof")
                       else airside_gate_union)

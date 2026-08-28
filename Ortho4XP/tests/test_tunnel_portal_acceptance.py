@@ -324,10 +324,16 @@ def test_the_claim_read_uses_the_patchs_own_parser(tpa):
 # ──────────────────────────────────────────────────────────────────
 # §6 A CLAIMED CORRIDOR ANSWERS A MOUTH (added 2026-08-25)
 # ──────────────────────────────────────────────────────────────────
-def _claimed_corridor_scene(directory: Path, corridor_alt: float) -> Path:
+def _claimed_corridor_scene(directory: Path, corridor_alt: float,
+                            walled: bool = True) -> Path:
     """A mouth with NO tunnel_ramp near it, answered instead by a
     claimed road surface at ``corridor_alt`` — R14-1's "the paved area
-    IS the corridor", which stands the synthetic ramp down."""
+    IS the corridor", which stands the synthetic ramp down.
+
+    ``walled`` emits the §2.3 wall face alongside it.  §T6.3 admits a
+    claimed corridor as bore geometry only WITH a face, so the two
+    spellings are the twin's two arms.
+    """
     def node(i, lat, lon, a):
         return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
                 f"<tag k='alt_abs' v='{a}'/></node>")
@@ -340,6 +346,17 @@ def _claimed_corridor_scene(directory: Path, corridor_alt: float) -> Path:
                  "<nd ref='-4'/><nd ref='-1'/>"
                  "<tag k='role' v='groundside_pavement'/>"
                  "<tag k='ref' v='tunnel_road'/><tag k='shapeID' v='1'/></way>")
+    if walled:
+        # the §2.3 face: a band hugging the corridor's long sides
+        wc = [(24.99998, 51.0000), (24.99998, 51.0004),
+              (25.00002, 51.0004), (25.00002, 51.0000)]
+        for i, (la, lo) in enumerate(wc, start=21):
+            parts.append(node(i, la, lo, corridor_alt + 4.0))
+        parts.append("<way id='-303'><nd ref='-21'/><nd ref='-22'/>"
+                     "<nd ref='-23'/><nd ref='-24'/><nd ref='-21'/>"
+                     "<tag k='role' v='retaining_wall'/>"
+                     "<tag k='ref' v='tunnel_wall'/>"
+                     "<tag k='shapeID' v='3'/></way>")
     # a tunnel_ramp far away, so the ramp-only reading is a long distance
     rc = [(25.0300, 51.0000), (25.0300, 51.0002),
           (25.0303, 51.0002), (25.0303, 51.0000)]
@@ -369,6 +386,35 @@ def test_a_below_grade_claimed_corridor_answers_the_mouth(tpa, tmp_path):
     assert checks["mouth_vertex_reach"].verdict == tpa.PASS
     assert checks["site_reach"].measured < 60.0
     assert "claimed corridor" in checks["site_reach"].detail
+
+
+def test_a_FACELESS_below_grade_claimed_corridor_is_not_bore_geometry(
+        tpa, tmp_path):
+    """§T6.3: claimed, dug, and with NO wall anywhere on it is a hole in
+    the ground, not a bore.  The instrument used to accept it and report
+    the mouth answered, which is how a "tunnel_road with no ramp and no
+    walls" could pass a table (RULINGS 2026-08-28c item 3)."""
+    osm = _claimed_corridor_scene(tmp_path, -0.90, walled=False)
+    checks = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=tpa.Profile(name="x",
+                                       sites={"D": (25.00003, 51.00003)}))}
+    assert checks["mouth_vertex_reach"].verdict == tpa.FAIL
+    assert checks["site_reach"].measured > 1000.0
+    assert "faceless" in checks["site_reach"].detail
+
+
+def test_the_claimed_corridor_wall_coverage_is_reported(tpa, tmp_path):
+    """§T6.1's acceptance number exists and is measured against the
+    synthetic path's own coverage — the comparison the law is stated
+    as."""
+    osm = _claimed_corridor_scene(tmp_path, -0.90)
+    checks = {c.name: c for c in tpa.run_acceptance(
+        osm, None, profile=tpa.Profile(name="x",
+                                       sites={"D": (25.00003, 51.00003)}))}
+    c = checks["claimed_corridor_walls"]
+    assert c.verdict == tpa.SKIP, "no bar given ⇒ a REPORT, never a PASS"
+    assert 0.0 < c.measured <= 1.0, c.measured
+    assert "synthetic tunnel_ramp" in c.detail
 
 
 def test_an_AT_GRADE_claimed_road_does_not_answer_a_mouth(tpa, tmp_path):

@@ -4026,3 +4026,72 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
   `check_grade.py` plus the tunnel and bridge families, run once through
   the run ledger (1013 passed at the pre-§T1.1 tree; the §T1.1 twins and
   the bridge/harness neighbours re-run green after it).
+## 2026-08-28 — tunnel-integrity round §T4–§T7 (lane/tunwall), FINAL
+
+**§T5 LANDED ON THE DEFINED FALLBACK** (spec Amendment 2 ruling 2).
+`O4_RAMP_WALL_FOOT` defaults **OFF**: the plain `_g0` standoff ships
+alone, so the owner's measured sim breakage (RULINGS 2026-08-28c item 9 —
+ramp welded to wall, 84 shared node ids at 0.0000 m) is FIXED, and the
+older unowned-annulus defect (R16-2b) RETURNS as the accepted lesser
+defect pre-ship.  Both are twinned as facts, not sentences:
+`test_t5_the_shipped_default_is_the_plain_g0_standoff` and
+`test_t5_the_accepted_lesser_defect_is_the_unowned_annulus`.
+`test_no_self_overlap` is GREEN everywhere (3 passed).
+
+**Why the foot design did not land, measured.**  Amendment 2 ruling 1 was
+implemented in full — one band, one slit, validity repair, then a boolean
+partition (`foot = band ∩ region`, `face = band − region`) with BOTH rings
+and BOTH altitude vectors derived from the final post-partition geometry.
+Instrumented at emit, that partition is **provably disjoint: 0.0000 m²
+overlap for all 6 SPJC pieces**.  The 3 overlapping pairs appear
+downstream: each wall FACE GROWS by ~1.4 m² between emit and the final
+layout (343.2→344.6, 116.4→117.8, 315.7→317.3) and re-crosses its foot.
+**The inflating pass is not identified** — that is the follow-up docket's
+first question, and it now has an exact before/after signature to bisect
+on.  The partition code is retained behind `O4_RAMP_WALL_FOOT=1` as the
+docket's starting point, with its twins.
+
+**§T5's +358 at OTHH: the register membership is NOT the mechanism**
+(Amendment 1 ruling 2's arm, `O4_FOOT_IN_CARVE_REGISTERS`).  Matched
+OTHH arms: foot OFF 724 (groundside 576) · foot ON + registers ON 1082
+(934) · foot ON + registers OFF **1049 (893)**.  Taking the foot out of
+`adjacent_ground._CARVE_STRUCTURE_REFS` and `gap_fill._TUNNEL_BLOCKER_REFS`
+recovers **33 of the 358**, ~9%; the rest follows from the foot existing
+as an emitted shape at all.  Per the ruling's "if not, STOP with the
+measurement" — stopped.  CAVEAT: the arm also carries Amendment 1's
+facing-corridor scoping, so it differs by two variables; the conclusion is
+robust to that because the confound could only have reduced the count
+further.  **The shipped default carries none of this** — with the foot
+OFF the arm is the 724 class.  The env variable is kept as the docket's
+attribution instrument.
+
+### Superseded notes from earlier in the round (kept for the trail)
+
+* **`test_no_self_overlap[SPJC]` is RED on this lane and GREEN on main.**
+  3 overlapping pairs, 2.9933 m² total, ALL `tunnel_wall_foot` ∩
+  `tunnel_wall` at consecutive shape indices (#761/#763, #762/#764,
+  #769/#770) — i.e. a §T5 foot overlapping its own face, at the
+  `_emit_facing_corridors` emitter (the perimeter band's pair was made
+  disjoint by explicit subtraction and that did NOT change these numbers).
+  CONTROL: `O4_RAMP_WALL_FOOT=0` → 3 passed, matching main.  NOT
+  root-caused; attempt cap reached.  §T5 must not land default-ON until
+  this is fixed or the owner rules the invariant may bend.
+* **§T5 costs +358 adjudicated at OTHH on a MATCHED A/B** (724 → 1082,
+  one variable `O4_RAMP_WALL_FOOT`), entirely
+  `groundside_pavement|groundside_pavement` steps (23 → 372); airside is
+  unchanged (148 = 148).  Hypothesis, NOT confirmed: registering
+  `tunnel_wall_foot` in `adjacent_ground._CARVE_STRUCTURE_REFS` and
+  `gap_fill._TUNNEL_BLOCKER_REFS` (required by the Fable approval's
+  condition 1) changes the adjacent-ground / gap-fill tessellation around
+  every wall.  LEMD, which emits 2 walls to OTHH's 16, IMPROVED
+  (3205 → 3109), which is consistent with the effect scaling with wall
+  count.
+* **Fable rule 3 (corridor seniority) is twin-verified only** — no
+  confirming build arm.  Gate `O4_CORRIDOR_SENIORITY`, default ON.
+* **§T7's covered-span mask was INACTIVE for the LEMD acceptance arm**
+  (a `TypeError` in the width call, reported loudly by the instrument and
+  fixed after).  LEMD's §T7 population (6 of the 22 pieces) is therefore
+  unmeasured; OTHH's 16 were built with the mask active (60,860 m²).
+* **§T4.2 acceptance NOT met**: isolated corridor rects 31 → 31 (LEMD),
+  10 → 10 (OTHH).  Mechanism named, fix is a design question — see the
+  round report.

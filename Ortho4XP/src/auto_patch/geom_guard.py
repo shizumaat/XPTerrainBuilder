@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 import O4_UI_Utils as UI
 
+from .road_piece_ledger import checkpoint as _road_piece_checkpoint
 from .layout import (
     ROLE_APRON,
     ROLE_CROSS_CONNECTOR,
@@ -599,7 +600,16 @@ def coverage_probe(layout, tag: str) -> None:
     between two tags names the pass that deleted the coverage (the SPJC
     service-strip loss took a day to bisect by hand).  No-op without the
     env var; never raises.
+
+    THESE ARE ALSO THE PRE-SOLVE SEAMS THE ROAD-PIECE LEDGER USES (§T4).
+    Same argument, one population up: the probe asks "who owns this
+    POINT", the ledger asks "how many pieces of this (role, ref) exist" —
+    and the LEMD loss of 40 rects + ~78 fills is the second question with
+    no point to probe.  The ledger is default-ON and hangs here rather
+    than at 29 new call sites: the seams are the seams that exist
+    (``pipeline._rod_ckpt`` carries it across the post-solve half).
     """
+    _road_piece_checkpoint(layout, tag)
     spec = os.environ.get("O4_COVERAGE_PROBE")
     if not spec:
         return

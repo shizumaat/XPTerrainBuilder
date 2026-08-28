@@ -331,22 +331,41 @@ class TestTheStandDownJudgesTheCorridorNotTheShape:
         return lay, lot, far_ramp, near_ramp, [portal]
 
     def test_the_claim_returns_its_corridor_footprint(self, monkeypatch):
-        """The claim hands on BOTH: the whole shapes (the node book's
-        list, unchanged) and their corridor footprints."""
+        """The claim hands on BOTH lists, and under §T6.2 they agree by
+        construction: pass 2 CUTS the 500 m lot at the corridor, so the
+        claimed shape IS the strip and the corridor footprint is that
+        same strip — the mouth-D phantom (a 6,000 m² claimant judging a
+        ramp 300 m away) cannot be spelled any more."""
         monkeypatch.setenv(CLAIM_FLAG, "1")
         lay, lot, _far, _near, portals = self._scene()
         n, whole, corridor = bridges._claim_road_pavement(
             lay, portals, [], 0.6)
         assert n >= 1, "the lot was not claimed at all"
         assert whole and corridor
-        assert whole[0].area == pytest.approx(500 * 12)
+        assert whole[0].area < 0.5 * (500 * 12), (
+            f"the claim took {whole[0].area:.0f} m² of a 6,000 m² lot — "
+            f"§2.2 forbids the host whole")
+        assert lot in lay.shapes and lot.ref != bridges.TUNNEL_ROAD_REF, (
+            "the host lost its own ref — §2.2 leaves it its role and law")
         # corridor members are ``(polygon, depth)``: the footprint AND
         # the depth the claim gave it (Amendment 1 needs both)
         _cpoly, _cdepth = corridor[0]
         assert _cdepth is not None
-        assert _cpoly.area < 0.5 * whole[0].area, (
-            "the corridor footprint is the whole shape again — the "
-            "mouth-D phantom is back")
+        assert _cpoly.area <= whole[0].area + 1e-6, (
+            "the corridor footprint exceeds the claimed shape")
+
+    def test_the_scope_off_reproduces_the_whole_shape_claim(self,
+                                                            monkeypatch):
+        """The OFF contract, one variable: without §T6.2 the pass-2 claim
+        relabels the lot WHOLE — the OTHH -12168 behaviour."""
+        monkeypatch.setenv(CLAIM_FLAG, "1")
+        monkeypatch.setenv("O4_CLAIM_FOOTPRINT_SCOPE", "0")
+        lay, lot, _far, _near, portals = self._scene()
+        n, whole, _corridor = bridges._claim_road_pavement(
+            lay, portals, [], 0.6)
+        assert n >= 1
+        assert whole[0].area == pytest.approx(500 * 12)
+        assert lot.ref == bridges.TUNNEL_ROAD_REF
 
     def test_a_ramp_far_from_the_cut_survives(self, monkeypatch):
         """Mouth D's case in one assertion: a ramp over the claimed
@@ -369,9 +388,11 @@ class TestTheStandDownJudgesTheCorridorNotTheShape:
     def test_the_whole_shape_list_reproduces_the_phantom(self,
                                                          monkeypatch):
         """The control, one variable: judged against the WHOLE claimed
-        shape — today's behaviour, and the flag's OFF path — the far
-        ramp dies."""
+        shape — the pre-round behaviour, which §T6.2's OFF path restores
+        — the far ramp dies.  (With §T6.2 ON there is no whole-shape
+        claim left to judge against, which is the point.)"""
         monkeypatch.setenv(CLAIM_FLAG, "1")
+        monkeypatch.setenv("O4_CLAIM_FOOTPRINT_SCOPE", "0")
         lay, lot, far, near, portals = self._scene()
         _n, whole, _corridor = bridges._claim_road_pavement(
             lay, portals, [], 0.6)

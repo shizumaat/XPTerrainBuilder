@@ -738,10 +738,15 @@ class TestRampNeverCrossesABuildingPadEdge:
         ramp_zones = [z for z in zones if z.intersects(pad.polygon)]
         # Only the perimeter wall band may still touch the pad (it is
         # clipped off it by the pavement-overlap clip in finalize).
+        # §T5: that band is now TWO refs — the rising face and its foot —
+        # so the register the zone must belong to is the wall STRUCTURE.
+        band = [w for w in layout.shapes
+                if getattr(w, "ref", "") in bridges._WALL_BAND_REFS
+                and w.polygon is not None and not w.polygon.is_empty]
         for zone in ramp_zones:
             assert any(zone.equals(w.polygon.buffer(0))
                        or zone.intersection(w.polygon).area > 0.5
-                       for w in _refs(layout, "tunnel_wall")), (
+                       for w in band), (
                 "a RAMP exclusion zone still covers the building pad")
 
 

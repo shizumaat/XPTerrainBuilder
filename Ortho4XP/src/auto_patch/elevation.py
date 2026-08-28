@@ -1201,6 +1201,21 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                 # pavement is lost (fixes the missing F/RW34R
                 # gap junction, user 2026-04-24).
                 from dataclasses import replace as _dc_replace
+                from .road_piece_ledger import (
+                    ROAD_FAMILY_ROLES as _RPL_ROLES,
+                    joins_a_surviving_neighbour as _rpl_joins,
+                    log_removal as _rpl_removed,
+                )
+                # §T4.1: THE ROAD FAMILY'S SURVIVORS, so a piece that
+                # JOINS two of them is never dropped as a hairline.  The
+                # clip only ever shrinks a shape, so the pre-clip
+                # footprints are a superset of the post-clip ones and
+                # reading them here (before the loop) is sound — and it
+                # keeps this a single pass.
+                _rpl_survivors = [
+                    s.polygon for s in layout.shapes
+                    if s.role in _RPL_ROLES and s.polygon is not None
+                    and not s.polygon.is_empty]
                 new_shapes: list[BuiltShape] = []
                 for shape in layout.shapes:
                     if shape.role in (ROLE_RUNWAY, ROLE_BUILDING):
@@ -1226,6 +1241,10 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                             new_shapes.append(shape)
                             continue
                     if clipped.is_empty:
+                        # §T4.1: NAMED, never silent.  This shape lay
+                        # wholly inside the new runway footprint.
+                        _rpl_removed(layout, shape,
+                                     "runway-clip (wholly inside)")
                         continue
                     pieces = ([clipped]
                               if clipped.geom_type == "Polygon"
@@ -1250,7 +1269,39 @@ def _compute_elevations(layout: "PavementLayout", icao: str,
                         except _GEOM_EXC:
                             return False
 
-                    pieces = [p for p in pieces if _keep_piece(p)]
+                    # §T4.1: A CORRIDOR JOIN IS NOT A HAIRLINE.  A
+                    # road-family piece that TOUCHES a surviving
+                    # road-family surface is the connective tissue
+                    # between two rects; dropping it emits the corridor
+                    # as disconnected rectangles at different levels
+                    # (RULINGS 2026-08-28 item 8).  ``_keep_piece``'s
+                    # 1 m-inward-buffer rule is calibrated for
+                    # taxi-intersection remainders, where a hairline is
+                    # genuinely nothing — a 6 m rect-trim gap fill is
+                    # not.  Every other removal keeps its named line.
+                    _road_fam = shape.role in _RPL_ROLES
+                    _kept, _cut = [], []
+                    for _p in pieces:
+                        if _keep_piece(_p):
+                            _kept.append(_p)
+                        elif (_road_fam and _p.geom_type == "Polygon"
+                              and not _p.is_empty
+                              and _rpl_joins(_p, _rpl_survivors)):
+                            _kept.append(_p)
+                        else:
+                            _cut.append(_p)
+                    for _p in _cut:
+                        try:
+                            _a = _p.area
+                        except Exception:              # pragma: no cover
+                            _a = None
+                        _rpl_removed(
+                            layout,
+                            _dc_replace(shape, polygon=_p,
+                                        source_axis=None),
+                            "runway-clip (sliver, joins nothing)",
+                            area_m2=_a)
+                    pieces = _kept
                     if not pieces:
                         continue
                     # Keep the shape metadata on the largest piece,
@@ -3142,6 +3193,16 @@ def _drop_overlap_against_fixed_shapes(
                 fan_ramp_zone=getattr(source_shape, "fan_ramp_zone", False),
                 lateral_cap=getattr(source_shape, "lateral_cap", None)))
 
+    # §T4.1: every removal here is NAMED, per piece.
+    from .road_piece_ledger import log_removal as _rpl_removed2
+    # Fable rule 3 (2026-08-28), from RULINGS 2026-08-15's
+    # one-corridor-one-continuous-law-object: a GROUNDSIDE NON-ROAD lot
+    # yields to a road corridor.  Run as a PRE-PASS so the clip below
+    # has no overlap left to resolve — no seniority special-case inside
+    # the tier machinery, and the no-overlap invariant preserved by
+    # construction.  Road-family and airside covers are untouched.
+    from .road_piece_ledger import cut_lots_back_from_corridors
+    cut_lots_back_from_corridors(layout, icao)
     n_dropped = 0
     n_clipped = 0
     DUPLICATE_FRAC = 0.80
@@ -3205,6 +3266,8 @@ def _drop_overlap_against_fixed_shapes(
                                 >= DUPLICATE_FRAC):
                             # j is the smaller (sorted desc) —
                             # drop it.
+                            _rpl_removed2(layout, layout.shapes[j],
+                                          "overlap-clip (duplicate)")
                             layout.shapes[j].polygon = None
                             n_dropped += 1
                             any_change = True
@@ -3212,6 +3275,8 @@ def _drop_overlap_against_fixed_shapes(
                         # Partial overlap — clip j against i.
                         pieces = _clip_pieces(pj, pi)
                         if not pieces:
+                            _rpl_removed2(layout, layout.shapes[j],
+                                          "overlap-clip (nothing left)")
                             layout.shapes[j].polygon = None
                             n_dropped += 1
                         else:
@@ -3351,6 +3416,8 @@ def _drop_overlap_against_fixed_shapes(
                         except _GEOM_EXC:
                             continue
                 if new_p is None:
+                    _rpl_removed2(layout, layout.shapes[i],
+                                  "overlap-clip (nothing left, tier 2)")
                     layout.shapes[i].polygon = None
                     n_dropped += 1
                     continue

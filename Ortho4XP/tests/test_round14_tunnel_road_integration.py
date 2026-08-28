@@ -288,12 +288,41 @@ class TestTheClaim:
         rows = [_portal_row("W1", (0.0, 0.0), (200.0, 0.0), floor,
                             walk=walk)]
         bridges._claim_road_pavement(layout, rows, [], 0.6)
-        shape = layout.shapes[0]
-        assert shape.ref == bridges.TUNNEL_ROAD_REF
-        for (x, _y), value in zip(
-                list(shape.polygon.exterior.coords), shape.node_altitudes):
-            assert value <= AMBIENT_M + 1e-6
-            assert value >= floor - 1e-6
+        # §T6.2 / portal-corridor-claim §2.2: pass 2 now rides the
+        # CORRIDOR FOOTPRINT.  The claimed surface is the strip inside
+        # the cut, minted beside a host that keeps its own role and ref —
+        # the law under test (the approach grades out at the cap and
+        # never sinks below the floor) is asserted on the claim.
+        claims = [s for s in layout.shapes
+                  if s.ref == bridges.TUNNEL_ROAD_REF]
+        assert claims, [(s.role, s.ref) for s in layout.shapes]
+        for shape in claims:
+            for (x, _y), value in zip(
+                    list(shape.polygon.exterior.coords),
+                    shape.node_altitudes):
+                assert value <= AMBIENT_M + 1e-6
+                assert value >= floor - 1e-6
+        hosts = [s for s in layout.shapes
+                 if s.role == ROLE_SERVICE_JUNCTION
+                 and s.ref != bridges.TUNNEL_ROAD_REF]
+        assert hosts, "the host was taken whole — §2.2 forbids that"
+
+    def test_the_approach_claim_takes_the_shape_whole_when_off(
+            self, monkeypatch):
+        """The OFF contract: the pre-round whole-shape relabel."""
+        monkeypatch.setenv("O4_CLAIM_FOOTPRINT_SCOPE", "0")
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        layout.shapes.append(BuiltShape(
+            polygon=box(0.0, -6.0, 200.0, 6.0),
+            role=ROLE_SERVICE_JUNCTION, ref="",
+            node_altitudes=[AMBIENT_M] * 5))
+        floor = DECK_M - float(_CFG.BRIDGE_ROAD_CLEARANCE_M)
+        walk = [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
+        rows = [_portal_row("W1", (0.0, 0.0), (200.0, 0.0), floor,
+                            walk=walk)]
+        bridges._claim_road_pavement(layout, rows, [], 0.6)
+        assert len(layout.shapes) == 1
+        assert layout.shapes[0].ref == bridges.TUNNEL_ROAD_REF
 
 
 class TestSyntheticStandsDown:

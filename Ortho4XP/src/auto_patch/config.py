@@ -5195,6 +5195,9 @@ BASIN_REGION_RAMP_REACH = (
 # CONTROLS, built both ways on this tree and BYTE-IDENTICAL either way:
 # HECA (body_sha 0a2740ab1e88) and SPJC (255261460924) — SPJC HAS a
 # below-grade region and the pass runs on it, which is the stronger read.
+# And the shipped DEFAULT is byte-identical at LEMD itself: the
+# both-gates-off arm on this tree reads body_sha 0e181d870481 / 2,558
+# shapes, the aed29ba4 control exactly, cache version 26 and all.
 #
 # With O4_BASIN_RAMP_REACH_PLATE=0 (the DEFAULT) no corridor is derived
 # and no plate is joined; the emitted patch is byte-identical to the

@@ -413,3 +413,63 @@ def test_compare_target_splp(tmp_path, tile_lat, tile_lon,
     _run_compare(tmp_path, "SPLP", baseline, baseline_total,
                  target_path=target_path,
                  tile_lat=tile_lat, tile_lon=tile_lon)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE SCOPED IoU (added 2026-08-28 for the HECA round-4 §H3 acceptance;
+# promoted from the hecar2 lane's ``surgery_diff`` scratch reader on its
+# SECOND use, RULINGS 7e90032 — a parameter on a near-fit, never a fork)
+# ══════════════════════════════════════════════════════════════════════
+
+def _shp(poly, role="apron", shape_id="582", source="target"):
+    import compare_target as CT
+    return CT.OsmShape(way_id="-1", role=role, aeroway="apron", ref="",
+                       polygon=poly, source=source, shape_id=shape_id)
+
+
+def test_scoped_iou_is_1_when_the_build_kept_exactly_the_reference():
+    import compare_target as CT
+    from shapely.geometry import box
+    foot = box(0, 0, 100, 100)
+    ref = box(0, 0, 100, 80)
+    out = [_shp(ref, source="output")]
+    r = CT.envelope_iou([_shp(ref)], out, [_shp(foot)], "582")
+    assert r is not None
+    assert r["iou"] == pytest.approx(1.0)
+    assert r["cut_reference_m2"] == pytest.approx(2000.0)
+    assert r["cut_built_m2"] == pytest.approx(2000.0)
+
+
+def test_scoped_iou_falls_when_the_build_keeps_the_whole_footprint():
+    """The measured HECA state: the reference removes 17.7 % of apron
+    582 and the build keeps it, so the IoU is the reference's own share
+    of the footprint."""
+    import compare_target as CT
+    from shapely.geometry import box
+    foot = box(0, 0, 100, 100)
+    ref = box(0, 0, 100, 80)
+    r = CT.envelope_iou([_shp(ref)], [_shp(foot, source="output")],
+                        [_shp(foot)], "582")
+    assert r["iou"] == pytest.approx(0.8, abs=1e-6)
+    assert r["retained_outside_reference_m2"] == pytest.approx(2000.0)
+
+
+def test_scoped_iou_clips_to_the_footprint_so_neighbours_do_not_count():
+    """Only what the build emitted INSIDE the footprint is the retained
+    region — an adjacent apron is not this shape's extent."""
+    import compare_target as CT
+    from shapely.geometry import box
+    foot = box(0, 0, 100, 100)
+    ref = box(0, 0, 100, 80)
+    out = [_shp(ref, source="output"),
+           _shp(box(200, 0, 300, 100), source="output", shape_id="999")]
+    r = CT.envelope_iou([_shp(ref)], out, [_shp(foot)], "582")
+    assert r["iou"] == pytest.approx(1.0)
+
+
+def test_scoped_iou_reports_nothing_when_the_shape_id_does_not_join():
+    import compare_target as CT
+    from shapely.geometry import box
+    assert CT.envelope_iou([_shp(box(0, 0, 10, 10))], [],
+                           [_shp(box(0, 0, 10, 10), shape_id="X")],
+                           "582") is None

@@ -381,3 +381,143 @@ class TestTheFlag:
                                raising=False)
             for m in ("auto_patch.config", "auto_patch.groundside"):
                 importlib.reload(sys.modules[m])
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 4 / HECA ROUND 4 §H2 — THE FREEZE IS AIRSIDE-ONLY
+# (docs/specs/heca-round4-spec.md §H2; the ruling Amendment 2 §3
+#  promised; RULINGS 2026-08-28b item 5(b))
+# ══════════════════════════════════════════════════════════════════════
+
+def _strip_welded_layout():
+    """The item-5(b) geometry: a graded_strip SOFT RECEIVER welded to the
+    road ring beside the airside-shared face.  Under the old freeze that
+    strip-shared vertex froze at the road's own ambient value while its
+    airside-shared neighbour sat at the taxiway value — 123.11 % on the
+    ROAD'S OWN RING at service_junction -10774."""
+    layout = _crossing_layout()
+    weld = (ROAD_HALF_W, ROAD_NEAR_Y)
+    strip_ring = [weld, (weld[0] + 8.0, weld[1]),
+                  (weld[0] + 8.0, weld[1] + 8.0), (weld[0], weld[1] + 8.0)]
+    strip = BuiltShape(polygon=Polygon(strip_ring), role="graded_strip")
+    strip.node_altitudes = [AMBIENT] * len(strip_ring)
+    layout.shapes.append(strip)
+    return layout, weld
+
+
+class TestTheFreezeIsAirsideOnly:
+
+    def test_the_flag_is_default_on(self):
+        assert CFG.ADOPT_FREEZE_AIRSIDE_ONLY is True
+
+    def test_a_SOFT_RECEIVER_shared_vertex_is_ADOPTABLE(self):
+        """§H2.1: *"a vertex shared with a graded_strip/adjacent-ground
+        RECEIVER is ADOPTABLE — the strip is a conforming product, not
+        an authority"*.  The strip does not hold the road down."""
+        layout, weld = _strip_welded_layout()
+        _contacts(layout)
+        out = _adopt(layout)
+        assert out["freeze"]["narrowed"] is True
+        assert out["freeze"]["released"] >= 1, (
+            "the narrowing released no soft-receiver vertex — the "
+            "item-5(b) class cannot have moved")
+        assert _alt_at(layout, *weld) != pytest.approx(AMBIENT), (
+            "a strip-shared road vertex stayed frozen at its own ambient "
+            "value — that is the 123.11 % cliff on the road's own ring")
+
+    def test_the_freeze_NARROWS_airside_shared_vertices_stay_frozen(self):
+        """§H2.2's gate: the freeze narrows, it never widens.  An
+        airside-shared vertex is still frozen and the airside surface is
+        still byte-identical."""
+        layout = _crossing_layout()
+        taxi = [s for s in layout.shapes if s.role == "primary_parallel"][0]
+        # weld one road vertex straight onto the taxiway ring
+        road = _road_shapes(layout)[0]
+        ring = list(road.polygon.exterior.coords)[:-1]
+        shared = (-TAXI_HALF_L, -TAXI_HALF_W)
+        road.polygon = Polygon(ring + [shared])
+        road.node_altitudes = [AMBIENT] * (len(ring) + 1)
+        before = list(taxi.node_altitudes)
+        _contacts(layout)
+        out = _adopt(layout)
+        assert out["freeze"]["by_airside"] >= 1
+        assert list(taxi.node_altitudes) == before, (
+            "AIRSIDE IS KING — the narrowing may not move one airside "
+            "value")
+        # the ROAD's own copy of the airside-shared vertex is untouched
+        r_ring = list(road.polygon.exterior.coords)[:-1]
+        r_alts = list(road.node_altitudes)[:len(r_ring)]
+        got = [a for (p_, a) in zip(r_ring, r_alts) if p_ == shared]
+        assert got and got[0] == pytest.approx(AMBIENT), (
+            "an airside-shared road vertex was written — the freeze "
+            "widened instead of narrowing")
+
+    def test_a_NON_receiver_authority_still_freezes(self):
+        """A building pad is a VALUE AUTHORITY, not a conforming product
+        — ``layout.SOFT_RECEIVER_ROLES`` is the register that says so,
+        and it is read, never re-spelled."""
+        layout = _crossing_layout()
+        weld = (-ROAD_HALF_W, -ROAD_NEAR_Y)
+        pad_ring = [weld, (weld[0] - 8.0, weld[1]),
+                    (weld[0] - 8.0, weld[1] - 8.0), (weld[0], weld[1] - 8.0)]
+        pad = BuiltShape(polygon=Polygon(pad_ring), role="building")
+        pad.node_altitudes = [AMBIENT] * len(pad_ring)
+        layout.shapes.append(pad)
+        _contacts(layout)
+        out = _adopt(layout)
+        assert out["freeze"]["by_other_authority"] >= 1
+        assert _alt_at(layout, *weld) == pytest.approx(AMBIENT)
+
+    def test_the_receiver_register_is_the_engines_own(self):
+        """No hand list: the register is ``layout.SOFT_RECEIVER_ROLES``,
+        the same one ``to_osm``'s single-authority emit consensus uses to
+        let an AUTHORITY's value win a shared node verbatim — which is
+        why no new welding machinery is needed (§H2.1).  The ONE role
+        added to it is the groundside LOT, and the reason is the
+        pipeline's own ordering, not a preference."""
+        import inspect
+        from auto_patch.layout import SOFT_RECEIVER_ROLES
+        src = inspect.getsource(GS._road_vertex_graph)
+        assert "SOFT_RECEIVER_ROLES as _SOFT_REG" in src
+        assert "graded_strip" in SOFT_RECEIVER_ROLES
+        assert "_SOFT = frozenset(_SOFT_REG) | {_GS_PAV}" in src
+        assert "seat_groundside_on_law" in src, (
+            "the lot's receiver status is the pipeline ORDERING's own "
+            "statement — cite it or do not claim it")
+
+    def test_a_groundside_LOT_shared_vertex_is_ADOPTABLE(self):
+        """MEASURED at HECA: with the lot excluded the narrowing
+        released ZERO vertices, because every strip-shared road vertex
+        there is ALSO welded into a lot — the mechanism was inert at the
+        very site (service_junction -10774) it was written for.  The
+        pipeline calls this pass BETWEEN the service seat and the lot
+        seat precisely so the lot reads the road's adopted value."""
+        layout = _crossing_layout()
+        weld = (ROAD_HALF_W, ROAD_NEAR_Y)
+        lot_ring = [weld, (weld[0] + 8.0, weld[1]),
+                    (weld[0] + 8.0, weld[1] + 8.0), (weld[0], weld[1] + 8.0)]
+        lot = BuiltShape(polygon=Polygon(lot_ring),
+                         role="groundside_pavement")
+        lot.node_altitudes = [AMBIENT] * len(lot_ring)
+        layout.shapes.append(lot)
+        _contacts(layout)
+        out = _adopt(layout)
+        assert out["freeze"]["released"] >= 1
+        assert _alt_at(layout, *weld) != pytest.approx(AMBIENT)
+
+    def test_flag_OFF_restores_the_pre_round_freeze(self, monkeypatch):
+        monkeypatch.setenv("O4_ADOPT_FREEZE_AIRSIDE_ONLY", "0")
+        for m in ("auto_patch.config", "auto_patch.groundside"):
+            importlib.reload(sys.modules[m])
+        try:
+            import auto_patch.groundside as GS2
+            layout, weld = _strip_welded_layout()
+            GS2.road_airside_crossing_contacts(layout, "TEST")
+            out = GS2.adopt_road_airside_crossing_values(layout, "TEST")
+            assert out["freeze"]["narrowed"] is False
+            assert _alt_at(layout, *weld) == pytest.approx(AMBIENT), (
+                "flag OFF must reproduce the pre-round freeze exactly")
+        finally:
+            monkeypatch.delenv("O4_ADOPT_FREEZE_AIRSIDE_ONLY", raising=False)
+            for m in ("auto_patch.config", "auto_patch.groundside"):
+                importlib.reload(sys.modules[m])

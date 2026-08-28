@@ -8030,6 +8030,29 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         from auto_patch.solve_stage import STAGE_A as _STAGE_A_FP, STAGE_KEY
         joint.append({"edges": [], "hyper": _hyper_fp,
                       STAGE_KEY: _STAGE_A_FP, "family": "transverse"})
+    # ── §H4: THE TRANSVERSE PROFILE OBEYS NO-STEP ON ITS OWN RING ────
+    # (spec docs/specs/heca-round4-spec.md §H4; RULINGS 2026-08-28b item
+    # 5(a).)  HERE, in the final projection, because this is the pass
+    # that owns the emitted taxiway-family values — the transverse
+    # writeback's last word — and because the population it selects is
+    # the ALREADY-PUBLISHED tier2<->tier2 enumeration (one enumeration,
+    # three consumers).  Only the WITHIN-ONE-RING subset binds: a
+    # cross-shape senior pair stays the census-priced docket the no-step
+    # spec Amendment 1 ruled it.  Flag OFF: no entry at all, byte-inert.
+    try:
+        from auto_patch import airside_no_step as _ANS_TR
+        from auto_patch.solve_stage import (STAGE_A as _STAGE_A_TR,
+                                            STAGE_KEY as _STAGE_KEY_TR)
+        _tr_entries, _tr_report = _ANS_TR.within_ring_no_step_entries(
+            layout, b2i, n, stage_key=_STAGE_KEY_TR, stage=_STAGE_A_TR)
+        _fp_law_counts["transverse_no_step"] = _tr_report.get("edges", 0)
+        if _tr_entries:
+            joint.extend(_tr_entries)
+            import O4_UI_Utils as _UI_tr
+            _UI_tr.vprint(1, _ANS_TR.format_within_ring_report(
+                icao, _tr_report))
+    except Exception as _tr_exc:                          # pragma: no cover
+        _fp_law_counts["transverse_no_step"] = f"FAILED {_tr_exc!r}"
     _stage("graph")
 
     hard = {i for i in range(n) if base_hard[i]}

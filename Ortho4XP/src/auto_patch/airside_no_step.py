@@ -283,6 +283,45 @@ def _spread_candidates(pts, window_m, k):
     return sorted(pairs)
 
 
+def _membrane_node_positions(layout, bucket_to_idx, n_nodes):
+    """``{node_idx: (x, y)}`` for every APRON LATTICE point and every
+    round-3 SPINE STATION — the airside MEMBRANE, in local metres.
+
+    Read from the presolve entries that minted the points, which is the
+    only place their positions certainly exist: ``build_unified_graph``
+    positions the shape RING vertices it walks, and a membrane point
+    belongs to no ring.  This is the population the §H1.1 coverage floor
+    guarantees an edge for.
+    """
+    cps = layout.canonical_points
+    out: dict = {}
+    for store in ("apron_lattice_presolve", "apron_spine_presolve"):
+        for entry in (getattr(layout, store, None) or ()):
+            for (x, y) in (entry.get("points") or ()):
+                i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+                if i is not None and 0 <= i < n_nodes and i not in out:
+                    out[int(i)] = (float(x), float(y))
+    return out
+
+
+def _chord_visible(union, pa, pb) -> bool:
+    """Does the chord ``pa -> pb`` stay inside the airside pavement
+    union?  The SAME predicate the batched pass above uses, asked one
+    chord at a time for the handful the coverage floor considers.
+
+    RULINGS 2026-08-24b: a step is lawful exactly across a pavement gap,
+    so a chord that leaves the union is not this law's business — and
+    the floor may not manufacture one that is.
+    """
+    if union is None:
+        return True
+    try:
+        from shapely.geometry import LineString as _LS
+        return bool(union.covers(_LS((pa, pb))))
+    except _GEOM_EXC:                                     # pragma: no cover
+        return True
+
+
 class _PairFacts:
     """Per-node law membership, computed ONCE through the SAME readers
     ``grade_graph.shape_constraints`` uses — never a second predicate."""
@@ -408,7 +447,10 @@ def enumerate_airside_no_step_pairs(
               "not_visible": 0, "skipped_by_law": 0, "edges": 0,
               "cross_tier": 0, "senior_nodes": 0, "by_class": {},
               "skipped_long_apron": 0, "tier2_census_only": 0,
-              "published": 0, "enumerated": 0}
+              "published": 0, "enumerated": 0,
+              # §H1.1 — the coverage floor's own arithmetic.
+              "membrane_nodes": 0, "membrane_off_grid": 0,
+              "floor_orphans": 0, "floor_edges": 0, "floor_unpriced": 0}
     _ekey = _enum_key(n_nodes, existing_pairs)
     empty = {"rows": [], "node_ids": [], "coords": [], "report": report,
              "key": _ekey}
@@ -428,10 +470,31 @@ def enumerate_airside_no_step_pairs(
     import numpy as np
     coords = [(float(node_pos[i][0]), float(node_pos[i][1]))
               for i in node_ids]
-    pts = np.asarray(coords, dtype=float)
+    # ── §H1.1 THE MEMBRANE COVERAGE FLOOR — the population, first ─────
+    # ``membrane_pos`` is ``{node_idx: (x, y)}`` for every lattice /
+    # station point, read from the PRESOLVE ENTRIES that minted them.
+    # It is read here and not from ``node_pos`` on purpose: ``G.pos``
+    # positions only the shape RING vertices ``build_unified_graph``
+    # walks, so a membrane point that belongs to no ring has no position
+    # there at all and is dropped from ``node_ids`` above — which is one
+    # half of the measured 36 % orphan population (item 1), the other
+    # half being the sector quota a dense lattice spends on itself.
+    # The floor answers both, because it never asks the k-NN anything.
+    membrane_pos = (_membrane_node_positions(layout, bucket_to_idx, n_nodes)
+                    if getattr(_cfg, "MEMBRANE_LAW_FLOOR", False) else {})
+    report["membrane_nodes"] = len(membrane_pos)
+    n_knn = len(node_ids)              # the k-NN population, unchanged
+    if membrane_pos:
+        _have = set(node_ids)
+        _extra = sorted(i for i in membrane_pos if i not in _have)
+        report["membrane_off_grid"] = len(_extra)
+        for i in _extra:
+            node_ids.append(int(i))
+            coords.append(membrane_pos[i])
+    pts = np.asarray(coords[:n_knn], dtype=float)
     cand = _spread_candidates(pts, window_m, k)
     report["candidates"] = len(cand)
-    if not cand:
+    if not cand and not membrane_pos:
         empty["node_ids"] = node_ids
         empty["coords"] = coords
         _stash_enumeration(layout, empty)
@@ -471,10 +534,11 @@ def enumerate_airside_no_step_pairs(
     apron_role = GL.APRON_ROLE
     body_gate = float(getattr(GL, "APRON_BODY_CHORD_MAX_M", 0.0) or 0.0)
     rows: list = []
-    for p, (a, b) in enumerate(keep_pairs):
-        if not visible[p]:
-            report["not_visible"] += 1
-            continue
+
+    def _price(a, b, count=True):
+        """ONE pricing statement for ONE candidate pair — the §1.1 body,
+        used by the k-NN loop and by the §H1.1 coverage floor alike so
+        the floor can never invent a budget the law did not state."""
         ia, ib = node_ids[a], node_ids[b]
         (xa, ya), (xb, yb) = coords[a], coords[b]
         d = math.hypot(xb - xa, yb - ya)
@@ -517,26 +581,116 @@ def enumerate_airside_no_step_pairs(
             corridor_connected=bool(conn_a and conn_b))
         allow = GL.classify_pair(pc)
         if allow is None:
-            report["skipped_by_law"] += 1
-            # THE ONE SKIP CLASS THIS LAW'S WINDOW OUTRUNS, counted so it
-            # can never be inferred from silence: ``classify_pair`` drops
-            # an APRON body chord beyond ``APRON_BODY_CHORD_MAX_M``
-            # (60 m).  Reported; NOT overridden here (that would be a
-            # spec deviation, and deviations are the owner's call).
-            if (role == apron_role and body_gate and d > body_gate):
-                report["skipped_long_apron"] += 1
-            continue
+            if count:
+                report["skipped_by_law"] += 1
+                # THE ONE SKIP CLASS THIS LAW'S WINDOW OUTRUNS, counted
+                # so it can never be inferred from silence:
+                # ``classify_pair`` drops an APRON body chord beyond
+                # ``APRON_BODY_CHORD_MAX_M`` (60 m).  Reported; NOT
+                # overridden here (that would be a spec deviation, and
+                # deviations are the owner's call).
+                if (role == apron_role and body_gate and d > body_gate):
+                    report["skipped_long_apron"] += 1
+            return None
         # THE DIRECT DISTANCE IS THE BUDGET'S LENGTH — the ruling's own
         # words, "|Δz| <= cap x DIRECT distance (not path distance)".
         # ``Allowance.at(d, 0.0)`` is the flat evaluation every reader
         # uses; no route arc, no anisotropic credit.
         budget = float(allow.at(d, 0.0))
         if budget <= 0.0:                                 # pragma: no cover
-            report["skipped_by_law"] += 1
-            continue
+            if count:
+                report["skipped_by_law"] += 1
+            return None
         cls = GL.apron_pair_class(pc) if role == apron_role else role
-        rows.append((a, b, int(ia), int(ib), float(d), float(budget),
-                     role, cls))
+        return (a, b, int(ia), int(ib), float(d), float(budget), role, cls)
+
+    for p, (a, b) in enumerate(keep_pairs):
+        if not visible[p]:
+            report["not_visible"] += 1
+            continue
+        row = _price(a, b)
+        if row is not None:
+            rows.append(row)
+
+    # ── §H1.1 THE COVERAGE FLOOR (spec heca-round4 §H1.1) ─────────────
+    # "Every lattice/station node carries at least one direct-distance
+    # edge to its nearest ring-or-senior node within the window; k-NN
+    # sector selection may not orphan a node."  The measured void pair
+    # (item 1: lattice 76.43 <-> ring 79.15, 18.51 m apart, 14.7 %
+    # against a 1.5 % cap) was priced by NOTHING because both halves of
+    # the enumeration missed it.  So the floor asks the k-NN nothing: it
+    # walks each ORPHAN membrane node's ring-or-senior neighbours in
+    # increasing DIRECT distance and takes the FIRST one the law prices
+    # — same visibility predicate, same ``classify_pair`` chain, same
+    # budget.  A node with no lawful neighbour inside the window at all
+    # (an apron whose ring is further away than the window, a chord that
+    # only ever crosses a pavement gap) is COUNTED, never inferred from
+    # silence.
+    if membrane_pos:
+        _mem_local = {p for p in range(len(node_ids))
+                      if node_ids[p] in membrane_pos}
+        _mem_global = set(membrane_pos)
+        # COVERED MEANS COUPLED TO A RING-OR-SENIOR NODE, not merely
+        # "has an edge".  A lattice<->lattice edge is precisely the
+        # CHAIN of 50 m x cap budgets this whole law exists to price —
+        # counting it as coverage would make the guarantee vacuous.
+        # MEASURED on the weaker test: HECA/SPJC/CYXY reported ZERO
+        # orphans (every lattice node carries within-shape edges to its
+        # lattice neighbours) while item 1's void pair stayed unpriced.
+        _covered_g: set = set()
+        for (_ea, _eb) in existing:
+            a_m, b_m = int(_ea) in _mem_global, int(_eb) in _mem_global
+            if a_m and not b_m:
+                _covered_g.add(int(_ea))
+            elif b_m and not a_m:
+                _covered_g.add(int(_eb))
+        for r in rows:
+            ia, ib = r[2], r[3]
+            a_m, b_m = ia in _mem_global, ib in _mem_global
+            if a_m and not b_m:
+                _covered_g.add(ia)
+            elif b_m and not a_m:
+                _covered_g.add(ib)
+        _orphans = sorted(p for p in _mem_local
+                          if node_ids[p] not in _covered_g)
+        report["floor_orphans"] = len(_orphans)
+        # The TARGETS are the ring-or-senior nodes — every airside node
+        # of the k-NN population that is not itself membrane.  A
+        # membrane<->membrane floor edge would couple the lattice to
+        # itself, which is the coupling that already exists and the one
+        # that accumulates.
+        _tgt = [p for p in range(n_knn) if p not in _mem_local]
+        if _orphans and _tgt:
+            from scipy.spatial import cKDTree as _KDT
+            _tpts = np.asarray([coords[p] for p in _tgt], dtype=float)
+            _tree = _KDT(_tpts)
+            for p in _orphans:
+                near = _tree.query_ball_point(coords[p], r=float(window_m))
+                if not near:
+                    report["floor_unpriced"] += 1
+                    continue
+                order = sorted(
+                    near,
+                    key=lambda q: (math.hypot(_tpts[q][0] - coords[p][0],
+                                              _tpts[q][1] - coords[p][1]),
+                                   node_ids[_tgt[q]]))
+                got = None
+                for q in order:
+                    b = _tgt[q]
+                    ia, ib = node_ids[p], node_ids[b]
+                    if ((ia, ib) if ia < ib else (ib, ia)) in existing:
+                        got = "stated"
+                        break
+                    if not _chord_visible(union, coords[p], coords[b]):
+                        continue
+                    row = _price(p, b, count=False)
+                    if row is not None:
+                        rows.append(row)
+                        got = "priced"
+                        report["floor_edges"] += 1
+                        break
+                if got is None:
+                    report["floor_unpriced"] += 1
     report["enumerated"] = len(rows)
     _stash_enumeration(layout, {"rows": rows, "node_ids": node_ids,
                                 "coords": coords, "report": report,
@@ -581,7 +735,14 @@ def format_enumeration_report(icao: str, report: dict) -> str:
             f"over {report.get('airside_nodes', 0)} airside node(s) from "
             f"{report.get('candidates', 0)} k-nearest candidate(s) BEFORE "
             f"the band (unified law band §1.5c — ONE enumeration, shared "
-            f"by band, solver pass-2 and census)")
+            f"by band, solver pass-2 and census); COVERAGE FLOOR (§H1.1): "
+            f"{report.get('membrane_nodes', 0)} membrane node(s) "
+            f"({report.get('membrane_off_grid', 0)} of them carried NO "
+            f"unified-graph position at all), "
+            f"{report.get('floor_orphans', 0)} orphan(s) with no priced "
+            f"neighbour → {report.get('floor_edges', 0)} floor edge(s) "
+            f"added, {report.get('floor_unpriced', 0)} still unpriced "
+            f"(no lawful ring-or-senior neighbour inside the window)")
 
 
 def build_airside_no_step_constraints(
@@ -972,7 +1133,11 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
               "both_hard_left": 0, "tiers": {}, "crown_skipped": 0,
               "interval_skipped": 0, "interior": 0,
               "own_law_over_cap_left": 0,
-              "membrane_published_edges": 0}
+              "membrane_published_edges": 0,
+              # §H1.2 — the do-no-harm relaxation's own arithmetic.
+              "published_reimposed": 0, "own_law_relaxed": 0,
+              "own_law_relax_worst_m": 0.0, "own_law_grown": 0,
+              "own_law_grow_worst_m": 0.0}
     if not getattr(_cfg, "AIRSIDE_NO_STEP", False):
         return report
     carried, lost = _resolve_carried_pairs(layout, bucket_to_idx, n_nodes)
@@ -1027,26 +1192,64 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
     # inside the solve).  Resolved from their own sidecar publication —
     # the same list the census prices — so pass 2 re-imposes exactly the
     # budget the solve built to.
-    # …NOT IMPOSED THIS ROUND, and the reason is measured.  Pass 2 has
-    # every senior node frozen, so re-imposing a budget the MAIN solve
-    # already failed asks this pass to REPAIR a pre-existing violation
-    # with almost no freedom — and it pays for the repair out of the
-    # membrane's other laws.  Measured, every other ingredient identical:
-    # SPJC airside 1,359 -> 1,926 (``within_shape`` 9 -> 309,
-    # ``transverse`` 40 -> 132) and CYXY 132 -> 201 (``apron_lattice_
-    # membrane`` 24 -> 47, i.e. the very family the re-imposition was
-    # meant to protect got WORSE), because the conform moved 99 nodes by
-    # up to 3.24 m instead of 13 by up to 0.08 m.  The fix a ruling would
-    # choose is a DO-NO-HARM relaxation — each own-law budget raised to
-    # at least its pass-1 residual, so pass 2 can never WORSEN a pair but
-    # is never asked to repair one — and that is a Fable question, not
-    # this lane's to decide.  Reported in the lane report; the resolver
-    # below stays, unused, so the arm is one line away.
-    report["membrane_published_edges"] = len(
-        _resolve_published_ll_pairs(
-            layout, bucket_to_idx, n_nodes,
-            getattr(layout, "_apron_lattice_edges_ll", None)))
+    #
+    # WHY IT WAS NOT IMPOSED BEFORE, AND WHAT CHANGED (spec heca-round4
+    # §H1.2, the no-step spec Amendment 3 §2 CHARTER, activated by
+    # RULINGS 2026-08-28b item 2).  Pass 2 has every senior node frozen,
+    # so re-imposing a budget the MAIN solve already failed asked this
+    # pass to REPAIR a pre-existing violation with almost no freedom, and
+    # it paid for the repair out of the membrane's other laws: SPJC
+    # airside 1,359 -> 1,926 (``within_shape`` 9 -> 309), CYXY
+    # ``apron_lattice_membrane`` 24 -> 47 — the very family the
+    # re-imposition was meant to protect got WORSE.  The DO-NO-HARM
+    # RELAXATION is the ruled answer: every own-law budget is raised to
+    # AT LEAST its PASS-1 RESIDUAL, so
+    #
+    #     * pass 2 is never ASKED to repair a pre-existing violation
+    #       (the budget already admits the value pass 1 left), and
+    #     * pass 2 can never WORSEN one — the projection enforces
+    #       |dz| <= max(budget, pass-1 residual), so an own-law row's
+    #       residual after pass 2 is bounded by its residual before.
+    #
+    # That second line IS the do-no-harm invariant; ``own_law_grown`` is
+    # its measurement and ``tests/test_airside_no_step.py`` twins it.
+    _relax = bool(getattr(_cfg, "PASS2_RELAXATION", False))
+    _pub = _resolve_published_ll_pairs(
+        layout, bucket_to_idx, n_nodes,
+        getattr(layout, "_apron_lattice_edges_ll", None))
+    report["membrane_published_edges"] = len(_pub)
+    _n_pub_imposed = 0
+    if _relax:
+        for (a, b, bud) in _pub:
+            if a in crowned or b in crowned:
+                report["crown_skipped"] += 1
+                continue
+            if a in free or b in free:
+                own.append((int(a), int(b), float(bud)))
+                _n_pub_imposed += 1
+    report["published_reimposed"] = _n_pub_imposed
     report["own_law_edges"] = len(own)
+    # ── THE RELAXATION ITSELF ────────────────────────────────────────
+    # Budgets are raised HERE, once, from the pass-1 values still in
+    # ``elev`` (nothing below has moved a node yet).  ``own_law_pre`` is
+    # kept so the invariant can be MEASURED after the projection rather
+    # than argued.
+    own_law_pre = [(a, b, bud, abs(float(elev[a]) - float(elev[b])))
+                   for (a, b, bud) in own]
+    if _relax and own:
+        _n_rel = 0
+        _worst = 0.0
+        relaxed = []
+        for (a, b, bud, res) in own_law_pre:
+            if res > bud:
+                _n_rel += 1
+                _worst = max(_worst, res - bud)
+                relaxed.append((a, b, float(res)))
+            else:
+                relaxed.append((a, b, float(bud)))
+        own = relaxed
+        report["own_law_relaxed"] = _n_rel
+        report["own_law_relax_worst_m"] = round(_worst, 6)
     if not ns_edges and not own:
         return report
     entries = []
@@ -1128,6 +1331,25 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
         own_only = [e for e in entries if e.get("ref") != PROVENANCE]
         rem2, both2 = feasibility_project(elev, own_only, hard)
         report["own_law_over_cap_left"] = int(rem2 or 0)
+    # ── DO-NO-HARM, MEASURED (spec §H1.2's invariant) ────────────────
+    # For every own-law pair: its residual after pass 2 may not exceed
+    # max(its budget, its PASS-1 residual).  A pair inside its budget at
+    # pass 1 mints no census row and may move inside that budget; a pair
+    # ALREADY over cap has a relaxed budget equal to its own pass-1
+    # residual, so it cannot grow.  ``own_law_grown`` is therefore 0 by
+    # construction whenever the projection converged — reported, not
+    # argued, so a non-zero value is visible in the build log.
+    _tol = 1e-6
+    for (a, b, bud, res0) in own_law_pre:
+        try:
+            res1 = abs(float(elev[a]) - float(elev[b]))
+        except (TypeError, ValueError, IndexError):       # pragma: no cover
+            continue
+        ceil = max(float(bud), float(res0))
+        if res1 > ceil + _tol:
+            report["own_law_grown"] += 1
+            report["own_law_grow_worst_m"] = max(
+                report["own_law_grow_worst_m"], res1 - ceil)
     for i, v0 in before.items():
         d = abs(float(elev[i]) - v0)
         if d > 0.01:
@@ -1135,6 +1357,117 @@ def membrane_conform(layout, bucket_to_idx, elev, n_nodes, *,
         if d > report["worst_move_m"]:
             report["worst_move_m"] = d
     return report
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §H4 — THE TRANSVERSE PROFILE OBEYS NO-STEP ON ITS OWN RING
+# (spec docs/specs/heca-round4-spec.md §H4; RULINGS 2026-08-28b item
+# 5(a))
+# ══════════════════════════════════════════════════════════════════════
+#
+# The no-step spec Amendment 1 ruling 1 made tier2 <-> tier2 pairs
+# CENSUS-PRICED but not solver-imposed, and the reason was precise: a
+# CROSS-SHAPE tier2 pair is two authorities disagreeing, and imposing it
+# would make this law a third authority arbitrating between them.
+#
+# A pair BETWEEN TWO VERTICES OF ONE RING is not that.  It is ONE
+# authority — the taxiway-family shape's transverse writeback, the
+# centerline profile's own cross-section — disagreeing with ITSELF.
+# Measured (item 5(a)): junction -10250 stands +6.99 m over its own DEM
+# and reads 8.20 % ON ITS OWN RING at the road-carve lips, nodes
+# -3531/-3532 at 109.03-109.06 against -3533/-3535 at 108.37-108.44
+# eight metres away — five census rows, all ``junction|junction``
+# no-step.  The writeback may not mint that, so the pairs are clamped
+# to cap x DIRECT distance where both ends are vertices of one ring.
+#
+# CROSS-SHAPE SENIOR PAIRS REMAIN CENSUS-PRICED DOCKETS (§H4.1's own
+# sentence) — this selects the WITHIN-ONE-RING subset and nothing else.
+
+
+def taxiway_family_ring_owners(layout, bucket_to_idx, n_nodes):
+    """``{node_idx: frozenset(shape identity)}`` over TAXIWAY-FAMILY
+    shape EXTERIOR RINGS.
+
+    Identity is ``id(shape)`` — this map is built and consumed inside
+    one call, and a shape is its own identity for the length of it.
+    """
+    from .elevation_per_surface.solver_primitives import _open_ring
+    roles = taxiway_family_roles()
+    cps = layout.canonical_points
+    out: dict = {}
+    for s in (getattr(layout, "shapes", None) or ()):
+        if (getattr(s, "role", None) or "") not in roles:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            ring = _open_ring(list(poly.exterior.coords))
+        except _GEOM_EXC:                                 # pragma: no cover
+            continue
+        sid = id(s)
+        for (x, y) in ring:
+            i = bucket_to_idx.get(cps.get_or_add(float(x), float(y)))
+            if i is not None and 0 <= i < n_nodes:
+                got = out.get(int(i))
+                if got is None:
+                    out[int(i)] = {sid}
+                else:
+                    got.add(sid)
+    return out
+
+
+def within_ring_no_step_entries(layout, bucket_to_idx, n_nodes, *,
+                                stage_key=None, stage=None):
+    """``(entries, report)`` — the §H4 constraint entries.
+
+    The population is the ALREADY-ENUMERATED tier2 <-> tier2 pairs
+    (``imposed`` False in the carried publication — ONE enumeration, the
+    single-pass principle) whose two endpoints are vertices of ONE
+    taxiway-family ring.  Budgets are the published ones: cap x direct
+    distance, from ``classify_pair``.  Flag OFF ⇒ no entry, byte-inert.
+    """
+    from . import config as _cfg
+    report = {"carried": 0, "census_only": 0, "within_ring": 0,
+              "edges": 0, "lost": 0}
+    if not (getattr(_cfg, "AIRSIDE_NO_STEP", False)
+            and getattr(_cfg, "TRANSVERSE_NO_STEP", False)):
+        return [], report
+    carried, lost = _resolve_carried_pairs(layout, bucket_to_idx, n_nodes)
+    report["carried"] = len(carried)
+    report["lost"] = lost
+    cand = [(a, b, bud) for (a, b, bud, imp) in carried if not imp]
+    report["census_only"] = len(cand)
+    if not cand:
+        return [], report
+    owners = taxiway_family_ring_owners(layout, bucket_to_idx, n_nodes)
+    edges = []
+    for (a, b, bud) in cand:
+        oa = owners.get(int(a))
+        ob = owners.get(int(b))
+        if not oa or not ob or oa.isdisjoint(ob):
+            continue
+        edges.append((int(a), int(b), float(bud)))
+    report["within_ring"] = len(edges)
+    if not edges:
+        return [], report
+    entry = {"nodes": sorted({e[0] for e in edges} | {e[1] for e in edges}),
+             "edges": edges, "flat": False, "flat_pairs": (), "area": 0.0,
+             "role": "junction", "ref": "transverse_no_step"}
+    if stage_key is not None and stage is not None:
+        entry[stage_key] = stage
+    report["edges"] = len(edges)
+    return [entry], report
+
+
+def format_within_ring_report(icao: str, r: dict) -> str:
+    return (f"  [transverse-no-step] {icao}: {r.get('within_ring', 0)} of "
+            f"{r.get('census_only', 0)} census-only tier2<->tier2 no-step "
+            f"pair(s) lie WITHIN ONE taxiway-family ring and are IMPOSED "
+            f"in the final projection (spec §H4 — one authority "
+            f"disagreeing with itself, not two authorities disagreeing); "
+            f"the cross-shape remainder stays a census-priced docket "
+            f"(no-step spec Amendment 1 ruling 1)")
 
 
 def format_conform_report(icao: str, r: dict) -> str:
@@ -1146,7 +1479,14 @@ def format_conform_report(icao: str, r: dict) -> str:
             f"{r['pairs']} imposed no-step pair(s) + {r['own_law_edges']} "
             f"of the membrane's OWN law edge(s) "
             f"({r.get('membrane_published_edges', 0)} published "
-            f"lattice/station pair(s) NOT re-imposed — see the note); "
+            f"lattice/station pair(s), {r.get('published_reimposed', 0)} "
+            f"of them RE-IMPOSED under the §H1.2 do-no-harm relaxation — "
+            f"{r.get('own_law_relaxed', 0)} own-law budget(s) raised to "
+            f"their pass-1 residual, worst raise "
+            f"{r.get('own_law_relax_worst_m', 0.0):.3f} m; "
+            f"{r.get('own_law_grown', 0)} own-law row(s) grew beyond it "
+            f"(worst {r.get('own_law_grow_worst_m', 0.0):.4f} m) — the "
+            f"invariant is ZERO); "
             f"{r['reseeded']} node(s) "
             f"re-seeded on the taut scaffold (worst "
             f"{r['reseed_worst_m']:.2f} m over the {r.get('interior', 0)} "

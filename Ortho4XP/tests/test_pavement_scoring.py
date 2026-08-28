@@ -1930,3 +1930,252 @@ def test_osm_aerodrome_way_beats_row130_fallback():
     record = PS.score_shape(_rect(150.0, 0.0, 250.0, 50.0), layout)
     # inside the row-130 fence but outside the OSM fence ⇒ still gated
     assert "G-BOUNDARY" in record["gates"]
+
+
+# ═════════════════════════════════════════════════════════════════════
+# HECA ROUND 4 §H3 — ROAD-EVIDENCE SEVERANCE (the scorer's missing cut)
+# docs/specs/heca-round4-spec.md §H3; RULINGS 2026-08-28b item 3
+# ═════════════════════════════════════════════════════════════════════
+#
+# THE MEASURED SITE.  The owner's reference surgery removes 49,652 m²
+# (17.7 %) of HECA apron 582 whose ground the builder excavates 12.71 m
+# median below DEM (worst 15.17).  Source: two Tai-pack apt.dat pavements
+# unioned into the blob.  OSM maps NO apron and NO taxiway there — shape
+# 605 reads osm_taxi 0.0, so the AEROWAY cut is structurally blind to it
+# — but 5+ SERVICE ROADS, and ``road_cover`` 0.174 tracks the cut
+# fraction.  The scorer had no road/service severance at all.
+
+_BLOB = (0.0, 0.0, 400.0, 400.0)          # 160,000 m² — over the 50k bar
+_ROAD_BAND = (0.0, 0.0, 400.0, 25.0)      # 10,000 m² of it, road-covered
+
+
+def _sever_layout(with_taxi=False):
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON, ref="582")
+    layout = _layout([blob])
+    apron_ev = box(0.0, 100.0, 400.0, 400.0)      # the airside majority
+    taxi_parts = [box(0.0, 90.0, 400.0, 100.0)] if with_taxi else []
+    layout._pavement_class_sources = PC.EvidenceSources(
+        road_corridors=PC.CoverIndex([box(*_ROAD_BAND)]),
+        osm_apron=PC.CoverIndex([apron_ev]),
+        osm_taxi=PC.CoverIndex(taxi_parts),
+        parking_corridors=PC.CoverIndex([box(*_ROAD_BAND)]),
+        n_road_ways=40,
+    )
+    return layout, blob
+
+
+def test_H3_the_flag_is_RETIRED_KEPT_GATED_off_with_its_measurement():
+    """Spec Amendment 1 §1: §H3 ships DEFAULT-OFF, machinery and twins
+    RETAINED as the scorer-v2 docket's starting point.  The repo's
+    retired-kept-gated idiom — the gated mechanism carries the
+    measurement that gated it, so the finding is not hidden and a ruling
+    has an arm to be made on."""
+    import auto_patch.config as CFG
+    from pathlib import Path as _P
+    assert CFG.ROAD_EVIDENCE_SEVER is False
+    src = _P(CFG.__file__).read_text()
+    i = src.index("ROAD_EVIDENCE_SEVER = (")
+    note = src[max(0, i - 2200):i]
+    assert "0.8221" in note, (
+        "a gated-off mechanism must carry the measurement that gated it")
+    assert "0.90 bar" in note
+    assert "+435" in note, "…and its census cost on every airport"
+    assert "SCORER'S VERDICT ON THE SEVERED PIECE" in note, (
+        "…and the docket it becomes")
+
+
+def _sever_on(monkeypatch):
+    """§H3 is default-OFF (Amendment 1 §1); every twin that exercises the
+    ROAD cut arms it explicitly.  The flag is read at CALL time, so this
+    is the whole arming."""
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "ROAD_EVIDENCE_SEVER", True, raising=False)
+
+
+def test_H3_a_mapped_service_road_zone_inside_an_apron_blob_is_SEVERED(
+        monkeypatch):
+    """§H3.1: *"a shape >= the standing min-area whose road/service cover
+    exceeds the standing mix fraction on a coherent sub-region is SEVERED
+    there and the pieces re-scored on their own evidence"*.  The
+    aeroway cut cannot see this site — ``osm_taxi`` is empty."""
+    _sever_on(monkeypatch)
+    layout, blob = _sever_layout(with_taxi=False)
+    n = PS.sever_mixed_aeroway(layout)
+    assert n == 1
+    fired = layout._aeroway_sever_fired
+    assert len(fired) == 1 and "road×" in fired[0][3]
+    # the partition is complete and the road band is its own piece
+    assert len(layout.shapes) >= 2
+    total = sum(s.polygon.area for s in layout.shapes)
+    assert total == pytest.approx(blob.polygon.area, rel=1e-3)
+    road_piece = [s for s in layout.shapes
+                  if s.polygon.bounds[3] <= 26.0]
+    assert road_piece, "the mapped road zone did not become its own shape"
+    assert all(getattr(s, "from_severance_cut", False)
+               for s in layout.shapes)
+
+
+def test_H3_the_severed_piece_scores_GROUNDSIDE_on_its_own_evidence(
+        monkeypatch):
+    """"…the mapped service-road zone inside blob 605 gets its own
+    GROUNDSIDE verdict instead of being outvoted by the airside 82 %."
+    """
+    _sever_on(monkeypatch)
+    layout, _blob = _sever_layout()
+    PS.sever_mixed_aeroway(layout)
+    PS.shadow_classify(layout, icao="TEST")
+    by_piece = {}
+    for rec in layout.pavement_score_decisions:
+        by_piece[round(rec["features"]["road_cover"], 2)] = rec["winner"]
+    assert PS.CLASS_GROUNDSIDE in by_piece.values(), (
+        "the road-evidence piece was still outvoted by the airside "
+        "majority — the severance bought nothing")
+
+
+def test_H3_it_is_the_ONE_cutter_with_the_STANDING_constants():
+    """"extend the ONE existing cutter, never a second", and with the
+    standing min-area / mix-fraction / piece-floor constants — no new
+    number is minted for this evidence layer."""
+    import inspect
+    src = inspect.getsource(PS.sever_mixed_aeroway)
+    assert "PAVEMENT_SCORE_AEROWAY_SEVER_MIN_M2" in src
+    assert "PAVEMENT_SCORE_AEROWAY_PIECE_MIN_M2" in src
+    assert "PAVEMENT_SCORE_AEROWAY_SEVER_MIX_FRAC" in src
+    # exactly one severance entry point for the mixed-evidence class
+    mod = inspect.getsource(PS)
+    assert mod.count("def sever_mixed_aeroway") == 1
+    assert "def sever_mixed_road" not in mod
+
+
+def test_H3_a_shape_below_the_min_area_is_not_cut(monkeypatch):
+    _sever_on(monkeypatch)
+    small = BuiltShape(polygon=_rect(0.0, 0.0, 100.0, 100.0),
+                       role=ROLE_APRON)
+    layout = _layout([small])
+    layout._pavement_class_sources = PC.EvidenceSources(
+        road_corridors=PC.CoverIndex([box(0.0, 0.0, 100.0, 30.0)]),
+        osm_apron=PC.CoverIndex([box(0.0, 30.0, 100.0, 100.0)]),
+        n_road_ways=5,
+    )
+    assert PS.sever_mixed_aeroway(layout) == 0
+    assert layout.shapes == [small]
+
+
+def test_H3_a_sub_region_under_the_piece_floor_is_not_cut(monkeypatch):
+    """A road crossing a blob is not a service ZONE: under the standing
+    piece floor it stays welded to the parent, exactly as the aeroway
+    cut treats a sliver."""
+    _sever_on(monkeypatch)
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout = _layout([blob])
+    layout._pavement_class_sources = PC.EvidenceSources(
+        road_corridors=PC.CoverIndex([box(0.0, 0.0, 400.0, 4.0)]),
+        osm_apron=PC.CoverIndex([box(0.0, 10.0, 400.0, 400.0)]),
+        n_road_ways=5,
+    )
+    assert PS.sever_mixed_aeroway(layout) == 0
+
+
+def test_H3_aeroway_mapped_ground_is_never_road_evidence(monkeypatch):
+    """Where the aeroway layer speaks it is the AUTHORITY: the road zone
+    is road cover MINUS every aeroway-mapped area, so the aeroway cut
+    keeps firing exactly where it fired before."""
+    _sever_on(monkeypatch)
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout = _layout([blob])
+    # the road band is ENTIRELY inside mapped apron: no road zone left
+    layout._pavement_class_sources = PC.EvidenceSources(
+        road_corridors=PC.CoverIndex([box(*_ROAD_BAND)]),
+        osm_apron=PC.CoverIndex([box(0.0, 0.0, 400.0, 400.0)]),
+        n_road_ways=5,
+    )
+    assert PS.sever_mixed_aeroway(layout) == 0
+
+
+def test_H3_flag_OFF_is_the_aeroway_cut_alone(monkeypatch):
+    import auto_patch.config as CFG
+    monkeypatch.setattr(CFG, "ROAD_EVIDENCE_SEVER", False, raising=False)
+    layout, blob = _sever_layout(with_taxi=False)
+    assert PS.sever_mixed_aeroway(layout) == 0
+    assert layout.shapes == [blob], (
+        "flag OFF must leave the shape untouched — the byte-identical "
+        "prior")
+
+
+def test_H3_the_aeroway_cut_is_unchanged_where_it_fired_before(monkeypatch):
+    """§Shared's preserved prior: the aeroway severance still fires on
+    the mixed-mapping blob, with or without the road layer."""
+    import auto_patch.config as CFG
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout = _layout([blob])
+    layout._pavement_class_sources = PC.EvidenceSources(
+        osm_apron=PC.CoverIndex([box(0.0, 200.0, 400.0, 400.0)]),
+        osm_taxi=PC.CoverIndex([box(0.0, 0.0, 400.0, 190.0)]),
+    )
+    monkeypatch.setattr(CFG, "ROAD_EVIDENCE_SEVER", False, raising=False)
+    assert PS.sever_mixed_aeroway(layout) == 1
+    n_off = len(layout.shapes)
+    blob2 = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout2 = _layout([blob2])
+    layout2._pavement_class_sources = PC.EvidenceSources(
+        osm_apron=PC.CoverIndex([box(0.0, 200.0, 400.0, 400.0)]),
+        osm_taxi=PC.CoverIndex([box(0.0, 0.0, 400.0, 190.0)]),
+    )
+    monkeypatch.setattr(CFG, "ROAD_EVIDENCE_SEVER", True, raising=False)
+    assert PS.sever_mixed_aeroway(layout2) == 1
+    assert len(layout2.shapes) == n_off
+    assert "aeroway×" in layout2._aeroway_sever_fired[0][3]
+
+
+def test_H3_a_road_zone_that_BISECTS_the_parent_is_NOT_severed(
+        monkeypatch):
+    """A ROAD ZONE IS A BITE, NEVER A BISECTION.  MEASURED (this lane's
+    HECA single-flag arm): with any coherent road component eligible the
+    cut fired on 9 big aprons and the census went 7,066 -> 12,567 —
+    ``within_shape`` +1,679, ``airside_no_step`` +3,309 — because a
+    service road CROSSING an apron splits it into two halves that then
+    grade as independent authorities and step at the cut.  That is the
+    standing FREE-ROAD ruling read from the other side ("roads inside,
+    or edge-sharing, an apron ARE the apron").  The owner's reference
+    surgery removes a CONTIGUOUS BOUNDARY REGION of apron 582 (72 ring
+    vertices removed, ONE added) — a bite out of the edge."""
+    _sever_on(monkeypatch)
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout = _layout([blob])
+    layout._pavement_class_sources = PC.EvidenceSources(
+        # a road band straight across the MIDDLE: it bisects
+        road_corridors=PC.CoverIndex([box(0.0, 180.0, 400.0, 220.0)]),
+        osm_apron=PC.CoverIndex([box(0.0, 0.0, 400.0, 170.0),
+                                 box(0.0, 230.0, 400.0, 400.0)]),
+        n_road_ways=40,
+    )
+    assert PS.sever_mixed_aeroway(layout) == 0
+    assert layout.shapes == [blob]
+
+
+def test_H3_a_boundary_bite_IS_severed_and_the_remainder_stays_one_piece(
+        monkeypatch):
+    _sever_on(monkeypatch)
+    layout, blob = _sever_layout(with_taxi=False)
+    assert PS.sever_mixed_aeroway(layout) == 1
+    from shapely.ops import unary_union as _uu
+    aprons = [s for s in layout.shapes if s.role == ROLE_APRON]
+    rest = [s for s in aprons if s.polygon.bounds[3] > 26.0]
+    merged = _uu([s.polygon for s in rest])
+    assert merged.geom_type == "Polygon", (
+        "the airside remainder fragmented — that is the bisection class")
+
+
+def test_H3_the_AEROWAY_cut_may_still_bisect():
+    """The 2026-07-29 ruling's whole point: a mapped taxiway corridor
+    legitimately runs THROUGH a mega-apron and IS severed there.  The
+    bite rule is scoped to the road zone alone."""
+    blob = BuiltShape(polygon=_rect(*_BLOB), role=ROLE_APRON)
+    layout = _layout([blob])
+    layout._pavement_class_sources = PC.EvidenceSources(
+        osm_taxi=PC.CoverIndex([box(0.0, 155.0, 400.0, 245.0)]),
+        osm_apron=PC.CoverIndex([box(0.0, 0.0, 400.0, 150.0),
+                                 box(0.0, 250.0, 400.0, 400.0)]),
+    )
+    assert PS.sever_mixed_aeroway(layout) == 1
+    assert len(layout.shapes) >= 3

@@ -49,6 +49,20 @@ THE CLASSES, in the precedence they are applied:
     venv/bin/python tools/apron_pull_attrib.py PATCH.osm
         [--lift-m 2.0] [--near-dem-m 0.5] [--limit 200] [--json OUT]
         [--compare WEEK_AGO.osm]
+
+THE ``--way`` / ``--site`` SCOPE (promoted 2026-08-28 from the hecar2
+lane's ``tmp/way_authority_read.py`` on its SECOND use, RULINGS
+``7e90032``: extend a near-fit, never fork it).  The default scope above
+SELECTS — apron-interior nodes the scaffold lifted and the build shipped
+near the terrain.  This scope selects NOTHING: it asks the same questions
+of a way the owner NAMED, whatever its role and wherever it sits, and
+prints per node the emitted value, the DEM under it, every enforced edge
+the sidecar recorded with its budget and whether that edge is TIGHT at
+exit, and the sidecar's own clamp / apron-seniority records.  Same
+loaders (``load_arm``), same frame, no second instrument.
+
+    venv/bin/python tools/apron_pull_attrib.py PATCH.osm
+        --way -10250 [--way ...] [--site LAT,LON --radius M] [--json OUT]
 """
 
 from __future__ import annotations
@@ -268,6 +282,112 @@ def run(patch: Path, *, lift_m: float, near_dem_m: float, limit: int,
             "selected": len(rows), "distribution": dist, "rows": rows}
 
 
+#: |dz| within this of an edge's own budget = the edge is TIGHT at exit.
+WAY_TIGHT_TOL_M = 0.02
+
+
+def way_authority(arm: dict, patch: Path, *, ways=(), site=None,
+                  radius_m: float = 40.0) -> list:
+    """WHO AUTHORS THE VALUES ON THESE WAYS — one record per way.
+
+    ``ways`` is a set of emitted way ids; ``site`` is ``(lat, lon)`` and
+    selects every way with a node inside ``radius_m`` of it.  Both empty
+    ⇒ every way (use ``--json`` for that).  This derives no law and
+    counts no defects: defect counts come from ``tools/harness/census.py``
+    and nowhere else.
+    """
+    nodes, ways_parsed = CG._parse_osm(patch)
+    side = arm["side"]
+    want = {int(w) for w in ways}
+    site_m = None if site is None else arm["ll_to_m"](site[0], site[1])
+    senior = set()
+    for row in (side.get("apron_seniority") or []):
+        try:
+            k = _key(row[0], row[1])
+        except Exception:                                 # pragma: no cover
+            continue
+        if k in arm["by_key"]:
+            senior.add(arm["by_key"][k])
+    out = []
+    for w in ways_parsed:
+        if want and int(w.wid) not in want:
+            continue
+        nids = (w.nids[:-1] if (len(w.nids) > 1 and w.nids[0] == w.nids[-1])
+                else w.nids)
+        if site_m is not None and not want:
+            if not any(
+                    math.hypot(*(c - s for c, s in zip(
+                        arm["ll_to_m"](*nodes[nid]), site_m))) <= radius_m
+                    for nid in nids if nid in nodes):
+                continue
+        rec = {"way": int(w.wid), "role": w.tags.get("role") or "",
+               "ref": w.tags.get("ref") or "",
+               "shapeID": w.tags.get("shapeID") or "", "nodes": []}
+        for nid in nids:
+            if nid not in nodes:
+                continue
+            la, lo = nodes[nid]
+            z = arm["z"].get(nid)
+            d = arm["dem"].get(nid)
+            edges = []
+            for (m, bud) in arm["adj"].get(nid, []):
+                zm = arm["z"].get(m)
+                if z is None or zm is None:
+                    continue
+                dz = abs(z - zm)
+                edges.append({"to": m, "to_role": arm["role"].get(m, ""),
+                              "to_z": round(zm, 3), "budget": round(bud, 3),
+                              "dz": round(dz, 3),
+                              "tight": bool(dz >= bud - WAY_TIGHT_TOL_M),
+                              "over": round(dz - bud, 3),
+                              "to_dem": (round(arm["dem"][m], 2)
+                                         if m in arm["dem"] else None)})
+            edges.sort(key=lambda e: -e["over"])
+            rec["nodes"].append({
+                "id": nid, "ll": [la, lo],
+                "z": (round(z, 3) if z is not None else None),
+                "dem": (round(d, 2) if d is not None else None),
+                "z_minus_dem": (round(z - d, 2)
+                                if (z is not None and d is not None)
+                                else None),
+                "clamped": nid in arm["clamped"], "senior": nid in senior,
+                "n_edges": len(edges),
+                "tight_edges": [e for e in edges if e["tight"]][:6]})
+        out.append(rec)
+    return out
+
+
+def print_way_authority(recs: list) -> None:
+    for rec in recs:
+        print(f"\n=== way {rec['way']} role={rec['role'] or '-'} "
+              f"ref={rec['ref'] or '-'} shapeID={rec['shapeID']} "
+              f"({len(rec['nodes'])} nodes)")
+        zs = [n["z"] for n in rec["nodes"] if n["z"] is not None]
+        ds = [n["dem"] for n in rec["nodes"] if n["dem"] is not None]
+        dd = [n["z_minus_dem"] for n in rec["nodes"]
+              if n["z_minus_dem"] is not None]
+        if zs and ds and dd:
+            print(f"    emitted {min(zs):.2f}..{max(zs):.2f}   "
+                  f"DEM {min(ds):.2f}..{max(ds):.2f}   "
+                  f"z-DEM median {sorted(dd)[len(dd) // 2]:+.2f} "
+                  f"(min {min(dd):+.2f}, max {max(dd):+.2f})")
+        print(f"    clamped={sum(1 for n in rec['nodes'] if n['clamped'])} "
+              f"senior={sum(1 for n in rec['nodes'] if n['senior'])}")
+        for n in rec["nodes"]:
+            te = n["tight_edges"]
+            print(f"    {n['id']:>7} {n['ll'][0]:.7f},{n['ll'][1]:.7f} "
+                  f"z={n['z']} dem={n['dem']} "
+                  f"d={(n['z_minus_dem'] if n['z_minus_dem'] is not None else 0.0):+.2f} "
+                  f"edges={n['n_edges']} tight={len(te)}"
+                  f"{' CLAMPED' if n['clamped'] else ''}"
+                  f"{' SENIOR' if n['senior'] else ''}")
+            for e in te[:3]:
+                print(f"          -> {e['to']:>7} "
+                      f"{e['to_role'] or '-':<16} z={e['to_z']} "
+                      f"dem={e['to_dem']} dz={e['dz']} "
+                      f"budget={e['budget']}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("patch", type=Path)
@@ -277,7 +397,31 @@ def main(argv=None) -> int:
     ap.add_argument("--dem-source", default="airport-inset",
                     choices=("airport-inset", "base"))
     ap.add_argument("--json", type=Path, default=None)
+    # THE PROMOTED SCOPE (RULINGS 7e90032, second use).
+    ap.add_argument("--way", action="append", default=[],
+                    help="emitted way id to read (repeatable); switches "
+                         "to the WAY-AUTHORITY scope")
+    ap.add_argument("--site", default=None,
+                    help="LAT,LON — read every way with a node within "
+                         "--radius of it (WAY-AUTHORITY scope)")
+    ap.add_argument("--radius", type=float, default=40.0)
     a = ap.parse_args(argv)
+
+    if a.way or a.site:
+        arm = load_arm(a.patch, dem_source=a.dem_source)
+        site = None
+        if a.site:
+            la, lo = (float(v) for v in a.site.split(","))
+            site = (la, lo)
+        recs = way_authority(arm, a.patch, ways=a.way, site=site,
+                             radius_m=a.radius)
+        print("=== WAY AUTHORITY READ === "
+              "(no law priced, no defect counted — census.py owns counts)")
+        print_way_authority(recs)
+        if a.json:
+            a.json.write_text(json.dumps(recs, indent=1))
+            print(f"\n  wrote {a.json}")
+        return 0
 
     rep = run(a.patch, lift_m=a.lift_m, near_dem_m=a.near_dem_m,
               limit=a.limit, dem_source=a.dem_source)

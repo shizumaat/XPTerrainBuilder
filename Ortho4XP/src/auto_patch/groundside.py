@@ -2884,17 +2884,59 @@ def road_airside_crossing_contacts(layout, icao: str = "") -> dict:
 # census cannot move: every value this pass writes is one no airside ring
 # reads.
 
-def _road_vertex_graph(layout):
+def _road_vertex_graph(layout, freeze_stats=None):
     """``(keys, xy, adj, frozen, rings)`` over the ROAD FAMILY.
 
     ``keys[i]`` is the millimetre vertex identity (``emit_decimate._key``,
     the one identity convention in this repo — never proximity);
     ``adj`` is the ring-edge graph with its metre lengths, so a weld
     between a road and the junction it feeds is ONE node by identity;
-    ``frozen`` is the subset any NON-road shape also carries.
+    ``frozen`` is the subset a non-road VALUE AUTHORITY also carries.
+
+    ── §H2: THE FREEZE IS NARROWED, NEVER WIDENED ────────────────────
+    (spec docs/specs/heca-round4-spec.md §H2, the road-crossing spec
+    Amendment 4 its Amendment 2 §3 promised; RULINGS 2026-08-28b item
+    5(b).)  The freeze used to cover a vertex ANY non-road shape
+    carries.  Measured at service_junction -10774: the graded_strip-
+    shared pair froze at 106.74/106.87 beside the airside-shared pair at
+    108.41/108.48 — 123.11 % ON THE ROAD'S OWN RING, and patch-wide 290
+    road-family rows >= 1.0 m / 313 >= 20 %, the owner's "disconnected
+    roads with cliffs" class.
+
+    A GRADED STRIP IS NOT AN AUTHORITY.  ``layout.SOFT_RECEIVER_ROLES``
+    is the engine's ONE register of the roles whose values ADOPT from
+    the shapes they weld to (graded_strip, the clearance cuts, retaining
+    walls, the boundary ribbon, OLS cuts, object pads) — the same
+    register ``to_osm``'s single-authority emit consensus uses to let the
+    AUTHORITY's value win a shared node verbatim.  So a road vertex
+    shared only with soft receivers is ADOPTABLE: the road writes it,
+    and the emit consensus already hands the receiver the road's value
+    (no new welding machinery — the landed mechanism runs on the adopted
+    values, §H2.1).  Everything else still freezes: airside pavement
+    (the acceptance gate — airside is king and cannot move), and every
+    other non-road VALUE AUTHORITY, whose own claim would otherwise be
+    contradicted at a node it authors.
+
+    ``freeze_stats`` (optional dict) receives the breakdown: how many
+    vertices each class froze, and how many the narrowing released.
     """
     from .emit_decimate import _key as _vkey
     from .grade_law import LATERAL_CONTIGUITY_ROAD_ROLES as _ROAD
+    from .config import ADOPT_FREEZE_AIRSIDE_ONLY as _NARROW
+    from .layout import (SOFT_RECEIVER_ROLES as _SOFT_REG,
+                         ROLE_GROUNDSIDE_PAVEMENT as _GS_PAV)
+    from .enclaves import ENCLAVE_AIRSIDE_ROLES as _AIRSIDE
+    # THE ADOPTABLE CLASS: the soft-receiver register PLUS the
+    # groundside LOT.  A lot is a receiver of the road's value BY THE
+    # PIPELINE'S OWN ORDERING — ``adopt_road_airside_crossing_values``
+    # is called between ``seat_service_pavement_on_law`` and
+    # ``seat_groundside_on_law`` for exactly that reason ("a lot welded
+    # to a road reads that road's value, so the road has to carry its
+    # adopted law before the lot reads it").  MEASURED at HECA with the
+    # lot excluded: 0 vertices released, because every strip-shared road
+    # vertex there is ALSO welded into a lot — the narrowing was inert
+    # at the very site (service_junction -10774) it was written for.
+    _SOFT = frozenset(_SOFT_REG) | {_GS_PAV}
     idx: dict = {}
     xy: list = []
     adj: dict = {}
@@ -2931,8 +2973,12 @@ def _road_vertex_graph(layout):
             adj.setdefault(b, []).append((a, d))
         rings.append((s, ids))
     frozen: set = set()
+    by_airside: set = set()
+    by_other_authority: set = set()
+    by_soft: set = set()
     for s in (getattr(layout, "shapes", None) or ()):
-        if getattr(s, "role", None) in _ROAD:
+        role = getattr(s, "role", None)
+        if role in _ROAD:
             continue
         poly = getattr(s, "polygon", None)
         if poly is None or getattr(poly, "is_empty", True):
@@ -2943,10 +2989,38 @@ def _road_vertex_graph(layout):
                 coords += list(r.coords)
         except _GEOM_EXC:                                  # pragma: no cover
             continue
+        if role in _AIRSIDE:
+            bucket = by_airside
+        elif role in _SOFT:
+            bucket = by_soft
+        else:
+            bucket = by_other_authority
         for (x, y) in coords:
             i = idx.get(_vkey(float(x), float(y)))
             if i is not None:
-                frozen.add(i)
+                bucket.add(i)
+    if _NARROW:
+        # THE NARROWED FREEZE: authorities only.  A vertex a soft
+        # receiver ALSO carries is frozen when an authority carries it
+        # too — the freeze narrows, it never widens.
+        frozen = by_airside | by_other_authority
+    else:
+        frozen = by_airside | by_other_authority | by_soft
+    if freeze_stats is not None:
+        freeze_stats.update({
+            "narrowed": bool(_NARROW),
+            "by_airside": len(by_airside),
+            "by_other_authority": len(by_other_authority),
+            "by_soft": len(by_soft),
+            # What the narrowing actually RELEASED: vertices only a soft
+            # receiver held.
+            "released": len(by_soft - by_airside - by_other_authority),
+            # …and what a strictly airside-only freeze (the §H2.1 text
+            # read to its widest) would release ON TOP of that, so the
+            # number is on the table rather than inferred.
+            "other_authority_only": len(
+                by_other_authority - by_airside),
+        })
     return idx, xy, adj, frozen, rings
 
 
@@ -3025,15 +3099,18 @@ def adopt_road_airside_crossing_values(layout, icao: str = "") -> dict:
                          SERVICE_ROAD_MAX_GRADE as _CAP)
     import O4_UI_Utils as UI
     out = {"crossings": 0, "mouths": 0, "seeded": 0, "moved": 0,
-           "worst_m": 0.0, "frozen": 0}
+           "worst_m": 0.0, "frozen": 0, "freeze": {}}
     recs = (getattr(layout, "_airside_crossings", None) or []) if _ON else []
     if not recs:
         return out
-    idx, xy, adj, frozen, rings = _road_vertex_graph(layout)
+    _fstats: dict = {}
+    idx, xy, adj, frozen, rings = _road_vertex_graph(layout,
+                                                     freeze_stats=_fstats)
     if not xy:
         return out
     out["crossings"] = len(recs)
     out["frozen"] = len(frozen)
+    out["freeze"] = _fstats
     # Current values, per vertex, from the rings that carry them.
     cur: dict = {}
     for (s, ids) in rings:
@@ -3165,8 +3242,13 @@ def adopt_road_airside_crossing_values(layout, icao: str = "") -> dict:
         f"surface, {out['seeded']} road vertex/vertices seated at them, "
         f"{out['moved']} road vertex/vertices re-levelled under the "
         f"{100.0 * _CAP:.0f} % road cap (worst {out['worst_m']:.3f} m); "
-        f"{out['frozen']} vertex/vertices FROZEN because a non-road shape "
-        f"also carries them — airside is king, by construction.")
+        f"{out['frozen']} vertex/vertices FROZEN because a non-road VALUE "
+        f"AUTHORITY also carries them ({_fstats.get('by_airside', 0)} "
+        f"airside — airside is king, by construction; "
+        f"{_fstats.get('other_authority_only', 0)} other authority only), "
+        f"and {_fstats.get('released', 0)} soft-receiver vertex/vertices "
+        f"RELEASED by the §H2 narrowing "
+        f"(narrowed={_fstats.get('narrowed', False)}).")
     return out
 
 # ═════════════════════════════════════════════════════════════════════════

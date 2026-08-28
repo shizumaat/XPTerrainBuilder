@@ -4095,3 +4095,41 @@ attribution instrument.
 * **§T4.2 acceptance NOT met**: isolated corridor rects 31 → 31 (LEMD),
   10 → 10 (OTHH).  Mechanism named, fix is a design question — see the
   round report.
+
+## HECA round 4 (spec `heca-round4-spec.md` §H1-§H4, lane `lane/hround4`)
+
+* **§H3's acceptance is NOT met and the mechanism is net-negative.**
+  `IoU(retained, reference)` for apron 582 against the owner's reference
+  surgery is **0.8221** against the spec's ≥ 0.90 bar; the build cuts
+  111 m² of the 49,648 m² the owner removed, and after the anti-bisection
+  rule the severance no longer fires at the item-3 site at all.  Cost, on
+  matched single-variable arms: HECA +61, SPJC +37, LEMD +435 adjudicated
+  rows.  `O4_ROAD_EVIDENCE_SEVER` ships DEFAULT ON as the spec states;
+  the default is a Fable question and the numbers for it are in the round
+  report.
+* **§H2's acceptance is NOT met.**  The freeze narrows and releases 4,212
+  HECA road vertices (CYXY 262, SPJC 108), but the item-5(b) site is
+  unchanged (4 → 5 rows, worst 1.71 → 1.81 m) and the patch-wide
+  road-family cliff class GROWS (≥ 1.0 m: 906 → 993; ≥ 20 %: 363 → 414).
+  A strict airside-EXACT reading is also not met on the §H2-only arm
+  (`within_shape` −19, `transverse` −14, `airside_no_step` +13 — net −20,
+  churn on both sides).  Attempt cap reached.
+* **§H1.3's void-pair repair target is NOT met.**  The item-1 pair is now
+  PRICED (the guarantee) and its worst |de| falls 1.41 → 1.01 m, but the
+  bar was ≤ 1.5 % over 18.5 m ≈ 0.28 m.
+* **§H1.2's T-site target is NOT met**: item 2 goes 8 rows / worst 0.70 m
+  → 18 rows / worst 1.10 m.  The relaxation's own invariant IS met
+  (own-law rows growing past `max(budget, pass-1 residual)`: worst
+  3.08 m → 0.0010 m, under the materiality floor).
+* **§H1.1 costs +396 adjudicated at HECA on its own arm**, of which
+  `airside_no_step` +252 is UN-BLINDING (196 floor edges the census now
+  prices) and `within_shape` +95 / `transverse` +21 / `mid_edge_step` +21
+  is real new surface damage from the solver building to them.  Not
+  root-caused; attempt cap reached.
+* **Per-flag decomposition run at HECA only.**  SPJC/CYXY/LEMD carry
+  all-ON and (SPJC/LEMD) no-§H3 arms only.
+* **No full-suite run** (pre-ship mode): the directly-covering files were
+  run once.  `tests/test_service_corridor_round.py::TestCorridorAware
+  WidthRead::test_the_service_adjacency_feature_is_live` is FLAKY under
+  xdist (1 of 3 combined runs; passes in isolation and at the base tree)
+  — recorded, not attributed.

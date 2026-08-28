@@ -27,7 +27,43 @@ do not invent a slope). Rim, walls, and the committed basin arc invariants
 0.000000 m — see memory lemd-aerosoft-patch-ground-truth) are untouched;
 any change to them is a STOP, not a side effect.
 
-## Acceptance
+## AMENDMENT 1 (Fable, 2026-08-28, on lane/lemdtrench's STOP report)
+
+The lane proved region-completion is the WRONG LEVER: the facility ring is
+the single measurement body (floor value, rim value, pad coverage, R_mesh
+group-seat band all read from it), so growing it moved floor 587.75→588.69,
+rim 600.51→600.47, un-flattened the building8 pad, and drifted G
+596.682→597.492 — and the widened pan was differenced away by earlier-born
+shapes regardless (probes 5.14/2.51 m, worse than control). That machinery
+stays committed DEFAULT-OFF (retired-kept-gated; its ledger is the evidence).
+
+RULED design:
+1. The ADMITTED region/ring is untouched. All committed reads stand.
+2. The fix is at EMIT: a RAMP-REACH FLOOR PLATE — a corridor polygon from
+   the current floor edge through the owner's target point (width bounded
+   by the ramp span it serves), emitted as `tunnel_trench` floor at the
+   region's floor value (587.75), with the `object_basin_rim` band
+   STANDING DOWN inside the corridor only (differenced there, untouched
+   elsewhere). The plate must survive differencing: it is born senior to
+   the rim band within its corridor; it must NOT reach the apron or the
+   building8 pad (the target sits 4 m short of both — clip defensively).
+3. Instrument protection: the G=596.682 acceptance is re-read on the
+   admitted ring exactly as committed; if the corridor plate falls inside
+   R_mesh's sample band, the re-read excludes the plate (sample the
+   pre-plate surface). If the instrument cannot exclude it, STOP and
+   report — do not re-baseline G.
+
+## Acceptance (amended)
+
+- Both owner probes at 0.00 m ON THE EMITTED FLOOR PLATE.
+- Floor value stays 587.75; rim stays 600.51 outside the corridor;
+  building8 pad stays flat at 600.51.
+- G acceptance reproduces the committed value (with plate excluded per §3).
+- LEMD census not worsened; the region-arm's artifact classes
+  (within_shape +18, terrace_joint_route 11.777 m) must NOT appear.
+- Controls (HECA byte-identical; SPJC byte-identical) hold.
+
+## Original acceptance (superseded by Amendment 1)
 
 - Rebuilt LEMD patch: floor polygon covers a probe at 40.4924064,-3.569366;
   `osm_site.py --at` shows `object_basin_trench` at 0 m from both owner

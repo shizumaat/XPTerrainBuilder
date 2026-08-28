@@ -115,3 +115,60 @@
 - Convergence guards: materiality 0.01 m, attempt cap 2, STOP on
   second miss, heartbeat; no shared-repo writes; no timing claims;
   build-time statement.
+
+## Amendment 1 (Fable, 2026-08-28 — rulings on the lane's two STOPs;
+## attempt cap resets for §B/§C, cap 2)
+
+Measured (lane/lemdrim 143d76bc): §A/§D complete (on-edge 144 → 0,
+feature×ring needle pairs 0 at all five airports, rim 338/338, OFF
+byte-identical). Two residuals:
+
+1. **A PAD RING IS A STAND-DOWN HOST FOR EVERY WELD — a pad is ONE
+   flat value by definition.** The §B rim/pan rings ran along
+   building8's yielded pad ring and the final weld inserted their
+   nodes into it: 19 nodes at one value → 71 at three (600.50/596.30/
+   587.75), LEMD census 3205 → 4781 with 1,421 building|building rows
+   to 12.75 m. Ruling: the weld machinery (the §A inserter AND the
+   generic final weld) treats ANY building-pad ring as a stand-down
+   host — foreign-valued nodes are NEVER inserted into a pad ring
+   (this is the flatness invariant §1.1 of pads-as-band-variables
+   already states, enforced at the geometry layer). Rim/pan geometry
+   may ABUT the pad ring; ownership of the rim band stands (§B
+   unchanged); only the node insertion is forbidden. The
+   Amendment-3 wall-setback mechanics are untouched. Expected: LEMD
+   census returns to its §B-lawful level with rim coverage kept —
+   report the number honestly.
+2. **THE RIM RE-SEATS POST-SOLVE (the staged/adoption precedent).**
+   §C rung 1 cannot fire pre-solve — no neighbour carries a value
+   yet. Ruling: the pre-solve plate keeps `R_est` as its SEED; a
+   post-solve re-seat pass (beside the existing adoption/writeback
+   passes) re-values each rim part from its nearest SOLVED anchored
+   neighbour within the window (one-directional adoption — the
+   neighbour never moves), `R_est` where none reaches, DEM only as
+   nodata. Acceptance: the §0 rim table re-measured — parts converge
+   to their neighbours (~599–600.5 beside building8/apron), the
+   rim-to-apron transects read level-to-level.
+
+## Amendment 2 (Fable, 2026-08-28 — the declared pit wall is
+## step-exempt BY DECLARATION; cap resets for this one change)
+
+Measured (lane/lemdrim 434ff906): §1/§2 complete (building8 one flat
+value, rim 18/18 adopted at 600.47, T_SW level-to-level). The LEMD
+census rose 3205 → 5004 entirely on mid_edge/vertex_to_edge steps at
+the pan↔rim boundary — 1,932 tunnel_trench|tunnel_trench rows pricing
+the PIT WALL ITSELF (587.75 vs 600.47), now fully emitted because §B
+put the rim on 100 % of the perimeter. Ruling:
+
+1. The pan↔rim boundary is a DECLARED WALL — the trench law's own
+   designed step, like a declared terrace. The emitter PUBLISHES each
+   pan↔rim joint into the census's existing declared-step register
+   (the terrace_joints mechanism — extend that register, never a
+   role-based blanket exemption), and the census exempts EXACTLY the
+   declared joints: an undeclared trench step still prices. The
+   building|tunnel_trench standoff rows at the pad face are the same
+   declaration (the pad abutting the pan is §1's ruled geometry).
+2. Acceptance: LEMD census re-read with the declarations in place —
+   expect ≈ the §B-lawful level (the 1,932 wall rows exempted BY
+   NAME, the residual reported honestly); the register/parity twins
+   (test_harness) extended so an unpublished joint fails a test, not
+   a sim pass.

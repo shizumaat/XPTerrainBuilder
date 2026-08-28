@@ -161,3 +161,36 @@ minter and emit, unlogged). Code sites in the lane report.
 - Convergence guards standard (materiality 0.01 m, cap 2 per §T,
   STOP on second miss, heartbeat); no shared-repo writes; no timing
   claims; build-time statement.
+
+## Amendment 1 (Fable, 2026-08-28 — §T5 scopes to the perimeter band;
+## §T4's third world chartered; cap resets for the scoped changes)
+
+Measured (lane/tunwall, 8 commits): §T7 MET at OTHH (12 → 0, refusal
+at mint); §T6.2 confirmed at the exemplar; §T5 welds LEMD 64 → 0,
+OTHH 84 → 24 — but `test_no_self_overlap[SPJC]` reads RED on the lane
+(3 foot∩face pairs, 2.99 m², all at `_emit_facing_corridors`) and
+§T5 costs +358 adjudicated at OTHH (groundside steps 23 → 372,
+hypothesis: the foot's carve-structure registration re-tessellates
+adjacent ground, scaling with wall count). Rulings:
+
+1. **§T5 SCOPES TO THE PERIMETER BAND this round.** The facing-
+   corridor emitter keeps its prior weld until its foot geometry is
+   designed (a named follow-up docket — its overlap is not
+   root-caused and the invariant has zero tolerance). Expected: the
+   SPJC overlap reads GREEN (verify); the owner's item-9 site (a
+   perimeter-band ramp) keeps its fix; the OTHH residual shared ids
+   (facing-corridor welds) are REPORTED as the follow-up's
+   population.
+2. **The +358 OTHH effect gets ONE attribution arm** (foot in / out
+   of the carve-structure + gap-fill registers, same tree): if the
+   registration is the mechanism, it STAYS (owned ground beats
+   unowned; groundside step rows are report-class pre-ship) and the
+   number is recorded in DEFERRED_VERIFICATION; if not, STOP with
+   the measurement.
+3. **§T4's THIRD WORLD is chartered, not chased here:** the 31
+   residual isolated rects' fills die at an uninstrumented seam or
+   are never minted — the ledger extends UPSTREAM of the mint
+   (per-candidate counters inside `build_service_road_network`:
+   candidate → minted → emitted) in the follow-up docket. Rule 3
+   (corridor seniority pre-pass, sever-refusing) lands as built,
+   twin-proven; classes 1–2 confirmed lawful.

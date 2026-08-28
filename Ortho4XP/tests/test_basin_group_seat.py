@@ -635,6 +635,10 @@ class TestBasinGroupSeat:
             "O4_BASIN_REGION_FOUNDING",
             "O4_BASIN_OPEN_PIT_DECK_KEY",
             "O4_BASIN_POOL_SCOPING",
+            # ...and the ramp-reach gate (spec lemd-basin-trench-ramp-
+            # extension): it moves the body OUTLINE, which is exactly
+            # what R_mesh's sample band is offset from.
+            "O4_BASIN_REGION_RAMP_REACH",
         ):
             assert name in object_rebake._GATE_ENVIRONMENT_NAMES, name
         assert "BASIN_GROUP_SEAT" in object_rebake._GATE_NAMES

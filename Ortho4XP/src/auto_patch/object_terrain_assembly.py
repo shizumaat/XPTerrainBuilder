@@ -532,7 +532,17 @@ def _discover_sibling_road_networks(
 # warm v22 sidecar would therefore silently disable the whole founding
 # limb on exactly the packs it exists for.  The version is what retires
 # it; nothing else in the fingerprint can see a new field.
-_CLASSIFICATION_CACHE_VERSION = 23
+# 23 -> 24: an admitted ``BelowGradeRegion``'s ``polygon`` is now
+# COMPLETED up its own entrance ramp to the ground-contact band
+# (``object_terrain_features.regions_completed_to_ramp_reach``, spec
+# docs/specs/lemd-basin-trench-ramp-extension-spec.md).  No FIELD moves,
+# so this is not the version-21 class — but the ring itself is a
+# different shape, and the ring IS the cut.  A warm v23 sidecar would go
+# on serving the pre-completion ring, cutting the pit short of the ramp
+# the owner reported terrain poking through, with nothing in the log to
+# say why.  The fingerprint covers the pack and the gates, never the
+# derivation's own arithmetic; the version is what retires it.
+_CLASSIFICATION_CACHE_VERSION = 24
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -638,6 +648,14 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # predecessor so a flip can never be answered from a warm sidecar.
         digest.update(
             f"basin-region-founding:{config.BASIN_REGION_FOUNDING}".encode()
+        )
+        # ...and the RAMP REACH gate (spec lemd-basin-trench-ramp-
+        # extension): it decides how far an admitted region's ring runs
+        # up its own entrance ramp, i.e. the cut shape itself, so a flip
+        # must never be answered from a warm sidecar either.
+        digest.update(
+            f"basin-region-ramp-reach:"
+            f"{config.BASIN_REGION_RAMP_REACH}".encode()
         )
         # ...and the GROUP-SEAT gate (docket B, basin-group-seat §2.6): it
         # decides how the facility records this classification feeds are
@@ -1031,6 +1049,10 @@ def _cached_post_mesh_records(
                 # ...and the founding gate: a founded basin is a FACILITY
                 # in this payload that does not exist without it.
                 config.BASIN_REGION_FOUNDING,
+                # ...and the ramp-reach gate: it decides the BODY OUTLINE
+                # every facility in this payload carries (the ring
+                # followed up its own entrance ramp).
+                config.BASIN_REGION_RAMP_REACH,
                 # ...and the group-seat gate (docket B): it decides how
                 # many facilities the payload carries (one per connected
                 # body component) and which body each one owns.

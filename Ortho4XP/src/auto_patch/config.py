@@ -5010,6 +5010,83 @@ BASIN_REGION_FOOTPRINT = (
 BASIN_REGION_FOUNDING = (
     _os.environ.get("O4_BASIN_REGION_FOUNDING", "1") == "1")
 
+# BASIN REGION RAMP REACH (2026-08-28 owner sim read of 1.0.264; spec
+# ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``).
+#
+# **DEFAULT OFF — BUILT, MEASURED, AND HELD ON AN OWNER RULING.**  The
+# mechanism below closes the owner's defect exactly (both of the owner's
+# coordinates land INSIDE the rebuilt floor pan) but it cannot be shipped
+# ON without moving the committed group seat, which the spec's own law
+# says is a STOP rather than a side effect.  THE MEASUREMENT, offline
+# against the built +40-004 mesh (2026-08-28), instrument controlled
+# against the committed value:
+#
+#     admitted ring  27,857 m2 -> R_mesh 596.680 m   (committed: 596.682)
+#     completed ring 29,636 m2 -> R_mesh 597.492 m   (+0.81 m)
+#
+# and R_mesh is CONTINUOUSLY sensitive to the ring, not just to this
+# change: growing the ADMITTED ring by a plain 0.5 m buffer already moves
+# it to 597.001, and by 2.0 m to 597.623.  ``post_mesh.
+# _basin_facility_rim_sample_ring`` re-derives its sample stations from
+# the ring's own perimeter, so ANY change to the body re-places all ~70
+# stations and re-medians terrain that spans 589-600 m here.  The trench
+# footprint and the seat datum are ONE BODY by construction (spec
+# basin-region-footprint §2.2 "they cannot disagree because there is only
+# one body"), so cutting the ramp and holding G at 596.682 cannot both be
+# had under the current law: decoupling them would point R_mesh's band
+# at terrain INSIDE our own extended plates, which is exactly what that
+# band is defined not to sample.  That is an owner/design ruling, not an
+# implementer's call, so the machinery lands with its twins and the gate
+# OFF.  Turn it on with O4_BASIN_REGION_RAMP_REACH=1 to reproduce the
+# arm.
+#
+# THE DEFECT.  "The rim of the pit and elevation are all perfect now,
+# just the terrain is poking through the ramp at 40.4923132,-3.5697896"
+# (owner, LEMD T4S).  ``object_terrain_features.below_grade_regions``
+# derives a region from every solid triangle CLIPPED to its portion
+# below −TRENCH_SPINE_MIN_DEPTH_M — a DEPTH ADMISSION ("is this a
+# trench?"), and a perfectly good one.  But a pit's own entrance RAMP
+# crosses that plane on its way up, so the derived ring stops half way
+# up the ramp and the mesh stands at grade over the rest of it.  The
+# authored ramp then has terrain THROUGH it, which is exactly what the
+# owner sees.  MEASURED at LEMD (2026-08-28): the owner's poke-through
+# point lies 0.60 m outside the derived ring and the ramp's own top
+# 11.00 m outside it.
+#
+# THE LAW.  Admission is unchanged; what this adds is COMPLETION.  A
+# region that has already been admitted as a basin is grown to the
+# CONNECTED part of its OWN CONTRIBUTORS' shell that has not yet
+# reached grade — each contributing resource's solid clipped below
+# ``object_terrain_features.REGION_RAMP_REACH_PLANE_Y_M`` (the top of
+# the ground-contact band, the exact mirror of the openness reading,
+# which clips ABOVE the same plane), closed at
+# AT_GRADE_FOOTPRINT_CLOSE_M, and only the component that touches the
+# admitted ring.  So the pit is followed up its own ramp to the point
+# where the pack's own geometry has met grade, and no further.
+#
+# DELIBERATE LIMITS, all of them scope: the pass runs AFTER admission
+# and AFTER the openness reading, so DEPTH, OPENNESS, ``object_resources``
+# and ``contributor_area_m2_by_resource`` are every one of them measured
+# on the ADMITTED ring and are bit-for-bit what they were — founding
+# admits exactly the same regions it did before.  Only a region's
+# ``polygon`` grows, only along its own contributors, and only where
+# their shell is CONNECTED to it: a resource that contributes nothing to
+# an admitted region contributes nothing here, which is also the perf
+# guard (LEMD pays 7 resources, not 203).  Two completions that would
+# OVERLAP are both refused, loudly, rather than cutting one pit twice.
+#
+# MEASURED at LEMD (2026-08-28): ring 27,857 → 29,646 m² (+6.4 %), the
+# owner's poke-through point 5.67 m INSIDE and the ramp top 2.04 m
+# inside.  The reading is insensitive to the plane over +0.25…+1.0 m
+# (29,636 → 29,646 m², both points inside throughout), which is what
+# makes the ground-contact band the right constant to REUSE rather than
+# a new knob — the same argument TRENCH_SPINE_MIN_DEPTH_M carries.
+#
+# With O4_BASIN_REGION_RAMP_REACH=0 (the DEFAULT) no region is completed
+# and the emitted patch is byte-identical to the founding round.
+BASIN_REGION_RAMP_REACH = (
+    _os.environ.get("O4_BASIN_REGION_RAMP_REACH", "0") == "1")
+
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
 #

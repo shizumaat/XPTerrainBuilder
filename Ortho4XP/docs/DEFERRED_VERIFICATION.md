@@ -4156,3 +4156,31 @@ attribution instrument.
   WidthRead::test_the_service_adjacency_feature_is_live` is FLAKY under
   xdist (1 of 3 combined runs; passes in isolation and at the base tree)
   — recorded, not attributed.
+
+## 2026-08-28 — LEMD basin trench RAMP REACH (lane/lemdtrench, gate HELD OFF)
+
+Spec `docs/specs/lemd-basin-trench-ramp-extension-spec.md`.  The
+`O4_BASIN_REGION_RAMP_REACH` machinery ships DEFAULT OFF: it closes the
+owner's poke-through exactly, and it moves the committed LEMD group seat
+`G` (596.682 → 597.492 on the built +40-004 mesh), which the spec calls a
+STOP.  What was NOT paid this round:
+
+* **G was read OFFLINE, not through a tile rebake.**
+  `post_mesh._basin_facility_rim_sample_ring` + `MeshElevationSampler`
+  were driven directly against the EXISTING `Tiles/zOrtho4XP_+40-004/
+  Data+40-004.mesh` (built 2026-08-27), for both the admitted and the
+  completed ring.  The instrument is CONTROLLED — it reproduces the
+  committed 596.682 as 596.680 on the admitted ring — but the mesh it
+  samples predates the completion, so the completed arm's terrain at the
+  ramp corner is the PRE-change surface.  A mesh-only `+40-004` tile run
+  + rebake replay (the docket-B acceptance) is owed before the gate is
+  ever turned on.
+* **The 0.000000 m relationship invariant over the 48 provenance
+  entries was not re-run** for the completed arm (same reason: no rebake).
+* **OTHH was not built.**  The completion applies to every admitted
+  below-grade region, and OTHH is the other basin corpus (8 Drainage
+  facilities).  The control airport measured this round is HECA.
+* **No full-suite run** (pre-ship mode): the blast-named files were run
+  once.  `tests/test_harness.py::test_the_near_miss_frontage_law_is_one_
+  authority` fails at HEAD too (the STATUS 20260827 pre-existing failure)
+  — not this round.

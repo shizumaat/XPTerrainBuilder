@@ -3538,6 +3538,197 @@ class TestBelowGradeRegionTriangleClip:
             ((0.0, 1.0, 0.0), (10.0, -6.0, 0.0), (10.0, -6.0, 10.0)), -2.5)
         assert ring is not None and len(ring) == 4
         assert all(x >= 5.0 - 1e-9 for x, _z in ring)
+
+
+# ---------------------------------------------------------------------------
+# THE RAMP REACH COMPLETION (spec
+# docs/specs/lemd-basin-trench-ramp-extension-spec.md; owner sim read of
+# 1.0.264: "the terrain is poking through the ramp")
+# ---------------------------------------------------------------------------
+
+#: A pit and its entrance ramp, in the geometry the defect is made of.
+#: The pit is the 60 x 60 m T4S rectangle at −7 m.  The ramp runs 60 m
+#: EAST of it, rising 7.5 m from the pit floor (−7.0) to just over grade
+#: (+0.5), so it crosses −``TRENCH_SPINE_MIN_DEPTH_M`` at x = 66 and the
+#: TOP of the ground-contact band nowhere at all — it is below +1 m over
+#: its whole run.  The DEPTH ADMISSION therefore stops the ring at x=66
+#: and leaves 24 m of authored ramp with terrain standing through it,
+#: which is the owner's LEMD read in miniature.
+_RAMP_PIT_EAST_EDGE_X = 30.0
+_RAMP_TOP_X = 90.0
+_RAMP_DEPTH_CROSSING_X = 66.0
+
+
+def _ramp_pit_pattern():
+    ramp = _GeometryBuilder()
+    ramp.add_sloped_rectangle(
+        _RAMP_PIT_EAST_EDGE_X, _RAMP_TOP_X, -15.0, 15.0, -7.0, 0.5)
+    return {
+        "T4S/pit.obj": _region_wall(-30.0, 30.0, -30.0, 30.0, -7.0),
+        "T4S/ramp.obj": ramp.build(),
+    }
+
+
+def _completed(geometry, regions=None):
+    placements = [_placement(resource) for resource in geometry]
+    if regions is None:
+        regions = otf.below_grade_regions(placements, geometry)
+    return regions, otf.regions_completed_to_ramp_reach(
+        regions, placements, geometry)
+
+
+class TestBasinRegionRampReach:
+    """The COMPLETION pass: an admitted region is followed up its own
+    entrance ramp to the ground-contact band.
+
+    Admission asks "is this a trench?" at −2.5 m and is unchanged.  This
+    asks the different question "where does this trench's own shell stop
+    being below grade?", and only for a region that has already been
+    admitted.
+
+    The gate SHIPS OFF (it moves the committed LEMD group seat by
+    0.81 m — see ``config.BASIN_REGION_RAMP_REACH``), so the arm under
+    test here is turned on explicitly, exactly as a lane turns it on."""
+
+    @pytest.fixture(autouse=True)
+    def _the_arm_under_test(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_REGION_RAMP_REACH", True)
+
+    def test_the_gate_ships_off_pending_the_owner_ruling(self):
+        """The HELD state is itself law: a default-ON build would move
+        G=596.682, which the spec calls a STOP, not a side effect.
+
+        Read from the SOURCE, never by reloading the module — a config
+        reload mid-suite is the hazard this repo redirects around."""
+        import inspect
+        import re
+
+        source = inspect.getsource(config)
+        default = re.search(
+            r'_os\.environ\.get\(\s*"O4_BASIN_REGION_RAMP_REACH",\s*'
+            r'"(\d)"\s*\)',
+            source,
+        )
+        assert default is not None, "the gate lost its environment read"
+        assert default.group(1) == "0", (
+            "the ramp-reach gate must ship OFF until the owner rules on "
+            "the 0.81 m group-seat move it carries")
+
+    def test_the_depth_admission_stops_part_way_up_the_ramp(self):
+        """THE DEFECT, stated as a measurement: without the completion
+        the ring ends at the −2.5 m crossing and 24 m of authored ramp
+        is left with terrain standing through it."""
+        regions, _completed_regions = _completed(_ramp_pit_pattern())
+        assert len(regions) == 1
+        assert regions[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_DEPTH_CROSSING_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+
+    def test_the_completion_reaches_the_top_of_the_ramp(self):
+        regions, done = _completed(_ramp_pit_pattern())
+        assert done[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_TOP_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+        assert done[0].polygon.area > regions[0].polygon.area
+
+    def test_the_plane_is_the_ground_contact_band(self):
+        """One band, read from both sides: the openness reading clips
+        ABOVE it, the completion clips BELOW it.  Aliased, never
+        re-numbered."""
+        assert otf.REGION_RAMP_REACH_PLANE_Y_M == (
+            otf.GROUND_CONTACT_BAND_HALF_WIDTH_M)
+
+    def test_the_gate_off_returns_the_admitted_rings_untouched(
+        self, monkeypatch
+    ):
+        """``O4_BASIN_REGION_RAMP_REACH=0`` — the same rings, not merely
+        equal ones, so a gate-off build cannot differ by a rounding."""
+        assert config.BASIN_REGION_RAMP_REACH in (True, False)
+        monkeypatch.setattr(config, "BASIN_REGION_RAMP_REACH", False)
+        regions, done = _completed(_ramp_pit_pattern())
+        assert [region.polygon for region in done] == [
+            region.polygon for region in regions]
+
+    def test_admission_membership_and_openness_are_untouched(self):
+        """SCOPE.  Only ``polygon`` grows.  Depth, the contributor list
+        and their clipped areas are all measured on the ADMITTED ring —
+        which is what keeps founding admitting exactly what it did."""
+        regions, done = _completed(_ramp_pit_pattern())
+        before, after = regions[0], done[0]
+        assert after.object_resources == before.object_resources
+        assert after.solid_minimum_y_m == before.solid_minimum_y_m
+        assert (after.contributor_area_m2_by_resource
+                == before.contributor_area_m2_by_resource)
+        assert (after.above_grade_area_fraction
+                == before.above_grade_area_fraction)
+        assert (after.frame_origin_longitude_latitude
+                == before.frame_origin_longitude_latitude)
+
+    def test_a_pit_with_no_ramp_does_not_grow(self):
+        """The completion is not a dilation: a shell that is already
+        vertical at its rim reaches the band nowhere new."""
+        regions, done = _completed(_t4s_pattern())
+        assert done[0].polygon.area == pytest.approx(
+            regions[0].polygon.area, rel=1e-3)
+
+    def test_a_non_contributing_resource_is_never_swept_in(self):
+        """The completion grows into the region's OWN contributors only.
+        A shallow neighbour that never reached the depth admission is
+        not a contributor, so it stays outside however close it is —
+        this is the scope guard AND the perf guard."""
+        geometry = dict(_ramp_pit_pattern())
+        shallow = _GeometryBuilder()
+        # A 60 x 30 m slab at −1.2 m, its own vertical extent from a
+        # skirt, butted against the ramp's far end.  Never below −2.5,
+        # so never a contributor.
+        shallow.add_horizontal_rectangle(
+            _RAMP_TOP_X, _RAMP_TOP_X + 60.0, -15.0, 15.0, -1.2)
+        shallow.add_vertical_wall(
+            _RAMP_TOP_X + 60.0, -15.0, 15.0, -1.2, 0.5)
+        geometry["T4S/shallow_apron.obj"] = shallow.build()
+        regions, done = _completed(geometry)
+        assert "T4S/shallow_apron.obj" not in regions[0].object_resources
+        assert done[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_TOP_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+
+    def test_two_completions_that_would_overlap_are_both_refused(self):
+        """ONE BODY, ONE CUT.  Two pits whose ramps run into each other
+        are admitted as two regions; completing both would cut the same
+        ground twice, so both completions stand down and the admitted
+        rings survive."""
+        west = _GeometryBuilder()
+        west.add_sloped_rectangle(-40.0, 20.0, -15.0, 15.0, -7.0, 0.5)
+        east = _GeometryBuilder()
+        east.add_sloped_rectangle(40.0, -20.0, -15.0, 15.0, -7.0, 0.5)
+        geometry = {
+            "T4S/pit_west.obj": _region_wall(
+                -100.0, -40.0, -30.0, 30.0, -7.0),
+            "T4S/pit_east.obj": _region_wall(
+                40.0, 100.0, -30.0, 30.0, -7.0),
+            "T4S/ramp_west.obj": west.build(),
+            "T4S/ramp_east.obj": east.build(),
+        }
+        regions, done = _completed(geometry)
+        assert len(regions) == 2, [r.polygon.area for r in regions]
+        assert [region.polygon for region in done] == [
+            region.polygon for region in regions]
+
+    def test_the_classifier_runs_the_completion(self):
+        """END TO END: the pass is wired into the classifier, AFTER the
+        openness reading, so the ring the assembly extends records with
+        is the completed one."""
+        result = _classify(_ramp_pit_pattern())
+        assert len(result.below_grade_regions) == 1
+        assert result.below_grade_regions[0].polygon.bounds[2] == (
+            pytest.approx(_RAMP_TOP_X,
+                          abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1))
+
+    def test_the_gate_salts_the_classification_sidecar(self):
+        """A gate flip must never be answered from a warm sidecar, and
+        the ring change itself is a cache-VERSION event."""
+        from auto_patch import object_rebake
+
+        assert "O4_BASIN_REGION_RAMP_REACH" in (
+            object_rebake._GATE_ENVIRONMENT_NAMES)
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 24
         assert otf._clip_triangle_below_plane(
             ((0.0, 1.0, 0.0), (10.0, 2.0, 0.0), (10.0, 3.0, 10.0)),
             -2.5) is None

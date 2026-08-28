@@ -263,6 +263,10 @@ _GATE_ENVIRONMENT_NAMES = (
     "O4_BASIN_REGION_FOUNDING",
     "O4_BASIN_OPEN_PIT_DECK_KEY",
     "O4_BASIN_POOL_SCOPING",
+    # ...and the ramp-reach gate beside them (spec lemd-basin-trench-
+    # ramp-extension): it moves the body OUTLINE a post-mesh decision is
+    # derived from, exactly like the region-footprint gate above it.
+    "O4_BASIN_REGION_RAMP_REACH",
     # ...and the group-seat gate itself, read through its config constant
     # above as well: both spellings are salted, because the env var is
     # what a lane flips and the constant is what a test monkeypatches.

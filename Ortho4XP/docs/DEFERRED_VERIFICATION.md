@@ -4301,3 +4301,63 @@ paid:
   next build, which emitted the batter annulus and logged it as freshly
   derived.  Cache version 26 retires it.  The class is generic — the
   fingerprint covers the pack and the gates, never the arithmetic.
+
+## 2026-08-28c — LEMD PAD-AUTHORITY CARVE (owner-sanctioned, gate DEFAULT ON)
+
+The carve is built and measured (lane/padcarve, spec `docs/specs/lemd-
+pad-authority-carve-spec.md`).  Every acceptance clause but one is MET
+on a single tree, all arms through `tools/harness/build_airport.py`:
+both owner probes INSIDE the emitted floor by containment, 20 of 20
+deck-line stations at 2 m covered (control 1 of 20), floor 587.75 m,
+rim 600.51 m outside the corridor, `building8` still FLAT at 600.51 (the
+retired plate arm's own breakage), census 2,529 → 2,527 with the plate
+arm's artifact classes absent, and SPJC / OTHH byte-identical both ways.
+What was NOT paid:
+
+* **§4 IS INTERNALLY INCONSISTENT WITH ITS OWN ACCEPTANCE, and this is
+  the round's open docket, not a skipped run.**  The instrument is
+  CONTROLLED: driven against the built 2026-08-27 `Data+40-004.mesh` it
+  reads `G` = 596.682 m over 70 stations — the committed value to
+  0.000 m.  §4's ruled exclusion drops the 8 stations that fall on the
+  carve corridor and reads 596.000 m (the eight read 596.26–599.33, six
+  of them above the median, on a 589.4–600.5 distribution, so the
+  median moves −0.682 m).  The Acceptance line "G re-read per §4
+  reproduces the committed value" and §4's exclusion therefore cannot
+  both hold on one surface.  NOTHING WAS RE-BASELINED: the committed
+  596.682 stands, the exclusion is implemented exactly as ruled and
+  default-ON in the engine, and no rebake ran (an airport patch build
+  never reaches `post_mesh`).  **The consequence is unshipped but real:
+  the NEXT tile rebake would seat the LEMD T4S pack at the scoped
+  value.**  Owed: a Fable ruling on which instrument §4 means, then a
+  mesh-only `+40-004` run + rebake replay to measure the shipped `G`
+  either way.
+* **No tile rebake at all**, so the emitted patch is the whole
+  measurement; the in-sim read is the owner's.
+* **No full suite** (pre-ship mode).  Run once, all green: the
+  blast-named files for `object_terrain_assembly` / `object_terrain_
+  features` / `post_mesh` / `object_rebake` and `tests/test_osm_site.py`
+  (414 + 129 + 321 + 31 passed).  Two failures reproduce at HEAD and are
+  NOT this round: `test_harness.py::test_the_near_miss_frontage_law_is_
+  one_authority` and `test_contracts.py::test_obj8_partition_signature
+  [contact_graph]` (both verified failing in the main tree).
+* **No timing run.**  The carve makes the ramp-reach CORRIDOR
+  derivation default-ON (it was gated off), which is new work in every
+  default build: `_region_ramp_reach_rings` over the admitted regions'
+  own contributors (LEMD pays 7 resources, not 203), one polygon
+  intersection for the clip, one extra bounds-filtered `_owned_near`,
+  and one arc intersection per carve plate at declare time.  Per-change
+  timing gates are SUSPENDED (RULINGS 2026-08-04); the budget line is
+  owed at the final profiling round.
+* **HECA was not built.**  Controls measured this round: SPJC (has a
+  below-grade region, the pass runs on it) and OTHH (eight facilities).
+  Neither derives a ramp corridor, so neither can reach the carve.
+* **A killed build's ORPHANED WORKER completed and stored an artifact**
+  (see the report): two arms were launched before the edits landed, the
+  parents were stopped, and one pool child survived, finished at 15:09
+  and wrote a LEMD `plate` entry into `~/.ortho4xp/artifact_ledger`
+  keyed by the CLEAN pre-edit tree hash.  It was QUARANTINED (moved to
+  the lane scratchpad, not deleted) before any lane could be served it.
+  The generic hazard — `auto_patch` modules are LAZILY imported, so a
+  tree edited during a long build is a tree the build's own emit phase
+  may pick up — is unguarded: `build_airport.py` snapshots `dirty` and
+  the tree hash at START and never re-checks at finish.

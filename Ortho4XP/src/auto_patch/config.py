@@ -5256,6 +5256,58 @@ BASIN_RAMP_REACH_PLATE = (
 # post-mesh R_mesh sample band are all read from ``body_parts``, and the
 # corridor is not in them.
 #
+# MEASURED, LEMD, single tree, all arms through
+# tools/harness/build_airport.py (2026-08-28) — the carve DELIVERS the
+# owner's ask and, unlike the retired plate arm, costs nothing:
+#
+#   * THE CORRIDOR IS THE OBJECT'S.  798 m² in ONE part beside the
+#     27,855 m² body (12 batter/sliver pieces dropped by
+#     ``_ramp_lobes_of``); the admitted ring is UNTOUCHED.  Clipped to
+#     the carved authority: 798 -> 798 m² (the whole corridor lies
+#     inside ``building8``, which IS Amendment 2's finding), and the
+#     plate 798 -> 790 m² after clearance from every earlier-born shape
+#     that did NOT yield here.
+#   * THE OWNER'S TWO PROBES ARE INSIDE THE EMITTED FLOOR, by
+#     CONTAINMENT (``tools/osm_site.py --contains``; ``--at`` reports
+#     nearest-NODE distance and never reads 0.00 m inside a big ring):
+#     40.4923132,-3.5697896 and 40.4924064,-3.569366 both INSIDE
+#     ``object_basin_trench`` way -11774, in no interior ring.  Control:
+#     neither is (1.20 m / 11.60 m outside the pan).
+#   * THE DECK LINE IS COVERED END TO END: 20 of 20 stations at 2 m
+#     along the owner's own segment are inside the floor plate
+#     (control: 1 of 20, and that one is the RIM band).
+#   * NOTHING ELSE MOVED.  Floor 587.75 m, rim 600.51 m outside the
+#     corridor (14 band parts, all re-seated to 600.51 adopting
+#     ``building8``), and ``building8`` STAYS FLAT at 600.51 — which is
+#     precisely what the retired plate arm broke ([587.75, 600.49]).
+#   * CENSUS IMPROVES: 2,529 -> 2,527 law-true (within_shape 35 -> 35,
+#     apron_lattice_membrane 120 -> 117, airside_no_step 1,427 ->
+#     1,429, transverse 759 -> 758; worst row 5.13 m, the control's
+#     own).  The retired plate arm's artifact classes are ABSENT: its
+#     +196 ``within_shape`` (212 airside) at worst 12.74 m and its
+#     12.53/13.42 m boundary rows do not appear.
+#   * CONTROLS, built BOTH WAYS on this tree and BYTE-IDENTICAL either
+#     way: SPJC (body_sha 255261460924 — it HAS a below-grade region and
+#     the pass runs on it, the stronger read) and OTHH (ddb81052c695,
+#     eight facilities).  And the shipped default is byte-identical at
+#     LEMD itself: the gate-off arm reads 0e181d870481 / 2,558 shapes,
+#     the founding control exactly.
+#
+# THE G INSTRUMENT, and the one thing this round does NOT settle (§4).
+# Driven against the built 2026-08-27 ``Data+40-004.mesh``, the
+# instrument is CONTROLLED: unscoped it reads 596.682 m over 70
+# stations, the committed value to 0.000 m.  §4's ruled exclusion drops
+# the 8 stations that fall on the carve corridor and reads 596.000 m
+# (the dropped 8 read 596.26-599.33, six of them above the median, on a
+# 589.4-600.5 distribution).  So on ONE surface the scoped and unscoped
+# instruments differ by 0.682 m, and the spec's own Acceptance line
+# ("G re-read per §4 reproduces the committed value") and §4's exclusion
+# cannot both hold.  NOTHING IS RE-BASELINED HERE: the committed
+# 596.682 stands, no rebake ran this round (an airport patch build never
+# reaches ``post_mesh``), and the scoping is implemented exactly as
+# ruled and reported for the owner/design ruling — see
+# ``docs/DEFERRED_VERIFICATION.md`` 2026-08-28c.
+#
 # With O4_BASIN_PAD_AUTHORITY_CARVE=0 no corridor is carried, no
 # authority is carved and no joint is declared; the emitted patch is
 # byte-identical to the founding round.

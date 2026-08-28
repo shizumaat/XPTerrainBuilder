@@ -4750,6 +4750,20 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             if _open_u is not None:
                 _bands = [(_b.difference(_open_u), _ip, _rf, _ft)
                           for _b, _ip, _rf, _ft in _bands]
+            # DISJOINT BY CONSTRUCTION.  ``_outer.difference(_foot_outer)``
+            # is disjoint from the foot in theory, but the two buffers are
+            # computed independently with mitre joins and at a sharp
+            # corner they do not nest exactly — measured at SPJC: 3
+            # foot/face pairs overlapping by 2.99 m² total, against
+            # ``test_no_self_overlap``'s ZERO tolerance, no per-airport
+            # exceptions.  Subtract the foot from the face explicitly
+            # rather than trust the nesting.
+            if len(_bands) == 2:
+                try:
+                    _bands[1] = ((_bands[1][0].difference(_bands[0][0]),)
+                                 + tuple(_bands[1][1:]))
+                except _GEOM_EXC:                      # pragma: no cover
+                    pass
             # ONE flat piece list, so the band body below keeps
             # its shape (and its indentation) exactly.
             _band_pieces = [

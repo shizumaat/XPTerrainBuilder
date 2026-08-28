@@ -3930,3 +3930,34 @@ DEFERRED / OPEN, additionally to the 2026-08-27c and 2026-08-27d lists:
     private corpus, no copied `Elevation_data`. The script does not
     handle a worktree outside its expected root; that is the defect to
     close, not this lane's mount.
+
+## 2026-08-28 — tunnel-integrity round §T4–§T7 (lane/tunwall)
+
+* **`test_no_self_overlap[SPJC]` is RED on this lane and GREEN on main.**
+  3 overlapping pairs, 2.9933 m² total, ALL `tunnel_wall_foot` ∩
+  `tunnel_wall` at consecutive shape indices (#761/#763, #762/#764,
+  #769/#770) — i.e. a §T5 foot overlapping its own face, at the
+  `_emit_facing_corridors` emitter (the perimeter band's pair was made
+  disjoint by explicit subtraction and that did NOT change these numbers).
+  CONTROL: `O4_RAMP_WALL_FOOT=0` → 3 passed, matching main.  NOT
+  root-caused; attempt cap reached.  §T5 must not land default-ON until
+  this is fixed or the owner rules the invariant may bend.
+* **§T5 costs +358 adjudicated at OTHH on a MATCHED A/B** (724 → 1082,
+  one variable `O4_RAMP_WALL_FOOT`), entirely
+  `groundside_pavement|groundside_pavement` steps (23 → 372); airside is
+  unchanged (148 = 148).  Hypothesis, NOT confirmed: registering
+  `tunnel_wall_foot` in `adjacent_ground._CARVE_STRUCTURE_REFS` and
+  `gap_fill._TUNNEL_BLOCKER_REFS` (required by the Fable approval's
+  condition 1) changes the adjacent-ground / gap-fill tessellation around
+  every wall.  LEMD, which emits 2 walls to OTHH's 16, IMPROVED
+  (3205 → 3109), which is consistent with the effect scaling with wall
+  count.
+* **Fable rule 3 (corridor seniority) is twin-verified only** — no
+  confirming build arm.  Gate `O4_CORRIDOR_SENIORITY`, default ON.
+* **§T7's covered-span mask was INACTIVE for the LEMD acceptance arm**
+  (a `TypeError` in the width call, reported loudly by the instrument and
+  fixed after).  LEMD's §T7 population (6 of the 22 pieces) is therefore
+  unmeasured; OTHH's 16 were built with the mask active (60,860 m²).
+* **§T4.2 acceptance NOT met**: isolated corridor rects 31 → 31 (LEMD),
+  10 → 10 (OTHH).  Mechanism named, fix is a design question — see the
+  round report.

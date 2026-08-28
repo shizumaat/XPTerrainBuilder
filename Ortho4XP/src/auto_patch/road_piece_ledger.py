@@ -105,6 +105,10 @@ def checkpoint(layout, name: str) -> None:
 
 #: The ROAD FAMILY for the join rule: a piece of any of these roles is
 #: the corridor's own pavement, whatever ``ref`` a later pass gave it.
+#: A join may share an EDGE with its neighbours; area it shares is an
+#: overlap, and the no-overlap invariant has zero tolerance.
+_JOIN_OVERLAP_TOL_M2 = 1e-9
+
 ROAD_FAMILY_ROLES = frozenset({
     "service_road", "service_junction", "junction",
     "groundside_pavement",
@@ -155,18 +159,30 @@ def joins_a_surviving_neighbour(piece, survivors, tol_m: float = 0.05
     hairline: it is the connective tissue between two rects, and
     deleting it emits the corridor as disconnected rectangles at
     different levels (RULINGS 2026-08-28 item 8, ways -10376/-10377).
+
+    A JOIN TOUCHES; IT DOES NOT OVERLAP.  Measured at CYXY: keeping a
+    piece on ``distance <= tol`` alone retained one that OVERLAPPED a
+    groundside lot by 0.38 m², and ``test_no_self_overlap`` (zero
+    tolerance, no per-airport exceptions) went red against a green main —
+    the runway clip runs after the last overlap resolution, so nothing
+    downstream cleaned it up.  A piece that overlaps a survivor is not
+    connective tissue between two rects; it is a duplicate of ground
+    another shape already owns, and the clip was right to drop it.
     """
     if piece is None or piece.is_empty:
         return False
     try:
+        touches = False
         for other in survivors:
             if other is None or other.is_empty:
                 continue
+            if piece.intersection(other).area > _JOIN_OVERLAP_TOL_M2:
+                return False               # overlaps: never a join
             if piece.distance(other) <= tol_m:
-                return True
+                touches = True
+        return touches
     except Exception:                                    # pragma: no cover
         return False
-    return False
 
 
 #: Fable ruling (2026-08-28), resolving §T4's overlap-clip question from

@@ -413,3 +413,19 @@ def test_rule3_refuses_to_sever_a_lot_rather_than_drop_half():
     assert road_piece_ledger.cut_lots_back_from_corridors(lay, "ZZZZ") == 0
     assert lot.polygon.area == pytest.approx(40 * 40), (
         "the lot lost area to a cut that should have been refused")
+
+
+def test_a_join_touches_but_never_overlaps():
+    """CYXY, measured: keeping a piece on distance alone retained one
+    OVERLAPPING a groundside lot by 0.38 m², and test_no_self_overlap
+    (zero tolerance) went red against a green main.  A join shares an
+    EDGE; shared AREA is a duplicate, and the clip was right to drop it."""
+    survivors = [_rect(0, 0, 10, 6)]
+    assert road_piece_ledger.joins_a_surviving_neighbour(
+        _rect(10, 0, 12, 6), survivors), "an edge-sharing join was dropped"
+    assert not road_piece_ledger.joins_a_surviving_neighbour(
+        _rect(9, 0, 12, 6), survivors), (
+        "an OVERLAPPING piece was kept as a join — the no-self-overlap "
+        "invariant has zero tolerance")
+    assert not road_piece_ledger.joins_a_surviving_neighbour(
+        _rect(9, 0, 12, 6), survivors + [_rect(30, 30, 40, 36)])

@@ -11086,6 +11086,87 @@ def _corridor_plate_exit_edge(layout, footprint, start_xy, half_width):
     return snapped[0], snapped[1]
 
 
+#: §F3 gate (LEMD ramp/road fidelity spec, law 3).  DEFAULT ON.  OFF
+#: restores the raw floor→DEM blend, byte for byte.
+_RAMP_MONOTONE_ENV = "O4_RAMP_MONOTONE"
+
+#: The round's materiality floor (auto_patch CLAUDE.md convergence
+#: guards, and the spec's own "no interior local maxima beyond 0.01 m").
+#: A profile whose worst interior reversal is under it is left ALONE, so
+#: the law never rewrites values it would not visibly change.
+_RAMP_MONOTONE_FLOOR_M = 0.01
+
+
+def ramp_monotone_law_enabled() -> bool:
+    """§F3: does an approach ramp's station profile descend monotonically
+    between grade and portal?
+
+    THE DEFECT IT CLOSES (owner sim read of 1.0.265, LEMD item 1:
+    "up-and-down humps and valleys in the ramp").  The chain's profile is
+    a LINEAR BLEND from the portal floor to the DEM *at each station*::
+
+        z(s) = (1 - s/L) * floor + (s/L) * ground(s)
+
+    so every bump in ``ground`` along the walk is carried into the road,
+    scaled by ``s/L``.  A ramp is not a terrain tracing — it is a road
+    between two fixed ends — and the blend gives it interior local
+    maxima wherever the terrain has any.
+
+    THE LAW: conform the station profile to ONE monotone run with BOTH
+    ENDS PINNED (the portal floor at station 0, the ground tie at the
+    last station).  A forward cascade removes every reversal and a
+    backward cascade re-seats the run under its far end; the result is
+    monotone by construction, so it has no interior local maximum at all.
+    """
+    return os.environ.get(_RAMP_MONOTONE_ENV, "1") == "1"
+
+
+def _monotone_ramp_profile(elevations: list) -> list:
+    """§F3: ``elevations`` conformed to one monotone run, ends pinned.
+
+    Direction is the profile's OWN (last against first), so a ramp
+    climbing out of a portal and a corridor descending to one are the
+    same law.  Two cascades:
+
+      * forward, ``e[i] = extremum(e[i], e[i-1])`` — every interior
+        reversal removed, the far end untouched;
+      * backward from the far end, the opposite extremum — the run
+        re-seated under its own ground tie, the near end untouched.
+
+    The result is monotone, so it carries NO interior local maximum.
+    Below :data:`_RAMP_MONOTONE_FLOOR_M` of worst reversal the input is
+    returned unchanged: a profile that is already monotone to the round's
+    materiality floor is not rewritten.
+    """
+    if not ramp_monotone_law_enabled() or len(elevations) < 3:
+        return elevations
+    values = [float(v) for v in elevations]
+    ascending = values[-1] >= values[0]
+    worst = 0.0
+    for index in range(1, len(values)):
+        step = values[index] - values[index - 1]
+        reversal = -step if ascending else step
+        worst = max(worst, reversal)
+    if worst <= _RAMP_MONOTONE_FLOOR_M:
+        return elevations
+    out = list(values)
+    last = len(out) - 1
+    # Neither cascade ever WRITES an end: the forward one stops before
+    # the far end and the backward one before the near end, so both pins
+    # hold without a restore that could re-break the run.
+    if ascending:
+        for index in range(1, last):
+            out[index] = max(out[index], out[index - 1])
+        for index in range(last - 1, 0, -1):
+            out[index] = min(out[index], out[index + 1])
+    else:
+        for index in range(1, last):
+            out[index] = min(out[index], out[index - 1])
+        for index in range(last - 1, 0, -1):
+            out[index] = max(out[index], out[index + 1])
+    return out
+
+
 def _emit_corridor_ramp_chain(
         layout, dem, tile_lat, tile_lon, meters_to_lat_lon,
         walk, walk_length, floor_elevation, half_width, ramp_step_m,
@@ -11253,6 +11334,8 @@ def _emit_corridor_ramp_chain(
                 left_corners[0], right_corners[0] = corner_b, corner_a
     if usable_stations < 2:
         return False
+    # ── §F3: ONE MONOTONE PROFILE ────────────────────────────────────
+    elevations = _monotone_ramp_profile(elevations[:usable_stations])
 
     # Chain identity (defect B): quads of THIS chain are tested only
     # against pieces registered before the chain started.

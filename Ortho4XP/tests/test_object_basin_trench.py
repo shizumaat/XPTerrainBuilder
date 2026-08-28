@@ -3740,7 +3740,15 @@ class TestBasinRampReachCorridor:
     the ring is the facility's single measurement body.  Everything here
     exists to keep that from happening again — so the load-bearing
     assertion is not "the corridor covers the ramp", it is "the ring and
-    every reading on it are the same object they were"."""
+    every reading on it are the same object they were".
+
+    The gate is HELD OFF (it reaches the ramp by colliding with the
+    building8 pad — see ``config.BASIN_RAMP_REACH_PLATE``), so the arm
+    under test is turned on explicitly, exactly as a lane turns it on."""
+
+    @pytest.fixture(autouse=True)
+    def _the_arm_under_test(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", True)
 
     def test_the_corridor_is_the_ramp_and_the_ring_is_untouched(self):
         placements = [_placement(r) for r in _ramp_pit_pattern()]
@@ -3788,9 +3796,12 @@ class TestBasinRampReachCorridor:
         assert all(region.ramp_reach_corridor is None
                    for region in carried)
 
-    def test_the_gate_ships_on(self):
-        """This one IS the ruled fix, so it ships ON — the opposite
-        disposition to the refuted ring-growing pass beside it."""
+    def test_the_gate_ships_off_pending_the_pad_ruling(self):
+        """HELD.  The plate DOES reach the owner's ramp — and the ramp is
+        inside the building8 pad, whose flattening authority is yielded
+        only INSIDE the facility, so the pan and the pad end up sharing a
+        boundary with a 12.74 m step (+196 within_shape rows, 212 of them
+        airside).  Which lever moves the pad is an owner ruling."""
         import inspect
         import re
 
@@ -3799,7 +3810,10 @@ class TestBasinRampReachCorridor:
             r'"(\d)"\s*\)',
             inspect.getsource(config),
         )
-        assert default is not None and default.group(1) == "1"
+        assert default is not None, "the gate lost its environment read"
+        assert default.group(1) == "0", (
+            "the ramp-reach plate must ship OFF until the owner rules on "
+            "the building8 pad authority it collides with")
 
     def test_the_shell_batter_is_not_a_ramp(self):
         """THE DELTA IS NOT THE RAMP, and this is the test that says so.
@@ -3916,7 +3930,7 @@ class TestBasinRampReachCorridor:
         assert "O4_BASIN_RAMP_REACH_PLATE" in (
             object_rebake._GATE_ENVIRONMENT_NAMES)
         # Both records gained a pickled field — a cache-VERSION event.
-        assert assembly._CLASSIFICATION_CACHE_VERSION >= 25
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 26
 
     # ── THE EMIT PREDICATE (Amendment 1 §2) ──────────────────────────
     #: The interface's own 50 x 50 m below-grade footprint, and a region

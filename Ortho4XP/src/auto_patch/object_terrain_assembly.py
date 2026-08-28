@@ -550,7 +550,15 @@ def _discover_sibling_road_networks(
 # and a warm v24 sidecar would silently disable the whole plate limb on
 # the one pack it exists for.  The version is what retires it; nothing
 # else in the fingerprint can see a new field.
-_CLASSIFICATION_CACHE_VERSION = 25
+# 25 -> 26: the corridor DERIVATION changed — ``_ramp_lobes_of`` now
+# separates the shell's own BATTER from its ramp, so the same field
+# holds a different (798 m² not 1,779 m²) polygon.  CAUGHT IN THE ACT,
+# 2026-08-28: a v25 sidecar written by an earlier arm was served to the
+# next build, which then emitted the batter annulus and reported it in
+# the log as if freshly derived.  The fingerprint covers the PACK and
+# the GATES, never the derivation's own arithmetic; the version is the
+# only thing that can retire a ring or a corridor whose SHAPE changed.
+_CLASSIFICATION_CACHE_VERSION = 26
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under

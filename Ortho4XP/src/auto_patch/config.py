@@ -5124,7 +5124,9 @@ BASIN_REGION_RAMP_REACH = (
 
 # BASIN RAMP-REACH FLOOR PLATE (spec
 # ``docs/specs/lemd-basin-trench-ramp-extension-spec.md`` Amendment 1
-# §2, Fable 2026-08-28).  DEFAULT ON — this is the RULED lever.
+# §2, Fable 2026-08-28).  The RULED lever — BUILT, MEASURED, and HELD
+# DEFAULT OFF on the finding below (it reaches the ramp and collides
+# with the building8 pad doing it).
 #
 # THE DEFECT is the owner's: "the terrain is poking through the ramp at
 # 40.4923132,-3.5697896 — extend the trench/pit bottom under the ramp to
@@ -5157,10 +5159,48 @@ BASIN_REGION_RAMP_REACH = (
 # and rim values, the pad coverage test, the R_mesh sample ring — is read
 # from ``body_parts``, and the corridor is not in them.
 #
-# With O4_BASIN_RAMP_REACH_PLATE=0 no corridor is derived and no plate is
-# joined; the emitted patch is byte-identical to the founding round.
+# MEASURED, LEMD arm ``plate3`` against the aed29ba4 control, both
+# through tools/harness/build_airport.py (2026-08-28) — the ruled design
+# DOES reach the owner's ramp, and it collides with the pad on the way:
+#
+#   * THE PAN NOW COVERS BOTH OWNER COORDINATES.  Read through the
+#     harness library's own parser (``check_grade._parse_osm``, point in
+#     polygon — note ``osm_site --at`` reports the distance to a way's
+#     nearest NODE, so it never reads 0.00 m inside a large ring): pan
+#     27,449 -> 28,295 m2, and 40.4923132,-3.5697896 / 40.4924064,
+#     -3.569366 go from 1.20 m and 11.60 m OUTSIDE to INSIDE, in no
+#     interior ring.  Floor value 587.75 m unchanged.
+#   * BUT THE PAD OWNS THAT GROUND.  ``BASIN_PAD_FLOOR_SEAT`` yields
+#     building8's flattening authority "to OUTSIDE the facility" — and
+#     the ramp IS outside the facility, while being 3.9-9.9 m INSIDE the
+#     pad's own ring.  So the pan and the pad end up sharing a boundary
+#     with 587.75 m on one side and 600.49 m on the other:
+#       census 2,529 -> 2,751 law-true, within_shape 35 -> 231 (+196,
+#       212 of them AIRSIDE) at worst 12.74 m, airside_no_step worst
+#       3.80 -> 13.42 m, apron_lattice_membrane worst 5.13 -> 12.53 m;
+#       building8 stops being flat (600.51 -> [587.75, 600.49]) and the
+#       rim reads 600.49 instead of 600.51.
+#
+# So BOTH levers tried against this defect fail the same way and for the
+# same reason: the owner's ramp lies INSIDE the building8 pad and
+# OUTSIDE the basin facility.  Widen the facility to reach it and the
+# facility's own measurement body moves (the block above); lay a plate
+# beside the facility to reach it and the pad's authority is what the
+# plate collides with.  THE LEVER THIS DEFECT NEEDS IS THE PAD'S
+# AUTHORITY BOUNDARY (the BASIN_PAD_* laws), not the trench footprint —
+# that is an owner/design ruling, so the machinery lands with its twins
+# and the gate OFF.  Turn it on with O4_BASIN_RAMP_REACH_PLATE=1 to
+# reproduce the arm.
+#
+# CONTROLS, built both ways on this tree and BYTE-IDENTICAL either way:
+# HECA (body_sha 0a2740ab1e88) and SPJC (255261460924) — SPJC HAS a
+# below-grade region and the pass runs on it, which is the stronger read.
+#
+# With O4_BASIN_RAMP_REACH_PLATE=0 (the DEFAULT) no corridor is derived
+# and no plate is joined; the emitted patch is byte-identical to the
+# founding round.
 BASIN_RAMP_REACH_PLATE = (
-    _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "1") == "1")
+    _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "0") == "1")
 
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.

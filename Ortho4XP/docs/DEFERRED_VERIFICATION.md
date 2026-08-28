@@ -4188,3 +4188,39 @@ mesh).  That is the spec's own STOP.  What was NOT paid this round:
   once.  `tests/test_harness.py::test_the_near_miss_frontage_law_is_one_
   authority` fails at HEAD too (the STATUS 20260827 pre-existing failure)
   — not this round.
+
+## 2026-08-28b — LEMD ramp-reach FLOOR PLATE (Amendment 1 §2, gate HELD OFF)
+
+The ruled emit-time plate is built and measured (lane/lemdtrench).  It
+REACHES the owner's ramp — the pan grows 27,449 → 28,295 m² and both
+owner coordinates go from 1.20 m / 11.60 m outside it to INSIDE, floor
+value 587.75 m unchanged, ring and every reading on it untouched — and
+it collides with the `building8` pad doing so: census 2,529 → 2,751
+law-true, `within_shape` 35 → 231 (+196, 212 airside) at worst 12.74 m,
+`building8` off flat, rim 600.51 → 600.49.  Root cause, attributed
+twice: the ramp lies INSIDE the pad and OUTSIDE the facility, and
+`BASIN_PAD_FLOOR_SEAT` yields the pad's authority only inside the
+facility.  Held for an owner ruling on the pad boundary.  What was NOT
+paid:
+
+* **No tile rebake, so the SHIPPED `G` is unmeasured.**  The §3
+  acceptance re-read passes as specified — the admitted ring is the same
+  object, its 70 R_mesh stations are byte-identical, and read against
+  the PRE-PLATE surface (the built 2026-08-27 `Data+40-004.mesh`) it
+  gives 596.680 m against the committed 596.682.  But 8 of those 70
+  stations fall on the corridor plate, so a real rebake would sample our
+  own plate there; dropping those 8 stations instead reads 596.000 m.
+  Either way the shipped `G` moves, and a mesh-only `+40-004` run +
+  rebake replay is owed before this gate is ever turned on.
+* **OTHH not built** (its two regions grow 6,203 → 6,222 and 4,332 →
+  4,339 m² offline; both would be batter, not ramp, under
+  `_ramp_lobes_of`).  Controls measured: HECA and SPJC, byte-identical.
+* **No full-suite run** (pre-ship mode); the blast-named files were run
+  once.  `test_harness.py::test_the_near_miss_frontage_law_is_one_
+  authority` fails at HEAD too.
+* **A stale-sidecar trap was hit and closed in passing**: the corridor
+  DERIVATION changed without the classification fingerprint being able
+  to see it, and a v25 sidecar from an earlier arm was served to the
+  next build, which emitted the batter annulus and logged it as freshly
+  derived.  Cache version 26 retires it.  The class is generic — the
+  fingerprint covers the pack and the gates, never the arithmetic.

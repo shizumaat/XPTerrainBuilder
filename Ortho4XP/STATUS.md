@@ -1,4 +1,35 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260828c (OWNER SIM-READ ROUND 2 on 1.0.264 — OTHH tunnels, LEMD
+# pit ramp, CYXY terrain; THREE lanes, all closed; app 1.0.265 built
+# embedded==dist hash-verified, engine 1.50.1708.)
+# OTHH WALLS FIXED (§W1 MERGED 04272e71): walls were BORN by §2.3 then
+#   eaten by covered-stretch drop (claim footprints missing from the
+#   ruling-4 post-cut union) — adjudication-only subtraction lands;
+#   coverage 0%→51%, mouth reach 727.6→5.9 PASS, covered-span guard
+#   holds. §W2 landed lawful but the hump attribution was WRONG (host
+#   ring authors the 4.00s, outside cut+claims) — SIM ADJUDICATES the
+#   walled render. Dockets: 173 hole-ring over-cap rows (instrument Q
+#   first), wall-foot R16-2b, site B2 reach 107.9.
+# DEPTH RULED (2026-08-28d, 715a44fa): service-bore depth STAYS 5.1 m;
+#   shallowness read = missing walls, not dig depth.
+# CYXY FIXED (R18-1c MERGED d5b6bf91): my flood-leak spec REFUTED by
+#   lane instruments (0/578 seeds, 0/22,923 tris); real owner =
+#   R18-1b harmonic domain welded tile-wide through include_roads'
+#   shared INTERP_ALT bit. Domain scoped to patch coverage: |mesh-.alt|
+#   mean 7.50→0.58 m, >20 m 1,811→0; HECA 867-vertex miniature also
+#   cured; leak detector red→green. Coastal seawall control DEFERRED.
+# LEMD PIT RAMP UNSHIPPED (both arms retired-kept-gated, 4a407394):
+#   arm 1 region-completion moves the one-body reads (floor/rim/pad/G);
+#   arm 2 emit plate is geometrically MET but the ramp corridor is
+#   INSIDE building8's pad ring — pad flattening authority owns the
+#   ground at 600.51. NEXT LEVER = pad authority carve (spec Amendment
+#   2, PENDING OWNER; G fork: 8/70 stations on the corridor,
+#   596.680 pre-plate vs 596.000 dropped). Stale-sidecar cache v26
+#   fix shipped in passing.
+# NEXT: owner rebuilds +25+051/+40-004/+60-136 on 1.0.265; pad-carve
+#   ruling; then the docket list.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260828b (THE 1.0.263 SIM-READ WAVE MERGED — 17 owner items across
 # LEMD/HECA/OTHH, four lanes + two attribution lanes; app 1.0.264.)
 # TUNNELS (spec 98ee0a88 + amendments): LEMD portal table 5 PASS /

@@ -1070,14 +1070,21 @@ def test_H1_2_the_relaxation_is_flag_gated(monkeypatch):
     assert rep["published_reimposed"] == 0
 
 
-def test_H1_the_five_round4_flags_default_ON():
-    """§Shared: five flags, all DEFAULT ON, each OFF byte-identical."""
+def test_H1_the_round4_flag_defaults_are_the_SHIP_configuration():
+    """§Shared named five flags default ON; spec Amendment 1 §1 ruled
+    ``ROAD_EVIDENCE_SEVER`` RETIRED-KEPT-GATED **OFF** on the lane's own
+    measurement (IoU 0.8221 against the 0.90 bar; +61/+37/+435 census
+    cost at HECA/SPJC/LEMD, OFF strictly better everywhere).  So the
+    ALL-DEFAULTS arm is the lane's ``k_heca_noh3`` configuration, and
+    that is what this pins — a default is a ruling, not a preference."""
     import auto_patch.config as CFG
     for name in ("MEMBRANE_LAW_FLOOR", "PASS2_RELAXATION",
-                 "ADOPT_FREEZE_AIRSIDE_ONLY", "ROAD_EVIDENCE_SEVER",
-                 "TRANSVERSE_NO_STEP"):
+                 "ADOPT_FREEZE_AIRSIDE_ONLY", "TRANSVERSE_NO_STEP"):
         assert getattr(CFG, name) is True, name
         assert name in CFG.__all__, f"{name} is not in the registry"
+    assert CFG.ROAD_EVIDENCE_SEVER is False, (
+        "§H3 ships default-OFF (spec Amendment 1 §1)")
+    assert "ROAD_EVIDENCE_SEVER" in CFG.__all__
 
 
 # ═════════════════════════════════════════════════════════════════════

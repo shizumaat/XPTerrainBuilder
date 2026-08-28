@@ -4098,34 +4098,57 @@ attribution instrument.
 
 ## HECA round 4 (spec `heca-round4-spec.md` §H1-§H4, lane `lane/hround4`)
 
-* **§H3's acceptance is NOT met and the mechanism is net-negative.**
-  `IoU(retained, reference)` for apron 582 against the owner's reference
-  surgery is **0.8221** against the spec's ≥ 0.90 bar; the build cuts
-  111 m² of the 49,648 m² the owner removed, and after the anti-bisection
-  rule the severance no longer fires at the item-3 site at all.  Cost, on
-  matched single-variable arms: HECA +61, SPJC +37, LEMD +435 adjudicated
-  rows.  `O4_ROAD_EVIDENCE_SEVER` ships DEFAULT ON as the spec states;
-  the default is a Fable question and the numbers for it are in the round
-  report.
+* **§H3 RULED DEFAULT-OFF and routed to the scorer-v2 docket** (spec
+  Amendment 1 §1).  `IoU(retained, reference)` for apron 582 against the
+  owner's reference surgery is **0.8221** against the ≥ 0.90 bar; the
+  build cuts 111 m² of the 49,648 m² the owner removed, and after the
+  anti-bisection rule the severance no longer fires at the item-3 site at
+  all.  Cost on matched single-variable arms: HECA +61, SPJC +37, LEMD
+  +435 adjudicated rows, OFF strictly better everywhere.  **THE OPEN
+  DOCKET IS THE SCORER'S VERDICT, NOT THE CUT**: the severance fires and
+  partitions correctly and the pieces still score APRON on their own
+  evidence — owner item 3 routes to the standing scorer-v2 / roles
+  docket, with `O4_ROAD_EVIDENCE_SEVER=1` (machinery + twins retained) as
+  its starting point.  Interim practical path offered to the owner:
+  splitting the Tai pack's unioned apt.dat pavements (#111/#57) in the
+  PACKAGE is the data-side fix the current scorer would honour today.
 * **§H2's acceptance is NOT met.**  The freeze narrows and releases 4,212
   HECA road vertices (CYXY 262, SPJC 108), but the item-5(b) site is
   unchanged (4 → 5 rows, worst 1.71 → 1.81 m) and the patch-wide
   road-family cliff class GROWS (≥ 1.0 m: 906 → 993; ≥ 20 %: 363 → 414).
   A strict airside-EXACT reading is also not met on the §H2-only arm
   (`within_shape` −19, `transverse` −14, `airside_no_step` +13 — net −20,
-  churn on both sides).  Attempt cap reached.
+  churn on both sides).  Attempt cap reached.  **RULED** (Amendment 1
+  §2): the receiver-plus-lot scope is APPROVED and the literal
+  airside-only reading REJECTED (it would release 5,005 more HECA
+  vertices carried by real authorities — the airside-pull class); the
+  narrowing is structurally right and item 5(b)'s unchanged site becomes
+  **its own attribution docket** — the site's binding is elsewhere and
+  has not been named.
 * **§H1.3's void-pair repair target is NOT met.**  The item-1 pair is now
   PRICED (the guarantee) and its worst |de| falls 1.41 → 1.01 m, but the
   bar was ≤ 1.5 % over 18.5 m ≈ 0.28 m.
 * **§H1.2's T-site target is NOT met**: item 2 goes 8 rows / worst 0.70 m
-  → 18 rows / worst 1.10 m.  The relaxation's own invariant IS met
-  (own-law rows growing past `max(budget, pass-1 residual)`: worst
-  3.08 m → 0.0010 m, under the materiality floor).
-* **§H1.1 costs +396 adjudicated at HECA on its own arm**, of which
-  `airside_no_step` +252 is UN-BLINDING (196 floor edges the census now
-  prices) and `within_shape` +95 / `transverse` +21 / `mid_edge_step` +21
-  is real new surface damage from the solver building to them.  Not
-  root-caused; attempt cap reached.
+  → 18 rows / worst 1.10 m (the same regression the §H1.1 docket above
+  carries — the two are not separated).  The relaxation's own invariant
+  IS met (own-law rows growing past `max(budget, pass-1 residual)`: worst
+  3.08 m → 0.0010 m, under the materiality floor), and §H1.2 is ACCEPTED
+  as landed (Amendment 1 §3).
+* **§H1.1 costs +396 adjudicated at HECA on its own arm and STAYS ON**
+  (Amendment 1 §3): `airside_no_step` +252 of that is the UN-BLINDING the
+  owner's item 1 exists to demand (196 floor edges the census now
+  prices).  **THE ~144 UN-ATTRIBUTED SURFACE RESPONSE IS THIS ROUND'S
+  OPEN DOCKET**: `within_shape` +95 / `transverse` +21 /
+  `mid_edge_step` +21, real movement from the solver building to the new
+  edges, plus the T-site regression it carries — item 2
+  `30.1287581,31.4056763` goes **8 rows / worst 0.70 m → 18 rows / worst
+  1.10 m** (`apron_lattice_membrane` 2 → 8, `airside_no_step` 6 → 9,
+  `within_shape` 0 → 1).  Not root-caused; attempt cap reached; the
+  owner's sim pass adjudicates whether it reads.
+* **SHIP CONFIGURATION = the lane's `k_heca_noh3` arm** (four flags ON,
+  `O4_ROAD_EVIDENCE_SEVER` OFF): CYXY −12, SPJC −266, LEMD −530,
+  HECA +38 against matched OFF controls.  §H4 is the round's win
+  (item 5(a) closed: 3 rows / worst 0.65 m → 1 row / worst 0.45 m).
 * **Per-flag decomposition run at HECA only.**  SPJC/CYXY/LEMD carry
   all-ON and (SPJC/LEMD) no-§H3 arms only.
 * **No full-suite run** (pre-ship mode): the directly-covering files were

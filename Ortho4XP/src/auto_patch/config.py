@@ -146,7 +146,8 @@ __all__ = [
     "AIRSIDE_NO_STEP_WINDOW_M",
     "AIRSIDE_NO_STEP_K",
     "AIRSIDE_NO_STEP_RESEED",
-    # HECA ROUND 4 (docs/specs/heca-round4-spec.md §H1-§H4)
+    # HECA ROUND 4 (docs/specs/heca-round4-spec.md §H1-§H4 + Amendment 1:
+    # four ship ON; ROAD_EVIDENCE_SEVER is retired-kept-gated OFF)
     "MEMBRANE_LAW_FLOOR",
     "PASS2_RELAXATION",
     "ADOPT_FREEZE_AIRSIDE_ONLY",
@@ -9758,16 +9759,37 @@ PASS2_RELAXATION = (
 ADOPT_FREEZE_AIRSIDE_ONLY = (
     _os.environ.get("O4_ADOPT_FREEZE_AIRSIDE_ONLY", "1") != "0")
 
-# §H3 — ROAD-EVIDENCE SEVERANCE.  The scorer's ONLY severance is the
-# aeroway-evidence cut (osm_taxi AND osm_apron/stand each >= the mix
-# fraction); measured (item 3), HECA's apron 582 swallows a mapped
-# SERVICE-ROAD zone that carries NO aeroway mapping at all — shape 605
-# has osm_taxi 0.0 — and the builder excavates its ground 12.71 m below
-# DEM.  The ONE cutter is extended to road/service evidence (never a
-# second cutter), with the SAME standing min-area and mix-fraction
-# constants.  OFF: the aeroway cut alone, exactly as before.
+# §H3 — ROAD-EVIDENCE SEVERANCE.  RETIRED-KEPT-GATED, **DEFAULT OFF**
+# (spec Amendment 1 §1, Fable 2026-08-28).
+#
+# WHAT IT IS.  The scorer's ONLY severance is the aeroway-evidence cut
+# (osm_taxi AND osm_apron/stand each >= the mix fraction); measured
+# (item 3), HECA's apron 582 swallows a mapped SERVICE-ROAD zone that
+# carries NO aeroway mapping at all — shape 605 has osm_taxi 0.0 — and
+# the builder excavates its ground 12.71 m below DEM.  The ONE cutter is
+# extended to road/service evidence (never a second cutter), with the
+# SAME standing min-area, mix-fraction and piece-floor constants.
+#
+# WHY IT IS OFF, MEASURED.  The cut does not buy the extent the owner's
+# reference surgery asks for: IoU(retained, reference) for apron 582 is
+# 0.8221 against the spec's 0.90 bar — the bite-never-bisection cut
+# removes 111 m² of the 49,648 m² the owner removed — and it costs +61
+# (HECA), +37 (SPJC) and +435 (LEMD) adjudicated census rows against
+# matched single-variable controls, with OFF strictly better on every
+# airport.  (The unrestricted first cut, before the bite rule, took HECA
+# 7,066 -> 12,567: a service road CROSSING an apron bisects it into two
+# authorities that step at the cut.)
+#
+# THE DOCKET IT BECOMES.  THE SCORER'S VERDICT ON THE SEVERED PIECE, not
+# the severance, is the missing lever: the cut fires and partitions
+# correctly, and the pieces still score APRON on their own evidence.
+# Owner item 3 routes to the standing scorer-v2 / roles docket; this
+# machinery and its twins are KEPT as that docket's starting point.
+# Interim practical path offered to the owner: splitting the Tai pack's
+# unioned apt.dat pavements (#111/#57) in the PACKAGE is the data-side
+# fix the current scorer would honour today.
 ROAD_EVIDENCE_SEVER = (
-    _os.environ.get("O4_ROAD_EVIDENCE_SEVER", "1") != "0")
+    _os.environ.get("O4_ROAD_EVIDENCE_SEVER", "0") != "0")
 
 # §H4 — THE TRANSVERSE PROFILE OBEYS NO-STEP ON ITS OWN RING.  A
 # taxiway-family shape's transverse writeback may not mint a direct-

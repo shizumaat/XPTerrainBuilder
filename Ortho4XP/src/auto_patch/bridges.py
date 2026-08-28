@@ -11335,7 +11335,16 @@ def _emit_corridor_ramp_chain(
     if usable_stations < 2:
         return False
     # ── §F3: ONE MONOTONE PROFILE ────────────────────────────────────
-    elevations = _monotone_ramp_profile(elevations[:usable_stations])
+    # SCOPED OUT of the BRIDGE-RAMP FILL law (``fill_grade``, owner ruling
+    # 2026-07-31).  That profile is ``max(ground, deck_end - grade * s)``
+    # — fill-only BY CONSTRUCTION, and deliberately not monotone: it
+    # rides the ground wherever the ground comes up to meet it.  Making
+    # it monotone would cut through exactly the rise the ``max`` exists
+    # to preserve.  §F3 governs the DEFAULT law, the linear blend to the
+    # DEM at each station, which is the one that carries the terrain's
+    # humps into the road.
+    if fill_grade is None:
+        elevations = _monotone_ramp_profile(elevations[:usable_stations])
 
     # Chain identity (defect B): quads of THIS chain are tested only
     # against pieces registered before the chain started.

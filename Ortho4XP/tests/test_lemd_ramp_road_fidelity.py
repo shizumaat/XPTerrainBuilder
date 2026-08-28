@@ -399,3 +399,37 @@ def test_f3_ships_default_on(monkeypatch):
     assert bridges.ramp_monotone_law_enabled() is True
     monkeypatch.setenv("O4_RAMP_MONOTONE", "0")
     assert bridges.ramp_monotone_law_enabled() is False
+
+
+def _fill_chain_rows(monkeypatch, monotone: str):
+    monkeypatch.setenv("O4_RAMP_MONOTONE", monotone)
+    layout = PavementLayout(icao="ZZZZ", anchor=_ANCHOR)
+
+    def _meters_to_lat_lon(x, y):
+        cos_anchor = math.cos(math.radians(_ANCHOR[0]))
+        return (_ANCHOR[0] + y / 111320.0,
+                _ANCHOR[1] + x / (111320.0 * cos_anchor))
+
+    assert bridges._emit_corridor_ramp_chain(
+        layout, _BumpDem(), 40, -4, _meters_to_lat_lon,
+        _WALK, _WALK.length, 620.0, 7.0, 20.0,
+        refuse_inverted=False, ramp_ref="tunnel_ramp",
+        fill_grade=0.04)
+    rows = []
+    for shape in [s for s in layout.shapes if s.ref == "tunnel_ramp"]:
+        rows.append((round(_WALK.project(shape.polygon.centroid), 3),
+                     shape.altitude, shape.altitude_low,
+                     shape.altitude_high))
+    rows.sort()
+    return rows
+
+
+def test_f3_the_bridge_ramp_fill_law_is_out_of_scope(monkeypatch):
+    """SCOPE.  The bridge-ramp FILL profile (``fill_grade``, owner ruling
+    2026-07-31) is ``max(ground, deck_end - grade * s)`` — fill-only by
+    construction and deliberately NOT monotone: it rides the ground where
+    the ground comes up.  §F3 must leave it BYTE-IDENTICAL, or the
+    conform would cut through the rise that ``max`` exists to preserve.
+    """
+    assert (_fill_chain_rows(monkeypatch, "1")
+            == _fill_chain_rows(monkeypatch, "0"))

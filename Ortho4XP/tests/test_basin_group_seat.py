@@ -27,6 +27,7 @@ mesh, a monkeypatched DSF text.  No pack content enters the repository.
 
 from __future__ import annotations
 
+import dataclasses as _dataclasses
 import json
 import math
 import os
@@ -110,12 +111,19 @@ def _slab(
 
 
 def _write_sloped_trench_mesh(mesh_path, *, floor_slope=FLOOR_SLOPE_PER_METRE,
-                              flat_elevation_m: float | None = None) -> None:
+                              flat_elevation_m: float | None = None,
+                              carved_corridor_m: float | None = None) -> None:
     """The built mesh under the fixture.
 
     ``flat_elevation_m`` writes one flat plane instead (the threshold
     no-op arm: the family already drapes on the plane its author drew
     it on, which is what OTHH's anchor-outside facilities measured).
+
+    ``carved_corridor_m`` cuts the CARVE CORRIDOR into it — the ground
+    east of the body that the pad-authority carve plates at the pit
+    floor.  It is what a tile rebuilt WITH the carve actually looks
+    like, and it is the only way to ask §4b's question honestly: is the
+    corridor-EXCLUDED read stable ACROSS the carve?
     """
     steps = int(2 * MESH_EXTENT_M / MESH_STEP_M) + 1
     coordinates = [
@@ -126,7 +134,12 @@ def _write_sloped_trench_mesh(mesh_path, *, floor_slope=FLOOR_SLOPE_PER_METRE,
         for south in coordinates:
             latitude, longitude = obj8_reader.local_offset_to_lonlat(
                 ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, east, south)
-            if flat_elevation_m is not None:
+            if (carved_corridor_m is not None
+                    and BODY_HALF_SPAN_M < east <= 2.0 * BODY_HALF_SPAN_M
+                    and abs(south) <= BODY_HALF_SPAN_M / 3.0):
+                # The carved corridor, at the pit floor.
+                elevation = carved_corridor_m
+            elif flat_elevation_m is not None:
                 elevation = flat_elevation_m
             elif (abs(east) <= MESH_FLOOR_HALF_SPAN_M
                     and abs(south) <= MESH_FLOOR_HALF_SPAN_M):
@@ -795,3 +808,323 @@ class TestFacilitySplitPerConnectedBody:
         assert len(facility.body_rings_longitude_latitude) == 2
         assert facility.solid_minimum_y_m == pytest.approx(-6.0)
         assert facility.anchor_inside_body is True
+
+
+# ── §4a/§4c: THE FOUNDED DATUM IS CARRIED, NEVER RE-DERIVED ──────────
+#
+# Spec ``docs/specs/lemd-pad-authority-carve-spec.md`` §4, AMENDED
+# 2026-08-28.  ``R_mesh`` is a median of the BUILT MESH just outside the
+# facility's own plates; where a round deliberately CARVES that ground
+# the mesh is no longer the surface the pack's seat was founded on, and
+# re-deriving from it moves the whole rigid family.  MEASURED on the
+# carve lane with ONE instrument over ONE facility: 596.682 m on the
+# 2026-08-27 +40-004 surface and 600.510 m on the 2026-08-28 one — 3.83 m
+# of "seat" that is only which mesh answered.
+
+#: The +40-004 class in miniature: the value the spec names as the basin
+#: arc's founded datum, carried in the pack's own provenance sidecar.
+FOUNDED_DATUM_M = 596.682
+
+
+def _seed_founded_provenance(pack_root, resources, datum_m=FOUNDED_DATUM_M):
+    """Write a provenance sidecar that already seats ``resources`` on
+    ``datum_m`` under the group-seat law — i.e. a pack that HAS been
+    baked, which is what "carried through every rebake" is about.
+
+    Written through the module's own constants (filename, version,
+    decision kind), never a hand-spelled path or literal."""
+    sidecar = {
+        "version": object_rebake.PROVENANCE_VERSION,
+        "meshes": {},
+        "objects": {
+            resource: {
+                "decision_kind": assembly.BASIN_GROUP_SEAT_DECISION_KIND,
+                "seat_datum_m": float(datum_m),
+                "delta_m": 0.0,
+            }
+            for resource in resources
+        },
+    }
+    path = os.path.join(str(pack_root), object_rebake.PROVENANCE_FILENAME)
+    with open(path, "w") as handle:
+        json.dump(sidecar, handle)
+    return path
+
+
+class TestFoundedSeatDatumReader:
+    """``object_rebake.founded_seat_datum`` — the CARRIER, read only."""
+
+    def test_no_sidecar_is_no_datum(self, tmp_path):
+        value, reason = object_rebake.founded_seat_datum(
+            str(tmp_path), {PIT_SHELL},
+            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
+        assert value is None
+        assert "never been baked" in reason
+
+    def test_it_reads_the_datum_the_pack_already_seats_on(self, tmp_path):
+        _seed_founded_provenance(tmp_path, [PIT_SHELL, TERMINAL])
+        value, source = object_rebake.founded_seat_datum(
+            str(tmp_path), {PIT_SHELL, TERMINAL},
+            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
+        assert value == pytest.approx(FOUNDED_DATUM_M)
+        assert source == sorted([PIT_SHELL, TERMINAL])
+
+    def test_another_law_s_record_is_not_this_law_s_datum(self, tmp_path):
+        _seed_founded_provenance(tmp_path, [PIT_SHELL])
+        value, reason = object_rebake.founded_seat_datum(
+            str(tmp_path), {PIT_SHELL}, "some_other_law")
+        assert value is None
+        assert "no 'some_other_law' seat datum" in reason
+
+    def test_members_that_disagree_are_NOT_averaged(self, tmp_path):
+        """Two bakes wrote one group and the sidecar no longer describes
+        ONE plane.  A mean would mint a value no law produced (the
+        emit-consensus precedent) — so it is a refusal, reported."""
+        import json
+        path = _seed_founded_provenance(tmp_path, [PIT_SHELL, TERMINAL])
+        payload = json.load(open(path))
+        payload["objects"][TERMINAL]["seat_datum_m"] = FOUNDED_DATUM_M + 0.5
+        json.dump(payload, open(path, "w"))
+        value, reason = object_rebake.founded_seat_datum(
+            str(tmp_path), {PIT_SHELL, TERMINAL},
+            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
+        assert value is None
+        assert "disagree by 0.500 m" in reason
+
+    def test_the_reader_writes_nothing(self, tmp_path):
+        path = _seed_founded_provenance(tmp_path, [PIT_SHELL])
+        before = (os.path.getsize(path), open(path).read())
+        object_rebake.founded_seat_datum(
+            str(tmp_path), {PIT_SHELL},
+            assembly.BASIN_GROUP_SEAT_DECISION_KIND)
+        assert (os.path.getsize(path), open(path).read()) == before
+
+
+class TestCarvedFacilityCarriesItsFoundedDatum:
+    """§4a/§4b/§4c end to end, on the same synthetic +40-004-class pack
+    the class above bakes.
+
+    Its fixtures and builders are REUSED BY REFERENCE, not inherited:
+    subclassing would re-collect all of that class's own tests under
+    this name, and a suite that reports one law twice is the thing
+    ``test_harness``'s twins exist to stop.  The carved and uncarved
+    arms are then the SAME facility with one field added."""
+
+    _sandbox = TestBasinGroupSeat._sandbox
+    _pack = TestBasinGroupSeat._pack
+    _facility = TestBasinGroupSeat._facility
+    _rebake = TestBasinGroupSeat._rebake
+
+    def _carved_facility(self):
+        """The facility, plus a carve corridor beside its body — the
+        ramp the pad-authority carve plates.  The corridor is a real
+        polygon in the same lon/lat spelling the emitter carries."""
+        base = self._facility()
+        span = BODY_HALF_SPAN_M
+        step = span / 111320.0
+        corridor = tuple(
+            (ANCHOR_LONGITUDE + longitude, ANCHOR_LATITUDE + latitude)
+            for longitude, latitude in (
+                (step, -step / 3.0), (2.0 * step, -step / 3.0),
+                (2.0 * step, step / 3.0), (step, step / 3.0),
+                (step, -step / 3.0)))
+        return _dataclasses.replace(
+            base, carve_corridor_rings_longitude_latitude=(corridor,))
+
+    def _run_carved(self, tmp_path, monkeypatch, **mesh_kwargs):
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        mesh_path = tmp_path / "Data+25+051.mesh"
+        _write_sloped_trench_mesh(mesh_path, **mesh_kwargs)
+        facility = self._carved_facility()
+        result = self._rebake(dsf_path, mesh_path, pack_root, [facility])
+        return result, pack_root
+
+    def test_the_carved_facility_seats_at_the_FOUNDED_datum(
+        self, tmp_path, monkeypatch
+    ):
+        """§4a, and the round's acceptance: with the carve gate ON, a
+        +40-004-class rebake seats the pack at the datum its provenance
+        carries — 596.682 m — NOT at the mesh median under the carved
+        band, whatever that mesh says."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        _seed_founded_provenance(
+            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
+        mesh_path = tmp_path / "Data+25+051.mesh"
+        _write_sloped_trench_mesh(mesh_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._carved_facility()])
+
+        record = result["basin_group_seat"][0]
+        assert record["seat_datum_source"] == "founded"
+        assert record["g_m"] == pytest.approx(FOUNDED_DATUM_M)
+        assert record["founded_seat_datum_m"] == pytest.approx(
+            FOUNDED_DATUM_M)
+        # ...and the mesh median is nowhere near it, which is the point.
+        assert abs(record["r_mesh_m"] - FOUNDED_DATUM_M) > 100.0
+        # Every member still lands on ONE plane — the carry moves the
+        # plane, never the relationships.
+        deltas = record["delta_by_resource"]
+        assert deltas
+        for resource, delta in deltas.items():
+            ground = record["g_m"] - delta
+            assert ground + delta == pytest.approx(
+                record["g_m"], abs=1e-9), resource
+
+    def test_the_drift_detector_is_recorded_and_never_applied(
+        self, tmp_path, monkeypatch
+    ):
+        """§4b: the corridor-EXCLUDED read is not a seat, it is the test
+        that the carve touched only the ground it was allowed to.  Both
+        halves are recorded so the split cannot be lost, and neither is
+        the datum."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        _seed_founded_provenance(
+            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
+        mesh_path = tmp_path / "Data+25+051.mesh"
+        _write_sloped_trench_mesh(mesh_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._carved_facility()])
+
+        record = result["basin_group_seat"][0]
+        assert "drift_detector_scoped_m" in record
+        assert "drift_detector_unscoped_m" in record
+        assert record["drift_detector_scoped_m"] == pytest.approx(
+            record["r_mesh_m"])
+        # The corridor really did take stations out of the band.
+        assert (record["drift_detector_scoped_stations"]
+                < record["drift_detector_unscoped_stations"])
+        # ...and none of it reached the seat.
+        assert record["g_m"] == pytest.approx(FOUNDED_DATUM_M)
+
+    def test_a_carved_facility_with_NO_founded_datum_REFUSES(
+        self, tmp_path, monkeypatch
+    ):
+        """§4c.  Seating it would establish a datum FROM the carved
+        surface, which is the one thing §4a forbids — so the pack is
+        left where it is, loudly."""
+        result, _pack_root = self._run_carved(tmp_path, monkeypatch)
+
+        record = result["basin_group_seat"][0]
+        assert record["seat_datum_source"] == "refused_no_founded_datum"
+        assert "§4c" in record["decision"]
+        assert not record.get("baked")
+        assert "g_m" not in record
+
+    def test_an_UNCARVED_facility_is_untouched_by_all_of_it(
+        self, tmp_path, monkeypatch
+    ):
+        """SCOPE.  A facility with no carve corridor has no carved
+        surface: it re-derives from ``R_mesh`` exactly as before, even
+        with a founded datum sitting in the sidecar.  That is every
+        facility in a build with the gate off."""
+        dsf_path, pack_root = self._pack(tmp_path, monkeypatch)
+        _seed_founded_provenance(
+            pack_root, [PIT_SHELL, TERMINAL, DECK_MINUS_3, DECK_MINUS_7])
+        mesh_path = tmp_path / "Data+25+051.mesh"
+        _write_sloped_trench_mesh(mesh_path)
+        result = self._rebake(
+            dsf_path, mesh_path, pack_root, [self._facility()])
+
+        record = result["basin_group_seat"][0]
+        assert record["seat_datum_source"] == "r_mesh"
+        assert record["g_m"] == pytest.approx(RIM_ELEVATION_M)
+        assert "founded_seat_datum_m" not in record
+        assert "drift_detector_scoped_m" not in record
+
+
+class TestDriftDetectorAcrossTheCarve:
+    """§4b — the corridor-EXCLUDED read is the DRIFT DETECTOR.
+
+    Its acceptance is not a value, it is a STABILITY: the scoped read
+    must be the same before and after the carve (tolerance 0.01 m),
+    because the carve is only allowed to touch the corridor.  A moved
+    scoped read means it reached ambient ground — a STOP, never a
+    re-seat.  These twins ask that question the only honest way: two
+    meshes, one built without the carve and one with it cut in, ONE
+    station set, both reads.
+    """
+
+    #: §4b's own tolerance.
+    DRIFT_TOLERANCE_M = 0.01
+
+    def _rings(self):
+        ring = tuple(
+            (ANCHOR_LONGITUDE + longitude_offset,
+             ANCHOR_LATITUDE + latitude_offset)
+            for longitude_offset, latitude_offset
+            in _square_ring(BODY_HALF_SPAN_M))
+        step = BODY_HALF_SPAN_M / 111320.0
+        corridor = tuple(
+            (ANCHOR_LONGITUDE + longitude, ANCHOR_LATITUDE + latitude)
+            for longitude, latitude in (
+                (step, -step / 3.0), (2.0 * step, -step / 3.0),
+                (2.0 * step, step / 3.0), (step, step / 3.0),
+                (step, -step / 3.0)))
+        return (ring,), (corridor,)
+
+    def _reads(self, tmp_path, **mesh_kwargs):
+        from statistics import median
+        from auto_patch.mesh_sampler import MeshElevationSampler
+
+        body_rings, corridor_rings = self._rings()
+        unscoped, _parts = post_mesh._basin_facility_rim_sample_ring(
+            body_rings, ANCHOR_LATITUDE, ANCHOR_LONGITUDE)
+        scoped, _parts2 = post_mesh._basin_facility_rim_sample_ring(
+            body_rings, ANCHOR_LATITUDE, ANCHOR_LONGITUDE, corridor_rings)
+        name = "carved" if mesh_kwargs.get("carved_corridor_m") else "plain"
+        mesh_path = tmp_path / f"Data+25+051.{name}.mesh"
+        _write_sloped_trench_mesh(mesh_path, **mesh_kwargs)
+        latitudes = [p[0] for p in unscoped]
+        longitudes = [p[1] for p in unscoped]
+        sampler = MeshElevationSampler(
+            str(mesh_path),
+            (min(longitudes) - 0.002, min(latitudes) - 0.002,
+             max(longitudes) + 0.002, max(latitudes) + 0.002))
+
+        def _read(points):
+            values = [v for v in (sampler.elevation_at_or_none(a, b)
+                                  for a, b in points) if v is not None]
+            return median(values), len(values), values
+
+        return _read(unscoped), _read(scoped)
+
+    def test_the_corridor_really_is_under_the_band(self, tmp_path):
+        """The premise: without the exclusion the band samples the
+        corridor, so stations are actually dropped by it."""
+        (_u, unscoped_n, _uv), (_s, scoped_n, _sv) = self._reads(tmp_path)
+        assert scoped_n < unscoped_n
+
+    def test_the_scoped_read_is_STABLE_across_the_carve(self, tmp_path):
+        """§4b's acceptance, in miniature: the carve cuts the corridor to
+        the pit floor and the corridor-EXCLUDED read does not move."""
+        (_pu, _n1, _puv), (plain_s, _n2, _psv) = self._reads(tmp_path)
+        (_cu, _n3, _cuv), (carved_s, _n4, _csv) = self._reads(
+            tmp_path, carved_corridor_m=FLOOR_AT_DATUM_M)
+        assert abs(carved_s - plain_s) <= self.DRIFT_TOLERANCE_M, (
+            plain_s, carved_s)
+
+    def test_the_UNSCOPED_band_SAMPLES_OUR_OWN_PLATE(self, tmp_path):
+        """The control for the twin above, and the reason the scope
+        exists at all — stated on the SAMPLES, not on the median.
+
+        A median is a rank statistic: at LEMD the band spans 589-600 m
+        and losing 8 of 70 stations moves it 0.682 m, but on a fixture
+        whose ambient rim is one flat value it cannot move at all.  What
+        is TRUE either way, and what §4a is actually about, is WHICH
+        GROUND was read: unscoped, the band lands on the plate this
+        round laid at the pit floor; scoped, it never does."""
+        (_pu, _n1, _puv), (_ps, _n2, _psv) = self._reads(tmp_path)
+        (_cu, _n3, unscoped_values), (_cs, _n4, scoped_values) = (
+            self._reads(tmp_path, carved_corridor_m=FLOOR_AT_DATUM_M))
+        # Stated against the AMBIENT RIM, never against the plate's own
+        # value: the band's stations fall between mesh vertices, so a
+        # station over the corridor reads the triangle's interpolation
+        # (10.50 m here, not the 10.00 m the plate was written at) —
+        # asserting the exact plate value would be asserting the
+        # fixture's triangulation, not the law.
+        assert min(unscoped_values) < RIM_ELEVATION_M - 1.0, (
+            "the unscoped band did not reach the carved corridor, so "
+            "this fixture proves nothing")
+        assert min(scoped_values) == pytest.approx(
+            RIM_ELEVATION_M, abs=0.01), (
+            "the scoped band sampled ground the carve had lowered")

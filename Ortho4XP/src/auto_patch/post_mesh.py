@@ -2052,10 +2052,106 @@ def _bake_basin_group_seat_facilities(
                 "not baked — the built mesh answered nowhere on the rim "
                 "band, so G is unmeasured (never guessed)")
             continue
-        seat_datum = float(median(rim_samples))
-        record["r_mesh_m"] = seat_datum
-        record["g_m"] = seat_datum
+        r_mesh = float(median(rim_samples))
+        record["r_mesh_m"] = r_mesh
         record["rim_sample_count"] = len(rim_samples)
+        seat_datum = r_mesh
+        record["seat_datum_source"] = "r_mesh"
+
+        # ── THE FOUNDED DATUM IS CARRIED, NEVER RE-DERIVED ───────────
+        # (spec ``docs/specs/lemd-pad-authority-carve-spec.md`` §4a,
+        # AMENDED 2026-08-28 on this lane's STOP.)
+        #
+        # ``R_mesh`` is a median of the BUILT MESH just outside the
+        # facility's own plates.  Where a round deliberately CARVES that
+        # ground — the pad-authority carve lays a floor plate along the
+        # entrance ramp — the mesh under the band is no longer the
+        # surface the pack's seat was founded on, and re-deriving from it
+        # moves the whole rigid family.  MEASURED on this lane: the same
+        # instrument reads 596.682 m on the 2026-08-27 surface and
+        # 600.510 m on the 2026-08-28 one, i.e. 3.83 m of "seat" that is
+        # only which mesh answered.  So a CARVED facility carries the
+        # datum the pack already seats on
+        # (``object_rebake.founded_seat_datum``: the sidecar's own
+        # ``seat_datum_m``, put there by basin-group-seat §2.5 / trap T6
+        # exactly so a pack can answer what its group decided) and
+        # ``R_mesh`` is demoted to the DRIFT DETECTOR below.
+        #
+        # SCOPE IS THE CARVE'S OWN.  A facility with no carve corridor
+        # has no carved surface, re-derives exactly as before, and is
+        # byte-identical — which is every facility in a build with the
+        # gate off.
+        #
+        # §4c IS A REFUSAL, NOT A FALLBACK: a carved facility with no
+        # datum to carry is NOT baked.  Seating it would establish a
+        # datum FROM the carved surface, which is the one thing §4a
+        # forbids, and "do not let a rebake move the pack" is the ruling.
+        carve_rings = getattr(
+            facility, "carve_corridor_rings_longitude_latitude", ())
+        if carve_rings:
+            founded, source = object_rebake.founded_seat_datum(
+                pack_root, group_resources,
+                BASIN_GROUP_SEAT_DECISION_KIND)
+            if founded is None:
+                record["decision"] = (
+                    "not baked — this facility's ground is CARVED and it "
+                    "has no founded datum to carry, so any seat would be "
+                    "re-derived from the carved surface (spec "
+                    f"lemd-pad-authority-carve §4c): {source}")
+                record["seat_datum_source"] = "refused_no_founded_datum"
+                UI.vprint(
+                    0,
+                    "  [object-anchor] BASIN GROUP SEAT REFUSED (§4c): "
+                    f"{sorted(member_resources)} lies on ground this "
+                    f"build CARVES ({len(carve_rings)} corridor ring(s)) "
+                    f"and {source} — R_mesh here reads {r_mesh:.3f} m off "
+                    "the carved surface and is NOT a seat.  The pack is "
+                    "left where it is.",
+                )
+                continue
+            seat_datum = float(founded)
+            record["seat_datum_source"] = "founded"
+            record["founded_seat_datum_m"] = seat_datum
+            record["founded_seat_datum_from"] = list(source)
+            # ── THE DRIFT DETECTOR (§4b) ─────────────────────────────
+            # The corridor-EXCLUDED read is not a seat; it is the test
+            # that the carve touched only the ground it was allowed to.
+            # It is RECORDED (both halves, scoped and unscoped, so the
+            # split is visible in the artifact) and never applied; the
+            # acceptance is that the scoped value is STABLE across the
+            # carve, which is a comparison between two arms and so
+            # belongs to whoever holds both — this pass's job is to make
+            # the number impossible to lose.
+            record["drift_detector_scoped_m"] = r_mesh
+            record["drift_detector_scoped_stations"] = len(rim_samples)
+            unscoped_points, _unscoped_parts = (
+                _basin_facility_rim_sample_ring(
+                    facility.body_rings_longitude_latitude,
+                    origin_latitude, origin_longitude))
+            unscoped_samples = [
+                float(value) for value in (
+                    sampler.elevation_at_or_none(latitude, longitude)
+                    for latitude, longitude in unscoped_points)
+                if value is not None and value == value]
+            if unscoped_samples:
+                record["drift_detector_unscoped_m"] = float(
+                    median(unscoped_samples))
+                record["drift_detector_unscoped_stations"] = len(
+                    unscoped_samples)
+            UI.vprint(
+                1,
+                "  [object-anchor] BASIN GROUP SEAT: FOUNDED DATUM "
+                f"CARRIED for {sorted(member_resources)} — G "
+                f"{seat_datum:.3f} m from the pack's own provenance "
+                f"({len(source)} member record(s)), NOT re-derived: this "
+                f"facility's ground is carved.  Drift detector (spec "
+                f"§4b, recorded only): scoped {r_mesh:.3f} m over "
+                f"{len(rim_samples)} station(s)"
+                + ("" if not unscoped_samples else
+                   f", unscoped {median(unscoped_samples):.3f} m over "
+                   f"{len(unscoped_samples)}"),
+            )
+        record["g_m"] = seat_datum
 
         # ── ONE INSTRUMENT (spec §2.3 item 1, trap T7) ────────────
         # Every group anchor's ground is read HERE, by this sampler, in

@@ -4361,3 +4361,60 @@ What was NOT paid:
   tree edited during a long build is a tree the build's own emit phase
   may pick up — is unguarded: `build_airport.py` snapshots `dirty` and
   the tree hash at START and never re-checks at finish.
+
+### 2026-08-28c, part 2 — the §4 amendment implemented, and the premise it rests on MEASURED
+
+Spec §4 amended at `445f3de0`; the founded-datum carry is built
+(`object_rebake.founded_seat_datum` + the group-seat route in
+`post_mesh._bake_basin_group_seat_facilities`) and verified against the
+REAL `+40-004` pack in a dry run that wrote nothing:
+
+    BASIN GROUP SEAT: FOUNDED DATUM CARRIED for
+    ['objects/LEMD_OBJ-Ground-FSX-LEMD36.obj'] — G 600.510 m from the
+    pack's own provenance (48 member record(s)), NOT re-derived …
+    drift detector: scoped 600.510 over 62 station(s), unscoped 600.510
+    over 70
+
+So the MECHANISM is met — a rebake over carved ground no longer derives
+the seat from that ground — and §4b's detector is CLEAN on the shipped
+surface (scoped − unscoped = 0.000 m, inside the 0.01 m tolerance).
+
+**What is NOT met, and it is a premise, not a run: the pack does not
+seat at 596.682.**  Measured with ONE instrument over ONE facility, two
+meshes:
+
+| mesh | unscoped (70) | scoped (62) |
+| --- | --- | --- |
+| dev `Ortho4XP/Tiles/…` 2026-08-27 08:01 | 596.682 | 596.000 |
+| shipped `Custom Scenery/zOrtho4XP_+40-004/…` 2026-08-28 11:25 | 600.510 | 600.510 |
+
+and the pack's own provenance sidecar (written 2026-08-28 11:26, the
+owner's 1.0.265 app build, no carve anywhere near it) records
+`seat_datum_m = 600.51` under `decision_kind = basin_group_seat` for all
+48 members.  **596.682 is a value of the 2026-08-27 dev surface; the
+live pack was already re-seated +3.828 m by a shipped rebake before this
+lane existed.**  §4a's "the pack SEATS at [596.682], carried through
+every rebake" therefore describes a state the pack is not in.
+
+OWED, and an owner/design call, not an implementer's:
+
+* whether 596.682 is to be RE-PINNED as the arc's datum (a value the
+  code holds, which the carry would then serve), or whether 600.51 —
+  what the rim re-seat round put the band at, and what the owner's item
+  3 asked for ("the rim should be LEVEL with the apron") — IS the
+  founded datum now;
+* either way, the carry is what stops the NEXT rebake moving it again.
+
+The twin the round asked for is honest as written: a `+40-004`-class
+synthetic pack whose provenance carries 596.682 seats at 596.682 with
+the carve gate ON, whatever the mesh under the band says
+(`tests/test_basin_group_seat.py::TestCarvedFacilityCarriesItsFounded
+Datum::test_the_carved_facility_seats_at_the_FOUNDED_datum`).  It
+asserts the CARRY law with the spec's own number; it does not assert
+that the live pack currently carries it.
+
+Also this round: `test_basin_group_seat.py` teardown reported a
+shared-repo write of `Airport_mod_cache/zOrtho4XP_+35-081/…dsf…text`
+(KCLT).  CROSS-ATTRIBUTED: the detector's snapshot is per session and
+other lanes were building concurrently (HECA ×10, OTHH ×6 processes);
+nothing in this lane touches `+35-081`.  Re-running serially is clean.

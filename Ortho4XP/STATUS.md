@@ -1,4 +1,29 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260828a (PADS AS BAND-BOUNDED VARIABLES MERGED 85febb99 + the
+# pad_binding_routes chip branch 9ec11e15 + composition fix; app
+# 1.0.263 built embedded==dist for the owner sim pass.)
+# PADS: 53/54 HECA pads are one flat variable in the ring-domain
+#   intersection of the narrowed band (median 6.19 m; 33 LAW-placed at
+#   a bound); ring-median seat pass retired (O4_PADS_BAND_VARIABLES,
+#   OFF byte-identical measured); building25 domain 2.105 m reproduces
+#   82.320; building146 lawful 0.812 m domain. HECA 6,543->6,516;
+#   CYXY/HEAZ byte-identical; SPJC -1, LEMD -6; 0 empty domains, 0
+#   contradictions anywhere.
+# GROUP accommodate-else-split machinery ARMED but 0-of-0 declared:
+#   docket-B groups are post-mesh; the pad-frame declaration is an
+#   open design docket (recon chip out; Fable ruling to follow).
+#   LEMD note for the owner: building8+building24 rigid unit seats at
+#   599.393 (building8's domain floor) inside building24's domain.
+# PROVENANCE: pad_binding_routes carries routes + domains, merged by
+#   pad ref (one container, two producers); pass-identity composition
+#   ruled — foreign band publishes neither, capture-degraded
+#   suppresses routes only.
+# reds on main: near-miss twin (chip session out), pad-law
+#   late-projection twin (source-inspection drift, chip filed).
+# NEXT: owner sim pass on 1.0.263; pack-group declaration ruling from
+#   the recon; ship-gate ledgers keep accumulating.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260827b (UNIFIED LAW BAND MERGED 16889bc9: the reach band is the
 # projection of the FULL law graph — frontage chords + membrane +
 # no-step enumeration, ONE shared list — narrowed BEFORE seating and

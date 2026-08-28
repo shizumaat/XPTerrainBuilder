@@ -41,13 +41,17 @@ LAW (owner intent stated in the read — the ramp IS the expectation):
 1. A service road that terminates on (or passes onto) aircraft pavement
    BINDS its end elevation to that pavement (weld at the junction — the
    cliff is never lawful).
-2. RULED (owner 2026-08-28e): the 1 % cap applies ONLY inside an apron.
-   A FREE road (outside/having left the apron) climbs or descends at up
-   to **8 %**, distributed over its whole path, welded at each bound
-   end. (The 5 % tunnel-approach cap is a different law and unchanged.)
-   Item 3's 6.4 % requirement is therefore LAWFUL — no shortfall
-   expected; if 8 % still cannot reach a binding, report with numbers,
-   never emit a cliff.
+2. RULED (owner 2026-08-28e) — AND ALREADY LAW: `SERVICE_ROAD_MAX_GRADE
+   = 0.080` (config.py:1331) is the free-road class; free-road scoping
+   is supposed to cut each road at the stations where it stops being
+   free. THE DEFECT IS SCOPING, NOT A MISSING CONSTANT: all four
+   stretches carry `o4_grade_law_cap 0.010000` — classified as APRON
+   SPINES (RULINGS 2026-08-25h, 1 %) even where the owner says they have
+   left the apron. Attribute WHY each stretch classified as
+   apron/spine (edge-sharing test, corridor slice bounds, gap_fill_spine
+   adjacency) and fix the scoping so the stretch beyond the apron prices
+   and solves at the 8 % free class. No new law constant. Item 3's
+   6.4 % is lawful under the existing 8 %.
 3. The climb distributes over the road's whole path (item 2's U-turn leg
    included) — segment-local flat solves that dump the whole climb at
    the junction are the defect.

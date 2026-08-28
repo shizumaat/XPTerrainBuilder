@@ -1,4 +1,40 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260828b (THE 1.0.263 SIM-READ WAVE MERGED — 17 owner items across
+# LEMD/HECA/OTHH, four lanes + two attribution lanes; app 1.0.264.)
+# TUNNELS (spec 98ee0a88 + amendments): LEMD portal table 5 PASS /
+#   0 FAIL (items 4/5/6/7 — corridor suppression over mapped bores,
+#   DEM-cut provenance gate, scoped adjacent-road veto with published
+#   refusals, mouth-beats-cap); OTHH covered-span mask 12->0 at mint
+#   (item 12 + LEMD 557); claimed corridors footprint-scoped; ramp-
+#   wall _g0 gap ships (item 9; foot RETIRED-KEPT-GATED off — the
+#   face-inflation docket has its bisect signature); corridor-
+#   seniority pre-pass (rule 3) + road-piece ledger (item 8 partial:
+#   runway-clip joins fixed; third-world mint-side ledger chartered).
+# LEMD RIM/STATIONS (spec bff21887 + 3 amendments): stations weld or
+#   stand down (on-edge 144->0 at five airports — KILLS THE NEEDLE
+#   LOAD-TIME REGRESSION, p99 aspect 43k class); trench senior to
+#   pavement at its rim (338/338); rim re-seats post-solve at the
+#   solved neighbour (600.47 level-to-level, walled 12.72 m pit);
+#   pad rings stand-down hosts; declared pit wall exempt BY NAME w/
+#   carried-span conditional; LEMD census 3205->3028.
+# HECA ROUND 4 (spec 357854f4 + Amendment 1): membrane law floor +
+#   do-no-harm relaxation ON (+396 at HECA, +252 = un-blinding, ~144
+#   docketed); adoption freeze narrowed receiver-plus-lot; transverse
+#   no-step on own rings = the round's win (item 5(a) CLOSED; LEMD
+#   -530 / SPJC -266 on matched controls); road-evidence severance
+#   retired-kept-gated OFF (IoU 0.8221; item 3 -> scorer-v2 docket,
+#   interim = split Tai pack pavements #111/#57 in the PACKAGE).
+# OWNER ITEM SCOREBOARD: fixed 4,5,6,7,9,12 (tunnels), 1-LEMD/4-HECA
+#   (stations), 2/3-LEMD (rim), 5(a)-HECA; partial 8, 1-HECA; honest
+#   misses docketed: 2-HECA T-site (sim adjudicates), 5(b) binding
+#   unnamed, item-3 scorer docket.
+# OPEN DOCKETS: face-inflation (~1.4 m2/wall between emit and final);
+#   over-cap tunnel ramps (LEMD 30 w252% / OTHH 220 w337%, standing
+#   2026-08-07); §H1.1 ~144 response; item-5(b) binding; scorer-v2;
+#   mint-side road ledger; 7 ramps with no wall either arm.
+# NEXT: app 1.0.264 owner sim pass -> docket triage by what reads.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260828a (PADS AS BAND-BOUNDED VARIABLES MERGED 85febb99 + the
 # pad_binding_routes chip branch 9ec11e15 + composition fix; app
 # 1.0.263 built embedded==dist for the owner sim pass.)

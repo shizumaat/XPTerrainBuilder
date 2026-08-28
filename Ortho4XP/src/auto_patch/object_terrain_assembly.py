@@ -532,7 +532,33 @@ def _discover_sibling_road_networks(
 # warm v22 sidecar would therefore silently disable the whole founding
 # limb on exactly the packs it exists for.  The version is what retires
 # it; nothing else in the fingerprint can see a new field.
-_CLASSIFICATION_CACHE_VERSION = 23
+# 23 -> 24: an admitted ``BelowGradeRegion``'s ``polygon`` is now
+# COMPLETED up its own entrance ramp to the ground-contact band
+# (``object_terrain_features.regions_completed_to_ramp_reach``, spec
+# docs/specs/lemd-basin-trench-ramp-extension-spec.md).  No FIELD moves,
+# so this is not the version-21 class — but the ring itself is a
+# different shape, and the ring IS the cut.  A warm v23 sidecar would go
+# on serving the pre-completion ring, cutting the pit short of the ramp
+# the owner reported terrain poking through, with nothing in the log to
+# say why.  The fingerprint covers the pack and the gates, never the
+# derivation's own arithmetic; the version is what retires it.
+# 24 -> 25: ``BelowGradeRegion`` and ``TunnelStructure`` each gained a
+# ``ramp_reach_corridor`` (spec lemd-basin-trench-ramp-extension
+# Amendment 1 §2) — the version-21 class exactly: a v24 pickle restores
+# the frozen dataclass from a ``__dict__`` with no such key, so the
+# corridor reads back as the class default ``None``, which is NO RAMP,
+# and a warm v24 sidecar would silently disable the whole plate limb on
+# the one pack it exists for.  The version is what retires it; nothing
+# else in the fingerprint can see a new field.
+# 25 -> 26: the corridor DERIVATION changed — ``_ramp_lobes_of`` now
+# separates the shell's own BATTER from its ramp, so the same field
+# holds a different (798 m² not 1,779 m²) polygon.  CAUGHT IN THE ACT,
+# 2026-08-28: a v25 sidecar written by an earlier arm was served to the
+# next build, which then emitted the batter annulus and reported it in
+# the log as if freshly derived.  The fingerprint covers the PACK and
+# the GATES, never the derivation's own arithmetic; the version is the
+# only thing that can retire a ring or a corridor whose SHAPE changed.
+_CLASSIFICATION_CACHE_VERSION = 26
 
 # Sidecar file name prefix; the full name carries the DSF stem
 # (``o4_object_terrain_classification_<dsf-stem>.cache``).  Lives under
@@ -638,6 +664,21 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
         # predecessor so a flip can never be answered from a warm sidecar.
         digest.update(
             f"basin-region-founding:{config.BASIN_REGION_FOUNDING}".encode()
+        )
+        # ...and the RAMP REACH gate (spec lemd-basin-trench-ramp-
+        # extension): it decides how far an admitted region's ring runs
+        # up its own entrance ramp, i.e. the cut shape itself, so a flip
+        # must never be answered from a warm sidecar either.
+        digest.update(
+            f"basin-region-ramp-reach:"
+            f"{config.BASIN_REGION_RAMP_REACH}".encode()
+        )
+        # ...and the RAMP-REACH PLATE gate (Amendment 1 §2): it decides
+        # whether the classification carries a ramp CORRIDOR at all, and
+        # the corridor is emitted terrain.
+        digest.update(
+            f"basin-ramp-reach-plate:"
+            f"{config.BASIN_RAMP_REACH_PLATE}".encode()
         )
         # ...and the GROUP-SEAT gate (docket B, basin-group-seat §2.6): it
         # decides how the facility records this classification feeds are
@@ -1031,6 +1072,14 @@ def _cached_post_mesh_records(
                 # ...and the founding gate: a founded basin is a FACILITY
                 # in this payload that does not exist without it.
                 config.BASIN_REGION_FOUNDING,
+                # ...and the ramp-reach gate: it decides the BODY OUTLINE
+                # every facility in this payload carries (the ring
+                # followed up its own entrance ramp).
+                config.BASIN_REGION_RAMP_REACH,
+                # ...and the ramp-reach PLATE gate: the corridor beside
+                # the body is emitted terrain, so a flip changes what a
+                # post-mesh decision is derived from.
+                config.BASIN_RAMP_REACH_PLATE,
                 # ...and the group-seat gate (docket B): it decides how
                 # many facilities the payload carries (one per connected
                 # body component) and which body each one owns.
@@ -1464,6 +1513,56 @@ def _tunnel_footprint_longitude_latitude_parts(tunnel) -> list:
     )
 
 
+def _tunnel_ramp_corridor_meters(tunnel, to_meters):
+    """A facility's RAMP CORRIDOR in the layout metre frame, or ``None``
+    (spec ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``
+    Amendment 1 §2).
+
+    Deliberately a SEPARATE reader from
+    :func:`_tunnel_footprint_meters_parts`, travelling the same road: the
+    corridor must never be able to leak into "the body", because the
+    body is what R_est, the floor and rim laws, the pad-coverage test and
+    the post-mesh R_mesh band are all read from — and Amendment 1 exists
+    because a round that put the ramp in there moved every one of them.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from .object_terrain_features import frame_polygon_to_longitude_latitude
+
+    corridor = getattr(tunnel, "ramp_reach_corridor", None)
+    if corridor is None or corridor.is_empty:
+        return None
+    longitude_latitude = frame_polygon_to_longitude_latitude(
+        corridor, tunnel.frame_origin_longitude_latitude)
+    parts = (
+        list(longitude_latitude.geoms)
+        if longitude_latitude.geom_type == "MultiPolygon"
+        else [longitude_latitude]
+    )
+    meter_polygons = []
+    for part in parts:
+        ring = [to_meters(lon, lat) for lon, lat in part.exterior.coords]
+        if len(ring) < 3:
+            continue
+        try:
+            polygon = Polygon(ring)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+        except Exception:
+            continue
+        if polygon.is_empty or polygon.geom_type not in (
+                "Polygon", "MultiPolygon"):
+            continue
+        meter_polygons.append(polygon)
+    if not meter_polygons:
+        return None
+    try:
+        merged = unary_union(meter_polygons)
+    except Exception:
+        return None
+    return None if merged.is_empty else merged
+
+
 def _tunnel_footprint_meters_parts(tunnel, to_meters) -> list:
     """:func:`_tunnel_footprint_longitude_latitude_parts` projected into
     the layout metre frame, as shapely ``Polygon`` parts."""
@@ -1551,6 +1650,18 @@ _TUNNEL_RIM_BAND_WIDTH_M = 0.6
 #   collinear with a building ring minted the EGKR mm-jitter Triangle
 #   failure).
 _TUNNEL_FLOOR_OWNED_CLEARANCE_M = 0.7
+
+#: How far the ramp corridor is grown back INTO the body so it overlaps
+#: the floor pan (spec ``docs/specs/lemd-basin-trench-ramp-extension-
+#: spec.md`` Amendment 1 §2).  DERIVED, never a knob: the pan is inset
+#: ``_TUNNEL_WALL_SETBACK_M`` inside the body outline and the rim band
+#: occupies ``_TUNNEL_RIM_BAND_WIDTH_M`` outside it, so anything less
+#: than their sum leaves un-plated ground in the corridor's mouth — the
+#: very poke-through the plate exists to close.  The extra metre is the
+#: same margin the floor's own envelope carries.
+_RAMP_CORRIDOR_BODY_BRIDGE_M = (
+    _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M + 1.0)
+
 # * THE BASIN-PAD CUT LINE (spec ``basin-pad-floor-seating-spec.md``
 #   Amendment 2, owner-ratified 2026-08-25).  A pad that only PARTIALLY
 #   covers a basin facility is CUT at the facility boundary: the
@@ -1896,6 +2007,7 @@ def _extend_records_with_below_grade_regions(structures, classification):
             continue
         region_parts = []
         region_minimum_y = None
+        corridor_parts = []
         for index, region in enumerate(regions):
             in_frame = _region_polygon_in_frame(
                 region, record.frame_origin_longitude_latitude)
@@ -1908,6 +2020,18 @@ def _extend_records_with_below_grade_regions(structures, classification):
                 continue
             matched_regions.add(index)
             region_parts.append(in_frame)
+            # THE RAMP TRAVELS BESIDE THE BODY, never inside it (spec
+            # lemd-basin-trench-ramp-extension Amendment 1 §2).  Same
+            # projection path as the ring above — one implementation, so
+            # the ring and its own ramp can never land in two frames.
+            corridor = getattr(region, "ramp_reach_corridor", None)
+            if corridor is not None and not corridor.is_empty:
+                corridor_in_frame = (
+                    object_terrain_features.polygon_between_frames(
+                        corridor, region.frame_origin_longitude_latitude,
+                        record.frame_origin_longitude_latitude))
+                if corridor_in_frame is not None:
+                    corridor_parts.append(corridor_in_frame)
             region_minimum_y = (
                 float(region.solid_minimum_y_m) if region_minimum_y is None
                 else min(region_minimum_y,
@@ -1937,11 +2061,30 @@ def _extend_records_with_below_grade_regions(structures, classification):
             f"deepest solid {record.solid_minimum_y_m} -> "
             f"{solid_minimum_y}",
         )
+        corridor = None
+        if corridor_parts:
+            try:
+                corridor = unary_union(corridor_parts)
+            except Exception:
+                corridor = None
+            if corridor is not None and corridor.is_empty:
+                corridor = None
+            if corridor is not None:
+                UI.vprint(
+                    1,
+                    "   [object-basin] RAMP CORRIDOR carried: "
+                    f"{corridor.area:,.0f} m2 beside the "
+                    f"{widened.area:,.0f} m2 body — NOT part of it (spec "
+                    "lemd-basin-trench-ramp-extension Amendment 1 §2: the "
+                    "body is the one measurement frame and stays put; the "
+                    "corridor is consumed at emit only)",
+                )
         extended.append(_dataclass_replace(
             record,
             deck_footprint=widened,
             solid_outline_footprint=widened,
             solid_minimum_y_m=solid_minimum_y,
+            ramp_reach_corridor=corridor,
         ))
     return extended + _found_basins_from_unmatched_regions(
         regions, matched_regions, classification)
@@ -2039,6 +2182,14 @@ def _founded_basin_record(region):
         # Admission item 2 IS ruling R13's open-pit predicate, asked at
         # region level: nothing of the pack's own stands over it.
         cuts_pavement=True,
+        # The ramp travels with the record it belongs to, in that
+        # record's frame.  A founded record's frame IS the region's, so
+        # the corridor needs no projection here — but it goes through the
+        # ONE converter anyway, because "no projection needed" is exactly
+        # the assumption that rots when a frame changes.
+        ramp_reach_corridor=object_terrain_features.polygon_between_frames(
+            getattr(region, "ramp_reach_corridor", None),
+            region.frame_origin_longitude_latitude, frame_origin),
     )
 
 
@@ -3674,6 +3825,35 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # would silently have bound ``parts`` to it.
         body_parts = [
             part for record in member_records for part in record[5]]
+        # ── THE RAMP-REACH CORRIDOR (spec lemd-basin-trench-ramp-
+        # extension Amendment 1 §2; gate BASIN_RAMP_REACH_PLATE) ──
+        # Read AFTER ``body_parts`` and kept strictly out of them.  Every
+        # law input below — R_est, the floor and rim values, the pad
+        # coverage test — and the post-mesh R_mesh sample band are read
+        # from ``body_parts``, and Amendment 1 exists because a round
+        # that folded the ramp into them moved all four.  The corridor is
+        # consumed in exactly two places: it JOINS the floor pan, and the
+        # rim band STANDS DOWN inside it.
+        ramp_corridor = None
+        if config.BASIN_RAMP_REACH_PLATE and is_basin_facility:
+            corridor_parts = [
+                corridor for corridor in (
+                    _tunnel_ramp_corridor_meters(record[0], to_meters)
+                    for record in member_records)
+                if corridor is not None
+            ]
+            if corridor_parts:
+                try:
+                    ramp_corridor = unary_union(corridor_parts)
+                    # Never inside the body: the body owns its own floor
+                    # pan and rim band, and an overlap would emit the
+                    # same ground twice.
+                    ramp_corridor = ramp_corridor.difference(
+                        unary_union(body_parts))
+                except Exception:
+                    ramp_corridor = None
+                if ramp_corridor is not None and ramp_corridor.is_empty:
+                    ramp_corridor = None
         # ── THE BASIN RIM REFERENCE (spec section 2.1 item 2) ──
         # For a BASIN facility the point datum above is replaced, for the
         # floor and rim LAWS, by ``R_est``: the median DEM elevation
@@ -4279,7 +4459,33 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
         # the law value while the patch carried something else.
         _rim_sources: dict = {}
         _rim_refs: dict = {}
-        for body in body_parts:
+        # ONE BODY OWNS THE RAMP.  The corridor joins exactly one body
+        # part's floor pan — the part its mouth actually meets — because
+        # adding it to each part in turn would emit the same ground once
+        # per part.  Chosen by the largest overlap with the corridor's
+        # own reach, never by order.
+        ramp_corridor_body_index = None
+        if ramp_corridor is not None:
+            best_overlap = 0.0
+            reach = ramp_corridor.buffer(
+                _RAMP_CORRIDOR_BODY_BRIDGE_M, join_style=2, mitre_limit=2.0)
+            for index, body in enumerate(body_parts):
+                try:
+                    overlap = float(reach.intersection(body).area)
+                except Exception:
+                    continue
+                if overlap > best_overlap:
+                    best_overlap, ramp_corridor_body_index = overlap, index
+            if ramp_corridor_body_index is None:
+                UI.vprint(
+                    1,
+                    f"   [{log_tag}] RAMP CORRIDOR NOT JOINED for "
+                    f"{resources}: the {ramp_corridor.area:,.0f} m2 "
+                    "corridor meets no body part of this facility — no "
+                    "plate is laid and the rim band is untouched",
+                )
+                ramp_corridor = None
+        for body_index, body in enumerate(body_parts):
             # R2 accounting.  A facility that CUT (R13) has no yield left
             # to report — its pavement is already gone.
             if pavement_union is not None and not facility_cuts_pavement:
@@ -4309,12 +4515,33 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
             # un-inset floor edge minted a mm-jittered constraint mess
             # (125 nodes in half a metre) that killed segment recovery.
             floor_owned_entries: list = []
+            body_ramp_corridor = None
             try:
                 floor_geometry = body.buffer(
                     -_TUNNEL_WALL_SETBACK_M, join_style=2, mitre_limit=2.0)
                 envelope = body.buffer(
                     _TUNNEL_WALL_SETBACK_M + _TUNNEL_RIM_BAND_WIDTH_M
                     + 1.0)
+                # ── THE RAMP JOINS THE FLOOR PAN (spec Amendment 1 §2) ──
+                # Not a second plate: the SAME pan, the same role, the
+                # same ref, the same floor elevation, one contiguous
+                # surface.  The corridor is grown
+                # ``_RAMP_CORRIDOR_BODY_BRIDGE_M`` back INTO the body so
+                # it overlaps the pan's own inset edge — the pan is
+                # ``body.buffer(-_TUNNEL_WALL_SETBACK_M)``, so a corridor
+                # that merely reached the body OUTLINE would leave a
+                # setback-wide strip of un-plated ground between the two
+                # and the terrain would still stand in the mouth.
+                if (ramp_corridor is not None
+                        and body_index == ramp_corridor_body_index):
+                    body_ramp_corridor = ramp_corridor.union(
+                        body.intersection(ramp_corridor.buffer(
+                            _RAMP_CORRIDOR_BODY_BRIDGE_M,
+                            join_style=2, mitre_limit=2.0)))
+                    floor_geometry = floor_geometry.union(body_ramp_corridor)
+                    envelope = envelope.union(
+                        body_ramp_corridor.buffer(
+                            _TUNNEL_FLOOR_OWNED_CLEARANCE_M + 1.0))
                 body_bounds = envelope.bounds
                 # THE FLOOR-SEATED PADS ARE NOT OWNED GROUND (spec §1.2):
                 # a pad seated AT this floor cannot also erase it.  The
@@ -4358,6 +4585,18 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         owned_near.buffer(
                             _TUNNEL_WALL_SETBACK_M,
                             join_style=2, mitre_limit=2.0))
+                # ── THE RIM BAND STANDS DOWN IN THE CORRIDOR ──────────
+                # (spec Amendment 1 §2, and the only reason the plate can
+                # work.)  The band is a wall from the floor up to grade
+                # laid all the way round the body — including straight
+                # across the corridor's MOUTH, which is precisely the
+                # ground the pit has to reach through.  Left standing it
+                # would wall the pan off from its own ramp.  It stands
+                # down INSIDE THE CORRIDOR ONLY; everywhere else the band
+                # is byte-identical.
+                if body_ramp_corridor is not None:
+                    band_geometry = band_geometry.difference(
+                        body_ramp_corridor)
                 if anchor_seat_keep_out is not None:
                     floor_geometry = floor_geometry.difference(
                         anchor_seat_keep_out)

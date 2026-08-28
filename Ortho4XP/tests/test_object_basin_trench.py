@@ -3538,6 +3538,511 @@ class TestBelowGradeRegionTriangleClip:
             ((0.0, 1.0, 0.0), (10.0, -6.0, 0.0), (10.0, -6.0, 10.0)), -2.5)
         assert ring is not None and len(ring) == 4
         assert all(x >= 5.0 - 1e-9 for x, _z in ring)
+
+
+# ---------------------------------------------------------------------------
+# THE RAMP REACH COMPLETION (spec
+# docs/specs/lemd-basin-trench-ramp-extension-spec.md; owner sim read of
+# 1.0.264: "the terrain is poking through the ramp")
+# ---------------------------------------------------------------------------
+
+#: A pit and its entrance ramp, in the geometry the defect is made of.
+#: The pit is the 60 x 60 m T4S rectangle at −7 m.  The ramp runs 60 m
+#: EAST of it, rising 7.5 m from the pit floor (−7.0) to just over grade
+#: (+0.5), so it crosses −``TRENCH_SPINE_MIN_DEPTH_M`` at x = 66 and the
+#: TOP of the ground-contact band nowhere at all — it is below +1 m over
+#: its whole run.  The DEPTH ADMISSION therefore stops the ring at x=66
+#: and leaves 24 m of authored ramp with terrain standing through it,
+#: which is the owner's LEMD read in miniature.
+_RAMP_PIT_EAST_EDGE_X = 30.0
+_RAMP_TOP_X = 90.0
+_RAMP_DEPTH_CROSSING_X = 66.0
+
+
+def _ramp_pit_pattern():
+    ramp = _GeometryBuilder()
+    ramp.add_sloped_rectangle(
+        _RAMP_PIT_EAST_EDGE_X, _RAMP_TOP_X, -15.0, 15.0, -7.0, 0.5)
+    return {
+        "T4S/pit.obj": _region_wall(-30.0, 30.0, -30.0, 30.0, -7.0),
+        "T4S/ramp.obj": ramp.build(),
+    }
+
+
+def _completed(geometry, regions=None):
+    placements = [_placement(resource) for resource in geometry]
+    if regions is None:
+        regions = otf.below_grade_regions(placements, geometry)
+    return regions, otf.regions_completed_to_ramp_reach(
+        regions, placements, geometry)
+
+
+class TestBasinRegionRampReach:
+    """The COMPLETION pass: an admitted region is followed up its own
+    entrance ramp to the ground-contact band.
+
+    Admission asks "is this a trench?" at −2.5 m and is unchanged.  This
+    asks the different question "where does this trench's own shell stop
+    being below grade?", and only for a region that has already been
+    admitted.
+
+    The gate SHIPS OFF (it moves the committed LEMD group seat by
+    0.81 m — see ``config.BASIN_REGION_RAMP_REACH``), so the arm under
+    test here is turned on explicitly, exactly as a lane turns it on."""
+
+    @pytest.fixture(autouse=True)
+    def _the_arm_under_test(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_REGION_RAMP_REACH", True)
+
+    def test_the_gate_ships_off_pending_the_owner_ruling(self):
+        """The HELD state is itself law: a default-ON build would move
+        G=596.682, which the spec calls a STOP, not a side effect.
+
+        Read from the SOURCE, never by reloading the module — a config
+        reload mid-suite is the hazard this repo redirects around."""
+        import inspect
+        import re
+
+        source = inspect.getsource(config)
+        default = re.search(
+            r'_os\.environ\.get\(\s*"O4_BASIN_REGION_RAMP_REACH",\s*'
+            r'"(\d)"\s*\)',
+            source,
+        )
+        assert default is not None, "the gate lost its environment read"
+        assert default.group(1) == "0", (
+            "the ramp-reach gate must ship OFF until the owner rules on "
+            "the 0.81 m group-seat move it carries")
+
+    def test_the_depth_admission_stops_part_way_up_the_ramp(self):
+        """THE DEFECT, stated as a measurement: without the completion
+        the ring ends at the −2.5 m crossing and 24 m of authored ramp
+        is left with terrain standing through it."""
+        regions, _completed_regions = _completed(_ramp_pit_pattern())
+        assert len(regions) == 1
+        assert regions[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_DEPTH_CROSSING_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+
+    def test_the_completion_reaches_the_top_of_the_ramp(self):
+        regions, done = _completed(_ramp_pit_pattern())
+        assert done[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_TOP_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+        assert done[0].polygon.area > regions[0].polygon.area
+
+    def test_the_plane_is_the_ground_contact_band(self):
+        """One band, read from both sides: the openness reading clips
+        ABOVE it, the completion clips BELOW it.  Aliased, never
+        re-numbered."""
+        assert otf.REGION_RAMP_REACH_PLANE_Y_M == (
+            otf.GROUND_CONTACT_BAND_HALF_WIDTH_M)
+
+    def test_the_gate_off_returns_the_admitted_rings_untouched(
+        self, monkeypatch
+    ):
+        """``O4_BASIN_REGION_RAMP_REACH=0`` — the same rings, not merely
+        equal ones, so a gate-off build cannot differ by a rounding."""
+        assert config.BASIN_REGION_RAMP_REACH in (True, False)
+        monkeypatch.setattr(config, "BASIN_REGION_RAMP_REACH", False)
+        regions, done = _completed(_ramp_pit_pattern())
+        assert [region.polygon for region in done] == [
+            region.polygon for region in regions]
+
+    def test_admission_membership_and_openness_are_untouched(self):
+        """SCOPE.  Only ``polygon`` grows.  Depth, the contributor list
+        and their clipped areas are all measured on the ADMITTED ring —
+        which is what keeps founding admitting exactly what it did."""
+        regions, done = _completed(_ramp_pit_pattern())
+        before, after = regions[0], done[0]
+        assert after.object_resources == before.object_resources
+        assert after.solid_minimum_y_m == before.solid_minimum_y_m
+        assert (after.contributor_area_m2_by_resource
+                == before.contributor_area_m2_by_resource)
+        assert (after.above_grade_area_fraction
+                == before.above_grade_area_fraction)
+        assert (after.frame_origin_longitude_latitude
+                == before.frame_origin_longitude_latitude)
+
+    def test_a_pit_with_no_ramp_does_not_grow(self):
+        """The completion is not a dilation: a shell that is already
+        vertical at its rim reaches the band nowhere new."""
+        regions, done = _completed(_t4s_pattern())
+        assert done[0].polygon.area == pytest.approx(
+            regions[0].polygon.area, rel=1e-3)
+
+    def test_a_non_contributing_resource_is_never_swept_in(self):
+        """The completion grows into the region's OWN contributors only.
+        A shallow neighbour that never reached the depth admission is
+        not a contributor, so it stays outside however close it is —
+        this is the scope guard AND the perf guard."""
+        geometry = dict(_ramp_pit_pattern())
+        shallow = _GeometryBuilder()
+        # A 60 x 30 m slab at −1.2 m, its own vertical extent from a
+        # skirt, butted against the ramp's far end.  Never below −2.5,
+        # so never a contributor.
+        shallow.add_horizontal_rectangle(
+            _RAMP_TOP_X, _RAMP_TOP_X + 60.0, -15.0, 15.0, -1.2)
+        shallow.add_vertical_wall(
+            _RAMP_TOP_X + 60.0, -15.0, 15.0, -1.2, 0.5)
+        geometry["T4S/shallow_apron.obj"] = shallow.build()
+        regions, done = _completed(geometry)
+        assert "T4S/shallow_apron.obj" not in regions[0].object_resources
+        assert done[0].polygon.bounds[2] == pytest.approx(
+            _RAMP_TOP_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+
+    def test_two_completions_that_would_overlap_are_both_refused(self):
+        """ONE BODY, ONE CUT.  Two pits whose ramps run into each other
+        are admitted as two regions; completing both would cut the same
+        ground twice, so both completions stand down and the admitted
+        rings survive."""
+        west = _GeometryBuilder()
+        west.add_sloped_rectangle(-40.0, 20.0, -15.0, 15.0, -7.0, 0.5)
+        east = _GeometryBuilder()
+        east.add_sloped_rectangle(40.0, -20.0, -15.0, 15.0, -7.0, 0.5)
+        geometry = {
+            "T4S/pit_west.obj": _region_wall(
+                -100.0, -40.0, -30.0, 30.0, -7.0),
+            "T4S/pit_east.obj": _region_wall(
+                40.0, 100.0, -30.0, 30.0, -7.0),
+            "T4S/ramp_west.obj": west.build(),
+            "T4S/ramp_east.obj": east.build(),
+        }
+        regions, done = _completed(geometry)
+        assert len(regions) == 2, [r.polygon.area for r in regions]
+        assert [region.polygon for region in done] == [
+            region.polygon for region in regions]
+
+    def test_the_classifier_runs_the_completion(self):
+        """END TO END: the pass is wired into the classifier, AFTER the
+        openness reading, so the ring the assembly extends records with
+        is the completed one."""
+        result = _classify(_ramp_pit_pattern())
+        assert len(result.below_grade_regions) == 1
+        assert result.below_grade_regions[0].polygon.bounds[2] == (
+            pytest.approx(_RAMP_TOP_X,
+                          abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1))
+
+    def test_the_gate_salts_the_classification_sidecar(self):
+        """A gate flip must never be answered from a warm sidecar, and
+        the ring change itself is a cache-VERSION event."""
+        from auto_patch import object_rebake
+
+        assert "O4_BASIN_REGION_RAMP_REACH" in (
+            object_rebake._GATE_ENVIRONMENT_NAMES)
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 24
+
+
+class TestBasinRampReachCorridor:
+    """AMENDMENT 1 §2 — the RULED lever: the ramp is carried BESIDE the
+    admitted ring as a corridor and consumed at EMIT.
+
+    The class above is the refuted one: growing the ring moved the floor
+    value, the rim value, the pad seat and the group-seat datum, because
+    the ring is the facility's single measurement body.  Everything here
+    exists to keep that from happening again — so the load-bearing
+    assertion is not "the corridor covers the ramp", it is "the ring and
+    every reading on it are the same object they were".
+
+    The gate is HELD OFF (it reaches the ramp by colliding with the
+    building8 pad — see ``config.BASIN_RAMP_REACH_PLATE``), so the arm
+    under test is turned on explicitly, exactly as a lane turns it on."""
+
+    @pytest.fixture(autouse=True)
+    def _the_arm_under_test(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", True)
+
+    def test_the_corridor_is_the_ramp_and_the_ring_is_untouched(self):
+        placements = [_placement(r) for r in _ramp_pit_pattern()]
+        geometry = _ramp_pit_pattern()
+        admitted = otf.below_grade_regions(placements, geometry)
+        carried = otf.regions_with_ramp_reach_corridor(
+            admitted, placements, geometry)
+        before, after = admitted[0], carried[0]
+        # THE RING: the same polygon object, not merely an equal one.
+        assert after.polygon is before.polygon
+        corridor = after.ramp_reach_corridor
+        assert corridor is not None and not corridor.is_empty
+        # The corridor is the ramp BEYOND the depth admission, so it
+        # starts where the ring stopped and runs to the ramp's top.
+        assert corridor.bounds[2] == pytest.approx(
+            _RAMP_TOP_X, abs=otf.AT_GRADE_FOOTPRINT_CLOSE_M + 0.1)
+        assert not corridor.intersection(before.polygon).area > 1e-6
+
+    def test_every_reading_that_gates_founding_is_identical(self):
+        """The refutation, encoded: depth, openness, the contributor
+        list and their clipped areas are what founding and the floor/rim
+        laws key on, and the corridor pass may not touch one of them."""
+        placements = [_placement(r) for r in _ramp_pit_pattern()]
+        geometry = _ramp_pit_pattern()
+        admitted = otf.below_grade_regions(placements, geometry)
+        carried = otf.regions_with_ramp_reach_corridor(
+            admitted, placements, geometry)
+        before, after = admitted[0], carried[0]
+        assert after.object_resources == before.object_resources
+        assert after.solid_minimum_y_m == before.solid_minimum_y_m
+        assert (after.above_grade_area_fraction
+                == before.above_grade_area_fraction)
+        assert (after.contributor_area_m2_by_resource
+                == before.contributor_area_m2_by_resource)
+        assert (after.frame_origin_longitude_latitude
+                == before.frame_origin_longitude_latitude)
+
+    def test_the_gate_off_carries_no_corridor(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        placements = [_placement(r) for r in _ramp_pit_pattern()]
+        geometry = _ramp_pit_pattern()
+        admitted = otf.below_grade_regions(placements, geometry)
+        carried = otf.regions_with_ramp_reach_corridor(
+            admitted, placements, geometry)
+        assert all(region.ramp_reach_corridor is None
+                   for region in carried)
+
+    def test_the_gate_ships_off_pending_the_pad_ruling(self):
+        """HELD.  The plate DOES reach the owner's ramp — and the ramp is
+        inside the building8 pad, whose flattening authority is yielded
+        only INSIDE the facility, so the pan and the pad end up sharing a
+        boundary with a 12.74 m step (+196 within_shape rows, 212 of them
+        airside).  Which lever moves the pad is an owner ruling."""
+        import inspect
+        import re
+
+        default = re.search(
+            r'_os\.environ\.get\(\s*"O4_BASIN_RAMP_REACH_PLATE",\s*'
+            r'"(\d)"\s*\)',
+            inspect.getsource(config),
+        )
+        assert default is not None, "the gate lost its environment read"
+        assert default.group(1) == "0", (
+            "the ramp-reach plate must ship OFF until the owner rules on "
+            "the building8 pad authority it collides with")
+
+    def test_the_shell_batter_is_not_a_ramp(self):
+        """THE DELTA IS NOT THE RAMP, and this is the test that says so.
+
+        Clipping at the ground-contact band instead of the depth
+        admission widens the ring EVERYWHERE the shell is battered, so
+        the raw difference carries a thin annulus wrapping the pit
+        alongside the ramp.  MEASURED at LEMD: 1,779 m² of delta, of
+        which the batter annulus is 690 m² over 24 % of the ring's
+        perimeter, reaching 2.25 m; the ramp is 798 m² over 11 %,
+        reaching 11.22 m.  Emitting the annulus would widen the pan and
+        stand the rim band down all the way round — Amendment 1's
+        refuted ring-widening, arriving by the back door.
+        """
+        from shapely.geometry import Point
+        from shapely.ops import unary_union
+
+        ring = Polygon([(-40, -40), (40, -40), (40, 40), (-40, 40)])
+        # A 3 m batter skirt all the way round (what the reach plane
+        # adds to a 45° side) and a 30 m ramp running east.
+        batter = ring.buffer(3.0).difference(ring)
+        ramp = Polygon([(40, -8), (70, -8), (70, 8), (40, 8)]).difference(
+            ring)
+        delta = batter.union(ramp)
+        kept, _dropped = otf._ramp_lobes_of(delta, ring)
+        assert kept, "the ramp itself was dropped"
+        corridor = kept[0] if len(kept) == 1 else unary_union(kept)
+        assert corridor.covers(Point(60.0, 0.0)), "the ramp is not carried"
+        # The batter is gone: nothing survives on the far side of the pit.
+        assert not corridor.covers(Point(-42.0, 0.0))
+        assert corridor.area < 0.5 * delta.area, (
+            corridor.area, delta.area)
+
+    def test_the_reach_bound_is_the_batter_slope_not_a_knob(self):
+        """The bound is the plan travel of a 45° side over the height
+        the reach pass spans — both numbers already in the module."""
+        assert otf.RAMP_REACH_CORRIDOR_MIN_REACH_M == pytest.approx(
+            otf.TRENCH_SPINE_MIN_DEPTH_M + otf.REGION_RAMP_REACH_PLANE_Y_M)
+
+    def test_sub_plate_slivers_are_dropped_part_by_part(self):
+        """``completed − admitted`` leaves numerical dust all the way
+        round the shared ring.  Kept, each speck would be a plate
+        fragment AND would stand the rim band down at a random point on
+        the pit's own wall — so parts are judged ALONE, never summed."""
+        placements = [_placement(r) for r in _ramp_pit_pattern()]
+        geometry = _ramp_pit_pattern()
+        admitted = otf.below_grade_regions(placements, geometry)
+        corridor = otf.regions_with_ramp_reach_corridor(
+            admitted, placements, geometry)[0].ramp_reach_corridor
+        parts = (list(corridor.geoms)
+                 if corridor.geom_type == "MultiPolygon" else [corridor])
+        assert parts, "the ramp itself must survive"
+        assert all(part.area >= otf.RAMP_REACH_CORRIDOR_MIN_AREA_M2
+                   for part in parts), [p.area for p in parts]
+
+    def test_a_pit_with_no_ramp_carries_no_corridor(self):
+        placements = [_placement(r) for r in _t4s_pattern()]
+        geometry = _t4s_pattern()
+        admitted = otf.below_grade_regions(placements, geometry)
+        carried = otf.regions_with_ramp_reach_corridor(
+            admitted, placements, geometry)
+        assert carried[0].ramp_reach_corridor is None
+
+    def test_the_corridor_reaches_the_record(self):
+        """ASSEMBLY: the record carries the corridor in its own frame, so
+        the emitter can lay the plate without re-deriving anything."""
+        result = _classify(_ramp_pit_pattern())
+        records = assembly.basin_trench_structures(result)
+        assert records, "the fixture founds or extends no basin record"
+        assert any(getattr(r, "ramp_reach_corridor", None) is not None
+                   for r in records), "no record carries the ramp corridor"
+
+    def test_the_corridor_does_not_move_the_body(self, monkeypatch):
+        """THE AMENDMENT-1 INVARIANT, and the only one that matters:
+        the BODY every law input and the post-mesh R_mesh band are read
+        from is what it would have been with no ramp machinery at all.
+
+        Note this is NOT "the body never overlaps the corridor" — a
+        pack's own interface footprint may legitimately already cover
+        its ramp, and the emitter subtracts the body from the corridor
+        for exactly that case.  What is forbidden is the ramp CHANGING
+        the body."""
+        def _bodies():
+            records = assembly.basin_trench_structures(
+                _classify(_ramp_pit_pattern()))
+            return [
+                (tuple(sorted(r.object_resources)),
+                 None if r.deck_footprint is None
+                 else round(r.deck_footprint.area, 6),
+                 None if r.solid_outline_footprint is None
+                 else round(r.solid_outline_footprint.area, 6),
+                 r.solid_minimum_y_m, r.body_depth_m, r.cuts_pavement)
+                for r in records
+            ]
+
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", True)
+        with_plate = _bodies()
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        without_plate = _bodies()
+        assert with_plate == without_plate
+
+    def test_the_plate_bridge_is_derived_from_the_plate_geometry(self):
+        """The corridor must overlap the floor pan, which is inset
+        ``_TUNNEL_WALL_SETBACK_M`` inside the body with the rim band
+        outside it.  A bridge shorter than their sum leaves un-plated
+        ground in the mouth — the very poke-through this closes."""
+        assert assembly._RAMP_CORRIDOR_BODY_BRIDGE_M > (
+            assembly._TUNNEL_WALL_SETBACK_M
+            + assembly._TUNNEL_RIM_BAND_WIDTH_M)
+
+    def test_the_plate_gate_is_registered_and_versioned(self):
+        from auto_patch import object_rebake
+
+        assert "O4_BASIN_RAMP_REACH_PLATE" in (
+            object_rebake._GATE_ENVIRONMENT_NAMES)
+        # Both records gained a pickled field — a cache-VERSION event.
+        assert assembly._CLASSIFICATION_CACHE_VERSION >= 26
+
+    # ── THE EMIT PREDICATE (Amendment 1 §2) ──────────────────────────
+    #: The interface's own 50 x 50 m below-grade footprint, and a region
+    #: exactly on it — so the record is EXTENDED, the LEMD relation.
+    EMIT_REGION = Polygon([(-25, -25), (25, -25), (25, 25), (-25, 25)])
+    #: The ramp running EAST out of it, 20 m long and 16 m wide.  It
+    #: touches the body outline so the emitter's bridge can reach the
+    #: floor pan, and it reaches well past the rim band.
+    EMIT_CORRIDOR = Polygon([(25, -8), (45, -8), (45, 8), (25, 8)])
+    #: A point 15 m out along the ramp: OUTSIDE the body, outside the
+    #: rim band, and squarely in the corridor.  This is the owner's
+    #: poke-through point in miniature.
+    EMIT_PROBE = (40.0, 0.0)
+
+    def _emit_with_corridor(self, carry_corridor: bool):
+        region = otf.BelowGradeRegion(
+            polygon=self.EMIT_REGION,
+            frame_origin_longitude_latitude=(
+                ANCHOR_LONGITUDE, ANCHOR_LATITUDE),
+            solid_minimum_y_m=-7.087,
+            object_resources=("Buildings/Drainage/basin.obj",),
+            ramp_reach_corridor=(
+                self.EMIT_CORRIDOR if carry_corridor else None),
+        )
+        layout = _FakeLayout()
+        setattr(layout, assembly.CLASSIFICATION_ATTRIBUTE,
+                _Classification(ground_interfaces=[_interface()],
+                                below_grade_regions=[region]))
+        assembly.build_tunnel_layout_shapes(
+            layout, _FakeDem(8.0), TILE_LATITUDE, TILE_LONGITUDE)
+        return layout
+
+    def _covers(self, layout, suffix):
+        """Plates of ``suffix`` carrying :data:`EMIT_PROBE`.
+
+        The probe is stated in the RECORD's frame (about the anchor) and
+        read in the LAYOUT's, through the same converters the emitter
+        used — never by assuming the two frames coincide."""
+        from shapely.geometry import Point
+        from auto_patch import obj8_reader
+
+        latitude, longitude = obj8_reader.local_offset_to_lonlat(
+            ANCHOR_LATITUDE, ANCHOR_LONGITUDE, 0.0, *self.EMIT_PROBE)
+        point = Point(*layout.ll_to_m(latitude, longitude))
+        return [shape for shape in _basin_plates(layout, suffix)
+                if shape.polygon is not None
+                and shape.polygon.covers(point)]
+
+    def test_the_plate_covers_the_ramp_at_the_facility_floor(self):
+        """THE OWNER'S ASK, as a predicate: a point out along the ramp is
+        carried by an ``object_basin_trench`` plate, at the SAME floor
+        the pit's own pan carries — one contiguous surface, not a second
+        law."""
+        layout = self._emit_with_corridor(True)
+        on_ramp = self._covers(layout, "trench")
+        assert on_ramp, "no floor plate reaches the ramp"
+        floors = {round(float(altitude), 2)
+                  for shape in _basin_plates(layout, "trench")
+                  for altitude in (shape.node_altitudes or [])}
+        assert len(floors) == 1, floors
+
+    def test_without_the_corridor_the_ramp_is_bare(self):
+        """The control: the same fixture with no corridor leaves the
+        probe uncovered — which IS the defect the owner reported."""
+        assert not self._covers(self._emit_with_corridor(False), "trench")
+
+    def test_the_rim_band_stands_down_inside_the_corridor(self):
+        """A wall laid across the corridor's mouth would seal the pit off
+        from its own ramp, so the band stands down THERE — and the
+        facility still has a rim everywhere else."""
+        layout = self._emit_with_corridor(True)
+        assert not self._covers(layout, "rim"), (
+            "the rim band still stands inside the corridor")
+        assert _basin_plates(layout, "rim"), (
+            "the band stood down everywhere, not only in the corridor")
+
+    def test_the_corridor_does_not_move_the_rim_elsewhere(self):
+        """Everywhere outside the corridor the band is what it was:
+        same part count, same elevations."""
+        def _rims(layout):
+            return sorted({
+                round(float(altitude), 2)
+                for shape in _basin_plates(layout, "rim")
+                for altitude in (shape.node_altitudes or [])})
+
+        with_corridor = _rims(self._emit_with_corridor(True))
+        without = _rims(self._emit_with_corridor(False))
+        # The corridor removes band parts at its mouth and touches no
+        # other value: every elevation still present must be one the
+        # un-corridored arm carried.
+        assert set(with_corridor) <= set(without)
+
+    def test_the_gate_off_emits_the_control_geometry(self, monkeypatch):
+        monkeypatch.setattr(config, "BASIN_RAMP_REACH_PLATE", False)
+        assert not self._covers(self._emit_with_corridor(True), "trench")
+
+    def test_an_old_classification_reads_back_as_no_corridor(self):
+        """DEFAULTED both sides, so a pre-v25 pickle cannot raise — the
+        VERSION is what retires it, never an AttributeError."""
+        assert otf.BelowGradeRegion(
+            polygon=Polygon([(0, 0), (1, 0), (1, 1)]),
+            frame_origin_longitude_latitude=(0.0, 0.0),
+            solid_minimum_y_m=-7.0).ramp_reach_corridor is None
+        assert getattr(
+            otf.TunnelStructure(
+                object_resources=[], anchor_longitude_latitude=(0.0, 0.0),
+                frame_origin_longitude_latitude=(0.0, 0.0),
+                heading_degrees=0.0, placement_kind="OBJECT",
+                above_ground_offset_m=0.0, roof_footprint=None,
+                deck_footprint=None, mouth_polygons=[],
+                mouth_depth_samples=[], body_depth_m=1.0),
+            "ramp_reach_corridor") is None
         assert otf._clip_triangle_below_plane(
             ((0.0, 1.0, 0.0), (10.0, 2.0, 0.0), (10.0, 3.0, 10.0)),
             -2.5) is None

@@ -5010,6 +5010,201 @@ BASIN_REGION_FOOTPRINT = (
 BASIN_REGION_FOUNDING = (
     _os.environ.get("O4_BASIN_REGION_FOUNDING", "1") == "1")
 
+# BASIN REGION RAMP REACH (2026-08-28 owner sim read of 1.0.264; spec
+# ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``).
+#
+# **DEFAULT OFF — BUILT, MEASURED, AND HELD ON AN OWNER RULING.**  The
+# mechanism below does exactly what it says to the REGION (LEMD's ring
+# 27,857 -> 29,636 m2, both owner points inside it), and the built arm
+# then shows that the region is NOT the whole lever and that widening it
+# moves everything the spec said must not move.  MEASURED, LEMD arm
+# `reachon` against the aed29ba4 control, both through
+# tools/harness/build_airport.py (2026-08-28):
+#
+#   * THE ACCEPTANCE IS NOT MET.  osm_site --at the owner's poke-through
+#     reads object_basin_trench 1.21 m away on the control and 5.14 m
+#     away on the arm — FARTHER, not 0.00 m; the ramp-top point improves
+#     11.61 m -> 2.51 m but is still outside.  The emitted floor pan is
+#     not the region: it is DIFFERENCED against every earlier-born shape,
+#     and in the widened corner the apron (way -10228) and the building8
+#     pad eat it.  Region widening alone cannot deliver the owner's ask.
+#   * THE FLOOR MOVED: 587.75 -> 588.69 m (+0.94).
+#   * THE RIM MOVED: 600.51 -> 600.47 m.
+#   * building8's pad STOPPED BEING FLAT: 600.51 everywhere -> [597.67,
+#     600.47] (the §1.1 whole-pad seat's coverage test flips when the
+#     facility footprint grows past BASIN_PAD_COVERAGE_MIN).
+#   * The census total improves (2,529 -> 2,515 law-true) but the
+#     population is worse where it counts: within_shape 35 -> 53 (all
+#     +18 airside) and three NEW terrace_joint_route rows at worst
+#     11.777 m.
+#
+# ...and, separately, it moves the committed GROUP SEAT.  Offline against
+# the built +40-004 mesh, instrument controlled against the committed
+# value:
+#
+#     admitted ring  27,857 m2 -> R_mesh 596.680 m   (committed: 596.682)
+#     completed ring 29,636 m2 -> R_mesh 597.492 m   (+0.81 m)
+#
+# and R_mesh is CONTINUOUSLY sensitive to the ring, not just to this
+# change: growing the ADMITTED ring by a plain 0.5 m buffer already moves
+# it to 597.001, and by 2.0 m to 597.623.  ``post_mesh.
+# _basin_facility_rim_sample_ring`` re-derives its sample stations from
+# the ring's own perimeter, so ANY change to the body re-places all ~70
+# stations and re-medians terrain that spans 589-600 m here.  The trench
+# footprint and the seat datum are ONE BODY by construction (spec
+# basin-region-footprint §2.2 "they cannot disagree because there is only
+# one body"), so cutting the ramp and holding G at 596.682 cannot both be
+# had under the current law: decoupling them would point R_mesh's band
+# at terrain INSIDE our own extended plates, which is exactly what that
+# band is defined not to sample.  The floor and rim move for the same
+# reason — R_est is read off the same ring.
+#
+# SO THE FINDING IS NOT "this needs tuning", it is that the OWNER'S ASK
+# NEEDS A DIFFERENT LEVER: the emitted floor pan's own DIFFERENCING (and
+# the pad seat's coverage test) is what leaves the ramp uncovered, and
+# the facility ring is welded to the floor value, the rim value and the
+# seat datum.  That is an owner/design ruling, not an implementer's call,
+# so the machinery lands with its twins and the gate OFF.  Turn it on
+# with O4_BASIN_REGION_RAMP_REACH=1 to reproduce the arm.
+#
+# CONTROLS, both built ON and OFF through the harness and BYTE-IDENTICAL
+# either way: HECA (body_sha 0a2740ab1e88) — it derives NO below-grade
+# region at all, so the pass cannot reach it; SPJC (body_sha
+# 255261460924) — it HAS a region and the pass runs on it, and the ring
+# still grows by under 0.5 m2, which is the stronger of the two reads.
+# OTHH's two regions grow 6,203 -> 6,222 and 4,332 -> 4,339 m2 (offline);
+# OTHH was not built this round.
+#
+# THE DEFECT.  "The rim of the pit and elevation are all perfect now,
+# just the terrain is poking through the ramp at 40.4923132,-3.5697896"
+# (owner, LEMD T4S).  ``object_terrain_features.below_grade_regions``
+# derives a region from every solid triangle CLIPPED to its portion
+# below −TRENCH_SPINE_MIN_DEPTH_M — a DEPTH ADMISSION ("is this a
+# trench?"), and a perfectly good one.  But a pit's own entrance RAMP
+# crosses that plane on its way up, so the derived ring stops half way
+# up the ramp and the mesh stands at grade over the rest of it.  The
+# authored ramp then has terrain THROUGH it, which is exactly what the
+# owner sees.  MEASURED at LEMD (2026-08-28): the owner's poke-through
+# point lies 0.60 m outside the derived ring and the ramp's own top
+# 11.00 m outside it.
+#
+# THE LAW.  Admission is unchanged; what this adds is COMPLETION.  A
+# region that has already been admitted as a basin is grown to the
+# CONNECTED part of its OWN CONTRIBUTORS' shell that has not yet
+# reached grade — each contributing resource's solid clipped below
+# ``object_terrain_features.REGION_RAMP_REACH_PLANE_Y_M`` (the top of
+# the ground-contact band, the exact mirror of the openness reading,
+# which clips ABOVE the same plane), closed at
+# AT_GRADE_FOOTPRINT_CLOSE_M, and only the component that touches the
+# admitted ring.  So the pit is followed up its own ramp to the point
+# where the pack's own geometry has met grade, and no further.
+#
+# DELIBERATE LIMITS, all of them scope: the pass runs AFTER admission
+# and AFTER the openness reading, so DEPTH, OPENNESS, ``object_resources``
+# and ``contributor_area_m2_by_resource`` are every one of them measured
+# on the ADMITTED ring and are bit-for-bit what they were — founding
+# admits exactly the same regions it did before.  Only a region's
+# ``polygon`` grows, only along its own contributors, and only where
+# their shell is CONNECTED to it: a resource that contributes nothing to
+# an admitted region contributes nothing here, which is also the perf
+# guard (LEMD pays 7 resources, not 203).  Two completions that would
+# OVERLAP are both refused, loudly, rather than cutting one pit twice.
+#
+# MEASURED at LEMD (2026-08-28): ring 27,857 → 29,646 m² (+6.4 %), the
+# owner's poke-through point 5.67 m INSIDE and the ramp top 2.04 m
+# inside.  The reading is insensitive to the plane over +0.25…+1.0 m
+# (29,636 → 29,646 m², both points inside throughout), which is what
+# makes the ground-contact band the right constant to REUSE rather than
+# a new knob — the same argument TRENCH_SPINE_MIN_DEPTH_M carries.
+#
+# With O4_BASIN_REGION_RAMP_REACH=0 (the DEFAULT) no region is completed
+# and the emitted patch is byte-identical to the founding round.
+BASIN_REGION_RAMP_REACH = (
+    _os.environ.get("O4_BASIN_REGION_RAMP_REACH", "0") == "1")
+
+# BASIN RAMP-REACH FLOOR PLATE (spec
+# ``docs/specs/lemd-basin-trench-ramp-extension-spec.md`` Amendment 1
+# §2, Fable 2026-08-28).  The RULED lever — BUILT, MEASURED, and HELD
+# DEFAULT OFF on the finding below (it reaches the ramp and collides
+# with the building8 pad doing it).
+#
+# THE DEFECT is the owner's: "the terrain is poking through the ramp at
+# 40.4923132,-3.5697896 — extend the trench/pit bottom under the ramp to
+# about 40.4924064,-3.569366."  The pit's ring stops half way up its own
+# entrance ramp because the ring is derived at a DEPTH ADMISSION plane
+# (−TRENCH_SPINE_MIN_DEPTH_M), which a ramp crosses on its way up.
+#
+# WHY NOT WIDEN THE RING: measured, and that measurement is why this gate
+# exists rather than BASIN_REGION_RAMP_REACH (which is retired-kept-gated
+# above).  The ring is the facility's ONE measurement body — floor value,
+# rim value, building-pad coverage and R_mesh's group-seat band are all
+# read off it — so widening it moved floor 587.75→588.69, rim
+# 600.51→600.47, un-flattened the building8 pad and drifted G
+# 596.682→597.492, and the widened pan was differenced away anyway.
+#
+# THE LAW.  The ramp is carried BESIDE the ring as a CORRIDOR
+# (``object_terrain_features.regions_with_ramp_reach_corridor``:
+# completed ring − admitted ring) and consumed only at EMIT
+# (``object_terrain_assembly.build_tunnel_layout_shapes``), where it
+# joins the facility's own FLOOR PAN — same role, same ref, same floor
+# elevation, one contiguous plate — and the ``object_basin_rim`` band
+# STANDS DOWN inside it (differenced there, untouched everywhere else),
+# because a wall across the corridor mouth is the thing that would keep
+# the pit from reaching its own ramp.  The corridor is clipped by the
+# SAME law the floor pan is (``_TUNNEL_FLOOR_OWNED_CLEARANCE_M`` from
+# every earlier-born shape that is not a yielded pad), which is what
+# keeps it off the apron.
+#
+# NOTHING ELSE MOVES, by construction: every law input — R_est, the floor
+# and rim values, the pad coverage test, the R_mesh sample ring — is read
+# from ``body_parts``, and the corridor is not in them.
+#
+# MEASURED, LEMD arm ``plate3`` against the aed29ba4 control, both
+# through tools/harness/build_airport.py (2026-08-28) — the ruled design
+# DOES reach the owner's ramp, and it collides with the pad on the way:
+#
+#   * THE PAN NOW COVERS BOTH OWNER COORDINATES.  Read through the
+#     harness library's own parser (``check_grade._parse_osm``, point in
+#     polygon — note ``osm_site --at`` reports the distance to a way's
+#     nearest NODE, so it never reads 0.00 m inside a large ring): pan
+#     27,449 -> 28,295 m2, and 40.4923132,-3.5697896 / 40.4924064,
+#     -3.569366 go from 1.20 m and 11.60 m OUTSIDE to INSIDE, in no
+#     interior ring.  Floor value 587.75 m unchanged.
+#   * BUT THE PAD OWNS THAT GROUND.  ``BASIN_PAD_FLOOR_SEAT`` yields
+#     building8's flattening authority "to OUTSIDE the facility" — and
+#     the ramp IS outside the facility, while being 3.9-9.9 m INSIDE the
+#     pad's own ring.  So the pan and the pad end up sharing a boundary
+#     with 587.75 m on one side and 600.49 m on the other:
+#       census 2,529 -> 2,751 law-true, within_shape 35 -> 231 (+196,
+#       212 of them AIRSIDE) at worst 12.74 m, airside_no_step worst
+#       3.80 -> 13.42 m, apron_lattice_membrane worst 5.13 -> 12.53 m;
+#       building8 stops being flat (600.51 -> [587.75, 600.49]) and the
+#       rim reads 600.49 instead of 600.51.
+#
+# So BOTH levers tried against this defect fail the same way and for the
+# same reason: the owner's ramp lies INSIDE the building8 pad and
+# OUTSIDE the basin facility.  Widen the facility to reach it and the
+# facility's own measurement body moves (the block above); lay a plate
+# beside the facility to reach it and the pad's authority is what the
+# plate collides with.  THE LEVER THIS DEFECT NEEDS IS THE PAD'S
+# AUTHORITY BOUNDARY (the BASIN_PAD_* laws), not the trench footprint —
+# that is an owner/design ruling, so the machinery lands with its twins
+# and the gate OFF.  Turn it on with O4_BASIN_RAMP_REACH_PLATE=1 to
+# reproduce the arm.
+#
+# CONTROLS, built both ways on this tree and BYTE-IDENTICAL either way:
+# HECA (body_sha 0a2740ab1e88) and SPJC (255261460924) — SPJC HAS a
+# below-grade region and the pass runs on it, which is the stronger read.
+# And the shipped DEFAULT is byte-identical at LEMD itself: the
+# both-gates-off arm on this tree reads body_sha 0e181d870481 / 2,558
+# shapes, the aed29ba4 control exactly, cache version 26 and all.
+#
+# With O4_BASIN_RAMP_REACH_PLATE=0 (the DEFAULT) no corridor is derived
+# and no plate is joined; the emitted patch is byte-identical to the
+# founding round.
+BASIN_RAMP_REACH_PLATE = (
+    _os.environ.get("O4_BASIN_RAMP_REACH_PLATE", "0") == "1")
+
 # BASIN GROUP SEAT (2026-08-26 follow-up docket B; spec
 # ``docs/specs/basin-group-seat-spec.md``).  DEFAULT ON.
 #

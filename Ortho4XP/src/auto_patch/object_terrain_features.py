@@ -737,6 +737,16 @@ class TunnelStructure:
     # only names the emitted plates and log lines so an in-sim defect is
     # traceable to the classifier that produced it.
     terrain_feature: str = "tunnel"
+    #: The facility's ENTRANCE-RAMP CORRIDOR in this record's own metre
+    #: frame (spec ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``
+    #: Amendment 1 §2), or ``None``.  ADDITIVE ONLY: it is never part of
+    #: the BODY — ``deck_footprint`` / ``roof_footprint`` /
+    #: ``solid_outline_footprint`` are what every law input and the
+    #: post-mesh seat band are read from, and Amendment 1 exists because
+    #: putting the ramp in there moved all of them.  The layout emitter
+    #: joins it to the floor pan and stands the rim band down inside it;
+    #: no other consumer reads it.
+    ramp_reach_corridor: "Polygon | MultiPolygon | None" = None
     # Ruling R13 (owner 2026-07-30): this trench TAKES THE PAVEMENT WITH
     # IT — airside pavement over the body is cut instead of winning under
     # R2.  Set only for open pits (``is_open_pit_interface``); a tunnel
@@ -1187,6 +1197,16 @@ class BelowGradeRegion:
       founded record needs a TIGHT contributor list, and re-deriving
       those areas in the assembly would be a second scan of the same
       geometry (the instrument-duplication class this module refuses).
+    * ``ramp_reach_corridor`` — the region's own ENTRANCE RAMP as a
+      polygon in the same frame: the ground its shell covers between the
+      admitted ring and the point where that shell meets grade (spec
+      ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``
+      Amendment 1 §2).  It is ADDITIVE INFORMATION and nothing else —
+      ``polygon`` and every reading taken on it are untouched, which is
+      the whole point of Amendment 1: the ring is the facility's one
+      measurement body (floor value, rim value, pad coverage, R_mesh
+      band) and moving it moved all four.  ``None`` means NOT DERIVED
+      (the gate is off, or a pre-v25 cached classification).
     """
 
     polygon: Polygon
@@ -1195,6 +1215,7 @@ class BelowGradeRegion:
     object_resources: tuple[str, ...] = ()
     above_grade_area_fraction: float | None = None
     contributor_area_m2_by_resource: tuple[tuple[str, float], ...] = ()
+    ramp_reach_corridor: "Polygon | MultiPolygon | None" = None
 
 
 @dataclass(frozen=True)
@@ -2815,26 +2836,63 @@ def region_polygon_in_frame(region, frame_origin_longitude_latitude):
     that converter's documented inverse.  A hand-rolled frame-to-frame
     translation would be a second projection of the same body.
     """
-    longitude_latitude = frame_polygon_to_longitude_latitude(
-        region.polygon, region.frame_origin_longitude_latitude)
-    origin_longitude, origin_latitude = frame_origin_longitude_latitude
-    ring = [
-        obj8_reader.lonlat_to_local_offset(
-            origin_latitude, origin_longitude, 0.0, latitude, longitude)
-        for longitude, latitude in longitude_latitude.exterior.coords
-    ]
-    if len(ring) < 3:
+    return polygon_between_frames(
+        region.polygon, region.frame_origin_longitude_latitude,
+        frame_origin_longitude_latitude)
+
+
+def polygon_between_frames(polygon, source_frame_origin, target_frame_origin):
+    """One metre-frame polygon re-read in ANOTHER metre frame, or
+    ``None``.
+
+    :func:`region_polygon_in_frame` is this function applied to a
+    region's ring; the ramp CORRIDOR (spec lemd-basin-trench-ramp-
+    extension Amendment 1 §2) travels the same road, and it travels it
+    through this one implementation rather than a second copy — the ring
+    and the corridor beside it must never be projected two different
+    ways.
+    """
+    if polygon is None or polygon.is_empty:
         return None
+    longitude_latitude = frame_polygon_to_longitude_latitude(
+        polygon, source_frame_origin)
+    origin_longitude, origin_latitude = target_frame_origin
+    parts = (
+        list(longitude_latitude.geoms)
+        if longitude_latitude.geom_type == "MultiPolygon"
+        else [longitude_latitude]
+    )
+    converted = []
+    for part in parts:
+        ring = [
+            obj8_reader.lonlat_to_local_offset(
+                origin_latitude, origin_longitude, 0.0, latitude, longitude)
+            for longitude, latitude in part.exterior.coords
+        ]
+        if len(ring) < 3:
+            continue
+        try:
+            piece = Polygon(ring)
+            if not piece.is_valid:
+                piece = piece.buffer(0)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if piece.is_empty or piece.geom_type not in (
+                "Polygon", "MultiPolygon"):
+            continue
+        converted.append(piece)
+    if not converted:
+        return None
+    if len(converted) == 1:
+        return converted[0]
     try:
-        polygon = Polygon(ring)
-        if not polygon.is_valid:
-            polygon = polygon.buffer(0)
+        merged = unary_union(converted)
     except (ValueError, _GEOS_EXCEPTION):
         return None
-    if polygon.is_empty or polygon.geom_type not in (
+    if merged.is_empty or merged.geom_type not in (
             "Polygon", "MultiPolygon"):
         return None
-    return polygon
+    return merged
 
 
 def _region_prematched_to_an_interface(region, ground_interfaces) -> bool:
@@ -2931,6 +2989,466 @@ def regions_with_lazy_above_grade_coverage(
         filled[index] = _replace_dataclass(
             region, above_grade_area_fraction=coverage)
     return filled
+
+
+#: Spec ``docs/specs/lemd-basin-trench-ramp-extension-spec.md`` — the
+#: plane the RAMP REACH pass follows an admitted region's own shell up
+#: to.  It is the top of the GROUND-CONTACT BAND, i.e. the height at
+#: which the pack's own geometry has MET grade, and it is the exact
+#: mirror of the openness reading, which clips ABOVE the same plane.
+#: ALIASED, never re-numbered (the discipline
+#: :data:`PIT_SEED_MAX_ABOVE_GRADE_Y_M` already uses): one band, read
+#: from both sides.
+REGION_RAMP_REACH_PLANE_Y_M = GROUND_CONTACT_BAND_HALF_WIDTH_M
+
+#: A ramp corridor under this area is not carried.  The emitter's own
+#: plate floor is 4 m² and a corridor is a CORRIDOR — geometry a person
+#: walks down, not a numerical remainder of the ring difference.  Kept
+#: an order of magnitude above the plate floor so a 6 m² boundary
+#: artefact of the morphological close never becomes a plate.
+RAMP_REACH_CORRIDOR_MIN_AREA_M2 = 40.0
+
+#: How far a corridor lobe must REACH beyond the admitted ring to be a
+#: RAMP rather than the shell's own BATTER.  DERIVED, not calibrated:
+#: the reach pass spans exactly
+#: ``TRENCH_SPINE_MIN_DEPTH_M + REGION_RAMP_REACH_PLANE_Y_M`` of height
+#: (−2.5 m up to +1.0 m), so a side at 45° or steeper — the module's own
+#: model of a basin's batters, "≤45° earth slopes" — can travel at most
+#: that far in plan over it.  Anything reaching further is FLATTER than a
+#: batter, which is what a ramp is.
+#:
+#: MEASURED at LEMD (2026-08-28), the two lobes of the same delta: the
+#: batter annulus reaches 2.25 m and runs 24 % of the ring's perimeter;
+#: the entrance ramp reaches 11.22 m over 11 %.  The bound sits 1.25 m
+#: above the batter and 3.2x under the ramp.  WITHOUT this test the
+#: corridor is the annulus TOO — 1,779 m² wrapping half the pit — and
+#: emitting it would widen the pan and stand the rim band down all the
+#: way round, which is the ring-widening Amendment 1 refuted, arriving
+#: by the back door.
+RAMP_REACH_CORRIDOR_MIN_REACH_M = (
+    TRENCH_SPINE_MIN_DEPTH_M + REGION_RAMP_REACH_PLANE_Y_M)
+
+
+def _region_ring_completed_to(base_polygon, reach_parts):
+    """``base_polygon`` grown to the CONNECTED reach geometry around it,
+    as an exterior ring, or ``None`` when nothing grows.
+
+    The base is unioned in first, so "the component that touches the
+    admitted ring" is simply the component that CONTAINS it — there is
+    no second connectivity spelling.  Closing and exterior-ring
+    reduction are :func:`below_grade_regions`' own two steps, applied to
+    the same numbers: a completion must be the same KIND of ring as the
+    thing it completes.
+    """
+    if not reach_parts:
+        return None
+    union = _union_all_repairing(list(reach_parts) + [base_polygon])
+    if union is None:
+        return None
+    try:
+        union = union.buffer(AT_GRADE_FOOTPRINT_CLOSE_M).buffer(
+            -AT_GRADE_FOOTPRINT_CLOSE_M
+        )
+    except (ValueError, _GEOS_EXCEPTION):
+        return None
+    union = _repaired_area_polygon(union)
+    if union is None:
+        return None
+    parts = (
+        list(union.geoms) if union.geom_type == "MultiPolygon" else [union]
+    )
+    best = None
+    for part in parts:
+        if part.geom_type != "Polygon" or part.is_empty:
+            continue
+        try:
+            if not part.intersects(base_polygon):
+                continue
+            overlap = float(part.intersection(base_polygon).area)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if best is None or overlap > best[0]:
+            best = (overlap, part)
+    if best is None:
+        return None
+    try:
+        ring = Polygon(best[1].exterior)
+        if not ring.is_valid:
+            ring = ring.buffer(0)
+    except (ValueError, _GEOS_EXCEPTION):
+        return None
+    if ring.geom_type != "Polygon" or ring.is_empty:
+        return None
+    # A completion may only GROW.  Anything else is a numerical accident
+    # of the close, and the admitted ring stands.
+    if ring.area <= base_polygon.area:
+        return None
+    return ring
+
+
+def _region_ramp_reach_rings(
+    regions: Sequence[BelowGradeRegion],
+    placements: Sequence[ObjectPlacement],
+    geometry_by_resource: dict[str, ObjectGeometry],
+    *,
+    cache: "_ResourceGeometryCache | None" = None,
+) -> "tuple[dict[int, object], set[int]]":
+    """``({region index: completed ring}, {refused index})`` — THE ONE
+    ramp-reach derivation.
+
+    Both consumers read it: the RETIRED region-completion pass
+    (:func:`regions_completed_to_ramp_reach`, refuted by measurement and
+    default-off) and the LIVE corridor pass
+    (:func:`regions_with_ramp_reach_corridor`, spec Amendment 1 §2).
+    They must never disagree about where a pit's entrance ramp is —
+    two spellings of one ramp is the census-wrapper class — so the
+    geometry is derived here once and each consumer only decides what to
+    DO with it.
+
+    An admitted region's ring is grown to the CONNECTED part of its OWN
+    contributors' shell clipped below :data:`REGION_RAMP_REACH_PLANE_Y_M`
+    (the top of the ground-contact band, the exact mirror of the openness
+    reading, which clips ABOVE the same plane).  A resource that
+    contributed nothing to an admitted region contributes nothing here,
+    which is the scope guard AND the perf guard.
+
+    ONE BODY, ONE CUT: a ring that reaches into another region — its
+    admitted ring or its own completion — is REFUSED on both sides and
+    named, never silently cut twice.  Refused indices are returned so
+    each consumer can report them in its own words.
+    """
+    members_by_index = [set(region.object_resources) for region in regions]
+    wanted: set[str] = set()
+    for members in members_by_index:
+        wanted |= members
+    if not wanted:
+        return {}, set()
+    if cache is None:
+        cache = _ResourceGeometryCache(geometry_by_resource)
+    # ONE FRAME.  ``below_grade_regions`` builds every region it returns
+    # about one mean origin, so the reach geometry is transformed into
+    # that frame once and compared with the rings directly.
+    origin_longitude, origin_latitude = (
+        regions[0].frame_origin_longitude_latitude)
+
+    reach_by_resource: dict[str, list] = {}
+    for placement in placements:
+        resource_path = placement.resource_path
+        if resource_path not in wanted:
+            continue
+        if is_stock_library_resource(resource_path):
+            continue
+        _has_hard, has_solid, minimum_vertex_y, _maximum_vertex_y = (
+            cache.evidence(resource_path)
+        )
+        if not has_solid:
+            continue
+        above_ground = float(placement.above_ground_level_metres)
+        plane_local_y = REGION_RAMP_REACH_PLANE_Y_M - above_ground
+        if minimum_vertex_y > plane_local_y:
+            continue
+        local = cache.below_grade_local_union(resource_path, plane_local_y)
+        if local is None:
+            continue
+        try:
+            transformed = shapely_affinity.affine_transform(
+                local[0],
+                _affine_matrix_for_placement(
+                    placement, origin_latitude, origin_longitude
+                ),
+            )
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        transformed = _repaired_area_polygon(transformed)
+        if transformed is None:
+            continue
+        reach_by_resource.setdefault(resource_path, []).append(transformed)
+    if not reach_by_resource:
+        return {}, set()
+
+    candidates: dict[int, object] = {}
+    for index, region in enumerate(regions):
+        parts = [
+            part
+            for resource_path in sorted(members_by_index[index])
+            for part in reach_by_resource.get(resource_path, ())
+        ]
+        ring = _region_ring_completed_to(region.polygon, parts)
+        if ring is not None:
+            candidates[index] = ring
+
+    refused: set[int] = set()
+    ordered = sorted(candidates)
+    for position, index in enumerate(ordered):
+        for other in ordered[position + 1:]:
+            try:
+                if candidates[index].intersection(
+                        candidates[other]).area > 0.0:
+                    refused.add(index)
+                    refused.add(other)
+            except (ValueError, _GEOS_EXCEPTION):
+                refused.add(index)
+                refused.add(other)
+    for index in ordered:
+        if index in refused:
+            continue
+        for other, region in enumerate(regions):
+            if other == index:
+                continue
+            try:
+                if candidates[index].intersection(region.polygon).area > 0.0:
+                    refused.add(index)
+            except (ValueError, _GEOS_EXCEPTION):
+                refused.add(index)
+    return candidates, refused
+
+
+def _ramp_lobes_of(delta, admitted_ring):
+    """``([ramp lobe, ...], dropped count)`` — the RAMPS in a
+    ``completed − admitted`` difference, and nothing else.
+
+    THE DELTA IS NOT THE RAMP.  Clipping the shell at the ground-contact
+    band instead of the depth admission widens the ring EVERYWHERE its
+    sides are battered, so the raw difference at LEMD is 1,779 m² of
+    which roughly two fifths is a thin annulus wrapping half the pit,
+    plus a dust of sub-m² slivers from the shared boundary.  Emitting
+    that would widen the floor pan and stand the rim band down all the
+    way round — the ring-widening Amendment 1 refuted, arriving by the
+    back door.
+
+    Two tests, both reading constants this module already owns:
+
+    1. SHAPE — the delta is opened at :data:`AT_GRADE_FOOTPRINT_CLOSE_M`,
+       the radius at which this module decides what is one shape, and
+       each surviving core is re-dilated and clipped back to the delta.
+       That splits the annulus from the ramp and drops the slivers in
+       one step.
+    2. REACH — a lobe survives only if it reaches further from the
+       admitted ring than :data:`RAMP_REACH_CORRIDOR_MIN_REACH_M`, i.e.
+       further than a 45° batter could travel over the height the reach
+       pass spans.  A lobe that does not is the shell's own side.
+
+    …and the emitter's plate floor, as area, so nothing under a plate is
+    carried as one.
+    """
+    if delta is None or delta.is_empty:
+        return [], 0
+    parts = (
+        list(delta.geoms) if delta.geom_type == "MultiPolygon" else [delta]
+    )
+    total_parts = len(parts)
+    try:
+        opened = delta.buffer(-AT_GRADE_FOOTPRINT_CLOSE_M)
+    except (ValueError, _GEOS_EXCEPTION):
+        return [], total_parts
+    if opened.is_empty:
+        return [], total_parts
+    cores = (
+        list(opened.geoms) if opened.geom_type == "MultiPolygon"
+        else [opened]
+    )
+    ring_boundary = admitted_ring.exterior
+    kept: list = []
+    for core in cores:
+        if core.geom_type != "Polygon" or core.is_empty:
+            continue
+        # THE REACH IS THE CORE'S, never the re-dilated lobe's: the
+        # dilation is how the lobe is put back together, and letting it
+        # count would credit every lobe with an extra
+        # ``AT_GRADE_FOOTPRINT_CLOSE_M`` of travel it does not have
+        # (measured at LEMD: the batter reads 2.25 m as a core and 4.25 m
+        # as a lobe, which is the difference between dropping it and
+        # emitting it).
+        try:
+            reach = max(
+                ring_boundary.distance(Point(coordinate))
+                for coordinate in core.exterior.coords
+            )
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        try:
+            lobe = core.buffer(AT_GRADE_FOOTPRINT_CLOSE_M).intersection(delta)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if lobe.is_empty or lobe.area < RAMP_REACH_CORRIDOR_MIN_AREA_M2:
+            continue
+        if reach <= RAMP_REACH_CORRIDOR_MIN_REACH_M:
+            _vprint(
+                2,
+                "   [object-terrain] ramp lobe dropped: "
+                f"{lobe.area:,.0f} m² reaching only {reach:.2f} m "
+                f"from the ring (<= {RAMP_REACH_CORRIDOR_MIN_REACH_M:.1f}"
+                " m, a 45° batter's own travel) — the shell's side, "
+                "not its ramp",
+            )
+            continue
+        pieces = (
+            list(lobe.geoms) if lobe.geom_type == "MultiPolygon" else [lobe]
+        )
+        for piece in pieces:
+            if piece.geom_type != "Polygon" or piece.is_empty:
+                continue
+            if piece.area < RAMP_REACH_CORRIDOR_MIN_AREA_M2:
+                continue
+            kept.append(piece)
+    return kept, total_parts - len(kept)
+
+
+def regions_with_ramp_reach_corridor(
+    regions: Sequence[BelowGradeRegion],
+    placements: Sequence[ObjectPlacement],
+    geometry_by_resource: dict[str, ObjectGeometry],
+    *,
+    cache: "_ResourceGeometryCache | None" = None,
+) -> list[BelowGradeRegion]:
+    """Attach each admitted region's ENTRANCE-RAMP CORRIDOR (spec
+    ``docs/specs/lemd-basin-trench-ramp-extension-spec.md`` Amendment 1
+    §2; gate ``config.BASIN_RAMP_REACH_PLATE``).
+
+    THE RING IS NOT TOUCHED, and that is the whole ruling.  Amendment 1
+    was written because the lane MEASURED what growing it costs: the
+    facility ring is the single measurement body — the floor value, the
+    rim value, the building-pad coverage test and R_mesh's group-seat
+    sample band are all read off it — so widening it moved floor
+    587.75→588.69, rim 600.51→600.47, un-flattened the building8 pad and
+    drifted G 596.682→597.492, and the widened pan was differenced away
+    by earlier-born shapes regardless.
+
+    So the ramp is carried as SEPARATE, ADDITIVE geometry:
+    ``corridor = completed ring − admitted ring``, the ground the pit's
+    own shell covers between where the depth admission stopped and where
+    that shell meets grade.  Every reading in this module still comes off
+    ``polygon``; the corridor is consumed at EMIT and nowhere else
+    (``object_terrain_assembly.build_tunnel_layout_shapes``).
+
+    Returns a new list (the regions are frozen); with the gate off, or
+    with no ramp to carry, the input regions come back unchanged.
+    """
+    from .config import BASIN_RAMP_REACH_PLATE
+
+    if not regions or not BASIN_RAMP_REACH_PLATE:
+        return list(regions)
+    candidates, refused = _region_ramp_reach_rings(
+        regions, placements, geometry_by_resource, cache=cache)
+    if not candidates:
+        return list(regions)
+
+    out = list(regions)
+    for index in sorted(candidates):
+        region = regions[index]
+        if index in refused:
+            _vprint(
+                1,
+                "   [object-terrain] RAMP CORRIDOR REFUSED: the ramp of "
+                f"the {region.polygon.area:,.0f} m² below-grade region "
+                "would OVERLAP another region — one body cut twice; no "
+                "corridor is carried",
+            )
+            continue
+        try:
+            corridor = candidates[index].difference(region.polygon)
+        except (ValueError, _GEOS_EXCEPTION):
+            continue
+        if corridor is None or corridor.is_empty:
+            continue
+        kept, dropped = _ramp_lobes_of(corridor, region.polygon)
+        if kept:
+            try:
+                corridor = (kept[0] if len(kept) == 1
+                            else unary_union(kept))
+            except (ValueError, _GEOS_EXCEPTION):
+                continue
+        if not kept or corridor.area < RAMP_REACH_CORRIDOR_MIN_AREA_M2:
+            _vprint(
+                2,
+                "   [object-terrain] ramp corridor of the "
+                f"{region.polygon.area:,.0f} m² region keeps no part at "
+                f"or over the {RAMP_REACH_CORRIDOR_MIN_AREA_M2:.0f} m² "
+                "plate floor — not carried",
+            )
+            continue
+        _vprint(
+            1,
+            "   [object-terrain] RAMP CORRIDOR: "
+            f"{corridor.area:,.0f} m² in {len(kept)} part(s) carried "
+            f"beside the {region.polygon.area:,.0f} m² admitted ring "
+            f"({dropped} batter/sliver piece(s) dropped; the entrance "
+            "ramp the depth admission clipped off; the RING IS "
+            "UNTOUCHED — spec Amendment 1 §2)",
+        )
+        out[index] = _replace_dataclass(
+            region, ramp_reach_corridor=corridor)
+    return out
+
+
+def regions_completed_to_ramp_reach(
+    regions: Sequence[BelowGradeRegion],
+    placements: Sequence[ObjectPlacement],
+    geometry_by_resource: dict[str, ObjectGeometry],
+    *,
+    cache: "_ResourceGeometryCache | None" = None,
+) -> list[BelowGradeRegion]:
+    """Follow each admitted region up its own RAMP to grade (spec
+    ``docs/specs/lemd-basin-trench-ramp-extension-spec.md``; gate
+    ``config.BASIN_REGION_RAMP_REACH``).
+
+    :func:`below_grade_regions` clips at −:data:`TRENCH_SPINE_MIN_DEPTH_M`
+    because that plane is the DEPTH ADMISSION — "is this a trench?".  A
+    pit's entrance ramp crosses it on the way up, so the admitted ring
+    stops half way up the ramp and the mesh stands at grade over the
+    rest of it: the authored ramp has terrain through it, which is the
+    owner's 2026-08-28 LEMD read (poke-through 0.60 m outside the ring,
+    the ramp's own top 11.00 m outside).
+
+    This is COMPLETION, not admission.  It runs AFTER
+    :func:`regions_with_lazy_above_grade_coverage`, so every number that
+    gates founding — depth, openness, the contributor list and their
+    clipped areas — is measured on the ADMITTED ring and is untouched
+    here; only ``polygon`` grows.  It grows only into the region's OWN
+    contributors' shell clipped below
+    :data:`REGION_RAMP_REACH_PLANE_Y_M`, and only into the part of it
+    CONNECTED to the admitted ring, so a resource that contributed
+    nothing contributes nothing now — which is also the perf guard.
+
+    Two completions that would OVERLAP are BOTH refused, loudly: one
+    body cut twice is worse than a ramp left uncut, and the pair is
+    named so it is attributable.
+
+    Returns a new list (the regions are frozen); with the gate off, or
+    with nothing to grow, the input regions come back unchanged.
+    """
+    from .config import BASIN_REGION_RAMP_REACH
+
+    if not regions or not BASIN_REGION_RAMP_REACH:
+        return list(regions)
+    candidates, refused = _region_ramp_reach_rings(
+        regions, placements, geometry_by_resource, cache=cache)
+    if not candidates:
+        return list(regions)
+
+    completed = list(regions)
+    for index in sorted(candidates):
+        region = regions[index]
+        if index in refused:
+            _vprint(
+                1,
+                "   [object-terrain] RAMP REACH REFUSED: the completion of "
+                f"the {region.polygon.area:,.0f} m² below-grade region "
+                "would OVERLAP another region — one body cut twice; the "
+                "admitted ring stands",
+            )
+            continue
+        ring = candidates[index]
+        _vprint(
+            1,
+            "   [object-terrain] RAMP REACH: below-grade region "
+            f"{region.polygon.area:,.0f} m² -> {ring.area:,.0f} m² "
+            "(followed its own shell up to the ground-contact band at "
+            f"+{REGION_RAMP_REACH_PLANE_Y_M:.1f} m — the entrance ramp "
+            "the depth admission clipped off)",
+        )
+        completed[index] = _replace_dataclass(region, polygon=ring)
+    return completed
 
 
 def _bounds_union(bounds_list):
@@ -5912,6 +6430,20 @@ def classify_object_terrain_features(
             regions = regions_with_lazy_above_grade_coverage(
                 regions, ground_interfaces, placements,
                 geometry_by_resource, cache=cache,
+            )
+            # ...and only THEN the RAMP REACH completion (spec
+            # lemd-basin-trench-ramp-extension).  Order is law: every
+            # number that gates founding — depth, openness, contributor
+            # areas — is read above, on the ADMITTED ring, so completing
+            # a region can never admit one.
+            regions = regions_completed_to_ramp_reach(
+                regions, placements, geometry_by_resource, cache=cache,
+            )
+            # ...and the LIVE lever (spec Amendment 1 §2): the ramp is
+            # carried BESIDE the ring, never folded into it.  Same
+            # derivation, opposite disposition.
+            regions = regions_with_ramp_reach_corridor(
+                regions, placements, geometry_by_resource, cache=cache,
             )
             for region in regions:
                 centroid = region.polygon.centroid

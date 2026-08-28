@@ -643,6 +643,83 @@ _TUNNEL_PROTECTED_TRANSIT_ROLES = frozenset({
     ROLE_SECONDARY_PARALLEL, ROLE_STUB,
 })
 
+# §T3 (tunnel-integrity-round-spec, RULINGS 2026-08-28 items 6/7): THE
+# AIRPORT'S OWN PAVEMENT — the runway / taxiway / apron family whose deck
+# a bore passes under.  A bore roofed by this, or opening inside the
+# airside gate union, IS the thing the tunnel machinery exists to model,
+# so the urban-interchange veto (LMML, 2026-06-12) never reaches it.
+# Derived from the transit set plus ``apron`` — never a second hand
+# written role list.
+_TUNNEL_OWN_BORE_COVER_ROLES = frozenset(
+    _TUNNEL_PROTECTED_TRANSIT_ROLES | {ROLE_APRON})
+
+
+#: §T2.1: the DEM source classes that can actually CARRY an approach
+#: profile.  ``flat_site.class_for_resolution_m`` names ``lidar`` for a
+#: declared native resolution ≤ 2 m — the metre-credible / sub-metre
+#: tier.  ``sub10m`` NEVER qualifies (spec §T2.1, explicit): a 10 m
+#: posting smooths a road cut into a broad dish, so "the DEM already
+#: carries the descending approach" is false there however deep the
+#: measured relief is.
+_DEM_CUT_LIDAR_CLASSES = frozenset({"lidar"})
+
+
+def _dem_cut_provenance(layout, dem) -> tuple[bool, str | None]:
+    """§T2.1: may the DEM-CUT LIGHT-TOUCH MODE fire on this build's DEM?
+
+    Returns ``(ok, source_class)``.  EVIDENCE and MODE are separate
+    questions (the comment at ``_cut_measured``'s definition): measured
+    relief still ADMITS the bore, and this gate decides only whether the
+    admitted bore gets the light-touch cap/mouth/roof construction or
+    the full synthetic ramp.  The EGGW ruling (2026-07-17) is preserved
+    exactly where lidar earned it; a COARSE-DEM "cut" emits the full
+    synthetic ramp+mouth as if no cut existed, which is what LEMD's
+    eight ramp-less clusters were missing.
+
+    THE REGISTER is the sidecar's own: ``layout.site_class`` (written by
+    the flat-site detector at the pipeline's DEM-in-hand point, well
+    before this pass) and, failing that, ``layout.dem_inset_provenance``
+    read through the SAME classifier the detector uses.  No second
+    resolution table lives here.
+    """
+    _klass = None
+    _rec = getattr(layout, "site_class", None)
+    if isinstance(_rec, dict):
+        _klass = _rec.get("s2_source_class")
+    if _klass is None:
+        try:
+            from . import flat_site as _flat_site
+            _klass = _flat_site.source_class_for_dem(
+                dem, icao=getattr(layout, "icao", None),
+                dem_meta=getattr(layout, "dem_inset_provenance", None),
+            ).get("class")
+        except Exception:                                # pragma: no cover
+            _klass = None
+    return (_klass in _DEM_CUT_LIDAR_CLASSES), _klass
+
+
+def _demcut_provenance_gate_on() -> bool:
+    """``O4_DEMCUT_PROVENANCE_GATE`` — §T2's gate, default ON.  ONE gate
+    covers both halves of §T2 (they are one ruling about the DEM-cut
+    construction): the provenance requirement above, the mouth-beats-cap
+    resolution of R16-2b vs R10-2, and the withdrawal of the light-touch
+    mouths' unwalled-finding exemption.  OFF restores the pre-round emit
+    byte-identically."""
+    return os.environ.get("O4_DEMCUT_PROVENANCE_GATE", "1") == "1"
+
+
+def _obj_tunnel_compose_on() -> bool:
+    """``O4_OBJ_TUNNEL_COMPOSE`` — §T1's gate, default ON.  OFF keeps the
+    tunnel-only object-trench union and the pre-round retreat-wall
+    scope, byte-identically."""
+    return os.environ.get("O4_OBJ_TUNNEL_COMPOSE", "1") == "1"
+
+
+def _tunnel_veto_scoped_on() -> bool:
+    """``O4_TUNNEL_VETO_SCOPED`` — §T3's gate, default ON.  OFF restores
+    the unscoped adjacent-road veto byte-identically."""
+    return os.environ.get("O4_TUNNEL_VETO_SCOPED", "1") == "1"
+
 
 def _bore_floor_elevation(apt_elev, deck_reference, mouth_min,
                           cut_measured, tunnel_depth_m):
@@ -1678,7 +1755,8 @@ def _tunnel_has_adjacent_road(tw_id2, t_nrefs2, system_nodes,
                               adjacent_road_dist_m: float,
                               other_road_lines: list,
                               other_road_tree,
-                              parent_nodes: set | None = None) -> bool:
+                              parent_nodes: set | None = None,
+                              detail_out: dict | None = None) -> bool:
     """True when the tunnel way is crossed by — or runs within
     ``adjacent_road_dist_m`` of — a foreign (non-service) road;
     see the adjacent-road skip comment in
@@ -1691,6 +1769,14 @@ def _tunnel_has_adjacent_road(tw_id2, t_nrefs2, system_nodes,
     no longer shares a node with the surface continuation it hands
     off to, and the veto read the continuation as a foreign road at
     0 m (SPJC true-mouth clamp, 2026-07-10).
+
+    ``detail_out`` (§T3.1) receives the blocking neighbour's
+    ``{"blocked_by", "crosses", "distance_m"}`` — the discriminator the
+    system propagation now reads.  A CROSSING neighbour always wins the
+    record (the scan does not stop at the first mere neighbour), because
+    a NON-crossing veto stands for the candidate itself but never
+    propagates: "a road merely near a candidate" is not an interchange
+    tangle.
     """
     if other_road_tree is None:
         return False
@@ -1703,6 +1789,7 @@ def _tunnel_has_adjacent_road(tw_id2, t_nrefs2, system_nodes,
     except _GEOM_EXC:
         return False
     _tnodes = set(t_nrefs2) | (parent_nodes or set())
+    _hit = False
     for _qi in other_road_tree.query(_buf):
         _oline, _onodes, _owid = other_road_lines[int(_qi)]
         if _owid == tw_id2 or (_tnodes & _onodes):
@@ -1719,26 +1806,63 @@ def _tunnel_has_adjacent_road(tw_id2, t_nrefs2, system_nodes,
             if (not _crosses and system_nodes is not None
                     and (_onodes & system_nodes)):
                 continue
+            if detail_out is not None and not (
+                    _hit and not _crosses):
+                detail_out.update({
+                    "blocked_by": _owid,
+                    "crosses": bool(_crosses),
+                    "distance_m": round(
+                        float(_tline.distance(_oline)), 2),
+                })
             if os.environ.get("O4_TUNNEL_DEBUG") == "1":
                 _mx, _my = _pts[len(_pts) // 2]
                 print(f"    [tunnel-skip] way {tw_id2} blocked by "
                       f"road {_owid} (crosses={_crosses}, "
                       f"d={_tline.distance(_oline):.0f}m) "
                       f"mid local ({_mx:.0f},{_my:.0f})")
-            return True
+            _hit = True
+            # A CROSSING verdict is final; a mere neighbour keeps
+            # scanning in case a crossing road follows it (the record
+            # decides system propagation, so it may not be first-wins).
+            if _crosses or detail_out is None:
+                return True
         except _GEOM_EXC:
             continue
-    return False
+    return _hit
 
 
 def _compute_tunnel_system_veto(
         ways_r: list, nodes_m: dict, excluded: set,
         adjacent_road_dist_m: float, skip_if_adjacent_road: bool,
         other_road_lines: list, other_road_tree,
-        tunnel_all_nodes: set) -> dict:
+        tunnel_all_nodes: set,
+        airside_gate_union=None, own_bore_cover_union=None,
+        veto_detail: dict | None = None) -> dict:
     """Group tunnel candidates into systems by proximity and
     propagate the adjacent-road veto across each system.
     Returns the per-way veto map.
+
+    §T3.1 SCOPES the veto (``O4_TUNNEL_VETO_SCOPED``, default ON).  Two
+    changes, both narrowings of a rule written for URBAN INTERCHANGES:
+
+    * AN AIRPORT'S OWN BORE IS NEVER VETOED BY ITS OWN SERVICE ROADS.
+      A candidate whose portal (either end) lies inside
+      ``airside_gate_union``, or whose span passes under
+      ``own_bore_cover_union`` (runway / apron / taxiway pavement —
+      :data:`_TUNNEL_OWN_BORE_COVER_ROLES`), is EXEMPT: it is the very
+      thing this machinery exists to model.  Its raw verdict is forced
+      to False, so it neither skips nor drags its system down.
+    * SYSTEM PROPAGATION IS FOR CROSSINGS.  Only a raw veto raised by a
+      road that actually CROSSES the candidate spreads to the system;
+      a merely-near neighbour (``crosses=False``, ``d>0``) vetoes its
+      own way and no other.  The LMML tangle is crossings, so it stays
+      out whole; a lone service road running past one LEMD bore no
+      longer kills 37 ways.
+
+    ``veto_detail`` receives one record per candidate (way id → the
+    blocking neighbour, whether it crossed, the distance, whether the
+    way was exempt and which evidence exempted it) — §T3.2's recorded
+    refusal, published to the sidecar by the caller.
     """
     # ── SYSTEM-LEVEL veto propagation (user 2026-07-04) ──────────────
     # The per-way twin-bore exemption alone half-emits an interchange:
@@ -1794,24 +1918,88 @@ def _compute_tunnel_system_veto(
         for _tw9, _tn9, _tt9 in ways_r:
             _pid9 = _tw9.split("|IMP", 1)[0]
             _parent_nodes.setdefault(_pid9, set()).update(_tn9)
-        _raw = [_tunnel_has_adjacent_road(
-                    _cands[k][0], _cands[k][1], tunnel_all_nodes,
-                    nodes_m, adjacent_road_dist_m,
-                    other_road_lines, other_road_tree,
-                    parent_nodes=_parent_nodes.get(
-                        _cands[k][0].split("|IMP", 1)[0]))
-                for k in range(len(_cands))]
+        _scoped = _tunnel_veto_scoped_on()
+        _details: list[dict] = []
+        _raw: list[bool] = []
+        for k in range(len(_cands)):
+            _d: dict = {}
+            _rk = _tunnel_has_adjacent_road(
+                _cands[k][0], _cands[k][1], tunnel_all_nodes,
+                nodes_m, adjacent_road_dist_m,
+                other_road_lines, other_road_tree,
+                parent_nodes=_parent_nodes.get(
+                    _cands[k][0].split("|IMP", 1)[0]),
+                detail_out=_d if _scoped else None)
+            _details.append(_d)
+            _raw.append(bool(_rk))
+        # ── §T3.1 (a): THE AIRPORT'S OWN BORES ────────────────────────
+        _exempt = [False] * len(_cands)
+        if _scoped:
+            for k, (_tw, _tn, _ln) in enumerate(_cands):
+                _why = _own_bore_exemption(
+                    _ln, airside_gate_union, own_bore_cover_union)
+                if _why is None:
+                    continue
+                _exempt[k] = True
+                _details[k]["exempt"] = _why
+                if _raw[k]:
+                    _details[k]["exempted_veto"] = True
+                _raw[k] = False
         for k in range(len(_cands)):
             r = _find(k)
-            _sys_bad[r] = _sys_bad.get(r, False) or _raw[k]
+            # ── §T3.1 (b): ONLY CROSSINGS PROPAGATE ───────────────────
+            _propagates = _raw[k] and (
+                not _scoped
+                or bool(_details[k].get("crosses")))
+            _sys_bad[r] = _sys_bad.get(r, False) or _propagates
         for k, (_tw, _tn, _ln) in enumerate(_cands):
-            _system_veto[_tw] = _sys_bad[_find(k)]
-            if (not _sys_bad[_find(k)]
+            _vetoed = bool(_sys_bad[_find(k)] or _raw[k])
+            _system_veto[_tw] = _vetoed
+            if veto_detail is not None:
+                _rec = dict(_details[k])
+                _rec["raw_veto"] = _raw[k]
+                _rec["system_veto"] = bool(_sys_bad[_find(k)])
+                _rec["vetoed"] = _vetoed
+                veto_detail[_tw] = _rec
+            if (not _vetoed
                     and os.environ.get("O4_TUNNEL_DEBUG") == "1"):
                 _mx, _my = list(_ln.coords)[len(list(_ln.coords)) // 2]
                 print(f"    [tunnel-emit] way {_tw} len={_ln.length:.0f}m "
-                      f"raw_veto={_raw[k]} mid local ({_mx:.0f},{_my:.0f})")
+                      f"raw_veto={_raw[k]} exempt={_exempt[k]} "
+                      f"mid local ({_mx:.0f},{_my:.0f})")
     return _system_veto
+
+
+def _own_bore_exemption(line, airside_gate_union,
+                        own_bore_cover_union) -> str | None:
+    """§T3.1: WHY this candidate is the airport's own bore, or ``None``.
+
+    ``"portal_in_airside_gate"`` when either end lies inside the airside
+    gate union; ``"covered_by_airside_pavement"`` when the span passes
+    under runway / apron / taxiway pavement.  The order is the ruling's:
+    a portal inside the gate is the stronger evidence, so it is named
+    first when both hold.
+    """
+    if line is None:
+        return None
+    try:
+        _coords = list(line.coords)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return None
+    if airside_gate_union is not None and _coords:
+        try:
+            for _end in (_coords[0], _coords[-1]):
+                if airside_gate_union.intersects(Point(_end)):
+                    return "portal_in_airside_gate"
+        except _GEOM_EXC:                                # pragma: no cover
+            pass
+    if own_bore_cover_union is not None:
+        try:
+            if line.intersects(own_bore_cover_union):
+                return "covered_by_airside_pavement"
+        except _GEOM_EXC:                                # pragma: no cover
+            pass
+    return None
 
 
 def _gather_portal_walks(
@@ -1825,7 +2013,9 @@ def _gather_portal_walks(
         ramp_min_length_m: float,
         building_union=None, pavement_union=None,
         transit_union=None,
-        passthrough_findings: list | None = None) -> list:
+        passthrough_findings: list | None = None,
+        veto_detail: dict | None = None,
+        dem_cut_provenance: tuple | None = None) -> list:
     """Walk every qualifying tunnel portal's surface approach
     and collect the per-portal ramp data (twin-rail merge, the
     per-portal gates, walk merge / densify / grade truncation).
@@ -1972,6 +2162,13 @@ def _gather_portal_walks(
             # nowhere to land.  Verbosity 1 because a silent skip is
             # this project's classic failure mode.  Reports the way's
             # own centroid and end-to-end extent in metres.
+            #
+            # §T3.2: VERBOSITY 0, AND RECORDED.  A refusal recorded and
+            # thrown away is the class this campaign exists to kill — so
+            # the line prints at the default verbosity and the finding
+            # joins ``layout.tunnel_passthrough_findings``, which the
+            # caller publishes to the sidecar as ``tunnel_vetoes``.
+            _vd = dict((veto_detail or {}).get(tw_id) or {})
             try:
                 _veto_pts = [nodes_m[_nid] for _nid in t_nrefs
                              if _nid in nodes_m]
@@ -1984,12 +2181,27 @@ def _gather_portal_walks(
                     _veto_lat, _veto_lon = meters_to_lat_lon(
                         _veto_x, _veto_y)
                     UI.vprint(
-                        1,
+                        0,
                         f"  [pav-builder] tunnel way {tw_id} "
                         f"({hw or t_tags.get('railway') or '?'}) VETOED — "
                         f"adjacent/crossing road; {len(t_nrefs)} node(s), "
                         f"{_veto_span:.0f} m end-to-end, centre "
                         f"{_veto_lat:.6f},{_veto_lon:.6f}")
+                    if passthrough_findings is not None:
+                        passthrough_findings.append({
+                            "way_id": tw_id,
+                            "lat": round(_veto_lat, 7),
+                            "lon": round(_veto_lon, 7),
+                            "x_m": round(_veto_x, 1),
+                            "y_m": round(_veto_y, 1),
+                            "highway": hw or t_tags.get("railway"),
+                            "tunnel": t_tags.get("tunnel"),
+                            "node_count": len(t_nrefs),
+                            "span_m": round(_veto_span, 1),
+                            "admitted_by": None,
+                            "refused_because": "adjacent_road_veto",
+                            "veto": _vd,
+                        })
             except (KeyError, IndexError, ZeroDivisionError, _GEOM_EXC):
                 pass
             continue
@@ -2187,9 +2399,30 @@ def _gather_portal_walks(
                 _median_depth is not None
                 and len(_trench_depths) >= 2
                 and _median_depth >= TUNNEL_DEM_CUT_MIN_DROP_M)
+            # §T2.1: THE MODE ALSO NEEDS A DEM THAT CAN CARRY AN APPROACH
+            # PROFILE.  Measured relief admits the bore; a source class
+            # coarser than lidar cannot be trusted to have carved the
+            # approach, so a coarse-DEM "cut" emits the full synthetic
+            # ramp+mouth exactly as if no cut existed (LEMD: 8 of 8
+            # clusters emitted no ramp at all).  ``_cut_measured`` — the
+            # EVIDENCE — is untouched.
+            _prov_ok, _prov_class = (
+                dem_cut_provenance if dem_cut_provenance is not None
+                else (True, None))
             cut_detected = (
                 os.environ.get("O4_TUNNEL_DEM_CUT", "1") == "1"
-                and _cut_measured)
+                and _cut_measured
+                and (_prov_ok or not _demcut_provenance_gate_on()))
+            if (_cut_measured and not cut_detected and _prov_ok is False
+                    and _demcut_provenance_gate_on()
+                    and os.environ.get("O4_TUNNEL_DEM_CUT", "1") == "1"):
+                UI.vprint(
+                    1,
+                    f"  [pav-builder] tunnel way {tw_id}: DEM cut measured "
+                    f"({_median_depth:.2f} m) but the DEM source class is "
+                    f"{_prov_class!r} — not lidar-class, so the light-touch "
+                    f"mode stands down and the full synthetic ramp+mouth "
+                    f"is emitted (spec tunnel-integrity-round §T2.1).")
             if os.environ.get("O4_TUNNEL_DEBUG") == "1":
                 print(f"    [tunnel-dem-probe] way {tw_id} portal "
                       f"({walk[0][0]:.0f},{walk[0][1]:.0f}): "
@@ -2603,10 +2836,19 @@ def _gather_portal_walks(
                 f"an adjacent/crossing road (ramps not modelled).")
         except _GEOM_EXC:
             pass
-    if passthrough_findings:
+    # The R10-1 summary counts ITS OWN population, not the whole
+    # register: §T3.2 put the adjacent-road veto records into the same
+    # list (one place a refusal is recorded, one sidecar key), and a
+    # summary that counted the list would report vetoes as
+    # covered-at-grade passthroughs.  The veto has its own count above.
+    _n_passthrough = sum(
+        1 for _f in (passthrough_findings or ())
+        if isinstance(_f, dict)
+        and _f.get("refused_because") != "adjacent_road_veto")
+    if _n_passthrough:
         try:
             UI.vprint(1,
-                f"  [pav-builder] R10-1: {len(passthrough_findings)} "
+                f"  [pav-builder] R10-1: {_n_passthrough} "
                 f"tunnel portal(s) emitted NOTHING below grade — the DEM "
                 f"probe found no cut there and the way's layer tag is not "
                 f"corroborated by any measurement (covered-at-grade "
@@ -2991,7 +3233,32 @@ def _tunnel_pavement_union(layout: "PavementLayout"):
     return None if _u.is_empty else _u
 
 
-def _tunnel_cover_pieces(shape, pavement_union) -> list:
+def _piece_span_m(polygon) -> float | None:
+    """The LONGER side of a polygon's minimum rotated rectangle — how far
+    the piece REACHES ACROSS, in metres.
+
+    §T2.2 asks whether a post-cut cap fragment still SPANS the portal
+    face.  The span of a bar is its long dimension: a cap bar's short
+    side is its ``wall_gap_m``-class reach, which is under a metre by
+    construction and would condemn every intact cap.
+    """
+    if polygon is None or polygon.is_empty:
+        return None
+    try:
+        _rect = polygon.minimum_rotated_rectangle
+        _c = list(getattr(_rect, "exterior", _rect).coords)
+    except (AttributeError, *_GEOM_EXC):                 # pragma: no cover
+        return None
+    if len(_c) < 4:
+        return None
+    _sides = [math.hypot(_c[i + 1][0] - _c[i][0], _c[i + 1][1] - _c[i][1])
+              for i in range(min(3, len(_c) - 1))]
+    return max(_sides) if _sides else None
+
+
+def _tunnel_cover_pieces(shape, pavement_union, *,
+                         min_span_m: float | None = None,
+                         layout=None, cluster=None) -> list:
     """``shape`` cut against ``pavement_union`` as a list of BuiltShape.
 
     R10-2: a wall / roof / cap NEVER covers tunnel pavement, and ALL
@@ -3002,6 +3269,14 @@ def _tunnel_cover_pieces(shape, pavement_union) -> list:
     carries by the existing clip conversions — a piece whose profile
     cannot be answered is dropped rather than shipped with ring-order
     slope semantics its new ring does not have.
+
+    ``min_span_m`` (§T2.2, CAPS ONLY) adds the second survivor gate the
+    area floor could never be: a cap is a BAR ACROSS THE PORTAL FACE, so
+    a post-cut fragment whose span has fallen below the bore's
+    carriageway width is no longer a face — it is a free-standing
+    sliver, and the eight LEMD caps measured at 0.5–11 m² are exactly
+    that.  ``_TUNNEL_COVER_MIN_PIECE_M2`` admitted every one of them.
+    Each drop takes its portal-corridor-claim §1 named line.
     """
     if (pavement_union is None or shape.polygon is None
             or shape.polygon.is_empty):
@@ -3040,17 +3315,32 @@ def _tunnel_cover_pieces(shape, pavement_union) -> list:
             if _na is None:
                 continue
             _hi = _lo = None
-        _out.append(BuiltShape(
+        _kept = BuiltShape(
             polygon=_part, role=shape.role, ref=shape.ref,
             altitude=_alt, altitude_high=_hi, altitude_low=_lo,
-            node_altitudes=_na))
+            node_altitudes=_na)
+        if min_span_m is not None and _demcut_provenance_gate_on():
+            _span = _piece_span_m(_part)
+            if _span is not None and _span < float(min_span_m):
+                log_tunnel_piece_removal(
+                    layout, _kept,
+                    "cap fragment no longer spans the portal face",
+                    coverage=None, cluster=cluster,
+                    verdict=f"span={_span:.2f}m < carriageway "
+                            f"{float(min_span_m):.2f}m")
+                continue
+        _out.append(_kept)
     return _out
 
 
 def _append_tunnel_cover(layout: "PavementLayout", exclusion_zones: list,
-                         pavement_union, shape) -> int:
+                         pavement_union, shape, *,
+                         min_span_m: float | None = None,
+                         cluster=None) -> int:
     """Append ``shape``'s R10-2 surviving cover pieces; return how many."""
-    _pieces = _tunnel_cover_pieces(shape, pavement_union)
+    _pieces = _tunnel_cover_pieces(shape, pavement_union,
+                                   min_span_m=min_span_m,
+                                   layout=layout, cluster=cluster)
     for _piece in _pieces:
         layout.shapes.append(_piece)
         exclusion_zones.append(_piece.polygon)
@@ -3516,6 +3806,19 @@ def _emit_portal_cluster(
                                          + retaining_wall_width_m)
             except _GEOM_EXC:
                 _cap_reach = wall_gap_m
+            # ── §T2.2: THE MOUTH WINS (R16-2b vs R10-2) ──────────────
+            # Attempt 2's pavement-seeking reach above can run
+            # ``retaining_wall_width_m`` PAST the mouth plate's near edge
+            # (``_mouth_near`` below is ``wall_gap_m`` from this same
+            # origin), and R10-2 then cuts the overhang back off against
+            # the mouth — which is how all eight LEMD caps came out as
+            # 0.5–11 m² slivers.  The cap face therefore stops AT the
+            # mouth plate's near edge and never reaches into it: the two
+            # surfaces share that boundary, so R16-2b's annulus stays
+            # OWNED (zero-width, nothing unowned between them) and the
+            # cap is never cut by the mouth it faces.
+            if _demcut_provenance_gate_on():
+                _cap_reach = min(_cap_reach, wall_gap_m)
             _cap_f = (cap_centre[0] + first_dir[0] * _cap_reach,
                       cap_centre[1] + first_dir[1] * _cap_reach)
             _cap_ring = [
@@ -3549,7 +3852,9 @@ def _emit_portal_cluster(
                                       if _cap_alts is None else None),
                             node_altitudes=(
                                 None if _cap_alts is None
-                                else _cap_alts + [_cap_alts[0]]))):
+                                else _cap_alts + [_cap_alts[0]])),
+                        min_span_m=carriage_w,
+                        cluster=cap_centre):
                     emitted_any = True
         except _GEOM_EXC:
             pass
@@ -3584,8 +3889,23 @@ def _emit_portal_cluster(
                 mouth_geometry = mouth_geometry.difference(roof_union)
             for part in getattr(
                     mouth_geometry, "geoms", [mouth_geometry]):
-                if (part.geom_type != "Polygon" or part.is_empty
-                        or part.area < 1.0):
+                if part.geom_type != "Polygon" or part.is_empty:
+                    continue
+                if part.area < 1.0:
+                    # §T8.3 / portal-corridor-claim §1: NAME IT.  This is
+                    # one of the item-4 removal sites — a mouth plate the
+                    # roof difference has cut below the area floor used to
+                    # vanish with no record, and "the mouth is missing" is
+                    # then indistinguishable from "the mouth was never
+                    # admitted".
+                    log_tunnel_piece_removal(
+                        layout,
+                        BuiltShape(polygon=part, role=ROLE_TUNNEL_RAMP,
+                                   ref="tunnel_mouth",
+                                   altitude=round(mouth_grade, 2)),
+                        "mouth plate below the 1 m2 area floor after the "
+                        "roof difference",
+                        cluster=cap_centre)
                     continue
                 _mouth_shape = BuiltShape(
                     polygon=part,
@@ -3636,7 +3956,9 @@ def _emit_portal_cluster(
                         polygon=cap_poly,
                         role=ROLE_RETAINING_WALL,
                         ref="tunnel_cap",
-                        altitude=round(apt_elev, 1)))
+                        altitude=round(apt_elev, 1)),
+                    min_span_m=carriage_w,
+                    cluster=cap_centre)
         except _GEOM_EXC:
             pass
     # Per user 2026-05-04: the cap + arm walls form a continuous
@@ -5723,7 +6045,15 @@ def _record_tunnel_mouth_walling(layout: "PavementLayout",
     to; a counted finding rides on the layout beside
     ``tunnel_passthrough_findings``.
     """
-    _light_touch = getattr(layout, "_tunnel_light_touch_mouths", None) or ()
+    # §T2.3: THE LIGHT-TOUCH EXEMPTION IS WITHDRAWN.  A7(c) exempted
+    # DEM-cut mouths because the mode emits no side walls by design —
+    # but "by design" is a claim about the emitter, not a measurement of
+    # the mesh, and it made the one class of mouth this round found
+    # unwalled the one class the finding could not see.  The finding
+    # reports them like any mouth; it reports and never fails.
+    _light_touch = (
+        () if _demcut_provenance_gate_on()
+        else (getattr(layout, "_tunnel_light_touch_mouths", None) or ()))
     _mouths = [s for s in layout.shapes
                if id(s) not in pre_emit_shape_ids
                and id(s) not in _light_touch
@@ -7120,10 +7450,6 @@ def _emit_tunnel_portals(
     _other_road_lines, _other_road_tree, _tunnel_all_nodes = (
         _build_adjacent_road_index(ways_r, nodes_m,
                                    skip_if_adjacent_road))
-    _system_veto = _compute_tunnel_system_veto(
-        ways_r, nodes_m, excluded, adjacent_road_dist_m,
-        skip_if_adjacent_road, _other_road_lines,
-        _other_road_tree, _tunnel_all_nodes)
     # R10-1/A6 cover evidence.  The PAVEMENT union deliberately excludes
     # ``building`` — ``_AIRSIDE_GATE_ROLES`` carries it for the
     # under-pavement drop, but here building-cover and pavement-cover are
@@ -7160,6 +7486,31 @@ def _emit_tunnel_portals(
             _transit_u = None
     except _GEOM_EXC:
         _transit_u = None
+    # §T3.1's "the airport's own bore" cover: runway / apron / taxiway
+    # pavement.  Built here, from the SAME layout shapes the cover
+    # evidence above reads, so the exemption and the admission cannot
+    # disagree about what "airside pavement" is.
+    try:
+        _own_bore_cover_u = unary_union(
+            [s.polygon for s in layout.shapes
+             if s.role in _TUNNEL_OWN_BORE_COVER_ROLES
+             and s.polygon is not None and not s.polygon.is_empty])
+        if _own_bore_cover_u.is_empty:
+            _own_bore_cover_u = None
+    except _GEOM_EXC:
+        _own_bore_cover_u = None
+    # THE VETO, COMPUTED AFTER ITS EVIDENCE (§T3.1): the scoping needs
+    # the airside gate union and the own-bore cover union, so the call
+    # sits below them.  Nothing between the index build and here reads
+    # ``_system_veto``.
+    _veto_detail: dict = {}
+    _system_veto = _compute_tunnel_system_veto(
+        ways_r, nodes_m, excluded, adjacent_road_dist_m,
+        skip_if_adjacent_road, _other_road_lines,
+        _other_road_tree, _tunnel_all_nodes,
+        airside_gate_union=_airside_gate_u,
+        own_bore_cover_union=_own_bore_cover_u,
+        veto_detail=_veto_detail)
     _passthrough_findings: list = []
     portal_data = _gather_portal_walks(
         ways_r, nodes_m, way_by_id, node_to_ways, excluded,
@@ -7169,7 +7520,9 @@ def _emit_tunnel_portals(
         tunnel_depth_m, plan_grade, ramp_min_length_m,
         building_union=_building_u, pavement_union=_pavement_u,
         transit_union=_transit_u,
-        passthrough_findings=_passthrough_findings)
+        passthrough_findings=_passthrough_findings,
+        veto_detail=_veto_detail,
+        dem_cut_provenance=_dem_cut_provenance(layout, dem))
     if _passthrough_findings:
         try:
             _existing = list(
@@ -8864,17 +9217,38 @@ def _object_trench_body_union(layout, margin_m: float | None = None):
     if classification is None:
         return None
     tunnels = getattr(classification, "tunnels", None) or []
-    if not tunnels:
+    # §T1.2 — THE INDEPENDENT BELT.  A BRIDGE TRENCH IS STILL A TRENCH to
+    # every consumer that asks "is this ground object-owned".  The union
+    # was tunnel-only, so at LEMD's -2070 portal the object-bridge
+    # corridor (``ROLE_BRIDGE_TRENCH``, ref ``object_bridge_corridor``,
+    # born flat at 606.96) owned the ground while the OSM tunnel chain
+    # emitted straight through it — two authorities, one patch of
+    # ground, and the R8-3 yield had nothing to yield TO.  Widening it
+    # here composes the two whatever the classifier called the
+    # structure, so §T1.1's reclassification and this belt are
+    # independent (spec: "a bridge trench is still a trench").
+    from .layout import ROLE_BRIDGE_TRENCH as _ROLE_BRIDGE_TRENCH
+    _widen = _obj_tunnel_compose_on()
+    bridge_records = (
+        (getattr(classification, "bridges", None) or []) if _widen else [])
+    if not tunnels and not bridge_records:
         return None
     # THE PREDICATE: an EMITTED floor pan, not a classification.  The
     # plates are ``object_terrain_assembly.build_tunnel_layout_shapes``'s
     # own ``f"{plate_prefix}_trench"`` refs (``object_tunnel_trench`` /
     # ``object_basin_trench``), born pre-solve, so they are already in
-    # ``layout.shapes`` when this legacy emitter runs (finalize).
+    # ``layout.shapes`` when this legacy emitter runs (finalize).  The
+    # object-bridge corridor is born the same way, in
+    # ``build_bridge_layout_shapes``, under ``ROLE_BRIDGE_TRENCH``.
+    _floor_roles = ((ROLE_TUNNEL_TRENCH, _ROLE_BRIDGE_TRENCH) if _widen
+                    else (ROLE_TUNNEL_TRENCH,))
     floors = [
         shape.polygon for shape in layout.shapes
-        if shape.role == ROLE_TUNNEL_TRENCH
-        and str(getattr(shape, "ref", "") or "").endswith("_trench")
+        if shape.role in _floor_roles
+        and (str(getattr(shape, "ref", "") or "").endswith("_trench")
+             or (shape.role == _ROLE_BRIDGE_TRENCH
+                 and str(getattr(shape, "ref", "") or "")
+                 == "object_bridge_corridor"))
         and shape.polygon is not None and not shape.polygon.is_empty
     ]
     if not floors:
@@ -8897,6 +9271,19 @@ def _object_trench_body_union(layout, margin_m: float | None = None):
             continue
         try:
             body = unary_union(parts)
+            if body.is_empty or not body.intersects(floor_union):
+                continue
+            bodies.append(body)
+        except _GEOM_EXC:                                 # pragma: no cover
+            continue
+    for bridge in bridge_records:
+        try:
+            body = _bridge_footprint_meters(bridge, to_meters)
+        except Exception:                                 # pragma: no cover
+            continue
+        if body is None:
+            continue
+        try:
             if body.is_empty or not body.intersects(floor_union):
                 continue
             bodies.append(body)

@@ -148,7 +148,8 @@ def _build_layout() -> PavementLayout:
 
 
 def _install_scene(monkeypatch, *, carved: bool,
-                   trench_climb: float = 0.0) -> PavementLayout:
+                   trench_climb: float = 0.0,
+                   source_class: str | None = "lidar") -> PavementLayout:
     """Wire the synthetic road network and the DEM sampler onto the
     ``bridges`` module and return the freshly built layout.
 
@@ -170,7 +171,17 @@ def _install_scene(monkeypatch, *, carved: bool,
     measured trench floor — so on a trench that never rises there is
     genuinely nothing to climb and the pieces come out flat.  A ramp is
     sloped when the ground it climbs to is higher, which is what this
-    parameter supplies."""
+    parameter supplies.
+
+    ``source_class`` (spec ``tunnel-integrity-round-spec.md`` §T2.1) is
+    the DEM SOURCE CLASS the build's flat-site register declares, and it
+    defaults to ``"lidar"`` because that is this fixture's own premise:
+    "a lidar-style TRENCH along the road".  The EGGW ruling
+    (2026-07-17) is about a HIGH-RESOLUTION LIDAR INSET carrying the
+    approach cut, so a scene that asserts the light-touch mode must say
+    so.  Pass a coarser class (or ``None``) to exercise the §T2.1
+    stand-down, where a measured "cut" on a DEM that cannot carry an
+    approach profile emits the full synthetic ramp+mouth instead."""
     monkeypatch.setattr(
         bridges, "_load_tunnel_road_network",
         lambda _layout: _synthetic_road_network())
@@ -189,7 +200,9 @@ def _install_scene(monkeypatch, *, carved: bool,
                    TRENCH_FLOOR_M + trench_climb * _beyond)
 
     monkeypatch.setattr(bridges, "_sample_dem", _fake_sample_dem)
-    return _build_layout()
+    layout = _build_layout()
+    layout.site_class = {"s2_source_class": source_class}
+    return layout
 
 
 def _shapes_with_ref(layout: PavementLayout, ref: str) -> list[BuiltShape]:
@@ -225,6 +238,34 @@ class TestDemCutPortalMode:
         assert mouths, "DEM-cut mode must emit a flat tunnel_mouth plate"
         assert roofs, "DEM-cut mode must emit flat tunnel_roof plates"
         # No synthetic sloped ramps in DEM-cut mode.
+        assert not _sloped_tunnel_ramps(layout)
+
+    def test_a_coarse_dem_cut_emits_the_full_synthetic_ramp(
+        self, monkeypatch
+    ) -> None:
+        """§T2.1: EVIDENCE and MODE are separate questions.  The SAME
+        carved scene on a DEM whose source class cannot carry an approach
+        profile emits the synthetic ramp+mouth exactly as if no cut
+        existed — the LEMD class, where 8 of 8 clusters emitted no ramp
+        at all.  ``sub10m`` NEVER qualifies (spec §T2.1, explicit)."""
+        layout = _install_scene(monkeypatch, carved=True,
+                                trench_climb=0.04, source_class="sub10m")
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _sloped_tunnel_ramps(layout), (
+            "a coarse-DEM cut must not stand the synthetic ramps down")
+
+    def test_the_gate_off_restores_the_pre_round_mode(
+        self, monkeypatch
+    ) -> None:
+        """OFF is byte-identical to the pre-round emit: a measured cut
+        switches to the light-touch mode whatever the DEM class is."""
+        monkeypatch.setenv("O4_DEMCUT_PROVENANCE_GATE", "0")
+        layout = _install_scene(monkeypatch, carved=True,
+                                source_class="sub10m")
+        bridges._emit_tunnel_portals(
+            layout, object(), TILE_LATITUDE, TILE_LONGITUDE)
+        assert _shapes_with_ref(layout, "tunnel_cap")
         assert not _sloped_tunnel_ramps(layout)
 
     def test_carved_dem_mouth_plate_sits_at_the_trench_grade(

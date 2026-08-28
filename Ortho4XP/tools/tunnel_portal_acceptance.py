@@ -130,6 +130,28 @@ SITE_PROFILES: Dict[str, Profile] = {
         needle_control_way="-11724",
         flat_pad_ref="building1",
     ),
+    # §T8.2 — THE LEMD PROFILE.  The four sites are RULINGS 2026-08-28
+    # items 4-7 (the owner's in-sim reads at 1.0.263), in the ruling's
+    # own order: item 4 first, so it is the ``--mouth-max-m`` mouth.
+    # The bores are the mapped ways the road feed carries; LEMD has no
+    # ``*_big_roads`` tunnel extract at all, which is why this profile
+    # names the ROAD-FEED CACHE (see ``_bore_lines``).  NO COVERED SPAN
+    # is declared: these bores are 224-2 615 m ways and one (lo,hi)
+    # window cannot describe the roofed stretch of all five, so
+    # ``covered_span_clean`` reports SKIPPED here rather than PASSing
+    # over a span nobody named.  Declare one per run with
+    # ``--covered-span``.
+    "LEMD": Profile(
+        name="LEMD",
+        sites={
+            "item 4 (entrance, way -2070)": (40.4980435, -3.5849427),
+            "item 5 (mouth, no ramp)": (40.4960151, -3.5849926),
+            "item 6 (mouth, ways -1872/-257)": (40.4944689, -3.5546245),
+            "item 7 (mouth, way -2119)": (40.4901623, -3.5593036),
+        },
+        bore_osm_relpath="_airport_road_feed/LEMD_road_feed.cache",
+        bore_way_ids=("-2070", "-1872", "-257", "-2085", "-2119"),
+    ),
 }
 
 
@@ -153,6 +175,13 @@ class Thresholds:
     #: A claimed corridor answers a mouth only where it is BELOW GRADE by
     #: this much — it must carry a bore, not merely be claimed.
     claimed_bore_max_m: float = 0.0
+    #: §T8.1 covered-span datum.  How far outside the corridor the LOCAL
+    #: grade is sampled, how many samples the median needs before it is
+    #: a datum at all, and how far under it a vertex must sit to count as
+    #: below grade (emit quantisation is 0.1 m; 0.50 m is well clear).
+    datum_ring_m: float = 25.0
+    datum_min_samples: int = 8
+    below_grade_m: float = 0.50
 
 
 @dataclass
@@ -217,19 +246,53 @@ class Patch:
 
 def _bore_lines(profile: Profile, osm_data_dir: Optional[Path], to_m):
     """``{way id: LineString}`` for the profile's mapped bores, or None
-    when the road cache is not reachable (the check then SKIPS)."""
-    if not profile.bore_osm_relpath or osm_data_dir is None:
+    when the road cache is not reachable (the check then SKIPS).
+
+    TWO SOURCES, one reader (§T8.2).  ``bore_osm_relpath`` may name an
+    OSM XML extract (``*.osm`` / ``*.osm.bz2`` — a ``big_roads`` file)
+    OR an ``_airport_road_feed/*.cache`` road-feed pickle, which is
+    where an airport whose bores were never in a ``big_roads`` extract
+    actually has them.  Which source an airport uses is PROFILE DATA,
+    never a branch in a check.  A path that is already absolute is used
+    as given, so ``--bore-osm`` can point anywhere.
+    """
+    if not profile.bore_osm_relpath:
         return None
-    path = Path(osm_data_dir) / profile.bore_osm_relpath
+    rel = Path(profile.bore_osm_relpath)
+    if rel.is_absolute():
+        path = rel
+    elif osm_data_dir is None:
+        return None
+    else:
+        path = Path(osm_data_dir) / rel
     if not path.exists():
         return None
     from shapely.geometry import LineString
+    out = {}
+    if path.suffix == ".cache":
+        # The road feed is a pickle of ``auto_patch.osm_load
+        # .AirportRoadNetwork``; ``load_census`` has already put ``src``
+        # on ``sys.path`` (the ONE law/census code path), so unpickling
+        # resolves without a second import policy here.
+        import pickle
+        with open(path, "rb") as fh:
+            record = pickle.load(fh)
+        network = record.get("network") if isinstance(record, dict) \
+            else record
+        nodes = getattr(network, "nodes", None) or {}
+        for way in (getattr(network, "ways", None) or ()):
+            wid, refs = str(way[0]), way[1]
+            if wid not in profile.bore_way_ids:
+                continue
+            pts = [to_m(*nodes[n]) for n in refs if n in nodes]
+            if len(pts) >= 2:
+                out[wid] = LineString(pts)
+        return out or None
     opener = bz2.open if path.suffix == ".bz2" else open
     with opener(path, "rt", encoding="utf-8") as fh:
         root = ET.parse(fh).getroot()
     nn = {n.get("id"): to_m(float(n.get("lat")), float(n.get("lon")))
           for n in root.findall("node")}
-    out = {}
     for w in root.findall("way"):
         wid = w.get("id")
         if wid not in profile.bore_way_ids:
@@ -304,33 +367,73 @@ def _check_site_reach(patch: Patch, profile: Profile, thr: Thresholds
     return checks
 
 
-def _check_covered_span(patch: Patch, profile: Profile, bores) -> List[Check]:
+def _check_covered_span(patch: Patch, profile: Profile, bores,
+                        thr: Optional["Thresholds"] = None) -> List[Check]:
     """No emitted vertex below grade over the bore's COVERED span — a
-    roofed stretch has no open trench."""
+    roofed stretch has no open trench.
+
+    §T8.1 — THE DATUM IS LOCAL, NEVER ABSOLUTE 0.0.  The predicate was
+    ``e < 0.0``: true only of a field near sea level, and STRUCTURALLY
+    VACUOUS on a field 561-617 m up — no emitted vertex there is ever
+    below zero, so the check reported PASS over a span it had not
+    examined.  The datum is now measured from the patch itself:
+    the median elevation of the emitted vertices in the ANNULUS just
+    outside the corridor (the surrounding grade at this bore, in the
+    build's own frame), and a vertex is below grade when it sits
+    ``below_grade_m`` under that.  A corridor with no annulus evidence
+    reports SKIPPED — never PASS.
+    """
     from shapely.geometry import Point
     from shapely.ops import substring, unary_union
+    thr = thr or Thresholds()
     if not bores:
         return [Check("covered_span_clean", SKIP, None, 0,
                       "mapped-bore road cache not reachable "
                       "(--osm-data-dir / --bore-osm)")]
     lo, hi = profile.covered_span_m
+    if hi <= lo:
+        # NOT DECLARED.  ``substring(g, 0, 0)`` is a POINT: buffering it
+        # gave a disc that contained nothing and the check reported a
+        # clean PASS over a span the profile never named.
+        return [Check("covered_span_clean", SKIP, None, 0,
+                      "no covered span declared (--covered-span LO,HI "
+                      "or a profile that names one)")]
+    # Every emitted vertex once, in layout metres, with its altitude.
+    pts: List[Tuple[Any, float]] = []
+    for w in patch.ways:
+        for n, e in zip(w.nids, w.elevs):
+            if e is not None and n in patch.nodes:
+                pts.append((Point(patch.ll_to_m(*patch.nodes[n])),
+                            float(e)))
     worst = 0
     detail = []
+    datums = []
     for half in profile.covered_half_widths_m:
-        corridor = unary_union(
-            [substring(g, lo, hi) for g in bores.values()]).buffer(half)
-        bad = 0
-        for w in patch.ways:
-            for n, e in zip(w.nids, w.elevs):
-                if e is not None and e < 0.0 and n in patch.nodes:
-                    if corridor.contains(Point(patch.ll_to_m(
-                            *patch.nodes[n]))):
-                        bad += 1
+        axis = unary_union([substring(g, lo, hi) for g in bores.values()])
+        corridor = axis.buffer(half)
+        annulus = axis.buffer(half + thr.datum_ring_m).difference(corridor)
+        ring = sorted(e for p, e in pts if annulus.contains(p))
+        if len(ring) < thr.datum_min_samples:
+            detail.append(f"half-width {half:.0f} m: no datum "
+                          f"({len(ring)} annulus vertex/vertices)")
+            continue
+        datum = ring[len(ring) // 2]
+        datums.append(round(datum, 2))
+        bad = sum(1 for p, e in pts
+                  if e < datum - thr.below_grade_m and corridor.contains(p))
         worst = max(worst, bad)
-        detail.append(f"half-width {half:.0f} m: {bad}")
+        detail.append(f"half-width {half:.0f} m: {bad} "
+                      f"(datum {datum:.2f} m)")
+    if not datums:
+        return [Check("covered_span_clean", SKIP, None, 0,
+                      f"no LOCAL DATUM measurable beside the corridor "
+                      f"(needs ≥{thr.datum_min_samples} emitted vertices "
+                      f"in the {thr.datum_ring_m:.0f} m annulus) — "
+                      + ", ".join(detail))]
     return [Check("covered_span_clean", PASS if worst == 0 else FAIL,
                   worst, 0,
-                  f"below-grade vertices over s∈[{lo:.0f},{hi:.0f}] — "
+                  f"vertices ≥{thr.below_grade_m:.2f} m below the LOCAL "
+                  f"grade datum over s∈[{lo:.0f},{hi:.0f}] — "
                   + ", ".join(detail))]
 
 
@@ -730,7 +833,7 @@ def run_acceptance(patch_path, control_path=None, *,
 
     checks: List[Check] = []
     checks += _check_site_reach(patch, profile, thr)
-    checks += _check_covered_span(patch, profile, bores)
+    checks += _check_covered_span(patch, profile, bores, thr)
     checks += _check_no_low_connector(patch)
     checks += _check_needle(patch, control, profile, thr)
     checks += _check_flat_pad(patch, control, profile, thr)
@@ -770,14 +873,28 @@ def build_parser() -> argparse.ArgumentParser:
                    help="a shipped site profile")
     p.add_argument("--site", action="append",
                    help="NAME=LAT,LON (repeatable; the FIRST is the mouth)")
+    # §T8.2: --site mode gains the bore inputs, so an ad-hoc run can
+    # execute the covered-span and claim checks instead of SKIPPING them.
+    p.add_argument("--bore-osm",
+                   help="mapped-bore source: an OSM extract (.osm/.osm.bz2) "
+                        "or a road-feed .cache, relative to --osm-data-dir "
+                        "or absolute")
+    p.add_argument("--bore-ways",
+                   help="comma-separated mapped-bore way ids in --bore-osm")
+    p.add_argument("--covered-span",
+                   help="LO,HI arc-length metres of the bore that is "
+                        "ROOFED (the covered-span check's window)")
     p.add_argument("--osm-data-dir", default=str(ROOT / "OSM_data"),
                    help="OSM_data root for the mapped-bore cache")
     p.add_argument("--json", help="write the results to this path")
     for name, default in (("mouth-max-m", 15.0), ("site-max-m", 60.0),
                           ("needle-spread-m", 8.0), ("drift-floor-m", 0.5),
                           ("retreat-wall-radius-m", 2.0),
-                          ("claimed-bore-max-m", 0.0)):
+                          ("claimed-bore-max-m", 0.0),
+                          ("datum-ring-m", 25.0),
+                          ("below-grade-m", 0.50)):
         p.add_argument(f"--{name}", type=float, default=default)
+    p.add_argument("--datum-min-samples", type=int, default=8)
     for name in ("drift-max", "retreat-wall-max", "over-cap-ramp-max",
                  "actionable-sites-max", "claim-cover-min"):
         p.add_argument(f"--{name}", type=int, default=None)
@@ -790,8 +907,19 @@ def main(argv=None) -> int:
     profile = (SITE_PROFILES[args.profile] if args.profile
                else Profile(name="(cli)"))
     sites = _parse_sites(args.site)
+    _over: Dict[str, Any] = {}
     if sites:
-        profile = Profile(**{**asdict(profile), "sites": sites})
+        _over["sites"] = sites
+    if args.bore_osm:
+        _over["bore_osm_relpath"] = args.bore_osm
+    if args.bore_ways:
+        _over["bore_way_ids"] = tuple(
+            w.strip() for w in args.bore_ways.split(",") if w.strip())
+    if args.covered_span:
+        _lo, _, _hi = args.covered_span.partition(",")
+        _over["covered_span_m"] = (float(_lo), float(_hi))
+    if _over:
+        profile = Profile(**{**asdict(profile), **_over})
     thr = Thresholds(
         mouth_max_m=args.mouth_max_m, site_max_m=args.site_max_m,
         needle_spread_m=args.needle_spread_m, drift_max=args.drift_max,
@@ -802,7 +930,10 @@ def main(argv=None) -> int:
         adjudicated_delta_max=args.adjudicated_delta_max,
         actionable_sites_max=args.actionable_sites_max,
         claim_cover_min=args.claim_cover_min,
-        claimed_bore_max_m=args.claimed_bore_max_m)
+        claimed_bore_max_m=args.claimed_bore_max_m,
+        datum_ring_m=args.datum_ring_m,
+        datum_min_samples=args.datum_min_samples,
+        below_grade_m=args.below_grade_m)
     checks = run_acceptance(args.patch, args.control, profile=profile,
                             thresholds=thr, osm_data_dir=args.osm_data_dir)
     print(f"=== TUNNEL PORTAL ACCEPTANCE — {args.patch} ===")

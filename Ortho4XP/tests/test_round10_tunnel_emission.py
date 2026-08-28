@@ -175,8 +175,16 @@ def _building_covered_network() -> tuple[dict, list, set, dict]:
 
 
 def _layout(with_building: bool = False, with_taxiway: bool = True,
-            building_box=None) -> PavementLayout:
+            building_box=None,
+            source_class: str | None = "lidar") -> PavementLayout:
     layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+    # THE DEM SOURCE CLASS (spec tunnel-integrity-round §T2.1).  These
+    # scenes carve a metre-scale trench along the road and then assert
+    # the DEM-cut mouth plate: that is a LIDAR-class premise, and §T2.1
+    # requires the register to say so before the light-touch mode fires.
+    # The R10-1/A-2 laws under test are about ADMISSION and DEPTH, which
+    # the class does not touch.
+    layout.site_class = {"s2_source_class": source_class}
     if with_taxiway:
         # The pavement over the bore — A6's "the pavement is the deck".
         layout.shapes.append(BuiltShape(

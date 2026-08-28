@@ -72,3 +72,35 @@ OTHH §W2 round, where the pins were the HOST RING's own authored values).
 - `tunnel_portal_acceptance --profile LEMD` not worsened anywhere;
   LEMD census not worsened; OTHH/HECA controls byte-identical or every
   delta attributed.
+
+## AMENDMENT 1 (Fable, 2026-08-28, on lane/lemdfidelity's report)
+
+MEASURED CORRECTIONS to this spec:
+- The humps (item 1) are the WALL BAND'S OWN TOP (ring-order
+  transition-law run down one band and back the other), not the ramp fan
+  (monotone at 3%). §F1 (crest = function of station) is the fix — RATIFIED.
+- The carriageway-PAIR hypothesis (law 2) is REFUTED: one chain, one
+  road, lanes=2, corridor 7.03 m is correct. The centering defect is TWO
+  SPELLINGS OF ONE ROAD — emitted centre 0.3 m off the OSM/feed line but
+  2.75 m off the DSF chain X-Plane draws, so the ribbon hugs one wall.
+
+RULINGS on the three stopped deviations:
+1. AUTHORISED — corridor centre/width at a portal takes the ENVELOPE OF
+   EVERY SPELLING of the crossing road (DSF chain + feed/OSM line,
+   matched within a small radius): the cut exists to cover what the sim
+   RENDERS plus what we emit; one spelling's centre is never authority
+   over the other's ribbon.
+2. AUTHORISED — a per-way width channel in the service-road minter
+   (pavement/service_roads.build_service_road_network), width from the
+   way's own lanes/width tags, DEFAULT UNCHANGED (6.0) so untagged
+   networks are byte-identical; lanes=4 -> 14.0 at the item-3 site.
+   Controls must show untagged airports byte-identical.
+3. §F2/§F3 KEPT as landed (real classes, interventionally proven,
+   positive-control attributed) even though neither is an owner-site
+   lever.
+
+DOCKETED: second wall emitter `bridges._emit_low_corridor_connectors`
+(~line 5910) still samples DEM per node — owns the residual 0.34/0.24/
+0.20 m twisted bands (-11960/-11930/-11961); follow-up round. OTHH §F1
+family shifts (airside_no_step 132->140, road_cross_section 82->85
+against three families improving) recorded for the ship gate.

@@ -159,6 +159,74 @@ class MeshElevationSampler:
         return float(self._vertices[int(distances.argmin()), 2])
 
 
+# ── THE TILE'S OWN .alt RASTER, AS TRIANGLE4XP READS IT ───────────────
+#
+# The mesh is only ever WRONG against something.  For a leak in the
+# altitude authorities (the CYXY INTERP_ALT round, 2026-08-28) the
+# reference is the tile's own ``Data<tile>.alt`` — the raster Triangle4XP
+# was handed and re-sampled every free vertex from — because that
+# separates "the DEM is wrong" from "something overwrote the DEM".
+#
+# Reading it here rather than in a scratchpad is the SECOND use of that
+# comparison (the round's attribution read, then its acceptance table),
+# which is the signal to promote it into the tool that already owns
+# mesh sampling (tool discipline, RULINGS 7e90032).  The frame is
+# ``O4_DEM_Utils``' own: a square float32 raster over the tile-relative
+# extent [-0.01, 1.01]^2 (``O4_DEM_Utils.py:760``), row 0 at y1, and the
+# interpolation is the TRUE BILINEAR of ``Triangle4XP.altitude()`` /
+# ``DEM.alt_baked`` — nearest-neighbour here would read up to a whole
+# 14.8 m cell off, which on an escarpment is tens of metres of fake
+# disagreement.
+ALT_RASTER_EXTENT = (-0.01, 1.01)
+
+
+class AltRaster:
+    """Bilinear reader for a built ``Data<tile>.alt``, in metres."""
+
+    def __init__(self, path: str, tile_lat: int, tile_lon: int,
+                 extent: tuple[float, float] = ALT_RASTER_EXTENT) -> None:
+        raw = numpy.fromfile(path, dtype=numpy.float32)
+        side = int(round(math.sqrt(raw.size)))
+        if side * side != raw.size:
+            raise SystemExit(
+                f"REFUSING: {path} holds {raw.size} float32 samples, which "
+                f"is not a square raster")
+        self.data = raw.reshape(side, side)
+        self.side = side
+        self.tile_lat = tile_lat
+        self.tile_lon = tile_lon
+        (self.x0, self.x1) = extent
+        self.y0, self.y1 = extent
+
+    def elevation_at(self, latitude: float, longitude: float) -> float:
+        n = self.side - 1
+        x = min(max(longitude - self.tile_lon, self.x0), self.x1)
+        y = min(max(latitude - self.tile_lat, self.y0), self.y1)
+        px = (x - self.x0) / (self.x1 - self.x0) * n
+        py = (self.y1 - y) / (self.y1 - self.y0) * n
+        nx, ny = min(int(px), n), min(int(py), n)
+        nxp, nyp = min(nx + 1, n), min(ny + 1, n)
+        rx, ry = px - nx, py - ny
+        return float(
+            self.data[ny, nx] * (1 - rx) * (1 - ry)
+            + self.data[ny, nxp] * rx * (1 - ry)
+            + self.data[nyp, nx] * (1 - rx) * ry
+            + self.data[nyp, nxp] * rx * ry
+        )
+
+
+def tile_origin_from_mesh_path(path: str) -> tuple[int, int]:
+    """``(lat, lon)`` parsed from a ``Data+60-136.mesh`` style name."""
+    import re
+
+    match = re.search(r"([-+]\d{2})([-+]\d{3})", path)
+    if not match:
+        raise SystemExit(
+            f"REFUSING: cannot read the tile origin from {path!r} — pass "
+            f"--tile LAT LON explicitly")
+    return (int(match.group(1)), int(match.group(2)))
+
+
 # ── CLI: TRANSECTS (round 17c) ────────────────────────────────────────
 #
 # The shore/canyon acceptance in rounds 17, 17b and 17c is a PROFILE
@@ -178,20 +246,32 @@ class MeshElevationSampler:
 # ``--step-flag M`` annotates any sample-to-sample jump of at least M
 # metres, which is how a FACE (one step) is told from a RAMP (several).
 
-def _transect(sampler, points, fmt, step_flag):
+def _transect(sampler, points, fmt, step_flag, alt=None):
     rows = [(lon, lat, sampler.elevation_at(lat, lon))
             for (lon, lat) in points]
     previous = None
+    deltas = []
     for (lon, lat, z) in rows:
         note = ""
         if previous is not None and z is not None:
             delta = z - previous
             if abs(delta) >= step_flag:
                 note = "   <-- STEP {:+.2f} m".format(delta)
-        print(fmt.format(lon=lon, lat=lat,
-                         z=("None" if z is None else "{:8.3f}".format(z)))
-              + note)
+        line = fmt.format(lon=lon, lat=lat,
+                          z=("None" if z is None else "{:8.3f}".format(z)))
+        if alt is not None:
+            reference = alt.elevation_at(lat, lon)
+            line += "  alt {:8.3f}  d {:+8.3f}".format(
+                reference, (z - reference) if z is not None else float("nan"))
+            if z is not None:
+                deltas.append(z - reference)
+        print(line + note)
         previous = z
+    if alt is not None and deltas:
+        worst = max(deltas, key=abs)
+        rms = (sum(d * d for d in deltas) / len(deltas)) ** 0.5
+        print("  vs .alt over {} sample(s): worst {:+.3f} m, rms {:.3f} m"
+              .format(len(deltas), worst, rms))
     return rows
 
 
@@ -217,7 +297,27 @@ def main(argv=None):
                         default=[], metavar=("LAT", "LON"),
                         help="one point (repeatable)")
     parser.add_argument("--label", default="")
+    parser.add_argument("--alt-raster", default=None, metavar="DATA.alt",
+                        help="also read the tile's own Data<tile>.alt "
+                             "(the raster Triangle4XP was handed) and print "
+                             "it beside every sample with the delta — the "
+                             "reference that separates 'the DEM is wrong' "
+                             "from 'something overwrote the DEM'")
+    parser.add_argument("--tile", nargs=2, type=int, default=None,
+                        metavar=("LAT", "LON"),
+                        help="tile origin for --alt-raster (default: parsed "
+                             "from the mesh filename)")
     args = parser.parse_args(argv)
+
+    alt = None
+    if args.alt_raster:
+        (tile_lat, tile_lon) = (tuple(args.tile) if args.tile
+                                else tile_origin_from_mesh_path(args.mesh))
+        alt = AltRaster(args.alt_raster, tile_lat, tile_lon)
+        print("=== .alt reference: {} ({}x{} float32, tile {:+03d}{:+04d}, "
+              "extent {}..{}) ===".format(
+                  args.alt_raster, alt.side, alt.side, tile_lat, tile_lon,
+                  alt.x0, alt.x1))
 
     margin = 0.001
     if args.lon is not None and args.lat_range:
@@ -233,7 +333,7 @@ def main(argv=None):
         print("=== {} lon {:.5f} (lat sweep, {} sample(s)) ===".format(
             args.label or "TRANSECT", args.lon, len(values)))
         _transect(sampler, [(args.lon, v) for v in values],
-                  "  lat {lat:.5f}  z {z}", args.step_flag)
+                  "  lat {lat:.5f}  z {z}", args.step_flag, alt)
     elif args.lat is not None and args.lon_range:
         lon0, lon1 = sorted(args.lon_range)
         values = []
@@ -247,7 +347,7 @@ def main(argv=None):
         print("=== {} lat {:.5f} (lon sweep, {} sample(s)) ===".format(
             args.label or "TRANSECT", args.lat, len(values)))
         _transect(sampler, [(v, args.lat) for v in values],
-                  "  lon {lon:.5f}  z {z}", args.step_flag)
+                  "  lon {lon:.5f}  z {z}", args.step_flag, alt)
     elif args.point:
         lats = [p[0] for p in args.point]
         lons = [p[1] for p in args.point]
@@ -256,8 +356,13 @@ def main(argv=None):
                         max(lons) + margin, max(lats) + margin))
         for (lat, lon) in args.point:
             z = sampler.elevation_at(lat, lon)
-            print("  {:.6f} {:.6f}  z {}".format(
-                lat, lon, "None" if z is None else "{:.3f}".format(z)))
+            line = "  {:.6f} {:.6f}  z {}".format(
+                lat, lon, "None" if z is None else "{:.3f}".format(z))
+            if alt is not None:
+                reference = alt.elevation_at(lat, lon)
+                line += "  alt {:.3f}  d {:+.3f}".format(
+                    reference, z - reference)
+            print(line)
     else:
         parser.error("give --lon/--lat-range, --lat/--lon-range, or --point")
     return 0

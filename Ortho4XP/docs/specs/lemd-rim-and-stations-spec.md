@@ -172,3 +172,24 @@ put the rim on 100 % of the perimeter. Ruling:
    NAME, the residual reported honestly); the register/parity twins
    (test_harness) extended so an unpublished joint fails a test, not
    a sim pass.
+
+## Amendment 3 (Fable, 2026-08-28 — a below-grade wall under a carried
+## surface does not sever a route; one conditional, cap resets)
+
+Measured (lane/lemdrim b1ff0714): Amendment 2 complete (declaration
+follows emission, byte-identical patch, census 3205 → 3039, undeclared
+steps still price). Residual: `terrace_joint_route` 0 → 11 — declared
+`basin_trench_wall` arcs crossing taxi ROUTE axes. Ruling:
+
+1. The route/strip terrace twins exist because a SURFACE terrace
+   crossing a taxi path is impassable. A below-grade trench wall whose
+   crossing point lies inside a below-grade region carried by a
+   pad/shell or roofed span (the yield population's own geometry —
+   reuse that register, no new notion) is NOT on the movement
+   surface: the route rides the shell above it. `basin_trench_wall`
+   joints are EXEMPT from the route/strip terrace families exactly
+   there — a wall arc crossing a route on OPEN ground still prices in
+   full (that severance is real). At LEMD all 11 lie under building8's
+   shell; expected total ≈ 3028.
+2. Twin: a declared wall joint under a carried span → no route row; the
+   same joint on open ground → prices.

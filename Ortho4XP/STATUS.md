@@ -34,6 +34,29 @@
 #   mint-side road ledger; 7 ramps with no wall either arm.
 # NEXT: app 1.0.264 owner sim pass -> docket triage by what reads.
 # ══════════════════════════════════════════════════════════════════
+# ── HANDOVER CODA (20260828b, session close) ──────────────────────
+# TREE: main CLEAN at 4fd0813c (app 1.0.264 bump); every wave lane
+#   branch MERGED. Unmerged lane/* are OLDER parked lanes (align,
+#   c3rework, fixtriage, frontweld) + lane/hecar2 (attribution
+#   evidence only — its tool already promoted via hround4).
+# APP: dist.nosync/XPTerrainBuilder.app 1.0.264, embedded==dist
+#   hash-verified. Owner rebuilds tiles +40-004/+30+031/+25+051 to
+#   see the wave; load times should normalize (needle fix).
+# CHIP PENDING: osr.UseExceptions FutureWarning at launch
+#   (task filed; cause = O4_Proj_Runtime importing osr + GDAL 3.12;
+#   benign). Chip sessions for the two red twins (near-miss,
+#   pad-law late-projection) ran in their own sessions/branches —
+#   check claude/* branches before re-fixing.
+# PRESERVED: owner's HECA surgery reference at
+#   Ortho4XP/tmp/owner_surgery/HECA_owner_surgery_20260828.osm
+#   (dd2bc44d) — the data-repo Patches copy will be overwritten.
+# CLEANUP OWED: ~86 worktrees accumulated (standing queue item);
+#   .claude/worktrees/basecheck holds untracked engine caches
+#   (lane_worktree.sh down basecheck --force is safe).
+# NEW SESSION: read this block + RULINGS 2026-08-28/28b/28c + the
+#   three wave specs' amendment histories; owner sim pass on 1.0.264
+#   triages the docket list above.
+# ══════════════════════════════════════════════════════════════════
 # ══════════════════════════════════════════════════════════════════
 # 20260828a (PADS AS BAND-BOUNDED VARIABLES MERGED 85febb99 + the
 # pad_binding_routes chip branch 9ec11e15 + composition fix; app

@@ -76,8 +76,13 @@ class TestPlanarReproduction:
             vertices, triangles, authored, report=report)
         assert changed == 1
         assert carried(vertices, 4) == pytest.approx(86.5, abs=1e-9)
-        assert report == {"free": 1, "solved": 1, "isolated": 0,
-                          "non_finite": 0}
+        # R18-1c added ``changed_indices`` — the vertices this call
+        # MOVED, which is what the leak detector judges.  The counts are
+        # asserted item by item so a future key is a decision here, not
+        # a surprise failure.
+        assert {k: v for k, v in report.items() if k != "changed_indices"} \
+            == {"free": 1, "solved": 1, "isolated": 0, "non_finite": 0}
+        assert list(report["changed_indices"]) == [4]
 
     def test_a_TILTED_face_is_reproduced_exactly(self):
         # The harmonic extension is exact on affine data — the interior

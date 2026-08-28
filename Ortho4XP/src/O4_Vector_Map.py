@@ -1044,6 +1044,12 @@ def build_poly_file(tile):
     # apron.  Purely additive (see ``seed_interp_alt_subcells``).
     seed_interp_alt_subcells(vector_map)
 
+    # R18-1c: every INTERP_ALT seed must be ENCLOSED by INTERP_ALT edges
+    # before the plague ever runs — the last point at which the seeds and
+    # the marked edges are both in hand.  Loud refusal, never a silent
+    # clip (see :func:`audit_interp_alt_seed_sealing`).
+    audit_interp_alt_seed_sealing(vector_map)
+
     # Buildings
     # include_buildings(vector_map)
     # if UI.red_flag: UI.exit_message_and_bottom_line(); return 0
@@ -2197,6 +2203,91 @@ def seed_interp_alt_subcells(vector_map):
             "   Sub-cell INTERP_ALT seeding skipped (the per-face seeds "
             "stand):", str(error))
         return 0
+
+
+################################################################################
+# R18-1c SEALING PREDICATE (docs/specs/cyxy-interp-alt-flood-leak-spec.md
+# item 2, "seed placement refuses an unsealed face").
+#
+# Triangle4XP's regionplague (Triangle4XP.c:13545) crosses any segment
+# whose mark shares no bit with the flood's own attribute, so an
+# INTERP_ALT seed is contained exactly when it sits in a BOUNDED face of
+# the arrangement of the INTERP_ALT-carrying edges.  A seed that does not
+# floods the whole uncut land component — which is what the VMMC
+# SEA|INTERP_ALT incident cost in the other direction (see
+# PATCH_RING_MARKER above) and what the +60-136 spec hypothesised.
+#
+# MEASURED at +60-136 (2026-08-28): all 578 INTERP_ALT seeds ARE sealed
+# and every one of the mesh's 22,923 bit-8 triangles lands inside this
+# same arrangement — the plague did not leak there, and the tile's
+# defect was the mesh-side Dirichlet domain instead (R18-1c, see
+# O4_Mesh_Utils).  The predicate is kept anyway: this class has now
+# fired once (VMMC) and been hypothesised once, and it is the cheap half
+# — 11,206 edges polygonize + union in 0.09 s, 0.03 % of the 300 s
+# whole-tile budget.
+INTERP_ALT_SEAL_ENV = "O4_INTERP_ALT_SEAL"
+
+
+class UnsealedInterpAltSeed(Exception):
+    """An INTERP_ALT seed sits in an UNBOUNDED face of its own marker."""
+
+
+def audit_interp_alt_seed_sealing(vector_map):
+    """REFUSE when an INTERP_ALT seed is not enclosed by INTERP_ALT edges.
+
+    Returns the number of seeds checked.  ``O4_INTERP_ALT_SEAL=warn``
+    downgrades the refusal to a loud line; a failure to BUILD the
+    arrangement is always a warning only — a diagnostic must not be the
+    thing that breaks a tile build.
+    """
+    seeds = vector_map.seeds.get("INTERP_ALT", [])
+    if not seeds:
+        return 0
+    interp_alt_bit = vector_map.dico_attributes["INTERP_ALT"]
+    try:
+        nodes_dico = vector_map.nodes_dico
+        lines = [
+            geometry.LineString([nodes_dico[id0], nodes_dico[id1]])
+            for edge_id, (id0, id1) in vector_map.edges_dico.items()
+            if vector_map.data_edges.get(edge_id, 0) & interp_alt_bit
+        ]
+        if not lines:
+            faces = []
+        else:
+            faces = list(ops.polygonize(ops.unary_union(lines)))
+        envelope = ops.unary_union(faces) if faces else geometry.Polygon()
+        sealed = prep(envelope) if not envelope.is_empty else None
+    except Exception as error:
+        UI.vprint(
+            1,
+            "   INTERP_ALT seal audit skipped (arrangement failed):",
+            str(error))
+        return 0
+    unsealed = [
+        seed for seed in seeds
+        if sealed is None
+        or not sealed.contains(geometry.Point(seed[0], seed[1]))
+    ]
+    if not unsealed:
+        UI.vprint(
+            1,
+            f"   INTERP_ALT seal: all {len(seeds)} seed(s) enclosed by "
+            f"INTERP_ALT edges ({len(faces)} bounded face(s), "
+            f"{len(lines)} marked edge(s)).")
+        return len(seeds)
+    message = (
+        "UNSEALED INTERP_ALT SEED(S): {} of {} INTERP_ALT seed(s) sit in an "
+        "UNBOUNDED face of the INTERP_ALT edge arrangement. Triangle4XP's "
+        "plague will flood the whole uncut land component from each of them "
+        "(the VMMC leak class). A ring edge lost its bit-8 mark, or a seed "
+        "was placed outside its ring. First ones: {}".format(
+            len(unsealed), len(seeds),
+            ", ".join("({:.9f}, {:.9f})".format(s[0], s[1])
+                      for s in unsealed[:3])))
+    if os.environ.get(INTERP_ALT_SEAL_ENV, "").strip().lower() == "warn":
+        UI.lvprint(0, "WARNING:", message)
+        return len(seeds)
+    raise UnsealedInterpAltSeed(message)
 
 
 ################################################################################

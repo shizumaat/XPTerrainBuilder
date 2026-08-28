@@ -369,7 +369,12 @@ def interpolate_free_interior_altitudes(
         report.update({"free": int(free.size),
                        "solved": int(changed.sum()),
                        "isolated": int(isolated.sum()),
-                       "non_finite": int((~good).sum())})
+                       "non_finite": int((~good).sum()),
+                       # The vertices this call MOVED, for the leak
+                       # detector below: a containment claim has to be
+                       # checked against what actually moved, never
+                       # against what the caller believes it passed in.
+                       "changed_indices": free[changed]})
     return int(changed.sum())
 
 
@@ -443,6 +448,204 @@ def patch_valued_vertex_indices(tile, vertices):
             "patch-valued vertices — the free-interior interpolation "
             "(R18-1b) is disabled:", str(error))
         return None
+
+
+# ── R18-1c — THE PATCH VALUE STOPS AT THE PATCH ────────────────────────
+# (owner sim read 2026-08-28, +60-136 / CYXY;
+#  docs/specs/cyxy-interp-alt-flood-leak-spec.md.  NOTE: that spec names
+#  a Triangle4XP PLAGUE LEAK as the cause; the measurement below refuted
+#  it and re-attributed the tile to this law.  The re-attribution is
+#  recorded in the lane/cyxyleak commits and is OWED A FABLE RULING
+#  before it merges — the audit that produced it is
+#  ``tools/mesh_region_tris.py --interp-alt-audit``, which reproduces
+#  every number in one second from the shipped artifacts.)
+#
+# THE DEFECT the owner saw at Whitehorse: "terrain not following the
+# natural plateau edge — extends out too far into the town, then drops
+# steeply, then rises again".  Measured against the tile's own
+# ``Data+60-136.alt``: +57.9 / +58.1 / -38.1 / -60.8 m at four probes in
+# and around the town.
+#
+# THE MECHANISM, measured interventionally (one mesh replay with the
+# block below disabled: the same four probes moved to +22.1 / +15.7 /
+# -11.3 / +4.8, i.e. R18-1b owns 36-65 m of every one of them).  It is
+# NOT a Triangle4XP plague leak: every one of the 22,923 bit-8 triangles
+# of that mesh lies inside the ``.poly``'s OWN bit-8 arrangement, and all
+# 578 INTERP_ALT seeds sit in bounded faces of it — the mesh is exactly
+# what the vector map asked for.  What leaked is THIS law's DIRICHLET
+# DOMAIN.  ``interpolate_free_interior_altitudes`` solves ONE harmonic
+# system over the whole attr==8 sub-mesh, and that sub-mesh is not the
+# patch: ``include_roads`` encodes the banked road network with the very
+# same INTERP_ALT marker, so wherever a levelled road TOUCHES the patch
+# coverage the two become one connected component and the patch's ring
+# altitudes are extended down it.  At CYXY that component spans 10.2 km
+# against a patch coverage of 1.4 x 3.1 km (1.94 km^2); 4,815 free
+# vertices took the extension, most of them streets in Whitehorse
+# hundreds of metres to kilometres from any pavement.  (The 1,939 that
+# "kept their own value" are the road ribbons that happen NOT to touch
+# it — which is exactly the invariant R18-1b's own docstring claims for
+# every road ribbon, and gets only where the roads are disconnected.)
+# The east and south edges of the leak are the Yukon river: a road
+# BRIDGE over water comes back WATER|INTERP_ALT (attr 9), which this law
+# already excludes, so the component is cut at every crossing.
+#
+# THE LAW is R18-1b's own words, honoured: a free interior vertex takes
+# the altitude "its FACE's patch-valued vertices imply" — a patch face,
+# not whatever the road network is welded to.  The domain is therefore
+# the PATCH COVERAGE: the union of the closed patch rings
+# (``PATCH_RING_MARKER``), which is ``include_patches``' own
+# ``patches_area``, recovered here from the input ``.poly`` so no new
+# artifact crosses the step boundary.  Road-cut sub-cells INSIDE the
+# coverage stay in scope (that is R18-1, and it is why the filter is on
+# the triangle rather than on the marker); road ribbons outside it keep
+# the levelled altitude they were encoded with.
+#
+# THE DETECTOR (spec item 3) is ``audit_interp_alt_extent``: every vertex
+# the solve MOVED must lie in the coverage.  It is checked against what
+# actually moved, so it stays a real check rather than a restatement of
+# the filter — it fires loudly on the pre-fix code at +60-136 (3,000+
+# moved vertices outside coverage, a 10.2 km span) and is quiet after.
+# ``O4_INTERP_ALT_LEAK=warn`` downgrades the refusal to a loud line for
+# a deliberate investigation; anything else (or unset) refuses.
+INTERP_ALT_LEAK_ENV = "O4_INTERP_ALT_LEAK"
+
+
+class InterpAltLeak(Exception):
+    """The patch altitude authority reached outside the patch coverage."""
+
+
+def patch_coverage_polygon(tile):
+    """The union of the tile's PATCH RINGS, in TILE-RELATIVE coordinates.
+
+    The rings are the ``PATCH_RING_MARKER`` segments of the input
+    ``.poly`` — the exact marker ``include_patches`` stamps on a closed
+    patch way and nothing else wears — polygonized into the faces of
+    their own arrangement and unioned.  That reconstructs
+    ``include_patches``' ``patches_area`` from the artifact the mesh step
+    already reads, rather than inventing a second construction of it or a
+    new file across the step boundary (the ONE BAND CONSTRUCTION
+    discipline).
+
+    Returns ``(polygon, prepared_polygon)``, an EMPTY polygon when the
+    tile has no patch rings at all (a legitimate outcome — a tile with no
+    patch has no patch value to extend), or ``None`` when the inputs
+    cannot be read, which disables the interpolation entirely rather than
+    silently falling back to the unscoped domain that leaks.
+    """
+    try:
+        from shapely import geometry, ops
+        from shapely.prepared import prep
+
+        nodes = {}
+        with open(FNAMES.input_node_file(tile)) as handle:
+            count = int(handle.readline().split()[0])
+            for _ in range(count):
+                columns = handle.readline().split()
+                nodes[int(columns[0])] = (float(columns[1]),
+                                          float(columns[2]))
+        rings = []
+        with open(FNAMES.input_poly_file(tile)) as handle:
+            line = handle.readline()
+            while line.strip() == "" or line.startswith("0 2"):
+                line = handle.readline()
+            nbr_edges = int(line.split()[0])
+            for _ in range(nbr_edges):
+                columns = handle.readline().split()
+                if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
+                    continue
+                rings.append(geometry.LineString(
+                    [nodes[int(columns[1])], nodes[int(columns[2])]]))
+        if not rings:
+            return (geometry.Polygon(), None)
+        coverage = ops.unary_union(
+            list(ops.polygonize(ops.unary_union(rings))))
+        if coverage.is_empty:
+            return (coverage, None)
+        return (coverage, prep(coverage))
+    except Exception as error:
+        UI.lvprint(
+            1,
+            "WARNING: could not rebuild the PATCH COVERAGE from the vector "
+            "inputs — the free-interior interpolation (R18-1b) is disabled "
+            "for this tile and interior vertices keep the DEM:", str(error))
+        return None
+
+
+def triangles_inside_coverage(vertices, triangles, covered):
+    """The subset of ``triangles`` that lie WHOLLY in the patch coverage.
+
+    One rule, on the triangle rather than on any marker: a road-cut
+    sub-cell inside a patch face is IN (R18-1), and a road ribbon that
+    merely touches the ring from outside is OUT.  ``vertices`` is the
+    flat 6-per-vertex array, in the tile-relative frame the ``.poly``
+    also uses.
+
+    ALL THREE vertices must be covered, not the centroid: a centroid
+    test admits a triangle that straddles the ring, and its outside
+    vertex is then a free vertex the solve moves — measured at +60-136,
+    85 of 2,005 moved vertices landed outside the coverage over a 3.0 km
+    span, and the detector below (rightly) refused.  ``covers`` rather
+    than ``contains`` so a vertex ON a ring — every patch-valued vertex
+    is one — counts as inside.
+    """
+    from shapely.geometry import Point
+
+    kept = []
+    seen = {}
+    for (v1, v2, v3) in triangles:
+        for v in (v1, v2, v3):
+            if v not in seen:
+                seen[v] = covered.covers(
+                    Point(vertices[6 * v], vertices[6 * v + 1]))
+        if seen[v1] and seen[v2] and seen[v3]:
+            kept.append((v1, v2, v3))
+    return kept
+
+
+def audit_interp_alt_extent(tile, vertices, changed_indices, coverage,
+                            covered):
+    """REFUSE if the interpolation moved a vertex outside patch coverage.
+
+    The second leak of this class (the first was VMMC's SEA|INTERP_ALT
+    crossing, which got a marker fix and no detector).  Checked against
+    the vertices the solve actually MOVED — not against the triangle set
+    it was handed — so a future widening of the domain, by any route,
+    fails here instead of shipping 500 m of bench into a town.
+    """
+    if changed_indices is None or coverage is None or coverage.is_empty:
+        return 0
+    from shapely.geometry import Point
+
+    outside = []
+    for index in changed_indices:
+        index = int(index)
+        point = Point(vertices[6 * index], vertices[6 * index + 1])
+        if not covered.covers(point):
+            outside.append((index, point.x, point.y))
+    if not outside:
+        return 0
+    lons = [p[1] for p in outside]
+    lats = [p[2] for p in outside]
+    span_km = max(
+        (max(lons) - min(lons)) * 111120 * cos(tile.lat * pi / 180),
+        (max(lats) - min(lats)) * 111120) / 1000.0
+    message = (
+        "INTERP_ALT LEAK at {:+03d}{:+04d}: the patch-value interpolation "
+        "(R18-1b) moved {} vertex(es) OUTSIDE the patch coverage "
+        "({:.3f} km^2), over a {:.1f} km span — lon {:.6f}..{:.6f} lat "
+        "{:.6f}..{:.6f} (tile-relative). The patch altitude authority "
+        "stops at the patch: a vertex out here belongs to a levelled road "
+        "ribbon or a seawall band and keeps its own value. First ones: "
+        "{}".format(
+            tile.lat, tile.lon, len(outside),
+            coverage.area * (111120 ** 2) * cos(tile.lat * pi / 180) / 1e6,
+            span_km, min(lons), max(lons), min(lats), max(lats),
+            ", ".join("#{} at ({:.6f}, {:.6f})".format(
+                i, x + tile.lon, y + tile.lat) for (i, x, y) in outside[:3])))
+    if os.environ.get(INTERP_ALT_LEAK_ENV, "").strip().lower() == "warn":
+        UI.lvprint(0, "WARNING:", message)
+        return len(outside)
+    raise InterpAltLeak(message)
 
 
 ################################################################################
@@ -583,6 +786,31 @@ def post_process_nodes_altitudes(tile):
     if _interp_alt_only_tris:
         report = {}
         patch_valued = patch_valued_vertex_indices(tile, vertices)
+        # R18-1c: the domain is the PATCH COVERAGE, not the whole
+        # attr==8 sub-mesh (see the note above ``patch_coverage_polygon``
+        # — at CYXY the road ribbons welded it into a 10.2 km component).
+        coverage_result = patch_coverage_polygon(tile)
+        n_before = len(_interp_alt_only_tris)
+        if coverage_result is None:
+            # Inputs unreadable: no interpolation at all.  Never the
+            # unscoped domain — that is the leak.
+            _interp_alt_only_tris = []
+            (coverage, covered) = (None, None)
+        else:
+            (coverage, covered) = coverage_result
+            if covered is None:
+                _interp_alt_only_tris = []
+            else:
+                _interp_alt_only_tris = triangles_inside_coverage(
+                    vertices, _interp_alt_only_tris, covered)
+        if n_before != len(_interp_alt_only_tris):
+            UI.vprint(
+                1,
+                f"   Patch coverage: {len(_interp_alt_only_tris)} of "
+                f"{n_before} INTERP_ALT triangle(s) are inside the patch "
+                "rings and take the patch value; the rest are levelled "
+                "road ribbons / seawall bands and keep their own (R18-1c).")
+    if _interp_alt_only_tris:
         try:
             n_interpolated = interpolate_free_interior_altitudes(
                 vertices, _interp_alt_only_tris, patch_valued, report=report)
@@ -603,6 +831,10 @@ def post_process_nodes_altitudes(tile):
                    "authored vertex in their component)"
                    if report.get("isolated") else "")
                 + ".")
+        # R18-1c detector (spec item 3): loud refusal, never a silent
+        # clip.  Judged on the vertices the solve MOVED.
+        audit_interp_alt_extent(
+            tile, vertices, report.get("changed_indices"), coverage, covered)
     for v1, v2, v3 in interp_alt_tris:
         vertices[6 * v1 + 2] = vertices[6 * v1 + 5]
         vertices[6 * v2 + 2] = vertices[6 * v2 + 5]

@@ -53,6 +53,39 @@ numbers as production frame.
    silent clip. The VMMC incident got a marker fix but no leak detector;
    this is the second leak of the class.
 
+## AMENDMENT 1 (Fable ruling, 2026-08-28, on lane/cyxyleak's report)
+
+THE SPEC'S CAUSE IS REFUTED, measured three ways: 0/578 seeds unsealed,
+0/22,923 attr-8 triangles outside the INTERP_ALT arrangement — no plague
+leak, no lost ring edge; and the "Yukon water bound" was a road BRIDGE's
+attr-9 exclusion, not water stopping a flood. The real owner is R18-1b's
+DOMAIN: `interpolate_free_interior_altitudes` solves ONE harmonic system
+over the connected attr==8 sub-mesh, and `include_roads` marks the banked
+road network with the same bit — patch + roads = one 10.2 km Dirichlet
+component, so patch values ran down Whitehorse's streets. Interventional:
+R18-1b OFF moves the probes +57.9/+58.1/-38.1/-60.8 → +22.1/+15.7/-11.3/
++4.8 m (the residual is triangle-size interpolation on a 60 m escarpment,
+not the defect).
+
+RULED: the lane's R18-1c is RATIFIED — the Dirichlet domain is the PATCH
+COVERAGE (PATCH_RING_MARKER faces from the input .poly), all three
+vertices covered, road-cut sub-cells inside patch faces in scope,
+unreadable inputs disable rather than widen. This RESTORES R18-1b's own
+written promise ("road ribbon outside any patch byte-unchanged"). The
+leak detector ships as landed (red on unscoped, green on scoped,
+O4_INTERP_ALT_LEAK=warn downgrade).
+
+Corrections to this spec's evidence: the fifth probe (60.74,-135.05,
+"-37 m") was a sampling error in the spec's own grid read — not
+reproducible, withdrawn. HECA control: attr population identical; the fix
+also corrects HECA's own 867-vertex miniature of the same leak (2,674
+vertices move ≤4.63 m, accuracy vs .alt unchanged).
+
+DEFERRED to the ship gate (recorded in DEFERRED_VERIFICATION.md): one
+COASTAL control (SPJC/SPLP class) for the seawall band — the 0.5 m
+ring-to-seawall annulus leaves the scoped domain; free vertices there now
+take DEM over a 0.5 m run (expected negligible; verify before ship).
+
 ## Acceptance
 
 - Rebuilt +60-136: attr-8 extent confined to patch coverage (+ road

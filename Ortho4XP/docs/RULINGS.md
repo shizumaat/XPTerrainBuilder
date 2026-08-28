@@ -1733,3 +1733,18 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 6. SIM DEFECT — mouth expected at 40.4944689,-3.5546245; no road shapes may extend west of it.
 7. SIM DEFECT — mouth expected at 40.4901623,-3.5593036.
 8. SIM DEFECT — many road shapes emit as small DISCONNECTED RECTANGLES (e.g. 40.4900517,-3.5604841 and 40.4900901,-3.5604541 — service_road ways -10376/-10377, 5 and 9 nodes, at different levels).
+
+### 2026-08-28b — Owner sim read of 1.0.263 at HECA (five items; sites ground-read on padvars_on)
+
+1. SIM DEFECT — small cliff/step ~30.1284906,31.4120847. Ground read: ZERO emitted ways within 20 m — a nodeless area; the step lives in uncontrolled mesh (the void class, outside the current lattice/station coverage).
+2. SIM DEFECT — small rough spot 30.1287581,31.4056763: junction -12810 (the round-3 "T" piece, 73.87–74.32) against apron -13116 (72.83–80.65) — the residual membrane seam at the old dip area.
+3. DATA + ROLE — 30.1141206,31.4095574 should be GROUNDSIDE, legitimately 5+ m below the apron; apron shapeID 582 (275 nodes, 86.68–104.44 emitted) must not extend into that ground. CORRECTED 2026-08-28: the owner edited the EMITTED AUTO-PATCH OSM (not the package) — the surgery is REFERENCE GEOMETRY showing the intended airside extent of 582, preserved at Ortho4XP/tmp/owner_surgery/HECA_owner_surgery_20260828.osm (sha dd2bc44dc27d0d47; the live copy in the data repo Patches dir would be overwritten by the owner's next app build). Builds will NOT see it: diff the reference against the built patch to extract the intended extent, then attribute why the BUILDER gives 582 the larger extent (which source/selector) — the fix is in code or source-data handling, never by hand-editing patches; and the 5 m step to groundside is a LAWFUL terrace (groundside terrace law), never to be "fixed".
+4. SIM DEFECT — same station-on-edge class as LEMD item 1, at 30.109477,31.4036224 (station way -14575) — covered by lemd-rim-and-stations-spec §A; this site joins that acceptance.
+5. SIM DEFECT — disconnected roads with a sharp cliff to the taxiway at 30.104671,31.3973462 (the STANDING apron -10258 attribution docket from the road-crossing round Amendment 2 — now due) and 30.1052938,31.3989669 (service_junction -10774 at 103.9–108.5 vs junction -12708 at 108.1–109.7).
+
+### 2026-08-28c — Owner sim read of 1.0.263 at OTHH (four items, all tunnel-class; sites ground-read on the owner's fresh patch +20+050/+25+051)
+
+1. SIM DEFECT — the tunnel RAMP is welded to the tunnel WALL, breaking the ramp; there must be a small gap. Site 25.2556192,51.6080938: tunnel_ramp -12214 (−1.12..0.06) and tunnel_wall -12220 (−1.12..4.0) coincide at 0.00 m.
+2. SIM DEFECT — a shape reads "tunnel_road" where a tunnel RAMP ending in a MOUTH belongs; only ONE side gets a retaining wall, and the end fails to wrap. (No coordinates given — near item 1 / adjudicate via the tunnel_portal_acceptance OTHH profile sites.)
+3. SIM DEFECT — same pattern at 25.2790398,51.5994135: ONE way, groundside_pavement ref=tunnel_road (-12168, 71 nodes, −0.9..4.0) — why "tunnel_road", no ramp, no walls, plus two small "road" extensions reaching INTO what should be underground tunnel interior.
+4. SIM DEFECT — why is shapeID 1111 emitted at 25.2768917,51.5941058? groundside_pavement plate at 3.96 over BARE DIRT between pavement areas on top of a tunnel (with twin -11110/-11199 pieces beside).

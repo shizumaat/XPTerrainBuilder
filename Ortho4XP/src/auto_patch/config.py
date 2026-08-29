@@ -10201,6 +10201,30 @@ FREE_ROAD_PROFILE_RESOLVE = (
 FREE_ROAD_PROFILE_PASS = (
     _os.environ.get("O4_FREE_ROAD_PROFILE", "1") != "0")
 
+# ── THE CUMULATIVE CAP-DISTANCE (lane/rampsites, site-first re-open;
+# spec ``site-first-reopen-spec.md`` "Open mechanism question") ───────
+# The per-station cap vector (Amendment 2 clause 1) is a Lipschitz bound
+# whose constant VARIES along the chain.  ``free_road_profile``'s
+# envelope read it as ``min(cap over the span) x span``, so ONE 1 %
+# station anywhere on a chain priced the WHOLE chain at 1 % — and a
+# chain whose pinned ends then failed that bound was declared infeasible
+# and left EXACTLY as the solve made it, ramp unbuilt and cliff intact.
+# MEASURED on this tree, CYXY control build ``cyxybase`` (body
+# 1ff1faab4b86): all SEVEN refused chains needed 1.3-4.3 % over their
+# own spans, against cumulative allowances of 2.4-19.2 m; five of the
+# seven are feasible by metres and were refused by the metric alone.
+# The correction integrates instead: each interval contributes its own
+# cap times its own length, so a 1 % station bounds the grade through
+# its own neighbourhood and nothing beyond it — which is the owner's
+# 2026-08-28e "once it LEAVES the apron it can descend at up to 8 %"
+# read at the granularity the cap actually lives at.
+
+
+
+
+
+
+
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).
 # §1's route-synthesis premise was REFUTED at HECA by measurement: nodes

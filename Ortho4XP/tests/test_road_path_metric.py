@@ -289,22 +289,48 @@ class TestPerStationCapUnification:
         assert LC.cap_at(vec, 62.0, 0.0) == pytest.approx(0.08)
         assert len({c for (_x, _y, c) in vec}) == 2
 
-    def test_the_profile_run_is_bound_by_its_STRICTEST_station(self):
-        """A 1 % station anywhere between two pins binds the whole run —
-        the profile may not ramp at 8 % THROUGH an apron-side stretch."""
+    def test_a_strict_station_binds_ITS_OWN_STRETCH_and_no_further(self):
+        """THE CORRECTED READING (lane/rampsites, site-first re-open).
+
+        The 5e twin asserted that a 1 % station ANYWHERE between two pins
+        refuses a 4 m rise — ``min(cap over the span) x span``.  That is
+        not what a Lipschitz bound with a varying constant says, and it
+        is the mechanism the owner's three HECA ramp sites and CYXY's
+        seven refused chains were left unbuilt by (measured on this
+        tree: 1.3-4.3 % needed against cumulative allowances of
+        2.4-19.2 m).  The cap INTEGRATES: the 1 % stretch carries 1 % of
+        its own length and the free stretches carry 8 % of theirs.
+        """
         from auto_patch import free_road_profile as FRP
         ss = [0.0, 25.0, 50.0, 75.0, 100.0]
         caps = [0.08, 0.08, 0.01, 0.08, 0.08]
-        _t, infeasible = FRP.chain_profile(
+        t, infeasible = FRP.chain_profile(
             ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps)
-        assert infeasible, (
-            "a 4 m rise across a 1 %-capped station is not feasible and "
-            "must be refused, not ramped through")
-        # …and with the strict station gone it IS feasible.
+        assert not infeasible, (
+            "2.0 + 0.25 + 0.25 + 2.0 = 4.5 m of cap-distance carries a "
+            "4 m rise; refusing it leaves the owner's cliff standing")
+        # …and EVERY interval respects ITS OWN cap — the 1 % stretch is
+        # still 1 %, which is what the apron scoping is FOR.
+        for k in range(4):
+            c = min(caps[k], caps[k + 1])
+            assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
+        # A rise the chain genuinely cannot carry is still REPORTED —
+        # and, under ruling 1, still BUILT to its two welds.
         _t2, inf2 = FRP.chain_profile(
-            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08,
-            caps=[0.08] * 5)
-        assert not inf2
+            ss, [100.0] * 5, {0: 100.0, 4: 105.0}, 0.08, caps=caps)
+        assert inf2
+        assert _t2[0] == pytest.approx(100.0) and _t2[4] == pytest.approx(105.0)
+
+    def test_uniform_caps_are_byte_identical_to_the_scalar_path(self):
+        """The correction may not move a chain whose caps are all one
+        number — that is every chain with no apron-side station, i.e.
+        most of them."""
+        from auto_patch import free_road_profile as FRP
+        ss = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
+        scalar, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08)
+        vector, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08,
+                                      caps=[0.08] * 7)
+        assert scalar == vector
 
     def test_the_way_level_gate_DISSOLVED(self):
         """End-on contact binds values and caps nothing — the ruling."""

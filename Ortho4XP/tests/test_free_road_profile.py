@@ -129,14 +129,22 @@ class TestTheProfileLaw:
         # …and the road is UNTOUCHED where the envelope does not reach.
         assert target[0] == pytest.approx(103.2)
 
-    def test_a_pin_pair_no_cap_profile_connects_is_REFUSED(self):
-        """"reports honestly if the binding still cannot be met" — the
-        chain is left alone and the shortfall is returned with its
-        number, never emitted as a silent cliff."""
+    def test_a_pin_pair_no_cap_profile_connects_STILL_BUILDS(self):
+        """RULING 1 (coordinator 2026-08-29) — THE WELD OUTRANKS THE CAP.
+
+        The shortfall is still returned with its number, but the span
+        BUILDS: both welds are met EXACTLY (contact-is-value, RULINGS
+        29c) and the excess grade stands between them for the census to
+        price.  The arm this replaces left the chain alone, turning the
+        excess into a CLIFF at the weld; it is deleted, and the record
+        is the spec and git (RULINGS 2026-08-29e).
+        """
         target, infeasible = FRP.chain_profile(
-            [0.0, 10.0], [100.0, 100.0], {0: 100.0, 1: 110.0}, 0.08)
+            [0.0, 5.0, 10.0], [100.0] * 3, {0: 100.0, 2: 110.0}, 0.08)
         assert infeasible and infeasible[0][2] == pytest.approx(1.0)
-        assert target == [100.0, 100.0]        # untouched
+        assert target[0] == pytest.approx(100.0)      # weld, exactly
+        assert target[2] == pytest.approx(110.0)      # weld, exactly
+        assert target[1] == pytest.approx(105.0)      # the span built
 
     def test_a_chain_with_no_pin_is_left_alone(self):
         target, infeasible = FRP.chain_profile(
@@ -185,6 +193,34 @@ class TestTheULoop:
         # The keys are in the LIMITER's own space (2-dp xy).
         for (x, y) in list(keys)[:5]:
             assert round(x, 2) == x and round(y, 2) == y
+
+    def test_the_limiter_does_NOT_pin_the_profile_and_that_is_MEASURED(self):
+        """RULING 3's mechanism was built, attributed and REFUTED.
+
+        ``who_wrote`` named ``_grade_limit_groundside_chords`` as the
+        pass that overwrites the profile's ramp twice per build, and
+        pinning the profile's nodes there is the obvious fix.  Its own
+        arm refuted it: CYXY +187 law-true rows, 258 NEW / 71 GONE, 81
+        transverse + 74 road_cross_section + 34 within_shape, every one
+        service_junction, worst 98.06 % against a 2 % cap — because a
+        junction BLOB's nodes map to SEVERAL stations, so the "one value
+        per station's whole cross-section" premise the exemption rests
+        on is false there and pinning freezes the blob TILTED.  Deleted,
+        not gated; this twin is the record that it may not come back
+        without the scoping.
+        """
+        import inspect
+        src = inspect.getsource(GS._grade_limit_groundside_chords)
+        assert "free = [k for k in live if keys[k] not in pinned_keys]" in src
+        assert "SCOPING" in src
+
+    def test_a_WELD_is_never_exempted_by_the_profile(self):
+        """The profile writes ROAD-family nodes only and never a frozen
+        one, so no weld can enter the exemption set — the ruling's
+        "except welds" is true BY CONSTRUCTION, not by a filter."""
+        import inspect
+        src = inspect.getsource(FRP.solve_free_road_profiles)
+        assert "if m in frozen or m not in cur:" in src
 
     def test_flag_off_mints_nothing(self, monkeypatch):
         monkeypatch.setattr(CFG, "FREE_ROAD_PROFILE_PASS", False)
@@ -297,16 +333,21 @@ class TestTheGates:
         finally:
             importlib.reload(_fresh)
 
-    def test_the_limiter_PRICES_the_path_instead_of_exempting(self):
-        """SUPERSEDED BY AMENDMENT 1.  Round 5b pinned the profile's nodes
-        so the limiter could not flatten them; that silenced ONE reader
-        and left the census pricing the same pairs by chord.  The
-        amendment rules the metric instead, so the limiter prices road
-        pairs at the ring walk — the same law function the census uses —
-        and goes on fixing genuine road defects."""
+    def test_the_limiter_PRICES_the_path(self):
+        """AMENDMENT 1 + RULING 3, and they are not alternatives.
+
+        Amendment 1 replaced the round-5b exemption with the PATH METRIC
+        because pinning silenced ONE reader while the census still
+        priced by chord.  The metric landed in both readers, so that
+        collision is gone — and ruling 3 (coordinator 2026-08-29) then
+        restored the exemption on ``who_wrote`` evidence that this very
+        limiter overwrites the profile's ramp twice per build.  The
+        limiter now does BOTH: prices road pairs at the ring walk, and
+        leaves the profile's own stations alone.
+        """
         import inspect
         src = inspect.getsource(GS._grade_limit_groundside_chords)
-        assert "ROUND 5b's EXEMPTION IS RETIRED" in src
+        assert "the SCOPING" in src
         assert "_GL_RING_PATH_CUM" in src
         band = inspect.getsource(GS._chord_band)
         assert "_GL_ROAD_PAIR_DISTANCE" in band
@@ -342,14 +383,33 @@ class TestTheMidRunSag:
         assert target[0] == pytest.approx(702.44)
         assert target[2] == pytest.approx(703.11)
 
-    def test_a_GENUINE_HILL_between_the_pins_is_kept(self):
-        """SCOPE: the chord only ever RAISES.  A road that legitimately
-        climbs over a rise between two pins keeps its height — the law
-        closes sags, it does not flatten terrain."""
+    def test_the_road_chord_binds_BOTH_WAYS(self):
+        """RULING 2 (coordinator 2026-08-29) — THE ROAD CHORD BINDS BOTH
+        WAYS.
+
+        THE DISCRIMINATOR: this pass solves ROAD chains, whose interior
+        between two welds is pavement the pass itself constructs — not
+        ground — so a bump there is the solve's residual and conforms to
+        the chord downward as well as upward.  Amendment 3 §2's
+        RAISE-ONLY chord (terrain protection) is kept behind its gate for
+        any chain class whose interior IS genuine ground.
+        """
         target, _inf = FRP.chain_profile(
             [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
             {0: 100.0, 2: 100.0}, 0.5)
-        assert target[1] == pytest.approx(120.0)
+        assert target[1] == pytest.approx(100.0)      # conformed down
+
+    def test_only_a_PIN_holds_its_own_value(self):
+        """"only weld/authored/crossing-pinned stations hold" — the
+        pins keep their values exactly; every bracketed interior station
+        takes the chord whatever the solve left there."""
+        target, _inf = FRP.chain_profile(
+            [0.0, 25.0, 50.0, 75.0, 100.0],
+            [700.0, 693.0, 712.0, 688.0, 700.0],
+            {0: 702.0, 4: 706.0}, 0.08)
+        assert target[0] == pytest.approx(702.0)
+        assert target[4] == pytest.approx(706.0)
+        assert target[1:4] == pytest.approx([703.0, 704.0, 705.0])
 
     def test_an_unbracketed_station_has_no_chord(self):
         """Beyond the last pin there is no chord to hold — the road
@@ -358,6 +418,58 @@ class TestTheMidRunSag:
             [0.0, 50.0, 200.0], [100.0, 100.0, 90.0], {0: 104.0}, CAP)
         assert target[2] == pytest.approx(90.0)
 
+
+# ══════════════════════════════════════════════════════════════════════
+# THE CUMULATIVE CAP-DISTANCE (lane/rampsites, site-first re-open):
+# a Lipschitz bound whose constant varies in space INTEGRATES.
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheCumulativeCapDistance:
+
+    def test_the_prefix_is_each_intervals_own_cap_times_its_own_length(self):
+        ss = [0.0, 10.0, 20.0, 30.0]
+        caps = [0.08, 0.08, 0.01, 0.08]
+        C = FRP.cap_distance_prefix(ss, caps, 0.08)
+        # interval 1-2 and 2-3 both touch the 1 % station, so both carry
+        # 1 % — a station's cap binds the grade THROUGH it, both sides.
+        assert C == pytest.approx([0.0, 0.8, 0.9, 1.0])
+
+    def test_one_strict_station_no_longer_prices_the_whole_chain(self):
+        """THE MECHANISM THIS ROUND MEASURED.  Under ``min x span`` a
+        single 1 % station 200 m from the pins refused the ramp and the
+        WHOLE chain reverted to the solve's values — the owner's cliff.
+        """
+        ss = [0.0, 100.0, 200.0, 300.0, 400.0]
+        caps = [0.08, 0.08, 0.01, 0.08, 0.08]
+        pins = {0: 100.0, 4: 108.0}                 # 8 m over 400 m = 2 %
+        t_on, inf_on = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                         caps=caps)
+        assert not inf_on and t_on[4] == pytest.approx(108.0)
+        for k in range(4):
+            c = min(caps[k], caps[k + 1])
+            assert abs(t_on[k + 1] - t_on[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
+
+    def test_the_chord_runs_in_the_CAP_DISTANCE_coordinate(self):
+        """The raise-only chord may not stand above the ceiling the same
+        caps generate: it interpolates in cap-distance, so it crosses a
+        1 % stretch at 1 %, not at the chain's average grade."""
+        ss = [0.0, 100.0, 200.0, 300.0, 400.0]
+        caps = [0.08, 0.08, 0.08, 0.01, 0.01]      # free first, 1 % last
+        pins = {0: 100.0, 4: 108.0}
+        t, _inf = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                    caps=caps)
+        # The straight-in-s chord (102, 104, 106) climbs 2 % across the
+        # 1 %-capped tail — an unlawful floor.  The cap-distance chord
+        # front-loads the rise onto the stretch that can carry it…
+        assert t[1] > 103.0
+        # …and every interval still respects its own cap.
+        for k in range(4):
+            c = min(caps[k], caps[k + 1])
+            assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
+        # …and with ONE cap everywhere the chord is the linear one.
+        flat, _ = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                    caps=[0.08] * 5)
+        assert flat[2] == pytest.approx(104.0)
 
 # ══════════════════════════════════════════════════════════════════════
 # AMENDMENT 3 §2 — SELF-PINS (the fifth site's binding question dissolved)

@@ -5183,11 +5183,31 @@ def _grade_limit_groundside_chords(layout) -> int:
     # U-loop that flattened the ramp (round 5's measured 108.383 ->
     # 106.71 at pipeline 6692, repeated at 6957).
     # ROUND 5b's EXEMPTION IS RETIRED (owner ruling 2026-08-28, spec
-    # Amendment 1).  Pinning the profile's nodes silenced THIS reader and
-    # left the CENSUS pricing the same pairs by chord — the collision the
-    # amendment resolves.  The remedy is the metric, below: this pass now
-    # prices road pairs at the same ring walk the census does, so it can
-    # go on fixing genuine road defects instead of being told not to look.
+    # Amendment 1) and STAYS retired — but the reason has moved, and the
+    # new reason is a measurement, so it is recorded here.
+    #
+    # Amendment 1 retired it on the METRIC COLLISION (pinning silenced
+    # THIS reader while the census still priced by chord).  That
+    # collision is gone: the path metric prices road pairs at the ring
+    # walk in both readers.  lane/rampsites therefore RE-ARMED the
+    # exemption under coordinator ruling 3, on ``who_wrote`` evidence
+    # that this pass overwrites the free-road profile's ramp twice per
+    # build (pipeline 6733 and 6998; HECA item 4, 97.517 -> 96.28 and
+    # 97.339 -> 95.83, beside an apron weld that held at 97.65).  It was
+    # then REFUTED by its own arm: CYXY +187 law-true rows, 258 NEW /
+    # 71 GONE, 81 ``transverse`` + 74 ``road_cross_section`` + 34
+    # ``within_shape``, all ``service_junction``, worst 98.06 % against
+    # a 2 % cap.
+    #
+    # WHY, and this is the durable part: the exemption's premise — "the
+    # profile writes ONE value per STATION to that station's whole
+    # cross-section, so a profile-owned pair is flat by construction" —
+    # is true of a service ROAD ring (two edges, one station) and FALSE
+    # of a service_JUNCTION blob, whose nodes map to SEVERAL stations.
+    # Pinning them freezes the blob TILTED and forbids the only pass
+    # that reconciles it laterally.  The open docket is the SCOPING
+    # (road rings only, or a lateral reconcile the profile itself owns).
+    # Until that is ruled, this pass keeps its road nodes.
     _profile_owned = set()
     from .config import ROAD_PATH_METRIC as _ROAD_PATH_METRIC
     # THE BUILDING-PAD CLAIM (owner ruling, 25g round; the standing

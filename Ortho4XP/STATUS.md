@@ -1,4 +1,32 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260829b (OWNER REVIEW ROUND MERGED; app 1.0.268, engine 1.50.1711,
+# embedded==dist verified. Owner-ordered merges with verification cut
+# short by spend limits — THE SIM PASS ADJUDICATES.)
+# PROCESS LAW (in CLAUDE.md now, 60386e2a+11265a5): 29e gates-are-the-
+#   exception (ungated fixes, git revert rollback, refuted code
+#   DELETED) + 29f build economy (synthetic-first, ONE representative
+#   airport, ledger-shared controls) + invalid-brief clause.
+# MERGED: tunneldockets (owner sign-off +164: B2 mouth PASS, drops 0,
+#   coverage 90%, foot ON annulus 56->44, 853% cliffs gone);
+#   scorerv2 (owner sign-off +14: face-local class-change cuts —
+#   back edge 25,900->180 m² airside behind wall, ITEM-4 ROAD CLIFF
+#   CLOSES 93->100.2-102.8; CYXY -17, SPJC byte-identical; global
+#   dissolve refused at 17,410 m cut line); strictclaim (§1 CAP + §2
+#   VALUE at the runway crossing — site fix confirmed on valid frame,
+#   census PENDING); rampsites (weld-outranks-cap per-span, road chord
+#   both directions, cumulative cap-distance ON; item-4 post-resolve
+#   exemption named but OFF on measured regression; refuted arms
+#   deleted). 118 merged twins pass.
+# RULINGS 29c contact=value (canon); 29d scorer-v2 approved.
+# OWED: strictclaim census; rampsites guard-blocked-write attribution
+#   + site numbers in final config; scorerv2 repro_cut fixtures +
+#   build-time; retired-code deletion sweep (§H3, 5e-5i freezes,
+#   trench arms); 84-row tunnel attribution residue; five-airport
+#   sweep AT THIS APP BUILD (29f) not run — owner ordered build now.
+# NEXT: owner sim pass on 1.0.268 (runway pit, ramps at per-span law,
+#   apron back edge, tunnels); Opus spend limit resets Aug 31 9am PT.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260829a (ROAD-RAMP FAMILY SHIPPED ON OWNER ORDER; app 1.0.267,
 # engine 1.50.1710, embedded==dist hash-verified.)
 # OWNER ORDERS: 29a law-correction equilibrium accepted; 29b NO

@@ -676,6 +676,30 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
         return [Check("wall_top_flat", SKIP, None, thr.wall_top_delta_max,
                       "no wall band in this patch")]
     span = float(thr.wall_band_span_m)
+    # ── THE FRAME IS THE CREST RING (ruling 2026-08-29) ──────────────
+    # THIS MEASURES TWIST, NOT HEIGHT.  Before §T5 shipped its foot the
+    # whole band WAS the wall top, so every vertex pair across it was a
+    # cross-band pair and the reading was unambiguous.  With the foot
+    # the band is a PARTITION: the ``tunnel_wall_foot`` shelf sits at
+    # ramp level and the ``tunnel_wall`` face legitimately RISES from
+    # the shelf's top to the crest, so a face-inner-vs-face-outer pair
+    # is the wall's HEIGHT and reporting it as a twist made the §F1 bar
+    # unsatisfiable at the same time as R16-2b's owned annulus.
+    #
+    # The crest members are the band vertices the SHELF does not carry:
+    # foot and face share their common boundary node-for-node (one
+    # boolean partition of one polygon), so a face vertex whose
+    # canonical spelling a ``tunnel_wall_foot`` way also carries is the
+    # face's INNER edge — the foot's top — and belongs to the shelf, not
+    # to the crest.  A patch with NO foot way has an empty shelf set and
+    # reads EXACTLY as it did before this frame existed, which is what
+    # keeps every pre-§T5 number comparable.
+    shelf = set()
+    for w in patch.ref_ways("tunnel_wall_foot"):
+        for nid in w.nids:
+            if nid in patch.nodes:
+                shelf.add(patch.spell(nid))
+    n_shelf_excluded = 0
     worst = 0.0
     worst_at = None
     pairs = 0
@@ -696,6 +720,10 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
             if key in seen:
                 continue
             seen.add(key)
+            if key in shelf and w.ref != "tunnel_wall_foot":
+                # the face's inner edge — the SHELF's top, not the crest
+                n_shelf_excluded += 1
+                continue
             rows.append((patch.ll_to_m(*patch.nodes[nid]), elev))
         for i in range(len(rows)):
             (ax, ay), ae = rows[i]
@@ -715,9 +743,14 @@ def _check_wall_top_flat(patch: Patch, thr: Thresholds) -> List[Check]:
                                 round(float(be), 2))
     if not pairs:
         return [Check("wall_top_flat", SKIP, None, bar,
-                      f"no cross-band vertex pair within {span:g} m — "
-                      f"nothing to measure")]
-    detail = (f"{pairs} cross-band pair(s) over {len(walls)} band way(s)"
+                      f"no cross-band CREST pair within {span:g} m — "
+                      f"nothing to measure ({n_shelf_excluded} shelf "
+                      f"node(s) excluded)")]
+    detail = (f"CREST-ONLY frame: {pairs} cross-band pair(s) over "
+              f"{len(walls)} band way(s), {n_shelf_excluded} shelf "
+              f"node(s) excluded ({len(shelf)} shelf node id(s) from "
+              f"{len(patch.ref_ways('tunnel_wall_foot'))} tunnel_wall_"
+              f"foot way(s))"
               + (f"; worst on way {worst_at[0]}: "
                  f"{worst_at[1]} vs {worst_at[2]}" if worst_at else ""))
     if bar is None:

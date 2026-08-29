@@ -673,3 +673,95 @@ class TestSiteModeGainsTheBoreInputs:
                               bore_way_ids=("-2070",))
         lines = tpa._bore_lines(profile, None, lambda la, lo: (lo, la))
         assert set(lines) == {"-2070"}
+
+
+# ═════════════════════════════════════════════════════════════════════
+# §T5 — THE FOOT REACHES EVERY WALL EMITTER, AND THE PARTITION HOLDS
+# AFTER THE WELD (docket closed 2026-08-29, lane/tunneldockets)
+# ═════════════════════════════════════════════════════════════════════
+class TestWallFootReclipAfterTheWeld:
+    """The post-solve conformance weld carries the DONOR's coordinate,
+    never the projection onto the receiving edge, so a welded
+    ``tunnel_wall`` FACE bows inboard by up to ``CONFORMANCE_TOL_M`` —
+    measured at SPJC as ~1.4 m² per face, back over its own foot, which
+    is what kept ``O4_RAMP_WALL_FOOT`` OFF.  Foot and face are ONE
+    partition, so the annulus re-establishes itself as WHAT THE FACE
+    DOES NOT OCCUPY.
+    """
+
+    @staticmethod
+    def _bowed_pair():
+        """A foot and a face overlapping exactly as a weld leaves them:
+        the face's inner edge pushed 0.4 m into the 0.6 m shelf."""
+        foot = BuiltShape(
+            polygon=_rect(0.0, 0.0, 20.0, 0.6),
+            role=ROLE_RETAINING_WALL, ref=bridges.TUNNEL_WALL_FOOT_REF,
+            node_altitudes=[3.0, 3.0, 3.0, 3.0, 3.0])
+        face = BuiltShape(
+            polygon=_rect(0.0, 0.2, 20.0, 1.6),
+            role=ROLE_RETAINING_WALL, ref="tunnel_wall",
+            node_altitudes=[3.0, 3.0, 8.0, 8.0, 3.0])
+        return foot, face
+
+    def test_the_foot_yields_and_the_overlap_goes(self, monkeypatch):
+        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
+        foot, face = self._bowed_pair()
+        lay = _layout([foot, face])
+        before = foot.polygon.intersection(face.polygon).area
+        assert before > 1.0, "the scene did not reproduce the weld bow"
+        n = bridges.reclip_wall_feet_against_faces(lay)
+        assert n == 1, f"expected one foot clipped, got {n}"
+        assert foot.polygon.intersection(face.polygon).area == \
+            pytest.approx(0.0, abs=1e-9)
+
+    def test_the_face_is_not_touched(self, monkeypatch):
+        """The weld is doing its job — the FACE keeps exactly the
+        geometry the weld left it."""
+        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
+        foot, face = self._bowed_pair()
+        lay = _layout([foot, face])
+        face_wkt = face.polygon.wkt
+        bridges.reclip_wall_feet_against_faces(lay)
+        assert face.polygon.wkt == face_wkt
+
+    def test_the_shelf_still_reaches_the_ramp_edge(self, monkeypatch):
+        """R16-2b: what the foot exists for is that NOTHING between the
+        ramp edge and the face is unowned.  The clip may only take back
+        what the face occupies."""
+        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
+        foot, face = self._bowed_pair()
+        lay = _layout([foot, face])
+        bridges.reclip_wall_feet_against_faces(lay)
+        from shapely.geometry import Point
+        assert foot.polygon.buffer(1e-9).contains(Point(10.0, 0.05))
+        assert foot.polygon.union(face.polygon).buffer(1e-9).contains(
+            Point(10.0, 0.4))
+
+    def test_off_is_a_no_op(self, monkeypatch):
+        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
+        foot, face = self._bowed_pair()
+        lay = _layout([foot, face])
+        wkt = foot.polygon.wkt
+        assert bridges.reclip_wall_feet_against_faces(lay) == 0
+        assert foot.polygon.wkt == wkt
+
+    def test_a_clean_partition_is_untouched(self, monkeypatch):
+        """Idempotent: the pass clips nothing when the weld moved
+        nothing, so a lane that never welds is byte-identical."""
+        monkeypatch.setenv("O4_RAMP_WALL_FOOT", "1")
+        foot = BuiltShape(
+            polygon=_rect(0.0, 0.0, 20.0, 0.6),
+            role=ROLE_RETAINING_WALL, ref=bridges.TUNNEL_WALL_FOOT_REF,
+            node_altitudes=[3.0] * 5)
+        face = BuiltShape(
+            polygon=_rect(0.0, 0.6, 20.0, 1.6),
+            role=ROLE_RETAINING_WALL, ref="tunnel_wall",
+            node_altitudes=[3.0, 3.0, 8.0, 8.0, 3.0])
+        lay = _layout([foot, face])
+        wkt = foot.polygon.wkt
+        assert bridges.reclip_wall_feet_against_faces(lay) == 0
+        assert foot.polygon.wkt == wkt
+
+    def test_ships_default_on(self, monkeypatch):
+        monkeypatch.delenv("O4_RAMP_WALL_FOOT", raising=False)
+        assert bridges.ramp_wall_foot_enabled() is True

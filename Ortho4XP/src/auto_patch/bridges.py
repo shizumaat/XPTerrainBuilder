@@ -3255,18 +3255,39 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
             # width), and the FACE rises from the foot's outer edge to
             # the crest.  The floor welds to the FOOT; it shares no
             # vertex with the rising ``tunnel_wall``.
-            # §T5 SCOPES TO THE PERIMETER BAND (spec Amendment 1,
-            # ruling 1).  This emitter keeps its PRIOR shared-node weld:
-            # its foot geometry produced 3 foot∩face overlaps totalling
-            # 2.99 m² at SPJC against ``test_no_self_overlap``'s ZERO
-            # tolerance, and the cause was not root-caused — so the foot
-            # here waits for a designed geometry (follow-up docket)
-            # rather than shipping an invariant breach.  The owner's
-            # item-9 site is a PERIMETER-BAND ramp and keeps its fix;
-            # the residual shared ids at this emitter are the docket's
-            # measured population.
+            # §T5 REACHES THIS EMITTER (the follow-up docket Amendment 1
+            # ruling 1 named, closed 2026-08-29).  Amendment 1 scoped the
+            # foot to the perimeter band because 3 SPJC foot∩face pairs
+            # (2.99 m²) were not root-caused; Amendment 2 attributed them
+            # to the PERIMETER band, and the mechanism is now measured —
+            # the post-solve conformance weld bows a welded face inboard
+            # — and closed for EVERY emitter by
+            # :func:`reclip_wall_feet_against_faces`.  So the residual
+            # population this emitter was reported as owning is fixed
+            # here: MEASURED at OTHH (baseline td_base_othh),
+            # ``ramp_wall_gap`` 32 shared node ids and
+            # ``ramp_wall_annulus_owned`` 56/56 are this emitter's — its
+            # single band starts AT the corridor edge (``_half``), so
+            # every wall shares the corridor's own nodes, and its inner
+            # pair carries the cut FLOOR while its outer pair carries the
+            # crest, which is the 5.14 m ``wall_top_flat`` reading on way
+            # -12281 (4.00 vs -1.14) and the crumpled ribbon in the sim.
+            #
+            # WITH THE FOOT: the FLOOR is the foot's (a flat shelf out to
+            # ``wall_gap_m``, welded to the corridor as the structure's
+            # own), and the FACE stands off it carrying the CREST on BOTH
+            # edges — §F1's "the top is flat across its width", here by
+            # construction: the two vertices at one station read one DEM
+            # sample.  OFF is the single band, byte for byte.
             _crest = _half + wall_gap_m + retaining_wall_width_m
-            _bands = ((_half, _crest, "tunnel_wall", False),)
+            if ramp_wall_foot_enabled():
+                _bands = (
+                    (_half, _half + wall_gap_m, TUNNEL_WALL_FOOT_REF,
+                     True),
+                    (_half + wall_gap_m, _crest, "tunnel_wall", False),
+                )
+            else:
+                _bands = ((_half, _crest, "tunnel_wall", False),)
             for _inner, _outer, _wall_ref, _flat in _bands:
                 _ring = [
                     (_pa[0] + _px * _inner * _sign,
@@ -3292,11 +3313,27 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
                 # ``_pb``).  A FOOT is flat, so its outer pair carries
                 # the SAME profile; a FACE's outer pair is the crest and
                 # keeps the DEM (R16-2b).
-                _alts = [round(float(_ga), 2), round(float(_gb), 2)]
                 if _flat:
-                    _alts.extend((round(float(_gb), 2),
-                                  round(float(_ga), 2)))
+                    _alts = [round(float(_ga), 2), round(float(_gb), 2),
+                             round(float(_gb), 2), round(float(_ga), 2)]
+                elif ramp_wall_foot_enabled():
+                    # §F1 HERE: ONE VALUE PER STATION ACROSS THE BAND.
+                    # ``_ring`` is [inner@_pa, inner@_pb, outer@_pb,
+                    # outer@_pa], so indices 0/3 stand at station _pa and
+                    # 1/2 at _pb.  The crest is sampled ONCE per station
+                    # (at the outer vertex, the ambient the wall grades
+                    # to) and both vertices of that station carry it —
+                    # the wall top cannot twist, by construction.  The
+                    # FLOOR is the foot's now, not this band's.
+                    def _crest_at(_xy):
+                        _g = dem_at(_xy[0], _xy[1])
+                        return round(float(_g) if _g is not None
+                                     else max(_ga, _gb), 1)
+                    _ca = _crest_at(_ring[3])
+                    _cb = _crest_at(_ring[2])
+                    _alts = [_ca, _cb, _cb, _ca]
                 else:
+                    _alts = [round(float(_ga), 2), round(float(_gb), 2)]
                     for (_vx, _vy) in _ring[2:]:
                         _ground = dem_at(_vx, _vy)
                         _alts.append(round(
@@ -3461,18 +3498,95 @@ TUNNEL_WALL_FOOT_REF = "tunnel_wall_foot"
 _TUNNEL_COVER_REFS = ("tunnel_wall", TUNNEL_WALL_FOOT_REF,
                       "tunnel_roof", "tunnel_cap")
 
-#: §T5 gate.  DEFAULT OFF — spec Amendment 2 ruling 2, the DEFINED
-#: FALLBACK, taken because the foot design could not be landed inside its
-#: cap: the partition is provably disjoint AT EMIT (measured 0.0000 m²
-#: overlap for all 6 SPJC pieces), but a later pass inflates each wall
+#: §T5 gate.  DEFAULT ON since the face-inflation was ATTRIBUTED
+#: (2026-08-29, lane/tunneldockets).  The partition is disjoint AT EMIT
+#: (measured 0.0000 m² for all 6 SPJC pieces); what inflated each wall
 #: FACE by ~1.4 m² (343.2→344.6, 116.4→117.8, 315.7→317.3) back over its
-#: foot, and `test_no_self_overlap` has zero tolerance.  ON emits the
-#: foot+face partition and is the follow-up docket's starting point.
+#: foot is ``conformance.enforce_conformance`` — the post-solve T-vertex
+#: weld, whose inserts take the DONOR's coordinate (never the projection
+#: onto the receiving edge), so an insert bows the receiving ring by up
+#: to ``CONFORMANCE_TOL_M`` (0.5 m).  Measured: exactly 2 inserts per
+#: SPJC face, every donor a vertex carried by the band's own
+#: ``tunnel_wall``/``tunnel_wall_foot`` pieces.  That weld is not a
+#: defect — it is what keeps Triangle4XP from tearing — so the FOOT
+#: yields to the welded face afterwards
+#: (:func:`reclip_wall_feet_against_faces`), exactly as pavement yields
+#: to a building pad in the LAST-WORD re-clip that closes the identical
+#: class (``groundside._clip_pavement_against_building_pads``, owner
+#: CYXY building1: "the post-solve conformance weld's 0.5 m tolerance
+#: can bow a ring back ACROSS an edge and nothing later owned the
+#: pair").  OFF is the plain ``_g0`` standoff, byte-identical to the
+#: pre-round fallback.
 _RAMP_WALL_FOOT_ENV = "O4_RAMP_WALL_FOOT"
 
 
 def ramp_wall_foot_enabled() -> bool:
-    return os.environ.get(_RAMP_WALL_FOOT_ENV, "0") == "1"
+    return os.environ.get(_RAMP_WALL_FOOT_ENV, "1") == "1"
+
+
+def reclip_wall_feet_against_faces(layout: "PavementLayout",
+                                   min_overlap_m2: float = 1e-3) -> int:
+    """LAST-WORD wall-foot re-clip — THE FOOT IS WHAT THE FACE LEAVES.
+
+    §T5 makes the foot and the face ONE PARTITION of one band polygon,
+    and at emit they are disjoint by construction.  The post-solve
+    T-vertex weld then bows the face's inner edge inboard: its inserts
+    carry the DONOR's coordinate, not the projection onto the receiving
+    edge, so a welded ring moves by up to ``CONFORMANCE_TOL_M``.  The
+    weld is doing its job (an unwelded on-edge node Ruppert-explodes the
+    tile mesh) — so the PARTITION is what re-establishes itself: the
+    annulus is *what the face does not occupy*, and the foot yields.
+
+    This is the same last-word shape, and the same reasoning, as
+    ``groundside._clip_pavement_against_building_pads``; it shares that
+    clip's semantics rather than spelling a second one
+    (``_clip_shape_yielding_to`` with ``snap_tol=0`` — a pure difference
+    only ever shrinks the yielder, so it cannot mint an overlap
+    elsewhere).  Runs BEFORE the final tight-tolerance T-weld so the
+    clip's new on-edge vertices are themselves welded.
+
+    Returns the number of foot pieces clipped or dropped.
+    """
+    if not ramp_wall_foot_enabled():
+        return 0
+    _faces = [s.polygon for s in layout.shapes
+              if getattr(s, "ref", "") == "tunnel_wall"
+              and getattr(s, "polygon", None) is not None
+              and not s.polygon.is_empty
+              and s.polygon.geom_type == "Polygon"]
+    if not _faces:
+        return 0
+    from .groundside import _clip_shape_yielding_to
+    _tree = STRtree(_faces)
+    _n = 0
+    _dropped: set = set()
+    for _s in layout.shapes:
+        if getattr(_s, "ref", "") != TUNNEL_WALL_FOOT_REF:
+            continue
+        if (getattr(_s, "polygon", None) is None or _s.polygon.is_empty
+                or _s.polygon.geom_type != "Polygon"):
+            continue
+        for _qk in _tree.query(_s.polygon):
+            _face = _faces[int(_qk)]
+            try:
+                _ov = _s.polygon.intersection(_face).area
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if _ov <= min_overlap_m2:
+                continue
+            _new = _clip_shape_yielding_to(_s, _face, snap_tol=0.0)
+            _n += 1
+            if _new is None:
+                # The welded face covers the whole shelf here — the face
+                # owns that ground; a foot with nothing left is not a
+                # sliver worth shipping.
+                log_tunnel_piece_removal(
+                    layout, _s, "wall-foot re-clip: face covers the shelf")
+                _dropped.add(id(_s))
+                break
+    if _dropped:
+        layout.shapes = [s for s in layout.shapes if id(s) not in _dropped]
+    return _n
 
 
 #: §F1 gate (LEMD ramp/road fidelity spec, law 1).  DEFAULT ON.  OFF
@@ -5886,8 +6000,11 @@ def _emit_low_corridor_connectors(
     corridor via a morphological closing, so the group renders as a
     single depressed trench, never overlapping per-way rects.
 
-    Walls follow the DEM per vertex like every other tunnel wall
-    (user 2026-06-13); the strip under the taxiways themselves is
+    Walls take their crest from the §F1 STATION law like every other
+    tunnel wall (LEMD fidelity spec law 1; the per-vertex DEM sample
+    user 2026-06-13 asked for stands under ``O4_WALL_TOP_STATION=0``,
+    and it is what twisted the -11960/-11930/-11961 bands); the
+    strip under the taxiways themselves is
     NOT walled or paved here — the bores continue beneath.  All
     emitted pieces join ``exclusion_zones`` so the boundary ribbon
     and DEM bridges avoid them.  Takes the dissolved ``corridors``
@@ -5964,6 +6081,45 @@ def _emit_low_corridor_connectors(
         except _GEOM_EXC:
             band = None
             _surface_u = corridor
+        # ── §F1: THE WALL TOP IS FLAT ACROSS ITS WIDTH, HERE TOO ─────
+        # (LEMD ramp/road fidelity spec law 1, DOCKETED by its
+        # Amendment 1: "second wall emitter ``_emit_low_corridor_
+        # connectors`` still samples DEM per node — owns the residual
+        # 0.34/0.24/0.20 m twisted bands (-11960/-11930/-11961)".)
+        # This band is the SAME structure ``emit_wall_band`` builds and
+        # the defect is the same one: each crest vertex read ``dem_at``
+        # at its own position, and the two vertices facing each other
+        # across a ~1 m band stand at opposite ends of the ring, so
+        # nothing tied their values together.  ONE LAW, ONE CLASS: the
+        # crest is a function of STATION on the body being walled
+        # (``_CrestProfile``), read at each vertex's nearest point on
+        # the corridor's own ring — a cross-band pair projects to ONE
+        # station and carries ONE value by construction.  Same gate
+        # (``O4_WALL_TOP_STATION``); OFF restores the per-vertex sample
+        # byte for byte.
+        _crest = None
+        if wall_top_station_law_enabled():
+            try:
+                from .groundside import (
+                    GROUNDSIDE_MAX_GRADE as _GS_CAP,
+                    _BelowGradeIndex,
+                )
+                _csrc = []
+                for _sp in (emitted_surface or ()):
+                    _sr = list(_sp.exterior.coords)
+                    if len(_sr) > 1 and _sr[0] == _sr[-1]:
+                        _sr = _sr[:-1]
+                    if len(_sr) >= 3:
+                        _csrc.append(
+                            (_sp, _sr, [float(elev_low)] * len(_sr)))
+                if _csrc:
+                    _crest = _CrestProfile(
+                        corridor, dem_at, float(apt_elev),
+                        _BelowGradeIndex(_csrc), _GS_CAP)
+                    if not _crest:
+                        _crest = None
+            except (ImportError, *_GEOM_EXC):        # pragma: no cover
+                _crest = None
         band_parts = ([] if band is None else
                       ([band] if band.geom_type == "Polygon"
                        else [g for g in getattr(band, "geoms", ())
@@ -6015,6 +6171,12 @@ def _emit_low_corridor_connectors(
                     _on_edge = False
                 if _on_edge:
                     wall_alts.append(round(float(elev_low), 2))
+                    continue
+                # §F1: the crest at THIS vertex's station on the walled
+                # body, not the DEM under the vertex itself.
+                _cv = None if _crest is None else _crest.at((vx, vy))
+                if _cv is not None:
+                    wall_alts.append(round(float(_cv), 1))
                     continue
                 ground = dem_at(vx, vy)
                 wall_alts.append(round(
@@ -6294,12 +6456,36 @@ def _claim_wall_adjudication_gate(layout: "PavementLayout",
     if not claim_wall_gate_enabled() or post_gate_u is None:
         return post_gate_u
     _register = getattr(layout, _CLAIMED_BORE_REGISTER, None) or set()
-    if not _register:
-        return post_gate_u
-    _claims = [s.polygon for s in layout.shapes
-               if id(s) in _register
-               and getattr(s, "polygon", None) is not None
-               and not s.polygon.is_empty]
+    # ── THE POPULATION IS THE CLAIM, MEASURED 2026-08-29 ──────────────
+    # Three sources, unioned, because the first implementation used only
+    # the third and OTHH's own removal ledger showed what that misses:
+    #  (a) THE WALLED BODIES the §2.3 waller published — the footprints
+    #      §W1's text names.  Re-deriving them from ``s.polygon`` at gate
+    #      time drifts: 4 of 11 dropped pieces stood 2.8-382 m from any
+    #      surviving below-grade claim, because a claim can lose its dug
+    #      profile downstream (19 registered, 12 below-grade at emit).
+    #  (b) EVERY SHAPE CARRYING A CLAIM VERDICT (``ref ==
+    #      TUNNEL_ROAD_REF``, the predicate
+    #      ``groundside.claimed_tunnel_corridor`` reads), whatever depth
+    #      that stretch reached.  MEASURED: drops 2371/2373 sit on
+    #      -12291 and 2353/2355 on -12298, both claimed corridors that
+    #      happen to be AT GRADE, so the below-grade subset never
+    #      relieved them.  A claimed corridor's footprint is the bore's
+    #      footprint; it does not COVER the structure that retains it.
+    #  (c) the id register, kept so a body whose ref was lost is still
+    #      relieved.
+    # Adjudication only — no host geometry is touched either way, and
+    # the covered-span mask still holds genuinely roofed stretches back.
+    _claims = list(getattr(layout, _CLAIMED_BORE_BODIES, None) or ())
+    _claims = [g for g in _claims
+               if g is not None and not g.is_empty]
+    for s in layout.shapes:
+        _p = getattr(s, "polygon", None)
+        if _p is None or _p.is_empty:
+            continue
+        if (getattr(s, "ref", "") == TUNNEL_ROAD_REF
+                or id(s) in _register):
+            _claims.append(_p)
     if not _claims:
         return post_gate_u
     try:
@@ -6450,6 +6636,59 @@ def log_tunnel_piece_removal(layout, shape, predicate: str, *,
     except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
         # An instrument may never take a build down.
         return
+
+
+def _covering_shapes(layout: "PavementLayout", shape,
+                     pre_emit_shape_ids: set, top: int = 3) -> str:
+    """WHICH surfaces a dropped cover piece is judged to be under.
+
+    Portal-corridor-claim §1 gave every removal a NAMED line; a drop
+    predicate that names a coverage FRACTION and not the covering
+    SURFACE still costs a re-derivation off the emitted patch to answer
+    "covered by what?" — which is the question the §W1 residual turns
+    on (a wall over its own claim's host is the defect; a wall under a
+    terminal is the law).  Cheap: it runs only on the handful of pieces
+    that actually drop.
+    """
+    try:
+        _poly = getattr(shape, "polygon", None)
+        if _poly is None or _poly.is_empty:
+            return ""
+        # THE GATE'S OWN POPULATION, not a narrower one: the union is
+        # ``role in _AIRSIDE_GATE_ROLES`` over the CURRENT layout, so the
+        # coverer may be a shape MINTED during this emission (a claim
+        # strip, a cut host's remainder).  Reading only the pre-emit set
+        # reported "covered by NOTHING" for 8 of 11 OTHH drops, which is
+        # the instrument lying, not the union being stale.
+        _reg = getattr(layout, _CLAIMED_BORE_REGISTER, None) or set()
+        _hits = []
+        for _o in layout.shapes:
+            if _o is shape:
+                continue
+            if getattr(_o, "role", "") not in _AIRSIDE_GATE_ROLES:
+                continue
+            _op = getattr(_o, "polygon", None)
+            if _op is None or _op.is_empty or _op.geom_type != "Polygon":
+                continue
+            try:
+                _a = _poly.intersection(_op).area
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if _a > 0.25:
+                _hits.append((
+                    _a, getattr(_o, "role", "") or "-",
+                    getattr(_o, "ref", "") or "-",
+                    ("pre-emit" if id(_o) in pre_emit_shape_ids
+                     else "minted"),
+                    ("claimed" if id(_o) in _reg else "unclaimed")))
+        if not _hits:
+            return "covered by NOTHING in the gate role set"
+        _hits.sort(reverse=True)
+        return "covered by " + ", ".join(
+            f"{_r}/{_f} {_a:.0f}m2 [{_o},{_c}]"
+            for _a, _r, _f, _o, _c in _hits[:top])
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return ""
 
 
 def _clip_piece_off_protected(shape, protected_union):
@@ -6704,7 +6943,8 @@ def _finalize_tunnel_emission(
                 _n_clip += 1    # covered stretch — no visible structure
                 log_tunnel_piece_removal(
                     layout, s9, "covered-stretch drop", index=_k9,
-                    coverage=_ov / max(1e-9, s9.polygon.area))
+                    coverage=_ov / max(1e-9, s9.polygon.area),
+                    verdict=_covering_shapes(layout, s9, pre_emit_shape_ids))
                 continue
             # A graze — clip the piece off the pavement (with vertex-
             # bucket clearance) and keep the visible remainder.
@@ -7564,6 +7804,19 @@ _CLAIM_WALLS_ENV = "O4_CLAIM_WALLS"
 #: asking the question a second way (§T6.3).
 _CLAIMED_BORE_REGISTER = "_tunnel_claimed_bore_ids"
 
+#: THE WALLED BODIES THEMSELVES, as geometry, published beside the id
+#: set.  §W1's own text asks the adjudication gate to subtract "the very
+#: footprints :func:`_wall_claimed_corridors` walled — one population,
+#: published, never re-derived", and the first implementation re-derived
+#: them from ``s.polygon`` at gate time.  MEASURED at OTHH (baseline
+#: td_base_othh, 2026-08-29): the waller registered 19 corridors and
+#: walled 15 bodies, the emitted patch carries 12 below-grade
+#: ``tunnel_road`` ways, and 4 of the 11 dropped wall pieces stand
+#: 2.8-382 m from ANY surviving below-grade claim — the re-derivation
+#: had drifted off the bodies the walls belong to, and the walls dropped
+#: as "covered stretch" over the very pavement they retain.
+_CLAIMED_BORE_BODIES = "_tunnel_claimed_bore_bodies"
+
 
 def claim_walls_enabled() -> bool:
     return os.environ.get(_CLAIM_WALLS_ENV, "1") == "1"
@@ -7648,6 +7901,12 @@ def _wall_claimed_corridors(layout: "PavementLayout",
               and _g.geom_type == "Polygon"]
     if not _parts:
         return 0
+    try:
+        # PUBLISH THE BODIES, not just the ids (§W1's "one population,
+        # published, never re-derived").  The gate buffers THESE.
+        setattr(layout, _CLAIMED_BORE_BODIES, list(_parts))
+    except (AttributeError, TypeError):                # pragma: no cover
+        pass
     _before = len(layout.shapes)
     emit_wall_band(layout, exclusion_zones, _parts, _sources, [],
                    wall_gap_m, retaining_wall_width_m, dem_at, apt_elev)

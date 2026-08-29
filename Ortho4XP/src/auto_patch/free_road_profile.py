@@ -38,13 +38,19 @@ THE THREE LAWS, and where each lives here:
    the U-loop a long path instead of a short chord: two legs of a
    U-turn are far apart in ``s`` however close they lie in the plane.
 
-The profile OWNS the chain's values, and the limiter is told so: the
-written nodes are published in the limiter's own 2-dp key space
-(``layout._free_road_profile_keys``) and pinned there, which is the
-spec's "exempts them" branch.  The exemption costs the cross-section law
-nothing: a station writes ONE value to its whole cross-section, so a
-profile-owned pair is flat by construction and the 2 % transverse law
-has nothing left to price.
+The profile OWNS the chain's values, and the written nodes are published
+in the limiter's own 2-dp key space (``layout._free_road_profile_keys``).
+
+⚠ THE EXEMPTION THOSE KEYS WERE FOR IS RETIRED (owner ruling
+2026-08-28, spec Amendment 1): pinning the profile's nodes silenced the
+chord limiter while the CENSUS went on pricing the same pairs by chord —
+the metric collision the amendment resolved with the PATH METRIC
+instead.  ``groundside._grade_limit_groundside_chords`` therefore prices
+these chains along the road's own ring walk and reads no exemption set:
+verified on this tree, ``profile_owned_keys`` has NO production reader.
+The publication is kept because it is the round's own record of which
+values the pass owns; do not read this paragraph as an exemption that
+exists.
 """
 from __future__ import annotations
 
@@ -74,9 +80,13 @@ def profile_owned_keys(layout) -> set:
 
 
 def _cumulative_cap_on() -> bool:
-    """Is the CUMULATIVE cap-distance armed?  **Default ON** — the gate
-    exists only so the refuted min-over-span arm can be reproduced
-    byte-identically (``O4_ROAD_PROFILE_CUMULATIVE_CAP=0``).
+    """Is the CUMULATIVE cap-distance armed?  **Default OFF** — the
+    correction is measured and right, but its ON arm worsens the HECA
+    law-true census (+46) through a cross-section interaction that is
+    its own docket; see ``config.ROAD_PROFILE_CUMULATIVE_CAP`` for the
+    numbers.  ``O4_ROAD_PROFILE_CUMULATIVE_CAP=1`` arms it; OFF is
+    byte-identical to the min-over-span arm (proven at CYXY by a
+    ``solve_cut`` replay: OFF body 1ff1faab4b86 == the control build's).
 
     Read at CALL time, like every other gate in this family, so a twin
     can flip it without reloading the module.

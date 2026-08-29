@@ -10179,10 +10179,27 @@ FREE_ROAD_PROFILE_PASS = (
 # its own neighbourhood and nothing beyond it — which is the owner's
 # 2026-08-28e "once it LEAVES the apron it can descend at up to 8 %"
 # read at the granularity the cap actually lives at.
-# ``O4_ROAD_PROFILE_CUMULATIVE_CAP=0`` restores the min-over-span arm
-# byte-identically (the refutation ledger).
+# SHIPPED DEFAULT **OFF**, on this lane's own measurement.  The
+# correction is right — the min-over-span reading is not what a
+# spatially varying Lipschitz bound says, and it refused 5 of CYXY's 7
+# and 34 of HECA's 117 chains by the metric alone — but ARMING it does
+# not meet the standing gate (RULINGS 2026-08-29b / round-5 spec
+# Amendment 10 §1: the law-true census not worsened).  MEASURED, this
+# lane, one code version, one corpus:
+#   * CYXY  346 -> 346 (Δ0; within_shape +1, road_cross_section −4,
+#     transverse +3), refused chains 7 -> 2;
+#   * HECA  6892 -> 6938 (**+46**), refused chains 117 -> 84 (pre-solve)
+#     / 112 -> 78 (re-solve).  Row-level: 315 NEW / 269 GONE, and 276 of
+#     the NEW rows are ``service_junction`` CROSS-SECTION and TRANSVERSE
+#     rows (123 + 104 + 25 + 24) against 200 GONE of the same classes —
+#     a newly-built ramp tilts the junction blob it runs through, because
+#     a junction's nodes map to SEVERAL stations and the pass's "one
+#     value per station's whole cross-section" does not hold there.
+#     Airside IMPROVES (2417 -> 2400).
+# The docket the flip waits on is that cross-section interaction, not
+# this metric.  ``O4_ROAD_PROFILE_CUMULATIVE_CAP=1`` arms it.
 ROAD_PROFILE_CUMULATIVE_CAP = (
-    _os.environ.get("O4_ROAD_PROFILE_CUMULATIVE_CAP", "1") != "0")
+    _os.environ.get("O4_ROAD_PROFILE_CUMULATIVE_CAP", "0") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

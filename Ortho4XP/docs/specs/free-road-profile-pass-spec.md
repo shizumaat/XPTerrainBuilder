@@ -118,3 +118,36 @@ Two blockers remain, ruled/chartered:
    U-loop lawful under path pricing); CYXY/SPJC/OTHH totals not
    worsened, residuals attributed; solve-owned moved airside 0; all
    four controls + LEMD built.
+
+## AMENDMENT 3 (Fable, 2026-08-28, on lane/hecar5d's report; 5d merges
+with 5e)
+
+5d RATIFIED as landed: who_wrote exonerates the profile pass (writers at
+the item-4 apron: solve_route_profile, final_grade_projection,
+gap_fill._emit_one_gap — never the pass); per-station cap vector +
+cap_at accessor + gate dissolution land as built (CYXY −30, airside
+untouched, solve-owned 0).
+
+RULINGS:
+1. THE ORDERING FORK IS FALSE — both arms are hacks around the actual
+   defect the law already names: `final_grade_projection` (and any
+   downstream conformance pass) RE-DERIVES airside from the road-
+   modified layout. Build toward: profile PRE-SOLVE ON (item 4's ramp
+   is real, 9.35 %), and the projection treats every solved AIRSIDE
+   value as FROZEN Dirichlet data — it may re-derive road/groundside,
+   never airside. The 903 @ 0.25 m residue (post-projection conformance)
+   gets its own who_wrote and the same freeze, attributed not assumed.
+   Gate stays: solve-owned moved airside = 0 with pre-solve ON.
+2. THE FIFTH-SITE BINDING QUESTION DISSOLVES — the chord law pins on
+   THE CHAIN'S OWN EMITTED END VALUES (self-pins): a chain's end is
+   where it meets the settled world, and its emitted end value is that
+   consensus, whatever produced it. No adoption, no authority transfer —
+   the 2026-08-15 carrier adjudication stands untouched (the strip's
+   value is never read). Raise-only toward the chord between self-pins
+   (hills kept, as twinned). This closes the CYXY sag (3.631 m below
+   chord at station 59.5/190.3) without naming which pavement binds.
+3. Flip-ON conditions: as Amendment 2 §3 plus the fifth site monotone
+   between its self-pinned ends; solve-owned moved airside 0 at ALL
+   airports with pre-solve ON; the 0.25 m residue class attributed and
+   frozen or ruled immaterial (< the 0.01 m floor it is not — attribute
+   it).

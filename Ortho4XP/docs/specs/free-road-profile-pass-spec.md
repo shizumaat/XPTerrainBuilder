@@ -275,3 +275,18 @@ FLIP-ON AUTHORIZED: profile pre-solve + per-station caps + path metric
 + self-pins flip default-ON in one commit after the five-airport arm is
 measured under this gate. The 5e-5i freeze/road-blind knobs stay
 retired-kept-gated.
+
+## AMENDMENT 9 (Fable, 2026-08-29, on lane/hecar5j's STOP)
+
+The +100s are NOT the accepted equilibrium shift — they are the
+census-wrapper failure mode at cap granularity: the per-station cap
+vector has three emitter-side readers and the census is not among them
+(`_check_lateral_contiguity` prices every station against the way-level
+`o4_grade_law_cap`). RULED: the vector TRAVELS IN THE PATCH — a sidecar
+key beside the axes exactly as `pair_caps` does — and
+`_check_lateral_contiguity` prices each station against ITS cap: the
+FOURTH reader of the one derivation. Sidecar-key and law-family
+registration go through the harness register so the census twins
+(structurally-impossible-omission class) cover it. The CYXY/SPJC +100s
+must fall out arithmetically, as the path metric's +120 did in 5c.
+Then the five-airport ship arm re-measures and flips per Amendment 8.

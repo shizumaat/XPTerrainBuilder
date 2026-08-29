@@ -46,6 +46,7 @@ def _arm_the_pass(monkeypatch):
     used for the contact-cap scoping."""
     monkeypatch.setattr(CFG, "FREE_ROAD_PROFILE_PASS", True)
     monkeypatch.setattr(CFG, "ROAD_CONTACT_CAP_SCOPE", True)
+    monkeypatch.setattr(CFG, "PROJECTION_AIRSIDE_FREEZE", True)
 
 
 class _Layout:
@@ -416,8 +417,19 @@ class TestSelfPins:
 
 class TestTheAirsideFreeze:
 
-    def test_the_freeze_is_default_on(self):
-        assert CFG.PROJECTION_AIRSIDE_FREEZE is True
+    def test_the_freeze_ships_OFF_pending_the_contradiction_ruling(self):
+        """It does what it was ruled to do (solve-owned moved airside 0 at
+        CYXY, 2 at SPJC with the profile ON) AND it removes the airside
+        repair this projection legitimately owns: +94 / +563 / +926
+        airside rows at CYXY / SPJC / HECA with the profile not even
+        running.  Reported, not softened — the twins above arm it."""
+        import importlib
+        import auto_patch.config as _fresh
+        _fresh = importlib.reload(_fresh)
+        try:
+            assert _fresh.PROJECTION_AIRSIDE_FREEZE is False
+        finally:
+            importlib.reload(_fresh)
 
     def test_the_projection_hardens_the_solve_owned_airside_set(self):
         import inspect

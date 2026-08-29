@@ -10086,8 +10086,20 @@ ROAD_PATH_METRIC = (
 FREE_ROAD_PROFILE_SELF_PINS = (
     _os.environ.get("O4_FREE_ROAD_SELF_PINS", "1") != "0")
 
+# …AND SHIPPED OFF ON ITS OWN MEASUREMENT (lane/hecar5e).  The freeze
+# DOES what it was ruled to do — solve-owned moved airside falls to 0 at
+# CYXY and 2 at SPJC with the profile ON — but it also surfaces the
+# contradiction the ruling's own stop-clause anticipated: this projection
+# LEGITIMATELY owns airside repair.  Post-solve passes (planarize
+# inserts, final T-vertex welds, clip rebuilds) reshape rings AFTER the
+# solve, so those rings' law pairs were never projected — the pass's
+# founding measurement is "CYXY within-shape 299 -> 97".  Freezing every
+# airside value removes that repair wholesale, with the profile not even
+# running: airside rows +94 at CYXY, +563 at SPJC, +926 at HECA.
+# The law is built and twinned; the DEFAULT waits on the ruling, and the
+# lane report states the fork.  "1" arms it.
 PROJECTION_AIRSIDE_FREEZE = (
-    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "1") != "0")
+    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "0") != "0")
 
 FREE_ROAD_PROFILE_PRESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")

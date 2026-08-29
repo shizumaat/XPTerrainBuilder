@@ -4810,3 +4810,29 @@ What was NOT paid:
   a reader mismatch, not geometry), so the remaining builds would have
   re-measured the same finding.
 - 2026-08-29 lane/tunneldockets (§T5 wall foot ON at BOTH wall emitters + the last-word foot re-clip; §F1 reaching `_emit_low_corridor_connectors`; the covered-stretch drop naming its coverer): ran the directly-covering files once (test_tunnel_integrity_round, test_lemd_ramp_road_fidelity, test_claimed_corridor_wall_survival) plus `test_no_self_overlap` (SPJC/CYXY/HECA, GREEN with the foot ON). UNPAID: (a) no full suite and no blast-radius suites for bridges.py / pipeline.py / conformance.py, so the last-word re-clip's interaction with the passes AFTER it (final tight T-weld, groundside separation, emit decimation) is proven by the layout-level overlap invariant only, never by an emitted-patch overlap read; (b) the §F1 extension to `_emit_low_corridor_connectors` is proven by SYNTHETIC twins alone — the emitter fires at NEITHER OTHH nor LEMD (0 `tunnel_low_connector` in both patches), so no built patch exercises it and the spec Amendment-1 claim that it owns LEMD's residual twisted bands is unverifiable there; (c) HECA was NOT rebuilt under this tree (three concurrent lanes own it), so the foot's effect on HECA's underpass-cell walls — the +261 class Amendment 2 of the wall-survival spec recorded — has no arm here; (d) `wall_top_flat` CHANGES MEANING with the foot ON (the face legitimately spans foot-top to crest, so the instrument reads the wall's HEIGHT, not a twist) and no instrument change was made — the §F1 law is verified on the foot-OFF arm and by twins, and the ON-arm number is reported as a different measurement; (e) build-time impact unmeasured (the re-clip is one STRtree over the wall pieces; the foot roughly doubles the wall-piece count).
+
+## Scorer v2 — class-change boundary cuts (lane/scorerv2, 2026-08-29)
+
+* **BUILD-TIME `--runs N`**: the class map costs one `unary_union` over
+  the apt.dat-only layer plus a per-face two-class test.  Single-run
+  walls were CYXY 107.2 → 111.6 s, SPJC 320.1 → 339.7 s, OTHH 1087.1 →
+  1141.2 s — but the SPJC pair emits a BYTE-IDENTICAL patch body and
+  still moved +19.6 s, which is the noise floor measuring itself.  No
+  timing claim is made; `tools/check_build_time.py --runs N` is owed
+  before any budget statement.
+* **Five-airport sweep**: SPJC/OTHH/LEMD arms were stopped mid-flight by
+  RULINGS 2026-08-29f (acceptance is HECA + the CYXY equivalence check;
+  the sweep happens once at the next app build).  Measured before the
+  stop and worth carrying: SPJC arm body byte-identical to control;
+  OTHH cut 17 faces / 301,433 m²; LEMD never completed.
+* **Cut-fixture iteration**: RULINGS 2026-08-29f asks for `repro_cut.py`
+  / `solve_cut.py` fixtures at the back-edge site before any further
+  real build.  This round's mechanism was iterated OFFLINE against the
+  emitted control patch instead (the class map and the two-sides split
+  were validated on the control's own geometry before the first arm
+  build); the fixtures are owed for the NEXT iteration.
+* **The same-role residual is unpaid and is why this round stops** — see
+  the report: HECA law-true 6,892 → 6,906 (+14) with 3,438 exact-frame
+  NEW rows outside the re-roled region.  The mechanism is the airside
+  solve's equilibrium moving when 264,186 m² leaves it; the bar ("zero
+  same-role regressions") is not met and no fix is attempted here.

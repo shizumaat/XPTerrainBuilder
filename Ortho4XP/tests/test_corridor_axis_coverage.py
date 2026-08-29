@@ -239,6 +239,100 @@ class TestArmSiteRead:
             ASR.load_rows(rows_a), LAT0, LON0, 25.0)
         assert "rows" in capsys.readouterr().out
 
+    # ── --behind: AIRSIDE PAVEMENT BEHIND AN AUTHORED EDGE ──────────
+    # (scorer-v2 round; owner RULINGS 2026-08-29d.)  The quantitative
+    # half of a wall acceptance.  What can be wrong is the FRAME: an
+    # unbounded half-plane sweeps the whole airport in (measured at HECA:
+    # 634,371 m² against a local 25,900), and a caller who picks the side
+    # picks the answer.
+
+    def _wall_patch(self, tmp_path, name, behind_alt):
+        """A 100 m edge due east; one apron ring straddling it — two
+        nodes in front (north), two behind (south)."""
+        p = tmp_path / name
+        def _node(nid, lat, lon, alt):
+            return (f"  <node id='{nid}' lat='{lat}' lon='{lon}'>\n"
+                    f"    <tag k='alt_abs' v='{alt}'/>\n  </node>\n")
+        north = LAT0 + 30.0 / M_PER_DEG
+        south = LAT0 - 30.0 / M_PER_DEG
+        p.write_text(
+            "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n"
+            + _node("-1", north, LON0, 100.0)
+            + _node("-2", north, _east(100.0), 100.0)
+            + _node("-3", south, _east(100.0), behind_alt)
+            + _node("-4", south, LON0, behind_alt)
+            + "  <way id='-10'>\n    <nd ref='-1'/>\n    <nd ref='-2'/>\n"
+            "    <nd ref='-3'/>\n    <nd ref='-4'/>\n    <nd ref='-1'/>\n"
+            "    <tag k='aeroway' v='apron'/>\n"
+            "    <tag k='role' v='apron'/>\n"
+            "    <tag k='shapeID' v='584'/>\n  </way>\n</osm>\n")
+        return p
+
+    def test_behind_measures_the_airside_area_past_the_edge(self, tmp_path):
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        r = ASR.behind_the_edge(cg, patch, (LAT0, LON0), (LAT0, _east(100.0)))
+        assert r["airside_area_behind_m2"] == pytest.approx(3000, rel=0.02)
+        assert len(r["rings"]) == 1
+        row = r["rings"][0]
+        assert row["shapeID"] == "584" and row["role"] == "apron"
+        assert row["nodes_front"] == 2 and row["nodes_behind"] == 2
+        assert row["alt_front"] == [100.0, 100.0]
+        assert row["alt_behind"] == [90.0, 90.0], (
+            "the node split either side is the SHAPE of the wall buried "
+            "inside one apron — the reading the founding site is stated in")
+
+    def test_the_side_is_decided_by_the_patch_not_the_caller(self, tmp_path):
+        """Reversing the two coordinates must not change the answer: the
+        groundside is the side carrying less airside pavement."""
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        fwd = ASR.behind_the_edge(cg, patch, (LAT0, LON0),
+                                  (LAT0, _east(100.0)))
+        rev = ASR.behind_the_edge(cg, patch, (LAT0, _east(100.0)),
+                                  (LAT0, LON0))
+        assert fwd["airside_area_behind_m2"] == pytest.approx(
+            rev["airside_area_behind_m2"], rel=1e-6)
+
+    def test_the_depth_is_BOUNDED_and_moves_the_answer(self, tmp_path):
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        deep = ASR.behind_the_edge(cg, patch, (LAT0, LON0),
+                                   (LAT0, _east(100.0)), depth_m=150.0)
+        shallow = ASR.behind_the_edge(cg, patch, (LAT0, LON0),
+                                      (LAT0, _east(100.0)), depth_m=10.0)
+        assert shallow["airside_area_behind_m2"] < deep[
+            "airside_area_behind_m2"]
+        assert shallow["depth_m"] == 10.0 and deep["depth_m"] == 150.0, (
+            "the frame parameter must be REPORTED, so two runs at two "
+            "depths can never be compared silently")
+
+    def test_a_degenerate_edge_is_refused(self, tmp_path):
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        with pytest.raises(ASR.SiteReadRefusal):
+            ASR.behind_the_edge(cg, patch, (LAT0, LON0), (LAT0, LON0))
+
+    def test_the_cli_behind_json_is_the_library_result(self, tmp_path):
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        out = tmp_path / "b.json"
+        assert ASR.main([str(patch), str(patch), "--behind",
+                         f"WALL={LAT0},{LON0}:{LAT0},{_east(100.0)}",
+                         "--json", str(out)]) == 0
+        got = json.loads(out.read_text())["behind"]["WALL"]["arm"]
+        assert got == ASR.behind_the_edge(
+            cg, patch, (LAT0, LON0), (LAT0, _east(100.0)))
+
+    def test_behind_prices_no_law(self, tmp_path):
+        """It reports AREA and NODES only — never a grade, cap or row."""
+        cg = ASR._check_grade()
+        patch = self._wall_patch(tmp_path, "w.osm", 90.0)
+        r = ASR.behind_the_edge(cg, patch, (LAT0, LON0), (LAT0, _east(100.0)))
+        flat = json.dumps(r)
+        for forbidden in ("grade", "cap_pct", "violation", "n_rows"):
+            assert forbidden not in flat
+
     def test_absent_row_dumps_report_SKIPPED_not_zero(self, tmp_path, capsys):
         patch = tmp_path / "p.osm"
         patch.write_text("<?xml version='1.0' encoding='UTF-8'?>\n"

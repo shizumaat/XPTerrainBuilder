@@ -120,6 +120,49 @@ def airside_contact_roles() -> frozenset:
     from .enclaves import ENCLAVE_AIRSIDE_ROLES
     return frozenset(APRON_CONTACT_ROLES | ENCLAVE_AIRSIDE_ROLES)
 
+
+# ── …AND THE RULING THAT SCOPED IT BACK (owner 2026-08-28e, HECA round 5
+# items 2/3/4; spec ``heca-round5-drainage-and-ramps-spec.md`` LAW 2) ────
+# Owner, verbatim: *"THE DEFECT IS SCOPING, NOT A MISSING CONSTANT: all
+# four stretches carry ``o4_grade_law_cap 0.010000`` — classified as APRON
+# SPINES … even where the owner says they have left the apron … fix the
+# scoping so the stretch beyond the apron prices and solves at the 8 %
+# free class."*  ``SERVICE_ROAD_MAX_GRADE`` (8 %) is that class and it
+# already exists; nothing here adds or changes a law constant.
+#
+# WHAT WAS OVER-SCOPED.  :func:`edge_shared_roles` is RING-LEVEL by
+# construction — "so every station of a contact ring reads the apron in
+# its cross-section and the ring takes one cap end to end".  A road that
+# merely MEETS airside pavement at an END FACE (162 of HECA's 469 shared
+# edges are PERPENDICULAR to the road's own axis, this module's own
+# measurement) therefore carried the apron's 1 % along its whole run, tens
+# or hundreds of metres away from any apron.  Measured on this tree,
+# HECA arm ``r5base``: service_road 2863 (way -12859) carries 0.010000
+# over its 130 m run to taxiway junction -12711, and 2854 / 2859 the same.
+#
+# THE SCOPING.  Edge contact is a VALUE law, not a CAP law:
+#   * the contact's VALUES stand untouched — the shared vertices ARE the
+#     apron's by canonical identity (``apply_service_road_dem_follow``'s
+#     exact-vertex anchors), and the apron-CONTACT DATUM seeding
+#     (RULINGS 2026-08-25b clause 2(c)) still seeds the ring from those
+#     anchors.  The weld is what stops the step at the contact, and the
+#     weld is not touched here;
+#   * the CAP is what the LATERAL walk sees.  A road running INSIDE or
+#     ALONGSIDE an apron is laterally contiguous with it, so
+#     :func:`cross_section_roles` reads the apron at every such station
+#     and the ring still takes 1 % — the 2026-07-27 free-road ruling and
+#     25b's substance are preserved exactly where they are true.  A road
+#     that only TOUCHES airside at a face is a free road, and prices and
+#     solves as one.
+# Gate ``O4_ROAD_CONTACT_CAP_SCOPE=0`` restores the ring-wide contact
+# pricing byte-identically.
+def _contact_prices_the_cap() -> bool:
+    """Does EDGE CONTACT still fold into every station's cap? (pre-round
+    law = True; owner 2026-08-28e = False).  Read at CALL time so both
+    readers of the law agree within one process and a twin can flip it."""
+    from . import config as _cfg
+    return not bool(getattr(_cfg, "ROAD_CONTACT_CAP_SCOPE", True))
+
 # CANONICAL IDENTITY, NEVER PROXIMITY (the ruling's own words).  Two rings
 # share an edge when they carry the SAME two consecutive vertices.  The
 # tolerance here is a spelling tolerance, not a gap tolerance: it is 500×
@@ -313,11 +356,17 @@ def station_caps(poly, tree, polys, roles, own_index, keepout=None):
     # THE CONTACT TERM (RULINGS 2026-08-25b) — one query per shape, folded
     # into every station's cross-section so the ring takes ONE cap.  Gate
     # ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law exactly.
+    # …AND THE SCOPING (owner 2026-08-28e): contact is a VALUE law, so it
+    # no longer folds into the cap.  The lateral walk below still reads an
+    # apron a road stands INSIDE or ALONGSIDE — that contiguity is what
+    # 25b's substance is — while a road that only meets airside at a FACE
+    # keeps its own free-road class beyond the contact.
     contact = set()
     own_role = (roles[own_index]
                 if own_index is not None and 0 <= own_index < len(roles)
                 else None)
-    if own_role in ROAD_ROLES and _edge_conformance_on():
+    if (own_role in ROAD_ROLES and _edge_conformance_on()
+            and _contact_prices_the_cap()):
         contact = edge_shared_roles(poly, tree, polys, roles, own_index)
     n_st = max(1, int(length / STATION_STEP_M))
     stations = []

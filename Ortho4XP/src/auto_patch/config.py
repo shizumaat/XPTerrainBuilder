@@ -168,6 +168,7 @@ __all__ = [
     "TAUT_GRADED_STRIP",
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
+    "ROAD_CONTACT_CAP_SCOPE",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -368,6 +369,7 @@ __all__ = [
     "OLS_SEAM_TILE_LINE_REFUSAL",
     "OLS_ROAD_REGRADE_ENABLED",
     "OLS_ROAD_REGRADE_FOLLOW_M",
+    "OLS_ROAD_RUNWAY_STANDDOWN",
     "OBJECT_BRIDGE_TERRAIN",
     "OBJECT_TUNNEL_TERRAIN",
     "OBJECT_SPLIT_LEVEL_TERRAIN",
@@ -6235,6 +6237,40 @@ OLS_ROAD_REGRADE_ENABLED = (
 # blend point).
 OLS_ROAD_REGRADE_FOLLOW_M = 100.0
 
+# ── THE ROAD DECK STANDS DOWN OVER THE RUNWAY STRIP ──────────────────
+# (HECA round 5 item 1, owner sim read of 1.0.265: "the concrete drainage
+# channel is a spiky mess, tearing the runway" at 30.1076307,31.4094328.
+# Spec ``docs/specs/heca-round5-drainage-and-ramps-spec.md`` §Item 1:
+# "the runway family is aircraft-transit — NOTHING crosses it carrying
+# its own elevation authority … at a runway crossing the ols_road /
+# drainage corridor takes the RUNWAY's surface exactly (weld, canonical
+# identity, zero tear rows), OR STANDS DOWN OVER THE STRIP.")
+#
+# THE MEASURED DEFECT (HECA, arm r5base vs r5armB at this tree).  The
+# deck's profile bound is ``min(DEM, composed OLS ceiling)`` and consults
+# NO pavement, so beside runway 05C/23C the two ``ols_road`` halves
+# (-13741 / -13744) ride at 116.4-118.85 over a runway surface at
+# 109.3-111.2 — a ~5 m ridge INSIDE the runway strip.  ``_clipped_pieces``
+# differences the deck out of the runway itself, so the deck never
+# overlaps the pavement; what tears is the STRIP: ``adjacent_ground``
+# -13539 welds to the deck and carries 115.90 against its neighbour
+# -13540 at 110.80, 0.19 m away (5.10 m over 0.19 m on the owner's line).
+# With ``O4_OLS_ROAD_REGRADE=0`` both decks vanish and -13539's top falls
+# 115.90 → 110.88: the deck is the author, measured, not read.
+#
+# THE LAW TAKEN: the second branch — the deck STANDS DOWN over the runway
+# STRIP FOOTPRINT.  The geometry is the standing law object
+# ``adjacent_ground.runway_strip_wall_keepout`` (law rings from
+# ``grade_law.runway_strip_wall_keepout_rings``), the SAME footprint the
+# lateral-contiguity law's clause (5) already yields to ("the runway-strip
+# footprint law supersedes there") and the retaining-wall admission law
+# uses — no new geometry, no new number.  Inside the strip the runway's
+# own strip/adjacent-ground law owns the ground; outside it the deck is
+# emitted exactly as before.  "0" restores the pre-round behaviour
+# byte-identically.
+OLS_ROAD_RUNWAY_STANDDOWN = (
+    _os.environ.get("O4_OLS_ROAD_RUNWAY_STANDDOWN", "1") == "1")
+
 # GAP-FILL + DRAINAGE SPINE (user design ruling 2026-07-09,
 # docs/chain_identity_one_solve_plan.md): ground ENCLOSED between
 # pavements grades as ONE unit — boundary = the pavement chains
@@ -9924,6 +9960,32 @@ ROAD_AIRSIDE_CROSSING_CONFORM = (
 # ``O4_ROAD_AIRSIDE_CONTACT_WIDEN=0`` is the Fable-authorized diagnostic.
 ROAD_AIRSIDE_CONTACT_WIDEN = (
     _os.environ.get("O4_ROAD_AIRSIDE_CONTACT_WIDEN", "1") != "0")
+
+# ── EDGE CONTACT IS A VALUE LAW, NOT A CAP LAW ───────────────────────
+# (owner 2026-08-28e, HECA round 5 items 2/3/4; spec
+# ``docs/specs/heca-round5-drainage-and-ramps-spec.md`` LAW 2, verbatim:
+# "THE DEFECT IS SCOPING, NOT A MISSING CONSTANT: all four stretches
+# carry ``o4_grade_law_cap 0.010000`` — classified as APRON SPINES …
+# even where the owner says they have left the apron … fix the scoping
+# so the stretch beyond the apron prices and solves at the 8 % free
+# class."  ``SERVICE_ROAD_MAX_GRADE`` IS that class and it already
+# exists: this round adds NO law constant and changes none.)
+#
+# ``lateral_contiguity.edge_shared_roles`` is ring-level by construction
+# — 25b put "the road ring" under the apron's law — so a road that meets
+# airside pavement at an END FACE carried 1 % along its whole run.  At
+# HECA (this tree, arm r5base) that is service_road 2863 held at 0.010000
+# over the 130 m it runs from the apron to taxiway junction -12711, and
+# 2854 / 2859 likewise; the owner's ramps (3.5 %, 6.4 % and a 6.6 m
+# descent) are all lawful under the 8 % class and impossible under 1 %.
+#
+# ON (default) ⇒ contact binds VALUES only (the canonical-identity welds
+# and the apron-CONTACT DATUM seeding, both untouched) and the CAP comes
+# from the LATERAL walk, which still reads an apron a road stands inside
+# or alongside.  ``O4_ROAD_CONTACT_CAP_SCOPE=0`` restores the ring-wide
+# contact pricing byte-identically.
+ROAD_CONTACT_CAP_SCOPE = (
+    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

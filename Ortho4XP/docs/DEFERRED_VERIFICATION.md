@@ -4453,3 +4453,37 @@ What was NOT paid:
   round report: the DSF-vs-OSM road-spelling offset at item 1 (2.75 m)
   and the global `SERVICE_ROAD_WIDTH_M` at item 3 (6.0 m emitted against
   a stated 14.0 m).
+## HECA round 5 (lane/hecar5, 2026-08-28) — ols_road runway-strip stand-down + contact-cap scoping
+
+* **LEMD control NOT built.** Two lanes (lemdfidelity, padcarve) were on
+  LEMD machinery for the whole of this round and a third concurrent LEMD
+  build would have contended with them for the machine, not for the
+  corpus.  Controls measured instead: HECA (the target), CYXY, SPJC and
+  OTHH, each as a matched ON/OFF pair at ONE tree.  LEMD's exposure is
+  the contact-cap scoping only — item 1 is inert wherever the OLS road
+  regrade emits nothing — and the scoping's shape is known from the
+  other three (CYXY −10 rows, airside 0; SPJC +18, airside +2; OTHH
+  81 rings released).
+* **The scoping fix moves airside slightly and that is NOT yet
+  adjudicated.** At HECA the scoping half alone is +18 rows with 9 MOVED
+  (4-5 of them airside: junction|junction and apron|apron at 0.98-1.40 m,
+  1.51-2.30 % against a 1.5 % cap); SPJC +2 airside; CYXY 0.  The
+  road-crossing round's Amendment 3 set the gate at ZERO MOVED airside
+  and accepted its residual NEW rows as deferred churn.  This round
+  cannot meet that gate by construction: the owner's 2026-08-28e ruling
+  makes the road SOLVE at the free class, and a road's cap is a term in
+  the one solve through ``lat_cap``.  Reported, not accepted — the trade
+  is the owner's to rule on.
+* **The cliffs at items 2/3/4 are NOT closed** — pricing is fixed, the
+  values are not.  Attribution and the STOP are in the lane report and
+  in the round-5 spec's own law 3 (whole-path climb distribution), which
+  no pass implements.
+* **No full-suite run** (pre-ship mode); the blast-named files were run
+  once.  ``test_harness.py::test_the_near_miss_frontage_law_is_one_
+  authority`` fails at HEAD too.
+* **The lane's FIRST HECA build is not a baseline** (the standing
+  cold-cache law, re-measured here): ``r5base`` differs from the matched
+  gates-OFF arm ``r5offarm`` at the SAME tree in ~125 k values and along
+  61 of 66 runway stations (worst 0.64 m).  Every number in this round is
+  quoted against ``r5offarm``.  The cold/warm delta itself is unattributed
+  and is owed a look in the hardening round.

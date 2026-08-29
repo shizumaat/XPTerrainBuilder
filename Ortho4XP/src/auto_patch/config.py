@@ -131,6 +131,10 @@ __all__ = [
     "NECK_ABSORB_FRAC",
     "NECK_RELATIVE",
     "ROLE_GRADE_LIMITS",
+    # Strict claim at a shared node (owner 2026-08-29c; spec
+    # docs/specs/runway-crossing-strict-claim-spec.md)
+    "STRICT_CLAIM_CAP",
+    "STRICT_CLAIM_VALUE",
     "FLAT_SITE_FAST_PATH",
     "FLAT_SITE_FAST_PATH_QUANTUM_M",
     # HECA apron round 2 (docs/specs/heca-apron-round2-spec.md)
@@ -10551,3 +10555,43 @@ RIM_SOLVED_NEIGHBOUR = (
 # the law median R_est is the honest answer.
 TUNNEL_RIM_NEIGHBOUR_WINDOW_M = float(
     _os.environ.get("O4_TUNNEL_RIM_NEIGHBOUR_WINDOW_M", "30.0"))
+
+# ── STRICT CLAIM AT A SHARED NODE — A CONTACT IS A VALUE QUESTION, ────
+#    NEVER A CAP QUESTION (owner 2026-08-29c; spec
+#    ``docs/specs/runway-crossing-strict-claim-spec.md``).
+#
+# Two enforcement points, two gates, so each arm is attributable on its
+# own.  ``layout.AUTHORITY_PRECEDENCE`` is THE claimant order both read
+# (runway > taxi family > apron > building > road > groundside) — no
+# second rank table is minted here.
+#
+# (1) THE CAP.  ``grade_law.classify_pair``'s road-carve relaxation
+# raised ANY host's pair to ``SERVICE_ROAD_MAX_GRADE`` when both
+# endpoints stood in the service-road carve zone, with no guard on the
+# host's own role.  Measured at HECA (owner's 1.0.267 patch, built
+# 2026-08-29 10:27): runway 05C/23C ring -12210 carries THREE
+# ``within_shape runway|runway`` rows priced at cap 8.0 (101.53 %,
+# 85.19 %, 59.26 %) where the service corridor -12136 crosses it, while
+# the same ring's rows 22-30 m away carry the lawful 1.5.  A
+# runway|runway row at a foreign cap is structurally impossible under
+# the owner's ruling: the strictest claimant's LAW wins at a contact.
+# ON ⇒ the relaxation may not raise a pair above its host's own law
+# when the host OUTRANKS the road roles.  ``O4_STRICT_CLAIM_CAP=0``
+# restores the unguarded relaxation BYTE-IDENTICALLY.
+STRICT_CLAIM_CAP = (
+    _os.environ.get("O4_STRICT_CLAIM_CAP", "1") != "0")
+
+# (2) THE VALUE.  At a node SHARED by a strict airside claimant and a
+# lesser one, the airside VALUE wins outright over the contact span —
+# the corridor takes the airside elevation exactly, and its own free run
+# between contacts is what the 1 %/8 % classes govern.  The shared node
+# is ONE solver variable (``solver_primitives._build_node_list`` interns
+# by canonical point), so this is not an averaging question: it is which
+# claimant's law is allowed to place the variable.  Measured defect:
+# HECA node -31538 at 30.1076307,31.4094328 sits at 108.54 between
+# runway ring neighbours at 111.08 / 111.07 — the crossing corridor's
+# descending channel profile placed a RUNWAY EDGE vertex 2.5 m below the
+# runway.  ``O4_STRICT_CLAIM_VALUE=0`` restores the pre-ruling
+# placement BYTE-IDENTICALLY.
+STRICT_CLAIM_VALUE = (
+    _os.environ.get("O4_STRICT_CLAIM_VALUE", "1") != "0")

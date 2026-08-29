@@ -3921,7 +3921,8 @@ _LATERAL_MIN_MEMBER_M = 0.5
 _LATERAL_ROAD_ROLES = frozenset({"service_road", "service_junction"})
 
 
-def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
+def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m,
+                              station_caps_ll: Optional[list] = None,
                               ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_stations, n_shapes)`` — road-family stations whose
     laterally-contiguous cross-section holds a STRICTER class than the cap
@@ -3931,13 +3932,44 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
     SAME call the emitter makes, so this reader cannot census a station the
     emitter never saw.  ``de_m`` carries the cap excess so the worst
     offenders sort first.
+
+    ── THE FOURTH READER (owner 2026-08-29, round-5 spec Amendment 9) ──
+    ``station_caps_ll`` is the emitter's PUBLISHED per-station cap vector
+    (sidecar ``station_caps``), and where it is present a station is
+    priced against ITS OWN cap instead of the way-level
+    ``o4_grade_law_cap``.  That is the whole fix: the cap authority lives
+    at the station (Amendment 2), the emitter has three readers of the one
+    derivation, and this is the fourth — never a re-derivation here.
+    Without it a road that lawfully solves at 8 % on its free stations and
+    1 % beside an apron reads as a violation at every free station:
+    measured at the 5j ship arm, +100 rows at BOTH CYXY and SPJC.
+
+    A patch with no ``station_caps`` key (an older build) DEGRADES
+    DETERMINISTICALLY AND LOUDLY: the way-level cap is used exactly as
+    before and the frame is printed once, so the number is never quietly
+    from a different law than the reader thinks.
     """
     try:
         from shapely.geometry import Polygon
         from shapely.strtree import STRtree
-        from auto_patch.lateral_contiguity import ROAD_ROLES, station_caps
+        from auto_patch.lateral_contiguity import (ROAD_ROLES, station_caps,
+                                                   cap_at as _cap_at)
     except Exception:
         return [], 0, 0
+    # The published vector in THIS reader's metre frame.  Absent key ⇒
+    # empty ⇒ the way-level fallback, announced once.
+    _pub_caps_m: list = []
+    for _e in (station_caps_ll or []):
+        try:
+            _x, _y = ll_to_m(float(_e[0]), float(_e[1]))
+            _pub_caps_m.append((_x, _y, float(_e[2])))
+        except (TypeError, ValueError, IndexError):        # pragma: no cover
+            continue
+    if not _pub_caps_m:
+        print("  [check_grade] lateral_contiguity: no sidecar "
+              "'station_caps' — pricing every station at the WAY-level "
+              "o4_grade_law_cap (pre-Amendment-9 frame).  A road solved "
+              "per-station will over-report here.")
     rows = []
     for w in ways:
         if ROLE_GRADE_LIMITS.get(w.role) is None:
@@ -3987,12 +4019,43 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m
             if st is None or law_cap is None:
                 continue
             n_stations += 1
-            if eff <= law_cap + 1e-12:
+            # THE FOURTH READER: the cap this station was BUILT to.  The
+            # accessor is the law's own (``lateral_contiguity.cap_at``),
+            # so the join convention cannot drift from the emitter's.
+            # BOTH SIDES FROM THE ONE DERIVATION.  ``law_cap`` above is
+            # this reader's OWN re-walk, and that walk folds the
+            # edge-contact term according to ``ROAD_CONTACT_CAP_SCOPE``
+            # AS READ IN THIS PROCESS — which is not necessarily the
+            # frame the patch was BUILT in (the census is a separate
+            # process; the gate is env-scoped).  MEASURED at CYXY: the
+            # same ON-arm patch censuses at 474 under the census
+            # process's default and 334 under the build's own gate, the
+            # whole 140-row ``lateral_contiguity`` family being the
+            # difference.  That is the census-wrapper failure mode one
+            # level deeper: not a missing key, a re-derivation under a
+            # different law.
+            #
+            # So where the emitter PUBLISHED the station's cap, that IS
+            # the law here — the fourth reader reads, it does not
+            # re-derive — and the way's own limit is taken at the same
+            # station.  Absent key ⇒ the re-walk, announced above.
+            _built = eff
+            _law_here = law_cap
+            if _pub_caps_m:
+                _pc = _cap_at(_pub_caps_m, float(st[0]), float(st[1]),
+                              None)
+                if _pc is not None:
+                    _law_here = float(_pc)
+                    _built = min(float(eff), float(_pc))
+            if _built <= _law_here + 1e-12:
                 continue
+            law_cap = _law_here
+            eff_here = _built
             shapes_flagged.add(w.wid)
             out.append(Violation(
-                grade_pct=100.0 * eff, excess_pct=100.0 * (eff - law_cap),
-                distance_m=0.0, de_m=eff - law_cap,
+                grade_pct=100.0 * eff_here,
+                excess_pct=100.0 * (eff_here - law_cap),
+                distance_m=0.0, de_m=eff_here - law_cap,
                 way_a=w, way_b=w, pt_a=st, pt_b=st,
                 elev_a=0.0, elev_b=0.0))
     out.sort(key=lambda v: -v.de_m)
@@ -6627,6 +6690,14 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "crown_drops": "crown_drops_ll",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
+    # THE PER-STATION CAP VECTOR (owner 2026-08-29, Amendment 9).  LAW
+    # INPUT: the cap authority lives at the STATION, and this is the ONE
+    # derivation the emitter's three readers price with.  Without it the
+    # census prices every station at the way-level tag and a
+    # lawfully-per-station road over-reports (5j: +100 rows at CYXY AND
+    # SPJC).  Registered here so the harness twins cover it and an old
+    # patch degrades loudly rather than silently.
+    "station_caps": "station_caps_ll",
     "terrace_joints": "terrace_joints_ll",
     "fan_ramp_zones": "fan_ramp_zones_ll",
     # THE APRON INTERIOR LATTICE's own law edges (spec
@@ -6882,6 +6953,10 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    # THE PER-STATION CAP VECTOR (Amendment 9) — the census's own read of
+    # the one derivation.  ``None`` when the patch predates the key, which
+    # ``_check_lateral_contiguity`` announces before falling back.
+    ctx["station_caps_ll"] = data.get("station_caps") or None
     ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None
@@ -7194,6 +7269,7 @@ def run_checks(
     crown_drops_ll: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
+    station_caps_ll: Optional[list] = None,
     terrace_joints_ll: Optional[list] = None,
     fan_ramp_zones_ll: Optional[list] = None,
     apron_lattice_edges_ll: Optional[list] = None,
@@ -7644,7 +7720,7 @@ def run_checks(
     within = within + no_step_all
 
     lateral, n_lat_stations, n_lat_shapes = _check_lateral_contiguity(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, station_caps_ll=station_caps_ll)
     _fam("lateral_contiguity", lateral)
     _pv("LATERAL CONTIGUITY: road graded looser than the STRICTEST class in "
         "its laterally-contiguous cross-section (owner FINAL 2026-08-02)",

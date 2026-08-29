@@ -385,6 +385,32 @@ GROUNDSIDE_ROLES: frozenset = frozenset({
 # value authorities never move (user ruling: the PAVEMENT value always
 # wins at a pavement node).  Single source for the emit consensus in
 # ``to_osm`` and the emitters' weld-value adoption.
+def _station_caps_ll(layout, shape):
+    """``[(lat, lon, cap), …]`` for one shape's published per-station cap
+    vector, or ``()``.
+
+    A pure PROJECTION of ``BuiltShape.station_cap_vector`` (layout metres)
+    into the sidecar's lat/lon frame — no cap is computed here, which is
+    what keeps the census a READER of the one derivation rather than a
+    second one.
+    """
+    vec = getattr(shape, "station_cap_vector", None)
+    if not vec:
+        return ()
+    out = []
+    for entry in vec:
+        try:
+            x, y, cap = float(entry[0]), float(entry[1]), float(entry[2])
+        except (TypeError, ValueError, IndexError):        # pragma: no cover
+            continue
+        try:
+            lat, lon = layout.m_to_ll(x, y)
+        except Exception:                                  # pragma: no cover
+            continue
+        out.append((round(lat, 11), round(lon, 11), cap))
+    return out
+
+
 SOFT_RECEIVER_ROLES = frozenset({
     ROLE_GRADED_STRIP, ROLE_RUNWAY_CLEARANCE,
     ROLE_TAXIWAY_CLEARANCE, ROLE_RETAINING_WALL, ROLE_BOUNDARY,
@@ -3780,6 +3806,26 @@ class PavementLayout:
             # lawfully enforced).
             "pair_caps": (getattr(self, "_lockstep_pair_caps_ll",
                                   None) or []),
+            # THE PER-STATION CAP VECTOR (owner 2026-08-29, round-5 spec
+            # Amendments 2 + 9): ``[lat, lon, cap]`` per road STATION,
+            # from ``lateral_contiguity.station_cap_vector`` — the ONE
+            # derivation the lateral walk produces and the emitter side
+            # already has three readers of (the pair pricing, the solve's
+            # DEM-follow envelope, the free-road profile's envelope).
+            # It travels because the CENSUS is the FOURTH: without it
+            # ``check_grade._check_lateral_contiguity`` prices every
+            # station against the WAY-level ``o4_grade_law_cap`` and a
+            # road that lawfully solves at 8 % on its free stations and
+            # 1 % beside an apron reads as a violation at every free
+            # station — measured at the ship arm, +100 rows at BOTH CYXY
+            # and SPJC, 140 and 104 of them ``lateral_contiguity``.
+            # Same shape as ``pair_caps`` above and for the same reason:
+            # the law the solver actually built to, published, so no
+            # reader has to re-derive it and disagree.
+            "station_caps": [
+                [float(_la), float(_lo), float(_c)]
+                for _sh in self.shapes
+                for (_la, _lo, _c) in _station_caps_ll(self, _sh)],
             # THE BOUND TRANSECTS (owner ruling 2026-08-21; spec
             # transverse-hyperplane-solve-spec.md section 11 + AMENDMENT
             # A1 section 8b).  Every cross-section the FINAL PROJECTION

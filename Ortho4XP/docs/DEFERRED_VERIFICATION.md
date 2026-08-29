@@ -4677,3 +4677,33 @@ What was NOT paid:
   run ledger shows suites containing it exiting 1 since 2026-08-04, well
   before this family began.  Not this round's, but it is a LOCKSTEP twin
   and is flagged for the ship gate.
+
+## HECA round 5g (lane/hecar5g, 2026-08-29) — the freeze family is inert: it stands on a PARKED feature
+
+* **Amendments 4 and 5 both rest on a snapshot production never
+  captures.**  ``solve.SCOPED_FINAL_PROJECTION = False``, and its own
+  comment says "PARKED-FEATURE ... not a gate: nothing in the environment
+  can turn it on" — retired on measurement 2026-08-05 (OTHH 363.3 s
+  scoped vs 325.2 s full).  ``_capture_projection_snapshot`` therefore
+  never runs, ``scoped`` is always False, ``_geom_changed_ids`` is always
+  None, and both the 5f scoped freeze and the 5g snapshot-blind staging
+  are dead code paths.  MEASURED: CYXY with the freeze family forced OFF
+  is BYTE-IDENTICAL to the arm with it ON.
+* **5f's freeze conclusions are VOID** and are corrected here: its
+  controls returned to their pre-round values because the freeze never
+  fired.  Its non-freeze numbers stand.  5e's blanket freeze was the only
+  one that ever executed.
+* **Whether to un-park the scoping machinery is an OWNER decision**: it
+  re-introduces a build-time regression a board retired on measurement.
+  Until then, any airside-freeze law needs a mutation source that exists
+  in production — the alternative candidates (a values-only snapshot
+  captured unconditionally, or reading ``post_solve_mutation_set``'s
+  carried ``solved_values`` store, which IS live) are named here but not
+  chosen.
+* **HECA / OTHH / LEMD ON arms were not completed this round** — with the
+  freeze proven inert they would re-measure the 5f profile arm, not the
+  ruled law, so the build time was not spent.
+* **Still owed against a live freeze**: the 0.25 m post-projection residue
+  who_wrote, and SPJC's 98 no-road-contact movers.
+* ``tests/test_single_graph_acceptance.py``'s 3 pre-existing lockstep
+  reds remain flagged for the ship gate, untouched.

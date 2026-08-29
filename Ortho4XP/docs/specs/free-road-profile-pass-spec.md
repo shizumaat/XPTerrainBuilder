@@ -230,3 +230,35 @@ RULINGS:
    freeze.
 4. Then the full five-airport closing arm and flip-ON per the standing
    bar (with §3's refined gate).
+
+## AMENDMENT 7 (Fable, 2026-08-29, on lane/hecar5h — the freeze family
+is CLOSED, refuted; the composition that remains is ruled)
+
+5h proved: the live `solved_values` store is a real zero-cost foundation
+(99.89/99.95 % coverage), and ANY ring-selection freeze fails
+structurally — membership-criterion over-freezes (CYXY repair lost,
++86 airside profile-off) while released rings re-derive against a
+frozen neighbourhood and move 1,490 no-road-contact nodes at SPJC (the
+FREEZE moves them, not roads). Ring selection cannot reach
+airside-blindness: value-mutated rings are exactly the rings roads
+touch.
+
+RULED — ROAD-BLIND RE-DERIVATION, NO FREEZE:
+1. Every post-solve airside re-derivation (projection + conformance)
+   runs EXACTLY as production — same population, same solve, full
+   repair — except ROAD-FAMILY neighbour values resolve through the
+   live `solved_values` store (solve-time values) instead of the
+   current layout. The projection already resolves `_carried_solved`
+   through that store; this scopes WHICH source road-family values come
+   from inside airside re-derivations. Profile OFF ⇒ store == layout ⇒
+   byte-identical by construction. Profile ON ⇒ airside output cannot
+   see the profile's road movements. Nothing is frozen; no ring is
+   selected; SPJC's released-ring perturbation cannot occur.
+2. The weld set stays as Amendment 6 §3 (shared-claim variables
+   reported, not gated). True welds take the airside value under the
+   one-way weld, so no airside-interior/weld step is minted.
+3. All freeze gates from 5e-5h are RETIRED-KEPT-GATED off; their
+   ledgers are the refutation record.
+4. Closing arm: the five-airport flip-ON per the standing bar with
+   Amendment 6's refined gate; 0.25 m residue who_wrote under the
+   road-blind arm.

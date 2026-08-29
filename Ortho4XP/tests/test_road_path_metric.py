@@ -214,3 +214,100 @@ class TestTheGate:
         src = inspect.getsource(GG.shape_constraints)
         assert "if (road_path_metric and ROAD_PATH_METRIC" in src
         assert "_road_cum = _road_total = None" in src
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 2 CLAUSE 1 — THE PER-STATION CAP: ONE DERIVATION, THREE
+# READERS (the census-wrapper law applied to cap granularity)
+# ══════════════════════════════════════════════════════════════════════
+
+class TestPerStationCapUnification:
+
+    def test_the_vector_comes_from_THE_lateral_walk(self):
+        """Not a second adjacency read: ``station_cap_vector`` is
+        ``station_caps`` — the same walk both readers of the
+        lateral-contiguity law already census — with the no-verdict
+        stations dropped."""
+        import inspect
+        from auto_patch import lateral_contiguity as LC
+        src = inspect.getsource(LC.station_cap_vector)
+        assert "station_caps(" in src
+
+    def test_reader_1_the_pair_pricing(self):
+        import inspect
+        from auto_patch import grade_graph as GG
+        src = inspect.getsource(GG.shape_constraints)
+        assert "station_cap_vector" in src
+        assert "_station_cap_at(shape, xi, yi, body_cap)" in src
+        assert inspect.getsource(GG._station_cap_at).count("cap_at") >= 1
+
+    def test_reader_2_the_solve_dem_follow_envelope(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parents[1] / "src" / "auto_patch"
+               / "elevation_per_surface" / "route_profile"
+               / "anchors.py").read_text()
+        assert "station_cap_vector" in src
+        assert "from auto_patch.lateral_contiguity import cap_at" in src
+
+    def test_reader_3_the_profile_envelope(self):
+        import inspect
+        from auto_patch import free_road_profile as FRP
+        src = inspect.getsource(FRP.solve_free_road_profiles)
+        assert "station_cap_vector" in src
+        assert "caps=st_caps" in src
+        assert "from .lateral_contiguity import cap_at" in src
+
+    def test_the_three_readers_resolve_through_ONE_accessor(self):
+        """THE twin the ruling asks for: all three reach the cap through
+        ``lateral_contiguity.cap_at``, so a point cannot be governed by
+        two caps in one build."""
+        import inspect
+        from auto_patch import grade_graph as GG
+        from auto_patch import lateral_contiguity as LC
+        from auto_patch import free_road_profile as FRP
+        from pathlib import Path
+        assert "cap_at" in inspect.getsource(GG._station_cap_at)
+        assert "cap_at" in inspect.getsource(FRP.solve_free_road_profiles)
+        anchors = (Path(__file__).resolve().parents[1] / "src"
+                   / "auto_patch" / "elevation_per_surface"
+                   / "route_profile" / "anchors.py").read_text()
+        assert "cap_at(" in anchors
+        # …and the accessor is one function, not three spellings.
+        assert callable(LC.cap_at)
+
+    def test_ONE_RING_TWO_CAPS(self):
+        """The point of the whole clause: a ring alongside an apron for
+        part of its run and free for the rest carries BOTH caps — the
+        apron's over its own stations, the free class over the others.
+        Under the retired way-level scalar this ring had exactly one."""
+        from auto_patch import lateral_contiguity as LC
+        vec = [(0.0, 0.0, 0.01), (5.0, 0.0, 0.01), (60.0, 0.0, 0.08),
+               (65.0, 0.0, 0.08)]
+        assert LC.cap_at(vec, 1.0, 0.0) == pytest.approx(0.01)
+        assert LC.cap_at(vec, 62.0, 0.0) == pytest.approx(0.08)
+        assert len({c for (_x, _y, c) in vec}) == 2
+
+    def test_the_profile_run_is_bound_by_its_STRICTEST_station(self):
+        """A 1 % station anywhere between two pins binds the whole run —
+        the profile may not ramp at 8 % THROUGH an apron-side stretch."""
+        from auto_patch import free_road_profile as FRP
+        ss = [0.0, 25.0, 50.0, 75.0, 100.0]
+        caps = [0.08, 0.08, 0.01, 0.08, 0.08]
+        _t, infeasible = FRP.chain_profile(
+            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps)
+        assert infeasible, (
+            "a 4 m rise across a 1 %-capped station is not feasible and "
+            "must be refused, not ramped through")
+        # …and with the strict station gone it IS feasible.
+        _t2, inf2 = FRP.chain_profile(
+            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08,
+            caps=[0.08] * 5)
+        assert not inf2
+
+    def test_the_way_level_gate_DISSOLVED(self):
+        """End-on contact binds values and caps nothing — the ruling."""
+        import inspect
+        from auto_patch import lateral_contiguity as LC
+        src = inspect.getsource(LC._contact_prices_the_cap)
+        assert "DISSOLVES" in src or "dissolves" in src
+        assert "ruled permanently False" in src or "**NO — ruled**" in src

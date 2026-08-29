@@ -7707,6 +7707,16 @@ def compose_rod_chains(chains, resolve, want_drop_records=False):
     return (edges, dropped, drop_records, composed, absorbed, span_max)
 
 
+def _projection_airside_freeze_on() -> bool:
+    """Is the AIRSIDE FREEZE armed? (Amendment 3 §1, default ON.)
+
+    Read at CALL time so a twin can flip it without reloading, the same
+    posture every other law gate in this round takes.
+    """
+    from auto_patch import config as _cfg
+    return bool(getattr(_cfg, "PROJECTION_AIRSIDE_FREEZE", True))
+
+
 def final_grade_projection(layout, icao: str = "", dem=None,
                            tile_lat: int = 0, tile_lon: int = 0, *,
                            recapture_snapshot: bool = True) -> None:
@@ -8057,6 +8067,35 @@ def final_grade_projection(layout, icao: str = "", dem=None,
 
     hard = {i for i in range(n) if base_hard[i]}
     hard |= {i for i in runway_idx if i < n}
+    # ── THE AIRSIDE FREEZE (owner ruling 2026-08-28, round-5 spec
+    # Amendment 3 §1) ────────────────────────────────────────────────
+    # "The projection treats every solved AIRSIDE value as FROZEN
+    # Dirichlet data — it may re-derive road/groundside, never airside."
+    #
+    # MEASURED, NOT ASSUMED (lane/hecar5d).  ``who_wrote`` at the owner's
+    # item-4 apron (30.11445,31.40993) lists that node's ONLY writers:
+    # ``solve_route_profile`` (93.31) and THIS PASS (93.24).  The
+    # free-road profile never touches it — so the 1,756 solve-owned
+    # airside nodes that moved when the profile ran (worst 2.07 m) moved
+    # HERE, re-derived from a layout whose ROAD values had changed.  That
+    # is the ordering fork dissolved: neither arm was the defect, this
+    # re-derivation was.
+    #
+    # The set is ``solver_primitives.solve_owned_airside_nodes`` — the
+    # SAME sentence ``tools/airside_value_delta.py``'s solve-owned frame
+    # measures the gate in, so the freeze and its instrument cannot read
+    # two populations.  Gate ``O4_PROJECTION_AIRSIDE_FREEZE=0`` restores
+    # the pre-ruling arm byte-identically.
+    _airside_frozen: set = set()
+    if _projection_airside_freeze_on():
+        try:
+            from auto_patch.elevation_per_surface.solver_primitives import (
+                solve_owned_airside_nodes as _solve_owned_airside)
+            _airside_frozen = {i for i in _solve_owned_airside(layout, b2i)
+                               if i < n}
+            hard |= _airside_frozen
+        except Exception:                                  # pragma: no cover
+            _airside_frozen = set()
     # ── CORRIDOR FREE-END DEM TIES, CARRIED BY CANONICAL KEY ──────────
     # (corridor-joins round ruling 3.)  This pass REBUILDS the node list,
     # so the solve's own indices mean nothing here — the tie crosses as a

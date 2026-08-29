@@ -172,6 +172,8 @@ __all__ = [
     "FREE_ROAD_PROFILE_PASS",
     "FREE_ROAD_PROFILE_RESOLVE",
     "FREE_ROAD_PROFILE_PRESOLVE",
+    "PROJECTION_AIRSIDE_FREEZE",
+    "FREE_ROAD_PROFILE_SELF_PINS",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10066,6 +10068,27 @@ ROAD_PATH_METRIC = (
 # DOWNSTREAM of the projection: the FIRST call (pre-limiter) is what
 # feeds it, and "0" removes that feed while leaving the post-projection
 # call — which cannot reach the projection at all — doing the work.
+# ── THE PROJECTION'S AIRSIDE FREEZE (owner 2026-08-28, Amendment 3 §1)
+# "The projection treats every solved AIRSIDE value as FROZEN Dirichlet
+# data — it may re-derive road/groundside, never airside."  The measured
+# defect: with the free-road profile on, 1,756 solve-owned airside nodes
+# moved at HECA (worst 2.07 m) and who_wrote names THIS pass as their
+# only post-solve writer — airside re-derived from a road-modified
+# layout.  DEFAULT ON; "0" restores the pre-ruling arm byte-identically.
+# ── SELF-PINS (owner 2026-08-28, Amendment 3 §2) ─────────────────────
+# A free-road chain with no airside weld at either end still has ENDS,
+# and its emitted end value is the consensus where it meets the settled
+# world.  Pinning THERE reads nothing but the chain's own values — no
+# adoption, no authority transfer — which is what lets the chord law
+# close the owner's fifth site (CYXY, 3.631 m below the chord of its own
+# ends) without ruling on which pavement binds a road.  "0" restores
+# airside-weld-and-binding pins only.
+FREE_ROAD_PROFILE_SELF_PINS = (
+    _os.environ.get("O4_FREE_ROAD_SELF_PINS", "1") != "0")
+
+PROJECTION_AIRSIDE_FREEZE = (
+    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "1") != "0")
+
 FREE_ROAD_PROFILE_PRESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")
 

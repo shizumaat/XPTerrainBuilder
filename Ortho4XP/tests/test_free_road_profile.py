@@ -359,3 +359,97 @@ class TestTheMidRunSag:
         target, _inf = FRP.chain_profile(
             [0.0, 50.0, 200.0], [100.0, 100.0, 90.0], {0: 104.0}, CAP)
         assert target[2] == pytest.approx(90.0)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 3 §2 — SELF-PINS (the fifth site's binding question dissolved)
+# ══════════════════════════════════════════════════════════════════════
+
+class TestSelfPins:
+
+    def test_a_chain_with_no_airside_weld_still_gets_pinned_ENDS(self):
+        """The owner's fifth site: 0 shared nodes with airside at either
+        end (both meet a gap_fill_spine graded_strip), so under the
+        pre-ruling law that chain had NO pins and its sag was invisible.
+        A SELF-PIN reads the chain's OWN end value — nothing else."""
+        layout = _u_loop_layout(gap_m=40.0)      # taxiway far away: no bind
+        out = FRP.solve_free_road_profiles(layout, "TEST")
+        assert out["bound_end_on"] == 0, "the fixture must have no binding"
+        assert out["self_pinned"] >= 1, (
+            "a chain with no airside weld got no pins at all — the fifth "
+            "site's defect")
+
+    def test_the_strips_value_is_NEVER_read(self):
+        """The 2026-08-15 carrier adjudication stands untouched: the pass
+        reads airside rings (ENCLAVE_AIRSIDE_ROLES) and the chain's own
+        values, and no soft receiver's value anywhere."""
+        import inspect
+        from auto_patch.enclaves import ENCLAVE_AIRSIDE_ROLES
+        # The only value the pass reads off another shape is an AIRSIDE
+        # one, and the airside register excludes every soft receiver.
+        assert "graded_strip" not in ENCLAVE_AIRSIDE_ROLES
+        assert "boundary" not in ENCLAVE_AIRSIDE_ROLES
+        src = inspect.getsource(FRP.solve_free_road_profiles)
+        # …and a SELF-pin is the chain's own value, by construction.
+        assert "v_end = vals[_end]" in src
+        assert "pins[_end] = float(v_end)" in src
+
+    def test_the_self_pin_is_the_chains_OWN_value(self):
+        ss = [0.0, 50.0, 100.0]
+        vals = [702.44, 698.93, 703.11]
+        target, _inf = FRP.chain_profile(ss, vals, {0: vals[0], 2: vals[2]},
+                                         CAP)
+        assert target[0] == pytest.approx(702.44)
+        assert target[2] == pytest.approx(703.11)
+        assert target[1] > 698.93                      # the sag is lifted
+
+    def test_the_gate_off_restores_weld_only_pins(self, monkeypatch):
+        monkeypatch.setattr(CFG, "FREE_ROAD_PROFILE_SELF_PINS", False)
+        layout = _u_loop_layout(gap_m=40.0)
+        out = FRP.solve_free_road_profiles(layout, "TEST")
+        assert out["self_pinned"] == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 3 §1 — THE PROJECTION'S AIRSIDE FREEZE
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheAirsideFreeze:
+
+    def test_the_freeze_is_default_on(self):
+        assert CFG.PROJECTION_AIRSIDE_FREEZE is True
+
+    def test_the_projection_hardens_the_solve_owned_airside_set(self):
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        src = inspect.getsource(S.final_grade_projection)
+        assert "solve_owned_airside_nodes" in src
+        assert "hard |= _airside_frozen" in src
+
+    def test_the_freeze_and_its_GATE_read_ONE_population(self):
+        """The freeze holds exactly the set ``airside_value_delta``'s
+        solve-owned frame measures — PAVEMENT_ROLES ∩ stage A — so the
+        law and its instrument cannot describe two populations."""
+        import inspect
+        from auto_patch.elevation_per_surface import solver_primitives as SP
+        src = inspect.getsource(SP.solve_owned_airside_nodes)
+        assert "PAVEMENT_ROLES" in src and "STAGE_A" in src
+        from pathlib import Path
+        tool = (Path(__file__).resolve().parents[1] / "tools"
+                / "airside_value_delta.py").read_text()
+        assert "PAVEMENT_ROLES" in tool and "STAGE_A" in tool
+
+    def test_the_freeze_never_hardens_a_ROAD_node(self):
+        """It may re-derive road/groundside, never airside — so the road
+        family must NOT be in the frozen set."""
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            PAVEMENT_ROLES)
+        from auto_patch.solve_stage import stage_of_role, STAGE_A
+        frozen_roles = {r for r in PAVEMENT_ROLES
+                        if stage_of_role(r) == STAGE_A}
+        assert "service_road" not in frozen_roles
+        assert "service_junction" not in frozen_roles
+        assert "groundside_pavement" not in frozen_roles

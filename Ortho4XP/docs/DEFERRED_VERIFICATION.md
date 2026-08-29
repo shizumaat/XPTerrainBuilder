@@ -4453,3 +4453,43 @@ What was NOT paid:
   round report: the DSF-vs-OSM road-spelling offset at item 1 (2.75 m)
   and the global `SERVICE_ROAD_WIDTH_M` at item 3 (6.0 m emitted against
   a stated 14.0 m).
+
+## 2026-08-28 — LEMD ramp/road fidelity round 2 (lane/lemdfidelity2)
+
+Spec `docs/specs/lemd-ramp-road-fidelity-spec.md` AMENDMENT 1, rulings 1
+and 2.  §F4 (`O4_PORTAL_SPELLING_ENVELOPE`) and §F5
+(`O4_SERVICE_ROAD_WAY_WIDTH`), both DEFAULT ON with byte-identical OFF
+arms proved by positive control at every airport built.
+
+What was NOT paid:
+
+* **No full-suite run** (pre-ship mode).  The blast-named files were run
+  once — 500 passed across the service-road and tunnel families plus this
+  round's 18 twins.
+* **No build-time measurement.**  §F4 reads the DSF networks
+  `object_terrain_assembly` ALREADY published on the layout (no load, no
+  parse) and costs one `LineString.distance` per draped segment per
+  portal cluster; §F5 costs one buffer + one `intersection().length` per
+  tagged feed way per corridor course, once per build.  No
+  `check_build_time --runs N` was run (per-change timing gates SUSPENDED,
+  RULINGS 2026-08-04); the ledger tripwire is the guard.  LEMD wall time
+  moved 1534 s (round-1 control) → 1074 s (round-1 arm) → this round's
+  arms in the same band under 8-way concurrency, so no anomaly is visible.
+* **THE CENSUS TOTAL ROSE AT THREE OF FOUR AIRPORTS** and this is NOT
+  paid down in this round: LEMD +12 (2527 → 2539), CYXY +6, OTHH +4,
+  against HECA −26.  The AIRSIDE frame improved or held everywhere
+  (LEMD 1713 → 1707, CYXY/OTHH unchanged, HECA 2422 → 2420).  The
+  increase is concentrated in `transverse` / `road_cross_section` on the
+  WIDENED groundside roads, which is the arithmetic of grading 2.7x more
+  road surface across a steeper cross-section — at LEMD 112 `transverse`
+  rows on `service_road` GO and 166 new rows arrive, mostly on
+  `service_junction`.  The worst new rows sit on one way (`-11806` at
+  40.496793,-3.593278, 24-30 % transverse at cap `none`).  Whether a
+  wider road on steep ground should be terraced rather than graded flat
+  across is a LAW question, not a lane decision; recorded for the ship
+  gate.
+* **`ramp_wall_gap` (2) and `ramp_wall_annulus_owned` (158) still FAIL**
+  at LEMD in BOTH arms — pre-existing, the §T5 foot law ships OFF.
+* **The docketed second wall emitter** (`_emit_low_corridor_connectors`)
+  was NOT taken, per the coordinator's instruction; `wall_top_flat` still
+  reports 0.34 m worst, unchanged between the arms.

@@ -10122,8 +10122,17 @@ FREE_ROAD_PROFILE_SELF_PINS = (
 # what makes it different from the three freezes rounds 5e-5h measured
 # dead.  Byte-identical by construction with the profile off (the store
 # is what the solve wrote).  DEFAULT ON.
+# RETIRED-KEPT-GATED with the freeze family (owner 2026-08-29a,
+# Amendment 8: "the 5e-5i freeze/road-blind knobs stay
+# retired-kept-gated").  It was the last and best of the post-solve
+# remedies — CYXY's post-solve channel goes to 0 under it — but round 5i
+# proved the residual is UPSTREAM of every post-solve pass (who_wrote at
+# both airports: the only writers are solve_route_profile and a
+# sub-0.1 m settle from the projection), and the owner has since ruled
+# the equilibrium shift ACCEPTED rather than defended against.  With
+# nothing left for it to block, it costs +13 rows at CYXY for nothing.
 PROJECTION_ROAD_BLIND = (
-    _os.environ.get("O4_PROJECTION_ROAD_BLIND", "1") != "0")
+    _os.environ.get("O4_PROJECTION_ROAD_BLIND", "0") != "0")
 
 # RETIRED-KEPT-GATED with the freeze family (Amendment 7 §3): the
 # two-stage staging existed to serve a freeze, and there is no freeze.

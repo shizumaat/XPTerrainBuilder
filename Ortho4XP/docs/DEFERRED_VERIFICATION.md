@@ -4775,3 +4775,37 @@ What was NOT paid:
 * **The five-airport flip-ON arm was not built**: the gate cannot be met
   at SPJC by any post-solve mechanism, so the bar is unreachable this
   round and HECA/OTHH/LEMD would re-measure that.
+
+## HECA round 5j (lane/hecar5j, 2026-08-29) — SHIP ARM STOPPED at gate (d): the per-station vector has no census reader
+
+* **Gate (a) PASSES where measured**: the CYXY fifth site holds at
+  **0.270 m** below the chord of its own self-pinned ends (control
+  3.631 m) — the ruled bar "0.27 m or better".
+* **Gate (b)/(c) PASS at CYXY**: airside rows 113 → 113 unchanged, and
+  the only two solve-owned airside movers are the WELD SET (0.09/0.07 m,
+  both ``('apron','service_junction')``), already attributed in 5g by
+  ``who_wrote`` to ``solve_route_profile`` — one variable, two claimants.
+* **Gate (d) FAILS, identically at both measured airports, and the cause
+  is structural**: CYXY 374 → 474 (+100) and SPJC 1152 → 1252 (+100),
+  each dominated by ``lateral_contiguity`` rows (CYXY 71+69, SPJC 73+31).
+  Those rows are NOT a law correction's equilibrium shift — they are two
+  readers disagreeing about which cap governs a station.
+* **THE DIAGNOSIS**: Amendment 2 gave the per-station cap vector THREE
+  readers — the pair pricing, the solve graph and the profile's envelope
+  — all emitter-side.  The CENSUS's ``check_grade._check_lateral_
+  contiguity`` was not among them: it still compares each station's own
+  cap against the WAY-level ``o4_grade_law_cap`` tag
+  (``eff = _role_grade_limit(w, …)``, check_grade.py:3981).  So a road
+  that lawfully solves at 8 % on its free stations and 1 % beside an
+  apron is emitted correctly and then judged against ONE way-level
+  number, and every free station beside an apron-capped one mints a row.
+  It is the census-wrapper law's own failure mode, at cap granularity.
+* **What it needs (design, not measure-and-flip)**: the vector must
+  travel in the emitted patch — a sidecar key beside the axes — and
+  ``_check_lateral_contiguity`` must price each station against ITS cap.
+  That is an emit-contract change and is why this round stopped instead
+  of flipping.
+* **HECA / OTHH / LEMD ON arms were not completed**: the two airports
+  measured fail gate (d) for a reason that is airport-independent (it is
+  a reader mismatch, not geometry), so the remaining builds would have
+  re-measured the same finding.

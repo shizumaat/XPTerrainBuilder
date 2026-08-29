@@ -171,6 +171,7 @@ __all__ = [
     "ROAD_CONTACT_CAP_SCOPE",
     "FREE_ROAD_PROFILE_PASS",
     "FREE_ROAD_PROFILE_RESOLVE",
+    "FREE_ROAD_PROFILE_PRESOLVE",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10053,6 +10054,21 @@ ROAD_PATH_METRIC = (
 # only part of the pass that runs downstream of a GLOBAL projection, and
 # therefore the only part that can plausibly carry a road change into the
 # airside surface.
+# ── WHERE THE PROFILE RUNS (round 5d, on the chartered measurement) ──
+# who_wrote at the item-4 apron (30.11445,31.40993) in the profile-ON arm
+# names its ONLY writers: ``solve_route_profile`` (93.31) and then
+# ``final_grade_projection`` (93.24).  The profile pass never touches that
+# node — so the 1,756 moved solve-owned airside nodes are not a write by
+# it but a RE-PROJECTION after it: the final projection re-derives airside
+# from the settled layout, and the road values the pass moved are in that
+# layout.  Amendment 2's law is "airside solves first and NEVER
+# re-derives from road inputs", so the remedy is to keep the profile
+# DOWNSTREAM of the projection: the FIRST call (pre-limiter) is what
+# feeds it, and "0" removes that feed while leaving the post-projection
+# call — which cannot reach the projection at all — doing the work.
+FREE_ROAD_PROFILE_PRESOLVE = (
+    _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")
+
 FREE_ROAD_PROFILE_RESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_RESOLVE", "1") != "0")
 

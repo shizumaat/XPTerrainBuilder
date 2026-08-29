@@ -157,11 +157,60 @@ def airside_contact_roles() -> frozenset:
 # Gate ``O4_ROAD_CONTACT_CAP_SCOPE=0`` restores the ring-wide contact
 # pricing byte-identically.
 def _contact_prices_the_cap() -> bool:
-    """Does EDGE CONTACT still fold into every station's cap? (pre-round
-    law = True; owner 2026-08-28e = False).  Read at CALL time so both
-    readers of the law agree within one process and a twin can flip it."""
+    """Does EDGE CONTACT fold into every station's cap?  **NO — ruled**
+    (owner 2026-08-28, Amendment 2 clause 1): the way-level gate
+    ``O4_ROAD_CONTACT_CAP_SCOPE`` DISSOLVES into the per-station vector.
+    End-on contact binds VALUES (the weld, the apron-CONTACT DATUM
+    seeding, the profile pass's pins) and caps nothing; LATERAL contact
+    is read by ``cross_section_roles`` at the stations it actually
+    touches and caps exactly those.
+
+    Kept as a function, and still readable through the retired gate, so
+    the pre-ruling arm can be reproduced for an A/B: ``O4_ROAD_CONTACT_
+    CAP_SCOPE=0`` restores ring-wide contact pricing byte-identically.
+    """
     from . import config as _cfg
     return not bool(getattr(_cfg, "ROAD_CONTACT_CAP_SCOPE", True))
+
+
+def station_cap_vector(poly, tree, polys, roles, own_index, keepout=None):
+    """``[(x, y, cap), …]`` — THE per-station cap vector (Amendment 2).
+
+    ONE DERIVATION, THREE READERS.  The cap authority lives at the
+    STATION, and this is the only place it is computed: the pair pricing
+    (``grade_graph.shape_constraints``), the solve's DEM-follow envelope
+    (``anchors.apply_service_road_dem_follow``) and the free-road profile
+    pass's cap-Lipschitz envelope all consume THIS vector, and the census
+    reads the same walk.  A second per-station cap anywhere would be the
+    census-wrapper defect at cap granularity.
+
+    Stations with no verdict (off the shape, inside the runway-strip
+    keepout, unmeasurable cross-section) are omitted — the caller's own
+    fallback owns them, exactly as it owns a ``None`` in
+    :func:`station_caps`.
+    """
+    stations, caps = station_caps(poly, tree, polys, roles, own_index,
+                                  keepout=keepout)
+    return [(float(st[0]), float(st[1]), float(c))
+            for st, c in zip(stations, caps)
+            if st is not None and c is not None]
+
+
+def cap_at(vector, x, y, default=None):
+    """The cap governing point ``(x, y)`` — its NEAREST station's.
+
+    The stations are 5 m apart along the road, so nearest-station is the
+    station the point stands in; asking any other way would be a second
+    convention.  ``default`` when the vector is empty.
+    """
+    if not vector:
+        return default
+    best = None
+    for (sx, sy, c) in vector:
+        d = (sx - x) * (sx - x) + (sy - y) * (sy - y)
+        if best is None or d < best[0]:
+            best = (d, c)
+    return best[1]
 
 # CANONICAL IDENTITY, NEVER PROXIMITY (the ruling's own words).  Two rings
 # share an edge when they carry the SAME two consecutive vertices.  The
@@ -365,6 +414,13 @@ def station_caps(poly, tree, polys, roles, own_index, keepout=None):
     own_role = (roles[own_index]
                 if own_index is not None and 0 <= own_index < len(roles)
                 else None)
+    # …AND THE RULING THAT DISSOLVED THE WAY-LEVEL GATE (owner
+    # 2026-08-28, round-5b spec Amendment 2 clause 1): "end-on contact
+    # binds VALUES and never caps any station; lateral contact caps
+    # exactly the stations it touches."  ``_contact_prices_the_cap`` is
+    # therefore permanently False — the gate is gone, not flipped — and
+    # the CAP now lives at ONE granularity, the STATION, in the vector
+    # this walk already produces.
     if (own_role in ROAD_ROLES and _edge_conformance_on()
             and _contact_prices_the_cap()):
         contact = edge_shared_roles(poly, tree, polys, roles, own_index)

@@ -366,6 +366,11 @@ class GradeShape:
     adopts_taxi_grade: bool = False
     adopted_taxi_letter: str | None = None
     lateral_cap: float | None = None
+    #: Amendment 2 clause 1 — the PER-STATION cap vector, carried from
+    #: ``BuiltShape.station_cap_vector`` so a pair prices at the cap of
+    #: the stations its OWN endpoints stand in, not at one ring-wide
+    #: scalar.  Empty ⇒ the scalar path, byte-identical.
+    station_cap_vector: list = field(default_factory=list)
     # Runway DE-SEGMENTATION (O4_RUNWAY_SINGLE_POLY): this is the ONE ring
     # per runway ref whose FAA profile stations are interior long-edge
     # vertices.  ``plane_constraints`` scopes such a ring's within-shape
@@ -2203,6 +2208,22 @@ def _body_cap(shape: GradeShape, ctx: GradeContext, membership: dict) -> float:
     return cap if lat is None else min(cap, float(lat))
 
 
+def _station_cap_at(shape, x, y, fallback):
+    """The PER-STATION cap governing ``(x, y)`` on ``shape`` (Amendment 2
+    clause 1), or ``fallback`` when the shape carries no vector.
+
+    ONE derivation, read through THE law's own accessor
+    (``lateral_contiguity.cap_at``) — never a second nearest-station
+    convention here.
+    """
+    vec = getattr(shape, "station_cap_vector", None)
+    if not vec:
+        return fallback
+    from .lateral_contiguity import cap_at as _cap_at
+    c = _cap_at(vec, float(x), float(y), None)
+    return fallback if c is None else min(float(fallback), float(c))
+
+
 def _body_cap_unbounded(shape: GradeShape, ctx: GradeContext,
                         membership: dict) -> float:
     # THE FAN-RAMP LAW (owner RULINGS 21f0980), FIRST because a fan-ramp
@@ -2926,6 +2947,9 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
         return sc
     membership = _spine_membership(shape, ctx)
     body_cap = _body_cap(shape, ctx, membership)
+    # Amendment 2 clause 1's vector, read once per shape.
+    station_vec = (list(getattr(shape, "station_cap_vector", None) or ())
+                   if shape.role in GL.ROAD_ROLES else [])
     # ── THE APRON MOVEMENT-SURFACE POPULATION (RULINGS 2026-08-21b) ──────
     # Per-vertex frontage / corridor membership, computed ONCE per shape and
     # handed to THE LAW (``grade_law.classify_pair``) as ``a_frontage`` /
@@ -3202,6 +3226,19 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
             _xsec_pair = (road_axis is not None
                           and GL.pair_is_transverse(road_axis,
                                                     xj - xi, yj - yi))
+            # Amendment 2 clause 1 — THE PER-STATION CAP.  A road pair
+            # prices at the STRICTER of the caps governing its own two
+            # endpoints, so a stretch alongside an apron carries the
+            # apron's 1 % over exactly its own stations while the same
+            # ring's free stretch keeps SERVICE_ROAD_MAX_GRADE.  One
+            # ring, two caps, which is what "the cap lives at the
+            # station" means.  Empty vector ⇒ the ring-wide scalar,
+            # byte-identical.
+            _st_cap = None
+            if station_vec:
+                _st_cap = min(
+                    _station_cap_at(shape, xi, yi, body_cap),
+                    _station_cap_at(shape, xj, yj, body_cap))
             if _road_cum is not None and not _xsec_pair:
                 # Amendment 1 clause 1 — never TIGHTER than the chord
                 # (a ring walk is >= the chord by construction), so this
@@ -3270,7 +3307,8 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 role=shape.role, dist=d, ring_adjacent=ring_adjacent,
                 a_seam=ki in seam, b_seam=kj in seam,
                 a_building=ki_bld, b_building=kj_bld,
-                spine_caps=spine_caps, body_cap=body_cap,
+                spine_caps=spine_caps,
+                body_cap=(body_cap if _st_cap is None else _st_cap),
                 visible_fn=visible_fn, crosses_spine_fn=crosses_fn,
                 mesh_member_fn=mesh_fn,
                 blend_cap_fn=blend_fn, both_road=both_road,
@@ -4016,7 +4054,9 @@ def build_unified_graph(layout, bucket_to_idx, ctx=None, *,
                             s, "adopts_taxi_grade", False),
                         adopted_taxi_letter=getattr(
                             s, "adopted_taxi_letter", None),
-                        lateral_cap=getattr(s, "lateral_cap", None))
+                        lateral_cap=getattr(s, "lateral_cap", None),
+                        station_cap_vector=list(
+                            getattr(s, "station_cap_vector", None) or ()))
         sc = shape_constraints_cached(id(s.polygon), gs, ctx)
         # A4.2 EXCLUDED APRON NODES, accumulated as the shapes are walked
         # (their pairs never reach ``G.edges``, so this is the only place

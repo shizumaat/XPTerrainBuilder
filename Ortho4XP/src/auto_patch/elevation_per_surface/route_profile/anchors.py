@@ -5202,6 +5202,11 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
         if s.role not in SVC or s.polygon is None or s.polygon.is_empty:
             continue
         _lc = getattr(s, "lateral_cap", None) if _CLASS_UNIVERSAL else None
+        # Amendment 2 clause 1 — READER 2 of the PER-STATION vector: a
+        # node's envelope cap is the cap of the station it stands in, not
+        # the ring-wide scalar, so a road's free stretch is not held at
+        # the apron's 1 % just because its other end runs alongside one.
+        _sv = list(getattr(s, "station_cap_vector", None) or ())
         ring = _open_ring(list(s.polygon.exterior.coords))
         idxs = [bucket_to_idx.get(_key(x, y)) for (x, y) in ring]
         for k in range(len(ring)):
@@ -5209,10 +5214,18 @@ def apply_service_road_dem_follow(layout, bucket_to_idx, elev, dem_elev, cap,
             if i is None or i >= len(elev):
                 continue
             svc_nodes.add(i)
-            if _lc is not None:
+            _node_cap = _lc
+            if _sv:
+                from auto_patch.lateral_contiguity import cap_at as _cap_at
+                _sc = _cap_at(_sv, float(ring[k][0]), float(ring[k][1]),
+                              None)
+                if _sc is not None:
+                    _node_cap = (float(_sc) if _lc is None
+                                 else min(float(_lc), float(_sc)))
+            if _node_cap is not None:
                 _prev = lat_cap.get(i)
-                lat_cap[i] = (float(_lc) if _prev is None
-                              else min(_prev, float(_lc)))
+                lat_cap[i] = (float(_node_cap) if _prev is None
+                              else min(_prev, float(_node_cap)))
             node_pos.setdefault(i, ring[k])
             node_shape.setdefault(i, id(s))
             _ns = node_shapes.setdefault(i, [])

@@ -72,13 +72,18 @@ def profile_owned_keys(layout) -> set:
     return set(getattr(layout, PROFILE_KEYS_ATTRIBUTE, None) or ())
 
 
-def chain_profile(stations_s, values, pins, cap):
+def chain_profile(stations_s, values, pins, cap, caps=None):
     """THE PROFILE LAW, geometry-free so a twin can state it directly.
 
     ``stations_s`` is the chain's station arclengths (ascending),
     ``values`` the current per-station value, ``pins`` a
     ``{index: value}`` of Dirichlet endpoints, ``cap`` the longitudinal
-    grade limit.  Returns ``(target, infeasible)`` where ``target`` is
+    grade limit, and ``caps`` the OPTIONAL PER-STATION cap vector
+    (Amendment 2 clause 1 — READER 3 of the one derivation): station
+    ``i`` may not out-grade ``caps[i]``, so a stretch alongside an apron
+    ramps at 1 % over its own stations while the free stretch of the same
+    chain ramps at 8 %.  ``None`` ⇒ the scalar ``cap`` everywhere,
+    byte-identical.  Returns ``(target, infeasible)`` where ``target`` is
     the new per-station value and ``infeasible`` lists
     ``(i, j, needed_grade)`` for pin pairs no ``cap`` profile connects.
 
@@ -100,21 +105,67 @@ def chain_profile(stations_s, values, pins, cap):
     if not pins:
         return target, infeasible
     items = sorted(pins.items())
+    def _seg_cap(i, j):
+        """The cap governing the run between two stations: the STRICTEST
+        station cap on it — a 1 % station anywhere between two pins binds
+        the whole span, which is what "the cap lives at the station"
+        means for a profile."""
+        if not caps:
+            return float(cap)
+        lo, hi = (i, j) if i <= j else (j, i)
+        seg = [c for c in caps[lo:hi + 1] if c is not None]
+        return min(seg) if seg else float(cap)
+
     for a in range(len(items)):
         ia, za = items[a]
         for b in range(a + 1, len(items)):
             ib, zb = items[b]
             ds = abs(stations_s[ib] - stations_s[ia])
             dz = abs(zb - za)
-            if dz > cap * ds + 1e-9:
+            if dz > _seg_cap(ia, ib) * ds + 1e-9:
                 need = dz / ds if ds > 1e-9 else float("inf")
                 infeasible.append((ia, ib, need))
     if infeasible:
         return list(values), infeasible
+    # ── THE CHORD OF THE BRACKETING PINS (owner acceptance line, the
+    # CYXY site 60.7100244,-135.0727863 -> 60.7087015,-135.0746305) ───
+    # A chain whose two ends are BOTH bound may not sag between them:
+    # measured on the round-5d control, that road welds correctly at
+    # 702.44 and 703.11 and drops to 698.93 in the middle — 3.63 m below
+    # the chord of its own pinned ends, with nothing in the pins asking
+    # for a dip.  The cap envelope alone cannot see it (a sag well inside
+    # +-cap*d is "lawful" to a Lipschitz bound), so the law needs the
+    # chord: between two DIRECTLY BRACKETING pins the profile is at least
+    # their linear interpolation.  It only ever RAISES — a genuine hill
+    # between the pins keeps its own height, bounded by ``hi`` as before —
+    # so this cannot flatten terrain the road legitimately climbs.
+    pin_idx = sorted(pins)
+
+    def _chord(i):
+        lo_p = None
+        hi_p = None
+        for p in pin_idx:
+            if p <= i:
+                lo_p = p
+            if p >= i and hi_p is None:
+                hi_p = p
+        if lo_p is None or hi_p is None or lo_p == hi_p:
+            return None
+        s0, s1 = stations_s[lo_p], stations_s[hi_p]
+        if abs(s1 - s0) < 1e-9:
+            return None
+        t = (stations_s[i] - s0) / (s1 - s0)
+        return pins[lo_p] + t * (pins[hi_p] - pins[lo_p])
+
     for i in range(n):
         s = stations_s[i]
-        hi = min(z + cap * abs(s - stations_s[p]) for p, z in pins.items())
-        lo = max(z - cap * abs(s - stations_s[p]) for p, z in pins.items())
+        hi = min(z + _seg_cap(i, p) * abs(s - stations_s[p])
+                 for p, z in pins.items())
+        lo = max(z - _seg_cap(i, p) * abs(s - stations_s[p])
+                 for p, z in pins.items())
+        ch = _chord(i)
+        if ch is not None and ch > lo:
+            lo = ch
         if i in pins:
             target[i] = float(pins[i])
             continue
@@ -152,7 +203,7 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     out = {"on": False, "chains": 0, "stations": 0, "pinned": 0,
            "bound_end_on": 0, "refused_near_miss": 0, "moved": 0,
            "worst_m": 0.0, "infeasible_chains": 0, "frozen": 0,
-           "disagreeing_pins": 0}
+           "disagreeing_pins": 0, "station_capped": 0}
     from . import config as _cfg
     if not bool(getattr(_cfg, "FREE_ROAD_PROFILE_PASS", True)):
         return out
@@ -194,6 +245,19 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     if not cur:
         return out
     node_pos = {i: xy[i] for i in range(len(xy))}
+    # THE PER-STATION CAPS, per node, from the shapes' published vector.
+    from .lateral_contiguity import cap_at as _cap_at
+    node_cap: dict = {}
+    for (s_shape, ids) in rings:
+        vec = list(getattr(s_shape, "station_cap_vector", None) or ())
+        if not vec:
+            continue
+        for i in ids:
+            c = _cap_at(vec, xy[i][0], xy[i][1], None)
+            if c is None:
+                continue
+            prev = node_cap.get(i)
+            node_cap[i] = float(c) if prev is None else min(prev, float(c))
 
     # ── LAW 1: the DIRICHLET pins ────────────────────────────────────
     # A frozen node is one a NON-ROAD value authority carries — airside
@@ -282,7 +346,20 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
         if not pins:
             continue
         out["chains"] += 1
-        target, infeasible = chain_profile(ss, vals, pins, float(_CAP))
+        # Amendment 2 clause 1 — the PER-STATION caps of this chain, read
+        # from the shapes' published vector (ONE derivation, this being
+        # its third reader).  A station governed by an apron carries the
+        # apron's cap; the free stations carry SERVICE_ROAD_MAX_GRADE.
+        st_caps: list = []
+        for sid in sids:
+            members = [m for m in stations[sid]["members"]]
+            cs = [node_cap.get(m) for m in members]
+            cs = [c for c in cs if c is not None]
+            st_caps.append(min(cs) if cs else None)
+        if any(c is not None and c < float(_CAP) for c in st_caps):
+            out["station_capped"] += 1
+        target, infeasible = chain_profile(ss, vals, pins, float(_CAP),
+                                           caps=st_caps)
         if infeasible:
             out["infeasible_chains"] += 1
             worst = max(infeasible, key=lambda t: t[2])

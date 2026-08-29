@@ -312,3 +312,50 @@ class TestTheGates:
         assert "_GL_RING_PATH_CUM" in src
         band = inspect.getsource(GS._chord_band)
         assert "_GL_ROAD_PAIR_DISTANCE" in band
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE FIFTH OWNER SITE — a MID-RUN SAG between two bound ends
+# (CYXY 60.7100244,-135.0727863 -> 60.7095834,-135.073401 ->
+#  60.7087015,-135.0746305, service_road -10379 / service_junction
+#  -10064; measured on the round-5d control: both ends weld at 702.44 /
+#  703.11 and the middle sits at 698.93 — 3.63 m below the chord of its
+#  own pinned ends, with nothing in the pins asking for a dip.)
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheMidRunSag:
+
+    def test_the_sag_is_lifted_to_the_chord_of_its_pinned_ends(self):
+        ss = [0.0, 47.5, 59.4, 118.8, 190.3]
+        vals = [702.44, 699.05, 698.93, 699.91, 703.11]
+        target, infeasible = FRP.chain_profile(
+            ss, vals, {0: 702.44, 4: 703.11}, CAP)
+        assert not infeasible
+        for i, s in enumerate(ss):
+            chord = 702.44 + (703.11 - 702.44) * (s - ss[0]) / (ss[-1] - ss[0])
+            assert target[i] >= chord - FRP.MATERIALITY_M, (
+                f"station {s} sits {chord - target[i]:.3f} m below the "
+                f"chord of its pinned ends — the owner's fifth site")
+
+    def test_the_ends_keep_their_weld_values(self):
+        ss = [0.0, 59.4, 190.3]
+        target, _inf = FRP.chain_profile(
+            ss, [702.44, 698.93, 703.11], {0: 702.44, 2: 703.11}, CAP)
+        assert target[0] == pytest.approx(702.44)
+        assert target[2] == pytest.approx(703.11)
+
+    def test_a_GENUINE_HILL_between_the_pins_is_kept(self):
+        """SCOPE: the chord only ever RAISES.  A road that legitimately
+        climbs over a rise between two pins keeps its height — the law
+        closes sags, it does not flatten terrain."""
+        target, _inf = FRP.chain_profile(
+            [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
+            {0: 100.0, 2: 100.0}, 0.5)
+        assert target[1] == pytest.approx(120.0)
+
+    def test_an_unbracketed_station_has_no_chord(self):
+        """Beyond the last pin there is no chord to hold — the road
+        returns to its own level under the cap envelope alone."""
+        target, _inf = FRP.chain_profile(
+            [0.0, 50.0, 200.0], [100.0, 100.0, 90.0], {0: 104.0}, CAP)
+        assert target[2] == pytest.approx(90.0)

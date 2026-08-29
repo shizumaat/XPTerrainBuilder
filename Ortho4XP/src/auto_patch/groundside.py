@@ -3449,6 +3449,14 @@ def apply_lateral_contiguity_law(layout, icao: str = "", *,
             1 for st, cap in zip(stations, caps)
             if st is not None and cap is None and strip is not None
             and strip.covers(Point(st)))
+        # ── THE PER-STATION CAP VECTOR (Amendment 2 clause 1) ────────
+        # Published from THIS walk — the one that already produced it —
+        # so the pair pricing, the solve's DEM-follow envelope and the
+        # free-road profile's cap-Lipschitz envelope all read one
+        # derivation.  Empty when no station has a verdict.
+        s.station_cap_vector = [(float(st[0]), float(st[1]), float(c))
+                                for st, c in zip(stations, caps)
+                                if st is not None and c is not None]
         runs = lateral_contiguity_segments(caps)
         if not runs:
             if rebind_only and s.lateral_cap is not None:

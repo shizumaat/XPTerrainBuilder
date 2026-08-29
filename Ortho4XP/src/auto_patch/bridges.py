@@ -3461,18 +3461,95 @@ TUNNEL_WALL_FOOT_REF = "tunnel_wall_foot"
 _TUNNEL_COVER_REFS = ("tunnel_wall", TUNNEL_WALL_FOOT_REF,
                       "tunnel_roof", "tunnel_cap")
 
-#: §T5 gate.  DEFAULT OFF — spec Amendment 2 ruling 2, the DEFINED
-#: FALLBACK, taken because the foot design could not be landed inside its
-#: cap: the partition is provably disjoint AT EMIT (measured 0.0000 m²
-#: overlap for all 6 SPJC pieces), but a later pass inflates each wall
+#: §T5 gate.  DEFAULT ON since the face-inflation was ATTRIBUTED
+#: (2026-08-29, lane/tunneldockets).  The partition is disjoint AT EMIT
+#: (measured 0.0000 m² for all 6 SPJC pieces); what inflated each wall
 #: FACE by ~1.4 m² (343.2→344.6, 116.4→117.8, 315.7→317.3) back over its
-#: foot, and `test_no_self_overlap` has zero tolerance.  ON emits the
-#: foot+face partition and is the follow-up docket's starting point.
+#: foot is ``conformance.enforce_conformance`` — the post-solve T-vertex
+#: weld, whose inserts take the DONOR's coordinate (never the projection
+#: onto the receiving edge), so an insert bows the receiving ring by up
+#: to ``CONFORMANCE_TOL_M`` (0.5 m).  Measured: exactly 2 inserts per
+#: SPJC face, every donor a vertex carried by the band's own
+#: ``tunnel_wall``/``tunnel_wall_foot`` pieces.  That weld is not a
+#: defect — it is what keeps Triangle4XP from tearing — so the FOOT
+#: yields to the welded face afterwards
+#: (:func:`reclip_wall_feet_against_faces`), exactly as pavement yields
+#: to a building pad in the LAST-WORD re-clip that closes the identical
+#: class (``groundside._clip_pavement_against_building_pads``, owner
+#: CYXY building1: "the post-solve conformance weld's 0.5 m tolerance
+#: can bow a ring back ACROSS an edge and nothing later owned the
+#: pair").  OFF is the plain ``_g0`` standoff, byte-identical to the
+#: pre-round fallback.
 _RAMP_WALL_FOOT_ENV = "O4_RAMP_WALL_FOOT"
 
 
 def ramp_wall_foot_enabled() -> bool:
-    return os.environ.get(_RAMP_WALL_FOOT_ENV, "0") == "1"
+    return os.environ.get(_RAMP_WALL_FOOT_ENV, "1") == "1"
+
+
+def reclip_wall_feet_against_faces(layout: "PavementLayout",
+                                   min_overlap_m2: float = 1e-3) -> int:
+    """LAST-WORD wall-foot re-clip — THE FOOT IS WHAT THE FACE LEAVES.
+
+    §T5 makes the foot and the face ONE PARTITION of one band polygon,
+    and at emit they are disjoint by construction.  The post-solve
+    T-vertex weld then bows the face's inner edge inboard: its inserts
+    carry the DONOR's coordinate, not the projection onto the receiving
+    edge, so a welded ring moves by up to ``CONFORMANCE_TOL_M``.  The
+    weld is doing its job (an unwelded on-edge node Ruppert-explodes the
+    tile mesh) — so the PARTITION is what re-establishes itself: the
+    annulus is *what the face does not occupy*, and the foot yields.
+
+    This is the same last-word shape, and the same reasoning, as
+    ``groundside._clip_pavement_against_building_pads``; it shares that
+    clip's semantics rather than spelling a second one
+    (``_clip_shape_yielding_to`` with ``snap_tol=0`` — a pure difference
+    only ever shrinks the yielder, so it cannot mint an overlap
+    elsewhere).  Runs BEFORE the final tight-tolerance T-weld so the
+    clip's new on-edge vertices are themselves welded.
+
+    Returns the number of foot pieces clipped or dropped.
+    """
+    if not ramp_wall_foot_enabled():
+        return 0
+    _faces = [s.polygon for s in layout.shapes
+              if getattr(s, "ref", "") == "tunnel_wall"
+              and getattr(s, "polygon", None) is not None
+              and not s.polygon.is_empty
+              and s.polygon.geom_type == "Polygon"]
+    if not _faces:
+        return 0
+    from .groundside import _clip_shape_yielding_to
+    _tree = STRtree(_faces)
+    _n = 0
+    _dropped: set = set()
+    for _s in layout.shapes:
+        if getattr(_s, "ref", "") != TUNNEL_WALL_FOOT_REF:
+            continue
+        if (getattr(_s, "polygon", None) is None or _s.polygon.is_empty
+                or _s.polygon.geom_type != "Polygon"):
+            continue
+        for _qk in _tree.query(_s.polygon):
+            _face = _faces[int(_qk)]
+            try:
+                _ov = _s.polygon.intersection(_face).area
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if _ov <= min_overlap_m2:
+                continue
+            _new = _clip_shape_yielding_to(_s, _face, snap_tol=0.0)
+            _n += 1
+            if _new is None:
+                # The welded face covers the whole shelf here — the face
+                # owns that ground; a foot with nothing left is not a
+                # sliver worth shipping.
+                log_tunnel_piece_removal(
+                    layout, _s, "wall-foot re-clip: face covers the shelf")
+                _dropped.add(id(_s))
+                break
+    if _dropped:
+        layout.shapes = [s for s in layout.shapes if id(s) not in _dropped]
+    return _n
 
 
 #: §F1 gate (LEMD ramp/road fidelity spec, law 1).  DEFAULT ON.  OFF
@@ -6500,6 +6577,45 @@ def log_tunnel_piece_removal(layout, shape, predicate: str, *,
         return
 
 
+def _covering_shapes(layout: "PavementLayout", shape,
+                     pre_emit_shape_ids: set, top: int = 3) -> str:
+    """WHICH surfaces a dropped cover piece is judged to be under.
+
+    Portal-corridor-claim §1 gave every removal a NAMED line; a drop
+    predicate that names a coverage FRACTION and not the covering
+    SURFACE still costs a re-derivation off the emitted patch to answer
+    "covered by what?" — which is the question the §W1 residual turns
+    on (a wall over its own claim's host is the defect; a wall under a
+    terminal is the law).  Cheap: it runs only on the handful of pieces
+    that actually drop.
+    """
+    try:
+        _poly = getattr(shape, "polygon", None)
+        if _poly is None or _poly.is_empty:
+            return ""
+        _hits = []
+        for _o in layout.shapes:
+            if _o is shape or id(_o) not in pre_emit_shape_ids:
+                continue
+            _op = getattr(_o, "polygon", None)
+            if _op is None or _op.is_empty or _op.geom_type != "Polygon":
+                continue
+            try:
+                _a = _poly.intersection(_op).area
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            if _a > 0.25:
+                _hits.append((_a, getattr(_o, "role", "") or "-",
+                              getattr(_o, "ref", "") or "-"))
+        if not _hits:
+            return "covered by NOTHING in the layout"
+        _hits.sort(reverse=True)
+        return "covered by " + ", ".join(
+            f"{_r}/{_f} {_a:.0f}m2" for _a, _r, _f in _hits[:top])
+    except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
+        return ""
+
+
 def _clip_piece_off_protected(shape, protected_union):
     """``shape`` clipped clear of AIRCRAFT-TRANSIT pavement, or ``None``.
 
@@ -6752,7 +6868,8 @@ def _finalize_tunnel_emission(
                 _n_clip += 1    # covered stretch — no visible structure
                 log_tunnel_piece_removal(
                     layout, s9, "covered-stretch drop", index=_k9,
-                    coverage=_ov / max(1e-9, s9.polygon.area))
+                    coverage=_ov / max(1e-9, s9.polygon.area),
+                    verdict=_covering_shapes(layout, s9, pre_emit_shape_ids))
                 continue
             # A graze — clip the piece off the pavement (with vertex-
             # bucket clearance) and keep the visible remainder.

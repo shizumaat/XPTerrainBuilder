@@ -6601,6 +6601,21 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             f"{_n_bpad} pavement shape(s) yielded to pads.")
     _rod_ckpt(layout, "11_building_pad_reclip")
 
+    # LAST-WORD wall-foot re-clip (§T5, docket 2026-08-29): the same
+    # weld-bow class one shape over — the post-solve conformance weld
+    # bows a tunnel_wall FACE's inner edge back across its own FOOT
+    # (measured SPJC: 2 inserts per face, ~1.4 m² each).  Foot and face
+    # are ONE partition, so the annulus re-establishes itself as what
+    # the face does not occupy.  Same clip semantics as the pad re-clip
+    # above, and before the final T-weld for the same reason.
+    from .bridges import reclip_wall_feet_against_faces
+    _n_wfoot = reclip_wall_feet_against_faces(layout)
+    if _n_wfoot:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: wall-foot re-clip — "
+            f"{_n_wfoot} foot piece(s) yielded to their welded face.")
+    _rod_ckpt(layout, "11b_wall_foot_reclip")
+
     # LAST-WORD bridge re-clip: drop_flatedge_nodes / planarize above can
     # STRAIGHTEN a pavement edge that the emit-time bridge clip followed,
     # re-creating a pavement∩bridge overlap (CYXY apron#25: 6.7 m²).  Run

@@ -47,10 +47,14 @@ this section is INVALID, same as one violating a ruling):**
 - SITE-FIRST REPORTING: every report quotes the owner-site numbers in
   the CURRENT configuration first; a below-bar merge requires the
   owner's sign-off with the residual quoted.
-- CHIP/SESSION BRANCHES MERGE SAME-DAY: a fix on a `claude/*` branch
-  is not fixed until it is on main — merge it or register it in the
-  STATUS handover the same session. (2026-08-29: a dozen finished chip
-  fixes were found stranded, including the standing test_harness red.)
+- CHIP/SESSION BRANCHES MERGE SAME-DAY, AND THE SPAWNER OWNS THE
+  MERGE (owner 2026-08-29): whoever spawns a chip or lane merges its
+  result branch when the completion lands — a fix on a `claude/*`
+  branch is not fixed until it is on main. Chips spawned from inside
+  chip sessions do not reach the owner's surface; a chip session's
+  follow-up work items are REPORTED BACK to the spawner, never
+  chip-spawned onward. (2026-08-29: a dozen finished chip fixes were
+  found stranded, including the standing test_harness red.)
 
 Until the first official
 release, most verification weight below is SUSPENDED: no per-edit

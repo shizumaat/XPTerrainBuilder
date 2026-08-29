@@ -311,3 +311,112 @@ class TestPerStationCapUnification:
         src = inspect.getsource(LC._contact_prices_the_cap)
         assert "DISSOLVES" in src or "dissolves" in src
         assert "ruled permanently False" in src or "**NO — ruled**" in src
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 9 — THE CENSUS IS THE FOURTH READER OF THE ONE DERIVATION
+# (5j measured what its absence costs: +100 rows at BOTH CYXY and SPJC,
+#  140 and 104 of them ``lateral_contiguity`` — a road that lawfully
+#  solves at 8 % on its free stations and 1 % beside an apron, judged
+#  against ONE way-level number.)
+# ══════════════════════════════════════════════════════════════════════
+
+def _check_grade():
+    """The harness twins' own loader — registering in ``sys.modules``
+    before exec is what makes the module's own imports resolve."""
+    import importlib.util
+    import sys as _sys
+    from pathlib import Path
+    p = Path(__file__).resolve().parents[1] / "tools" / "check_grade.py"
+    name = "_cg_amend9"
+    if name in _sys.modules:
+        return _sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, p)
+    mod = importlib.util.module_from_spec(spec)
+    _sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestTheFourthReader:
+
+    def test_the_key_is_REGISTERED_so_omission_is_structural(self):
+        """It goes through the harness register, so the
+        structurally-impossible-omission twins in test_harness.py cover
+        it: a key the reader does not supply, or a kwarg the reader does
+        not produce, fails there."""
+        cg = _check_grade()
+        import inspect
+        assert cg.SIDECAR_LAW_KEYS["station_caps"] == "station_caps_ll"
+        assert "station_caps_ll" in inspect.signature(
+            cg.run_checks).parameters
+
+    def test_the_census_READS_the_vector_and_never_re_derives_it(self):
+        """FOURTH READER, not a fourth derivation: the cap comes from the
+        published vector through the law's OWN accessor."""
+        cg = _check_grade()
+        import inspect
+        src = inspect.getsource(cg._check_lateral_contiguity)
+        assert "cap_at as _cap_at" in src
+        assert "_cap_at(_pub_caps_m" in src
+        # …and the accessor is the one the emitter's readers use.
+        from auto_patch import lateral_contiguity as LC
+        assert callable(LC.cap_at)
+
+    def test_the_sidecar_ROUND_TRIPS_metres_to_latlon_to_metres(self):
+        """The emitter publishes lat/lon; the census reads it back into
+        ITS metre frame.  A station must land where it started."""
+        import math
+        from auto_patch import lateral_contiguity as LC
+        lat0, lon0 = 30.1089375, 31.434664815
+        R = 6378137.0
+        cos0 = math.cos(math.radians(lat0))
+
+        def m_to_ll(x, y):
+            return (lat0 + math.degrees(y / R),
+                    lon0 + math.degrees(x / (R * cos0)))
+
+        def ll_to_m(la, lo):
+            return (math.radians(lo - lon0) * R * cos0,
+                    math.radians(la - lat0) * R)
+
+        vec_m = [(-3430.58, -410.89, 0.01), (-3372.14, -340.88, 0.08)]
+        published = [[*m_to_ll(x, y), c] for (x, y, c) in vec_m]
+        back = [(*ll_to_m(e[0], e[1]), e[2]) for e in published]
+        for (a, b) in zip(vec_m, back):
+            assert abs(a[0] - b[0]) < 1e-3 and abs(a[1] - b[1]) < 1e-3
+            assert a[2] == b[2]
+        # …and the accessor picks the right one of the two.
+        assert LC.cap_at(back, -3430.0, -410.0) == pytest.approx(0.01)
+        assert LC.cap_at(back, -3372.0, -341.0) == pytest.approx(0.08)
+
+    def test_a_MISSING_key_degrades_loudly_and_deterministically(self):
+        """An old patch has no ``station_caps``.  The census must then
+        price at the WAY-level cap exactly as before AND say so — never
+        quietly report numbers from a different law than the reader
+        thinks it is applying."""
+        cg = _check_grade()
+        import inspect
+        src = inspect.getsource(cg._check_lateral_contiguity)
+        assert "no sidecar" in src and "station_caps" in src
+        assert "pre-Amendment-9 frame" in src
+        # the fallback is the way-level cap, unchanged
+        assert "_built = eff" in src
+
+    def test_a_free_station_beside_an_apron_capped_one_is_NOT_a_row(self):
+        """The arithmetic 5j's +100 was made of: two stations on ONE road,
+        one governed by an apron at 1 % and one free at 8 %.  Priced at
+        the way-level cap the free station reads as a violation; priced
+        at ITS OWN cap it does not."""
+        from auto_patch import lateral_contiguity as LC
+        pub = [(0.0, 0.0, 0.01), (60.0, 0.0, 0.08)]
+        way_level = 0.08
+        # the apron-side station: its own cap binds, and the way's cap
+        # exceeds it -> a genuine row under either reading
+        beside = LC.cap_at(pub, 1.0, 0.0)
+        assert min(way_level, beside) > 0.01 - 1e-12
+        assert beside == pytest.approx(0.01)
+        # the FREE station: way-level 8 % vs its own 8 % -> no row
+        free = LC.cap_at(pub, 59.0, 0.0)
+        assert free == pytest.approx(0.08)
+        assert min(way_level, free) <= free + 1e-12

@@ -2903,7 +2903,8 @@ class MeshEdgesExact:
 # ── main ────────────────────────────────────────────────────────────────────
 
 def shape_constraints(shape: GradeShape, ctx: GradeContext,
-                      ring_only: bool = False) -> ShapeConstraints:
+                      ring_only: bool = False,
+                      road_path_metric: bool = False) -> ShapeConstraints:
     """The grade constraints of ONE soft airside shape (apron / junction).
 
     ``ring_only`` (user 2026-07-05 flatness tier): generate ONLY the
@@ -2961,8 +2962,18 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # ``solver_primitives._build_shape_constraints`` (the solve) — so a
     # road pair cannot be priced at two distances by two instruments.
     # ``O4_ROAD_PATH_METRIC=0`` restores the euclidean chord exactly.
+    # SCOPED TO THE TWO READERS THE RULING NAMES — the CENSUS and the
+    # emitter's chord LIMITER — and NOT to the solve graph, which is a
+    # THIRD reader of this function.  That scope is MEASURED (this lane,
+    # HECA): with the metric in the solve as well, the road's own law
+    # change travelled through the ONE solve and moved 1,756 SOLVE-OWNED
+    # airside nodes by up to 2.07 m — 1,516 of them apron nodes with no
+    # road contact at all.  Airside is king: the solve keeps the
+    # euclidean chord, which is the STRICTER of the two (a walk is never
+    # shorter), so it can never mint a census row the walk would forgive.
     _road_cum = _road_total = None
-    if (ROAD_PATH_METRIC and shape.role in GL.ROAD_ROLES):
+    if (road_path_metric and ROAD_PATH_METRIC
+            and shape.role in GL.ROAD_ROLES):
         _road_cum, _road_total = GL.ring_path_cumulative(ring)
     # ── THE BACK-EDGE ZONES (RULINGS 2026-08-24): per-vertex zone index,
     # computed ONCE per shape.  Only the 5 % class needs it, so it is

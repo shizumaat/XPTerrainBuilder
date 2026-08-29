@@ -161,6 +161,12 @@ class TestTwoReadersOnePath:
         src = inspect.getsource(GG.shape_constraints)
         assert "road_pair_distance" in src
         assert "ring_path_cumulative" in src
+        # …and the census ASKS for it, while the solve does not: the
+        # metric is scoped to the two readers the ruling names.
+        cg = (Path(__file__).resolve().parents[1] / "tools"
+              / "check_grade.py").read_text()
+        assert "shape_constraints(gs, _law_ctx, road_path_metric=True)" in cg
+        assert "road_path_metric: bool = False" in src
 
     def test_the_limiter_prices_through_THE_SAME_function(self):
         import inspect
@@ -206,5 +212,5 @@ class TestTheGate:
         import inspect
         from auto_patch import grade_graph as GG
         src = inspect.getsource(GG.shape_constraints)
-        assert "if (ROAD_PATH_METRIC and shape.role in GL.ROAD_ROLES)" in src
+        assert "if (road_path_metric and ROAD_PATH_METRIC" in src
         assert "_road_cum = _road_total = None" in src

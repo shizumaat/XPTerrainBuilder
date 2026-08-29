@@ -171,6 +171,20 @@ def _road_carve_outranked_by_host(role: str) -> bool:
 _OUTRANKS_ROAD = None
 
 
+def strictest_claim_role(*roles: str) -> str:
+    """THE strictest claimant among ``roles`` — ``layout``'s authority
+    order (runway > taxi family > apron > building > road > groundside).
+
+    One spelling for "who claims this contact", so a cross-shape reader
+    and a within-shape reader cannot answer it differently.  Empty input
+    or all-unranked roles return the first argument unchanged."""
+    from .layout import authority_rank
+    named = [r for r in roles if r]
+    if not named:
+        return roles[0] if roles else ""
+    return min(named, key=authority_rank)
+
+
 # ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b spec
 # Amendment 1: "WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE
 # ROAD'S OWN PATH METRIC — the route-metric-within-shape precedent
@@ -2980,6 +2994,18 @@ class PairContext:
     # ``both_road``: both endpoints sit on a service-road carve through the host
     # (so the pair descends at the ROAD cap, not the host body cap).
     both_road: bool = False
+    #: ``claim_role``: the STRICTEST CLAIMANT among the pair's endpoints,
+    #: by ``layout.AUTHORITY_PRECEDENCE`` (owner 2026-08-29c).  ``role``
+    #: is the pair's pricing host, chosen by the reader — for a CROSS-
+    #: SHAPE pair ``airside_no_step`` picks whichever side carries the
+    #: smaller body cap, which is a cap question and therefore says
+    #: nothing about who CLAIMS the contact.  A ``runway|service_junction``
+    #: pair priced under the service junction's host role took the road
+    #: carve's 8 % relaxation on a RUNWAY contact (measured at HECA: 1 row
+    #: survived the within-shape guard).  Readers that know both roles set
+    #: this; a within-shape reader leaves it None, where ``role`` already
+    #: IS the claim (both endpoints are the same shape).
+    claim_role: Optional[str] = None
     # ── THE APRON MOVEMENT-SURFACE INPUTS (RULINGS 2026-08-21b) ──────────
     # ``a_frontage`` / ``b_frontage``: the endpoint is a FRONTAGE VERTEX — a
     # node this shape's ring shares with a building ring that participates in
@@ -3714,7 +3740,7 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     #   relaxation was built for.
     if (p.both_road and SERVICE_ROAD_MAX_GRADE > cap
             and not p.a_building and not p.b_building
-            and not _road_carve_outranked_by_host(p.role)):
+            and not _road_carve_outranked_by_host(p.claim_role or p.role)):
         cap = SERVICE_ROAD_MAX_GRADE
 
     # ── THE ROAD CROSS-SECTION IS LAW (owner ruling RULINGS 2026-08-25g).

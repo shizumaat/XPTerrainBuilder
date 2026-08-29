@@ -112,6 +112,40 @@ def test_the_carved_road_itself_still_grades_at_the_road_class(role):
     assert _pair(role, body_cap=0.010) == pytest.approx(ROAD_CAP)
 
 
+def test_a_cross_shape_pair_is_claimed_by_rank_not_by_the_smaller_cap():
+    """THE SECOND READER.  ``airside_no_step`` prices a CROSS-SHAPE pair
+    under whichever side carries the smaller body cap — a cap question,
+    which says nothing about who claims the contact.  A
+    ``runway|service_junction`` pair therefore took the road carve's 8 %
+    even with the within-shape guard on (measured at HECA: 1 surviving
+    row).  ``claim_role`` carries the rank answer."""
+    assert GL.strictest_claim_role("service_junction", "runway") == "runway"
+    assert GL.strictest_claim_role("apron", "service_road") == "apron"
+    assert GL.strictest_claim_role("junction", "apron") == "junction"
+
+    # priced under the service junction's tighter body cap, claimed by
+    # the runway: the road relaxation must not fire
+    allow = GL.classify_pair(GL.PairContext(
+        role="service_junction", dist=6.0, ring_adjacent=False,
+        a_seam=False, b_seam=False, a_building=False, b_building=False,
+        spine_caps=(), body_cap=0.010, both_road=True,
+        claim_role=GL.strictest_claim_role("service_junction", "runway")))
+    assert allow.flat_cap() == pytest.approx(0.010), (
+        "a runway-claimed contact took the 8 % road relaxation")
+
+
+def test_a_pure_road_cross_shape_pair_still_relaxes():
+    """The claim only ever TIGHTENS: two road shapes meeting still grade
+    at the road class."""
+    allow = GL.classify_pair(GL.PairContext(
+        role="service_junction", dist=6.0, ring_adjacent=False,
+        a_seam=False, b_seam=False, a_building=False, b_building=False,
+        spine_caps=(), body_cap=0.010, both_road=True,
+        claim_role=GL.strictest_claim_role("service_junction",
+                                           "service_road")))
+    assert allow.flat_cap() == pytest.approx(ROAD_CAP)
+
+
 def test_the_rank_is_the_emit_authority_order_not_a_second_table():
     """One rank table.  If ``AUTHORITY_PRECEDENCE`` is ever reordered,
     this law follows it — that is the point of reading it."""

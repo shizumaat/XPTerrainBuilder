@@ -4550,3 +4550,30 @@ What was NOT paid:
 * **No full-suite run** (pre-ship mode); the blast-named files were run
   once — 512 pass, `test_harness.py::test_the_near_miss_frontage_law_is_
   one_authority` red at HEAD too.
+
+## HECA round 5c (lane/hecar5c, 2026-08-28) — path metric built, gates still OFF
+
+* **All four control airports were built this time** (HECA, CYXY, SPJC,
+  OTHH), each as a matched ON/OFF pair at ONE tree; LEMD was again not
+  built, and while the gates ship OFF that arm is owed only against a
+  future ON arm.
+* **The solve-owned moved-airside gate is the blocker and it is
+  ATTRIBUTED, not open:** the FREE-ROAD PROFILE PASS's first call moves
+  1,756 solve-owned airside nodes at HECA (worst 2.07 m, concentrated on
+  the apron at 30.11445,31.40993 — the owner's item-4 apron), 88 at SPJC
+  (0.28 m), 12 at OTHH (0.03 m) and 0 at CYXY.  The pass writes NO
+  airside node (every node a non-road authority carries is frozen), so
+  the channel is downstream re-derivation, and the ns3 arm proves it is
+  not the post-projection re-solve (1,755 vs 1,756 with that call gated
+  off).  The remaining candidates are the passes that read road values
+  after it — ``seat_groundside_on_law``, the ribbon conformance, the
+  final grade projection's anchor-reach envelope.  Naming which one is
+  the next round's first measurement, and it needs a ``who_wrote`` arm
+  at the item-4 apron coordinate, not another build A/B.
+* **The PATH METRIC itself is clean and is owed nothing**: the metric
+  collision rows fall out arithmetically (CYXY ``within_shape
+  service_road|service_road`` 71 -> 0), it is scoped to the two readers
+  the ruling names, and with it the OFF arm is byte-identical.
+* **No full-suite run** (pre-ship mode); the blast-named files were run
+  once — 475 pass, ``test_harness.py::test_the_near_miss_frontage_law_
+  is_one_authority`` red at HEAD too.

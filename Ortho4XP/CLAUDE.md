@@ -46,7 +46,9 @@ this section is INVALID, same as one violating a ruling):**
   retired-kept-gated — the refutation record is the spec and git.
 - SITE-FIRST REPORTING: every report quotes the owner-site numbers in
   the CURRENT configuration first; a below-bar merge requires the
-  owner's sign-off with the residual quoted. Until the first official
+  owner's sign-off with the residual quoted.
+
+Until the first official
 release, most verification weight below is SUSPENDED: no per-edit
 blast-radius or full-suite runs (only the test files directly
 covering the change, once), no per-lane acceptance builds/censuses/

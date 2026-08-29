@@ -617,5 +617,18 @@ class TestRoadBlindRederivation:
         assert "_released" not in proj
         assert "_mutated = True" not in proj
 
-    def test_the_gate_is_default_on(self):
-        assert CFG.PROJECTION_ROAD_BLIND is True
+    def test_the_gate_is_RETIRED_KEPT_GATED(self):
+        """Owner 2026-08-29a (Amendment 8): the 5e-5i freeze/road-blind
+        knobs stay retired-kept-gated.  Road-blind was the best of the
+        post-solve remedies — CYXY's post-solve channel goes to 0 under
+        it — but 5i proved the residual is UPSTREAM of every post-solve
+        pass, and the owner has ruled the equilibrium shift ACCEPTED
+        rather than defended against.  The mechanism is kept and the
+        twins above still state it."""
+        import importlib
+        import auto_patch.config as _fresh
+        _fresh = importlib.reload(_fresh)
+        try:
+            assert _fresh.PROJECTION_ROAD_BLIND is False
+        finally:
+            importlib.reload(_fresh)

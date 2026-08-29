@@ -41,16 +41,16 @@ THE THREE LAWS, and where each lives here:
 The profile OWNS the chain's values, and the written nodes are published
 in the limiter's own 2-dp key space (``layout._free_road_profile_keys``).
 
-⚠ THE EXEMPTION THOSE KEYS WERE FOR IS RETIRED (owner ruling
-2026-08-28, spec Amendment 1): pinning the profile's nodes silenced the
-chord limiter while the CENSUS went on pricing the same pairs by chord —
-the metric collision the amendment resolved with the PATH METRIC
-instead.  ``groundside._grade_limit_groundside_chords`` therefore prices
-these chains along the road's own ring walk and reads no exemption set:
-verified on this tree, ``profile_owned_keys`` has NO production reader.
-The publication is kept because it is the round's own record of which
-values the pass owns; do not read this paragraph as an exemption that
-exists.
+Those keys ARE the exemption, and since ruling 3 (coordinator
+2026-08-29) they finally have their reader: ``groundside._grade_limit_
+groundside_chords`` pins every profile-owned node, because ``who_wrote``
+caught that limiter overwriting the owner's item-4 ramp twice — once
+after the pre-solve (pipeline 6733) and once after the re-solve
+(pipeline 6998) — while the apron weld beside it held.  The exemption
+had been retired on the METRIC COLLISION (Amendment 1) and that
+collision is gone: the path metric prices road pairs along the road's
+own ring walk in both readers.  Gate:
+``O4_ROAD_PROFILE_OWNS_ITS_STATIONS``.
 """
 from __future__ import annotations
 

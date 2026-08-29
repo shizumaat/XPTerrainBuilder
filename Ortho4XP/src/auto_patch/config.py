@@ -179,6 +179,7 @@ __all__ = [
     "ROAD_PROFILE_CUMULATIVE_CAP",
     "ROAD_PROFILE_WELD_OUTRANKS_CAP",
     "ROAD_PROFILE_CHORD_TWO_SIDED",
+    "ROAD_PROFILE_OWNS_ITS_STATIONS",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10225,6 +10226,50 @@ ROAD_PROFILE_WELD_OUTRANKS_CAP = (
 # raise.  ``O4_ROAD_PROFILE_CHORD_TWO_SIDED=0`` restores raise-only.
 ROAD_PROFILE_CHORD_TWO_SIDED = (
     _os.environ.get("O4_ROAD_PROFILE_CHORD_TWO_SIDED", "1") != "0")
+
+# ── RULING 3 (coordinator 2026-08-29) — NOTHING AFTER THE ROAD PROFILE
+# RE-SOLVES ROAD-CHAIN STATIONS EXCEPT WELDS ─────────────────────────
+# ``who_wrote`` on the owner's item-4 chain (HECA, this lane) named the
+# pass twice over: ``groundside._grade_limit_groundside_chords``, at
+# pipeline.py:6733 right after the profile's PRE-SOLVE and again at
+# pipeline.py:6998 inside ``_post_projection_conformance_passes`` right
+# after its RE-SOLVE.  At (-2302.44, 677.46) the profile built
+# 97.043 -> 97.517, 6733 put back 96.28, the re-solve rebuilt 97.339 and
+# 6998 put back 95.83; at (-2306.51, 666.21), 97.884/97.887 -> 96.91 and
+# 97.65 -> 96.46.  The apron weld beside them (-2299.62, 656.48) held at
+# 97.65 — so the emitted 1.10 m step at the owner's coordinate is the
+# ROAD being pulled away from a weld that never moved.
+# The profile's published ``_free_road_profile_keys`` are therefore
+# PINNED in that limiter — the reader the round-5b spec's "exempts them"
+# branch always described and which had never landed.  Welds are not
+# exempted: they are already pinned by ``_airside_claimed_keys`` and the
+# profile never writes one.  ``O4_ROAD_PROFILE_OWNS_ITS_STATIONS=1``
+# arms it.
+#
+# ⚠ SHIPPED DEFAULT **OFF** — MEASURED REGRESSION, not the accepted
+# re-pricing class (coordinator's own test: "if the +46 is the tilt
+# class, record and proceed; if genuinely regressed pre-existing
+# surfaces = the docket ... if regression, STOP").  Isolated at CYXY on
+# one code version and one capture (rulings 1+2+4 arm body 770feafe8ba3
+# vs all-rulings 9e033f8859aa): **+187 law-true rows, 258 NEW / 71
+# GONE**, and the NEW rows are LATERAL, not the longitudinal over-cap
+# spans ruling 1 intends — 81 ``transverse`` + 74 ``road_cross_section``
+# + 34 ``within_shape``, all ``service_junction``, worst
+# ``road_cross_section`` **98.06 % against its 2 % cap** (3.19 m at
+# 60.706049,-135.077897) where the control had 42 such rows at ≤5 %.
+#
+# WHY, and it refutes this exemption's own premise: the round-5b
+# docstring justified pinning with "the profile writes ONE value per
+# STATION to that station's whole cross-section, so a profile-owned pair
+# is flat by construction".  That holds for a service ROAD ring, whose
+# two edges share a station.  It is FALSE for a service_JUNCTION blob,
+# whose nodes map to SEVERAL stations: pinning them freezes the blob
+# TILTED and forbids the one pass that used to reconcile it laterally.
+# The docket is the scoping (road rings only, or a lateral reconcile the
+# profile itself owns) — not the ruling, whose longitudinal half is
+# exactly right and is what ``who_wrote`` proved.
+ROAD_PROFILE_OWNS_ITS_STATIONS = (
+    _os.environ.get("O4_ROAD_PROFILE_OWNS_ITS_STATIONS", "0") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

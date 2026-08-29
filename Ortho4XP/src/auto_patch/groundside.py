@@ -5182,13 +5182,55 @@ def _grade_limit_groundside_chords(layout) -> int:
     # the exemption removes is exactly the euclidean chord ACROSS the
     # U-loop that flattened the ramp (round 5's measured 108.383 ->
     # 106.71 at pipeline 6692, repeated at 6957).
-    # ROUND 5b's EXEMPTION IS RETIRED (owner ruling 2026-08-28, spec
-    # Amendment 1).  Pinning the profile's nodes silenced THIS reader and
-    # left the CENSUS pricing the same pairs by chord — the collision the
-    # amendment resolves.  The remedy is the metric, below: this pass now
-    # prices road pairs at the same ring walk the census does, so it can
-    # go on fixing genuine road defects instead of being told not to look.
+    # ROUND 5b's EXEMPTION WAS RETIRED (owner ruling 2026-08-28, spec
+    # Amendment 1) because pinning the profile's nodes silenced THIS
+    # reader while the CENSUS went on pricing the same pairs by chord —
+    # the metric collision.  THAT COLLISION IS GONE: the path metric
+    # (5c, ratified, ``ROAD_PATH_METRIC`` default ON) made both readers
+    # price a road pair along the road's own ring walk.
+    #
+    # ── RULING 3 (coordinator 2026-08-29) RESTORES THE EXEMPTION, and
+    # this is the reader that was missing ─────────────────────────────
+    # "Nothing after the road profile re-solves road-chain stations
+    # except welds."  MEASURED by ``who_wrote`` on the owner's item-4
+    # chain (HECA, lane/rampsites, plan coordinates in the layout metre
+    # frame — this is the attribution, not a reading of the code):
+    #
+    #   (-2302.44, 677.46)   profile pre-solve 97.043 -> 97.517
+    #                        pipeline 6733  _grade_limit_groundside_chords
+    #                                                     -> 96.28
+    #                        profile re-solve  -> 97.339
+    #                        pipeline 6998  _grade_limit_groundside_chords
+    #                        (_post_projection_conformance_passes)
+    #                                                     -> 95.83
+    #   (-2306.51, 666.21)   profile 97.884/97.887 -> 6733 -> 96.91;
+    #                        re-solve 97.65 -> 6998 -> 96.46
+    #
+    # BOTH overwriters are THIS function, and the apron weld beside them
+    # (-2299.62, 656.48) keeps 97.65 — so what the owner sees at
+    # 30.114984,31.4107959 is the road being pulled 1.1-1.5 m back down
+    # away from a weld that held.  The profile's OWN stations are
+    # therefore PINNED here, exactly as the round-5b spec's "exempts
+    # them" branch said and exactly as ``profile_owned_keys`` was
+    # published for (it had NO production reader until now).
+    #
+    # WHY IT COSTS THE CROSS-SECTION LAW NOTHING, now more than before:
+    # under ruling 2 the profile writes ONE value per STATION to that
+    # station's whole cross-section, so a profile-owned pair is flat
+    # ACROSS the road by construction and lawful ALONG it by the
+    # cap-distance chord.  A WELD is not exempted — welds are already in
+    # ``pinned_keys`` via ``_airside_claimed_keys`` and the profile never
+    # writes one (``_road_vertex_graph``'s freeze).
+    # ``O4_ROAD_PROFILE_OWNS_ITS_STATIONS=0`` restores the overwrite.
     _profile_owned = set()
+    try:
+        from .config import (ROAD_PROFILE_OWNS_ITS_STATIONS
+                             as _PROFILE_OWNS)
+    except ImportError:                                    # pragma: no cover
+        _PROFILE_OWNS = False
+    if _PROFILE_OWNS:
+        from .free_road_profile import profile_owned_keys as _prof_keys
+        _profile_owned = _prof_keys(layout)
     from .config import ROAD_PATH_METRIC as _ROAD_PATH_METRIC
     # THE BUILDING-PAD CLAIM (owner ruling, 25g round; the standing
     # 2026-07-03 law).  Not a second pin — a pad node is ALREADY in
@@ -5339,7 +5381,13 @@ def _grade_limit_groundside_chords(layout) -> int:
             vals = [node_alt[k] for k in keys]
             before = list(vals)
             live = list(range(m))
-            free = [k for k in live if keys[k] not in pinned_keys]
+            # RULING 3: a PROFILE-OWNED station is as unmovable here as
+            # an airside weld — the road profile is the authority on its
+            # own chain's values, and this pass ran twice on the owner's
+            # item-4 ramp undoing exactly those writes.
+            free = [k for k in live
+                    if keys[k] not in pinned_keys
+                    and keys[k] not in _profile_owned]
             cap = ring_cap[i]
             caps = [node_cap[k] for k in keys]
             # THE ROAD AXIS (RULINGS 2026-08-25g), ``None`` for every

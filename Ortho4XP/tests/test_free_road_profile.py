@@ -199,6 +199,51 @@ class TestTheULoop:
         for (x, y) in list(keys)[:5]:
             assert round(x, 2) == x and round(y, 2) == y
 
+    def test_the_limiter_ACTUALLY_READS_them(self):
+        """RULING 3 (coordinator 2026-08-29) — nothing after the road
+        profile re-solves road-chain stations except welds.
+
+        ``who_wrote`` named ``_grade_limit_groundside_chords`` twice on
+        the owner's item-4 ramp (pipeline 6733 after the pre-solve,
+        pipeline 6998 after the re-solve).  For three rounds
+        ``profile_owned_keys`` had NO production reader at all; this
+        twin is what stops it silently losing one again.
+        """
+        import inspect
+        from auto_patch import groundside as GS
+        src = inspect.getsource(GS._grade_limit_groundside_chords)
+        assert "profile_owned_keys" in src
+        assert "_profile_owned" in src
+        # …and the pins are actually applied to the free-node selection,
+        # not merely counted in the stats line (which they already were).
+        assert "not in _profile_owned" in src
+
+    def test_the_ruling_3_gate_is_named_and_ships_OFF_on_its_measurement(self):
+        """Ruling 3's mechanism is built and attributed, and ships OFF:
+        isolated at CYXY it costs +187 law-true rows, and they are the
+        service_junction LATERAL class (81 transverse + 74
+        road_cross_section, worst 98 % against a 2 % cap), which is the
+        coordinator's own STOP condition, not the accepted re-pricing.
+        The premise it refutes is in the gate's comment."""
+        from auto_patch import config as _C
+        assert _C.ROAD_PROFILE_OWNS_ITS_STATIONS is False
+        # …and it is EXPORTED, like every other gate in this family: an
+        # unexported gate is invisible to the readers that enumerate the
+        # module (the blast-radius env-flag hazard).
+        assert "ROAD_PROFILE_OWNS_ITS_STATIONS" in _C.__all__
+        for _g in ("ROAD_PROFILE_CUMULATIVE_CAP",
+                   "ROAD_PROFILE_WELD_OUTRANKS_CAP",
+                   "ROAD_PROFILE_CHORD_TWO_SIDED"):
+            assert _g in _C.__all__ and getattr(_C, _g) is True
+
+    def test_a_WELD_is_never_exempted_by_the_profile(self):
+        """The profile writes ROAD-family nodes only and never a frozen
+        one, so no weld can enter the exemption set — the ruling's
+        "except welds" is true BY CONSTRUCTION, not by a filter."""
+        import inspect
+        src = inspect.getsource(FRP.solve_free_road_profiles)
+        assert "if m in frozen or m not in cur:" in src
+
     def test_flag_off_mints_nothing(self, monkeypatch):
         monkeypatch.setattr(CFG, "FREE_ROAD_PROFILE_PASS", False)
         layout = _u_loop_layout()
@@ -310,16 +355,21 @@ class TestTheGates:
         finally:
             importlib.reload(_fresh)
 
-    def test_the_limiter_PRICES_the_path_instead_of_exempting(self):
-        """SUPERSEDED BY AMENDMENT 1.  Round 5b pinned the profile's nodes
-        so the limiter could not flatten them; that silenced ONE reader
-        and left the census pricing the same pairs by chord.  The
-        amendment rules the metric instead, so the limiter prices road
-        pairs at the ring walk — the same law function the census uses —
-        and goes on fixing genuine road defects."""
+    def test_the_limiter_PRICES_the_path_AND_pins_the_profile(self):
+        """AMENDMENT 1 + RULING 3, and they are not alternatives.
+
+        Amendment 1 replaced the round-5b exemption with the PATH METRIC
+        because pinning silenced ONE reader while the census still
+        priced by chord.  The metric landed in both readers, so that
+        collision is gone — and ruling 3 (coordinator 2026-08-29) then
+        restored the exemption on ``who_wrote`` evidence that this very
+        limiter overwrites the profile's ramp twice per build.  The
+        limiter now does BOTH: prices road pairs at the ring walk, and
+        leaves the profile's own stations alone.
+        """
         import inspect
         src = inspect.getsource(GS._grade_limit_groundside_chords)
-        assert "ROUND 5b's EXEMPTION IS RETIRED" in src
+        assert "RULING 3" in src and "profile_owned_keys" in src
         assert "_GL_RING_PATH_CUM" in src
         band = inspect.getsource(GS._chord_band)
         assert "_GL_ROAD_PAIR_DISTANCE" in band

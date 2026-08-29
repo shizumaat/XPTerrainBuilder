@@ -299,10 +299,16 @@ class TestTheGates:
         finally:
             importlib.reload(_fresh)
 
-    def test_the_limiter_reads_the_profile_keys(self):
-        """The exemption is wired: the limiter's pinned set contains the
-        profile's published keys."""
+    def test_the_limiter_PRICES_the_path_instead_of_exempting(self):
+        """SUPERSEDED BY AMENDMENT 1.  Round 5b pinned the profile's nodes
+        so the limiter could not flatten them; that silenced ONE reader
+        and left the census pricing the same pairs by chord.  The
+        amendment rules the metric instead, so the limiter prices road
+        pairs at the ring walk — the same law function the census uses —
+        and goes on fixing genuine road defects."""
         import inspect
         src = inspect.getsource(GS._grade_limit_groundside_chords)
-        assert "profile_owned_keys" in src
-        assert "_profile_owned" in src
+        assert "ROUND 5b's EXEMPTION IS RETIRED" in src
+        assert "_GL_RING_PATH_CUM" in src
+        band = inspect.getsource(GS._chord_band)
+        assert "_GL_ROAD_PAIR_DISTANCE" in band

@@ -95,6 +95,8 @@ APRON_ROLE = "apron"
 JUNCTION_ROLES = GL.JUNCTION_ROLES
 SOFT_VISIBILITY_ROLES = ((APRON_ROLE,) + JUNCTION_ROLES
                          + (("service_road",) if SVC_SPINE_FIRST else ()))
+# Amendment 1 clause 1's gate, read at import beside the others.
+from .config import ROAD_PATH_METRIC          # noqa: E402
 
 # A ring vertex counts as a SPINE node of a centerline when it lies within this
 # perpendicular distance of it.  Post-slice the spine nodes sit exactly on the
@@ -2901,7 +2903,8 @@ class MeshEdgesExact:
 # ── main ────────────────────────────────────────────────────────────────────
 
 def shape_constraints(shape: GradeShape, ctx: GradeContext,
-                      ring_only: bool = False) -> ShapeConstraints:
+                      ring_only: bool = False,
+                      road_path_metric: bool = False) -> ShapeConstraints:
     """The grade constraints of ONE soft airside shape (apron / junction).
 
     ``ring_only`` (user 2026-07-05 flatness tier): generate ONLY the
@@ -2950,6 +2953,28 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
     # A5 chord selection and the pair loop's own visibility gate — the same
     # predicate, so "can this vertex reach that one" has one answer here.
     vis = None if ring_only else _visibility_predicate(ring)
+    # ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b
+    # spec Amendment 1 clause 1) ─────────────────────────────────────
+    # A road-family ring's pairs are priced along the RING WALK, not the
+    # straight line across the loop.  Computed ONCE per shape here, in
+    # THE function both readers of the within-shape pair set call —
+    # ``check_grade.iter_shape_grade_constraints`` (the census) and
+    # ``solver_primitives._build_shape_constraints`` (the solve) — so a
+    # road pair cannot be priced at two distances by two instruments.
+    # ``O4_ROAD_PATH_METRIC=0`` restores the euclidean chord exactly.
+    # SCOPED TO THE TWO READERS THE RULING NAMES — the CENSUS and the
+    # emitter's chord LIMITER — and NOT to the solve graph, which is a
+    # THIRD reader of this function.  That scope is MEASURED (this lane,
+    # HECA): with the metric in the solve as well, the road's own law
+    # change travelled through the ONE solve and moved 1,756 SOLVE-OWNED
+    # airside nodes by up to 2.07 m — 1,516 of them apron nodes with no
+    # road contact at all.  Airside is king: the solve keeps the
+    # euclidean chord, which is the STRICTER of the two (a walk is never
+    # shorter), so it can never mint a census row the walk would forgive.
+    _road_cum = _road_total = None
+    if (road_path_metric and ROAD_PATH_METRIC
+            and shape.role in GL.ROAD_ROLES):
+        _road_cum, _road_total = GL.ring_path_cumulative(ring)
     # ── THE BACK-EDGE ZONES (RULINGS 2026-08-24): per-vertex zone index,
     # computed ONCE per shape.  Only the 5 % class needs it, so it is
     # built only for aprons and only when the context carries zones.
@@ -3174,6 +3199,29 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 continue
             xj, yj = ring[j]
             d = math.hypot(xi - xj, yi - yj)
+            _xsec_pair = (road_axis is not None
+                          and GL.pair_is_transverse(road_axis,
+                                                    xj - xi, yj - yi))
+            if _road_cum is not None and not _xsec_pair:
+                # Amendment 1 clause 1 — never TIGHTER than the chord
+                # (a ring walk is >= the chord by construction), so this
+                # only ever relaxes, exactly as the airside route metric
+                # does in ``_route_leg_floor``.
+                #
+                # SCOPED TO THE LONGITUDINAL PAIRS, and that scope is
+                # MEASURED (this lane, CYXY): applied to the whole ring it
+                # also relaxed the DIAGONAL cross-section pairs, whose
+                # walk is long, and the road CROSS-SECTION law (RULINGS
+                # 2026-08-25g) rides on exactly those — CYXY gained 46
+                # road_cross_section and 102 transverse rows.  A
+                # cross-section is measured ACROSS the road by
+                # definition, so its distance is the chord; the walk is
+                # the metric of travel ALONG the road, which is what the
+                # profile solves in.  ONE predicate decides which is
+                # which — ``GL.pair_is_transverse`` against THE ring axis
+                # the cross-section law itself uses.
+                d = GL.road_pair_distance(ring, _road_cum, _road_total,
+                                          i, j, d)
             mj = membership.get(j)
             shared = ((mset_i & mem_sets[j])
                       if (mi is not None and mj is not None) else set())
@@ -3251,10 +3299,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                                            xi, yi, xj, yj)),
                 corridor_connected=corridor_connected,
                 # THE ROAD CROSS-SECTION (RULINGS 2026-08-25g).
-                transverse_road=(
-                    road_axis is not None
-                    and GL.pair_is_transverse(road_axis,
-                                              xj - xi, yj - yi)))
+                transverse_road=_xsec_pair)
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

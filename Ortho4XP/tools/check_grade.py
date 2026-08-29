@@ -1963,7 +1963,11 @@ def iter_shape_grade_constraints(
                 continue
         if role0 in _SOFT_ROLES:
             gs = _soft_grade_shape(w, role0, pts, pnids)
-            sc = _GG.shape_constraints(gs, _law_ctx)
+            # THE CENSUS is one of the two readers Amendment 1 names for
+            # the road PATH METRIC (the other is the emitter's chord
+            # limiter); the SOLVE keeps the euclidean chord, which is the
+            # stricter of the two.
+            sc = _GG.shape_constraints(gs, _law_ctx, road_path_metric=True)
             idx = {pnids[k]: k for k in range(n)}
             for (ka, kb, cap) in sc.edges:
                 ia = idx.get(ka)

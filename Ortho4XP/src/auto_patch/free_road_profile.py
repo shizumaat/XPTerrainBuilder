@@ -127,12 +127,45 @@ def chain_profile(stations_s, values, pins, cap, caps=None):
                 infeasible.append((ia, ib, need))
     if infeasible:
         return list(values), infeasible
+    # ── THE CHORD OF THE BRACKETING PINS (owner acceptance line, the
+    # CYXY site 60.7100244,-135.0727863 -> 60.7087015,-135.0746305) ───
+    # A chain whose two ends are BOTH bound may not sag between them:
+    # measured on the round-5d control, that road welds correctly at
+    # 702.44 and 703.11 and drops to 698.93 in the middle — 3.63 m below
+    # the chord of its own pinned ends, with nothing in the pins asking
+    # for a dip.  The cap envelope alone cannot see it (a sag well inside
+    # +-cap*d is "lawful" to a Lipschitz bound), so the law needs the
+    # chord: between two DIRECTLY BRACKETING pins the profile is at least
+    # their linear interpolation.  It only ever RAISES — a genuine hill
+    # between the pins keeps its own height, bounded by ``hi`` as before —
+    # so this cannot flatten terrain the road legitimately climbs.
+    pin_idx = sorted(pins)
+
+    def _chord(i):
+        lo_p = None
+        hi_p = None
+        for p in pin_idx:
+            if p <= i:
+                lo_p = p
+            if p >= i and hi_p is None:
+                hi_p = p
+        if lo_p is None or hi_p is None or lo_p == hi_p:
+            return None
+        s0, s1 = stations_s[lo_p], stations_s[hi_p]
+        if abs(s1 - s0) < 1e-9:
+            return None
+        t = (stations_s[i] - s0) / (s1 - s0)
+        return pins[lo_p] + t * (pins[hi_p] - pins[lo_p])
+
     for i in range(n):
         s = stations_s[i]
         hi = min(z + _seg_cap(i, p) * abs(s - stations_s[p])
                  for p, z in pins.items())
         lo = max(z - _seg_cap(i, p) * abs(s - stations_s[p])
                  for p, z in pins.items())
+        ch = _chord(i)
+        if ch is not None and ch > lo:
+            lo = ch
         if i in pins:
             target[i] = float(pins[i])
             continue

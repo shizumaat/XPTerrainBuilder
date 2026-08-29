@@ -6709,8 +6709,10 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             # profile owns the chain's values from here on and publishes
             # its keys, which the limiter reads as pinned.
             try:
+                from .config import FREE_ROAD_PROFILE_PRESOLVE as _frp_pre
                 from .free_road_profile import solve_free_road_profiles
-                solve_free_road_profiles(layout, icao)
+                if _frp_pre:
+                    solve_free_road_profiles(layout, icao)
             except _GEOM_EXC as _prof_exc:
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
                              f"profile pass failed ({_prof_exc!r}).")

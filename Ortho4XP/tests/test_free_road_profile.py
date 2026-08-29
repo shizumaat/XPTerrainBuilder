@@ -38,6 +38,16 @@ TAXI_Z = AMBIENT + 4.6                          # item 2's own 4.6 m climb
 ROAD_HALF_W = 3.0                               # a 6 m service road
 
 
+@pytest.fixture(autouse=True)
+def _arm_the_pass(monkeypatch):
+    """THE ON ARM, pinned.  Both gates ship DEFAULT OFF pending the
+    metric ruling (see ``config.FREE_ROAD_PROFILE_PASS``); these twins
+    state the LAW, so they arm it explicitly — the same posture 9ac6ee55
+    used for the contact-cap scoping."""
+    monkeypatch.setattr(CFG, "FREE_ROAD_PROFILE_PASS", True)
+    monkeypatch.setattr(CFG, "ROAD_CONTACT_CAP_SCOPE", True)
+
+
 class _Layout:
     """The attribute surface the pass reads."""
 
@@ -270,12 +280,24 @@ class TestEndOnBinding:
 
 class TestTheGates:
 
-    def test_the_profile_pass_is_default_on(self):
-        assert CFG.FREE_ROAD_PROFILE_PASS is True
+    def test_both_gates_ship_OFF_pending_the_metric_ruling(self):
+        """DEVIATION FROM THE SPEC, reported not decided (lane/hecar5b).
 
-    def test_the_contact_cap_scoping_is_default_on_in_this_arm(self):
-        """Spec law 4 — "one flag day, one measured round"."""
-        assert CFG.ROAD_CONTACT_CAP_SCOPE is True
+        Spec law 4 asked for the scoping to flip ON in this arm.  The arm
+        did not meet its acceptance — the profile is path-metric while the
+        within-shape census is chord-metric, so HECA went 6820 -> 7230
+        (+410) and CYXY 368 -> 488 (+120), every CYXY row a within_shape
+        road pair at 8.33-9.11 % against the 8 % cap.  Shipping a measured
+        regression default-ON is the one thing the flag day must not do,
+        so both gates ship OFF and the twins above arm them explicitly."""
+        import importlib
+        import auto_patch.config as _fresh
+        _fresh = importlib.reload(_fresh)
+        try:
+            assert _fresh.FREE_ROAD_PROFILE_PASS is False
+            assert _fresh.ROAD_CONTACT_CAP_SCOPE is False
+        finally:
+            importlib.reload(_fresh)
 
     def test_the_limiter_reads_the_profile_keys(self):
         """The exemption is wired: the limiter's pinned set contains the

@@ -433,7 +433,8 @@ def test_an_AT_GRADE_claimed_road_does_not_answer_a_mouth(tpa, tmp_path):
 # §F1 — WALL TOP IS FLAT ACROSS ITS WIDTH (LEMD ramp/road fidelity)
 # ──────────────────────────────────────────────────────────────────
 def _wall_band_patch(directory: Path, name: str, inner: float,
-                     outer: float) -> Path:
+                     outer: float, with_foot: bool = False,
+                     crest_twist: float = 0.0) -> Path:
     """A patch carrying ONE ``tunnel_wall`` band, 1.0 m across, whose two
     long edges carry ``inner`` and ``outer``.
 
@@ -450,12 +451,35 @@ def _wall_band_patch(directory: Path, name: str, inner: float,
             (25.0003, lon_inner, inner), (25.0000, lon_inner, inner)]
     for i, (la, lo, a) in enumerate(rows, start=1):
         parts.append(node(i, la, lo, a))
-    parts.append("<way id='-201'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
+    twist_nd = ""
+    if crest_twist:
+        # A SECOND CREST VERTEX AT ONE STATION — the real residual shape
+        # (LEMD way -11939, nodes -31647/-31651 1.0 m apart at 564.49 vs
+        # 564.15): at a band END the knife leaves two crest vertices
+        # side by side, and if they read different stations of the body
+        # they carry different values.  Nothing to do with the shelf.
+        parts.append(node(7, 25.0000, lon_outer + 0.0000100,
+                          outer + crest_twist))
+        twist_nd = "<nd ref='-7'/>"
+    parts.append("<way id='-201'><nd ref='-1'/>" + twist_nd
+                 + "<nd ref='-2'/><nd ref='-3'/>"
                  "<nd ref='-4'/><nd ref='-1'/>"
                  "<tag k='aeroway' v='building'/>"
                  "<tag k='role' v='retaining_wall'/>"
                  "<tag k='ref' v='tunnel_wall'/>"
                  "<tag k='shapeID' v='9'/></way>")
+    if with_foot:
+        # §T5's shelf, SHARING the face's inner edge node-for-node (one
+        # boolean partition of one polygon) and standing inboard of it.
+        lon_ramp = 50.9999940
+        parts.append(node(5, 25.0000, lon_ramp, inner))
+        parts.append(node(6, 25.0003, lon_ramp, inner))
+        parts.append("<way id='-202'><nd ref='-4'/><nd ref='-3'/>"
+                     "<nd ref='-6'/><nd ref='-5'/><nd ref='-4'/>"
+                     "<tag k='aeroway' v='building'/>"
+                     "<tag k='role' v='retaining_wall'/>"
+                     "<tag k='ref' v='tunnel_wall_foot'/>"
+                     "<tag k='shapeID' v='10'/></way>")
     parts.append("</osm>")
     osm = directory / name
     osm.write_text("\n".join(parts))
@@ -513,6 +537,45 @@ class TestWallTopFlat:
         patch = _write_patch(tmp_path, "nowall.osm", 100.0)
         got = self._run(tpa, patch, wall_top_delta_max=0.01)
         assert got["wall_top_flat"].verdict == tpa.SKIP
+
+    # ── THE CREST-ONLY FRAME (ruling 2026-08-29) ─────────────────────
+
+    def test_the_shelf_top_is_not_a_twist(self, tpa, tmp_path):
+        """THIS CHECK MEASURES TWIST, NOT HEIGHT.
+
+        With §T5's foot the band is a PARTITION: the ``tunnel_wall_foot``
+        shelf sits at ramp level and the ``tunnel_wall`` face RISES from
+        the shelf's top to the crest.  The face's inner edge is the
+        shelf's top — a shared node of the partition — so pairing it
+        against the crest reports the wall's HEIGHT and makes the §F1
+        bar unsatisfiable at the same time as R16-2b's owned annulus.
+        The crest members are the band vertices the shelf does not
+        carry.
+        """
+        patch = _wall_band_patch(tmp_path, "shelf.osm", 605.0, 610.6,
+                                 with_foot=True)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert "CREST-ONLY" in got.detail
+        # the 5.6 m face height is EXCLUDED, and what is left is the
+        # crest against itself: one value, one station.
+        assert got.measured == pytest.approx(0.0, abs=1e-9), got.detail
+
+    def test_a_twist_is_still_caught_with_a_shelf_present(self, tpa,
+                                                          tmp_path):
+        """The frame excludes the shelf, never the defect: a crest that
+        genuinely disagrees with itself across the band still reads."""
+        patch = _wall_band_patch(tmp_path, "shelftwist.osm", 605.0,
+                                 610.6, with_foot=True, crest_twist=0.4)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert got.measured == pytest.approx(0.4, abs=0.001), got.detail
+
+    def test_no_foot_reads_exactly_as_before(self, tpa, tmp_path):
+        """A patch with NO ``tunnel_wall_foot`` has an empty shelf set,
+        so every pre-§T5 number stays comparable."""
+        patch = _wall_band_patch(tmp_path, "nofoot.osm", 609.8, 610.6)
+        got = self._run(tpa, patch)["wall_top_flat"]
+        assert got.measured == pytest.approx(0.8, abs=0.001)
+        assert "0 shelf node(s) excluded" in got.detail
 
     def test_the_cli_carries_the_flag_into_the_thresholds(self, tpa):
         args = tpa.build_parser().parse_args(

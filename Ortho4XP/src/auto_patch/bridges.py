@@ -6456,12 +6456,36 @@ def _claim_wall_adjudication_gate(layout: "PavementLayout",
     if not claim_wall_gate_enabled() or post_gate_u is None:
         return post_gate_u
     _register = getattr(layout, _CLAIMED_BORE_REGISTER, None) or set()
-    if not _register:
-        return post_gate_u
-    _claims = [s.polygon for s in layout.shapes
-               if id(s) in _register
-               and getattr(s, "polygon", None) is not None
-               and not s.polygon.is_empty]
+    # ── THE POPULATION IS THE CLAIM, MEASURED 2026-08-29 ──────────────
+    # Three sources, unioned, because the first implementation used only
+    # the third and OTHH's own removal ledger showed what that misses:
+    #  (a) THE WALLED BODIES the §2.3 waller published — the footprints
+    #      §W1's text names.  Re-deriving them from ``s.polygon`` at gate
+    #      time drifts: 4 of 11 dropped pieces stood 2.8-382 m from any
+    #      surviving below-grade claim, because a claim can lose its dug
+    #      profile downstream (19 registered, 12 below-grade at emit).
+    #  (b) EVERY SHAPE CARRYING A CLAIM VERDICT (``ref ==
+    #      TUNNEL_ROAD_REF``, the predicate
+    #      ``groundside.claimed_tunnel_corridor`` reads), whatever depth
+    #      that stretch reached.  MEASURED: drops 2371/2373 sit on
+    #      -12291 and 2353/2355 on -12298, both claimed corridors that
+    #      happen to be AT GRADE, so the below-grade subset never
+    #      relieved them.  A claimed corridor's footprint is the bore's
+    #      footprint; it does not COVER the structure that retains it.
+    #  (c) the id register, kept so a body whose ref was lost is still
+    #      relieved.
+    # Adjudication only — no host geometry is touched either way, and
+    # the covered-span mask still holds genuinely roofed stretches back.
+    _claims = list(getattr(layout, _CLAIMED_BORE_BODIES, None) or ())
+    _claims = [g for g in _claims
+               if g is not None and not g.is_empty]
+    for s in layout.shapes:
+        _p = getattr(s, "polygon", None)
+        if _p is None or _p.is_empty:
+            continue
+        if (getattr(s, "ref", "") == TUNNEL_ROAD_REF
+                or id(s) in _register):
+            _claims.append(_p)
     if not _claims:
         return post_gate_u
     try:
@@ -7780,6 +7804,19 @@ _CLAIM_WALLS_ENV = "O4_CLAIM_WALLS"
 #: asking the question a second way (§T6.3).
 _CLAIMED_BORE_REGISTER = "_tunnel_claimed_bore_ids"
 
+#: THE WALLED BODIES THEMSELVES, as geometry, published beside the id
+#: set.  §W1's own text asks the adjudication gate to subtract "the very
+#: footprints :func:`_wall_claimed_corridors` walled — one population,
+#: published, never re-derived", and the first implementation re-derived
+#: them from ``s.polygon`` at gate time.  MEASURED at OTHH (baseline
+#: td_base_othh, 2026-08-29): the waller registered 19 corridors and
+#: walled 15 bodies, the emitted patch carries 12 below-grade
+#: ``tunnel_road`` ways, and 4 of the 11 dropped wall pieces stand
+#: 2.8-382 m from ANY surviving below-grade claim — the re-derivation
+#: had drifted off the bodies the walls belong to, and the walls dropped
+#: as "covered stretch" over the very pavement they retain.
+_CLAIMED_BORE_BODIES = "_tunnel_claimed_bore_bodies"
+
 
 def claim_walls_enabled() -> bool:
     return os.environ.get(_CLAIM_WALLS_ENV, "1") == "1"
@@ -7864,6 +7901,12 @@ def _wall_claimed_corridors(layout: "PavementLayout",
               and _g.geom_type == "Polygon"]
     if not _parts:
         return 0
+    try:
+        # PUBLISH THE BODIES, not just the ids (§W1's "one population,
+        # published, never re-derived").  The gate buffers THESE.
+        setattr(layout, _CLAIMED_BORE_BODIES, list(_parts))
+    except (AttributeError, TypeError):                # pragma: no cover
+        pass
     _before = len(layout.shapes)
     emit_wall_band(layout, exclusion_zones, _parts, _sources, [],
                    wall_gap_m, retaining_wall_width_m, dem_at, apt_elev)

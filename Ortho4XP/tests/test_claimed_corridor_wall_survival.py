@@ -119,22 +119,73 @@ def test_gate_off_is_the_pre_round_adjudication(monkeypatch):
 
 
 def test_no_claim_leaves_the_gate_object_untouched(monkeypatch):
-    """No claimed corridor ⇒ the judging union is the post-cut object
-    ITSELF, so an airport with no claim is byte-identical."""
+    """No claimed corridor ANYWHERE ⇒ the judging union is the post-cut
+    object ITSELF, so an airport with no claim is byte-identical.
+
+    "No claim" means no shape carrying a claim verdict, no published
+    body and an empty register — the whole population, since the
+    2026-08-29 measurement widened it (see the test below)."""
     monkeypatch.delenv(bridges._CLAIM_WALL_GATE_ENV, raising=False)
     lay, host, claim, wall, pre_emit = _scene()
+    lay.shapes = [s for s in lay.shapes if s is not claim]
     setattr(lay, bridges._CLAIMED_BORE_REGISTER, set())
+    setattr(lay, bridges._CLAIMED_BORE_BODIES, [])
     gate = bridges._claim_wall_adjudication_gate(
         lay, host.polygon, CLEARANCE_M)
     assert gate is host.polygon
 
 
-def test_relief_is_the_register_not_every_tunnel_road(monkeypatch):
-    """The population is the PUBLISHED register — a ``tunnel_road`` shape
-    the waller judged to be at-grade (below ``_CLAIM_WALL_MIN_DIG_M``) is
-    not bore geometry and buys no relief."""
+def test_an_at_grade_claim_still_relieves_the_adjudication(monkeypatch):
+    """THE POPULATION IS THE CLAIM, NOT THE DIG — corrected 2026-08-29 by
+    measurement, replacing this file's earlier
+    ``test_relief_is_the_register_not_every_tunnel_road``.
+
+    That test froze the first implementation's choice: relieve only the
+    below-grade subset ``_wall_claimed_corridors`` walled.  OTHH's own
+    removal ledger (baseline ``td_base_othh``) refutes it — of 11 wall
+    pieces still dropped as "covered stretch", 2371/2373 stand on
+    -12291 and 2353/2355 on -12298, BOTH claimed corridors
+    (``ref=tunnel_road``) that happen to sit AT GRADE, so the
+    below-grade subset never relieved them and the walls of the bore
+    beside them died over the pavement they retain.
+
+    A claimed corridor's footprint is the BORE's footprint.  It does not
+    COVER the structure that retains it, whatever depth that particular
+    stretch reached.  Adjudication only: no host geometry moves either
+    way, and the covered-span guard above still holds a genuinely roofed
+    stretch back.
+    """
     monkeypatch.delenv(bridges._CLAIM_WALL_GATE_ENV, raising=False)
     lay, host, claim, wall, pre_emit = _scene()
+    # AT GRADE: nothing was dug here, and the register is empty — the
+    # only thing left saying "claim" is the shape's own verdict.
+    claim.node_altitudes = [GRADE_Z] * 5
     setattr(lay, bridges._CLAIMED_BORE_REGISTER, set())
+    setattr(lay, bridges._CLAIMED_BORE_BODIES, [])
     _finalize(lay, host, pre_emit)
-    assert not _walls(lay)
+    assert _walls(lay), (
+        "an at-grade claimed corridor bought no relief — the OTHH "
+        "2371/2373/2353/2355 class is back")
+
+
+def test_the_published_body_relieves_even_a_drifted_claim(monkeypatch):
+    """§W1's own words: "the very footprints ``_wall_claimed_corridors``
+    walled — ONE POPULATION, PUBLISHED, NEVER RE-DERIVED".
+
+    The first implementation re-derived them from ``s.polygon`` at gate
+    time, and a claim can lose its dug profile (or its ring) downstream:
+    at OTHH 19 corridors were registered and walled as 15 bodies, while
+    the emitted patch carries 12 below-grade ``tunnel_road`` ways, and 4
+    dropped pieces stood 2.8-382 m from any surviving one.  The BODY the
+    waller published relieves its own wall even when nothing in the
+    layout still spells the claim.
+    """
+    monkeypatch.delenv(bridges._CLAIM_WALL_GATE_ENV, raising=False)
+    lay, host, claim, wall, pre_emit = _scene()
+    body = claim.polygon
+    lay.shapes = [s for s in lay.shapes if s is not claim]
+    setattr(lay, bridges._CLAIMED_BORE_REGISTER, set())
+    setattr(lay, bridges._CLAIMED_BORE_BODIES, [body])
+    _finalize(lay, host, pre_emit)
+    assert _walls(lay), (
+        "the published walled BODY did not relieve its own wall")

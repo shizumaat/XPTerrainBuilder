@@ -10012,7 +10012,7 @@ ROAD_AIRSIDE_CONTACT_WIDEN = (
 # the scoping goes back to the state 9ac6ee55 put it in until the metric
 # ruling lands.  Measured with BOTH on: HECA 6820 -> 7230 (+410).
 ROAD_CONTACT_CAP_SCOPE = (
-    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "0") != "0")
+    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "1") != "0")
 
 # ── THE FREE-ROAD PROFILE PASS (HECA round 5b) ───────────────────────
 # Spec ``docs/specs/free-road-profile-pass-spec.md``.  Post-solve, the
@@ -10051,7 +10051,7 @@ ROAD_CONTACT_CAP_SCOPE = (
 # chord that leaves the pavement is not a surface path"), which is the
 # ruling's other half.  "0" restores the euclidean chord exactly.
 ROAD_PATH_METRIC = (
-    _os.environ.get("O4_ROAD_PATH_METRIC", "0") != "0")
+    _os.environ.get("O4_ROAD_PATH_METRIC", "1") != "0")
 
 # The profile's SECOND call, after the final grade projection.  Split out
 # so the post-projection re-solve can be measured on its own — it is the
@@ -10159,7 +10159,7 @@ FREE_ROAD_PROFILE_RESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_RESOLVE", "1") != "0")
 
 FREE_ROAD_PROFILE_PASS = (
-    _os.environ.get("O4_FREE_ROAD_PROFILE", "0") != "0")
+    _os.environ.get("O4_FREE_ROAD_PROFILE", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

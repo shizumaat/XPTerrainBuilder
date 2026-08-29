@@ -197,12 +197,14 @@ class TestTwoReadersOnePath:
 
 class TestTheGate:
 
-    def test_the_metric_ships_OFF_until_its_arm_is_measured(self):
+    def test_the_metric_ships_ON_by_owner_order(self):
+        """FLIPPED ON with the family (owner 2026-08-29, in-sim pass is
+        acceptance; Amendment 9's fourth reader closed the collision)."""
         import importlib
         import auto_patch.config as _fresh
         _fresh = importlib.reload(_fresh)
         try:
-            assert _fresh.ROAD_PATH_METRIC is False
+            assert _fresh.ROAD_PATH_METRIC is True
         finally:
             importlib.reload(_fresh)
 

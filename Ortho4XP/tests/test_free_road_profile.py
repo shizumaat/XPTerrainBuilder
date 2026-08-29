@@ -281,22 +281,19 @@ class TestEndOnBinding:
 
 class TestTheGates:
 
-    def test_both_gates_ship_OFF_pending_the_metric_ruling(self):
-        """DEVIATION FROM THE SPEC, reported not decided (lane/hecar5b).
-
-        Spec law 4 asked for the scoping to flip ON in this arm.  The arm
-        did not meet its acceptance — the profile is path-metric while the
-        within-shape census is chord-metric, so HECA went 6820 -> 7230
-        (+410) and CYXY 368 -> 488 (+120), every CYXY row a within_shape
-        road pair at 8.33-9.11 % against the 8 % cap.  Shipping a measured
-        regression default-ON is the one thing the flag day must not do,
-        so both gates ship OFF and the twins above arm them explicitly."""
+    def test_the_gates_ship_ON_by_owner_order(self):
+        """FLIPPED ON (owner 2026-08-29, "skip the ship arm and build the
+        app" — the in-sim pass is acceptance in pre-ship mode, RULINGS
+        2026-08-29b: law violations only).  The 5b-era +120/+410 rows
+        were the census-wrapper class closed by Amendment 9's fourth
+        reader (5k, merged); the historic OFF pin above this commit is
+        the refutation ledger."""
         import importlib
         import auto_patch.config as _fresh
         _fresh = importlib.reload(_fresh)
         try:
-            assert _fresh.FREE_ROAD_PROFILE_PASS is False
-            assert _fresh.ROAD_CONTACT_CAP_SCOPE is False
+            assert _fresh.FREE_ROAD_PROFILE_PASS is True
+            assert _fresh.ROAD_CONTACT_CAP_SCOPE is True
         finally:
             importlib.reload(_fresh)
 

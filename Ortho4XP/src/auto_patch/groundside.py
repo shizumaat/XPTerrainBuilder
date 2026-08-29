@@ -4600,12 +4600,18 @@ def _chord_band(coords, vals, live, a, cap, caps=None, axis=None, pad=None,
             continue
         xb, yb = coords[b]
         pair_cap = cap if caps is None else min(cap_a, caps[b])
-        if (axis is not None
-                and not (pad is not None and (pad[a] or pad[b]))
-                and _pair_is_transverse(axis, xb - xa, yb - ya)):
+        _xsec_pair = (axis is not None
+                      and not (pad is not None and (pad[a] or pad[b]))
+                      and _pair_is_transverse(axis, xb - xa, yb - ya))
+        if _xsec_pair:
             pair_cap = _road_cross_section_cap(pair_cap)
         _d = math.hypot(xa - xb, ya - yb)
-        if path is not None:
+        # Amendment 1 clause 1, SCOPED as the census scopes it: the walk
+        # prices travel ALONG the road; a CROSS-SECTION pair is measured
+        # across it and keeps the chord (``_xsec`` above already told us
+        # which this is).  Applying the walk to both was measured at CYXY
+        # as +46 road_cross_section / +102 transverse rows.
+        if path is not None and not _xsec_pair:
             _d = _GL_ROAD_PAIR_DISTANCE(coords, path[0], path[1], a, b, _d)
         reach = pair_cap * _d
         up = vals[b] + reach

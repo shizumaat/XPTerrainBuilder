@@ -72,6 +72,24 @@ class TestThePathMetric:
         d = GL.road_pair_distance(ROAD_RING, cum, total, 0, 2, chord)
         assert d == pytest.approx(106.0, abs=0.01)     # 100 + 6, the walk
 
+    def test_the_metric_is_SCOPED_to_longitudinal_pairs(self, ):
+        """MEASURED SCOPE (this lane, CYXY): applied to every pair of the
+        ring the walk also relaxed the DIAGONAL cross-section pairs — the
+        ones the road CROSS-SECTION law (RULINGS 2026-08-25g) rides on —
+        and CYXY gained 46 road_cross_section + 102 transverse rows.  A
+        cross-section is measured ACROSS the road by definition, so it
+        keeps the chord; the walk prices travel ALONG the road, which is
+        what the profile solves in.  ONE predicate decides which is which,
+        in both readers."""
+        import inspect
+        from auto_patch import grade_graph as GG
+        src = inspect.getsource(GG.shape_constraints)
+        assert "_road_cum is not None and not _xsec_pair" in src
+        band = inspect.getsource(GS._chord_band)
+        assert "path is not None and not _xsec_pair" in band
+        # …and the predicate is THE law's, not a local re-spelling.
+        assert GS._pair_is_transverse is GL.pair_is_transverse
+
     def test_the_facing_cross_section_pair_is_UNCHANGED(self):
         """SCOPE: the law relaxes the pairs that go AROUND, not the ones
         straight across.  A road's cross-section stays 6 m wide and its

@@ -3188,11 +3188,27 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                 continue
             xj, yj = ring[j]
             d = math.hypot(xi - xj, yi - yj)
-            if _road_cum is not None:
+            _xsec_pair = (road_axis is not None
+                          and GL.pair_is_transverse(road_axis,
+                                                    xj - xi, yj - yi))
+            if _road_cum is not None and not _xsec_pair:
                 # Amendment 1 clause 1 — never TIGHTER than the chord
                 # (a ring walk is >= the chord by construction), so this
                 # only ever relaxes, exactly as the airside route metric
                 # does in ``_route_leg_floor``.
+                #
+                # SCOPED TO THE LONGITUDINAL PAIRS, and that scope is
+                # MEASURED (this lane, CYXY): applied to the whole ring it
+                # also relaxed the DIAGONAL cross-section pairs, whose
+                # walk is long, and the road CROSS-SECTION law (RULINGS
+                # 2026-08-25g) rides on exactly those — CYXY gained 46
+                # road_cross_section and 102 transverse rows.  A
+                # cross-section is measured ACROSS the road by
+                # definition, so its distance is the chord; the walk is
+                # the metric of travel ALONG the road, which is what the
+                # profile solves in.  ONE predicate decides which is
+                # which — ``GL.pair_is_transverse`` against THE ring axis
+                # the cross-section law itself uses.
                 d = GL.road_pair_distance(ring, _road_cum, _road_total,
                                           i, j, d)
             mj = membership.get(j)
@@ -3272,10 +3288,7 @@ def shape_constraints(shape: GradeShape, ctx: GradeContext,
                                            xi, yi, xj, yj)),
                 corridor_connected=corridor_connected,
                 # THE ROAD CROSS-SECTION (RULINGS 2026-08-25g).
-                transverse_road=(
-                    road_axis is not None
-                    and GL.pair_is_transverse(road_axis,
-                                              xj - xi, yj - yi)))
+                transverse_road=_xsec_pair)
             allow = GL.classify_pair(_pc)
             if allow is None:
                 continue

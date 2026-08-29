@@ -3744,6 +3744,89 @@ def _append_tunnel_cover(layout: "PavementLayout", exclusion_zones: list,
     return len(_pieces)
 
 
+#: §F4 gate (LEMD ramp/road fidelity spec Amendment 1, ruling 1).
+#: DEFAULT ON.  OFF restores the OSM-spelling-only envelope byte for byte.
+_SPELLING_ENVELOPE_ENV = "O4_PORTAL_SPELLING_ENVELOPE"
+
+#: How near a DSF chain must pass the portal to be THE SAME ROAD.  One
+#: road spelled twice stands a lane or two apart (2.75 m measured at
+#: LEMD); a genuinely different road is further off, and
+#: ``PORTAL_ROAD_ASSOCIATION_M`` is already this module's answer to
+#: "which tagged road is this portal's road" — stated once, not twice.
+_SPELLING_MATCH_M = PORTAL_ROAD_ASSOCIATION_M
+
+
+def portal_spelling_envelope_enabled() -> bool:
+    """§F4: does a portal's corridor cover EVERY spelling of its road?
+
+    THE DEFECT IT CLOSES (owner sim read of 1.0.265, LEMD portal at
+    40.4984622,-3.5850476).  The corridor's width was already right —
+    7.03 m, exactly the ``lanes=2`` the source states — and its centre
+    sat 0.3 m off the OSM/feed line it was derived from.  But X-Plane
+    draws the DSF VECTOR ROAD NETWORK's spelling of that same road, and
+    the two spellings stand 2.75 m apart: inside a 7 m cut the rendered
+    ribbon therefore hugged the west wall, which is the owner's "not
+    centered on the road".  One spelling's centre is never authority
+    over the other's ribbon.
+    """
+    return os.environ.get(_SPELLING_ENVELOPE_ENV, "1") == "1"
+
+
+def _spelling_edges(layout, origin, perp, half_carriage: float,
+                    known_edges: list) -> list:
+    """§F4: the ``(outer_left, outer_right)`` pairs the DSF spellings of
+    this portal's road add to the cluster envelope.
+
+    Every draped chain of the sibling DSF road networks passing within
+    :data:`_SPELLING_MATCH_M` of ``origin`` is projected onto ``perp``
+    and contributes its own half-width — the SAME half the OSM spelling
+    carries, because it is the same physical road and the DSF network
+    states no width of its own (its columns are a subtype and a draping
+    LEVEL FLAG, never metres).
+
+    A spelling already inside the known envelope adds nothing, so a
+    tile whose two sources agree emits byte-identically.  Returns ``[]``
+    when the law is off, no network is cached, or nothing is in reach —
+    the networks are the ones ``object_terrain_assembly`` already
+    published on the layout, so this costs no load and no second parser.
+    """
+    if not portal_spelling_envelope_enabled():
+        return []
+    networks = _object_bridge_road_networks(layout)
+    if not networks:
+        return []
+    to_meters, _back = _local_meter_projections(layout.anchor)
+    origin_point = Point(origin[0], origin[1])
+    lo_known = min((e[0] for e in known_edges), default=None)
+    hi_known = max((e[1] for e in known_edges), default=None)
+    out: list = []
+    for network in networks:
+        for segment in getattr(network, "segments", ()):  # noqa: B007
+            if not segment.is_fully_draped:
+                continue          # an elevated ramp flies over the cut
+            points = [to_meters(p.longitude, p.latitude)
+                      for p in segment.shape_points]
+            if len(points) < 2:
+                continue
+            try:
+                line = LineString(points)
+                if line.is_empty or line.distance(origin_point) > \
+                        _SPELLING_MATCH_M:
+                    continue
+                near = line.interpolate(line.project(origin_point))
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
+            proj = ((near.x - origin[0]) * perp[0]
+                    + (near.y - origin[1]) * perp[1])
+            low, high = proj - half_carriage, proj + half_carriage
+            if (lo_known is not None and hi_known is not None
+                    and low >= lo_known - 1e-9
+                    and high <= hi_known + 1e-9):
+                continue          # the sources agree — nothing to widen
+            out.append((low, high))
+    return out
+
+
 def _emit_portal_cluster(
         cl: list[int], portal_data: list, nodes_m: dict,
         layout: "PavementLayout", exclusion_zones: list,
@@ -3865,6 +3948,20 @@ def _emit_portal_cluster(
         spans.append(proj)
         _edges.append((proj - half_k, proj + half_k))
     cluster_span = max(spans) - min(spans) if spans else 0.0
+    # ── §F4: THE ENVELOPE OF EVERY SPELLING OF THE CROSSING ROAD ─────
+    # (LEMD ramp/road fidelity spec Amendment 1 ruling 1.)  The members
+    # above are the OSM/feed spelling of the road.  X-Plane draws the DSF
+    # VECTOR NETWORK's spelling, and at LEMD the two stand 2.75 m apart:
+    # a cut centred on ours put the rendered ribbon hard against a wall.
+    # The cut exists to cover what the sim RENDERS as well as what we
+    # emit, so every spelling within reach contributes its own outer
+    # edges to the envelope and the centre is the envelope's midpoint.
+    # ``cluster_span`` — the DIVERGENCE frame the fork test reads — is
+    # deliberately NOT touched: two spellings of one road are not two
+    # diverging arms, and feeding this into that test would fork a road
+    # that never splits.
+    _edges += _spelling_edges(
+        layout, walk_pts[0], first_perp, half_carriage, _edges)
     if _edges:
         _ml = min(e[0] for e in _edges)
         _mr = max(e[1] for e in _edges)

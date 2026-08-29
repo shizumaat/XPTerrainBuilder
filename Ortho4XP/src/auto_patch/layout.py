@@ -723,6 +723,19 @@ class BuiltShape:
     # Consumed by ``grade_graph._body_cap`` and emitted as
     # ``o4_grade_law_cap`` for ``tools/check_grade`` (one law, two readers).
     lateral_cap: float | None = None
+    # ── THE PER-STATION CAP VECTOR (owner 2026-08-28, round-5b spec
+    # Amendment 2 clause 1: "cap authority lives at ONE granularity —
+    # the STATION") ───────────────────────────────────────────────────
+    # ``[(x, y, cap), …]`` in layout metres, published by
+    # ``groundside.apply_lateral_contiguity_law`` from the lateral walk's
+    # own adjacency read (``lateral_contiguity.station_cap_vector``).
+    # THREE readers consume THIS list and no other: the pair pricing
+    # (``grade_graph.shape_constraints``), the solve's service DEM-follow
+    # envelope, and ``free_road_profile``'s cap-Lipschitz envelope.  The
+    # scalar ``lateral_cap`` above stays as the WAY-LEVEL summary the
+    # emitted ``o4_grade_law_cap`` tag carries for a census that has no
+    # sidecar vector to read.
+    station_cap_vector: list = field(default_factory=list)
     # ROAD↔APRON EDGE CONFORMANCE (owner RULINGS 2026-08-25b; spec
     # ``road-band-seal-scope-spec.md`` §2 + Amendment 1): this road-family
     # ring SHARES AT LEAST ONE EDGE with an apron ring, by canonical vertex

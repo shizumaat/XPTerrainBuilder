@@ -85,3 +85,36 @@ RULED — OPTION 1, as the composition of two standing laws:
    collision rows GONE (CYXY back to control class counts or every
    residual attributed), solve-owned moved airside 0, OTHH/LEMD arms
    built.
+
+## AMENDMENT 2 (Fable, 2026-08-28, on lane/hecar5c's report; 5c merged
+9486c765 default-OFF)
+
+5c's path metric is RATIFIED as landed (CYXY collision 71->0, both
+scopings — longitudinal-only, census-reader-only — correct and twinned).
+Two blockers remain, ruled/chartered:
+
+1. PER-STATION CAP UNIFICATION (the lateral_contiguity self-
+   disagreement, ruled): cap authority lives at ONE granularity — the
+   STATION. The lateral walk's own adjacency read produces a per-station
+   cap vector (1 % where the station is genuinely alongside/inside an
+   apron per the free-road ruling; SERVICE_ROAD_MAX_GRADE 8 % free), and
+   pricing, the solve graph, and the profile pass's cap-Lipschitz
+   envelope ALL consume that one vector — one derivation, three readers.
+   The way-level `O4_ROAD_CONTACT_CAP_SCOPE` gate DISSOLVES into this:
+   end-on contact binds values and never caps any station; lateral
+   contact caps exactly the stations it touches. The CYXY +130
+   lateral_contiguity rows and item-4's 1 %-held ramp both fall out.
+2. THE DOWNSTREAM AIRSIDE CHANNEL (chartered, mechanism-before-fix):
+   1,756 solve-owned airside nodes move at HECA concentrated at item-4's
+   apron (worst 2.07 m) via a re-derivation AFTER the profile pass
+   (candidates: seat_groundside_on_law, ribbon conformance, final
+   projection anchor-reach). FIRST measurement of the round: who_wrote
+   at 30.11445,31.40993 in the profile-ON arm. LAW: airside solves first
+   and NEVER re-derives from road inputs — whatever pass re-seats an
+   apron from a road value is the defect, whatever the fix costs.
+   Solve-owned moved airside = 0 stays the gate.
+3. Flip-ON conditions restated: all four owner sites monotone/lawful at
+   their per-station caps (item 4 back to the 9.35 % class, item 2's
+   U-loop lawful under path pricing); CYXY/SPJC/OTHH totals not
+   worsened, residuals attributed; solve-owned moved airside 0; all
+   four controls + LEMD built.

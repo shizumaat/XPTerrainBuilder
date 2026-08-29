@@ -4742,3 +4742,36 @@ What was NOT paid:
   would re-measure a known-bad arm.
 * The 0.25 m residue who_wrote remains owed against a freeze that both
   runs AND holds its gate at more than one airport.
+
+## HECA round 5i (lane/hecar5i, 2026-08-29) — road-blind lands; the residual is proven UPSTREAM of every post-solve pass
+
+* **Road-blind re-derivation works for what it targets.**  With it held
+  constant across the pair, CYXY's solve-owned moved airside is **0** and
+  airside rows are **114 → 114 exactly**, while the projection keeps its
+  full repair (no ring selected, so none of the freeze-era airside cost).
+* **Amendment 7's byte-identity premise is FALSE in production, measured**:
+  "profile OFF ⇒ store == layout" does not hold, because the profile is
+  not the only post-solve road writer — **1,315 road-family nodes at CYXY
+  had already been moved post-solve with the profile off** (crossing
+  adoption, service/lot seats, chord limiter).  Road-blind therefore also
+  rolls those back before the projection, and that costs **+13 rows at
+  CYXY** on its own.  Not a blocker, but the property must be restated.
+* **THE RESIDUAL IS THE SOLVE, and it is now proven, not inferred.**
+  ``who_wrote`` at an SPJC no-road-contact mover
+  (-12.01357265191,-77.11613157182, |dz| 0.68 m) lists its ONLY writers:
+  ``solve_route_profile`` 17.57 and a 0.07 m settle from
+  ``final_grade_projection``.  No road pass, no conformance pass.  The
+  same answer CYXY gave in 5g.  Three isolation arms agree: the SPJC
+  residual is unchanged with the path metric off (95), with the
+  post-projection profile call off (94), and with the projection
+  road-blind (95).
+* **CONSEQUENCE for the whole airside question**: the movement is the ONE
+  SOLVE answering a changed road law in a graph road and airside share.
+  It is upstream of every post-solve mechanism, which is exactly why
+  rounds 5e-5i measured every post-solve remedy (three freezes, a
+  two-stage staging, road-blind) unable to remove it.  Any further
+  work belongs in the solve — e.g. whether a road cap change may move an
+  airside variable at all — and that is a law question, not a pass.
+* **The five-airport flip-ON arm was not built**: the gate cannot be met
+  at SPJC by any post-solve mechanism, so the bar is unreachable this
+  round and HECA/OTHH/LEMD would re-measure that.

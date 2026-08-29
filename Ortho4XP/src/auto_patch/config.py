@@ -10116,8 +10116,18 @@ FREE_ROAD_PROFILE_SELF_PINS = (
 PROJECTION_SNAPSHOT_BLIND = (
     _os.environ.get("O4_PROJECTION_SNAPSHOT_BLIND", "1") != "0")
 
+# …AND SHIPPED OFF AGAIN ON THE LIVE MEASUREMENT (round 5h).  Re-founded
+# on the LIVE solved_values store it finally RUNS (5f/5g's version stood
+# on a parked feature and was byte-identically inert), and it meets its
+# gate — solve-owned moved airside 0 at CYXY.  But Amendment 6 §2's
+# mutation criterion (a ring whose NODE POPULATION the store does not
+# span) releases only 95 of 1,855 airside nodes = 5 %, because most
+# post-solve reshaping changes VALUES, not membership.  The other 95 %
+# are frozen and lose the projection's repair: CYXY's CONTROL rises
+# 374 -> 401, airside 113 -> 199 (+86), with the profile not running.
+# Same trade as 5e's blanket form, now quantified on a live foundation.
 PROJECTION_AIRSIDE_FREEZE = (
-    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "1") != "0")
+    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "0") != "0")
 
 FREE_ROAD_PROFILE_PRESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")

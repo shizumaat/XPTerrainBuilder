@@ -8121,21 +8121,50 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # 299 -> 97").  An airside node on an UNMUTATED ring is FROZEN:
     # re-deriving it because a ROAD or GROUNDSIDE input moved is
     # Amendment 3's defect, measured at the item-4 apron.
+    # THE FOUNDATION IS THE LIVE ``solved_values`` STORE (owner ruling
+    # 2026-08-29, Amendment 6 §1) — NOT the parked scoped-projection
+    # snapshot, which round 5g proved never runs
+    # (``SCOPED_FINAL_PROJECTION = False``, "nothing in the environment
+    # can turn it on"; the 5f freeze was byte-identically inert).
+    #
+    # ``solved_values`` is minted UNCONDITIONALLY the moment the one solve
+    # publishes its surface, keyed by CANONICAL POINT ID, over every key
+    # of every solve node — its own comment: "Coverage is the whole point
+    # of the carry."  It is already resolved into this pass's index space
+    # a few lines above as ``_carried_solved``, so the freeze costs one
+    # dict lookup per node and NOT ONE BYTE of new capture.
+    #
+    # THE MUTATION CRITERION (Amendment 6 §2): a ring is MUTATED when its
+    # post-solve node population differs from the store's membership — a
+    # node whose canonical key the solve never had is a post-solve INSERT
+    # or WELD, and its ring's pairs were never projected.  Those rings
+    # re-derive (the pass's founding repair); every other airside node is
+    # frozen.
     _airside_frozen: set = set()
     _airside_remutated = 0
-    if _projection_airside_freeze_on() and _geom_changed_ids is not None:
+    _airside_pop = 0
+    _airside_covered = 0
+    if _projection_airside_freeze_on():
         try:
             from auto_patch.elevation_per_surface.solver_primitives import (
                 solve_owned_airside_nodes as _solve_owned_airside)
-            _cand = {i for i in _solve_owned_airside(layout, b2i) if i < n}
-            # The nodes of MUTATED airside rings are released back to the
-            # projection — read off the same shapes the mutation reading
-            # named, never a second walk.
+            _airside_all = {i for i in _solve_owned_airside(layout, b2i)
+                            if i < n}
+            _airside_pop = len(_airside_all)
+            _airside_covered = sum(1 for i in _airside_all
+                                   if i in _carried_solved)
+            # A ring whose node population the store does not span is
+            # MUTATED — released to the projection.
             _released: set = set()
             _cps_f = getattr(layout, "canonical_points", None)
             if _cps_f is not None:
+                from auto_patch.elevation_per_surface.solver_primitives \
+                    import PAVEMENT_ROLES as _PAV_R
+                from auto_patch.solve_stage import stage_of_role, STAGE_A
+                _air_roles = frozenset(r for r in _PAV_R
+                                       if stage_of_role(r) == STAGE_A)
                 for _s in (getattr(layout, "shapes", None) or ()):
-                    if id(_s) not in _geom_changed_ids:
+                    if getattr(_s, "role", None) not in _air_roles:
                         continue
                     _poly = getattr(_s, "polygon", None)
                     if _poly is None or getattr(_poly, "is_empty", True):
@@ -8146,13 +8175,32 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                             _cs += list(_r.coords)
                     except Exception:                      # pragma: no cover
                         continue
+                    _ring_idx = []
+                    _mutated = False
                     for (_x, _y) in _cs:
                         _i = b2i.get(_cps_f.get_or_add(float(_x), float(_y)))
-                        if _i is not None:
-                            _released.add(int(_i))
-            _airside_frozen = _cand - _released
-            _airside_remutated = len(_cand & _released)
+                        if _i is None or _i >= n:
+                            continue
+                        _ring_idx.append(_i)
+                        if _i not in _carried_solved:
+                            _mutated = True     # post-solve insert / weld
+                    if _mutated:
+                        _released.update(_ring_idx)
+            _airside_frozen = _airside_all - _released
+            _airside_remutated = len(_airside_all & _released)
             hard |= _airside_frozen
+            import O4_UI_Utils as _UI_cov
+            _cov_pct = (100.0 * _airside_covered / _airside_pop
+                        if _airside_pop else 0.0)
+            _UI_cov.vprint(1,
+                f"  [pav-builder] {icao}: AIRSIDE FREEZE on the LIVE "
+                f"solved_values store (Amendment 6) — store COVERAGE "
+                f"{_airside_covered}/{_airside_pop} solve-owned airside "
+                f"node(s) = {_cov_pct:.2f} %; {_airside_remutated} "
+                f"released as MUTATED (their ring holds a post-solve "
+                f"insert/weld the store never had), {len(_airside_frozen)} "
+                f"FROZEN.  No capture was added: the store is minted "
+                f"unconditionally by the one solve.")
         except Exception:                                  # pragma: no cover
             _airside_frozen = set()
     # ── CORRIDOR FREE-END DEM TIES, CARRIED BY CANONICAL KEY ──────────
@@ -9317,8 +9365,7 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # never a second copy.
     _snap_blind = (_projection_airside_freeze_on()
                    and _snapshot_blind_rederive_on()
-                   and snapshot is not None
-                   and _airside_frozen is not None)
+                   and bool(_carried_solved))
     _stage1_restore: dict = {}
     _snap_blind_held = 0
     if _snap_blind:
@@ -9326,18 +9373,17 @@ def final_grade_projection(layout, icao: str = "", dem=None,
             from auto_patch.elevation_per_surface.solver_primitives import (
                 solve_owned_airside_nodes as _sa_nodes)
             _airside_all = {i for i in _sa_nodes(layout, b2i) if i < n}
-            _snap_vals = snapshot.get("values") or {}
+            # THE SAME STORE the freeze stands on — one store, two
+            # readers (Amendment 6 §1), already in this index space.
+            _snap_vals_idx = _carried_solved
             _hard_stage1 = set(hard)
-            for _key, _i in b2i.items():
+            for _i, _sv in _snap_vals_idx.items():
                 if _i >= n or _i in _airside_all:
-                    continue
-                _sv = _snap_vals.get(_key)
-                if _sv is None:
                     continue
                 _cur = elev[_i]
                 if _cur != _sv:
                     _stage1_restore[_i] = _cur
-                    elev[_i] = _sv + _crown_of.get(_i, 0.0)
+                    elev[_i] = _sv
                 _hard_stage1.add(_i)
                 _snap_blind_held += 1
             rem_s1, _bh_s1 = feasibility_project_partitioned(
@@ -9348,10 +9394,26 @@ def final_grade_projection(layout, icao: str = "", dem=None,
                 apron_excluded_nodes=set(
                     getattr(G, "apron_excluded_nodes", None) or ()),
                 flat_groups=pad_groups or None)
-            # STAGE 2: airside is settled and road-blind — hold it, give
-            # every non-airside node its CURRENT value back, and let the
-            # road/groundside families repair against it.
-            hard = set(hard) | _airside_all
+            # STAGE 2: give every non-airside node its CURRENT value
+            # back and let the main projection run.
+            #
+            # IT HARDENS THE **FROZEN** AIRSIDE ONLY, not all of it, and
+            # that is MEASURED, not chosen: hardening ``_airside_all``
+            # left the airside partition with weighted transect rows and
+            # NO movable edge, and ``feasibility_project`` refuses that
+            # by design — "6350 weighted transect row(s) were handed to a
+            # projection path that cannot carry them (chromatic=True,
+            # edges=0) ... refusing rather than solving a smaller law
+            # than the caller passed" (spec
+            # transverse-hyperplane-solve-spec.md §3-5).  The refusal is
+            # right: a law handed to a solver that cannot move it is not
+            # a law.  So the MUTATED rings stay free here — they are the
+            # ones whose pairs were never projected — and they re-derive
+            # against an airside majority stage 1 has already settled
+            # BLIND.  Passing a road-only law to stage 2 instead would
+            # need the partitioner itself to split the constraint set,
+            # which is its own design.
+            hard = set(hard) | _airside_frozen
             for _i, _cur in _stage1_restore.items():
                 elev[_i] = _cur
             import O4_UI_Utils as _UI_sb

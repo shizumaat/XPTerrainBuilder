@@ -417,7 +417,7 @@ class TestSelfPins:
 
 class TestTheAirsideFreeze:
 
-    def test_the_freeze_is_default_on_now_that_it_is_SCOPED(self):
+    def test_the_freeze_ships_OFF_on_its_LIVE_measurement(self):
         """5e's BLANKET freeze removed this pass's founding repair
         (+94/+563/+926 airside rows at CYXY/SPJC/HECA, profile off) and
         shipped OFF.  Amendment 4 scopes it to UNMUTATED rings, which is
@@ -426,7 +426,7 @@ class TestTheAirsideFreeze:
         import auto_patch.config as _fresh
         _fresh = importlib.reload(_fresh)
         try:
-            assert _fresh.PROJECTION_AIRSIDE_FREEZE is True
+            assert _fresh.PROJECTION_AIRSIDE_FREEZE is False
         finally:
             importlib.reload(_fresh)
 
@@ -474,61 +474,23 @@ class TestTheAirsideFreeze:
 # ══════════════════════════════════════════════════════════════════════
 
 class TestTheScopedFreeze:
+    """SUPERSEDED BY AMENDMENT 6 (round 5h).  The 5f scoped freeze read
+    its mutation set from ``_scoped_projection_defer_ids``, which needs
+    ``SCOPED_FINAL_PROJECTION`` — a PARKED feature that never runs, so
+    that freeze was byte-identically inert (5g, measured).  The mutation
+    criterion is now store MEMBERSHIP and lives in
+    ``TestTheLiveStoreFoundation``; what survives here is the one clause
+    that was never about the snapshot."""
 
-    def test_ONE_mutation_reading_is_published_not_recomputed(self):
-        """"ONE derivation: the pass's existing
-        ``_scoped_projection_defer_ids`` machinery, never a second
-        mutation reading."  The freeze consumes criterion (1) of that
-        function — the shapes whose OWN ring geometry changed."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        src = inspect.getsource(S._scoped_projection_defer_ids)
-        assert "return defer_ids, pre_broken, geom_changed_ids" in src
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_geom_changed_ids" in proj
-        # …and NOT the deferrable set, which excludes a shape whose
-        # NEIGHBOUR changed — freezing on that would re-freeze the very
-        # road-driven case the freeze exists to catch.
-        assert "id(_s) not in _geom_changed_ids" in proj
+    def test_the_freeze_never_hardens_a_ROAD_node(self):
+        from auto_patch.elevation_per_surface.solver_primitives import (
+            PAVEMENT_ROLES)
+        from auto_patch.solve_stage import stage_of_role, STAGE_A
+        frozen_roles = {r for r in PAVEMENT_ROLES
+                        if stage_of_role(r) == STAGE_A}
+        assert "service_road" not in frozen_roles
+        assert "service_junction" not in frozen_roles
 
-    def test_half_one_a_MUTATED_ring_RE_DERIVES(self):
-        """The projection's founding purpose: post-solve planarize
-        inserts / T-vertex welds / clip rebuilds reshape rings AFTER the
-        solve, so those rings' pairs were never projected."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_released.add(int(_i))" in proj
-        assert "_airside_frozen = _cand - _released" in proj
-
-    def test_half_two_an_UNMUTATED_ring_is_FROZEN(self):
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "hard |= _airside_frozen" in proj
-
-    def test_no_snapshot_means_the_freeze_STANDS_DOWN(self):
-        """The one state in which mutated and unmutated cannot be told
-        apart is no snapshot at all — and there the freeze does not
-        guess: ``_geom_changed_ids is None`` disarms it."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_geom_changed_ids is not None" in proj
-
-    def test_the_released_set_is_read_off_the_SAME_shapes(self):
-        """The release walks the shapes the mutation reading named, by
-        ``id``, through the layout's own canonical points — no second
-        geometry comparison anywhere."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_cps_f.get_or_add(float(_x), float(_y))" in proj
-
-
-# ══════════════════════════════════════════════════════════════════════
-# AMENDMENT 5 — SNAPSHOT-BLIND RE-DERIVATION + WELD IDENTITY
-# ══════════════════════════════════════════════════════════════════════
 
 class TestSnapshotBlindRederivation:
 
@@ -538,12 +500,12 @@ class TestSnapshotBlindRederivation:
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        assert 'snapshot.get("values")' in proj
-        defer = inspect.getsource(S._scoped_projection_defer_ids)
-        assert 'snapshot["values"]' in defer
-        # …and the snapshot is written in exactly one place.
+        # ONE STORE, TWO READERS (Amendment 6 §1): the freeze and the
+        # blind stage both read the resolved ``solved_values`` view, and
+        # the store is minted in exactly one place.
+        assert "_snap_vals_idx = _carried_solved" in proj
         whole = inspect.getsource(S)
-        assert whole.count("layout._final_projection_snapshot = ") == 1
+        assert whole.count('"solved_values", "scalar",') == 1
 
     def test_half_one_AIRSIDE_repairs_against_the_SNAPSHOT(self):
         """Stage 1 holds every non-airside node at its solve-time value,
@@ -552,7 +514,7 @@ class TestSnapshotBlindRederivation:
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
         assert "_hard_stage1.add(_i)" in proj
-        assert "elev[_i] = _sv + _crown_of.get(_i, 0.0)" in proj
+        assert "elev[_i] = _sv" in proj
 
     def test_half_two_ROADS_re_derive_freely_afterwards(self):
         """Amendment 3 kept: stage 2 restores the CURRENT non-airside
@@ -560,7 +522,7 @@ class TestSnapshotBlindRederivation:
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        assert "hard = set(hard) | _airside_all" in proj
+        assert "hard = set(hard) | _airside_frozen" in proj
         assert "elev[_i] = _cur" in proj
 
     def test_the_repair_is_not_skipped_only_re_based(self):
@@ -597,3 +559,64 @@ class TestWeldIdentity:
         src = inspect.getsource(GS._road_vertex_graph)
         assert "MILLIMETRE bucket" in src
         assert "0.09 m and 0.07 m" in src
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 6 — THE LIVE STORE AS THE FREEZE'S FOUNDATION
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheLiveStoreFoundation:
+
+    def test_the_store_is_minted_UNCONDITIONALLY_by_the_solve(self):
+        """Why it can be the foundation at all, and why it costs nothing:
+        ``solved_values`` is minted the moment the one solve publishes its
+        surface, keyed by canonical point id, over every key of every
+        solve node — no gate, no capture to add.  (The parked
+        SCOPED_FINAL_PROJECTION snapshot is what 5f/5g stood on, and it
+        never runs.)"""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        whole = inspect.getsource(S)
+        assert '"solved_values", "scalar",' in whole
+        assert "SCOPED_FINAL_PROJECTION = False" in whole
+        # …and the freeze reads the RESOLVED view, not a second copy.
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_carried_solved" in proj
+        assert "i in _carried_solved" in proj
+
+    def test_the_mutation_criterion_is_store_MEMBERSHIP(self):
+        """Amendment 6 §2: a ring is mutated when its post-solve node
+        population differs from the store's membership — a key the solve
+        never had is a post-solve insert or weld."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_i not in _carried_solved" in proj
+        assert "_mutated = True" in proj
+
+    def test_both_halves_of_the_criterion(self):
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        # mutated ring -> released; everything else -> frozen
+        assert "_released.update(_ring_idx)" in proj
+        assert "_airside_frozen = _airside_all - _released" in proj
+
+    def test_the_coverage_is_MEASURED_and_reported_by_the_build(self):
+        """The ruling asked for the coverage first; the build states it
+        (CYXY: 1853/1855 = 99.89 %)."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "store COVERAGE" in proj
+        assert "_airside_covered" in proj
+
+    def test_stage_two_hardens_only_the_FROZEN_set(self):
+        """Measured refusal: hardening ALL airside left the airside
+        partition with weighted transect rows and no movable edge, and
+        feasibility_project refuses that by design."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "hard = set(hard) | _airside_frozen" in proj
+        assert "edges=0" in proj

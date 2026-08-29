@@ -196,3 +196,37 @@ structural residual is ruled:
 3. Flip-ON: the full Amendment 2 §3 + Amendment 3 §3 bar, now with
    HECA + LEMD ON arms BUILT, the 0.25 m residue who_wrote spent, and
    solve-owned moved airside 0 at all five airports.
+
+## AMENDMENT 6 (Fable, 2026-08-29, on lane/hecar5g's STOP — record
+corrected)
+
+Amendments 4/5 rested on a FALSE PREMISE: the mutation-detection
+snapshot is `SCOPED_FINAL_PROJECTION`, a PARKED feature (no gate,
+retired 2026-08-05 on a build-time measurement) — the 5f scoped freeze
+never fired (byte-identical, measured). NEVER un-park it: that retire
+was an owner-level measurement decision, and the freeze needs only
+VALUES, not the ring/defer machinery.
+
+RULINGS:
+1. FREEZE FOUNDATION — a values-only solve-time store: prefer
+   `post_solve_mutation_set`'s carried `solved_values` store IF its
+   coverage spans the solve-owned airside population (MEASURE the
+   coverage first); else capture a values-only snapshot unconditionally
+   (an array copy — state its build-time cost per the hard law). One
+   store, and both the freeze and its gate instrument read it.
+2. MUTATION CRITERION from the live store: a ring is mutated when its
+   post-solve node population differs from the store's membership
+   (canonical identity, post-solve inserts/welds), never the parked
+   ring capture. Snapshot-blind re-derivation (Amendment 5 §1) then
+   reads non-airside neighbours from that values store.
+3. GATE REFINEMENT — THE WELD SET IS NOT A BREACH: a shared-claim
+   variable (one solved node claimed by both an airside role and a
+   road-family role) is the WELD — its value is the one solve's
+   consensus and legitimately moves when road law changes. The
+   zero-moved gate applies to NON-INTERFACE solve-owned airside;
+   interface movement is REPORTED separately (count, worst |dz|) and
+   the owner's sim read adjudicates it. SPJC's 98 no-road-contact
+   movers are NOT interface and must be attributed under the live
+   freeze.
+4. Then the full five-airport closing arm and flip-ON per the standing
+   bar (with §3's refined gate).

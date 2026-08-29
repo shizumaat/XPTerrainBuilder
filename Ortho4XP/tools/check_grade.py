@@ -4022,14 +4022,34 @@ def _check_lateral_contiguity(ways: List[Way], nodes, ll_to_m,
             # THE FOURTH READER: the cap this station was BUILT to.  The
             # accessor is the law's own (``lateral_contiguity.cap_at``),
             # so the join convention cannot drift from the emitter's.
+            # BOTH SIDES FROM THE ONE DERIVATION.  ``law_cap`` above is
+            # this reader's OWN re-walk, and that walk folds the
+            # edge-contact term according to ``ROAD_CONTACT_CAP_SCOPE``
+            # AS READ IN THIS PROCESS — which is not necessarily the
+            # frame the patch was BUILT in (the census is a separate
+            # process; the gate is env-scoped).  MEASURED at CYXY: the
+            # same ON-arm patch censuses at 474 under the census
+            # process's default and 334 under the build's own gate, the
+            # whole 140-row ``lateral_contiguity`` family being the
+            # difference.  That is the census-wrapper failure mode one
+            # level deeper: not a missing key, a re-derivation under a
+            # different law.
+            #
+            # So where the emitter PUBLISHED the station's cap, that IS
+            # the law here — the fourth reader reads, it does not
+            # re-derive — and the way's own limit is taken at the same
+            # station.  Absent key ⇒ the re-walk, announced above.
             _built = eff
+            _law_here = law_cap
             if _pub_caps_m:
                 _pc = _cap_at(_pub_caps_m, float(st[0]), float(st[1]),
                               None)
                 if _pc is not None:
+                    _law_here = float(_pc)
                     _built = min(float(eff), float(_pc))
-            if _built <= law_cap + 1e-12:
+            if _built <= _law_here + 1e-12:
                 continue
+            law_cap = _law_here
             eff_here = _built
             shapes_flagged.add(w.wid)
             out.append(Violation(
@@ -6933,6 +6953,10 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["crown_drops_ll"] = data.get("crown_drops") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
+    # THE PER-STATION CAP VECTOR (Amendment 9) — the census's own read of
+    # the one derivation.  ``None`` when the patch predates the key, which
+    # ``_check_lateral_contiguity`` announces before falling back.
+    ctx["station_caps_ll"] = data.get("station_caps") or None
     ctx["xsection_spans"] = data.get("xsection_spans") or None
     ctx["terrace_joints_ll"] = data.get("terrace_joints") or None
     ctx["fan_ramp_zones_ll"] = data.get("fan_ramp_zones") or None

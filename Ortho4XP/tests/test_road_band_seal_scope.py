@@ -215,7 +215,8 @@ class TestEdgeSharingContactIsTheApron:
         polys, roles, tree = _contact_fixture(0.001)
         assert LC.edge_shared_roles(polys[1], tree, polys, roles, 1) == set()
 
-    def test_an_END_ON_contact_ring_keeps_the_FREE_ROAD_class(self):
+    def test_an_END_ON_contact_ring_keeps_the_FREE_ROAD_class(
+            self, monkeypatch):
         """SUPERSEDED BY THE OWNER, 2026-08-28e (HECA round 5 items
         2/3/4; spec ``heca-round5-drainage-and-ramps-spec.md`` LAW 2).
 
@@ -227,7 +228,12 @@ class TestEdgeSharingContactIsTheApron:
         weld (canonical identity, and the contact-DATUM seeding below);
         it no longer prices the cap.  Measured at HECA on the tree that
         carried the old law: service_road 2863 held at 0.010000 over its
-        130 m run to taxiway junction -12711."""
+        130 m run to taxiway junction -12711.
+
+        DEFAULT-OFF AT MERGE (Fable 52d54c6e): the scoping ships gated
+        OFF until the road-profile pass closes the cliffs (config.py's
+        gate comment has the measurement); this twin pins the ON arm."""
+        monkeypatch.setattr(CFG, "ROAD_CONTACT_CAP_SCOPE", True)
         polys, roles, tree = _contact_fixture(0.0)
         _st, caps = LC.station_caps(polys[1], tree, polys, roles, 1)
         got = {c for c in caps if c is not None}
@@ -298,13 +304,16 @@ class TestEdgeSharingContactIsTheApron:
         roles = [ROLE_BUILDING, ROLE_SERVICE_ROAD]
         assert LC.edge_shared_roles(polys[1], tree, polys, roles, 1) == set()
 
-    def test_conformance_never_reclassifies_the_ring(self):
+    def test_conformance_never_reclassifies_the_ring(self, monkeypatch):
         """Amendment 1 clause 1: the contact ring REMAINS road-family
         population.  The law pass stamps the contact and carries the
-        apron cap; it must not absorb, merge or re-role the shape."""
+        apron cap; it must not absorb, merge or re-role the shape.
+        (Pinned to the scoping's ON arm — see the default-OFF note on
+        the scoping twin above.)"""
         from auto_patch import groundside as GS
         from auto_patch.layout import BuiltShape
 
+        monkeypatch.setattr(CFG, "ROAD_CONTACT_CAP_SCOPE", True)
         polys, roles, _tree = _contact_fixture(0.0)
         apron = BuiltShape(role=ROLE_APRON, polygon=polys[0])
         apron.node_altitudes = [10.0] * len(polys[0].exterior.coords[:-1])

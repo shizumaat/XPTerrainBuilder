@@ -9979,13 +9979,22 @@ ROAD_AIRSIDE_CONTACT_WIDEN = (
 # 2854 / 2859 likewise; the owner's ramps (3.5 %, 6.4 % and a 6.6 m
 # descent) are all lawful under the 8 % class and impossible under 1 %.
 #
-# ON (default) ⇒ contact binds VALUES only (the canonical-identity welds
+# ON ⇒ contact binds VALUES only (the canonical-identity welds
 # and the apron-CONTACT DATUM seeding, both untouched) and the CAP comes
 # from the LATERAL walk, which still reads an apron a road stands inside
 # or alongside.  ``O4_ROAD_CONTACT_CAP_SCOPE=0`` restores the ring-wide
 # contact pricing byte-identically.
+#
+# DEFAULT OFF AT MERGE (Fable, 2026-08-28, merge 52d54c6e): the scoping
+# alone re-prices the stretches at 8 % but NO PASS yet builds the ramp
+# profile (round-5 spec law 3 — un-implemented), so the measured effect
+# of ON today is item-2's site 0.70 m WORSE (|de| 1.76 → 2.46 m) plus 9
+# MOVED airside rows against the zero-moved gate.  The road-profile
+# round (one-way weld + whole-path ≤8 % profile pass) flips this ON in
+# the same arm that closes the cliffs; until then OFF is byte-identical
+# to the pre-round tree (proven at CYXY/SPJC).
 ROAD_CONTACT_CAP_SCOPE = (
-    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "1") != "0")
+    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "0") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

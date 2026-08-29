@@ -151,3 +151,25 @@ RULINGS:
    airports with pre-solve ON; the 0.25 m residue class attributed and
    frozen or ruled immaterial (< the 0.01 m floor it is not — attribute
    it).
+
+## AMENDMENT 4 (Fable, 2026-08-28, on lane/hecar5e; 5e merged)
+
+§2 RATIFIED (self-pins; fifth site 3.631 -> 0.270 m; early-return made
+conditional). §1's blanket freeze REFINED by the lane's measurement (a
+blanket freeze removes the projection's own founding repair — planarize
+inserts, T-vertex welds, clip rebuilds: +94/+563/+926 rows profile-OFF):
+
+RULED — THE FREEZE IS SCOPED TO UNMUTATED AIRSIDE RINGS: an airside node
+on a ring whose OWN geometry changed after the solve may be re-derived
+(the projection's purpose); an airside node on an UNMUTATED ring is
+FROZEN — re-deriving it because a road/groundside input changed is
+Amendment 3's defect. ONE derivation: the pass's existing
+`_scoped_projection_defer_ids` / `post_solve_mutation_set` machinery —
+never a second mutation reading. Twin: both halves (mutated ring
+re-derives; unmutated ring frozen against a road-input change).
+
+Flip-ON then re-measured whole: item 4 back at its ~9% class; all five
+sites; solve-owned moved airside 0 at all airports (road-welded shared
+nodes take the AIRSIDE value by the one-way weld — a residual there is
+attributed, not accepted); the 0.25 m residue who_wrote; OTHH/LEMD ON
+arms built; census totals vs control attributed.

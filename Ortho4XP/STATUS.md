@@ -1,4 +1,35 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260828d (SIM-READ ROUND 3 on 1.0.265 — LEMD ramp/road fidelity,
+# pad carve, HECA drainage+ramps; FIVE lane rounds, app 1.0.266 built
+# embedded==dist hash-verified.)
+# LEMD (all MERGED): §F1 wall-top station law (humps WERE the wall top;
+#   owner wall cross-band 0.80->0.00 m, 21->11 twisted bands; docket =
+#   second emitter _emit_low_corridor_connectors); §F4 spelling envelope
+#   (ribbon overhang -2.47 -> +0.56 m clear — DSF chain 2.75 m off the
+#   OSM line was the centering defect, pair hypothesis refuted); §F5
+#   per-way road width (item-3 5.94->13.90 m vs stated 14.0); PAD CARVE
+#   default-ON (corridor from ramp object deck, 20/20 stations,
+#   building8 flat, census -2) + FOUNDED-DATUM CARRY (pack seats at
+#   provenance 600.51 — 596.682 was the 2026-08-27 dev surface,
+#   SUPERSEDED; scoped read = drift detector).
+# HECA: item-1 ols_road runway-strip stand-down MERGED default-ON
+#   (site 680%->102%, strip_seam_tear 5.10->2.32 m, runway 0/66 moved,
+#   HECA -191). Items 2/3/4 (ramps): contact-cap scoping + the whole
+#   free_road_profile pass (one-way weld, 242 end-on bindings/673
+#   refusals published, whole-path 8%) MERGED DEFAULT-OFF — blocked on
+#   METRIC COLLISION (census prices road pairs by euclidean chord; a
+#   path-lawful U-loop ramp reads 8.33-9.11%; CYXY +120 = 8% x
+#   path/chord). RULED Amendment 1: path-metric pricing for road-family
+#   within-shape pairs + gap-chord exclusion, ONE implementation in
+#   check_grade; moved-airside gate on the SOLVE-OWNED frame. Round 5c
+#   lane (hecar5c) implementing; gates flip ON in its arm.
+# RULINGS: 28e free-road 8% (confirms SERVICE_ROAD_MAX_GRADE; defect
+#   was apron-spine scoping); terrace-vs-grade on wide steep roads
+#   docketed; artifact-ledger stale-tree-hash chip out (owner started).
+# NEXT: owner sim pass on 1.0.266 (OTHH walls, all LEMD, CYXY, HECA
+#   tear; HECA ramps unchanged until 5c -> 1.0.267).
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260828c (OWNER SIM-READ ROUND 2 on 1.0.264 — OTHH tunnels, LEMD
 # pit ramp, CYXY terrain; THREE lanes, all closed; app 1.0.265 built
 # embedded==dist hash-verified, engine 1.50.1708.)

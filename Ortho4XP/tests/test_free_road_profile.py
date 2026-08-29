@@ -360,6 +360,70 @@ class TestTheMidRunSag:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# THE CUMULATIVE CAP-DISTANCE (lane/rampsites, site-first re-open):
+# a Lipschitz bound whose constant varies in space INTEGRATES.
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheCumulativeCapDistance:
+
+    def test_the_prefix_is_each_intervals_own_cap_times_its_own_length(self):
+        ss = [0.0, 10.0, 20.0, 30.0]
+        caps = [0.08, 0.08, 0.01, 0.08]
+        C = FRP.cap_distance_prefix(ss, caps, 0.08)
+        # interval 1-2 and 2-3 both touch the 1 % station, so both carry
+        # 1 % — a station's cap binds the grade THROUGH it, both sides.
+        assert C == pytest.approx([0.0, 0.8, 0.9, 1.0])
+
+    def test_one_strict_station_no_longer_prices_the_whole_chain(self):
+        """THE MECHANISM THIS ROUND MEASURED.  Under ``min x span`` a
+        single 1 % station 200 m from the pins refused the ramp and the
+        WHOLE chain reverted to the solve's values — the owner's cliff.
+        """
+        ss = [0.0, 100.0, 200.0, 300.0, 400.0]
+        caps = [0.08, 0.08, 0.01, 0.08, 0.08]
+        pins = {0: 100.0, 4: 108.0}                 # 8 m over 400 m = 2 %
+        t_on, inf_on = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                         caps=caps, cumulative=True)
+        t_off, inf_off = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                           caps=caps, cumulative=False)
+        assert inf_off and t_off == [100.0] * 5     # refused, cliff kept
+        assert not inf_on and t_on[4] == pytest.approx(108.0)
+        for k in range(4):
+            c = min(caps[k], caps[k + 1])
+            assert abs(t_on[k + 1] - t_on[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
+
+    def test_the_chord_runs_in_the_CAP_DISTANCE_coordinate(self):
+        """The raise-only chord may not stand above the ceiling the same
+        caps generate: it interpolates in cap-distance, so it crosses a
+        1 % stretch at 1 %, not at the chain's average grade."""
+        ss = [0.0, 100.0, 200.0, 300.0, 400.0]
+        caps = [0.08, 0.08, 0.08, 0.01, 0.01]      # free first, 1 % last
+        pins = {0: 100.0, 4: 108.0}
+        t, _inf = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                    caps=caps, cumulative=True)
+        # The straight-in-s chord (102, 104, 106) climbs 2 % across the
+        # 1 %-capped tail — an unlawful floor.  The cap-distance chord
+        # front-loads the rise onto the stretch that can carry it…
+        assert t[1] > 103.0
+        # …and every interval still respects its own cap.
+        for k in range(4):
+            c = min(caps[k], caps[k + 1])
+            assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
+        # …and with ONE cap everywhere the chord is the linear one.
+        flat, _ = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
+                                    caps=[0.08] * 5, cumulative=True)
+        assert flat[2] == pytest.approx(104.0)
+
+    def test_the_gate_off_restores_the_refuted_arm(self, monkeypatch):
+        monkeypatch.setattr(CFG, "ROAD_PROFILE_CUMULATIVE_CAP", False)
+        ss = [0.0, 100.0, 200.0]
+        caps = [0.08, 0.01, 0.08]
+        t, inf = FRP.chain_profile(ss, [100.0] * 3, {0: 100.0, 2: 104.0},
+                                   CAP, caps=caps)
+        assert inf and t == [100.0] * 3
+
+
+# ══════════════════════════════════════════════════════════════════════
 # AMENDMENT 3 §2 — SELF-PINS (the fifth site's binding question dissolved)
 # ══════════════════════════════════════════════════════════════════════
 

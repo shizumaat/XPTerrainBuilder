@@ -55,6 +55,7 @@ __all__ = [
     "profile_owned_keys",
     "PROFILE_KEYS_ATTRIBUTE",
     "chain_profile",
+    "cap_distance_prefix",
 ]
 
 #: Where the written nodes are published for the chord limiter, in ITS
@@ -72,7 +73,52 @@ def profile_owned_keys(layout) -> set:
     return set(getattr(layout, PROFILE_KEYS_ATTRIBUTE, None) or ())
 
 
-def chain_profile(stations_s, values, pins, cap, caps=None):
+def _cumulative_cap_on() -> bool:
+    """Is the CUMULATIVE cap-distance armed?  **Default ON** — the gate
+    exists only so the refuted min-over-span arm can be reproduced
+    byte-identically (``O4_ROAD_PROFILE_CUMULATIVE_CAP=0``).
+
+    Read at CALL time, like every other gate in this family, so a twin
+    can flip it without reloading the module.
+    """
+    from . import config as _cfg
+    return bool(getattr(_cfg, "ROAD_PROFILE_CUMULATIVE_CAP", True))
+
+
+def cap_distance_prefix(stations_s, caps, cap):
+    """``C`` — the prefix CAP-DISTANCE of a chain, in metres of altitude.
+
+    ``C[k] − C[i]`` is the greatest ``|Δz|`` a profile may accumulate
+    between stations ``i`` and ``k``: each INTERVAL contributes its own
+    cap times its own length.  The interval between two stations carries
+    the STRICTER of their two caps, so a 1 % station bounds the grade
+    THROUGH ITS OWN NEIGHBOURHOOD — and nothing beyond it.
+
+    WHY THIS AND NOT ``min(cap over the span) · span`` (the arm this
+    replaces, measured on lane/rampsites' CYXY control): a Lipschitz
+    bound whose constant VARIES in space integrates; it does not take a
+    minimum.  Taking the minimum makes one 1 % station 200 m away price
+    the entire run at 1 %, and every chain whose ends differ by more
+    than 1 % of their separation is then declared infeasible and left
+    exactly as the solve made it — cliff included.  MEASURED at CYXY:
+    all seven refused chains needed 1.3-4.3 % over their own spans
+    against cumulative allowances of 2.4-19.2 m; five of the seven are
+    feasible by metres and were refused by the metric alone.
+
+    With one cap everywhere this is that cap times the span, which is
+    why the scalar path (``caps`` empty) never enters here.
+    """
+    C = [0.0]
+    for m in range(len(stations_s) - 1):
+        pair = [c for c in (caps[m], caps[m + 1]) if c is not None]
+        cm = min(pair) if pair else float(cap)
+        C.append(C[-1] + float(cm)
+                 * (float(stations_s[m + 1]) - float(stations_s[m])))
+    return C
+
+
+def chain_profile(stations_s, values, pins, cap, caps=None,
+                  cumulative=None):
     """THE PROFILE LAW, geometry-free so a twin can state it directly.
 
     ``stations_s`` is the chain's station arclengths (ascending),
@@ -105,16 +151,32 @@ def chain_profile(stations_s, values, pins, cap, caps=None):
     if not pins:
         return target, infeasible
     items = sorted(pins.items())
+    _cum = _cumulative_cap_on() if cumulative is None else bool(cumulative)
+    _C = (cap_distance_prefix(stations_s, caps, cap)
+          if (caps and _cum) else None)
+
     def _seg_cap(i, j):
         """The cap governing the run between two stations: the STRICTEST
-        station cap on it — a 1 % station anywhere between two pins binds
-        the whole span, which is what "the cap lives at the station"
-        means for a profile."""
+        station cap on it.
+
+        THE REFUTED READING, kept only behind
+        ``O4_ROAD_PROFILE_CUMULATIVE_CAP=0`` — see
+        :func:`cap_distance_prefix` for what it cost and why a varying
+        Lipschitz constant integrates instead."""
         if not caps:
             return float(cap)
         lo, hi = (i, j) if i <= j else (j, i)
         seg = [c for c in caps[lo:hi + 1] if c is not None]
         return min(seg) if seg else float(cap)
+
+    def _allow(i, j):
+        """The lawful ``|Δz|`` between two stations — THE one allowance
+        every clause below asks for (feasibility, ceiling and floor), so
+        the three can never read two different laws."""
+        if _C is not None:
+            return abs(_C[j] - _C[i])
+        return _seg_cap(i, j) * abs(float(stations_s[j])
+                                    - float(stations_s[i]))
 
     for a in range(len(items)):
         ia, za = items[a]
@@ -122,7 +184,7 @@ def chain_profile(stations_s, values, pins, cap, caps=None):
             ib, zb = items[b]
             ds = abs(stations_s[ib] - stations_s[ia])
             dz = abs(zb - za)
-            if dz > _seg_cap(ia, ib) * ds + 1e-9:
+            if dz > _allow(ia, ib) + 1e-9:
                 need = dz / ds if ds > 1e-9 else float("inf")
                 infeasible.append((ia, ib, need))
     if infeasible:
@@ -151,18 +213,25 @@ def chain_profile(stations_s, values, pins, cap, caps=None):
                 hi_p = p
         if lo_p is None or hi_p is None or lo_p == hi_p:
             return None
-        s0, s1 = stations_s[lo_p], stations_s[hi_p]
+        # THE CHORD RUNS IN THE CAP-DISTANCE COORDINATE, not in raw
+        # arclength, whenever the caps vary: the rise distributes in
+        # proportion to the cap-distance each stretch can carry, which
+        # is the owner's "distributed over its whole path" read when the
+        # path's own cap is not one number.  A straight-in-``s`` chord
+        # crosses a 1 % stretch at more than 1 % by construction, and
+        # the floor would then stand ABOVE the ceiling the same caps
+        # generate.  With one cap everywhere ``C`` is proportional to
+        # ``s`` and this is the identical linear chord.
+        axis = _C if _C is not None else stations_s
+        s0, s1 = axis[lo_p], axis[hi_p]
         if abs(s1 - s0) < 1e-9:
             return None
-        t = (stations_s[i] - s0) / (s1 - s0)
+        t = (axis[i] - s0) / (s1 - s0)
         return pins[lo_p] + t * (pins[hi_p] - pins[lo_p])
 
     for i in range(n):
-        s = stations_s[i]
-        hi = min(z + _seg_cap(i, p) * abs(s - stations_s[p])
-                 for p, z in pins.items())
-        lo = max(z - _seg_cap(i, p) * abs(s - stations_s[p])
-                 for p, z in pins.items())
+        hi = min(z + _allow(i, p) for p, z in pins.items())
+        lo = max(z - _allow(i, p) for p, z in pins.items())
         ch = _chord(i)
         if ch is not None and ch > lo:
             lo = ch
@@ -329,6 +398,19 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     for sid, st in enumerate(stations):
         by_line.setdefault(st["line"], []).append(sid)
 
+    # ── THE PASS'S OWN DIAGNOSTIC DUMP (instrument, default OFF) ─────
+    # ``O4_FRP_DIAG=<path>`` writes one JSONL record per call: every
+    # chain's stations (arclength, lat/lon, value, pin, per-station cap,
+    # target) and its infeasible pin pairs, plus every road-family node
+    # with its frozen/pinned/station state.  It answers the round's own
+    # question — WHERE does a chain's ramp fail to build — and it reads
+    # only what the pass already computed, so it can never change a
+    # value.  Convention: the same env-armed diagnostic
+    # ``O4_ENVELOPE_DIAG`` / ``O4_DUMP_SOLVE_STATE`` use.
+    import os as _os
+    _diag_path = _os.environ.get("O4_FRP_DIAG") or ""
+    _diag = {"icao": icao, "chains": []} if _diag_path else None
+
     new: dict = {}
     for li, sids in by_line.items():
         sids.sort(key=lambda k: stations[k]["s"])
@@ -385,15 +467,53 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
             out["station_capped"] += 1
         target, infeasible = chain_profile(ss, vals, pins, float(_CAP),
                                            caps=st_caps)
+        if _diag is not None:
+            _rows = []
+            for pos, sid in enumerate(sids):
+                _mem = list(stations[sid]["members"])
+                _xy = node_pos.get(_mem[0]) if _mem else None
+                try:
+                    _ll = layout.m_to_ll(_xy[0], _xy[1]) if _xy else None
+                except Exception:                          # pragma: no cover
+                    _ll = None
+                _rows.append({
+                    "s": round(float(ss[pos]), 3),
+                    "ll": ([round(_ll[0], 9), round(_ll[1], 9)]
+                           if _ll else None),
+                    "v": (None if vals[pos] is None
+                          else round(float(vals[pos]), 4)),
+                    "pin": (round(float(pins[pos]), 4)
+                            if pos in pins else None),
+                    "cap": st_caps[pos],
+                    "t": (None if target[pos] is None
+                          else round(float(target[pos]), 4)),
+                    "n": len(_mem),
+                })
+            _diag["chains"].append({
+                "line": int(li), "stations": _rows,
+                "infeasible": [[int(a), int(b), round(float(g), 6)]
+                               for (a, b, g) in infeasible],
+            })
         if infeasible:
             out["infeasible_chains"] += 1
             worst = max(infeasible, key=lambda t: t[2])
+            # THE ALLOWANCE THE PAIR ACTUALLY FAILED, named.  Reporting
+            # "against the 8 % road class" while a 1 % STATION was what
+            # bound the span is how this refusal read as a road-class
+            # infeasibility for a whole round; the binding number is the
+            # chain's own cap-distance over that span.
+            _span = abs(ss[worst[1]] - ss[worst[0]])
+            _seg = [c for c in st_caps[min(worst[0], worst[1]):
+                                       max(worst[0], worst[1]) + 1]
+                    if c is not None]
+            _bind = min(_seg) if _seg else float(_CAP)
             UI.vprint(1,
                 f"  [pav-builder] {icao}: free-road profile REFUSED on "
                 f"chain {li}: its pinned ends need "
-                f"{100.0 * worst[2]:.1f} % against the "
-                f"{100.0 * float(_CAP):.0f} % road class over "
-                f"{abs(ss[worst[1]] - ss[worst[0]]):.1f} m "
+                f"{100.0 * worst[2]:.1f} % over {_span:.1f} m against a "
+                f"{100.0 * float(_CAP):.0f} % road class whose "
+                f"STRICTEST station on that span is "
+                f"{100.0 * _bind:.1f} % "
                 f"({len(infeasible)} such pair(s)) — the shortfall is "
                 f"REPORTED, the chain is left as the solve made it.")
             continue
@@ -405,6 +525,32 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
                 if m in frozen or m not in cur:
                     continue        # LAW 1: never write a pinned datum
                 new[m] = float(t)
+
+    if _diag is not None:
+        _nodes = []
+        for i in range(len(xy)):
+            if i not in cur:
+                continue
+            try:
+                _ll = layout.m_to_ll(xy[i][0], xy[i][1])
+            except Exception:                              # pragma: no cover
+                continue
+            _nodes.append({
+                "ll": [round(_ll[0], 9), round(_ll[1], 9)],
+                "v": round(float(cur[i]), 4),
+                "frozen": bool(i in frozen),
+                "pin": (round(float(pins_node[i]), 4)
+                        if i in pins_node else None),
+                "st": node_station.get(i),
+                "cap": node_cap.get(i),
+                "new": (round(float(new[i]), 4) if i in new else None),
+                "roles": sorted({getattr(s, "role", "?")
+                                 for s in (node_shapes.get(i) or ())}),
+            })
+        _diag["nodes"] = _nodes
+        import json as _json
+        with open(_diag_path, "a", encoding="utf-8") as _fh:
+            _fh.write(_json.dumps(_diag) + "\n")
 
     if not new:
         return out

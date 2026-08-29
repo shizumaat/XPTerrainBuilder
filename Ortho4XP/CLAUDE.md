@@ -24,7 +24,29 @@ and orthophoto textures per 1°×1° tile.
 
 **PRE-SHIP MODE IS IN FORCE (owner 2026-08-09; canonical text in
 `docs/RULINGS.md` "PRE-SHIP DEVELOPMENT MODE" — read it before
-writing any implementation brief).** Until the first official
+writing any implementation brief).**
+
+**BUILD ECONOMY + GATES (owner 2026-08-29e/f — BRIEFS MUST NOT
+RE-IMPOSE SUSPENDED RITUAL; a brief demanding more verification than
+this section is INVALID, same as one violating a ruling):**
+- Iteration is SYNTHETIC-FIRST: mechanisms iterate on cut fixtures
+  and replays (`repro_cut.py`, `solve_cut.py`, offline replays,
+  synthetic twins). The real airport builds ONCE, as the closing test.
+- ONE REPRESENTATIVE AIRPORT per round's acceptance — the airport
+  carrying the owner's site. The five-airport sweep runs once per
+  merged batch at app-build time, never per lane.
+- CONTROLS ARE SHARED: one control per (airport, base-sha)
+  machine-wide via the artifact ledger (`build_airport --base-arm`);
+  never rebuild a control that exists.
+- FIXES SHIP UNGATED; rollback is `git revert`. Gates only for a
+  mechanism awaiting the owner's sim adjudication or an active round's
+  experiment knob, REMOVED once adjudicated. No routine OFF-arm
+  byte-identity builds (only for shared solve/emit-path changes), no
+  default-pinning twins. REFUTED MECHANISMS ARE DELETED, not
+  retired-kept-gated — the refutation record is the spec and git.
+- SITE-FIRST REPORTING: every report quotes the owner-site numbers in
+  the CURRENT configuration first; a below-bar merge requires the
+  owner's sign-off with the residual quoted. Until the first official
 release, most verification weight below is SUSPENDED: no per-edit
 blast-radius or full-suite runs (only the test files directly
 covering the change, once), no per-lane acceptance builds/censuses/

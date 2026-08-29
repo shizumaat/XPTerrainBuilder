@@ -177,6 +177,8 @@ __all__ = [
     "PROJECTION_ROAD_BLIND",
     "FREE_ROAD_PROFILE_SELF_PINS",
     "ROAD_PROFILE_CUMULATIVE_CAP",
+    "ROAD_PROFILE_WELD_OUTRANKS_CAP",
+    "ROAD_PROFILE_CHORD_TWO_SIDED",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10179,27 +10181,50 @@ FREE_ROAD_PROFILE_PASS = (
 # its own neighbourhood and nothing beyond it — which is the owner's
 # 2026-08-28e "once it LEAVES the apron it can descend at up to 8 %"
 # read at the granularity the cap actually lives at.
-# SHIPPED DEFAULT **OFF**, on this lane's own measurement.  The
-# correction is right — the min-over-span reading is not what a
-# spatially varying Lipschitz bound says, and it refused 5 of CYXY's 7
-# and 34 of HECA's 117 chains by the metric alone — but ARMING it does
-# not meet the standing gate (RULINGS 2026-08-29b / round-5 spec
-# Amendment 10 §1: the law-true census not worsened).  MEASURED, this
-# lane, one code version, one corpus:
-#   * CYXY  346 -> 346 (Δ0; within_shape +1, road_cross_section −4,
-#     transverse +3), refused chains 7 -> 2;
-#   * HECA  6892 -> 6938 (**+46**), refused chains 117 -> 84 (pre-solve)
-#     / 112 -> 78 (re-solve).  Row-level: 315 NEW / 269 GONE, and 276 of
-#     the NEW rows are ``service_junction`` CROSS-SECTION and TRANSVERSE
-#     rows (123 + 104 + 25 + 24) against 200 GONE of the same classes —
-#     a newly-built ramp tilts the junction blob it runs through, because
-#     a junction's nodes map to SEVERAL stations and the pass's "one
-#     value per station's whole cross-section" does not hold there.
-#     Airside IMPROVES (2417 -> 2400).
-# The docket the flip waits on is that cross-section interaction, not
-# this metric.  ``O4_ROAD_PROFILE_CUMULATIVE_CAP=1`` arms it.
+# RATIFIED and DEFAULT ON (coordinator ruling 4, 2026-08-29).  Measured
+# on this lane, one code version, one corpus: it recovered 5 of CYXY's 7
+# and 34 of HECA's 117 chains that the min-over-span reading refused by
+# the metric alone.  ``O4_ROAD_PROFILE_CUMULATIVE_CAP=0`` restores that
+# refuted arm byte-identically (proven at CYXY by a ``solve_cut``
+# replay: OFF body 1ff1faab4b86 == the control build's).
 ROAD_PROFILE_CUMULATIVE_CAP = (
-    _os.environ.get("O4_ROAD_PROFILE_CUMULATIVE_CAP", "0") != "0")
+    _os.environ.get("O4_ROAD_PROFILE_CUMULATIVE_CAP", "1") != "0")
+
+# ── RULING 1 (coordinator 2026-08-29) — THE WELD OUTRANKS THE CAP ────
+# "Refusal is per-SPAN, never whole-chain (every feasible span builds).
+# For an infeasible pin pair the chain BUILDS the geometric grade
+# between the welds — contact-is-value (RULINGS 29c) is the senior law,
+# so both welds are met exactly and the over-cap span is PRICED as a
+# census row (an honest violation that stays until geometry changes;
+# RULINGS 29b drives it to zero later) but never converted into a step
+# or a revert.  No tolerance constant is invented; the row is the
+# record."
+# THE MEASURED DEFECT IT CLOSES (lane/rampsites, O4_FRP_DIAG on the
+# control build ``rs_heca_off``): HECA chain 13 carries the owner's item
+# 2 AND item 3 and was abandoned whole — all 42 stations reverted to the
+# solve's values, the 165.93 % cliff at 30.1052938,31.3989669 included —
+# because ONE pin pair genuinely needs 8.62 % (station 13 pin 108.9302 ->
+# station 20 pin 103.2656, 5.665 m over 65.7 m of path).
+# ``O4_ROAD_PROFILE_WELD_OUTRANKS_CAP=0`` restores the revert.
+ROAD_PROFILE_WELD_OUTRANKS_CAP = (
+    _os.environ.get("O4_ROAD_PROFILE_WELD_OUTRANKS_CAP", "1") != "0")
+
+# ── RULING 2 (coordinator 2026-08-29) — THE ROAD CHORD BINDS BOTH WAYS ─
+# "Raise-only was Amendment 3's terrain-protection rationale; a road
+# profile between welds is OUR OWN construction, not terrain.  On road
+# chains, interior NON-WELD stations conform to the chord in BOTH
+# directions; only weld/authored/crossing-pinned stations hold."
+# THE DISCRIMINATOR, as the ruling requires it stated: this pass solves
+# ROAD-FAMILY chains only, so a bracketed interior station stands on
+# pavement the pass itself constructs — Amendment 3 §2's RAISE-ONLY
+# chord stands unchanged for any chain class whose interior is genuine
+# ground, and this gate is the switch if such a class ever reaches here.
+# THE MEASURED DEFECT IT CLOSES: the owner's CYXY site
+# 60.7100244,-135.0727863 kept a 0.37 m hump 11.9 m from its north-east
+# weld (702.5567 against the 702.10 chord) because the chord could only
+# raise.  ``O4_ROAD_PROFILE_CHORD_TWO_SIDED=0`` restores raise-only.
+ROAD_PROFILE_CHORD_TWO_SIDED = (
+    _os.environ.get("O4_ROAD_PROFILE_CHORD_TWO_SIDED", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

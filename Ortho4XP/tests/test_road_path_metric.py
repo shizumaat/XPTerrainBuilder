@@ -315,16 +315,18 @@ class TestPerStationCapUnification:
         for k in range(4):
             c = min(caps[k], caps[k + 1])
             assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
-        # THE REFUTED ARM, reproducible byte-for-byte behind its gate.
+        # THE REFUTED ARM, reproducible byte-for-byte behind its gates.
         _t0, inf0 = FRP.chain_profile(
             ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps,
-            cumulative=False)
+            cumulative=False, weld_outranks=False)
         assert inf0 and _t0 == [100.0] * 5      # the whole chain reverts
-        # A rise the chain genuinely cannot carry is STILL refused.
+        # A rise the chain genuinely cannot carry is still REPORTED —
+        # and, under ruling 1, still BUILT to its two welds.
         _t2, inf2 = FRP.chain_profile(
             ss, [100.0] * 5, {0: 100.0, 4: 105.0}, 0.08, caps=caps,
             cumulative=True)
-        assert inf2 and _t2 == [100.0] * 5
+        assert inf2
+        assert _t2[0] == pytest.approx(100.0) and _t2[4] == pytest.approx(105.0)
 
     def test_uniform_caps_are_byte_identical_to_the_scalar_path(self):
         """The correction may not move a chain whose caps are all one

@@ -129,14 +129,27 @@ class TestTheProfileLaw:
         # …and the road is UNTOUCHED where the envelope does not reach.
         assert target[0] == pytest.approx(103.2)
 
-    def test_a_pin_pair_no_cap_profile_connects_is_REFUSED(self):
-        """"reports honestly if the binding still cannot be met" — the
-        chain is left alone and the shortfall is returned with its
-        number, never emitted as a silent cliff."""
+    def test_a_pin_pair_no_cap_profile_connects_STILL_BUILDS(self):
+        """RULING 1 (coordinator 2026-08-29) — THE WELD OUTRANKS THE CAP.
+
+        The shortfall is still returned with its number, but the span
+        BUILDS: both welds are met EXACTLY (contact-is-value, RULINGS
+        29c) and the excess grade stands between them for the census to
+        price.  The refuted arm — leave the chain alone, which turns the
+        excess into a CLIFF at the weld — is kept behind its gate.
+        """
         target, infeasible = FRP.chain_profile(
-            [0.0, 10.0], [100.0, 100.0], {0: 100.0, 1: 110.0}, 0.08)
+            [0.0, 5.0, 10.0], [100.0] * 3, {0: 100.0, 2: 110.0}, 0.08)
         assert infeasible and infeasible[0][2] == pytest.approx(1.0)
-        assert target == [100.0, 100.0]        # untouched
+        assert target[0] == pytest.approx(100.0)      # weld, exactly
+        assert target[2] == pytest.approx(110.0)      # weld, exactly
+        assert target[1] == pytest.approx(105.0)      # the span built
+        # THE REFUTED ARM: the whole chain reverts and the 10 m span
+        # becomes a 10 m step at the weld instead.
+        t_off, inf_off = FRP.chain_profile(
+            [0.0, 5.0, 10.0], [100.0] * 3, {0: 100.0, 2: 110.0}, 0.08,
+            weld_outranks=False)
+        assert inf_off and t_off == [100.0] * 3
 
     def test_a_chain_with_no_pin_is_left_alone(self):
         target, infeasible = FRP.chain_profile(
@@ -342,14 +355,38 @@ class TestTheMidRunSag:
         assert target[0] == pytest.approx(702.44)
         assert target[2] == pytest.approx(703.11)
 
-    def test_a_GENUINE_HILL_between_the_pins_is_kept(self):
-        """SCOPE: the chord only ever RAISES.  A road that legitimately
-        climbs over a rise between two pins keeps its height — the law
-        closes sags, it does not flatten terrain."""
+    def test_the_road_chord_binds_BOTH_WAYS(self):
+        """RULING 2 (coordinator 2026-08-29) — THE ROAD CHORD BINDS BOTH
+        WAYS.
+
+        THE DISCRIMINATOR: this pass solves ROAD chains, whose interior
+        between two welds is pavement the pass itself constructs — not
+        ground — so a bump there is the solve's residual and conforms to
+        the chord downward as well as upward.  Amendment 3 §2's
+        RAISE-ONLY chord (terrain protection) is kept behind its gate for
+        any chain class whose interior IS genuine ground.
+        """
         target, _inf = FRP.chain_profile(
             [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
             {0: 100.0, 2: 100.0}, 0.5)
-        assert target[1] == pytest.approx(120.0)
+        assert target[1] == pytest.approx(100.0)      # conformed down
+        # …and the terrain-protecting arm, unchanged, behind its gate.
+        raise_only, _i2 = FRP.chain_profile(
+            [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
+            {0: 100.0, 2: 100.0}, 0.5, two_sided=False)
+        assert raise_only[1] == pytest.approx(120.0)
+
+    def test_only_a_PIN_holds_its_own_value(self):
+        """"only weld/authored/crossing-pinned stations hold" — the
+        pins keep their values exactly; every bracketed interior station
+        takes the chord whatever the solve left there."""
+        target, _inf = FRP.chain_profile(
+            [0.0, 25.0, 50.0, 75.0, 100.0],
+            [700.0, 693.0, 712.0, 688.0, 700.0],
+            {0: 702.0, 4: 706.0}, 0.08)
+        assert target[0] == pytest.approx(702.0)
+        assert target[4] == pytest.approx(706.0)
+        assert target[1:4] == pytest.approx([703.0, 704.0, 705.0])
 
     def test_an_unbracketed_station_has_no_chord(self):
         """Beyond the last pin there is no chord to hold — the road
@@ -385,7 +422,8 @@ class TestTheCumulativeCapDistance:
         t_on, inf_on = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
                                          caps=caps, cumulative=True)
         t_off, inf_off = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
-                                           caps=caps, cumulative=False)
+                                           caps=caps, cumulative=False,
+                                           weld_outranks=False)
         assert inf_off and t_off == [100.0] * 5     # refused, cliff kept
         assert not inf_on and t_on[4] == pytest.approx(108.0)
         for k in range(4):
@@ -416,6 +454,7 @@ class TestTheCumulativeCapDistance:
 
     def test_the_gate_off_restores_the_refuted_arm(self, monkeypatch):
         monkeypatch.setattr(CFG, "ROAD_PROFILE_CUMULATIVE_CAP", False)
+        monkeypatch.setattr(CFG, "ROAD_PROFILE_WELD_OUTRANKS_CAP", False)
         ss = [0.0, 100.0, 200.0]
         caps = [0.08, 0.01, 0.08]
         t, inf = FRP.chain_profile(ss, [100.0] * 3, {0: 100.0, 2: 104.0},

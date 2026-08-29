@@ -80,19 +80,59 @@ def profile_owned_keys(layout) -> set:
 
 
 def _cumulative_cap_on() -> bool:
-    """Is the CUMULATIVE cap-distance armed?  **Default OFF** — the
-    correction is measured and right, but its ON arm worsens the HECA
-    law-true census (+46) through a cross-section interaction that is
-    its own docket; see ``config.ROAD_PROFILE_CUMULATIVE_CAP`` for the
-    numbers.  ``O4_ROAD_PROFILE_CUMULATIVE_CAP=1`` arms it; OFF is
-    byte-identical to the min-over-span arm (proven at CYXY by a
-    ``solve_cut`` replay: OFF body 1ff1faab4b86 == the control build's).
+    """Is the CUMULATIVE cap-distance armed?  **Default ON, RATIFIED**
+    (coordinator ruling 4, 2026-08-29).  OFF is byte-identical to the
+    refuted min-over-span arm — proven at CYXY by a ``solve_cut``
+    replay: OFF body 1ff1faab4b86 == the control build's.
 
     Read at CALL time, like every other gate in this family, so a twin
     can flip it without reloading the module.
     """
     from . import config as _cfg
     return bool(getattr(_cfg, "ROAD_PROFILE_CUMULATIVE_CAP", True))
+
+
+def _weld_outranks_cap() -> bool:
+    """RULING 1 (coordinator, 2026-08-29) — **THE WELD OUTRANKS THE CAP**.
+
+    *"Refusal is per-SPAN, never whole-chain (every feasible span
+    builds).  For an infeasible pin pair the chain BUILDS the geometric
+    grade between the welds — contact-is-value (RULINGS 29c) is the
+    senior law, so both welds are met exactly and the over-cap span is
+    PRICED as a census row … but never converted into a step or a
+    revert.  No tolerance constant is invented; the row is the record."*
+
+    Default ON.  OFF restores the whole-chain revert byte-identically —
+    the refutation ledger for the arm that left HECA's chain 13 (both
+    owner sites 2 and 3) exactly as the solve made it, cliff included,
+    over ONE pin pair needing 8.62 % against the 8 % class.
+    """
+    from . import config as _cfg
+    return bool(getattr(_cfg, "ROAD_PROFILE_WELD_OUTRANKS_CAP", True))
+
+
+def _chord_two_sided() -> bool:
+    """RULING 2 (coordinator, 2026-08-29) — **THE ROAD CHORD BINDS BOTH
+    WAYS**.
+
+    *"Raise-only was Amendment 3's terrain-protection rationale; a road
+    profile between welds is OUR OWN construction, not terrain.  On road
+    chains, interior NON-WELD stations conform to the chord in BOTH
+    directions; only weld/authored/crossing-pinned stations hold."*
+
+    THE DISCRIMINATOR, stated explicitly as the ruling requires: this
+    pass solves only ROAD-FAMILY chains — ``groundside._road_vertex_graph``
+    over ``grade_law.LATERAL_CONTIGUITY_ROAD_ROLES``, stationed along
+    ``anchors.service_seed_lines``' service centerlines.  Between two
+    pins such a chain's interior is PAVEMENT THIS PASS CONSTRUCTS, so
+    there is no hill to protect: a bump there is the solve's residual,
+    not ground.  Amendment 3 §2's RAISE-ONLY chord stands unchanged for
+    any chain class whose interior is genuine ground; no such class
+    reaches this pass today, and this gate is the switch if one ever
+    does.  Default ON; OFF restores raise-only byte-identically.
+    """
+    from . import config as _cfg
+    return bool(getattr(_cfg, "ROAD_PROFILE_CHORD_TWO_SIDED", True))
 
 
 def cap_distance_prefix(stations_s, caps, cap):
@@ -128,7 +168,7 @@ def cap_distance_prefix(stations_s, caps, cap):
 
 
 def chain_profile(stations_s, values, pins, cap, caps=None,
-                  cumulative=None):
+                  cumulative=None, weld_outranks=None, two_sided=None):
     """THE PROFILE LAW, geometry-free so a twin can state it directly.
 
     ``stations_s`` is the chain's station arclengths (ascending),
@@ -154,6 +194,25 @@ def chain_profile(stations_s, values, pins, cap, caps=None,
     lets it".  Between a pin and the point where the envelope meets the
     road's own level the result is MONOTONE at the cap — the ramp — and
     beyond it the road is untouched.  A pin keeps its own value.
+
+    ── AND THE TWO RULINGS THAT MADE IT BUILD (coordinator 2026-08-29) ──
+
+    RULING 1, ``weld_outranks`` (default ON): **the weld outranks the
+    cap.**  An ``infeasible`` entry is a REPORT, never a revert — every
+    span builds, and the span whose two welds no lawful profile connects
+    builds the CHORD between them anyway.  Both welds are met exactly
+    (contact-is-value, RULINGS 29c, is the senior law) and the excess
+    grade is left standing for the census to price as one honest row
+    spread along the span, instead of being concentrated into a step or
+    thrown away with the other 40 lawful stations of the chain.
+
+    RULING 2, ``two_sided`` (default ON): **the road chord binds both
+    ways.**  A station BRACKETED by two pins takes the chord exactly —
+    the raise-only clause of Amendment 3 §2 protected terrain, and a
+    road profile between welds is this pass's own construction.  Only
+    pins hold their own values; an UNBRACKETED station (beyond the first
+    or last pin) still keeps its own level under the cap envelope, which
+    is where the road genuinely returns to the ground.
     """
     n = len(stations_s)
     target = list(values)
@@ -162,6 +221,9 @@ def chain_profile(stations_s, values, pins, cap, caps=None,
         return target, infeasible
     items = sorted(pins.items())
     _cum = _cumulative_cap_on() if cumulative is None else bool(cumulative)
+    _weld = (_weld_outranks_cap() if weld_outranks is None
+             else bool(weld_outranks))
+    _both = _chord_two_sided() if two_sided is None else bool(two_sided)
     _C = (cap_distance_prefix(stations_s, caps, cap)
           if (caps and _cum) else None)
 
@@ -197,7 +259,12 @@ def chain_profile(stations_s, values, pins, cap, caps=None,
             if dz > _allow(ia, ib) + 1e-9:
                 need = dz / ds if ds > 1e-9 else float("inf")
                 infeasible.append((ia, ib, need))
-    if infeasible:
+    if infeasible and not _weld:
+        # THE REFUTED WHOLE-CHAIN REVERT, kept only behind
+        # ``O4_ROAD_PROFILE_WELD_OUTRANKS_CAP=0`` (ruling 1's refutation
+        # ledger): one over-cap pin pair discarded every other station's
+        # lawful ramp — HECA chain 13, 42 stations and BOTH owner sites,
+        # abandoned over a single 8.62 % span.
         return list(values), infeasible
     # ── THE CHORD OF THE BRACKETING PINS (owner acceptance line, the
     # CYXY site 60.7100244,-135.0727863 -> 60.7087015,-135.0746305) ───
@@ -240,15 +307,25 @@ def chain_profile(stations_s, values, pins, cap, caps=None,
         return pins[lo_p] + t * (pins[hi_p] - pins[lo_p])
 
     for i in range(n):
-        hi = min(z + _allow(i, p) for p, z in pins.items())
-        lo = max(z - _allow(i, p) for p, z in pins.items())
-        ch = _chord(i)
-        if ch is not None and ch > lo:
-            lo = ch
         if i in pins:
+            # Only a WELD (or an authored / crossing pin) holds.
             target[i] = float(pins[i])
             continue
+        ch = _chord(i)
         v = values[i]
+        if ch is not None and _both:
+            # RULING 2 — a BRACKETED interior station conforms to the
+            # chord in BOTH directions.  It is not clamped into the cap
+            # envelope: the chord already passes through both bracketing
+            # pins, so where the pair is feasible the chord IS inside the
+            # envelope, and where it is not (ruling 1) the excess is the
+            # thing the census is meant to see.
+            target[i] = float(ch) if v is not None else None
+            continue
+        hi = min(z + _allow(i, p) for p, z in pins.items())
+        lo = max(z - _allow(i, p) for p, z in pins.items())
+        if ch is not None and ch > lo:
+            lo = ch                      # Amendment 3 §2, raise-only
         target[i] = float(min(max(v, lo), hi)) if v is not None else None
     return target, infeasible
 
@@ -282,11 +359,13 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     out = {"on": False, "chains": 0, "stations": 0, "pinned": 0,
            "bound_end_on": 0, "refused_near_miss": 0, "moved": 0,
            "worst_m": 0.0, "infeasible_chains": 0, "frozen": 0,
-           "disagreeing_pins": 0, "station_capped": 0, "self_pinned": 0}
+           "disagreeing_pins": 0, "station_capped": 0, "self_pinned": 0,
+           "over_cap_spans": 0, "worst_over_cap_pct": 0.0}
     from . import config as _cfg
     if not bool(getattr(_cfg, "FREE_ROAD_PROFILE_PASS", True)):
         return out
     _SELF_PINS = bool(getattr(_cfg, "FREE_ROAD_PROFILE_SELF_PINS", True))
+    _WELD_OUTRANKS = _weld_outranks_cap()
     out["on"] = True
     from .config import SERVICE_ROAD_MAX_GRADE as _CAP
     from .groundside import (_road_vertex_graph, _airside_value_at)
@@ -517,16 +596,33 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
                                        max(worst[0], worst[1]) + 1]
                     if c is not None]
             _bind = min(_seg) if _seg else float(_CAP)
+            if not _WELD_OUTRANKS:
+                UI.vprint(1,
+                    f"  [pav-builder] {icao}: free-road profile REFUSED on "
+                    f"chain {li}: its pinned ends need "
+                    f"{100.0 * worst[2]:.1f} % over {_span:.1f} m against a "
+                    f"{100.0 * float(_CAP):.0f} % road class whose "
+                    f"STRICTEST station on that span is "
+                    f"{100.0 * _bind:.1f} % "
+                    f"({len(infeasible)} such pair(s)) — the shortfall is "
+                    f"REPORTED, the chain is left as the solve made it.")
+                continue
+            # RULING 1 — THE WELD OUTRANKS THE CAP.  The span BUILDS: both
+            # welds are met exactly and the excess stands as a census row.
+            out["over_cap_spans"] += len(infeasible)
+            out["worst_over_cap_pct"] = max(
+                out["worst_over_cap_pct"], 100.0 * float(worst[2]))
             UI.vprint(1,
-                f"  [pav-builder] {icao}: free-road profile REFUSED on "
-                f"chain {li}: its pinned ends need "
+                f"  [pav-builder] {icao}: free-road profile OVER-CAP SPAN "
+                f"BUILT on chain {li}: its welds demand "
                 f"{100.0 * worst[2]:.1f} % over {_span:.1f} m against a "
-                f"{100.0 * float(_CAP):.0f} % road class whose "
-                f"STRICTEST station on that span is "
-                f"{100.0 * _bind:.1f} % "
-                f"({len(infeasible)} such pair(s)) — the shortfall is "
-                f"REPORTED, the chain is left as the solve made it.")
-            continue
+                f"{100.0 * float(_CAP):.0f} % road class whose STRICTEST "
+                f"station on that span is {100.0 * _bind:.1f} % "
+                f"({len(infeasible)} such pair(s)) — CONTACT IS VALUE "
+                f"(RULINGS 29c): both welds are met EXACTLY, the grade "
+                f"between them is the one the geometry demands, and the "
+                f"excess is PRICED as a census row rather than converted "
+                f"into a step or reverted with the chain's lawful spans.")
         for pos, sid in enumerate(sids):
             t = target[pos]
             if t is None:
@@ -602,7 +698,11 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
         f"and published); {out['moved']} road vertex/vertices re-levelled "
         f"at up to {100.0 * float(_CAP):.0f} % along the PATH (worst "
         f"{out['worst_m']:.3f} m); {out['infeasible_chains']} chain(s) "
-        f"REFUSED as infeasible; {out['frozen']} vertex/vertices FROZEN "
+        + (f"carry {out['over_cap_spans']} OVER-CAP SPAN(S) BUILT to "
+           f"their welds (worst {out['worst_over_cap_pct']:.1f} %, PRICED "
+           f"as census rows — ruling 1, the weld outranks the cap)"
+           if _WELD_OUTRANKS else "REFUSED as infeasible") +
+        f"; {out['frozen']} vertex/vertices FROZEN "
         f"because a non-road authority carries them — airside is king, "
         f"by construction, and {len(keys)} key(s) are published to the "
         f"chord limiter as profile-owned.")

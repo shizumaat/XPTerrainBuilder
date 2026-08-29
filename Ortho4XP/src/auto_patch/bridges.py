@@ -6630,9 +6630,18 @@ def _covering_shapes(layout: "PavementLayout", shape,
         _poly = getattr(shape, "polygon", None)
         if _poly is None or _poly.is_empty:
             return ""
+        # THE GATE'S OWN POPULATION, not a narrower one: the union is
+        # ``role in _AIRSIDE_GATE_ROLES`` over the CURRENT layout, so the
+        # coverer may be a shape MINTED during this emission (a claim
+        # strip, a cut host's remainder).  Reading only the pre-emit set
+        # reported "covered by NOTHING" for 8 of 11 OTHH drops, which is
+        # the instrument lying, not the union being stale.
+        _reg = getattr(layout, _CLAIMED_BORE_REGISTER, None) or set()
         _hits = []
         for _o in layout.shapes:
-            if _o is shape or id(_o) not in pre_emit_shape_ids:
+            if _o is shape:
+                continue
+            if getattr(_o, "role", "") not in _AIRSIDE_GATE_ROLES:
                 continue
             _op = getattr(_o, "polygon", None)
             if _op is None or _op.is_empty or _op.geom_type != "Polygon":
@@ -6642,13 +6651,18 @@ def _covering_shapes(layout: "PavementLayout", shape,
             except _GEOM_EXC:                          # pragma: no cover
                 continue
             if _a > 0.25:
-                _hits.append((_a, getattr(_o, "role", "") or "-",
-                              getattr(_o, "ref", "") or "-"))
+                _hits.append((
+                    _a, getattr(_o, "role", "") or "-",
+                    getattr(_o, "ref", "") or "-",
+                    ("pre-emit" if id(_o) in pre_emit_shape_ids
+                     else "minted"),
+                    ("claimed" if id(_o) in _reg else "unclaimed")))
         if not _hits:
-            return "covered by NOTHING in the layout"
+            return "covered by NOTHING in the gate role set"
         _hits.sort(reverse=True)
         return "covered by " + ", ".join(
-            f"{_r}/{_f} {_a:.0f}m2" for _a, _r, _f in _hits[:top])
+            f"{_r}/{_f} {_a:.0f}m2 [{_o},{_c}]"
+            for _a, _r, _f, _o, _c in _hits[:top])
     except (AttributeError, TypeError, ValueError, *_GEOM_EXC):
         return ""
 

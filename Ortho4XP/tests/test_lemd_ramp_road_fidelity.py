@@ -47,11 +47,17 @@ def _band_scene(monkeypatch, station_law: str):
     """One ramp body walled by the perimeter band over a TILTED DEM.
 
     ``station_law`` is what ``O4_WALL_TOP_STATION`` is set to for the
-    arm.  The §T5 foot stays at its shipped default (OFF) so the band
-    ships as the single ``tunnel_wall`` piece the owner read in the sim.
+    arm.  The §T5 foot is PINNED OFF here — not left to the default,
+    which shipped ON on 2026-08-29: this scene measures the CREST-ONLY
+    band (both edges of the band are the wall TOP), which is the
+    configuration §F1's law is stated in and the one the owner read in
+    the sim at 1.0.265.  With the foot ON the band is a PARTITION and
+    the face legitimately carries the rise from the foot's top to the
+    crest, so a cross-band delta there is the wall's HEIGHT, not a
+    twist — a different measurement, twinned separately below.
     """
     monkeypatch.setenv("O4_WALL_TOP_STATION", station_law)
-    monkeypatch.delenv("O4_RAMP_WALL_FOOT", raising=False)
+    monkeypatch.setenv("O4_RAMP_WALL_FOOT", "0")
     layout = PavementLayout(icao="ZZZZ", anchor=_ANCHOR)
     ramp = BuiltShape(polygon=_RAMP, role=bridges.ROLE_TUNNEL_RAMP,
                       ref="tunnel_ramp",

@@ -3255,18 +3255,39 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
             # width), and the FACE rises from the foot's outer edge to
             # the crest.  The floor welds to the FOOT; it shares no
             # vertex with the rising ``tunnel_wall``.
-            # §T5 SCOPES TO THE PERIMETER BAND (spec Amendment 1,
-            # ruling 1).  This emitter keeps its PRIOR shared-node weld:
-            # its foot geometry produced 3 foot∩face overlaps totalling
-            # 2.99 m² at SPJC against ``test_no_self_overlap``'s ZERO
-            # tolerance, and the cause was not root-caused — so the foot
-            # here waits for a designed geometry (follow-up docket)
-            # rather than shipping an invariant breach.  The owner's
-            # item-9 site is a PERIMETER-BAND ramp and keeps its fix;
-            # the residual shared ids at this emitter are the docket's
-            # measured population.
+            # §T5 REACHES THIS EMITTER (the follow-up docket Amendment 1
+            # ruling 1 named, closed 2026-08-29).  Amendment 1 scoped the
+            # foot to the perimeter band because 3 SPJC foot∩face pairs
+            # (2.99 m²) were not root-caused; Amendment 2 attributed them
+            # to the PERIMETER band, and the mechanism is now measured —
+            # the post-solve conformance weld bows a welded face inboard
+            # — and closed for EVERY emitter by
+            # :func:`reclip_wall_feet_against_faces`.  So the residual
+            # population this emitter was reported as owning is fixed
+            # here: MEASURED at OTHH (baseline td_base_othh),
+            # ``ramp_wall_gap`` 32 shared node ids and
+            # ``ramp_wall_annulus_owned`` 56/56 are this emitter's — its
+            # single band starts AT the corridor edge (``_half``), so
+            # every wall shares the corridor's own nodes, and its inner
+            # pair carries the cut FLOOR while its outer pair carries the
+            # crest, which is the 5.14 m ``wall_top_flat`` reading on way
+            # -12281 (4.00 vs -1.14) and the crumpled ribbon in the sim.
+            #
+            # WITH THE FOOT: the FLOOR is the foot's (a flat shelf out to
+            # ``wall_gap_m``, welded to the corridor as the structure's
+            # own), and the FACE stands off it carrying the CREST on BOTH
+            # edges — §F1's "the top is flat across its width", here by
+            # construction: the two vertices at one station read one DEM
+            # sample.  OFF is the single band, byte for byte.
             _crest = _half + wall_gap_m + retaining_wall_width_m
-            _bands = ((_half, _crest, "tunnel_wall", False),)
+            if ramp_wall_foot_enabled():
+                _bands = (
+                    (_half, _half + wall_gap_m, TUNNEL_WALL_FOOT_REF,
+                     True),
+                    (_half + wall_gap_m, _crest, "tunnel_wall", False),
+                )
+            else:
+                _bands = ((_half, _crest, "tunnel_wall", False),)
             for _inner, _outer, _wall_ref, _flat in _bands:
                 _ring = [
                     (_pa[0] + _px * _inner * _sign,
@@ -3292,11 +3313,27 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
                 # ``_pb``).  A FOOT is flat, so its outer pair carries
                 # the SAME profile; a FACE's outer pair is the crest and
                 # keeps the DEM (R16-2b).
-                _alts = [round(float(_ga), 2), round(float(_gb), 2)]
                 if _flat:
-                    _alts.extend((round(float(_gb), 2),
-                                  round(float(_ga), 2)))
+                    _alts = [round(float(_ga), 2), round(float(_gb), 2),
+                             round(float(_gb), 2), round(float(_ga), 2)]
+                elif ramp_wall_foot_enabled():
+                    # §F1 HERE: ONE VALUE PER STATION ACROSS THE BAND.
+                    # ``_ring`` is [inner@_pa, inner@_pb, outer@_pb,
+                    # outer@_pa], so indices 0/3 stand at station _pa and
+                    # 1/2 at _pb.  The crest is sampled ONCE per station
+                    # (at the outer vertex, the ambient the wall grades
+                    # to) and both vertices of that station carry it —
+                    # the wall top cannot twist, by construction.  The
+                    # FLOOR is the foot's now, not this band's.
+                    def _crest_at(_xy):
+                        _g = dem_at(_xy[0], _xy[1])
+                        return round(float(_g) if _g is not None
+                                     else max(_ga, _gb), 1)
+                    _ca = _crest_at(_ring[3])
+                    _cb = _crest_at(_ring[2])
+                    _alts = [_ca, _cb, _cb, _ca]
                 else:
+                    _alts = [round(float(_ga), 2), round(float(_gb), 2)]
                     for (_vx, _vy) in _ring[2:]:
                         _ground = dem_at(_vx, _vy)
                         _alts.append(round(

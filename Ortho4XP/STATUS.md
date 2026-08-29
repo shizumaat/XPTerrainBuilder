@@ -1,4 +1,32 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260829a (ROAD-RAMP FAMILY SHIPPED ON OWNER ORDER; app 1.0.267,
+# engine 1.50.1710, embedded==dist hash-verified.)
+# OWNER ORDERS: 29a law-correction equilibrium accepted; 29b NO
+#   BASELINE — value deltas are not acceptance, gate = law violations
+#   only + in-sim reads; "skip the ship arm, build the app" — the
+#   five-airport ship arm was SKIPPED (Opus spend limit killed lane
+#   5k mid-arm; resets Aug 31 9am PT), sim adjudicates.
+# FLIPPED DEFAULT-ON (c4b5be0): O4_FREE_ROAD_PROFILE (one-way weld,
+#   242 end-on bindings, whole-path 8%, chord-law SELF-PINS),
+#   O4_ROAD_PATH_METRIC (path pricing + gap chords, 4 readers incl.
+#   census via NEW SIDECAR CAP-VECTOR KEY, 5k merge), per-station cap
+#   vector (unconditional since 5d), O4_ROAD_CONTACT_CAP_SCOPE.
+# RETIRED-KEPT-GATED (refutation ledgers): 5e blanket freeze, 5f/5g
+#   scoped freeze (never fired — SCOPED_FINAL_PROJECTION is PARKED,
+#   never un-park), 5h live-store ring criterion, 5i road-blind.
+#   Round-5 spec has 10 amendments = the full record.
+# KNOWN STATE AT FLIP: CYXY fifth site 0.270 m (was 3.631); HECA
+#   items 2/3/4 proven per-mechanism in arms but the COMBINED flip
+#   census was never measured at HECA/OTHH/LEMD (owner skipped);
+#   watch first sim read + first censuses for the lateral_contiguity
+#   fourth-reader arithmetic (CYXY/SPJC +100s must be gone).
+# CHIP DONE: lockstep twin re-founded (coordinate-join artifact, NO
+#   solver/validator divergence, no contamination).
+# NEXT: owner sim pass on 1.0.267 (rebuild +30+031/+60-136 minimum);
+#   ship-gate ledger keeps accumulating; solve-partition docket only
+#   if sim shows airside harm.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260828d (SIM-READ ROUND 3 on 1.0.265 — LEMD ramp/road fidelity,
 # pad carve, HECA drainage+ramps; FIVE lane rounds, app 1.0.266 built
 # embedded==dist hash-verified.)

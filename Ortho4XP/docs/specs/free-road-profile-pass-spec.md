@@ -290,3 +290,15 @@ registration go through the harness register so the census twins
 (structurally-impossible-omission class) cover it. The CYXY/SPJC +100s
 must fall out arithmetically, as the path metric's +120 did in 5c.
 Then the five-airport ship arm re-measures and flips per Amendment 8.
+
+## AMENDMENT 10 (owner 2026-08-29b — gate simplification, FINAL)
+
+RULED: with no approved fully-passing baseline, value deltas vs a prior
+build are NOT acceptance information. The flip-ON gate reduces to:
+1. LAW VIOLATIONS ONLY: the law-true census at each airport not
+   worsened by the arm (every residual row attributed), driving toward
+   zero.
+2. The five owner sites lawful/monotone (in-sim adjudication).
+Moved-value frames (solve-owned, weld set) remain attribution
+instruments and reporting, never gates. All prior moved-airside gate
+clauses are superseded.

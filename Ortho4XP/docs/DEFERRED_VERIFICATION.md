@@ -4707,3 +4707,38 @@ What was NOT paid:
   who_wrote, and SPJC's 98 no-road-contact movers.
 * ``tests/test_single_graph_acceptance.py``'s 3 pre-existing lockstep
   reds remain flagged for the ship gate, untouched.
+
+## HECA round 5h (lane/hecar5h, 2026-08-29) — the freeze runs at last, and the store-membership criterion is refuted
+
+* **§1 ANSWERED, and it needed no new capture.** The live
+  ``solved_values`` store spans the solve-owned airside population:
+  **99.89 %** at CYXY (1853/1855), **99.95 %** at SPJC (7377/7381).  It
+  is minted unconditionally by the one solve and already resolved into
+  the projection's index space, so the freeze costs one dict lookup per
+  node and no array copy.  ``SCOPED_FINAL_PROJECTION`` stays parked.
+* **§2's mutation criterion is REFUTED by its own numbers.** "A ring is
+  mutated when its node population differs from the store's membership"
+  releases 95 of 1,855 airside nodes at CYXY (5 %) but 1,572 at SPJC
+  (~21 %) — and the two airports then behave OPPOSITELY:
+      CYXY  solve-owned moved airside 0 ✓, control +86 airside rows ✗
+      SPJC  solve-owned moved airside 1,545 (was 138 with NO freeze) ✗,
+            census 1152 -> 1582 (+430) ✗
+  The criterion catches inserts/welds only; most post-solve reshaping
+  changes VALUES, not membership, so at CYXY the repair is lost and at
+  SPJC the freeze perturbs the re-derivation of the very rings it
+  releases.
+* **§3's question is ANSWERED: the no-road-contact movers are NOT
+  road-driven.** Under the live freeze they grow 98 -> 1,490 and 1,490 of
+  1,545 have no road contact at all.  They are the RELEASED (mutated-ring)
+  population, re-deriving against a frozen neighbourhood — a different
+  solve from the unfrozen one.  No road input reaches them; the freeze
+  itself moves them.
+* **One measured refusal is recorded in the code**: hardening ALL airside
+  for stage 2 handed 6,350 weighted transect rows to a path with no
+  movable edge and ``feasibility_project`` refused by design.  Stage 2
+  therefore hardens the FROZEN set only.
+* **The five-airport flip-ON arm was not built**: with the criterion
+  refuted at SPJC there is no configuration to flip, and HECA/OTHH/LEMD
+  would re-measure a known-bad arm.
+* The 0.25 m residue who_wrote remains owed against a freeze that both
+  runs AND holds its gate at more than one airport.

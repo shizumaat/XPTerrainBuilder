@@ -417,17 +417,16 @@ class TestSelfPins:
 
 class TestTheAirsideFreeze:
 
-    def test_the_freeze_ships_OFF_pending_the_contradiction_ruling(self):
-        """It does what it was ruled to do (solve-owned moved airside 0 at
-        CYXY, 2 at SPJC with the profile ON) AND it removes the airside
-        repair this projection legitimately owns: +94 / +563 / +926
-        airside rows at CYXY / SPJC / HECA with the profile not even
-        running.  Reported, not softened — the twins above arm it."""
+    def test_the_freeze_is_default_on_now_that_it_is_SCOPED(self):
+        """5e's BLANKET freeze removed this pass's founding repair
+        (+94/+563/+926 airside rows at CYXY/SPJC/HECA, profile off) and
+        shipped OFF.  Amendment 4 scopes it to UNMUTATED rings, which is
+        what makes it shippable — a mutated ring still re-derives."""
         import importlib
         import auto_patch.config as _fresh
         _fresh = importlib.reload(_fresh)
         try:
-            assert _fresh.PROJECTION_AIRSIDE_FREEZE is False
+            assert _fresh.PROJECTION_AIRSIDE_FREEZE is True
         finally:
             importlib.reload(_fresh)
 
@@ -465,3 +464,63 @@ class TestTheAirsideFreeze:
         assert "service_road" not in frozen_roles
         assert "service_junction" not in frozen_roles
         assert "groundside_pavement" not in frozen_roles
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 4 — THE FREEZE IS SCOPED TO **UNMUTATED** AIRSIDE RINGS
+# (5e measured the blanket form removing this pass's founding repair:
+#  +94 / +563 / +926 airside rows at CYXY / SPJC / HECA with the free-road
+#  profile not even running.)
+# ══════════════════════════════════════════════════════════════════════
+
+class TestTheScopedFreeze:
+
+    def test_ONE_mutation_reading_is_published_not_recomputed(self):
+        """"ONE derivation: the pass's existing
+        ``_scoped_projection_defer_ids`` machinery, never a second
+        mutation reading."  The freeze consumes criterion (1) of that
+        function — the shapes whose OWN ring geometry changed."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        src = inspect.getsource(S._scoped_projection_defer_ids)
+        assert "return defer_ids, pre_broken, geom_changed_ids" in src
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_geom_changed_ids" in proj
+        # …and NOT the deferrable set, which excludes a shape whose
+        # NEIGHBOUR changed — freezing on that would re-freeze the very
+        # road-driven case the freeze exists to catch.
+        assert "id(_s) not in _geom_changed_ids" in proj
+
+    def test_half_one_a_MUTATED_ring_RE_DERIVES(self):
+        """The projection's founding purpose: post-solve planarize
+        inserts / T-vertex welds / clip rebuilds reshape rings AFTER the
+        solve, so those rings' pairs were never projected."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_released.add(int(_i))" in proj
+        assert "_airside_frozen = _cand - _released" in proj
+
+    def test_half_two_an_UNMUTATED_ring_is_FROZEN(self):
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "hard |= _airside_frozen" in proj
+
+    def test_no_snapshot_means_the_freeze_STANDS_DOWN(self):
+        """The one state in which mutated and unmutated cannot be told
+        apart is no snapshot at all — and there the freeze does not
+        guess: ``_geom_changed_ids is None`` disarms it."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_geom_changed_ids is not None" in proj
+
+    def test_the_released_set_is_read_off_the_SAME_shapes(self):
+        """The release walks the shapes the mutation reading named, by
+        ``id``, through the layout's own canonical points — no second
+        geometry comparison anywhere."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_cps_f.get_or_add(float(_x), float(_y))" in proj

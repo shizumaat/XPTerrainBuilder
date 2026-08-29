@@ -7063,7 +7063,19 @@ def _scoped_projection_defer_ids(layout, nodes, bucket_to_idx, elev,
                 break
         if not touched:
             defer_ids.add(id(s))
-    return defer_ids, pre_broken
+    # ── THE ONE MUTATION READING, PUBLISHED (owner 2026-08-28, round-5
+    # spec Amendment 4) ───────────────────────────────────────────────
+    # ``geom_changed_ids`` is criterion (1) of this function and nothing
+    # else: "this shape's OWN ring geometry changed since the solve
+    # snapshot".  The scoped AIRSIDE FREEZE needs exactly that sentence,
+    # and the amendment says it in as many words — "ONE derivation: the
+    # pass's existing ``_scoped_projection_defer_ids`` /
+    # ``post_solve_mutation_set`` machinery, never a second mutation
+    # reading".  Note it is NOT the deferrable set: a shape is
+    # un-deferrable when a NEIGHBOUR changed (criterion 4), and freezing
+    # on that would re-freeze exactly the road-driven case the freeze is
+    # supposed to catch.
+    return defer_ids, pre_broken, geom_changed_ids
 
 
 def triangle_plane_disposition(layout, tri_broken, n_fixed=0):
@@ -7827,13 +7839,20 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     scoped = (snapshot is not None and _scoped_projection_enabled())
     defer_ids: set = set()
     pre_broken: set = set()
+    #: Amendment 4 — the shapes whose OWN ring geometry changed since the
+    #: solve.  ``None`` when no snapshot exists to compare against, which
+    #: is the one state in which mutated and unmutated cannot be told
+    #: apart — and there the freeze STANDS DOWN rather than guess.
+    _geom_changed_ids: "set | None" = None
     if scoped:
         try:
-            defer_ids, pre_broken = _scoped_projection_defer_ids(
-                layout, nodes, b2i, elev, snapshot)
+            defer_ids, pre_broken, _geom_changed_ids = \
+                _scoped_projection_defer_ids(
+                    layout, nodes, b2i, elev, snapshot)
         except _snapshot_geom_exceptions():
             defer_ids = set()
             pre_broken = set()
+            _geom_changed_ids = None
             scoped = False        # geometry hiccup → sound full rebuild
     _stage("scope")
     # ── SPINE CROWN v2 transform (part 30): this projection enforces the
@@ -8086,13 +8105,46 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # measures the gate in, so the freeze and its instrument cannot read
     # two populations.  Gate ``O4_PROJECTION_AIRSIDE_FREEZE=0`` restores
     # the pre-ruling arm byte-identically.
+    # SCOPED TO UNMUTATED RINGS (Amendment 4, on 5e's measurement that a
+    # BLANKET freeze removes this pass's founding repair — +94/+563/+926
+    # airside rows at CYXY/SPJC/HECA with the profile not even running).
+    # An airside node on a ring whose OWN geometry changed after the solve
+    # RE-DERIVES: post-solve planarize inserts, T-vertex welds and clip
+    # rebuilds are exactly why this pass exists ("CYXY within-shape
+    # 299 -> 97").  An airside node on an UNMUTATED ring is FROZEN:
+    # re-deriving it because a ROAD or GROUNDSIDE input moved is
+    # Amendment 3's defect, measured at the item-4 apron.
     _airside_frozen: set = set()
-    if _projection_airside_freeze_on():
+    _airside_remutated = 0
+    if _projection_airside_freeze_on() and _geom_changed_ids is not None:
         try:
             from auto_patch.elevation_per_surface.solver_primitives import (
                 solve_owned_airside_nodes as _solve_owned_airside)
-            _airside_frozen = {i for i in _solve_owned_airside(layout, b2i)
-                               if i < n}
+            _cand = {i for i in _solve_owned_airside(layout, b2i) if i < n}
+            # The nodes of MUTATED airside rings are released back to the
+            # projection — read off the same shapes the mutation reading
+            # named, never a second walk.
+            _released: set = set()
+            _cps_f = getattr(layout, "canonical_points", None)
+            if _cps_f is not None:
+                for _s in (getattr(layout, "shapes", None) or ()):
+                    if id(_s) not in _geom_changed_ids:
+                        continue
+                    _poly = getattr(_s, "polygon", None)
+                    if _poly is None or getattr(_poly, "is_empty", True):
+                        continue
+                    try:
+                        _cs = list(_poly.exterior.coords)
+                        for _r in _poly.interiors:
+                            _cs += list(_r.coords)
+                    except Exception:                      # pragma: no cover
+                        continue
+                    for (_x, _y) in _cs:
+                        _i = b2i.get(_cps_f.get_or_add(float(_x), float(_y)))
+                        if _i is not None:
+                            _released.add(int(_i))
+            _airside_frozen = _cand - _released
+            _airside_remutated = len(_cand & _released)
             hard |= _airside_frozen
         except Exception:                                  # pragma: no cover
             _airside_frozen = set()

@@ -4643,3 +4643,37 @@ What was NOT paid:
 * **The three new gates are provably inert**: with all of them off, CYXY
   is BYTE-IDENTICAL to the pre-round (5d) control.
 * **No full-suite run** (pre-ship mode); blast-named files run once.
+
+## HECA round 5f (lane/hecar5f, 2026-08-29) — the scoped freeze restores the repair; the gate is still open through the mutated set
+
+* **The scoped freeze fixes 5e's contradiction, measured**: every control
+  returns to its pre-round value (CYXY 374, SPJC 1152, OTHH 2367 — the
+  blanket form had them at 410 / 1715 / 7906), so the projection's
+  founding repair is intact while unmutated airside is held.
+* **The gate is NOT met, and the residual is now inside the population
+  Amendment 4 deliberately releases**: solve-owned moved airside is 2 at
+  CYXY (0.09 m, both road-welded), 17 at OTHH (0.03 m) and **138 at SPJC
+  (0.29 m, 98 of them with NO road contact)**.  Cross-round arithmetic
+  attributes them: the same airports under 5e's BLANKET freeze moved 0 /
+  — / 2, so the ~136 extra at SPJC are exactly the MUTATED-ring nodes the
+  scope releases.  A mutated ring's legitimate repair and its forbidden
+  road-driven re-derivation are the same computation, which is the
+  structural question the report puts back.
+* **The 2 road-welded movers at CYXY are attributed to weld IDENTITY**,
+  not to the freeze: the profile's freeze keys on ``emit_decimate._key``
+  (mm) while the gate joins on the 11-dp emitted spelling, and the chord
+  limiter already carries the fix for this exact class (``_airside_
+  claimed_keys``' "CANONICAL SECOND READING", written after one HECA
+  apron node welded to a service junction moved 0.12 m under the xy key
+  alone).  Applying that second reading to the profile's freeze is the
+  obvious next edit and was NOT made this round.
+* **HECA and LEMD ON arms were KILLED mid-build** and are not reported;
+  their OFF arms exist.  CYXY, SPJC and OTHH have complete matched pairs.
+* **The 0.25 m residue who_wrote was not spent** — it belongs against
+  whichever freeze scope survives the structural question above.
+* **``tests/test_single_graph_acceptance.py`` has 3 pre-existing
+  failures** (solver/validator edge-budget lockstep among them) —
+  measured red with EVERY gate of this round-5 family turned off, and the
+  run ledger shows suites containing it exiting 1 since 2026-08-04, well
+  before this family began.  Not this round's, but it is a LOCKSTEP twin
+  and is flagged for the ship gate.

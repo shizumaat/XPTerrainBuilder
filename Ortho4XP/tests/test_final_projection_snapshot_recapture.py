@@ -100,7 +100,7 @@ def test_second_projection_run_defers_unchanged_shape(monkeypatch, capsys):
     # untouched apron is provably deferrable on the next run.
     nodes, bucket_to_idx = SP._build_node_list(layout)
     elev, _is_hard, _have = SP._seed_elevations(layout, nodes, bucket_to_idx)
-    defer_ids, pre_broken = RP._scoped_projection_defer_ids(
+    defer_ids, pre_broken, _geom_changed = RP._scoped_projection_defer_ids(
         layout, nodes, bucket_to_idx, elev, snapshot)
     assert id(apron) in defer_ids
     assert pre_broken == set()
@@ -135,7 +135,7 @@ def test_value_churn_after_projection_blocks_deferral(monkeypatch):
 
     nodes, bucket_to_idx = SP._build_node_list(layout)
     elev, _is_hard, _have = SP._seed_elevations(layout, nodes, bucket_to_idx)
-    defer_ids, _pre_broken = RP._scoped_projection_defer_ids(
+    defer_ids, _pre_broken, _geom2 = RP._scoped_projection_defer_ids(
         layout, nodes, bucket_to_idx, elev, snapshot)
     assert id(apron) not in defer_ids
 

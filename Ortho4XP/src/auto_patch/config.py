@@ -10098,8 +10098,14 @@ FREE_ROAD_PROFILE_SELF_PINS = (
 # running: airside rows +94 at CYXY, +563 at SPJC, +926 at HECA.
 # The law is built and twinned; the DEFAULT waits on the ruling, and the
 # lane report states the fork.  "1" arms it.
+# …AND SCOPED TO UNMUTATED RINGS (owner 2026-08-28, Amendment 4), which
+# is what makes it shippable: the blanket form removed this pass's own
+# founding repair (+94/+563/+926 airside rows at CYXY/SPJC/HECA with the
+# profile not even running).  Now an airside node on a ring whose OWN
+# geometry changed after the solve re-derives, and only an UNMUTATED
+# ring's airside is frozen.  DEFAULT ON with that scope.
 PROJECTION_AIRSIDE_FREEZE = (
-    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "0") != "0")
+    _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "1") != "0")
 
 FREE_ROAD_PROFILE_PRESOLVE = (
     _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")

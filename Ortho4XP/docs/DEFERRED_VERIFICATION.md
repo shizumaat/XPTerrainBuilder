@@ -4609,3 +4609,37 @@ What was NOT paid:
 * **No full-suite run** (pre-ship mode); blast-named files run once —
   435 pass, ``test_harness.py::test_the_near_miss_frontage_law_is_one_
   authority`` red at HEAD too.
+
+## HECA round 5e (lane/hecar5e, 2026-08-28) — the airside freeze hits its own stop-clause
+
+* **Amendment 3 §2 (self-pins) is DONE and measured**: the owner's fifth
+  site goes from 3.631 m below the chord of its own ends (station 59.5 of
+  190.3) to **0.270 m** (station 11.9).  Nothing is read off another
+  shape, so the 2026-08-15 carrier adjudication is untouched.  The 0.27 m
+  residual is above the 0.01 m floor and is owed an attribution against
+  an ON arm once the §1 fork is ruled.
+* **Amendment 3 §1 (the airside freeze) works AND contradicts itself**,
+  which is the stop-clause the ruling itself wrote.  It delivers the gate
+  (solve-owned moved airside 0 at CYXY, 2 at 0.08 m at SPJC, with the
+  profile ON) and it removes the airside repair
+  ``final_grade_projection`` legitimately owns: with the profile NOT
+  running at all, airside rows rise +94 (CYXY), +563 (SPJC), +926
+  (HECA).  Shipped OFF pending the ruling; the law is built and its
+  twins arm it.
+* **HECA ON arm (landed after the first write-up)**: freeze OFF 6807
+  (airside 2391) -> freeze only 7906 (3317) -> freeze+profile 8036
+  (3302); solve-owned moved airside **105, worst 0.95 m** — a 94 %
+  reduction on 5d's 1,756 at 2.07 m, but not the 0 the gate asks, and 46
+  of the 105 are road-welded.  Sites: item 2 121.58 % -> 117.76 %, item 3
+  unchanged, item 4 153.99 % -> 152.13 % — item 4 does NOT return to its
+  9.35 % class in this configuration.
+* **The 0.25 m post-projection residue from 5d was NOT re-measured**: it
+  is only meaningful against whichever §1 configuration is ruled, and
+  spending a who_wrote arm on it before that would measure a
+  configuration nobody will ship.
+* **All five airports have OFF arms at this tree; ON arms are built for
+  CYXY, SPJC and HECA**; OTHH and LEMD ON arms are in the same
+  wait-for-the-ruling class as the residue.
+* **The three new gates are provably inert**: with all of them off, CYXY
+  is BYTE-IDENTICAL to the pre-round (5d) control.
+* **No full-suite run** (pre-ship mode); blast-named files run once.

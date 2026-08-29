@@ -96,6 +96,48 @@ ADJACENT_CAP_ROLES = (
 # the two spellings.
 _FAST_PATH_ATTRIBUTE = "_flat_fast_path"
 
+def solve_owned_airside_nodes(layout, bucket_to_idx):
+    """THE SOLVE-OWNED AIRSIDE node set — nodes claimed by a shape whose
+    role is in :data:`PAVEMENT_ROLES` and whose stage is A.
+
+    ONE DERIVATION, and it is deliberately the SAME one the acceptance
+    instrument measures with: ``tools/airside_value_delta.py``'s
+    solve-owned frame is ``PAVEMENT_ROLES`` filtered by
+    ``solve_stage.stage_of_role == STAGE_A``, and this is that sentence in
+    the solver's index space.  A freeze the gate cannot see, or a gate
+    reading a set the freeze does not hold, would be the two-instruments
+    trap on the very population the round is adjudicated on.
+
+    Used by ``final_grade_projection`` (round 5e, spec Amendment 3 §1:
+    "the projection treats every solved AIRSIDE value as FROZEN Dirichlet
+    data — it may re-derive road/groundside, never airside").
+    """
+    from auto_patch.solve_stage import stage_of_role, STAGE_A
+    roles = frozenset(r for r in PAVEMENT_ROLES
+                      if stage_of_role(r) == STAGE_A)
+    out: set = set()
+    for s in (getattr(layout, "shapes", None) or ()):
+        if getattr(s, "role", None) not in roles:
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or getattr(poly, "is_empty", True):
+            continue
+        try:
+            coords = list(poly.exterior.coords)
+            for r in poly.interiors:
+                coords += list(r.coords)
+        except Exception:                                  # pragma: no cover
+            continue
+        for (x, y) in coords:
+            i = bucket_to_idx.get(
+                layout.canonical_points.get_or_add(float(x), float(y))
+                if getattr(layout, "canonical_points", None) is not None
+                else None)
+            if i is not None:
+                out.add(int(i))
+    return out
+
+
 PAVEMENT_ROLES = {
     ROLE_RUNWAY,
     # The retired rect-era taxi roles stay listed so any legacy shape data

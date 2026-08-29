@@ -203,10 +203,11 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     out = {"on": False, "chains": 0, "stations": 0, "pinned": 0,
            "bound_end_on": 0, "refused_near_miss": 0, "moved": 0,
            "worst_m": 0.0, "infeasible_chains": 0, "frozen": 0,
-           "disagreeing_pins": 0, "station_capped": 0}
+           "disagreeing_pins": 0, "station_capped": 0, "self_pinned": 0}
     from . import config as _cfg
     if not bool(getattr(_cfg, "FREE_ROAD_PROFILE_PASS", True)):
         return out
+    _SELF_PINS = bool(getattr(_cfg, "FREE_ROAD_PROFILE_SELF_PINS", True))
     out["on"] = True
     from .config import SERVICE_ROAD_MAX_GRADE as _CAP
     from .groundside import (_road_vertex_graph, _airside_value_at)
@@ -311,7 +312,9 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     out["refused_near_miss"] = len(refusals)
     out["pinned"] = len(pins_node)
     layout._free_road_binding_refusals = refusals
-    if not pins_node:
+    # A chain with NO weld and NO binding still has ENDS (Amendment 3 §2),
+    # so the early return only applies when self-pins are off too.
+    if not pins_node and not _SELF_PINS:
         return out
 
     # ── LAW 3: the whole-path profile, in the STATION coordinate ─────
@@ -343,6 +346,28 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
                 if max(pin_vals) - min(pin_vals) > MATERIALITY_M:
                     out["disagreeing_pins"] += 1
                 pins[pos] = sum(pin_vals) / len(pin_vals)
+        # ── SELF-PINS: THE CHAIN'S OWN EMITTED END VALUES ────────────
+        # (owner ruling 2026-08-28, Amendment 3 §2.)  "A chain's end is
+        # where it meets the settled world, and its emitted end value is
+        # that consensus, whatever produced it."  The owner's fifth site
+        # (CYXY 60.7100244,-135.0727863 -> 60.7087015,-135.0746305) has
+        # NO airside weld at either end — 0 shared nodes, none within
+        # 8 m; both ends meet a gap_fill_spine graded_strip — so it had
+        # no pins at all and its 3.631 m sag (station 59.5 of 190.3,
+        # measured on the round-5d control) was invisible to the chord
+        # law.  A SELF-PIN reads the chain's OWN first/last station value
+        # and nothing else: no adoption, no authority transfer, and the
+        # strip's value is never read, so the 2026-08-15 carrier
+        # adjudication stands untouched.  Raise-only toward the chord
+        # between them keeps hills (twinned).
+        if _SELF_PINS and len(sids) >= 2:
+            for _end in (0, len(sids) - 1):
+                if _end in pins:
+                    continue
+                v_end = vals[_end]
+                if v_end is not None:
+                    pins[_end] = float(v_end)
+                    out["self_pinned"] += 1
         if not pins:
             continue
         out["chains"] += 1

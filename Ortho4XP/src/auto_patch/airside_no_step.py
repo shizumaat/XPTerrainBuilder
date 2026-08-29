@@ -571,6 +571,12 @@ def enumerate_airside_no_step_pairs(
             crosses_spine_fn=None,
             mesh_member_fn=None, blend_cap_fn=None,
             both_road=bool(facts.road[a] and facts.road[b]),
+            # THE CLAIM, separate from the pricing host (owner
+            # 2026-08-29c).  ``role`` above is whichever side carries the
+            # smaller body cap; that is a cap question.  WHO CLAIMS the
+            # contact is the authority rank, and at a runway↔corridor
+            # pair the runway claims it.
+            claim_role=GL.strictest_claim_role(role_a, role_b),
             a_frontage=facts.frontage[a], b_frontage=facts.frontage[b],
             a_corridor=facts.cover[a], b_corridor=facts.cover[b],
             nearest_spine=False, nearest_anchor_pad=False,

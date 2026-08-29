@@ -129,6 +129,62 @@ JUNCTION_ROLES = ("junction", "service_junction")
 ROAD_ROLES = frozenset({"service_road", "service_junction"})
 
 
+def _road_carve_outranked_by_host(role: str) -> bool:
+    """True when ``role`` OUTRANKS the road roles, so the road-carve
+    relaxation in :func:`classify_pair` may not re-price its pairs.
+
+    STRICT CLAIM (owner 2026-08-29c, spec
+    ``docs/specs/runway-crossing-strict-claim-spec.md`` law 1): at a
+    contact the strictest claimant's law wins — runway > taxi family >
+    apron > road.  The rank comes from ``layout.AUTHORITY_PRECEDENCE``,
+    which is ALREADY that order and is what ``to_osm`` uses to pick the
+    one author of a shared node; minting a second rank table here is the
+    two-instruments defect this campaign keeps paying for.
+
+    Both readings are done at CALL time (config for the gate, layout for
+    the rank) so a twin can flip the gate without a module reload, and
+    so the import stays lazy — ``layout`` imports this module.
+
+    Gate ``config.STRICT_CLAIM_CAP``; OFF returns False everywhere,
+    which is the unguarded pre-ruling relaxation byte for byte.
+
+    BUILD-TIME: this sits on the all-pair classify loop, so the role set
+    is derived from ``AUTHORITY_PRECEDENCE`` ONCE and then answered by a
+    frozenset hit.  Only the gate is re-read per call (a twin flips it
+    without a module reload), and the caller reaches here only on a pair
+    that would otherwise BE relaxed."""
+    from . import config as _cfg
+    if not bool(getattr(_cfg, "STRICT_CLAIM_CAP", True)):
+        return False
+    global _OUTRANKS_ROAD
+    if _OUTRANKS_ROAD is None:
+        from .layout import (AUTHORITY_PRECEDENCE, ROLE_SERVICE_ROAD,
+                             authority_rank)
+        _road = authority_rank(ROLE_SERVICE_ROAD)
+        _OUTRANKS_ROAD = frozenset(
+            r for r in AUTHORITY_PRECEDENCE if authority_rank(r) < _road)
+    return role in _OUTRANKS_ROAD
+
+
+#: Lazily derived from ``layout.AUTHORITY_PRECEDENCE`` on first use —
+#: never a second hand-written rank table.
+_OUTRANKS_ROAD = None
+
+
+def strictest_claim_role(*roles: str) -> str:
+    """THE strictest claimant among ``roles`` — ``layout``'s authority
+    order (runway > taxi family > apron > building > road > groundside).
+
+    One spelling for "who claims this contact", so a cross-shape reader
+    and a within-shape reader cannot answer it differently.  Empty input
+    or all-unranked roles return the first argument unchanged."""
+    from .layout import authority_rank
+    named = [r for r in roles if r]
+    if not named:
+        return roles[0] if roles else ""
+    return min(named, key=authority_rank)
+
+
 # ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b spec
 # Amendment 1: "WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE
 # ROAD'S OWN PATH METRIC — the route-metric-within-shape precedent
@@ -2938,6 +2994,18 @@ class PairContext:
     # ``both_road``: both endpoints sit on a service-road carve through the host
     # (so the pair descends at the ROAD cap, not the host body cap).
     both_road: bool = False
+    #: ``claim_role``: the STRICTEST CLAIMANT among the pair's endpoints,
+    #: by ``layout.AUTHORITY_PRECEDENCE`` (owner 2026-08-29c).  ``role``
+    #: is the pair's pricing host, chosen by the reader — for a CROSS-
+    #: SHAPE pair ``airside_no_step`` picks whichever side carries the
+    #: smaller body cap, which is a cap question and therefore says
+    #: nothing about who CLAIMS the contact.  A ``runway|service_junction``
+    #: pair priced under the service junction's host role took the road
+    #: carve's 8 % relaxation on a RUNWAY contact (measured at HECA: 1 row
+    #: survived the within-shape guard).  Readers that know both roles set
+    #: this; a within-shape reader leaves it None, where ``role`` already
+    #: IS the claim (both endpoints are the same shape).
+    claim_role: Optional[str] = None
     # ── THE APRON MOVEMENT-SURFACE INPUTS (RULINGS 2026-08-21b) ──────────
     # ``a_frontage`` / ``b_frontage``: the endpoint is a FRONTAGE VERTEX — a
     # node this shape's ring shares with a building ring that participates in
@@ -3658,8 +3726,21 @@ def classify_pair(p: PairContext) -> Optional[Allowance]:
     #   the road zone otherwise swallows the building↔spine 1 % rule (SPJC
     #   building-10031: a 3.5 % frontage chord read as a legal 4 % road pair —
     #   user 2026-07-02, buildings are the heaviest constraint).
+    #   AND NEVER FOR A HOST THAT OUTRANKS THE ROAD (owner 2026-08-29c,
+    #   "A CONTACT IS A VALUE QUESTION, NEVER A CAP QUESTION"): where a
+    #   road meets or crosses airside pavement the STRICTEST claimant's
+    #   law wins, so the carve may not re-price the HOST's own pairs at
+    #   the road class.  Measured at HECA: the service corridor -12136
+    #   crossing runway 05C/23C put THREE ``runway|runway`` pairs of ring
+    #   -12210 at cap 8.0 (101.53 %, 85.19 %, 59.26 %) while the same
+    #   ring 22-30 m away priced at the lawful 1.5 — a runway row at a
+    #   foreign cap.  The carved feature's OWN ring is unaffected: its
+    #   role does not outrank the road roles, so its descent still grades
+    #   at the road class between contacts, which is the only thing this
+    #   relaxation was built for.
     if (p.both_road and SERVICE_ROAD_MAX_GRADE > cap
-            and not p.a_building and not p.b_building):
+            and not p.a_building and not p.b_building
+            and not _road_carve_outranked_by_host(p.claim_role or p.role)):
         cap = SERVICE_ROAD_MAX_GRADE
 
     # ── THE ROAD CROSS-SECTION IS LAW (owner ruling RULINGS 2026-08-25g).

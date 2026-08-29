@@ -4818,3 +4818,79 @@ def _runway_anchors(layout, G, bucket_to_idx):
                     G.runway_anchor[i] = float(re)
                     G.runway_anchor_sample[i] = (
                         float(x), float(y), s)
+
+    # ── STRICT CLAIM BY VALUE AT A SHARED NODE (owner 2026-08-29c; spec
+    # ``docs/specs/runway-crossing-strict-claim-spec.md`` laws 1/2) ──────
+    #
+    # "A CONTACT IS A VALUE QUESTION, NEVER A CAP QUESTION."  Where a road
+    # or service corridor MEETS OR CROSSES airside pavement, the corridor
+    # takes the airside elevation EXACTLY over the contact span; the 1 %/
+    # 8 % classes govern only the FREE RUN between contacts.
+    #
+    # WHY THE TWO PASSES ABOVE MISS IT, measured: both enumerate contacts
+    # from ``GL.runway_join_contacts``, which walks TAXI CENTERLINES and
+    # skips any route whose ref starts with "SVC" — a service corridor
+    # crossing a runway therefore produced NO contact and NO anchor.  At
+    # HECA the corridor -12136 crosses runway 05C/23C's ring -12210 at
+    # three shared nodes; two sat at the runway (111.08 / 111.10) and the
+    # third, -31538 at 30.1076307,31.4094328, sat at 108.54 — the
+    # corridor's drainage-channel profile placed a RUNWAY EDGE vertex
+    # 2.5 m below the runway, and the ring's own pairs read -85.19 % and
+    # +101.53 %.  The cap guard alone does NOT move it (measured: arm
+    # ``arm_capon`` left the node at 108.53), because pricing a pair and
+    # PLACING a variable are different mechanisms — which is exactly the
+    # ruling's point.
+    #
+    # THE CLAIM IS AT NODE GRANULARITY, which is what the ruling says
+    # ("strictest-claimant-wins at every shared node"): a node the runway
+    # ring shares with a ROAD-family ring is anchored to the runway
+    # surface sampled AT THAT NODE.  The shared node is ONE solver
+    # variable (canonical-point interning), so pinning it pins the
+    # corridor there too — the corridor's own free run between contacts
+    # is untouched and still solves at its own class.
+    #
+    # SCOPE, stated so the next round does not have to re-derive it: the
+    # RUNWAY is the claimant here because its surface is AUTHORED (the
+    # FAA profile) and can therefore be sampled as an exact value.  The
+    # taxi/apron claimant halves of law 1 are solved surfaces with no
+    # equivalent pre-solve sample, and taxi contacts already have the
+    # centerline machinery above; they are NOT enabled in this round and
+    # are not measured here.
+    #
+    # Gate ``config.STRICT_CLAIM_VALUE``; OFF skips the pass entirely.
+    from . import config as _cfg
+    if bool(getattr(_cfg, "STRICT_CLAIM_VALUE", True)):
+        road_keys = set()
+        for s in layout.shapes:
+            if (s.role not in GL.ROAD_ROLES or s.polygon is None
+                    or s.polygon.is_empty):
+                continue
+            for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
+                road_keys.add(cps.get_or_add(float(x), float(y)))
+        _claimed = 0
+        for s in runways:
+            for (x, y) in _open_ring(list(s.polygon.exterior.coords)):
+                key = cps.get_or_add(float(x), float(y))
+                if key not in road_keys:
+                    continue
+                i = bucket_to_idx.get(key)
+                # ``setdefault`` semantics: a contact anchor already set
+                # by either pass above is the SAME claim by a better-
+                # resolved route, and re-stating it here would silently
+                # change which sample it used.
+                if i is None or i in G.runway_anchor:
+                    continue
+                re = _sample_runway_segment_elev(s, x, y)
+                if re is None:
+                    continue
+                G.runway_anchor[i] = float(re)
+                G.runway_anchor_sample[i] = (float(x), float(y), s)
+                _claimed += 1
+                if os.environ.get("O4_DESEG_DEBUG") == "1":
+                    _la, _lo = layout.m_to_ll(x, y)
+                    print(f"  [strict-claim] runway<->road shared node@"
+                          f"{_la:.7f},{_lo:.7f} claimed at {float(re):.3f}")
+        if _claimed:
+            print(f"  [strict-claim] {_claimed} runway<->road shared "
+                  f"node(s) claimed at the runway surface (owner "
+                  f"2026-08-29c: a contact is a VALUE question)")

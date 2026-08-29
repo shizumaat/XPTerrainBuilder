@@ -262,3 +262,16 @@ RULED — ROAD-BLIND RE-DERIVATION, NO FREEZE:
 4. Closing arm: the five-airport flip-ON per the standing bar with
    Amendment 6's refined gate; 0.25 m residue who_wrote under the
    road-blind arm.
+
+## AMENDMENT 8 (owner 2026-08-29a — FINAL): accept and ship
+
+The solve-equilibrium question is RULED (RULINGS 2026-08-29a): a law
+correction's equilibrium shift is not a breach. GATE (final): every
+airside move in the ON arm attributed to the law correction, none
+exceeding the step law; weld set reported per Amendment 6 §3. The
+solve-partition is a chartered docket, not a blocker.
+
+FLIP-ON AUTHORIZED: profile pre-solve + per-station caps + path metric
++ self-pins flip default-ON in one commit after the five-airport arm is
+measured under this gate. The 5e-5i freeze/road-blind knobs stay
+retired-kept-gated.

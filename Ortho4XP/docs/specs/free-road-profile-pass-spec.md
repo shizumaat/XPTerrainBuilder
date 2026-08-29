@@ -57,3 +57,31 @@ builds the profile pass and flips the scoping ON in the same arm.
 - Twins: one-way weld direction (airside never moves), binding
   tolerance both sides, path-metric limiter pricing, U-loop
   interventional twin (the flatten reproduced OFF, gone ON).
+
+## AMENDMENT 1 (Fable, 2026-08-28, on lane/hecar5b's fork)
+
+The lane built all four laws; item 4 proves the pass (204.08 % ->
+9.35 %). The blocker is METRIC COLLISION: the census prices within-shape
+road pairs by euclidean chord, so a path-lawful 8 % ramp across a U-loop
+reads 8.33-9.11 % (CYXY +120 rows = 8 % x path/chord, exactly).
+
+RULED — OPTION 1, as the composition of two standing laws:
+1. WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE ROAD'S OWN PATH
+   METRIC (the route-metric-within-shape precedent extended to the road
+   family), and a chord that LEAVES the shape's own pavement polygon is
+   the GAP-CHORD class (RULINGS 2026-08-24b: "a step is lawful only
+   across a pavement gap") — never priced as surface grade. ONE
+   implementation in the harness law register (check_grade), consumed by
+   both readers (emitter limiter + census) — the twins pin the two
+   readers to one code path per the census-wrapper law.
+2. THE MOVED-AIRSIDE GATE IS ADJUDICATED ON THE SOLVE-OWNED FRAME
+   (tools/airside_value_delta.py's second frame, its documented
+   distinction): graded_strip and other soft receivers ADOPT from the
+   pavement they abut and count as airside only in the row-side split —
+   adoption rows are attributed churn, not a breach. Gate: solve-owned
+   moved airside = 0.
+3. Gates (profile pass + contact-cap scoping) flip DEFAULT ON only in
+   the arm where: all four owner sites monotone/lawful, the metric-
+   collision rows GONE (CYXY back to control class counts or every
+   residual attributed), solve-owned moved airside 0, OTHH/LEMD arms
+   built.

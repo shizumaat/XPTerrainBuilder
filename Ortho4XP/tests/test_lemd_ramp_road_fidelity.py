@@ -433,3 +433,119 @@ def test_f3_the_bridge_ramp_fill_law_is_out_of_scope(monkeypatch):
     """
     assert (_fill_chain_rows(monkeypatch, "1")
             == _fill_chain_rows(monkeypatch, "0"))
+
+
+# ── F1, THE SECOND WALL EMITTER ──────────────────────────────────────
+# Spec Amendment 1's DOCKET: "second wall emitter
+# ``bridges._emit_low_corridor_connectors`` (~line 5910) still samples
+# DEM per node".  It builds the SAME structure ``emit_wall_band`` builds
+# — a band round a below-grade corridor — and authored its crest the way
+# the perimeter band did before §F1: ``dem_at`` at each vertex's own
+# position.  The law is one law, so the twins are the same twins: the
+# crest is a FUNCTION OF STATION on the walled body, and the OFF arm
+# reproduces the per-vertex sample byte for byte.
+
+_LC_CORRIDOR = Polygon([(0.0, 0.0), (60.0, 0.0), (60.0, 12.0),
+                        (0.0, 12.0)])
+_LC_DEPTH_M = 5.1
+
+
+def _low_corridor_scene(monkeypatch, station_law: str):
+    """One low-connector corridor + its wall band over the tilted DEM."""
+    monkeypatch.setenv("O4_WALL_TOP_STATION", station_law)
+    layout = PavementLayout(icao="ZZZZ", anchor=_ANCHOR)
+    zones: list = []
+    n = bridges._emit_low_corridor_connectors(
+        layout, [_LC_CORRIDOR], zones,
+        None,                                   # airside_gate_union
+        lambda x, y: _AMBIENT_M,                # airport_elevation_at
+        _tilted_dem, _LC_DEPTH_M, _WALL_GAP_M, _WALL_W_M)
+    assert n >= 1, "the low-connector emitter produced no corridor"
+    walls = [s for s in layout.shapes if s.ref == "tunnel_wall"]
+    floor = _AMBIENT_M - _LC_DEPTH_M
+    return layout, walls, floor
+
+
+def _crest_vertices(wall, floor):
+    """``[((x, y), value)]`` for the band's CREST nodes.
+
+    A node ON the corridor edge carries the CORRIDOR's value by R16-2b
+    (one node, one value) and is not part of the top — the crest is
+    every other node.
+    """
+    ring = _ring_open(wall.polygon)
+    alts = list(wall.node_altitudes or [])[:len(ring)]
+    return [((vx, vy), a) for (vx, vy), a in zip(ring, alts)
+            if abs(a - floor) > 1e-6]
+
+
+def test_f1_low_corridor_off_arm_samples_the_dem_per_node(monkeypatch):
+    """THE INTERVENTION.  With the law OFF every crest node carries the
+    DEM under ITSELF — the per-node sample the docket names, reproduced
+    on a scene whose only variable is the slope."""
+    _layout, walls, floor = _low_corridor_scene(monkeypatch, "0")
+    assert walls, "the low-connector emitter produced no wall band"
+    checked = 0
+    for wall in walls:
+        for (vx, vy), value in _crest_vertices(wall, floor):
+            checked += 1
+            assert value == pytest.approx(round(_tilted_dem(vx, vy), 1),
+                                          abs=1e-9), (
+                f"OFF-arm crest at ({vx:.2f},{vy:.2f}) is {value}, not "
+                f"its own DEM sample")
+    assert checked >= 4, f"only {checked} crest node(s) to measure"
+
+
+def test_f1_low_corridor_crest_is_a_function_of_station(monkeypatch):
+    """LAW 1.  With the law ON no crest node carries its own DEM sample
+    any more: it reads the profile at its STATION on the corridor, so a
+    node standing 1.6 m outboard of the cut carries the value of the cut
+    edge it belongs to, not of the ground under itself."""
+    _layout, walls, floor = _low_corridor_scene(monkeypatch, "1")
+    assert walls, "the low-connector emitter produced no wall band"
+    moved = 0
+    measured = 0
+    for wall in walls:
+        for (vx, vy), value in _crest_vertices(wall, floor):
+            measured += 1
+            if abs(value - round(_tilted_dem(vx, vy), 1)) > 1e-9:
+                moved += 1
+    assert measured >= 4, f"only {measured} crest node(s) to measure"
+    assert moved, (
+        "every crest node still equals its own DEM sample — the station "
+        "law changed nothing, so this scene proves nothing")
+
+
+def test_f1_low_corridor_one_station_one_value(monkeypatch):
+    """The invariant itself: two band points that project to ONE station
+    on the walled body read ONE crest value, whatever their own DEM
+    samples are — which is what stops the top rendering as a twisted
+    ribbon."""
+    from auto_patch.groundside import (GROUNDSIDE_MAX_GRADE,
+                                       _BelowGradeIndex)
+    ring = _ring_open(_LC_CORRIDOR)
+    idx = _BelowGradeIndex([(_LC_CORRIDOR, ring,
+                             [_AMBIENT_M - _LC_DEPTH_M] * len(ring))])
+    profile = bridges._CrestProfile(_LC_CORRIDOR, _tilted_dem,
+                                    _AMBIENT_M, idx, GROUNDSIDE_MAX_GRADE)
+    assert profile, "the crest profile degenerated on a plain rectangle"
+    near = profile.at((30.0, -_WALL_GAP_M))
+    far = profile.at((30.0, -(_WALL_GAP_M + _WALL_W_M)))
+    assert near is not None and far is not None
+    assert near == pytest.approx(far, abs=1e-9), (
+        f"one station gave two crest values: {near} vs {far}")
+
+
+def test_f1_low_corridor_edge_nodes_keep_the_corridor_value(monkeypatch):
+    """R16-2b is untouched by §F1: a node ON the corridor edge is the
+    CORRIDOR's node and carries its value in BOTH arms — the law moves
+    the crest, never the shared edge."""
+    floor = _AMBIENT_M - _LC_DEPTH_M
+    for arm in ("0", "1"):
+        _layout, walls, _f = _low_corridor_scene(monkeypatch, arm)
+        on_edge = [a for wall in walls
+                   for a in (wall.node_altitudes or [])
+                   if abs(a - floor) <= 1e-6]
+        assert on_edge, (
+            f"arm {arm}: no band node carries the corridor value — "
+            f"R16-2b's shared edge is gone")

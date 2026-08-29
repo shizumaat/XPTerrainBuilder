@@ -5886,8 +5886,11 @@ def _emit_low_corridor_connectors(
     corridor via a morphological closing, so the group renders as a
     single depressed trench, never overlapping per-way rects.
 
-    Walls follow the DEM per vertex like every other tunnel wall
-    (user 2026-06-13); the strip under the taxiways themselves is
+    Walls take their crest from the §F1 STATION law like every other
+    tunnel wall (LEMD fidelity spec law 1; the per-vertex DEM sample
+    user 2026-06-13 asked for stands under ``O4_WALL_TOP_STATION=0``,
+    and it is what twisted the -11960/-11930/-11961 bands); the
+    strip under the taxiways themselves is
     NOT walled or paved here — the bores continue beneath.  All
     emitted pieces join ``exclusion_zones`` so the boundary ribbon
     and DEM bridges avoid them.  Takes the dissolved ``corridors``
@@ -5964,6 +5967,45 @@ def _emit_low_corridor_connectors(
         except _GEOM_EXC:
             band = None
             _surface_u = corridor
+        # ── §F1: THE WALL TOP IS FLAT ACROSS ITS WIDTH, HERE TOO ─────
+        # (LEMD ramp/road fidelity spec law 1, DOCKETED by its
+        # Amendment 1: "second wall emitter ``_emit_low_corridor_
+        # connectors`` still samples DEM per node — owns the residual
+        # 0.34/0.24/0.20 m twisted bands (-11960/-11930/-11961)".)
+        # This band is the SAME structure ``emit_wall_band`` builds and
+        # the defect is the same one: each crest vertex read ``dem_at``
+        # at its own position, and the two vertices facing each other
+        # across a ~1 m band stand at opposite ends of the ring, so
+        # nothing tied their values together.  ONE LAW, ONE CLASS: the
+        # crest is a function of STATION on the body being walled
+        # (``_CrestProfile``), read at each vertex's nearest point on
+        # the corridor's own ring — a cross-band pair projects to ONE
+        # station and carries ONE value by construction.  Same gate
+        # (``O4_WALL_TOP_STATION``); OFF restores the per-vertex sample
+        # byte for byte.
+        _crest = None
+        if wall_top_station_law_enabled():
+            try:
+                from .groundside import (
+                    GROUNDSIDE_MAX_GRADE as _GS_CAP,
+                    _BelowGradeIndex,
+                )
+                _csrc = []
+                for _sp in (emitted_surface or ()):
+                    _sr = list(_sp.exterior.coords)
+                    if len(_sr) > 1 and _sr[0] == _sr[-1]:
+                        _sr = _sr[:-1]
+                    if len(_sr) >= 3:
+                        _csrc.append(
+                            (_sp, _sr, [float(elev_low)] * len(_sr)))
+                if _csrc:
+                    _crest = _CrestProfile(
+                        corridor, dem_at, float(apt_elev),
+                        _BelowGradeIndex(_csrc), _GS_CAP)
+                    if not _crest:
+                        _crest = None
+            except (ImportError, *_GEOM_EXC):        # pragma: no cover
+                _crest = None
         band_parts = ([] if band is None else
                       ([band] if band.geom_type == "Polygon"
                        else [g for g in getattr(band, "geoms", ())
@@ -6015,6 +6057,12 @@ def _emit_low_corridor_connectors(
                     _on_edge = False
                 if _on_edge:
                     wall_alts.append(round(float(elev_low), 2))
+                    continue
+                # §F1: the crest at THIS vertex's station on the walled
+                # body, not the DEM under the vertex itself.
+                _cv = None if _crest is None else _crest.at((vx, vy))
+                if _cv is not None:
+                    wall_alts.append(round(float(_cv), 1))
                     continue
                 ground = dem_at(vx, vy)
                 wall_alts.append(round(

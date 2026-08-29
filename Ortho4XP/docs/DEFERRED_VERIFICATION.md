@@ -4577,3 +4577,35 @@ What was NOT paid:
 * **No full-suite run** (pre-ship mode); the blast-named files were run
   once — 475 pass, ``test_harness.py::test_the_near_miss_frontage_law_
   is_one_authority`` red at HEAD too.
+
+## HECA round 5d (lane/hecar5d, 2026-08-28) — per-station caps landed, gates still OFF
+
+* **All five controls built** (HECA, CYXY, SPJC, OTHH and LEMD — the
+  LEMD arm owed since 5b).  ON arms measured at HECA and CYXY only;
+  SPJC/OTHH/LEMD ON arms are owed against whichever configuration the
+  ordering ruling settles on, and are not worth spending before it.
+* **The airside channel is NAMED and half-closed, not closed**: the
+  profile pass never writes the item-4 apron (who_wrote: only
+  ``solve_route_profile`` and ``final_grade_projection`` do), so the
+  movement is the FINAL PROJECTION re-deriving airside from a layout the
+  pass had already changed.  Running the profile only DOWNSTREAM of the
+  projection takes HECA from 1,756 moved solve-owned airside nodes at
+  2.07 m to 903 at 0.25 m, and CYXY to 0 — but not to 0 at HECA, and the
+  residue's own carrier (the post-projection conformance passes) is owed
+  a who_wrote arm of its own.
+* **The ordering trade is the open question, not a defect to grind**:
+  pre-solve ON builds item 4's ramp and moves airside; pre-solve OFF
+  holds airside and leaves item 4 at 204 %.  Both halves are measured;
+  which one the law prefers is a ruling.
+* **The fifth owner site (CYXY sag) is NOT closed and cannot be by this
+  pass as ruled**: neither end of that chain is welded to airside (0
+  shared nodes, none within 8 m) — the ends weld to a ``gap_fill_spine``
+  graded_strip, and the standing 2026-08-15 carrier adjudication forbids
+  taking a strip's value as a pin ("a strip is the road's OWN grading
+  product… adopting from one pins the road at exactly the value the law
+  wants replaced").  The CHORD law is built and twinned and will close
+  the sag the moment that chain has two pins; what it needs is a ruling
+  on which non-airside pavement may bind a road end.
+* **No full-suite run** (pre-ship mode); blast-named files run once —
+  435 pass, ``test_harness.py::test_the_near_miss_frontage_law_is_one_
+  authority`` red at HEAD too.

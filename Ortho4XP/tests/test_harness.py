@@ -1984,6 +1984,164 @@ class TestAuthorshipProbe:
         assert id(drop) not in probe.by_shape
 
 
+class TestFootprintProbe:
+    """The FOOTPRINT history — ``who_wrote.py --footprint``.
+
+    The value tracer cannot answer "which pass put pavement over this
+    spot": a point outside every shape has no vertex to trace, and the
+    absorb / merge / re-role family writes a POLYGON, never an altitude.
+    This probe is that reader, and the three things that can be wrong in
+    it are bookkeeping, not geometry: it must not mutate its subject, it
+    must report TRANSITIONS (not every write), and it must not confuse a
+    ``dataclasses.replace`` re-minting with a pass that grew a footprint.
+    """
+
+    def _shape_cls(self):
+        class _Shape:
+            def __init__(self, role="apron", polygon=None):
+                self.role = role
+                self.ref = ""
+                self.polygon = polygon
+        return _Shape
+
+    @staticmethod
+    def _sq(n):
+        from shapely.geometry import Polygon
+        return Polygon([(0, 0), (n, 0), (n, n), (0, n)])
+
+    def test_it_records_transitions_and_leaves_the_ring_unchanged(self):
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
+        try:
+            s = cls(polygon=self._sq(1))       # birth, OUT
+            s.polygon = self._sq(1)            # unchanged — NOT a transition
+            s.polygon = self._sq(10)           # grew IN
+            s.polygon = self._sq(20)           # still in — NOT a transition
+            s.polygon = self._sq(1)            # shrank OUT
+            assert s.polygon.area == 1.0, "the probe must not touch the ring"
+        finally:
+            probe.uninstall()
+        rows = probe.rows["5.0,5.0"]
+        assert [(r["event"], r["covered"]) for r in rows] == [
+            ("grew", True), ("shrank", False)], (
+            "only the writes that CHANGED coverage are rows; a birth "
+            "outside the point is not one")
+        assert rows[0]["area_m2"] == 100.0 and rows[0]["role"] == "apron"
+
+    def test_a_birth_that_already_covers_is_labelled_birth(self):
+        """``dataclasses.replace`` mints a new instance for an unchanged
+        ring all over this pipeline.  A reader that called that "grew"
+        would name the copier as the pass that put pavement there."""
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
+        try:
+            cls(polygon=self._sq(10))
+        finally:
+            probe.uninstall()
+        rows = probe.rows["5.0,5.0"]
+        assert len(rows) == 1 and rows[0]["event"] == "birth"
+        assert rows[0]["covered"] is True
+
+    def test_two_instances_keep_separate_histories(self):
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
+        try:
+            a = cls("apron", self._sq(10))              # birth IN
+            b = cls("groundside_pavement", self._sq(1))  # birth OUT
+            b.polygon = self._sq(10)                     # grew IN
+            del a
+        finally:
+            probe.uninstall()
+        rows = probe.rows["5.0,5.0"]
+        assert [r["role"] for r in rows] == [
+            "apron", "groundside_pavement"]
+        assert len({r["instance"] for r in rows}) == 2, (
+            "instances are tracked by object identity, never by a "
+            "coordinate join")
+
+    def test_uninstall_restores_the_field(self):
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(0.0, 0.0)]).install()
+        assert isinstance(cls.__dict__["polygon"], property)
+        probe.uninstall()
+        assert not isinstance(cls.__dict__.get("polygon"), property)
+
+    def test_it_records_on_the_REAL_unhashable_BuiltShape(self):
+        """THE REGRESSION THIS CLASS EXISTS FOR.
+
+        ``BuiltShape`` is a plain ``@dataclass``, so Python sets
+        ``__hash__ = None``.  A ``WeakKeyDictionary``-keyed probe raises
+        ``TypeError`` on every single write — inside the "instrumentation
+        never breaks a build" guard, which turns it into an instrument
+        that records NOTHING and says so nowhere (measured: a whole HECA
+        build, zero rows).  A hand-rolled hashable stand-in cannot catch
+        that, so this twin uses the engine's own class.
+        """
+        from shapely.geometry import Polygon        # noqa: PLC0415
+        BuiltShape = pytest.importorskip(
+            "auto_patch.layout", reason="engine src not importable").BuiltShape
+        assert BuiltShape.__hash__ is None, (
+            "the trap this test guards is dataclass unhashability; if "
+            "BuiltShape became hashable, re-derive the probe's keying")
+        probe = WHO.FootprintProbe(BuiltShape, [(5.0, 5.0)]).install()
+        try:
+            s = BuiltShape(polygon=self._sq(1), role="apron")
+            s.polygon = self._sq(10)
+            assert s.polygon.area == 100.0
+        finally:
+            probe.uninstall()
+        assert probe.rows["5.0,5.0"], (
+            "the probe recorded NOTHING on the class it exists to "
+            "instrument")
+        assert probe.rows["5.0,5.0"][-1]["event"] == "grew"
+        assert isinstance(Polygon, type)
+
+    def test_a_reused_object_id_is_not_joined_to_the_dead_shape(self):
+        """Ids ARE reused within one build.  A bare ``id()`` map would
+        continue a dead shape's coverage state into an unrelated new
+        one — the join error that makes an attribution wrong rather
+        than missing."""
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)]).install()
+        try:
+            a = cls("apron", self._sq(10))          # birth IN
+            key = id(a)
+            probe._state[key][0] = lambda: None     # simulate a dead referent
+            b = cls("groundside_pavement", self._sq(10))
+            probe._state[key] = probe._state.pop(key)
+            # force the id collision the guard must survive
+            probe._record(b, self._sq(10))
+            del a, b
+        finally:
+            probe.uninstall()
+        rows = probe.rows["5.0,5.0"]
+        assert rows[0]["role"] == "apron"
+        assert any(r["role"] == "groundside_pavement" and r["event"] == "birth"
+                   for r in rows), (
+            "a stale id entry must yield a FRESH instance, never a "
+            "continuation of the dead shape's state")
+
+    def test_no_probe_point_records_nothing(self):
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, []).install()
+        try:
+            cls(polygon=self._sq(10))
+        finally:
+            probe.uninstall()
+        assert probe.rows == {} and probe._step == 0
+
+    def test_the_final_section_reads_the_layout_by_shape_index(self):
+        """``final`` is the emitted answer the change list has to end at,
+        and its index IS the ``shapeID`` tag ``layout.to_osm`` writes."""
+        cls = self._shape_cls()
+        probe = WHO.FootprintProbe(cls, [(5.0, 5.0)])
+        layout = types.SimpleNamespace(shapes=[cls("apron", self._sq(1)),
+                                              cls("apron", self._sq(10))])
+        hist = probe.footprint_history(layout)
+        assert hist["5.0,5.0"]["final"] == [
+            {"shapeID": 1, "role": "apron", "ref": "", "area_m2": 100.0}]
+
+
 class TestAuthorMoveDump:
     """``--author-dump`` must carry the JOIN KEYS the aggregate cannot.
 

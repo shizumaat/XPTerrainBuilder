@@ -173,3 +173,26 @@ sites; solve-owned moved airside 0 at all airports (road-welded shared
 nodes take the AIRSIDE value by the one-way weld — a residual there is
 attributed, not accepted); the 0.25 m residue who_wrote; OTHH/LEMD ON
 arms built; census totals vs control attributed.
+
+## AMENDMENT 5 (Fable, 2026-08-28, on lane/hecar5f; 5f merged)
+
+Scoped freeze RATIFIED (controls at pre-round values; OTHH −226). The
+structural residual is ruled:
+
+1. SNAPSHOT-BLIND RE-DERIVATION: within the projection (and any
+   post-solve conformance), an AIRSIDE ring's re-derivation reads every
+   NON-AIRSIDE neighbour from the SOLVE-TIME SNAPSHOT — the same
+   snapshot the mutation detection already keeps (one snapshot, two
+   readers, never a second copy). Airside repair output is thereby
+   road-blind by construction: legitimate repair (planarize inserts,
+   T-welds, clip rebuilds) reads the world as it stood when airside
+   solved; the profile's road movements can never reach an airside
+   value through any re-solve. Roads themselves re-derive freely
+   (Amendment 3).
+2. WELD IDENTITY: the freeze keys join on the canonical 11-dp spelling
+   via the chord limiter's existing `_airside_claimed_keys` second
+   reading — one edit, never a third key derivation (canonical-identity
+   law).
+3. Flip-ON: the full Amendment 2 §3 + Amendment 3 §3 bar, now with
+   HECA + LEMD ON arms BUILT, the 0.25 m residue who_wrote spent, and
+   solve-owned moved airside 0 at all five airports.

@@ -173,6 +173,7 @@ __all__ = [
     "FREE_ROAD_PROFILE_RESOLVE",
     "FREE_ROAD_PROFILE_PRESOLVE",
     "PROJECTION_AIRSIDE_FREEZE",
+    "PROJECTION_SNAPSHOT_BLIND",
     "FREE_ROAD_PROFILE_SELF_PINS",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
@@ -10104,6 +10105,17 @@ FREE_ROAD_PROFILE_SELF_PINS = (
 # profile not even running).  Now an airside node on a ring whose OWN
 # geometry changed after the solve re-derives, and only an UNMUTATED
 # ring's airside is frozen.  DEFAULT ON with that scope.
+# ── SNAPSHOT-BLIND AIRSIDE RE-DERIVATION (owner 2026-08-28, round-5
+# spec Amendment 5 §1) ───────────────────────────────────────────────
+# An airside ring's re-derivation reads every NON-AIRSIDE neighbour from
+# the SOLVE-TIME snapshot, so the repair is road-blind by construction
+# while staying whole.  Closes 5f's structural residual: scoping the
+# freeze by ring could not, because a mutated ring's legitimate repair
+# and its road-driven re-derivation are the same computation.
+# DEFAULT ON; "0" restores the single-stage projection exactly.
+PROJECTION_SNAPSHOT_BLIND = (
+    _os.environ.get("O4_PROJECTION_SNAPSHOT_BLIND", "1") != "0")
+
 PROJECTION_AIRSIDE_FREEZE = (
     _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "1") != "0")
 

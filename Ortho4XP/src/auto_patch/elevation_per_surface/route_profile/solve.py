@@ -7719,6 +7719,13 @@ def compose_rod_chains(chains, resolve, want_drop_records=False):
     return (edges, dropped, drop_records, composed, absorbed, span_max)
 
 
+def _snapshot_blind_rederive_on() -> bool:
+    """Is the SNAPSHOT-BLIND airside re-derivation armed? (Amendment 5 §1,
+    default ON.)  Read at CALL time, like every other law gate here."""
+    from auto_patch import config as _cfg
+    return bool(getattr(_cfg, "PROJECTION_SNAPSHOT_BLIND", True))
+
+
 def _projection_airside_freeze_on() -> bool:
     """Is the AIRSIDE FREEZE armed? (Amendment 3 §1, default ON.)
 
@@ -9287,6 +9294,83 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _fp_interior = G.interior_pairs()
     _fp_staged_report: dict = {}
     setattr(layout, "_apron_staged_report", _fp_staged_report)
+    # ── SNAPSHOT-BLIND AIRSIDE RE-DERIVATION (owner ruling 2026-08-28,
+    # round-5 spec Amendment 5 §1) ────────────────────────────────────
+    # "Within the projection, an AIRSIDE ring's re-derivation reads every
+    # NON-AIRSIDE neighbour from the SOLVE-TIME SNAPSHOT — the same
+    # snapshot the mutation detection already keeps."
+    #
+    # WHY (5f's measurement): scoping the freeze by RING left the residual
+    # inside the population the scope deliberately releases — a mutated
+    # airside ring's legitimate repair and its forbidden road-driven
+    # re-derivation are the SAME computation, because the re-solve reads
+    # the current layout and the current layout holds the road values the
+    # free-road profile moved (SPJC 138 moved, 98 with no road contact).
+    #
+    # THE STAGING, which is that sentence mechanically: stage 1 holds
+    # every NON-AIRSIDE node at its SNAPSHOT value and repairs AIRSIDE
+    # against it — road-blind by construction, and the repair is whole
+    # because it reads the world as airside solved it.  Stage 2 restores
+    # the non-airside nodes to their CURRENT values, hardens the airside
+    # result, and lets roads/groundside re-derive freely (Amendment 3).
+    # ONE SNAPSHOT, TWO READERS: the mutation detection above and this —
+    # never a second copy.
+    _snap_blind = (_projection_airside_freeze_on()
+                   and _snapshot_blind_rederive_on()
+                   and snapshot is not None
+                   and _airside_frozen is not None)
+    _stage1_restore: dict = {}
+    _snap_blind_held = 0
+    if _snap_blind:
+        try:
+            from auto_patch.elevation_per_surface.solver_primitives import (
+                solve_owned_airside_nodes as _sa_nodes)
+            _airside_all = {i for i in _sa_nodes(layout, b2i) if i < n}
+            _snap_vals = snapshot.get("values") or {}
+            _hard_stage1 = set(hard)
+            for _key, _i in b2i.items():
+                if _i >= n or _i in _airside_all:
+                    continue
+                _sv = _snap_vals.get(_key)
+                if _sv is None:
+                    continue
+                _cur = elev[_i]
+                if _cur != _sv:
+                    _stage1_restore[_i] = _cur
+                    elev[_i] = _sv + _crown_of.get(_i, 0.0)
+                _hard_stage1.add(_i)
+                _snap_blind_held += 1
+            rem_s1, _bh_s1 = feasibility_project_partitioned(
+                elev, joint, _hard_stage1, force_scalar=True,
+                receiver_nodes=_fp_receivers, n_nodes=n,
+                env_band=_fp_env_band, family_of=_fp_family_of,
+                apron_interior_pairs=_fp_interior,
+                apron_excluded_nodes=set(
+                    getattr(G, "apron_excluded_nodes", None) or ()),
+                flat_groups=pad_groups or None)
+            # STAGE 2: airside is settled and road-blind — hold it, give
+            # every non-airside node its CURRENT value back, and let the
+            # road/groundside families repair against it.
+            hard = set(hard) | _airside_all
+            for _i, _cur in _stage1_restore.items():
+                elev[_i] = _cur
+            import O4_UI_Utils as _UI_sb
+            _UI_sb.vprint(1,
+                f"  [pav-builder] {icao}: SNAPSHOT-BLIND airside "
+                f"re-derivation (Amendment 5 §1) — {_snap_blind_held} "
+                f"non-airside node(s) read from the SOLVE-TIME snapshot "
+                f"for stage 1 ({len(_stage1_restore)} of them had moved "
+                f"since), {len(_airside_all)} airside node(s) then held "
+                f"while road/groundside re-derive; stage-1 residual "
+                f"{rem_s1}.")
+        except Exception as _sb_exc:                       # pragma: no cover
+            import O4_UI_Utils as _UI_sb2
+            _UI_sb2.vprint(1,
+                f"  [pav-builder] {icao}: WARN snapshot-blind stage "
+                f"failed ({_sb_exc!r}) — falling back to the single "
+                f"projection.")
+            for _i, _cur in _stage1_restore.items():
+                elev[_i] = _cur
     rem, bh = feasibility_project_partitioned(
                                   elev, joint, hard, force_scalar=True,
                                   receiver_nodes=_fp_receivers, n_nodes=n,

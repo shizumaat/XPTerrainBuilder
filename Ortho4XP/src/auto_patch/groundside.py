@@ -2999,6 +2999,37 @@ def _road_vertex_graph(layout, freeze_stats=None):
             i = idx.get(_vkey(float(x), float(y)))
             if i is not None:
                 bucket.add(i)
+    # ── THE CANONICAL SECOND READING (owner 2026-08-28, round-5 spec
+    # Amendment 5 §2) ────────────────────────────────────────────────
+    # ``_vkey`` is a MILLIMETRE bucket; ``to_osm`` merges vertices by
+    # their 11-decimal spelling through ``layout.canonical_points``.  A
+    # road vertex and an airside vertex microns apart therefore hash to
+    # DIFFERENT mm buckets while emitting as ONE node — so the freeze
+    # missed them, the profile wrote them, and the emit consensus shipped
+    # the road's value on a node an apron also carries.  Measured at CYXY
+    # (round 5f): exactly 2 such nodes, 0.09 m and 0.07 m, both
+    # ('apron', 'service_junction').
+    #
+    # The chord limiter already solved this class and its fix is REUSED
+    # here rather than re-derived a third time: ``_airside_claimed_keys``
+    # returns the airside claim in BOTH identities, and its canonical
+    # half is the one that catches the micron case (its own comment: with
+    # the xy key alone ONE HECA apron node welded to a service junction
+    # still moved 0.12 m).
+    try:
+        _cps_w = getattr(layout, "canonical_points", None)
+        if _cps_w is not None:
+            _tol_w = getattr(_cps_w, "tol_m", None)
+            _xy_claim, _canon_claim = _airside_claimed_keys(layout)
+            if _tol_w is not None and _canon_claim:
+                for _i, (_x, _y) in enumerate(xy):
+                    if _i in by_airside:
+                        continue
+                    _ck = _cps_w.find_nearest(float(_x), float(_y), _tol_w)
+                    if _ck is not None and _ck in _canon_claim:
+                        by_airside.add(_i)
+    except Exception:                                      # pragma: no cover
+        pass
     if _NARROW:
         # THE NARROWED FREEZE: authorities only.  A vertex a soft
         # receiver ALSO carries is frozen when an authority carries it

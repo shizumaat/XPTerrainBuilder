@@ -524,3 +524,76 @@ class TestTheScopedFreeze:
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
         assert "_cps_f.get_or_add(float(_x), float(_y))" in proj
+
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 5 — SNAPSHOT-BLIND RE-DERIVATION + WELD IDENTITY
+# ══════════════════════════════════════════════════════════════════════
+
+class TestSnapshotBlindRederivation:
+
+    def test_ONE_snapshot_TWO_readers_never_a_second_copy(self):
+        """The mutation detection and the blind re-derivation read the
+        SAME ``layout._final_projection_snapshot``."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert 'snapshot.get("values")' in proj
+        defer = inspect.getsource(S._scoped_projection_defer_ids)
+        assert 'snapshot["values"]' in defer
+        # …and the snapshot is written in exactly one place.
+        whole = inspect.getsource(S)
+        assert whole.count("layout._final_projection_snapshot = ") == 1
+
+    def test_half_one_AIRSIDE_repairs_against_the_SNAPSHOT(self):
+        """Stage 1 holds every non-airside node at its solve-time value,
+        so an airside repair cannot see a road that moved after."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_hard_stage1.add(_i)" in proj
+        assert "elev[_i] = _sv + _crown_of.get(_i, 0.0)" in proj
+
+    def test_half_two_ROADS_re_derive_freely_afterwards(self):
+        """Amendment 3 kept: stage 2 restores the CURRENT non-airside
+        values and hardens the settled airside."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "hard = set(hard) | _airside_all" in proj
+        assert "elev[_i] = _cur" in proj
+
+    def test_the_repair_is_not_skipped_only_re_based(self):
+        """Stage 1 is a full projection — the 299->97 repair still runs,
+        it just reads the world as airside solved it."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert proj.count("feasibility_project_partitioned(") == 2
+
+    def test_the_gate_off_restores_the_single_projection(self):
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_snapshot_blind_rederive_on()" in proj
+        assert CFG.PROJECTION_SNAPSHOT_BLIND is True
+
+
+class TestWeldIdentity:
+
+    def test_the_freeze_takes_the_LIMITERS_second_reading(self):
+        """One edit, never a third key derivation: the profile's freeze
+        joins canonically through ``_airside_claimed_keys`` — the same
+        helper the chord limiter already pins with."""
+        import inspect
+        src = inspect.getsource(GS._road_vertex_graph)
+        assert "_airside_claimed_keys(layout)" in src
+        assert "find_nearest" in src
+
+    def test_the_mm_bucket_alone_is_NOT_the_identity(self):
+        """Why the second reading exists, in the code's own terms: the
+        emitter merges by the canonical spelling, not the mm bucket."""
+        import inspect
+        src = inspect.getsource(GS._road_vertex_graph)
+        assert "MILLIMETRE bucket" in src
+        assert "0.09 m and 0.07 m" in src

@@ -170,6 +170,7 @@ __all__ = [
     "ROAD_AIRSIDE_CONTACT_WIDEN",
     "ROAD_CONTACT_CAP_SCOPE",
     "FREE_ROAD_PROFILE_PASS",
+    "FREE_ROAD_PROFILE_RESOLVE",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10046,6 +10047,14 @@ ROAD_CONTACT_CAP_SCOPE = (
 # ruling's other half.  "0" restores the euclidean chord exactly.
 ROAD_PATH_METRIC = (
     _os.environ.get("O4_ROAD_PATH_METRIC", "0") != "0")
+
+# The profile's SECOND call, after the final grade projection.  Split out
+# so the post-projection re-solve can be measured on its own — it is the
+# only part of the pass that runs downstream of a GLOBAL projection, and
+# therefore the only part that can plausibly carry a road change into the
+# airside surface.
+FREE_ROAD_PROFILE_RESOLVE = (
+    _os.environ.get("O4_FREE_ROAD_PROFILE_RESOLVE", "1") != "0")
 
 FREE_ROAD_PROFILE_PASS = (
     _os.environ.get("O4_FREE_ROAD_PROFILE", "0") != "0")

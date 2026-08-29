@@ -7022,8 +7022,10 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # passes read it.  The pass is a clamp into its pins' envelope,
         # so re-running it is idempotent where nothing moved.
         try:
+            from .config import FREE_ROAD_PROFILE_RESOLVE as _frp_again
             from .free_road_profile import solve_free_road_profiles as _frp
-            _frp(layout, icao)
+            if _frp_again:
+                _frp(layout, icao)
         except _GEOM_EXC as _prof_exc2:
             UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
                          f"profile re-solve failed ({_prof_exc2!r}).")

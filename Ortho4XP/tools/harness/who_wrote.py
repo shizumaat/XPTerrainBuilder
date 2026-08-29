@@ -3,7 +3,8 @@
     venv/bin/python tools/harness/who_wrote.py ICAO [--dem M]
         [--roles service_junction,groundside_pavement] [--at X,Y ...]
         [--author final_grade_projection] [--author-tol 0.01]
-        [--author-dump moves.jsonl] [--out DIR] [--tol 0.05]
+        [--author-dump moves.jsonl] [--footprint X,Y ...]
+        [--out DIR] [--tol 0.05]
 
 Run it from ``Ortho4XP/``.
 
@@ -14,7 +15,7 @@ This tool answers it by MEASUREMENT: it wraps ``BuiltShape.node_altitudes``
 in a recording property, runs the build through the harness build entry, and
 reports the call site of every write.
 
-THREE REPORTS, one build:
+FOUR REPORTS, one build:
 
 * **THE DEM-AUTHORSHIP CENSUS** (default, needs ``--dem``).  For every shape
   that finishes with vertices sitting EXACTLY on the constant DEM, the write
@@ -45,6 +46,21 @@ THREE REPORTS, one build:
   2026-08-03; the ingestion spec's requirement 2 sets the materiality
   floor at 0.01 m).  This is the reader for
   ``docs/specs/cycle4-projection-ingestion-spec.md``.
+
+* **THE FOOTPRINT HISTORY** (``--footprint X,Y``, metre frame, repeatable).
+  The same question asked of the RING instead of the value: *which pass put
+  pavement over this spot at all?*  A value history cannot answer it — a
+  point outside every shape has no vertex to trace, and the passes that
+  MOVE a footprint (the absorb / merge / re-role family) write a polygon,
+  never an altitude.  The probe wraps ``BuiltShape.polygon`` the same way,
+  and reports per probe point every write at which a shape STARTED or
+  STOPPED covering it, with the call site, the role at that moment, and the
+  areas either side.  A shape's first sighting is reported as a ``birth``
+  row (``dataclasses.replace`` mints a new instance for the same ring all
+  over this pipeline, so "a new object covers the point" is NOT by itself a
+  pass that grew a footprint — the row says which it is).  It measures no
+  law and counts no defects: coverage is ``shapely`` containment on the
+  ring as written, and defect counts come from ``harness/census.py`` alone.
 
 The hooks are READ-ONLY: they record and delegate, so the build is the same
 build ``tools/harness/build_airport.py`` would have produced (same refusals,
@@ -758,6 +774,160 @@ class AuthorshipProbe:
         return out
 
 
+class FootprintProbe:
+    """Records every ``BuiltShape.polygon`` assignment that CHANGES whether
+    a probe point is covered — the FOOTPRINT counterpart of
+    :class:`AuthorshipProbe`.
+
+    ``install`` swaps the dataclass field for a property; ``uninstall``
+    puts it back.  Instances are tracked by ``id()`` GUARDED BY A WEAK
+    REFERENCE, and both halves are load-bearing: ``BuiltShape`` is a
+    plain ``@dataclass``, so Python sets ``__hash__ = None`` and a
+    ``WeakKeyDictionary`` raises ``TypeError`` on every write — inside
+    the "instrumentation never breaks a build" guard, which turns it
+    into an instrument that silently records NOTHING (measured: an
+    entire HECA build, zero rows).  A bare ``id()`` is the opposite
+    failure: ids are reused within one build, which silently joins two
+    unrelated shapes' histories.  So each entry keeps a ``weakref`` and
+    an entry whose referent is gone (or is a different object) is
+    treated as a fresh instance.
+
+    The probe DERIVES NOTHING.  Coverage is ``polygon.covers(Point)`` on
+    the ring exactly as the pass wrote it; the report is the ordered list
+    of transitions, and naming which of them is the defect is the reader's
+    job.
+    """
+
+    def __init__(self, shape_cls, at=()):
+        from shapely.geometry import Point            # noqa: PLC0415
+        self.cls = shape_cls
+        self.at = [(float(x), float(y)) for x, y in at]
+        self._pts = [Point(p) for p in self.at]
+        #: "x,y" → [row, …], in write order
+        self.rows: dict = {f"{p[0]},{p[1]}": [] for p in self.at}
+        #: id(shape) → [weakref(shape), ordinal, {probe index: covered?}]
+        #: as of that instance's last recorded write.  See the class
+        #: docstring for why it is neither a WeakKeyDictionary nor a bare
+        #: id map.
+        self._state: dict = {}
+        self._n_inst = 0
+        self._step = 0
+        self._saved = None
+
+    # ── the hook ─────────────────────────────────────────────────────
+    def _record(self, shape, poly):
+        if not self._pts:
+            return
+        self._step += 1
+        try:
+            empty = poly is None or poly.is_empty
+            bounds = None if empty else poly.bounds
+        except Exception:
+            return
+        import weakref                                # noqa: PLC0415
+        key = id(shape)
+        entry = self._state.get(key)
+        if entry is not None and entry[0]() is not shape:
+            entry = None                  # the id was reused by a new object
+        first = entry is None
+        if first:
+            self._n_inst += 1
+            try:
+                ref = weakref.ref(shape)
+            except TypeError:             # not weakref-able: id alone
+                ref = lambda: shape       # noqa: E731
+            entry = [ref, self._n_inst, {}]
+            self._state[key] = entry
+        prev = entry[2]
+        state = {}
+        changed = []
+        for i, pt in enumerate(self._pts):
+            hit = False
+            if not empty:
+                x, y = self.at[i]
+                if (bounds[0] <= x <= bounds[2]
+                        and bounds[1] <= y <= bounds[3]):
+                    try:
+                        hit = bool(poly.covers(pt))
+                    except Exception:
+                        hit = False
+            state[i] = hit
+            if prev.get(i, False) != hit or (first and hit):
+                changed.append((i, prev.get(i, False), hit))
+        entry[2] = state
+        if not changed:
+            return
+        site = call_site(skip=3)
+        for i, was, now in changed:
+            self.rows[f"{self.at[i][0]},{self.at[i][1]}"].append({
+                "step": self._step,
+                "instance": entry[1],
+                "event": "birth" if first else ("grew" if now else "shrank"),
+                "covered": now,
+                "was_covered": was,
+                "role": getattr(shape, "role", "") or "",
+                "ref": getattr(shape, "ref", "") or "",
+                "area_m2": None if empty else round(poly.area, 1),
+                "site": site,
+            })
+
+    def install(self):
+        probe = self
+        self._saved = self.cls.__dict__.get("polygon", _MISSING)
+
+        # WRITE THROUGH TO THE INSTANCE DICT (the AuthorshipProbe note
+        # applies verbatim): the ring must survive ``uninstall`` so the
+        # layout a report is taken from is the layout the build produced.
+        def _get(self):
+            return self.__dict__.get("polygon")
+
+        def _set(self, value):
+            self.__dict__["polygon"] = value
+            try:
+                probe._record(self, value)
+            except Exception:          # instrumentation never breaks a build
+                pass
+
+        self.cls.polygon = property(_get, _set)
+        return self
+
+    def uninstall(self):
+        if self._saved is _MISSING:
+            try:
+                delattr(self.cls, "polygon")
+            except AttributeError:
+                pass
+        else:
+            setattr(self.cls, "polygon", self._saved)
+        self._saved = None
+
+    # ── the report ───────────────────────────────────────────────────
+    def footprint_history(self, layout=None):
+        """``{"x,y": {"final": …, "changes": [row, …]}}``.
+
+        ``final`` names the shape covering the point in the FINISHED
+        layout — the emitted answer the change list has to end at.  It is
+        read off ``layout.shapes`` by index, which IS the ``shapeID`` tag
+        ``layout.to_osm`` writes, so a row here joins a patch read.
+        """
+        out = {}
+        for i, key in enumerate(self.rows):
+            final = []
+            if layout is not None:
+                for idx, s in enumerate(getattr(layout, "shapes", ()) or ()):
+                    p = getattr(s, "polygon", None)
+                    try:
+                        if p is not None and not p.is_empty \
+                                and p.covers(self._pts[i]):
+                            final.append({"shapeID": idx, "role": s.role,
+                                          "ref": getattr(s, "ref", ""),
+                                          "area_m2": round(p.area, 1)})
+                    except Exception:
+                        continue
+            out[key] = {"final": final, "changes": self.rows[key]}
+        return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -815,6 +985,15 @@ def main(argv=None) -> int:
                          "report keeps only the worst 40 rows, which cannot "
                          "answer whether a moved vertex is one some other "
                          "writer seeded.")
+    ap.add_argument("--footprint", action="append", default=[],
+                    metavar="X,Y",
+                    help="FOOTPRINT history: metre-frame coordinate whose "
+                         "COVERAGE is traced instead of its value — every "
+                         "write at which a shape started or stopped "
+                         "covering it, with the call site.  Repeatable.  "
+                         "The report a 'which pass put pavement here at "
+                         "all' question needs; a point outside every shape "
+                         "has no vertex for --at to trace.")
     ap.add_argument("--out", type=Path, default=Path("/tmp/harness/who"))
     ap.add_argument("--allow-degraded-dem", action="store_true",
                     help="relaxes the ONE gate that lives in build_patch "
@@ -861,9 +1040,11 @@ def main(argv=None) -> int:
     if args.icao is None:
         ap.error("give an ICAO (to build) or --emitted-patch (to read a "
                  "patch an earlier build wrote)")
-    if args.dem is None and not args.at and not args.author:
+    if (args.dem is None and not args.at and not args.author
+            and not args.footprint):
         ap.error("give --dem (authorship census), --at X,Y (node history), "
-                 "--author SITE (displacement census), or any combination")
+                 "--author SITE (displacement census), --footprint X,Y "
+                 "(footprint history), or any combination")
 
     root = HB.require_build_cwd(Path.cwd())
     for p in (root / "src", root, root / "tests"):
@@ -877,10 +1058,12 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     prog = HB.Progress(out / f"{args.icao}_who_wrote.progress")
 
+    fp_at = [tuple(float(v) for v in a.split(",")) for a in args.footprint]
     probe = AuthorshipProbe(BuiltShape, args.dem, roles, at, args.tol,
                             authors=args.author,
                             author_tol=args.author_tol,
                             dump_moves=bool(args.author_dump)).install()
+    fprobe = FootprintProbe(BuiltShape, fp_at).install() if fp_at else None
     try:
         tag = f"{args.icao}_who{'' if args.dem is None else f'_dem{args.dem:g}'}"
         result = HB.build_patch(args.icao, root, out, tag, prog,
@@ -888,6 +1071,8 @@ def main(argv=None) -> int:
                                 allow_degraded=args.allow_degraded_dem)
         layout = result["_layout"]
     finally:
+        if fprobe is not None:
+            fprobe.uninstall()
         probe.uninstall()
 
     report: dict = {"icao": args.icao, "dem_m": args.dem,
@@ -1012,6 +1197,29 @@ def main(argv=None) -> int:
             for c in changes:
                 print(f"    {c['step']:7d} {c['role']:<18}{c['ref']:<20}"
                       f"{c['value']}   {c['site']}")
+    if fprobe is not None:
+        hist = fprobe.footprint_history(layout)
+        report["footprint_history"] = hist
+        report["footprint_history_frame"] = {
+            "frame": "IN-MEMORY write stream",
+            "coordinate_space": "layout METRE frame",
+            "predicate": "shapely polygon.covers(Point)",
+            "rows": "transitions only; a shape's first write is a 'birth' "
+                    "row (dataclasses.replace mints a new instance for an "
+                    "unchanged ring, so birth != a pass that grew anything)",
+            "final": "shapes covering the point in the finished layout, "
+                     "indexed by layout.shapes index == the emitted "
+                     "shapeID tag"}
+        print(f"\n  === FOOTPRINT HISTORY  [frame: IN-MEMORY write stream  "
+              f"|  coordinates: layout METRE frame  |  predicate: "
+              f"polygon.covers(point)  |  transitions only]")
+        for point, rec in hist.items():
+            print(f"\n  === ({point})  {len(rec['changes'])} transition(s)")
+            for c in rec["changes"]:
+                print(f"    {c['step']:7d} inst{c['instance']:<6} "
+                      f"{c['event']:<7}{'IN ' if c['covered'] else 'OUT'} "
+                      f"{c['role']:<22}{str(c['area_m2']):>10}  {c['site']}")
+            print(f"    FINAL: {rec['final'] or '(covered by nothing)'}")
     path = out / f"{args.icao}_who_wrote.json"
     path.write_text(json.dumps(report, indent=1, default=str))
     print(f"\n  [harness] authorship report -> {path}")

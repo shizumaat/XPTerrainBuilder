@@ -4626,6 +4626,13 @@ What was NOT paid:
   running at all, airside rows rise +94 (CYXY), +563 (SPJC), +926
   (HECA).  Shipped OFF pending the ruling; the law is built and its
   twins arm it.
+* **HECA ON arm (landed after the first write-up)**: freeze OFF 6807
+  (airside 2391) -> freeze only 7906 (3317) -> freeze+profile 8036
+  (3302); solve-owned moved airside **105, worst 0.95 m** — a 94 %
+  reduction on 5d's 1,756 at 2.07 m, but not the 0 the gate asks, and 46
+  of the 105 are road-welded.  Sites: item 2 121.58 % -> 117.76 %, item 3
+  unchanged, item 4 153.99 % -> 152.13 % — item 4 does NOT return to its
+  9.35 % class in this configuration.
 * **The 0.25 m post-projection residue from 5d was NOT re-measured**: it
   is only meaningful against whichever §1 configuration is ruled, and
   spending a who_wrote arm on it before that would measure a

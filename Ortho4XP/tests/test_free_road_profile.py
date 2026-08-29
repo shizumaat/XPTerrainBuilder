@@ -493,52 +493,21 @@ class TestTheScopedFreeze:
 
 
 class TestSnapshotBlindRederivation:
+    """RETIRED-KEPT-GATED with the freeze family (Amendment 7 §3).  The
+    two-stage snapshot-blind staging existed to serve a freeze, and
+    rounds 5e-5h measured every freeze form dead.  What replaces it is
+    ``TestRoadBlindRederivation`` below: no freeze, no staging, one
+    projection, and the ROAD-FAMILY VALUE SOURCE scoped instead."""
 
-    def test_ONE_snapshot_TWO_readers_never_a_second_copy(self):
-        """The mutation detection and the blind re-derivation read the
-        SAME ``layout._final_projection_snapshot``."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        # ONE STORE, TWO READERS (Amendment 6 §1): the freeze and the
-        # blind stage both read the resolved ``solved_values`` view, and
-        # the store is minted in exactly one place.
-        assert "_snap_vals_idx = _carried_solved" in proj
-        whole = inspect.getsource(S)
-        assert whole.count('"solved_values", "scalar",') == 1
-
-    def test_half_one_AIRSIDE_repairs_against_the_SNAPSHOT(self):
-        """Stage 1 holds every non-airside node at its solve-time value,
-        so an airside repair cannot see a road that moved after."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_hard_stage1.add(_i)" in proj
-        assert "elev[_i] = _sv" in proj
-
-    def test_half_two_ROADS_re_derive_freely_afterwards(self):
-        """Amendment 3 kept: stage 2 restores the CURRENT non-airside
-        values and hardens the settled airside."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "hard = set(hard) | _airside_frozen" in proj
-        assert "elev[_i] = _cur" in proj
-
-    def test_the_repair_is_not_skipped_only_re_based(self):
-        """Stage 1 is a full projection — the 299->97 repair still runs,
-        it just reads the world as airside solved it."""
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert proj.count("feasibility_project_partitioned(") == 2
-
-    def test_the_gate_off_restores_the_single_projection(self):
-        import inspect
-        from auto_patch.elevation_per_surface.route_profile import solve as S
-        proj = inspect.getsource(S.final_grade_projection)
-        assert "_snapshot_blind_rederive_on()" in proj
-        assert CFG.PROJECTION_SNAPSHOT_BLIND is True
+    def test_the_staging_ships_off(self):
+        import importlib
+        import auto_patch.config as _fresh
+        _fresh = importlib.reload(_fresh)
+        try:
+            assert _fresh.PROJECTION_SNAPSHOT_BLIND is False
+            assert _fresh.PROJECTION_AIRSIDE_FREEZE is False
+        finally:
+            importlib.reload(_fresh)
 
 
 class TestWeldIdentity:
@@ -566,57 +535,87 @@ class TestWeldIdentity:
 # ══════════════════════════════════════════════════════════════════════
 
 class TestTheLiveStoreFoundation:
+    """The store SURVIVES the freeze family's retirement — Amendment 7
+    keeps it as the value source for road-blind re-derivation.  What is
+    retired with the freezes is the MUTATION CRITERION built on it
+    (5h: CYXY released 5 % and lost the repair, SPJC released 21 % and
+    moved 1,545 solve-owned nodes, 1,490 with no road contact)."""
 
     def test_the_store_is_minted_UNCONDITIONALLY_by_the_solve(self):
         """Why it can be the foundation at all, and why it costs nothing:
-        ``solved_values`` is minted the moment the one solve publishes its
-        surface, keyed by canonical point id, over every key of every
-        solve node — no gate, no capture to add.  (The parked
-        SCOPED_FINAL_PROJECTION snapshot is what 5f/5g stood on, and it
-        never runs.)"""
+        minted the moment the one solve publishes its surface, keyed by
+        canonical point id, over every key of every solve node.  Measured
+        coverage of the solve-owned airside population: 99.89 % at CYXY
+        (1853/1855), 99.95 % at SPJC (7377/7381)."""
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         whole = inspect.getsource(S)
         assert '"solved_values", "scalar",' in whole
+        # the parked feature 5f/5g stood on is still parked, untouched
         assert "SCOPED_FINAL_PROJECTION = False" in whole
-        # …and the freeze reads the RESOLVED view, not a second copy.
         proj = inspect.getsource(S.final_grade_projection)
         assert "_carried_solved" in proj
-        assert "i in _carried_solved" in proj
 
-    def test_the_mutation_criterion_is_store_MEMBERSHIP(self):
-        """Amendment 6 §2: a ring is mutated when its post-solve node
-        population differs from the store's membership — a key the solve
-        never had is a post-solve insert or weld."""
+
+# ══════════════════════════════════════════════════════════════════════
+# AMENDMENT 7 — ROAD-BLIND RE-DERIVATION, NO FREEZE
+# ══════════════════════════════════════════════════════════════════════
+
+class TestRoadBlindRederivation:
+
+    def test_the_projection_runs_UNCHANGED_nothing_frozen(self):
+        """The whole point: same population, same solve, full repair.
+        Only the road-family VALUE SOURCE changes."""
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        assert "_i not in _carried_solved" in proj
-        assert "_mutated = True" in proj
+        # one projection call, not the retired two-stage form
+        assert proj.count("feasibility_project_partitioned(") == 1
+        assert "_road_blind_rederive_on()" in proj
+        assert "Nothing frozen, full repair." in proj
 
-    def test_both_halves_of_the_criterion(self):
+    def test_road_values_resolve_through_the_LIVE_store(self):
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        # mutated ring -> released; everything else -> frozen
-        assert "_released.update(_ring_idx)" in proj
-        assert "_airside_frozen = _airside_all - _released" in proj
+        assert "_carried_solved.get(_i)" in proj
+        assert "ROAD_ROLES as _RB_ROAD" in proj
+        # …and the store is minted in exactly one place, by the solve.
+        whole = inspect.getsource(S)
+        assert whole.count('"solved_values", "scalar",') == 1
 
-    def test_the_coverage_is_MEASURED_and_reported_by_the_build(self):
-        """The ruling asked for the coverage first; the build states it
-        (CYXY: 1853/1855 = 99.89 %)."""
+    def test_PROFILE_OFF_is_byte_identical_BY_CONSTRUCTION(self):
+        """With no post-solve road writer the store value EQUALS the
+        current value, so the reseed loop cannot change a thing — the
+        `elev[_i] == _sv` guard is that proof in code."""
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        assert "store COVERAGE" in proj
-        assert "_airside_covered" in proj
+        assert "if _sv is None or elev[_i] == _sv:" in proj
+        assert "continue" in proj
 
-    def test_stage_two_hardens_only_the_FROZEN_set(self):
-        """Measured refusal: hardening ALL airside left the airside
-        partition with weighted transect rows and no movable edge, and
-        feasibility_project refuses that by design."""
+    def test_the_interventional_property_moving_a_road_changes_nothing(self):
+        """PROFILE ON ⇒ the airside re-derivation is independent of the
+        road's post-solve movement.  Stated on the mechanism: whatever
+        the road's current value is, the projection reads the store's.
+        A road moved post-solve is re-seated to its SOLVE-TIME value
+        before the projection sees it, so two arms differing only in a
+        post-solve road write hand the projection identical inputs."""
         import inspect
         from auto_patch.elevation_per_surface.route_profile import solve as S
         proj = inspect.getsource(S.final_grade_projection)
-        assert "hard = set(hard) | _airside_frozen" in proj
-        assert "edges=0" in proj
+        assert "elev[_i] = _sv" in proj
+        assert "_road_blind_reseeded += 1" in proj
+
+    def test_no_ring_is_selected_anywhere(self):
+        """The refutation 5e-5h earned: ring selection cannot reach
+        airside-blindness, because the value-mutated rings are exactly
+        the rings roads touch."""
+        import inspect
+        from auto_patch.elevation_per_surface.route_profile import solve as S
+        proj = inspect.getsource(S.final_grade_projection)
+        assert "_released" not in proj
+        assert "_mutated = True" not in proj
+
+    def test_the_gate_is_default_on(self):
+        assert CFG.PROJECTION_ROAD_BLIND is True

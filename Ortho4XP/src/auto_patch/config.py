@@ -174,6 +174,7 @@ __all__ = [
     "FREE_ROAD_PROFILE_PRESOLVE",
     "PROJECTION_AIRSIDE_FREEZE",
     "PROJECTION_SNAPSHOT_BLIND",
+    "PROJECTION_ROAD_BLIND",
     "FREE_ROAD_PROFILE_SELF_PINS",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
@@ -10113,8 +10114,21 @@ FREE_ROAD_PROFILE_SELF_PINS = (
 # freeze by ring could not, because a mutated ring's legitimate repair
 # and its road-driven re-derivation are the same computation.
 # DEFAULT ON; "0" restores the single-stage projection exactly.
+# ── ROAD-BLIND RE-DERIVATION (owner 2026-08-29, Amendment 7 §1) ──────
+# Every post-solve airside re-derivation runs exactly as production —
+# same population, same solve, FULL REPAIR — except road-family neighbour
+# values resolve through the live ``solved_values`` store instead of the
+# current layout.  Nothing is frozen and no ring is selected, which is
+# what makes it different from the three freezes rounds 5e-5h measured
+# dead.  Byte-identical by construction with the profile off (the store
+# is what the solve wrote).  DEFAULT ON.
+PROJECTION_ROAD_BLIND = (
+    _os.environ.get("O4_PROJECTION_ROAD_BLIND", "1") != "0")
+
+# RETIRED-KEPT-GATED with the freeze family (Amendment 7 §3): the
+# two-stage staging existed to serve a freeze, and there is no freeze.
 PROJECTION_SNAPSHOT_BLIND = (
-    _os.environ.get("O4_PROJECTION_SNAPSHOT_BLIND", "1") != "0")
+    _os.environ.get("O4_PROJECTION_SNAPSHOT_BLIND", "0") != "0")
 
 # …AND SHIPPED OFF AGAIN ON THE LIVE MEASUREMENT (round 5h).  Re-founded
 # on the LIVE solved_values store it finally RUNS (5f/5g's version stood

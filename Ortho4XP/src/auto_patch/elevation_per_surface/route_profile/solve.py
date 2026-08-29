@@ -7719,6 +7719,12 @@ def compose_rod_chains(chains, resolve, want_drop_records=False):
     return (edges, dropped, drop_records, composed, absorbed, span_max)
 
 
+def _road_blind_rederive_on() -> bool:
+    """Is ROAD-BLIND re-derivation armed? (Amendment 7 §1, default ON.)"""
+    from auto_patch import config as _cfg
+    return bool(getattr(_cfg, "PROJECTION_ROAD_BLIND", True))
+
+
 def _snapshot_blind_rederive_on() -> bool:
     """Is the SNAPSHOT-BLIND airside re-derivation armed? (Amendment 5 §1,
     default ON.)  Read at CALL time, like every other law gate here."""
@@ -8121,87 +8127,31 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     # 299 -> 97").  An airside node on an UNMUTATED ring is FROZEN:
     # re-deriving it because a ROAD or GROUNDSIDE input moved is
     # Amendment 3's defect, measured at the item-4 apron.
-    # THE FOUNDATION IS THE LIVE ``solved_values`` STORE (owner ruling
-    # 2026-08-29, Amendment 6 §1) — NOT the parked scoped-projection
-    # snapshot, which round 5g proved never runs
-    # (``SCOPED_FINAL_PROJECTION = False``, "nothing in the environment
-    # can turn it on"; the 5f freeze was byte-identically inert).
-    #
-    # ``solved_values`` is minted UNCONDITIONALLY the moment the one solve
-    # publishes its surface, keyed by CANONICAL POINT ID, over every key
-    # of every solve node — its own comment: "Coverage is the whole point
-    # of the carry."  It is already resolved into this pass's index space
-    # a few lines above as ``_carried_solved``, so the freeze costs one
-    # dict lookup per node and NOT ONE BYTE of new capture.
-    #
-    # THE MUTATION CRITERION (Amendment 6 §2): a ring is MUTATED when its
-    # post-solve node population differs from the store's membership — a
-    # node whose canonical key the solve never had is a post-solve INSERT
-    # or WELD, and its ring's pairs were never projected.  Those rings
-    # re-derive (the pass's founding repair); every other airside node is
-    # frozen.
+    # ── THE FREEZE FAMILY IS RETIRED-KEPT-GATED (owner ruling
+    # 2026-08-29, Amendment 7 §3) ────────────────────────────────────
+    # Rounds 5e-5h built three of them and MEASURED each one dead:
+    #   * 5e BLANKET — met the gate and destroyed this pass's founding
+    #     repair (+94/+563/+926 airside rows, profile OFF);
+    #   * 5f SCOPED-BY-RING — stood on ``SCOPED_FINAL_PROJECTION``, a
+    #     PARKED feature, and was byte-identically INERT;
+    #   * 5h STORE-MEMBERSHIP — CYXY gate 0 but +86 airside rows, while
+    #     SPJC moved 1,545 solve-owned nodes (1,490 with no road contact
+    #     at all): the released rings re-derive against a frozen
+    #     neighbourhood, so the FREEZE moves them, not the roads.
+    # Ring selection cannot reach airside-blindness, because the
+    # value-mutated rings are exactly the rings roads touch.  What
+    # replaces it is Amendment 7 §1's ROAD-BLIND SEED below: nothing is
+    # frozen, no ring is selected, and the projection runs its full
+    # population and full repair.
     _airside_frozen: set = set()
-    _airside_remutated = 0
-    _airside_pop = 0
-    _airside_covered = 0
-    if _projection_airside_freeze_on():
+    if _projection_airside_freeze_on():                    # pragma: no cover
         try:
             from auto_patch.elevation_per_surface.solver_primitives import (
                 solve_owned_airside_nodes as _solve_owned_airside)
-            _airside_all = {i for i in _solve_owned_airside(layout, b2i)
-                            if i < n}
-            _airside_pop = len(_airside_all)
-            _airside_covered = sum(1 for i in _airside_all
-                                   if i in _carried_solved)
-            # A ring whose node population the store does not span is
-            # MUTATED — released to the projection.
-            _released: set = set()
-            _cps_f = getattr(layout, "canonical_points", None)
-            if _cps_f is not None:
-                from auto_patch.elevation_per_surface.solver_primitives \
-                    import PAVEMENT_ROLES as _PAV_R
-                from auto_patch.solve_stage import stage_of_role, STAGE_A
-                _air_roles = frozenset(r for r in _PAV_R
-                                       if stage_of_role(r) == STAGE_A)
-                for _s in (getattr(layout, "shapes", None) or ()):
-                    if getattr(_s, "role", None) not in _air_roles:
-                        continue
-                    _poly = getattr(_s, "polygon", None)
-                    if _poly is None or getattr(_poly, "is_empty", True):
-                        continue
-                    try:
-                        _cs = list(_poly.exterior.coords)
-                        for _r in _poly.interiors:
-                            _cs += list(_r.coords)
-                    except Exception:                      # pragma: no cover
-                        continue
-                    _ring_idx = []
-                    _mutated = False
-                    for (_x, _y) in _cs:
-                        _i = b2i.get(_cps_f.get_or_add(float(_x), float(_y)))
-                        if _i is None or _i >= n:
-                            continue
-                        _ring_idx.append(_i)
-                        if _i not in _carried_solved:
-                            _mutated = True     # post-solve insert / weld
-                    if _mutated:
-                        _released.update(_ring_idx)
-            _airside_frozen = _airside_all - _released
-            _airside_remutated = len(_airside_all & _released)
+            _airside_frozen = {i for i in _solve_owned_airside(layout, b2i)
+                               if i < n}
             hard |= _airside_frozen
-            import O4_UI_Utils as _UI_cov
-            _cov_pct = (100.0 * _airside_covered / _airside_pop
-                        if _airside_pop else 0.0)
-            _UI_cov.vprint(1,
-                f"  [pav-builder] {icao}: AIRSIDE FREEZE on the LIVE "
-                f"solved_values store (Amendment 6) — store COVERAGE "
-                f"{_airside_covered}/{_airside_pop} solve-owned airside "
-                f"node(s) = {_cov_pct:.2f} %; {_airside_remutated} "
-                f"released as MUTATED (their ring holds a post-solve "
-                f"insert/weld the store never had), {len(_airside_frozen)} "
-                f"FROZEN.  No capture was added: the store is minted "
-                f"unconditionally by the one solve.")
-        except Exception:                                  # pragma: no cover
+        except Exception:
             _airside_frozen = set()
     # ── CORRIDOR FREE-END DEM TIES, CARRIED BY CANONICAL KEY ──────────
     # (corridor-joins round ruling 3.)  This pass REBUILDS the node list,
@@ -9342,97 +9292,74 @@ def final_grade_projection(layout, icao: str = "", dem=None,
     _fp_interior = G.interior_pairs()
     _fp_staged_report: dict = {}
     setattr(layout, "_apron_staged_report", _fp_staged_report)
-    # ── SNAPSHOT-BLIND AIRSIDE RE-DERIVATION (owner ruling 2026-08-28,
-    # round-5 spec Amendment 5 §1) ────────────────────────────────────
-    # "Within the projection, an AIRSIDE ring's re-derivation reads every
-    # NON-AIRSIDE neighbour from the SOLVE-TIME SNAPSHOT — the same
-    # snapshot the mutation detection already keeps."
+    # ── ROAD-BLIND RE-DERIVATION, NO FREEZE (owner ruling 2026-08-29,
+    # round-5 spec Amendment 7 §1) ───────────────────────────────────
+    # "Every post-solve airside re-derivation runs EXACTLY as production
+    # — same population, same solve, full repair — except ROAD-FAMILY
+    # neighbour values resolve through the live ``solved_values`` store
+    # instead of the current layout."
     #
-    # WHY (5f's measurement): scoping the freeze by RING left the residual
-    # inside the population the scope deliberately releases — a mutated
-    # airside ring's legitimate repair and its forbidden road-driven
-    # re-derivation are the SAME computation, because the re-solve reads
-    # the current layout and the current layout holds the road values the
-    # free-road profile moved (SPJC 138 moved, 98 with no road contact).
+    # That is this, and it is four lines of it: seed the ROAD-FAMILY
+    # nodes from the store before the projection.  The projection then
+    # runs completely unchanged — nothing hardened, no ring selected, the
+    # whole population — and its airside output cannot see the free-road
+    # profile's movements, because from here the roads ARE where the solve
+    # left them.  The profile is re-imposed downstream (its second call,
+    # after this projection), so no road work is lost.
     #
-    # THE STAGING, which is that sentence mechanically: stage 1 holds
-    # every NON-AIRSIDE node at its SNAPSHOT value and repairs AIRSIDE
-    # against it — road-blind by construction, and the repair is whole
-    # because it reads the world as airside solved it.  Stage 2 restores
-    # the non-airside nodes to their CURRENT values, hardens the airside
-    # result, and lets roads/groundside re-derive freely (Amendment 3).
-    # ONE SNAPSHOT, TWO READERS: the mutation detection above and this —
-    # never a second copy.
-    _snap_blind = (_projection_airside_freeze_on()
-                   and _snapshot_blind_rederive_on()
-                   and bool(_carried_solved))
-    _stage1_restore: dict = {}
-    _snap_blind_held = 0
-    if _snap_blind:
+    # WHY THIS AND NOT A FREEZE: rounds 5e-5h measured every ring-
+    # selection form dead (see the retirement note above).  The failure
+    # was always the same shape — a freeze must choose rings, and the
+    # rings roads touch are the rings that need repair.  Choosing the
+    # VALUE SOURCE instead of the ring set dissolves that: repair is
+    # untouched because every ring still solves.
+    #
+    # BYTE-IDENTICAL BY CONSTRUCTION with the profile off: the store IS
+    # what the solve wrote, so with no post-solve road writer the seeded
+    # value equals the current one and this loop changes nothing.
+    _road_blind_reseeded = 0
+    if _road_blind_rederive_on():
         try:
-            from auto_patch.elevation_per_surface.solver_primitives import (
-                solve_owned_airside_nodes as _sa_nodes)
-            _airside_all = {i for i in _sa_nodes(layout, b2i) if i < n}
-            # THE SAME STORE the freeze stands on — one store, two
-            # readers (Amendment 6 §1), already in this index space.
-            _snap_vals_idx = _carried_solved
-            _hard_stage1 = set(hard)
-            for _i, _sv in _snap_vals_idx.items():
-                if _i >= n or _i in _airside_all:
-                    continue
-                _cur = elev[_i]
-                if _cur != _sv:
-                    _stage1_restore[_i] = _cur
+            from auto_patch.grade_law import ROAD_ROLES as _RB_ROAD
+            _cps_rb = getattr(layout, "canonical_points", None)
+            if _cps_rb is not None and _carried_solved:
+                _road_idx: set = set()
+                for _s in (getattr(layout, "shapes", None) or ()):
+                    if getattr(_s, "role", None) not in _RB_ROAD:
+                        continue
+                    _poly = getattr(_s, "polygon", None)
+                    if _poly is None or getattr(_poly, "is_empty", True):
+                        continue
+                    try:
+                        _cs = list(_poly.exterior.coords)
+                        for _r in _poly.interiors:
+                            _cs += list(_r.coords)
+                    except Exception:                      # pragma: no cover
+                        continue
+                    for (_x, _y) in _cs:
+                        _i = b2i.get(_cps_rb.get_or_add(float(_x),
+                                                        float(_y)))
+                        if _i is not None and _i < n:
+                            _road_idx.add(int(_i))
+                for _i in _road_idx:
+                    _sv = _carried_solved.get(_i)
+                    if _sv is None or elev[_i] == _sv:
+                        continue
                     elev[_i] = _sv
-                _hard_stage1.add(_i)
-                _snap_blind_held += 1
-            rem_s1, _bh_s1 = feasibility_project_partitioned(
-                elev, joint, _hard_stage1, force_scalar=True,
-                receiver_nodes=_fp_receivers, n_nodes=n,
-                env_band=_fp_env_band, family_of=_fp_family_of,
-                apron_interior_pairs=_fp_interior,
-                apron_excluded_nodes=set(
-                    getattr(G, "apron_excluded_nodes", None) or ()),
-                flat_groups=pad_groups or None)
-            # STAGE 2: give every non-airside node its CURRENT value
-            # back and let the main projection run.
-            #
-            # IT HARDENS THE **FROZEN** AIRSIDE ONLY, not all of it, and
-            # that is MEASURED, not chosen: hardening ``_airside_all``
-            # left the airside partition with weighted transect rows and
-            # NO movable edge, and ``feasibility_project`` refuses that
-            # by design — "6350 weighted transect row(s) were handed to a
-            # projection path that cannot carry them (chromatic=True,
-            # edges=0) ... refusing rather than solving a smaller law
-            # than the caller passed" (spec
-            # transverse-hyperplane-solve-spec.md §3-5).  The refusal is
-            # right: a law handed to a solver that cannot move it is not
-            # a law.  So the MUTATED rings stay free here — they are the
-            # ones whose pairs were never projected — and they re-derive
-            # against an airside majority stage 1 has already settled
-            # BLIND.  Passing a road-only law to stage 2 instead would
-            # need the partitioner itself to split the constraint set,
-            # which is its own design.
-            hard = set(hard) | _airside_frozen
-            for _i, _cur in _stage1_restore.items():
-                elev[_i] = _cur
-            import O4_UI_Utils as _UI_sb
-            _UI_sb.vprint(1,
-                f"  [pav-builder] {icao}: SNAPSHOT-BLIND airside "
-                f"re-derivation (Amendment 5 §1) — {_snap_blind_held} "
-                f"non-airside node(s) read from the SOLVE-TIME snapshot "
-                f"for stage 1 ({len(_stage1_restore)} of them had moved "
-                f"since), {len(_airside_all)} airside node(s) then held "
-                f"while road/groundside re-derive; stage-1 residual "
-                f"{rem_s1}.")
-        except Exception as _sb_exc:                       # pragma: no cover
-            import O4_UI_Utils as _UI_sb2
-            _UI_sb2.vprint(1,
-                f"  [pav-builder] {icao}: WARN snapshot-blind stage "
-                f"failed ({_sb_exc!r}) — falling back to the single "
-                f"projection.")
-            for _i, _cur in _stage1_restore.items():
-                elev[_i] = _cur
+                    _road_blind_reseeded += 1
+                import O4_UI_Utils as _UI_rb
+                _UI_rb.vprint(1,
+                    f"  [pav-builder] {icao}: ROAD-BLIND re-derivation "
+                    f"(Amendment 7 §1) — {len(_road_idx)} road-family "
+                    f"node(s) resolved through the live solved_values "
+                    f"store; {_road_blind_reseeded} of them had been "
+                    f"moved post-solve and are read at their SOLVE-TIME "
+                    f"value, so this projection's airside output cannot "
+                    f"see them.  Nothing frozen, full repair.")
+        except Exception as _rb_exc:                       # pragma: no cover
+            import O4_UI_Utils as _UI_rb2
+            _UI_rb2.vprint(1, f"  [pav-builder] {icao}: WARN road-blind "
+                              f"seed failed ({_rb_exc!r}).")
     rem, bh = feasibility_project_partitioned(
                                   elev, joint, hard, force_scalar=True,
                                   receiver_nodes=_fp_receivers, n_nodes=n,

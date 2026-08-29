@@ -128,6 +128,69 @@ JUNCTION_ROLES = ("junction", "service_junction")
 # ROAD, and a car park is not a road cross-section.
 ROAD_ROLES = frozenset({"service_road", "service_junction"})
 
+
+# ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b spec
+# Amendment 1: "WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE
+# ROAD'S OWN PATH METRIC — the route-metric-within-shape precedent
+# extended to the road family") ──────────────────────────────────────
+#
+# THE MEASURED COLLISION IT RESOLVES (lane/hecar5b): the free-road
+# profile solves a chain's longitudinal ramp in the chain's own PATH
+# coordinate, and the within-shape law priced the resulting pairs by
+# EUCLIDEAN CHORD.  A path-lawful 8 % ramp across a U-loop therefore
+# read 8.33-9.11 % — CYXY gained 120 within-shape road rows, every one
+# of them exactly 8 % x (path / chord).
+#
+# THE LAW: for a ROAD-FAMILY ring, the distance between two of its
+# vertices is the distance ALONG THE RING — the surface a vehicle
+# actually travels between them — not the straight line across the
+# loop.  It composes with the standing GAP-CHORD skip (``classify_pair``:
+# "a non-adjacent chord that leaves the pavement is not a surface
+# path"), which is the other half of the same ruling: the two legs of a
+# U with open ground between them are not a graded pair at all, and the
+# two legs of a U in ONE ring are a pair priced at the length of the
+# walk around the turn.
+#
+# NEVER TIGHTER: a ring walk between two vertices is >= the chord by the
+# triangle inequality, so this only ever RELAXES a budget — the same
+# posture ``_route_leg_floor`` takes on the airside route metric.
+def ring_path_cumulative(ring):
+    """``(cum, total)`` for a closed ring — ``cum[i]`` is the arclength
+    from vertex 0 to vertex ``i`` walking forward, ``total`` the whole
+    perimeter.  Geometry-library free, like the rest of this module."""
+    n = len(ring)
+    cum = [0.0] * n
+    if n < 2:
+        return cum, 0.0
+    acc = 0.0
+    for i in range(1, n):
+        (xa, ya), (xb, yb) = ring[i - 1], ring[i]
+        acc += _math.hypot(xb - xa, yb - ya)
+        cum[i] = acc
+    (xa, ya), (xb, yb) = ring[n - 1], ring[0]
+    total = acc + _math.hypot(xb - xa, yb - ya)
+    return cum, total
+
+
+def ring_path_distance(cum, total, i, j):
+    """The shorter of the two ring walks between vertices ``i`` and ``j``."""
+    fwd = abs(cum[j] - cum[i])
+    return min(fwd, total - fwd) if total > 0.0 else fwd
+
+
+def road_pair_distance(ring, cum, total, i, j, chord):
+    """THE road-family within-shape pair distance (Amendment 1 clause 1).
+
+    ``max(chord, ring walk)`` — the walk by construction, and the max is
+    belt-and-braces against a degenerate ring whose walk rounds under its
+    own chord.  ONE implementation: ``grade_graph.shape_constraints``
+    prices every road pair through it and both readers of that function
+    (the solver's graph and ``tools/check_grade``'s
+    ``iter_shape_grade_constraints``) therefore see the same number —
+    the census-wrapper law applied to a metric instead of a family.
+    """
+    return max(float(chord), ring_path_distance(cum, total, i, j))
+
 # THE single reach/grade rules, surfaced here so every site refers to ONE value
 # and cannot drift into local copies (user 2026-06-29).
 #  * ``BUILDING_REACH_CORRIDOR_M`` (imported) — max building↔spine apron reach.

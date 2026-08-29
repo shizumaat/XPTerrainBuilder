@@ -170,6 +170,7 @@ __all__ = [
     "ROAD_AIRSIDE_CONTACT_WIDEN",
     "ROAD_CONTACT_CAP_SCOPE",
     "FREE_ROAD_PROFILE_PASS",
+    "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -10033,6 +10034,19 @@ ROAD_CONTACT_CAP_SCOPE = (
 # lane report: price profile-owned road pairs along the PATH in BOTH
 # readers, or solve the profile in the CHORD metric and accept that a
 # U-turn in ONE ring cannot ramp.
+# ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b spec
+# Amendment 1 clause 1) ──────────────────────────────────────────────
+# "WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE ROAD'S OWN PATH
+# METRIC — the route-metric-within-shape precedent extended to the road
+# family."  ONE implementation (``grade_law.road_pair_distance``, applied
+# in ``grade_graph.shape_constraints``), so the census and the solve
+# cannot price one road pair at two distances.  It composes with the
+# STANDING gap-chord skip in ``grade_law.classify_pair`` ("a non-adjacent
+# chord that leaves the pavement is not a surface path"), which is the
+# ruling's other half.  "0" restores the euclidean chord exactly.
+ROAD_PATH_METRIC = (
+    _os.environ.get("O4_ROAD_PATH_METRIC", "0") != "0")
+
 FREE_ROAD_PROFILE_PASS = (
     _os.environ.get("O4_FREE_ROAD_PROFILE", "0") != "0")
 

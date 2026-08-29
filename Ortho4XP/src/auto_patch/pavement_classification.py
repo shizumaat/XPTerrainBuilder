@@ -66,6 +66,7 @@ from shapely.ops import unary_union
 
 import O4_UI_Utils as UI
 from .config import (
+    AUTHORED_CLASS_TOUCH_TOL_M,
     DSF_OBJECT_PAVEMENT_MIN_AIRCRAFT_WIDTH_M,
     DSF_OBJECT_PAVEMENT_OPENING_RATIO,
     PAVEMENT_CLASS_AEROWAY_LINE_BUFFER_M,
@@ -1284,3 +1285,95 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
             f"demotion over {len(candidates)} apron shape(s) "
             f"({summary['seconds']:.2f} s).")
     return summary
+
+
+# ═════════════════════════════════════════════════════════════════════
+# SCORER V2 — THE AUTHORED CLASS MAP
+# (owner RULINGS 2026-08-29d; spec docs/specs/scorer-v2-class-boundary-spec.md)
+# ═════════════════════════════════════════════════════════════════════
+
+def authored_class_regions(layout):
+    """``(airside_class_union, groundside_class_union)`` over the package's
+    AUTHORED pavement layer — the evidence the class-change boundary cut
+    is triggered by.  Either may be ``None`` (no evidence of that class).
+
+    THE READING, and why it is positive on BOTH sides.  The standing
+    connectivity law (user 2026-06-09, :func:`runway_disconnected_pavement`)
+    says an apron must have a touch-chain back to a runway and that
+    pavement islands without one are landside.  Downstream it is stated
+    over the MERGED pavement union — where a third-party pack's ground
+    paint bridges lot to apron, so the whole airport is one chain and the
+    term goes inert (measured at HECA: the source union is ONE component,
+    which is why the spec REFUSES a bare component gap as a cut trigger).
+    Stated over the AUTHORED layer instead — the apt.dat row-110 rings,
+    ``layout.apt_only_pavement_polys``, the airport's own declaration of
+    what it paves — the same law separates the classes cleanly:
+
+    * a row-110 component that REACHES the runway union is AIRSIDE-CLASS;
+    * one that does not is GROUNDSIDE-CLASS, and it joins the standing
+      landside evidence (parking corridors) already built for the
+      free-road knife.
+
+    Both answers are POSITIVE evidence.  Ground paint carries NO class
+    (measured: 187 emitted rings span more than one paint page, and one
+    page covers both sides of the founding edge) — absence of a row-110
+    ring is never evidence, exactly as :func:`landside_evidence_layer`
+    records for its own refuted first arm.
+
+    Measured at HECA (owner patch 1.0.267 / lane control): one
+    airside-class component and four groundside-class ones (rows 5, 8,
+    55, 57); row 57 is the 25,016 m² parking lot behind the owner's
+    founding back edge, and ``airside_class_union``'s boundary runs
+    0.92 m mean (max 4.51 m) from the owner's own two coordinates.
+
+    Memoized on the layout as ``_authored_class_regions``.
+    """
+    cached = getattr(layout, "_authored_class_regions", None)
+    if cached is not None:
+        return cached
+    polys = [p for p in (getattr(layout, "apt_only_pavement_polys", None) or [])
+             if p is not None and not p.is_empty]
+    runway_u = getattr(layout, "runway_union", None)
+    air = gnd = None
+    if polys and runway_u is not None and not runway_u.is_empty:
+        try:
+            merged = unary_union(polys)
+            comps = ([merged] if merged.geom_type == "Polygon"
+                     else [g for g in getattr(merged, "geoms", ())
+                           if g.geom_type == "Polygon"])
+            probe = runway_u.buffer(AUTHORED_CLASS_TOUCH_TOL_M)
+            air_parts = [c for c in comps if c.intersects(probe)]
+            gnd_parts = [c for c in comps if not c.intersects(probe)]
+            # The runway itself is authored airside pavement even where no
+            # row-110 ring covers it (packs draw runways as row-100).
+            air_parts.append(runway_u)
+            air = unary_union(air_parts) if air_parts else None
+            gnd = unary_union(gnd_parts) if gnd_parts else None
+        except _GEOM_EXC:
+            air = gnd = None
+    # The standing landside evidence joins the groundside class where the
+    # feed carries it (it is EMPTY at HECA — zero parking-service ways in
+    # the tile — so the founding site rests on the row-110 term alone).
+    try:
+        parking = list(evidence_sources(layout).parking_corridors.parts)
+    except Exception:
+        # DELIBERATELY BROAD.  This term is an OPTIONAL ADDITION to the
+        # groundside class (empty at the founding airport — HECA's tile
+        # feed carries zero parking-service ways), and building it drags
+        # in the whole evidence stack, including the documented
+        # ``junction_repair`` <-> ``elevation`` import cycle.  An optional
+        # evidence term must never be able to take out the class map: the
+        # row-110 half above is the law's load-bearing half.
+        parking = []
+    if parking:
+        try:
+            gnd = unary_union([g for g in ([gnd] if gnd is not None else [])
+                               + parking if g is not None and not g.is_empty])
+        except _GEOM_EXC:
+            pass
+    out = (air, gnd)
+    try:
+        layout._authored_class_regions = out
+    except AttributeError:
+        pass
+    return out

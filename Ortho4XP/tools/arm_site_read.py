@@ -75,6 +75,7 @@ from pathlib import Path
 __all__ = ["rows_near", "seat_moves", "seam_welds", "load_rows",
            "station_profiles", "line_profile",
            "SiteReadRefusal", "ROAD_FAMILY_ROLES", "AIRSIDE_SEAM_ROLES",
+           "behind_the_edge",
            "PROFILE_ROLES", "AMP_WINDOW_M"]
 
 #: ``--profile`` default role scope: the surfaces the 2026-08-25 HECA
@@ -524,6 +525,118 @@ def line_profile(cg, patch, a_ll, b_ll, *, corridor_m=15.0,
     }
 
 
+def behind_the_edge(cg, patch, a_ll, b_ll, *, depth_m=150.0,
+                    roles=AIRSIDE_SEAM_ROLES):
+    """HOW MUCH AIRSIDE PAVEMENT LIES BEHIND AN AUTHORED EDGE.
+
+    The owner states a wall as TWO COORDINATES and asks that no airside
+    pavement cross it.  ``--line`` answers what the emitted elevation
+    does ALONG that line and ``osm_site --line`` answers what covers each
+    station ON it; neither answers the quantitative half — how many
+    square metres of airside-role pavement sit on the GROUNDSIDE of it,
+    which is the number a boundary-cut round moves and therefore the
+    number its acceptance is written in.
+
+    The band is the segment's own span by ``depth_m`` deep on the
+    groundside — BOUNDED deliberately: an infinite half-plane sweeps in
+    the whole airport on the far side and reports 634,371 m² where the
+    local answer is 25,900 (measured at HECA before this was bounded).
+    Which side is "groundside" is decided by the patch itself, not by an
+    argument: the side carrying LESS airside-role pavement within the
+    band.  It is a symmetric read, so a caller cannot pick the answer.
+
+    Reports, per crossing ring, the node split either side of the line
+    with each side's altitude range — the shape of a wall buried inside
+    one apron (HECA apron 584: 48 nodes at 97.22-104.69 m in front, 95
+    at 90.77-102.71 m behind).
+
+    It prices NO LAW and counts NO DEFECTS: geometry, roles and the
+    metre frame all come from the harness library, and defect counts
+    come from ``harness/census.py`` alone.
+    """
+    from shapely.geometry import Polygon as _Poly
+    _n, _w, to_m = _patch_frame(cg, patch)
+    ax, ay = to_m(*a_ll)
+    bx, by = to_m(*b_ll)
+    dx, dy = bx - ax, by - ay
+    L = math.hypot(dx, dy)
+    if L <= 1e-6:
+        raise SiteReadRefusal("--behind wants two distinct coordinates")
+    ux, uy = dx / L, dy / L
+    nx, ny = uy, -ux
+    rings = _ring_geometry(cg, patch, set(roles))
+
+    def _band(sign):
+        return _Poly([(ax, ay), (bx, by),
+                      (bx + sign * nx * depth_m, by + sign * ny * depth_m),
+                      (ax + sign * nx * depth_m, ay + sign * ny * depth_m)])
+
+    side_area = {}
+    for sign in (+1, -1):
+        band = _band(sign)
+        tot = 0.0
+        for (w, pts, _e) in rings:
+            if len(pts) < 4:
+                continue
+            try:
+                g = _Poly(pts)
+                if not g.is_valid:
+                    g = g.buffer(0)
+                tot += g.intersection(band).area
+            except Exception:
+                continue
+        side_area[sign] = tot
+    # The groundside is the side with LESS airside pavement — the patch
+    # decides, not the caller.
+    gsign = +1 if side_area[+1] <= side_area[-1] else -1
+    band = _band(gsign)
+    per_ring = []
+    total = 0.0
+    for (w, pts, elevs) in rings:
+        if len(pts) < 4:
+            continue
+        try:
+            g = _Poly(pts)
+            if not g.is_valid:
+                g = g.buffer(0)
+            a = g.intersection(band).area
+        except Exception:
+            continue
+        if a < 1.0:
+            continue
+        front, back = [], []
+        # A ring's first vertex REPEATS at the end (the closed-ring
+        # convention every reader here shares).  Counting it twice would
+        # report one more node on whichever side the ring happens to
+        # start — a node split is the shape of the wall, so it has to be
+        # the real count.
+        ring_pts = list(zip(pts, elevs))
+        if len(ring_pts) > 1 and ring_pts[0][0] == ring_pts[-1][0]:
+            ring_pts = ring_pts[:-1]
+        for (x, y), alt in ring_pts:
+            if alt is None:
+                continue
+            (back if ((x - ax) * nx + (y - ay) * ny) * gsign > 0
+             else front).append(float(alt))
+        per_ring.append({
+            "way": getattr(w, "wid", ""),
+            "shapeID": (getattr(w, "tags", {}) or {}).get("shapeID", ""),
+            "role": getattr(w, "role", ""),
+            "area_behind_m2": round(a, 1),
+            "nodes_front": len(front), "nodes_behind": len(back),
+            "alt_front": [round(min(front), 2), round(max(front), 2)]
+                         if front else None,
+            "alt_behind": [round(min(back), 2), round(max(back), 2)]
+                          if back else None})
+        total += a
+    per_ring.sort(key=lambda r: -r["area_behind_m2"])
+    return {"line_len_m": round(L, 2), "depth_m": depth_m,
+            "roles": list(roles),
+            "airside_area_behind_m2": round(total, 1),
+            "airside_area_front_m2": round(side_area[-gsign], 1),
+            "rings": per_ring}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("control", help="control arm patch .osm")
@@ -551,6 +664,17 @@ def main(argv=None) -> int:
                          "every vertex in the corridor, by station, with "
                          "the step; an EMPTY station list is the finding")
     ap.add_argument("--line-corridor-m", type=float, default=15.0)
+    ap.add_argument("--behind", action="append", default=[],
+                    metavar="NAME=LAT,LON:LAT,LON",
+                    help="AIRSIDE PAVEMENT BEHIND AN AUTHORED EDGE — the "
+                         "square metres of airside-role pavement on the "
+                         "groundside of the owner's line (its own span, "
+                         "--behind-depth-m deep), per crossing ring, with "
+                         "each ring's node split and altitude range either "
+                         "side. The quantitative half of a wall acceptance; "
+                         "the groundside is decided by the patch, not the "
+                         "caller. Repeatable.")
+    ap.add_argument("--behind-depth-m", type=float, default=150.0)
     ap.add_argument("--json", dest="json_out")
     args = ap.parse_args(argv)
 
@@ -675,6 +799,45 @@ def main(argv=None) -> int:
                       f"{_fmt(r['worst_step_len_m'])} m = "
                       f"{_fmt(r['worst_step_pct'])} %  at station "
                       f"{_fmt(r['worst_step_at_m'])} m")
+    if args.behind:
+        cg = _check_grade()
+        out["behind"] = {}
+        print(f"  AIRSIDE PAVEMENT BEHIND THE AUTHORED EDGE (roles "
+              f"{'/'.join(AIRSIDE_SEAM_ROLES)}; the line's own span, "
+              f"{args.behind_depth_m:g} m deep; the GROUNDSIDE side is the "
+              f"one carrying less airside pavement — the patch decides, "
+              f"not the caller).  Prices no law, counts no defects.")
+        for spec in args.behind:
+            try:
+                name, coords = spec.split("=", 1)
+                p_, q_ = coords.split(":", 1)
+                a_ll = tuple(float(v) for v in p_.split(","))
+                b_ll = tuple(float(v) for v in q_.split(","))
+            except ValueError:
+                print("REFUSED: --behind wants NAME=LAT,LON:LAT,LON",
+                      file=sys.stderr)
+                return 2
+            try:
+                c = behind_the_edge(cg, args.control, a_ll, b_ll,
+                                    depth_m=args.behind_depth_m)
+                a = behind_the_edge(cg, args.arm, a_ll, b_ll,
+                                    depth_m=args.behind_depth_m)
+            except SiteReadRefusal as exc:
+                print(f"REFUSED: {exc}", file=sys.stderr)
+                return 2
+            out["behind"][name] = {"control": c, "arm": a}
+            print(f"    {name}  ({c['line_len_m']:.1f} m edge)")
+            for label, r in (("ctl", c), ("arm", a)):
+                print(f"      {label}  airside BEHIND "
+                      f"{r['airside_area_behind_m2']:10.0f} m2   "
+                      f"in front {r['airside_area_front_m2']:10.0f} m2   "
+                      f"{len(r['rings'])} crossing ring(s)")
+                for row in r["rings"][:4]:
+                    print(f"          {row['way']:<8} sid={row['shapeID']:<6}"
+                          f"{row['role']:<10}{row['area_behind_m2']:9.0f} m2  "
+                          f"front {row['nodes_front']:4d} n {row['alt_front']}"
+                          f"  behind {row['nodes_behind']:4d} n "
+                          f"{row['alt_behind']}")
     if args.seats:
         cg = _check_grade()
         out["seats"] = seat_moves(cg, args.control, args.arm)

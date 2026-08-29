@@ -2663,6 +2663,42 @@ SERVICE_LOT_ABSORPTION = True
 # ``O4_ROAD_APRON_EDGE_CONFORM=0`` restores the pre-ruling law exactly.
 ROAD_APRON_EDGE_CONFORMANCE = (
     _os.environ.get("O4_ROAD_APRON_EDGE_CONFORM", "1") == "1")
+# ── SCORER V2 — CLASS-CHANGE BOUNDARY CUTS ───────────────────────────
+# (owner RULINGS 2026-08-29d; spec
+# ``docs/specs/scorer-v2-class-boundary-spec.md``.)  Where ONE global-slice
+# face carries BOTH authored evidence classes — an apt.dat row-110 component
+# that reaches the runway on one side, one that does not (a lot) on the
+# other — the face is CUT at the authored edge between them and each side is
+# scored on its own side's evidence.  The trigger is the CLASS DISAGREEMENT
+# and the test is FACE-LOCAL; the spec refuses the three predicates this
+# lane measured too broad (a bare source-union component gap — the union is
+# ONE component; a ground-paint page boundary — 187 rings span one; bare
+# row-110 depth — 38 of 59 aprons).  A GLOBAL dissolve along the authored
+# class boundary was evaluated and refused for the same reason: it puts
+# 17,410 m of cut line across HECA where the face-local test cuts 4 faces.
+#
+# Measured basis (HECA): 4 faces carry both classes; 160,784 m² moves to
+# the groundside side; behind the owner's founding back edge the airside
+# pavement falls 24,826 m² → 175 m².
+# UNGATED (owner RULINGS 2026-08-29e: "gates are the exception — ungated
+# by default, git revert is rollback").  There is no env flag and no OFF
+# arm: the law is the behaviour.  The ONE verification the same ruling
+# keeps for this round — because the slice is the shared path where a
+# wiring leak would silently shift every airport — is that the cut
+# REDUCES to the current union wherever the classes agree, proven as a
+# direct control-vs-arm comparison (measured: SPJC's emitted patch body
+# is BYTE-IDENTICAL to its control, header provenance aside; at CYXY
+# every ring outside the three cut faces is unchanged to the millimetre).
+# Touch tolerance for "this authored component reaches the runway".  Same
+# 0.05 m contact epsilon the standing connectivity law uses
+# (``pavement_classification.runway_disconnected_pavement``); it is a
+# CONTACT epsilon, never a law threshold.
+AUTHORED_CLASS_TOUCH_TOL_M = 0.05
+# A piece of the groundside side smaller than this stays with the airside
+# side: at this scale a hole in the authored layer is a texture pocket
+# inside the apron, not the far side of a wall.  Same floor the slice
+# already applies to a face (``global_slice._MIN_PIECE_AREA``).
+CLASS_BOUNDARY_MIN_PIECE_M2 = 25.0
 # TRIANGLE-PLANE DEMOTION (spec docs/specs/kill-prep-round-spec.md §2).
 # ``route_profile.solve._project_triangle_planes`` clamps a 3-vertex shape
 # whose PLANE tilts past its role cap by moving its freest vertex; where no

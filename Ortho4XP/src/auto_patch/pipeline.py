@@ -95,6 +95,7 @@ def _rod_ckpt(layout, name: str) -> None:
 # Constants (re-exported from O4_Pavement_Config + O4_Pavement_Layout)
 # ──────────────────────────────────────────────────────────────────
 from .config import (
+    CLASS_BOUNDARY_MIN_PIECE_M2,
     MIN_SEGMENT_LEN_M,
     LOAD_DSF_PAVEMENT,
     DSF_BUILDINGS,
@@ -3818,11 +3819,44 @@ def build_airport_pavement(icao: str, xplane_root: str,
         _f.centerline_ids = _taxi_ids
     classify_faces(_cn_faces, _cn_all)
     from .layout import ROLE_SERVICE_JUNCTION as _ROLE_SVC_JCT
-    _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
+    # Fold the truck-territory verdict into the face's own ``kind`` BEFORE
+    # anything re-partitions the list: ``_svc_faces`` holds INDICES into
+    # this exact list, and the class-change cut below changes its length.
     for _fi, _f in enumerate(_cn_faces):
         if _fi in _svc_faces:
             _f.kind = "service"
             _f.axis = None
+    # ── SCORER V2 — CLASS-CHANGE BOUNDARY CUT (owner RULINGS 2026-08-29d;
+    #    spec docs/specs/scorer-v2-class-boundary-spec.md §1/§3) ────────
+    # A face carrying BOTH authored evidence classes spans an authored
+    # boundary between them (the founding site: HECA's apron back edge,
+    # where apt.dat row-110 #111 and the pack's own paint both stop and a
+    # lot begins).  Cut it there; the groundside side joins the GROUNDSIDE
+    # POOL rather than being emitted as airside pavement, so it takes
+    # groundside law through the existing emitter
+    # (``_emit_groundside_pavement_dem`` at the groundside slot below) —
+    # DEM-following altitudes, groundside terrace law, the lots staying
+    # lots.  Nothing is deleted: every square metre that leaves the
+    # airside side arrives in that pool.
+    from .pavement_classification import authored_class_regions
+    from .pavement.global_slice import split_faces_at_class_change
+    _cls_air, _cls_gnd = authored_class_regions(layout)
+    _cn_faces, _cn_class_stats = split_faces_at_class_change(
+        _cn_faces, _cls_air, _cls_gnd,
+        min_piece_m2=CLASS_BOUNDARY_MIN_PIECE_M2)
+    _cn_roles = {"corridor": 0, "junction": 0, "apron": 0, "service": 0}
+    _cn_gs_pool = 0
+    for _f in _cn_faces:
+        if _f.class_side == "groundside":
+            # THE GROUNDSIDE SIDE IS NOT AN AIRSIDE SHAPE.  It joins the
+            # pool the groundside emitter builds from, which is consumed
+            # later in this build (pipeline's groundside slot), so it gets
+            # the same DEM-follow treatment every other lot gets.
+            if getattr(layout, "_groundside_polys", None) is None:
+                layout._groundside_polys = []
+            layout._groundside_polys.append(_f.polygon)
+            _cn_gs_pool += 1
+            continue
         _cn_roles[_f.kind] = _cn_roles.get(_f.kind, 0) + 1
         if _f.kind == "service":
             _role = _ROLE_SVC_JCT
@@ -3838,6 +3872,21 @@ def build_airport_pavement(icao: str, xplane_root: str,
               f"{_cn_roles['junction']} junction / {_cn_roles['apron']} apron / "
               f"{_cn_roles['service']} service; "
               f"rects/junction-emit/spine bypassed).")
+    if _cn_class_stats and _cn_class_stats["faces_cut"]:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: class-change boundary cut — "
+            f"{_cn_class_stats['faces_cut']} face(s) carried BOTH authored "
+            f"evidence classes and were cut at the authored edge; "
+            f"{_cn_gs_pool} piece(s) / "
+            f"{_cn_class_stats['groundside_area_m2']:.0f} m2 joined the "
+            f"GROUNDSIDE pool (groundside law, DEM-following); "
+            f"{_cn_class_stats['pockets_kept']} authored-layer pocket(s) "
+            f"kept airside (RULINGS 2026-08-29d).")
+    elif _cn_class_stats and _cn_class_stats["reason"]:
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: class-change boundary cut INERT "
+            f"({_cn_class_stats['reason']}) — the face list is byte-"
+            f"identical to the pre-ruling build.")
     from .geom_guard import coverage_probe as _covp
     _covp(layout, "post-slice")
 

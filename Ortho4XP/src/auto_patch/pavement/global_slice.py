@@ -69,6 +69,14 @@ class SliceFace:
     # runs along (its spine), else None.
     kind: str = ""
     axis: LineString | None = None
+    # SCORER V2 (owner RULINGS 2026-08-29d): which side of an AUTHORED
+    # CLASS BOUNDARY this face sits on — "" for every face no class-change
+    # cut touched (the overwhelming majority, and the byte-identical case),
+    # "airside" / "groundside" for the two sides of a cut.  A face carrying
+    # "groundside" is scored with GROUNDSIDE-side evidence only and takes
+    # groundside law; the cut edge between the two is an authored class
+    # boundary and does not conduct airside evidence across itself.
+    class_side: str = ""
 
 
 # A single-centerline face wider than this (mean width = area / shared-edge
@@ -566,6 +574,122 @@ def build_global_slice_faces(
                 face.centerline_ids.append(ci)
 
     return faces
+
+
+def split_faces_at_class_change(faces: list[SliceFace],
+                                airside_u,
+                                groundside_u,
+                                min_piece_m2: float = 25.0) -> tuple:
+    """CLASS-CHANGE BOUNDARY CUT (owner RULINGS 2026-08-29d; spec
+    ``docs/specs/scorer-v2-class-boundary-spec.md`` §1).
+
+    A face that carries BOTH authored evidence classes spans an authored
+    boundary between them.  Cut it there: the part resting on the
+    airside-class region is the AIRSIDE SIDE, the rest is the GROUNDSIDE
+    SIDE, and each is scored on its own side's evidence downstream.
+
+    THE TEST IS FACE-LOCAL, and that is the whole safety argument.  The
+    global alternative — dissolve the arrangement everywhere the authored
+    class agrees, keep the boundary where it does not — was measured on
+    the founding airport and lays 17,410 m of cut line along the authored
+    airside boundary at HECA, because one non-airside region carrying a
+    lot somewhere makes every paint-only apron extension a boundary.
+    Asking the question inside ONE FACE instead fires on 4 faces there,
+    which is the population the owner's site read describes.  A face
+    carrying only one class (or neither) is returned UNTOUCHED and
+    unlabelled, so an airport with no class disagreement produces exactly
+    the face list it produced before this law existed.
+
+    TWO REFINEMENTS, both measured, neither a tuning knob:
+
+    * a piece of the groundside side that does not reach the face's own
+      boundary is a POCKET — a hole in the authored layer surrounded by
+      airside-class pavement, i.e. a texture gap inside the apron, not
+      the far side of a wall — and stays with the airside side (HECA:
+      71 m² across the four cut faces);
+    * a piece under ``min_piece_m2`` stays with the airside side for the
+      same reason the slice already drops sub-floor faces.
+
+    Returns ``(new_faces, stats)``; ``stats`` is a dict the caller logs.
+    """
+    if airside_u is None or groundside_u is None:
+        return faces, {"faces_cut": 0, "groundside_area_m2": 0.0,
+                       "pockets_kept": 0, "reason": "no two-class evidence"}
+    try:
+        if airside_u.is_empty or groundside_u.is_empty:
+            return faces, {"faces_cut": 0, "groundside_area_m2": 0.0,
+                           "pockets_kept": 0, "reason": "empty class union"}
+    except Exception:
+        return faces, {"faces_cut": 0, "groundside_area_m2": 0.0,
+                       "pockets_kept": 0, "reason": "bad class union"}
+    out: list[SliceFace] = []
+    n_cut = 0
+    gs_area = 0.0
+    n_pocket = 0
+    for face in faces:
+        poly = face.polygon
+        try:
+            a_hit = poly.intersection(airside_u)
+            g_hit = poly.intersection(groundside_u)
+            a_area = a_hit.area
+            g_area = g_hit.area
+        except Exception:
+            out.append(face)
+            continue
+        # BOTH classes present, each above the piece floor: this face spans
+        # an authored class boundary.  One class alone — or neither — is
+        # not a disagreement, and absence of a class is never evidence.
+        if a_area < min_piece_m2 or g_area < min_piece_m2:
+            out.append(face)
+            continue
+        try:
+            keep = poly.intersection(airside_u)
+            rest = poly.difference(airside_u)
+        except Exception:
+            out.append(face)
+            continue
+        rest_parts = [p for p in (rest.geoms if hasattr(rest, "geoms")
+                                  else [rest])
+                      if p.geom_type == "Polygon" and not p.is_empty]
+        ext = poly.exterior
+        gs_parts, pocket_parts = [], []
+        for p in rest_parts:
+            if p.area < min_piece_m2:
+                pocket_parts.append(p)
+                continue
+            try:
+                on_edge = p.boundary.intersection(ext).length > 0.5
+            except Exception:
+                on_edge = True
+            (gs_parts if on_edge else pocket_parts).append(p)
+        if not gs_parts:
+            out.append(face)
+            continue
+        n_cut += 1
+        n_pocket += len(pocket_parts)
+        airside_geom = unary_union([g for g in [keep] + pocket_parts
+                                    if g is not None and not g.is_empty])
+        for piece in (airside_geom.geoms if hasattr(airside_geom, "geoms")
+                      else [airside_geom]):
+            if piece.geom_type != "Polygon" or piece.area < min_piece_m2:
+                continue
+            out.append(SliceFace(polygon=piece,
+                                 centerline_ids=list(face.centerline_ids),
+                                 kind=face.kind, axis=face.axis,
+                                 class_side="airside"))
+        for piece in gs_parts:
+            gs_area += piece.area
+            # The groundside side keeps NO centerline tag and NO axis: a
+            # taxi route's territory is airside evidence, and carrying it
+            # across the authored boundary is the very inheritance this
+            # cut exists to stop.
+            out.append(SliceFace(polygon=piece, centerline_ids=[],
+                                 kind=face.kind, axis=None,
+                                 class_side="groundside"))
+    return out, {"faces_cut": n_cut,
+                 "groundside_area_m2": round(gs_area, 1),
+                 "pockets_kept": n_pocket,
+                 "reason": ""}
 
 
 def _osm_write(layout, entries, path: str) -> None:

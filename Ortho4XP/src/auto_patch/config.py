@@ -169,6 +169,7 @@ __all__ = [
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
     "ROAD_CONTACT_CAP_SCOPE",
+    "FREE_ROAD_PROFILE_PASS",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
     "REACH_BAND_CLUSTERS",
@@ -9993,8 +9994,28 @@ ROAD_AIRSIDE_CONTACT_WIDEN = (
 # round (one-way weld + whole-path ≤8 % profile pass) flips this ON in
 # the same arm that closes the cliffs; until then OFF is byte-identical
 # to the pre-round tree (proven at CYXY/SPJC).
+# DEFAULT ON since round 5b (spec ``free-road-profile-pass-spec.md``
+# law 4, "one flag day, one measured round"): the scoping shipped OFF at
+# 52d54c6e/9ac6ee55 because re-pricing alone builds no profile — it left
+# the cliffs and made item 2's site 0.70 m worse.  The profile pass
+# beside it is what the free class was being scoped FOR.
 ROAD_CONTACT_CAP_SCOPE = (
-    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "0") != "0")
+    _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "1") != "0")
+
+# ── THE FREE-ROAD PROFILE PASS (HECA round 5b) ───────────────────────
+# Spec ``docs/specs/free-road-profile-pass-spec.md``.  Post-solve, the
+# free-road chains are given a whole-path <= SERVICE_ROAD_MAX_GRADE
+# profile between their PINNED ends (airside welds and end-on bindings),
+# solved in the chain's own STATION coordinate so a U-turn's two legs are
+# far apart along the PATH however close they lie in the plane — the
+# euclidean chord is exactly what let the chord limiter flatten the ramp
+# the crossing adoption had built (round 5's who_wrote attribution:
+# 106.70 -> 108.383 -> 106.71).  The pass writes ROAD-FAMILY nodes only
+# and every node a non-road authority carries is frozen, so airside
+# cannot move: the one-way weld is structural.
+# "0" restores the pre-round behaviour byte-identically.
+FREE_ROAD_PROFILE_PASS = (
+    _os.environ.get("O4_FREE_ROAD_PROFILE", "1") != "0")
 
 
 # §1b — THE APRON INTERIOR LATTICE (spec Amendment 1, 2026-08-25).

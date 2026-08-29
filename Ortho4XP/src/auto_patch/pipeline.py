@@ -6675,6 +6675,19 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             except _GEOM_EXC as _adopt_exc:
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: road↔airside "
                              f"crossing adoption failed ({_adopt_exc!r}).")
+            # ── THE FREE-ROAD PROFILE PASS (round 5b) ───────────────
+            # HERE, immediately after the adoption and BEFORE the chord
+            # limiter below, because the limiter is the pass round 5
+            # measured flattening the adoption's ramp back out
+            # (108.383 -> 106.71 at the owner's item-2 cliff).  The
+            # profile owns the chain's values from here on and publishes
+            # its keys, which the limiter reads as pinned.
+            try:
+                from .free_road_profile import solve_free_road_profiles
+                solve_free_road_profiles(layout, icao)
+            except _GEOM_EXC as _prof_exc:
+                UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
+                             f"profile pass failed ({_prof_exc!r}).")
             _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn,
                                                band_at=_gs_band)
             if _n_seated:
@@ -6975,6 +6988,19 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # projection then moves again.  With the LATE call retired this is
         # the point immediately after the pipeline's only projection, so
         # the requirement is met by the same ordering it always was.
+        # RE-SOLVED AFTER THE PROJECTION (round 5b).  The final grade
+        # projection re-humps road values it did not author (round 5's
+        # who_wrote trace: 106.71 -> 108.42 -> 106.85 across the
+        # projection and the conformance limiter), so the profile is
+        # re-imposed on the settled surface before the conformance
+        # passes read it.  The pass is a clamp into its pins' envelope,
+        # so re-running it is idempotent where nothing moved.
+        try:
+            from .free_road_profile import solve_free_road_profiles as _frp
+            _frp(layout, icao)
+        except _GEOM_EXC as _prof_exc2:
+            UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
+                         f"profile re-solve failed ({_prof_exc2!r}).")
         _post_projection_conformance_passes()
         _rod_ckpt(layout, "20_post_projection_conformance")
 

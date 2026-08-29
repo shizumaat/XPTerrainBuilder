@@ -3024,7 +3024,7 @@ def _road_vertex_graph(layout, freeze_stats=None):
     return idx, xy, adj, frozen, rings
 
 
-def _airside_value_at(pt, layout):
+def _airside_value_at(pt, layout, *, reach=None, with_gap: bool = False):
     """The SETTLED airside surface value at ``pt``, or ``None``.
 
     Read off the airside ring the point stands on or nearest to: the
@@ -3032,10 +3032,18 @@ def _airside_value_at(pt, layout):
     perpendicular foot — the 2026-08-15 proximity-mouth recipe, applied
     post-solve where the surface has stopped moving (RULINGS 2026-08-14,
     "resolve against the surface's own final value").
+
+    ``reach`` overrides how far an airside ring may be and still be the
+    surface this point arrives at.  Default is the crossing adoption's
+    own derivation (``_adopt_read_m``); the round-5b END-ON BINDING law
+    passes the ROAD'S OWN HALF-WIDTH instead, so the tolerance is
+    geometric and per-road rather than one constant (spec law 2,
+    "derive, don't hardcode").  ``with_gap`` returns ``(value, gap_m)``
+    so the caller can publish refused near-misses with their numbers.
     """
     from .enclaves import ENCLAVE_AIRSIDE_ROLES
     px, py = float(pt[0]), float(pt[1])
-    reach = _adopt_read_m()
+    reach = _adopt_read_m() if reach is None else float(reach)
     best = None
     for s in (getattr(layout, "shapes", None) or ()):
         if getattr(s, "role", None) not in ENCLAVE_AIRSIDE_ROLES:
@@ -3066,6 +3074,8 @@ def _airside_value_at(pt, layout):
             if best is None or d < best[0]:
                 za, zb = float(alts[t]), float(alts[(t + 1) % n])
                 best = (d, za + u * (zb - za))
+    if with_gap:
+        return (None, None) if best is None else (best[1], best[0])
     return None if best is None else best[1]
 
 
@@ -5103,6 +5113,26 @@ def _grade_limit_groundside_chords(layout) -> int:
     # values still GENERATE the band — the groundside side conforms to
     # airside, which is the mouth ruling in clamp form.
     pinned_keys, _airside_canon = _airside_claimed_keys(layout)
+    # ── THE PROFILE-OWNED EXEMPTION (round 5b, spec law 3) ───────────
+    # "``_grade_limit_groundside_chords`` either prices profile-solved
+    # chains along the PATH metric or EXEMPTS them — it never re-flattens
+    # across the loop."  This is the exemption branch, and it is the one
+    # that needs no second pricing derivation.
+    #
+    # WHY IT COSTS THE CROSS-SECTION LAW NOTHING: the profile writes ONE
+    # value per STATION to that station's whole cross-section, so a
+    # profile-owned pair is flat by construction and the 2 % transverse
+    # law (RULINGS 2026-08-25g) has nothing left to price on it.  What
+    # the exemption removes is exactly the euclidean chord ACROSS the
+    # U-loop that flattened the ramp (round 5's measured 108.383 ->
+    # 106.71 at pipeline 6692, repeated at 6957).
+    try:
+        from .free_road_profile import profile_owned_keys as _prof_keys
+        _profile_owned = _prof_keys(layout)
+    except Exception:                                      # pragma: no cover
+        _profile_owned = set()
+    if _profile_owned:
+        pinned_keys = set(pinned_keys) | _profile_owned
     # THE BUILDING-PAD CLAIM (owner ruling, 25g round; the standing
     # 2026-07-03 law).  Not a second pin — a pad node is ALREADY in
     # ``pinned_keys`` (``building`` is airside).  This set marks the pairs
@@ -5239,6 +5269,8 @@ def _grade_limit_groundside_chords(layout) -> int:
     stats["nodes"] = len(node_alt)
     stats["airside_pinned_nodes"] = sum(1 for k in node_alt
                                         if k in pinned_keys)
+    stats["profile_owned_nodes"] = sum(1 for k in node_alt
+                                       if k in _profile_owned)
     # R7c: CUT **AND** FILL, through the ONE kernel the single-ring
     # limiter uses (``_chord_cut_and_fill``) — per ring, over the SHARED
     # node values, so abutting pieces stay flush exactly as before.  The

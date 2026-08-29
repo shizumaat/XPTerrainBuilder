@@ -4527,3 +4527,26 @@ What was NOT paid:
 * **The docketed second wall emitter** (`_emit_low_corridor_connectors`)
   was NOT taken, per the coordinator's instruction; `wall_top_flat` still
   reports 0.34 m worst, unchanged between the arms.
+## HECA round 5b (lane/hecar5b, 2026-08-28) — free-road profile pass, gated OFF
+
+* **The arm ships DEFAULT OFF**, so its remaining verification is owed
+  against a FUTURE ON arm, not this one: the OTHH control pair was not
+  built (CYXY and SPJC were, both as matched ON/OFF pairs at one tree),
+  and no LEMD arm was built for the same reason as round 5 (two lanes on
+  LEMD machinery).
+* **The zero-MOVED-airside gate is met at SPJC (0) and CYXY (1, ground-
+  side) and FAILS at HECA (55 MOVED, airside among them)** even though
+  the pass writes road-family non-frozen nodes only.  The carrier is
+  indirect and is owed an attribution: `graded_strip` is a SOFT RECEIVER
+  that adopts the road's value and the strip families count as AIRSIDE in
+  the census's own side split, so a road value reaches an airside row
+  without any airside node being written.  Whether that is a real
+  airside-is-king breach or a side-split artefact is a question for the
+  metric ruling, not for this lane.
+* **The path-vs-chord collision is the round's finding and is NOT fixed
+  here.**  Any future ON arm must first settle which metric prices a
+  profile-owned road pair; the fork and its numbers are in the round-5b
+  lane report and in `config.FREE_ROAD_PROFILE_PASS`'s own comment.
+* **No full-suite run** (pre-ship mode); the blast-named files were run
+  once — 512 pass, `test_harness.py::test_the_near_miss_frontage_law_is_
+  one_authority` red at HEAD too.

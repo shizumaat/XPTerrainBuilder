@@ -4335,6 +4335,103 @@ def _corridor_colevel_rehome(lines, node_pos, node_station_raw,
     return moved
 
 
+def service_station_map(lines, svc_nodes, node_pos, node_shapes, anchors,
+                        R, *, quiet: bool = True):
+    """``(stations, node_station)`` — THE service-corridor STATION map.
+
+    Extracted verbatim from :func:`_svc_spine_station_seeds` (round 5b) so
+    the two readers of the road's PATH COORDINATE share ONE derivation:
+    the seeder here, which runs inside the solve, and
+    ``free_road_profile.solve_free_road_profiles``, which runs POST-solve
+    in the emitted node space.  A second projection/clustering convention
+    would be two instruments describing two station sets — the
+    census-wrapper defect at one remove — and the round-5b spec forbids
+    it in as many words ("reuse the route-metric-within-shape machinery,
+    never a second derivation").
+
+    ``stations[sid]`` is ``{"line", "s", "members", …}``; ``node_station``
+    maps a node index to its ``sid``.  Nodes with no service line within
+    ``R`` are absent from both — the caller's own fallback owns them.
+
+    ``quiet`` suppresses the R5c co-level log line (the post-solve reader
+    re-runs the same rehome on the same data and must not double-report
+    it).
+    """
+    import math as _m                                    # noqa: F401
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+
+    tree = STRtree(lines)
+    # node → (line_idx, arclength) for the nearest service line within R.
+    node_station_raw: dict = {}
+    for i in sorted(svc_nodes):
+        p = node_pos.get(i)
+        if p is None:
+            continue
+        P = Point(p)
+        try:
+            cand = tree.query(P.buffer(R))
+        except Exception:
+            continue
+        best = None
+        for qi in cand:
+            li = int(qi)
+            d = lines[li].distance(P)
+            if d <= R and (best is None or d < best[0]):
+                best = (d, li, lines[li].project(P))
+        if best is not None:
+            node_station_raw[i] = (best[1], best[2])
+    if not node_station_raw:
+        return [], {}
+
+    # R5c(2) — CORRIDOR CO-LEVEL: junction pieces join the ADJOINING
+    # road's chain before the clusters are cut, so a corridor's road and
+    # junction shapes take ONE station value at equal arclength instead
+    # of two chain projections that can slope laterally across it
+    # (owner in-sim, CYXY 60.7087015,-135.0746305).  See
+    # ``_corridor_colevel_rehome`` for the junction rule.
+    _colevel_moved = _corridor_colevel_rehome(
+        lines, node_pos, node_station_raw, node_shapes, anchors, R)
+    if not quiet:
+        try:
+            import O4_UI_Utils as _UI_cl
+            _UI_cl.vprint(1,
+                f"  [pav-builder] R5c corridor co-level: {_colevel_moved} "
+                f"service_junction vertex/vertices re-homed onto an "
+                f"adjoining road's chain (mouth welds win, then the "
+                f"widest road's through-chain) — road and junction pieces "
+                f"of one corridor now share a station value at equal "
+                f"arclength.")
+        except Exception:                               # pragma: no cover
+            pass
+
+    # Cluster per-line arclengths into stations (cross-section partners
+    # project to near-identical s; 2.0 m absorbs foot/weld noise while
+    # staying far under the ~12 m station spacing).
+    _CLUSTER_GAP_M = 2.0
+    by_line: dict = {}
+    for i, (li, s) in node_station_raw.items():
+        by_line.setdefault(li, []).append((s, i))
+    stations: list = []          # station → dict(line, s, members)
+    node_station: dict = {}
+    for li, lst in by_line.items():
+        lst.sort()
+        cur = None
+        for (s, i) in lst:
+            if cur is None or s - cur["s_max"] > _CLUSTER_GAP_M:
+                cur = {"line": li, "s_sum": 0.0, "s_max": s, "n": 0,
+                       "members": []}
+                stations.append(cur)
+            cur["s_sum"] += s
+            cur["s_max"] = max(cur["s_max"], s)
+            cur["n"] += 1
+            cur["members"].append(i)
+            node_station[i] = len(stations) - 1
+    for st in stations:
+        st["s"] = st["s_sum"] / st["n"]
+    return stations, node_station
+
+
 def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
                              dem_elev, cap, node_ceil, node_floor,
                              node_ceil_dist, node_floor_dist,
@@ -4399,73 +4496,10 @@ def _svc_spine_station_seeds(layout, svc_nodes, node_pos, anchors,
         return {}, set()
 
     R = ROAD_CARVE_MAX_WIDTH_M / 2.0 + 2.0
-    tree = STRtree(lines)
-
-    # node → (line_idx, arclength) for the nearest service line within R.
-    node_station_raw: dict = {}
-    for i in sorted(svc_nodes):
-        p = node_pos.get(i)
-        if p is None:
-            continue
-        P = Point(p)
-        try:
-            cand = tree.query(P.buffer(R))
-        except Exception:
-            continue
-        best = None
-        for qi in cand:
-            li = int(qi)
-            d = lines[li].distance(P)
-            if d <= R and (best is None or d < best[0]):
-                best = (d, li, lines[li].project(P))
-        if best is not None:
-            node_station_raw[i] = (best[1], best[2])
-    if not node_station_raw:
+    stations, node_station = service_station_map(
+        lines, svc_nodes, node_pos, node_shapes, anchors, R, quiet=False)
+    if not stations:
         return {}, set()
-
-    # R5c(2) — CORRIDOR CO-LEVEL: junction pieces join the ADJOINING
-    # road's chain before the clusters are cut, so a corridor's road and
-    # junction shapes take ONE station value at equal arclength instead
-    # of two chain projections that can slope laterally across it
-    # (owner in-sim, CYXY 60.7087015,-135.0746305).  See
-    # ``_corridor_colevel_rehome`` for the junction rule.
-    _colevel_moved = _corridor_colevel_rehome(
-        lines, node_pos, node_station_raw, node_shapes, anchors, R)
-    try:
-        import O4_UI_Utils as _UI_cl
-        _UI_cl.vprint(1,
-            f"  [pav-builder] R5c corridor co-level: {_colevel_moved} "
-            f"service_junction vertex/vertices re-homed onto an adjoining "
-            f"road's chain (mouth welds win, then the widest road's "
-            f"through-chain) — road and junction pieces of one corridor "
-            f"now share a station value at equal arclength.")
-    except Exception:                                   # pragma: no cover
-        pass
-
-    # Cluster per-line arclengths into stations (cross-section partners
-    # project to near-identical s; 2.0 m absorbs foot/weld noise while
-    # staying far under the ~12 m station spacing).
-    _CLUSTER_GAP_M = 2.0
-    by_line: dict = {}
-    for i, (li, s) in node_station_raw.items():
-        by_line.setdefault(li, []).append((s, i))
-    stations: list = []          # station → dict(line, s, members)
-    node_station: dict = {}
-    for li, lst in by_line.items():
-        lst.sort()
-        cur = None
-        for (s, i) in lst:
-            if cur is None or s - cur["s_max"] > _CLUSTER_GAP_M:
-                cur = {"line": li, "s_sum": 0.0, "s_max": s, "n": 0,
-                       "members": []}
-                stations.append(cur)
-            cur["s_sum"] += s
-            cur["s_max"] = max(cur["s_max"], s)
-            cur["n"] += 1
-            cur["members"].append(i)
-            node_station[i] = len(stations) - 1
-    for st in stations:
-        st["s"] = st["s_sum"] / st["n"]
 
     # Station XY + per-line ordered station lists.
     st_xy = {}

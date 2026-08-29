@@ -154,7 +154,32 @@ def test_solver_validator_same_edge_budgets(monkeypatch):
     per-edge budget ``cap.at(Δs∥,Δs⊥)`` must equal the VALIDATOR's for every
     SHARED edge — not just the same node set.  Both go through one
     ``grade_graph.shape_constraints`` that bakes the route decomposition once, so a
-    drift here would mean the build and the check disagree on the budget."""
+    drift here would mean the build and the check disagree on the budget.
+
+    RE-FOUNDING (2026-08-29).  The retired premise was the JOIN, not the law:
+    the two sides used to be matched on ``round(coord, 2)`` coordinate pairs.
+    The solver keys through ``G.pos``, which is LAST-WRITER-WINS across shapes
+    sharing a canonical node, while the validator keys through each shape's OWN
+    ring coords — and the canonical weld tolerance is far wider than 1 cm, so
+    the SAME law edge could land under two different keys and min-aggregation
+    read a phantom mismatch.  Measured on CYXY at HEAD: 57/28,780 shared keys
+    "mismatched", ALL ``service_junction`` — 56 of them were key misalignments
+    whose solver-side min budget existed BYTE-IDENTICAL on the validator side
+    under a nearby key, and the 57th was a 5.2e-6 artifact on a ~3 m LIVE
+    allowance, i.e. one law evaluated at two ``d`` values because each side
+    measured the run in its own coordinate frame.  ``git bisect`` (probe = this
+    test alone, both endpoints verified) puts first-bad at ``11c53b08``
+    2026-08-12 "Corridor round follow-ups: the wall law reads the COURSE, and
+    the minter reads the corridor set" — that commit changed CYXY's
+    service-piece population, so the JOIN broke, not the law (parent
+    ``6cb9396c`` green).
+
+    The join is therefore now CANONICAL NODE IDENTITY (standing law: canonical
+    identity join — never proximity-join): the validator's ring coords are
+    resolved to solver node indices through the layout's canonical-point
+    registry, exactly as ``test_solver_and_validator_same_nodes`` does, and
+    BOTH sides measure ``d`` in the SAME frame (``G.pos``), so equality reduces
+    to the law itself — (cL, cT, baked budget) — with no ruler left to differ."""
     import math
     from auto_patch import grade_graph as GG
     from auto_patch.grade_graph_validate import _iter_checked_pairs
@@ -164,17 +189,15 @@ def test_solver_validator_same_edge_budgets(monkeypatch):
     layout = _cyxy()
     _nodes, b2i = _build_node_list(layout)
     G = GG.build_unified_graph(layout, b2i)
+    cps = layout.canonical_points
 
-    def _k(x, y):
-        return (round(x, 2), round(y, 2))
-
-    # Aggregate by MIN per coordinate pair: a node pair can carry
-    # SEVERAL law edges (the shapes' shared ring edge plus a route-arc
-    # spine edge that references global nodes and has no ring
-    # identity), and last-writer-wins made the comparison depend on
-    # iteration order — the BINDING budget is the law both sides must
-    # agree on (measured CYXY: ring edge 0.0187 + solver-only arc edge
-    # 0.0238 on one coordinate pair read as a phantom mismatch).
+    # Aggregate by MIN per node pair: a node pair can carry SEVERAL law
+    # edges (the shapes' shared ring edge plus a route-arc spine edge
+    # that references global nodes and has no ring identity), and
+    # last-writer-wins made the comparison depend on iteration order —
+    # the BINDING budget is the law both sides must agree on (measured
+    # CYXY: ring edge 0.0187 + solver-only arc edge 0.0238 on one pair
+    # read as a phantom mismatch).
     solver = {}
     for (a, b, cap, _is_sp) in G.edges:
         pa, pb = G.pos.get(a), G.pos.get(b)
@@ -183,20 +206,45 @@ def test_solver_validator_same_edge_budgets(monkeypatch):
         d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
         if d < 1e-9:
             continue
-        key = tuple(sorted((_k(*pa), _k(*pb))))
+        key = (a, b) if a <= b else (b, a)
         budget = cap.at(d, 0.0)
         if key not in solver or budget < solver[key]:
             solver[key] = budget
 
     val = {}
+    pairs = 0
+    unresolved = 0
     for (_role, _sp, (xa, ya), _za, (xb, yb), _zb, cap) in _iter_checked_pairs(layout):
-        d = math.hypot(xa - xb, ya - yb)
+        pairs += 1
+        ka = cps.find_nearest(xa, ya, cps.tol_m)
+        kb = cps.find_nearest(xb, yb, cps.tol_m)
+        i = b2i.get(ka) if ka is not None else None
+        j = b2i.get(kb) if kb is not None else None
+        if i is None or j is None:
+            unresolved += 1
+            continue
+        pi, pj = G.pos.get(i), G.pos.get(j)
+        if pi is None or pj is None:
+            unresolved += 1
+            continue
+        # SAME FRAME as the solver side: a LIVE allowance (``budget is
+        # None``) is priced from the run, so measuring d in the ring's
+        # own coordinates against the solver's G.pos frame was two
+        # rulers on one law (measured: 5.2e-6 on a ~3 m allowance).
+        d = math.hypot(pi[0] - pj[0], pi[1] - pj[1])
         if d < 1e-9:
             continue
-        key = tuple(sorted((_k(xa, ya), _k(xb, yb))))
+        key = (i, j) if i <= j else (j, i)
         budget = cap.at(d, 0.0)
         if key not in val or budget < val[key]:
             val[key] = budget
+
+    assert unresolved < 0.01 * max(pairs, 1), (
+        f"{unresolved}/{pairs} validator pairs could not be resolved to solver "
+        f"nodes through the canonical-point registry — the checker is pricing "
+        f"edges the solver's node space cannot even NAME.  (That population is "
+        f"test_solver_and_validator_same_nodes' jurisdiction, but the lockstep "
+        f"twin must not silently shrink to nothing behind it.)")
 
     shared = set(solver) & set(val)
     assert len(shared) > 100, f"too few shared edges ({len(shared)}) to prove lockstep"

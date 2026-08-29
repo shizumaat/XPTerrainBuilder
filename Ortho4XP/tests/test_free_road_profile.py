@@ -135,8 +135,9 @@ class TestTheProfileLaw:
         The shortfall is still returned with its number, but the span
         BUILDS: both welds are met EXACTLY (contact-is-value, RULINGS
         29c) and the excess grade stands between them for the census to
-        price.  The refuted arm — leave the chain alone, which turns the
-        excess into a CLIFF at the weld — is kept behind its gate.
+        price.  The arm this replaces left the chain alone, turning the
+        excess into a CLIFF at the weld; it is deleted, and the record
+        is the spec and git (RULINGS 2026-08-29e).
         """
         target, infeasible = FRP.chain_profile(
             [0.0, 5.0, 10.0], [100.0] * 3, {0: 100.0, 2: 110.0}, 0.08)
@@ -144,12 +145,6 @@ class TestTheProfileLaw:
         assert target[0] == pytest.approx(100.0)      # weld, exactly
         assert target[2] == pytest.approx(110.0)      # weld, exactly
         assert target[1] == pytest.approx(105.0)      # the span built
-        # THE REFUTED ARM: the whole chain reverts and the 10 m span
-        # becomes a 10 m step at the weld instead.
-        t_off, inf_off = FRP.chain_profile(
-            [0.0, 5.0, 10.0], [100.0] * 3, {0: 100.0, 2: 110.0}, 0.08,
-            weld_outranks=False)
-        assert inf_off and t_off == [100.0] * 3
 
     def test_a_chain_with_no_pin_is_left_alone(self):
         target, infeasible = FRP.chain_profile(
@@ -199,42 +194,25 @@ class TestTheULoop:
         for (x, y) in list(keys)[:5]:
             assert round(x, 2) == x and round(y, 2) == y
 
-    def test_the_limiter_ACTUALLY_READS_them(self):
-        """RULING 3 (coordinator 2026-08-29) — nothing after the road
-        profile re-solves road-chain stations except welds.
+    def test_the_limiter_does_NOT_pin_the_profile_and_that_is_MEASURED(self):
+        """RULING 3's mechanism was built, attributed and REFUTED.
 
-        ``who_wrote`` named ``_grade_limit_groundside_chords`` twice on
-        the owner's item-4 ramp (pipeline 6733 after the pre-solve,
-        pipeline 6998 after the re-solve).  For three rounds
-        ``profile_owned_keys`` had NO production reader at all; this
-        twin is what stops it silently losing one again.
+        ``who_wrote`` named ``_grade_limit_groundside_chords`` as the
+        pass that overwrites the profile's ramp twice per build, and
+        pinning the profile's nodes there is the obvious fix.  Its own
+        arm refuted it: CYXY +187 law-true rows, 258 NEW / 71 GONE, 81
+        transverse + 74 road_cross_section + 34 within_shape, every one
+        service_junction, worst 98.06 % against a 2 % cap — because a
+        junction BLOB's nodes map to SEVERAL stations, so the "one value
+        per station's whole cross-section" premise the exemption rests
+        on is false there and pinning freezes the blob TILTED.  Deleted,
+        not gated; this twin is the record that it may not come back
+        without the scoping.
         """
         import inspect
-        from auto_patch import groundside as GS
         src = inspect.getsource(GS._grade_limit_groundside_chords)
-        assert "profile_owned_keys" in src
-        assert "_profile_owned" in src
-        # …and the pins are actually applied to the free-node selection,
-        # not merely counted in the stats line (which they already were).
-        assert "not in _profile_owned" in src
-
-    def test_the_ruling_3_gate_is_named_and_ships_OFF_on_its_measurement(self):
-        """Ruling 3's mechanism is built and attributed, and ships OFF:
-        isolated at CYXY it costs +187 law-true rows, and they are the
-        service_junction LATERAL class (81 transverse + 74
-        road_cross_section, worst 98 % against a 2 % cap), which is the
-        coordinator's own STOP condition, not the accepted re-pricing.
-        The premise it refutes is in the gate's comment."""
-        from auto_patch import config as _C
-        assert _C.ROAD_PROFILE_OWNS_ITS_STATIONS is False
-        # …and it is EXPORTED, like every other gate in this family: an
-        # unexported gate is invisible to the readers that enumerate the
-        # module (the blast-radius env-flag hazard).
-        assert "ROAD_PROFILE_OWNS_ITS_STATIONS" in _C.__all__
-        for _g in ("ROAD_PROFILE_CUMULATIVE_CAP",
-                   "ROAD_PROFILE_WELD_OUTRANKS_CAP",
-                   "ROAD_PROFILE_CHORD_TWO_SIDED"):
-            assert _g in _C.__all__ and getattr(_C, _g) is True
+        assert "free = [k for k in live if keys[k] not in pinned_keys]" in src
+        assert "SCOPING" in src
 
     def test_a_WELD_is_never_exempted_by_the_profile(self):
         """The profile writes ROAD-family nodes only and never a frozen
@@ -355,7 +333,7 @@ class TestTheGates:
         finally:
             importlib.reload(_fresh)
 
-    def test_the_limiter_PRICES_the_path_AND_pins_the_profile(self):
+    def test_the_limiter_PRICES_the_path(self):
         """AMENDMENT 1 + RULING 3, and they are not alternatives.
 
         Amendment 1 replaced the round-5b exemption with the PATH METRIC
@@ -369,7 +347,7 @@ class TestTheGates:
         """
         import inspect
         src = inspect.getsource(GS._grade_limit_groundside_chords)
-        assert "RULING 3" in src and "profile_owned_keys" in src
+        assert "the SCOPING" in src
         assert "_GL_RING_PATH_CUM" in src
         band = inspect.getsource(GS._chord_band)
         assert "_GL_ROAD_PAIR_DISTANCE" in band
@@ -420,11 +398,6 @@ class TestTheMidRunSag:
             [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
             {0: 100.0, 2: 100.0}, 0.5)
         assert target[1] == pytest.approx(100.0)      # conformed down
-        # …and the terrain-protecting arm, unchanged, behind its gate.
-        raise_only, _i2 = FRP.chain_profile(
-            [0.0, 50.0, 100.0], [100.0, 120.0, 100.0],
-            {0: 100.0, 2: 100.0}, 0.5, two_sided=False)
-        assert raise_only[1] == pytest.approx(120.0)
 
     def test_only_a_PIN_holds_its_own_value(self):
         """"only weld/authored/crossing-pinned stations hold" — the
@@ -470,11 +443,7 @@ class TestTheCumulativeCapDistance:
         caps = [0.08, 0.08, 0.01, 0.08, 0.08]
         pins = {0: 100.0, 4: 108.0}                 # 8 m over 400 m = 2 %
         t_on, inf_on = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
-                                         caps=caps, cumulative=True)
-        t_off, inf_off = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
-                                           caps=caps, cumulative=False,
-                                           weld_outranks=False)
-        assert inf_off and t_off == [100.0] * 5     # refused, cliff kept
+                                         caps=caps)
         assert not inf_on and t_on[4] == pytest.approx(108.0)
         for k in range(4):
             c = min(caps[k], caps[k + 1])
@@ -488,7 +457,7 @@ class TestTheCumulativeCapDistance:
         caps = [0.08, 0.08, 0.08, 0.01, 0.01]      # free first, 1 % last
         pins = {0: 100.0, 4: 108.0}
         t, _inf = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
-                                    caps=caps, cumulative=True)
+                                    caps=caps)
         # The straight-in-s chord (102, 104, 106) climbs 2 % across the
         # 1 %-capped tail — an unlawful floor.  The cap-distance chord
         # front-loads the rise onto the stretch that can carry it…
@@ -499,18 +468,8 @@ class TestTheCumulativeCapDistance:
             assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
         # …and with ONE cap everywhere the chord is the linear one.
         flat, _ = FRP.chain_profile(ss, [100.0] * 5, pins, CAP,
-                                    caps=[0.08] * 5, cumulative=True)
+                                    caps=[0.08] * 5)
         assert flat[2] == pytest.approx(104.0)
-
-    def test_the_gate_off_restores_the_refuted_arm(self, monkeypatch):
-        monkeypatch.setattr(CFG, "ROAD_PROFILE_CUMULATIVE_CAP", False)
-        monkeypatch.setattr(CFG, "ROAD_PROFILE_WELD_OUTRANKS_CAP", False)
-        ss = [0.0, 100.0, 200.0]
-        caps = [0.08, 0.01, 0.08]
-        t, inf = FRP.chain_profile(ss, [100.0] * 3, {0: 100.0, 2: 104.0},
-                                   CAP, caps=caps)
-        assert inf and t == [100.0] * 3
-
 
 # ══════════════════════════════════════════════════════════════════════
 # AMENDMENT 3 §2 — SELF-PINS (the fifth site's binding question dissolved)

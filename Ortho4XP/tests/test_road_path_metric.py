@@ -305,8 +305,7 @@ class TestPerStationCapUnification:
         ss = [0.0, 25.0, 50.0, 75.0, 100.0]
         caps = [0.08, 0.08, 0.01, 0.08, 0.08]
         t, infeasible = FRP.chain_profile(
-            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps,
-            cumulative=True)
+            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps)
         assert not infeasible, (
             "2.0 + 0.25 + 0.25 + 2.0 = 4.5 m of cap-distance carries a "
             "4 m rise; refusing it leaves the owner's cliff standing")
@@ -315,16 +314,10 @@ class TestPerStationCapUnification:
         for k in range(4):
             c = min(caps[k], caps[k + 1])
             assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
-        # THE REFUTED ARM, reproducible byte-for-byte behind its gates.
-        _t0, inf0 = FRP.chain_profile(
-            ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps,
-            cumulative=False, weld_outranks=False)
-        assert inf0 and _t0 == [100.0] * 5      # the whole chain reverts
         # A rise the chain genuinely cannot carry is still REPORTED —
         # and, under ruling 1, still BUILT to its two welds.
         _t2, inf2 = FRP.chain_profile(
-            ss, [100.0] * 5, {0: 100.0, 4: 105.0}, 0.08, caps=caps,
-            cumulative=True)
+            ss, [100.0] * 5, {0: 100.0, 4: 105.0}, 0.08, caps=caps)
         assert inf2
         assert _t2[0] == pytest.approx(100.0) and _t2[4] == pytest.approx(105.0)
 
@@ -336,7 +329,7 @@ class TestPerStationCapUnification:
         ss = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
         scalar, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08)
         vector, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08,
-                                      caps=[0.08] * 7, cumulative=True)
+                                      caps=[0.08] * 7)
         assert scalar == vector
 
     def test_the_way_level_gate_DISSOLVED(self):

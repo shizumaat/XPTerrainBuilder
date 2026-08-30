@@ -165,7 +165,7 @@ def suppress_synthesised_road_pavement(layout, icao: str = "") -> int:
                 # suppressed here.  The mask kills road pavement standing
                 # ON a bore's roof; a deck is the road carried OVER the
                 # structure on its own span, which is the opposite case.
-                or _is_deck(s)):
+                or _is_deck(s, layout)):
             kept.append(s)
             continue
         try:

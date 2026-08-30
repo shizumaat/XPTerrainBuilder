@@ -10466,7 +10466,7 @@ def cut_pavement_over_footprint(layout, footprint, cut_roles=None) -> int:
         # road OVER the structure whose cut is asking to remove it, so
         # neither the tunnel-ramp cut nor its clearance annulus reaches
         # it.  Everything else about this cut is unchanged.
-        if _is_deck(shape):
+        if _is_deck(shape, layout):
             kept_shapes.append(shape)
             continue
         try:

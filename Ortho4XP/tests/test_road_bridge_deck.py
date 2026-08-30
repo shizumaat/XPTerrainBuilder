@@ -415,3 +415,61 @@ class TestSlopedRampEncoding:
         bare = BuiltShape(polygon=_rect(0, 1, 0, 1),
                           role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp")
         assert deck._shape_top(bare) is None
+
+
+class TestDeckIdentitySurvivesReRole:
+    """The GROUNDSIDE PASS runs before the tunnel pass and rebuilds
+    pieces as fresh ``BuiltShape``s, so a per-shape flag is gone by the
+    time the ramp cut asks whether a piece is a deck.
+
+    MEASURED at LEMD 2026-08-30 (build ``lemddeck3``): both decks were
+    demoted to ``groundside_pavement`` before the tunnel pass, the
+    exemption lapsed, and the ramp cut carved the 84.2 m span into four
+    fragments with gaps at 12-22, 30-50 and 57-69 m.
+    """
+
+    def _demoted_piece(self):
+        """The deck's own ground, re-roled and WITHOUT the flag — exactly
+        what the groundside pass leaves behind."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        return BuiltShape(
+            polygon=_rect(10.0, 70.0, -6.0, 6.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[600.9] * 4)
+
+    def test_a_reroled_deck_piece_is_still_a_deck(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        piece = self._demoted_piece()
+        assert not deck.is_deck_shape(piece), "no flag on a re-roled piece"
+        assert deck.is_deck_shape(piece, layout), (
+            "the corridor is published once and never moves — geometry "
+            "must recognise the deck after any re-role")
+
+    def test_ground_outside_the_corridor_is_not_a_deck(self):
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        far = BuiltShape(polygon=_rect(-200.0, -140.0, -6.0, 6.0),
+                         role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+        assert not deck.is_deck_shape(far, layout)
+
+    def test_the_ramp_cut_passes_a_reroled_deck_by(self):
+        """The whole point: the exemption must still hold after the
+        demotion, or the cut fragments the span."""
+        from auto_patch.bridges import cut_pavement_over_footprint
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        footprint = _rect(10.0, 70.0, -8.0, 8.0)
+
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes.append(self._demoted_piece())
+        n = cut_pavement_over_footprint(
+            layout, footprint, cut_roles={ROLE_GROUNDSIDE_PAVEMENT})
+        assert n == 0, "a re-roled deck is still not cuttable pavement"
+
+    def test_with_no_candidates_the_geometry_test_is_inert(self):
+        layout = _make(bridge_tag=None)
+        deck.publish_candidates(layout)
+        assert deck.deck_union(layout) is None
+        assert not deck.is_deck_shape(self._demoted_piece(), layout)

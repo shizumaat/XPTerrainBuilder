@@ -347,10 +347,71 @@ def stamp_shapes(layout) -> int:
     return n
 
 
-def is_deck_shape(shape) -> bool:
+_DECK_UNION = "_road_bridge_deck_union"
+
+
+def deck_union(layout):
+    """Union of every live deck corridor — the ground §3 protects.
+
+    Cached on the layout: the corridors come from the phase-4 candidate
+    records and never move."""
+    got = getattr(layout, _DECK_UNION, "unset")
+    if got != "unset":
+        return got
+    records = [r for r in candidates_of(layout)
+               if r.get("verdict") in ("candidate", "confirmed_terrain")]
+    u = None
+    if records:
+        try:
+            from shapely.ops import unary_union
+            u = unary_union([_corridor(r) for r in records])
+            if u.is_empty:
+                u = None
+        except Exception:                                # pragma: no cover
+            u = None
+    try:
+        setattr(layout, _DECK_UNION, u)
+    except (AttributeError, TypeError):                  # pragma: no cover
+        pass
+    return u
+
+
+def is_deck_shape(shape, layout=None) -> bool:
     """§3: this piece is a ROAD BRIDGE DECK — no tunnel-ramp cut, no
-    clearance annulus and no covered-span suppression may remove it."""
-    return bool(getattr(shape, "road_bridge_deck", "") or "")
+    clearance annulus and no covered-span suppression may remove it.
+
+    GEOMETRY, not only the flag.  The flag is stamped on the minted
+    ``service_road`` rect in phase 4, but the GROUNDSIDE PASS runs before
+    the tunnel pass and rebuilds pieces as fresh ``BuiltShape``s (several
+    sites in ``groundside`` merge and re-role rather than
+    ``dataclasses.replace``), so by the time the ramp cut asks, the flag
+    is gone and the exemption lapses.  MEASURED at LEMD 2026-08-30
+    (build ``lemddeck3``): both decks were demoted to
+    ``groundside_pavement`` before the tunnel pass and the ramp cut then
+    carved the span into four fragments with three gaps — 12-22, 30-50
+    and 57-69 m along an 84.2 m span.
+
+    The corridor is published once in phase 4 and never moves, so asking
+    "is this piece mostly INSIDE a deck corridor?" is stable across every
+    re-role and merge, which a per-shape flag is not.
+    """
+    if bool(getattr(shape, "road_bridge_deck", "") or ""):
+        return True
+    if layout is None:
+        return False
+    u = deck_union(layout)
+    if u is None:
+        return False
+    poly = getattr(shape, "polygon", None)
+    if poly is None or poly.is_empty:
+        return False
+    try:
+        area = float(poly.area)
+        if area <= 0.0:
+            return False
+        return poly.intersection(u).area >= DECK_PIECE_MIN_FRACTION * area
+    except Exception:                                    # pragma: no cover
+        return False
 
 
 def abutment_keep_out(layout):
@@ -421,7 +482,7 @@ def _receiving_value(layout, point, deck_ids, reach_m: float = 25.0):
     best = None
     px, py = float(point.x), float(point.y)
     for s in getattr(layout, "shapes", None) or ():
-        if id(s) in deck_ids or is_deck_shape(s):
+        if id(s) in deck_ids or is_deck_shape(s, layout):
             continue
         poly = getattr(s, "polygon", None)
         if poly is None or poly.is_empty:

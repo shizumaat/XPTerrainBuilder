@@ -4422,10 +4422,25 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
     n_sev = 0
     minted: list = []
+    # ── THE JOIN'S OWN INSTRUMENT (round 6c) ─────────────────────────
+    # NO SILENT ZERO: the trigger is an IDENTITY, so "it did not fire"
+    # and "there was nothing to fire on" are different states, and the
+    # round-6b metre-frame rework (``_ll_key11``) could not be verified
+    # because this pass logged only on success.  The counters below say
+    # how many service ways were examined, how many a lot ring carried,
+    # and — when none did — the NEAREST MISS in metres, which is the one
+    # number that separates a frame bug (millimetres) from a site that
+    # simply shares no vertex (metres).
+    _n_ways = _n_carried = 0
+    _miss = None                     # (metres, way_id, node_id)
+    _xs = [p[0] for p in ring_pts]
+    _ys = [p[1] for p in ring_pts]
+    _ring_bounds = (min(_xs), min(_ys), max(_xs), max(_ys))
     for way in network.ways:
         way_id, node_refs, tags = way
         if tags.get("highway") != "service":
             continue
+        _n_ways += 1
         hosts: list = []
         for nid in node_refs:
             ll = nodes.get(nid)
@@ -4435,7 +4450,11 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
                 if s not in hosts:
                     hosts.append(s)
         if not hosts:
+            _miss = _nearest_ring_miss(layout, _ring_tree, _ring_geoms,
+                                       nodes, node_refs, way_id, _miss,
+                                       _ring_bounds)
             continue                       # not carried by any lot
+        _n_carried += 1
         try:
             corridor = road_corridors_from_ways(nodes, [way], layout.ll_to_m,
                                                 widths=widths)
@@ -4476,17 +4495,71 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
                 if _clip_shape_yielding_to(s, g, snap_tol=0.0) is None:
                     s.polygon = None       # wholly road; dropped below
                     break
+    import O4_UI_Utils as UI
+    _miss_txt = (f"no non-carried service node within "
+                 f"{_MISS_REPORT_RADIUS_M:g} m of a ring vertex"
+                 if _miss is None
+                 else f"nearest MISS {_miss[0] * 1000.0:.3f} mm "
+                      f"(feed way {_miss[1]} node {_miss[2]})")
+    UI.vprint(1,
+        f"  [groundside] lot-carried sever: {_n_ways} service way(s) "
+        f"examined, {_n_carried} carried by a groundside ring (identity "
+        f"join in the METRE frame, eps "
+        f"{_LOT_ROAD_IDENTITY_EPS_M:g} m; {len(ring_pts)} ring "
+        f"vertex(es) from {len(lots)} lot(s)); {_miss_txt}; severed "
+        f"{n_sev} corridor(s).")
     if not n_sev:
         return 0
     layout.shapes = [s for s in layout.shapes
                      if not (s.role == ROLE_GROUNDSIDE_PAVEMENT
                              and s.polygon is None)] + minted
-    import O4_UI_Utils as UI
-    UI.vprint(1,
-        f"  [groundside] lot-carried service roads: severed {n_sev} "
-        f"corridor(s) out of the groundside rings whose vertices they "
-        f"share (owner ruling 2026-08-30, 11-dp identity trigger).")
     return n_sev
+
+
+#: How far out the join's own instrument looks for its NEAREST MISS.
+#: Not a law threshold and not a trigger — the trigger is an identity
+#: (``_LOT_ROAD_IDENTITY_EPS_M``); this only bounds what the log line
+#: reports, and with it the cost of reporting it.
+_MISS_REPORT_RADIUS_M = 50.0
+
+
+def _nearest_ring_miss(layout, ring_tree, ring_geoms, nodes, node_refs,
+                       way_id, best, bounds):
+    """The closest a NON-carried service way came to a lot ring vertex,
+    in metres — the number that tells a frame bug from a site that
+    shares no vertex.  Returns the running best ``(m, way_id, nid)``.
+
+    Scoped to ``_MISS_REPORT_RADIUS_M`` of the lots' own envelope by a
+    bbox test before any tree query: a node outside that box is farther
+    than the radius from EVERY ring vertex, so the reported minimum is
+    unchanged in the only regime that means anything, and the cost stays
+    off the build-time budget (measured: 35 k unscoped nearest queries
+    cost 0.31 s on this machine)."""
+    if ring_tree is None or not ring_geoms or bounds is None:
+        return best
+    from shapely.geometry import Point as _Point
+    r = _MISS_REPORT_RADIUS_M
+    x0, y0, x1, y1 = bounds
+    for nid in node_refs:
+        ll = nodes.get(nid)
+        if ll is None:
+            continue
+        try:
+            x, y = layout.ll_to_m(float(ll[0]), float(ll[1]))
+        except Exception:                                  # pragma: no cover
+            continue
+        if x < x0 - r or x > x1 + r or y < y0 - r or y > y1 + r:
+            continue
+        try:
+            p = _Point(x, y)
+            d = ring_geoms[int(ring_tree.nearest(p))].distance(p)
+        except Exception:                                  # pragma: no cover
+            continue
+        if d > r:
+            continue
+        if best is None or d < best[0]:
+            best = (float(d), way_id, nid)
+    return best
 
 
 def reclassify_groundside_route_corridors(

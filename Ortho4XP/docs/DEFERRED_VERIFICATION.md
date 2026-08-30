@@ -4948,3 +4948,84 @@ What was NOT paid:
   the fixture's OSM overlay does not carry).  Verifying it costs one
   more full HECA build, which this round's two-build budget did not
   have.  The attempt cap is reached; the residual is the owner's.
+
+## HECA round 6c (cleanup lane, 2026-08-30) — what the closing build PAID
+
+The round-6b line above is now PAID, and its finding is the opposite of
+what it assumed:
+
+* **Item 3's join is VERIFIED — and it does not fire, because the
+  trigger has no instance at HECA.**  The sever pass now instruments
+  itself on every build (no silent zero).  On the round-6c closing arm
+  `r6c_arm`: *2,740 service way(s) examined, 0 carried by a groundside
+  ring (identity join in the METRE frame, eps 1e-06 m; 13,577 ring
+  vertex(es) from 730 lot(s)); nearest MISS 0.118 mm (feed way -270 node
+  -27398); severed 0 corridor(s).*  The round-6b premise — that
+  `layout.m_to_ll` is not the inverse of `layout.ll_to_m`, and that the
+  3 mm was a round-trip artefact — is REFUTED by reading the two
+  functions (`layout.py:1021`/`:1028`: one equirectangular pair about
+  one anchor, inverse to float precision).  The 3 mm is real geometry:
+  the feed node `-113465` (30.114178800,31.404126000, way -13192) is
+  referenced by NO other way in the feed, and the nearest lot-ring
+  vertex reads 30.11417881036,31.40412602903 — 3.024 mm away — in the
+  round-6 control AND in the round-6b arm, identically.  The lot ring's
+  vertex there is minted by the build (a clip/conform), not carried from
+  the road.  So RULING 3 as scoped (identity vertex only, §H3 refuted
+  and OFF) has nothing to fire on, and the site 30.1118886,31.4064793
+  stays `graded_strip` at 107.18 m — unchanged from round 6b.  Widening
+  the trigger past an identity is the owner's call, not a lane's: 0.118
+  mm is the closest any HECA service-road node comes to a lot ring
+  vertex, so any tolerance that fires is a proximity radius, which is
+  §H3's refuted ground.
+* **NOT paid: whether the trigger has instances at another airport.**
+  The instrument now answers it for free on any build (the log line is
+  unconditional), but only HECA was built this round — the round's ONE
+  representative airport (build economy 29f).
+* **NOT paid (item 6 residue, quoted for the owner):** after the
+  enclosed-lot veto, `graded_strip:gap_fill_spine` still stands on
+  2,492 m² of groundside pavement across 16 strips (was 26,780 m² /
+  18) — all of it small fractions of large faces from paths OTHER than
+  the R19-2 deferral, and none of it the ruled lots.  The same read over
+  `service_road,service_junction` is unchanged at 25,074 m² / 34 strips:
+  the ANNULUS class (a face whose emitted exterior ring re-covers the
+  road it was subdivided around) exists for roads too, and this round
+  scoped its fix to ruling 4's role deliberately.  Both reads are
+  `tools/role_overlap_read.py`.
+## 2026-08-30 — building79 structure-walls footprints (lane/hecab79)
+
+Owner ruling 2026-08-30e: a qualifying OBJ8 structure contributes the
+plan silhouette of its own solid geometry, one ring per disjoint part,
+instead of its convex hull (`object_footprints.structure_footprint_parts`,
+`dsf_reader._compute_dsf_object_buildings`).
+
+* **The change is PACK-WIDE and only HECA is measured.**  Every airport
+  whose scenery pack carries OBJ8 buildings gets new footprints — at
+  HECA the pack's ring area falls 1,103,599 → 712,143 m² and the emitted
+  building pads go 157 → 175.  LEMD, OTHH, KCLT, CYXY and SPJC are
+  UNMEASURED under it; the build-economy rule (ONE representative
+  airport per round) is what this round budgeted for, and the
+  five-airport sweep at the next merged batch is where they are read.
+  LEMD is the one to watch: it is the other pack with a material-split
+  terminal (the round-6b item-3 precedent).
+* **The airside value delta is quoted but NOT isolated.**  7,138
+  solve-owned airside nodes move > 0.01 m between control
+  (`d1a5a580652d`) and arm (`44f81bdd275a`), p50 0.23 m / p90 1.16 m /
+  max 6.40 m, and 5,004 of them are more than 1,200 m from building79 —
+  a whole-pack pad-population effect, not a local one.  Census-wise it
+  is an IMPROVEMENT (adjudicated airside 2,281 → 1,725) so nothing here
+  argues for a smaller change, but no per-site attribution of the far
+  movements was measured; that would cost more builds than this round
+  has.
+* **The `_close_building_outline` inflation of a SPRAWLING ring is
+  unattributed.**  Round 6b refuted outline-closing as building79's
+  minter on a CONVEX hull (+0.3 %).  On the new concave parts it is not
+  small: arm pad `building90` is 11,757 m² over 6,951 m² of object
+  silhouette, and pre-solve it read 24,693 m² over the same rings.  The
+  mechanism is downstream of this lane's surface (`pads`/pipeline
+  outline closing, not `dsf_reader`/`object_footprints`) and is
+  reported, not fixed.
+* **Two pre-existing reds are carried, not fixed**:
+  `test_contracts.py::test_obj8_partition_signature[contact_graph]` and
+  `test_object_anchor.py::test_kclt_eight_bake_pool_end_to_end`, both
+  reproduced on the clean merged-main tree at 677eb5d3 before this
+  lane's first edit.

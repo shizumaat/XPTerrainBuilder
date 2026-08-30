@@ -416,6 +416,123 @@ class TestStructureRingUnion:
         assert union_polygon.area == pytest.approx(300.0, abs=5.0)
 
 
+# ── structure-walls footprints (owner ruling 2026-08-30e) ────────────
+# ONE structure, drawn by one material-split texture page, can describe
+# SEVERAL separate buildings; its convex hull is those buildings plus
+# the ground between them (HECA building79: five buildings, one
+# 100,886 m2 pad).  A qualifying structure contributes the plan
+# silhouette of its OWN geometry, one ring per disjoint part.
+
+# Two 20 x 20 boxes 20 m apart, each a floor at y = 0 and a roof at
+# y = 8 — the spec's synthetic twin.  Hull: 60 x 20 = 1200 m2.  Own
+# geometry: two 400 m2 parts with a 20 m gap between them.
+TWO_BOX_VERTICES = [
+    (0.0, 0.0, 0.0), (20.0, 0.0, 0.0), (20.0, 0.0, 20.0), (0.0, 0.0, 20.0),
+    (0.0, 8.0, 0.0), (20.0, 8.0, 0.0), (20.0, 8.0, 20.0), (0.0, 8.0, 20.0),
+    (40.0, 0.0, 0.0), (60.0, 0.0, 0.0), (60.0, 0.0, 20.0), (40.0, 0.0, 20.0),
+    (40.0, 8.0, 0.0), (60.0, 8.0, 0.0), (60.0, 8.0, 20.0), (40.0, 8.0, 20.0),
+]
+TWO_BOX_TRIANGLES = [
+    (0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7),
+    (8, 9, 10), (8, 10, 11), (12, 13, 14), (12, 14, 15),
+]
+
+# A structure whose only geometry is VERTICAL: two wall quads standing
+# on the ground, projecting to zero plan area.  The union degenerates,
+# and a structure that has already passed the evidence gates must never
+# come out with no footprint at all.
+VERTICAL_ONLY_VERTICES = [
+    (0.0, 0.0, 0.0), (20.0, 0.0, 0.0), (20.0, 8.0, 0.0), (0.0, 8.0, 0.0),
+    (0.0, 0.0, 20.0), (20.0, 0.0, 20.0), (20.0, 8.0, 20.0), (0.0, 8.0, 20.0),
+]
+VERTICAL_ONLY_TRIANGLES = [
+    (0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7),
+]
+
+
+class TestStructureFootprintParts:
+    def _two_box_structure(self):
+        geometry = make_geometry(TWO_BOX_VERTICES, TWO_BOX_TRIANGLES)
+        structure = make_structure({"a.obj": TWO_BOX_TRIANGLES},
+                                   {"a.obj": 0.0})
+        return structure, {"a.obj": geometry}, [make_placement("a.obj")]
+
+    def test_hull_still_swallows_the_gap(self, fake_projection):
+        # The QUALIFICATION half is unchanged: structure_ring still
+        # returns the structure's convex hull, gates and all.
+        structure, geometry, placements = self._two_box_structure()
+        ring = object_footprints.structure_ring(
+            structure, geometry, placements)
+        assert ring is not None
+        assert Polygon(ring_to_local_metres(ring)).area == pytest.approx(
+            1200.0, abs=10.0)
+
+    def test_two_disjoint_boxes_yield_two_parts_with_a_gap(
+            self, fake_projection):
+        structure, geometry, placements = self._two_box_structure()
+        hull_ring = object_footprints.structure_ring(
+            structure, geometry, placements)
+        parts, source = object_footprints.structure_footprint_parts(
+            structure, geometry, placements, hull_ring)
+        assert source == "structure"
+        assert len(parts) == 2
+        polygons = [Polygon(ring_to_local_metres(part)) for part in parts]
+        for polygon in polygons:
+            # Unclosed rings, same contract as structure_ring.
+            assert polygon.area == pytest.approx(400.0, abs=5.0)
+        for part in parts:
+            assert part[0] != part[-1]
+        # The GROUND BETWEEN the two buildings is not footprint — the
+        # whole point of the ruling.
+        from shapely.geometry import Point
+        gap_centre = Point(30.0, 10.0)   # x = 30 m, z = 10 m (south)
+        assert not any(polygon.contains(gap_centre)
+                       for polygon in polygons)
+        # ... and the hull DOES swallow it, which is the defect.
+        assert Polygon(ring_to_local_metres(hull_ring)).contains(gap_centre)
+        # Deterministic order: largest first (equal here, so the tie
+        # breaks on bounds — never on GEOS ordering).
+        assert [round(polygon.area) for polygon in polygons] == [400, 400]
+
+    def test_degenerate_geometry_falls_back_to_the_hull(
+            self, fake_projection):
+        # Vertical-only geometry projects to zero plan area; a
+        # qualifying structure must never lose its pad entirely.
+        geometry = make_geometry(VERTICAL_ONLY_VERTICES,
+                                 VERTICAL_ONLY_TRIANGLES)
+        structure = make_structure({"a.obj": VERTICAL_ONLY_TRIANGLES},
+                                   {"a.obj": 0.0})
+        placements = [make_placement("a.obj")]
+        hull_ring = object_footprints.structure_ring(
+            structure, {"a.obj": geometry}, placements)
+        assert hull_ring is not None
+        parts, source = object_footprints.structure_footprint_parts(
+            structure, {"a.obj": geometry}, placements, hull_ring)
+        assert source == "hull_fallback"
+        assert parts == [list(hull_ring)]
+
+    def test_sub_square_metre_residue_is_not_a_part(self, fake_projection):
+        # A 20 x 20 building plus a 0.5 x 0.5 m decal quad 40 m away:
+        # the decal is union residue, not a building.
+        vertices = list(TWO_BOX_VERTICES[:8]) + [
+            (60.0, 0.0, 0.0), (60.5, 0.0, 0.0),
+            (60.5, 0.0, 0.5), (60.0, 0.0, 0.5),
+        ]
+        triangles = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7),
+                     (8, 9, 10), (8, 10, 11)]
+        geometry = make_geometry(vertices, triangles)
+        structure = make_structure({"a.obj": triangles}, {"a.obj": 0.0})
+        placements = [make_placement("a.obj")]
+        hull_ring = object_footprints.structure_ring(
+            structure, {"a.obj": geometry}, placements)
+        parts, source = object_footprints.structure_footprint_parts(
+            structure, {"a.obj": geometry}, placements, hull_ring)
+        assert source == "structure"
+        assert len(parts) == 1
+        assert Polygon(ring_to_local_metres(parts[0])).area == (
+            pytest.approx(400.0, abs=5.0))
+
+
 # ── tier (b): read_dsf_object_buildings plumbing ─────────────────────
 
 def _write_fake_dsf(tmp_path, body):
@@ -1155,6 +1272,40 @@ _REAL_BOX_OBJ = "\n".join([
 
 _REAL_SMALL_BOX_OBJ = _REAL_BOX_OBJ.replace("20.0", "5.0")
 
+# ONE resource drawing TWO separate 40 x 40 buildings 40 m apart — the
+# HECA building79 shape in miniature.  Convex hull 120 x 40 = 4800 m2
+# (both buildings AND the ground between them); own geometry 2 x 1600.
+_REAL_TWO_BOX_OBJ = "\n".join([
+    "A",
+    "800",
+    "OBJ",
+    "",
+    "POINT_COUNTS 16 0 0 24",
+    "VT -60.0 0.0 -20.0 0 1 0 0 0",
+    "VT -20.0 0.0 -20.0 0 1 0 0 0",
+    "VT -20.0 0.0 20.0 0 1 0 0 0",
+    "VT -60.0 0.0 20.0 0 1 0 0 0",
+    "VT -60.0 3.0 -20.0 0 1 0 0 0",
+    "VT -20.0 3.0 -20.0 0 1 0 0 0",
+    "VT -20.0 3.0 20.0 0 1 0 0 0",
+    "VT -60.0 3.0 20.0 0 1 0 0 0",
+    "VT 20.0 0.0 -20.0 0 1 0 0 0",
+    "VT 60.0 0.0 -20.0 0 1 0 0 0",
+    "VT 60.0 0.0 20.0 0 1 0 0 0",
+    "VT 20.0 0.0 20.0 0 1 0 0 0",
+    "VT 20.0 3.0 -20.0 0 1 0 0 0",
+    "VT 60.0 3.0 -20.0 0 1 0 0 0",
+    "VT 60.0 3.0 20.0 0 1 0 0 0",
+    "VT 20.0 3.0 20.0 0 1 0 0 0",
+    "IDX10 0 1 2 0 2 3 4 5 6 4",
+    "IDX10 6 7 8 9 10 8 10 11 12 13",
+    "IDX 14",
+    "IDX 12",
+    "IDX 14",
+    "IDX 15",
+    "TRIS 0 24",
+]) + "\n"
+
 
 @pytest.mark.skipif(
     not _obj8_reader_is_implemented(),
@@ -1225,6 +1376,49 @@ class TestReadDsfObjectBuildingsRealReader:
                               * METRES_PER_DEGREE_LATITUDE
                               * metres_per_degree_longitude)
         assert area_square_metres == pytest.approx(1600.0, rel=0.02)
+
+    def test_one_structure_two_buildings_emits_two_rings(
+            self, tmp_path, monkeypatch, partition_fakes):
+        # Owner ruling 2026-08-30e end to end: ONE structure whose own
+        # geometry describes two separate buildings emits TWO rings,
+        # and the ground between them is in neither.  ``partition_fakes``
+        # makes the whole resource one structure on purpose — that is
+        # the HECA case, where a material-split page welds a complex
+        # into a single structure the contact graph cannot split.
+        monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+        body = "\n".join([
+            "OBJECT_DEF Terminals/Hangar/two_box.obj",
+            "OBJECT 0 -80.930000 35.210000 0.000000",
+        ]) + "\n"
+        dsf_path, pack_root = _write_fake_dsf(tmp_path, body)
+        physical = os.path.join(pack_root, "Terminals", "Hangar",
+                                "two_box.obj")
+        os.makedirs(os.path.dirname(physical), exist_ok=True)
+        with open(physical, "w") as handle:
+            handle.write(_REAL_TWO_BOX_OBJ)
+
+        buildings = D.read_dsf_object_buildings(dsf_path,
+                                                xplane_root=None)
+        assert len(buildings) == 2
+        metres_per_degree_longitude = (
+            METRES_PER_DEGREE_LATITUDE
+            * math.cos(math.radians(35.210)))
+
+        def _area(ring):
+            return (Polygon(ring).area
+                    * METRES_PER_DEGREE_LATITUDE
+                    * metres_per_degree_longitude)
+
+        for outer_ring, holes, role in buildings:
+            assert holes == []
+            assert role == D.OBJECT_BUILDING_UNVOUCHED_ROLE
+            assert _area(outer_ring) == pytest.approx(1600.0, rel=0.02)
+        # The 40 m of ground between the two buildings is footprint of
+        # neither — under the convex hull it was one 4800 m2 pad.
+        from shapely.geometry import Point
+        centre = Point(-80.930, 35.210)
+        assert not any(Polygon(ring).contains(centre)
+                       for ring, _holes, _role in buildings)
 
     def test_pack_relative_resolution_beats_library(
             self, tmp_path, monkeypatch, partition_fakes):

@@ -1790,3 +1790,5 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * Process: the round-1 lane's 4-builds-vs-cap-2 overrun is recorded (one build lost to the sloped-rect defect, one invalidated by the 2026-08-30d amendment mid-flight); round 2 is granted ONE closing build.
 
 * **2026-08-30g addendum:** HECA item-3 road classification DEFERRED TO SIM READ (owner): the identity trigger has no instance (measured, 0 of 2,740 service ways; the 3 mm gap is real geometry), the site sits at lawful height via the band. A containment-trigger widening is NOT ruled; revisit only if the sim read demands a road there.
+
+* **2026-08-30h:** building79 structure-walls lane MERGED (owner sign-off): 8 per-building pads replace the 100,887 m² phantom; census +9 with the attributed airside→groundside shift (−556/+561) and the 7,138-node pad-population re-solve accepted (LEMD-rim-precedent class). Duplicate-ref cosmetic (2 of 175 pads, MultiPolygon groups): owner ruled FIX NOW with its own build.

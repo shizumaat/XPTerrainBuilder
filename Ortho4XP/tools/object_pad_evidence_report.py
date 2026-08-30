@@ -186,22 +186,36 @@ def collect(dsf_path: str, pack_root: str, xplane_root: str | None,
                      "base_area_degrees2": area}
                     for resource, extent, area in record.get("members", ())],
                 "resources": record.get("resources", []),
+                # Structure-walls footprints (2026-08-30e): how many
+                # disjoint footprint parts this structure contributed,
+                # and whether they came from its own geometry or from
+                # the convex-hull fallback.
+                "parts": record.get("parts"),
+                "parts_source": record.get("parts_source"),
                 "osm_evidence": None,
             }
             rows.append(row)
         # The OSM half, joined on the RING the reader emitted (the same
-        # geometry the pipeline's gate tests).
+        # geometry the pipeline's gate tests).  Since the structure-walls
+        # ruling (2026-08-30e) ONE admitted structure emits ``parts``
+        # consecutive rings — its disjoint footprint parts — so the walk
+        # consumes that many slots per row; a row is OSM-vouched when ANY
+        # of its parts is.  (``parts`` is absent only for a record from a
+        # reader older than that ruling, where it is 1 by construction.)
         ring_by_index = {}
         emitted = 0
         for record, row in zip(evidence, rows):
-            if record.get("verdict") == "ring":
+            if record.get("verdict") != "ring":
+                continue
+            for _ in range(int(record.get("parts") or 1)):
                 ring_by_index[emitted] = row
                 emitted += 1
         for index, (ring, _holes, _role) in enumerate(rings):
             row = ring_by_index.get(index)
             if row is None or osm_predicate is None:
                 continue
-            row["osm_evidence"] = bool(osm_predicate(ring))
+            row["osm_evidence"] = bool(
+                row["osm_evidence"]) or bool(osm_predicate(ring))
     build_mod.require_no_swallowed_write_block(guard.blocked, prog=prog)
     build_mod.report_guard_churn(guard, prog)
 
@@ -274,6 +288,17 @@ def render(record: dict, heights: list[float], coverages: list[float],
           f"footprints: {record['osm_building_footprints']}")
     print(f"structures considered {record['structures']}   rings emitted "
           f"{record['rings_emitted']}")
+    # Structure-walls footprints (2026-08-30e): one admitted structure
+    # contributes one ring PER DISJOINT PART of its own solid geometry,
+    # so ``rings emitted`` no longer equals the admitted-structure count.
+    _split = [r for r in emitted if (r.get("parts") or 1) > 1]
+    _fell_back = [r for r in emitted
+                  if r.get("parts_source") == "hull_fallback"]
+    if any(r.get("parts_source") for r in emitted):
+        print(f"footprint parts: {len(emitted)} admitted structure(s) → "
+              f"{sum((r.get('parts') or 1) for r in emitted)} ring(s); "
+              f"{len(_split)} split into disjoint parts, "
+              f"{len(_fell_back)} fell back to the convex hull")
     print(f"armed {json.dumps(record['armed'])}")
     if record.get("rings_sha256"):
         print(f"rings_sha256 {record['rings_sha256']}")

@@ -1192,7 +1192,13 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # v6: the SEGMENTED-LINEAR-FEATURE demotion (owner item 3, LEMD) runs
 # inside this computation, so a v5 sidecar's rings still carry the
 # pre-demotion roles — LEMD's seven building1..building7 pads among them.
-_OBJECT_FOOTPRINT_CACHE_VERSION = 6
+# v7: STRUCTURE-WALLS FOOTPRINTS (owner 2026-08-30e, HECA building79) —
+# a qualifying structure now contributes the plan silhouette of its own
+# solid geometry, one ring per disjoint part, instead of its convex
+# hull.  A v6 sidecar holds the hulls (building79's five buildings and
+# the apron between them as ONE 100,886 m² pad), so it must not be
+# served here.
+_OBJECT_FOOTPRINT_CACHE_VERSION = 7
 
 # Ring roles for the OBJ8 structure footprint reader (R18-2).  The role
 # carries the VERTICAL half of the building-evidence verdict; the
@@ -1452,13 +1458,23 @@ def read_dsf_object_buildings(
     This reader walks the terrain-draped ``OBJECT`` placements, resolves
     and parses each ``.obj`` resource, partitions the solid geometry
     into structures (the SAME contact-graph partition Phase 2 bakes
-    against — amendment A1), and emits one footprint ring per structure.
+    against — amendment A1), and emits the footprint of every structure
+    that passes ``object_footprints.structure_ring``'s evidence gates.
+
+    ONE STRUCTURE MAY EMIT SEVERAL RINGS (owner ruling 2026-08-30e): a
+    qualifying structure contributes the plan silhouette of its OWN
+    solid geometry, one ring per disjoint part
+    (``object_footprints.structure_footprint_parts``), because a
+    material-split texture page routinely draws five separate buildings
+    and their convex hull is five buildings plus the apron between them
+    (HECA building79).  Degenerate geometry falls back to the hull, per
+    object, reported.
 
     Returns the same building-tuple shape as ``read_dsf_buildings``:
     ``(outer_ring, holes, role)`` with ``role = "object"`` and
-    ``holes = []`` (the hull has none; the union ring drops interiors in
-    v1).  Rings are unclosed, in ``(longitude, latitude)``.  Returns
-    ``[]`` on any failure to load the DSF text.
+    ``holes = []`` (the silhouette parts drop interiors in v1, as the
+    union ring always has).  Rings are unclosed, in ``(longitude,
+    latitude)``.  Returns ``[]`` on any failure to load the DSF text.
 
     Multi-placement definitions are ACCEPTED here — N placements of one
     ``.obj`` are N buildings, each with its own footprint (invariant
@@ -1834,6 +1850,10 @@ def _compute_dsf_object_buildings(
     # loop records each ring's member resources and its slot in ``out``.
     _array_candidates: list = []
     _array_slot: list = []
+    # Structure-walls footprints (owner ruling 2026-08-30e): count of
+    # structures that fell back to their hull, for the one-line report.
+    _fallback_structures = 0
+    _split_structures = 0
     for pool in pools:
         pool_geometry_by_resource = {
             resource: geometry_by_resource[resource]
@@ -1848,11 +1868,36 @@ def _compute_dsf_object_buildings(
             ring = _FOOTPRINTS.structure_ring(
                 structure, pool_geometry_by_resource, pool.placements,
                 evidence_out=evidence)
-            if evidence_out is not None:
-                evidence["resources"] = sorted(
-                    structure.triangles_by_resource)
-                evidence_out.append(evidence)
             if ring is not None and len(ring) >= 3:
+                # ── ONE BUILDING, ONE PAD (owner 2026-08-30e) ────────
+                # ``structure_ring`` decided WHO QUALIFIES on the
+                # structure's convex hull — every evidence gate above is
+                # untouched.  What the qualifying structure CONTRIBUTES
+                # is the plan silhouette of its own solid geometry, one
+                # ring per disjoint part, so a texture page drawing five
+                # buildings emits five footprints and the apron between
+                # them stays pavement (HECA building79).  Degenerate
+                # geometry falls back to the hull — never zero footprint
+                # for a structure that has already qualified.
+                parts, parts_source = _FOOTPRINTS.structure_footprint_parts(
+                    structure, pool_geometry_by_resource, pool.placements,
+                    ring)
+                evidence["parts"] = len(parts)
+                evidence["parts_source"] = parts_source
+                if parts_source == "hull_fallback":
+                    _fallback_structures += 1
+                    _c = evidence.get("centroid")
+                    UI.vprint(
+                        2,
+                        "  [object-footprints] structure at "
+                        + (f"{_c[0]:.6f},{_c[1]:.6f} " if _c else "")
+                        + "has no usable solid-geometry footprint "
+                        "(degenerate union) — FELL BACK to its convex "
+                        f"hull ({evidence.get('hull_area_m2') or 0.0:.0f}"
+                        " m2); resources "
+                        f"{sorted(structure.triangles_by_resource)}.")
+                elif len(parts) > 1:
+                    _split_structures += 1
                 # R18-2: the ring's ROLE carries the vertical half of the
                 # building-evidence verdict to the pipeline, which OR-s
                 # it with the OSM half and closes the gate there.  The
@@ -1861,14 +1906,24 @@ def _compute_dsf_object_buildings(
                 # reader — the pipeline's admission loop and
                 # ``O4_Airport_Elevation_Insets``'s inset-mask footprint
                 # source, both of which discard the role — is untouched.
-                out.append((
-                    ring, [],
-                    OBJECT_BUILDING_ROLE
-                    if evidence.get("vertical_evidence")
-                    else OBJECT_BUILDING_UNVOUCHED_ROLE))
+                role = (OBJECT_BUILDING_ROLE
+                        if evidence.get("vertical_evidence")
+                        else OBJECT_BUILDING_UNVOUCHED_ROLE)
+                slots = []
+                for part in parts:
+                    out.append((part, [], role))
+                    slots.append(len(out) - 1)
+                # The segmented-linear-array predicate reads ONE ring per
+                # structure — the hull, as it always has — so splitting a
+                # structure into parts cannot change its verdict; the
+                # verdict then applies to every slot that structure owns.
                 _array_candidates.append(
                     (tuple(structure.triangles_by_resource), ring))
-                _array_slot.append(len(out) - 1)
+                _array_slot.append(slots)
+            if evidence_out is not None:
+                evidence["resources"] = sorted(
+                    structure.triangles_by_resource)
+                evidence_out.append(evidence)
 
     # ── A SEGMENTED LINEAR FEATURE IS NOT N BUILDINGS ────────────────
     # (owner item 3, LEMD sim read of 1.0.269; inside R18-2's evidence
@@ -1886,11 +1941,14 @@ def _compute_dsf_object_buildings(
         _demote = _FOOTPRINTS.segmented_linear_array_indices(
             _array_candidates)
         for _pos in sorted(_demote):
-            _slot = _array_slot[_pos]
-            _ring, _holes, _role = out[_slot]
-            if _role == OBJECT_BUILDING_UNVOUCHED_ROLE:
-                continue
-            out[_slot] = (_ring, _holes, OBJECT_BUILDING_UNVOUCHED_ROLE)
+            # One structure owns one or more emitted slots (its footprint
+            # parts); the demotion is the STRUCTURE's verdict, so it
+            # applies to every slot the structure owns.
+            for _slot in _array_slot[_pos]:
+                _ring, _holes, _role = out[_slot]
+                if _role == OBJECT_BUILDING_UNVOUCHED_ROLE:
+                    continue
+                out[_slot] = (_ring, _holes, OBJECT_BUILDING_UNVOUCHED_ROLE)
         if _demote:
             _resources = sorted({
                 _array_candidates[_pos][0][0]
@@ -1904,6 +1962,16 @@ def _compute_dsf_object_buildings(
                 f"role, so only an OSM footprint can still vouch them "
                 f"(R18-2's OSM half).",
             )
+
+    if _split_structures or _fallback_structures:
+        UI.vprint(
+            1,
+            f"   [dsf-object] STRUCTURE FOOTPRINTS: {_split_structures} "
+            "structure(s) contributed more than one footprint part (one "
+            "pad per disjoint building, the ground between them is not "
+            f"footprint); {_fallback_structures} fell back to the convex "
+            "hull on degenerate geometry (-v2 names each).",
+        )
 
     # Persist the finished ring set for the next build of this unchanged
     # pack.  A write failure must never break a build (out of space, a

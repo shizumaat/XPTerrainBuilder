@@ -311,13 +311,10 @@ def _road_network_sidecar(dsf_path: str) -> tuple[str | None, str | None]:
     if cache_directory is None:
         return None, None
     # Legacy cleanup: exactly the old filename at the pack root, every
-    # OSError swallowed.  Attempt the remove only when the file is
-    # present: the install write guard refuses on PATH, so a best-effort
-    # remove of a long-gone file would hard-block guarded reads.
-    _legacy = os.path.join(pack_root, _ROAD_NETWORK_LEGACY_SIDECAR_NAME)
+    # OSError swallowed.
     try:
-        if os.path.lexists(_legacy):
-            os.remove(_legacy)
+        os.remove(os.path.join(pack_root,
+                               _ROAD_NETWORK_LEGACY_SIDECAR_NAME))
     except OSError:
         pass
     try:
@@ -635,13 +632,10 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
     if cache_directory is None:
         return None, None
     # Legacy cleanup: exactly the old filename at the pack root, every
-    # OSError swallowed.  Attempt the remove only when the file is
-    # present: the install write guard refuses on PATH, so a best-effort
-    # remove of a long-gone file would hard-block guarded reads.
-    _legacy = os.path.join(pack_root, _CLASSIFICATION_LEGACY_SIDECAR_NAME)
+    # OSError swallowed.
     try:
-        if os.path.lexists(_legacy):
-            os.remove(_legacy)
+        os.remove(os.path.join(pack_root,
+                               _CLASSIFICATION_LEGACY_SIDECAR_NAME))
     except OSError:
         pass
     import hashlib

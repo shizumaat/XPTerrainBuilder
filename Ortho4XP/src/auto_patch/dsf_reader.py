@@ -1276,14 +1276,10 @@ def _object_footprint_sidecar(
         return None, None
     # Legacy cleanup (the point of the ruling): the old in-pack sidecar
     # would keep cluttering the pack — remove exactly that one filename
-    # at the pack root, swallowing every OSError.  Attempt the remove
-    # only when the file is present: the install write guard refuses on
-    # PATH, so an unconditional best-effort remove of a long-gone file
-    # would hard-block every guarded read of a pack under the install.
-    _legacy = os.path.join(pack_root, _OBJECT_FOOTPRINT_LEGACY_SIDECAR_NAME)
+    # at the pack root, swallowing every OSError.
     try:
-        if os.path.lexists(_legacy):
-            os.remove(_legacy)
+        os.remove(os.path.join(pack_root,
+                               _OBJECT_FOOTPRINT_LEGACY_SIDECAR_NAME))
     except OSError:
         pass
     import hashlib

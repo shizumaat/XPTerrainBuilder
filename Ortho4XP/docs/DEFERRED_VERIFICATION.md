@@ -5029,3 +5029,35 @@ instead of its convex hull (`object_footprints.structure_footprint_parts`,
   `test_object_anchor.py::test_kclt_eight_bake_pool_end_to_end`, both
   reproduced on the clean merged-main tree at 677eb5d3 before this
   lane's first edit.
+
+### 2026-08-30 — duplicate pad refs FIXED (owner ruled fix-now)
+
+The "2 of 175 building ways share a ref" residual reported above is
+CLOSED, not deferred: `layout.to_osm` now de-collides a split pad's
+identifier at emission (`building{N}#k`, commit on `lane/hecab79`).
+Proved on a MATCHED control at merged main (control `feada2bf7fbf`,
+arm `1ed287b674b8`): 175 building ways / 175 distinct refs, and the two
+patches differ in exactly three line pairs — the two `ref` tags and the
+per-build `<osm>` provenance header; the axes sidecar differs only in
+its `band_excess` provenance string.  Census A/B is +0 in every family.
+
+Two notes the fix leaves standing:
+
+* **The producer is still unattributed.**  The split happens in the
+  ELEVATION phase — the geometry-only arm emits 176 pads with 176
+  distinct refs, so `pipeline.py`'s pad list is not the source and a
+  later pass carries one pad's ref onto each piece it cuts.  The
+  emission-level fix is producer-agnostic by design (whichever pass
+  splits the shape, the emitted way is unique), so which pass it is was
+  not chased.  Wanting to know remains reasonable; it costs a build.
+* **The artifact ledger refused to STORE the matched control**
+  (`CONTAMINATED-KEY: tree hash keyed 2f56b77892b5, now b1ec5ef8e232`).
+  The cause is benign and worth knowing: the only commit that landed on
+  main during the build was `5b552ae1`, a two-line edit to
+  `docs/RULINGS.md`.  `run_with_ledger.code_tree_hash` seeds its index
+  with `git read-tree HEAD` — the WHOLE tree — and then `git add -A`
+  only over `CODE_PATHS`, so `git write-tree` hashes `docs/` too and any
+  docs commit moves the "code" tree hash.  No engine code changed during
+  the build (`git diff dd8d0b49 5b552ae1 -- src tests tools` is empty),
+  so the control is sound; it simply earned no ledger entry, and the
+  next lane needing a merged-main HECA base arm will rebuild it.

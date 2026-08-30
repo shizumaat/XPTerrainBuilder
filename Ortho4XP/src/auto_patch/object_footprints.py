@@ -198,6 +198,159 @@ def has_vertical_structure_evidence(
     return coverage >= DSF_OBJECT_EVIDENCE_MIN_COVERAGE, coverage
 
 
+# ── A SEGMENTED LINEAR FEATURE IS NOT N BUILDINGS ───────────────────
+# (owner item 3, LEMD sim read of 1.0.269; inside the R18-2 EVIDENCE
+# GATE ruling, RULINGS 2026-08-11b — "building-pad seeds require
+# BUILDING EVIDENCE ... the two pending default-OFF defences get ruled
+# by measurement inside the same round".)
+#
+# THE MEASURED CASE.  LEMD ``objects/LEMD_OBJ-Airport_Munoza-LEMD80.obj``
+# is ONE placement (shared-datum authoring) whose solid geometry lays a
+# row of SEVEN congruent 23 x 21 m modules on a straight line at a 25.7 m
+# pitch — a viaduct/gallery, drawn as one texture page.  Each module
+# clears the vertical-structure test on its own (tallest member 6.96-7.01
+# m against the 6.0 m floor) so all seven were stamped ``object`` and
+# seeded flat building pads at 570.78-573.08 m, cutting across taxiway
+# junction shapeID 137 (coincident to 0.00 m).
+#
+# WHY AT THE GROUP, NOT THE RING.  Nothing about ONE module says "not a
+# building": area 338 m², hull fill 0.63, 7 m tall.  The signature is the
+# ARRAY — congruent rings, evenly spaced, colinear, all from one solo
+# member resource.  Measured over all 21 multi-ring groups in the LEMD
+# pack, exactly ONE passes the predicate below (the seven) and zero
+# genuine buildings do; the next-closest groups fail on spacing CV
+# (1.65 / 1.69) or colinearity (155-780 m residual).
+#
+# WHY THE TWO REFUTED DEFENCES ARE NOT USED (the measurement the ruling
+# asked for, recorded here rather than kept as dead default-OFF code):
+#   * the RESOURCE-LEVEL connector prefilter returns True for LEMD80
+#     (span 3508.8 m, hull fill 0.0012) AND for every genuine building
+#     resource tested (Terminal4 661.6 m/0.19, Cargo 1211.5 m/0.011,
+#     OldTerminal 2865.6 m/0.0069) — an FS2XPlane pack splits by TEXTURE
+#     PAGE, so one .obj spans the whole field whatever it draws.
+#   * the STRUCTURE-SPAN gate at 300/500/750 m catches 0 of the seven
+#     (their span is 25.2 m) and 2 genuine terminal structures.
+# Neither separates this class; the array signature does.
+#
+# WHAT THE VERDICT DOES.  It demotes the rings to the UNVOUCHED role —
+# it does not drop them.  The pipeline's OSM half of R18-2 still runs,
+# so a real row of identical hangars that IS mapped in OSM keeps its
+# pads; at LEMD all seven carry ``osm_evidence=False`` and every pad,
+# with the grading it imposed, disappears.
+
+#: Fewest members an array must have before the signature means
+#: anything.  Three colinear congruent rings happen; four at an even
+#: pitch do not.
+SEGMENTED_ARRAY_MIN_MEMBERS = 4
+#: Coefficient of variation of member FOOTPRINT AREA.  The measured
+#: array is 0.00002 (one module stamped N times); the loosest genuine
+#: group that is otherwise array-like is 0.98.
+SEGMENTED_ARRAY_MAX_AREA_CV = 0.01
+#: Coefficient of variation of the centre-to-centre SPACING along the
+#: chain.  Measured 0.011; the two congruent-but-clustered groups that
+#: share the pack are 1.65 and 1.69.
+SEGMENTED_ARRAY_MAX_SPACING_CV = 0.15
+#: Colinearity: the worst centroid offset from the chain's own
+#: end-to-end line, in metres OR as a fraction of the chain length,
+#: whichever is the more permissive.  Measured 0.78 m over 154.1 m.
+SEGMENTED_ARRAY_MAX_OFFSET_M = 2.0
+SEGMENTED_ARRAY_MAX_OFFSET_FRACTION = 0.02
+#: The chain must be LINEAR: at least this many mean member widths long,
+#: so a 2x2 block of identical sheds is not an array.  Measured 7.3x.
+SEGMENTED_ARRAY_MIN_LENGTH_IN_WIDTHS = 4.0
+
+
+def _mean_and_cv(values) -> tuple[float, float]:
+    """``(mean, coefficient of variation)``; CV is ``inf`` at mean 0."""
+    values = [float(v) for v in values]
+    if not values:
+        return 0.0, float("inf")
+    mean = sum(values) / len(values)
+    if mean <= 0.0:
+        return mean, float("inf")
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    return mean, math.sqrt(variance) / mean
+
+
+def segmented_linear_array_indices(candidates) -> set:
+    """Indices of ``candidates`` that belong to a SEGMENTED LINEAR
+    FEATURE — a repeated-congruent-colinear array of rings drawn by one
+    solo member resource, which is one object and not N buildings.
+
+    ``candidates`` is ``[(resources, ring_lonlat), ...]`` where
+    ``resources`` is the structure's member-resource collection and
+    ``ring_lonlat`` its footprint ring as ``[(lon, lat), ...]``.  Only
+    SOLO-member structures group (a fused multi-resource structure is
+    not a stamped module), and only structures sharing the SAME solo
+    resource group together.
+
+    Pure and deterministic: geometry in, indices out.  Returns an empty
+    set for anything that does not clear every constant above.
+    """
+    groups: dict = {}
+    for index, (resources, ring) in enumerate(candidates):
+        members = tuple(sorted(resources or ()))
+        if len(members) != 1 or ring is None or len(ring) < 3:
+            continue
+        try:
+            polygon = Polygon(ring)
+        except (ValueError, _GEOS_EXCEPTION):             # pragma: no cover
+            continue
+        if polygon.is_empty or not polygon.is_valid or polygon.area <= 0.0:
+            continue
+        groups.setdefault(members[0], []).append((index, polygon))
+
+    flagged: set = set()
+    for _resource, members in groups.items():
+        if len(members) < SEGMENTED_ARRAY_MIN_MEMBERS:
+            continue
+        areas = [_footprint_area_square_metres(p) for _i, p in members]
+        _area_mean, area_cv = _mean_and_cv(areas)
+        if area_cv > SEGMENTED_ARRAY_MAX_AREA_CV:
+            continue
+        # Centroids in local metres, at the group's own latitude.
+        latitude = sum(p.centroid.y for _i, p in members) / len(members)
+        metres_per_degree_longitude = (
+            obj8_reader.METRES_PER_DEGREE_LATITUDE
+            * math.cos(math.radians(latitude)))
+        points = [(p.centroid.x * metres_per_degree_longitude,
+                   p.centroid.y * obj8_reader.METRES_PER_DEGREE_LATITUDE)
+                  for _i, p in members]
+        # Order along the chain's dominant axis, then measure it.
+        x_spread = max(x for x, _y in points) - min(x for x, _y in points)
+        y_spread = max(y for _x, y in points) - min(y for _x, y in points)
+        points.sort(key=(lambda pt: pt[0]) if x_spread >= y_spread
+                    else (lambda pt: pt[1]))
+        first, last = points[0], points[-1]
+        chain_length = math.hypot(last[0] - first[0], last[1] - first[1])
+        if chain_length <= 0.0:
+            continue
+        spacings = [math.hypot(b[0] - a[0], b[1] - a[1])
+                    for a, b in zip(points, points[1:])]
+        _spacing_mean, spacing_cv = _mean_and_cv(spacings)
+        if spacing_cv > SEGMENTED_ARRAY_MAX_SPACING_CV:
+            continue
+        ux = (last[0] - first[0]) / chain_length
+        uy = (last[1] - first[1]) / chain_length
+        worst_offset = max(
+            abs((pt[0] - first[0]) * uy - (pt[1] - first[1]) * ux)
+            for pt in points)
+        if worst_offset > max(
+                SEGMENTED_ARRAY_MAX_OFFSET_M,
+                SEGMENTED_ARRAY_MAX_OFFSET_FRACTION * chain_length):
+            continue
+        widths = [min(_footprint_span_metres(p),
+                      _footprint_area_square_metres(p)
+                      / max(_footprint_span_metres(p), 1e-9))
+                  for _i, p in members]
+        width_mean = sum(widths) / len(widths)
+        if width_mean <= 0.0 or chain_length < (
+                SEGMENTED_ARRAY_MIN_LENGTH_IN_WIDTHS * width_mean):
+            continue
+        flagged.update(i for i, _p in members)
+    return flagged
+
+
 #: Tokens that NAME a resource a building.  Matched on the resource
 #: BASENAME, or anywhere inside a stock-library virtual path — the same
 #: "basename only, so a directory cannot false-vouch" discipline

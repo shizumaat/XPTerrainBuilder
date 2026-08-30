@@ -1189,7 +1189,10 @@ def airport_mod_cache_dir(pack_root: str) -> str | None:
 # v5: R18-2 building evidence — the ring ROLE now carries the vertical
 # evidence verdict, so a v4 sidecar's rings are all stamped "object"
 # and would vouch every phantom pad they hold.
-_OBJECT_FOOTPRINT_CACHE_VERSION = 5
+# v6: the SEGMENTED-LINEAR-FEATURE demotion (owner item 3, LEMD) runs
+# inside this computation, so a v5 sidecar's rings still carry the
+# pre-demotion roles — LEMD's seven building1..building7 pads among them.
+_OBJECT_FOOTPRINT_CACHE_VERSION = 6
 
 # Ring roles for the OBJ8 structure footprint reader (R18-2).  The role
 # carries the VERTICAL half of the building-evidence verdict; the
@@ -1826,6 +1829,11 @@ def _compute_dsf_object_buildings(
     out: list[tuple[list[tuple[float, float]],
                     list[list[tuple[float, float]]],
                     str]] = []
+    # The segmented-linear-array pass below needs the WHOLE pack's rings
+    # (the signature is the array, not any one ring), so the per-ring
+    # loop records each ring's member resources and its slot in ``out``.
+    _array_candidates: list = []
+    _array_slot: list = []
     for pool in pools:
         pool_geometry_by_resource = {
             resource: geometry_by_resource[resource]
@@ -1858,6 +1866,44 @@ def _compute_dsf_object_buildings(
                     OBJECT_BUILDING_ROLE
                     if evidence.get("vertical_evidence")
                     else OBJECT_BUILDING_UNVOUCHED_ROLE))
+                _array_candidates.append(
+                    (tuple(structure.triangles_by_resource), ring))
+                _array_slot.append(len(out) - 1)
+
+    # ── A SEGMENTED LINEAR FEATURE IS NOT N BUILDINGS ────────────────
+    # (owner item 3, LEMD sim read of 1.0.269; inside R18-2's evidence
+    # gate, RULINGS 2026-08-11b.)  A repeated-congruent-colinear array of
+    # rings drawn by ONE solo member resource is one object — a viaduct
+    # or gallery drawn as a texture page — however building-tall each
+    # module is on its own.  The verdict is a DEMOTION to the unvouched
+    # role, never a drop, so the pipeline's OSM half of the same ruling
+    # still decides: a real row of identical hangars that IS mapped
+    # keeps its pads.  The predicate and its measured constants live in
+    # ``object_footprints.segmented_linear_array_indices``; this runs
+    # inside the CACHED computation, so the verdict rides the pack
+    # sidecar (``_OBJECT_FOOTPRINT_CACHE_VERSION`` carries it).
+    if _array_candidates:
+        _demote = _FOOTPRINTS.segmented_linear_array_indices(
+            _array_candidates)
+        for _pos in sorted(_demote):
+            _slot = _array_slot[_pos]
+            _ring, _holes, _role = out[_slot]
+            if _role == OBJECT_BUILDING_UNVOUCHED_ROLE:
+                continue
+            out[_slot] = (_ring, _holes, OBJECT_BUILDING_UNVOUCHED_ROLE)
+        if _demote:
+            _resources = sorted({
+                _array_candidates[_pos][0][0]
+                for _pos in _demote if _array_candidates[_pos][0]})
+            UI.vprint(
+                1,
+                f"   [dsf-object] SEGMENTED LINEAR FEATURE: "
+                f"{len(_demote)} congruent, evenly-spaced, colinear "
+                f"ring(s) from {_resources} are ONE object, not "
+                f"{len(_demote)} buildings — demoted to the unvouched "
+                f"role, so only an OSM footprint can still vouch them "
+                f"(R18-2's OSM half).",
+            )
 
     # Persist the finished ring set for the next build of this unchanged
     # pack.  A write failure must never break a build (out of space, a

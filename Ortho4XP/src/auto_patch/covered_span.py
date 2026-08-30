@@ -155,11 +155,17 @@ def suppress_synthesised_road_pavement(layout, icao: str = "") -> int:
         mprep = prep(mask)
     except Exception:                                    # pragma: no cover
         mprep = None
+    from .road_bridge_deck import is_deck_shape as _is_deck
     kept, n = [], 0
     for s in layout.shapes:
         poly = getattr(s, "polygon", None)
         if (poly is None or poly.is_empty
-                or not getattr(s, "synthesised_road_corridor", False)):
+                or not getattr(s, "synthesised_road_corridor", False)
+                # §3 (RULINGS 2026-08-30c): a ROAD BRIDGE DECK is never
+                # suppressed here.  The mask kills road pavement standing
+                # ON a bore's roof; a deck is the road carried OVER the
+                # structure on its own span, which is the opposite case.
+                or _is_deck(s)):
             kept.append(s)
             continue
         try:

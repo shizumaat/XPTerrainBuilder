@@ -4104,7 +4104,28 @@ def free_end_targets(layout, svc_nodes, node_pos, anchors, dem_elev,
     targets: dict = {}
     records: list = []
     claimed: set = set()
+    # ── §3 (RULINGS 2026-08-30c): A DECK ABUTMENT IS NOT A TERMINUS ──
+    # "Nor is the deck a corridor terminus: no free-end DEM tie is
+    # minted at either abutment, because the road runs THROUGH."  The
+    # keep-out is the deck corridors themselves, so both abutments and
+    # the span between them are covered by one test.  ``None`` wherever
+    # the law found no deck, which makes this inert everywhere else.
+    from auto_patch.road_bridge_deck import abutment_keep_out as _dko
+    _deck_keep_out = _dko(layout)
+    _n_deck_ends = 0
     for (tx, ty) in ends:
+        if _deck_keep_out is not None:
+            try:
+                from shapely.geometry import Point as _Pt
+                # COVERS, not CONTAINS: an abutment sits exactly ON the
+                # corridor's end cap, and ``contains`` excludes the
+                # boundary — which would leave the tie standing at the
+                # one point §3 exists to protect.
+                if _deck_keep_out.covers(_Pt(tx, ty)):
+                    _n_deck_ends += 1
+                    continue
+            except Exception:                            # pragma: no cover
+                pass
         members = [i for i in svc_nodes
                    if i in node_pos
                    and _m.hypot(node_pos[i][0] - tx,
@@ -4138,6 +4159,12 @@ def free_end_targets(layout, svc_nodes, node_pos, anchors, dem_elev,
                         "target_m": round(float(tgt), 3),
                         "clamped": bool(abs(tgt - de) > 1e-6),
                         "nodes": len(members)})
+    if _n_deck_ends:
+        import O4_UI_Utils as _UI_deck
+        _UI_deck.vprint(1,
+            f"  [bridge-deck] §3: {_n_deck_ends} corridor end(s) inside a "
+            f"road-bridge-deck span take NO free-end DEM tie — the road "
+            f"runs THROUGH a deck, so its abutments are not termini.")
     return targets, records
 
 

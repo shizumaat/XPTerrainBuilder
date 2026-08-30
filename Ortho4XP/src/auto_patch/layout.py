@@ -792,6 +792,16 @@ class BuiltShape:
     # (``dataclasses.replace``), which is what makes the groundside
     # demotion of a rect still recognisable as synthesis.
     synthesised_road_corridor: bool = False
+    # THE ROAD BRIDGE DECK (RULINGS 2026-08-30c §3): the feed way id of
+    # the mapped road bridge this piece IS, or "" for everything else.
+    # A deck is the SECOND exception to R14-2/A-3 beside the classified
+    # hard-deck object bridge: no tunnel-ramp cut, clearance annulus or
+    # covered-span suppression may remove it.  Like
+    # ``synthesised_road_corridor`` the flag RIDES THE SHAPE through
+    # every clip and re-role (``dataclasses.replace``) — a role test
+    # could not tell a deck from the road it is part of, because it IS
+    # that road.
+    road_bridge_deck: str = ""
     # THE FAN-RAMP LAW (owner RULINGS 21f0980): this apron piece IS a
     # declared fan-ramp zone — the ground between two adjacent building
     # frontages, clear of every aircraft-movement surface, which carries
@@ -3765,6 +3775,18 @@ class PavementLayout:
             # terrain 12 m).  Empty list on a build with no free end;
             # ``None`` when no elevations were solved at all.
             "svc_free_ends": getattr(self, "_svc_free_end_records", None),
+            # THE ROAD BRIDGE DECK's own evidence (RULINGS 2026-08-30c
+            # §6 — "refused ... with a named log line and sidecar
+            # evidence").  One row per mapped bridge candidate: its
+            # verdict (candidate / confirmed / unconfirmed / refused),
+            # the §4 numbers (highest emitted surface beneath the span,
+            # the deck value) and the §6 abutment arithmetic (each
+            # side's receiving value, the run available and the run the
+            # road cap requires).  A reader can re-derive the refusal
+            # without the build log.
+            "road_bridge_decks": [
+                dict(_r) for _r in
+                (getattr(self, "_road_bridge_deck_records", None) or [])],
             # SPINE CROWN drop field (user 2026-07-07, part 30): the
             # per-node designed crown drops the solve's writeback
             # applied.  The validator re-centres each pair's budget

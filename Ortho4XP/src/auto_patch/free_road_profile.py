@@ -369,6 +369,31 @@ def solve_free_road_profiles(layout, icao: str = "") -> dict:
     # the one-way weld, by construction rather than by care.
     pins_node: dict = {i: cur[i] for i in frozen if i in cur}
 
+    # ── §5 (RULINGS 2026-08-30c): THE DECK'S VALUE IS A PIN ──────────
+    # "The deck's value is a PIN in the free-road profile solve; the
+    # chain reaches it at SERVICE_ROAD_MAX_GRADE like any other pinned
+    # end."  It joins the Dirichlet set above rather than getting a
+    # mechanism of its own — a deck is a piece of the road, and the
+    # approaches are ordinary approaches.  Only CONFIRMED decks publish
+    # pins (§1), and a refused one publishes none (§6), so this is a
+    # no-op wherever the law did not fire.
+    from .road_bridge_deck import pins_of as _deck_pins_of
+    _deck_pins = _deck_pins_of(layout)
+    out["deck_pinned"] = 0
+    if _deck_pins:
+        for i in range(len(xy)):
+            key = (round(float(xy[i][0]), 3), round(float(xy[i][1]), 3))
+            v = _deck_pins.get(key)
+            if v is None:
+                continue
+            pins_node[i] = float(v)
+            out["deck_pinned"] += 1
+        if out["deck_pinned"]:
+            UI.vprint(1,
+                f"  [bridge-deck] §5: {out['deck_pinned']} deck node(s) "
+                f"pinned in the free-road profile solve; the approaches "
+                f"reach them at the road cap like any other pinned end.")
+
     # ── LAW 2: END-ON BINDING within the road's own half-width ───────
     refusals: list = []
     for i in range(len(xy)):

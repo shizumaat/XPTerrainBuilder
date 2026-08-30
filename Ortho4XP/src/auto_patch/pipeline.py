@@ -3603,6 +3603,19 @@ def build_airport_pavement(icao: str, xplane_root: str,
                     _svc_dup_block = None
             _cn_to_m = _cn_projection(layout.anchor)
             _n_feed_svc = 0
+            # ── §1/§2 (RULINGS 2026-08-30c): THE ROAD BRIDGE DECK ────
+            # Published BEFORE the admission loop, because §2 admits a
+            # deck way on BRIDGE EVIDENCE alone — without the
+            # touching-pavement test below, which is exactly what drops
+            # a span that crosses only the structure it bridges (LEMD
+            # -2192 over the tunnel ramps at 40.4836744,-3.5809643).
+            from . import road_bridge_deck as _deck
+            _deck.publish_candidates(
+                layout,
+                touches_pavement=(
+                    (lambda _w, _line: bool(_cn_pav_prep.intersects(_line)))
+                    if _cn_pav_prep is not None else None))
+            _n_deck_admitted = 0
             if _cn_pav_prep is not None:
                 for _wid, _nrefs, _tags in _net.ways:
                     if not _tags.get("highway"):
@@ -3617,8 +3630,19 @@ def build_airport_pavement(icao: str, xplane_root: str,
                              for _la, _lo in _pts])
                     except _GEOM_EXC:
                         continue
-                    if (_fl.is_empty or _fl.length < 1.0
-                            or not _cn_pav_prep.intersects(_fl)):
+                    if _fl.is_empty or _fl.length < 1.0:
+                        continue
+                    _touches = bool(_cn_pav_prep.intersects(_fl))
+                    _is_deck_way = _deck.is_candidate_way(layout, _wid)
+                    if _is_deck_way:
+                        # §2: bridge evidence admits it; record whether
+                        # today's surface would have kept it, so a §1/§6
+                        # stand-down restores exactly that.
+                        _deck.note_bridge_evidence_only(
+                            layout, _wid, _touches)
+                        if not _touches:
+                            _n_deck_admitted += 1
+                    elif not _touches:
                         continue
                     if _svc_dup_block is not None:
                         try:
@@ -3642,7 +3666,10 @@ def build_airport_pavement(icao: str, xplane_root: str,
                 UI.vprint(1,
                     f"  [pav-builder] {icao}: road-feed service "
                     f"centerlines joined the slice: {_n_feed_svc} "
-                    f"way(s) touching pavement.")
+                    f"way(s) touching pavement"
+                    + (f", {_n_deck_admitted} of them a ROAD BRIDGE DECK "
+                       f"admitted on bridge evidence alone (§2)"
+                       if _n_deck_admitted else "") + ".")
     # ── CORRIDOR COURSES (owner ruling 2026-08-12b, "one corridor = ONE
     # continuous law object end-to-end").  Stashed BEFORE free-road
     # scoping, because scoping is exactly what fragments a corridor into
@@ -4083,6 +4110,15 @@ def build_airport_pavement(icao: str, xplane_root: str,
             layout.shapes.append(BuiltShape(
                 polygon=_jpoly, role=_jrole, ref=_jref,
                 synthesised_road_corridor=True))
+        # §2/§3: mark which of the pieces just minted ARE a deck, so the
+        # tunnel-ramp cut, its clearance annulus and the covered-span
+        # suppression all pass them by.
+        _n_deck_pieces = _deck.stamp_shapes(layout)
+        if _n_deck_pieces:
+            UI.vprint(1,
+                f"  [bridge-deck] §2: {_n_deck_pieces} minted road "
+                f"piece(s) ARE a mapped bridge deck — flagged uncuttable "
+                f"(§3) pending §1 confirmation after the tunnel pass.")
         if _svc_rects or _svc_junctions:
             UI.vprint(1,
                 f"  [pav-builder] {icao}: {len(_svc_rects)} service_road "
@@ -6454,6 +6490,27 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             current_tile_lat=current_tile_lat,
             current_tile_lon=current_tile_lon)
         _rod_ckpt(layout, "01_terrain_transition_emit")
+        # ── §1/§4/§6 (RULINGS 2026-08-30c): THE DECK IS ADJUDICATED ──
+        # HERE and nowhere else — the one slot where all three clauses
+        # can mean something.  §1 asks what this build EMITTED beneath
+        # the span, and the tunnel pass has just emitted it; §4 reads
+        # the highest of those surfaces; §6 prices both abutments
+        # against the road cap.  The free-road profile solve, which
+        # consumes the §5 pin, runs after this.
+        try:
+            from . import road_bridge_deck as _deck_confirm
+            _deck_report = _deck_confirm.confirm_and_pin(layout, icao)
+            if _deck_report.get("candidates"):
+                UI.vprint(1,
+                    f"  [bridge-deck] {icao}: "
+                    f"{_deck_report['candidates']} candidate(s) — "
+                    f"{_deck_report['confirmed']} confirmed, "
+                    f"{_deck_report['unconfirmed']} unconfirmed (§1), "
+                    f"{_deck_report['refused']} refused (§6); "
+                    f"{_deck_report['pins']} deck pin(s) published.")
+        except Exception as _deck_error:      # never fail the build
+            UI.vprint(1, "   [bridge-deck] adjudication skipped:",
+                      _deck_error)
         try:
             # Bridge vertex post-processing (POST-solve, with the bridge): the
             # boundary→DEM bridge is solve-dependent (Phase 5), so its airside

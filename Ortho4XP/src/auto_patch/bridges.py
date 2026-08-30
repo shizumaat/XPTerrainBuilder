@@ -10411,12 +10411,22 @@ def cut_pavement_over_footprint(layout, footprint, cut_roles=None) -> int:
     roof or deck stays under our pavement."""
     if cut_roles is None:
         cut_roles = pavement_cut_roles()
+    from .road_bridge_deck import is_deck_shape as _is_deck
     n_cut = 0
     kept_shapes: list[BuiltShape] = []
     for shape in layout.shapes:
         if (shape.role not in cut_roles
                 or shape.polygon is None
                 or shape.polygon.is_empty):
+            kept_shapes.append(shape)
+            continue
+        # ── §3 (RULINGS 2026-08-30c): A ROAD BRIDGE DECK IS NOT
+        # CUTTABLE PAVEMENT.  The SECOND exception to R14-2/A-3, beside
+        # the classified hard-deck object bridge: the deck carries the
+        # road OVER the structure whose cut is asking to remove it, so
+        # neither the tunnel-ramp cut nor its clearance annulus reaches
+        # it.  Everything else about this cut is unchanged.
+        if _is_deck(shape):
             kept_shapes.append(shape)
             continue
         try:

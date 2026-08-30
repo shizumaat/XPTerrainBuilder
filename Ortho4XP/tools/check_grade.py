@@ -6768,6 +6768,18 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # a SHEAR of authored pack geometry that the owner reviews site by
     # site, and it doubles as a bad-pack detector.
     "pack_group_splits",
+    # THE ROAD BRIDGE DECK LEDGER (RULINGS 2026-08-30c §6: "refused ...
+    # with a named log line and sidecar evidence").  EVIDENCE, not a law
+    # family: a refused deck is a bridge that was NOT built, so the
+    # surface it left behind is judged by the ordinary families exactly
+    # as it was before the law existed — there is nothing new to
+    # adjudicate.  What the rows carry is WHY: the §4 deck value and the
+    # highest emitted surface beneath the span, and per abutment the
+    # receiving value, the run available and the run the road cap
+    # requires.  That makes a refusal re-derivable from the patch alone,
+    # which is what the owner rules on when a site does not get its
+    # bridge.
+    "road_bridge_decks",
     # PER-PAD PROVENANCE (spec pads-as-band-variables §1.6): the domain
     # each pad's flat variable lives in, the solved value, and the ring
     # vertex binding each side — published into the SAME container the

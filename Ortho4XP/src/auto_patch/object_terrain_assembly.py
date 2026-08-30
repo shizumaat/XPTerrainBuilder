@@ -4895,6 +4895,101 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         owned_near_floor.intersection(envelope).buffer(
                             _TUNNEL_FLOOR_OWNED_CLEARANCE_M,
                             join_style=2, mitre_limit=2.0))
+                # ── THE YIELDING PAD'S RING IS STILL A BOUNDARY ───────
+                # (LEMD T4S fallout, RULINGS 2026-08-30k; spec
+                # ``docs/specs/lemd-t4s-structure-walls-fallout-spec.md``)
+                #
+                # Amendment 3 above yields the pad's flattening
+                # AUTHORITY, and that is unchanged here: the pan is still
+                # born THROUGH the pad's INTERIOR, which is the whole
+                # point of the clip.  What the yield never meant is that
+                # the pan may stand ON the pad's own RING.  A pan edge
+                # lying on another shape's boundary bucket-shares its
+                # nodes — the hazard ``_TUNNEL_WALL_SETBACK_M`` is named
+                # for in the wall band below — and a shared node carries
+                # ONE value: this function's own contract is that the
+                # trench role "wins the LAW-tier weld at any shared
+                # vertex", so the PAD's ring node reads the FLOOR and the
+                # pad stops being flat.  That is exactly the failure the
+                # retired ``BASIN_RAMP_REACH_PLATE`` arm produced
+                # (``config.py``: "building8 stops being flat (600.51 ->
+                # [587.75, 600.49])").
+                #
+                # It could not bite while a pad was its structure's
+                # CONVEX HULL: the hull enclosed the facility and its ring
+                # stood clear of the body.  Since ``building79``
+                # (2026-08-30e/h) a pad is the structure's own plan
+                # SILHOUETTE, and at LEMD's T4S shell that silhouette and
+                # the pit body are two projections of ONE authored solid,
+                # so the rings genuinely COINCIDE — no weld pass is
+                # involved, and the post-solve geometry-seam ledger
+                # confirms it (every seam INERT for this shape).
+                # MEASURED on the round-4 matched control (artifact-ledger
+                # body 839eac5c1c55): 13 of ``building3``'s 110 emitted
+                # ring nodes sit at distance 0.000 m on the floor pan's
+                # boundary and carry 587.75 m against the pad's own
+                # 599.69 m — 129 of LEMD's 141 airside ``within_shape``
+                # rows, worst 11.94 m at 16.1 % against a 1.0 % cap, at
+                # 40.49239,-3.56990.
+                #
+                # So the pan takes from a YIELDING pad's ring the same
+                # node-split setback the wall band already takes from
+                # every shape it meets.  The pad's AREA still yields; only
+                # its ring LINE is not the pan's to stand on, and the
+                # vacated collar is the pit WALL — the same gap the band
+                # leaves against its own neighbours.  Pads seated AT this
+                # floor are exempt: their value IS the floor, so a shared
+                # node there is a weld at one value, not a step.
+                #
+                # SCOPED TO THE CONTACT, and that scope is load-bearing:
+                # only the stretch of a pad ring lying within the setback
+                # of the PAN'S OWN BOUNDARY can share a node with it.  A
+                # pad floating wholly INSIDE the pit (``INSIDE_PAD``, the
+                # §1.1 limb) has no boundary to share and must read the
+                # bare facility's pan exactly — collaring its whole ring
+                # punched a 1.2 m slit through the pan's interior, which
+                # is the erasure Amendment 3 exists to stop wearing a new
+                # hat.  Cutting only at the contact is always a BITE FROM
+                # THE EDGE, never a hole.
+                _ring_setback_ids = (authority_yield_pad_ids
+                                     - floor_seated_pad_ids)
+                if _ring_setback_ids:
+                    _yield_rings = [
+                        entry[1].boundary
+                        for entry in _owned_entries_near(body_bounds)
+                        if id(entry[2]) in _ring_setback_ids
+                        and entry[1] is not None and not entry[1].is_empty]
+                    _set_back = None
+                    _floor_before = float(floor_geometry.area)
+                    if _yield_rings:
+                        try:
+                            _contact = unary_union(_yield_rings).intersection(
+                                floor_geometry.boundary.buffer(
+                                    _TUNNEL_WALL_SETBACK_M,
+                                    join_style=2, mitre_limit=2.0))
+                            if not _contact.is_empty:
+                                _set_back = floor_geometry.difference(
+                                    _contact.buffer(
+                                        _TUNNEL_WALL_SETBACK_M,
+                                        join_style=2, mitre_limit=2.0))
+                        except Exception:                 # pragma: no cover
+                            _set_back = None
+                    if _set_back is not None and not _set_back.is_empty:
+                        floor_geometry = _set_back
+                        UI.vprint(
+                            1,
+                            f"   [{log_tag}] YIELDING-PAD RING SETBACK: "
+                            f"the pan of {resources} stands "
+                            f"{_TUNNEL_WALL_SETBACK_M:.2f} m off the "
+                            f"ring(s) of {len(_yield_rings)} yielding "
+                            f"pad(s) where they MEET it — "
+                            f"{_floor_before:,.0f} -> "
+                            f"{float(floor_geometry.area):,.0f} m2.  The "
+                            "pad's AREA still yields (the pan is born "
+                            "THROUGH it); its RING is a node split, so "
+                            "the pad cannot read the floor at its own "
+                            "vertices (RULINGS 2026-08-30k)",
+                        )
                 if carve_plate is not None and not carve_plate.is_empty:
                     # The CARVED yield set: the pads whose flattening
                     # authority the owner carved, and nothing else.

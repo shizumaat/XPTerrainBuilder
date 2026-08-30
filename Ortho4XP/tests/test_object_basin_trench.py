@@ -3200,6 +3200,126 @@ class TestBasinPadFloorSeating:
             assert pad.altitude == pytest.approx(8.0)
         assert pads_after["building1"].polygon.equals(self.RIGID_NEIGHBOUR)
 
+    # ── THE YIELDING PAD'S RING IS STILL A BOUNDARY ─────────────────
+    # (LEMD T4S fallout, RULINGS 2026-08-30k; spec
+    # ``docs/specs/lemd-t4s-structure-walls-fallout-spec.md``.)
+    #
+    # Amendment 3 yields the pad's flattening AUTHORITY, so the pan is
+    # born THROUGH its INTERIOR.  It never yielded the pad's own RING:
+    # a pan edge standing ON that ring shares its nodes, the trench role
+    # wins the LAW-tier weld at any shared vertex, and the pad reads the
+    # FLOOR at its own vertices — the "building8 stops being flat
+    # (600.51 -> [587.75, 600.49])" failure, back through a new door.
+    #
+    # The door is the footprint law: a pad used to be its structure's
+    # CONVEX HULL, whose ring stood clear of the body (``COVERING_PAD``
+    # below is that class, and it must stay byte-identical).  Since
+    # ``building79`` a pad is the structure's own SILHOUETTE, and a
+    # silhouette drawn from the same authored solid as the pit body has
+    # the pit's own outline in it — ``SILHOUETTE_PAD``.  Measured on the
+    # round-4 matched control (artifact-ledger body 839eac5c1c55): 13 of
+    # LEMD ``building3``'s 110 ring nodes sit at distance 0.000 m on the
+    # floor pan's boundary carrying 587.75 m against the pad's own
+    # 599.69 m — 129 airside ``within_shape`` rows at worst 11.94 m.
+
+    #: The SILHOUETTE class, DERIVED FROM THE EMITTER so no constant is
+    #: re-spelled here: the pad whose ring is the pan's OWN outline.  At
+    #: LEMD the shell's silhouette and the pit body come off one authored
+    #: solid and the two lines land on each other; this is that, exactly,
+    #: with the emitter itself saying where the line is.  It is wholly
+    #: inside the body, so it yields under Amendment 3.
+    @staticmethod
+    def _silhouette_pad():
+        bare = _FakeLayout()
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        plates = _basin_plates(bare, "trench")
+        assert plates, "the bare facility must seat a pan to derive from"
+        return Polygon(max(
+            (p.polygon for p in plates), key=lambda g: g.area).exterior)
+
+    @staticmethod
+    def _plate_vertices(layout):
+        out = set()
+        for plate in _basin_plates(layout, "trench"):
+            for x, y in plate.polygon.exterior.coords:
+                out.add((round(x, 6), round(y, 6)))
+        return out
+
+    def test_the_pan_shares_NO_vertex_with_a_yielding_pads_ring(self):
+        """THE DEFECT, stated as its own twin.  A shared vertex is a
+        shared NODE at emit, a shared node carries ONE value, and the
+        trench wins the LAW tier — so the pad's ring node reads the
+        floor.  The pan must not stand on the ring at all."""
+        pad_poly = self._silhouette_pad()
+        layout = self._layout(pad_poly)
+        floors, _rims = _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert floors >= 1
+        pad_ring = {(round(x, 6), round(y, 6))
+                    for x, y in pad_poly.exterior.coords}
+        assert pad_ring, "the fixture must carry a ring to share"
+        assert self._plate_vertices(layout) & pad_ring == set()
+
+    def test_the_pan_stands_OFF_the_ring_by_the_wall_setback(self):
+        """Not merely 'no shared vertex' — the pan's whole EDGE clears
+        the ring by the same node-split setback the wall band takes, so
+        a later densify/weld cannot land back on it."""
+        pad_poly = self._silhouette_pad()
+        layout = self._layout(pad_poly)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        for plate in _basin_plates(layout, "trench"):
+            assert plate.polygon.distance(pad_poly.exterior) >= (
+                assembly._TUNNEL_WALL_SETBACK_M - 1e-6)
+
+    def test_the_pads_AREA_still_yields_the_pan_is_born_THROUGH_it(self):
+        """The setback is a RING setback, never a revival of the erasure
+        Amendment 3 exists to stop: the pan still covers the facility
+        interior, short only of the wall collar."""
+        pad_poly = self._silhouette_pad()
+        layout = self._layout(pad_poly)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        area = sum(plate.polygon.area
+                   for plate in _basin_plates(layout, "trench"))
+        assert area > 0.0
+        assert area == pytest.approx(
+            pad_poly.buffer(-assembly._TUNNEL_WALL_SETBACK_M).area,
+            rel=0.02)
+        assert area < pad_poly.area
+
+    def test_the_pad_itself_is_still_UNTOUCHED(self):
+        """The fix moves the PAN.  Amendment 3 item 2 — grade, geometry,
+        welds, identity — is unchanged by it."""
+        pad_poly = self._silhouette_pad()
+        layout = self._layout(pad_poly)
+        pad = self._pads(layout)["building0"]
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        assert self._pads(layout) == {"building0": pad}
+        assert pad.polygon.equals(pad_poly)
+        assert pad.altitude == pytest.approx(8.0)
+        assert pad.basin_floor_seat_m is None
+
+    def test_a_pad_clear_of_the_body_is_UNCHANGED_by_the_setback(self):
+        """THE HULL CLASS, pinned.  ``COVERING_PAD``'s ring stands clear
+        of the body, so the setback has nothing to cut — the pan is the
+        pan of an unobstructed facility, exactly as before."""
+        layout = self._layout(self.COVERING_PAD, apron=True)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        with_pad = sum(plate.polygon.area
+                       for plate in _basin_plates(layout, "trench"))
+        bare = self._layout(apron=True)
+        _emit_basin(bare, [_interface()], _FakeDem(8.0))
+        bare_area = sum(plate.polygon.area
+                        for plate in _basin_plates(bare, "trench"))
+        assert with_pad == pytest.approx(bare_area, rel=1e-9)
+
+    def test_the_ring_setback_is_reported_by_name(self, capsys):
+        """Instrument is law: a pan that moved must say so, name the
+        facility and quote the area it cost."""
+        pad_poly = self._silhouette_pad()
+        layout = self._layout(pad_poly)
+        _emit_basin(layout, [_interface()], _FakeDem(8.0))
+        out = capsys.readouterr().out
+        assert "YIELDING-PAD RING SETBACK" in out
+
     def test_a_pad_wholly_inside_yields_its_authority_too(self):
         """Item 2 is unconditional — INSIDE or SPANNING, the pad is
         neither split nor seated and the interior is the plates'."""

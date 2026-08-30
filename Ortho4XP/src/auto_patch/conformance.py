@@ -44,6 +44,7 @@ from .layout import (
 __all__ = [
     "find_conformance_violations",
     "enforce_conformance",
+    "repair_emit_quantized_rings",
     "planarize_airside",
     "weld_candidate_pairs",
     "FINAL_WELD_TOL_M",
@@ -816,7 +817,66 @@ def _weld_frame(layout: "PavementLayout", include_overlay_refs: bool):
     return elig, cell, grid, getattr(layout, "canonical_points", None)
 
 
-def _plan_shape_inserts(ring, grid, cell, tol, registry):
+def _private_snap_hits(ax, ay, bx, by, candidates, tol, snap_tol,
+                       registry, is_private):
+    """PRIVATE ON-EDGE ADOPTION candidates for one edge (spec
+    weld-before-projection-spec.md §1 closure, session 2026-08-29).
+
+    The emit-time "private on-edge node move" takes a node owned by
+    exactly ONE chain, lying within ``(_WELD_TOL_M, ONEDGE_SNAP_TOL_M)``
+    of a foreign chain's edge interior, MOVES it onto that edge, and the
+    nid-level weld then splices it into the chain — all AFTER
+    ``final_grade_projection``, so the receiving (possibly airside) way
+    gains a vertex NO law graph ever priced (measured CYXY: groundside
+    ring vertices spliced into service_junction ways,
+    ``test_solver_and_validator_same_nodes``).  This enumerates the SAME
+    class in the layout frame so the pre-projection weld adopts the
+    donor's CANONICAL point into the receiving ring — the ring then
+    carries the vertex, ``_build_node_list`` prices it, and at emit both
+    rings intern to ONE nid (owners == 2, so the emit move and splice
+    both stand down by their own tests).
+
+    Returns ``[(t, canonical_point, True)]`` — the trailing flag marks a
+    snap hit for the caller (its insert point is deliberately OFF the
+    edge by up to ``snap_tol``; the edge bends through it, the same
+    magnitude the emit move imposes on the donor ring today)."""
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    if L2 < 1e-12:
+        return []
+    L = math.sqrt(L2)
+    out = []
+    for px, py in candidates:
+        # THE EMITTED FRAME: the emit move tests the node at its
+        # CANONICAL position (interning happens before the move), and a
+        # ring vertex can sit up to the registry bucket away from its
+        # canonical point — measuring the RING coordinate here missed
+        # the measured CYXY case (ring vertex 0.44 m off the edge,
+        # canonical point 0.02 m off).  Resolve first, then measure.
+        cp = (px, py)
+        if registry is not None:
+            got = registry.find_nearest(px, py, registry.tol_m)
+            if got is not None:
+                cp = got
+        t = ((cp[0] - ax) * dx + (cp[1] - ay) * dy) / L2
+        if t <= 0.0 or t >= 1.0:
+            continue
+        perp = abs((cp[0] - ax) * dy - (cp[1] - ay) * dx) / L
+        # The strict T-junction path owns perp < tol; the emit move's
+        # frame is (weld tol, snap tol) with ENDPOINT clearance at the
+        # snap radius (layout.py, the ratified private on-edge move).
+        if perp < tol or perp >= snap_tol:
+            continue
+        if t * L <= snap_tol or (1.0 - t) * L <= snap_tol:
+            continue
+        if not is_private(cp):
+            continue
+        out.append((t, cp, True))
+    return out
+
+
+def _plan_shape_inserts(ring, grid, cell, tol, registry,
+                        snap_tol=None, is_private=None):
     """PURE: the T-vertex inserts the weld would make into ONE open ring.
 
     Returns ``(inserts, new_ring)`` where ``inserts`` is
@@ -830,7 +890,12 @@ def _plan_shape_inserts(ring, grid, cell, tol, registry):
     THIS IS THE WELD'S CANDIDATE ENUMERATION — the only one.  A second
     implementation of "which vertices will weld together" is a defect
     (the census-wrapper precedent), which is why the accessor and the
-    weld share this function rather than agreeing by inspection."""
+    weld share this function rather than agreeing by inspection.
+
+    ``snap_tol`` / ``is_private`` (both or neither): additionally adopt
+    PRIVATE on-edge donors in the emit move's frame — see
+    :func:`_private_snap_hits`.  Defaults keep every existing caller
+    byte-identical."""
     n = len(ring)
     ownset = set(ring)
     # NODE IDENTITY, not the insert tolerance (see
@@ -843,14 +908,26 @@ def _plan_shape_inserts(ring, grid, cell, tol, registry):
     near_own, own_add = _radius_index(ring, weld_node_identity_tol(tol))
     inserts: list = []
     new_ring: list = []
+    _snap_on = snap_tol is not None and is_private is not None
     for i in range(n):
         ax, ay = ring[i]
         bx, by = ring[(i + 1) % n]
         new_ring.append((ax, ay))
+        # Snap mode widens the superset by the registry bucket: a donor
+        # RING vertex can sit up to tol_m from the CANONICAL point the
+        # snap test measures (see _private_snap_hits).
+        _search = (snap_tol + (registry.tol_m if registry is not None
+                               else 0.0)) if _snap_on else tol
         cands = [pt for pt in _points_near_edge(
-                    grid, cell, ax, ay, bx, by, tol)
+                    grid, cell, ax, ay, bx, by, _search)
                  if pt not in ownset]
-        for t, (px, py) in _tjunctions_on_edge(ax, ay, bx, by, cands, tol):
+        hits = [(t, pt, False) for t, pt
+                in _tjunctions_on_edge(ax, ay, bx, by, cands, tol)]
+        if _snap_on:
+            hits.extend(_private_snap_hits(ax, ay, bx, by, cands, tol,
+                                           snap_tol, registry, is_private))
+            hits.sort(key=lambda h: h[0])
+        for t, (px, py), _is_snap in hits:
             donor = (px, py)
             # CANONICAL-IDENTITY GUARD (2026-07-29, CYXY service
             # sliver): the OSM emitter interns every vertex through
@@ -864,7 +941,7 @@ def _plan_shape_inserts(ring, grid, cell, tol, registry):
             # canonical point bowtied a CYXY service sliver via the
             # emit ``buffer(0)`` repair, minting a vertex the final
             # grade projection never graded).
-            if registry is not None:
+            if registry is not None and not _is_snap:
                 _cp = registry.find_nearest(px, py, registry.tol_m)
                 if _cp is not None and _cp != (px, py):
                     _tc = _param_on_edge(ax, ay, bx, by, _cp[0], _cp[1])
@@ -872,8 +949,17 @@ def _plan_shape_inserts(ring, grid, cell, tol, registry):
                         continue
                     _fx = ax + (bx - ax) * _tc
                     _fy = ay + (by - ay) * _tc
-                    if math.hypot(_cp[0] - _fx, _cp[1] - _fy) > tol:
-                        continue
+                    _off = math.hypot(_cp[0] - _fx, _cp[1] - _fy)
+                    if _off > tol:
+                        # Off-edge canonical point: the strict weld must
+                        # skip (inserting the FOOT would emit dragged onto
+                        # the canonical point — bent).  But when the donor
+                        # is PRIVATE and inside the emit move's snap
+                        # frame, this is the adoption class: insert the
+                        # canonical point itself (see _private_snap_hits).
+                        if not (_snap_on and _off < snap_tol
+                                and is_private(_cp)):
+                            continue
                     t, (px, py) = _tc, _cp
             # A candidate near a shallow corner can qualify on TWO
             # edges of this ring; inserting it twice self-touches
@@ -967,6 +1053,7 @@ def enforce_conformance(layout: "PavementLayout",
                         dem=None,
                         tile_lat: int = 0,
                         tile_lon: int = 0,
+                        private_snap_tol: "float | None" = None,
                         ) -> tuple[int, int]:
     """Make the emitted shapes a conforming partition by inserting, into
     each shape's edges, every NEIGHBOUR vertex that lies on that edge
@@ -995,8 +1082,39 @@ def enforce_conformance(layout: "PavementLayout",
     always hold (a bridge vertex CAN land exactly on a pavement edge, and an
     unwelded on-edge node tears Triangle4XP's triangulation), so the FINAL
     post-solve weld pass includes them.
+
+    ``private_snap_tol``: when set (the pre-projection pass, part 18b),
+    additionally adopt PRIVATE on-edge donor vertices in the emit-time
+    "private on-edge node move" frame — a vertex owned by exactly ONE
+    shape, within ``(tol, private_snap_tol)`` of a foreign edge interior,
+    is inserted at its CANONICAL point so the final law graph prices it
+    and the emit move/splice both stand down (spec
+    weld-before-projection-spec.md §1; ``_private_snap_hits``).
     """
     elig, cell, grid, registry = _weld_frame(layout, include_overlay_refs)
+    # Canonical-key → owning shape indices, for the private-donor test.
+    # Interior (hole) rings count as owners — a vertex shared with a hole
+    # is not private — but only EXTERIOR vertices are donor candidates
+    # (they are what ``_build_vertex_index`` indexes).
+    _owners: "dict | None" = None
+    if private_snap_tol is not None:
+        _owners = {}
+        for _oi, _s2 in enumerate(elig):
+            _rr = _open_ring(_s2.polygon)
+            _all_rings = [] if _rr is None else [_rr]
+            try:
+                for _hole in _s2.polygon.interiors:
+                    _all_rings.append(list(_hole.coords)[:-1])
+            except Exception:
+                pass
+            for _ring2 in _all_rings:
+                for (_vx, _vy) in _ring2:
+                    _k = None
+                    if registry is not None:
+                        _k = registry.get(float(_vx), float(_vy))
+                    if _k is None:
+                        _k = (_vx, _vy)
+                    _owners.setdefault(_k, set()).add(_oi)
     # Donor altitudes, for OVERLAY receivers only: a vertex welded into a
     # DEM-bridge / clearance edge must ADOPT the donor's altitude (the two
     # coincident nodes would otherwise emit metres apart — the very tear the
@@ -1032,7 +1150,7 @@ def enforce_conformance(layout: "PavementLayout",
     # Final bound for CUT-ONLY receivers (None ⇒ no clamp at all).
     cut_bound = _make_cut_law_clamp(layout, dem, tile_lat, tile_lon)
 
-    for s in elig:
+    for _ri, s in enumerate(elig):
         if owner_roles is not None and (s.role or "") not in owner_roles:
             continue
         ring = _open_ring(s.polygon)
@@ -1051,10 +1169,21 @@ def enforce_conformance(layout: "PavementLayout",
                            and s.altitude_high is None
                            and s.altitude_low is None
                            and s.altitude is not None)
+        # Private-donor predicate, bound to THIS receiver: single owner,
+        # and that owner is not the receiver itself (its own hole vertex
+        # is the hole↔exterior weld's business, not adoption's).
+        _is_private = None
+        if _owners is not None:
+            def _is_private(_cp, _recv=_ri, _own_map=_owners):
+                _o = _own_map.get(_cp)
+                return (_o is not None and len(_o) == 1
+                        and _recv not in _o)
         # THE CANDIDATE PAIRS — the weld's own enumeration, the same call
         # ``weld_candidate_pairs`` makes (one code path, task #16).
         inserts, new_ring = _plan_shape_inserts(ring, grid, cell, tol,
-                                                registry)
+                                                registry,
+                                                snap_tol=private_snap_tol,
+                                                is_private=_is_private)
         inserted_here = len(inserts)
         if not inserted_here:
             continue
@@ -1121,6 +1250,121 @@ def enforce_conformance(layout: "PavementLayout",
         shapes_modified += 1
         vertices_inserted += inserted_here
     return shapes_modified, vertices_inserted
+
+
+def repair_emit_quantized_rings(layout: "PavementLayout") -> int:
+    """Pre-projection twin of the emit-time quantized-validity repair
+    (``layout.to_osm``: "repaired invalid polygon at emit (buffer(0) ...
+    quantization self-intersection)").
+
+    The OSM emitter interns every vertex through the canonical-point
+    registry and writes lat/lon rounded to 11 dp, so a ring that is valid
+    at full precision can self-intersect in the EMITTED frame; the emit
+    repair then buffer(0)s it and interns any new self-touch vertex FRESH
+    — after ``final_grade_projection``, so the emitted way carries a
+    vertex no law graph priced (measured CYXY service_junction, 31→14
+    verts, ``test_solver_and_validator_same_nodes``).  Running the SAME
+    repair here, on the same canonical-quantized frame, makes the
+    repaired ring the FINAL ring: the projection prices it and the emit
+    check finds the quantized image already valid (idempotent — the emit
+    block stays as the residual guard).
+
+    Returns the number of shapes repaired."""
+    from shapely.geometry import Polygon
+    registry = getattr(layout, "canonical_points", None)
+    repaired = 0
+    for s in layout.shapes:
+        p = getattr(s, "polygon", None)
+        if p is None or p.is_empty or p.geom_type != "Polygon":
+            continue
+        if getattr(s, "ref", None) in _OVERLAY_REFS:
+            continue
+        try:
+            ring = list(p.exterior.coords)[:-1]
+        except Exception:
+            continue
+        if len(ring) < 3:
+            continue
+        # THE EMITTED FRAME: canonical coordinates, 11 dp lat/lon.
+        q = []
+        for (x, y) in ring:
+            key = (registry.get(float(x), float(y))
+                   if registry is not None else None)
+            cx, cy = key if key is not None else (x, y)
+            la, lo = layout.m_to_ll(cx, cy)
+            q.append((round(la, 11), round(lo, 11)))
+        try:
+            qpoly = Polygon([(lo, la) for la, lo in q])
+        except Exception:
+            continue
+        if qpoly.is_valid:
+            continue
+        try:
+            rep = qpoly.buffer(0)
+            if rep.geom_type == "MultiPolygon":
+                rep = max(rep.geoms, key=lambda g: g.area)
+            if (rep.geom_type != "Polygon" or rep.is_empty
+                    or not rep.is_valid):
+                continue
+        except Exception:
+            continue
+        coord_to_idx = {q[k]: k for k in range(len(q))}
+        new_ring_m: list = []
+        kept_idx: list = []
+        for lo, la in list(rep.exterior.coords)[:-1]:
+            k = coord_to_idx.get((round(la, 11), round(lo, 11)))
+            if k is not None:
+                new_ring_m.append(ring[k])
+                kept_idx.append(k)
+            else:
+                new_ring_m.append(tuple(layout.ll_to_m(la, lo)))
+                kept_idx.append(None)
+        if len(new_ring_m) < 3:
+            continue
+        try:
+            new_poly = Polygon(new_ring_m,
+                               [list(r.coords) for r in p.interiors])
+            if not new_poly.is_valid or new_poly.is_empty:
+                continue
+        except Exception:
+            continue
+        # Carry per-vertex altitudes the way the emit repair does:
+        # surviving vertices keep theirs, new self-touch vertices take
+        # the nearest pre-repair vertex's value.  The projection reprices
+        # every pavement ring after this anyway.
+        na = getattr(s, "node_altitudes", None)
+        if na:
+            old = list(na)
+            if len(old) == len(ring) + 1:
+                old = old[:-1]
+            if len(old) == len(ring):
+                new_alts = []
+                for j, k in enumerate(kept_idx):
+                    if k is not None:
+                        new_alts.append(old[k])
+                    else:
+                        x, y = new_ring_m[j]
+                        bi, bd = 0, None
+                        for kk in range(len(ring)):
+                            d = ((ring[kk][0] - x) ** 2
+                                 + (ring[kk][1] - y) ** 2)
+                            if bd is None or d < bd:
+                                bd, bi = d, kk
+                        new_alts.append(old[bi])
+                s.node_altitudes = new_alts + [new_alts[0]]
+            else:
+                # Already misaligned — emit drops such lists; do the same
+                # here so the projection reprices from scratch.
+                s.node_altitudes = None
+        s.polygon = new_poly
+        repaired += 1
+        import O4_UI_Utils as UI
+        UI.vprint(1,
+            f"  [conformance] {s.role}: repaired quantization "
+            f"self-intersection BEFORE the projection (buffer(0), "
+            f"{len(ring)}→{len(new_ring_m)} verts) — the law graph "
+            f"prices the repaired ring (weld-before-projection §1).")
+    return repaired
 
 
 def _param_on_edge(ax, ay, bx, by, px, py) -> float:

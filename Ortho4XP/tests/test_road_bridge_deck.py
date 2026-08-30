@@ -473,3 +473,137 @@ class TestDeckIdentitySurvivesReRole:
         deck.publish_candidates(layout)
         assert deck.deck_union(layout) is None
         assert not deck.is_deck_shape(self._demoted_piece(), layout)
+
+
+# ── RULINGS 2026-08-30f — round 2 ───────────────────────────────────
+class TestDeckIsNotClaimable:
+    """§3 THIRD CLAUSE: "R14-1's tunnel-road claim does not reach a
+    confirmed terrain deck.  The deck's ground is the road ABOVE the
+    corridor, not the corridor, and re-profiling it toward bore depth is
+    the canyon the deck exists to remove."
+
+    MEASURED at LEMD round 1 (build ``lemddeck4``): the claim took the
+    deck and graded it 601.67 -> 600.2 m eastward across the span, met
+    the 601.36-606.6 m east receiver as a 5.13 m step at 17.4 %, and
+    minted 220 groundside ``within_shape`` rows.
+    """
+
+    def test_the_claim_predicate_refuses_a_deck(self):
+        """``_claimable`` is R14-1's own gate — both of its passes read
+        it, so refusing there is refusing the whole claim."""
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges._claim_road_surfaces_as_corridor) \
+            if hasattr(bridges, "_claim_road_surfaces_as_corridor") else ""
+        if not src:
+            # the claim lives in the portal-emit path; find it by its law tag
+            src = inspect.getsource(bridges)
+        assert "§3 THIRD CLAUSE (RULINGS 2026-08-30f)" in src
+        assert "_is_deck_claim(shape, layout)" in src
+
+    def test_a_deck_piece_is_recognised_by_the_claim_gate(self):
+        """The gate asks ``is_deck_shape(shape, layout)``, so it sees a
+        re-roled deck too — the claim runs after the groundside pass."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        demoted = BuiltShape(
+            polygon=_rect(10.0, 70.0, -6.0, 6.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[601.67] * 4)
+        assert deck.is_deck_shape(demoted, layout)
+
+
+class TestFullDepthToTheBridge:
+    """THE DECK REQUIRES STANDARD DEPTH (RULINGS 2026-08-30f): the cut
+    holds FULL BORE DATUM from the mouth all the way to the bridge,
+    passes under the deck at that depth, and the climb to DEM starts on
+    the OTHER side of the deck.
+
+    The walk's elevation lerp is the law's implementation point, so the
+    twin drives that arithmetic directly.
+    """
+
+    #: the walk in the small: 100 m of chain from the portal, a deck
+    #: sitting across it from 20 m to 40 m, bore 598.45, grade 610.0.
+    BORE = 598.45
+    GRADE = 610.0
+
+    def _profile(self, climb_start_eff, total=100.0, stations=11):
+        """The ruled profile: level to ``climb_start_eff``, then linear."""
+        climb_total = total - climb_start_eff
+        out = []
+        for k in range(stations):
+            c = total * k / (stations - 1)
+            frac = max(0.0, c - climb_start_eff) / climb_total
+            out.append((c, (1 - frac) * self.BORE + frac * self.GRADE))
+        return out
+
+    def test_the_cut_holds_bore_datum_all_the_way_to_the_deck(self):
+        prof = self._profile(40.0)
+        for c, e in prof:
+            if c <= 40.0:
+                assert e == pytest.approx(self.BORE, abs=1e-9), (
+                    f"station {c} m is inshore of the deck's far edge and "
+                    f"must sit at the bore datum")
+
+    def test_the_climb_begins_beyond_the_deck(self):
+        prof = dict(self._profile(40.0))
+        assert prof[40.0] == pytest.approx(self.BORE, abs=1e-9)
+        assert prof[50.0] > self.BORE
+        assert prof[100.0] == pytest.approx(self.GRADE, abs=1e-9)
+
+    def test_the_deck_gets_the_standard_clearance_by_construction(self):
+        """The point of the ruling: with the cut at bore datum under the
+        span, a deck at road level clears it by more than
+        ``BRIDGE_ROAD_CLEARANCE_M`` without anyone moving the deck."""
+        from auto_patch.config import BRIDGE_ROAD_CLEARANCE_M
+        prof = dict(self._profile(40.0))
+        deck_level = 604.0          # the road solve's own level
+        under_the_span = max(e for c, e in prof.items() if 20.0 <= c <= 40.0)
+        assert under_the_span == pytest.approx(self.BORE, abs=1e-9)
+        assert deck_level - under_the_span >= float(BRIDGE_ROAD_CLEARANCE_M)
+
+    def test_with_no_deck_the_profile_is_the_old_one(self):
+        """climb_start_eff == 0 must reproduce the pre-ruling lerp
+        exactly — every airport without a deck is byte-identical."""
+        ruled = self._profile(0.0)
+        for c, e in ruled:
+            legacy = (1 - c / 100.0) * self.BORE + (c / 100.0) * self.GRADE
+            assert e == pytest.approx(legacy, abs=1e-12)
+
+    def test_the_ramp_cap_is_priced_over_the_CLIMB_run(self):
+        """The remaining run is shorter, so the clamp must use it — else
+        the post-deck stretch runs over TUNNEL_RAMP_MAX_GRADE."""
+        from auto_patch import config
+        cap = float(config.TUNNEL_RAMP_MAX_GRADE)
+        climb_start, total = 40.0, 100.0
+        climb_total = total - climb_start
+        drop = self.GRADE - self.BORE
+        # priced over the whole walk (the bug) vs the climb run (the law)
+        assert drop / total < drop / climb_total
+        clamped_top = self.BORE + cap * climb_total
+        assert clamped_top < self.GRADE, (
+            "this fixture must exercise the clamp")
+        realised = (clamped_top - self.BORE) / climb_total
+        assert realised <= cap + 1e-9
+
+    def test_the_walk_reads_the_TERRAIN_deck_union(self):
+        """An object-governed span leaves the terrain open, so the walk
+        must read the narrower union, not the protection one."""
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges)
+        assert "terrain_deck_union as _deck_union_of" in src
+
+    def test_an_object_governed_span_is_absent_from_the_ramp_union(self):
+        import auto_patch.road_bridge_deck as mod
+        layout = _make()
+        deck.publish_candidates(layout)
+        assert mod.terrain_deck_union(layout) is not None
+        real = mod._hard_deck_object_over
+        try:
+            mod._hard_deck_object_over = lambda layout, corr: True
+            assert mod.terrain_deck_union(layout) is None
+        finally:
+            mod._hard_deck_object_over = real

@@ -376,6 +376,38 @@ def deck_union(layout):
     return u
 
 
+def terrain_deck_union(layout):
+    """The union the RAMP-DATUM rule reads (RULINGS 2026-08-30f) — the
+    decks whose cut must hold bore datum beneath them.
+
+    Narrower than :func:`deck_union` by exactly one clause: a span with a
+    classified hard-deck OBJECT bridge over it is governed by the object
+    law and "the terrain stays open", so its walk must NOT be flattened.
+    Not cached: the portal walk runs after the classification is
+    attached, while :func:`deck_union` (protection) is asked much
+    earlier, and freezing one answer for both would let a pre-
+    classification call decide the ramp datum.
+    """
+    records = [r for r in candidates_of(layout)
+               if r.get("verdict") in ("candidate", "confirmed_terrain")]
+    if not records:
+        return None
+    keep = []
+    for r in records:
+        corr = _corridor(r)
+        if _hard_deck_object_over(layout, corr):
+            continue
+        keep.append(corr)
+    if not keep:
+        return None
+    try:
+        from shapely.ops import unary_union
+        u = unary_union(keep)
+        return None if u.is_empty else u
+    except Exception:                                    # pragma: no cover
+        return None
+
+
 def is_deck_shape(shape, layout=None) -> bool:
     """§3: this piece is a ROAD BRIDGE DECK — no tunnel-ramp cut, no
     clearance annulus and no covered-span suppression may remove it.

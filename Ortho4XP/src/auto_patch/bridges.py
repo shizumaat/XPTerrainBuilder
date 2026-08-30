@@ -4698,6 +4698,53 @@ def _emit_portal_cluster(
         effective_total = effective_cums[-1]
         if effective_total < 1.0:
             return e_hi_c
+        # ── THE DECK REQUIRES STANDARD DEPTH (RULINGS 2026-08-30f) ───
+        # "The tunnel cut stays AT FULL BORE DATUM from the tunnel mouth
+        # all the way to the bridge, passes under the deck at that depth
+        # (covered stretch), and the ramp up to DEM begins on the OTHER
+        # side of the bridge deck."
+        #
+        # So the climb does not start at the mouth: it starts where the
+        # chain LEAVES the last deck it passes under.  Everything before
+        # that station holds ``e_lo_c`` — the bore floor — which is what
+        # gives the deck its ``BRIDGE_ROAD_CLEARANCE_M`` by construction
+        # instead of by moving the deck up.  MEASURED at LEMD (round 1):
+        # the walk surfaced to 600.17-600.95 m under the owner's span
+        # against a 598.45 m bore, leaving 0.73-0.91 m of cover where the
+        # law requires 5.1 m; that is the defect this closes.
+        #
+        # ``climb_start_eff`` is 0.0 wherever no deck lies on the chain,
+        # which makes every other airport's walk byte-identical.
+        climb_start_eff = 0.0
+        try:
+            from .road_bridge_deck import (
+                terrain_deck_union as _deck_union_of)
+            _deck_u = _deck_union_of(layout)
+        except Exception:                                # pragma: no cover
+            _deck_u = None
+        if _deck_u is not None:
+            from shapely.geometry import LineString as _LS
+            for _i in range(n_c - 1):
+                try:
+                    if _LS([chain_pts[_i],
+                            chain_pts[_i + 1]]).intersects(_deck_u):
+                        climb_start_eff = max(climb_start_eff,
+                                              effective_cums[_i + 1])
+                except _GEOM_EXC:                        # pragma: no cover
+                    continue
+            if climb_start_eff > 0.0:
+                UI.vprint(1,
+                    f"  [bridge-deck] §4/2026-08-30f: this portal walk "
+                    f"passes under a road bridge deck — the cut holds "
+                    f"bore datum {e_lo_c:.2f} m for the first "
+                    f"{climb_start_eff:.1f} m (the covered stretch) and "
+                    f"the climb to DEM starts BEYOND the deck, over the "
+                    f"remaining {effective_total - climb_start_eff:.1f} m.")
+        climb_total = effective_total - climb_start_eff
+        if climb_total < 1.0:
+            # The deck covers the whole walk: the cut stays at bore datum
+            # for all of it and there is no climb left to grade.
+            return e_lo_c
         # EFFECTIVE-SPACE GRADE CLAMP (2026-07-17, SPJC #499/#500/#502):
         # the walk TRUNCATION sizes the chain on CENTERLINE length
         # (drop / plan_grade), but elevations lerp over the EFFECTIVE
@@ -4715,7 +4762,13 @@ def _emit_portal_cluster(
             plan_grade_local = max(
                 float(_CFG.TUNNEL_RAMP_MAX_GRADE)
                 - TUNNEL_RAMP_GRADE_SAFETY_MARGIN, 1e-3)
-            maximum_effective_drop = plan_grade_local * effective_total
+            # ...over the CLIMB run, not the whole walk: with a deck on
+            # the chain the first ``climb_start_eff`` metres are level at
+            # bore datum, so pricing the drop against ``effective_total``
+            # would let the post-deck stretch run over the ramp cap.
+            # Identical wherever there is no deck (climb_total ==
+            # effective_total).
+            maximum_effective_drop = plan_grade_local * climb_total
             if (e_hi_c - e_lo_c) > maximum_effective_drop:
                 e_hi_c = e_lo_c + maximum_effective_drop
 
@@ -4727,8 +4780,15 @@ def _emit_portal_cluster(
             seg_len = d_b - d_a
             if seg_len < 0.5:
                 continue
-            frac_a = effective_cums[i] / effective_total
-            frac_b = effective_cums[i + 1] / effective_total
+            # THE COVERED STRETCH IS LEVEL, THE CLIMB IS BEYOND IT
+            # (RULINGS 2026-08-30f).  Both fractions are measured from
+            # ``climb_start_eff``, so every station under and inshore of
+            # the deck sits at ``e_lo_c`` and the grade beyond it is
+            # (e_hi_c - e_lo_c) / climb_total.
+            frac_a = max(0.0, effective_cums[i]
+                         - climb_start_eff) / climb_total
+            frac_b = max(0.0, effective_cums[i + 1]
+                         - climb_start_eff) / climb_total
             e_a = (1 - frac_a) * e_lo_c + frac_a * e_hi_c
             e_b = (1 - frac_b) * e_lo_c + frac_b * e_hi_c
             # Legacy per-segment flat walls (gate OFF only — byte-
@@ -7376,9 +7436,25 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
     # authority either way: nothing downstream re-derives a cut zone.
     publish_tunnel_open_cut_regions(layout, _regions)
 
+    from .road_bridge_deck import is_deck_shape as _is_deck_claim
+
     def _claimable(shape):
         _poly = getattr(shape, "polygon", None)
         if _poly is None or _poly.is_empty or _poly.geom_type != "Polygon":
+            return None
+        # ── §3 THIRD CLAUSE (RULINGS 2026-08-30f) ───────────────────
+        # "A ROAD BRIDGE DECK is not claimable road pavement either:
+        # R14-1's tunnel-road claim does not reach a confirmed terrain
+        # deck.  The deck's ground is the road ABOVE the corridor, not
+        # the corridor, and re-profiling it toward bore depth is the
+        # canyon the deck exists to remove.  The claim resumes at both
+        # deck edges, exactly as the open cut does."
+        #
+        # MEASURED at LEMD (round 1, build lemddeck4): the claim took the
+        # deck and graded it 601.67 -> 600.2 m eastward across the span,
+        # which met the 601.36-606.6 m east receiver as a 5.13 m step at
+        # 17.4 % and minted 220 groundside within_shape rows.
+        if _is_deck_claim(shape, layout):
             return None
         return _poly
 

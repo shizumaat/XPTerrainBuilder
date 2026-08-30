@@ -811,35 +811,30 @@ class TestMintTimeTrim:
             mod._hard_deck_object_over = real
 
 
-class TestChainAdmittedWhole:
-    """§2's continuity half: "admitted ... on the BRIDGE EVIDENCE alone,
-    without the touching-pavement test, SO THE CHAIN IT BELONGS TO IS
-    CONTINUOUS END TO END ACROSS THE SPAN."
+class TestDupBlockRefutedAsTheCause:
+    """§2's continuity clause is already satisfied by the touching-
+    pavement exemption alone — the dup block is NOT what leaves the
+    owner's span unpaved.
 
-    The dup block is the other thing that fragments a course: it
-    differences a feed line against the authored network's corridor and
-    drops every remainder under 5 m.  Admitting a deck past the pavement
-    test and then letting the dup block chop it honours half the clause.
-
-    The instrumented read (round 5) showed the minter paves the span
-    CONTINUOUSLY when it receives the course whole — one rect over
-    stations 0.0-77.3 m and a junction fill over 0.0-84.2 m of the 84.2 m
-    span — so a fragmented course is the only way the span goes unpaved.
+    REFUTED BY MEASUREMENT (round 5): admitting a deck way WHOLE, past
+    the dup block as well as the pavement test, produced a patch whose
+    body hash is IDENTICAL to the arm without it (``46624f9caf73``,
+    builds ``lemdr4`` and ``lemdr5``).  The exemption was therefore
+    inert at LEMD and is deleted rather than kept unmeasured (build
+    economy 29f).  This twin records the refutation so the idea is not
+    re-tried: the deck's admission stops at the pavement test.
     """
 
-    def test_a_deck_way_enters_the_course_set_whole(self):
+    def test_the_deck_admission_is_the_pavement_test_only(self):
         import inspect
         from auto_patch import pipeline
         src = inspect.getsource(pipeline)
-        assert "CHAIN IT BELONGS TO IS CONTINUOUS END TO END" in src
-        i_deck = src.index("§2, the CONTINUITY half")
-        i_dup = src.index("if _svc_dup_block is not None:", i_deck)
-        assert i_deck < i_dup, (
-            "the deck's whole-line admission must come BEFORE the dup "
-            "block, or the block fragments it anyway")
+        assert "§2: bridge evidence admits it" in src
+        assert "§2, the CONTINUITY half" not in src, (
+            "the dup-block exemption was refuted byte-identically at "
+            "LEMD (lemdr4 == lemdr5 == 46624f9caf73) and must stay out")
 
-    def test_a_non_deck_way_still_meets_the_dup_block(self):
-        """The exemption is the DECK's, and nothing else's."""
+    def test_every_feed_way_still_meets_the_dup_block(self):
         import inspect
         from auto_patch import pipeline
         src = inspect.getsource(pipeline)

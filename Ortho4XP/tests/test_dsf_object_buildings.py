@@ -1904,3 +1904,101 @@ class TestPendingDefencesStayOffByMeasurement:
             structure, geometry, placements,
             evidence_out=evidence) is None
         assert evidence["verdict"] == "max_structure_span"
+
+
+class TestSegmentedLinearArray:
+    """A SEGMENTED LINEAR FEATURE IS NOT N BUILDINGS (owner item 3, LEMD
+    sim read of 1.0.269; inside R18-2's evidence gate).
+
+    The LEMD miniature: seven congruent 23 x 21 m modules on a straight
+    line at a 25.7 m pitch, all drawn by ONE solo member resource
+    (``objects/LEMD_OBJ-Airport_Munoza-LEMD80.obj``, one placement,
+    shared-datum authoring).  Each module is 7 m tall and clears the
+    vertical-structure test on its own, so nothing about a single ring
+    says "not a building" — the signature is the array.
+    """
+
+    LATITUDE = 40.4614
+    #: degrees of longitude per metre at the fixture's latitude
+    @staticmethod
+    def _degrees(latitude):
+        from auto_patch import obj8_reader
+        import math
+        return (1.0 / obj8_reader.METRES_PER_DEGREE_LATITUDE,
+                1.0 / (obj8_reader.METRES_PER_DEGREE_LATITUDE
+                       * math.cos(math.radians(latitude))))
+
+    def _module(self, index, *, pitch_m=25.7, width_m=23.0, depth_m=21.0,
+                offset_m=0.0, latitude=None):
+        latitude = self.LATITUDE if latitude is None else latitude
+        dlat, dlon = self._degrees(latitude)
+        x0 = index * pitch_m * dlon
+        y0 = offset_m * dlat
+        w, d = 0.5 * width_m * dlon, 0.5 * depth_m * dlat
+        cx, cy = -3.5398 + x0, latitude + y0
+        return [(cx - w, cy - d), (cx + w, cy - d),
+                (cx + w, cy + d), (cx - w, cy + d), (cx - w, cy - d)]
+
+    def _row(self, n, resource="objects/LEMD80.obj", **kw):
+        return [((resource,), self._module(i, **kw)) for i in range(n)]
+
+    def test_the_lemd_row_of_seven_is_one_object(self):
+        found = object_footprints.segmented_linear_array_indices(
+            self._row(7))
+        assert found == set(range(7))
+
+    def test_three_modules_are_not_an_array(self):
+        """SEGMENTED_ARRAY_MIN_MEMBERS: three colinear congruent rings
+        happen; four at an even pitch do not."""
+        assert object_footprints.segmented_linear_array_indices(
+            self._row(3)) == set()
+
+    def test_two_resources_in_one_structure_never_group(self):
+        """Only SOLO-member structures are stamped modules."""
+        rows = [(("a.obj", "b.obj"), ring)
+                for _r, ring in self._row(7)]
+        assert object_footprints.segmented_linear_array_indices(
+            rows) == set()
+
+    def test_different_resources_do_not_group_with_each_other(self):
+        rows = [((f"obj{i}.obj",), ring)
+                for i, (_r, ring) in enumerate(self._row(7))]
+        assert object_footprints.segmented_linear_array_indices(
+            rows) == set()
+
+    def test_unequal_spacing_is_not_an_array(self):
+        rows = self._row(7)
+        # Push one module far out of the even pitch (spacing CV blows up).
+        rows[6] = (rows[6][0], self._module(20))
+        assert object_footprints.segmented_linear_array_indices(
+            rows) == set()
+
+    def test_a_bent_chain_is_not_an_array(self):
+        rows = [((("objects/LEMD80.obj"),), self._module(
+            i, offset_m=(0.0 if i < 4 else 40.0)))
+            for i in range(7)]
+        rows = [(("objects/LEMD80.obj",), r[1]) for r in rows]
+        assert object_footprints.segmented_linear_array_indices(
+            rows) == set()
+
+    def test_differently_sized_modules_are_not_an_array(self):
+        rows = self._row(7)
+        rows[3] = (rows[3][0], self._module(3, width_m=40.0))
+        assert object_footprints.segmented_linear_array_indices(
+            rows) == set()
+
+    def test_a_short_block_of_identical_sheds_is_not_an_array(self):
+        """SEGMENTED_ARRAY_MIN_LENGTH_IN_WIDTHS: four 23 m modules at a
+        24 m pitch span 72 m — barely 3 widths — and read as a block, not
+        a line."""
+        assert object_footprints.segmented_linear_array_indices(
+            self._row(4, pitch_m=24.0)) == set()
+
+    def test_the_verdict_is_a_demotion_not_a_drop(self):
+        """The reader stamps the UNVOUCHED role, so R18-2's OSM half
+        still decides — a real mapped row of hangars keeps its pads."""
+        import inspect
+        from auto_patch import dsf_reader
+        source = inspect.getsource(dsf_reader._compute_dsf_object_buildings)
+        assert "segmented_linear_array_indices" in source
+        assert "OBJECT_BUILDING_UNVOUCHED_ROLE" in source

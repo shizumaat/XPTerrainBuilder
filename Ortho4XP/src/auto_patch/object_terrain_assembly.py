@@ -4971,9 +4971,26 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # would wall the pan off from its own ramp.  It stands
                 # down INSIDE THE CORRIDOR ONLY; everywhere else the band
                 # is byte-identical.
+                #
+                # WITH THE NODE-SPLIT GAP, exactly as the band stands
+                # down for every other shape eight lines above (owner
+                # item 2, LEMD 40.4924484,-3.5692887, 1.0.269).  Cut on
+                # the corridor's BARE boundary the band's own edge
+                # shares the pan's vertices, and ``layout.to_osm``
+                # interns anything inside ``SHARED_VERTEX_TOL_M`` into
+                # ONE node: pan and band carry the same role, the tie
+                # broke on emission order, and the PAN won — the floor
+                # value landed on 9 rim-band vertices at LEMD's two
+                # corridor mouths (rim parts 1767/1770, the only 2 of
+                # 14 sharing a node with trench 1760) and cut two V
+                # canyons out of the pit through the rim.  The setback
+                # is the same wall the R2 node split occupies, so the
+                # band edge and the pan edge can never bucket-share.
                 if body_ramp_corridor is not None:
                     band_geometry = band_geometry.difference(
-                        body_ramp_corridor)
+                        body_ramp_corridor.buffer(
+                            _TUNNEL_WALL_SETBACK_M,
+                            join_style=2, mitre_limit=2.0))
                 if anchor_seat_keep_out is not None:
                     floor_geometry = floor_geometry.difference(
                         anchor_seat_keep_out)

@@ -178,11 +178,18 @@ _TUNNEL_BLOCKER_REFS = _T5Refs({"tunnel_wall", "tunnel_wall_foot"})
 # march through the road pavement (measured at HECA patch
 # HECA_20260815T1329: 31 gap faces burying 21,099 m² of road pavement,
 # 9 drainage spines running 108 m inside roads).
-# OPEN QUESTION (not ruled 2026-08-15): ``groundside_pavement`` is NOT
-# in this set — the owner's ruling names service roads only; groundside
-# pavement inside an enclave keeps its exemption until ruled otherwise.
+# GROUNDSIDE PAVEMENT JOINS THEM (owner ruling 2026-08-30, RULINGS
+# "GROUNDSIDE_PAVEMENT IS A GAP-FILL BLOCKER" — this CLOSES the open
+# question this comment carried since 2026-08-15).  Groundside pavement
+# inside an enclave blocks the spine exactly as a service road does: it
+# is real pavement with its own surface law, not interior ground the
+# enclave law re-verdicts.  The evidence is HECA round 6 item 6 — spine
+# ``graded_strip`` 3225/3227 stacked 100 % over groundside 2837/2838,
+# grading a strip across pavement the owner reads as apron.  Like the
+# roads it is also a ``_POCKET_SUBDIVIDER_ROLES`` member, so a pocket it
+# crosses routes into the R19-2 subdivision instead of being buried.
 _SERVICE_ROAD_BLOCKER_ROLES = frozenset((
-    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION))
+    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION, ROLE_GROUNDSIDE_PAVEMENT))
 # ── R19-2: THE SUBDIVIDERS OF AN ENCLOSED HOLE ───────────────────────
 # An ENCLOSED hole (an interior ring of the airside union — it touches
 # no coverage-box edge by construction) that the width test refuses is
@@ -3206,14 +3213,15 @@ def _enclave_exempt(shape) -> bool:
         grade with its own portal profile — the enclave law re-verdicts
         surface pavement, not a law-cut hole, and a gap face graded over
         one puts the drainage spine THROUGH the ramp (OTHH S6);
-      * a SERVICE ROAD / SERVICE JUNCTION (``_SERVICE_ROAD_BLOCKER_ROLES``,
-        owner ruling 2026-08-15): gap-fill spines and drainage must STOP
-        at a service road, never run through it.  Kept on the hard set,
-        the road routes its pocket into the R19-2 subdivision (it is a
-        ``_POCKET_SUBDIVIDER_ROLES`` member), so the residual pockets
-        around it still take the ruled treatment — the spine stops at
-        the road instead of burying it.  ``groundside_pavement`` is NOT
-        ruled and stays exempt (open question, see the set's comment).
+      * a SERVICE ROAD / SERVICE JUNCTION / GROUNDSIDE PAVEMENT
+        (``_SERVICE_ROAD_BLOCKER_ROLES``, owner rulings 2026-08-15 and
+        2026-08-30): gap-fill spines and drainage must STOP at a service
+        road, never run through it, and groundside pavement blocks them
+        the same way.  Kept on the hard set, each routes its pocket into
+        the R19-2 subdivision (all three are ``_POCKET_SUBDIVIDER_ROLES``
+        members), so the residual pockets around it still take the ruled
+        treatment — the spine stops at the pavement instead of burying
+        it.
     """
     if getattr(shape, "role", None) in ENCLAVE_SURROUND_ROLES:
         return False

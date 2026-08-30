@@ -53,7 +53,8 @@ def _run(pinned_high: bool):
     vals = list(_VALS)
     live = list(range(len(_RING)))
     free = live[1:] if pinned_high else list(live)
-    G._chord_cut_and_fill(_RING, vals, live, free, CAP)
+    G._chord_cut_and_fill(_RING, vals, live, free, CAP,
+                          weld_outranks_cap=True)
     return vals
 
 
@@ -90,7 +91,8 @@ def test_a_feasible_band_is_untouched_by_the_ruling():
     ring = [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)]
     vals = [100.0, 100.5, 101.0]              # 1 % — well inside 8 %
     before = list(vals)
-    G._chord_cut_and_fill(ring, vals, list(range(3)), [1, 2], CAP)
+    G._chord_cut_and_fill(ring, vals, list(range(3)), [1, 2], CAP,
+                          weld_outranks_cap=True)
     assert vals == before
 
 
@@ -120,10 +122,70 @@ def test_two_mutually_infeasible_WELDS_keep_the_documented_ceiling():
     ring = [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]
     vals = [110.0, 105.0, 100.0]          # ends pinned 10 m apart, 10 m up
     live = list(range(3))
-    G._chord_cut_and_fill(ring, vals, live, [1], CAP)
+    G._chord_cut_and_fill(ring, vals, live, [1], CAP,
+                          weld_outranks_cap=True)
     lo, hi, lo_pin, hi_pin = G._chord_band(ring, vals, live, 1, CAP,
                                            pinned={0, 2})
     assert lo_pin > hi_pin                # the welds are mutually infeasible
     # The free vertex sits at the LOW weld's ceiling, not lifted to the
     # high weld's floor.
     assert vals[1] == pytest.approx(100.0 + CAP * 5.0, abs=1e-6)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# THE REWORK (owner ruling 2026-08-30): armed at ONE call site
+# ═════════════════════════════════════════════════════════════════════
+
+def test_the_ruling_is_OFF_by_default_and_the_pins_are_never_read():
+    """AIRSIDE-FROZEN BY SCOPE.  The first arm of this fix raised the
+    road at every limiter call, including the two that run BEFORE
+    ``final_grade_projection``; the projection then re-projected airside
+    off the raised road and moved 2,053 solve-owned airside nodes (worst
+    3.92 m at apron 30.11058671703,31.39511497552).  Measured again on
+    this round's own repro_cut fixture at the owner's site: 613
+    solve-owned nodes, 374 of them junction-ONLY — a re-projection, not
+    a weld.  The rework arms the ruling at the POST-projection call
+    only, so the DEFAULT must be the pre-ruling pass exactly.
+
+    Pinned structurally, which is stronger than a value comparison: with
+    the flag off the kernel never even BUILDS the pinned set, so
+    ``_chord_band`` is called with ``pinned=None`` at every vertex of
+    every sweep and both pinned bounds stay at infinity — every clause
+    the ruling added is then the identity by construction."""
+    seen = []
+    real = G._chord_band
+
+    def _spy(*a, **kw):
+        seen.append(kw.get("pinned", a[9] if len(a) > 9 else None))
+        return real(*a, **kw)
+
+    G._chord_band = _spy
+    try:
+        vals = list(_VALS)
+        live = list(range(len(_RING)))
+        G._chord_cut_and_fill(_RING, vals, live, live[1:], CAP)
+    finally:
+        G._chord_band = real
+    assert seen, "the kernel never priced a band"
+    assert all(p is None for p in seen), (
+        "the default pass read the PIN set — the ruling is armed where "
+        "a later pass can carry the up-build into airside")
+    # And the weld itself is untouched either way.
+    assert vals[0] == pytest.approx(_VALS[0], abs=1e-9)
+
+
+def test_the_post_projection_limiter_is_the_armed_call_site():
+    """The arming is a fact about the PIPELINE, not only about the
+    kernel: exactly one call passes ``weld_outranks_cap=True``, and it
+    is the one in the post-projection conformance block — after
+    ``final_grade_projection``, which is what makes the pin a read-only
+    source."""
+    src = (ROOT / "src" / "auto_patch" / "pipeline.py").read_text()
+    armed = [i for i, line in enumerate(src.splitlines())
+             if "weld_outranks_cap=True" in line]
+    assert len(armed) == 1, "the ruling must be armed at ONE call site"
+    proj = [i for i, line in enumerate(src.splitlines())
+            if "final_grade_projection(layout" in line]
+    assert proj and armed[0] > proj[0], (
+        "the armed limiter must run AFTER the final grade projection — "
+        "before it, the projection carries the up-build into airside")

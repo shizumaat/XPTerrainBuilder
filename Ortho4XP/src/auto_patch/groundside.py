@@ -4296,6 +4296,145 @@ def consolidate_full_width_service_corridors(
     return n_eliminated
 
 
+#: The minimum area a severed road corridor must claim inside a lot
+#: before it is worth its own shape — the groundside piece floor
+#: (``_GROUNDSIDE_MIN_AREA_M2``, read at call time so there is one
+#: constant), so the sever cannot mint a shape the separation drops.
+
+
+def _ll_key11(lat: float, lon: float) -> tuple:
+    """The CANONICAL IDENTITY of a point: its 11-decimal lat/lon
+    spelling (memory ``canonical-identity-join``; the join every reader
+    in this repo uses).  Never a proximity match."""
+    return (round(float(lat), 11), round(float(lon), 11))
+
+
+def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
+                                    tile_lon: int) -> int:
+    """Sever an OSM SERVICE ROAD out of the groundside ring that carries
+    it — owner ruling 2026-08-30, "ROAD-IN-GROUNDSIDE: NEW SCOPED SEVER,
+    NOT §H3".
+
+    THE TRIGGER IS AN IDENTITY, NOT EVIDENCE.  §H3's road-evidence
+    severance is REFUTED and stays off (measured +61 HECA / +37 SPJC /
+    +435 LEMD, IoU 0.8221 against 0.90) precisely because a coverage
+    fraction is a guess about what a shape is.  This pass asks a
+    decidable question instead: does an OSM service-road way SHARE A
+    VERTEX with the groundside ring at 11-decimal identity?  If it does,
+    the lot was built AROUND that road — the road's own nodes are in the
+    lot's ring — and the corridor is road pavement the lot is merely
+    carrying.  Nothing is swept for; a lot with no shared road vertex is
+    untouched, and no fraction is consulted anywhere in this function.
+
+    THE SITE (HECA round 6 item 3).  Way -13192 shares
+    30.114178800,31.404126000 with ring -12831 (groundside 2836); the
+    ground at 30.1118886,31.4064793 therefore emitted as lot, 7 m below
+    apron 585, where it should be a road ramping smoothly toward
+    30.1123727,31.4059687.  Severed, it is a ``service_road`` and the
+    MERGED free-road ramp law (round-5 family) grades it.
+
+    THE CORRIDOR IS THE ROAD FAMILY'S OWN.
+    ``clearance.road_corridors_from_ways`` builds it — the one buffer
+    law the clearance consumer and the classification evidence layer
+    both read, so the severed width is the road's width and not a
+    number chosen here.  Tunnel-tagged ways are dropped by that same
+    law, so a bore under a lot severs nothing.
+
+    Returns the number of corridors severed."""
+    network = getattr(layout, "airport_road_network", None)
+    if network is None or not getattr(network, "ways", None):
+        return 0
+    lots = [s for s in layout.shapes
+            if s.role == ROLE_GROUNDSIDE_PAVEMENT and s.polygon is not None
+            and not s.polygon.is_empty
+            and s.polygon.geom_type == "Polygon"]
+    if not lots:
+        return 0
+    # The lots' ring vertices, in the canonical 11-dp lat/lon identity.
+    ring_keys: dict = {}
+    for s in lots:
+        try:
+            coords = list(s.polygon.exterior.coords)
+        except _GEOM_EXC:
+            continue
+        for (x, y) in coords:
+            try:
+                lat, lon = layout.m_to_ll(float(x), float(y))
+            except _GEOM_EXC:
+                continue
+            ring_keys.setdefault(_ll_key11(lat, lon), []).append(s)
+    if not ring_keys:
+        return 0
+    from .clearance import road_corridors_from_ways
+    nodes = network.nodes
+    widths = getattr(network, "widths", None)
+    _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
+    n_sev = 0
+    minted: list = []
+    for way in network.ways:
+        way_id, node_refs, tags = way
+        if tags.get("highway") != "service":
+            continue
+        hosts: list = []
+        for nid in node_refs:
+            ll = nodes.get(nid)
+            if ll is None:
+                continue
+            for s in ring_keys.get(_ll_key11(ll[0], ll[1]), ()):  # identity
+                if s not in hosts:
+                    hosts.append(s)
+        if not hosts:
+            continue                       # not carried by any lot
+        try:
+            corridor = road_corridors_from_ways(nodes, [way], layout.ll_to_m,
+                                                widths=widths)
+        except _GEOM_EXC:
+            continue
+        if corridor is None or corridor.is_empty:
+            continue                       # tunnel / unbuffered by the law
+        for s in hosts:
+            if s.polygon is None or s.polygon.is_empty:
+                continue
+            try:
+                take = s.polygon.intersection(corridor)
+            except _GEOM_EXC:
+                continue
+            parts = [g for g in getattr(take, "geoms", [take])
+                     if g.geom_type == "Polygon"
+                     and g.area >= _GROUNDSIDE_MIN_AREA_M2]
+            if not parts:
+                continue
+            for g in parts:
+                built = _dem_follow_polygon(g, _dem_at, simplify_tol=0.0)
+                if built is None:
+                    continue
+                np_, na = built
+                minted.append(BuiltShape(
+                    polygon=np_, role=ROLE_SERVICE_ROAD,
+                    ref="lot_carried_road", node_altitudes=na))
+                n_sev += 1
+            # The lot yields the corridor it was carrying — one authority
+            # per patch of ground, the same clip semantics the groundside
+            # separation uses (``snap_tol=0``: the ring can only shrink).
+            try:
+                cut = unary_union([g for g in parts])
+            except _GEOM_EXC:
+                continue
+            if _clip_shape_yielding_to(s, cut, snap_tol=0.0) is None:
+                s.polygon = None           # wholly road; dropped below
+    if not n_sev:
+        return 0
+    layout.shapes = [s for s in layout.shapes
+                     if not (s.role == ROLE_GROUNDSIDE_PAVEMENT
+                             and s.polygon is None)] + minted
+    import O4_UI_Utils as UI
+    UI.vprint(1,
+        f"  [groundside] lot-carried service roads: severed {n_sev} "
+        f"corridor(s) out of the groundside rings whose vertices they "
+        f"share (owner ruling 2026-08-30, 11-dp identity trigger).")
+    return n_sev
+
+
 def reclassify_groundside_route_corridors(
         layout: "PavementLayout",
         *,
@@ -4677,7 +4816,8 @@ def _chord_band(coords, vals, live, a, cap, caps=None, axis=None, pad=None,
 
 
 def _chord_cut_and_fill(coords, vals, live, free, cap, sweeps: int = 4,
-                        caps=None, axis=None, pad=None, path=None):
+                        caps=None, axis=None, pad=None, path=None,
+                        weld_outranks_cap: bool = False):
     """R7c in place: clamp ``vals`` into the two-sided ``cap`` band over
     CHORD pairs, leaving every vertex not in ``free`` (the welds) alone.
 
@@ -4718,10 +4858,30 @@ def _chord_cut_and_fill(coords, vals, live, free, cap, sweeps: int = 4,
       * In a FEASIBLE band ``lo_pin <= lo <= hi``, so every clause is the
         identity.
     The arithmetic therefore changes at exactly one place: a free vertex
-    a weld can reach but the cap-driven ceiling beneath it cannot host."""
+    a weld can reach but the cap-driven ceiling beneath it cannot host.
+
+    ``weld_outranks_cap`` — RULING 1 IS ARMED ONLY WHERE IT CANNOT REACH
+    AIRSIDE (owner ruling 2026-08-30, the item-4 REWORK).  The first
+    arm of this fix raised the road wherever the limiter ran, including
+    the calls that precede ``final_grade_projection``; the projection
+    then re-projected airside off the raised road and 2,053 SOLVE-OWNED
+    airside nodes moved (worst 3.92 m at apron node
+    30.11058671703,31.39511497552), which "airside is king" forbids.
+    The channel is measured, not assumed: on the item-4 repro_cut
+    fixture the same arm moved 613 solve-owned nodes, 374 of them
+    junction-ONLY nodes no road and no band touches — a re-projection,
+    not a weld.  So the up-build is armed at ONE call site: the
+    POST-projection conformance limiter, the last road-family altitude
+    writer of the build.  Nothing that writes airside runs after it, so
+    a pinned airside generator is a READ-ONLY SOURCE by construction —
+    it generates the floor the road builds up to and can receive
+    nothing back.  Default OFF: every other call site keeps the
+    pre-ruling arithmetic bit for bit (``pinned`` is then never even
+    built, so ``lo_pin``/``hi_pin`` stay ``∓inf`` and every clause is
+    the identity)."""
     if not free:
         return
-    pinned = set(live) - set(free)
+    pinned = (set(live) - set(free)) if weld_outranks_cap else None
 
     def _weld_floor(lo_pin, hi_pin, hi):
         """The floor a weld imposes on this vertex, or ``-inf``."""
@@ -5124,7 +5284,8 @@ def _chord_limit_shared_node_census(stats, node_roles, node_cap,
     stats["road_nodes_near_miss"] = near
 
 
-def _grade_limit_groundside_chords(layout) -> int:
+def _grade_limit_groundside_chords(
+        layout, weld_outranks_cap: bool = False) -> int:
     """Clamp every groundside AND road-family shape's altitude field into
     the Lipschitz band of its own vertices at its role's cap, measured
     over straight-line CHORD pairs — the within-shape validator metric.
@@ -5165,6 +5326,13 @@ def _grade_limit_groundside_chords(layout) -> int:
       the count is reported (spec §2).
 
     ``tunnel_ramp`` is untouched: its law is the portal walk.
+
+    ``weld_outranks_cap`` — RULING 1 (HECA round 6 item 4) armed for THIS
+    call.  The pass runs three times per build; only the LAST one, in
+    ``pipeline``'s post-projection conformance block, may build a road UP
+    to a weld floor, because it is the only one after which nothing
+    writes airside.  See :func:`_chord_cut_and_fill` for the ruling, the
+    measured propagation channel and why the default is OFF.
     """
     node_alt: dict = {}
     node_cap: dict = {}
@@ -5439,14 +5607,17 @@ def _grade_limit_groundside_chords(layout) -> int:
                 # A node this ring shares with a STRICTER role: the pair
                 # budget drops to the stricter cap at that endpoint.
                 _chord_cut_and_fill(keys, vals, live, free, cap, caps=caps,
-                                    axis=axis, pad=pad, path=path)
+                                    axis=axis, pad=pad, path=path,
+                                    weld_outranks_cap=weld_outranks_cap)
             elif axis is not None or path is not None:
                 _chord_cut_and_fill(keys, vals, live, free, cap, axis=axis,
-                                    pad=pad, path=path)
+                                    pad=pad, path=path,
+                                    weld_outranks_cap=weld_outranks_cap)
             else:
                 # Every node at the ring's own cap — the scalar path, bit
                 # for bit the pre-road arithmetic.
-                _chord_cut_and_fill(keys, vals, live, free, cap)
+                _chord_cut_and_fill(keys, vals, live, free, cap,
+                                    weld_outranks_cap=weld_outranks_cap)
             for k in range(m):
                 if abs(vals[k] - before[k]) > 1e-6:
                     node_alt[keys[k]] = vals[k]
@@ -6443,6 +6614,49 @@ def _reclassify_groundside_orphan_junctions(
 GROUNDSIDE_CLEARANCE_M = SHARED_VERTEX_TOL_M + 0.5  # 1.0 m
 _GROUNDSIDE_MIN_AREA_M2 = 5.0
 
+# ── THE WIDTH TEST (HECA round 6 item 5, spec law) ───────────────────
+# "A severed groundside piece thinner than a service-road width along an
+# airside edge is not a groundside surface — it merges into the adjacent
+# airside grading (the adjacent-ground band), never a separate shape."
+# The threshold is HALF a service-road width: half the narrowest thing
+# this repo will build as its own drivable surface, so a piece that
+# could not carry even half a lane is not one.  ``SERVICE_ROAD_WIDTH_M``
+# is the single source (config.py), never a number spelled here.
+from .config import SERVICE_ROAD_WIDTH_M as _SERVICE_ROAD_WIDTH_M
+_SLIVER_MAX_MEAN_WIDTH_M = 0.5 * _SERVICE_ROAD_WIDTH_M
+# How close a piece's boundary runs to the airside clip before it counts
+# as FRONTAGE: the separation opens a GROUNDSIDE_CLEARANCE_M gap, so a
+# frontage edge sits at exactly that distance, plus the shared-vertex
+# tolerance for the snap the clip's mitre leaves behind.
+_SLIVER_FRONTAGE_TOL_M = GROUNDSIDE_CLEARANCE_M + SHARED_VERTEX_TOL_M
+
+
+def _is_airside_frontage_sliver(part, clip) -> bool:
+    """True when ``part`` is a RIBBON along its airside frontage — mean
+    width (area ÷ frontage length) under half a service-road width.
+
+    THE FRAME, because "width" names several things: the piece's mean
+    width ALONG THE FRONTAGE it presents to airside, i.e. its area
+    divided by the length of its boundary that runs within
+    ``_SLIVER_FRONTAGE_TOL_M`` of the airside clip.  That is the number
+    the owner's site reads in (HECA shape 3151: 332 m² over 480.9 m of
+    frontage = 0.69 m) and it is the one the law is stated in.  A piece
+    with NO airside frontage is not a frontage sliver at all, whatever
+    its shape — the law is about the ground beside airside pavement, so
+    it returns False and the area floor alone governs, exactly as
+    before."""
+    try:
+        if part.is_empty or part.area <= 0.0:
+            return False
+        frontage = part.exterior.intersection(
+            clip.buffer(_SLIVER_FRONTAGE_TOL_M))
+    except _GEOM_EXC:
+        return False
+    length = float(getattr(frontage, "length", 0.0) or 0.0)
+    if length <= 0.0:
+        return False
+    return (part.area / length) < _SLIVER_MAX_MEAN_WIDTH_M
+
 # ── R7b CLAUSE 3 — PARALLEL FRONTAGE CUTS BACK TO DEM ────────────────
 # Owner ruling 2026-08-15 late (the sink ruling): "a road running
 # PARALLEL to an apron for more than 1.5x the road's width takes the
@@ -6910,6 +7124,17 @@ def _separate_groundside_from_airside(
         for part in parts:
             if part.geom_type != "Polygon" or part.is_empty \
                     or part.area < _GROUNDSIDE_MIN_AREA_M2:
+                changed = True
+                continue
+            if _is_airside_frontage_sliver(part, clip):
+                # THE WIDTH TEST BESIDE THE AREA TEST (HECA round 6 item
+                # 5, spec law).  An area floor alone keeps a 332 m² ribbon
+                # 0.69 m wide and 480.9 m long — shapeID 3151's 108 sliver
+                # pieces at HECA — as a separate groundside surface
+                # standing between a taxiway and a gap ring, where it
+                # mints bumps and can carry nothing.  It is not a
+                # surface: it merges into the adjacent airside grading
+                # (the adjacent-ground band owns that ground).
                 changed = True
                 continue
             if part.equals(s.polygon):

@@ -5173,6 +5173,22 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         except _GEOM_EXC:
             pass
 
+        # LOT-CARRIED SERVICE ROADS → service_road (owner ruling
+        # 2026-08-30, HECA round 6 item 3).  The SCOPED sever: where an
+        # OSM service road shares a vertex with the groundside ring at
+        # 11-dp identity, the lot was built around the road and is
+        # merely carrying it — the corridor leaves the lot and grades
+        # under the merged free-road ramp law.  Runs HERE, right after
+        # groundside is emitted and well before the solve, so the
+        # severed corridor is a road for the whole of phase 2.  §H3's
+        # road-EVIDENCE severance stays refuted and off; this trigger is
+        # an identity, not a coverage fraction.
+        try:
+            from .groundside import sever_lot_carried_service_roads
+            sever_lot_carried_service_roads(layout, dem, tile_lat, tile_lon)
+        except _GEOM_EXC:
+            pass
+
         # GROUNDSIDE ROUTE CORRIDORS → service_road (user 2026-07-04, CYXY
         # #206): an OSM-captured groundside piece that IS a truck-route
         # road corridor (route runs through it end-to-end) grades as a
@@ -7109,7 +7125,19 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             try:
                 from .groundside import _grade_limit_groundside_chords
                 layout._weld_relimit_moved_xy = []
-                _grade_limit_groundside_chords(layout)
+                # WELD OUTRANKS CAP, ARMED HERE ONLY (owner ruling
+                # 2026-08-30, the item-4 rework).  This is the LAST
+                # road-family altitude writer of the build and the only
+                # limiter call that runs after ``final_grade_projection``
+                # — so a road built UP to a pinned airside weld floor
+                # cannot be carried back into an airside value by any
+                # later pass.  Armed at the two earlier call sites
+                # (finalize's and the post-solve-law-seat one) it moved
+                # 2,053 solve-owned airside nodes through the
+                # projection; the ruling is that the pin is a READ-ONLY
+                # SOURCE.  See ``groundside._chord_cut_and_fill``.
+                _grade_limit_groundside_chords(
+                    layout, weld_outranks_cap=True)
                 # THE WELD-RELIMIT SINK — DELETED 2026-08-04 (spec
                 # ``docs/specs/kill-half-spec.md`` §2).  Welds this
                 # re-adoption moved were pushed into

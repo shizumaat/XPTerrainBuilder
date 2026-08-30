@@ -4851,6 +4851,34 @@ What was NOT paid:
   Warning absence verified by importing + exercising osr/ogr under
   `-W error::FutureWarning`.
 
+## 2026-08-30 — HECA round 6 (lane/hecar6): item 4 only, BELOW BAR
+
+* Item 4 — `groundside._chord_cut_and_fill`: the weld outranks the cap
+  inside the LATE chord limiter (an empty band whose floor a WELD
+  generates against a FREE neighbour's ceiling builds UP instead of
+  being cut).  Item 1's hole-keeping change was REVERTED — measured a
+  no-op at the owner's site (refuted, RULINGS 29f).
+* **No full-suite run** (pre-ship mode).  Directly-covering files ran
+  once: `test_weld_outranks_cap_chord_limiter` (new),
+  `test_road_cross_section`, `test_free_road_profile`,
+  `test_groundside_law_authority`, `test_road_path_metric`,
+  `test_service_road_chord_split` — 141 passed; `test_harness` 268
+  passed (the census register the numbers below are quoted from).
+* **No five-airport battery, no A/B timing run** (pre-ship mode +
+  build economy 29f).  ONE arm build + ONE shared base arm, both
+  stored in the artifact ledger.
+* **OWED — item 4 IS BELOW BAR and must not merge without the owner's
+  sign-off.**  It closes the reported contact step (the weld's low
+  face 108.27 -> 106.24 over 5.40 m becomes 108.28 -> 108.17), but:
+  (a) it MOVES AIRSIDE — 2,053 solve-owned airside nodes by > 0.01 m,
+  worst 3.92 m on an apron node, against the standing "airside is
+  king" ruling; (b) HECA law-true census 6,656 -> 6,905 (+249, all
+  road/groundside families); (c) the owner's own low site rises only
+  +0.09 m (104.71 -> 104.80) against a "couple of metres" ask.
+* **OWED — items 1, 2, 3, 5, 6 are ATTRIBUTED but NOT FIXED**; each
+  stops on a law or mechanism decision that is the owner's or the
+  spec author's.  See the round report.
+
 ## 2026-08-30 — OTHH canonical mouth (lane/othhmouth): no matched control arm
 
 * **The census "before" is the OWNER'S SHIPPED PATCH, not a base arm at
@@ -4878,3 +4906,45 @@ What was NOT paid:
   `O4_RAMP_WALL_FOOT` §T5 twins.  `_band_scene` calls
   `bridges.emit_wall_band` directly and reaches no line this lane
   touched.
+
+## 2026-08-30 — HECA round 6b (lane/hecar6, four owner rulings)
+
+* **The five-airport sweep is not run in this lane** (29f: it runs once
+  per merged batch, at app-build time).  Items 2 and 5 are WIDE-BLAST by
+  construction — the adjacent-ground band emitter and the groundside
+  separation run at every airport — so the merge batch that carries this
+  lane owes CYXY / SPJC / LEMD / OTHH censuses beside the HECA pair
+  measured here.
+* **Item 2's synthetic twin is OWED.** The spec asks for a taxiway
+  abutting a groundside shape at a large DEM offset; this lane measured
+  the law on the real HECA site (junction 586 ↔ groundside 2836) and on
+  the closing build's census, and left the synthetic pair unwritten.
+  The cut-back's clip semantics ARE twinned indirectly (the width test's
+  and the sever's twins both exercise `_clip_shape_yielding_to`).
+* **Item 4's isolated gate is measured on a repro_cut FIXTURE**, not on
+  the whole airport: control → item-4-only arm at the owner's site
+  (30.1055367,31.3994026, r=350 m) reads ZERO solve-owned airside nodes
+  moved >0.01 m.  The closing whole-airport arm carries all five code
+  items at once, so its airside delta is the ROUND's, not item 4's; the
+  per-item isolation of the other four is not measured.
+* **`classify_report.py --geometry-only`** (new flag, indexed) reads the
+  roles out of a phase-1 build.  Its equivalence to the full build's
+  decisions is argued from the scorer being a phase-1 shadow pass, not
+  measured against a solved run at HECA (that would be the third
+  half-hour build this round does not have).
+* **Item 3's sever is UNVERIFIED at HECA and its census effect is
+  UNMEASURED.**  Attempt 1 (the 11-dp lat/lon join) is MEASURED not to
+  fire: in the geometry-only build `r6b_geo` the ruling's own identity
+  point came back from the layout's metre frame as
+  30.11417881036,31.40412602903 against the feed's
+  30.114178800,31.404126000 — 3 mm, and unequal at 11 decimals.
+  Attempt 2 moves the join into the metre frame (the frame the ring
+  lives in, same forward projection on both sides), which is founded on
+  that measurement but landed AFTER the closing build.  Neither cheap
+  instrument can verify it: `--geometry-only` skips the whole
+  groundside slot (it lives inside `solve_and_finalize`'s
+  `compute_elevations` branch), and a repro_cut fixture at the site
+  builds no groundside pavement at all (the lot comes from OSM landuse
+  the fixture's OSM overlay does not carry).  Verifying it costs one
+  more full HECA build, which this round's two-build budget did not
+  have.  The attempt cap is reached; the residual is the owner's.

@@ -396,8 +396,12 @@ def test_surround_material_and_the_runway_end_regime_are_never_exempt():
                        node_altitudes=[EDGE_ALT] * 5)
     assert GF._enclave_exempt(pad) is False
     assert GF._enclave_exempt(skirt) is False
-    # What the law DOES reach: the enclave's interior contents.
-    assert GF._enclave_exempt(_sliver()) is True
+    # What the law DOES reach: the enclave's interior GROUND — bands,
+    # terraces and their walls.  Groundside PAVEMENT left this class on
+    # 2026-08-30 (owner ruling, "GROUNDSIDE_PAVEMENT IS A GAP-FILL
+    # BLOCKER"); its truth-table row lives with the roads in
+    # ``test_gap_fill_service_road_stop.py``.
+    assert GF._enclave_exempt(_sliver()) is False
     assert GF._enclave_exempt(
         _rect(70.0, 50.0, 72.0, 52.0, ROLE_GRADED_STRIP)) is True
 

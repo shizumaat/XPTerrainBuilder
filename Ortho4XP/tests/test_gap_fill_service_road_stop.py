@@ -190,19 +190,41 @@ def test_a_gap_with_no_road_is_byte_identical_to_the_baseline():
 # ═════════════════════════════════════════════════════════════════════
 
 def test_enclave_exempt_truth_table_for_the_touched_roles():
-    """Owner ruling 2026-08-15: service_road / service_junction are
-    NEVER exempt.  groundside_pavement is deliberately NOT touched (not
-    ruled — open question recorded at ``_SERVICE_ROAD_BLOCKER_ROLES``),
-    and the enclave law's ordinary interior contents stay exempt."""
+    """Owner rulings 2026-08-15 and 2026-08-30: service_road /
+    service_junction / groundside_pavement are NEVER exempt.  The
+    2026-08-30 ruling ("GROUNDSIDE_PAVEMENT IS A GAP-FILL BLOCKER")
+    closed the open question this file recorded — the evidence was HECA
+    round 6 item 6, spine graded_strips 3225/3227 stacked 100 % over
+    groundside 2837/2838.  The enclave law's ordinary interior contents
+    (bands, terraces, their walls) stay exempt."""
     assert GF._enclave_exempt(
         _rect(70.0, 50.0, 90.0, 70.0, ROLE_SERVICE_ROAD)) is False
     assert GF._enclave_exempt(
         _rect(70.0, 50.0, 90.0, 70.0, ROLE_SERVICE_JUNCTION)) is False
-    # NOT ruled: groundside pavement keeps its exemption.
+    # RULED 2026-08-30: groundside pavement blocks like a service road.
     assert GF._enclave_exempt(
-        _sliver(role=ROLE_GROUNDSIDE_PAVEMENT)) is True
+        _sliver(role=ROLE_GROUNDSIDE_PAVEMENT)) is False
     assert GF._enclave_exempt(
         _rect(70.0, 50.0, 72.0, 52.0, ROLE_GRADED_STRIP)) is True
-    # And the set is exactly the two ruled roles.
+    # And the set is exactly the three ruled roles.
     assert GF._SERVICE_ROAD_BLOCKER_ROLES == frozenset(
-        (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION))
+        (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+         ROLE_GROUNDSIDE_PAVEMENT))
+
+
+def test_groundside_pavement_blocks_the_spine_like_a_road():
+    """The 2026-08-30 ruling's own site, in the fixture frame: a
+    pocket-width enclave gap crossed by GROUNDSIDE PAVEMENT subdivides
+    around it — no gap face (and hence no spine) is graded over the
+    pavement.  This is HECA 3225/3227 over 2837/2838 in miniature."""
+    lot = _road(role=ROLE_GROUNDSIDE_PAVEMENT)
+    layout = _frame([lot])
+    EN.publish_airside_enclaves(layout)
+    n = GF.emit_gap_fill_spines(layout, None, 0, 0)
+    assert n >= 2, "both residual pockets must take the treatment"
+    faces = _gap_faces(layout)
+    assert faces
+    for f in faces:
+        assert f.polygon.intersection(lot.polygon).area <= 1.0, (
+            "a gap face was graded OVER the groundside pavement the "
+            "spine must stop at")

@@ -6967,7 +6967,14 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             from .conformance import (
                 enforce_conformance as _enf_pre,
                 snap_subcm_vertex_twins as _snap_pre,
+                repair_emit_quantized_rings as _quant_pre,
                 FINAL_WELD_TOL_M as _PRE_WELD_TOL_M)
+            from .layout import ONEDGE_SNAP_TOL_M as _PRE_SNAP_TOL_M
+            # QUANTIZED-VALIDITY REPAIR FIRST (same §1 closure): a ring
+            # the emitter would buffer(0)-repair AFTER the projection is
+            # repaired here instead, so the law graph is built on the
+            # ring that actually ships (its own message reports sites).
+            _quant_pre(layout)
             # THE SNAP IS THE INSERT'S DOCUMENTED PRECONDITION, so it runs
             # here too (AMENDMENT A1 §1b lets the snap STAY post-projection;
             # it does, unchanged — this is an ADDITIONAL idempotent call, not
@@ -6990,11 +6997,18 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             # two inserts floated +2.12 / +2.22 m above the DEM envelope
             # without it).  Carrying that frame here is what makes this ONE
             # pass do both halves' work (AMENDMENT A1 §1a).
+            # ``private_snap_tol``: adopt the emit move's private on-edge
+            # class into the receiving rings HERE, so the law graph
+            # prices those vertices and the emit-time move + nid splice
+            # both stand down (their node reads two owners) — the §1
+            # residue class measured as ungraded emitted airside
+            # vertices (test_solver_and_validator_same_nodes).
             _n_pw_s, _n_pw_v = _enf_pre(layout, tol=_PRE_WELD_TOL_M,
                                         include_overlay_refs=True,
                                         dem=_projection_dem,
                                         tile_lat=_projection_tile_lat,
-                                        tile_lon=_projection_tile_lon)
+                                        tile_lon=_projection_tile_lon,
+                                        private_snap_tol=_PRE_SNAP_TOL_M)
             UI.vprint(1,
                 f"  [weld-before-projection] {icao}: inserted {_n_pw_v} "
                 f"T-vertex(es) into {_n_pw_s} shape(s) BEFORE the final "

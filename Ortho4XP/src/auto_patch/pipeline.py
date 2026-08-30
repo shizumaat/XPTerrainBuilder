@@ -6490,27 +6490,6 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             current_tile_lat=current_tile_lat,
             current_tile_lon=current_tile_lon)
         _rod_ckpt(layout, "01_terrain_transition_emit")
-        # ── §1/§4/§6 (RULINGS 2026-08-30c): THE DECK IS ADJUDICATED ──
-        # HERE and nowhere else — the one slot where all three clauses
-        # can mean something.  §1 asks what this build EMITTED beneath
-        # the span, and the tunnel pass has just emitted it; §4 reads
-        # the highest of those surfaces; §6 prices both abutments
-        # against the road cap.  The free-road profile solve, which
-        # consumes the §5 pin, runs after this.
-        try:
-            from . import road_bridge_deck as _deck_confirm
-            _deck_report = _deck_confirm.confirm_and_pin(layout, icao)
-            if _deck_report.get("candidates"):
-                UI.vprint(1,
-                    f"  [bridge-deck] {icao}: "
-                    f"{_deck_report['candidates']} candidate(s) — "
-                    f"{_deck_report['confirmed']} confirmed, "
-                    f"{_deck_report['unconfirmed']} unconfirmed (§1), "
-                    f"{_deck_report['refused']} refused (§6); "
-                    f"{_deck_report['pins']} deck pin(s) published.")
-        except Exception as _deck_error:      # never fail the build
-            UI.vprint(1, "   [bridge-deck] adjudication skipped:",
-                      _deck_error)
         try:
             # Bridge vertex post-processing (POST-solve, with the bridge): the
             # boundary→DEM bridge is solve-dependent (Phase 5), so its airside

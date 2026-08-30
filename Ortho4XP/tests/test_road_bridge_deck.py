@@ -157,8 +157,9 @@ class TestScope:
         deck.publish_candidates(layout)
         _mint_deck_pieces(layout)
         deck.stamp_shapes(layout)
-        report = deck.confirm_and_pin(layout)
-        assert report["unconfirmed"] == 1 and report["confirmed"] == 0
+        report = deck.confirm_and_sever(layout)[0]
+        assert report["unconfirmed"] == 1
+        assert report["confirmed_terrain"] == 0
         assert deck.pins_of(layout) == {}
         assert [r["verdict"] for r in deck.records_of(layout)] \
             == ["unconfirmed"]
@@ -212,78 +213,114 @@ class TestProtection:
         assert deck.abutment_keep_out(layout) is None
 
 
-# ── §4/§6 — the value and the refusal ───────────────────────────────
-class TestValuationAndRefusal:
+# ── 2026-08-30d — the TERRAIN-BASED deck ────────────────────────────
+class TestTerrainDeck:
+    """The amendment: with no bridge OBJECT for the span the deck is
+    TERRAIN — it spans at ROAD LEVEL and CUTS THROUGH the ramp's open
+    cut, and the stretch beneath is a COVERED STRETCH.  The float-above
+    model it supersedes (deck pinned at ramp + clearance over an OPEN
+    ramp) is deleted, pin machinery and all.
+    """
+
     def _run(self, **kw):
         layout = _make(**kw)
         deck.publish_candidates(layout)
         _mint_deck_pieces(layout)
         deck.stamp_shapes(layout)
-        return layout, deck.confirm_and_pin(layout)
+        report, sever = deck.confirm_and_sever(layout)
+        return layout, report, sever
 
-    def test_the_deck_value_is_the_surface_beneath_plus_the_clearance(self):
-        """§4, through the config constant — never a hand-typed number."""
-        from auto_patch.config import BRIDGE_ROAD_CLEARANCE_M
-        layout, _ = self._run(east_gap_m=60.0)
-        rec = deck.records_of(layout)[0]
-        assert rec["highest_beneath_m"] == pytest.approx(600.17, abs=1e-3)
-        assert rec["deck_value_m"] == pytest.approx(
-            600.17 + float(BRIDGE_ROAD_CLEARANCE_M), abs=1e-3)
+    def test_a_terrain_deck_confirms_and_severs(self):
+        layout, report, sever = self._run()
+        assert report["confirmed_terrain"] == 1
+        assert report["object_governed"] == 0
+        assert sever is not None and not sever.is_empty
+        assert deck.records_of(layout)[0]["verdict"] == "confirmed_terrain"
 
-    def test_a_reachable_abutment_confirms_and_pins(self):
-        """A long enough run to the receiving surface: the deck stands."""
-        layout, report = self._run(east_gap_m=60.0)
-        assert report["confirmed"] == 1 and report["refused"] == 0
-        assert report["pins"] > 0
-        assert deck.records_of(layout)[0]["verdict"] == "confirmed"
+    def test_the_sever_footprint_covers_the_span(self):
+        """It is the deck's own corridor that joins the protected union,
+        so the covered stretch is exactly the deck's footprint."""
+        from shapely.geometry import Point
+        _layout, _report, sever = self._run()
+        assert sever.covers(Point(42.0, 0.0))
+        assert sever.covers(Point(0.0, 0.0))
+        assert not sever.contains(Point(-30.0, 0.0))
 
-    def test_the_lemd_geometry_refuses(self):
-        """§6, the owner's site in the small: 605.27 m of deck against a
-        602.14 m receiver over 17.9 m is 17.5 %, past the 8 % road cap."""
-        from auto_patch.config import SERVICE_ROAD_MAX_GRADE
-        layout, report = self._run()
-        assert report["refused"] == 1 and report["confirmed"] == 0
-        rec = deck.records_of(layout)[0]
-        assert rec["verdict"] == "refused"
-        east = [c for c in rec["abutment_checks"] if c["side"] == "east"][0]
-        assert east["run_m"] == pytest.approx(17.9, abs=0.6)
-        assert east["grade_needed"] > float(SERVICE_ROAD_MAX_GRADE)
+    def test_there_is_no_deck_pin(self):
+        """§5 as amended: the deck sits at the ROAD SOLVE's own level, so
+        nothing pins it.  The float-above pin is gone."""
+        layout, _report, _sever = self._run()
         assert deck.pins_of(layout) == {}
 
-    def test_a_refused_deck_leaves_the_pre_law_surface(self):
-        """§6 stand-down: a piece minted on BRIDGE EVIDENCE ALONE goes;
-        the flag never survives a refusal."""
-        layout = _make()
+    def test_the_clearance_clause_is_an_instrument_not_a_lever(self):
+        """§4 as amended applies to the ramp's CONTINUED profile, which
+        passes under "by construction of the authored ramp datum, not by
+        moving the deck up".  So the module MEASURES the cover and says
+        whether the premise holds; it moves nothing."""
+        from auto_patch.config import BRIDGE_ROAD_CLEARANCE_M
+        layout, _r, _s = self._run()
+        rec = deck.records_of(layout)[0]
+        # the fixture's deck pieces sit at 600.9, the ramp top at 600.17
+        assert rec["deck_level_m"] == pytest.approx(600.9, abs=1e-3)
+        assert rec["clearance_measured_m"] == pytest.approx(0.73, abs=1e-2)
+        assert rec["clearance_required_m"] == float(BRIDGE_ROAD_CLEARANCE_M)
+        assert rec["clearance_premise_holds"] is False
+        # ...and the RAMP is untouched whatever that says.
+        ramp = [s for s in layout.shapes if s.role == ROLE_TUNNEL_RAMP][0]
+        assert ramp.node_altitudes == pytest.approx(
+            [598.97, 600.17, 600.17, 598.97])
+
+    def test_the_premise_holds_when_the_ramp_really_is_deep(self):
+        layout, _r, _s = self._run(ramp_top=594.0)
+        rec = deck.records_of(layout)[0]
+        assert rec["clearance_measured_m"] == pytest.approx(6.9, abs=1e-2)
+        assert rec["clearance_premise_holds"] is True
+
+    def test_a_hard_deck_OBJECT_leaves_the_terrain_open(self):
+        """"Where a classified hard-deck OBJECT bridge exists, the object
+        law continues to govern and the terrain stays open." """
+        import auto_patch.road_bridge_deck as mod
+        real = mod._hard_deck_object_over
+        try:
+            mod._hard_deck_object_over = lambda layout, corr: True
+            layout, report, sever = self._run()
+        finally:
+            mod._hard_deck_object_over = real
+        assert report["object_governed"] == 1
+        assert report["confirmed_terrain"] == 0
+        assert sever is None, "an object-governed span severs nothing"
+        assert deck.records_of(layout)[0]["verdict"] == "object_governed"
+
+    def test_an_unconfirmed_deck_leaves_the_pre_law_surface(self):
+        """§1 stand-down: a piece minted on BRIDGE EVIDENCE ALONE goes."""
+        layout = _make(with_ramp=False)
         deck.publish_candidates(layout)
         deck.note_bridge_evidence_only(layout, "W1", touched_pavement=False)
         _mint_deck_pieces(layout)
         deck.stamp_shapes(layout)
         before = len(layout.shapes)
-        deck.confirm_and_pin(layout)
+        deck.confirm_and_sever(layout)
         assert len(layout.shapes) == before - 1
         assert not any(deck.is_deck_shape(s) for s in layout.shapes)
 
-    def test_a_deck_that_touches_pavement_keeps_its_piece(self):
+    def test_an_unconfirmed_deck_that_touches_pavement_keeps_its_piece(self):
         """The stand-down restores TODAY's surface, and today's surface
         keeps a bridge way that passed the touching-pavement test."""
-        layout = _make()
+        layout = _make(with_ramp=False)
         deck.publish_candidates(layout)
         deck.note_bridge_evidence_only(layout, "W1", touched_pavement=True)
         _mint_deck_pieces(layout)
         deck.stamp_shapes(layout)
         before = len(layout.shapes)
-        deck.confirm_and_pin(layout)
+        deck.confirm_and_sever(layout)
         assert len(layout.shapes) == before
         assert not any(deck.is_deck_shape(s) for s in layout.shapes)
 
-    def test_the_structure_beneath_is_never_written(self):
-        """§4: AIRSIDE IS KING is the DIRECTION of the constraint — the
-        ramp keeps its authored profile whatever the deck does."""
-        layout, _ = self._run(east_gap_m=60.0)
-        ramp = [s for s in layout.shapes
-                if s.role == ROLE_TUNNEL_RAMP][0]
-        assert ramp.node_altitudes == pytest.approx(
-            [598.97, 600.17, 600.17, 598.97])
+    def test_a_confirmed_deck_keeps_its_flag(self):
+        """§3 still holds: the deck is not cuttable pavement, so the flag
+        must survive confirmation."""
+        layout, _r, _s = self._run()
+        assert any(deck.is_deck_shape(s) for s in layout.shapes)
 
 
 class TestChainContinuity:
@@ -356,7 +393,7 @@ class TestSlopedRampEncoding:
         deck.publish_candidates(layout)
         _mint_deck_pieces(layout)
         deck.stamp_shapes(layout)
-        deck.confirm_and_pin(layout)
+        deck.confirm_and_sever(layout)[0]
         rec = deck.records_of(layout)[0]
         assert rec["structures_beneath"] == 1
         assert rec["highest_beneath_m"] == pytest.approx(600.17, abs=1e-3)

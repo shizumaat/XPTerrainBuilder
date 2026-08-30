@@ -1,15 +1,21 @@
-"""THE ROAD BRIDGE DECK — RULINGS 2026-08-30c §1–§6.
+"""THE ROAD BRIDGE DECK — RULINGS 2026-08-30c §1–§6,
+as amended by RULINGS 2026-08-30d (the TERRAIN-BASED bridge).
 
     A MAPPED ROAD BRIDGE OVER A BELOW-GRADE STRUCTURE IS A DECK, NOT
     CUTTABLE PAVEMENT.
 
-One home for the whole law, because its six clauses fire in four
-different phases and a reader who has to reassemble them from four call
-sites cannot check the law against the code:
+    ...and where the pack provides NO bridge OBJECT for the span, that
+    deck is TERRAIN: the mesh is a heightfield, so the deck's terrain
+    spans the crossing AT ROAD LEVEL and CUTS THROUGH the ramp's open
+    cut.  The ramp CONTINUES ON EITHER SIDE.
+
+One home for the whole law, because its clauses fire in three different
+phases and a reader who has to reassemble them from four call sites
+cannot check the law against the code:
 
 * **§1 Scope** — :func:`publish_candidates` (phase 4, before the corridor
-  course set is built) and :func:`confirm_and_pin` (phase 6, after the
-  tunnel pass has emitted).  The tag is the only trigger: a feed way
+  course set is built) and :func:`confirm_and_sever` (inside the tunnel
+  pass, once the ramps exist).  The tag is the only trigger: a feed way
   carrying ``bridge`` (any value but ``no``).  Geometry NEVER infers a
   bridge.
 * **§2 What emits** — the admission hook in ``pipeline`` reads
@@ -24,32 +30,41 @@ sites cannot check the law against the code:
   ``covered_span.suppress_synthesised_road_pavement``; and
   :func:`abutment_keep_out` removes the free-end DEM tie at either
   abutment, because the road runs THROUGH.
-* **§4 Where it sits** — :func:`confirm_and_pin` values the deck at the
-  highest EMITTED surface beneath the span plus
-  ``config.BRIDGE_ROAD_CLEARANCE_M``.  AIRSIDE IS KING is the DIRECTION
-  of the constraint: nothing here ever writes the structure beneath.
-* **§5 The approaches** — :func:`pins_of` hands the deck value to
-  ``free_road_profile.solve_free_road_profiles`` as an ordinary pin, so
-  the chain reaches it at ``SERVICE_ROAD_MAX_GRADE`` like any other
-  pinned end.
-* **§6 Refusal, loudly** — a deck whose two abutment values cannot both
-  be reached at the road cap is refused at candidate time with a named
-  line and sidecar evidence, and :func:`_stand_down` leaves the pre-law
-  surface.  The gap-spine-bridge stand-down precedent (owner
-  2026-08-27): the misplaced object is the bridge.
+* **§3/§4 AS AMENDED (2026-08-30d)** — :func:`confirm_and_sever` returns
+  the footprint of every confirmed TERRAIN deck, and the tunnel pass
+  unions it into its PROTECTED-TRANSIT union and its wall gate.  That is
+  the covered-stretch machinery the pass already owns, REUSED and not
+  forked: over protected pavement a mostly-covered ramp piece drops and
+  a graze is clipped back to the edge, so the open cut is severed inside
+  the deck footprint, no walls stand there, and the ramp resumes at both
+  deck edges with its authored profile untouched.  The old float-above
+  model (deck pinned at ramp + clearance, over an OPEN ramp) is
+  SUPERSEDED and its pin machinery is deleted.
+* **§4's clearance clause, as amended** — it now applies to the ramp's
+  CONTINUED profile, which passes under the deck "by construction of the
+  authored ramp datum, NOT by moving the deck up".  So it is an
+  INSTRUMENT here: :func:`confirm_and_sever` records the cover the
+  emitted ramp actually leaves under the deck and says whether the
+  premise holds.  Nothing in this module moves a deck or a ramp.
+* **§5 The approaches** — unchanged, and now the only thing that sets the
+  deck's height: the deck sits at the ROAD SOLVE's own level, so the
+  chain simply solves through it at ``SERVICE_ROAD_MAX_GRADE``.  There
+  is no deck pin.
+* **§6 Refusal, loudly** — retained for a deck that carries an
+  INDEPENDENT value to reach.  A terrain deck carries none (it IS the
+  road solve), so §6 cannot fire in the no-object case; see the round
+  report's deviation delta.
 
 WHY CANDIDACY IS PREDICTED AND THEN CONFIRMED.  §1 asks whether the span
-crosses a structure THIS BUILD EMITTED, and the tunnel pass emits in
-phase 6 — long after the course set is minted in phase 4.  Admitting
-every bridge-tagged way and sorting it out later is NOT equivalent: a
-way minted in phase 4 is a solver variable by phase 5, so a way over
-nothing would perturb a surface §1 says it must leave alone.  So
-candidacy is decided in phase 4 against the extent the tunnel pass CAN
-reach — the mapped bore corridor extended along its own tangents by the
-portal walk's own arm cap — and §1 proper is decided in phase 6 against
-what was actually emitted.  Over-prediction is safe (the candidate
-stands down and today's surface returns); under-prediction would silently
-lose a deck, so the prediction is deliberately generous.
+crosses a structure THIS BUILD EMITTED, and the tunnel pass emits long
+after the course set is minted in phase 4.  Admitting every bridge-tagged
+way and sorting it out later is NOT equivalent: a way minted in phase 4
+is a solver variable by phase 5, so a way over nothing would perturb a
+surface §1 says it must leave alone.  So candidacy is decided in phase 4
+against the extent the tunnel pass CAN reach — the mapped bore corridor
+extended along its own tangents by the portal walk's own arm cap, and
+narrowed by §2's own continuity clause — and §1 proper is decided inside
+the tunnel pass against what was actually emitted.
 """
 from __future__ import annotations
 
@@ -454,28 +469,79 @@ def _init_receiving_roles():
     })
 
 
-def confirm_and_pin(layout, icao: str = "") -> dict:
-    """§1 confirmation, §4 valuation and §6 refusal, in the one slot
-    where all three can mean something: after the tunnel pass has
-    emitted and before the free-road profile solves.
+def _hard_deck_object_over(layout, corridor) -> bool:
+    """Does a CLASSIFIED HARD-DECK OBJECT BRIDGE stand over this span?
 
-    Returns a report dict; the per-deck records are published on the
-    layout for the sidecar."""
+    RULINGS 2026-08-30d: *"Where a classified hard-deck OBJECT bridge
+    exists, the object law (R14-2/A-3 first exception) continues to
+    govern and the terrain stays open."*  So the terrain-based treatment
+    is the NO-OBJECT case, and this is the discriminator.
+
+    The classifier's own ``hard_deck`` verdict is the test — which is
+    exactly why "surface cones and edge barriers do not count": they
+    never reach it.  The deck footprint is projected through the SAME
+    helper the object-bridge emitter uses, so the two can never disagree
+    about where an object bridge is.
+    """
+    try:
+        from .bridges import (_bridge_footprint_meters,
+                              _local_meter_projections,
+                              _object_bridge_classification)
+        classification = _object_bridge_classification(layout)
+        records = list(getattr(classification, "bridges", None) or ())
+        if not records:
+            return False
+        to_m, _ = _local_meter_projections(layout.anchor)
+        for b in records:
+            if not bool(getattr(b, "hard_deck", False)):
+                continue
+            poly = _bridge_footprint_meters(b, to_m)
+            if poly is None or poly.is_empty:
+                continue
+            if poly.intersects(corridor):
+                return True
+    except Exception:                                    # pragma: no cover
+        return False
+    return False
+
+
+def confirm_and_sever(layout, icao: str = ""):
+    """§1 confirmation and the TERRAIN-BASED deck (RULINGS 2026-08-30d),
+    in the one slot where both can mean something: inside the tunnel
+    pass, after the ramps are emitted and BEFORE the covered-stretch
+    clip reads its protected union.
+
+    Returns ``(report, sever_union)``.  ``sever_union`` is the footprint
+    of every CONFIRMED TERRAIN deck; the caller unions it into the
+    protected-transit union and the wall gate, which is what makes the
+    stretch under the deck a COVERED STRETCH — the ramp's open cut is
+    severed there, no walls stand inside the footprint, and the ramp
+    RESUMES at both deck edges with its authored profile untouched.
+    That is the tunnel pass's own covered-stretch machinery, reused
+    rather than forked: over protected pavement a mostly-covered ramp
+    piece drops and a graze is clipped back to the edge, exactly as it
+    already does under a taxiway.
+
+    WHY THE SLOT MOVED.  Under 2026-08-30c the deck floated ABOVE an
+    open ramp, so §1 could be confirmed after the whole tunnel pass and
+    §4 could pin the deck.  Under 2026-08-30d the deck CUTS the ramp,
+    so confirmation has to happen while the ramp pieces are still
+    there — confirm afterwards and §1 would find the very geometry the
+    deck had just severed, call the deck unconfirmed, stand it down, and
+    leave the ramp cut with nothing spanning it.
+    """
     _init_receiving_roles()
-    report = {"candidates": 0, "confirmed": 0, "unconfirmed": 0,
-              "refused": 0, "pins": 0}
+    report = {"candidates": 0, "confirmed_terrain": 0,
+              "object_governed": 0, "unconfirmed": 0, "refused": 0}
     records = candidates_of(layout)
     if not records:
         setattr(layout, _RECORDS, [])
-        return report
-    from .config import BRIDGE_ROAD_CLEARANCE_M, SERVICE_ROAD_MAX_GRADE
-    from shapely.geometry import Point
+        return report, None
+    from .config import BRIDGE_ROAD_CLEARANCE_M
 
     beneath_all = _below_grade_shapes(layout)
-    deck_ids = {id(s) for s in (getattr(layout, "shapes", None) or ())
-                if is_deck_shape(s)}
-    pins: dict = {}
     stand_down: list = []
+    sever: list = []
     report["candidates"] = len(records)
 
     for r in records:
@@ -496,106 +562,107 @@ def confirm_and_pin(layout, icao: str = "") -> dict:
             stand_down.append(r)
             continue
         top = max(t for t, _s in beneath)
-        deck_value = float(top) + float(BRIDGE_ROAD_CLEARANCE_M)
         r["structures_beneath"] = len(beneath)
         r["highest_beneath_m"] = round(float(top), 3)
-        r["deck_value_m"] = round(deck_value, 3)
 
-        # ── §6: can BOTH abutment values be reached at the road cap? ──
-        line = r["line"]
-        try:
-            span_end = float(line.length)
-            stations = []
-            for _t, s in beneath:
-                inter = s.polygon.intersection(corr)
-                coords = (list(inter.exterior.coords)
-                          if getattr(inter, "exterior", None) is not None
-                          else [c for g in getattr(inter, "geoms", ())
-                                for c in g.exterior.coords])
-                for c in coords:
-                    stations.append(line.project(Point(c)))
-            lo_station = min(stations) if stations else 0.0
-            hi_station = max(stations) if stations else span_end
-        except Exception:                                # pragma: no cover
-            lo_station, hi_station, span_end = 0.0, 0.0, 0.0
-
-        cap = float(SERVICE_ROAD_MAX_GRADE)
-        checks = []
-        for label, (_nid, ll), run in (
-                ("west", r["abutments"][0], max(lo_station, 0.0)),
-                ("east", r["abutments"][1],
-                 max(span_end - hi_station, 0.0))):
-            try:
-                from .bridges import _local_meter_projections
-                to_m, _ = _local_meter_projections(layout.anchor)
-                p = Point(*to_m(ll[1], ll[0]))
-            except Exception:                            # pragma: no cover
-                continue
-            hit = _receiving_value(layout, p, deck_ids)
-            if hit is None:
-                continue
-            need = abs(deck_value - hit[1])
-            allowed = cap * run
-            checks.append({
-                "side": label, "receive_m": round(hit[1], 3),
-                "run_m": round(run, 2),
-                "required_m": round(need, 3),
-                "allowed_m": round(allowed, 3),
-                "grade_needed": (round(need / run, 5) if run > 0 else None),
-            })
-        r["abutment_checks"] = checks
-        infeasible = [c for c in checks
-                      if c["required_m"] > c["allowed_m"] + 1e-9]
-        if infeasible:
-            r["verdict"] = "refused"
-            r["reason"] = "§6: abutment unreachable at the road cap"
-            report["refused"] += 1
-            stand_down.append(r)
-            for c in infeasible:
-                UI.vprint(1,
-                    f"  [bridge-deck] REFUSED {r['way_id']} (§6): its "
-                    f"{c['side']} abutment receives {c['receive_m']:.2f} m "
-                    f"and the §4 deck value is {deck_value:.2f} m "
-                    f"(highest emitted surface beneath the span "
-                    f"{top:.2f} m + {float(BRIDGE_ROAD_CLEARANCE_M)} m) — "
-                    f"{c['required_m']:.2f} m over {c['run_m']:.1f} m is "
-                    f"{100.0 * (c['grade_needed'] or 0):.1f} %, past the "
-                    f"{100.0 * cap:.0f} % road cap "
-                    f"({c['allowed_m']:.2f} m allowed).  The misplaced "
-                    f"object is the bridge: it is NOT built and the "
-                    f"pre-law surface stands.")
+        # ── 2026-08-30d: OBJECT OR TERRAIN? ─────────────────────────
+        if _hard_deck_object_over(layout, corr):
+            r["verdict"] = "object_governed"
+            r["reason"] = ("a classified hard-deck OBJECT bridge stands "
+                           "over this span — the object law (R14-2/A-3's "
+                           "first exception) governs and the terrain "
+                           "stays open")
+            report["object_governed"] += 1
+            # Not a terrain deck: the pieces stay (the road is real) but
+            # they sever nothing and claim no protection of their own.
             continue
 
-        r["verdict"] = "confirmed"
-        report["confirmed"] += 1
+        # ── TERRAIN-BASED DECK ──────────────────────────────────────
+        # "the mesh is a heightfield, so the deck's terrain spans the
+        # crossing AT ROAD LEVEL and CUTS THROUGH the tunnel ramp's open
+        # cut."  There is NO deck value to pin: the deck sits at the
+        # road solve's own level (§5 approaches unchanged), so §6 has no
+        # independent value to price and cannot fire here.
+        r["verdict"] = "confirmed_terrain"
+        report["confirmed_terrain"] += 1
+        # §4 as amended is an INSTRUMENT here, not a lever: the ramp's
+        # continued profile passes under the deck "by construction of
+        # the authored ramp datum, not by moving the deck up".  Record
+        # what the emitted ramp actually left, so the owner can see
+        # whether that premise holds at this site — we never move the
+        # deck to satisfy it, and we never move the ramp at all.
+        deck_level = _deck_level(layout, r)
+        r["deck_level_m"] = (round(deck_level, 3)
+                             if deck_level is not None else None)
+        r["clearance_required_m"] = float(BRIDGE_ROAD_CLEARANCE_M)
+        r["clearance_measured_m"] = (
+            round(deck_level - float(top), 3)
+            if deck_level is not None else None)
+        r["clearance_premise_holds"] = (
+            bool(r["clearance_measured_m"] is not None
+                 and r["clearance_measured_m"]
+                 >= float(BRIDGE_ROAD_CLEARANCE_M)))
+        sever.append(corr)
         UI.vprint(1,
-            f"  [bridge-deck] {r['way_id']} CONFIRMED (§1): "
-            f"{len(beneath)} emitted below-grade shape(s) beneath the "
-            f"span, highest {top:.2f} m — deck pinned at "
-            f"{deck_value:.2f} m (§4 = that surface + "
-            f"{float(BRIDGE_ROAD_CLEARANCE_M)} m); the structure beneath "
-            f"is untouched.")
-        for s in (getattr(layout, "shapes", None) or ()):
-            if str(getattr(s, "road_bridge_deck", "") or "") != r["way_id"]:
-                continue
-            poly = getattr(s, "polygon", None)
-            if poly is None or poly.is_empty:
-                continue
-            try:
-                for x, y in poly.exterior.coords:
-                    pins[(round(float(x), 3), round(float(y), 3))] = \
-                        deck_value
-            except Exception:                            # pragma: no cover
-                continue
+            f"  [bridge-deck] {r['way_id']} CONFIRMED TERRAIN (§1 + "
+            f"2026-08-30d): {len(beneath)} emitted below-grade shape(s) "
+            f"beneath the span, highest {top:.2f} m, no hard-deck object "
+            f"over it — the deck's terrain spans at ROAD LEVEL and the "
+            f"stretch beneath becomes a COVERED STRETCH: the open cut is "
+            f"severed inside the footprint and the ramp resumes at both "
+            f"deck edges with its authored profile untouched.")
+        if not r["clearance_premise_holds"] \
+                and r["clearance_measured_m"] is not None:
+            UI.vprint(1,
+                f"  [bridge-deck] {r['way_id']} §4 CLEARANCE PREMISE "
+                f"DOES NOT HOLD (instrument, no lever): the emitted ramp "
+                f"reaches {top:.2f} m against a deck at "
+                f"{deck_level:.2f} m — {r['clearance_measured_m']:.2f} m "
+                f"of cover where the law's continued-profile clause "
+                f"expects {float(BRIDGE_ROAD_CLEARANCE_M)} m.  Nothing "
+                f"here moves the deck or the ramp; the ramp's own "
+                f"surfacing profile under the span is what the number "
+                f"reports.")
 
     if stand_down:
         _stand_down(layout, stand_down, icao)
-    setattr(layout, _PINS, pins)
     setattr(layout, _RECORDS, [
         {k: v for k, v in r.items() if k not in ("line", "abutments")}
         for r in records])
-    report["pins"] = len(pins)
-    return report
+    setattr(layout, _PINS, {})
+    sever_union = None
+    if sever:
+        try:
+            from shapely.ops import unary_union
+            sever_union = unary_union(sever)
+            if sever_union.is_empty:
+                sever_union = None
+        except Exception:                                # pragma: no cover
+            sever_union = None
+    return report, sever_union
+
+
+def _deck_level(layout, record):
+    """The ROAD SOLVE's own level along the deck — the mean of the deck
+    pieces' solved altitudes.  ``None`` before the solve has run or when
+    no piece carries a value.
+
+    2026-08-30d: the deck "sits at the road solve's own level", so this
+    READS the solve; it never writes it.
+    """
+    vals = []
+    wid = record["way_id"]
+    for s in getattr(layout, "shapes", None) or ():
+        if str(getattr(s, "road_bridge_deck", "") or "") != wid:
+            continue
+        vals.extend(float(a) for a in
+                    (getattr(s, "node_altitudes", None) or ())
+                    if a is not None)
+        for attr in ("altitude", "altitude_high", "altitude_low"):
+            a = getattr(s, attr, None)
+            if a is not None:
+                vals.append(float(a))
+    return (sum(vals) / len(vals)) if vals else None
 
 
 def _stand_down(layout, records, icao: str = "") -> None:

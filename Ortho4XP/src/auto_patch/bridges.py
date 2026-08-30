@@ -9293,6 +9293,46 @@ def _emit_tunnel_portals(
             _protected_u = None
     except _GEOM_EXC:
         _protected_u = None
+    # ── THE TERRAIN-BASED ROAD BRIDGE DECK (RULINGS 2026-08-30d) ─────
+    # HERE, and it has to be here: the deck CUTS the ramp, so §1 must be
+    # confirmed while the ramp pieces still exist.  Confirm after the
+    # pass and §1 would find the geometry the deck had just severed,
+    # call the deck unconfirmed, stand it down, and leave the cut with
+    # nothing spanning it.
+    #
+    # A confirmed terrain deck joins the PROTECTED-TRANSIT union and the
+    # wall gate — the pass's own covered-stretch machinery, not a second
+    # copy of it.  That is the whole amendment: over protected pavement
+    # a mostly-covered ramp piece already drops and a graze is already
+    # clipped to the edge, which severs the open cut inside the deck
+    # footprint, keeps walls out of it, and leaves the ramp resuming at
+    # both deck edges with its authored profile untouched.
+    try:
+        from .road_bridge_deck import confirm_and_sever as _deck_sever
+        _deck_report, _deck_u = _deck_sever(layout, getattr(
+            layout, "icao", "") or "")
+        if _deck_u is not None:
+            _protected_u = (_deck_u if _protected_u is None
+                            else unary_union([_protected_u, _deck_u]))
+            if _airside_gate_u is not None:
+                _airside_gate_u = unary_union([_airside_gate_u, _deck_u])
+            UI.vprint(1,
+                f"  [bridge-deck] §3/2026-08-30d: "
+                f"{_deck_report['confirmed_terrain']} terrain deck "
+                f"footprint(s) joined the protected-transit union and the "
+                f"wall gate — the stretch beneath each is a COVERED "
+                f"STRETCH: open cut severed inside the footprint, no "
+                f"walls within it, ramp resuming at both deck edges.")
+        if _deck_report.get("candidates"):
+            UI.vprint(1,
+                f"  [bridge-deck] {_deck_report['candidates']} "
+                f"candidate(s): {_deck_report['confirmed_terrain']} "
+                f"terrain, {_deck_report['object_governed']} "
+                f"object-governed, {_deck_report['unconfirmed']} "
+                f"unconfirmed (§1), {_deck_report['refused']} refused "
+                f"(§6).")
+    except Exception as _deck_exc:                       # pragma: no cover
+        UI.vprint(1, f"  [bridge-deck] adjudication skipped: {_deck_exc!r}")
     return _finalize_tunnel_emission(
         layout, exclusion_zones, boundary_clearance_m,
         _airside_gate_u, _pre_emit_ids, n_emitted,

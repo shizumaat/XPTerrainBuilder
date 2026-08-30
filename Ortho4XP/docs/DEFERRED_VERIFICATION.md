@@ -5132,3 +5132,25 @@ DEFERRED:
   measured at LEMD (no apron carries a floor-valued `within_shape` row)
   and the fix is deliberately scoped to PADS; if an apron ever reads the
   floor at its own ring, this is the first place to look.
+* the **G instrument is not re-quoted**: it is a POST-MESH read (`post_mesh`,
+  R_mesh over the admitted ring) and an airport patch build never reaches
+  it — no rebake ran this round.  G is unchanged BY CONSTRUCTION: the
+  setback writes only `floor_geometry`, never `body_parts`, so the
+  admitted ring, the floor value, the rim value, R_est, the pad-coverage
+  test and the R_mesh sample band are all exactly what they were (the
+  carve's own §3 argument).  The committed 596.682 stands un-re-read; a
+  0.6 m move of the EMITTED pan edge could in principle shift a station
+  that falls within the collar, and that is unmeasured.
+
+CLOSING ARM `lemdt4s_arm2` (body `7708462643e8`, 1333.3 s) against the
+matched same-tree pre-fix arm `lemdt4s_attr` (body `4aad7bbf5586`):
+airside `within_shape` 145 -> 16 (worst 11.940 -> 1.12 m), `building3`'s
+own fallout rows 163 -> 0, airside `mid_edge_step` 34 -> 0, airside
+`airside_no_step` 1347 -> 1339, adjudicated 1936 -> 1765, groundside 144
+and mixed 12 UNCHANGED.  No family rose.  Pad-ring<->pan shared nodes
+13 -> 0; the pad emits FLAT again (single `altitude=599.69`).  Basin
+invariants re-read on the arm: floor 587.7524 m, rim law 596.3004 m,
+emitted rim 599.69/599.69 over 14 parts (flush with the pad, RULINGS
+30c), 1 floor plate, 18 `basin_trench_wall` terrace joints.  Carve
+acceptance intact: 20/20 deck-line stations inside `object_basin_trench`,
+both owner ramp probes CONTAINED.

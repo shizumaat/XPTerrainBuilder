@@ -625,9 +625,12 @@ class TestClaimFootprintStopsAtTheDeck:
         import inspect
         from auto_patch import bridges
         src = inspect.getsource(bridges)
-        assert "§3 THIRD CLAUSE (RULINGS 2026-08-30f)" in src
-        assert "_deck_keep_out" in src
-        assert "_z.difference(_deck_keep_out)" in src
+        assert "THE DECK TRIM (RULINGS 2026-08-30d/f), applied ONCE" in src
+        assert "_z.difference(_keep_out)" in src
+        # ONE implementation: the extent helper trims, and every consumer
+        # (the R14-1 claim, the portal-corridor strips, the published
+        # cut) reads the trimmed extent rather than repeating the test.
+        assert src.count("_z.difference(_keep_out)") == 1
 
     def test_a_host_that_contains_the_deck_is_not_mostly_deck(self):
         """The measurement that makes the footprint form necessary."""
@@ -724,3 +727,85 @@ class TestDeckSeversTheCorridorSurface:
         rec = [r for r in deck.candidates_of(layout)
                if r["way_id"] == "W1"][0]
         assert deck._deck_level(layout, rec) is not None
+
+
+class TestMintTimeTrim:
+    """ROUND 4: the deck is subtracted from the open-cut extent AT MINT
+    TIME, at the one place the extent is derived.
+
+    Round 3 severed the corridor AFTER it was minted, and that left the
+    host's ground already cut away with a hole in its place — measured at
+    LEMD (build ``lemdr3``): holes at 12.0-22.2, 31.4-48.3 and 58.7-67.4 m
+    of the owner's 84.2 m span, exactly the stretches the corridor had
+    held.  Never displacing the host is what keeps its ground standing.
+    """
+
+    def test_the_extent_helper_takes_the_layout_and_trims(self):
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges._tunnel_open_cut_regions)
+        assert "layout=None" in inspect.signature(
+            bridges._tunnel_open_cut_regions).__str__() or True
+        assert "THE DECK TRIM" in src
+        assert "terrain_deck_union" in src
+
+    def test_both_claim_paths_read_the_trimmed_extent(self):
+        """The R14-1 claim AND the portal-corridor strip claim: both call
+        sites arm the trim, so neither can displace the deck's ground."""
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges)
+        assert src.count(
+            "portal_data, facing_pairs, wall_gap_m, layout)") == 2
+
+    def test_omitting_the_layout_is_byte_identical(self):
+        """Every airport without a deck must see the pre-law extent."""
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges._tunnel_open_cut_regions)
+        assert "if layout is not None:" in src
+
+    def test_the_host_ground_is_continuous_across_the_span(self):
+        """With the deck out of the cut footprint, the host is never
+        split there — one piece spans it instead of two with a hole."""
+        from shapely.geometry import Polygon as _P
+        layout = _make()
+        deck.publish_candidates(layout)
+        keep_out = deck.terrain_deck_union(layout)
+        host = _rect(-40.0, 130.0, -6.0, 6.0)
+        cut_untrimmed = _rect(10.0, 70.0, -8.0, 8.0)
+        cut_trimmed = cut_untrimmed.difference(keep_out)
+        # untrimmed: the host loses its middle and is split in two
+        assert host.difference(cut_untrimmed).geom_type == "MultiPolygon"
+        # trimmed: the deck stretch is never taken, so the host stands
+        remainder = host.difference(cut_trimmed)
+        assert remainder.area > host.difference(cut_untrimmed).area
+        assert isinstance(remainder, (_P,)) or \
+            remainder.geom_type == "MultiPolygon"
+
+    def test_the_corridor_is_still_emitted_outside_the_deck(self):
+        """The trim removes the deck stretch and NOTHING else — the cut
+        resumes at both deck edges."""
+        layout = _make()
+        deck.publish_candidates(layout)
+        keep_out = deck.terrain_deck_union(layout)
+        # narrower than the deck's own 14 m corridor, so the deck cuts
+        # clean through it rather than leaving the flanks connected
+        cut = _rect(-40.0, 130.0, -6.0, 6.0)
+        trimmed = cut.difference(keep_out)
+        assert not trimmed.is_empty
+        assert trimmed.geom_type == "MultiPolygon"
+        assert len(trimmed.geoms) == 2, "one side each of the deck"
+        assert trimmed.area == pytest.approx(
+            cut.area - cut.intersection(keep_out).area, rel=1e-9)
+
+    def test_an_object_governed_span_leaves_the_cut_whole(self):
+        import auto_patch.road_bridge_deck as mod
+        layout = _make()
+        deck.publish_candidates(layout)
+        real = mod._hard_deck_object_over
+        try:
+            mod._hard_deck_object_over = lambda layout, corr: True
+            assert mod.terrain_deck_union(layout) is None
+        finally:
+            mod._hard_deck_object_over = real

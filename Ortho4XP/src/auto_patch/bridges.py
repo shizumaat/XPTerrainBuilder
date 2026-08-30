@@ -7286,7 +7286,7 @@ _TUNNEL_CLAIM_LEVEL_AREA_FRAC = 0.25
 
 
 def _tunnel_open_cut_regions(portal_data: list, facing_pairs: list,
-                             wall_gap_m: float) -> list:
+                             wall_gap_m: float, layout=None) -> list:
     """``[(level_zone, approach_zone, floor_elev)]`` — a tunnel system's
     OPEN-CUT EXTENT, one record per portal and per facing pair.
 
@@ -7297,6 +7297,19 @@ def _tunnel_open_cut_regions(portal_data: list, facing_pairs: list,
     is the R14-3 run outward from the mouth, where the surface climbs
     back to ambient.  Both are plan-space only — the elevations live in
     ``floor_elev`` and the R14-3 grade.
+
+    ``layout`` (optional) arms the ROAD BRIDGE DECK trim: a terrain
+    deck's footprint is subtracted from every region here, at the ONE
+    place the extent is derived, so every consumer — the R14-1 claim,
+    the portal-corridor strip claim and the published cut — sees a cut
+    that stops at one deck edge and resumes at the other (RULINGS
+    2026-08-30d/f).  MINT TIME is the point: round 3 severed the
+    corridor AFTER it was minted, which left the host's ground already
+    cut away and a hole in its place (measured at LEMD, build
+    ``lemdr3``: holes at 12.0-22.2, 31.4-48.3 and 58.7-67.4 m of the
+    owner's 84.2 m span, exactly the stretches the corridor had held).
+    Never displacing the host is what keeps its ground standing.
+    Omitted ``layout`` ⇒ no trim, byte-identical to the pre-law extent.
     """
     _regions: list = []
 
@@ -7355,8 +7368,40 @@ def _tunnel_open_cut_regions(portal_data: list, facing_pairs: list,
             continue
         _regions.append((_level, _approach_zone(_pd, wall_gap_m),
                          float(_grade)))
-    return _regions
+    # ── THE DECK TRIM (RULINGS 2026-08-30d/f), applied ONCE, here ────
+    if layout is not None:
+        try:
+            from .road_bridge_deck import terrain_deck_union as _tdu
+            _keep_out = _tdu(layout)
+        except Exception:                                # pragma: no cover
+            _keep_out = None
+        if _keep_out is not None:
+            _trimmed, _n = [], 0
+            for _l, _a, _f in _regions:
+                _out = []
+                for _z in (_l, _a):
+                    if _z is None or _z.is_empty:
+                        _out.append(_z)
+                        continue
+                    try:
+                        _d = _z.difference(_keep_out)
+                    except _GEOM_EXC:                    # pragma: no cover
+                        _out.append(_z)
+                        continue
+                    if _d.area < _z.area - 1e-9:
+                        _n += 1
+                    _out.append(None if _d.is_empty else _d)
+                _trimmed.append((_out[0], _out[1], _f))
+            _regions = _trimmed
+            if _n:
+                UI.vprint(1,
+                    f"  [bridge-deck] open-cut extent trimmed at "
+                    f"{_n} region part(s) by a road bridge deck — the "
+                    f"cut, the claim and the corridor strips all stop at "
+                    f"one deck edge and resume at the other, so the "
+                    f"deck's own ground is never displaced.")
 
+    return _regions
 
 def _approach_zone(portal_row, wall_gap_m: float):
     """The R14-3 run's plan footprint: the (already run-limited) walk
@@ -7434,54 +7479,9 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
     from .elevation import _resample_node_altitudes_nn
     from .groundside import _ring_and_altitudes
     _regions = _tunnel_open_cut_regions(
-        portal_data, facing_pairs, wall_gap_m)
+        portal_data, facing_pairs, wall_gap_m, layout)
     if not _regions:
         return 0, []
-    # ── §3 THIRD CLAUSE (RULINGS 2026-08-30f) ───────────────────────
-    # "The claim resumes at both deck edges, exactly as the open cut
-    # does."  So the deck is taken out of the claim's FOOTPRINT, not
-    # vetoed shape by shape: the claim's hosts are large rings that
-    # CONTAIN the deck strip (measured at LEMD round 2 — the hosts read
-    # 4 % and 48 % inside the deck corridor, so a "mostly inside" veto
-    # cannot see them, and the claim then cut them into pieces that were
-    # 96-99 % deck and graded them 601.43 -> 600.18 m).  Subtracting the
-    # deck from the region geometry makes the claim stop at one deck
-    # edge and resume at the other, which is what the ruling says, and
-    # it fixes the published open cut in the same stroke.
-    try:
-        from .road_bridge_deck import terrain_deck_union as _tdu
-        _deck_keep_out = _tdu(layout)
-    except Exception:                                    # pragma: no cover
-        _deck_keep_out = None
-    if _deck_keep_out is not None:
-        _trimmed: list = []
-        _n_trim = 0
-        for _l, _a, _f in _regions:
-            _parts = []
-            for _z in (_l, _a):
-                if _z is None or _z.is_empty:
-                    _parts.append(_z)
-                    continue
-                try:
-                    _d = _z.difference(_deck_keep_out)
-                except _GEOM_EXC:                        # pragma: no cover
-                    _parts.append(_z)
-                    continue
-                if _d.is_empty:
-                    _parts.append(None)
-                    _n_trim += 1
-                else:
-                    if _d.area < _z.area - 1e-9:
-                        _n_trim += 1
-                    _parts.append(_d)
-            _trimmed.append((_parts[0], _parts[1], _f))
-        _regions = _trimmed
-        if _n_trim:
-            UI.vprint(1,
-                f"  [bridge-deck] §3 third clause: {_n_trim} open-cut "
-                f"region part(s) trimmed at a road bridge deck — the "
-                f"tunnel-road claim does not reach the deck and resumes "
-                f"at both of its edges.")
     # THE OPEN CUT ITSELF is published here — beside the claim, from the
     # SAME records this function is about to judge every shape against
     # (spec ``tunnel-corridor-node-book-exclusion-spec.md`` AMENDMENT 5).
@@ -8309,7 +8309,7 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
     from .elevation import _resample_node_altitudes_nn
     from .groundside import _ring_and_altitudes
     _regions = _tunnel_open_cut_regions(
-        portal_data, facing_pairs, wall_gap_m)
+        portal_data, facing_pairs, wall_gap_m, layout)
     if not _regions:
         return 0
     _zones = [(_l, _a, float(_f)) for _l, _a, _f in _regions]

@@ -4851,26 +4851,30 @@ What was NOT paid:
   Warning absence verified by importing + exercising osr/ogr under
   `-W error::FutureWarning`.
 
-## 2026-08-30 — HECA round 6 (lane/hecar6): items 1 and 4
+## 2026-08-30 — HECA round 6 (lane/hecar6): item 4 only, BELOW BAR
 
 * Item 4 — `groundside._chord_cut_and_fill`: the weld outranks the cap
-  inside the LATE chord limiter (empty band whose floor a WELD generates
-  against a FREE neighbour's ceiling builds UP instead of being cut).
-  Item 1 — `terminals._cluster_dsf_building_facades`: a cluster's
-  interior hole at or above `DSF_CLUSTER_HOLE_FILL_MAX_M2` is enclosed
-  GROUND and stays open.
+  inside the LATE chord limiter (an empty band whose floor a WELD
+  generates against a FREE neighbour's ceiling builds UP instead of
+  being cut).  Item 1's hole-keeping change was REVERTED — measured a
+  no-op at the owner's site (refuted, RULINGS 29f).
 * **No full-suite run** (pre-ship mode).  Directly-covering files ran
   once: `test_weld_outranks_cap_chord_limiter` (new),
   `test_road_cross_section`, `test_free_road_profile`,
   `test_groundside_law_authority`, `test_road_path_metric`,
-  `test_service_road_chord_split` — 141 passed;
-  `test_dsf_cluster_hole_is_ground` (new), `test_dsf_buildings`,
-  `test_hangar_pads`, `test_terminal_groundside_zone`,
-  `test_dsf_object_buildings` — 118 passed.
-* **No five-airport battery, no A/B census sweep, no timing run**
-  (pre-ship mode + build economy 29f).  ONE closing HECA build +
-  harness census only.
-* **OWED — items 2, 3, 5, 6 of the same round are ATTRIBUTED but NOT
-  FIXED** (see the lane report and the round-6 spec): each stops on a
-  law/mechanism decision that is the owner's or the spec author's, not
-  an implementer's.
+  `test_service_road_chord_split` — 141 passed; `test_harness` 268
+  passed (the census register the numbers below are quoted from).
+* **No five-airport battery, no A/B timing run** (pre-ship mode +
+  build economy 29f).  ONE arm build + ONE shared base arm, both
+  stored in the artifact ledger.
+* **OWED — item 4 IS BELOW BAR and must not merge without the owner's
+  sign-off.**  It closes the reported contact step (the weld's low
+  face 108.27 -> 106.24 over 5.40 m becomes 108.28 -> 108.17), but:
+  (a) it MOVES AIRSIDE — 2,053 solve-owned airside nodes by > 0.01 m,
+  worst 3.92 m on an apron node, against the standing "airside is
+  king" ruling; (b) HECA law-true census 6,656 -> 6,905 (+249, all
+  road/groundside families); (c) the owner's own low site rises only
+  +0.09 m (104.71 -> 104.80) against a "couple of metres" ask.
+* **OWED — items 1, 2, 3, 5, 6 are ATTRIBUTED but NOT FIXED**; each
+  stops on a law or mechanism decision that is the owner's or the
+  spec author's.  See the round report.

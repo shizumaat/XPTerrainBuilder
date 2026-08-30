@@ -809,3 +809,83 @@ class TestMintTimeTrim:
             assert mod.terrain_deck_union(layout) is None
         finally:
             mod._hard_deck_object_over = real
+
+
+class TestChainAdmittedWhole:
+    """§2's continuity half: "admitted ... on the BRIDGE EVIDENCE alone,
+    without the touching-pavement test, SO THE CHAIN IT BELONGS TO IS
+    CONTINUOUS END TO END ACROSS THE SPAN."
+
+    The dup block is the other thing that fragments a course: it
+    differences a feed line against the authored network's corridor and
+    drops every remainder under 5 m.  Admitting a deck past the pavement
+    test and then letting the dup block chop it honours half the clause.
+
+    The instrumented read (round 5) showed the minter paves the span
+    CONTINUOUSLY when it receives the course whole — one rect over
+    stations 0.0-77.3 m and a junction fill over 0.0-84.2 m of the 84.2 m
+    span — so a fragmented course is the only way the span goes unpaved.
+    """
+
+    def test_a_deck_way_enters_the_course_set_whole(self):
+        import inspect
+        from auto_patch import pipeline
+        src = inspect.getsource(pipeline)
+        assert "CHAIN IT BELONGS TO IS CONTINUOUS END TO END" in src
+        i_deck = src.index("§2, the CONTINUITY half")
+        i_dup = src.index("if _svc_dup_block is not None:", i_deck)
+        assert i_deck < i_dup, (
+            "the deck's whole-line admission must come BEFORE the dup "
+            "block, or the block fragments it anyway")
+
+    def test_a_non_deck_way_still_meets_the_dup_block(self):
+        """The exemption is the DECK's, and nothing else's."""
+        import inspect
+        from auto_patch import pipeline
+        src = inspect.getsource(pipeline)
+        assert "_fl_out = _fl.difference(_svc_dup_block)" in src
+
+
+class TestDeckLevelReadIsRobust:
+    """A READ, not a law change: a fragmented deck must still report the
+    level it has.  ``-2192`` read null in rounds 3 and 4 because no
+    single piece reached 50 % of its own area inside the corridor."""
+
+    def _fragments(self, layout, *spans, value=604.0):
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        for a, b in spans:
+            layout.shapes.append(BuiltShape(
+                polygon=_rect(a, b, -20.0, 20.0),   # mostly OUTSIDE
+                role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+                node_altitudes=[value] * 4))
+
+    def test_a_fragmented_deck_still_reports_its_level(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._fragments(layout, (10.0, 30.0), (50.0, 70.0), value=604.0)
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        # the fixture's own approach road also lies partly in the
+        # corridor, so the area-weighted read is dominated by - not equal
+        # to - the fragments.  What matters is that it is no longer None.
+        got = deck._deck_level(layout, rec)
+        assert got is not None
+        assert got == pytest.approx(604.0, abs=0.1)
+
+    def test_ground_outside_the_corridor_never_contributes(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes = []                      # only what we place
+        self._fragments(layout, (10.0, 30.0), value=604.0)
+        self._fragments(layout, (-300.0, -260.0), value=999.0)
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        assert deck._deck_level(layout, rec) == pytest.approx(604.0, abs=1e-6)
+
+    def test_no_ground_at_all_still_reads_none(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes = []                      # nothing in the corridor
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        assert deck._deck_level(layout, rec) is None

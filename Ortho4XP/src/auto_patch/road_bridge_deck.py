@@ -774,7 +774,39 @@ def _deck_level(layout, record):
             a = getattr(s, attr, None)
             if a is not None:
                 vals.append(float(a))
-    return (sum(vals) / len(vals)) if vals else None
+    if vals:
+        return sum(vals) / len(vals)
+    # FALLBACK, a READ not a law: with the deck's ground fragmented, no
+    # single piece may reach DECK_PIECE_MIN_FRACTION of its own area
+    # inside the corridor, and the level then reads null (measured at
+    # LEMD rounds 3-4 for ``-2192``).  Take the deck's own ground
+    # AREA-WEIGHTED over whatever lies in the corridor instead, so a
+    # fragmented deck still reports the level it actually has.
+    num = den = 0.0
+    for s in getattr(layout, "shapes", None) or ():
+        if (str(getattr(s, "ref", "") or "") in _BELOW_GRADE_REFS
+                or getattr(s, "role", None) not in _RECEIVING_ROLES):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            share = float(poly.intersection(corr).area)
+        except Exception:                                # pragma: no cover
+            continue
+        if share <= 1.0:
+            continue
+        own = [float(a) for a in
+               (getattr(s, "node_altitudes", None) or ()) if a is not None]
+        for attr in ("altitude", "altitude_high", "altitude_low"):
+            a = getattr(s, attr, None)
+            if a is not None:
+                own.append(float(a))
+        if not own:
+            continue
+        num += share * (sum(own) / len(own))
+        den += share
+    return (num / den) if den > 0.0 else None
 
 
 def _stand_down(layout, records, icao: str = "") -> None:

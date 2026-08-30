@@ -3644,6 +3644,24 @@ def build_airport_pavement(icao: str, xplane_root: str,
                             _n_deck_admitted += 1
                     elif not _touches:
                         continue
+                    if _is_deck_way:
+                        # §2, the CONTINUITY half of the same sentence:
+                        # "admitted ... on the BRIDGE EVIDENCE alone,
+                        # without the touching-pavement test, SO THE
+                        # CHAIN IT BELONGS TO IS CONTINUOUS END TO END
+                        # ACROSS THE SPAN."  The dup block is the other
+                        # thing that fragments a course — it differences
+                        # the line against the AUTHORED network's
+                        # corridor and drops every remainder under 5 m —
+                        # so admitting the deck past the pavement test
+                        # and then letting the dup block chop it would
+                        # honour half the clause.  A deck way enters
+                        # WHOLE; there is nothing for the authored
+                        # network to duplicate over a bridge it does not
+                        # carry.
+                        _cn_svc.append(_fl)
+                        _n_feed_svc += 1
+                        continue
                     if _svc_dup_block is not None:
                         try:
                             _fl_out = _fl.difference(_svc_dup_block)

@@ -7426,6 +7426,51 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
         portal_data, facing_pairs, wall_gap_m)
     if not _regions:
         return 0, []
+    # ── §3 THIRD CLAUSE (RULINGS 2026-08-30f) ───────────────────────
+    # "The claim resumes at both deck edges, exactly as the open cut
+    # does."  So the deck is taken out of the claim's FOOTPRINT, not
+    # vetoed shape by shape: the claim's hosts are large rings that
+    # CONTAIN the deck strip (measured at LEMD round 2 — the hosts read
+    # 4 % and 48 % inside the deck corridor, so a "mostly inside" veto
+    # cannot see them, and the claim then cut them into pieces that were
+    # 96-99 % deck and graded them 601.43 -> 600.18 m).  Subtracting the
+    # deck from the region geometry makes the claim stop at one deck
+    # edge and resume at the other, which is what the ruling says, and
+    # it fixes the published open cut in the same stroke.
+    try:
+        from .road_bridge_deck import terrain_deck_union as _tdu
+        _deck_keep_out = _tdu(layout)
+    except Exception:                                    # pragma: no cover
+        _deck_keep_out = None
+    if _deck_keep_out is not None:
+        _trimmed: list = []
+        _n_trim = 0
+        for _l, _a, _f in _regions:
+            _parts = []
+            for _z in (_l, _a):
+                if _z is None or _z.is_empty:
+                    _parts.append(_z)
+                    continue
+                try:
+                    _d = _z.difference(_deck_keep_out)
+                except _GEOM_EXC:                        # pragma: no cover
+                    _parts.append(_z)
+                    continue
+                if _d.is_empty:
+                    _parts.append(None)
+                    _n_trim += 1
+                else:
+                    if _d.area < _z.area - 1e-9:
+                        _n_trim += 1
+                    _parts.append(_d)
+            _trimmed.append((_parts[0], _parts[1], _f))
+        _regions = _trimmed
+        if _n_trim:
+            UI.vprint(1,
+                f"  [bridge-deck] §3 third clause: {_n_trim} open-cut "
+                f"region part(s) trimmed at a road bridge deck — the "
+                f"tunnel-road claim does not reach the deck and resumes "
+                f"at both of its edges.")
     # THE OPEN CUT ITSELF is published here — beside the claim, from the
     # SAME records this function is about to judge every shape against
     # (spec ``tunnel-corridor-node-book-exclusion-spec.md`` AMENDMENT 5).

@@ -743,11 +743,30 @@ def _deck_level(layout, record):
     2026-08-30d: the deck "sits at the road solve's own level", so this
     READS the solve; it never writes it.
     """
+    _init_receiving_roles()
     vals = []
     wid = record["way_id"]
+    corr = _corridor(record)
     for s in getattr(layout, "shapes", None) or ():
+        # The FLAG names the piece the minter stamped; the GEOMETRY finds
+        # it again after the groundside pass has re-roled it (round 1
+        # measured a null deck level for exactly that reason).
         if str(getattr(s, "road_bridge_deck", "") or "") != wid:
-            continue
+            # The deck's own GROUND only: never the structure beneath it
+            # and never a wall, or the "road level" would average the
+            # very things the deck spans over.
+            if (str(getattr(s, "ref", "") or "") in _BELOW_GRADE_REFS
+                    or getattr(s, "role", None) not in _RECEIVING_ROLES):
+                continue
+            poly = getattr(s, "polygon", None)
+            if poly is None or poly.is_empty:
+                continue
+            try:
+                if poly.area <= 0.0 or poly.intersection(corr).area \
+                        < DECK_PIECE_MIN_FRACTION * poly.area:
+                    continue
+            except Exception:                            # pragma: no cover
+                continue
         vals.extend(float(a) for a in
                     (getattr(s, "node_altitudes", None) or ())
                     if a is not None)

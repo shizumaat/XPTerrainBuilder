@@ -607,3 +607,48 @@ class TestFullDepthToTheBridge:
             assert mod.terrain_deck_union(layout) is None
         finally:
             mod._hard_deck_object_over = real
+
+
+class TestClaimFootprintStopsAtTheDeck:
+    """§3 third clause, at the level it actually has to act: the claim's
+    FOOTPRINT, not a per-shape veto.
+
+    MEASURED at LEMD round 2 (build ``lemdr2``): the claim's hosts are
+    large rings that CONTAIN the deck strip — they read 4 % and 48 %
+    inside the deck corridor, so "mostly inside" could not see them, and
+    the claim cut them into pieces that were 96-99 % deck and graded
+    those 601.43 -> 600.18 m.  Subtracting the deck from the region
+    geometry is what makes the claim "resume at both deck edges".
+    """
+
+    def test_the_claim_trims_its_regions_at_the_deck(self):
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges)
+        assert "§3 THIRD CLAUSE (RULINGS 2026-08-30f)" in src
+        assert "_deck_keep_out" in src
+        assert "_z.difference(_deck_keep_out)" in src
+
+    def test_a_host_that_contains_the_deck_is_not_mostly_deck(self):
+        """The measurement that makes the footprint form necessary."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        host = BuiltShape(
+            polygon=_rect(-60.0, 200.0, -40.0, 40.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside")
+        assert not deck.is_deck_shape(host, layout), (
+            "a big host containing the deck is not 'mostly' the deck — "
+            "which is why the claim is trimmed by footprint instead")
+
+    def test_subtracting_the_deck_leaves_a_gap_and_two_sides(self):
+        """The geometric shape of "resumes at both deck edges"."""
+        layout = _make()
+        deck.publish_candidates(layout)
+        keep_out = deck.terrain_deck_union(layout)
+        region = _rect(-40.0, 130.0, -7.0, 7.0)      # a cut through it
+        remainder = region.difference(keep_out)
+        assert remainder.geom_type == "MultiPolygon", (
+            "the deck must split the cut into two sides")
+        assert len(remainder.geoms) == 2
+        assert remainder.area < region.area

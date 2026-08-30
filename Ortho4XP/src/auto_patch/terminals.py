@@ -28,6 +28,7 @@ from .config import (
     BUILDING_CLOSE_MIN_PIECE_M2,
     BUILDING_OUTLINE_FILL_R,
     BUILDING_OUTLINE_FILL_GATE_M,
+    DSF_CLUSTER_HOLE_FILL_MAX_M2,
     DSF_CLUSTER_SIMPLIFY_TOL_M,
     DSF_FACADE_MERGE_GAP_M,
     DSF_MIN_BUILDING_AREA_M2,
@@ -982,7 +983,9 @@ def _cluster_dsf_building_facades(
     The caller decides which facade classes enter ``facades`` (terminal +
     hangar always; ``term_bridge`` gated by ``TERM_BRIDGE_GROUPING``) —
     everything passed in is unioned together.  Returns one outline Polygon
-    per building (≥ ``min_area_m2``).
+    per building (≥ ``min_area_m2``), KEEPING any interior hole at or
+    above ``DSF_CLUSTER_HOLE_FILL_MAX_M2``: a hole that big is enclosed
+    GROUND, not pad (HECA round 6 item 1 — see the fill below).
     """
     if not facades:
         return []
@@ -1018,13 +1021,38 @@ def _cluster_dsf_building_facades(
             continue
         if g.area < min_area_m2:
             continue
-        # Reduce each cluster to a SOLID footprint (fill the buffer-artifact
-        # interior holes — a grading pad is solid) and DP-simplify away the
+        # Fill the buffer-ARTIFACT interior holes and DP-simplify away the
         # snap-buffer arc noise, keeping the real corners.  Without this a
         # complex terminal carries 1000s of arc vertices that split the
         # outline close and over-resolve the overlap-clip (user 2026-06-15).
+        #
+        # A HOLE BIG ENOUGH TO BE GROUND IS KEPT (HECA round 6 item 1).
+        # This used to be ``Polygon(g.exterior)`` — every hole filled, on
+        # the reasoning that a grading pad is solid.  The artifacts it
+        # exists for are sub-metre; an ENCLOSING facade run (a compound
+        # wall, a terminal wrapped round a court) then swallowed
+        # everything it surrounds: HECA building79 came out one flat
+        # 100,888 m² 531 x 494 m pad over five buildings and their
+        # pavement.  A building pad is one building's footprint and the
+        # pavement between buildings is scored as pavement, so a hole at
+        # or above ``DSF_CLUSTER_HOLE_FILL_MAX_M2`` (the owner's tiny-pad
+        # floor) is real enclosed ground and survives.  The source's own
+        # holes reach here intact — ``pipeline._admit_dsf_building_
+        # footprint`` admits the Polygon WITH its interiors, and the
+        # +gap/-gap close only erases holes narrower than the gap.
         try:
-            solid = Polygon(g.exterior)
+            keep_holes = []
+            for _ring in g.interiors:
+                try:
+                    if Polygon(_ring).area >= DSF_CLUSTER_HOLE_FILL_MAX_M2:
+                        keep_holes.append(_ring)
+                except _GEOM_EXC:
+                    continue
+            solid = Polygon(g.exterior, keep_holes)
+            if not solid.is_valid:
+                solid = solid.buffer(0)
+            if solid.geom_type != "Polygon" or solid.is_empty:
+                solid = Polygon(g.exterior)
             simp = solid.simplify(
                 DSF_CLUSTER_SIMPLIFY_TOL_M, preserve_topology=True)
             if (simp.geom_type == "Polygon" and not simp.is_empty

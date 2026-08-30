@@ -4302,10 +4302,32 @@ def consolidate_full_width_service_corridors(
 #: constant), so the sever cannot mint a shape the separation drops.
 
 
+#: The identity join's epsilon, in METRES.  It is NOT a proximity
+#: radius: both sides of the join pass through the SAME forward
+#: projection (``layout.ll_to_m``), so one source point yields one pair
+#: of floats and anything else is metres away.  A micron absorbs the
+#: arithmetic and nothing else — the nearest DIFFERENT vertex on a real
+#: ring is millimetres at worst.
+_LOT_ROAD_IDENTITY_EPS_M = 1e-6
+
+
 def _ll_key11(lat: float, lon: float) -> tuple:
     """The CANONICAL IDENTITY of a point: its 11-decimal lat/lon
     spelling (memory ``canonical-identity-join``; the join every reader
-    in this repo uses).  Never a proximity match."""
+    in this repo uses).  Never a proximity match.
+
+    NOT what :func:`sever_lot_carried_service_roads` joins on, and the
+    reason is measured (HECA, geometry-only build ``r6b_geo``): a ring
+    vertex reaches this pass in the layout's METRE frame, and the trip
+    back through ``layout.m_to_ll`` is not the exact inverse of the
+    trip out — the ruling's own identity point came back
+    30.11417881036,31.40412602903 against the feed's
+    30.114178800,31.404126000, 3 mm away and unequal at 11 decimals, so
+    an 11-dp join found nothing and the sever never fired.  The join
+    runs in the metre frame instead (see ``_LOT_ROAD_IDENTITY_EPS_M``),
+    which is the SAME identity asked in the frame the ring lives in.
+    Kept here because the lat/lon spelling is still the canonical
+    identity for everything that reads the emitted patch."""
     return (round(float(lat), 11), round(float(lon), 11))
 
 
@@ -4350,21 +4372,50 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
             and s.polygon.geom_type == "Polygon"]
     if not lots:
         return 0
-    # The lots' ring vertices, in the canonical 11-dp lat/lon identity.
-    ring_keys: dict = {}
+    # The lots' ring vertices, in the LAYOUT'S OWN METRE FRAME — the
+    # frame they were built in, so a road node projected forward through
+    # the same ``ll_to_m`` lands on the identical pair of floats when it
+    # IS the same point (see ``_ll_key11`` for the measurement that
+    # ruled out the lat/lon spelling here).
+    ring_pts: list = []
     for s in lots:
         try:
             coords = list(s.polygon.exterior.coords)
         except _GEOM_EXC:
             continue
         for (x, y) in coords:
-            try:
-                lat, lon = layout.m_to_ll(float(x), float(y))
-            except _GEOM_EXC:
-                continue
-            ring_keys.setdefault(_ll_key11(lat, lon), []).append(s)
-    if not ring_keys:
+            ring_pts.append((float(x), float(y), s))
+    if not ring_pts:
         return 0
+    from shapely.strtree import STRtree
+    from shapely.geometry import Point as _Point
+    _ring_geoms = [_Point(x, y) for (x, y, _s) in ring_pts]
+    try:
+        _ring_tree = STRtree(_ring_geoms)
+    except _GEOM_EXC:
+        _ring_tree = None
+
+    def _hosts_at(lat, lon):
+        """The lots whose ring carries THIS point, by identity."""
+        try:
+            x, y = layout.ll_to_m(float(lat), float(lon))
+        except _GEOM_EXC:
+            return ()
+        e = _LOT_ROAD_IDENTITY_EPS_M
+        if _ring_tree is not None:
+            from shapely.geometry import box as _box
+            try:
+                cand = _ring_tree.query(_box(x - e, y - e, x + e, y + e))
+            except _GEOM_EXC:
+                cand = ()
+        else:
+            cand = range(len(ring_pts))
+        out = []
+        for gi in cand:
+            px, py, s = ring_pts[int(gi)]
+            if abs(px - x) <= e and abs(py - y) <= e and s not in out:
+                out.append(s)
+        return out
     from .clearance import road_corridors_from_ways
     nodes = network.nodes
     widths = getattr(network, "widths", None)
@@ -4380,7 +4431,7 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
             ll = nodes.get(nid)
             if ll is None:
                 continue
-            for s in ring_keys.get(_ll_key11(ll[0], ll[1]), ()):  # identity
+            for s in _hosts_at(ll[0], ll[1]):          # identity, not radius
                 if s not in hosts:
                     hosts.append(s)
         if not hosts:

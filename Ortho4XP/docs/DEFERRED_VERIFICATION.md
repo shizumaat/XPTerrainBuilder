@@ -4932,3 +4932,19 @@ What was NOT paid:
   decisions is argued from the scorer being a phase-1 shadow pass, not
   measured against a solved run at HECA (that would be the third
   half-hour build this round does not have).
+* **Item 3's sever is UNVERIFIED at HECA and its census effect is
+  UNMEASURED.**  Attempt 1 (the 11-dp lat/lon join) is MEASURED not to
+  fire: in the geometry-only build `r6b_geo` the ruling's own identity
+  point came back from the layout's metre frame as
+  30.11417881036,31.40412602903 against the feed's
+  30.114178800,31.404126000 — 3 mm, and unequal at 11 decimals.
+  Attempt 2 moves the join into the metre frame (the frame the ring
+  lives in, same forward projection on both sides), which is founded on
+  that measurement but landed AFTER the closing build.  Neither cheap
+  instrument can verify it: `--geometry-only` skips the whole
+  groundside slot (it lives inside `solve_and_finalize`'s
+  `compute_elevations` branch), and a repro_cut fixture at the site
+  builds no groundside pavement at all (the lot comes from OSM landuse
+  the fixture's OSM overlay does not carry).  Verifying it costs one
+  more full HECA build, which this round's two-build budget did not
+  have.  The attempt cap is reached; the residual is the owner's.

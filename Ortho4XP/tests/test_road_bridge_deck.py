@@ -652,3 +652,75 @@ class TestClaimFootprintStopsAtTheDeck:
             "the deck must split the cut into two sides")
         assert len(remainder.geoms) == 2
         assert remainder.area < region.area
+
+
+# ── RULINGS 2026-08-30i — round 3 ───────────────────────────────────
+class TestDeckSeversTheCorridorSurface:
+    """COVERED-STRETCH CLIP SCOPE EXTENDED: "a terrain deck's footprint
+    severs the tunnel corridor's OWN road surface, claimed and synthetic,
+    exactly as it severs the ramp; the corridor resumes at both deck
+    edges."
+
+    MEASURED at LEMD round 2 (build ``lemdr2b``): with ``tunnel_road``
+    outside the clip's ref set, the corridor surfaced across stations
+    12.3-66.9 m of the owner's 84.2 m span at 600.18-601.60 m, under a
+    deck at 604.49 m — the ramp beneath it was correctly severed, but the
+    corridor's own road surface was not.
+    """
+
+    def test_tunnel_road_is_in_the_clip_ref_set(self):
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges)
+        assert '"tunnel_mouth", TUNNEL_ROAD_REF)' in src, (
+            "TUNNEL_ROAD_REF must join the covered-stretch clip's refs")
+        assert "RULINGS 2026-08-30i" in src
+
+    def test_tunnel_road_takes_the_ruling_4_branch(self):
+        """Being in ``_TUNNEL_PAVEMENT_REFS`` is what routes it to the
+        clip against ``protected_union`` — the SAME path the ramp takes,
+        which is what "exactly as it severs the ramp" means."""
+        from auto_patch.bridges import (_TUNNEL_PAVEMENT_REFS,
+                                        TUNNEL_ROAD_REF)
+        assert TUNNEL_ROAD_REF in _TUNNEL_PAVEMENT_REFS
+        assert "tunnel_ramp" in _TUNNEL_PAVEMENT_REFS
+
+    def test_the_deck_footprint_is_what_does_the_severing(self):
+        """The deck reaches the clip through the protected union, so the
+        two rulings are one mechanism, not two."""
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges)
+        assert "_protected_u = (_deck_u if _protected_u is None" in src
+
+    def test_a_corridor_piece_under_the_deck_is_mostly_covered(self):
+        """The clip drops a piece MOSTLY covered by the protected union
+        and clips a graze back to the edge — so a corridor piece lying in
+        the deck footprint drops, and one crossing the edge resumes."""
+        layout = _make()
+        deck.publish_candidates(layout)
+        keep_out = deck.terrain_deck_union(layout)
+        under = _rect(20.0, 60.0, -5.0, 5.0)         # wholly under
+        crossing = _rect(60.0, 140.0, -5.0, 5.0)     # leaves the deck
+        assert under.intersection(keep_out).area >= 0.5 * under.area
+        assert crossing.intersection(keep_out).area < 0.5 * crossing.area
+        remainder = crossing.difference(keep_out)
+        assert not remainder.is_empty, "the corridor resumes beyond it"
+
+    def test_the_midspan_keeps_the_decks_own_ground(self):
+        """With the corridor severed, what stands mid-span is the deck's
+        own road ground at the solve's level — not the corridor."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        _mint_deck_pieces(layout)
+        deck.stamp_shapes(layout)
+        ground = BuiltShape(
+            polygon=_rect(12.0, 67.0, -6.0, 6.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[604.49] * 4)
+        layout.shapes.append(ground)
+        assert deck.is_deck_shape(ground, layout)
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        assert deck._deck_level(layout, rec) is not None

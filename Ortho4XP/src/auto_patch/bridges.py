@@ -6956,11 +6956,22 @@ def _finalize_tunnel_emission(
             # KCLT: roof over junction 1668).  ``tunnel_mouth`` is road
             # surface (ROLE_TUNNEL_RAMP) and stays ruling-4 exempt with
             # the ramps.
+            # RULINGS 2026-08-30i: ``TUNNEL_ROAD_REF`` joins this set.  A
+            # terrain deck's footprint severs the tunnel corridor's OWN
+            # road surface — claimed and synthetic alike — exactly as it
+            # severs the ramp, and the corridor resumes at both deck
+            # edges.  ``tunnel_road`` is already in
+            # ``_TUNNEL_PAVEMENT_REFS``, so it takes the ruling-4 branch
+            # below and is clipped against ``protected_union``, which is
+            # where the deck footprint lives (§3/2026-08-30d).  Measured
+            # at LEMD round 2 (build ``lemdr2b``): without it the
+            # corridor surfaced across stations 12.3-66.9 m of the
+            # owner's span at 600.18-601.60 m, under a deck at 604.49 m.
             if not (id(s9) not in pre_emit_shape_ids
                     and _ref9 in ("tunnel_cap", "tunnel_wall",
                                   TUNNEL_WALL_FOOT_REF,
                                   "tunnel_roof", "tunnel_ramp",
-                                  "tunnel_mouth")
+                                  "tunnel_mouth", TUNNEL_ROAD_REF)
                     and s9.polygon is not None
                     and not s9.polygon.is_empty):
                 _kept9.append(s9)

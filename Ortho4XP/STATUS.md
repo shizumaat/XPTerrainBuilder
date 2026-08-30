@@ -1,4 +1,41 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260830a — HANDOVER (session close mid-round; app 1.0.269 shipped,
+# owner testing; HECA round 6 lane IN FLIGHT).
+# COLLECT FIRST (this session's notifications die with it):
+#   * lane/hecar6 (Opus, spec 70216a48 heca-round6-groundside-
+#     classification): 6 owner items — A: groundside classification
+#     (shapeID 3151 scorer-v2 severed slivers; 2837/2838 mis-roled
+#     aprons + overlaps; taxiway-edge cliff at 30.1125699,31.4053664 —
+#     owner asked for the adjacent-ground LAW TEXT confirmation;
+#     item-3 road-vs-groundside at 30.1118886,31.4064793); B:
+#     building79 one-ring-five-buildings split; C: item-4 ramp level
+#     residue. POLL git log lane/hecar6 + the worktree; below-bar =
+#     STOP is in its brief. Spawner-merges rule applies: MERGE its
+#     branch on completion (CLAUDE.md law).
+#   * TWO CHIP SESSIONS the owner started (single-graph reds):
+#     same-nodes/spine-step (curved-road rects, attributed 516bba14)
+#     and spine-zero/edge-budgets (cross-section law, 3ccd470d).
+#     Their fixes land on claude/* branches — MERGE them when done
+#     (4 reds in tests/test_single_graph_acceptance are the check).
+# STATE: main at app 1.0.269 (engine 1.50.1713, osr warning silenced);
+#   test_harness.py fully GREEN (standing red fixed via chip sweep);
+#   review-round merges all in (runway strict-claim §1/§2 census OWED,
+#   rampsites final site numbers OWED, scorer-v2 in, tunnels in).
+# LAW ADDED THIS SESSION (all in CLAUDE.md + RULINGS 29a-f): build
+#   economy (synthetic-first, ONE airport, ledger controls), gates are
+#   the exception, refuted code DELETED, site-first reporting,
+#   below-bar needs owner sign-off, chip branches merge same-day and
+#   THE SPAWNER OWNS THE MERGE, no chip-from-chip spawning.
+# OWED: retired-code deletion sweep (§H3, 5e-5i freezes, trench arms);
+#   3 conflicted chip cherry-picks (6d7a2c0c trace, 5f05f1ca solve_cut,
+#   2aa4dd72 dump-guard); rod-clamp f9953d0c review; HEAZ held question
+#   4d96a043; 84-row tunnel attribution residue; five-airport sweep at
+#   next merged batch; ~90 worktrees cleanup.
+# NEXT SESSION: read this block + RULINGS 29a-f + CLAUDE.md BUILD
+#   ECONOMY section; collect hecar6 + chips; owner sim read of 1.0.269
+#   drives the next round.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260829b (OWNER REVIEW ROUND MERGED; app 1.0.268, engine 1.50.1711,
 # embedded==dist verified. Owner-ordered merges with verification cut
 # short by spend limits — THE SIM PASS ADJUDICATES.)

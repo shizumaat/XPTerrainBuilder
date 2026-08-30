@@ -5104,3 +5104,31 @@ DEFERRED:
   the mouths that touch apron/transit pavement (6 pieces at OTHH,
   named per piece in the build log) — the canonical-mouth law is met at
   the owner's item-3 site and NOT everywhere.
+
+## 2026-08-30 — LEMD T4S structure-walls fallout (lane/lemdt4s, RULINGS 30k)
+
+VERIFIED: the mechanism is attributed on the round-4 matched control
+(artifact-ledger body `839eac5c1c55`, SERVED — no rebuild) and reproduced
+on the lane tree (`lemdt4s_attr`, body `4aad7bbf5586`); six synthetic
+twins, four of which fail without the fix, on a fixture DERIVED FROM THE
+EMITTER rather than re-spelling a constant; the directly-covering files
+green (835 passed); ONE closing LEMD build censused against that matched
+same-tree arm.
+
+DEFERRED:
+* full-suite and per-edit blast-radius runs (pre-ship suspension);
+* `object_terrain_assembly.build_tunnel_layout_shapes` is a SHARED emit
+  path — SPJC (which has a below-grade region), OTHH (eight facilities)
+  and HECA were NOT rebuilt as byte-identity arms.  The new setback can
+  only fire where a pad's flattening authority YIELDS to a facility AND
+  that pad's ring comes within `_TUNNEL_WALL_SETBACK_M` of the pan's own
+  boundary; the `INSIDE_PAD` / `COVERING_PAD` twins pin both no-fire
+  limbs (a pad floating inside the pit and a pad whose ring stands clear
+  read the bare facility's pan exactly).  Unmeasured at those airports.
+* the same node-sharing hazard exists in principle for the §B
+  AUTHORITY-YIELD PAVEMENT population (`authority_yield_pavement_ids`,
+  3 shapes / 417,340 m² at LEMD), which is excluded from the pan's
+  owned-ground difference on the same footing as the pads.  It is NOT
+  measured at LEMD (no apron carries a floor-valued `within_shape` row)
+  and the fix is deliberately scoped to PADS; if an apron ever reads the
+  floor at its own ring, this is the first place to look.

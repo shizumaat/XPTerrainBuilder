@@ -4906,3 +4906,29 @@ What was NOT paid:
   `O4_RAMP_WALL_FOOT` §T5 twins.  `_band_scene` calls
   `bridges.emit_wall_band` directly and reaches no line this lane
   touched.
+
+## 2026-08-30 — HECA round 6b (lane/hecar6, four owner rulings)
+
+* **The five-airport sweep is not run in this lane** (29f: it runs once
+  per merged batch, at app-build time).  Items 2 and 5 are WIDE-BLAST by
+  construction — the adjacent-ground band emitter and the groundside
+  separation run at every airport — so the merge batch that carries this
+  lane owes CYXY / SPJC / LEMD / OTHH censuses beside the HECA pair
+  measured here.
+* **Item 2's synthetic twin is OWED.** The spec asks for a taxiway
+  abutting a groundside shape at a large DEM offset; this lane measured
+  the law on the real HECA site (junction 586 ↔ groundside 2836) and on
+  the closing build's census, and left the synthetic pair unwritten.
+  The cut-back's clip semantics ARE twinned indirectly (the width test's
+  and the sever's twins both exercise `_clip_shape_yielding_to`).
+* **Item 4's isolated gate is measured on a repro_cut FIXTURE**, not on
+  the whole airport: control → item-4-only arm at the owner's site
+  (30.1055367,31.3994026, r=350 m) reads ZERO solve-owned airside nodes
+  moved >0.01 m.  The closing whole-airport arm carries all five code
+  items at once, so its airside delta is the ROUND's, not item 4's; the
+  per-item isolation of the other four is not measured.
+* **`classify_report.py --geometry-only`** (new flag, indexed) reads the
+  roles out of a phase-1 build.  Its equivalence to the full build's
+  decisions is argued from the scorer being a phase-1 shadow pass, not
+  measured against a solved run at HECA (that would be the third
+  half-hour build this round does not have).

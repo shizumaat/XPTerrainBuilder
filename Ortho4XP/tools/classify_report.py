@@ -103,8 +103,18 @@ def _harness_build_module():
 
 
 def build_report(icao: str, xplane_root: str, out_dir=None,
-                 prog=None) -> dict:
+                 prog=None, compute_elevations: bool = True) -> dict:
     """Build ``icao`` and harvest its shadow-pass decisions.
+
+    ``compute_elevations=False`` (``--geometry-only``) stops the build at
+    the end of phase 1 — which is where every classification decision is
+    already made, the scorer being a phase-1 shadow pass.  It exists
+    because the role question is often asked about an airport whose
+    SOLVE costs half an hour (HECA 1,923 s against ~60 s of geometry),
+    and paying for elevations to read a role is a build the round's
+    budget does not have.  The dump is otherwise identical; the solved
+    fields are simply absent from the layout, and nothing in this
+    report reads them.
 
     GUARDED, with the harness's own composition (module docstring): the
     engine's two writable derived-cache roots are redirected lane-local
@@ -125,13 +135,16 @@ def build_report(icao: str, xplane_root: str, out_dir=None,
     import auto_patch.pipeline as pipeline
     with guard:
         layout = pipeline.build_airport_pavement(
-            icao, xplane_root, compute_elevations=True)
+            icao, xplane_root, compute_elevations=compute_elevations)
     build_mod.require_no_swallowed_write_block(guard.blocked, prog=prog)
     build_mod.report_guard_churn(guard, prog)
 
     summary = dict(getattr(layout, "pavement_score_summary", None) or {})
     decisions = list(getattr(layout, "pavement_score_decisions", None) or [])
     return {"icao": icao, "summary": summary, "decisions": decisions,
+            # The frame the roles were read in: a geometry-only dump is
+            # phase-1 complete and solve-free, and says so.
+            "compute_elevations": bool(compute_elevations),
             # The corpus frame this report was produced under, IN the
             # artifact: a dump whose build redirected nothing is not
             # comparable with one whose build did.
@@ -357,6 +370,9 @@ def main(argv=None) -> int:
                         help="cap the disagreement listing (0 = all)")
     parser.add_argument("--xplane", default=None,
                         help="X-Plane root (default: conftest.xplane_root)")
+    parser.add_argument("--geometry-only", action="store_true",
+                        help="stop at phase 1 (where the roles are "
+                             "decided) instead of solving elevations")
     args = parser.parse_args(argv)
 
     # This tool IS the shadow-scoring consumer: force shadow mode on
@@ -390,10 +406,13 @@ def main(argv=None) -> int:
         prog = build_mod.Progress(ARTIFACT_DIR / "classify_report.progress")
         reports = []
         for icao in args.icao:
-            print(f"building {icao.upper()} … (60-90 s)", file=sys.stderr)
+            print(f"building {icao.upper()} … "
+                  f"({'phase 1 only' if args.geometry_only else '60-90 s'})",
+                  file=sys.stderr)
             prog.note(f"START classify_report build {icao.upper()}")
-            reports.append(build_report(icao.upper(), xplane_root,
-                                        prog=prog))
+            reports.append(build_report(
+                icao.upper(), xplane_root, prog=prog,
+                compute_elevations=not args.geometry_only))
             prog.note(f"EXIT classify_report build {icao.upper()}")
 
     for report in reports:

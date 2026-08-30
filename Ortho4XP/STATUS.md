@@ -2,16 +2,17 @@
 # 20260830a — HANDOVER (session close mid-round; app 1.0.269 shipped,
 # owner testing; HECA round 6 lane IN FLIGHT).
 # COLLECT FIRST (this session's notifications die with it):
-#   * lane/hecar6 (Opus, spec 70216a48 heca-round6-groundside-
-#     classification): 6 owner items — A: groundside classification
+#   * HECA ROUND 6 — NOT STARTED (owner killed the lane at launch
+#     for the session handoff; no branch content): DISPATCH FRESH from
+#     spec 70216a48 heca-round6-groundside-classification. 6 owner
+#     items — A: groundside classification
 #     (shapeID 3151 scorer-v2 severed slivers; 2837/2838 mis-roled
 #     aprons + overlaps; taxiway-edge cliff at 30.1125699,31.4053664 —
 #     owner asked for the adjacent-ground LAW TEXT confirmation;
 #     item-3 road-vs-groundside at 30.1118886,31.4064793); B:
 #     building79 one-ring-five-buildings split; C: item-4 ramp level
-#     residue. POLL git log lane/hecar6 + the worktree; below-bar =
-#     STOP is in its brief. Spawner-merges rule applies: MERGE its
-#     branch on completion (CLAUDE.md law).
+#     residue. All probes are in the spec; brief per the CLAUDE.md
+#     BUILD ECONOMY section.
 #   * TWO CHIP SESSIONS the owner started (single-graph reds):
 #     same-nodes/spine-step (curved-road rects, attributed 516bba14)
 #     and spine-zero/edge-budgets (cross-section law, 3ccd470d).

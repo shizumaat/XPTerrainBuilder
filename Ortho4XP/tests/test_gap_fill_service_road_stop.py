@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # ``pipeline`` first: junction_repair <-> elevation is an import cycle.
 import auto_patch.pipeline as _PIPELINE  # noqa: E402,F401
+from shapely.geometry import Point, Polygon  # noqa: E402
 from auto_patch import enclaves as EN  # noqa: E402
 from auto_patch import gap_fill as GF  # noqa: E402
 from auto_patch.layout import (  # noqa: E402
@@ -228,3 +229,68 @@ def test_groundside_pavement_blocks_the_spine_like_a_road():
         assert f.polygon.intersection(lot.polygon).area <= 1.0, (
             "a gap face was graded OVER the groundside pavement the "
             "spine must stop at")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# (d) The ENCLOSED groundside lot — round 6c (owner ruling 2026-08-30e)
+# ═════════════════════════════════════════════════════════════════════
+
+def _hole_polygon():
+    """The frame's HOLE as a polygon — the enclosed gap the blockers of
+    these tests stand in."""
+    x0, y0, x1, y1 = HOLE
+    return Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+
+
+def _enclosed_lot(role=ROLE_GROUNDSIDE_PAVEMENT):
+    """A lot standing WHOLLY INSIDE the hole — it touches no part of the
+    hole boundary, so the residual around it is an ANNULUS.
+
+    HECA's two round-6b survivors are this shape: groundside 2813 /
+    2814 wholly inside the 19,409 m² and 16,943 m² enclosed holes."""
+    return _rect(60.0, 45.0, 100.0, 75.0, role)
+
+
+def test_a_wholly_enclosed_groundside_lot_keeps_its_veto():
+    """MEASURED on the round-6b closing arm: the deferral FIRED on both
+    surviving holes and the subdivision carved the lot out correctly —
+    and the emitted faces still stood on the lots (3190 over 2813 by
+    13,656 m² / 70 %; 3192 over 2814 by 10,630 m² / 63 %), because an
+    annular residual emits its EXTERIOR ring only (the patch dialect has
+    no multipolygon).  A subdivider the emitted face would re-cover
+    subdivides nothing: its veto stands (ruling 4's intent)."""
+    lot = _enclosed_lot()
+    layout = _frame([lot])
+    EN.publish_airside_enclaves(layout)
+    # The named mechanism, directly: the deferral does NOT fire here.
+    gap = _hole_polygon()
+    blockers = [(id(lot), lot.polygon)]
+    assert GF._veto_is_only_subdividers(layout, gap, blockers) is False
+    assert GF._covered_by_the_emitted_face(
+        gap, lot.polygon) >= 100.0
+    # And nothing emits over the lot — on BOTH paths.
+    GF.emit_gap_fill_spines(layout, None, 0, 0)
+    for f in _gap_faces(layout):
+        outer = Polygon(f.polygon.exterior)
+        assert outer.intersection(lot.polygon).area <= 1.0, (
+            "the EMITTED ring of a gap face stands over an enclosed "
+            "groundside lot")
+    layout2 = _frame([_enclosed_lot()])
+    EN.publish_airside_enclaves(layout2)
+    GF.construct_gap_fill_presolve(layout2)
+    for entry in getattr(layout2, "gap_fill_presolve", ()) or ():
+        for px, py in entry["spine"]:
+            assert not _enclosed_lot().polygon.contains(Point(px, py)), (
+                "a pre-solve spine station inside the enclosed lot")
+
+
+def test_an_enclosed_service_road_keeps_the_r19_2_deferral():
+    """SCOPE PIN: ruling 4 is about groundside pavement.  A road /
+    junction blocker keeps the deferral it was measured under — this
+    round changed nothing for it."""
+    road = _enclosed_lot(role=ROLE_SERVICE_ROAD)
+    layout = _frame([road])
+    EN.publish_airside_enclaves(layout)
+    gap = _hole_polygon()
+    assert GF._veto_is_only_subdividers(
+        layout, gap, [(id(road), road.polygon)]) is True

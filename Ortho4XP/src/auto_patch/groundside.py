@@ -4422,10 +4422,22 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
     _dem_at = _dem_sampler(layout, dem, tile_lat, tile_lon)
     n_sev = 0
     minted: list = []
+    # ── THE JOIN'S OWN INSTRUMENT (round 6c) ─────────────────────────
+    # NO SILENT ZERO: the trigger is an IDENTITY, so "it did not fire"
+    # and "there was nothing to fire on" are different states, and the
+    # round-6b metre-frame rework (``_ll_key11``) could not be verified
+    # because this pass logged only on success.  The counters below say
+    # how many service ways were examined, how many a lot ring carried,
+    # and — when none did — the NEAREST MISS in metres, which is the one
+    # number that separates a frame bug (millimetres) from a site that
+    # simply shares no vertex (metres).
+    _n_ways = _n_carried = 0
+    _miss = None                     # (metres, way_id, node_id)
     for way in network.ways:
         way_id, node_refs, tags = way
         if tags.get("highway") != "service":
             continue
+        _n_ways += 1
         hosts: list = []
         for nid in node_refs:
             ll = nodes.get(nid)
@@ -4435,7 +4447,10 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
                 if s not in hosts:
                     hosts.append(s)
         if not hosts:
+            _miss = _nearest_ring_miss(layout, _ring_tree, _ring_geoms,
+                                       nodes, node_refs, way_id, _miss)
             continue                       # not carried by any lot
+        _n_carried += 1
         try:
             corridor = road_corridors_from_ways(nodes, [way], layout.ll_to_m,
                                                 widths=widths)
@@ -4476,17 +4491,46 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
                 if _clip_shape_yielding_to(s, g, snap_tol=0.0) is None:
                     s.polygon = None       # wholly road; dropped below
                     break
+    import O4_UI_Utils as UI
+    _miss_txt = ("none — every service way is carried" if _miss is None
+                 else f"nearest MISS {_miss[0] * 1000.0:.3f} mm "
+                      f"(feed way {_miss[1]} node {_miss[2]})")
+    UI.vprint(1,
+        f"  [groundside] lot-carried sever: {_n_ways} service way(s) "
+        f"examined, {_n_carried} carried by a groundside ring (identity "
+        f"join in the METRE frame, eps "
+        f"{_LOT_ROAD_IDENTITY_EPS_M:g} m; {len(ring_pts)} ring "
+        f"vertex(es) from {len(lots)} lot(s)); {_miss_txt}; severed "
+        f"{n_sev} corridor(s).")
     if not n_sev:
         return 0
     layout.shapes = [s for s in layout.shapes
                      if not (s.role == ROLE_GROUNDSIDE_PAVEMENT
                              and s.polygon is None)] + minted
-    import O4_UI_Utils as UI
-    UI.vprint(1,
-        f"  [groundside] lot-carried service roads: severed {n_sev} "
-        f"corridor(s) out of the groundside rings whose vertices they "
-        f"share (owner ruling 2026-08-30, 11-dp identity trigger).")
     return n_sev
+
+
+def _nearest_ring_miss(layout, ring_tree, ring_geoms, nodes, node_refs,
+                       way_id, best):
+    """The closest a NON-carried service way came to a lot ring vertex,
+    in metres — the number that tells a frame bug from a site that
+    shares no vertex.  Returns the running best ``(m, way_id, nid)``."""
+    if ring_tree is None or not ring_geoms:
+        return best
+    from shapely.geometry import Point as _Point
+    for nid in node_refs:
+        ll = nodes.get(nid)
+        if ll is None:
+            continue
+        try:
+            x, y = layout.ll_to_m(float(ll[0]), float(ll[1]))
+            gi = ring_tree.nearest(_Point(x, y))
+            d = ring_geoms[int(gi)].distance(_Point(x, y))
+        except Exception:                                  # pragma: no cover
+            continue
+        if best is None or d < best[0]:
+            best = (float(d), way_id, nid)
+    return best
 
 
 def reclassify_groundside_route_corridors(

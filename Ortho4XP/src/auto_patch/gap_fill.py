@@ -461,6 +461,30 @@ def _veto_is_only_subdividers(layout, gap_poly, blockers) -> bool:
     residual pocket must be under ``GAP_FILL_MAX_WIDTH_M``) is what
     keeps a WIDE region from being subdivided into the pocket-collar
     machinery instead.
+
+    ── THE ENCLOSED GROUNDSIDE LOT (owner ruling 2026-08-30e, round 6c;
+    the same ruling-4 intent this file's blocker set carries) ─────────
+    A groundside_pavement blocker standing WHOLLY INSIDE the hole is the
+    one case the deferral cannot honour, and it is MEASURED, not
+    reasoned.  On the round-6b closing arm (``r6b_arm``) both surviving
+    strips came from here: the deferral fired on the 19,409 m² hole at
+    (-4018,-605) and the 16,943 m² hole at (-3877,-573),
+    ``_subdivide_enclosed_face`` correctly carved the lot out (residuals
+    4,944 / 6,315 m²), and the emitted faces STILL stood over the lots —
+    graded_strip 3190 covered groundside 2813 by 13,656 m² (70 % of its
+    own 19,408 m²) and 3192 covered 2814 by 10,630 m² (63 %).  The
+    reason is emission, not subdivision: an interior lot leaves an
+    ANNULAR residual, and the patch dialect has no multipolygon (0
+    relations) — ``to_osm`` reads the EXTERIOR ring only, so the emitted
+    way refills the hole and stands on the pavement the spine must stop
+    at.  A subdivider whose footprint the emitted face would re-cover
+    subdivides nothing; its veto stands.
+
+    Scoped exactly to ruling 4's role: a road/junction blocker keeps the
+    deferral it was measured under (its own annulus class is a separate,
+    pre-existing population — 34 strips / 25,073 m² on the same arm —
+    and is not this ruling's).  A groundside lot that CROSSES the hole
+    (the round-6b twin's fixture) leaves no hole and still subdivides.
     """
     hit = []
     for _oid, op in blockers:
@@ -476,7 +500,63 @@ def _veto_is_only_subdividers(layout, gap_poly, blockers) -> bool:
         sh = by_id.get(_oid)
         if sh is None or sh.role not in _POCKET_SUBDIVIDER_ROLES:
             return False
+        if (sh.role == ROLE_GROUNDSIDE_PAVEMENT
+                and _covered_by_the_emitted_face(gap_poly, sh.polygon)
+                >= GAP_FILL_MIN_AREA_M2):
+            try:
+                _c = sh.polygon.centroid
+                UI.vprint(1, f"  [gap-fill] groundside blocker "
+                             f"{getattr(sh, 'ref', None) or sh.role} stands "
+                             f"WHOLLY INSIDE this hole "
+                             f"({sh.polygon.area:.0f} m2 at "
+                             f"({_c.x:.0f},{_c.y:.0f})) — the emitted face "
+                             f"would re-cover it (exterior ring only); the "
+                             f"veto stands.")
+            except _GEOM_EXC:                              # pragma: no cover
+                pass
+            return False
     return True
+
+
+def _covered_by_the_emitted_face(gap_poly, poly) -> float:
+    """The area of ``poly`` the EMITTED face would stand back over —
+    i.e. the part of it that ends up inside an interior RING of the
+    residual, which ``to_osm`` cannot express (exterior rings only, no
+    multipolygon in the patch dialect).  ``0.0`` when nothing does.
+
+    This is the emission truth, not a containment heuristic: a blocker
+    that CROSSES the hole (the 2026-08-15 road fixture, whose span
+    reaches the hole boundary at both ends) splits it into hole-free
+    parts and is honoured by the subdivision, so it reads 0.0; a
+    blocker standing clear of the boundary leaves an annulus and reads
+    its own footprint.
+
+    The caller prices this against ``GAP_FILL_MIN_AREA_M2`` — the
+    file's OWN materiality floor, no new constant — which is what keeps
+    R19-2's ruling intact: its specimen is a 5.58 m² groundside sliver
+    standing in a 1,914.6 m² apron-ringed void, far under the floor, and
+    such a sliver still subdivides rather than vetoing.  HECA's
+    round-6b survivors are 10,630 m² and 13,656 m² lots — two orders
+    over it."""
+    if poly is None or poly.is_empty:
+        return 0.0
+    try:
+        residual = gap_poly.difference(poly)
+    except _GEOM_EXC:                                      # pragma: no cover
+        return 0.0
+    if residual is None or residual.is_empty:
+        return 0.0
+    parts = ([residual] if residual.geom_type == "Polygon"
+             else [g for g in getattr(residual, "geoms", ())
+                   if g.geom_type == "Polygon"])
+    covered = 0.0
+    for g in parts:
+        for ring in g.interiors:
+            try:
+                covered += Polygon(ring).intersection(poly).area
+            except _GEOM_EXC:                              # pragma: no cover
+                continue
+    return covered
 
 
 def _subdivide_enclosed_face(layout, face_poly, chain_keys):

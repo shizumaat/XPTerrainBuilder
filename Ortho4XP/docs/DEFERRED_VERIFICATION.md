@@ -4850,3 +4850,27 @@ What was NOT paid:
   `test_airport_elevation_insets`) ran once via the ledger — 197 passed.
   Warning absence verified by importing + exercising osr/ogr under
   `-W error::FutureWarning`.
+
+## 2026-08-30 — HECA round 6 (lane/hecar6): items 1 and 4
+
+* Item 4 — `groundside._chord_cut_and_fill`: the weld outranks the cap
+  inside the LATE chord limiter (empty band whose floor a WELD generates
+  against a FREE neighbour's ceiling builds UP instead of being cut).
+  Item 1 — `terminals._cluster_dsf_building_facades`: a cluster's
+  interior hole at or above `DSF_CLUSTER_HOLE_FILL_MAX_M2` is enclosed
+  GROUND and stays open.
+* **No full-suite run** (pre-ship mode).  Directly-covering files ran
+  once: `test_weld_outranks_cap_chord_limiter` (new),
+  `test_road_cross_section`, `test_free_road_profile`,
+  `test_groundside_law_authority`, `test_road_path_metric`,
+  `test_service_road_chord_split` — 141 passed;
+  `test_dsf_cluster_hole_is_ground` (new), `test_dsf_buildings`,
+  `test_hangar_pads`, `test_terminal_groundside_zone`,
+  `test_dsf_object_buildings` — 118 passed.
+* **No five-airport battery, no A/B census sweep, no timing run**
+  (pre-ship mode + build economy 29f).  ONE closing HECA build +
+  harness census only.
+* **OWED — items 2, 3, 5, 6 of the same round are ATTRIBUTED but NOT
+  FIXED** (see the lane report and the round-6 spec): each stops on a
+  law/mechanism decision that is the owner's or the spec author's, not
+  an implementer's.

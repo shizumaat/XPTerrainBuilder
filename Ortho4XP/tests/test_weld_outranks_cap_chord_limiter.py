@@ -94,17 +94,36 @@ def test_a_feasible_band_is_untouched_by_the_ruling():
     assert vals == before
 
 
-def test_the_band_reports_its_pinned_floor_separately():
-    """``_chord_band``'s third return is the floor restricted to the
-    PINNED generators — the value the ruling keys on."""
+def test_the_band_reports_its_pinned_bounds_separately():
+    """``_chord_band``'s last two returns are the bounds restricted to
+    the PINNED generators — the values the ruling keys on."""
     vals = list(_VALS)
     live = list(range(len(_RING)))
-    lo, hi, lo_pin = G._chord_band(_RING, vals, live, 1, CAP,
-                                   pinned={0})
+    lo, hi, lo_pin, hi_pin = G._chord_band(_RING, vals, live, 1, CAP,
+                                           pinned={0})
     assert lo > hi                                   # the band IS empty
     assert lo_pin == pytest.approx(_VALS[0] - CAP * 1.30, abs=1e-9)
     assert lo_pin > hi                               # and the weld wins
-    # With no pinned set the floor is unreported and the old
+    assert lo_pin <= hi_pin                          # the welds agree
+    # With no pinned set the bounds are unreported and the old
     # disposition (take ``hi``) is what the kernel must keep.
-    _lo, _hi, none_pin = G._chord_band(_RING, vals, live, 1, CAP)
-    assert none_pin == float("-inf")
+    _lo, _hi, none_lo, none_hi = G._chord_band(_RING, vals, live, 1, CAP)
+    assert none_lo == float("-inf")
+    assert none_hi == float("inf")
+
+
+def test_two_mutually_infeasible_WELDS_keep_the_documented_ceiling():
+    """The case ``chord_limit_ring_altitudes`` already answers: a free
+    vertex between two welds that cannot both be met takes the CEILING,
+    "never a value above a weld it must reach down to".  Disjoint from
+    the ruling above, and unchanged by it."""
+    ring = [(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]
+    vals = [110.0, 105.0, 100.0]          # ends pinned 10 m apart, 10 m up
+    live = list(range(3))
+    G._chord_cut_and_fill(ring, vals, live, [1], CAP)
+    lo, hi, lo_pin, hi_pin = G._chord_band(ring, vals, live, 1, CAP,
+                                           pinned={0, 2})
+    assert lo_pin > hi_pin                # the welds are mutually infeasible
+    # The free vertex sits at the LOW weld's ceiling, not lifted to the
+    # high weld's floor.
+    assert vals[1] == pytest.approx(100.0 + CAP * 5.0, abs=1e-6)

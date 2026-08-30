@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Point, box
 
 _SRC = Path(__file__).resolve().parent.parent / "src"
 if str(_SRC) not in sys.path:
@@ -54,9 +54,11 @@ from auto_patch.layout import (  # noqa: E402
     BuiltShape,
     PavementLayout,
     ROLE_APRON,
+    ROLE_GROUNDSIDE_PAVEMENT,
     ROLE_JUNCTION,
     ROLE_RETAINING_WALL,
     ROLE_SERVICE_JUNCTION,
+    ROLE_SERVICE_ROAD,
     ROLE_TUNNEL_RAMP,
 )
 
@@ -288,11 +290,15 @@ class TestTheClaim:
         rows = [_portal_row("W1", (0.0, 0.0), (200.0, 0.0), floor,
                             walk=walk)]
         bridges._claim_road_pavement(layout, rows, [], 0.6)
-        # §T6.2 / portal-corridor-claim §2.2: pass 2 now rides the
-        # CORRIDOR FOOTPRINT.  The claimed surface is the strip inside
-        # the cut, minted beside a host that keeps its own role and ref —
-        # the law under test (the approach grades out at the cap and
-        # never sinks below the floor) is asserted on the claim.
+        # §T6.2 / portal-corridor-claim §2.2 rides the CORRIDOR
+        # FOOTPRINT — but NOT on the corridor's own carriageway.  The
+        # canonical-mouth law (owner sim read of 1.0.269, spec
+        # ``othh-tunnel-mouth-canonical-spec.md``) supersedes the
+        # footprint cut for ``service_road``/``service_junction`` hosts:
+        # *"the corridor is ONE surface"*, so this host is claimed
+        # WHOLE and no second road shape stands beside it.  The law
+        # under test here (the approach grades out at the cap and never
+        # sinks below the floor) is asserted on the claim either way.
         claims = [s for s in layout.shapes
                   if s.ref == bridges.TUNNEL_ROAD_REF]
         assert claims, [(s.role, s.ref) for s in layout.shapes]
@@ -305,7 +311,9 @@ class TestTheClaim:
         hosts = [s for s in layout.shapes
                  if s.role == ROLE_SERVICE_JUNCTION
                  and s.ref != bridges.TUNNEL_ROAD_REF]
-        assert hosts, "the host was taken whole — §2.2 forbids that"
+        assert not hosts, (
+            "a second road shape stands beside the claimed corridor — "
+            "the canonical-mouth law forbids that")
 
     def test_the_approach_claim_takes_the_shape_whole_when_off(
             self, monkeypatch):
@@ -419,3 +427,120 @@ class TestClaimedPlateIsPinned:
         layout.shapes[0].ref = ""
         pins = sp._build_tunnel_road_pins(layout, keys, elev, is_hard, intern)
         assert pins == {}
+
+
+# ══════════════════════════════════════════════════════════════════
+# THE CANONICAL MOUTH — the corridor is ONE surface
+# (spec ``docs/specs/othh-tunnel-mouth-canonical-spec.md``, owner sim
+# read of 1.0.269; supersedes the "role composite is by design" note of
+# 2026-08-25e for the SERVICE-ROAD family only)
+# ══════════════════════════════════════════════════════════════════
+def _mouth_scene(road_role=ROLE_SERVICE_ROAD):
+    """ONE service road, longer and wider than the open cut it carries.
+
+    This is OTHH item 1 in miniature.  Measured on the owner's
+    2026-08-29 patch at 25.2557909,51.6083778: service_road shape 50
+    survived as a 1,697 m² remainder tiling EXACTLY against claim strips
+    2308 + 2309 (729 + 734 m², 0 m² overlap, 211 m of shared edge, union
+    area == sum of parts) — one corridor emitted as three shapes.
+    """
+    layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+    layout.shapes.append(BuiltShape(
+        polygon=box(-40.0, -6.0, 90.0, 6.0), role=road_role,
+        ref="", node_altitudes=[AMBIENT_M] * 5))
+    floor = DECK_M - float(_CFG.BRIDGE_ROAD_CLEARANCE_M)
+    rows = [_portal_row("W1", (0.0, 0.0), (56.0, 0.0), floor)]
+    return layout, rows, floor
+
+
+class TestTheCorridorIsOneSurface:
+    """Owner law: *"a service_road must not wrap around and share edges
+    with a tunnel_road — the corridor is ONE surface"*."""
+
+    def _road_family(self, layout):
+        return [s for s in layout.shapes
+                if s.role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION)]
+
+    def test_the_mechanism_is_the_footprint_cut(self):
+        """THE DEFECT, reproduced at the cut itself: without the role the
+        splitter hands back a strip AND a surviving host — the second
+        road shape the mouth law forbids."""
+        poly = box(-40.0, -6.0, 90.0, 6.0)
+        corridor = box(0.0, -5.6, 56.0, 5.6)
+        split = bridges._split_host_at_corridor(poly, corridor)
+        assert split is not None
+        strips, hosts = split
+        assert strips and hosts, "the pre-fix cut left host + strip"
+
+    def test_a_service_road_host_is_never_cut(self):
+        poly = box(-40.0, -6.0, 90.0, 6.0)
+        corridor = box(0.0, -5.6, 56.0, 5.6)
+        for role in (ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION):
+            assert bridges._split_host_at_corridor(
+                poly, corridor, role) is None, (
+                f"{role} IS the corridor — cutting it mints the duplicate")
+
+    def test_a_landside_host_is_still_cut(self):
+        """The -12168 protection is UNREGRESSED: a groundside ring is a
+        landside area the corridor crosses, not the corridor."""
+        poly = box(-40.0, -6.0, 90.0, 6.0)
+        corridor = box(0.0, -5.6, 56.0, 5.6)
+        assert bridges._split_host_at_corridor(
+            poly, corridor, ROLE_GROUNDSIDE_PAVEMENT) is not None
+
+    def test_the_claim_leaves_exactly_one_road_shape(self):
+        layout, rows, _floor = _mouth_scene()
+        n, _claimed, _corr = bridges._claim_road_pavement(
+            layout, rows, [], 0.6)
+        assert n >= 1, "the corridor was not claimed at all"
+        roads = self._road_family(layout)
+        assert len(roads) == 1, (
+            f"{len(roads)} road shapes at one mouth — the corridor must "
+            f"be ONE surface")
+        assert roads[0].ref == bridges.TUNNEL_ROAD_REF
+        assert roads[0].role == ROLE_SERVICE_ROAD, (
+            "the claim is a ref, never a new authority class")
+
+    def test_the_claim_reaches_the_mouth(self):
+        """The ramp REACHES THE MOUTH.  Measured on the owner's patch:
+        at 25.255673,51.6080375 the only ring covering the mouth point
+        was the UNCLAIMED remainder -10051 — the claimed strip stopped
+        short of it.  Claimed whole, the corridor covers its own
+        mouth."""
+        layout, rows, floor = _mouth_scene()
+        mouth = Point(1.0, 0.0)
+        bridges._claim_road_pavement(layout, rows, [], 0.6)
+        covering = [s for s in layout.shapes
+                    if s.polygon is not None and s.polygon.covers(mouth)]
+        assert len(covering) == 1, (
+            f"{len(covering)} shapes cover the mouth point")
+        assert covering[0].ref == bridges.TUNNEL_ROAD_REF, (
+            "an unclaimed remainder holds the mouth")
+        assert min(covering[0].node_altitudes) < AMBIENT_M - 0.5, (
+            "the claimed corridor never descended")
+        assert min(covering[0].node_altitudes) >= floor - 1e-6
+
+    def test_the_densifier_inserts_the_mouth_line_and_no_area(self):
+        """Where the cut MEETS the ring — the mouth — its own boundary
+        becomes a vertex of the claimed ring.  Measured on the owner's
+        patch: strips 2308/2309 each share exactly 7.2 m (one
+        carriageway) with the pre-cut host's exterior; that segment is
+        the mouth."""
+        poly = box(-40.0, -6.0, 90.0, 6.0)
+        dens = bridges._densify_ring_at_corridor(
+            poly, box(-100.0, -5.6, 56.0, 5.6))
+        assert dens is not None
+        assert dens.area == pytest.approx(poly.area)
+        assert len(dens.exterior.coords) > len(poly.exterior.coords)
+        ys = {round(y, 3) for x, y in dens.exterior.coords
+              if abs(x + 40.0) < 1e-6}
+        assert {-5.6, 5.6} <= ys, (
+            "the cut's own edges are not vertices of the claimed ring")
+
+    def test_the_densifier_declines_a_cut_that_never_reaches_the_ring(self):
+        """A ring polygon cannot express a level plate in its INTERIOR:
+        inserting nothing is the honest answer, and the caller then
+        re-profiles the ring it already had."""
+        poly = box(-40.0, -25.0, 90.0, 25.0)
+        assert bridges._densify_ring_at_corridor(
+            poly, box(0.0, -5.6, 56.0, 5.6)) is None

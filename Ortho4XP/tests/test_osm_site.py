@@ -538,3 +538,76 @@ class TestContainment:
                  / "tools" / "INDEX.md").read_text()
         assert "tools/osm_site.py" in index
         assert "--contains" in index
+
+
+# ══════════════════════════════════════════════════════════════════
+# --relate — the DUPLICATION question
+# (spec ``docs/specs/othh-tunnel-mouth-canonical-spec.md``)
+# ══════════════════════════════════════════════════════════════════
+def _tiling_pair_file(tmp_path) -> Path:
+    """Two rings that TILE — 0 m² overlap, a long shared edge.
+
+    OTHH item 1 in miniature: service_road -10051 and tunnel_road
+    -12306 carry ONE corridor, and `--at` reports them as two ordinary
+    neighbours.  Only the shared-boundary length tells them apart from
+    a genuine pair of adjacent surfaces.
+    """
+    import math
+    lat, lon = _CENTRE
+    lat_step = 40.0 / 111320.0
+    lon_step = 40.0 / (111320.0 * math.cos(math.radians(lat)))
+    left = [(lat - lat_step, lon - lon_step), (lat - lat_step, lon),
+            (lat + lat_step, lon), (lat + lat_step, lon - lon_step),
+            (lat - lat_step, lon - lon_step)]
+    right = [(lat - lat_step, lon), (lat - lat_step, lon + lon_step),
+             (lat + lat_step, lon + lon_step), (lat + lat_step, lon),
+             (lat - lat_step, lon)]
+    path = tmp_path / "tiling.osm"
+    path.write_text(_ring_patch([
+        ("-10051", "service_road", "", left),
+        ("-12306", "service_road", "tunnel_road", right),
+    ]))
+    return path
+
+
+class TestRelate:
+    def test_a_tiling_pair_reads_as_zero_overlap_and_a_long_edge(
+            self, tmp_path):
+        path = _tiling_pair_file(tmp_path)
+        nodes, ways = osm_site.read_osm(str(path))
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        pairs = osm_site.relate_rings(rings, ["-10051", "-12306"])
+        assert len(pairs) == 1
+        row = pairs[0]
+        assert row["overlap_m2"] == pytest.approx(0.0, abs=0.5)
+        assert row["shared_edge_m"] > 70.0, (
+            "the shared boundary is what says these are ONE surface")
+        assert not row["a_inside_b"] and not row["b_inside_a"]
+        assert len(nodes) == 8 and len(ways) == 2
+
+    def test_an_overlapping_pair_reads_as_overlap(self, tmp_path):
+        path = tmp_path / "nested.osm"
+        path.write_text(_ring_patch([
+            ("-1", "retaining_wall", "tunnel_wall",
+             _square(*_CENTRE, 30.0)),
+            ("-2", "retaining_wall", "tunnel_wall",
+             _square(*_CENTRE, 10.0)),
+        ]))
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        row = osm_site.relate_rings(rings, ["-1", "-2"])[0]
+        assert row["overlap_m2"] > 350.0
+        assert row["b_inside_a"], "a nested ring must read as nested"
+
+    def test_the_cli_prints_and_json_matches_the_library(self, tmp_path):
+        path = _tiling_pair_file(tmp_path)
+        out = tmp_path / "relate.json"
+        osm_site.main([str(path), "--at", f"{_CENTRE[0]},{_CENTRE[1]}",
+                       "--radius", "200", "--relate", "--json", str(out)])
+        rows = json.loads(out.read_text())["files"][0]["relate"]
+        rings = osm_site._library_rings(str(path), _CENTRE)
+        assert rows == osm_site.relate_rings(rings, ["-10051", "-12306"])
+
+    def test_the_index_row_names_relate(self):
+        index = (Path(__file__).resolve().parent.parent.parent
+                 / "tools" / "INDEX.md").read_text()
+        assert "--relate" in index

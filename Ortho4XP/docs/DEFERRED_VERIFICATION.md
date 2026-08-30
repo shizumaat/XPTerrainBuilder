@@ -4878,3 +4878,31 @@ What was NOT paid:
 * **OWED — items 1, 2, 3, 5, 6 are ATTRIBUTED but NOT FIXED**; each
   stops on a law or mechanism decision that is the owner's or the
   spec author's.  See the round report.
+
+## 2026-08-30 — OTHH canonical mouth (lane/othhmouth): no matched control arm
+
+* **The census "before" is the OWNER'S SHIPPED PATCH, not a base arm at
+  this lane's base sha.**  The artifact ledger carries no OTHH entry at
+  main `09639fff`; the round's budget was ONE OTHH build, so the delta
+  quoted in the report (OTHH law-true 2,028 → 1,862 rows) is a
+  CROSS-TREE read against `+20+050/+25+051/OTHH_auto.patch.osm` (engine
+  1.50.1713, 2026-08-29 23:07) and is quoted as "not worsened", never as
+  an attribution of the −166.  Cross-tree comparisons are not evidence
+  (standing law); the matched `--base-arm` control at the merge sha is
+  owed at the ship gate or at the next OTHH round, whichever comes first.
+* **The wall half of item 3 is NOT closed and no fix was attempted** —
+  see the report's residual: 7 retaining-wall pieces within 12 m of
+  25.2715775,51.6023886 (owner counted 10), still ≥2 generations, one
+  overlapping wall-foot pair (7.15 m²) and one 5.19 m² flat-4.00
+  fragment.  The mechanism is named but unmeasured: the stand-down
+  (`bridges._stand_down_synthetic_over_claimed`) removes only
+  `tunnel_ramp`/`tunnel_corridor` pieces, so a synthetic corridor's
+  WALLS survive their stood-down ramp and `_wall_claimed_corridors`
+  (§2.3) then walls the claim beside them.  "Walls follow their ramp" is
+  already owner law (RULINGS 2026-08-07 ruling 4); applying it to the
+  stand-down is the next lever and needs its own measured arm.
+* **Pre-existing red carried, not introduced**:
+  `tests/test_round16_geometry_consistency.py` — 4 failures in the
+  `O4_RAMP_WALL_FOOT` §T5 twins.  `_band_scene` calls
+  `bridges.emit_wall_band` directly and reaches no line this lane
+  touched.

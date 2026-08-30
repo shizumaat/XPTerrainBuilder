@@ -404,6 +404,55 @@ def contains_at(rings: list, point_xy: tuple[float, float],
     return out
 
 
+def relate_rings(rings: list, way_ids: list) -> list:
+    """``[{a, b, ...}, ...]`` — the PAIRWISE relation between the selected
+    rings: overlap area, shared-boundary length, containment.
+
+    "What is at this coordinate" answers WHICH shapes are here; a
+    duplication question ("is this one corridor emitted twice?") needs
+    HOW they sit against one another.  Same rings, same metre frame and
+    the same harness-library parser as ``--contains`` — a second script
+    computing its own idea of a ring is the census-wrapper defect.
+
+    ``shared_edge_m`` is the length of the intersection of the two
+    BOUNDARIES: two surfaces that merely abut score a long shared edge
+    with ~0 overlap area, which is exactly the "wraps around and
+    edge-shares" shape the mouth law forbids.
+    """
+    index = {way_id: (role, ref, polygon)
+             for role, ref, way_id, polygon in rings}
+    selected = [way_id for way_id in way_ids if way_id in index]
+    out = []
+    for first in range(len(selected)):
+        for second in range(first + 1, len(selected)):
+            a_id, b_id = selected[first], selected[second]
+            a_role, a_ref, a_poly = index[a_id]
+            b_role, b_ref, b_poly = index[b_id]
+            try:
+                overlap = a_poly.intersection(b_poly).area
+                edge = a_poly.exterior.intersection(b_poly.exterior).length
+                a_in_b = b_poly.buffer(1e-6).covers(a_poly)
+                b_in_a = a_poly.buffer(1e-6).covers(b_poly)
+                gap = a_poly.distance(b_poly)
+            except Exception:                          # pragma: no cover
+                continue
+            if overlap <= 0.0 and edge <= 0.0 and gap > 0.5:
+                continue
+            out.append({
+                "a": a_id, "a_role": a_role, "a_ref": a_ref,
+                "a_area_m2": round(a_poly.area, 2),
+                "b": b_id, "b_role": b_role, "b_ref": b_ref,
+                "b_area_m2": round(b_poly.area, 2),
+                "overlap_m2": round(overlap, 2),
+                "shared_edge_m": round(edge, 2),
+                "gap_m": round(gap, 3),
+                "a_inside_b": bool(a_in_b),
+                "b_inside_a": bool(b_in_a),
+            })
+    out.sort(key=lambda row: (-row["overlap_m2"], -row["shared_edge_m"]))
+    return out
+
+
 def line_stations(start: tuple[float, float], end: tuple[float, float],
                   step_m: float) -> list:
     """``[(lat, lon, station_m), ...]`` every ``step_m`` along the
@@ -454,6 +503,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--contains", action="store_true",
                         help="which RINGS COVER the --at point (even-odd "
                              "per role/ref group) instead of node distance")
+    parser.add_argument("--relate", action="store_true",
+                        help="PAIRWISE relations (overlap area, shared "
+                             "boundary, containment) among the ways near "
+                             "--at, instead of node distance")
     parser.add_argument("--line", default=None,
                         help="LAT,LON:LAT,LON — containment station by "
                              "station along a segment")
@@ -539,6 +592,25 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {verdict} {group['role']}:{group['ref']}  "
                           f"rings={group['covering_rings']}  "
                           f"ways={','.join(group['ways'])}")
+        elif args.relate:
+            near = ways_near(nodes, ways, probe, args.radius, args.role,
+                             by_line=by_line)
+            rings = _library_rings(path, probe)
+            pairs = relate_rings(rings, [row["way"] for row in near])
+            entry["relate"] = pairs
+            print(f"=== {path}: {len(pairs)} touching pair(s) among "
+                  f"{len(near)} way(s) within {args.radius:.1f} m of "
+                  f"{probe[0]},{probe[1]}")
+            for pair in pairs:
+                verdict = ("A-in-B" if pair["a_inside_b"] else
+                           "B-in-A" if pair["b_inside_a"] else "—")
+                print(f"  {pair['a']:>10} ({pair['a_role']}:"
+                      f"{pair['a_ref']}, {pair['a_area_m2']} m2)  vs  "
+                      f"{pair['b']:>10} ({pair['b_role']}:"
+                      f"{pair['b_ref']}, {pair['b_area_m2']} m2)  "
+                      f"overlap={pair['overlap_m2']} m2  "
+                      f"shared_edge={pair['shared_edge_m']} m  "
+                      f"gap={pair['gap_m']} m  {verdict}")
         elif args.dump is not None:
             entry["dump"] = dump_way(nodes, ways, args.dump, probe)
             print(f"=== {path}: way {args.dump}")

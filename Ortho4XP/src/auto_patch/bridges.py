@@ -7590,7 +7590,7 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
                     _best = _p
             return _best
 
-        _split = (_split_host_at_corridor(_poly, _cut_u_p2)
+        _split = (_split_host_at_corridor(_poly, _cut_u_p2, _role)
                   if claim_footprint_scope_enabled() else None)
         if _split is not None:
             # ── THE SCOPED CLAIM: strip in, host out ─────────────────
@@ -7660,6 +7660,31 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
             _n_scoped += 1
             continue
 
+        # ── THE WHOLE-SHAPE CLAIM ────────────────────────────────────
+        # THE CORRIDOR IS ONE SURFACE (canonical-mouth law).  For a host
+        # that IS the corridor the claim takes the shape whole — but the
+        # whole-shape claim re-profiles the ring's OWN vertices, and a
+        # mapped road bends where the ROAD bends, not where the open cut
+        # begins.  Insert the cut's vertices first, so the claimed
+        # surface descends AT the mouth line instead of at the nearest
+        # road bend.  Committed only if the claim then actually digs.
+        _dens_poly = _dens_ring = _dens_alts = None
+        if _role in _CORRIDOR_OWN_ROAD_ROLES and _cut_u_p2 is not None:
+            _dens_poly = _densify_ring_at_corridor(_poly, _cut_u_p2)
+            if _dens_poly is not None:
+                _da = _resample_node_altitudes_nn(
+                    _dens_poly, list(_ring), list(_alts),
+                    interior_edge_project=True)
+                _dr = list(_dens_poly.exterior.coords)
+                if _dr and _dr[0] == _dr[-1]:
+                    _dr = _dr[:-1]
+                if _da is None or len(_da) < len(_dr):
+                    _dens_poly = None
+                else:
+                    _dens_ring = _dr
+                    _dens_alts = [float(_a) for _a in _da[:len(_dr)]]
+        if _dens_poly is not None:
+            _ring, _alts = _dens_ring, _dens_alts
         _new = list(_alts)
         _moved = 0.0
         for _v in range(len(_ring)):
@@ -7671,6 +7696,8 @@ def _claim_road_pavement(layout: "PavementLayout", portal_data: list,
             _new[_v] = round(_value, 2)
         if _moved < 0.01:
             continue
+        if _dens_poly is not None:
+            _shape.polygon = _dens_poly
         _shape.node_altitudes = list(_new) + [_new[0]]
         _shape.altitude = None
         _shape.altitude_high = None
@@ -7932,7 +7959,125 @@ def claim_footprint_scope_enabled() -> bool:
     return os.environ.get(_CLAIM_FOOTPRINT_SCOPE_ENV, "1") == "1"
 
 
-def _split_host_at_corridor(poly, corridor):
+#: THE CORRIDOR'S OWN CARRIAGEWAY.  A ``service_road`` /
+#: ``service_junction`` surface inside a tunnel's open cut IS the
+#: corridor — it is the mapped roadway that runs into the mouth, not a
+#: landside area the corridor happens to cross.  Owner law
+#: (``docs/specs/othh-tunnel-mouth-canonical-spec.md``, sim read of
+#: 1.0.269): *"a service_road must not wrap around and share edges with
+#: a tunnel_road — the corridor is ONE surface"*, and the canonical
+#: mouth is ONE ramp, no second road shape sharing the corridor.
+#:
+#: MEASURED, OTHH 2026-08-29 owner patch: cutting these hosts is what
+#: minted every road duplicate the three owner sites name — shape 50
+#: (service_road, 1,697 m² remainder) tiling exactly against strips 2308
+#: + 2309 (729 + 734 m², 0 m² overlap, 211 m of shared edge, union area
+#: == sum of parts) at 25.2557909,51.6083778; shape 47 cut into strips
+#: 2306/2307 plus remainders 47/2304 — the "dual adjacent ramps" of item
+#: 2; and service_junction 732 cut into 2314/2315/2317 at item 3.  The
+#: remainder also KEPT the mouth: at 25.255673,51.6080375 the only ring
+#: covering the owner's mouth point was the unclaimed remainder -10051,
+#: which is the "ramp stops 2.6 m short of the mouth" reading.
+#:
+#: ``groundside_pavement`` is deliberately absent: that is the OTHH
+#: -12168 class the footprint cut exists for (a 19,461 m² landside ring
+#: relabelled whole because an 8 m corridor grazed one end).  A landside
+#: area is not the corridor; a service road IS.
+_CORRIDOR_OWN_ROAD_ROLES = frozenset({
+    ROLE_SERVICE_ROAD, ROLE_SERVICE_JUNCTION,
+})
+
+
+#: How close an inserted mouth-line vertex may come to a vertex the ring
+#: already has (metres).  Below this the ring already carries the mouth
+#: and a second node there would only mint a duplicate — the same scale
+#: the OSM emit's shared-vertex bucket works at.
+_RING_DENSIFY_MIN_GAP_M = 0.05
+
+
+def _densify_ring_at_corridor(poly, corridor):
+    """``poly`` with the CORRIDOR'S OWN boundary vertices inserted, or
+    ``None`` when that cannot be done exactly.
+
+    A service road claimed WHOLE (``_CORRIDOR_OWN_ROAD_ROLES``) is
+    re-profiled at its own ring vertices, and a mapped road's ring has
+    vertices where the ROAD bends — not where the open cut starts and
+    ends.  Without this the claimed surface can descend at a vertex 30 m
+    up the road and carry no vertex at the mouth line at all, which is
+    the owner's "the ramp does not reach the mouth" reading arriving by
+    a second route.
+
+    The insertion is EXPLICIT — every crossing of the corridor's
+    boundary with a ring edge becomes a vertex ON that edge, in order.
+    (Re-uniting ``intersection`` + ``difference`` does not work: GEOS
+    dissolves the shared boundary again and hands back the original
+    four corners.)  Nothing else moves: the ring's own vertices are
+    kept, the area is asserted unchanged, and any failure returns
+    ``None`` so the caller re-profiles the undensified ring.
+    """
+    if poly is None or poly.is_empty or corridor is None \
+            or corridor.is_empty:
+        return None
+    try:
+        _bnd = corridor.boundary
+        _ring = list(poly.exterior.coords)
+    except _GEOM_EXC:                                    # pragma: no cover
+        return None
+    if _bnd is None or _bnd.is_empty or len(_ring) < 4:
+        return None
+    _out: list = []
+    _added = 0
+    for _i in range(len(_ring) - 1):
+        _a, _b = _ring[_i], _ring[_i + 1]
+        _out.append(_a)
+        try:
+            _seg = LineString([_a, _b])
+            _hit = _seg.intersection(_bnd)
+        except _GEOM_EXC:                                # pragma: no cover
+            continue
+        if _hit is None or _hit.is_empty:
+            continue
+        _pts: list = []
+        for _g in getattr(_hit, "geoms", [_hit]):
+            if _g is None or _g.is_empty:
+                continue
+            if _g.geom_type == "Point":
+                _pts.append((_g.x, _g.y))
+            elif _g.geom_type == "LineString":
+                _pts.extend(list(_g.coords))
+        _len = _seg.length
+        if not (_len > 0.0):
+            continue
+        _keep = []
+        for _p in _pts:
+            try:
+                _s = _seg.project(Point(_p))
+            except _GEOM_EXC:                            # pragma: no cover
+                continue
+            # Not at either end: the ring already has those vertices.
+            if _RING_DENSIFY_MIN_GAP_M < _s < _len - _RING_DENSIFY_MIN_GAP_M:
+                _keep.append((_s, _p))
+        for _s, _p in sorted(_keep):
+            if math.hypot(_p[0] - _out[-1][0],
+                          _p[1] - _out[-1][1]) < _RING_DENSIFY_MIN_GAP_M:
+                continue
+            _out.append(_p)
+            _added += 1
+    _out.append(_ring[-1])
+    if not _added:
+        return None
+    try:
+        _new = Polygon(_out)
+    except (ValueError, _GEOM_EXC):                      # pragma: no cover
+        return None
+    if _new.is_empty or not _new.is_valid:
+        return None
+    if abs(_new.area - poly.area) > max(0.01, 1e-4 * poly.area):
+        return None
+    return _new
+
+
+def _split_host_at_corridor(poly, corridor, host_role: str | None = None):
     """``(strip_parts, host_parts)`` — the CORRIDOR FOOTPRINT cut out of a
     host surface, or ``None`` when there is nothing to cut.
 
@@ -7943,18 +8088,28 @@ def _split_host_at_corridor(poly, corridor):
     8 m corridor grazed one end of it, its far tongues then reaching into
     the covered interior at z=1.90.
 
-    ``None`` has two distinct causes and both mean "do not cut here":
+    ``None`` has three distinct causes and all mean "do not cut here":
 
     * the strip is a graze below ``_CORRIDOR_CLAIM_MIN_STRIP_M2`` — there
-      is no corridor on this surface; and
+      is no corridor on this surface;
     * NO host survives the cut — the surface IS the corridor (a road rect
       wholly inside it), which is the case the whole-shape claim is
       RIGHT for.  Cutting there would mint a strip and delete a host that
-      was never anything else.
+      was never anything else; and
+    * ``host_role`` is one of ``_CORRIDOR_OWN_ROAD_ROLES`` — the surface
+      IS the corridor by ROLE, whether or not an area of it survives the
+      cut.  This is the same case as the one above, recognised before
+      the arithmetic instead of after it: a service road running into a
+      mouth is longer and wider than the open-cut region, so a host
+      always "survived" and every such corridor shipped as a claimed
+      strip plus a wrapping unclaimed remainder.  The canonical mouth
+      law forbids that second road shape.
 
     One implementation, so the two claim paths can never disagree about
     what "the footprint" means.
     """
+    if host_role in _CORRIDOR_OWN_ROAD_ROLES:
+        return None
     if poly is None or poly.is_empty or corridor is None \
             or corridor.is_empty:
         return None
@@ -8089,7 +8244,7 @@ def _claim_portal_corridor_footprint(layout: "PavementLayout",
         # §2.2, one implementation (§T6.2): the footprint cut, or None —
         # a graze, or a host that would not survive (NEVER THE HOST WHOLE:
         # leave it, and leave R14-1's airside finding to speak for it).
-        _split = _split_host_at_corridor(_poly, _corridor)
+        _split = _split_host_at_corridor(_poly, _corridor, _role)
         if _split is None:
             continue
         _strip_parts, _rest_parts = _split

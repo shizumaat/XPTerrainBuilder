@@ -699,31 +699,6 @@ DSF_MIN_BUILDING_AREA_M2 = 20.0
 # constant the pipeline's old bare 100.0 pad floor rises to.
 PAD_MIN_AREA_M2 = 250.0
 
-# ── A CLUSTER'S INTERIOR HOLE IS GROUND, NOT PAD (HECA round 6 item 1,
-# owner sim read of 1.0.269) ──────────────────────────────────────────
-# ``terminals._cluster_dsf_building_facades`` reduced every cluster to
-# ``Polygon(g.exterior)`` — "a grading pad is solid" — to erase the
-# artifact holes the snap-buffer close and the panel-grid union leave
-# behind.  Those artifacts are sub-metre; the line filled ANY hole, so
-# an enclosing facade run (a compound wall, a terminal wrapping a court)
-# swallowed everything it surrounds.  Measured: HECA ``building79`` (way
-# -10079, shapeID 78) emitted ONE flat 97.85 ring of 100,888 m² spanning
-# 531 x 494 m, hull-ratio 0.857, with ZERO interior rings and ZERO other
-# building pads inside it — the owner reads five buildings and their
-# pavement under that one pad.  The source ring's own holes ARE read and
-# ARE admitted (``pipeline._admit_dsf_building_footprint`` builds the
-# Polygon WITH its interiors); only this fill destroyed them.
-#
-# THE LAW (spec heca-round6-groundside-classification-spec.md Family B):
-# a building pad is ONE building's footprint; the pavement between
-# buildings is scored as pavement, split per THE SOURCE'S OWN outlines.
-# A hole is therefore filled only when it is too small to BE ground —
-# below the owner's ruled minimum pad area nothing of building scale can
-# live in it and it is the artifact this fill exists for; at or above it
-# the hole is real enclosed ground and stays open.  One value, not a
-# second copy: it IS the tiny-pad floor.
-DSF_CLUSTER_HOLE_FILL_MAX_M2 = PAD_MIN_AREA_M2
-
 # Building-pad outline NARROW-GAP FILL (user 2026-06-15).  Gate stands are
 # small fingers extending perpendicular off a pier; the gaps between them
 # give a terminal a noisy sawtooth boundary that the apron then has to

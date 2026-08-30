@@ -5061,3 +5061,14 @@ Two notes the fix leaves standing:
   the build (`git diff dd8d0b49 5b552ae1 -- src tests tools` is empty),
   so the control is sound; it simply earned no ledger entry, and the
   next lane needing a merged-main HECA base arm will rebuild it.
+  **FIXED 2026-08-30 (this branch):** the temporary index is now seeded
+  EMPTY (`git read-tree --empty`) before `git add -A -- <CODE_PATHS>`, so
+  the written tree contains exactly the code paths and docs churn cannot
+  move the key.  Twins: `tests/test_run_with_ledger.py`
+  (docs-commit-does-not-move / code-change-does-move / docs commit still
+  HITs the ledger) and `tests/test_artifact_ledger.py` §2b (a docs commit
+  mid-build no longer moves `code_state_now`).  CONSEQUENCE: the hash
+  function changed, so EVERY pre-existing run-ledger and artifact-ledger
+  key is stale — old entries simply stop matching (cache miss ⇒ rebuild).
+  Nothing was migrated or rewritten; the stale entries age out through
+  the artifact ledger's LRU.

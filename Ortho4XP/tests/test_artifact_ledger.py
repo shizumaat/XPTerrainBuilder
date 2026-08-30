@@ -435,6 +435,37 @@ def test_code_state_now_sees_edits_and_the_dirty_flag(AL, tmp_path):
     assert after["code_tree_hash"] != before["code_tree_hash"]
 
 
+def test_a_docs_commit_mid_build_does_not_move_the_code_state(AL, tmp_path):
+    """THE FALSE CONTAMINATED-KEY (measured 2026-08-30): a docs commit
+    landing on main while a build runs is not a code change, and must not
+    make the store-time re-check refuse a valid arm.  It did — the tree
+    hash was written from an index seeded with the WHOLE HEAD tree, so
+    ``docs/RULINGS.md`` 5b552ae1 moved the key 2f56b778… → b1ec5ef8… and a
+    good HECA control earned no ledger entry."""
+    import subprocess
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "docs").mkdir(parents=True)
+    (repo / "src" / "x.py").write_text("A = 1\n")
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\n")
+
+    def _git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t",
+                        "-c", "user.email=t@t", *args],
+                       check=True, capture_output=True)
+    _git("init")
+    _git("add", "-A")
+    _git("commit", "-m", "seed")
+    at_start = AL.code_state_now(repo)          # the key is cut here
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n")
+    _git("add", "-A")
+    _git("commit", "-m", "RULINGS: 30i")
+    at_store = AL.code_state_now(repo)          # …and re-checked here
+    assert at_store == at_start, (
+        "a docs-only commit moved the code state, so store_build would "
+        "raise ContaminatedKeyError on a build no code change touched")
+
+
 def test_the_build_entry_arms_the_recheck_and_stamps_the_frame(build_mod):
     """The wiring twin, in the ritual-twin style: the ONE store site in
     ``build_airport.py`` passes the start snapshot into ``store_build`` and

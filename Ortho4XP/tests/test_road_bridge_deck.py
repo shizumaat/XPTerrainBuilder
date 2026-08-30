@@ -330,3 +330,51 @@ class TestChainContinuity:
         layout = self._with_neighbour(shares_node=True)
         assert deck.publish_candidates(
             layout, touches_pavement=lambda w, line: False) == []
+
+
+class TestSlopedRampEncoding:
+    """A TUNNEL RAMP IS A SLOPED RECT.  ``bridges`` builds it with
+    ``altitude_high``/``altitude_low`` and NEITHER ``node_altitudes`` NOR
+    ``altitude``, so a §1 reader that consults only the latter two sees
+    no ramp at all.
+
+    Measured at LEMD on 2026-08-30 (build ``lemddeck_closing``): four
+    ramps lay beneath the owner's span, all four invisible, and both
+    decks came back UNCONFIRMED instead of refused.  This is the twin
+    for that miss.
+    """
+
+    def _sloped(self, low, high):
+        return BuiltShape(
+            polygon=_rect(10.0, 66.3, -7.0, 7.0),
+            role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+            altitude_low=low, altitude_high=high)
+
+    def test_a_sloped_ramp_is_seen_and_its_TOP_is_taken(self):
+        layout = _make(with_ramp=False)
+        layout.shapes.insert(0, self._sloped(598.97, 600.17))
+        deck.publish_candidates(layout)
+        _mint_deck_pieces(layout)
+        deck.stamp_shapes(layout)
+        deck.confirm_and_pin(layout)
+        rec = deck.records_of(layout)[0]
+        assert rec["structures_beneath"] == 1
+        assert rec["highest_beneath_m"] == pytest.approx(600.17, abs=1e-3)
+
+    def test_each_encoding_reports_the_same_top(self):
+        """All three encodings are read, and the answer is the maximum
+        elevation the shape carries however it spells it."""
+        flat = BuiltShape(polygon=_rect(0, 1, 0, 1), role=ROLE_TUNNEL_RAMP,
+                          ref="tunnel_ramp", altitude=600.17)
+        sloped = self._sloped(598.97, 600.17)
+        per_node = BuiltShape(
+            polygon=_rect(0, 1, 0, 1), role=ROLE_TUNNEL_RAMP,
+            ref="tunnel_ramp",
+            node_altitudes=[598.97, 600.17, 600.17, 598.97])
+        for s in (flat, sloped, per_node):
+            assert deck._shape_top(s) == pytest.approx(600.17, abs=1e-3)
+
+    def test_a_shape_carrying_no_elevation_is_skipped(self):
+        bare = BuiltShape(polygon=_rect(0, 1, 0, 1),
+                          role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp")
+        assert deck._shape_top(bare) is None

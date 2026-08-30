@@ -354,6 +354,27 @@ def abutment_keep_out(layout):
         return None
 
 
+def _shape_top(shape):
+    """The HIGHEST elevation a built shape carries, whichever of the
+    three encodings it uses — ``None`` when it carries none.
+
+    ALL THREE, and this is load-bearing: a tunnel RAMP is a SLOPED rect,
+    so ``bridges`` builds it with ``altitude_high`` / ``altitude_low``
+    and NEITHER ``node_altitudes`` NOR ``altitude``.  Reading only the
+    latter two skips every sloped ramp, which is the whole population
+    §1 exists to find (measured at LEMD 2026-08-30: 4 ramps beneath the
+    owner's span, all four invisible, both decks wrongly UNCONFIRMED).
+    """
+    vals = [float(a) for a in
+            (getattr(shape, "node_altitudes", None) or ())
+            if a is not None]
+    for attr in ("altitude_high", "altitude", "altitude_low"):
+        a = getattr(shape, attr, None)
+        if a is not None:
+            vals.append(float(a))
+    return max(vals) if vals else None
+
+
 def _below_grade_shapes(layout):
     out = []
     for s in getattr(layout, "shapes", None) or ():
@@ -362,21 +383,28 @@ def _below_grade_shapes(layout):
         poly = getattr(s, "polygon", None)
         if poly is None or poly.is_empty:
             continue
-        alts = [a for a in (getattr(s, "node_altitudes", None) or ())
-                if a is not None]
-        if not alts:
-            a = getattr(s, "altitude", None)
-            if a is None:
-                continue
-            alts = [float(a)]
-        out.append((poly, max(float(a) for a in alts), s))
+        top = _shape_top(s)
+        if top is None:
+            continue
+        out.append((poly, top, s))
     return out
 
 
 def _receiving_value(layout, point, deck_ids, reach_m: float = 25.0):
-    """§5's "the receiving surface's own value" at an abutment: the
-    nearest emitted pavement that is NOT part of this deck."""
+    """§5's "the receiving surface's own value" AT an abutment.
+
+    THE NEAREST VERTEX, not the nearest shape's mean.  A receiving
+    surface is often a single large ring — an apron, or a 42-node
+    taxiway junction spanning hundreds of metres — whose mean elevation
+    says nothing about the metre of ground the deck actually lands on.
+    Measured at LEMD 2026-08-30: the shape-mean reader returned 612.08 m
+    for the west abutment of ``-2192``, where the road it lands on is at
+    ~601 m, and priced §6 against a number that exists nowhere near the
+    bridge.  The vertex carries its own solved value, which is what
+    "the receiving surface's own value" means.
+    """
     best = None
+    px, py = float(point.x), float(point.y)
     for s in getattr(layout, "shapes", None) or ():
         if id(s) in deck_ids or is_deck_shape(s):
             continue
@@ -386,19 +414,27 @@ def _receiving_value(layout, point, deck_ids, reach_m: float = 25.0):
         if getattr(s, "role", None) not in _RECEIVING_ROLES:
             continue
         try:
-            d = float(poly.distance(point))
+            if float(poly.distance(point)) > reach_m:
+                continue
+            ring = list(poly.exterior.coords)
         except Exception:                                # pragma: no cover
             continue
-        if d > reach_m or (best is not None and d >= best[0]):
-            continue
+        if ring and ring[0] == ring[-1]:
+            ring = ring[:-1]
         alts = [a for a in (getattr(s, "node_altitudes", None) or ())
                 if a is not None]
-        if not alts:
-            a = getattr(s, "altitude", None)
-            if a is None:
+        flat = _shape_top(s) if not alts else None
+        for i, (vx, vy) in enumerate(ring):
+            d = math.hypot(float(vx) - px, float(vy) - py)
+            if d > reach_m or (best is not None and d >= best[0]):
                 continue
-            alts = [float(a)]
-        best = (d, sum(float(a) for a in alts) / len(alts), s)
+            if alts and len(alts) == len(ring):
+                v = float(alts[i])
+            elif flat is not None:
+                v = float(flat)
+            else:
+                continue
+            best = (d, v, s)
     return best
 
 

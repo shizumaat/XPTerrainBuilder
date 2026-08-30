@@ -1792,3 +1792,5 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * **2026-08-30g addendum:** HECA item-3 road classification DEFERRED TO SIM READ (owner): the identity trigger has no instance (measured, 0 of 2,740 service ways; the 3 mm gap is real geometry), the site sits at lawful height via the band. A containment-trigger widening is NOT ruled; revisit only if the sim read demands a road there.
 
 * **2026-08-30h:** building79 structure-walls lane MERGED (owner sign-off): 8 per-building pads replace the 100,887 m² phantom; census +9 with the attributed airside→groundside shift (−556/+561) and the 7,138-node pad-population re-solve accepted (LEMD-rim-precedent class). Duplicate-ref cosmetic (2 of 175 pads, MultiPolygon groups): owner ruled FIX NOW with its own build.
+
+* **2026-08-30i (bridge round 3):** COVERED-STRETCH CLIP SCOPE EXTENDED (owner): `TUNNEL_ROAD_REF` joins the clip's ref set (bridges.py:6960) — a terrain deck's footprint severs the tunnel corridor's OWN road surface, claimed and synthetic, exactly as it severs the ramp; the corridor resumes at both deck edges. One closing build granted.

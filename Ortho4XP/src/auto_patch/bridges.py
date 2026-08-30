@@ -5552,6 +5552,33 @@ _WALL_BAND_OWNER_REGISTER = "_tunnel_wall_band_owner_ids"
 #: is not that ramp's wall.
 _WALL_OWNER_REACH_PAD_M = 0.5
 
+#: How near AIRSIDE pavement a band piece must be before the follow-down
+#: leaves it alone.  One emit vertex-bucket (``SHARED_VERTEX_TOL_M``)
+#: plus the same slack: inside this a band edge and an airside ring share
+#: — or can be welded onto — one node, and re-spelling the band moves the
+#: airside value with it.  Beyond it the band and the apron are two
+#: surfaces and the dedupe is groundside-only work.
+_WALL_AIRSIDE_STANDOFF_M = SHARED_VERTEX_TOL_M + 0.5
+
+#: THE AIRSIDE VALUES THIS PASS MAY NOT MOVE: the airport's own pavement
+#: — the transit family plus the apron, the SAME set §T3 already names.
+#: The road/groundside roles are deliberately outside it: they are the
+#: side this dedupe works on (the groundside terrace law).
+_WALL_KING_ROLES = _TUNNEL_OWN_BORE_COVER_ROLES
+
+
+def _airside_king_union(layout: "PavementLayout"):
+    """The union of the airside surfaces whose values are untouchable
+    here, or ``None`` when the layout carries none."""
+    try:
+        _u = unary_union([_s.polygon for _s in layout.shapes
+                          if getattr(_s, "role", "") in _WALL_KING_ROLES
+                          and _s.polygon is not None
+                          and not _s.polygon.is_empty])
+    except _GEOM_EXC:                                  # pragma: no cover
+        return None
+    return None if _u.is_empty else _u
+
 
 def register_wall_band_owners(layout: "PavementLayout", wall_shape,
                               owners, reach_m: float) -> None:
@@ -8879,10 +8906,21 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
     # move a wall — a wall orphaned by some earlier pass is that pass's
     # question, not this one's — and a band that still retains a
     # standing surface is CUT BACK to it, never deleted whole.
-    _n_walls, _n_wclip = 0, 0
+    _n_walls, _n_wclip, _n_wking = 0, 0, 0
     _owners = wall_band_owners(layout) if _gone_ids else {}
     if _owners:
         _live_poly = {id(_s): getattr(_s, "polygon", None) for _s in _kept}
+        # AIRSIDE IS KING (standing law): this dedupe is a GROUNDSIDE-side
+        # tidy of duplicate wall geometry, and it may not move an airside
+        # value.  MEASURED (OTHH, base arm at 581d2c28 vs the same tree
+        # with the follow-down): cutting a band that touches apron 355 at
+        # 25.27597,51.61365 re-welded the apron's on-edge node onto a
+        # different donor and dropped it 3.64 -> 2.62 m — +13 airside
+        # rows, worst 1.34 m apron|apron, from a wall the mouth did not
+        # need.  So a band piece TOUCHING airside pavement is left exactly
+        # as it was: the duplicate stands (named, and quoted as the
+        # residual) rather than the apron moving.
+        _king_u = _airside_king_union(layout)
         _kept_w = []
         for _s in _kept:
             _entry = _owners.get(id(_s))
@@ -8895,6 +8933,22 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
             if not _own_gone:
                 _kept_w.append(_s)
                 continue
+            if _king_u is not None:
+                try:
+                    _touches_king = _s.polygon.distance(
+                        _king_u) <= _WALL_AIRSIDE_STANDOFF_M
+                except _GEOM_EXC:                      # pragma: no cover
+                    _touches_king = True
+                if _touches_king:
+                    _n_wking += 1
+                    log_tunnel_piece_kept(
+                        layout, _s,
+                        "walls follow their ramp REFUSED — airside is king",
+                        verdict=f"{len(_own_gone)}/{len(_own)} owner(s) "
+                                f"gone, but this band touches airside "
+                                f"pavement")
+                    _kept_w.append(_s)
+                    continue
             # THE DEAD BAND REGION: the reach of the surfaces that just
             # stood down, MINUS the reach of this piece's owners that
             # are still standing.  A band traced around a whole ramp
@@ -8950,7 +9004,8 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                 f"rectangle(s) — claimed road pavement carries the "
                 f"corridor there; ruling 4: {_n_walls} wall piece(s) "
                 f"followed their ramp down and {_n_wclip} were cut back "
-                f"to the surface still standing.")
+                f"to the surface still standing ({_n_wking} left standing "
+                f"— airside is king).")
         except _GEOM_EXC:
             pass
     return _n

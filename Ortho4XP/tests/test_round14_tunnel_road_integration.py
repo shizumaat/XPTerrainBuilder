@@ -453,6 +453,39 @@ class TestWallsFollowTheirStoodDownRamp:
             0.0, abs=1e-9)
         assert walls[0].polygon.intersects(live.polygon.buffer(self.REACH))
 
+    def test_a_band_touching_airside_is_left_standing(self):
+        # AIRSIDE IS KING: this dedupe is groundside-side work.  Measured
+        # at OTHH (base arm vs follow-down, same tree): cutting a band
+        # that touches apron 355 at 25.27597,51.61365 re-welded the
+        # apron's on-edge node onto a lower donor (3.64 -> 2.62 m) and
+        # minted 13 airside rows.  The duplicate stands instead.
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        wall = self._wall(layout, 0.0, 40.0, [ramp])
+        apron = BuiltShape(polygon=box(0.0, -12.0, 40.0, -2.5),
+                           role=ROLE_APRON, ref="", altitude=219.0)
+        layout.shapes.append(apron)              # 0.5 m off the band
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert wall in layout.shapes
+
+    def test_a_band_clear_of_airside_still_follows(self):
+        # The same layout with the apron beyond the standoff: the band is
+        # groundside-side geometry and follows its ramp.
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        self._wall(layout, 0.0, 40.0, [ramp])
+        apron = BuiltShape(polygon=box(0.0, -30.0, 40.0, -20.0),
+                           role=ROLE_APRON, ref="", altitude=219.0)
+        layout.shapes.append(apron)
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert layout.shapes == [apron]
+
     def test_an_unregistered_wall_is_never_touched(self):
         # The register is the ONLY authority: a wall whose owner nobody
         # published follows nothing (and the pre-register behaviour of

@@ -128,3 +128,25 @@ def test_a_non_service_highway_is_not_this_ruling():
         (way_id, refs, {"highway": "trunk"})]
     assert G.sever_lot_carried_service_roads(
         layout, _dem(), int(LAT), int(LON)) == 0
+
+
+def test_the_trigger_never_reads_m_to_ll(monkeypatch):
+    """ROUND 6C — the frame the join asks its question in.
+
+    ``86aa26e1`` moved the join into the layout's METRE frame after the
+    11-dp lat/lon join found nothing at HECA.  This is that change's
+    twin: the ring is built as always, then ``layout.m_to_ll`` is made
+    LOSSY by 3 mm (the figure the round-6b read quoted).  A join that
+    spells ring vertices back out through it misses; this one still
+    fires, because both sides pass through the SAME forward
+    ``ll_to_m``.  (What the round-6c measurement then showed is that at
+    HECA the ring vertex is not the road node in ANY frame — the
+    nearest is millimetres away — so the trigger has no instance there;
+    that is a data fact about the site, not about this frame.)"""
+    layout = _layout(shared=True)
+    _real = layout.m_to_ll
+    layout.m_to_ll = lambda x, y: tuple(
+        c + 2.7e-8 for c in _real(x, y))        # ~3 mm, both axes
+    n = G.sever_lot_carried_service_roads(layout, _dem(), int(LAT), int(LON))
+    assert n >= 1, ("the sever read m_to_ll — a lossy spelling of the "
+                    "ring must not be able to break the identity join")

@@ -4948,3 +4948,46 @@ What was NOT paid:
   the fixture's OSM overlay does not carry).  Verifying it costs one
   more full HECA build, which this round's two-build budget did not
   have.  The attempt cap is reached; the residual is the owner's.
+
+## HECA round 6c (cleanup lane, 2026-08-30) — what the closing build PAID
+
+The round-6b line above is now PAID, and its finding is the opposite of
+what it assumed:
+
+* **Item 3's join is VERIFIED — and it does not fire, because the
+  trigger has no instance at HECA.**  The sever pass now instruments
+  itself on every build (no silent zero).  On the round-6c closing arm
+  `r6c_arm`: *2,740 service way(s) examined, 0 carried by a groundside
+  ring (identity join in the METRE frame, eps 1e-06 m; 13,577 ring
+  vertex(es) from 730 lot(s)); nearest MISS 0.118 mm (feed way -270 node
+  -27398); severed 0 corridor(s).*  The round-6b premise — that
+  `layout.m_to_ll` is not the inverse of `layout.ll_to_m`, and that the
+  3 mm was a round-trip artefact — is REFUTED by reading the two
+  functions (`layout.py:1021`/`:1028`: one equirectangular pair about
+  one anchor, inverse to float precision).  The 3 mm is real geometry:
+  the feed node `-113465` (30.114178800,31.404126000, way -13192) is
+  referenced by NO other way in the feed, and the nearest lot-ring
+  vertex reads 30.11417881036,31.40412602903 — 3.024 mm away — in the
+  round-6 control AND in the round-6b arm, identically.  The lot ring's
+  vertex there is minted by the build (a clip/conform), not carried from
+  the road.  So RULING 3 as scoped (identity vertex only, §H3 refuted
+  and OFF) has nothing to fire on, and the site 30.1118886,31.4064793
+  stays `graded_strip` at 107.18 m — unchanged from round 6b.  Widening
+  the trigger past an identity is the owner's call, not a lane's: 0.118
+  mm is the closest any HECA service-road node comes to a lot ring
+  vertex, so any tolerance that fires is a proximity radius, which is
+  §H3's refuted ground.
+* **NOT paid: whether the trigger has instances at another airport.**
+  The instrument now answers it for free on any build (the log line is
+  unconditional), but only HECA was built this round — the round's ONE
+  representative airport (build economy 29f).
+* **NOT paid (item 6 residue, quoted for the owner):** after the
+  enclosed-lot veto, `graded_strip:gap_fill_spine` still stands on
+  2,492 m² of groundside pavement across 16 strips (was 26,780 m² /
+  18) — all of it small fractions of large faces from paths OTHER than
+  the R19-2 deferral, and none of it the ruled lots.  The same read over
+  `service_road,service_junction` is unchanged at 25,074 m² / 34 strips:
+  the ANNULUS class (a face whose emitted exterior ring re-covers the
+  road it was subdivided around) exists for roads too, and this round
+  scoped its fix to ruling 4's role deliberately.  Both reads are
+  `tools/role_overlap_read.py`.

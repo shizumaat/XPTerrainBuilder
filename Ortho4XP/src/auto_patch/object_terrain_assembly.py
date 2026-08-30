@@ -310,13 +310,9 @@ def _road_network_sidecar(dsf_path: str) -> tuple[str | None, str | None]:
     cache_directory = dsf_reader.airport_mod_cache_dir(pack_root)
     if cache_directory is None:
         return None, None
-    # Legacy cleanup: exactly the old filename at the pack root, every
-    # OSError swallowed.
-    try:
-        os.remove(os.path.join(pack_root,
-                               _ROAD_NETWORK_LEGACY_SIDECAR_NAME))
-    except OSError:
-        pass
+    # Legacy cleanup: exactly the old filename at the pack root.
+    dsf_reader.remove_legacy_pack_sidecar(
+        pack_root, _ROAD_NETWORK_LEGACY_SIDECAR_NAME)
     try:
         dsf_stat = os.stat(dsf_path)
     except OSError:
@@ -631,13 +627,9 @@ def _classification_sidecar(dsf_path, pack_root, pavement_polygons,
     cache_directory = dsf_reader.airport_mod_cache_dir(pack_root)
     if cache_directory is None:
         return None, None
-    # Legacy cleanup: exactly the old filename at the pack root, every
-    # OSError swallowed.
-    try:
-        os.remove(os.path.join(pack_root,
-                               _CLASSIFICATION_LEGACY_SIDECAR_NAME))
-    except OSError:
-        pass
+    # Legacy cleanup: exactly the old filename at the pack root.
+    dsf_reader.remove_legacy_pack_sidecar(
+        pack_root, _CLASSIFICATION_LEGACY_SIDECAR_NAME)
     import hashlib
     digest = hashlib.sha1()
     try:

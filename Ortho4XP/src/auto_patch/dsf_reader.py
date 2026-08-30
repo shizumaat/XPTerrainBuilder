@@ -1208,6 +1208,27 @@ _OBJECT_FOOTPRINT_SIDECAR_PREFIX = "o4_object_footprints"
 _OBJECT_FOOTPRINT_LEGACY_SIDECAR_NAME = "o4_object_footprints.cache"
 
 
+def remove_legacy_pack_sidecar(pack_root: str, name: str) -> None:
+    """Remove a pre-ruling in-pack sidecar (user ruling 2026-07-15: no
+    Ortho4XP clutter in scenery packs), swallowing every OSError.
+
+    THE ONE implementation for every legacy-sidecar cleanup site
+    (footprints, road networks, terrain classification).  Existence-
+    checked so a clean pack never sees a write syscall: the suite's
+    X-Plane-install write guard (tests/conftest.py, 2026-08-29) refuses
+    ANY write under the install, and the previous unconditional no-op
+    ``os.remove`` calls either failed every layout-building test outright
+    or — where the engine's broad ``except Exception`` swallowed the
+    refusal — silently degraded the build (object-bridge solve-side pins
+    skipped) and failed the test at the guard's teardown audit instead."""
+    legacy = os.path.join(pack_root, name)
+    if os.path.lexists(legacy):
+        try:
+            os.remove(legacy)
+        except OSError:
+            pass
+
+
 def _object_footprint_sidecar(
     dsf_path: str,
     pack_root: str | None,
@@ -1276,12 +1297,8 @@ def _object_footprint_sidecar(
         return None, None
     # Legacy cleanup (the point of the ruling): the old in-pack sidecar
     # would keep cluttering the pack — remove exactly that one filename
-    # at the pack root, swallowing every OSError.
-    try:
-        os.remove(os.path.join(pack_root,
-                               _OBJECT_FOOTPRINT_LEGACY_SIDECAR_NAME))
-    except OSError:
-        pass
+    # at the pack root.
+    remove_legacy_pack_sidecar(pack_root, _OBJECT_FOOTPRINT_LEGACY_SIDECAR_NAME)
     import hashlib
     digest = hashlib.sha1()
     try:

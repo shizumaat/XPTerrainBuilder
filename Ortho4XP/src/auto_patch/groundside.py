@@ -4416,12 +4416,15 @@ def sever_lot_carried_service_roads(layout, dem, tile_lat: int,
             # The lot yields the corridor it was carrying — one authority
             # per patch of ground, the same clip semantics the groundside
             # separation uses (``snap_tol=0``: the ring can only shrink).
-            try:
-                cut = unary_union([g for g in parts])
-            except _GEOM_EXC:
-                continue
-            if _clip_shape_yielding_to(s, cut, snap_tol=0.0) is None:
-                s.polygon = None           # wholly road; dropped below
+            # ONE POLYGON AT A TIME: the clip reads the kept geometry's
+            # own exterior ring, so parts are applied in sequence (each
+            # mutates the shape in place).
+            for g in parts:
+                if s.polygon is None or s.polygon.is_empty:
+                    break
+                if _clip_shape_yielding_to(s, g, snap_tol=0.0) is None:
+                    s.polygon = None       # wholly road; dropped below
+                    break
     if not n_sev:
         return 0
     layout.shapes = [s for s in layout.shapes

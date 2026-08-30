@@ -8494,7 +8494,12 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     # piece of groundside a zones-1-2 band claimed above now leaves the
     # groundside ring, so no patch of ground carries two pavement
     # authorities and the emit has nothing to adjudicate there.
-    _cut_groundside_back_to_bands(layout, _gs_claimed_by_bands)
+    try:
+        _cut_groundside_back_to_bands(layout, _gs_claimed_by_bands)
+    except _GEOM_EXC as _cut_exc:
+        UI.vprint(0, f"  [adjacent-ground] band-cuts-groundside FAILED "
+                     f"({_cut_exc!r}) — the bands stand, the rings were "
+                     f"not cut back.")
     # AIRSIDE-ENCLAVE keep-out ledger (SCOPING v2).  The area the
     # keep-out OWNS beside the area it actually TOOK, in one line and in
     # one frame: an overreach is then visible as a number here rather
@@ -8588,6 +8593,15 @@ def _cut_groundside_back_to_bands(layout, claimed) -> int:
         return 0
     if take.is_empty:
         return 0
+    # ONE POLYGON AT A TIME: ``_clip_shape_yielding_to`` reads the kept
+    # geometry's own exterior ring (it re-inserts its vertices so no
+    # T-junction is left behind), so a MultiPolygon take must be applied
+    # part by part.  The clip mutates the shape in place, so the parts
+    # compose.
+    takes = [g for g in getattr(take, "geoms", [take])
+             if g.geom_type == "Polygon" and not g.is_empty]
+    if not takes:
+        return 0
     from .groundside import _clip_shape_yielding_to
     out, n_cut, n_dropped, area_cut = [], 0, 0, 0.0
     for s in layout.shapes:
@@ -8596,20 +8610,29 @@ def _cut_groundside_back_to_bands(layout, claimed) -> int:
             out.append(s)
             continue
         try:
-            if not s.polygon.intersects(take):
+            hits = [g for g in takes if s.polygon.intersects(g)]
+            if not hits:
                 out.append(s)
                 continue
             before = s.polygon.area
         except _GEOM_EXC:
             out.append(s)
             continue
-        new_poly = _clip_shape_yielding_to(s, take, snap_tol=0.0)
-        if new_poly is None or new_poly.is_empty:
+        gone = False
+        for g in hits:
+            if s.polygon is None or s.polygon.is_empty:
+                gone = True
+                break
+            new_poly = _clip_shape_yielding_to(s, g, snap_tol=0.0)
+            if new_poly is None or new_poly.is_empty:
+                gone = True
+                break
+        if gone:
             n_dropped += 1
             area_cut += before
             continue
         n_cut += 1
-        area_cut += max(0.0, before - new_poly.area)
+        area_cut += max(0.0, before - s.polygon.area)
         out.append(s)
     if n_cut or n_dropped:
         layout.shapes = out

@@ -3311,6 +3311,22 @@ class TestBasinPadFloorSeating:
                         for plate in _basin_plates(bare, "trench"))
         assert with_pad == pytest.approx(bare_area, rel=1e-9)
 
+    def test_the_setback_runs_on_the_pan_AS_FINALLY_CONSTITUTED(self):
+        """ORDER IS LAW here, and it was bought with a build.  Run
+        BEFORE the §2 carve plate is unioned in, the setback cleared
+        only the shared nodes on the BODY's edge and left the ones on
+        the PLATE's — LEMD arm ``9a8a77aa5ca8``: ``building3`` 129 -> 29
+        rows, the two corner runs at the ramp mouth surviving at the
+        full 11.94 m.  The plate is pan, carries the pan's floor value
+        and shares nodes exactly as the body's edge does, so the rule
+        runs ONCE over the FINAL boundary."""
+        import inspect
+        source = inspect.getsource(assembly.build_tunnel_layout_shapes)
+        union = source.index("floor_geometry.union(carve_plate)")
+        call = source.index("_stand_off_yield_rings(floor_geometry)")
+        band = source.index("band_geometry = body.buffer(")
+        assert union < call < band
+
     def test_the_ring_setback_is_reported_by_name(self, capsys):
         """Instrument is law: a pan that moved must say so, name the
         facility and quote the area it cost."""

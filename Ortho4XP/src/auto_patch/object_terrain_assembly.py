@@ -4951,45 +4951,60 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                 # is the erasure Amendment 3 exists to stop wearing a new
                 # hat.  Cutting only at the contact is always a BITE FROM
                 # THE EDGE, never a hole.
-                _ring_setback_ids = (authority_yield_pad_ids
-                                     - floor_seated_pad_ids)
-                if _ring_setback_ids:
-                    _yield_rings = [
+                #
+                # APPLIED TO THE PAN AS FINALLY CONSTITUTED — after the
+                # §2 CARVE PLATE is unioned in, not before.  Measured:
+                # run before the union it cleared the 5 shared nodes on
+                # the body's own edge and left 8 on the carve plate's
+                # (LEMD arm ``9a8a77aa5ca8``: building3 129 -> 29 rows,
+                # the two corner runs at the ramp mouth surviving).  The
+                # plate is pan, carries the pan's floor value and shares
+                # nodes exactly as the body's edge does, so the rule is
+                # one rule over one final boundary.
+                def _stand_off_yield_rings(_geom):
+                    """The pan, set back from every YIELDING pad's ring
+                    where it MEETS it.  Returns ``_geom`` unchanged when
+                    nothing yields, nothing touches, or the cut would
+                    empty the pan."""
+                    _ids = authority_yield_pad_ids - floor_seated_pad_ids
+                    if not _ids or _geom is None or _geom.is_empty:
+                        return _geom
+                    _rings = [
                         entry[1].boundary
                         for entry in _owned_entries_near(body_bounds)
-                        if id(entry[2]) in _ring_setback_ids
+                        if id(entry[2]) in _ids
                         and entry[1] is not None and not entry[1].is_empty]
-                    _set_back = None
-                    _floor_before = float(floor_geometry.area)
-                    if _yield_rings:
-                        try:
-                            _contact = unary_union(_yield_rings).intersection(
-                                floor_geometry.boundary.buffer(
-                                    _TUNNEL_WALL_SETBACK_M,
-                                    join_style=2, mitre_limit=2.0))
-                            if not _contact.is_empty:
-                                _set_back = floor_geometry.difference(
-                                    _contact.buffer(
-                                        _TUNNEL_WALL_SETBACK_M,
-                                        join_style=2, mitre_limit=2.0))
-                        except Exception:                 # pragma: no cover
-                            _set_back = None
-                    if _set_back is not None and not _set_back.is_empty:
-                        floor_geometry = _set_back
-                        UI.vprint(
-                            1,
-                            f"   [{log_tag}] YIELDING-PAD RING SETBACK: "
-                            f"the pan of {resources} stands "
-                            f"{_TUNNEL_WALL_SETBACK_M:.2f} m off the "
-                            f"ring(s) of {len(_yield_rings)} yielding "
-                            f"pad(s) where they MEET it — "
-                            f"{_floor_before:,.0f} -> "
-                            f"{float(floor_geometry.area):,.0f} m2.  The "
-                            "pad's AREA still yields (the pan is born "
-                            "THROUGH it); its RING is a node split, so "
-                            "the pad cannot read the floor at its own "
-                            "vertices (RULINGS 2026-08-30k)",
-                        )
+                    if not _rings:
+                        return _geom
+                    _before = float(_geom.area)
+                    try:
+                        _contact = unary_union(_rings).intersection(
+                            _geom.boundary.buffer(
+                                _TUNNEL_WALL_SETBACK_M,
+                                join_style=2, mitre_limit=2.0))
+                        if _contact.is_empty:
+                            return _geom
+                        _cut = _geom.difference(_contact.buffer(
+                            _TUNNEL_WALL_SETBACK_M,
+                            join_style=2, mitre_limit=2.0))
+                    except Exception:                     # pragma: no cover
+                        return _geom
+                    if _cut is None or _cut.is_empty:
+                        return _geom
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] YIELDING-PAD RING SETBACK: the "
+                        f"pan of {resources} stands "
+                        f"{_TUNNEL_WALL_SETBACK_M:.2f} m off the ring(s) "
+                        f"of {len(_rings)} yielding pad(s) where they "
+                        f"MEET it — {_before:,.0f} -> "
+                        f"{float(_cut.area):,.0f} m2.  The pad's AREA "
+                        "still yields (the pan is born THROUGH it); its "
+                        "RING is a node split, so the pad cannot read "
+                        "the floor at its own vertices (RULINGS "
+                        "2026-08-30k)",
+                    )
+                    return _cut
                 if carve_plate is not None and not carve_plate.is_empty:
                     # The CARVED yield set: the pads whose flattening
                     # authority the owner carved, and nothing else.
@@ -5032,6 +5047,9 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         )
                         floor_geometry = floor_geometry.union(carve_plate)
                         _carve_plates.append(carve_plate)
+                # THE PAN IS NOW WHOLE (body + corridor + carve plate) —
+                # stand it off every yielding pad's ring, once, here.
+                floor_geometry = _stand_off_yield_rings(floor_geometry)
                 band_geometry = body.buffer(
                     _TUNNEL_RIM_BAND_WIDTH_M,
                     join_style=2, mitre_limit=2.0).difference(body)

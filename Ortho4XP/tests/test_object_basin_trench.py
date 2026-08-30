@@ -4343,6 +4343,42 @@ class TestBasinPadAuthorityCarve:
                            for p in _basin_plates(control, "trench"))
         assert carved_area > control_area
 
+    # ── the corridor mouth's NODE-SPLIT GAP ─────────────────────────
+    def test_the_rim_band_keeps_the_node_split_gap_at_the_mouth(self):
+        """THE TWIN V CANYONS (LEMD 40.4924484,-3.5692887, owner sim read
+        of 1.0.269).
+
+        The rim band stands down inside the corridor, but standing it
+        down on the corridor's EXACT boundary left its cut edge sharing
+        the pan's own vertices: ``layout.to_osm`` interns anything within
+        ``SHARED_VERTEX_TOL_M`` into ONE node, and pan and band carry the
+        same role, so the tie broke on emission order and the PAN won —
+        the floor's 587.75 m landed on 9 rim-band vertices at LEMD's two
+        corridor mouths (rim parts 1767/1770 of 14, the only two sharing
+        a node with trench 1760) and cut two V canyons out of the pit
+        through the rim.  The band already keeps
+        ``_TUNNEL_WALL_SETBACK_M`` from every OTHER shape it stands down
+        for, and for exactly this reason; the corridor is not an
+        exception.
+        """
+        from auto_patch.layout import SHARED_VERTEX_TOL_M
+
+        layout = self._emit(self.COVERING_PAD)
+        pan_pts = [pt for plate in _basin_plates(layout, "trench")
+                   for pt in plate.polygon.exterior.coords]
+        band_pts = [pt for plate in _basin_plates(layout, "rim")
+                    for pt in plate.polygon.exterior.coords]
+        assert pan_pts and band_pts
+        worst = min(
+            (max(abs(bx - px), abs(by - py))
+             for (bx, by) in band_pts for (px, py) in pan_pts),
+            default=None)
+        assert worst is not None
+        assert worst >= SHARED_VERTEX_TOL_M, (
+            f"a rim-band vertex sits {worst:.3f} m from a floor-pan "
+            f"vertex — inside the {SHARED_VERTEX_TOL_M} m interning "
+            f"bucket, so the pan's floor value welds onto the rim")
+
     # ── the gate ────────────────────────────────────────────────────
     def test_the_gate_ships_ON(self):
         import inspect

@@ -5072,3 +5072,35 @@ Two notes the fix leaves standing:
   key is stale — old entries simply stop matching (cache miss ⇒ rebuild).
   Nothing was migrated or rewritten; the stale entries age out through
   the artifact ledger's LRU.
+## 2026-08-30 — OTHH item-3 wall half (lane/othhwalls): walls follow their stood-down ramp
+
+Change: `bridges.py` — `emit_wall_band` / `_append_tunnel_cover` publish
+a WALL→SOURCE register (owner ids + band reach) per emitted piece, and
+`_stand_down_synthetic_over_claimed` takes each band's dead stretch with
+its ramp (cut back through `_tunnel_cover_pieces` where a standing
+surface remains), except beside airside pavement, where the band is left
+exactly as it was (airside is king).
+
+Ran: the five directly-covering test files (94 pass, incl. 7 new twins);
+the wall-band caller files (`test_round16_geometry_consistency.py`,
+`test_round10_tunnel_emission.py`, `test_tunnel_integrity_round.py`) —
+117 pass with the 4 KNOWN §T5 `O4_RAMP_WALL_FOOT` reds unchanged; a cut
+fixture at the owner site (three arms) and ONE OTHH acceptance build
+censused against a base arm built at the lane's parent `581d2c28`
+(artifact ledger `fc7676321d93`, reusable by any lane at that base).
+
+DEFERRED:
+* full-suite and blast-radius runs (pre-ship suspension);
+* the OTHH residual is UNCLOSED and quoted for the owner: law-true
+  1862 → 1877 (+15), entirely GROUNDSIDE (`airside_no_step` +0) —
+  `mid_edge_step` +23 at three mouths (2.78 km / 2.56 km / 669 m from
+  the owner site) where the same step edges report across MORE emitted
+  node pairs (worst magnitude unchanged at 4.09 m / 5.06 m; the rings
+  there carry 195→199 and 41→51 nodes), against −8 in the other
+  groundside families including −9 at the owner-site cell.  Whether the
+  node-density rise is itself a defect (a band that used to intern those
+  nodes is gone) has NOT been attributed.
+* the airside-is-king refusal leaves duplicate wall geometry standing at
+  the mouths that touch apron/transit pavement (6 pieces at OTHH,
+  named per piece in the build log) — the canonical-mouth law is met at
+  the owner's item-3 site and NOT everywhere.

@@ -3340,11 +3340,20 @@ def _emit_facing_corridors(layout: "PavementLayout", portal_data: list,
                             float(_ground) if _ground is not None
                             else max(_ga, _gb), 1))
                 _alts.append(_alts[0])
+                # WALLS FOLLOW THEIR RAMP here too (ruling 4): this
+                # emitter's corridor floor is a ``tunnel_corridor``, so
+                # the stand-down may take it — and its walls belong to
+                # it exactly as the perimeter band belongs to a cluster's
+                # ramps.  Same register, same reach (the band's outer
+                # offset off the floor edge).
                 _append_tunnel_cover(
                     layout, exclusion_zones,
                     _tunnel_pavement_union(layout),
                     BuiltShape(polygon=_wall, role=ROLE_RETAINING_WALL,
-                               ref=_wall_ref, node_altitudes=_alts))
+                               ref=_wall_ref, node_altitudes=_alts),
+                    owners=[_shape],
+                    owner_reach_m=(wall_gap_m + retaining_wall_width_m
+                                   + _WALL_OWNER_REACH_PAD_M))
         if os.environ.get("O4_TUNNEL_DEBUG") == "1":
             print(f"    [tunnel-corridor] ways {_a[1]}/{_b[1]}: "
                   f"{_len:.0f} m open cut at {_ga:.2f}..{_gb:.2f}, "
@@ -3847,14 +3856,24 @@ def _tunnel_cover_pieces(shape, pavement_union, *,
 def _append_tunnel_cover(layout: "PavementLayout", exclusion_zones: list,
                          pavement_union, shape, *,
                          min_span_m: float | None = None,
-                         cluster=None) -> int:
-    """Append ``shape``'s R10-2 surviving cover pieces; return how many."""
+                         cluster=None, owners=None,
+                         owner_reach_m: float = 0.0) -> int:
+    """Append ``shape``'s R10-2 surviving cover pieces; return how many.
+
+    ``owners`` (with ``owner_reach_m``) publishes the below-grade
+    surfaces a WALL piece retains, so it can follow them down — the
+    register :func:`register_wall_band_owners` documents.  Each surviving
+    piece is registered, because the cut is what produced them.
+    """
     _pieces = _tunnel_cover_pieces(shape, pavement_union,
                                    min_span_m=min_span_m,
                                    layout=layout, cluster=cluster)
     for _piece in _pieces:
         layout.shapes.append(_piece)
         exclusion_zones.append(_piece.polygon)
+        if owners:
+            register_wall_band_owners(layout, _piece, owners,
+                                      owner_reach_m)
     return len(_pieces)
 
 
@@ -5506,6 +5525,92 @@ def _emit_portal_cluster(
 
 
 
+#: THE WALL→RAMP OWNERSHIP REGISTER — ``id(wall piece) ->
+#: (frozenset(id(below-grade source)), band reach in metres)``,
+#: published on the layout at the moment each wall piece is appended
+#: (:func:`emit_wall_band` for the perimeter band, the facing-corridor
+#: emitter for its own).
+#:
+#: WHY IT EXISTS (RULINGS 2026-08-07 ruling 4, "walls follow their
+#: ramp", applied to the stand-down path; RULINGS 2026-08-30 canonical
+#: mouth, item-3 residual).  ``_stand_down_synthetic_over_claimed``
+#: deletes only ``tunnel_ramp``/``tunnel_corridor`` pieces, so a
+#: synthetic corridor's WALLS outlived their stood-down ramp and
+#: ``_wall_claimed_corridors`` then walled the claim beside them — the
+#: measured 7 retaining-wall pieces within 12 m of OTHH
+#: 25.2715775,51.6023886 where the law says one wall + foot per side.
+#: A wall belongs to the surface it retains, and that surface is known
+#: HERE, once, from the very ``sources`` the waller was handed; asking
+#: the question again later (which ramp is this wall near?) is the
+#: re-derivation §W1 already paid for once.
+_WALL_BAND_OWNER_REGISTER = "_tunnel_wall_band_owner_ids"
+
+#: How far a band piece may stand from a source and still be judged to
+#: RETAIN it: the band's own outer offset (``wall_gap + wall_width``)
+#: plus the OSM emit's shared-vertex bucket.  A piece further than this
+#: from a ramp piece runs along a different stretch of the same body and
+#: is not that ramp's wall.
+_WALL_OWNER_REACH_PAD_M = 0.5
+
+#: How near AIRSIDE pavement a band piece must be before the follow-down
+#: leaves it alone.  One emit vertex-bucket (``SHARED_VERTEX_TOL_M``)
+#: plus the same slack: inside this a band edge and an airside ring share
+#: — or can be welded onto — one node, and re-spelling the band moves the
+#: airside value with it.  Beyond it the band and the apron are two
+#: surfaces and the dedupe is groundside-only work.
+_WALL_AIRSIDE_STANDOFF_M = SHARED_VERTEX_TOL_M + 0.5
+
+#: THE AIRSIDE VALUES THIS PASS MAY NOT MOVE: the airport's own pavement
+#: — the transit family plus the apron, the SAME set §T3 already names.
+#: The road/groundside roles are deliberately outside it: they are the
+#: side this dedupe works on (the groundside terrace law).
+_WALL_KING_ROLES = _TUNNEL_OWN_BORE_COVER_ROLES
+
+
+def _airside_king_union(layout: "PavementLayout"):
+    """The union of the airside surfaces whose values are untouchable
+    here, or ``None`` when the layout carries none."""
+    try:
+        _u = unary_union([_s.polygon for _s in layout.shapes
+                          if getattr(_s, "role", "") in _WALL_KING_ROLES
+                          and _s.polygon is not None
+                          and not _s.polygon.is_empty])
+    except _GEOM_EXC:                                  # pragma: no cover
+        return None
+    return None if _u.is_empty else _u
+
+
+def register_wall_band_owners(layout: "PavementLayout", wall_shape,
+                              owners, reach_m: float) -> None:
+    """Publish which below-grade sources ``wall_shape`` retains, and how
+    far the band it belongs to stands off them (``reach_m`` — the band's
+    own outer offset, so the region that dies with a source is stated by
+    the emitter that built it, never guessed downstream).
+
+    Additive and failure-proof (an instrument may never take a build
+    down): an unregistered wall simply has no owner, and a wall with no
+    owner never follows anything down.
+    """
+    _ids = frozenset(id(_o) for _o in (owners or ()) if _o is not None)
+    if not _ids:
+        return
+    try:
+        _reg = getattr(layout, _WALL_BAND_OWNER_REGISTER, None)
+        if not isinstance(_reg, dict):
+            _reg = {}
+        _reg[id(wall_shape)] = (_ids, float(reach_m))
+        setattr(layout, _WALL_BAND_OWNER_REGISTER, _reg)
+    except (AttributeError, TypeError):                # pragma: no cover
+        return
+
+
+def wall_band_owners(layout: "PavementLayout") -> dict:
+    """The published register (``id -> (owner ids, reach m)``), or an
+    empty mapping."""
+    _reg = getattr(layout, _WALL_BAND_OWNER_REGISTER, None)
+    return _reg if isinstance(_reg, dict) else {}
+
+
 def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                    bodies: list, sources: list, arm_ends: list,
                    wall_gap_m: float, retaining_wall_width_m: float,
@@ -5701,6 +5806,18 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
             return _surface
 
     for _rp in _ru_polys:
+        # WHICH SOURCES THIS BODY IS (ruling 4, "walls follow their
+        # ramp").  A body is the union of the below-grade pieces under
+        # it; the band about to be built retains THOSE pieces, and the
+        # register below is what lets a stood-down piece take its own
+        # wall with it.
+        _body_sources = []
+        for _sr in _sources_in:
+            try:
+                if _sr.polygon.intersects(_rp):
+                    _body_sources.append(_sr)
+            except _GEOM_EXC:                          # pragma: no cover
+                continue
         # §F1: ONE crest profile per WALLED BODY, built before its band
         # pieces so every piece of the same body reads one law.  The
         # transition law runs here instead of per band ring, so this
@@ -5900,6 +6017,24 @@ def emit_wall_band(layout: "PavementLayout", exclusion_zones: list,
                                 node_altitudes=_na),
                             _pav_u_band):
                         layout.shapes.append(_piece)
+                        # THE PIECE'S OWN OWNERS, at the sharpest scale
+                        # the geometry supports: the sources this arc
+                        # actually runs beside.  A body's band may span
+                        # a whole ramp chain, and a piece at one end
+                        # does not retain the piece at the other.
+                        # Fallback = the whole body (conservative: such
+                        # a wall follows only if the ENTIRE body goes).
+                        _own = []
+                        for _sr in _body_sources:
+                            try:
+                                if (_piece.polygon.distance(_sr.polygon)
+                                        <= _g1 + _WALL_OWNER_REACH_PAD_M):
+                                    _own.append(_sr)
+                            except _GEOM_EXC:          # pragma: no cover
+                                continue
+                        register_wall_band_owners(
+                            layout, _piece, _own or _body_sources,
+                            _g1 + _WALL_OWNER_REACH_PAD_M)
                 except _GEOM_EXC:
                     continue
             # The exclusion zone stays the ANNULUS ``_bp`` (the ring
@@ -8720,6 +8855,10 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
     # only how many rectangles went.
     _members = [_poly for _poly, _d in _pairs]
     _kept, _n = [], 0
+    #: The pieces THIS pass stands down — the set the walls follow.
+    _gone_ids: set = set()
+    #: ...and their footprints, for the band region that dies with them.
+    _gone_poly: dict = {}
     for _s in layout.shapes:
         if (id(_s) not in pre_emit_shape_ids
                 and getattr(_s, "ref", "") in ("tunnel_ramp",
@@ -8743,6 +8882,8 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
                         _kept.append(_s)
                         continue
                     _n += 1
+                    _gone_ids.add(id(_s))
+                    _gone_poly[id(_s)] = _s.polygon
                     log_tunnel_piece_removal(
                         layout, _s, "R14-1 stand-down over claimed road",
                         coverage=_cov, verdict=_verdict)
@@ -8751,13 +8892,120 @@ def _stand_down_synthetic_over_claimed(layout: "PavementLayout",
             except _GEOM_EXC:
                 pass
         _kept.append(_s)
-    if _n:
+    # ── WALLS FOLLOW THEIR RAMP (RULINGS 2026-08-07 ruling 4) ────────
+    # A retaining wall retains a surface.  When this pass stands the
+    # surface down because a claimed road carries the corridor there,
+    # the wall has nothing left to retain and the claim's OWN walls
+    # (``_wall_claimed_corridors``, §2.3) are what the mouth gets — so
+    # the synthetic band must go with its ramp, or the mouth ships both
+    # (measured OTHH 25.2715775,51.6023886: 7 wall pieces within 12 m,
+    # an overlapping wall+foot pair and a flat-4.00 fragment among
+    # them, where the canonical mouth is one wall + foot per side).
+    # THE OWNERSHIP IS READ, NEVER RE-DERIVED: ``emit_wall_band``
+    # published it when it built the band.  Only THIS pass's removals
+    # move a wall — a wall orphaned by some earlier pass is that pass's
+    # question, not this one's — and a band that still retains a
+    # standing surface is CUT BACK to it, never deleted whole.
+    _n_walls, _n_wclip, _n_wking = 0, 0, 0
+    _owners = wall_band_owners(layout) if _gone_ids else {}
+    if _owners:
+        _live_poly = {id(_s): getattr(_s, "polygon", None) for _s in _kept}
+        # AIRSIDE IS KING (standing law): this dedupe is a GROUNDSIDE-side
+        # tidy of duplicate wall geometry, and it may not move an airside
+        # value.  MEASURED (OTHH, base arm at 581d2c28 vs the same tree
+        # with the follow-down): cutting a band that touches apron 355 at
+        # 25.27597,51.61365 re-welded the apron's on-edge node onto a
+        # different donor and dropped it 3.64 -> 2.62 m — +13 airside
+        # rows, worst 1.34 m apron|apron, from a wall the mouth did not
+        # need.  So a band piece TOUCHING airside pavement is left exactly
+        # as it was: the duplicate stands (named, and quoted as the
+        # residual) rather than the apron moving.
+        _king_u = _airside_king_union(layout)
+        _kept_w = []
+        for _s in _kept:
+            _entry = _owners.get(id(_s))
+            if (not _entry
+                    or getattr(_s, "ref", "") not in _WALL_BAND_REFS):
+                _kept_w.append(_s)
+                continue
+            _own, _reach = _entry
+            _own_gone = _own & _gone_ids
+            if not _own_gone:
+                _kept_w.append(_s)
+                continue
+            if _king_u is not None:
+                try:
+                    _touches_king = _s.polygon.distance(
+                        _king_u) <= _WALL_AIRSIDE_STANDOFF_M
+                except _GEOM_EXC:                      # pragma: no cover
+                    _touches_king = True
+                if _touches_king:
+                    _n_wking += 1
+                    log_tunnel_piece_kept(
+                        layout, _s,
+                        "walls follow their ramp REFUSED — airside is king",
+                        verdict=f"{len(_own_gone)}/{len(_own)} owner(s) "
+                                f"gone, but this band touches airside "
+                                f"pavement")
+                    _kept_w.append(_s)
+                    continue
+            # THE DEAD BAND REGION: the reach of the surfaces that just
+            # stood down, MINUS the reach of this piece's owners that
+            # are still standing.  A band traced around a whole ramp
+            # chain is one piece over several ramps, so the law cuts it
+            # back to what it still retains instead of deleting it —
+            # measured at OTHH item 3: the site's band carries 8 owners,
+            # 7 of them stood down.
+            try:
+                _dead = [_gone_poly[_i].buffer(_reach)
+                         for _i in _own_gone
+                         if _gone_poly.get(_i) is not None]
+                if not _dead:
+                    _kept_w.append(_s)
+                    continue
+                _dead_u = unary_union(_dead)
+                _still = [_live_poly[_i].buffer(_reach)
+                          for _i in (_own - _own_gone)
+                          if _live_poly.get(_i) is not None]
+                if _still:
+                    _dead_u = _dead_u.difference(unary_union(_still))
+                if _dead_u.is_empty:
+                    _kept_w.append(_s)
+                    continue
+                _pieces = _tunnel_cover_pieces(_s, _dead_u)
+            except _GEOM_EXC:                          # pragma: no cover
+                _kept_w.append(_s)
+                continue
+            if not _pieces:
+                _n_walls += 1
+                log_tunnel_piece_removal(
+                    layout, _s,
+                    "walls follow their ramp — the surface it retained "
+                    "stood down",
+                    verdict=f"{len(_own_gone)}/{len(_own)} owner(s) gone")
+                continue
+            if len(_pieces) == 1 and _pieces[0] is _s:
+                _kept_w.append(_s)
+                continue
+            _n_wclip += 1
+            log_tunnel_piece_removal(
+                layout, _s,
+                "walls follow their ramp — band cut back to the surface "
+                "still standing",
+                verdict=f"{len(_own_gone)}/{len(_own)} owner(s) gone, "
+                        f"{len(_pieces)} arc(s) kept")
+            _kept_w.extend(_pieces)
+        _kept = _kept_w
+    if _n or _n_walls or _n_wclip:
         layout.shapes = _kept
         try:
             UI.vprint(1,
                 f"  [pav-builder] R14-1: stood down {_n} synthetic tunnel "
                 f"rectangle(s) — claimed road pavement carries the "
-                f"corridor there.")
+                f"corridor there; ruling 4: {_n_walls} wall piece(s) "
+                f"followed their ramp down and {_n_wclip} were cut back "
+                f"to the surface still standing ({_n_wking} left standing "
+                f"— airside is king).")
         except _GEOM_EXC:
             pass
     return _n

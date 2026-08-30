@@ -252,6 +252,73 @@ def test_to_osm_no_ref_tag_when_unset():
 
 
 # ──────────────────────────────────────────────────────────────────────
+# to_osm: ONE PAD, ONE IDENTIFIER (owner 2026-08-30)
+#
+# A building pad can reach emission as several shapes — a later pass
+# splits one pad's polygon and carries its ref onto each piece — and
+# then two ways answer to one identifier (HECA 2026-08-30: 2 of 175
+# building ways).  ``ref`` is an identifier for pads, a class label for
+# roads; only the identifier is de-collided.
+# ──────────────────────────────────────────────────────────────────────
+def test_to_osm_split_pad_parts_get_unique_refs():
+    layout = _make_layout()
+    for cx in (0.0, 40.0, 80.0):
+        layout.shapes.append(BuiltShape(
+            polygon=_square(cx, 0, 10), role=ROLE_BUILDING,
+            ref="building7", altitude=100.0))
+    _, ways, _ = _emit_and_parse(layout)
+    assert len(ways) == 3
+    refs = [w[2]["ref"] for w in ways]
+    # The FIRST part keeps the constructed identifier; the others say
+    # which pad they belong to and are unique.
+    assert refs == ["building7", "building7#2", "building7#3"]
+    assert len(set(refs)) == 3
+    # Every way still carries its own per-shape handle, unchanged.
+    assert sorted(w[2]["shapeID"] for w in ways) == ["0", "1", "2"]
+
+
+def test_to_osm_unsplit_pads_keep_their_refs_verbatim():
+    layout = _make_layout()
+    layout.shapes.append(BuiltShape(
+        polygon=_square(0, 0, 10), role=ROLE_BUILDING, ref="building1",
+        altitude=100.0))
+    layout.shapes.append(BuiltShape(
+        polygon=_square(40, 0, 10), role=ROLE_BUILDING, ref="building2",
+        altitude=100.0))
+    _, ways, _ = _emit_and_parse(layout)
+    assert [w[2]["ref"] for w in ways] == ["building1", "building2"]
+
+
+def test_to_osm_class_label_refs_stay_shared():
+    """``road`` / ``service`` are CLASS LABELS shared by hundreds of
+    ways by design (262 and 459 at HECA, in the control too) — making
+    them unique would rename every road and identify nothing."""
+    from auto_patch.layout import ROLE_SERVICE_ROAD
+    layout = _make_layout()
+    for cx in (0.0, 40.0, 80.0):
+        layout.shapes.append(BuiltShape(
+            polygon=_square(cx, 0, 10), role=ROLE_SERVICE_ROAD,
+            ref="road", altitude=100.0))
+    _, ways, _ = _emit_and_parse(layout)
+    assert [w[2]["ref"] for w in ways] == ["road", "road", "road"]
+
+
+def test_split_pad_suffix_leaves_pad_accounting_unchanged():
+    """The suffix deliberately does not ``fullmatch building(\\d+)``, so
+    ``terminals.building_pad_accounting`` still counts the pad ONCE and
+    its constructed count / missing list are unmoved by a split."""
+    from auto_patch.terminals import building_pad_accounting
+    unsplit = ["building1", "building2", "building4"]
+    split = ["building1", "building2", "building2#2", "building4"]
+    before = building_pad_accounting(unsplit)
+    after = building_pad_accounting(split)
+    assert before == after
+    assert after["constructed"] == 4
+    assert after["emitted"] == 3
+    assert after["missing"] == [3]
+
+
+# ──────────────────────────────────────────────────────────────────────
 # to_osm: elevation tag formats
 # ──────────────────────────────────────────────────────────────────────
 def test_to_osm_sloped_rect_emits_per_node_values():

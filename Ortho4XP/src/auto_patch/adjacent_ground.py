@@ -6882,15 +6882,36 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
     # small standoff against it renders harmlessly (no cliff).
     # Groundside leaves the EXACT static union (no welded coordinates
     # against it) and instead blocks bands through a 1 m buffer.
+    #
+    # THE BAND CUTS GROUNDSIDE BACK (owner ruling 2026-08-30, "TAXIWAY
+    # ADJACENT-GROUND BAND CUTS GROUNDSIDE").  The block above is the
+    # DEFECT the ruling names when it reaches into ZONES 1-2: "zones 1-2
+    # grade FROM THE TAXIWAY regardless of shape ownership — a shape
+    # boundary is not an exemption".  A groundside ring standing at the
+    # taxiway edge kept 7.51 m of raw DEM against a 104-106 m junction
+    # (HECA round 6 item 2, junction 586 ↔ groundside 2836) purely
+    # because the ground it stood on belonged to another shape.  So the
+    # block is now taken in TWO pieces: inside a host's own lawful
+    # graded width the band claims the ground and ``_cut_groundside_back_
+    # to_bands`` cuts the groundside ring back behind it (keeping the 1 m
+    # no-weld standoff, so the CYXY tear class above cannot return);
+    # beyond that width groundside blocks exactly as it did, and a cliff
+    # out there stays lawful (zone 3, standing standards text).
     _gs_polys = [s.polygon for s in layout.shapes
                  if s.role == "groundside_pavement"
                  and s.polygon is not None and not s.polygon.is_empty]
     groundside_block = None
+    groundside_union = None
     if _gs_polys:
         try:
-            groundside_block = unary_union(_gs_polys).buffer(1.0)
+            groundside_union = unary_union(_gs_polys)
+            groundside_block = groundside_union.buffer(1.0)
         except _GEOM_EXC:
             groundside_block = None
+            groundside_union = None
+    #: Band pieces that claimed ground inside a groundside ring, unioned
+    #: for the cut-back at the foot of this emitter.
+    _gs_claimed_by_bands: list = []
     # BUILDING STANDOFF block (2026-07-17): a building footprint sits at
     # its PAD altitude — often metres below the terrain the band rides
     # (a building in a graded pit).  The exact ``static_union`` clip makes
@@ -7564,6 +7585,22 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
             axis_line, axis_classes = params
         trigger = trigger_by_family[family]
 
+        # ZONES-1-2 CLAIM OVER GROUNDSIDE (owner ruling 2026-08-30).
+        # The band of a TAXIWAY-family host grades FROM THE PAVEMENT
+        # EDGE for its lawful graded width whatever shape owns the
+        # ground; ``width`` is that width, taken from the same
+        # ``_family_params`` the corridor values the band with, so the
+        # claim and the law are ONE number.  ``None`` for every other
+        # family and wherever there is no groundside at all — the block
+        # is then exactly the pre-ruling one, band for band.
+        _zone12_claim = None
+        if (groundside_block is not None and s.role in _TAXIWAY_ROLES
+                and width and width > 0.0):
+            try:
+                _zone12_claim = s.polygon.buffer(float(width))
+            except _GEOM_EXC:
+                _zone12_claim = None
+
         ceil_off, envelope_at, floor_depth = _band_family_closures(
             family, code_number, code_letter, width)
 
@@ -7876,8 +7913,31 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                     if (groundside_block is not None
                             and not groundside_block.is_empty):
                         # Buffered, NOT exact: strips never abut
-                        # groundside (user ruling 2026-07-09).
-                        poly = poly.difference(groundside_block)
+                        # groundside (user ruling 2026-07-09) — EXCEPT
+                        # inside this host's own lawful graded width,
+                        # which the band claims and the groundside ring
+                        # yields (owner ruling 2026-08-30; see the block's
+                        # construction).  ``width`` is the family's
+                        # zones-1-2 graded width, read from the same
+                        # ``_family_params`` the corridor is valued with,
+                        # so the claim can never exceed the graded strip.
+                        _blk = groundside_block
+                        if _zone12_claim is not None:
+                            try:
+                                _blk = _blk.difference(_zone12_claim)
+                            except _GEOM_EXC:
+                                _blk = groundside_block
+                        poly = poly.difference(_blk)
+                        if (groundside_union is not None
+                                and _zone12_claim is not None
+                                and not poly.is_empty):
+                            try:
+                                _claim = poly.intersection(groundside_union)
+                            except _GEOM_EXC:
+                                _claim = None
+                            if (_claim is not None and not _claim.is_empty
+                                    and _claim.area > 0.0):
+                                _gs_claimed_by_bands.append(_claim)
                     if (building_block is not None
                             and not building_block.is_empty):
                         # Buffered standoff: a strip never welds onto a
@@ -8430,6 +8490,16 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         UI.vprint(1, f"  [adjacent-ground] tile-seam prolongation: "
                      f"{_n_prolonged} cut-back run(s) marched off the "
                      f"un-cut frontage (owner ruling 2026-07-24).")
+    # THE BAND CUTS GROUNDSIDE BACK (owner ruling 2026-08-30).  Every
+    # piece of groundside a zones-1-2 band claimed above now leaves the
+    # groundside ring, so no patch of ground carries two pavement
+    # authorities and the emit has nothing to adjudicate there.
+    try:
+        _cut_groundside_back_to_bands(layout, _gs_claimed_by_bands)
+    except _GEOM_EXC as _cut_exc:
+        UI.vprint(0, f"  [adjacent-ground] band-cuts-groundside FAILED "
+                     f"({_cut_exc!r}) — the bands stand, the rings were "
+                     f"not cut back.")
     # AIRSIDE-ENCLAVE keep-out ledger (SCOPING v2).  The area the
     # keep-out OWNS beside the area it actually TOOK, in one line and in
     # one frame: an overreach is then visible as a number here rather
@@ -8480,6 +8550,98 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
                      f"must be a solved value; these name the band nodes "
                      f"the pre-solve construct did not cover.")
     return emitted
+
+
+#: The no-weld standoff a band keeps from groundside pavement (user
+#: ruling 2026-07-09).  It is the SAME 1 m the block above buffers with:
+#: when a band claims zones-1-2 ground the groundside ring is cut back by
+#: the claim PLUS this standoff, so the invariant "a strip never abuts
+#: groundside" survives the claim instead of being traded for it.
+_GROUNDSIDE_BAND_STANDOFF_M = 1.0
+
+
+def _cut_groundside_back_to_bands(layout, claimed) -> int:
+    """Cut every groundside ring back behind the zones-1-2 band area it
+    yielded — the geometry half of the owner ruling 2026-08-30 ("the
+    graded band claims its lawful width and GROUNDSIDE SHAPES ARE CUT
+    BACK by it").
+
+    ``claimed`` is the list of band∩groundside geometries the emitter
+    collected as it clipped, so nothing is re-derived here: the ground a
+    band actually took is exactly the ground the ring gives up.  The cut
+    is taken at the claim BUFFERED by the standing 1 m no-weld standoff,
+    which is what keeps the CYXY south-hangar tear class closed — the
+    band and the ring still share no coordinate, the gap has simply
+    moved to the far side of the graded strip, where a raw-DEM groove
+    renders harmlessly (zone 3, cliffs lawful).
+
+    A ring the claim would consume entirely is DROPPED: the band now
+    grades that ground, and a zero-area groundside remnant is not a
+    surface.  Values ride the clip through
+    ``groundside._clip_shape_yielding_to`` (``snap_tol=0``: the ring can
+    only ever shrink), so the surviving piece keeps its own solved
+    field.  Returns the number of groundside shapes changed."""
+    if not claimed:
+        return 0
+    try:
+        take = unary_union([g for g in claimed
+                            if g is not None and not g.is_empty])
+        if take.is_empty:
+            return 0
+        take = take.buffer(_GROUNDSIDE_BAND_STANDOFF_M)
+    except _GEOM_EXC:
+        return 0
+    if take.is_empty:
+        return 0
+    # ONE POLYGON AT A TIME: ``_clip_shape_yielding_to`` reads the kept
+    # geometry's own exterior ring (it re-inserts its vertices so no
+    # T-junction is left behind), so a MultiPolygon take must be applied
+    # part by part.  The clip mutates the shape in place, so the parts
+    # compose.
+    takes = [g for g in getattr(take, "geoms", [take])
+             if g.geom_type == "Polygon" and not g.is_empty]
+    if not takes:
+        return 0
+    from .groundside import _clip_shape_yielding_to
+    out, n_cut, n_dropped, area_cut = [], 0, 0, 0.0
+    for s in layout.shapes:
+        if (s.role != "groundside_pavement" or s.polygon is None
+                or s.polygon.is_empty):
+            out.append(s)
+            continue
+        try:
+            hits = [g for g in takes if s.polygon.intersects(g)]
+            if not hits:
+                out.append(s)
+                continue
+            before = s.polygon.area
+        except _GEOM_EXC:
+            out.append(s)
+            continue
+        gone = False
+        for g in hits:
+            if s.polygon is None or s.polygon.is_empty:
+                gone = True
+                break
+            new_poly = _clip_shape_yielding_to(s, g, snap_tol=0.0)
+            if new_poly is None or new_poly.is_empty:
+                gone = True
+                break
+        if gone:
+            n_dropped += 1
+            area_cut += before
+            continue
+        n_cut += 1
+        area_cut += max(0.0, before - s.polygon.area)
+        out.append(s)
+    if n_cut or n_dropped:
+        layout.shapes = out
+        UI.vprint(1,
+            f"  [adjacent-ground] band-cuts-groundside (owner ruling "
+            f"2026-08-30): {n_cut} groundside ring(s) cut back and "
+            f"{n_dropped} dropped, {area_cut:.0f} m2 of ground handed "
+            f"to the zones-1-2 graded band.")
+    return n_cut + n_dropped
 
 
 def _emit_apron_walls(layout, stations, st_alts, outs, ceil_off, step,

@@ -403,15 +403,26 @@ def _wide_path_name_vouches(resource_paths) -> bool:
     return False
 
 
-def _triangle_union_footprint(
+def _triangle_union_parts(
     triangle_corner_points: list[tuple[tuple[float, float],
                                        tuple[float, float],
                                        tuple[float, float]]],
-) -> Polygon | None:
-    """The ``DSF_OBJECT_FOOTPRINT_UNION`` ring: unary_union of the
-    projected triangles, ``buffer(0)``-repaired, exterior only (interior
-    rings are dropped in v1), DP-simplified.  Returns ``None`` when the
-    union degenerates."""
+) -> list[Polygon]:
+    """THE triangle-union primitive: unary_union of the projected
+    triangles, ``buffer(0)``-repaired, split into its DISJOINT
+    components, each exterior-only (interior rings are dropped in v1)
+    and DP-simplified, ordered largest first.
+
+    One implementation, two consumers: :func:`_triangle_union_footprint`
+    (the ``DSF_OBJECT_FOOTPRINT_UNION`` single ring — the dominant
+    component) and :func:`structure_footprint_parts` (the
+    structure-walls footprint, which keeps every component because five
+    buildings drawn by one texture page are five footprints and the
+    ground between them is not footprint).  The order is deterministic —
+    ``(-area, bounds)``, never GEOS order — because a ring's INDEX is
+    part of its identity downstream (``object_pads`` keys a stored
+    record by ring index; ``foot_pad_rings`` sorts the same way for the
+    same reason).  Returns ``[]`` when the union degenerates."""
     triangle_polygons = []
     for corner_points in triangle_corner_points:
         try:
@@ -425,29 +436,47 @@ def _triangle_union_footprint(
         except (ValueError, _GEOS_EXCEPTION):
             continue
     if not triangle_polygons:
-        return None
+        return []
     try:
         union = unary_union(triangle_polygons)
         if not union.is_valid:
             union = union.buffer(0)
     except (ValueError, _GEOS_EXCEPTION):
-        return None
-    if union.geom_type == "MultiPolygon":
-        # Base-filtered triangles of one structure can form several
-        # disjoint ground patches (for example separate wall footings);
-        # one structure gets one pad, so keep the dominant patch.
-        union = max(union.geoms, key=lambda geometry: geometry.area)
-    if union.is_empty or union.geom_type != "Polygon":
-        return None
-    exterior_only = Polygon(union.exterior)
-    try:
-        simplified = exterior_only.simplify(
-            FOOTPRINT_SIMPLIFY_TOLERANCE_DEGREES, preserve_topology=True)
-    except (ValueError, _GEOS_EXCEPTION):
-        simplified = exterior_only
-    if simplified.is_empty or simplified.geom_type != "Polygon":
-        simplified = exterior_only
-    return simplified
+        return []
+    if union.is_empty:
+        return []
+    components = ([union] if union.geom_type == "Polygon"
+                  else [geometry for geometry in getattr(union, "geoms", ())
+                        if geometry.geom_type == "Polygon"])
+    parts: list[Polygon] = []
+    for component in components:
+        if component.is_empty or component.area <= 0.0:
+            continue
+        exterior_only = Polygon(component.exterior)
+        try:
+            simplified = exterior_only.simplify(
+                FOOTPRINT_SIMPLIFY_TOLERANCE_DEGREES, preserve_topology=True)
+        except (ValueError, _GEOS_EXCEPTION):
+            simplified = exterior_only
+        if simplified.is_empty or simplified.geom_type != "Polygon":
+            simplified = exterior_only
+        parts.append(simplified)
+    parts.sort(key=lambda geometry: (-geometry.area, geometry.bounds))
+    return parts
+
+
+def _triangle_union_footprint(
+    triangle_corner_points: list[tuple[tuple[float, float],
+                                       tuple[float, float],
+                                       tuple[float, float]]],
+) -> Polygon | None:
+    """The ``DSF_OBJECT_FOOTPRINT_UNION`` ring — the DOMINANT component
+    of :func:`_triangle_union_parts`.  Base-filtered triangles of one
+    structure can form several disjoint ground patches (separate wall
+    footings); this flag's contract is one structure, one ring, so it
+    keeps the largest.  Returns ``None`` when the union degenerates."""
+    parts = _triangle_union_parts(triangle_corner_points)
+    return parts[0] if parts else None
 
 
 def foot_pad_rings(
@@ -1223,3 +1252,110 @@ def structure_ring(
     if evidence_out is not None:
         evidence_out["verdict"] = "ring"
     return ring
+
+
+# ── FOOTPRINTS FROM THE STRUCTURE'S OWN GEOMETRY ─────────────────────
+# (owner ruling 2026-08-30e, HECA building79; round-6 Family B law "a
+# building pad is one building's footprint".)
+#
+# ``structure_ring`` above answers WHO QUALIFIES — every evidence gate
+# (hull fill, tall-base fill, span, area cap, R18-2 coverage) is measured
+# on the structure's convex HULL and stays exactly as it was.  What the
+# hull is NOT is a footprint: at HECA the Tai Models pack draws a whole
+# terminal complex as material-split texture pages, so one welded
+# structure's base vertices spread over 308 x 338 m and their hull is
+# 60,392 m² of ground — five buildings and the apron between them
+# arriving as ONE flat pad (building79, 100,886 m², measured round 6b).
+#
+# A qualifying structure therefore contributes the PLAN SILHOUETTE of its
+# own solid geometry, split into disjoint parts: one polygon per
+# disjoint structure, and the ground between structures is not footprint.
+#
+# WHY THE FULL SOLID SILHOUETTE AND NOT THE BASE BAND (measured on
+# building79's structures, 2026-08-30): the ``DSF_OBJECT_FOOTPRINT_HEIGHT_M``
+# band exists to stop a roof overhang inflating a hull OF POINTS, and it
+# cannot be reused here — this pack models buildings as walls with no
+# ground-level floor slab, so the band's triangles are a few door sills.
+# The 22,743 m² structure's base-band union is 659 m² in 18 scraps where
+# its solid silhouette is 21,974 m² in ONE 220 x 221 m part; banding the
+# silhouette would delete the building instead of shrinking the pad.  The
+# silhouette's own overshoot is the roof overhang — metres against the
+# hull's hundreds of metres, and in the SAFE direction (never a smaller
+# pad than the walls stand on).
+
+#: A union component below this is the numerical residue of coincident
+#: triangles (a seam, a decal quad), never a building.  A CONSTANT, not a
+#: gate: the union already drops zero-area triangles, and every consumer
+#: of a ring downstream keys on its index, so emitting sub-square-metre
+#: slivers as building pads is cost without information.
+FOOTPRINT_MIN_PART_AREA_M2 = 1.0
+
+
+def structure_footprint_parts(
+    structure: Structure,
+    geometry_by_resource: dict[str, ObjectGeometry],
+    placements: list[ObjectPlacement],
+    hull_ring: list[tuple[float, float]],
+) -> tuple[list[list[tuple[float, float]]], str]:
+    """The footprint a QUALIFYING structure contributes: one unclosed
+    ``(longitude, latitude)`` ring per disjoint part of its own solid
+    geometry, largest first.
+
+    ``hull_ring`` is the ring :func:`structure_ring` returned for the
+    same structure — the FALLBACK.  Degenerate geometry (no projectable
+    triangle, a union that collapses, nothing above
+    :data:`FOOTPRINT_MIN_PART_AREA_M2`) never yields zero footprint for a
+    structure that has already passed the evidence gates; it falls back
+    to the hull and says so.
+
+    Returns ``(rings, source)`` where ``source`` is ``"structure"`` or
+    ``"hull_fallback"`` — the caller records it per object, so a
+    fallback is reported rather than silent.
+
+    The qualification verdict is NOT re-decided here: this function is
+    only ever called for a structure ``structure_ring`` admitted, and it
+    applies no gate of its own.
+    """
+    placement_by_resource = {
+        placement.resource_path: placement for placement in placements}
+    triangle_corner_points: list = []
+    for resource_path, triangles in structure.triangles_by_resource.items():
+        geometry = geometry_by_resource.get(resource_path)
+        placement = placement_by_resource.get(resource_path)
+        if geometry is None or placement is None or not triangles:
+            continue
+        # Project each vertex through its OWN object's placement — the
+        # same per-object anchor rule ``structure_ring`` uses (spec
+        # section 2.4), memoised per vertex index within the resource.
+        projected_by_vertex_index: dict[int, tuple[float, float]] = {}
+        for triangle in triangles:
+            corner_points = []
+            for vertex_index in triangle:
+                point = projected_by_vertex_index.get(vertex_index)
+                if point is None:
+                    local_x, _local_y, local_z = geometry.vertices[
+                        vertex_index]
+                    latitude, longitude = obj8_reader.local_offset_to_lonlat(
+                        placement.latitude,
+                        placement.longitude,
+                        placement.heading_degrees,
+                        local_x,
+                        local_z,
+                    )
+                    point = (longitude, latitude)
+                    projected_by_vertex_index[vertex_index] = point
+                corner_points.append(point)
+            if len(corner_points) >= 3:
+                triangle_corner_points.append(tuple(corner_points))
+
+    rings: list[list[tuple[float, float]]] = []
+    for part in _triangle_union_parts(triangle_corner_points):
+        if _footprint_area_square_metres(part) < FOOTPRINT_MIN_PART_AREA_M2:
+            continue
+        ring = [(float(longitude), float(latitude))
+                for longitude, latitude in part.exterior.coords[:-1]]
+        if len(ring) >= 3:
+            rings.append(ring)
+    if not rings:
+        return [list(hull_ring)], "hull_fallback"
+    return rings, "structure"

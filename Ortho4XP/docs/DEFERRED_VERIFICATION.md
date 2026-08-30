@@ -4948,3 +4948,42 @@ What was NOT paid:
   the fixture's OSM overlay does not carry).  Verifying it costs one
   more full HECA build, which this round's two-build budget did not
   have.  The attempt cap is reached; the residual is the owner's.
+
+## 2026-08-30 — building79 structure-walls footprints (lane/hecab79)
+
+Owner ruling 2026-08-30e: a qualifying OBJ8 structure contributes the
+plan silhouette of its own solid geometry, one ring per disjoint part,
+instead of its convex hull (`object_footprints.structure_footprint_parts`,
+`dsf_reader._compute_dsf_object_buildings`).
+
+* **The change is PACK-WIDE and only HECA is measured.**  Every airport
+  whose scenery pack carries OBJ8 buildings gets new footprints — at
+  HECA the pack's ring area falls 1,103,599 → 712,143 m² and the emitted
+  building pads go 157 → 175.  LEMD, OTHH, KCLT, CYXY and SPJC are
+  UNMEASURED under it; the build-economy rule (ONE representative
+  airport per round) is what this round budgeted for, and the
+  five-airport sweep at the next merged batch is where they are read.
+  LEMD is the one to watch: it is the other pack with a material-split
+  terminal (the round-6b item-3 precedent).
+* **The airside value delta is quoted but NOT isolated.**  7,138
+  solve-owned airside nodes move > 0.01 m between control
+  (`d1a5a580652d`) and arm (`44f81bdd275a`), p50 0.23 m / p90 1.16 m /
+  max 6.40 m, and 5,004 of them are more than 1,200 m from building79 —
+  a whole-pack pad-population effect, not a local one.  Census-wise it
+  is an IMPROVEMENT (adjudicated airside 2,281 → 1,725) so nothing here
+  argues for a smaller change, but no per-site attribution of the far
+  movements was measured; that would cost more builds than this round
+  has.
+* **The `_close_building_outline` inflation of a SPRAWLING ring is
+  unattributed.**  Round 6b refuted outline-closing as building79's
+  minter on a CONVEX hull (+0.3 %).  On the new concave parts it is not
+  small: arm pad `building90` is 11,757 m² over 6,951 m² of object
+  silhouette, and pre-solve it read 24,693 m² over the same rings.  The
+  mechanism is downstream of this lane's surface (`pads`/pipeline
+  outline closing, not `dsf_reader`/`object_footprints`) and is
+  reported, not fixed.
+* **Two pre-existing reds are carried, not fixed**:
+  `test_contracts.py::test_obj8_partition_signature[contact_graph]` and
+  `test_object_anchor.py::test_kclt_eight_bake_pool_end_to_end`, both
+  reproduced on the clean merged-main tree at 677eb5d3 before this
+  lane's first edit.

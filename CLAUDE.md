@@ -73,6 +73,19 @@ Lane *products* (`Patches`, `Tiles`, `Previews`, `tmp`) stay lane-local —
 every tile build writes its emitted patches into `Patches/`, so sharing it
 would put one lane's geometry into another lane's build.
 
+**Consumer census before cross-cutting geometry law (owner ruling,
+RULINGS 2026-08-30l).** A change introducing a new shape class,
+exemption, or region into the layout (a deck, mask, claim, protected
+union) starts AT SPEC TIME with a census of EVERY pass that reads the
+affected geometry — grep the region's accessors and roles/refs, seam-
+probe where static reading isn't decisive — and rules each interaction
+in ONE table before any consumer is edited. Prefer trimming a region
+at its single derivation site over per-consumer vetoes. Precedent: the
+bridge deck's vertical exemption was discovered against five consumers
+one ~27-min build at a time (~8 rounds) when one table was 1–2 rounds.
+The spec author also checks the model is emittable in a heightfield
+mesh before seeking ratification.
+
 **Tool discipline (owner ruling, RULINGS `7e90032`).** Consult
 `tools/INDEX.md` BEFORE writing any script that builds, measures or audits —
 a tool absent from the index is treated as absent, and every new tool lands

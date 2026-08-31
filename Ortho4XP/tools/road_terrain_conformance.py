@@ -301,9 +301,18 @@ def _chain_read(path_idx, rings, bin_m: float = DEFAULT_BIN_M) -> dict:
         lls = [rings[path_idx[0]]["ll"][0], rings[path_idx[-1]]["ll"][0]]
 
     steps = []
+    short_steps = 0
+    # A GRADE NEEDS A RUN.  Consecutive bins sit at their members' mean
+    # stations, which on a coarse spine (a chain of few, very long rects)
+    # can be metres apart while their vertices are hundreds of metres
+    # apart on the ground — a step there reads as an 88 % grade the road
+    # never has.  A step shorter than half a bin is DROPPED and counted,
+    # never priced.
+    _min_run = 0.5 * float(bin_m)
     for k in range(len(st) - 1):
         ds = st[k + 1] - st[k]
-        if ds <= 1e-6:
+        if ds < _min_run:
+            short_steps += 1
             continue
         steps.append({
             "s0": st[k], "s1": st[k + 1], "ds": ds,
@@ -347,6 +356,7 @@ def _chain_read(path_idx, rings, bin_m: float = DEFAULT_BIN_M) -> dict:
         "dem_grade_median_pct": (100.0 * ADR._median(
             [abs(s["dg"]) for s in steps]) if steps else None),
         "steps": len(steps),
+        "steps_dropped_short": short_steps,
         "dem_followable_pct": (100.0 * len(followable) / len(steps)
                                if steps else None),
         "deepest_cut_ll": _deepest_ll(path_idx, rings),
@@ -477,7 +487,9 @@ def print_site(name: str, per_arm: list, cap_pct: float,
                   f"radius (nearest {_f(dist, 6, 1)} m) — reported, never zero")
         else:
             print(f"    arm {label:16s}: {ch['rings']} ring(s), "
-                  f"{ch['steps']} step(s), nearest vertex {_f(dist, 6, 1)} m, "
+                  f"{ch['bins']} bin(s), {ch['steps']} step(s) "
+                  f"({ch['steps_dropped_short']} dropped as shorter than "
+                  f"half a bin), nearest vertex {_f(dist, 6, 1)} m, "
                   f"roles={','.join(ch['roles'])}")
     arms = [(l, c) for (l, c, _d) in per_arm]
     head = f"  {'METRIC':36s}" + "".join(f" {l[:14]:>14s}" for l, _ in arms)

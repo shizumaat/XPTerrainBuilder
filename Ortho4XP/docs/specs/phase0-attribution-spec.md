@@ -59,8 +59,9 @@ Aug-30-evening builds) vs the corresponding harness closing arms
 (artifact ledger) with tools/osm_site.py:
 - HECA 30.1125699,31.4053664 (cliff) · 30.1055367,31.3994026 (ramp) ·
   building79 site
-- LEMD 40.4836744,-3.5809643 (bridge span — expect NO deck: the
-  bridge branch was never merged; confirm and say so) ·
+- LEMD 40.4836744,-3.5809643 (bridge span — CORRECTION (Task C): the
+  bridge branch WAS merged (13c9351b) and flown; the deck emits as
+  ordinary road pavement, not a deck role) ·
   40.4924484,-3.5692887 (basin)
 - OTHH 25.2715775,51.6023886 (mouth walls)
 Per site: same shapes/values as the harness arm (production frame

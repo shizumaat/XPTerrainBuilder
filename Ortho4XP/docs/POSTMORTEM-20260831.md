@@ -62,3 +62,24 @@ the bridge = `BRIDGE_ROAD_CLEARANCE_M` (5.1 m). Site exemplar:
   policy above; consumer-census table and heightfield-emitability
   check inside the spec; ratified once.
 - Phase 3 — implement under the sim-checkpoint gate.
+
+## Task C findings (2026-08-31, appended)
+
+* **HECA WAS NEVER REBUILT — the owner flew Aug-29 geometry.** The app
+  tile build died silently at 22:38:40 (engine's last log line, mid
+  "Decimating emitted geometry"); phase times were recorded but no
+  patch was written (two racing +30+031 builds + X-Plane running;
+  worker likely killed). Every HECA "not fixed" read is VOID; the
+  round-6 family was not in the scenery. NEW DEFECT: a tile build
+  that dies between phase-time write and patch write fails SILENTLY —
+  the app surfaced no error and stale scenery flew.
+* **LEMD + OTHH: the fixes WERE flown** — flown patches site-identical
+  (basin byte-identical) to the harness closing arms. "Not fixed"
+  re-scopes to CENSUS-REAL, VISUALLY INSUFFICIENT — direct support
+  for the tunnel_road retirement verdict.
+* **Correction to this document's Phase-0 plan text:** the LEMD bridge
+  branch WAS merged (13c9351b) before the app build and was flown;
+  the deck emits as ordinary road pavement (no deck role exists). The
+  flown span shows road 600.83–603.18 over the 598.45 ramp —
+  the 30n-accepted 2.4–4.6 m separation, sub-5.1 by design at this
+  site.

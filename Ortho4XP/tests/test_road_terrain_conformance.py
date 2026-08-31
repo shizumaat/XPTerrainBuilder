@@ -218,3 +218,24 @@ def test_cap_comes_from_production_config():
     from ``config.SERVICE_ROAD_MAX_GRADE`` and never a second number."""
     from auto_patch.config import SERVICE_ROAD_MAX_GRADE
     assert RTC.ROAD_CAP == pytest.approx(float(SERVICE_ROAD_MAX_GRADE))
+
+
+def test_a_lone_ring_is_still_a_chain(tmp_path):
+    """A corridor rect sharing no node with its neighbours is exactly the
+    long straight a profile most needs, and it used to read as ABSENT.
+    Its spine is its own longest diagonal."""
+    p = _patch(tmp_path, "LONE.osm", _levels_flat())
+    # Keep only the FIRST way: one ring, no neighbours.
+    txt = p.read_text()
+    head, _, rest = txt.partition("  <way id='-1001'")
+    first_way, _, _ = rest.partition("</way>")
+    p.write_text(head + "  <way id='-1001'" + first_way + "</way>\n</osm>")
+    r = _read(p)
+    assert len(r["chains"]) == 1
+    ch = r["chains"][0]
+    assert ch["rings"] == 1
+    # It is read against the ground it stands on, not skipped.
+    assert ch["cut_max_m"] is not None
+    la = LAT0 + 0.5 * (30.0 / _M_PER_DEG)
+    found, dist = RTC.chain_at_site(r, la, LON0)
+    assert found is not None and dist < 30.0

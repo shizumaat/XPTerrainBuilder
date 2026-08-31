@@ -258,7 +258,24 @@ def _chain_read(path_idx, rings, bin_m: float = DEFAULT_BIN_M) -> dict:
     its profile meaningless; a bin is a fixed length of ROAD, so two arms
     and two chains are read at one granularity.
     """
-    spine = [rings[i]["c"] for i in path_idx]
+    if len(path_idx) == 1:
+        # A ONE-RING COMPONENT IS STILL A ROAD.  A corridor rect that
+        # shares no node with its neighbours is exactly the long straight
+        # a profile most needs to be read on, and excluding it was a
+        # blind spot: at HECA 30.089378839,31.411929843 the profile-off
+        # arm's road (way -11795, 8.6 m away) read as ABSENT because its
+        # ring stood alone.  Its spine is its own longest diagonal — the
+        # ring's principal direction, taken from its own vertices.
+        pts = rings[path_idx[0]]["xy"]
+        best = (0.0, pts[0], pts[0])
+        for a_i in range(len(pts)):
+            for b_i in range(a_i + 1, len(pts)):
+                d = math.dist(pts[a_i], pts[b_i])
+                if d > best[0]:
+                    best = (d, pts[a_i], pts[b_i])
+        spine = [best[1], best[2]]
+    else:
+        spine = [rings[i]["c"] for i in path_idx]
     cum = [0.0]
     for a, b in zip(spine, spine[1:]):
         cum.append(cum[-1] + math.dist(a, b))
@@ -294,8 +311,8 @@ def _chain_read(path_idx, rings, bin_m: float = DEFAULT_BIN_M) -> dict:
         lev.append(ADR._median([r[1] for r in rows]))
         gnd.append(ADR._median([r[2] for r in rows]))
         lls.append(rows[0][3])
-    if len(st) < 2:                                        # pragma: no cover
-        st = [0.0, cum[-1]]
+    if len(st) < 2:
+        st = [0.0, max(cum[-1], 1e-9)]
         lev = [rings[path_idx[0]]["level"], rings[path_idx[-1]]["level"]]
         gnd = [rings[path_idx[0]]["ground"], rings[path_idx[-1]]["ground"]]
         lls = [rings[path_idx[0]]["ll"][0], rings[path_idx[-1]]["ll"][0]]
@@ -422,8 +439,6 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
     chains = []
     for comp, adj in _components(rings):
         p = _longest_path(comp, adj, rings)
-        if len(p) < 2:
-            continue
         chains.append(_chain_read(p, rings, bin_m=bin_m))
     return {
         "patch": str(patch), "dem_source": dem_source,

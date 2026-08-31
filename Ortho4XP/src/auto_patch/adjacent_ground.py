@@ -7593,8 +7593,15 @@ def emit_adjacent_ground_bands(layout: PavementLayout, dem,
         # claim and the law are ONE number.  ``None`` for every other
         # family and wherever there is no groundside at all — the block
         # is then exactly the pre-ruling one, band for band.
+        # PHASE-0 ATTRIBUTION ARM (lane/phase0roads, TEMPORARY):
+        # ``O4_ARM_NO_BAND_CUT_GS=1`` stands the 2026-08-30 band-cuts-
+        # groundside ruling down (no zones-1-2 claim over groundside, and
+        # no cut-back at the foot of the emitter) — the spec's suspect-3
+        # arm (docs/specs/phase0-attribution-spec.md Task A).  A
+        # measurement switch, not a fix; default is the shipped law.
         _zone12_claim = None
-        if (groundside_block is not None and s.role in _TAXIWAY_ROLES
+        if (os.environ.get("O4_ARM_NO_BAND_CUT_GS") != "1"
+                and groundside_block is not None and s.role in _TAXIWAY_ROLES
                 and width and width > 0.0):
             try:
                 _zone12_claim = s.polygon.buffer(float(width))

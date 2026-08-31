@@ -5461,6 +5461,14 @@ def _grade_limit_groundside_chords(
     writes airside.  See :func:`_chord_cut_and_fill` for the ruling, the
     measured propagation channel and why the default is OFF.
     """
+    # ── PHASE-0 ATTRIBUTION ARM (lane/phase0roads, TEMPORARY) ────────
+    # ``O4_ARM_NO_CHORD_LIMITER=1`` makes THE WHOLE PASS a no-op at all
+    # three call sites (finalize, post-solve-law-seat, post-projection).
+    # This is the spec's suspect-1 "disable the limiter entirely" arm
+    # (docs/specs/phase0-attribution-spec.md Task A); it is a
+    # MEASUREMENT SWITCH, not a fix, and default-OFF is the shipped law.
+    if _os.environ.get("O4_ARM_NO_CHORD_LIMITER") == "1":
+        return 0
     node_alt: dict = {}
     node_cap: dict = {}
     node_cap_max: dict = {}

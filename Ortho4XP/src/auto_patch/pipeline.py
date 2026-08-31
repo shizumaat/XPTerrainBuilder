@@ -7144,8 +7144,17 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
                 # 2,053 solve-owned airside nodes through the
                 # projection; the ruling is that the pin is a READ-ONLY
                 # SOURCE.  See ``groundside._chord_cut_and_fill``.
+                # PHASE-0 ATTRIBUTION ARM (lane/phase0roads, TEMPORARY):
+                # ``O4_ARM_NO_WELD_UPBUILD=1`` disarms the 2026-08-30
+                # pinned up-build HERE and nowhere else — the spec's
+                # suspect-1 "disable the new arming" arm
+                # (docs/specs/phase0-attribution-spec.md Task A).  A
+                # measurement switch, not a fix; default is the shipped
+                # armed law.
+                _arm_weld_up = (
+                    os.environ.get("O4_ARM_NO_WELD_UPBUILD") != "1")
                 _grade_limit_groundside_chords(
-                    layout, weld_outranks_cap=True)
+                    layout, weld_outranks_cap=_arm_weld_up)
                 # THE WELD-RELIMIT SINK — DELETED 2026-08-04 (spec
                 # ``docs/specs/kill-half-spec.md`` §2).  Welds this
                 # re-adoption moved were pushed into

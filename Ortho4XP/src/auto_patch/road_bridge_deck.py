@@ -685,12 +685,19 @@ def confirm_and_sever(layout, icao: str = ""):
         # whether that premise holds at this site — we never move the
         # deck to satisfy it, and we never move the ramp at all.
         deck_level = _deck_level(layout, r)
+        deck_min = _deck_min_level(layout, r)
         r["deck_level_m"] = (round(deck_level, 3)
                              if deck_level is not None else None)
+        # THE CLEARANCE READS THE STRIP, NOT THE MEAN (RULINGS
+        # 2026-08-30n).  Minimum cover is a MINIMUM question; the mean
+        # takes in the approach ground at both corridor ends and read
+        # 6.06 m at LEMD where the strip's own lowest value gives 2.62 m.
+        r["deck_min_level_m"] = (round(deck_min, 3)
+                                 if deck_min is not None else None)
         r["clearance_required_m"] = float(BRIDGE_ROAD_CLEARANCE_M)
         r["clearance_measured_m"] = (
-            round(deck_level - float(top), 3)
-            if deck_level is not None else None)
+            round(deck_min - float(top), 3)
+            if deck_min is not None else None)
         r["clearance_premise_holds"] = (
             bool(r["clearance_measured_m"] is not None
                  and r["clearance_measured_m"]
@@ -709,8 +716,9 @@ def confirm_and_sever(layout, icao: str = ""):
             UI.vprint(1,
                 f"  [bridge-deck] {r['way_id']} §4 CLEARANCE PREMISE "
                 f"DOES NOT HOLD (instrument, no lever): the emitted ramp "
-                f"reaches {top:.2f} m against a deck at "
-                f"{deck_level:.2f} m — {r['clearance_measured_m']:.2f} m "
+                f"reaches {top:.2f} m against the deck's own lowest "
+                f"ground at {deck_min:.2f} m (mean "
+                f"{deck_level:.2f} m) — {r['clearance_measured_m']:.2f} m "
                 f"of cover where the law's continued-profile clause "
                 f"expects {float(BRIDGE_ROAD_CLEARANCE_M)} m.  Nothing "
                 f"here moves the deck or the ramp; the ramp's own "
@@ -807,6 +815,64 @@ def _deck_level(layout, record):
         num += share * (sum(own) / len(own))
         den += share
     return (num / den) if den > 0.0 else None
+
+
+def _deck_min_level(layout, record):
+    """THE LOWEST value the deck's own ground carries over the span —
+    which is the only honest basis for a CLEARANCE (RULINGS 2026-08-30n).
+
+    :func:`_deck_level` is a MEAN, and a mean is the wrong statistic for
+    a minimum-cover question: the deck corridor takes in the approach
+    ground at both ends, which rises away from the crossing, so the mean
+    sits well above the deck itself.  MEASURED at LEMD (build
+    ``lemdr10``): the mean read 604.51 m and reported 6.06 m of cover
+    over the 598.45 m bore — "premise holds" — while the strip's own
+    values run 601.07-603.06 m, so the true minimum cover is 2.62 m and
+    the premise does NOT hold.  The averaging was the defect, not the
+    surface.
+
+    Same population as :func:`_deck_level` (the deck's own GROUND inside
+    the corridor: never the structure beneath, never a wall), reduced by
+    ``min`` instead of a mean, and with the same fragmented-deck
+    fallback so an approach-heavy or split deck still reports a number.
+    """
+    _init_receiving_roles()
+    wid = record["way_id"]
+    corr = _corridor(record)
+    strict: list = []
+    loose: list = []
+    for s in getattr(layout, "shapes", None) or ():
+        own = [float(a) for a in
+               (getattr(s, "node_altitudes", None) or ()) if a is not None]
+        for attr in ("altitude", "altitude_high", "altitude_low"):
+            a = getattr(s, attr, None)
+            if a is not None:
+                own.append(float(a))
+        if not own:
+            continue
+        if str(getattr(s, "road_bridge_deck", "") or "") == wid:
+            strict.extend(own)
+            continue
+        if (str(getattr(s, "ref", "") or "") in _BELOW_GRADE_REFS
+                or getattr(s, "role", None) not in _RECEIVING_ROLES):
+            continue
+        poly = getattr(s, "polygon", None)
+        if poly is None or poly.is_empty:
+            continue
+        try:
+            share = float(poly.intersection(corr).area)
+            area = float(poly.area)
+        except Exception:                                # pragma: no cover
+            continue
+        if area <= 0.0 or share <= 1.0:
+            continue
+        if share >= DECK_PIECE_MIN_FRACTION * area:
+            strict.extend(own)
+        else:
+            loose.extend(own)
+    if strict:
+        return min(strict)
+    return min(loose) if loose else None
 
 
 def _stand_down(layout, records, icao: str = "") -> None:

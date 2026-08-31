@@ -1227,3 +1227,103 @@ class TestValuelessShapesStillSplit:
         vals = {round(float(a), 3)
                 for s in layout.shapes for a in (s.node_altitudes or [])}
         assert vals == {604.0}
+
+
+class TestClearanceReadsTheStrip:
+    """RULINGS 2026-08-30n: the clearance instrument reads the DECK's own
+    values, not the area-weighted mean.
+
+    Minimum cover is a MINIMUM question, and the deck corridor takes in
+    the approach ground at both ends, which rises away from the crossing.
+    MEASURED at LEMD (build ``lemdr10``): the mean read 604.51 m and
+    reported 6.06 m of cover over the 598.45 m bore — "premise holds" —
+    while the strip's own values run 601.07-603.06 m, so the TRUE minimum
+    cover is 2.62 m and the premise does NOT hold.  The averaging was the
+    defect, not the surface.
+    """
+
+    #: the owner's site in the small: bore, strip range, approach ground
+    BORE = 598.45
+    STRIP_LO, STRIP_HI = 601.07, 603.06
+    APPROACH = 611.5
+
+    def _site(self):
+        from auto_patch.layout import ROLE_SERVICE_JUNCTION
+        layout = _make(ramp_top=self.BORE)
+        deck.publish_candidates(layout)
+        layout.shapes = [s for s in layout.shapes
+                         if s.role == ROLE_TUNNEL_RAMP]
+        # the deck's own strip, spanning the crossing
+        layout.shapes.append(BuiltShape(
+            polygon=_rect(14.0, 82.0, -6.0, 6.0),
+            role=ROLE_SERVICE_JUNCTION, ref="service",
+            synthesised_road_corridor=True,
+            node_altitudes=[self.STRIP_LO, self.STRIP_HI,
+                            self.STRIP_HI, self.STRIP_LO]))
+        # approach ground INSIDE the corridor's west end, much higher -
+        # this is the shape that pulled the mean up at LEMD
+        layout.shapes.append(BuiltShape(
+            polygon=_rect(0.5, 12.0, -6.0, 6.0),
+            role=ROLE_SERVICE_JUNCTION, ref="service",
+            synthesised_road_corridor=True,
+            node_altitudes=[self.APPROACH] * 4))
+        deck.stamp_shapes(layout)
+        return layout
+
+    def test_the_minimum_is_the_strips_lowest_value(self):
+        layout = self._site()
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        assert deck._deck_min_level(layout, rec) == pytest.approx(
+            self.STRIP_LO, abs=1e-6)
+
+    def test_the_mean_is_pulled_up_by_the_approach(self):
+        """The defect, encoded: the mean is materially higher, which is
+        why it must not drive a clearance."""
+        layout = self._site()
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        mean = deck._deck_level(layout, rec)
+        assert mean > deck._deck_min_level(layout, rec) + 1.0
+
+    def test_the_reported_clearance_uses_the_minimum(self):
+        layout = self._site()
+        deck.confirm_and_sever(layout)
+        rec = deck.records_of(layout)[0]
+        assert rec["deck_min_level_m"] is not None
+        assert rec["clearance_measured_m"] == pytest.approx(
+            rec["deck_min_level_m"] - rec["highest_beneath_m"], abs=1e-3)
+        assert rec["clearance_measured_m"] < rec["deck_level_m"] - \
+            rec["highest_beneath_m"], "the mean would have overstated it"
+
+    def test_an_approach_heavy_deck_reports_the_true_cover(self):
+        """The honest number for the owner's site: 2.62 m, not 6.06 m,
+        and the premise does NOT hold."""
+        from auto_patch.config import BRIDGE_ROAD_CLEARANCE_M
+        layout = self._site()
+        deck.confirm_and_sever(layout)
+        rec = deck.records_of(layout)[0]
+        assert rec["highest_beneath_m"] == pytest.approx(
+            self.BORE, abs=1e-6)
+        assert rec["clearance_measured_m"] == pytest.approx(
+            self.STRIP_LO - self.BORE, abs=1e-3)      # 2.62 m
+        assert rec["clearance_premise_holds"] is False
+        assert rec["clearance_required_m"] == float(BRIDGE_ROAD_CLEARANCE_M)
+
+    def test_a_genuinely_deep_bore_still_holds(self):
+        """5.1 stays the target where geometry allows it."""
+        layout = _make(ramp_top=594.0)
+        deck.publish_candidates(layout)
+        _mint_deck_pieces(layout)
+        deck.stamp_shapes(layout)
+        deck.confirm_and_sever(layout)
+        rec = deck.records_of(layout)[0]
+        assert rec["clearance_premise_holds"] is True
+
+    def test_the_structure_beneath_never_enters_the_read(self):
+        layout = self._site()
+        rec = [r for r in deck.candidates_of(layout)
+               if r["way_id"] == "W1"][0]
+        # the ramp sits at 598.45 inside the corridor; if it leaked into
+        # the population the minimum would be the bore itself
+        assert deck._deck_min_level(layout, rec) > self.BORE

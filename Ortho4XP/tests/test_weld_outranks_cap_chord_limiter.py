@@ -17,7 +17,7 @@ closing guarantee sweep is cut-only — both one-directional DOWN — so
 the node emitted at 106.38, 1.9 m under the weld it touches.  That
 asymmetry (pin holds, neighbour is cut) IS the step.
 
-``free_road_profile`` already resolves this exact pair the other way —
+The road transition profiler resolves this exact pair the other way —
 "RULING 1 — THE WELD OUTRANKS THE CAP.  The span BUILDS: both welds are
 met exactly and the excess stands as a census row" — and the limiter
 runs AFTER it (``pipeline._post_projection_conformance_passes`` →

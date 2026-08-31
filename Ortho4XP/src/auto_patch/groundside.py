@@ -4965,8 +4965,9 @@ def _chord_cut_and_fill(coords, vals, live, free, cap, sweeps: int = 4,
     that asymmetry, not a missing weld (measured at HECA service_junction
     756: node -10382 ``lo`` 108.20 from the pinned weld 1.30 m away
     against ``hi`` 106.95 from a free neighbour 8.83 m away, emitted at
-    the ceiling 1.9 m under the weld it touches).  ``free_road_profile``
-    already resolves exactly this pair the other way — "the span BUILDS:
+    the ceiling 1.9 m under the weld it touches).  the transition
+    profiler (``road_transition``, the retired free-road pass's kept
+    half) resolves exactly this pair the other way — "the span BUILDS:
     both welds are met exactly and the excess stands as a census row"
     (RULINGS road-crossing round, ruling 1) — and this late pass, which
     runs AFTER it and is the last road-family altitude writer of the

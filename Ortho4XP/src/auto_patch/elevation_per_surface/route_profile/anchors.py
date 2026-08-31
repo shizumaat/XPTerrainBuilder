@@ -4369,8 +4369,8 @@ def service_station_map(lines, svc_nodes, node_pos, node_shapes, anchors,
     Extracted verbatim from :func:`_svc_spine_station_seeds` (round 5b) so
     the two readers of the road's PATH COORDINATE share ONE derivation:
     the seeder here, which runs inside the solve, and
-    ``free_road_profile.solve_free_road_profiles``, which runs POST-solve
-    in the emitted node space.  A second projection/clustering convention
+    the road TRANSITION profiler (``road_transition``), which runs
+    POST-solve in the emitted node space.  A second projection/clustering convention
     would be two instruments describing two station sets — the
     census-wrapper defect at one remove — and the round-5b spec forbids
     it in as many words ("reuse the route-metric-within-shape machinery,

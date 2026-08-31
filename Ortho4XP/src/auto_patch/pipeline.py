@@ -6825,21 +6825,18 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
             except _GEOM_EXC as _adopt_exc:
                 UI.vprint(1, f"  [pav-builder] WARN: {icao}: road↔airside "
                              f"crossing adoption failed ({_adopt_exc!r}).")
-            # ── THE FREE-ROAD PROFILE PASS (round 5b) ───────────────
-            # HERE, immediately after the adoption and BEFORE the chord
-            # limiter below, because the limiter is the pass round 5
-            # measured flattening the adoption's ramp back out
-            # (108.383 -> 106.71 at the owner's item-2 cliff).  The
-            # profile owns the chain's values from here on and publishes
-            # its keys, which the limiter reads as pinned.
-            try:
-                from .config import FREE_ROAD_PROFILE_PRESOLVE as _frp_pre
-                from .free_road_profile import solve_free_road_profiles
-                if _frp_pre:
-                    solve_free_road_profiles(layout, icao)
-            except _GEOM_EXC as _prof_exc:
-                UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
-                             f"profile pass failed ({_prof_exc!r}).")
+            # THE FREE-ROAD PROFILE PASS RAN HERE — RETIRED 2026-08-31
+            # (RULINGS 31b, spec §3.1).  Its chord branch made every
+            # bracketed station take the pin-to-pin chord exactly and its
+            # self-pins bracketed every ≥2-station chain, so 86 % of
+            # HECA's road stations were a straight line between end
+            # values and an 8 %-lawful hill emitted dead flat.  The law
+            # it was reaching for is now ONE law in TWO owners: the core
+            # clamps every general road (O4_Vector_Utils.
+            # cap_lipschitz_profile), and auto_patch profiles the
+            # AIRSIDE-CONTACT TRANSITION with the same function at the
+            # solver's final writeback (road_transition.
+            # solve_road_transitions).  Deleted, not gated (29f).
             _n_seated = seat_groundside_on_law(layout, _dem_last, _tl, _tn,
                                                band_at=_gs_band)
             if _n_seated:
@@ -7178,21 +7175,11 @@ def solve_and_finalize(*, layout: PavementLayout, icao: str,
         # projection then moves again.  With the LATE call retired this is
         # the point immediately after the pipeline's only projection, so
         # the requirement is met by the same ordering it always was.
-        # RE-SOLVED AFTER THE PROJECTION (round 5b).  The final grade
-        # projection re-humps road values it did not author (round 5's
-        # who_wrote trace: 106.71 -> 108.42 -> 106.85 across the
-        # projection and the conformance limiter), so the profile is
-        # re-imposed on the settled surface before the conformance
-        # passes read it.  The pass is a clamp into its pins' envelope,
-        # so re-running it is idempotent where nothing moved.
-        try:
-            from .config import FREE_ROAD_PROFILE_RESOLVE as _frp_again
-            from .free_road_profile import solve_free_road_profiles as _frp
-            if _frp_again:
-                _frp(layout, icao)
-        except _GEOM_EXC as _prof_exc2:
-            UI.vprint(1, f"  [pav-builder] WARN: {icao}: free-road "
-                         f"profile re-solve failed ({_prof_exc2!r}).")
+        # THE FREE-ROAD PROFILE RE-SOLVE RAN HERE — RETIRED with the pass
+        # (RULINGS 31b, spec §3.1).  Its replacement needs no second
+        # call: the transition profiler runs INSIDE the final grade
+        # projection, at the writeback seam, so it already reads the
+        # projected surface rather than re-imposing itself on it.
         _post_projection_conformance_passes()
         _rod_ckpt(layout, "20_post_projection_conformance")
 

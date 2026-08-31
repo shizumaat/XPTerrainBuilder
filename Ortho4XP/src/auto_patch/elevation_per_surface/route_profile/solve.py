@@ -9864,6 +9864,23 @@ def final_grade_projection(layout, icao: str = "", dem=None,
         _rs.altitude = _al
         _rs.altitude_high = _ah
         _rs.altitude_low = _lo
+    # ── THE ROAD TRANSITION PROFILER (spec §3.2/§3.5) ─────────────────
+    # HERE, at the WRITEBACK seam and downstream of the mouth reseat
+    # above: those two are the only points where every road-altitude
+    # writer in the build converges (consumer census §4a supplement,
+    # "the natural home for the pinned-transition law"), and this is the
+    # airside-final moment — the contact values the transition reads are
+    # the ones that emit.  It writes ROAD-FAMILY vertices only and never
+    # a frozen one, so no airside value can move (RULINGS 29c/31b).
+    try:
+        from auto_patch.road_transition import solve_road_transitions
+        solve_road_transitions(layout, icao, dem=dem, tile_lat=tile_lat,
+                               tile_lon=tile_lon)
+    except Exception as _rt_exc:                          # pragma: no cover
+        import O4_UI_Utils as _UI_rt
+        _UI_rt.vprint(1, f"  [pav-builder] WARN: {icao}: road transition "
+                         f"profiler failed ({_rt_exc!r}) — the road "
+                         f"family keeps the solve's own values.")
     # ── [transverse-bind] — THE BAND'S KNOWN BLIND SPOT, MEASURED ─────
     # (spec §10.)  ``reach_band_unified`` is a route-edge Dijkstra and
     # cannot carry a hyperplane, so the writeback's band clamp may move a

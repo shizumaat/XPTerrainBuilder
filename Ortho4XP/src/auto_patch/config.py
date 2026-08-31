@@ -173,13 +173,9 @@ __all__ = [
     "ROAD_AIRSIDE_CROSSING_CONFORM",
     "ROAD_AIRSIDE_CONTACT_WIDEN",
     "ROAD_CONTACT_CAP_SCOPE",
-    "FREE_ROAD_PROFILE_PASS",
-    "FREE_ROAD_PROFILE_RESOLVE",
-    "FREE_ROAD_PROFILE_PRESOLVE",
     "PROJECTION_AIRSIDE_FREEZE",
     "PROJECTION_SNAPSHOT_BLIND",
     "PROJECTION_ROAD_BLIND",
-    "FREE_ROAD_PROFILE_SELF_PINS",
     "ROAD_PATH_METRIC",
     "FLATNESS_CERTIFICATE_RATE_FACTOR",
     "FLAT_CERTIFICATE_COVERAGE",
@@ -10048,38 +10044,21 @@ ROAD_AIRSIDE_CONTACT_WIDEN = (
 # beside it is what the free class was being scoped FOR.
 # …AND FLIPPED BACK OFF BY THE MEASUREMENT (lane/hecar5b).  The round-5b
 # arm was specced to flip this ON beside the profile pass; the profile
-# pass did not meet its acceptance (see FREE_ROAD_PROFILE_PASS below), so
+# pass did not meet its acceptance (the pass itself is RETIRED — see the
+# note below), so
 # the scoping goes back to the state 9ac6ee55 put it in until the metric
 # ruling lands.  Measured with BOTH on: HECA 6820 -> 7230 (+410).
 ROAD_CONTACT_CAP_SCOPE = (
     _os.environ.get("O4_ROAD_CONTACT_CAP_SCOPE", "1") != "0")
 
-# ── THE FREE-ROAD PROFILE PASS (HECA round 5b) ───────────────────────
-# Spec ``docs/specs/free-road-profile-pass-spec.md``.  Post-solve, the
-# free-road chains are given a whole-path <= SERVICE_ROAD_MAX_GRADE
-# profile between their PINNED ends (airside welds and end-on bindings),
-# solved in the chain's own STATION coordinate so a U-turn's two legs are
-# far apart along the PATH however close they lie in the plane — the
-# euclidean chord is exactly what let the chord limiter flatten the ramp
-# the crossing adoption had built (round 5's who_wrote attribution:
-# 106.70 -> 108.383 -> 106.71).  The pass writes ROAD-FAMILY nodes only
-# and every node a non-road authority carries is frozen, so airside
-# cannot move: the one-way weld is structural.
-# "0" restores the pre-round behaviour byte-identically.
-#
-# DEFAULT **OFF** PENDING A RULING (lane/hecar5b, measured).  The law
-# works where a chain is simple — the owner's item 4 goes from a 204 %
-# cliff to a 9.35 % ramp — but the profile is Lipschitz in the STATION
-# (path) metric while the within-shape census prices road pairs by
-# EUCLIDEAN CHORD, and the two disagree by exactly the path/chord ratio:
-# CYXY gains 120 rows, every one of them within_shape road pairs at
-# 8.33-9.11 % against the 8 % cap.  Across a U-LOOP the chord is short,
-# so the ramp the owner wants at item 2 is chord-UNLAWFUL and the site
-# reads worse (129 % -> 190 %).  Exempting the chord LIMITER silences one
-# reader; the CENSUS is the other, and it is the law.  The fork is in the
-# lane report: price profile-owned road pairs along the PATH in BOTH
-# readers, or solve the profile in the CHORD metric and accept that a
-# U-turn in ONE ring cannot ramp.
+# THE FREE-ROAD PROFILE PASS LIVED HERE — RETIRED 2026-08-31 with its
+# four flags (RULINGS 31b, spec linear-transport-redesign-spec.md §3.1).
+# Its chord/self-pin model made 86 % of HECA's road stations a straight
+# line between end values, emitting an 8 %-lawful hill dead flat
+# (POSTMORTEM-20260831 Task A).  ONE law now: the core clamps general
+# roads (O4_Vector_Utils.cap_lipschitz_profile) and
+# ``road_transition.solve_road_transitions`` profiles the airside-contact
+# transition with the SAME function.  Deleted, not gated (29f).
 # ── THE ROAD'S OWN PATH METRIC (owner ruling 2026-08-28, round-5b spec
 # Amendment 1 clause 1) ──────────────────────────────────────────────
 # "WITHIN-SHAPE ROAD-FAMILY PAIRS ARE PRICED ALONG THE ROAD'S OWN PATH
@@ -10093,23 +10072,6 @@ ROAD_CONTACT_CAP_SCOPE = (
 ROAD_PATH_METRIC = (
     _os.environ.get("O4_ROAD_PATH_METRIC", "1") != "0")
 
-# The profile's SECOND call, after the final grade projection.  Split out
-# so the post-projection re-solve can be measured on its own — it is the
-# only part of the pass that runs downstream of a GLOBAL projection, and
-# therefore the only part that can plausibly carry a road change into the
-# airside surface.
-# ── WHERE THE PROFILE RUNS (round 5d, on the chartered measurement) ──
-# who_wrote at the item-4 apron (30.11445,31.40993) in the profile-ON arm
-# names its ONLY writers: ``solve_route_profile`` (93.31) and then
-# ``final_grade_projection`` (93.24).  The profile pass never touches that
-# node — so the 1,756 moved solve-owned airside nodes are not a write by
-# it but a RE-PROJECTION after it: the final projection re-derives airside
-# from the settled layout, and the road values the pass moved are in that
-# layout.  Amendment 2's law is "airside solves first and NEVER
-# re-derives from road inputs", so the remedy is to keep the profile
-# DOWNSTREAM of the projection: the FIRST call (pre-limiter) is what
-# feeds it, and "0" removes that feed while leaving the post-projection
-# call — which cannot reach the projection at all — doing the work.
 # ── THE PROJECTION'S AIRSIDE FREEZE (owner 2026-08-28, Amendment 3 §1)
 # "The projection treats every solved AIRSIDE value as FROZEN Dirichlet
 # data — it may re-derive road/groundside, never airside."  The measured
@@ -10117,17 +10079,6 @@ ROAD_PATH_METRIC = (
 # moved at HECA (worst 2.07 m) and who_wrote names THIS pass as their
 # only post-solve writer — airside re-derived from a road-modified
 # layout.  DEFAULT ON; "0" restores the pre-ruling arm byte-identically.
-# ── SELF-PINS (owner 2026-08-28, Amendment 3 §2) ─────────────────────
-# A free-road chain with no airside weld at either end still has ENDS,
-# and its emitted end value is the consensus where it meets the settled
-# world.  Pinning THERE reads nothing but the chain's own values — no
-# adoption, no authority transfer — which is what lets the chord law
-# close the owner's fifth site (CYXY, 3.631 m below the chord of its own
-# ends) without ruling on which pavement binds a road.  "0" restores
-# airside-weld-and-binding pins only.
-FREE_ROAD_PROFILE_SELF_PINS = (
-    _os.environ.get("O4_FREE_ROAD_SELF_PINS", "1") != "0")
-
 # …AND SHIPPED OFF ON ITS OWN MEASUREMENT (lane/hecar5e).  The freeze
 # DOES what it was ruled to do — solve-owned moved airside falls to 0 at
 # CYXY and 2 at SPJC with the profile ON — but it also surfaces the
@@ -10192,19 +10143,11 @@ PROJECTION_SNAPSHOT_BLIND = (
 PROJECTION_AIRSIDE_FREEZE = (
     _os.environ.get("O4_PROJECTION_AIRSIDE_FREEZE", "0") != "0")
 
-FREE_ROAD_PROFILE_PRESOLVE = (
-    _os.environ.get("O4_FREE_ROAD_PROFILE_PRESOLVE", "1") != "0")
-
-FREE_ROAD_PROFILE_RESOLVE = (
-    _os.environ.get("O4_FREE_ROAD_PROFILE_RESOLVE", "1") != "0")
-
-FREE_ROAD_PROFILE_PASS = (
-    _os.environ.get("O4_FREE_ROAD_PROFILE", "1") != "0")
 
 # ── THE CUMULATIVE CAP-DISTANCE (lane/rampsites, site-first re-open;
 # spec ``site-first-reopen-spec.md`` "Open mechanism question") ───────
 # The per-station cap vector (Amendment 2 clause 1) is a Lipschitz bound
-# whose constant VARIES along the chain.  ``free_road_profile``'s
+# whose constant VARIES along the chain.  The retired free-road pass's
 # envelope read it as ``min(cap over the span) x span``, so ONE 1 %
 # station anywhere on a chain priced the WHOLE chain at 1 % — and a
 # chain whose pinned ends then failed that bound was declared infeasible

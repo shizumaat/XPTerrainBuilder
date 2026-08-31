@@ -757,7 +757,8 @@ class BuiltShape:
     # own adjacency read (``lateral_contiguity.station_cap_vector``).
     # THREE readers consume THIS list and no other: the pair pricing
     # (``grade_graph.shape_constraints``), the solve's service DEM-follow
-    # envelope, and ``free_road_profile``'s cap-Lipschitz envelope.  The
+    # envelope, and ``road_transition``'s contact envelope (reader 3 moved
+    # there with the retirement of ``free_road_profile``).  The
     # scalar ``lateral_cap`` above stays as the WAY-LEVEL summary the
     # emitted ``o4_grade_law_cap`` tag carries for a census that has no
     # sidecar vector to read.

@@ -1226,9 +1226,9 @@ def cap_lipschitz_profile(stations_s, values, cap):
     grade limit as a fraction (0.08 = 8 %).  Returns the per-station
     clamped altitude.
 
-    THE ALGORITHM is ``auto_patch.free_road_profile.chain_profile``'s
-    ENVELOPE branch (ported, not imported — that module retires in
-    Batch 2), with every station its own source instead of a pin set,
+    THE ALGORITHM is the retired ``free_road_profile.chain_profile``'s
+    ENVELOPE branch — the one clause of that pass RULINGS 31b keeps —
+    with every station its own source instead of a pin set,
     which is what a core road with no pins means:
 
         ceil(s)  = min over stations ( z_j + cap·|s − s_j| )   (minorant)

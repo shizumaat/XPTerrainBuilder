@@ -251,10 +251,13 @@ class TestPerStationCapUnification:
         assert "station_cap_vector" in src
         assert "from auto_patch.lateral_contiguity import cap_at" in src
 
-    def test_reader_3_the_profile_envelope(self):
+    def test_reader_3_the_transition_envelope(self):
+        """Reader 3 MOVED with the law (spec §3.1/§3.2): the retired
+        free-road pass's cap-vector reader is now the road TRANSITION
+        profiler, so the one derivation still has exactly three."""
         import inspect
-        from auto_patch import free_road_profile as FRP
-        src = inspect.getsource(FRP.solve_free_road_profiles)
+        from auto_patch import road_transition as RT
+        src = inspect.getsource(RT.solve_road_transitions)
         assert "station_cap_vector" in src
         assert "caps=st_caps" in src
         assert "from .lateral_contiguity import cap_at" in src
@@ -266,10 +269,10 @@ class TestPerStationCapUnification:
         import inspect
         from auto_patch import grade_graph as GG
         from auto_patch import lateral_contiguity as LC
-        from auto_patch import free_road_profile as FRP
+        from auto_patch import road_transition as RT
         from pathlib import Path
         assert "cap_at" in inspect.getsource(GG._station_cap_at)
-        assert "cap_at" in inspect.getsource(FRP.solve_free_road_profiles)
+        assert "cap_at" in inspect.getsource(RT.solve_road_transitions)
         anchors = (Path(__file__).resolve().parents[1] / "src"
                    / "auto_patch" / "elevation_per_surface"
                    / "route_profile" / "anchors.py").read_text()
@@ -301,10 +304,10 @@ class TestPerStationCapUnification:
         2.4-19.2 m).  The cap INTEGRATES: the 1 % stretch carries 1 % of
         its own length and the free stretches carry 8 % of theirs.
         """
-        from auto_patch import free_road_profile as FRP
+        from auto_patch import road_transition as RT
         ss = [0.0, 25.0, 50.0, 75.0, 100.0]
         caps = [0.08, 0.08, 0.01, 0.08, 0.08]
-        t, infeasible = FRP.chain_profile(
+        t, infeasible = RT.transition_profile(
             ss, [100.0] * 5, {0: 100.0, 4: 104.0}, 0.08, caps=caps)
         assert not infeasible, (
             "2.0 + 0.25 + 0.25 + 2.0 = 4.5 m of cap-distance carries a "
@@ -316,7 +319,7 @@ class TestPerStationCapUnification:
             assert abs(t[k + 1] - t[k]) <= c * (ss[k + 1] - ss[k]) + 1e-9
         # A rise the chain genuinely cannot carry is still REPORTED —
         # and, under ruling 1, still BUILT to its two welds.
-        _t2, inf2 = FRP.chain_profile(
+        _t2, inf2 = RT.transition_profile(
             ss, [100.0] * 5, {0: 100.0, 4: 105.0}, 0.08, caps=caps)
         assert inf2
         assert _t2[0] == pytest.approx(100.0) and _t2[4] == pytest.approx(105.0)
@@ -325,11 +328,11 @@ class TestPerStationCapUnification:
         """The correction may not move a chain whose caps are all one
         number — that is every chain with no apron-side station, i.e.
         most of them."""
-        from auto_patch import free_road_profile as FRP
+        from auto_patch import road_transition as RT
         ss = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0]
-        scalar, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08)
-        vector, _ = FRP.chain_profile(ss, [103.2] * 7, {6: 108.0}, 0.08,
-                                      caps=[0.08] * 7)
+        scalar, _ = RT.transition_profile(ss, [103.2] * 7, {6: 108.0}, 0.08)
+        vector, _ = RT.transition_profile(ss, [103.2] * 7, {6: 108.0}, 0.08,
+                                          caps=[0.08] * 7)
         assert scalar == vector
 
     def test_the_way_level_gate_DISSOLVED(self):

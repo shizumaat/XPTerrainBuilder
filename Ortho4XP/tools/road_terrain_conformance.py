@@ -50,7 +50,7 @@ THE FRAME, printed on every report:
   ring-adjacency graph).  Its SPINE is that path's ring-centroid
   polyline, so the station coordinate is the road's own PATH, never a
   plan chord — a U-turn is long here however short its chord (the frame
-  ``free_road_profile`` solves in).
+  the road's own profile law is stated in).
 * THE PROFILE IS BINNED BY VERTEX, not by ring: every road vertex is
   projected onto the spine and each ``--bin-m`` (default 25 m) of road
   reports the MEDIAN emitted value and MEDIAN DEM of the vertices in it,

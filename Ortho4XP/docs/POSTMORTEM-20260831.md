@@ -108,3 +108,31 @@ the bridge = `BRIDGE_ROAD_CLEARANCE_M` (5.1 m). Site exemplar:
 * Task B independently confirms Task C: the owner's HECA tile was
   never rebuilt on Aug 30 (no tile_build_times entry; DSF dated
   Aug 29 23:30).
+
+## Task A findings (2026-08-31, appended) — THE ROAD CAP MECHANISM
+
+* CAP SOURCE: `free_road_profile.chain_profile`'s chord branch
+  (free_road_profile.py:262-272 at 605aee75) — commit 7fd69ec1
+  (2026-08-29, "RULING 2 — the road chord binds both ways", the
+  rampsites round — NOT the 08-30 mega-round). A bracketed station
+  takes the pin-to-pin chord EXACTLY, discarding the terrain value,
+  unclamped; with self-pins ON (Amendment 3 §2, every ≥2-station
+  chain), 86 % of all stations (12,503/14,608 at HECA) are chorded —
+  every free road becomes a straight line between its end values.
+  An 8 %-lawful hill emits DEAD FLAT (twinnable in the small).
+* PROOF: O4_FREE_ROAD_PROFILE=0 arm ELIMINATES the class at HECA —
+  >20 m cuttings 885 → 0, worst 49.45 → 10.88 m, ridge follow_ratio
+  0.418 → 0.990, climb at 8.005 % (the cap = the owner's law). The
+  chord limiter compounds (~13 m at ridgeA) but is not the author.
+* OWNER SITE (SPJC way -10702): follow 0.511, ~2 m continuous cutting
+  for a kilometre, deepest 10.61 m, emitted grade median 0.44 % where
+  the terrain's own steps are 81.6 % cap-lawful. On the GENTLE
+  airport: whole-airport cuts >5 m 51 → 95 vs the Aug-29 lane control.
+* INSTRUMENT LANDED: tools/road_terrain_conformance.py (the 31a
+  terrain-conformance instrument), INDEX row + 9 twins, harness
+  imports only.
+* OWED (blocked on owner's build): the chordraise single-clause arm —
+  decides whether Phase 1 reverts ONE CLAUSE (restore raise-only:
+  the chord may lift a sagging road, never cut lawful terrain-
+  following, clamped into the cap envelope) or the pass's self-pin
+  model; plus weldoff/bandoff arms.

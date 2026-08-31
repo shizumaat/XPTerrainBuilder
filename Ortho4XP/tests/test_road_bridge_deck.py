@@ -884,3 +884,64 @@ class TestDeckLevelReadIsRobust:
         rec = [r for r in deck.candidates_of(layout)
                if r["way_id"] == "W1"][0]
         assert deck._deck_level(layout, rec) is None
+
+
+class TestRampCutStopsAtTheDeckFootprint:
+    """§3's "no tunnel-ramp cut, CLEARANCE ANNULUS or covered-span mask
+    may remove it", enforced where it works: the FOOTPRINT.
+
+    TRACED (round 6, ``O4_COVERAGE_PROBE`` over the six unpaved
+    stations): every one is owned by ``groundside_pavement#1853`` at
+    ``post-groundside-sep`` — the last seam before the tunnel pass — and
+    gone after it.  The ramp cut is the remover, it runs BEFORE the
+    covered-stretch sever, and the per-shape exemption cannot see it
+    because the ground under a deck is one large groundside lot that
+    merely CONTAINS the deck strip.
+    """
+
+    def test_the_cut_footprint_is_trimmed_at_the_deck(self):
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges._tunnel_ramp_pavement_cut)
+        assert "terrain_deck_union as _tdu_cut" in src
+        assert "cut_footprint.difference(_deck_u_cut)" in src
+
+    def test_the_trim_precedes_the_cut(self):
+        import inspect
+        from auto_patch import bridges
+        src = inspect.getsource(bridges._tunnel_ramp_pavement_cut)
+        assert src.index("cut_footprint.difference(_deck_u_cut)") < \
+            src.index("n_cut = cut_pavement_over_footprint("), (
+            "trimming after the cut would be too late — the ground is "
+            "already taken")
+
+    def test_a_host_containing_the_deck_survives_a_footprint_cut(self):
+        """The measurement that makes the footprint form necessary: the
+        per-shape test says "not a deck", the footprint trim saves it."""
+        from auto_patch.bridges import cut_pavement_over_footprint
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        host = BuiltShape(
+            polygon=_rect(-60.0, 200.0, -40.0, 40.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[601.0] * 4)
+        assert not deck.is_deck_shape(host, layout), (
+            "the host merely CONTAINS the deck — per-shape cannot see it")
+        layout.shapes.append(host)
+        ramp_cut = _rect(10.0, 70.0, -8.0, 8.0)
+        trimmed = ramp_cut.difference(deck.terrain_deck_union(layout))
+        before = host.polygon.area
+        cut_pavement_over_footprint(
+            layout, trimmed, cut_roles={ROLE_GROUNDSIDE_PAVEMENT})
+        kept = [s for s in layout.shapes
+                if s.role == ROLE_GROUNDSIDE_PAVEMENT]
+        assert kept, "the host must survive"
+        assert sum(s.polygon.area for s in kept) > before - ramp_cut.area, (
+            "the deck stretch must NOT be taken from the host")
+
+    def test_with_no_deck_the_cut_footprint_is_unchanged(self):
+        """Every airport without a deck cuts exactly as before."""
+        layout = _make(bridge_tag=None)
+        deck.publish_candidates(layout)
+        assert deck.terrain_deck_union(layout) is None

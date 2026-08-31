@@ -6581,6 +6581,46 @@ def _tunnel_ramp_pavement_cut(layout: "PavementLayout",
             cut_footprint = ramp_union.buffer(clearance_m, join_style=2)
         except _GEOM_EXC:
             cut_footprint = ramp_union
+    # ── §3 (RULINGS 2026-08-30c): "no tunnel-ramp cut, CLEARANCE
+    # ANNULUS or covered-span mask may remove it" — enforced on the
+    # FOOTPRINT, which is the only level that works.  The per-shape
+    # exemption inside ``cut_pavement_over_footprint`` asks whether a
+    # shape is MOSTLY the deck, and the ground under a deck is normally
+    # a large groundside lot that merely CONTAINS the deck strip: at
+    # LEMD the whole span sits inside one ``groundside_pavement`` piece
+    # that reaches far beyond it, so the per-shape test says "not a
+    # deck" and the cut takes the strip anyway.
+    #
+    # TRACED (round 6, ``O4_COVERAGE_PROBE`` over the six unpaved
+    # stations): every one is owned by ``groundside_pavement#1853`` at
+    # ``post-groundside-sep`` — the last seam before the tunnel pass —
+    # and gone after it.  THIS cut is the remover, and it runs BEFORE
+    # the covered-stretch sever, so the ground goes first and the ramps
+    # that justified taking it are severed immediately afterwards,
+    # leaving the hole the owner sees (30.5-49.3 and 57.7-67.9 m of the
+    # 84.2 m span, matching the ramp footprints at 29.3-50.6 and
+    # 58.8-66.3 m).
+    try:
+        from .road_bridge_deck import terrain_deck_union as _tdu_cut
+        _deck_u_cut = _tdu_cut(layout)
+    except Exception:                                    # pragma: no cover
+        _deck_u_cut = None
+    if _deck_u_cut is not None:
+        try:
+            _before_a = float(cut_footprint.area)
+            cut_footprint = cut_footprint.difference(_deck_u_cut)
+            if cut_footprint.is_empty:
+                return airside_gate_union
+            if _before_a - float(cut_footprint.area) > 1.0:
+                UI.vprint(1,
+                    f"  [bridge-deck] §3: the ramp cut's footprint "
+                    f"({_before_a:,.0f} m²) is trimmed to "
+                    f"{float(cut_footprint.area):,.0f} m² at the road "
+                    f"bridge deck(s) — the cut and its clearance annulus "
+                    f"stop at one deck edge and resume at the other, so "
+                    f"the deck's own ground is never taken.")
+        except _GEOM_EXC:                                # pragma: no cover
+            pass
     n_cut = cut_pavement_over_footprint(
         layout, cut_footprint, cut_roles=_tunnel_ramp_cut_roles())
     if not n_cut:

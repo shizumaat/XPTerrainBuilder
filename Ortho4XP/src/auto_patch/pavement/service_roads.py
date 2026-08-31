@@ -405,6 +405,8 @@ def build_service_road_network(
         min_len: float,
         mouth_join: bool | None = None,
         covered_span=None,
+        contact_scope=None,
+        ownership_out: dict | None = None,
 ) -> tuple[list[tuple[Polygon, LineString, str, str]],
            list[tuple[Polygon, str, str]]]:
     """Build the ground-vehicle network from ``centerlines``
@@ -425,6 +427,27 @@ def build_service_road_network(
     MOUTH fills of :func:`mouth_fills` to the corridor before the split, so
     the corridor JOINS aircraft pavement at its mouths (ruling 1) while its
     body keeps the 1.0 m clearance.  ``False`` restores the unweldable gap.
+
+    ``contact_scope`` (spec §3.3, THE OWNERSHIP SHRINK) is the region
+    auto_patch still owns: within ``SERVICE_ROAD_PAVEMENT_NEAR_M`` of
+    aircraft pavement, or of a bridge/tunnel-tagged feed way.  Every
+    external piece is CLIPPED to it, so what this function mints is
+    CONTACT STUBS and bridge/tunnel ground — never a general road
+    course.  The general course is the CORE's (RULINGS 31b "leverage the
+    core"): ``include_roads`` levels it against the shifted DEM under the
+    same 8 % clamp, and the ``apt_area`` subtraction hands it exactly the
+    ground this clip releases (census #104 — the two are one seam, which
+    is why the trim lives HERE, at the single derivation site, and not
+    as a veto in each of the road family's ~40 downstream writers).
+    ``None`` keeps every course (unit fixtures, and any caller with no
+    pavement to be near).
+
+    ``ownership_out`` (spec §3.4, the census MIGRATION GUARD MIRROR)
+    receives the declared migration: the external centerline length
+    offered, the length kept as contact stubs, and the length released
+    to the core.  A census that shrinks is then provably THE SHRINK and
+    not a silent drop (census #90 is the inbound twin; this is the
+    outbound one).
 
     ``covered_span`` (§T7) is the COVERED-SPAN MASK: the ground the
     mapped bores' roofed stretches occupy.  NEITHER a rect NOR a fill is
@@ -463,6 +486,17 @@ def build_service_road_network(
     # §F5: each piece carries ITS OWN width from here on.  ``width`` is
     # the DEFAULT for a route that states none, which is every route in
     # an untagged network — so those emit byte-identically.
+    scope = (contact_scope
+             if contact_scope is not None
+             and not getattr(contact_scope, "is_empty", True) else None)
+    scope_prep = None
+    if scope is not None:
+        try:
+            from shapely.prepared import prep as _prep_scope
+            scope_prep = _prep_scope(scope)
+        except _GEOM_EXC:                                # pragma: no cover
+            scope = None
+    offered_m = kept_m = 0.0
     ext: list[tuple[LineString, str, float]] = []
     for line, name, own_w in ((_line_of(c), _name_of(c),
                                _width_of(c, width)) for c in centerlines):
@@ -477,9 +511,29 @@ def build_service_road_network(
                 g = g.difference(covered)
             except _GEOM_EXC:                            # pragma: no cover
                 pass
+        offered_m += float(getattr(g, "length", 0.0) or 0.0)
+        # ── THE OWNERSHIP SHRINK (spec §3.3) ─────────────────────────
+        # The patch keeps the CONTACT, the core keeps the course.
+        if scope is not None:
+            try:
+                if not scope_prep.intersects(g):
+                    continue          # wholly the core's road now
+                g = g.intersection(scope)
+            except _GEOM_EXC:                            # pragma: no cover
+                continue
         for piece in _as_linestrings(g):
             if piece.length >= 1.0:
                 ext.append((piece, name, own_w))
+                kept_m += float(piece.length)
+    if ownership_out is not None:
+        ownership_out.update({
+            "offered_m": round(offered_m, 2),
+            "kept_m": round(kept_m, 2),
+            "released_to_core_m": round(max(offered_m - kept_m, 0.0), 2),
+            "scoped": scope is not None,
+            "courses": len(centerlines),
+            "stub_pieces": len(ext),
+        })
     if not ext:
         return rects, junctions
 

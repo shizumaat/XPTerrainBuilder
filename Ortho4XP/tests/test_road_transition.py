@@ -211,6 +211,91 @@ def test_the_pass_publishes_its_report():
     assert rep and rep["scope_m"] == float(SERVICE_ROAD_PAVEMENT_NEAR_M)
 
 
+# ── THE OWNERSHIP SHRINK (spec §3.3/§3.4) ───────────────────────────────
+
+def _mint(lines, pav, **kw):
+    from auto_patch.pavement.service_roads import build_service_road_network
+    return build_service_road_network(lines, pav, width=6.0, min_len=8.0,
+                                      **kw)
+
+
+def test_without_a_scope_the_mint_is_unchanged():
+    """``contact_scope=None`` keeps every course — the fixture path, and
+    any caller with no airfield to be near."""
+    pav = _rect(0.0, 0.0, 40.0, 40.0)
+    far = geometry.LineString([(200.0, 20.0), (400.0, 20.0)])
+    rects, _j = _mint([(far, "far")], pav)
+    assert rects, "an unscoped mint still paves the whole course"
+
+
+def test_a_course_beyond_the_contact_scope_leaves_the_patch():
+    """THE SHRINK.  A road 200 m from any pavement is the CORE's now:
+    auto_patch mints nothing for it, so no patch pavement, no road-family
+    census rows, and the core's apt_area subtraction (census #104) hands
+    it exactly this ground."""
+    pav = _rect(0.0, 0.0, 40.0, 40.0)
+    far = geometry.LineString([(200.0, 20.0), (400.0, 20.0)])
+    scope = pav.buffer(float(SERVICE_ROAD_PAVEMENT_NEAR_M))
+    own: dict = {}
+    rects, junctions = _mint([(far, "far")], pav, contact_scope=scope,
+                             ownership_out=own)
+    assert not rects and not junctions
+    assert own["released_to_core_m"] == pytest.approx(200.0, abs=1.0)
+    assert own["kept_m"] == 0.0
+
+
+def test_the_contact_stub_is_kept_and_the_rest_released():
+    """A road running out of an apron keeps its CONTACT — the stub the
+    transition profiler owns — and releases its course."""
+    pav = _rect(0.0, 0.0, 40.0, 40.0)
+    road = geometry.LineString([(40.0, 20.0), (300.0, 20.0)])
+    scope = pav.buffer(float(SERVICE_ROAD_PAVEMENT_NEAR_M))
+    own: dict = {}
+    rects, junctions = _mint([(road, "svc")], pav, contact_scope=scope,
+                             ownership_out=own)
+    assert rects or junctions, "the contact stub must still be paved"
+    # everything the mint keeps is inside the scope, to the metre
+    for r, _axis, _role, _name in rects:
+        assert r.difference(scope).area < 1.0
+    assert 0.0 < own["kept_m"] < 40.0
+    assert own["released_to_core_m"] > 200.0
+    assert own["scoped"] is True
+
+
+def test_the_scope_is_pavement_plus_asserted_bridge_and_tunnel_ways():
+    """The seam with the CORE's own exclusion (census #106): the core
+    refuses to level a way that ASSERTS bridge/tunnel and levels every
+    other one, so auto_patch keeps exactly the tagged spans.  A
+    ``bridge=no`` way is an ordinary road and belongs to the core."""
+    from auto_patch.pipeline import _road_contact_scope
+
+    def to_m(lon, lat):
+        return (lon * 100000.0, lat * 100000.0)
+
+    net = types.SimpleNamespace(
+        nodes={1: (0.0, 5.0), 2: (0.0, 5.02),      # (lat, lon)
+               3: (0.0, 9.0), 4: (0.0, 9.02)},
+        ways=[("w1", [1, 2], {"highway": "service", "bridge": "yes"}),
+              ("w2", [3, 4], {"highway": "service", "bridge": "no"})])
+    lay = types.SimpleNamespace(airport_road_network=net)
+    scope = _road_contact_scope(lay, None, to_m)
+    assert scope is not None
+    assert scope.contains(geometry.Point(500000.0, 0.0))     # the bridge
+    assert not scope.contains(geometry.Point(900000.0, 0.0))  # bridge=no
+
+
+def test_the_declaration_reaches_the_sidecar_reader():
+    """Spec §3.4: the census must be able to READ the declared migration
+    — otherwise a shrunken road population is indistinguishable from a
+    silent drop (the OTHH −639 blindness verdict, census #90)."""
+    sys.path.insert(0, str(_ROOT / "tools"))
+    import check_grade as CG
+    assert "road_ownership" in CG.SIDECAR_EVIDENCE_KEYS
+    assert "road_ownership" not in CG.SIDECAR_LAW_KEYS
+    src = (_ROOT / "src" / "auto_patch" / "layout.py").read_text()
+    assert '"road_ownership": getattr(self, "_road_ownership", None),' in src
+
+
 # ── THE RETIREMENT IS REAL ──────────────────────────────────────────────
 
 def test_free_road_profile_is_gone():

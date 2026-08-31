@@ -6846,6 +6846,19 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
     # (warm-vs-cold has moved terrain 12 m).  Read by
     # ``tools/corridor_axis_coverage.py --free-ends``.
     "svc_free_ends",
+    # THE ROAD-OWNERSHIP DECLARATION (linear-transport redesign spec
+    # §3.4, the census MIGRATION GUARD MIRROR).  auto_patch mints
+    # CONTACT STUBS only — the general road course is the core's
+    # ``include_roads`` (RULINGS 2026-08-31b) — so EVERY road-family law
+    # population in this census is smaller than it was, by construction
+    # and not by accident.  These are the numbers that make that
+    # provable: the centerline length offered to the mint, the length
+    # kept inside the 25 m contact / bridge-tunnel scope, and the length
+    # RELEASED to the core.  EVIDENCE, never law input: the released
+    # roads are priced by ``tools/road_terrain_conformance.py
+    # --levelled-roads`` off the tile's own clamp sidecar, which is the
+    # only instrument that can see them at all (census #91).
+    "road_ownership",
     # THE FLAT-SITE EVIDENCE RECORD (spec docs/specs/
     # flat-site-detector-spec.md section 2).  The detector's four
     # signals + verdict, measured at the build's DEM-in-hand point:

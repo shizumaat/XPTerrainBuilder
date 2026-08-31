@@ -885,6 +885,65 @@ _WELD_BEFORE_PROJECTION = (
     os.environ.get("O4_WELD_BEFORE_PROJECTION", "1") != "0")
 
 
+def _road_contact_scope(layout, pav_union, to_m):
+    """THE REGION auto_patch STILL OWNS OF THE ROAD FAMILY (spec §3.3).
+
+    Two parts, and they are the two ownerships RULINGS 31b leaves with
+    auto_patch after the core takes general roads:
+
+    (a) THE TRANSITION — within ``SERVICE_ROAD_PAVEMENT_NEAR_M`` (25 m)
+        of aircraft pavement.  The same constant the mint already used
+        to decide which OSM small roads are airport roads at all, and
+        the same one ``road_transition`` profiles inside, so the region
+        the patch paves and the region it profiles are ONE region.
+    (b) BRIDGE / TUNNEL GROUND — within the same distance of a feed way
+        that ASSERTS ``bridge`` or ``tunnel``.  This is the exact
+        complement of the core's own exclusion (``O4_Vector_Map``'s
+        ``tags_for_exclusion``, census #106): the core levels every
+        approach and refuses the tagged span; auto_patch keeps the
+        tagged span and lets the approach go.  Stated as one seam in
+        two files rather than two thresholds that can drift.
+
+    ``None`` when there is no pavement and no tagged way — the caller
+    then mints as before (unit fixtures with no airfield).
+    """
+    from .config import SERVICE_ROAD_PAVEMENT_NEAR_M as _NEAR
+    parts = []
+    if pav_union is not None and not pav_union.is_empty:
+        try:
+            parts.append(pav_union.buffer(float(_NEAR)))
+        except _GEOM_EXC:                                  # pragma: no cover
+            pass
+    net = getattr(layout, "airport_road_network", None)
+    ways = getattr(net, "ways", None) or ()
+    if ways:
+        from O4_OSM_Utils import way_asserts_any_tag
+        nodes = getattr(net, "nodes", None) or {}
+        spans = []
+        for (_wid, _nds, _tags) in ways:
+            if not way_asserts_any_tag(_tags, ("bridge", "tunnel")):
+                continue
+            pts = [to_m(nodes[n][1], nodes[n][0]) for n in _nds
+                   if n in nodes]
+            if len(pts) >= 2:
+                try:
+                    spans.append(LineString(pts))
+                except _GEOM_EXC:                          # pragma: no cover
+                    continue
+        if spans:
+            try:
+                parts.append(unary_union(spans).buffer(float(_NEAR)))
+            except _GEOM_EXC:                              # pragma: no cover
+                pass
+    if not parts:
+        return None
+    try:
+        scope = parts[0] if len(parts) == 1 else unary_union(parts)
+        return None if scope.is_empty else scope
+    except _GEOM_EXC:                                      # pragma: no cover
+        return None
+
+
 def gap_spine_stand_down_solve(*, layout, icao, solve, rebuild):
     """THE GAP-SPINE BRIDGE STAND-DOWN — owner ruling 2026-08-27 "2",
     ``docs/specs/gap-spine-bridge-stand-down-spec.md`` Amendment 1.
@@ -4098,10 +4157,35 @@ def build_airport_pavement(icao: str, xplane_root: str,
     from . import covered_span as _covered_span
     _covered_span.publish(layout)
     if _service_lines:
+        # ── THE OWNERSHIP SHRINK (spec §3.3, RULINGS 31b) ────────────
+        # auto_patch mints CONTACT STUBS, not road courses: the region
+        # it still owns is within SERVICE_ROAD_PAVEMENT_NEAR_M of
+        # aircraft pavement (the transition — spec §3.2, the same
+        # constant ``road_transition`` profiles inside) or of a
+        # bridge/tunnel-tagged feed way (auto_patch's (b)/(c), and the
+        # exact complement of the core's own bridge/tunnel exclusion —
+        # census #106, so the two owners' sets meet without a gap).
+        # Everything else is the CORE's: ``include_roads`` levels it
+        # under the same 8 % clamp, and the ``apt_area`` subtraction
+        # (census #104) hands it precisely the ground released here.
+        _own: dict = {}
+        _scope = _road_contact_scope(layout, pav_union, to_m)
         _svc_rects, _svc_junctions = build_service_road_network(
             _service_lines, pav_union,
             width=SERVICE_ROAD_WIDTH_M, min_len=MIN_SERVICE_STRIP_LEN_M,
-            covered_span=_covered_span.mask_of(layout))
+            covered_span=_covered_span.mask_of(layout),
+            contact_scope=_scope, ownership_out=_own)
+        _own["near_m"] = float(SERVICE_ROAD_PAVEMENT_NEAR_M)
+        layout._road_ownership = _own
+        UI.vprint(1,
+            f"  [pav-builder] {icao}: road OWNERSHIP — "
+            f"{_own.get('kept_m', 0.0):.0f} m of centerline kept as "
+            f"contact stubs / bridge-tunnel ground inside "
+            f"{SERVICE_ROAD_PAVEMENT_NEAR_M:g} m, "
+            f"{_own.get('released_to_core_m', 0.0):.0f} m RELEASED to the "
+            f"core's include_roads (of {_own.get('offered_m', 0.0):.0f} m "
+            f"offered across {_own.get('courses', 0)} course(s)) — the "
+            f"census population this patch declares gone (spec §3.4).")
         for _rect, _axis, _role, _ref in _svc_rects:
             layout.shapes.append(BuiltShape(
                 polygon=_rect, role=_role, ref=_ref, source_axis=_axis,

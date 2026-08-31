@@ -3819,6 +3819,18 @@ class PavementLayout:
             # terrain 12 m).  Empty list on a build with no free end;
             # ``None`` when no elevations were solved at all.
             "svc_free_ends": getattr(self, "_svc_free_end_records", None),
+            # THE ROAD-OWNERSHIP DECLARATION (spec §3.4, the census
+            # MIGRATION GUARD MIRROR).  auto_patch now mints CONTACT
+            # STUBS only and the core's ``include_roads`` owns the
+            # general course, so every road-family law population in the
+            # census shrinks.  This is the outbound twin of
+            # ``tests/test_harness``'s inbound role-migration guard
+            # (census #90): the centerline length OFFERED to the mint,
+            # the length KEPT inside the contact/bridge-tunnel scope and
+            # the length RELEASED to the core — so a census that shrinks
+            # is provably THE DECLARED SHRINK and not a silent drop.
+            # ``None`` when no road network was minted at all.
+            "road_ownership": getattr(self, "_road_ownership", None),
             # THE ROAD BRIDGE DECK's own evidence (RULINGS 2026-08-30c
             # §6 — "refused ... with a named log line and sidecar
             # evidence").  One row per mapped bridge candidate: its

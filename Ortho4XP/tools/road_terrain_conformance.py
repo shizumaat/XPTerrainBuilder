@@ -569,6 +569,18 @@ def main(argv=None) -> int:
                        min_span_m=a.min_span, top=a.top)
             if not top:
                 print("    none — reported, never zero-by-omission")
+            else:
+                _fr = [c["follow_ratio"] for c in top
+                       if c["follow_ratio"] is not None]
+                _cut = [c["cut_max_m"] for c in top
+                        if c["cut_max_m"] is not None]
+                _dev = [c["dev_median_m"] for c in top
+                        if c["dev_median_m"] is not None]
+                print(f"    OVER THE {len(top)} SELECTED CHAINS: median "
+                      f"follow_ratio {ADR._median(_fr):.2f}, median "
+                      f"cut_max {ADR._median(_cut):.2f} m, median "
+                      f"|emitted-DEM| {ADR._median(_dev):.2f} m "
+                      f"(an aggregate of the SELECTION, not of the airport)")
             for k, ch in enumerate(top, 1):
                 la, lo = ch["ll"][0]
                 lb, lob = ch["ll"][-1]

@@ -926,18 +926,29 @@ def split_shapes_at_deck(layout, icao: str = "") -> int:
         if not in_parts or not out_parts:
             out.append(s)                # wholly in, wholly out, or slivers
             continue
+        # A VALUELESS SHAPE STILL SPLITS.  At the mint a service_junction
+        # fill carries NO ``node_altitudes`` at all — it is pure geometry
+        # until the solve — so requiring values here refused every split
+        # at the one moment §2 says the deck is already road.  MEASURED
+        # (round 9, build ``lemdr9``): the split census saw the straddler
+        # at BOTH call sites (``service_junction`` 1,179 of 5,257 m²,
+        # 0.22) and split nothing, because of this gate and nothing else.
+        # With no values there is nothing to resample and the parts carry
+        # ``None``, exactly as the shape did.
         ring, alts = _ring_and_altitudes(s)
-        if ring is None or not alts:
-            out.append(s)
-            continue
-        open_ring = ring[:-1] if (ring and ring[0] == ring[-1]) else ring
+        has_values = bool(ring is not None and alts)
+        open_ring = (ring[:-1] if (ring and ring[0] == ring[-1]) else ring) \
+            if has_values else None
         made = []
         for part in in_parts + out_parts:
-            na = _resample_node_altitudes_nn(
-                part, open_ring, list(alts), interior_edge_project=True)
-            if na is None:
-                made = []
-                break
+            na = None
+            if has_values:
+                na = _resample_node_altitudes_nn(
+                    part, open_ring, list(alts),
+                    interior_edge_project=True)
+                if na is None:
+                    made = []
+                    break
             made.append(BuiltShape(
                 polygon=part, role=s.role, ref=s.ref, node_altitudes=na,
                 synthesised_road_corridor=getattr(

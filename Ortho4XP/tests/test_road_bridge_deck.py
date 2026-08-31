@@ -1162,3 +1162,68 @@ class TestSplitAtMint:
             node_altitudes=[604.0] * 4)]
         assert deck.split_shapes_at_deck(layout) == 1
         assert deck.split_shapes_at_deck(layout) == 0
+
+
+class TestValuelessShapesStillSplit:
+    """At the MINT a ``service_junction`` fill carries no
+    ``node_altitudes`` at all — it is pure geometry until the solve.
+
+    MEASURED (round 9, build ``lemdr9``): the split census saw the
+    straddler at BOTH call sites (``service_junction``, 1,179 of
+    5,257 m², fraction 0.22) and split nothing, because the splitter
+    required values.  That is the one moment §2 says the deck is already
+    road, so the requirement was exactly backwards.
+    """
+
+    def _valueless(self, layout):
+        from auto_patch.layout import ROLE_SERVICE_JUNCTION
+        layout.shapes = [BuiltShape(
+            polygon=_rect(-60.0, 200.0, -20.0, 20.0),
+            role=ROLE_SERVICE_JUNCTION, ref="service",
+            synthesised_road_corridor=True)]
+
+    def test_a_valueless_straddler_splits(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._valueless(layout)
+        assert deck.split_shapes_at_deck(layout) == 1
+        assert len(layout.shapes) >= 2
+
+    def test_the_parts_carry_no_values_either(self):
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._valueless(layout)
+        deck.split_shapes_at_deck(layout)
+        for s in layout.shapes:
+            assert not s.node_altitudes, (
+                "a valueless shape's parts must stay valueless — the "
+                "split invents no elevation")
+
+    def test_the_strip_is_a_deck_and_keeps_its_road_role(self):
+        from auto_patch.layout import ROLE_SERVICE_JUNCTION
+        layout = _make()
+        deck.publish_candidates(layout)
+        self._valueless(layout)
+        deck.split_shapes_at_deck(layout)
+        u = deck.terrain_deck_union(layout)
+        strips = [s for s in layout.shapes
+                  if s.polygon.intersection(u).area
+                  >= 0.5 * s.polygon.area]
+        assert strips, "the strip must exist"
+        assert all(s.role == ROLE_SERVICE_JUNCTION for s in strips)
+        assert all(deck.is_deck_shape(s, layout) for s in strips)
+
+    def test_a_valued_shape_still_resamples(self):
+        """The valued path is unchanged — both sides keep the ring's own
+        values, so the split still mints no step."""
+        from auto_patch.layout import ROLE_GROUNDSIDE_PAVEMENT
+        layout = _make()
+        deck.publish_candidates(layout)
+        layout.shapes = [BuiltShape(
+            polygon=_rect(-60.0, 200.0, -20.0, 20.0),
+            role=ROLE_GROUNDSIDE_PAVEMENT, ref="groundside",
+            node_altitudes=[604.0] * 4)]
+        assert deck.split_shapes_at_deck(layout) == 1
+        vals = {round(float(a), 3)
+                for s in layout.shapes for a in (s.node_altitudes or [])}
+        assert vals == {604.0}

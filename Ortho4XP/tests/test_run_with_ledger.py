@@ -161,6 +161,98 @@ def test_history_attributes_wall_to_a_round(ledger_repo):
     assert "round r2: 1 run(s)" in everything
 
 
+# ── THE TREE HASH COVERS EXACTLY CODE_PATHS ────────────────────────────
+#
+# It is a CODE hash: docs, STATUS and scratch churn must not move it.  It
+# did, until 2026-08-30: the temporary index was seeded with
+# ``git read-tree HEAD`` (the WHOLE tree) and then ``git add -A`` only over
+# CODE_PATHS, so ``git write-tree`` hashed the HEAD ``docs/`` blobs too.
+# The two-line ``docs/RULINGS.md`` commit 5b552ae1 moved the key
+# 2f56b778… → b1ec5ef8… with ``git diff -- src tests tools`` empty, and the
+# artifact ledger refused to store a valid HECA control (CONTAMINATED-KEY),
+# costing the next lane a needless rebuild.  Both halves are asserted: a
+# docs change must NOT move the hash, a code change MUST.
+
+def _tool_module():
+    """The ledger tool imported in-process, for hash-level assertions."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rwl_tree_hash", TOOL)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _commit(repo, message):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                    "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t",
+                    "commit", "-q", "-m", message],
+                   cwd=repo, check=True, capture_output=True)
+
+
+def test_docs_churn_does_NOT_move_the_code_tree_hash(ledger_repo):
+    repo, _ledger = ledger_repo
+    rwl = _tool_module()
+    (repo / "docs").mkdir()
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\n")
+    (repo / "STATUS.md").write_text("status\n")
+    _commit(repo, "seed docs")
+    before = rwl.code_tree_hash(str(repo))
+
+    (repo / "docs" / "RULINGS.md").write_text("ruling one\nruling two\n")
+    assert rwl.code_tree_hash(str(repo)) == before, (
+        "an UNCOMMITTED docs edit moved the code tree hash")
+    _commit(repo, "docs: one more ruling")
+    assert rwl.code_tree_hash(str(repo)) == before, (
+        "a DOCS-ONLY COMMIT moved the code tree hash — the 5b552ae1 "
+        "precedent: every ledger key invalidates and valid arms are "
+        "refused with CONTAMINATED-KEY while no code changed")
+
+    (repo / "STATUS.md").write_text("status\nmore status\n")
+    _commit(repo, "status churn")
+    assert rwl.code_tree_hash(str(repo)) == before
+
+
+def test_a_code_change_DOES_move_the_code_tree_hash(ledger_repo):
+    """The other half: a hash that ignored docs by ignoring everything
+    would be just as wrong, silently serving stale results."""
+    repo, _ledger = ledger_repo
+    rwl = _tool_module()
+    before = rwl.code_tree_hash(str(repo))
+
+    (repo / "src" / "module.py").write_text("VALUE = 2\n")
+    uncommitted = rwl.code_tree_hash(str(repo))
+    assert uncommitted != before, "an uncommitted src edit did not move it"
+    _commit(repo, "src change")
+    assert rwl.code_tree_hash(str(repo)) == uncommitted, (
+        "committing an already-hashed edit moved the hash — the hash reads "
+        "the working tree, and commit is not a code change")
+
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_x.py").write_text("def test_x(): pass\n")
+    assert rwl.code_tree_hash(str(repo)) != uncommitted, (
+        "a new test file did not move it")
+
+    (repo / "tools" / "t.py").write_text("print(1)\n")
+    _commit(repo, "tools change")
+    assert rwl.code_tree_hash(str(repo)) not in (before, uncommitted)
+
+
+def test_a_docs_commit_does_NOT_invalidate_the_ledger(ledger_repo):
+    """End to end, the way the bug was met: a docs commit lands mid-round
+    and the already-passing run must still HIT."""
+    repo, ledger = ledger_repo
+    command = [sys.executable, "-c", "print('expensive')"]
+    assert "MISS" in _run_tool(repo, [], command).stdout
+    (repo / "docs").mkdir()
+    (repo / "docs" / "RULINGS.md").write_text("a two-line ruling\nlanded\n")
+    _commit(repo, "RULINGS: a ruling")
+    second = _run_tool(repo, [], command)
+    assert "HIT" in second.stdout, (
+        "a docs-only commit re-ran an identical passing command")
+    assert len(ledger.read_text().splitlines()) == 1
+
+
 def test_artifact_body_hash_ignores_provenance(ledger_repo, tmp_path):
     repo, ledger = ledger_repo
     osm_a = tmp_path / "a.osm"

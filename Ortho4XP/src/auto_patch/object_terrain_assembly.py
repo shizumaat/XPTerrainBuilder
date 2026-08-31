@@ -4895,6 +4895,116 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         owned_near_floor.intersection(envelope).buffer(
                             _TUNNEL_FLOOR_OWNED_CLEARANCE_M,
                             join_style=2, mitre_limit=2.0))
+                # ── THE YIELDING PAD'S RING IS STILL A BOUNDARY ───────
+                # (LEMD T4S fallout, RULINGS 2026-08-30k; spec
+                # ``docs/specs/lemd-t4s-structure-walls-fallout-spec.md``)
+                #
+                # Amendment 3 above yields the pad's flattening
+                # AUTHORITY, and that is unchanged here: the pan is still
+                # born THROUGH the pad's INTERIOR, which is the whole
+                # point of the clip.  What the yield never meant is that
+                # the pan may stand ON the pad's own RING.  A pan edge
+                # lying on another shape's boundary bucket-shares its
+                # nodes — the hazard ``_TUNNEL_WALL_SETBACK_M`` is named
+                # for in the wall band below — and a shared node carries
+                # ONE value: this function's own contract is that the
+                # trench role "wins the LAW-tier weld at any shared
+                # vertex", so the PAD's ring node reads the FLOOR and the
+                # pad stops being flat.  That is exactly the failure the
+                # retired ``BASIN_RAMP_REACH_PLATE`` arm produced
+                # (``config.py``: "building8 stops being flat (600.51 ->
+                # [587.75, 600.49])").
+                #
+                # It could not bite while a pad was its structure's
+                # CONVEX HULL: the hull enclosed the facility and its ring
+                # stood clear of the body.  Since ``building79``
+                # (2026-08-30e/h) a pad is the structure's own plan
+                # SILHOUETTE, and at LEMD's T4S shell that silhouette and
+                # the pit body are two projections of ONE authored solid,
+                # so the rings genuinely COINCIDE — no weld pass is
+                # involved, and the post-solve geometry-seam ledger
+                # confirms it (every seam INERT for this shape).
+                # MEASURED on the round-4 matched control (artifact-ledger
+                # body 839eac5c1c55): 13 of ``building3``'s 110 emitted
+                # ring nodes sit at distance 0.000 m on the floor pan's
+                # boundary and carry 587.75 m against the pad's own
+                # 599.69 m — 129 of LEMD's 141 airside ``within_shape``
+                # rows, worst 11.94 m at 16.1 % against a 1.0 % cap, at
+                # 40.49239,-3.56990.
+                #
+                # So the pan takes from a YIELDING pad's ring the same
+                # node-split setback the wall band already takes from
+                # every shape it meets.  The pad's AREA still yields; only
+                # its ring LINE is not the pan's to stand on, and the
+                # vacated collar is the pit WALL — the same gap the band
+                # leaves against its own neighbours.  Pads seated AT this
+                # floor are exempt: their value IS the floor, so a shared
+                # node there is a weld at one value, not a step.
+                #
+                # SCOPED TO THE CONTACT, and that scope is load-bearing:
+                # only the stretch of a pad ring lying within the setback
+                # of the PAN'S OWN BOUNDARY can share a node with it.  A
+                # pad floating wholly INSIDE the pit (``INSIDE_PAD``, the
+                # §1.1 limb) has no boundary to share and must read the
+                # bare facility's pan exactly — collaring its whole ring
+                # punched a 1.2 m slit through the pan's interior, which
+                # is the erasure Amendment 3 exists to stop wearing a new
+                # hat.  Cutting only at the contact is always a BITE FROM
+                # THE EDGE, never a hole.
+                #
+                # APPLIED TO THE PAN AS FINALLY CONSTITUTED — after the
+                # §2 CARVE PLATE is unioned in, not before.  Measured:
+                # run before the union it cleared the 5 shared nodes on
+                # the body's own edge and left 8 on the carve plate's
+                # (LEMD arm ``9a8a77aa5ca8``: building3 129 -> 29 rows,
+                # the two corner runs at the ramp mouth surviving).  The
+                # plate is pan, carries the pan's floor value and shares
+                # nodes exactly as the body's edge does, so the rule is
+                # one rule over one final boundary.
+                def _stand_off_yield_rings(_geom):
+                    """The pan, set back from every YIELDING pad's ring
+                    where it MEETS it.  Returns ``_geom`` unchanged when
+                    nothing yields, nothing touches, or the cut would
+                    empty the pan."""
+                    _ids = authority_yield_pad_ids - floor_seated_pad_ids
+                    if not _ids or _geom is None or _geom.is_empty:
+                        return _geom
+                    _rings = [
+                        entry[1].boundary
+                        for entry in _owned_entries_near(body_bounds)
+                        if id(entry[2]) in _ids
+                        and entry[1] is not None and not entry[1].is_empty]
+                    if not _rings:
+                        return _geom
+                    _before = float(_geom.area)
+                    try:
+                        _contact = unary_union(_rings).intersection(
+                            _geom.boundary.buffer(
+                                _TUNNEL_WALL_SETBACK_M,
+                                join_style=2, mitre_limit=2.0))
+                        if _contact.is_empty:
+                            return _geom
+                        _cut = _geom.difference(_contact.buffer(
+                            _TUNNEL_WALL_SETBACK_M,
+                            join_style=2, mitre_limit=2.0))
+                    except Exception:                     # pragma: no cover
+                        return _geom
+                    if _cut is None or _cut.is_empty:
+                        return _geom
+                    UI.vprint(
+                        1,
+                        f"   [{log_tag}] YIELDING-PAD RING SETBACK: the "
+                        f"pan of {resources} stands "
+                        f"{_TUNNEL_WALL_SETBACK_M:.2f} m off the ring(s) "
+                        f"of {len(_rings)} yielding pad(s) where they "
+                        f"MEET it — {_before:,.0f} -> "
+                        f"{float(_cut.area):,.0f} m2.  The pad's AREA "
+                        "still yields (the pan is born THROUGH it); its "
+                        "RING is a node split, so the pad cannot read "
+                        "the floor at its own vertices (RULINGS "
+                        "2026-08-30k)",
+                    )
+                    return _cut
                 if carve_plate is not None and not carve_plate.is_empty:
                     # The CARVED yield set: the pads whose flattening
                     # authority the owner carved, and nothing else.
@@ -4937,6 +5047,9 @@ def build_tunnel_layout_shapes(layout, dem, tile_lat, tile_lon):
                         )
                         floor_geometry = floor_geometry.union(carve_plate)
                         _carve_plates.append(carve_plate)
+                # THE PAN IS NOW WHOLE (body + corridor + carve plate) —
+                # stand it off every yielding pad's ring, once, here.
+                floor_geometry = _stand_off_yield_rings(floor_geometry)
                 band_geometry = body.buffer(
                     _TUNNEL_RIM_BAND_WIDTH_M,
                     join_style=2, mitre_limit=2.0).difference(body)

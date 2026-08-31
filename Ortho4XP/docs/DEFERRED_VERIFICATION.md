@@ -5029,3 +5029,128 @@ instead of its convex hull (`object_footprints.structure_footprint_parts`,
   `test_object_anchor.py::test_kclt_eight_bake_pool_end_to_end`, both
   reproduced on the clean merged-main tree at 677eb5d3 before this
   lane's first edit.
+
+### 2026-08-30 — duplicate pad refs FIXED (owner ruled fix-now)
+
+The "2 of 175 building ways share a ref" residual reported above is
+CLOSED, not deferred: `layout.to_osm` now de-collides a split pad's
+identifier at emission (`building{N}#k`, commit on `lane/hecab79`).
+Proved on a MATCHED control at merged main (control `feada2bf7fbf`,
+arm `1ed287b674b8`): 175 building ways / 175 distinct refs, and the two
+patches differ in exactly three line pairs — the two `ref` tags and the
+per-build `<osm>` provenance header; the axes sidecar differs only in
+its `band_excess` provenance string.  Census A/B is +0 in every family.
+
+Two notes the fix leaves standing:
+
+* **The producer is still unattributed.**  The split happens in the
+  ELEVATION phase — the geometry-only arm emits 176 pads with 176
+  distinct refs, so `pipeline.py`'s pad list is not the source and a
+  later pass carries one pad's ref onto each piece it cuts.  The
+  emission-level fix is producer-agnostic by design (whichever pass
+  splits the shape, the emitted way is unique), so which pass it is was
+  not chased.  Wanting to know remains reasonable; it costs a build.
+* **The artifact ledger refused to STORE the matched control**
+  (`CONTAMINATED-KEY: tree hash keyed 2f56b77892b5, now b1ec5ef8e232`).
+  The cause is benign and worth knowing: the only commit that landed on
+  main during the build was `5b552ae1`, a two-line edit to
+  `docs/RULINGS.md`.  `run_with_ledger.code_tree_hash` seeds its index
+  with `git read-tree HEAD` — the WHOLE tree — and then `git add -A`
+  only over `CODE_PATHS`, so `git write-tree` hashes `docs/` too and any
+  docs commit moves the "code" tree hash.  No engine code changed during
+  the build (`git diff dd8d0b49 5b552ae1 -- src tests tools` is empty),
+  so the control is sound; it simply earned no ledger entry, and the
+  next lane needing a merged-main HECA base arm will rebuild it.
+  **FIXED 2026-08-30 (this branch):** the temporary index is now seeded
+  EMPTY (`git read-tree --empty`) before `git add -A -- <CODE_PATHS>`, so
+  the written tree contains exactly the code paths and docs churn cannot
+  move the key.  Twins: `tests/test_run_with_ledger.py`
+  (docs-commit-does-not-move / code-change-does-move / docs commit still
+  HITs the ledger) and `tests/test_artifact_ledger.py` §2b (a docs commit
+  mid-build no longer moves `code_state_now`).  CONSEQUENCE: the hash
+  function changed, so EVERY pre-existing run-ledger and artifact-ledger
+  key is stale — old entries simply stop matching (cache miss ⇒ rebuild).
+  Nothing was migrated or rewritten; the stale entries age out through
+  the artifact ledger's LRU.
+## 2026-08-30 — OTHH item-3 wall half (lane/othhwalls): walls follow their stood-down ramp
+
+Change: `bridges.py` — `emit_wall_band` / `_append_tunnel_cover` publish
+a WALL→SOURCE register (owner ids + band reach) per emitted piece, and
+`_stand_down_synthetic_over_claimed` takes each band's dead stretch with
+its ramp (cut back through `_tunnel_cover_pieces` where a standing
+surface remains), except beside airside pavement, where the band is left
+exactly as it was (airside is king).
+
+Ran: the five directly-covering test files (94 pass, incl. 7 new twins);
+the wall-band caller files (`test_round16_geometry_consistency.py`,
+`test_round10_tunnel_emission.py`, `test_tunnel_integrity_round.py`) —
+117 pass with the 4 KNOWN §T5 `O4_RAMP_WALL_FOOT` reds unchanged; a cut
+fixture at the owner site (three arms) and ONE OTHH acceptance build
+censused against a base arm built at the lane's parent `581d2c28`
+(artifact ledger `fc7676321d93`, reusable by any lane at that base).
+
+DEFERRED:
+* full-suite and blast-radius runs (pre-ship suspension);
+* the OTHH residual is UNCLOSED and quoted for the owner: law-true
+  1862 → 1877 (+15), entirely GROUNDSIDE (`airside_no_step` +0) —
+  `mid_edge_step` +23 at three mouths (2.78 km / 2.56 km / 669 m from
+  the owner site) where the same step edges report across MORE emitted
+  node pairs (worst magnitude unchanged at 4.09 m / 5.06 m; the rings
+  there carry 195→199 and 41→51 nodes), against −8 in the other
+  groundside families including −9 at the owner-site cell.  Whether the
+  node-density rise is itself a defect (a band that used to intern those
+  nodes is gone) has NOT been attributed.
+* the airside-is-king refusal leaves duplicate wall geometry standing at
+  the mouths that touch apron/transit pavement (6 pieces at OTHH,
+  named per piece in the build log) — the canonical-mouth law is met at
+  the owner's item-3 site and NOT everywhere.
+
+## 2026-08-30 — LEMD T4S structure-walls fallout (lane/lemdt4s, RULINGS 30k)
+
+VERIFIED: the mechanism is attributed on the round-4 matched control
+(artifact-ledger body `839eac5c1c55`, SERVED — no rebuild) and reproduced
+on the lane tree (`lemdt4s_attr`, body `4aad7bbf5586`); six synthetic
+twins, four of which fail without the fix, on a fixture DERIVED FROM THE
+EMITTER rather than re-spelling a constant; the directly-covering files
+green (835 passed); ONE closing LEMD build censused against that matched
+same-tree arm.
+
+DEFERRED:
+* full-suite and per-edit blast-radius runs (pre-ship suspension);
+* `object_terrain_assembly.build_tunnel_layout_shapes` is a SHARED emit
+  path — SPJC (which has a below-grade region), OTHH (eight facilities)
+  and HECA were NOT rebuilt as byte-identity arms.  The new setback can
+  only fire where a pad's flattening authority YIELDS to a facility AND
+  that pad's ring comes within `_TUNNEL_WALL_SETBACK_M` of the pan's own
+  boundary; the `INSIDE_PAD` / `COVERING_PAD` twins pin both no-fire
+  limbs (a pad floating inside the pit and a pad whose ring stands clear
+  read the bare facility's pan exactly).  Unmeasured at those airports.
+* the same node-sharing hazard exists in principle for the §B
+  AUTHORITY-YIELD PAVEMENT population (`authority_yield_pavement_ids`,
+  3 shapes / 417,340 m² at LEMD), which is excluded from the pan's
+  owned-ground difference on the same footing as the pads.  It is NOT
+  measured at LEMD (no apron carries a floor-valued `within_shape` row)
+  and the fix is deliberately scoped to PADS; if an apron ever reads the
+  floor at its own ring, this is the first place to look.
+* the **G instrument is not re-quoted**: it is a POST-MESH read (`post_mesh`,
+  R_mesh over the admitted ring) and an airport patch build never reaches
+  it — no rebake ran this round.  G is unchanged BY CONSTRUCTION: the
+  setback writes only `floor_geometry`, never `body_parts`, so the
+  admitted ring, the floor value, the rim value, R_est, the pad-coverage
+  test and the R_mesh sample band are all exactly what they were (the
+  carve's own §3 argument).  The committed 596.682 stands un-re-read; a
+  0.6 m move of the EMITTED pan edge could in principle shift a station
+  that falls within the collar, and that is unmeasured.
+
+CLOSING ARM `lemdt4s_arm2` (body `7708462643e8`, 1333.3 s) against the
+matched same-tree pre-fix arm `lemdt4s_attr` (body `4aad7bbf5586`):
+airside `within_shape` 145 -> 16 (worst 11.940 -> 1.12 m), `building3`'s
+own fallout rows 163 -> 0, airside `mid_edge_step` 34 -> 0, airside
+`airside_no_step` 1347 -> 1339, adjudicated 1936 -> 1765, groundside 144
+and mixed 12 UNCHANGED.  No family rose.  Pad-ring<->pan shared nodes
+13 -> 0; the pad emits FLAT again (single `altitude=599.69`).  Basin
+invariants re-read on the arm: floor 587.7524 m, rim law 596.3004 m,
+emitted rim 599.69/599.69 over 14 parts (flush with the pad, RULINGS
+30c), 1 floor plate, 18 `basin_trench_wall` terrace joints.  Carve
+acceptance intact: 20/20 deck-line stations inside `object_basin_trench`,
+both owner ramp probes CONTAINED.

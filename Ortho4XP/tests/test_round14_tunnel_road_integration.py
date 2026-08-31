@@ -374,6 +374,149 @@ class TestSyntheticStandsDown:
 
 
 # ══════════════════════════════════════════════════════════════════
+# WALLS FOLLOW THEIR RAMP (RULINGS 2026-08-07 ruling 4) applied to the
+# stand-down path — RULINGS 2026-08-30 canonical mouth, item-3 residual
+# ══════════════════════════════════════════════════════════════════
+class TestWallsFollowTheirStoodDownRamp:
+    """A retaining wall retains a surface.  When the stand-down deletes
+    that surface because a claimed road carries the corridor there, the
+    wall goes with it (or is cut back to the stretch still standing) —
+    otherwise the mouth ships the synthetic band AND the claim's own
+    walls, which is the measured OTHH 25.2715775,51.6023886 defect:
+    7 retaining-wall pieces within 12 m."""
+
+    #: The band's outer offset plus the emit's vertex bucket, as
+    #: ``emit_wall_band`` publishes it.
+    REACH = 2.1
+
+    def _ramp(self, layout, x0, x1):
+        _s = BuiltShape(polygon=box(x0, 0.0, x1, 10.0),
+                        role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                        altitude=213.9)
+        layout.shapes.append(_s)
+        return _s
+
+    def _wall(self, layout, x0, x1, owners, reach=None):
+        _w = BuiltShape(polygon=box(x0, -2.0, x1, -0.6),
+                        role=ROLE_RETAINING_WALL, ref="tunnel_wall",
+                        altitude=219.0)
+        layout.shapes.append(_w)
+        if owners is not None:
+            bridges.register_wall_band_owners(
+                layout, _w, owners,
+                self.REACH if reach is None else reach)
+        return _w
+
+    def _walls(self, layout):
+        return [s for s in layout.shapes
+                if getattr(s, "ref", "") in bridges._WALL_BAND_REFS]
+
+    def test_a_wall_follows_its_stood_down_ramp(self):
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        self._wall(layout, 0.0, 40.0, [ramp])
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert layout.shapes == []
+
+    def test_a_wall_of_a_live_ramp_survives(self):
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        wall = self._wall(layout, 0.0, 40.0, [ramp])
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(500.0, 500.0, 540.0, 510.0)], pre)
+        assert n == 0
+        assert layout.shapes == [ramp, wall]
+
+    def test_a_band_over_two_ramps_is_cut_back_to_the_one_standing(self):
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        gone = self._ramp(layout, 0.0, 40.0)
+        live = self._ramp(layout, 40.0, 80.0)
+        self._wall(layout, 0.0, 80.0, [gone, live])
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert live in layout.shapes and gone not in layout.shapes
+        walls = self._walls(layout)
+        assert len(walls) == 1
+        # Nothing left over the stretch ONLY the stood-down ramp had
+        # (the band within reach of the standing ramp is still its
+        # wall, whichever neighbour it also passes); the standing ramp
+        # keeps its wall.
+        _dead = gone.polygon.buffer(self.REACH).difference(
+            live.polygon.buffer(self.REACH))
+        assert walls[0].polygon.intersection(_dead).area == pytest.approx(
+            0.0, abs=1e-9)
+        assert walls[0].polygon.intersects(live.polygon.buffer(self.REACH))
+
+    def test_a_band_touching_airside_is_left_standing(self):
+        # AIRSIDE IS KING: this dedupe is groundside-side work.  Measured
+        # at OTHH (base arm vs follow-down, same tree): cutting a band
+        # that touches apron 355 at 25.27597,51.61365 re-welded the
+        # apron's on-edge node onto a lower donor (3.64 -> 2.62 m) and
+        # minted 13 airside rows.  The duplicate stands instead.
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        wall = self._wall(layout, 0.0, 40.0, [ramp])
+        apron = BuiltShape(polygon=box(0.0, -12.0, 40.0, -2.5),
+                           role=ROLE_APRON, ref="", altitude=219.0)
+        layout.shapes.append(apron)              # 0.5 m off the band
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert wall in layout.shapes
+
+    def test_a_band_clear_of_airside_still_follows(self):
+        # The same layout with the apron beyond the standoff: the band is
+        # groundside-side geometry and follows its ramp.
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        ramp = self._ramp(layout, 0.0, 40.0)
+        self._wall(layout, 0.0, 40.0, [ramp])
+        apron = BuiltShape(polygon=box(0.0, -30.0, 40.0, -20.0),
+                           role=ROLE_APRON, ref="", altitude=219.0)
+        layout.shapes.append(apron)
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert layout.shapes == [apron]
+
+    def test_an_unregistered_wall_is_never_touched(self):
+        # The register is the ONLY authority: a wall whose owner nobody
+        # published follows nothing (and the pre-register behaviour of
+        # every other emitter is unchanged).
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        self._ramp(layout, 0.0, 40.0)
+        wall = self._wall(layout, 0.0, 40.0, None)
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(-5.0, -5.0, 45.0, 15.0)], pre)
+        assert n == 1
+        assert layout.shapes == [wall]
+
+    def test_a_wall_orphaned_by_an_earlier_pass_is_not_this_passs(self):
+        # Attribution discipline: this pass removes a wall only when one
+        # of ITS OWN removals orphaned it.
+        layout = PavementLayout(icao="ZZZZ", anchor=ANCHOR)
+        pre = {id(s) for s in layout.shapes}
+        earlier = BuiltShape(polygon=box(0.0, 0.0, 40.0, 10.0),
+                             role=ROLE_TUNNEL_RAMP, ref="tunnel_ramp",
+                             altitude=213.9)          # never in ``shapes``
+        wall = self._wall(layout, 0.0, 40.0, [earlier])
+        far = self._ramp(layout, 500.0, 540.0)
+        n = bridges._stand_down_synthetic_over_claimed(
+            layout, [box(495.0, -5.0, 545.0, 15.0)], pre)
+        assert n == 1
+        assert far not in layout.shapes
+        assert wall in layout.shapes
+
+
+# ══════════════════════════════════════════════════════════════════
 # R14-1 item 1 — the claimed plate is PINNED (owner 2026-08-11)
 # ══════════════════════════════════════════════════════════════════
 class TestClaimedPlateIsPinned:

@@ -3003,6 +3003,49 @@ class PavementLayout:
         # Ortho4XP reads), in place of a fork-only single-way tag.
         node_alt_abs_nids: set = set()
 
+        # ── ONE PAD, ONE IDENTIFIER (owner 2026-08-30, the round-6
+        # Family B follow-on) ────────────────────────────────────────
+        # A building pad's ``ref`` is an IDENTIFIER, not a class label:
+        # ``terminals.building_pad_accounting`` reads the N back out of
+        # ``building{N}`` to name the CONSTRUCTED pads a downstream
+        # stage dropped.  But a pad can reach emission as SEVERAL
+        # shapes — a later pass splits one pad's polygon and carries its
+        # ref onto each piece — and then two ways answer to one
+        # identifier (measured at HECA 2026-08-30 under the
+        # structure-walls footprints: 2 of 175 building ways, refs
+        # ``building86`` and ``building90``, each pair one pad seated at
+        # one level).
+        #
+        # THE FIRST way of a pad keeps the constructed identifier; each
+        # further part gets ``building{N}#k``.  That is unique, it says
+        # which pad the part belongs to, and it deliberately does NOT
+        # ``fullmatch(r"building(\d+)")`` — so the accounting still
+        # counts the pad ONCE and its constructed count and missing-pad
+        # list are unchanged by a split.
+        #
+        # SCOPED TO BUILDING PADS on purpose.  ``road`` / ``service``
+        # are CLASS LABELS shared by hundreds of ways BY DESIGN (262 and
+        # 459 at HECA, in the control too); making those unique would
+        # rename every road in the patch and identify nothing.  The
+        # per-shape handle every way already carries is ``shapeID``.
+        _building_ref_override: dict[int, str] = {}
+        _building_ref_seen: dict[str, int] = {}
+        for _si, _s, *_rest in pending:
+            if _s.role != ROLE_BUILDING or not _s.ref:
+                continue
+            _part = _building_ref_seen.get(_s.ref, 0) + 1
+            _building_ref_seen[_s.ref] = _part
+            if _part > 1:
+                _building_ref_override[_si] = f"{_s.ref}#{_part}"
+        if _building_ref_override:
+            UI.vprint(
+                1,
+                f"  [emit] {len(_building_ref_override)} building way(s) "
+                "share a pad ref with an earlier way (one constructed "
+                "pad emitted as several shapes) — suffixed #k so every "
+                "emitted way carries a unique identifier: "
+                f"{sorted(_building_ref_override.values())}")
+
         for s_idx, s, ext_nids, shape_altitude, shape_node_altitudes \
                 in pending:
             tags = {
@@ -3016,7 +3059,7 @@ class PavementLayout:
                 "shapeID": str(s_idx),
             }
             if s.ref:
-                tags["ref"] = s.ref
+                tags["ref"] = _building_ref_override.get(s_idx, s.ref)
             # Runway DE-SEGMENTATION marker (O4_RUNWAY_SINGLE_POLY): a
             # de-segmented runway is ONE ring per ref whose FAA profile
             # stations are interior long-edge vertices.  The grade TEST

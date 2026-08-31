@@ -29,8 +29,10 @@ Options:
 What keys a run (any difference ⇒ cache miss):
     * a git tree hash over the code-relevant paths (src/, tests/, tools/,
       conftest.py, pytest.ini, Ortho4XP*.py, requirements*.txt) including
-      uncommitted changes — computed with a TEMPORARY git index, never the
-      shared one (parallel sessions share the real index);
+      uncommitted changes — computed with a TEMPORARY, EMPTY-SEEDED git
+      index, never the shared one (parallel sessions share the real index).
+      Exactly those paths: docs, STATUS and scratch churn must NOT move the
+      key (see :func:`code_tree_hash` for the docs-commit precedent);
     * the full argv;
     * every O4_* environment variable plus PYTEST_ADDOPTS, EXCEPT the
       variables in :data:`KEY_EXCLUDED_ENV`.
@@ -107,15 +109,25 @@ def code_tree_hash(repo_root: str | None = None) -> str:
     included.  Uses a temporary GIT_INDEX_FILE so the shared real index is
     never touched (parallel sessions share it — memory ruling).  Gitignored
     files (__pycache__, the ledger itself) are excluded by ``git add``'s
-    normal ignore rules, keeping the hash stable across imports and runs."""
+    normal ignore rules, keeping the hash stable across imports and runs.
+
+    THE INDEX IS SEEDED EMPTY, so the written tree contains EXACTLY
+    :data:`CODE_PATHS` and nothing else.  Seeding it from ``HEAD`` (the
+    whole tree) left ``docs/`` blobs in the index that ``git add -A --
+    <CODE_PATHS>`` never touched, so ``git write-tree`` hashed them too and
+    a DOCS-ONLY commit moved the "code" hash: measured 2026-08-30, the
+    two-line ``docs/RULINGS.md`` edit ``5b552ae1`` moved the key
+    ``2f56b778…`` → ``b1ec5ef8…`` while ``git diff -- src tests tools`` was
+    empty, and the artifact ledger refused to store a valid HECA control
+    with ``CONTAMINATED-KEY`` (the next lane rebuilds it for nothing)."""
     if repo_root is None:
         repo_root = REPO_ROOT
     existing = [p for p in CODE_PATHS
                 if os.path.exists(os.path.join(repo_root, p))]
     with tempfile.NamedTemporaryFile(prefix="o4_ledger_index_") as tf:
         env = dict(os.environ, GIT_INDEX_FILE=tf.name)
-        subprocess.run(["git", "read-tree", "HEAD"], cwd=repo_root, env=env,
-                       check=True, capture_output=True)
+        subprocess.run(["git", "read-tree", "--empty"], cwd=repo_root,
+                       env=env, check=True, capture_output=True)
         subprocess.run(
             ["git", "add", "-A", "--"] + existing,
             cwd=repo_root, env=env, check=True, capture_output=True)

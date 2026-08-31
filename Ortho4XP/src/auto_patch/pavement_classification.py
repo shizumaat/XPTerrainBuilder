@@ -954,6 +954,38 @@ def _flank_contact_fraction(tail, index, owner=None,
         return 1.0
 
 
+def _deck_is_road(layout, geometry) -> bool:
+    """A CONFIRMED TERRAIN DECK IS A ROAD (RULINGS 2026-08-30c §2).
+
+    Verbatim: the deck's carriageway "is minted as service-road
+    pavement, through the ordinary corridor-course path — the deck is a
+    piece of the road, not a new shape class", and §5 gives it the road
+    solve's own level with its approaches at ``SERVICE_ROAD_MAX_GRADE``.
+    Demoting it to ``groundside_pavement`` contradicts both.
+
+    MEASURED (round 6, build ``lemdr6``): the scorer demoted the deck's
+    ground here, so it left the free-road solve, joined the surrounding
+    landside lot — which also reaches 611.87 m — and within-shape law
+    then judged the whole lot as one surface: 397 rows, 381 groundside,
+    worst 6.75 m at 9.9 % against the 8 % cap, 16 m from the owner's
+    bridge.  This is the third member of one mechanism family: the
+    claim, the ramp cut and now the demotion all stop at the deck.
+    """
+    if layout is None or geometry is None:
+        return False
+    try:
+        from .road_bridge_deck import terrain_deck_union as _tdu
+        u = _tdu(layout)
+        if u is None or geometry.is_empty:
+            return False
+        area = float(geometry.area)
+        if area <= 0.0:
+            return False
+        return float(geometry.intersection(u).area) >= 0.5 * area
+    except Exception:                                    # pragma: no cover
+        return False
+
+
 def _is_road_corridor(geometry, sources: EvidenceSources) -> bool:
     """True when ``geometry`` is a ROAD — a corridor with a centerline
     threaded down its long axis — rather than a landside AREA.
@@ -1197,7 +1229,8 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
                         shape.polygon = body
                         for tail in demote:
                             role = (ROLE_SERVICE_ROAD
-                                    if _is_road_corridor(tail, sources)
+                                    if (_is_road_corridor(tail, sources)
+                                        or _deck_is_road(layout, tail))
                                     else ROLE_GROUNDSIDE_PAVEMENT)
                             made = _new_landside_shape(
                                 tail, role, dem_at,
@@ -1235,7 +1268,13 @@ def classify_pavement_v1(layout, icao: str = "", dem=None,
         # A whole-shape demotion that a road CENTERLINE threads is a
         # road, not a lot — the ``reclassify_groundside_route_corridors``
         # semantics, applied at classification time.
-        role = (ROLE_SERVICE_ROAD if _is_road_corridor(polygon, sources)
+        # §2/§5 (RULINGS 2026-08-30c): a confirmed terrain deck is a
+        # piece of the ROAD and keeps road-family identity here, so it
+        # enters the free-road profile solve instead of joining a
+        # landside lot.
+        role = (ROLE_SERVICE_ROAD
+                if (_is_road_corridor(polygon, sources)
+                    or _deck_is_road(layout, polygon))
                 else ROLE_GROUNDSIDE_PAVEMENT)
         if not _demote(shape, role, dem_at, law_anchors=_law_anchors,
                        anchor_key=_anchor_key, stats=_stats):

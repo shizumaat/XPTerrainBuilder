@@ -945,3 +945,59 @@ class TestRampCutStopsAtTheDeckFootprint:
         layout = _make(bridge_tag=None)
         deck.publish_candidates(layout)
         assert deck.terrain_deck_union(layout) is None
+
+
+class TestDeckKeepsRoadIdentity:
+    """§2/§5 (RULINGS 2026-08-30c): the deck's carriageway "is minted as
+    service-road pavement, through the ordinary corridor-course path —
+    the deck is a piece of the road, not a new shape class", and §5 gives
+    it the road solve's own level with approaches at
+    ``SERVICE_ROAD_MAX_GRADE``.  Demoting it to ``groundside_pavement``
+    contradicts both.
+
+    MEASURED (round 6, build ``lemdr6``): the scorer demoted the deck's
+    ground, so it left the free-road solve, joined the surrounding
+    landside lot — which also reaches 611.87 m — and within-shape law
+    judged the whole lot as one surface: 397 rows, 381 groundside, worst
+    6.75 m at 9.9 % against the 8 % cap, 16 m from the owner's bridge.
+    """
+
+    def test_a_deck_shape_is_a_road_to_the_scorer(self):
+        from auto_patch.pavement_classification import _deck_is_road
+        layout = _make()
+        deck.publish_candidates(layout)
+        on_deck = _rect(10.0, 70.0, -6.0, 6.0)
+        assert _deck_is_road(layout, on_deck)
+
+    def test_ground_outside_the_deck_is_not(self):
+        from auto_patch.pavement_classification import _deck_is_road
+        layout = _make()
+        deck.publish_candidates(layout)
+        far = _rect(-300.0, -240.0, -6.0, 6.0)
+        assert not _deck_is_road(layout, far)
+
+    def test_a_lot_that_merely_contains_the_deck_is_not(self):
+        """Footprint discipline again: the surrounding lot keeps its own
+        identity; only the deck's own strip is road."""
+        from auto_patch.pavement_classification import _deck_is_road
+        layout = _make()
+        deck.publish_candidates(layout)
+        lot = _rect(-60.0, 200.0, -40.0, 40.0)
+        assert not _deck_is_road(layout, lot)
+
+    def test_with_no_deck_the_predicate_is_inert(self):
+        from auto_patch.pavement_classification import _deck_is_road
+        layout = _make(bridge_tag=None)
+        deck.publish_candidates(layout)
+        assert not _deck_is_road(layout, _rect(10.0, 70.0, -6.0, 6.0))
+        assert not _deck_is_road(None, _rect(10.0, 70.0, -6.0, 6.0))
+
+    def test_both_scorer_forks_consult_it(self):
+        """The whole-shape demotion AND the split-tail demotion."""
+        import inspect
+        from auto_patch import pavement_classification as pc
+        src = inspect.getsource(pc)
+        # one definition + the two forks that consult it
+        assert src.count("_deck_is_road(layout,") == 3
+        assert "or _deck_is_road(layout, tail))" in src
+        assert "or _deck_is_road(layout, polygon))" in src

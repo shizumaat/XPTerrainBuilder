@@ -1202,6 +1202,256 @@ def refine_way(way, max_length):  # max_length assumed in meter
 
 
 ################################################################################
+#  THE LONGITUDINAL ROAD CLAMP
+#  (owner RULINGS 2026-08-31b "ROAD PROFILE LAW" + "LEVERAGE THE CORE";
+#  docs/specs/linear-transport-redesign-spec.md §2 item 1)
+#
+#  The law in one line: a road FOLLOWS TERRAIN, and where terrain exceeds
+#  the road's grade cap it LIFTS or CUTS the MINIMUM needed to hold the
+#  cap.  Everything below is that sentence, per way, on the CENTERLINE.
+################################################################################
+
+#: Station spacing of the clamp (metres).  <= 20 m on purpose: the
+#: instrument that prices the clamp must OUTRESOLVE ``emit_decimate``'s
+#: 60 m chords (census #112), and a profile law sampled coarser than the
+#: geometry it governs cannot see the step it creates.
+DEFAULT_ROAD_STATION_M = 20.0
+
+
+def cap_lipschitz_profile(stations_s, values, cap):
+    """THE CLAMP, geometry-free so a twin can state it directly.
+
+    ``stations_s`` are ascending arclengths (metres) along ONE way,
+    ``values`` its per-station terrain altitude, ``cap`` the longitudinal
+    grade limit as a fraction (0.08 = 8 %).  Returns the per-station
+    clamped altitude.
+
+    THE ALGORITHM is ``auto_patch.free_road_profile.chain_profile``'s
+    ENVELOPE branch (ported, not imported — that module retires in
+    Batch 2), with every station its own source instead of a pin set,
+    which is what a core road with no pins means:
+
+        ceil(s)  = min over stations ( z_j + cap·|s − s_j| )   (minorant)
+        floor(s) = max over stations ( z_j − cap·|s − s_j| )   (majorant)
+        clamped  = (floor + ceil) / 2
+
+    ``floor`` is the smallest cap-Lipschitz function that is >= the
+    terrain (the LIFT-ONLY answer, an embankment everywhere) and
+    ``ceil`` the largest that is <= it (the CUT-ONLY answer, a cutting
+    everywhere).  Their mid-profile is cap-Lipschitz because both are,
+    and it is the MINIMUM intervention in the sup norm: for a chain,
+    ``max(floor − ceil)`` is exactly the profile's worst cap violation
+    ``max_{j,k}(|z_j − z_k| − cap·d_jk)``, and no cap-lawful profile can
+    sit closer than half of that to the terrain.  So the clamp lifts the
+    low side and cuts the high side by the same, smallest possible
+    amount — "lift or cut the minimum needed to hold the cap".
+
+    WHERE THE TERRAIN IS ALREADY CAP-LAWFUL THE RESULT IS THE TERRAIN,
+    identically: terrain is then its own smallest majorant and largest
+    minorant, so ``floor == ceil == z``.  That identity is the owner's
+    "a road capped below 8 % into a cutting is a defect" expressed as a
+    property of the code, and it is the first twin.
+
+    Both envelopes are computed in two vectorised sweeps each (the
+    max-plus/min-plus distance transform along the chain), so the pass
+    is O(n) in numpy with no Python loop over stations.
+    """
+    s = numpy.asarray(stations_s, dtype=numpy.float64).ravel()
+    z = numpy.asarray(values, dtype=numpy.float64).ravel()
+    if len(z) < 2 or not numpy.isfinite(cap) or cap <= 0:
+        return z.copy()
+    cs = float(cap) * s
+    # Smallest cap-Lipschitz MAJORANT: max_j (z_j - cap*|s-s_j|).
+    fwd = numpy.maximum.accumulate(z + cs) - cs           # over j <= i
+    bwd = numpy.maximum.accumulate((z - cs)[::-1])[::-1] + cs  # over j >= i
+    floor = numpy.maximum(fwd, bwd)
+    # Largest cap-Lipschitz MINORANT: min_j (z_j + cap*|s-s_j|).
+    fwd = numpy.minimum.accumulate(z - cs) + cs
+    bwd = numpy.minimum.accumulate((z + cs)[::-1])[::-1] - cs
+    ceil_ = numpy.minimum(fwd, bwd)
+    return 0.5 * (floor + ceil_)
+
+
+def way_arclengths(way):
+    """Cumulative arclength (metres) along a tile-relative way.
+
+    The SAME metric ``refine_way`` measures its own spacing with
+    (``scalx``-scaled degrees × ``GEO.lat_to_m``) — one length
+    convention for the clamp's stations and the sampling that made
+    them, never two.
+    """
+    pts = numpy.asarray(way, dtype=numpy.float64)
+    if len(pts) < 2:
+        return numpy.zeros(len(pts))
+    d = numpy.diff(pts, axis=0) * numpy.array([[scalx, 1.0]])
+    seg = numpy.sqrt((d ** 2).sum(axis=1)) * GEO.lat_to_m
+    return numpy.concatenate(([0.0], numpy.cumsum(seg)))
+
+
+class Levelled_Roads:
+    """The clamped centerline stations of a tile's banked road network.
+
+    ONE WAY IS ONE PROFILE (census #111 option i, and the trap it names).
+    The clamp runs PER WAY on the CENTERLINE — never on the merged
+    buffered ring, whose vertex order walks up one side of a road and
+    back down the other and then jumps to an unrelated road: a profile
+    law run in that order would fuse two roads that merely share a ring,
+    and would read a road's two kerbs as a 4 m-long climb.  Ways are held
+    in separate profiles here and are never concatenated; the KD-tree
+    below is only an ANSWERING index (nearest station), never a chain.
+
+    ``answer`` is what ``include_roads``' ``alt_vec_shift`` calls: the
+    nearest clamped station within ``radius_m`` wins, and beyond it the
+    shifted DEM answers unchanged, so ground the clamp never stationed
+    is never invented.
+    """
+
+    def __init__(self, cap, lane_width, station_m=DEFAULT_ROAD_STATION_M,
+                 materiality_m=0.01):
+        self.cap = float(cap)
+        self.lane_width = float(lane_width)
+        self.station_m = float(station_m)
+        self.materiality_m = float(materiality_m)
+        self.radius_m = 2.0 * float(lane_width)
+        self.ways = []
+        self._tree = None
+        self._alts = numpy.zeros(0)
+
+    def add_way(self, points, dem_alt, clamped_alt, s_m):
+        self.ways.append({
+            "points": numpy.asarray(points, dtype=numpy.float64),
+            "dem": numpy.asarray(dem_alt, dtype=numpy.float64),
+            "alt": numpy.asarray(clamped_alt, dtype=numpy.float64),
+            "s_m": numpy.asarray(s_m, dtype=numpy.float64),
+        })
+
+    @property
+    def station_count(self):
+        return int(sum(len(w["alt"]) for w in self.ways))
+
+    def finalize(self):
+        """Build the nearest-station index (cKDTree, one per tile)."""
+        from scipy.spatial import cKDTree
+
+        if not self.ways:
+            self._tree = None
+            return self
+        pts = numpy.concatenate([w["points"] for w in self.ways])
+        self._alts = numpy.concatenate([w["alt"] for w in self.ways])
+        # The tree lives in the scalx-scaled degree frame, where a
+        # distance is degrees of LATITUDE — the frame every metre
+        # constant in this module converts into via GEO.m_to_lat.
+        self._tree = cKDTree(pts * numpy.array([[scalx, 1.0]]))
+        return self
+
+    def answer(self, query_points, dem_alt):
+        """Clamped altitude at ``query_points``, DEM beyond the radius."""
+        out = numpy.array(dem_alt, dtype=numpy.float64, copy=True)
+        if self._tree is None or not len(out):
+            return out
+        q = numpy.asarray(query_points, dtype=numpy.float64)
+        q = q * numpy.array([[scalx, 1.0]])
+        dist, idx = self._tree.query(
+            q, distance_upper_bound=self.radius_m * GEO.m_to_lat
+        )
+        hit = numpy.isfinite(dist)
+        if hit.any():
+            out[hit] = self._alts[idx[hit]]
+        return out
+
+    def summary(self):
+        """Population + intervention counts (the measurability read)."""
+        n_st = 0
+        n_moved = 0
+        lift = 0.0
+        cut = 0.0
+        for w in self.ways:
+            delta = w["alt"] - w["dem"]
+            n_st += len(delta)
+            n_moved += int((numpy.abs(delta) > self.materiality_m).sum())
+            if len(delta):
+                lift = max(lift, float(delta.max()))
+                cut = max(cut, float((-delta).max()))
+        return {
+            "ways": len(self.ways),
+            "stations": n_st,
+            "clamped_stations": n_moved,
+            "max_lift_m": round(max(lift, 0.0), 4),
+            "max_cut_m": round(max(cut, 0.0), 4),
+        }
+
+    def sidecar(self, lat, lon):
+        """The ``o4_levelled_roads.json`` payload (absolute lat/lon).
+
+        Parallel arrays per way, not a dict per station: the tile-wide
+        banked network runs to 10^5 stations and a station object each
+        would make the instrument's own input the build's biggest file.
+        """
+        ways = []
+        for i, w in enumerate(self.ways):
+            delta = w["alt"] - w["dem"]
+            ways.append({
+                "index": i,
+                "stations": len(w["alt"]),
+                "length_m": round(float(w["s_m"][-1]) if len(w["s_m"])
+                                  else 0.0, 2),
+                "clamped_stations": int(
+                    (numpy.abs(delta) > self.materiality_m).sum()),
+                "max_lift_m": round(float(delta.max()) if len(delta)
+                                    else 0.0, 4),
+                "max_cut_m": round(float((-delta).max()) if len(delta)
+                                   else 0.0, 4),
+                "lat": [round(float(lat + p[1]), 7) for p in w["points"]],
+                "lon": [round(float(lon + p[0]), 7) for p in w["points"]],
+                "s_m": [round(float(v), 2) for v in w["s_m"]],
+                "dem_alt": [round(float(v), 3) for v in w["dem"]],
+                "alt": [round(float(v), 3) for v in w["alt"]],
+            })
+        return {
+            "version": 1,
+            "producer": "O4_Vector_Map.include_roads",
+            "lat": int(lat),
+            "lon": int(lon),
+            "grade_cap": self.cap,
+            "station_max_m": self.station_m,
+            "lane_width_m": self.lane_width,
+            "answer_radius_m": self.radius_m,
+            "materiality_m": self.materiality_m,
+            "summary": self.summary(),
+            "ways": ways,
+        }
+
+
+def clamp_road_network(road_network, alt_vec, cap, lane_width,
+                       station_m=DEFAULT_ROAD_STATION_M):
+    """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
+
+    ``alt_vec`` is the tile DEM sampler (an ``(n, 2)`` tile-relative
+    array in, ``n`` altitudes out) — the SAME surface ``alt_vec_shift``
+    answers from, so a station and the ring vertex that reads it stand
+    on one DEM.  Returns a finalized :class:`Levelled_Roads`.
+    """
+    out = Levelled_Roads(cap, lane_width, station_m)
+    geoms = getattr(road_network, "geoms", None)
+    if geoms is None:
+        geoms = [road_network] if road_network is not None else []
+    for geom in geoms:
+        try:
+            coords = numpy.array(geom.coords, dtype=numpy.float64)
+        except (AttributeError, ValueError):            # pragma: no cover
+            continue
+        if len(coords) < 2:
+            continue
+        stations = refine_way(coords, station_m)
+        s = way_arclengths(stations)
+        dem = numpy.asarray(alt_vec(stations), dtype=numpy.float64)
+        # ONE WAY, ONE CALL: the clamp never sees another way's stations.
+        clamped = cap_lipschitz_profile(s, dem, cap)
+        out.add_way(stations, dem, clamped, s)
+    return out.finalize()
+
+
+################################################################################
 def least_square_fit_altitude_along_way(way, steps, dem, weights=False):
     linestring = affinity.affine_transform(
         geometry.LineString(way), [scalx, 0, 0, 1, 0, 0]

@@ -254,3 +254,123 @@ def test_vertex_reading_is_composition_free(tmp_path):
     assert va["cut_over_5m"] == 0
     assert vb["cut_over_5m"] > 0
     assert vb["cut_worst_m"] == pytest.approx(10.5, abs=0.6)
+
+
+# ── THE LEVELLED-ROADS POPULATION (core-owned roads; spec §2 item 4) ────
+#
+# General roads never reach a patch: the core levels them as mesh
+# INTERP_ALT altitudes, so ``read_patch`` cannot see them and neither can
+# a census.  ``--levelled-roads`` prices them from the clamp pass's own
+# sidecar.  These twins run the REAL producer (the clamp + the sidecar
+# writer) into the reader, so the two can never drift apart.
+
+def _levelled_sidecar(tmp_path: Path, name: str, dem, *, cap=0.08,
+                      station_m=20.0, n=16):
+    """A one-way sidecar written by production code: ``dem(s_metres)``
+    is the terrain along a road marching north from (LAT0, LON0)."""
+    import numpy
+    from shapely import geometry
+    import O4_Geo_Utils as GEO
+    import O4_Vector_Map as VM
+    import O4_Vector_Utils as VECT
+    import types
+
+    VECT.scalx = math.cos(math.radians(LAT0))
+    dlat = station_m * GEO.m_to_lat
+    line = geometry.LineString([(0.0, i * dlat) for i in range(n)])
+
+    def alt_vec(pts):
+        pts = numpy.asarray(pts, dtype=float)
+        return numpy.array([dem(y / GEO.m_to_lat) for y in pts[:, 1]])
+
+    lev = VECT.clamp_road_network(geometry.MultiLineString([line]),
+                                  alt_vec, cap, 4.0, station_m=station_m)
+    tile = types.SimpleNamespace(lat=int(LAT0), lon=int(LON0),
+                                 build_dir=str(tmp_path / name))
+    return Path(VM.write_levelled_roads_sidecar(tile, lev))
+
+
+def test_levelled_roads_lawful_hill_reads_as_following(tmp_path):
+    """The clamp leaves a cap-lawful hill alone, and the instrument says
+    so: follow_ratio 1, no cutting, no fill, zero interventions."""
+    side = _levelled_sidecar(tmp_path, "lawful",
+                             lambda s: 100.0 + HILL_GRADE * min(s, 150.0)
+                             - HILL_GRADE * max(s - 150.0, 0.0))
+    r = RTC.read_levelled_roads(side)
+    assert r["population"] == "levelled-roads"
+    (ch,) = r["chains"]
+    assert ch["follow_ratio"] == pytest.approx(1.0, abs=1e-6)
+    assert ch["cut_max_m"] == pytest.approx(0.0, abs=1e-6)
+    assert ch["fill_max_m"] == pytest.approx(0.0, abs=1e-6)
+    assert ch["dem_followable_pct"] == pytest.approx(100.0)
+    assert r["clamp"]["clamped_stations"] == 0
+    assert r["vertices"]["dev_median_m"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_levelled_roads_over_cap_step_prices_its_lift_and_cut(tmp_path):
+    """Terrain the road may NOT follow: the instrument prices exactly
+    what the clamp did — a cutting on the high side, a fill on the low
+    side, and the intervention count."""
+    side = _levelled_sidecar(tmp_path, "cliff",
+                             lambda s: 0.0 if s < 150.0 else 30.0)
+    r = RTC.read_levelled_roads(side)
+    (ch,) = r["chains"]
+    assert ch["cut_max_m"] > 1.0          # the road is cut into the high side
+    assert ch["fill_max_m"] > 1.0         # and filled on the low side
+    assert 0.0 < (ch["follow_ratio"] or 0.0) < 1.0
+    assert ch["emitted_grade_max_pct"] <= 100.0 * r["clamp"]["grade_cap"] + 1e-6
+    assert ch["dem_grade_max_pct"] > ch["emitted_grade_max_pct"]
+    assert r["clamp"]["clamped_stations"] > 0
+    assert r["clamp"]["max_lift_m"] > 1.0 and r["clamp"]["max_cut_m"] > 1.0
+
+
+def test_levelled_roads_cap_is_the_sidecars_own(tmp_path):
+    """The cap judged against is what the BUILD clamped to, recorded in
+    the sidecar — not this file's constant, which a re-tuned tile would
+    silently disagree with."""
+    side = _levelled_sidecar(tmp_path, "cap", lambda s: 0.02 * s, cap=0.05)
+    r = RTC.read_levelled_roads(side)
+    assert r["clamp"]["grade_cap"] == pytest.approx(0.05)
+    assert r["road_cap_pct"] == pytest.approx(5.0)
+    # 2 % terrain is lawful under a 5 % cap: untouched.
+    assert r["clamp"]["clamped_stations"] == 0
+
+
+def test_levelled_roads_frame_is_declared_and_not_the_patch_frame(tmp_path):
+    """Its own frame: one way per chain, UNBINNED stations, the DEM the
+    build sampled.  A levelled-roads arm is not a patch arm."""
+    side = _levelled_sidecar(tmp_path, "frame", lambda s: 0.01 * s)
+    r = RTC.read_levelled_roads(side)
+    assert r["bin_m"] is None
+    assert r["chains"][0]["rings"] == 1
+    assert r["chains"][0]["roles"] == ["core_road"]
+    assert "build-sampled" in r["dem_source"]
+    # station granularity outresolves emit_decimate's 60 m chords
+    st = r["chains"][0]["station_m"]
+    assert max(b - a for a, b in zip(st, st[1:])) <= 20.0 + 1e-6
+
+
+def test_levelled_roads_site_and_rank_work_on_it(tmp_path):
+    """The shared readers work unchanged — ``rank`` and ``chain_at_site``
+    are not re-spelled for the second population."""
+    side = _levelled_sidecar(tmp_path, "site",
+                             lambda s: 0.0 if s < 150.0 else 30.0)
+    r = RTC.read_levelled_roads(side)
+    assert len(RTC.rank(r, min_relief_m=10.0, min_span_m=100.0)) == 1
+    # a PLACE on the way itself — the sidecar's own absolute coordinates
+    la, lo = r["chains"][0]["ll"][4]
+    ch, dist = RTC.chain_at_site(r, la, lo)
+    assert ch is not None and dist == pytest.approx(0.0, abs=1.0)
+    # ... and a place 5 km away is reported absent, never zeroed
+    absent, far = RTC.chain_at_site(r, la + 0.05, lo)
+    assert absent is None and far > 1000.0
+
+
+def test_cli_reads_a_sidecar_and_refuses_an_empty_request(tmp_path, capsys):
+    side = _levelled_sidecar(tmp_path, "cli", lambda s: 0.0 if s < 150 else 30)
+    assert RTC.main(["--levelled-roads", str(side)]) == 0
+    out = capsys.readouterr().out
+    assert "LEVELLED-ROADS population" in out
+    assert "CLAMP:" in out
+    with pytest.raises(SystemExit):
+        RTC.main([])

@@ -64,7 +64,16 @@ THE FRAME, printed on every report:
   missing surface REFUSES rather than substituting the other.
 * Numbers are comparable ARM TO ARM on identical options and nowhere else.
 
-TWO MODES, the same reading:
+TWO POPULATIONS.  A PATCH.osm carries auto_patch's road pavement; the
+tile's ``o4_levelled_roads.json`` carries the CORE-owned roads — general
+roads level as mesh INTERP_ALT altitudes and leave no patch rows at all,
+so neither this tool's patch mode nor any census can see them (RULINGS
+2026-08-31b "LEVERAGE THE CORE").  ``--levelled-roads`` prices them from
+the clamp pass's own sidecar, in its own frame (one way per chain,
+unbinned <=20 m stations, the DEM the build sampled).  A levelled-roads
+arm compares to another levelled-roads arm and never to a patch arm.
+
+THREE MODES, the same reading:
 
     # DISCOVERY — rank the hill sites of a patch (way ids + lat/lon)
     venv/bin/python tools/road_terrain_conformance.py PATCH.osm --rank
@@ -75,6 +84,11 @@ TWO MODES, the same reading:
         --site hillA=30.1234567,31.4234567 [--site hillB=...]
         [--profile]            # print the station/emitted/DEM profile
         [--json OUT]
+
+    # CORE-OWNED ROADS — the clamp pass's own population
+    venv/bin/python tools/road_terrain_conformance.py \
+        --levelled-roads Tiles/zOrtho4XP_+40-004/o4_levelled_roads.json \
+        [--rank] [--site hillA=...] [--profile] [--json OUT]
 """
 
 from __future__ import annotations
@@ -471,6 +485,150 @@ def read_patch(patch: Path, *, dem_source: str = "airport-inset",
     }
 
 
+def read_levelled_roads(path: Path) -> dict:
+    """THE READING FOR CORE-OWNED ROADS, from the clamp's own sidecar.
+
+    ``<tile>/o4_levelled_roads.json`` is written by
+    ``O4_Vector_Map.include_roads``' longitudinal clamp pass: per WAY, the
+    centerline stations it clamped (<= 20 m apart), each station's lat/lon,
+    the terrain under it (``dem_alt``) and the altitude the road took
+    (``alt``).  Those are the same two numbers ``read_patch`` reads off a
+    patch ring and its DEM, so the SAME statistics are computed here and
+    the same ``print_site`` prints them.
+
+    WHY A SECOND POPULATION AND NOT A SECOND TOOL: general roads are core-
+    owned (RULINGS 2026-08-31b "LEVERAGE THE CORE") — they emit as mesh
+    INTERP_ALT ring altitudes and leave NO patch rows, so ``read_patch``
+    cannot see them at all and neither can a census.  This is the reading
+    that prices them.
+
+    THE FRAME, and it is NOT the patch frame:
+    * A CHAIN here is ONE OSM WAY — the clamp's own unit.  It is not
+      assembled from shared node ids and there is no spine: the way's
+      stations are already ordered along the road.
+    * The profile is UNBINNED — one point per clamp station.  Patch reads
+      bin at ``--bin-m``; a levelled-roads read and a patch read are
+      therefore NOT arm-to-arm comparable with each other.  They are
+      comparable levelled-to-levelled, on identical sidecar options.
+    * The DEM is the one the BUILD sampled (recorded per station), not a
+      re-sample: no ``--dem-source`` applies and none is claimed.
+    * The cap judged against is the sidecar's OWN ``grade_cap`` — what the
+      build clamped to — not this file's constant.
+    """
+    doc = json.loads(Path(path).read_text())
+    cap = float(doc.get("grade_cap") or ROAD_CAP)
+    materiality = float(doc.get("materiality_m") or 0.01)
+    chains = []
+    dev_all, cut_all = [], []
+    n_stations = n_clamped = 0
+    max_lift = max_cut = 0.0
+    for w in doc.get("ways", []):
+        st = [float(v) for v in w.get("s_m", [])]
+        lev = [float(v) for v in w.get("alt", [])]
+        gnd = [float(v) for v in w.get("dem_alt", [])]
+        lls = [(float(a), float(o))
+               for a, o in zip(w.get("lat", []), w.get("lon", []))]
+        if len(st) < 2 or len(lev) != len(st) or len(gnd) != len(st):
+            continue
+        dev_v = [abs(z - d) for z, d in zip(lev, gnd)]
+        cut_v = [d - z for z, d in zip(lev, gnd)]
+        fill_v = [z - d for z, d in zip(lev, gnd)]
+        dev_all.extend(dev_v)
+        cut_all.extend([c for c in cut_v if c > 0])
+        n_stations += len(st)
+        n_clamped += int(w.get("clamped_stations") or 0)
+        max_lift = max(max_lift, float(w.get("max_lift_m") or 0.0))
+        max_cut = max(max_cut, float(w.get("max_cut_m") or 0.0))
+        steps = []
+        for k in range(len(st) - 1):
+            ds = st[k + 1] - st[k]
+            if ds <= 1e-9:
+                continue
+            steps.append({"eg": (lev[k + 1] - lev[k]) / ds,
+                          "dg": (gnd[k + 1] - gnd[k]) / ds})
+        followable = [s for s in steps if abs(s["dg"]) <= cap + 1e-12]
+        worst_i = max(range(len(cut_v)), key=lambda i: cut_v[i])
+        dem_relief = max(gnd) - min(gnd)
+        emit_relief = max(lev) - min(lev)
+        chains.append({
+            "wids": [f"levelled_way_{w.get('index')}"],
+            "roles": ["core_road"],
+            "rings": 1,
+            "bin_m": None,
+            "bins": len(st),
+            "span_m": st[-1] - st[0],
+            "station_m": st,
+            "emitted_m": lev,
+            "dem_m": gnd,
+            "ll": lls,
+            "ring_ll": lls[:1],
+            "_vll": lls,
+            "dem_relief_m": dem_relief,
+            "emitted_relief_m": emit_relief,
+            "follow_ratio": ((emit_relief / dem_relief)
+                             if dem_relief > 1e-9 else None),
+            "cut_max_m": max(cut_v),
+            "fill_max_m": max(fill_v),
+            "dev_median_m": ADR._median(dev_v),
+            "dev_p95_m": ADR._pct(dev_v, 95.0),
+            "vertices": len(dev_v),
+            "emitted_grade_max_pct": (100.0 * max(abs(s["eg"]) for s in steps)
+                                      if steps else None),
+            "dem_grade_max_pct": (100.0 * max(abs(s["dg"]) for s in steps)
+                                  if steps else None),
+            "emitted_grade_median_pct": (100.0 * ADR._median(
+                [abs(s["eg"]) for s in steps]) if steps else None),
+            "dem_grade_median_pct": (100.0 * ADR._median(
+                [abs(s["dg"]) for s in steps]) if steps else None),
+            "steps": len(steps),
+            "steps_dropped_short": 0,
+            "dem_followable_pct": (100.0 * len(followable) / len(steps)
+                                   if steps else None),
+            "deepest_cut_ll": [round(lls[worst_i][0], 9),
+                               round(lls[worst_i][1], 9),
+                               round(cut_v[worst_i], 3)],
+            "clamped_stations": int(w.get("clamped_stations") or 0),
+            "max_lift_m": float(w.get("max_lift_m") or 0.0),
+            "max_cut_m": float(w.get("max_cut_m") or 0.0),
+        })
+    return {
+        "patch": str(path),
+        "population": "levelled-roads",
+        "dem_source": "build-sampled (recorded per station)",
+        "dem_origin": doc.get("producer"),
+        "dem_path": None,
+        "road_rings": len(chains),
+        "chains": chains,
+        "bin_m": None,
+        "road_cap_pct": 100.0 * cap,
+        "sidecar_anchor": None,
+        "vertices": {
+            "road_vertices": len(dev_all),
+            "dev_median_m": ADR._median(dev_all) if dev_all else None,
+            "dev_p95_m": ADR._pct(dev_all, 95.0) if dev_all else None,
+            "cut_over_5m": sum(1 for c in cut_all if c > 5.0),
+            "cut_over_10m": sum(1 for c in cut_all if c > 10.0),
+            "cut_over_20m": sum(1 for c in cut_all if c > 20.0),
+            "cut_worst_m": max(cut_all) if cut_all else None,
+        },
+        "clamp": {
+            "grade_cap": cap,
+            "materiality_m": materiality,
+            "station_max_m": doc.get("station_max_m"),
+            "lane_width_m": doc.get("lane_width_m"),
+            "answer_radius_m": doc.get("answer_radius_m"),
+            "ways": len(chains),
+            "stations": n_stations,
+            "clamped_stations": n_clamped,
+            "clamped_pct": (100.0 * n_clamped / n_stations
+                            if n_stations else None),
+            "max_lift_m": max_lift,
+            "max_cut_m": max_cut,
+            "declared_summary": doc.get("summary"),
+        },
+    }
+
+
 def chain_at_site(read: dict, lat: float, lon: float,
                   radius_m: float = DEFAULT_SITE_RADIUS_M):
     """The chain whose emitted vertices reach nearest the named point, or
@@ -558,8 +716,17 @@ def print_site(name: str, per_arm: list, cap_pct: float,
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("patches", nargs="+", type=Path,
+    ap.add_argument("patches", nargs="*", type=Path,
                     help="control first; later patches are compared to it")
+    ap.add_argument("--levelled-roads", action="append", default=[],
+                    type=Path, metavar="o4_levelled_roads.json",
+                    help="price CORE-OWNED roads from a tile's levelled-"
+                         "roads sidecar (written by the include_roads "
+                         "clamp pass beside the tile).  Its own "
+                         "population and its own frame: one way per "
+                         "chain, unbinned <=20 m stations, the DEM the "
+                         "build sampled — comparable to another "
+                         "levelled-roads arm, never to a patch arm.")
     ap.add_argument("--dem-source", default="airport-inset",
                     choices=("airport-inset", "base"),
                     help="'airport-inset' (default) is THE SURFACE "
@@ -590,24 +757,52 @@ def main(argv=None) -> int:
     ap.add_argument("--json", type=Path, default=None)
     a = ap.parse_args(argv)
 
+    if not a.patches and not a.levelled_roads:
+        raise SystemExit("nothing to read: give a PATCH.osm, or "
+                         "--levelled-roads <tile>/o4_levelled_roads.json")
+
     os.environ.setdefault("O4_SUPPRESS_UI", "1")
     reads = [read_patch(p, dem_source=a.dem_source, bin_m=a.bin_m,
                         icao=a.icao)
              for p in a.patches]
+    reads += [read_levelled_roads(p) for p in a.levelled_roads]
     base = reads[0]
     print("=== ROAD TERRAIN CONFORMANCE ===")
     print(f"  DEM source: {base['dem_source']}  "
           f"({base.get('dem_origin') or 'n/a'})")
-    print("  chain = road rings joined by SHARED NODE IDs, walked along "
-          "the component's longest path; every road VERTEX is stationed "
-          f"by projection onto that spine and the profile is the median "
-          f"emitted / median DEM per {base['bin_m']:g} m bin")
+    if a.patches:
+        print("  PATCH population — chain = road rings joined by SHARED "
+              "NODE IDs, walked along the component's longest path; every "
+              "road VERTEX is stationed by projection onto that spine and "
+              f"the profile is the median emitted / median DEM per "
+              f"{a.bin_m:g} m bin")
+    if a.levelled_roads:
+        print("  LEVELLED-ROADS population (core-owned) — chain = ONE OSM "
+              "WAY, profile UNBINNED at the clamp's own <=20 m stations, "
+              "DEM as the build sampled it.  General roads emit as mesh "
+              "INTERP_ALT altitudes and leave no patch rows: this is the "
+              "only reading that sees them.")
+    if a.patches and a.levelled_roads:
+        print("  TWO POPULATIONS ARE PRINTED HERE AND THEY ARE NOT ARM-TO-"
+              "ARM COMPARABLE WITH EACH OTHER (different chain unit, "
+              "different granularity, different DEM sampling); each is "
+              "comparable to another arm of its own kind.")
     print("  NOT defect counts and never adjudicated — a CONFORMANCE "
           "reading, comparable arm-to-arm on identical options only.")
     for r in reads:
         v = r["vertices"]
         print(f"    arm: {Path(r['patch']).name}  "
+              f"[{r.get('population', 'patch')}]  "
               f"road_rings={r['road_rings']} chains={len(r['chains'])}")
+        if r.get("clamp"):
+            c = r["clamp"]
+            print(f"      CLAMP: {c['ways']} ways, {c['stations']} "
+                  f"stations (<= {c['station_max_m']} m), "
+                  f"{c['clamped_stations']} clamped "
+                  f"({_f(c['clamped_pct'], 5, 1)} %) beyond "
+                  f"{c['materiality_m']} m; max lift {c['max_lift_m']:.2f} "
+                  f"m, max cut {c['max_cut_m']:.2f} m; cap "
+                  f"{100.0 * c['grade_cap']:.1f} %")
         print(f"      ALL {v['road_vertices']} ROAD VERTICES (the "
               f"composition-free reading): |emitted-DEM| median "
               f"{_f(v['dev_median_m'], 6, 3)} m, p95 {_f(v['dev_p95_m'], 6, 3)}"

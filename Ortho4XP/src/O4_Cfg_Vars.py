@@ -2,6 +2,17 @@
 
 import O4_OSM_Utils as OSM
 
+# THE ROAD GRADE CAP IS ONE CONSTANT, NOT TWO (linear-transport census
+# #115/#116).  ``road_grade_limit`` below is the user-facing knob whose
+# DEFAULT is auto_patch's own ``SERVICE_ROAD_MAX_GRADE`` — the constant
+# the transition profiler, the census law table and the conformance
+# instrument all judge roads by.  Imported, never re-spelled: a second
+# 0.08 here would be the silently-different-copy defect the moment one
+# of them moved.  The import direction (core -> auto_patch.config) is
+# the one O4_Vector_Map already uses; auto_patch.config imports nothing
+# from the settings registry, so there is no cycle.
+from auto_patch.config import SERVICE_ROAD_MAX_GRADE as _ROAD_GRADE_CAP
+
 
 global_prefix = "global_"
 overpass_server_keys = sorted(OSM.overpass_servers.keys())
@@ -347,6 +358,11 @@ cfg_tile_vars = {
         "type": float,
         "default": 0.5,
         "hint": "How much sloped does a roads need to be to be in order to be included in the mesh levelling process. The value is in meters, measuring the height difference between a point in the center of a road node and its closest point on the side of the road.",
+    },
+    "road_grade_limit": {
+        "type": float,
+        "default": _ROAD_GRADE_CAP,
+        "hint": "Longitudinal grade cap for levelled roads, as a fraction (0.08 = 8 %). A road follows the terrain wherever the terrain is within this cap, and where the terrain is steeper the road lifts or cuts the minimum needed to hold it — the clamp runs per way along the road's own centerline, at 20 m stations. The default is the engine's own ground-vehicle grade limit (SERVICE_ROAD_MAX_GRADE), which is also what the airport pavement builder grades service roads by; raise it for mountain roads that should stay glued to the ground, lower it for gentler road profiles at the cost of deeper cuttings and higher embankments.",
     },
     "lane_width": {
         "type": float,
@@ -749,6 +765,7 @@ list_vector_vars = [
     "working_grid_arc_seconds",
     "road_level",
     "road_banking_limit",
+    "road_grade_limit",
     "lane_width",
     "max_levelled_segs",
     "water_simplification",

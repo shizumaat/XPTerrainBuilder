@@ -1218,6 +1218,40 @@ def get_overpass_data(query, bbox, request_description="",
     return 0
 
 
+#: OSM tag VALUES that assert the tag does NOT apply.  ``bridge=no`` is a
+#: mapper saying "this way is explicitly not a bridge" — the commonest
+#: way an ordinary road carries the key at all.
+OSM_UNASSERTED_TAG_VALUES = frozenset(("no", "false", "0", ""))
+
+
+def tag_is_asserted(value):
+    """True when an OSM tag value ASSERTS its key.
+
+    ``bridge=yes``/``viaduct``, ``tunnel=yes``/``culvert`` assert;
+    ``bridge=no`` and its spellings do not.  A missing key never
+    asserts (the caller checks membership first).
+    """
+    if value is None:
+        return False
+    return str(value).strip().lower() not in OSM_UNASSERTED_TAG_VALUES
+
+
+def way_asserts_any_tag(way_tags, keys):
+    """True when ``way_tags`` ASSERTS any of ``keys``.
+
+    THE KEY-PRESENCE BUG THIS REPLACES (linear-transport census #106):
+    the exclusion used to test key PRESENCE — ``set(tags).isdisjoint
+    (tags_for_exclusion)`` — so a way tagged ``bridge=no`` was dropped
+    from the levelled road network exactly as if it were a bridge.  The
+    exclusion set is the SEAM with auto_patch's bridge/tunnel ownership:
+    what auto_patch owns is the TAGGED SPAN, and ``bridge=no`` is not
+    one.  Approaches and plain roads level with the core.
+    """
+    if not keys or not way_tags:
+        return False
+    return any(tag_is_asserted(way_tags[k]) for k in keys if k in way_tags)
+
+
 def OSM_to_MultiLineString(osm_layer, lat, lon, tags_for_exclusion=set(), filter=None):
     multiline = []
     multiline_reject = []
@@ -1228,12 +1262,8 @@ def OSM_to_MultiLineString(osm_layer, lat, lon, tags_for_exclusion=set(), filter
     for wayid in osm_layer.dicosmfirst["w"]:
         if done % step == 0:
             UI.progress_bar(1, int(100 * done / todo))
-        if (
-            tags_for_exclusion
-            and wayid in osm_layer.dicosmtags["w"]
-            and not set(osm_layer.dicosmtags["w"][wayid].keys()).isdisjoint(
-                tags_for_exclusion
-            )
+        if tags_for_exclusion and way_asserts_any_tag(
+            osm_layer.dicosmtags["w"].get(wayid), tags_for_exclusion
         ):
             done += 1
             continue

@@ -20,6 +20,10 @@ import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 from auto_patch import driver as AUTOPATCH
 from auto_patch import osm_aeroway as OSMAERO
+# The road grade cap, one constant for the whole engine (census #115):
+# the user knob ``road_grade_limit`` defaults to it in O4_Cfg_Vars and
+# this is the fallback for a tile object that predates the knob.
+from auto_patch.config import SERVICE_ROAD_MAX_GRADE as ROAD_GRADE_CAP_DEFAULT
 import O4_Config_Utils as CFG
 
 good_imagery_list = ()
@@ -664,6 +668,26 @@ def resolved_road_level(tile):
         return 1, True
 
 
+def resolved_auto_patch_mode(tile):
+    """``tile.auto_patch`` normalised: ``"All"`` / ``"ICAO"`` / ``"None"``.
+
+    Backward compat: legacy bool ``True``/``False`` configs map to
+    ``"All"``/``"None"``.  One spelling of that normalisation for the
+    three places that need it (generation, patch loading, and the
+    patch-area road detail below)."""
+    mode = getattr(tile, "auto_patch", "None")
+    if mode is True:
+        return "All"
+    if mode is False:
+        return "None"
+    return mode
+
+
+def auto_patch_runs(tile):
+    """True when this tile build generates auto-patches at all."""
+    return resolved_auto_patch_mode(tile) != "None"
+
+
 # Rail classes added on top of ``small_roads_queries(5)`` inside the
 # airport-inset regions in auto mode: the tile-wide big_roads layer
 # already levels ``rail``/``narrow_gauge`` mainlines, but airport rail
@@ -1285,11 +1309,7 @@ def run_auto_patch_generation(tile, airport_layer, dico_airports):
     # Auto-generate runway, taxiway, and building patches from CIFP data +
     # OSM geometry (before loading patches so include_patches() picks them up)
     # Backward compat: legacy bool True/False configs map to "All"/"None"
-    auto_patch_mode = tile.auto_patch
-    if auto_patch_mode is True:
-        auto_patch_mode = "All"
-    elif auto_patch_mode is False:
-        auto_patch_mode = "None"
+    auto_patch_mode = resolved_auto_patch_mode(tile)
     if auto_patch_mode != "None":
         cifp_path = CFG.cifp_data_path
         if not cifp_path and CFG.custom_scenery_dir:
@@ -1400,6 +1420,48 @@ def include_airports(vector_map, tile):
 
 
 ################################################################################
+#: The clamp pass's own measurement, beside the tile it describes.
+LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"
+
+
+def levelled_roads_sidecar_path(build_dir):
+    """Path of a tile's levelled-roads sidecar (one spelling, shared with
+    ``tools/road_terrain_conformance.py --levelled-roads``)."""
+    return os.path.join(build_dir, LEVELLED_ROADS_SIDECAR)
+
+
+def write_levelled_roads_sidecar(tile, levelled_roads):
+    """Publish the clamp's per-way stations beside the tile.
+
+    THE MEASURABILITY CLAUSE (spec §2 item 4; the blindness
+    docs/POSTMORTEM-20260831.md names).  Core-owned roads leave no patch
+    rows, so a census cannot see them at all and the 2026-08-30 road
+    regression shipped under a green one.  This file IS the population:
+    every clamped station's lat/lon, the terrain under it and the value
+    the road took, which ``tools/road_terrain_conformance.py
+    --levelled-roads`` prices as follow-ratio, cut and fill.
+
+    Never fatal: a sidecar that cannot be written costs the tile its
+    measurement, not its geometry.
+    """
+    import json
+
+    build_dir = getattr(tile, "build_dir", None)
+    if not build_dir or levelled_roads is None:
+        return None
+    path = levelled_roads_sidecar_path(build_dir)
+    try:
+        os.makedirs(build_dir, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(levelled_roads.sidecar(tile.lat, tile.lon), handle)
+    except (OSError, TypeError, ValueError) as e:
+        UI.vprint(1, "      Could not write", path, ":", e)
+        return None
+    UI.vprint(2, "      Levelled-roads sidecar written to", path)
+    return path
+
+
+################################################################################
 def include_roads(vector_map, tile, apt_array, apt_area):
     def road_is_too_much_banked(way, filtered_segs):
         (col, row) = numpy.minimum(
@@ -1422,38 +1484,72 @@ def include_roads(vector_map, tile, apt_array, apt_area):
             >= tile.road_banking_limit
         ).any()
 
+    #: The tile's clamped centerline stations, published by the clamp
+    #: pass below and consulted by ``alt_vec_shift``.  ``None`` until
+    #: the pass has run (and when it has nothing to say).
+    levelled = {"roads": None}
+
     def alt_vec_shift(way):
-        return tile.dem.alt_vec(VECT.shift_way(way, tile.lane_width))
+        """The altitude the road ribbon's ring vertices take.
+
+        Historically the shifted DEM: a ring vertex reads the DEM one
+        ``lane_width`` INWARD, which lands on the road's own centerline,
+        so both kerbs of a ribbon read one value and the road comes out
+        LATERALLY LEVEL.  It now asks the LONGITUDINAL CLAMP first — the
+        nearest clamped centerline station within ``lane_width x 2`` —
+        and falls back to that same shifted DEM beyond, because ground
+        the clamp never stationed is ground it may not invent.
+        """
+        pts = VECT.shift_way(way, tile.lane_width)
+        alt = tile.dem.alt_vec(pts)
+        roads = levelled["roads"]
+        if roads is None:
+            return alt
+        return roads.answer(pts, alt)
 
     road_level, road_auto = resolved_road_level(tile)
-    if not road_level:
+    # PATCH-AREA MAX DETAIL IS UNCONDITIONAL (owner 2026-08-31; spec §2
+    # item 2): the airport-inset level-5 + rail leveling runs whenever
+    # auto_patch runs, whatever the user's road_level says.  The knob
+    # governs the TILE-WIDE layers only — auto_patch's airports need the
+    # detail near the pavement it builds, and a numeric road_level used
+    # to silently switch it off.
+    patch_area_detail = auto_patch_runs(tile)
+    if not road_level and not patch_area_detail:
         return
     UI.vprint(0, "-> Dealing with roads")
     wait_for_background_osm_prefetch()
     tags_of_interest = ROADS_TAGS_OF_INTEREST
-    # Need to evaluate if including bridges is better or worse
+    # THE SEAM WITH auto_patch (spec §2 item 3): what auto_patch owns is
+    # the TAGGED SPAN — a bridge deck, a tunnel bore.  The exclusion is
+    # therefore on an ASSERTED value, not on the key being present:
+    # ``bridge=no`` is an ordinary road and levels with the core, as do
+    # every span's approaches.
     tags_for_exclusion = set(["bridge", "tunnel"])
     # tags_for_exclusion=set(["tunnel"])
-    road_layer = OSM.OSM_layer()
-    if not OSM.OSM_queries_to_OSM_layer(
-        BIG_ROADS_QUERIES,
-        road_layer,
-        tile.lat,
-        tile.lon,
-        tags_of_interest,
-        cached_suffix="big_roads",
-        node_tags_of_interest=ROAD_NODE_TAGS_OF_INTEREST,
-        cache_schema=ROAD_CACHE_TAG_SCHEMA,
-    ):
-        return 0
-    UI.vprint(1, "    * Checking which large roads need leveling.")
-    (road_network_banked, road_network_flat) = OSM.OSM_to_MultiLineString(
-        road_layer,
-        tile.lat,
-        tile.lon,
-        tags_for_exclusion,
-        road_is_too_much_banked,
-    )
+    road_network_banked = geometry.MultiLineString()
+    road_network_flat = geometry.MultiLineString()
+    if road_level:
+        road_layer = OSM.OSM_layer()
+        if not OSM.OSM_queries_to_OSM_layer(
+            BIG_ROADS_QUERIES,
+            road_layer,
+            tile.lat,
+            tile.lon,
+            tags_of_interest,
+            cached_suffix="big_roads",
+            node_tags_of_interest=ROAD_NODE_TAGS_OF_INTEREST,
+            cache_schema=ROAD_CACHE_TAG_SCHEMA,
+        ):
+            return 0
+        UI.vprint(1, "    * Checking which large roads need leveling.")
+        (road_network_banked, road_network_flat) = OSM.OSM_to_MultiLineString(
+            road_layer,
+            tile.lat,
+            tile.lon,
+            tags_for_exclusion,
+            road_is_too_much_banked,
+        )
     if UI.red_flag:
         return 0
     if road_level >= 2:
@@ -1485,7 +1581,7 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         road_network_banked = geometry.MultiLineString(
             list(road_network_banked.geoms) + list(road_network_banked_2.geoms)
         )
-    if road_auto:
+    if road_auto or patch_area_detail:
         # AUTO MODE (owner ruling 2026-07-27): level-5 roads + airport
         # rail classes, fetched ONLY inside each airport's elevation-
         # inset bounding box (bbox Overpass queries, one merged per-tile
@@ -1494,6 +1590,12 @@ def include_roads(vector_map, tile, apt_array, apt_area):
         # existing ``apt_area`` subtraction below still keeps them out
         # of the flattened airport polygons themselves — auto_patch
         # owns that ground.
+        #
+        # UNCONDITIONAL WHENEVER auto_patch RUNS (owner 2026-08-31, spec
+        # §2 item 2): this pass is not the "auto" road MODE's private
+        # feature, it is the detail auto_patch's airports need under
+        # them.  A numeric user road_level scopes the TILE-WIDE layers
+        # above and no longer switches this off.
         auto_layer = _airport_auto_roads_layer(tile)
         if auto_layer is not None:
             UI.vprint(1, "    * Checking which airport-area roads need "
@@ -1511,6 +1613,35 @@ def include_roads(vector_map, tile, apt_array, apt_area):
                     + list(road_network_banked_3.geoms)
                 )
     if not road_network_banked.is_empty:
+        # ── THE LONGITUDINAL CLAMP (spec §2 item 1) ──────────────────
+        # PER WAY, ON THE CENTERLINE, BEFORE THE BUFFER (census #110/
+        # #111 option i).  It must run here and not on ``road_area``:
+        # the buffered ring is one merged multipolygon whose vertices
+        # walk up one kerb and back down the other and then jump to an
+        # unrelated road, so a profile law run in that order would read
+        # a 8 m-wide carriageway as an 8 m-long climb and would fuse
+        # roads that merely share a ring.  A way's profile is its own.
+        UI.vprint(1, "    * Clamping road profiles to the grade limit.")
+        timer = time.time()
+        levelled["roads"] = VECT.clamp_road_network(
+            road_network_banked,
+            tile.dem.alt_vec,
+            getattr(tile, "road_grade_limit", ROAD_GRADE_CAP_DEFAULT),
+            tile.lane_width,
+        )
+        _clamp_report = levelled["roads"].summary()
+        UI.vprint(3, "Time for road profile clamp:", time.time() - timer)
+        UI.vprint(
+            1,
+            "      %d ways, %d stations, %d clamped (max lift %.2f m, "
+            "max cut %.2f m)." % (
+                _clamp_report["ways"], _clamp_report["stations"],
+                _clamp_report["clamped_stations"],
+                _clamp_report["max_lift_m"], _clamp_report["max_cut_m"]),
+        )
+        write_levelled_roads_sidecar(tile, levelled["roads"])
+        if UI.red_flag:
+            return 0
         UI.vprint(1, "    * Buffering banked road network as multipolygon.")
         timer = time.time()
         road_area = VECT.improved_buffer(
@@ -2344,11 +2475,7 @@ def include_patches(vector_map, tile):
     # patches loaded, even if the .osm files are still on disk).  Manual
     # patches are always applied — the setting only governs auto-patches.
     # Backward compat: legacy bool True/False map to "All"/"None".
-    auto_patch_mode = tile.auto_patch
-    if auto_patch_mode is True:
-        auto_patch_mode = "All"
-    elif auto_patch_mode is False:
-        auto_patch_mode = "None"
+    auto_patch_mode = resolved_auto_patch_mode(tile)
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:

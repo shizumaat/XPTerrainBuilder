@@ -3450,10 +3450,15 @@ def claim_edge_profile_index(layout):
 
     THE REGION IS PUBLISHED, NEVER RE-DERIVED (spec
     ``tunnel-corridor-node-book-exclusion-spec.md`` §2 / AMENDMENT 5):
-    ``tunnel_open_cut_polys`` is the portal walk's own plan-space extent
-    and ``tunnel_open_cut_claim_polys`` is R14-1's claim set.  A second
-    geometric notion of "inside the cut" computed here would be the very
-    spec violation those publishers exist to prevent.
+    ``tunnel_open_cut_polys`` is the portal walk's own plan-space extent.
+    A second geometric notion of "inside the cut" computed here would be
+    the very spec violation that publisher exists to prevent.
+
+    THE CLAIM HALF IS GONE (redesign spec §5.2, census #50).  This index
+    used to union the cut extent with ``tunnel_open_cut_claim_polys``,
+    R14-1's claim set; that class is retired (RULINGS 2026-08-31b) and
+    the CUT HALF STANDS ALONE — which is the half that answers "where
+    does the bore's ground lie", the question this seniority asks.
 
     THE CORRIDOR RINGS are the rings that DESCEND through that region —
     a ring whose in-cut values spread by at least
@@ -3470,8 +3475,6 @@ def claim_edge_profile_index(layout):
     index = None
     try:
         _rp = list(getattr(layout, "tunnel_open_cut_polys", None) or [])
-        _rp.extend(
-            getattr(layout, "tunnel_open_cut_claim_polys", None) or [])
         _rp = [p for p in _rp
                if p is not None and not getattr(p, "is_empty", True)]
         if _rp:

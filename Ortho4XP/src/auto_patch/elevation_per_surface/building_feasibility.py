@@ -658,10 +658,12 @@ def _decrowned_anchor_seeds(layout, G, anchor_elev):
 # THE DEFECT (measured, VHHH round 17b).  ``spine_value_fields`` seeds the
 # value fields from ``G.runway_anchor`` UNION the on-spine hard truth the
 # solve published (the BAND-SEED COMPLETENESS law above).  That hard-truth
-# set is every node ``_seed_elevations`` hardened — which includes the
-# R14-1 CLAIMED TUNNEL-ROAD plate pinned at its bore profile
-# (``solver_primitives._build_tunnel_road_pins``: ``is_hard[i] = True`` at
-# the plate's own floor).  A bore floor is metres BELOW grade, the ceiling
+# set is every node ``_seed_elevations`` hardened — which then included
+# the R14-1 CLAIMED TUNNEL-ROAD plate pinned at its bore profile (that
+# claim class and its pin family are RETIRED, RULINGS 2026-08-31b; the
+# below-grade seeds that remain are the ramp/trench family, and the law
+# below is unchanged and still governs them).  A bore floor is metres
+# BELOW grade, the ceiling
 # field is a MIN over anchors, and a min never forgets: one below-grade
 # seed drags the ceiling down along every route it can reach, right across
 # surface pavement that has nothing to do with the tunnel.  At VHHH (flat

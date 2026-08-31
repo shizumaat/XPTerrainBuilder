@@ -5154,3 +5154,33 @@ emitted rim 599.69/599.69 over 14 parts (flush with the pad, RULINGS
 30c), 1 floor plate, 18 `basin_trench_wall` terrace joints.  Carve
 acceptance intact: 20/20 deck-line stations inside `object_basin_trench`,
 both owner ramp probes CONTAINED.
+
+- 2026-08-31 lane/ltbatch2 (linear-transport redesign Batch 2 — the
+  `free_road_profile` retirement, the airside-contact transition
+  profiler, the ownership shrink + `road_ownership` declaration):
+  ran the files directly covering the change, once (test_road_transition
+  18 new, test_road_grade_clamp, test_road_path_metric,
+  test_weld_outranks_cap_chord_limiter, test_road_terrain_conformance,
+  test_service_corridor_round, test_service_road_chord_split,
+  test_corridor_axis_coverage, test_harness, test_membership_round,
+  test_corridor_joins_round, test_lemd_fidelity_round2,
+  test_tunnel_integrity_round_t4t7 — 597 pass) plus HECA and SPJC
+  arm+control patch builds and one HECA tile build.  UNPAID: (a) the
+  five-airport sweep (CYXY / SPLP / HEAZ / OTHH / LEMD) — the shrink
+  changes the ROAD POPULATION at every airport and only two were
+  censused; (b) the SPJC OWNER-SITE core-side acceptance (way 702's
+  chain, follow_ratio and cut depth): `--tile -13 -78` refuses because
+  the main tree carries no canonical per-tile cfg for -13-078 (no
+  `default_website`), and the mesh-only entry produced the sidecar but
+  REFUSED to report it — the shared-repo guard blocked two
+  `Elevation_data/-20-080/S13W078_*/index.json` writes the engine
+  swallowed, so that read is a DEGRADED frame and is quoted as such,
+  never as acceptance; (c) no full suite; (d) the transition profiler's
+  build-time cost was never measured on its own (the arm is 901.5 s
+  against its 2172.4 s control at HECA, but both ran under four-way
+  contention and single runs swing +-25 %); (e) `svc_free_ends` (spec
+  §3.3's "the free-end DEM tie retires with general roads") was NOT
+  retired this batch per the brief's dormant-pass instruction — it now
+  fires on contact-stub outer ends, which the profiler then re-levels;
+  its zero-fire measurement and the `corridor_axis_coverage --free-ends`
+  re-read belong to Batch 4.

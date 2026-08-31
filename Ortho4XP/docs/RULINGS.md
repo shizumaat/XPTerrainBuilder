@@ -1827,3 +1827,9 @@ Ground truth for this section: `Aerosoft - LEMD Madrid - 2 - Mesh/Patches/+40-01
 * **ITEM-3 ROAD IS NEEDED (supersedes the 30g deferral):** the road between 30.1123618,31.4059543 and 30.1118258,31.4065064 is MISSING and required for a smooth transition. It becomes a named acceptance site of redesign Batch 2 (the OSM service way exists — the redesign's contact/ownership model must emit it).
 * **APRON BACK-EDGE RIPPLES (new):** between 30.1136005,31.4088527 and 30.1142392,31.4096925 the apron back edge ripples and the ripples spread back INTO the apron. Owed; re-read after the road redesign (owner: most issues appear road-related; complete the redesign first).
 * Owner directive: COMPLETE THE ROAD REDESIGN, then re-read.
+
+## 2026-08-31d — Owner rulings (Batch 2 adjudication)
+
+* **BATCH 2 MERGED (owner sign-off, below the zero-airside bar):** 3,068 solve-owned nodes moved (worst 5.93 m, 86 % road-uncontacted) accepted as the 29a equilibrium-shift class after 40 km of road shapes left the shared solve's population; the sim read adjudicates. Census −319 HECA / −67 SPJC; cutting class eliminated (>20 m: 846→0); both owner sites closed.
+* **PER-TILE CONFIGS ARE OPTIONAL (owner 2026-08-31):** a tile entry finding no per-tile cfg DEFAULTS TO THE USER'S GLOBAL SETTINGS (Ortho4XP.cfg) — it does not refuse. Refusal is reserved for a global config that itself lacks the required key. The harness/tile entries are fixed accordingly (Batch 2b).
+* Batch 2b authorized by the spec author within 31b: (a) clip `carve_narrow_service_strips`' feed to the contact scope — the feed-carve minting 1,325 far road rings contradicts 31b's ownership model directly (finding A); (b) the transition profiler becomes the build's true last road-family writer (finding B ordering); (c) the tile-cfg fallback above.

@@ -15,8 +15,13 @@ R16-2b THE WALL FACE IS OWNED GEOMETRY.  A tunnel wall's inner boundary
        IS the ramp's outer boundary (node identity, not proximity) and
        carries the ramp's values there, so no unowned strip is left for
        the mesh to drape at DEM/Z0.
-R16-3  ONE FLOOR PER CONNECTED CLAIMED PLATE.  Adjacent claimed plates
-       of one connected level surface share the joint depth.
+R16-3  RETIRED.  "ONE FLOOR PER CONNECTED CLAIMED PLATE" was a law of
+       R14-1's tunnel-road CLAIM CLASS (which plates a claim levels
+       together).  The class retires under RULINGS 2026-08-31b
+       (``docs/specs/linear-transport-redesign-spec.md`` §5.1, census
+       #23), and R16-3 with it — mapped road pavement over a cut is now
+       core road ground above a covered stretch, or severed by the cut.
+       Its three twins are deleted; nothing replaces them here.
 
 Every assertion is made in the frame the law is measured in: R16-1 on
 the EMITTED patch (canonical interning, the validity repair and the
@@ -181,14 +186,16 @@ def test_r16_1_a_real_corner_is_never_deformed():
         "a real corner was deformed by the chain-consistent removal")
 
 
-# ── R16-3: one floor per connected claimed plate ────────────────────
+# ── portal fixtures shared by R16-2a / R16-2b / §T5 ─────────────────
+#
+# R16-3 ("ONE FLOOR PER CONNECTED CLAIMED PLATE") lived here.  It was a
+# law OF R14-1's claim class — which plates a claim levels together —
+# and it retired with that class (RULINGS 2026-08-31b, redesign spec
+# §5.1, census #23).  Its three twins are deleted; the portal-row helper
+# below is kept because the surviving R16-2a/R16-2b/§T5 twins use it.
 
 _CLAIM_ANCHOR = (35.215, -80.944)
 _AMBIENT_M = 219.8
-#: KCLT's triangle in miniature: two ADJACENT claimed plates whose own
-#: regions carry floors 0.11 m apart — the measured 210.87 / 210.98.
-_FLOOR_DEEP = 210.87
-_FLOOR_SHALLOW = 210.98
 
 
 def _portal_row(way_id, station, outward, mouth_grade, carriage_w=10.0):
@@ -198,69 +205,6 @@ def _portal_row(way_id, station, outward, mouth_grade, carriage_w=10.0):
     return ("n" + way_id, way_id, [station, outward], "service",
             _AMBIENT_M, _AMBIENT_M, False, carriage_w, False,
             mouth_grade, [], None, None)
-
-
-def _two_plate_scene(separate=False):
-    """Two facing pairs 40 m apart, each covered by its own road plate.
-
-    ``separate=False`` puts the plates edge to edge — ONE connected
-    level surface.  ``separate=True`` leaves a 6 m gap between them:
-    two surfaces, and the law must NOT join their floors.
-    """
-    layout = PavementLayout(icao="ZZZZ", anchor=_CLAIM_ANCHOR)
-    y_split = 12.0 if not separate else 12.0
-    plate_a = box(-6.0, -12.0, 62.0, y_split)
-    plate_b = box(-6.0, y_split + (6.0 if separate else 0.0), 62.0, 46.0)
-    for poly in (plate_a, plate_b):
-        layout.shapes.append(BuiltShape(
-            polygon=poly, role=ROLE_SERVICE_JUNCTION, ref="",
-            node_altitudes=[_AMBIENT_M] * 5))
-    rows = [_portal_row("W1", (0.0, 0.0), (56.0, 0.0), _FLOOR_DEEP),
-            _portal_row("W2", (56.0, 0.0), (0.0, 0.0), _FLOOR_DEEP),
-            _portal_row("W3", (0.0, 40.0), (56.0, 40.0), _FLOOR_SHALLOW),
-            _portal_row("W4", (56.0, 40.0), (0.0, 40.0), _FLOOR_SHALLOW)]
-    return layout, rows, [(0, 1), (2, 3)]
-
-
-def test_r16_3_connected_claimed_plates_share_the_joint_depth():
-    """Both plates of ONE level surface take the JOINT depth — the
-    minimum of the members' own floors — so the level-plate bullet
-    (spread <= 0.10 m) holds across the whole surface.
-
-    Mutation-checked: with each plate taking its own region's floor
-    this reads a 0.11 m spread (KCLT's 210.87 / 210.98).
-    """
-    layout, rows, pairs = _two_plate_scene()
-    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert n == 2, f"both plates must be claimed, got {n}"
-    values = [v for shape in layout.shapes for v in shape.node_altitudes]
-    assert max(values) - min(values) <= 0.10, (
-        f"level-plate spread {max(values) - min(values):.3f} m across "
-        f"two adjacent claimed plates")
-    assert min(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
-    assert max(values) == pytest.approx(_FLOOR_DEEP, abs=0.02)
-
-
-def test_r16_3_disconnected_plates_keep_their_own_floors():
-    """The control: the law is per CONNECTED plate.  Two level surfaces
-    that do not touch answer with their own depths — joining them would
-    sink pavement no bore runs under."""
-    layout, rows, pairs = _two_plate_scene(separate=True)
-    n, _claimed, _corr = bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert n == 2
-    floors = sorted(round(min(s.node_altitudes), 2) for s in layout.shapes)
-    assert floors == [round(_FLOOR_DEEP, 2), round(_FLOOR_SHALLOW, 2)], (
-        f"disconnected surfaces were joined: {floors}")
-
-
-def test_r16_3_the_claim_still_never_raises_a_vertex():
-    """R14 behaviour, unchanged: the joint depth can only DIG.  A plate
-    already below the joint floor keeps its own value."""
-    layout, rows, pairs = _two_plate_scene()
-    layout.shapes[1].node_altitudes = [_FLOOR_DEEP - 3.0] * 5
-    bridges._claim_road_pavement(layout, rows, pairs, 0.6)
-    assert min(layout.shapes[1].node_altitudes) == pytest.approx(
-        _FLOOR_DEEP - 3.0, abs=1e-6)
 
 
 # ── R16-2a: the anchor is the portal (the DEEPEST station) ──────────

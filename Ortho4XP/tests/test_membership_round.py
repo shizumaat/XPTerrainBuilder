@@ -661,16 +661,20 @@ class TestTheRoadFamilyIsChordLimited:
         ``tunnel_ramp``, and the unified node book handed it the
         surrounding road's at-grade bench (+2.28/+2.96 against a −1.1 m
         floor).  The exemption that matters is by AUTHORITY — any ring
-        with a node inside R14-1's OWN open-cut claim belongs to the
-        portal walk and leaves this book entirely, keeping its values and
-        minting no shared key.  Full battery of twins:
-        ``tests/test_tunnel_corridor_exclusion.py``.
+        belonging to the portal walk's OWN OPEN CUT
+        (``layout.tunnel_open_cut_polys``) leaves this book entirely,
+        keeping its values and minting no shared key.
+
+        RE-KEYED (RULINGS 2026-08-31b, redesign spec §5.2, census #51):
+        the region used to be R14-1's claim set, which retired with the
+        claim class.  Full battery of twins, including the seam-probe-4
+        membership record: ``tests/test_tunnel_corridor_exclusion.py``.
         """
         import auto_patch.groundside as gs
         floor = _dem_lot(0, 0, 40, 10, z=-1.1)
         road = _svc(40, 0, 60, 10, z=2.3, role="service_junction")
         layout = _layout([floor, road])
-        layout.tunnel_open_cut_claim_polys = [floor.polygon]
+        layout.tunnel_open_cut_polys = [floor.polygon]
         before = list(floor.node_altitudes)
         assert gs._grade_limit_groundside_chords(layout) == 0
         assert list(floor.node_altitudes) == before

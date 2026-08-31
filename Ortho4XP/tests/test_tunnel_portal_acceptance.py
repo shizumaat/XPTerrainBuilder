@@ -20,6 +20,7 @@ measurement tool has to keep, each one bought by a defect in this repo:
 from __future__ import annotations
 
 import importlib.util
+import dataclasses
 import inspect
 import json
 import re
@@ -241,98 +242,40 @@ def test_the_tool_is_in_the_tool_index():
 
 
 # ──────────────────────────────────────────────────────────────────
-# §5 THE CLAIM-MEMBERSHIP READ (added 2026-08-25 on promote-on-reuse:
-# three lane arms asked "does R14-1's claim actually NAME this bore?"
-# before the question landed in the instrument)
+# §5/§6 BORE GEOMETRY ANSWERS A MOUTH — RE-KEYED to ramp/mouth
+# (RULINGS 2026-08-31b; ``docs/specs/linear-transport-redesign-spec.md``
+# §5.4, consumer census row #40)
+#
+# WHAT WAS HERE.  Three twins pinned the CLAIM-MEMBERSHIP READ
+# (``_check_claim_names_the_bore`` + the ``claim_cover_min`` bar /
+# ``--claim-cover-min`` flag): "does R14-1's claim actually NAME this
+# bore?"  That question dies with the claim class — the check, the
+# threshold and the flag are all deleted from the tool, and their twins
+# with them.  Three more twins admitted a below-grade CLAIMED CORRIDOR
+# (``ref=tunnel_road``) as bore geometry.  Under the canonical mouth
+# (RULINGS 2026-08-30) the only objects that answer a mouth are the
+# portal walk's OWN surfaces — a ``tunnel_ramp`` role way, or a
+# ``tunnel_mouth`` ref way WITH a face — and that is what is pinned
+# below, re-keyed in the SAME batch as the retirement so this battery
+# cannot silently go SKIP.
 # ──────────────────────────────────────────────────────────────────
-def _claim_scene(directory: Path) -> Path:
-    """A below-grade groundside ring, a road welded to it, and a
-    ``tunnel_road`` claim surface that covers the ROAD only — the
-    measured OTHH shape, at unit scale."""
-    def node(i, lat, lon, a):
-        return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
-                f"<tag k='alt_abs' v='{a}'/></node>")
-    parts = ["<?xml version='1.0' encoding='UTF-8'?>", "<osm version='0.6'>"]
-    floor = [(25.0000, 51.0000), (25.0000, 51.0004),
-             (25.0003, 51.0004), (25.0003, 51.0000)]
-    for i, (la, lo) in enumerate(floor, start=1):
-        parts.append(node(i, la, lo, -1.1))
-    parts.append("<way id='-201'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
-                 "<nd ref='-4'/><nd ref='-1'/>"
-                 "<tag k='role' v='groundside_pavement'/>"
-                 "<tag k='ref' v='groundside'/><tag k='shapeID' v='1'/></way>")
-    # the road shares the floor's two east vertices (-2, -3) and is the
-    # claimed corridor surface
-    for i, (la, lo) in enumerate([(25.0000, 51.0009), (25.0003, 51.0009)],
-                                 start=5):
-        parts.append(node(i, la, lo, 2.3))
-    parts.append("<way id='-202'><nd ref='-2'/><nd ref='-5'/><nd ref='-6'/>"
-                 "<nd ref='-3'/><nd ref='-2'/>"
-                 "<tag k='role' v='service_junction'/>"
-                 "<tag k='ref' v='tunnel_road'/><tag k='shapeID' v='2'/></way>")
-    parts.append("</osm>")
-    osm = directory / "claim.osm"
-    osm.write_text("\n".join(parts))
-    (directory / "claim.osm.axes.json").write_text(json.dumps(
-        {"anchor": [25.0, 51.0], "ruleset": "icao"}))
-    return osm
+def _mouth_scene(directory: Path, mouth_alt: float,
+                 walled: bool = True, ref: str = "tunnel_mouth",
+                 role: str = "groundside_pavement") -> Path:
+    """A mouth site answered by a ``tunnel_mouth`` piece, with a
+    ``tunnel_ramp`` (and its own wall) 3 km away.
 
+    The near piece carries ``ref=tunnel_mouth`` on a NON-ramp role: that
+    is the re-roled-mouth class the ref arm of the predicate exists for
+    (OTHH mouth D shipped its bore surface as ``groundside_pavement``),
+    and it is the only spelling that exercises the ``tunnel_mouth``
+    admission branch — a piece already wearing ``role=tunnel_ramp`` is
+    admitted by the role branch before that branch is reached.
 
-def test_the_claim_read_names_the_ring_and_its_welded_partners(tpa, tmp_path):
-    """The attribution the claim-scoped designs were judged on: how many
-    of the bore ring's own nodes the claim covers, and which welded
-    partners it covers — welds joined by the CANONICAL 11-decimal
-    spelling, never by proximity."""
-    osm = _claim_scene(tmp_path)
-    checks = {c.name: c for c in tpa.run_acceptance(
-        osm, None, profile=tpa.Profile(name="x",
-                                       sites={"S": (25.00015, 51.0002)}))}
-    c = checks["claim_names_the_bore"]
-    # the claim is the ROAD's surface, so only the ring's two WELDED
-    # vertices — the ones lying on the claim boundary — are inside it.
-    # The bore's interior is not named by the claim at all, which is the
-    # whole finding (the measured OTHH ring read 0-2 of 33).
-    assert c.measured == 2, c.detail
-    assert "-201" in c.detail and "2/5" in c.detail
-    assert "-202" in c.detail and "IN CLAIM" in c.detail, (
-        "the welded claimed partner was not named")
-
-
-def test_the_claim_read_reports_until_a_bar_is_given(tpa, tmp_path):
-    """No threshold ⇒ REPORT (SKIPPED), never PASS; with a bar it
-    adjudicates, and the MEASURED value does not move with the bar."""
-    osm = _claim_scene(tmp_path)
-    prof = tpa.Profile(name="x", sites={"S": (25.00015, 51.0002)})
-    quiet = {c.name: c for c in tpa.run_acceptance(osm, None, profile=prof)}
-    barred = {c.name: c for c in tpa.run_acceptance(
-        osm, None, profile=prof,
-        thresholds=tpa.Thresholds(claim_cover_min=5))}
-    assert quiet["claim_names_the_bore"].verdict == tpa.SKIP
-    assert barred["claim_names_the_bore"].verdict == tpa.FAIL
-    assert (quiet["claim_names_the_bore"].measured
-            == barred["claim_names_the_bore"].measured)
-
-
-def test_the_claim_read_uses_the_patchs_own_parser(tpa):
-    """No second parser inside the check — the tool's rule, restated
-    where a new check could break it."""
-    src = inspect.getsource(tpa._check_claim_names_the_bore)
-    assert "ElementTree" not in src and "iterparse" not in src
-    assert "patch.pts(" in src and "patch.coordset(" in src
-
-
-# ──────────────────────────────────────────────────────────────────
-# §6 A CLAIMED CORRIDOR ANSWERS A MOUTH (added 2026-08-25)
-# ──────────────────────────────────────────────────────────────────
-def _claimed_corridor_scene(directory: Path, corridor_alt: float,
-                            walled: bool = True) -> Path:
-    """A mouth with NO tunnel_ramp near it, answered instead by a
-    claimed road surface at ``corridor_alt`` — R14-1's "the paved area
-    IS the corridor", which stands the synthetic ramp down.
-
-    ``walled`` emits the §2.3 wall face alongside it.  §T6.3 admits a
-    claimed corridor as bore geometry only WITH a face, so the two
-    spellings are the twin's two arms.
+    ``walled`` emits the §2.3 wall face alongside the NEAR piece; the far
+    ramp always keeps its own wall, so the coverage table has a
+    population in both arms.  §T6.3 admits a mouth piece as bore geometry
+    only WITH a face, so the two spellings are the twin's two arms.
     """
     def node(i, lat, lon, a):
         return (f"<node id='-{i}' lat='{lat:.11f}' lon='{lon:.11f}'>"
@@ -341,17 +284,17 @@ def _claimed_corridor_scene(directory: Path, corridor_alt: float,
     coords = [(25.0000, 51.0000), (25.0000, 51.0004),
               (25.0003, 51.0004), (25.0003, 51.0000)]
     for i, (la, lo) in enumerate(coords, start=1):
-        parts.append(node(i, la, lo, corridor_alt))
+        parts.append(node(i, la, lo, mouth_alt))
     parts.append("<way id='-301'><nd ref='-1'/><nd ref='-2'/><nd ref='-3'/>"
                  "<nd ref='-4'/><nd ref='-1'/>"
-                 "<tag k='role' v='groundside_pavement'/>"
-                 "<tag k='ref' v='tunnel_road'/><tag k='shapeID' v='1'/></way>")
+                 f"<tag k='role' v='{role}'/>"
+                 f"<tag k='ref' v='{ref}'/><tag k='shapeID' v='1'/></way>")
     if walled:
-        # the §2.3 face: a band hugging the corridor's long sides
+        # the §2.3 face: a band hugging the mouth piece's long side
         wc = [(24.99998, 51.0000), (24.99998, 51.0004),
               (25.00002, 51.0004), (25.00002, 51.0000)]
         for i, (la, lo) in enumerate(wc, start=21):
-            parts.append(node(i, la, lo, corridor_alt + 4.0))
+            parts.append(node(i, la, lo, mouth_alt + 4.0))
         parts.append("<way id='-303'><nd ref='-21'/><nd ref='-22'/>"
                      "<nd ref='-23'/><nd ref='-24'/><nd ref='-21'/>"
                      "<tag k='role' v='retaining_wall'/>"
@@ -366,35 +309,45 @@ def _claimed_corridor_scene(directory: Path, corridor_alt: float,
                  "<nd ref='-13'/><nd ref='-14'/><nd ref='-11'/>"
                  "<tag k='role' v='tunnel_ramp'/>"
                  "<tag k='ref' v='tunnel_ramp'/><tag k='shapeID' v='2'/></way>")
+    # …and ITS wall, so the bore-corridor coverage table always has a
+    # walled below-grade ramp to measure.
+    fw = [(25.02998, 51.0000), (25.02998, 51.0002),
+          (25.03002, 51.0002), (25.03002, 51.0000)]
+    for i, (la, lo) in enumerate(fw, start=31):
+        parts.append(node(i, la, lo, 2.0))
+    parts.append("<way id='-304'><nd ref='-31'/><nd ref='-32'/>"
+                 "<nd ref='-33'/><nd ref='-34'/><nd ref='-31'/>"
+                 "<tag k='role' v='retaining_wall'/>"
+                 "<tag k='ref' v='tunnel_wall'/>"
+                 "<tag k='shapeID' v='4'/></way>")
     parts.append("</osm>")
-    osm = directory / f"corr{corridor_alt}.osm"
+    osm = directory / f"mouth{mouth_alt}_{ref}_{int(walled)}.osm"
     osm.write_text("\n".join(parts))
     (directory / (osm.name + ".axes.json")).write_text(json.dumps(
         {"anchor": [25.0, 51.0], "ruleset": "icao"}))
     return osm
 
 
-def test_a_below_grade_claimed_corridor_answers_the_mouth(tpa, tmp_path):
-    """MEASURED (OTHH mouth D, 2026-08-25): the corridor emitted at
-    -0.90 m as a CLAIMED ROAD and this check read 727.6 m, because it
-    looked only for ``tunnel_ramp``.  The mouth was answered; the
-    instrument was looking for the wrong object."""
-    osm = _claimed_corridor_scene(tmp_path, -0.90)
+def test_a_walled_tunnel_mouth_answers_the_mouth(tpa, tmp_path):
+    """MEASURED (OTHH mouth D, 2026-08-25): the bore surface at the mouth
+    was there and this check read 727.6 m, because it looked only for
+    ``tunnel_ramp``.  The mouth was answered; the instrument was looking
+    for the wrong object.  The canonical mouth's own piece answers it."""
+    osm = _mouth_scene(tmp_path, -0.90)
     checks = {c.name: c for c in tpa.run_acceptance(
         osm, None, profile=tpa.Profile(name="x",
                                        sites={"D": (25.00003, 51.00003)}))}
     assert checks["mouth_vertex_reach"].verdict == tpa.PASS
     assert checks["site_reach"].measured < 60.0
-    assert "claimed corridor" in checks["site_reach"].detail
+    assert "tunnel_mouth" in checks["site_reach"].detail
 
 
-def test_a_FACELESS_below_grade_claimed_corridor_is_not_bore_geometry(
-        tpa, tmp_path):
-    """§T6.3: claimed, dug, and with NO wall anywhere on it is a hole in
-    the ground, not a bore.  The instrument used to accept it and report
-    the mouth answered, which is how a "tunnel_road with no ramp and no
+def test_a_FACELESS_tunnel_mouth_is_not_bore_geometry(tpa, tmp_path):
+    """§T6.3: dug, and with NO wall anywhere on it, is a hole in the
+    ground, not a bore.  The instrument used to accept it and report the
+    mouth answered, which is how a mouth piece "with no ramp and no
     walls" could pass a table (RULINGS 2026-08-28c item 3)."""
-    osm = _claimed_corridor_scene(tmp_path, -0.90, walled=False)
+    osm = _mouth_scene(tmp_path, -0.90, walled=False)
     checks = {c.name: c for c in tpa.run_acceptance(
         osm, None, profile=tpa.Profile(name="x",
                                        sites={"D": (25.00003, 51.00003)}))}
@@ -403,30 +356,47 @@ def test_a_FACELESS_below_grade_claimed_corridor_is_not_bore_geometry(
     assert "faceless" in checks["site_reach"].detail
 
 
-def test_the_claimed_corridor_wall_coverage_is_reported(tpa, tmp_path):
-    """§T6.1's acceptance number exists and is measured against the
-    synthetic path's own coverage — the comparison the law is stated
-    as."""
-    osm = _claimed_corridor_scene(tmp_path, -0.90)
+def test_the_bore_corridor_wall_coverage_is_reported(tpa, tmp_path):
+    """§T6.1's acceptance number exists, RE-KEYED (census #40): the
+    population is the portal walk's own BELOW-GRADE ``tunnel_ramp``
+    surfaces, not the retired claim's corridors — otherwise the check
+    reports SKIP forever, the silent-skip the redesign's §5.4 forbids."""
+    osm = _mouth_scene(tmp_path, -0.90)
     checks = {c.name: c for c in tpa.run_acceptance(
         osm, None, profile=tpa.Profile(name="x",
                                        sites={"D": (25.00003, 51.00003)}))}
-    c = checks["claimed_corridor_walls"]
+    assert "claimed_corridor_walls" not in checks, (
+        "the retired check name is still registered")
+    c = checks["bore_corridor_walls"]
     assert c.verdict == tpa.SKIP, "no bar given ⇒ a REPORT, never a PASS"
     assert 0.0 < c.measured <= 1.0, c.measured
-    assert "synthetic tunnel_ramp" in c.detail
+    assert "tunnel_ramp" in c.detail
 
 
-def test_an_AT_GRADE_claimed_road_does_not_answer_a_mouth(tpa, tmp_path):
-    """A claimed surface counts only where it CARRIES a bore: an
-    at-grade approach that happens to be claimed is not bore geometry,
-    and the check must still report the distance to real ramp."""
-    osm = _claimed_corridor_scene(tmp_path, 4.0)
+def test_a_RETIRED_tunnel_road_ref_never_answers_a_mouth(tpa, tmp_path):
+    """The successor to the at-grade-claim twin.  ``tunnel_road`` is not
+    a class any more (RULINGS 2026-08-31b): a below-grade road surface
+    wearing that ref — walled, and sitting right on the site — is mapped
+    road pavement, not bore geometry, so the check must still report the
+    distance to the real ramp."""
+    osm = _mouth_scene(tmp_path, -0.90, ref="tunnel_road")
     checks = {c.name: c for c in tpa.run_acceptance(
         osm, None, profile=tpa.Profile(name="x",
                                        sites={"D": (25.00003, 51.00003)}))}
     assert checks["mouth_vertex_reach"].verdict == tpa.FAIL
     assert checks["site_reach"].measured > 1000.0
+
+
+def test_the_site_reach_check_uses_the_patchs_own_parser(tpa):
+    """No second parser inside the check — the tool's rule, restated on
+    the re-keyed check that replaced the claim read."""
+    src = inspect.getsource(tpa._check_site_reach)
+    assert "ElementTree" not in src and "iterparse" not in src
+    assert "patch.pts(" in src
+    assert not hasattr(tpa, "_check_claim_names_the_bore"), (
+        "the claim-membership check is retired (census #40)")
+    assert "claim_cover_min" not in {
+        f.name for f in dataclasses.fields(tpa.Thresholds)}
 
 
 # ──────────────────────────────────────────────────────────────────

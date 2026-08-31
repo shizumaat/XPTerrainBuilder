@@ -10,6 +10,19 @@ service-road family):
     mouth line.  No second road shape may share the corridor.  Nested
     wall rings and wall fragments are defects.
 
+WHAT A MOUTH SITE IS, AND WHY IT IS NOT A ``tunnel_mouth`` WAY.  The
+first cut of this check keyed its population on ``ref == "tunnel_mouth"``
+and MEASURED ZERO on the very airport it adjudicates: the OTHH control
+patch (merged main ``127eec15``, 2,600 shapes) carries 22 ``tunnel_ramp``
+surfaces, 39 ``tunnel_wall`` and 48 ``tunnel_wall_foot`` pieces and NOT
+ONE ``tunnel_mouth`` or ``tunnel_cap`` way — the 2026-08-30j merge note
+says so in words ("wrapped ends = end cap").  A check whose population is
+empty where it adjudicates is the silent-SKIP failure, so a MOUTH SITE is
+the geometry the ruling describes: a cluster of the tunnel's own emitted
+road surfaces standing within ``--mouth-cluster-m`` of each other.  One
+site is one place a bore surfaces, however many pieces the emitter left
+there — which is what makes "ONE ramp surface" countable at all.
+
 The check EXTENDS the acceptance instrument rather than forking a second
 one (RULINGS ``7e90032``), so these twins also pin that it reads the
 patch through the instrument's own parser and reports SKIPPED — never
@@ -94,21 +107,21 @@ def _canonical_site(b: _PatchBuilder, x0=0.0):
     """ONE canonical mouth: a ramp running north into a mouth plate, one
     wall + foot on each side, one end cap across the mouth line."""
     #        y
-    #   cap  ---------------- 40
-    #   mouth  [ 34 .. 40 ]
-    #   ramp   [  0 .. 34 ]
-    b.rect(x0 + 0.0, 0.0, x0 + 8.0, 34.0, "tunnel_ramp", "tunnel_ramp")
-    b.rect(x0 + 0.0, 34.0, x0 + 8.0, 39.0, "tunnel_ramp", "tunnel_mouth")
+    #   cap    ---------------- 40
+    #   mouth  [ 34 .. 39 ]   x 0..20
+    #   ramp   [  0 .. 34 ]   x 0..20
+    b.rect(x0 + 0.0, 0.0, x0 + 20.0, 34.0, "tunnel_ramp", "tunnel_ramp")
+    b.rect(x0 + 0.0, 34.0, x0 + 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
     # walls: one per side, standing clear of the corridor
     b.rect(x0 - 2.0, 0.0, x0 - 1.0, 39.0, "retaining_wall", "tunnel_wall")
-    b.rect(x0 + 9.0, 0.0, x0 + 10.0, 39.0, "retaining_wall", "tunnel_wall")
+    b.rect(x0 + 21.0, 0.0, x0 + 22.0, 39.0, "retaining_wall", "tunnel_wall")
     # feet: the annulus between ramp edge and wall face, one per side
     b.rect(x0 - 1.0, 0.0, x0 - 0.4, 39.0, "retaining_wall",
            "tunnel_wall_foot")
-    b.rect(x0 + 8.4, 0.0, x0 + 9.0, 39.0, "retaining_wall",
+    b.rect(x0 + 20.4, 0.0, x0 + 21.0, 39.0, "retaining_wall",
            "tunnel_wall_foot")
     # one straight end cap across the mouth line
-    b.rect(x0 - 2.0, 39.0, x0 + 10.0, 40.0, "retaining_wall", "tunnel_cap")
+    b.rect(x0 - 2.0, 39.0, x0 + 22.0, 40.0, "retaining_wall", "tunnel_cap")
 
 
 _SEQ = [0]
@@ -132,8 +145,9 @@ class TestTheCanonicalMouthPasses:
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.PASS, c.detail
         assert c.measured == 0
-        assert "1 tunnel mouth(s), 0 NOT canonical" in c.detail
-        assert "CANONICAL" in c.detail
+        assert "1 tunnel mouth site(s), 0 NOT canonical" in c.detail
+        assert "ramp=1 plate=1" in c.detail
+        assert "wall L/R=1/1 foot L/R=1/1" in c.detail
 
     def test_two_independent_mouths_are_both_canonical(self, tpa, tmp_path):
         """The mouth radius must not let one mouth read the other's
@@ -143,7 +157,7 @@ class TestTheCanonicalMouthPasses:
         _canonical_site(b, x0=200.0)
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.PASS, c.detail
-        assert "2 tunnel mouth(s), 0 NOT canonical" in c.detail
+        assert "2 tunnel mouth site(s), 0 NOT canonical" in c.detail
 
 
 class TestEachDefectClassIsCaught:
@@ -154,16 +168,16 @@ class TestEachDefectClassIsCaught:
         'the ramp reaches the mouth line'.  The owner's own site was a
         ramp stopping 2.6 m short."""
         b = _PatchBuilder()
-        b.rect(0.0, 0.0, 8.0, 30.0, "tunnel_ramp", "tunnel_ramp")
-        b.rect(0.0, 34.0, 8.0, 39.0, "tunnel_ramp", "tunnel_mouth")
+        b.rect(0.0, 0.0, 20.0, 30.0, "tunnel_ramp", "tunnel_ramp")
+        b.rect(0.0, 34.0, 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
         b.rect(-2.0, 0.0, -1.0, 39.0, "retaining_wall", "tunnel_wall")
-        b.rect(9.0, 0.0, 10.0, 39.0, "retaining_wall", "tunnel_wall")
+        b.rect(21.0, 0.0, 22.0, 39.0, "retaining_wall", "tunnel_wall")
         b.rect(-1.0, 0.0, -0.4, 39.0, "retaining_wall", "tunnel_wall_foot")
-        b.rect(8.4, 0.0, 9.0, 39.0, "retaining_wall", "tunnel_wall_foot")
-        b.rect(-2.0, 39.0, 10.0, 40.0, "retaining_wall", "tunnel_cap")
+        b.rect(20.4, 0.0, 21.0, 39.0, "retaining_wall", "tunnel_wall_foot")
+        b.rect(-2.0, 39.0, 22.0, 40.0, "retaining_wall", "tunnel_cap")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
-        assert "ramp=0" in c.detail
+        assert "reach=4.00" in c.detail
 
     def test_two_ramps_at_one_mouth_fail(self, tpa, tmp_path):
         """'ONE ramp surface' — the dual-adjacent-ramps class of the
@@ -192,8 +206,8 @@ class TestEachDefectClassIsCaught:
         b.rect(1.0, 5.0, 7.0, 30.0, "tunnel_ramp", "tunnel_ramp")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
-        assert "dup=" in c.detail and "dup=0" not in c.detail.split(
-            "mouth ")[1]
+        assert "ramp=2" in c.detail
+        assert "dup=1" in c.detail
 
     def test_a_nested_wall_ring_fails(self, tpa, tmp_path):
         b = _PatchBuilder()
@@ -206,21 +220,25 @@ class TestEachDefectClassIsCaught:
     def test_a_wall_fragment_fails(self, tpa, tmp_path):
         b = _PatchBuilder()
         _canonical_site(b)
-        b.rect(30.0, 30.0, 30.3, 30.3, "retaining_wall", "tunnel_wall")
+        b.rect(40.0, 30.0, 40.3, 30.3, "retaining_wall", "tunnel_wall")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
 
     def test_a_missing_end_cap_fails(self, tpa, tmp_path):
         b = _PatchBuilder()
-        b.rect(0.0, 0.0, 8.0, 34.0, "tunnel_ramp", "tunnel_ramp")
-        b.rect(0.0, 34.0, 8.0, 39.0, "tunnel_ramp", "tunnel_mouth")
+        b.rect(0.0, 0.0, 20.0, 34.0, "tunnel_ramp", "tunnel_ramp")
+        b.rect(0.0, 34.0, 20.0, 39.0, "tunnel_ramp", "tunnel_mouth")
         b.rect(-2.0, 0.0, -1.0, 39.0, "retaining_wall", "tunnel_wall")
-        b.rect(9.0, 0.0, 10.0, 39.0, "retaining_wall", "tunnel_wall")
+        b.rect(21.0, 0.0, 22.0, 39.0, "retaining_wall", "tunnel_wall")
         b.rect(-1.0, 0.0, -0.4, 39.0, "retaining_wall", "tunnel_wall_foot")
-        b.rect(8.4, 0.0, 9.0, 39.0, "retaining_wall", "tunnel_wall_foot")
+        b.rect(20.4, 0.0, 21.0, 39.0, "retaining_wall", "tunnel_wall_foot")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.FAIL
         assert "cap=0" in c.detail
+        # the wrapped-end evidence: the two ENDS are open, so the site is
+        # not capped by 2026-08-30j's wrapped-end reading either
+        frac = float(c.detail.split("open=")[1].split()[0])
+        assert frac > 0.10
 
 
 class TestTheInstrumentRules:
@@ -232,14 +250,14 @@ class TestTheInstrumentRules:
         _canonical_site(b)
         c = _inventory(tpa, tmp_path, b)
         assert c.verdict == tpa.SKIP
-        assert "1 tunnel mouth(s)" in c.detail
+        assert "1 tunnel mouth site(s)" in c.detail
 
-    def test_a_patch_with_no_mouth_skips(self, tpa, tmp_path):
+    def test_a_patch_with_no_corridor_surface_skips(self, tpa, tmp_path):
         b = _PatchBuilder()
-        b.rect(0.0, 0.0, 8.0, 34.0, "tunnel_ramp", "tunnel_ramp")
+        b.rect(0.0, 0.0, 8.0, 34.0, "retaining_wall", "tunnel_wall")
         c = _inventory(tpa, tmp_path, b, mouth_canonical=True)
         assert c.verdict == tpa.SKIP
-        assert "no tunnel_mouth" in c.detail
+        assert "no tunnel corridor surface" in c.detail
 
     def test_the_full_inventory_is_printed_for_every_mouth(
             self, tpa, tmp_path):
@@ -249,7 +267,7 @@ class TestTheInstrumentRules:
         _canonical_site(b, x0=0.0)
         _canonical_site(b, x0=200.0)
         c = _inventory(tpa, tmp_path, b)
-        assert c.detail.count("mouth -") == 2
+        assert c.detail.count("    site ") == 2
 
     def test_it_is_registered_in_the_batteries_check_list(self, tpa):
         src = __import__("inspect").getsource(tpa.run_acceptance)

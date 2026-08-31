@@ -12,11 +12,14 @@ Spec: ``docs/specs/tunnel-integrity-round-spec.md``.
      independent post-mint suppression — and it kills SYNTHESIS, never
      authored data.
 
-The §T5 (ramp-wall foot) and §T6 (claimed-corridor walls, claim scope)
-twins live with the laws they amend: ``test_round16_geometry_
-consistency.py``, ``test_portal_corridor_claim.py``,
-``test_round14_tunnel_road_integration.py`` and
-``test_tunnel_portal_acceptance.py``.
+The §T5 (ramp-wall foot) twins live with the law they amend:
+``test_round16_geometry_consistency.py``.  §T6's twins (claimed-corridor
+walls, claim scope) are GONE with R14-1's claim class — RULINGS
+2026-08-31b, ``docs/specs/linear-transport-redesign-spec.md`` §5.1 —
+along with ``test_portal_corridor_claim.py`` and
+``test_claimed_corridor_wall_survival.py``; the surviving R14 laws now
+live in ``test_round14_tunnel_cut_and_ramp_run.py``, and the acceptance
+instrument's tunnel checks in ``test_tunnel_portal_acceptance.py``.
 """
 import pytest
 from shapely.geometry import LineString, Polygon, box
@@ -275,26 +278,20 @@ class TestTheMaskIsPublishedOnce:
             .synthesised_road_corridor is True
 
 
-class TestProvenanceSurvivesTheClaimCut:
-    """§T7's discriminator must survive §T6.2's host cut: a synthesised
+class TestProvenanceSurvivesAHostCut:
+    """§T7's discriminator must survive a host cut: a synthesised
     corridor cut in two is still synthesis on both sides.  A remainder
     that lost the flag would read as AUTHORED pavement and become
-    permanently invisible to the mask."""
+    permanently invisible to the mask.
 
-    def test_a_cut_hosts_remainder_keeps_the_flag(self):
-        from auto_patch import bridges
-        lay = _layout()
-        host = BuiltShape(
-            polygon=_rect(0, -3, 200, 3), role=ROLE_SERVICE_ROAD,
-            ref="road", node_altitudes=[10.0] * 5,
-            synthesised_road_corridor=True)
-        lay.shapes.append(host)
-        # a corridor crossing the middle third
-        corridor = _rect(80, -20, 120, 20)
-        split = bridges._split_host_at_corridor(host.polygon, corridor)
-        assert split is not None, "the cut did not fire"
-        strips, hosts = split
-        assert strips and len(hosts) >= 2, (len(strips), len(hosts))
+    The cut this class was written against was §T6.2's CLAIM footprint
+    cut (``bridges._split_host_at_corridor``), retired with R14-1's claim
+    class (RULINGS 2026-08-31b, redesign spec §5.1, census #25) — that
+    twin is deleted.  The invariant it protected is carried by
+    ``TestTheMaskIsPublishedOnce.test_the_synthesis_flag_rides_the_shape``,
+    which pins the flag across ``dataclasses.replace`` — the mechanism
+    EVERY clip in the codebase re-mints a piece through, the claim cut
+    included."""
 
     def test_the_flag_is_the_discriminator_not_the_role(self):
         """Two groundside rings, same role, opposite provenance: only

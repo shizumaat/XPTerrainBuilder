@@ -1,4 +1,28 @@
 # ══════════════════════════════════════════════════════════════════
+# 20260830b — SIM-READ MEGA-ROUND CLOSED (all lanes merged; owner
+# adjudicated ~20 rulings live, RULINGS 29g..30n).
+# MERGED TO MAIN this session: chip sweep (4 single-graph reds green);
+#   HECA r6/6b/6c + building79 structure-walls + dup-ref fix (cliff law
+#   band-cuts-groundside, airside-frozen ramp up-build, sliver width
+#   test, gap-fill groundside blocker + veto fix, 8-pad split);
+#   LEMD basin twin canyons + building1-7 demotion + T4S ring setback
+#   (163 fallout rows -> 0) + ROAD BRIDGE DECK (10 rounds, RULINGS
+#   30c/30d/30f/30i/30m/30n; road_bridge_deck.py, 86 twins; span paved
+#   by road at 1.9%, bore datum to the deck, census 1758->1723);
+#   OTHH canonical mouths + walls-follow-ramp; ledger empty-index
+#   hash fix (docs commits no longer poison keys — ALL OLD KEYS STALE,
+#   first rerun of each command is a miss).
+# NEW LAW: consumer-census before cross-cutting geometry law
+#   (RULINGS 30l + CLAUDE.md) — from the 8-round bridge retrospective.
+# OWED: five-airport sweep at next app build (29f); item-3 road class
+#   + item-4 level + apron-adjacent duplicate walls + OTHH mid_edge
+#   density effect + spine-on-groundside 2,492 m2 + roads-annulus
+#   class — ALL deferred to owner sim read; G post-mesh re-read;
+#   split-producer attribution (elevation phase); ~90 worktrees.
+# NEXT: owner builds app, sim-reads HECA/LEMD/OTHH; residuals above
+#   adjudicated there.
+# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════
 # 20260830a — HANDOVER (session close mid-round; app 1.0.269 shipped,
 # owner testing; HECA round 6 lane IN FLIGHT).
 # COLLECT FIRST (this session's notifications die with it):
